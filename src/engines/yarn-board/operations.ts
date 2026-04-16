@@ -3,6 +3,7 @@
 // ============================================
 
 import { db } from '@/db';
+import { makeCascadeDeleteOp } from '@/engines/_shared';
 import type { YarnBoard, YarnNode, YarnEdge } from '@/types';
 
 // ===== Yarn Boards =====
@@ -15,13 +16,13 @@ export async function createYarnBoard(board: YarnBoard): Promise<string> {
   return db.yarnBoards.add(board);
 }
 
-export async function deleteYarnBoard(id: string): Promise<void> {
-  await db.transaction('rw', [db.yarnBoards, db.yarnNodes, db.yarnEdges], async () => {
-    await db.yarnBoards.delete(id);
-    await db.yarnNodes.where('boardId').equals(id).delete();
-    await db.yarnEdges.where('boardId').equals(id).delete();
-  });
-}
+export const deleteYarnBoard = makeCascadeDeleteOp({
+  tableName: 'yarnBoards',
+  cascades: [
+    { table: 'yarnNodes', foreignKey: 'boardId' },
+    { table: 'yarnEdges', foreignKey: 'boardId' },
+  ],
+});
 
 // ===== Yarn Nodes =====
 

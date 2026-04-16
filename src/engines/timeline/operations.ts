@@ -3,6 +3,7 @@
 // ============================================
 
 import { db } from '@/db';
+import { makeCascadeDeleteOp } from '@/engines/_shared';
 import type { Timeline, TimelineEvent } from '@/types';
 
 // ===== Timelines =====
@@ -15,12 +16,10 @@ export async function createTimeline(timeline: Timeline): Promise<string> {
   return db.timelines.add(timeline);
 }
 
-export async function deleteTimeline(id: string): Promise<void> {
-  await db.transaction('rw', [db.timelines, db.timelineEvents], async () => {
-    await db.timelines.delete(id);
-    await db.timelineEvents.where('timelineId').equals(id).delete();
-  });
-}
+export const deleteTimeline = makeCascadeDeleteOp({
+  tableName: 'timelines',
+  cascades: [{ table: 'timelineEvents', foreignKey: 'timelineId' }],
+});
 
 // ===== Timeline Events =====
 

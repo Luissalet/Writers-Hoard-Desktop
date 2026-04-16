@@ -1,5 +1,4 @@
-import { makeTableOps, reorderItems } from '@/engines/_shared';
-import { db } from '@/db';
+import { makeTableOps, reorderItems, makeCascadeDeleteOp } from '@/engines/_shared';
 import type { VideoPlan, VideoSegment } from './types';
 
 // ===== Video Plans =====
@@ -14,12 +13,10 @@ export const createVideoPlan = planOps.create;
 export const updateVideoPlan = planOps.update;
 
 // deleteVideoPlan cascades to segments
-export async function deleteVideoPlan(id: string): Promise<void> {
-  await db.transaction('rw', [db.table('videoPlans'), db.table('videoSegments')], async () => {
-    await db.table('videoPlans').delete(id);
-    await db.table('videoSegments').where('videoPlanId').equals(id).delete();
-  });
-}
+export const deleteVideoPlan = makeCascadeDeleteOp({
+  tableName: 'videoPlans',
+  cascades: [{ table: 'videoSegments', foreignKey: 'videoPlanId' }],
+});
 
 // ===== Video Segments =====
 const segmentOps = makeTableOps<VideoSegment>({

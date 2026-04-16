@@ -1,6 +1,7 @@
 import { BookUser } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
-import { registerEngine } from '@/engines/_registry';
+import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import { db } from '@/db';
 import BiographyEngine from './components/BiographyEngine';
 
 const biographyEngine: EngineDefinition = {
@@ -17,5 +18,32 @@ const biographyEngine: EngineDefinition = {
 };
 
 registerEngine(biographyEngine);
+
+registerEntityResolver({
+  engineId: 'biography',
+  entityTypes: ['biography', 'biography-fact'],
+  resolveEntity: async (entityId: string, entityType: string) => {
+    const bio = await db.biographies.get(entityId);
+    if (!bio) return null;
+    return {
+      id: bio.id,
+      type: entityType,
+      engineId: 'biography',
+      title: bio.subjectName,
+      thumbnail: bio.subjectPhoto,
+    };
+  },
+  searchEntities: async (query: string) => {
+    const q = query.toLowerCase();
+    const rows = await db.biographies.filter(b => b.subjectName.toLowerCase().includes(q)).toArray();
+    return rows.map(b => ({
+      id: b.id,
+      type: 'biography',
+      engineId: 'biography',
+      title: b.subjectName,
+      thumbnail: b.subjectPhoto,
+    }));
+  },
+});
 
 export { biographyEngine };

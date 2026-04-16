@@ -1,4 +1,4 @@
-import { makeTableOps, reorderItems } from '@/engines/_shared';
+import { makeTableOps, reorderItems, makeCascadeDeleteOp } from '@/engines/_shared';
 import { db } from '@/db';
 import type { Scene, DialogBlock, SceneCast } from './types';
 
@@ -15,17 +15,13 @@ export const createScene = sceneOps.create;
 export const updateScene = sceneOps.update;
 
 // deleteScene cascades to blocks and cast
-export async function deleteScene(id: string): Promise<void> {
-  await db.transaction(
-    'rw',
-    [db.table('scenes'), db.table('dialogBlocks'), db.table('sceneCasts')],
-    async () => {
-      await db.table('scenes').delete(id);
-      await db.table('dialogBlocks').where('sceneId').equals(id).delete();
-      await db.table('sceneCasts').where('sceneId').equals(id).delete();
-    },
-  );
-}
+export const deleteScene = makeCascadeDeleteOp({
+  tableName: 'scenes',
+  cascades: [
+    { table: 'dialogBlocks', foreignKey: 'sceneId' },
+    { table: 'sceneCasts', foreignKey: 'sceneId' },
+  ],
+});
 
 export async function reorderScenes(projectId: string, orderedIds: string[]): Promise<void> {
   await reorderItems('scenes', 'projectId', projectId, orderedIds);

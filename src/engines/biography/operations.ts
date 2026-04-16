@@ -1,5 +1,4 @@
-import { makeTableOps, reorderItems } from '@/engines/_shared';
-import { db } from '@/db';
+import { makeTableOps, reorderItems, makeCascadeDeleteOp } from '@/engines/_shared';
 import type { Biography, BiographyFact } from './types';
 
 // ===== Biographies =====
@@ -14,12 +13,10 @@ export const createBiography = bioOps.create;
 export const updateBiography = bioOps.update;
 
 // deleteBiography cascades to facts
-export async function deleteBiography(id: string): Promise<void> {
-  await db.transaction('rw', [db.table('biographies'), db.table('biographyFacts')], async () => {
-    await db.table('biographies').delete(id);
-    await db.table('biographyFacts').where('biographyId').equals(id).delete();
-  });
-}
+export const deleteBiography = makeCascadeDeleteOp({
+  tableName: 'biographies',
+  cascades: [{ table: 'biographyFacts', foreignKey: 'biographyId' }],
+});
 
 // ===== Biography Facts =====
 const factOps = makeTableOps<BiographyFact>({

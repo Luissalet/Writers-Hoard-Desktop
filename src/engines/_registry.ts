@@ -7,6 +7,7 @@ import {
   BookUser, Video, PenLine,
 } from 'lucide-react';
 import type { EngineDefinition, ProjectMode, ProjectModeConfig } from './_types';
+import { registerEntityResolver } from './_shared/entityResolverRegistry';
 
 // ---------------------------------------------------------------------------
 // Registry store
@@ -108,6 +109,9 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     suggestedEngines: [],
   },
 ];
+
+// Re-export entity resolver registration
+export { registerEntityResolver };
 
 // Re-export types
 export type { EngineDefinition, ProjectMode, ProjectModeConfig, EngineComponentProps, EngineCategory, EntityPreview } from './_types';

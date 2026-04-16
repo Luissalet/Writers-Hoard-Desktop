@@ -4,7 +4,8 @@
 
 import { Globe } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
-import { registerEngine } from '@/engines/_registry';
+import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import { db } from '@/db';
 import ScrapperEngine from './components/ScrapperEngine';
 
 const scrapperEngine: EngineDefinition = {
@@ -20,5 +21,34 @@ const scrapperEngine: EngineDefinition = {
 };
 
 registerEngine(scrapperEngine);
+
+registerEntityResolver({
+  engineId: 'scrapper',
+  entityTypes: ['scrapper', 'snapshot'],
+  resolveEntity: async (entityId: string, entityType: string) => {
+    const snap = await db.snapshots.get(entityId);
+    if (!snap) return null;
+    return {
+      id: snap.id,
+      type: entityType,
+      engineId: 'scrapper',
+      title: snap.title,
+      subtitle: snap.url,
+      thumbnail: snap.thumbnail,
+    };
+  },
+  searchEntities: async (query: string) => {
+    const q = query.toLowerCase();
+    const rows = await db.snapshots.filter(s => s.title.toLowerCase().includes(q)).toArray();
+    return rows.map(s => ({
+      id: s.id,
+      type: 'snapshot',
+      engineId: 'scrapper',
+      title: s.title,
+      subtitle: s.url,
+      thumbnail: s.thumbnail,
+    }));
+  },
+});
 
 export { scrapperEngine };

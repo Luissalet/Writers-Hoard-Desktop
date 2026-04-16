@@ -1,6 +1,7 @@
 import { PenLine } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
-import { registerEngine } from '@/engines/_registry';
+import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import { db } from '@/db';
 import WritingsEngine from './WritingsEngine';
 
 const writingsEngine: EngineDefinition = {
@@ -16,5 +17,32 @@ const writingsEngine: EngineDefinition = {
 };
 
 registerEngine(writingsEngine);
+
+registerEntityResolver({
+  engineId: 'writings',
+  entityTypes: ['writings', 'writing'],
+  resolveEntity: async (entityId: string, entityType: string) => {
+    const writing = await db.writings.get(entityId);
+    if (!writing) return null;
+    return {
+      id: writing.id,
+      type: entityType,
+      engineId: 'writings',
+      title: writing.title,
+      subtitle: writing.status,
+    };
+  },
+  searchEntities: async (query: string) => {
+    const q = query.toLowerCase();
+    const rows = await db.writings.filter(w => w.title.toLowerCase().includes(q)).toArray();
+    return rows.map(w => ({
+      id: w.id,
+      type: 'writing',
+      engineId: 'writings',
+      title: w.title,
+      subtitle: w.status,
+    }));
+  },
+});
 
 export { writingsEngine };
