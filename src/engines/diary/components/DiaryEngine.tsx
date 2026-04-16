@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { BookOpen, Plus, Search, Calendar, ChevronDown, ChevronRight } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
+import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import { useDiaryEntries } from '../hooks';
 import type { DiaryEntry, DiaryMood } from '../types';
 import { MOOD_CONFIG } from '../types';
@@ -45,7 +46,7 @@ function formatDayHeader(iso: string): string {
 // ---------------------------------------------------------------------------
 
 export default function DiaryEngine({ projectId }: EngineComponentProps) {
-  const { entries, loading, addEntry, editEntry, removeEntry } = useDiaryEntries(projectId);
+  const { items: entries, loading, addItem: addEntry, editItem: editEntry, removeItem: removeEntry } = useDiaryEntries(projectId);
 
   // null = timeline view, string = editing existing, 'new' = creating new full entry
   const [editingId, setEditingId] = useState<string | 'new' | null>(null);
@@ -106,13 +107,7 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
   }, []);
 
   // --- Loading ---
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-2 border-accent-gold border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return <EngineSpinner />;
 
   // --- New full entry ---
   if (editingId === 'new') {

@@ -1,17 +1,12 @@
 import type { EngineComponentProps } from '@/engines/_types';
+import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import { useWritings } from '@/hooks/useWritings';
 import WritingsView from '@/components/writings/WritingsView';
 
 export default function WritingsEngine({ projectId }: EngineComponentProps) {
   const { writings, loading, addWriting, editWriting, removeWriting, refresh } = useWritings(projectId);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-2 border-accent-gold border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return <EngineSpinner />;
 
   return (
     <WritingsView

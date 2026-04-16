@@ -5,6 +5,7 @@
 import { useState, useMemo } from 'react';
 import { Grid3x3, List } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
+import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import { useSnapshots } from '../hooks';
 import CaptureBar from './CaptureBar';
 import SnapshotCard from './SnapshotCard';
@@ -13,7 +14,7 @@ import ManualSnapshotModal from './ManualSnapshotModal';
 type ViewMode = 'grid' | 'list';
 
 export default function ScrapperEngine({ projectId }: EngineComponentProps) {
-  const { snapshots, loading, addSnapshot, editSnapshot, removeSnapshot } =
+  const { items: snapshots, loading, addItem: addSnapshot, editItem: editSnapshot, removeItem: removeSnapshot } =
     useSnapshots(projectId);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [searchQuery, setSearchQuery] = useState('');
@@ -30,14 +31,7 @@ export default function ScrapperEngine({ projectId }: EngineComponentProps) {
     return filtered;
   }, [snapshots, searchQuery]);
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 bg-deep">
-        <div className="w-8 h-8 border-2 border-accent-gold border-t-transparent rounded-full animate-spin" />
-        <p className="mt-4 text-muted text-sm">Loading snapshots...</p>
-      </div>
-    );
-  }
+  if (loading) return <EngineSpinner className="flex items-center justify-center h-64 bg-deep" />;
 
   return (
     <div className="flex flex-col h-full bg-deep">

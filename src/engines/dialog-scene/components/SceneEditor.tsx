@@ -65,7 +65,7 @@ export default function SceneEditor({
   onUpdateScene,
   onBack,
 }: SceneEditorProps) {
-  const { blocks, addBlock, editBlock, removeBlock, reorder } =
+  const { items: blocks, addItem: addBlock, editItem: editBlock, removeItem: removeBlock, reorder } =
     useDialogBlocks(scene.id);
   const { cast, addMember, removeMember } = useSceneCast(scene.id);
 

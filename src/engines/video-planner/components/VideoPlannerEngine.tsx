@@ -3,6 +3,7 @@ import { Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateId } from '@/utils/idGenerator';
 import type { VideoPlan } from '../types';
+import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import { useVideoPlans, useVideoSegments } from '../hooks';
 import VideoPlanView from './VideoPlanView';
 
@@ -11,13 +12,13 @@ interface VideoPlannerEngineProps {
 }
 
 export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProps) {
-  const { plans, loading: plansLoading, addPlan, removePlan } = useVideoPlans(projectId);
+  const { items: plans, loading: plansLoading, addItem: addPlan, removeItem: removePlan } = useVideoPlans(projectId);
   const [activePlanId, setActivePlanId] = useState<string | null>(null);
   const [showNewPlanForm, setShowNewPlanForm] = useState(false);
   const [newPlanTitle, setNewPlanTitle] = useState('');
 
   const activePlan = plans.find(p => p.id === activePlanId);
-  const { segments, addSegment, editSegment, removeSegment, reorder } = useVideoSegments(
+  const { items: segments, addItem: addSegment, editItem: editSegment, removeItem: removeSegment, reorder } = useVideoSegments(
     activePlanId || ''
   );
 
@@ -51,13 +52,7 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
     }
   };
 
-  if (plansLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-neutral-400">Loading video plans...</div>
-      </div>
-    );
-  }
+  if (plansLoading) return <EngineSpinner />;
 
   return (
     <div className="space-y-6">

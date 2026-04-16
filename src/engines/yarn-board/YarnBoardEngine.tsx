@@ -1,6 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Network, Plus, Trash2, X, ChevronRight } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Network, Plus, Trash2 } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
+import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
+import NewItemForm from '@/engines/_shared/components/NewItemForm';
+import { useAutoSelect, useEnsureDefault } from '@/engines/_shared';
 import { useYarnBoards, useYarnBoardData } from '@/hooks/useYarnBoard';
 import YarnBoard from '@/components/yarn/YarnBoard';
 import { generateId } from '@/utils/idGenerator';
@@ -12,40 +15,39 @@ export default function YarnBoardEngine({ projectId }: EngineComponentProps) {
   const [newBoardName, setNewBoardName] = useState('');
   const { nodes, edges, addNode, updateNode, addEdge, updateEdge, removeNode, removeEdge } = useYarnBoardData(activeBoardId);
 
-  // Auto-select first board
-  useEffect(() => {
-    if (boards.length > 0 && !activeBoardId) {
-      setActiveBoardId(boards[0].id);
-    }
-  }, [boards, activeBoardId]);
+  useAutoSelect(boards, activeBoardId, setActiveBoardId);
 
-  // Ensure at least one board exists
-  useEffect(() => {
-    if (boards.length === 0) {
-      const ensureBoard = async () => {
-        const board = {
-          id: generateId('board'),
-          projectId,
-          title: 'Main Board',
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-        await addBoard(board);
-        setActiveBoardId(board.id);
-      };
-      ensureBoard();
-    }
-  }, [boards.length, projectId, addBoard]);
+  useEnsureDefault({
+    items: boards,
+    loading: false,
+    createDefault: () => ({
+      id: generateId('board'),
+      projectId,
+      title: 'Main Board',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
+    addItem: addBoard,
+    onCreated: setActiveBoardId,
+  });
 
   const loading = useMemo(() => boards.length === 0, [boards.length]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-2 border-accent-gold border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return <EngineSpinner />;
+
+  const handleCreateBoard = async () => {
+    const board = {
+      id: generateId('board'),
+      projectId,
+      title: newBoardName.trim(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await addBoard(board);
+    setActiveBoardId(board.id);
+    setNewBoardName('');
+    setShowNewBoard(false);
+  };
 
   return (
     <div className="space-y-4">
@@ -73,63 +75,17 @@ export default function YarnBoardEngine({ projectId }: EngineComponentProps) {
             Your Boards
           </h3>
           {showNewBoard ? (
-            <div className="flex items-center gap-1">
-              <input
-                value={newBoardName}
-                onChange={(e) => setNewBoardName(e.target.value)}
-                placeholder="Board name..."
-                className="px-2.5 py-1 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold w-40"
-                autoFocus
-                onKeyDown={async (e) => {
-                  if (e.key === 'Enter' && newBoardName.trim()) {
-                    const board = {
-                      id: generateId('board'),
-                      projectId,
-                      title: newBoardName.trim(),
-                      createdAt: Date.now(),
-                      updatedAt: Date.now(),
-                    };
-                    await addBoard(board);
-                    setActiveBoardId(board.id);
-                    setNewBoardName('');
-                    setShowNewBoard(false);
-                  }
-                  if (e.key === 'Escape') {
-                    setShowNewBoard(false);
-                    setNewBoardName('');
-                  }
-                }}
-              />
-              <button
-                onClick={async () => {
-                  if (newBoardName.trim()) {
-                    const board = {
-                      id: generateId('board'),
-                      projectId,
-                      title: newBoardName.trim(),
-                      createdAt: Date.now(),
-                      updatedAt: Date.now(),
-                    };
-                    await addBoard(board);
-                    setActiveBoardId(board.id);
-                    setNewBoardName('');
-                    setShowNewBoard(false);
-                  }
-                }}
-                className="p-1.5 text-accent-gold hover:text-accent-amber transition"
-              >
-                <ChevronRight size={16} />
-              </button>
-              <button
-                onClick={() => {
-                  setShowNewBoard(false);
-                  setNewBoardName('');
-                }}
-                className="p-1.5 text-text-muted hover:text-text-primary transition"
-              >
-                <X size={14} />
-              </button>
-            </div>
+            <NewItemForm
+              variant="compact"
+              value={newBoardName}
+              onChange={setNewBoardName}
+              placeholder="Board name..."
+              onConfirm={handleCreateBoard}
+              onCancel={() => {
+                setShowNewBoard(false);
+                setNewBoardName('');
+              }}
+            />
           ) : (
             <button
               onClick={() => setShowNewBoard(true)}

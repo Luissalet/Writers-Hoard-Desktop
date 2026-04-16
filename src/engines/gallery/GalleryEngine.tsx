@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { EngineComponentProps } from '@/engines/_types';
+import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import { useInspirationImages, useImageCollections } from '@/hooks/useGallery';
 import { useCodexEntries } from '@/hooks/useCodexEntries';
 import InspirationGallery from '@/components/gallery/InspirationGallery';
@@ -11,13 +12,7 @@ export default function GalleryEngine({ projectId }: EngineComponentProps) {
 
   const loading = useMemo(() => entriesLoading, [entriesLoading]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-2 border-accent-gold border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return <EngineSpinner />;
 
   return (
     <InspirationGallery

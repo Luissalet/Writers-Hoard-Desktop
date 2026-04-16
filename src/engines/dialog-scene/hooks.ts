@@ -1,109 +1,25 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { Scene, DialogBlock, SceneCast } from './types';
+import { makeEntityHook } from '@/engines/_shared';
 import * as ops from './operations';
+import type { Scene, DialogBlock, SceneCast } from './types';
 
-export function useScenes(projectId: string) {
-  const [scenes, setScenes] = useState<Scene[]>([]);
-  const [loading, setLoading] = useState(true);
+export const useScenes = makeEntityHook<Scene>({
+  fetchFn: ops.getScenes,
+  createFn: ops.createScene,
+  updateFn: ops.updateScene,
+  deleteFn: ops.deleteScene,
+  reorderFn: ops.reorderScenes,
+});
 
-  const refresh = useCallback(async () => {
-    if (!projectId) return;
-    setLoading(true);
-    const data = await ops.getScenes(projectId);
-    setScenes(data);
-    setLoading(false);
-  }, [projectId]);
+export const useDialogBlocks = makeEntityHook<DialogBlock>({
+  fetchFn: ops.getDialogBlocks,
+  createFn: ops.createDialogBlock,
+  updateFn: ops.updateDialogBlock,
+  deleteFn: ops.deleteDialogBlock,
+  reorderFn: ops.reorderDialogBlocks,
+});
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  const addScene = useCallback(
-    async (scene: Scene) => {
-      await ops.createScene(scene);
-      await refresh();
-    },
-    [refresh]
-  );
-
-  const editScene = useCallback(
-    async (id: string, changes: Partial<Scene>) => {
-      await ops.updateScene(id, changes);
-      await refresh();
-    },
-    [refresh]
-  );
-
-  const removeScene = useCallback(
-    async (id: string) => {
-      await ops.deleteScene(id);
-      await refresh();
-    },
-    [refresh]
-  );
-
-  const reorder = useCallback(
-    async (orderedIds: string[]) => {
-      await ops.reorderScenes(projectId, orderedIds);
-      await refresh();
-    },
-    [projectId, refresh]
-  );
-
-  return { scenes, loading, addScene, editScene, removeScene, reorder, refresh };
-}
-
-export function useDialogBlocks(sceneId: string) {
-  const [blocks, setBlocks] = useState<DialogBlock[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async () => {
-    if (!sceneId) return;
-    setLoading(true);
-    const data = await ops.getDialogBlocks(sceneId);
-    setBlocks(data);
-    setLoading(false);
-  }, [sceneId]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  const addBlock = useCallback(
-    async (block: DialogBlock) => {
-      await ops.createDialogBlock(block);
-      await refresh();
-    },
-    [refresh]
-  );
-
-  const editBlock = useCallback(
-    async (id: string, changes: Partial<DialogBlock>) => {
-      await ops.updateDialogBlock(id, changes);
-      await refresh();
-    },
-    [refresh]
-  );
-
-  const removeBlock = useCallback(
-    async (id: string) => {
-      await ops.deleteDialogBlock(id);
-      await refresh();
-    },
-    [refresh]
-  );
-
-  const reorder = useCallback(
-    async (orderedIds: string[]) => {
-      await ops.reorderDialogBlocks(sceneId, orderedIds);
-      await refresh();
-    },
-    [sceneId, refresh]
-  );
-
-  return { blocks, loading, addBlock, editBlock, removeBlock, reorder, refresh };
-}
-
+// useSceneCast — kept manual: non-standard CRUD (addMember/removeMember, no editMember)
 export function useSceneCast(sceneId: string) {
   const [cast, setCast] = useState<SceneCast[]>([]);
   const [loading, setLoading] = useState(true);
@@ -125,7 +41,7 @@ export function useSceneCast(sceneId: string) {
       await ops.addCastMember(member);
       await refresh();
     },
-    [refresh]
+    [refresh],
   );
 
   const removeMember = useCallback(
@@ -133,7 +49,7 @@ export function useSceneCast(sceneId: string) {
       await ops.removeCastMember(id);
       await refresh();
     },
-    [refresh]
+    [refresh],
   );
 
   const updateMember = useCallback(
@@ -141,7 +57,7 @@ export function useSceneCast(sceneId: string) {
       await ops.updateCastMember(id, changes);
       await refresh();
     },
-    [refresh]
+    [refresh],
   );
 
   return { cast, loading, addMember, removeMember, updateMember, refresh };

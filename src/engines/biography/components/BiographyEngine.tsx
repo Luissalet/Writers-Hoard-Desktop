@@ -1,55 +1,55 @@
-import { useState, useEffect, useMemo } from 'react';
-import { BookUser, Plus, Trash2, X, ChevronRight } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { BookUser, Plus, Trash2 } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
+import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
+import NewItemForm from '@/engines/_shared/components/NewItemForm';
+import { useAutoSelect, useEnsureDefault } from '@/engines/_shared';
 import { useBiographies } from '../hooks';
 import BiographyView from './BiographyView';
 import { generateId } from '@/utils/idGenerator';
 
 export default function BiographyEngine({ projectId }: EngineComponentProps) {
-  const { biographies, addBiography, editBiography, removeBiography } = useBiographies(projectId);
+  const { items: biographies, loading, addItem: addBiography, editItem: editBiography, removeItem: removeBiography } = useBiographies(projectId);
   const [activeBiographyId, setActiveBiographyId] = useState<string>('');
   const [showNewBio, setShowNewBio] = useState(false);
   const [newBioName, setNewBioName] = useState('');
 
-  // Auto-select first biography
-  useEffect(() => {
-    if (biographies.length > 0 && !activeBiographyId) {
-      setActiveBiographyId(biographies[0].id);
-    }
-  }, [biographies, activeBiographyId]);
+  useAutoSelect(biographies, activeBiographyId, setActiveBiographyId);
 
-  // Ensure at least one biography exists
-  useEffect(() => {
-    if (biographies.length === 0) {
-      const ensureBio = async () => {
-        const bio = {
-          id: generateId('bio'),
-          projectId,
-          subjectName: 'New Subject',
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-        await addBiography(bio);
-        setActiveBiographyId(bio.id);
-      };
-      ensureBio();
-    }
-  }, [biographies.length, projectId, addBiography]);
+  useEnsureDefault({
+    items: biographies,
+    loading,
+    createDefault: () => ({
+      id: generateId('bio'),
+      projectId,
+      subjectName: 'New Subject',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
+    addItem: addBiography,
+    onCreated: setActiveBiographyId,
+  });
 
   const activeBiography = useMemo(
     () => biographies.find(b => b.id === activeBiographyId),
-    [biographies, activeBiographyId]
+    [biographies, activeBiographyId],
   );
 
-  const loading = useMemo(() => biographies.length === 0, [biographies.length]);
+  if (loading) return <EngineSpinner />;
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-2 border-accent-gold border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  const handleCreateBio = async () => {
+    const bio = {
+      id: generateId('bio'),
+      projectId,
+      subjectName: newBioName.trim(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await addBiography(bio);
+    setActiveBiographyId(bio.id);
+    setNewBioName('');
+    setShowNewBio(false);
+  };
 
   return (
     <div className="space-y-4">
@@ -69,63 +69,17 @@ export default function BiographyEngine({ projectId }: EngineComponentProps) {
             Your Biographies
           </h3>
           {showNewBio ? (
-            <div className="flex items-center gap-1">
-              <input
-                value={newBioName}
-                onChange={(e) => setNewBioName(e.target.value)}
-                placeholder="Subject name..."
-                className="px-2.5 py-1 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold w-40"
-                autoFocus
-                onKeyDown={async (e) => {
-                  if (e.key === 'Enter' && newBioName.trim()) {
-                    const bio = {
-                      id: generateId('bio'),
-                      projectId,
-                      subjectName: newBioName.trim(),
-                      createdAt: Date.now(),
-                      updatedAt: Date.now(),
-                    };
-                    await addBiography(bio);
-                    setActiveBiographyId(bio.id);
-                    setNewBioName('');
-                    setShowNewBio(false);
-                  }
-                  if (e.key === 'Escape') {
-                    setShowNewBio(false);
-                    setNewBioName('');
-                  }
-                }}
-              />
-              <button
-                onClick={async () => {
-                  if (newBioName.trim()) {
-                    const bio = {
-                      id: generateId('bio'),
-                      projectId,
-                      subjectName: newBioName.trim(),
-                      createdAt: Date.now(),
-                      updatedAt: Date.now(),
-                    };
-                    await addBiography(bio);
-                    setActiveBiographyId(bio.id);
-                    setNewBioName('');
-                    setShowNewBio(false);
-                  }
-                }}
-                className="p-1.5 text-accent-gold hover:text-accent-amber transition"
-              >
-                <ChevronRight size={16} />
-              </button>
-              <button
-                onClick={() => {
-                  setShowNewBio(false);
-                  setNewBioName('');
-                }}
-                className="p-1.5 text-text-muted hover:text-text-primary transition"
-              >
-                <X size={14} />
-              </button>
-            </div>
+            <NewItemForm
+              variant="compact"
+              value={newBioName}
+              onChange={setNewBioName}
+              placeholder="Subject name..."
+              onConfirm={handleCreateBio}
+              onCancel={() => {
+                setShowNewBio(false);
+                setNewBioName('');
+              }}
+            />
           ) : (
             <button
               onClick={() => setShowNewBio(true)}

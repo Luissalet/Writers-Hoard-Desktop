@@ -3,43 +3,19 @@
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
-import type { BrainstormBoard, BrainstormItem, BrainstormConnection } from './types';
+import { makeEntityHook } from '@/engines/_shared';
 import * as ops from './operations';
+import type { BrainstormBoard, BrainstormItem, BrainstormConnection } from './types';
 
-export function useBrainstormBoards(projectId: string) {
-  const [boards, setBoards] = useState<BrainstormBoard[]>([]);
-  const [loading, setLoading] = useState(true);
+export const useBrainstormBoards = makeEntityHook<BrainstormBoard>({
+  fetchFn: ops.getBrainstormBoards,
+  createFn: ops.createBrainstormBoard,
+  updateFn: ops.updateBrainstormBoard,
+  deleteFn: ops.deleteBrainstormBoard,
+});
 
-  const refresh = useCallback(async () => {
-    if (!projectId) return;
-    setLoading(true);
-    const data = await ops.getBrainstormBoards(projectId);
-    setBoards(data);
-    setLoading(false);
-  }, [projectId]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  const addBoard = useCallback(async (board: BrainstormBoard) => {
-    await ops.createBrainstormBoard(board);
-    await refresh();
-  }, [refresh]);
-
-  const updateBoard = useCallback(async (id: string, changes: Partial<BrainstormBoard>) => {
-    await ops.updateBrainstormBoard(id, changes);
-    await refresh();
-  }, [refresh]);
-
-  const deleteBoard = useCallback(async (id: string) => {
-    await ops.deleteBrainstormBoard(id);
-    await refresh();
-  }, [refresh]);
-
-  return { boards, loading, refresh, addBoard, updateBoard, deleteBoard };
-}
-
+// NOT using makeEntityHook: batches items + connections in a single Promise.all refresh
+// to avoid double re-renders on the canvas.
 export function useBrainstormData(boardId: string) {
   const [items, setItems] = useState<BrainstormItem[]>([]);
   const [connections, setConnections] = useState<BrainstormConnection[]>([]);
@@ -61,35 +37,53 @@ export function useBrainstormData(boardId: string) {
     refresh();
   }, [refresh]);
 
-  const addItem = useCallback(async (item: BrainstormItem) => {
-    await ops.createBrainstormItem(item);
-    await refresh();
-  }, [refresh]);
+  const addItem = useCallback(
+    async (item: BrainstormItem) => {
+      await ops.createBrainstormItem(item);
+      await refresh();
+    },
+    [refresh],
+  );
 
-  const updateItem = useCallback(async (id: string, changes: Partial<BrainstormItem>) => {
-    await ops.updateBrainstormItem(id, changes);
-    await refresh();
-  }, [refresh]);
+  const updateItem = useCallback(
+    async (id: string, changes: Partial<BrainstormItem>) => {
+      await ops.updateBrainstormItem(id, changes);
+      await refresh();
+    },
+    [refresh],
+  );
 
-  const removeItem = useCallback(async (id: string) => {
-    await ops.deleteBrainstormItem(id);
-    await refresh();
-  }, [refresh]);
+  const removeItem = useCallback(
+    async (id: string) => {
+      await ops.deleteBrainstormItem(id);
+      await refresh();
+    },
+    [refresh],
+  );
 
-  const addConnection = useCallback(async (connection: BrainstormConnection) => {
-    await ops.createBrainstormConnection(connection);
-    await refresh();
-  }, [refresh]);
+  const addConnection = useCallback(
+    async (connection: BrainstormConnection) => {
+      await ops.createBrainstormConnection(connection);
+      await refresh();
+    },
+    [refresh],
+  );
 
-  const updateConnection = useCallback(async (id: string, changes: Partial<BrainstormConnection>) => {
-    await ops.updateBrainstormConnection(id, changes);
-    await refresh();
-  }, [refresh]);
+  const updateConnection = useCallback(
+    async (id: string, changes: Partial<BrainstormConnection>) => {
+      await ops.updateBrainstormConnection(id, changes);
+      await refresh();
+    },
+    [refresh],
+  );
 
-  const removeConnection = useCallback(async (id: string) => {
-    await ops.deleteBrainstormConnection(id);
-    await refresh();
-  }, [refresh]);
+  const removeConnection = useCallback(
+    async (id: string) => {
+      await ops.deleteBrainstormConnection(id);
+      await refresh();
+    },
+    [refresh],
+  );
 
   return {
     items,

@@ -17,7 +17,7 @@ interface BiographyViewProps {
 type ViewMode = 'cards' | 'narrative';
 
 export default function BiographyView({ biography, onUpdate }: BiographyViewProps) {
-  const { facts, addFact, editFact, removeFact } = useBiographyFacts(biography.id);
+  const { items: facts, addItem: addFact, editItem: editFact, removeItem: removeFact } = useBiographyFacts(biography.id);
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingFact, setEditingFact] = useState<BiographyFact | undefined>();

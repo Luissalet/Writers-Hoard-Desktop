@@ -2,56 +2,48 @@
 // Storyboard Engine — Root Component
 // ============================================
 
-import { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, X } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
+import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
+import NewItemForm from '@/engines/_shared/components/NewItemForm';
+import { useAutoSelect, useEnsureDefault } from '@/engines/_shared';
 import { useStoryboards, useStoryboardPanels, useStoryboardConnectors } from './hooks';
 import { generateId } from '@/utils/idGenerator';
 import StoryboardView from './components/StoryboardView';
 
 export default function StoryboardEngine({ projectId }: EngineComponentProps) {
-  const { storyboards, loading: storyboardsLoading, addStoryboard, updateStoryboard, deleteStoryboard } = useStoryboards(projectId);
+  const { items: storyboards, loading: storyboardsLoading, addItem: addStoryboard, editItem: updateStoryboard, removeItem: deleteStoryboard } = useStoryboards(projectId);
   const [activeStoryboardId, setActiveStoryboardId] = useState<string>('');
   const [showNewStoryboard, setShowNewStoryboard] = useState(false);
   const [newStoryboardName, setNewStoryboardName] = useState('');
 
-  const { panels, addPanel, updatePanel, deletePanel, reorderPanels } = useStoryboardPanels(activeStoryboardId);
-  const { connectors, addConnector, updateConnector, deleteConnector } = useStoryboardConnectors(activeStoryboardId);
+  const { items: panels, addItem: addPanel, editItem: updatePanel, removeItem: deletePanel, reorder: reorderPanels } = useStoryboardPanels(activeStoryboardId);
+  const { items: connectors, addItem: addConnector, editItem: updateConnector, removeItem: deleteConnector } = useStoryboardConnectors(activeStoryboardId);
 
-  // Auto-set first storyboard as active
-  useEffect(() => {
-    if (storyboards.length > 0 && !activeStoryboardId) {
-      setActiveStoryboardId(storyboards[0].id);
-    }
-  }, [storyboards, activeStoryboardId]);
+  useAutoSelect(storyboards, activeStoryboardId, setActiveStoryboardId);
 
-  // Ensure at least one storyboard exists
-  useEffect(() => {
-    const ensureStoryboard = async () => {
-      if (storyboardsLoading) return;
-      if (storyboards.length === 0) {
-        const sb = {
-          id: generateId('sb'),
-          projectId,
-          title: 'Main Storyboard',
-          columns: 3,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-        await addStoryboard(sb);
-        setActiveStoryboardId(sb.id);
-      }
-    };
-    ensureStoryboard();
-  }, [projectId, storyboardsLoading, storyboards.length, addStoryboard]);
+  useEnsureDefault({
+    items: storyboards,
+    loading: storyboardsLoading,
+    createDefault: () => ({
+      id: generateId('sb'),
+      projectId,
+      title: 'Main Storyboard',
+      columns: 3,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
+    addItem: addStoryboard,
+    onCreated: setActiveStoryboardId,
+  });
 
   const activeStoryboard = useMemo(
     () => storyboards.find(s => s.id === activeStoryboardId),
-    [storyboards, activeStoryboardId]
+    [storyboards, activeStoryboardId],
   );
 
   const handleCreateStoryboard = async () => {
-    if (!newStoryboardName.trim()) return;
     const sb = {
       id: generateId('sb'),
       projectId,
@@ -81,13 +73,7 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
     }
   };
 
-  if (storyboardsLoading && storyboards.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-2 border-accent-gold border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  if (storyboardsLoading && storyboards.length === 0) return <EngineSpinner />;
 
   return (
     <div className="space-y-6">
@@ -123,38 +109,17 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
 
         {/* New Storyboard Form */}
         {showNewStoryboard && (
-          <div className="mb-4 p-3 bg-elevated rounded-lg flex gap-2">
-            <input
-              autoFocus
-              type="text"
-              value={newStoryboardName}
-              onChange={(e) => setNewStoryboardName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateStoryboard();
-                if (e.key === 'Escape') {
-                  setShowNewStoryboard(false);
-                  setNewStoryboardName('');
-                }
-              }}
-              placeholder="Storyboard name"
-              className="flex-1 px-3 py-1 bg-surface border border-border rounded text-sm text-text-primary placeholder-text-muted focus:border-accent-gold focus:outline-none"
-            />
-            <button
-              onClick={handleCreateStoryboard}
-              className="px-3 py-1 bg-accent-gold text-deep rounded font-semibold text-sm hover:bg-accent-amber transition"
-            >
-              Create
-            </button>
-            <button
-              onClick={() => {
-                setShowNewStoryboard(false);
-                setNewStoryboardName('');
-              }}
-              className="px-2 py-1 text-text-muted hover:text-text-primary transition"
-            >
-              <X size={16} />
-            </button>
-          </div>
+          <NewItemForm
+            variant="expanded"
+            value={newStoryboardName}
+            onChange={setNewStoryboardName}
+            placeholder="Storyboard name"
+            onConfirm={handleCreateStoryboard}
+            onCancel={() => {
+              setShowNewStoryboard(false);
+              setNewStoryboardName('');
+            }}
+          />
         )}
 
         {/* Storyboards Grid */}
