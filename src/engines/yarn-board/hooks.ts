@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { YarnBoard, YarnNode, YarnEdge } from '@/types';
-import * as ops from '@/db/operations';
+import * as ops from './operations';
 
 export function useYarnBoards(projectId: string) {
   const [boards, setBoards] = useState<YarnBoard[]>([]);

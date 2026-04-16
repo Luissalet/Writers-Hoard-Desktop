@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Clock, Plus, Trash2, X, ChevronRight } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
-import { useTimelines, useTimelineEvents } from '@/hooks/useTimelineEvents';
+import { useTimelines, useTimelineEvents } from './hooks';
 import { generateId } from '@/utils/idGenerator';
-import TimelineView from '@/components/timeline/TimelineView';
+import TimelineView from './components/TimelineView';
 
 export default function TimelineEngine({ projectId }: EngineComponentProps) {
   const { timelines, loading: timelinesLoading, addTimeline, removeTimeline } = useTimelines(projectId);

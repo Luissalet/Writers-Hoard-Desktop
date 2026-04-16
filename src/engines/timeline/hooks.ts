@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Timeline, TimelineEvent } from '@/types';
-import * as ops from '@/db/operations';
+import * as ops from './operations';
 
 export function useTimelines(projectId: string) {
   const [timelines, setTimelines] = useState<Timeline[]>([]);

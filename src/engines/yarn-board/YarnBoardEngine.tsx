@@ -4,8 +4,8 @@ import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import NewItemForm from '@/engines/_shared/components/NewItemForm';
 import { useAutoSelect, useEnsureDefault } from '@/engines/_shared';
-import { useYarnBoards, useYarnBoardData } from '@/hooks/useYarnBoard';
-import YarnBoard from '@/components/yarn/YarnBoard';
+import { useYarnBoards, useYarnBoardData } from './hooks';
+import YarnBoard from './components/YarnBoard';
 import { generateId } from '@/utils/idGenerator';
 
 export default function YarnBoardEngine({ projectId }: EngineComponentProps) {
