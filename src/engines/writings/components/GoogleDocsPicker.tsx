@@ -4,6 +4,7 @@ import Modal from '@/components/common/Modal';
 import { useGoogleStore } from '@/stores/googleStore';
 import { listGoogleDocs, importGoogleDoc, type GoogleDocFile } from '@/services/googleDocs';
 import { isGisLoaded } from '@/services/googleAuth';
+import { t } from '@/i18n/useTranslation';
 import type { Writing } from '@/types';
 
 interface GoogleDocsPickerProps {
@@ -53,7 +54,7 @@ export default function GoogleDocsPicker({
       const files = await listGoogleDocs(accessToken, query);
       setDocs(files);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error al cargar documentos');
+      setError(err instanceof Error ? err.message : t('docs.loadError'));
     } finally {
       setLoading(false);
     }
@@ -92,7 +93,7 @@ export default function GoogleDocsPicker({
       onImported();
       onClose();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error al importar');
+      setError(err instanceof Error ? err.message : t('docs.importError'));
     } finally {
       setImporting(false);
     }

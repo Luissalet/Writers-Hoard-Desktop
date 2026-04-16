@@ -4,6 +4,7 @@
 
 import { callAi } from './aiService';
 import { stripHtml } from '@/utils/googleDocsHtmlCleaner';
+import { t } from '@/i18n/useTranslation';
 import type { AiConfig, ExtractedCharacter, ConsistencyIssue } from '@/types';
 
 /**
@@ -16,7 +17,7 @@ export async function generateSummary(
   const plainText = stripHtml(htmlContent);
 
   if (plainText.length < 50) {
-    throw new Error('El texto es demasiado corto para resumir');
+    throw new Error(t('ai.textTooShort.summary'));
   }
 
   const systemPrompt = `Eres un asistente literario. Resume el siguiente texto narrativo
@@ -37,7 +38,7 @@ export async function extractCharacters(
   const plainText = stripHtml(htmlContent);
 
   if (plainText.length < 50) {
-    throw new Error('El texto es demasiado corto para extraer personajes');
+    throw new Error(t('ai.textTooShort.characters'));
   }
 
   const systemPrompt = `Eres un asistente literario. Lee el siguiente texto y extrae

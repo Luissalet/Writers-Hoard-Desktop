@@ -4,6 +4,7 @@
 
 import type { AiConfig } from '@/types';
 import { DEFAULT_AI_CONFIG } from '@/config/ai';
+import { t } from '@/i18n/useTranslation';
 
 /**
  * Base function for all AI calls.
@@ -15,7 +16,7 @@ export async function callAi(
   config: AiConfig = DEFAULT_AI_CONFIG
 ): Promise<string> {
   if (!config.enabled) {
-    throw new Error('Las funciones de IA están desactivadas');
+    throw new Error(t('ai.disabled'));
   }
 
   const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
@@ -78,7 +79,7 @@ export async function safeAiCall<T>(
     if (message.includes('fetch') || message.includes('Failed to fetch') || message.includes('NetworkError')) {
       return {
         success: false,
-        error: 'CLIProxyAPI no está corriendo. Inícialo con: cliproxyapi',
+        error: t('ai.proxyNotRunning'),
       };
     }
     if (message.includes('429') || message.includes('rate')) {
@@ -90,7 +91,7 @@ export async function safeAiCall<T>(
     if (err instanceof SyntaxError) {
       return {
         success: false,
-        error: 'La IA devolvió un formato inesperado. Inténtalo de nuevo.',
+        error: t('ai.unexpectedFormat'),
       };
     }
     return { success: false, error: fallbackMessage };

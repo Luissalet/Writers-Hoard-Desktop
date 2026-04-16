@@ -5,7 +5,8 @@ import { useAiStore } from '@/stores/aiStore';
 import { generateSummary, extractCharacters } from '@/services/aiFeatures';
 import { safeAiCall } from '@/services/aiService';
 import { generateId } from '@/utils/idGenerator';
-import { useCodexEntries } from '@/hooks/useCodexEntries';
+import { useCodexEntries } from '@/engines/codex/hooks';
+import { t } from '@/i18n/useTranslation';
 import type { Writing, ExtractedCharacter, CodexEntry } from '@/types';
 import { CHARACTER_FIELDS } from '@/types';
 
@@ -19,7 +20,7 @@ interface AiToolbarProps {
 
 export default function AiToolbar({ writing, projectId, onSynopsisUpdate, contentFetcher }: AiToolbarProps) {
   const { config } = useAiStore();
-  const { entries: codexEntries, addEntry, editEntry } = useCodexEntries(projectId);
+  const { items: codexEntries, addItem: addEntry, editItem: editEntry } = useCodexEntries(projectId);
 
   // Transiently fetched content (Google Docs, not persisted locally)
   const [fetchedContent, setFetchedContent] = useState<string | null>(null);
@@ -54,7 +55,7 @@ export default function AiToolbar({ writing, projectId, onSynopsisUpdate, conten
       setFetchedContent(remote);
       return remote;
     } catch (err) {
-      setFetchError(err instanceof Error ? err.message : 'Error al cargar el documento');
+      setFetchError(err instanceof Error ? err.message : t('ai.loadError'));
       return null;
     } finally {
       setFetchingContent(false);
@@ -76,7 +77,7 @@ export default function AiToolbar({ writing, projectId, onSynopsisUpdate, conten
 
     const result = await safeAiCall(
       () => generateSummary(content, config),
-      'Error al generar resumen. Inténtalo de nuevo.'
+      t('ai.summaryError')
     );
 
     if (result.success) {
@@ -103,7 +104,7 @@ export default function AiToolbar({ writing, projectId, onSynopsisUpdate, conten
 
     const result = await safeAiCall(
       () => extractCharacters(content, config),
-      'Error al extraer personajes. Inténtalo de nuevo.'
+      t('ai.charactersError')
     );
 
     if (result.success) {
@@ -220,7 +221,7 @@ ${extracted.citasRelevantes.length > 0
         setSelectedChars(new Set());
       }
     } catch {
-      setCharsError('Error al importar personajes al Codex');
+      setCharsError(t('ai.characterImportError'));
     } finally {
       setCharsImporting(false);
     }
@@ -241,7 +242,7 @@ ${extracted.citasRelevantes.length > 0
       setExtractedChars(null);
       setSelectedChars(new Set());
     } catch {
-      setCharsError('Error al fusionar personajes');
+      setCharsError(t('ai.characterMergeError'));
     } finally {
       setCharsImporting(false);
     }
@@ -267,7 +268,7 @@ ${extracted.citasRelevantes.length > 0
           {summaryLoading || (fetchingContent && !charsLoading)
             ? <Loader2 size={13} className="animate-spin" />
             : <Sparkles size={13} />}
-          {fetchingContent && !charsLoading ? 'Cargando doc...' : 'Generar Resumen'}
+          {fetchingContent && !charsLoading ? 'Cargando doc...' : 'Generar Resumen'} {/* TODO: i18n */}
         </button>
 
         <button
@@ -278,7 +279,7 @@ ${extracted.citasRelevantes.length > 0
           {charsLoading || (fetchingContent && !summaryLoading)
             ? <Loader2 size={13} className="animate-spin" />
             : <Users size={13} />}
-          {fetchingContent && !summaryLoading ? 'Cargando doc...' : 'Extraer Personajes'}
+          {fetchingContent && !summaryLoading ? 'Cargando doc...' : 'Extraer Personajes'} {/* TODO: i18n */}
         </button>
 
         {/* Fetched content indicator */}
@@ -343,7 +344,7 @@ ${extracted.citasRelevantes.length > 0
       >
         <div className="space-y-4">
           <p className="text-sm text-text-muted">
-            Los siguientes personajes ya existen en el Codex. Los datos de la IA se fusionarán con los existentes (los campos vacíos se rellenarán automáticamente).
+            {t('ai.conflictWarning')}
           </p>
 
           <div className="max-h-80 overflow-y-auto space-y-3">
@@ -403,7 +404,7 @@ ${extracted.citasRelevantes.length > 0
         <div className="space-y-4">
           {extractedChars && extractedChars.length === 0 && (
             <p className="text-sm text-text-muted text-center py-4">
-              No se encontraron personajes en el texto.
+              {t('ai.noCharactersFound')}
             </p>
           )}
 
@@ -448,7 +449,7 @@ ${extracted.citasRelevantes.length > 0
           {extractedChars && extractedChars.length > 0 && (
             <div className="flex items-center justify-between pt-2 border-t border-border">
               <span className="text-sm text-text-muted">
-                {selectedChars.size} personaje{selectedChars.size !== 1 ? 's' : ''} seleccionado{selectedChars.size !== 1 ? 's' : ''}
+                {selectedChars.size} {selectedChars.size !== 1 ? t('ai.charactersSelectedPlural') : t('ai.charactersSelected')} {selectedChars.size !== 1 ? t('ai.selectedPlural') : t('ai.selected')}
               </span>
               <button
                 onClick={handleImportCharacters}

@@ -1,4 +1,5 @@
 export { makeEntityHook } from './makeEntityHook';
+export { makeGraphHook } from './makeGraphHook';
 export { makeTableOps } from './makeTableOps';
 export { makeCascadeDeleteOp } from './makeCascadeDeleteOp';
 export { reorderItems } from './reorderItems';
@@ -10,6 +11,7 @@ export { default as CollectionDashboard } from './components/CollectionDashboard
 export { registerEntityResolver, resolveEntity, searchEntities, entityTypeToEngineId } from './entityResolverRegistry';
 
 export type { EntityHookOptions, EntityHookResult } from './makeEntityHook';
+export type { GraphHookOptions, GraphHookResult } from './makeGraphHook';
 export type { TableOpsOptions, TableOps } from './makeTableOps';
 export type { CascadeDeleteOptions, CascadeRule } from './makeCascadeDeleteOp';
 export type { EnsureDefaultOptions } from './useEnsureDefault';

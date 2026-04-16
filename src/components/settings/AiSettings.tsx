@@ -3,6 +3,7 @@ import { Settings, Loader2, CheckCircle2, XCircle, Wifi } from 'lucide-react';
 import Modal from '@/components/common/Modal';
 import { useAiStore } from '@/stores/aiStore';
 import { AVAILABLE_MODELS } from '@/config/ai';
+import { t } from '@/i18n/useTranslation';
 
 interface AiSettingsProps {
   open: boolean;
@@ -42,8 +43,8 @@ export default function AiSettings({ open, onClose }: AiSettingsProps) {
         {/* Enable toggle */}
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-text-primary font-medium">Activar funciones IA</p>
-            <p className="text-[10px] text-text-dim mt-0.5">Resúmenes, extracción de personajes, etc.</p>
+            <p className="text-sm text-text-primary font-medium">{t('settings.ai.title')}</p>
+            <p className="text-[10px] text-text-dim mt-0.5">{t('settings.ai.subtitle')}</p>
           </div>
           <button
             onClick={() => { setEnabled(!enabled); saveSettings({ enabled: !enabled }); }}
@@ -136,7 +137,7 @@ export default function AiSettings({ open, onClose }: AiSettingsProps) {
             <div className="px-3 py-2 bg-elevated rounded-lg text-[10px] text-text-dim space-y-1">
               <p className="flex items-center gap-1.5">
                 <Settings size={10} />
-                Requiere CLIProxyAPI corriendo localmente con una suscripción Claude Max activa.
+                {t('settings.ai.requirement')}
               </p>
               <p>
                 El uso de IA en Writers Hoard cuenta contra tu cuota de suscripción Max.
