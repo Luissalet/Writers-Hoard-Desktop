@@ -22,6 +22,7 @@ import type { BrainstormBoard, BrainstormItem, BrainstormConnection } from '@/en
 import type { VideoPlan, VideoSegment } from '@/engines/video-planner/types';
 import type { Snapshot } from '@/engines/scrapper/types';
 import type { Biography, BiographyFact } from '@/engines/biography/types';
+import type { DiaryEntry } from '@/engines/diary/types';
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -53,6 +54,7 @@ export class WritersHoardDB extends Dexie {
   snapshots!: Table<Snapshot>;
   biographies!: Table<Biography>;
   biographyFacts!: Table<BiographyFact>;
+  diaryEntries!: Table<DiaryEntry>;
 
   constructor() {
     super('WritersHoardDB');
@@ -305,6 +307,40 @@ export class WritersHoardDB extends Dexie {
           evt.dateMode = 'text';
         }
       });
+    });
+
+    // v11: Add diary entries table
+    this.version(11).stores({
+      projects: 'id, mode, type, parentId, status, updatedAt',
+      codexEntries: 'id, projectId, type, *tags, updatedAt',
+      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+      timelines: 'id, projectId',
+      timelineEvents: 'id, projectId, timelineId, order, dateMode',
+      yarnBoards: 'id, projectId',
+      yarnNodes: 'id, projectId, boardId',
+      yarnEdges: 'id, boardId, sourceId, targetId',
+      worldMaps: 'id, projectId',
+      mapPins: 'id, projectId, mapId',
+      imageCollections: 'id, projectId',
+      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+      externalLinks: 'id, projectId, type, *tags',
+      tags: 'id, name',
+      settings: 'id, key',
+      storyboards: 'id, projectId',
+      storyboardPanels: 'id, projectId, storyboardId, order',
+      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+      scenes: 'id, projectId, order',
+      dialogBlocks: 'id, sceneId, projectId, order',
+      sceneCasts: 'id, sceneId',
+      brainstormBoards: 'id, projectId',
+      brainstormItems: 'id, boardId, projectId, type',
+      brainstormConnections: 'id, boardId, sourceId, targetId',
+      videoPlans: 'id, projectId',
+      videoSegments: 'id, videoPlanId, projectId, order',
+      snapshots: 'id, projectId, source, status, createdAt',
+      biographies: 'id, projectId',
+      biographyFacts: 'id, biographyId, projectId, order, category',
+      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
     });
   }
 }

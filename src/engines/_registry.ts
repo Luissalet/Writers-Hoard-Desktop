@@ -60,7 +60,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: PenLine,
     color: '#c4973b',
     defaultEngines: ['writings', 'codex', 'timeline', 'yarn-board', 'maps', 'gallery'],
-    suggestedEngines: ['brainstorm', 'storyboard', 'links'],
+    suggestedEngines: ['brainstorm', 'storyboard', 'links', 'diary'],
   },
   {
     id: 'biographer',
@@ -69,7 +69,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: BookUser,
     color: '#4a7ec4',
     defaultEngines: ['biography', 'timeline', 'codex', 'gallery', 'scrapper', 'yarn-board'],
-    suggestedEngines: ['writings', 'links', 'brainstorm'],
+    suggestedEngines: ['writings', 'links', 'brainstorm', 'diary'],
   },
   {
     id: 'reporter',

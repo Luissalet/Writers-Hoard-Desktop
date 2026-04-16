@@ -52,7 +52,7 @@ export default function Dashboard() {
     setCreationStep('mode');
     setSelectedMode(null);
     setEnabledEngines([]);
-    setForm({ title: '', type: 'standalone', description: '', color: PROJECT_COLORS[0] });
+    setForm({ title: '', type: 'standalone', description: '', color: '#c4973b' });
   };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {

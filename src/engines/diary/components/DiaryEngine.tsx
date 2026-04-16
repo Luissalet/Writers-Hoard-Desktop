@@ -1,0 +1,232 @@
+import { useState, useMemo, useCallback } from 'react';
+import { BookOpen, Plus, Search, Calendar, ChevronDown, ChevronRight } from 'lucide-react';
+import type { EngineComponentProps } from '@/engines/_types';
+import { useDiaryEntries } from '../hooks';
+import type { DiaryEntry, DiaryMood } from '../types';
+import { MOOD_CONFIG } from '../types';
+import { generateId } from '@/utils/idGenerator';
+import QuickEntry from './QuickEntry';
+import EntryCard from './EntryCard';
+import EntryEditor from './EntryEditor';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Group entries by date string (YYYY-MM-DD) */
+function groupByDate(entries: DiaryEntry[]): Map<string, DiaryEntry[]> {
+  const map = new Map<string, DiaryEntry[]>();
+  for (const e of entries) {
+    const day = e.entryDate.slice(0, 10);
+    if (!map.has(day)) map.set(day, []);
+    map.get(day)!.push(e);
+  }
+  return map;
+}
+
+function formatDayHeader(iso: string): string {
+  const d = new Date(iso + 'T00:00:00');
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+
+  return d.toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// DiaryEngine
+// ---------------------------------------------------------------------------
+
+export default function DiaryEngine({ projectId }: EngineComponentProps) {
+  const { entries, loading, addEntry, editEntry, removeEntry } = useDiaryEntries(projectId);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterMood, setFilterMood] = useState<DiaryMood | ''>('');
+  const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
+
+  // --- Filtering ---
+  const filtered = useMemo(() => {
+    let list = entries;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(
+        (e) =>
+          e.title.toLowerCase().includes(q) ||
+          e.content.toLowerCase().includes(q) ||
+          e.tags.some((t) => t.toLowerCase().includes(q)),
+      );
+    }
+    if (filterMood) {
+      list = list.filter((e) => e.mood === filterMood);
+    }
+    return list;
+  }, [entries, searchQuery, filterMood]);
+
+  const grouped = useMemo(() => groupByDate(filtered), [filtered]);
+  const sortedDays = useMemo(() => Array.from(grouped.keys()).sort().reverse(), [grouped]);
+
+  // --- Quick add ---
+  const handleQuickAdd = useCallback(
+    async (content: string, mood?: DiaryMood) => {
+      const now = new Date();
+      const entry: DiaryEntry = {
+        id: generateId('diary'),
+        projectId,
+        entryDate: now.toISOString().slice(0, 16),
+        title: '',
+        content,
+        mood,
+        tags: [],
+        pinned: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      await addEntry(entry);
+    },
+    [projectId, addEntry],
+  );
+
+  // --- Day collapse ---
+  const toggleDay = useCallback((day: string) => {
+    setCollapsedDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(day)) next.delete(day);
+      else next.add(day);
+      return next;
+    });
+  }, []);
+
+  // --- Loading ---
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-8 h-8 border-2 border-accent-gold border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // --- Editing overlay ---
+  if (editingId) {
+    const entry = entries.find((e) => e.id === editingId);
+    if (entry) {
+      return (
+        <EntryEditor
+          entry={entry}
+          onSave={async (changes) => {
+            await editEntry(entry.id, changes);
+            setEditingId(null);
+          }}
+          onDelete={async () => {
+            await removeEntry(entry.id);
+            setEditingId(null);
+          }}
+          onClose={() => setEditingId(null)}
+        />
+      );
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* ---- Quick entry bar ---- */}
+      <QuickEntry onSubmit={handleQuickAdd} />
+
+      {/* ---- Search / filter bar ---- */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim" />
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search entries..."
+            className="w-full pl-8 pr-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
+          />
+        </div>
+
+        {/* Mood filter */}
+        <select
+          value={filterMood}
+          onChange={(e) => setFilterMood(e.target.value as DiaryMood | '')}
+          className="px-2.5 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition cursor-pointer"
+        >
+          <option value="">All moods</option>
+          {Object.entries(MOOD_CONFIG).map(([key, cfg]) => (
+            <option key={key} value={key}>
+              {cfg.emoji} {cfg.label}
+            </option>
+          ))}
+        </select>
+
+        {/* Entry count */}
+        <span className="text-xs text-text-dim whitespace-nowrap">
+          {filtered.length} entr{filtered.length === 1 ? 'y' : 'ies'}
+        </span>
+      </div>
+
+      {/* ---- Day-grouped timeline ---- */}
+      {sortedDays.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-text-dim">
+          <BookOpen size={36} className="mb-3 opacity-40" />
+          <p className="text-sm">
+            {entries.length === 0 ? 'No entries yet. Write your first one above.' : 'No entries match your search.'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {sortedDays.map((day) => {
+            const dayEntries = grouped.get(day)!;
+            const collapsed = collapsedDays.has(day);
+
+            return (
+              <div key={day}>
+                {/* Day header */}
+                <button
+                  onClick={() => toggleDay(day)}
+                  className="flex items-center gap-2 mb-2 group w-full text-left"
+                >
+                  {collapsed ? (
+                    <ChevronRight size={14} className="text-text-dim group-hover:text-accent-gold transition" />
+                  ) : (
+                    <ChevronDown size={14} className="text-text-dim group-hover:text-accent-gold transition" />
+                  )}
+                  <Calendar size={12} className="text-accent-gold" />
+                  <span className="text-sm font-semibold text-text-primary">
+                    {formatDayHeader(day)}
+                  </span>
+                  <span className="text-xs text-text-dim">
+                    ({dayEntries.length})
+                  </span>
+                </button>
+
+                {/* Entries for the day */}
+                {!collapsed && (
+                  <div className="ml-5 space-y-2 border-l-2 border-border pl-4">
+                    {dayEntries.map((entry) => (
+                      <EntryCard
+                        key={entry.id}
+                        entry={entry}
+                        onEdit={() => setEditingId(entry.id)}
+                        onTogglePin={async () => {
+                          await editEntry(entry.id, { pinned: !entry.pinned });
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
