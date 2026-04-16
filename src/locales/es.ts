@@ -1,14 +1,14 @@
 const es = {
-  // AI Service
+  // ── AI Service ──
   'ai.disabled': 'Las funciones de IA están desactivadas',
   'ai.proxyNotRunning': 'CLIProxyAPI no está corriendo. Inícialo con: cliproxyapi',
   'ai.unexpectedFormat': 'La IA devolvió un formato inesperado. Inténtalo de nuevo.',
 
-  // AI Features
+  // ── AI Features ──
   'ai.textTooShort.summary': 'El texto es demasiado corto para resumir',
   'ai.textTooShort.characters': 'El texto es demasiado corto para extraer personajes',
 
-  // AI Toolbar
+  // ── AI Toolbar ──
   'ai.loadError': 'Error al cargar el documento',
   'ai.summaryError': 'Error al generar resumen. Inténtalo de nuevo.',
   'ai.charactersError': 'Error al extraer personajes. Inténtalo de nuevo.',
@@ -21,18 +21,328 @@ const es = {
   'ai.selected': 'seleccionado',
   'ai.selectedPlural': 'seleccionados',
 
-  // Google Docs Picker
+  // ── Google Docs ──
   'docs.loadError': 'Error al cargar documentos',
   'docs.importError': 'Error al importar',
 
-  // Settings - AI
+  // ── Settings ──
+  'settings.title': 'Ajustes',
+  'settings.language': 'Idioma',
+  'settings.language.subtitle': 'Idioma de la interfaz',
   'settings.ai.title': 'Activar funciones IA',
   'settings.ai.subtitle': 'Resúmenes, extracción de personajes, etc.',
   'settings.ai.requirement': 'Requiere CLIProxyAPI corriendo localmente con una suscripción Claude Max activa.',
+  'settings.ai.heading': 'Asistente IA',
+  'settings.ai.proxyUrl': 'URL del Proxy',
+  'settings.ai.model': 'Modelo',
+  'settings.ai.testConnection': 'Probar Conexión',
+  'settings.ai.testing': 'Probando conexión...',
+  'settings.ai.connected': 'Conectado',
+  'settings.ai.modelsAvailable': 'modelo',
+  'settings.ai.modelsAvailablePlural': 'modelos',
+  'settings.ai.available': 'disponible',
+  'settings.ai.availablePlural': 'disponibles',
+  'settings.ai.quotaNote': 'El uso de IA en Writers Hoard cuenta contra tu cuota de suscripción Max. Haiku consume menos cuota que Sonnet.',
 
-  // Dashboard - Full Import
+  // ── Dashboard ──
+  'dashboard.title': "Writer's Hoard",
+  'dashboard.subtitle': 'Tu espacio creativo',
+  'dashboard.projects': 'Proyectos',
+  'dashboard.worldCount.singular': 'mundo en tu hoard',
+  'dashboard.worldCount.plural': 'mundos en tu hoard',
+  'dashboard.fullExport.title': 'Exportar toda la base de datos (todos los proyectos) como backup',
+  'dashboard.fullExport.button': 'Backup Completo',
+  'dashboard.fullExport.exporting': 'Exportando...',
+  'dashboard.fullImport.title': 'Restaurar desde un backup completo (reemplaza todos los datos)',
+  'dashboard.fullImport.button': 'Restaurar Backup',
+  'dashboard.fullImport.restoring': 'Restaurando...',
   'dashboard.fullImport.confirm': 'Esto REEMPLAZARÁ todos tus datos actuales con el backup importado. ¿Estás seguro?',
+  'dashboard.import.button': 'Importar Proyecto',
+  'dashboard.import.importing': 'Importando...',
+  'dashboard.import.error': 'Error al importar proyecto. Asegúrate de que el archivo sea una exportación válida.',
+  'dashboard.import.fullError': 'Error al importar backup. Asegúrate de que el archivo sea una exportación válida.',
+  'dashboard.export.error': 'Error al exportar la base de datos.',
+  'dashboard.newProject': 'Nuevo Proyecto',
+  'dashboard.empty.title': 'Tu hoard te espera',
+  'dashboard.empty.message': 'Crea tu primer proyecto para comenzar a construir mundos, personajes e historias.',
+  'dashboard.empty.action': 'Crear Proyecto',
   'dashboard.unsupportedFormat': 'Formato no soportado. Usa un archivo .zip o .json',
+
+  // ── Project Detail ──
+  'project.notFound': 'Proyecto no encontrado',
+  'project.export': 'Exportar',
+  'project.exportProject': 'Exportar proyecto',
+  'project.manageEngines': 'Gestionar motores',
+  'project.noEngines': 'No hay motores activados',
+
+  // ── Sidebar ──
+  'sidebar.brand': "Writer's Hoard",
+  'sidebar.home': 'Inicio',
+  'sidebar.project': 'Proyecto',
+  'sidebar.writings': 'Escritos',
+  'sidebar.codex': 'Códex',
+  'sidebar.timeline': 'Línea temporal',
+  'sidebar.maps': 'Mapas',
+  'sidebar.yarnBoard': 'Tablero de hilos',
+  'sidebar.gallery': 'Galería',
+  'sidebar.links': 'Enlaces',
+
+  // ── TopBar ──
+  'topbar.settings': 'Ajustes',
+  'topbar.search': 'Buscar',
+
+  // ── Global Search ──
+  'search.placeholder': 'Buscar proyectos, personajes, lugares...',
+  'search.noResults': 'Sin resultados para',
+
+  // ── Common ──
+  'common.cancel': 'Cancelar',
+  'common.save': 'Guardar Cambios',
+  'common.create': 'Crear',
+  'common.edit': 'Editar',
+  'common.delete': 'Eliminar',
+  'common.add': 'Añadir',
+  'common.back': 'Atrás',
+  'common.remove': 'Eliminar',
+  'common.saving': 'Guardando...',
+  'common.creating': 'Creando...',
+  'common.title': 'Título',
+  'common.name': 'Nombre',
+  'common.description': 'Descripción',
+  'common.notes': 'Notas',
+  'common.tags': 'Etiquetas',
+  'common.url': 'URL',
+  'common.all': 'Todos',
+  'common.image': 'Imagen',
+  'common.change': 'Cambiar',
+  'common.open': 'Abrir',
+  'common.close': 'Cerrar',
+  'common.searchIcons': 'Buscar iconos...',
+  'common.noIconsFound': 'No se encontraron iconos',
+  'common.resetDefault': 'Restablecer por defecto',
+  'common.changeIcon': 'Cambiar icono',
+  'common.pickIcon': 'Elige un icono',
+  'common.addTag': 'Añadir etiqueta...',
+  'common.changeColor': 'Cambiar color',
+  'common.picker': 'Selector',
+
+  // ── Codex ──
+  'codex.entryType': 'Tipo de Entrada',
+  'codex.avatar': 'Avatar',
+  'codex.entryName': 'Nombre de la entrada...',
+  'codex.extendedNotes': 'Notas Extendidas',
+  'codex.extendedNotesPlaceholder': 'Escribe notas detalladas, lore, conexiones narrativas...',
+  'codex.saveChanges': 'Guardar Cambios',
+  'codex.createEntry': 'Crear Entrada',
+  'codex.searchEntries': 'Buscar entradas...',
+  'codex.newEntry': 'Nueva Entrada',
+  'codex.noEntries.title': 'Aún no hay entradas',
+  'codex.noEntries.message': 'Crea tu primera entrada del códex para empezar a construir tu mundo.',
+  'codex.editEntry': 'Editar Entrada',
+  'codex.newCodexEntry': 'Nueva Entrada del Códex',
+  'codex.gallery': 'Galería',
+  'codex.types.character': 'Personaje',
+  'codex.types.location': 'Lugar',
+  'codex.types.item': 'Objeto',
+  'codex.types.faction': 'Facción',
+  'codex.types.concept': 'Concepto',
+  'codex.types.magic': 'Sistema de Magia',
+  'codex.types.custom': 'Personalizado',
+  // Codex field labels
+  'codex.field.name': 'Nombre',
+  'codex.field.age': 'Edad',
+  'codex.field.species': 'Especie / Raza',
+  'codex.field.role': 'Rol en la Historia',
+  'codex.field.physicalDescription': 'Descripción Física',
+  'codex.field.personality': 'Personalidad',
+  'codex.field.backstory': 'Trasfondo',
+  'codex.field.abilities': 'Habilidades',
+  'codex.field.goals': 'Objetivos y Motivaciones',
+  'codex.field.flaws': 'Defectos y Debilidades',
+  'codex.field.region': 'Región',
+  'codex.field.climate': 'Clima',
+  'codex.field.population': 'Población',
+  'codex.field.history': 'Historia',
+  'codex.field.notableFeatures': 'Características Notables',
+  'codex.field.inhabitants': 'Habitantes Clave',
+  'codex.field.type': 'Tipo',
+  'codex.field.origin': 'Origen',
+  'codex.field.properties': 'Propiedades',
+  'codex.field.currentOwner': 'Dueño Actual',
+  'codex.field.leader': 'Líder',
+  'codex.field.territory': 'Territorio',
+  'codex.field.allies': 'Aliados',
+  'codex.field.enemies': 'Enemigos',
+
+  // ── Gallery ──
+  'gallery.allImages': 'Todas las Imágenes',
+  'gallery.newAlbum': 'Nuevo Álbum',
+  'gallery.albumName': 'Nombre del álbum...',
+  'gallery.dropImages': 'Suelta las imágenes aquí...',
+  'gallery.uploadImages': 'Subir Imágenes',
+  'gallery.tagsForUploads': 'Etiquetas para subidas:',
+  'gallery.tagPlaceholder': 'Etiquetar nuevas subidas...',
+  'gallery.albumEmpty.title': 'Álbum vacío',
+  'gallery.albumEmpty.message': 'Sube imágenes o muévelas aquí desde otro álbum.',
+  'gallery.empty.title': 'Aún no hay inspiración',
+  'gallery.empty.message': 'Sube imágenes para crear tu tablero de inspiración y referencias visuales.',
+  'gallery.linkEntries': 'Vincular entradas del códex',
+  'gallery.moveToAlbum': 'Mover a álbum',
+  'gallery.noAlbum': 'Sin álbum',
+  'gallery.noEntriesFound': 'No se encontraron entradas',
+  'gallery.deleteAlbum': 'Eliminar álbum',
+  'gallery.deleteAlbumConfirm': '¿Eliminar álbum "{name}"? Las imágenes se moverán a Todas las Imágenes.',
+
+  // ── External Links ──
+  'links.title': 'Enlaces Externos',
+  'links.addLink': 'Añadir Enlace',
+  'links.empty.title': 'Aún no hay enlaces',
+  'links.empty.message': 'Añade enlaces a playlists de YouTube, Google Docs, publicaciones de Instagram y más.',
+  'links.togglePlayer': 'Alternar reproductor',
+  'links.openLink': 'Abrir enlace',
+  'links.addModal.title': 'Añadir Enlace Externo',
+  'links.urlPlaceholder': 'https://...',
+  'links.detected': 'Detectado:',
+  'links.titlePlaceholder': 'Título del enlace...',
+  'links.notesPlaceholder': 'Notas personales sobre este enlace...',
+
+  // ── Maps ──
+  'maps.changeMap': 'Cambiar Mapa',
+  'maps.uploadMapImage': 'Subir Imagen del Mapa',
+  'maps.clickToPlace': 'Haz clic en el mapa para colocar un pin...',
+  'maps.addPin': 'Añadir Pin',
+  'maps.empty.title': 'Aún no hay mapa',
+  'maps.empty.message': 'Sube una imagen de tu mapa del mundo para empezar a colocar pines y marcadores.',
+  'maps.empty.action': 'Subir Mapa',
+  'maps.markers': 'Marcadores del Mapa',
+  'maps.newPin': 'Nuevo Pin del Mapa',
+  'maps.locationName': 'Nombre del lugar...',
+  'maps.briefDescription': 'Descripción breve...',
+  'maps.placePin': 'Colocar Pin',
+
+  // ── Engine Manager ──
+  'engines.manager': 'Gestor de Motores',
+  'engines.active': 'Motores Activos',
+  'engines.noActive': 'No hay motores activados. Añade uno abajo.',
+  'engines.moveUp': 'Mover arriba',
+  'engines.moveDown': 'Mover abajo',
+  'engines.disable': 'Desactivar motor',
+  'engines.available': 'Motores Disponibles',
+
+  // ── Create Project Modal ──
+  'createProject.chooseMode': 'Elige Tu Modo',
+  'createProject.newProject': 'Nuevo Proyecto',
+  'createProject.modeHint': 'Selecciona tu enfoque creativo. Siempre puedes cambiarlo después.',
+  'createProject.titlePlaceholder': 'El nombre de tu mundo...',
+  'createProject.type': 'Tipo',
+  'createProject.descriptionPlaceholder': 'Una breve descripción...',
+  'createProject.color': 'Color',
+  'createProject.icon': 'Icono',
+  'createProject.activeEngines': 'Motores Activos',
+  'createProject.includedWith': 'Incluido con',
+  'createProject.recommendedFor': 'Recomendado para',
+  'createProject.allEngines': 'Todos los Motores Disponibles',
+  'createProject.createButton': 'Crear Proyecto',
+
+  // ── Editor ──
+  'editor.placeholder': 'Empieza a escribir...',
+  'editor.enterUrl': 'Introduce la URL:',
+
+  // ── Project Card ──
+  'projectCard.changeColor': 'Cambiar color',
+
+  // ── Timeline Engine ──
+  'timeline.yourTimelines': 'Tus Líneas Temporales',
+  'timeline.defaultName': 'Línea temporal principal',
+  'timeline.namePlaceholder': 'Nombre de la línea temporal...',
+
+  // ── Yarn Board Engine ──
+  'yarn.yourBoards': 'Tus Tableros',
+  'yarn.defaultName': 'Tablero Principal',
+  'yarn.newBoard': 'Nuevo Tablero',
+  'yarn.noBoards': 'Aún no hay tableros. Crea uno para empezar.',
+  'yarn.deleteConfirm': '¿Eliminar tablero "{name}"? Se perderán todos sus nodos y conexiones.',
+  'yarn.deleteBoard': 'Eliminar tablero',
+
+  // ── Maps Engine ──
+  'mapsEngine.defaultName': 'Mapa del Mundo',
+  'mapsEngine.namePlaceholder': 'Nombre del mapa...',
+
+  // ── Outline Engine ──
+  'outline.yourOutlines': 'Tus Esquemas',
+  'outline.defaultName': 'Nuevo Esquema',
+  'outline.namePlaceholder': 'Nombre del esquema...',
+  'outline.titlePlaceholder': 'Título del esquema...',
+  'outline.usingTemplate': 'Usando plantilla:',
+  'outline.newOutline': 'Nuevo Esquema',
+  'outline.noOutlines': 'Aún no hay esquemas. Crea uno para empezar.',
+  'outline.beats': 'beats',
+
+  // ── Writing Stats Engine ──
+  'stats.today': 'Hoy',
+  'stats.wordsWrittenToday': 'Palabras Escritas Hoy',
+  'stats.goal': 'Meta:',
+  'stats.timeSpent': 'Tiempo Dedicado',
+  'stats.streak': 'Racha',
+  'stats.startSprint': 'Iniciar Sprint',
+  'stats.focusSession': 'Sesión de Enfoque',
+  'stats.last7Days': 'Últimos 7 Días',
+  'stats.goals': 'Metas',
+  'stats.projectGoal': 'Meta del Proyecto',
+  'stats.deadlineGoal': 'Meta de Plazo',
+  'stats.recentSessions': 'Sesiones Recientes',
+
+  // ── Biography Engine ──
+  'biography.yourBiographies': 'Tus Biografías',
+  'biography.newBiography': 'Nueva Biografía',
+  'biography.noBiographies': 'Aún no hay biografías. Crea una para empezar.',
+  'biography.deleteConfirm': '¿Eliminar biografía de "{name}"? Se perderán todos los datos.',
+  'biography.deleteBiography': 'Eliminar biografía',
+
+  // ── Brainstorm Engine ──
+  'brainstorm.yourBoards': 'Tus Tableros',
+  'brainstorm.newBoard': 'Nuevo Tablero',
+  'brainstorm.noBoards': 'Aún no hay tableros. Crea uno para empezar.',
+  'brainstorm.deleteConfirm': '¿Eliminar "{name}"? Esta acción no se puede deshacer.',
+  'brainstorm.deleteBoard': 'Eliminar tablero',
+
+  // ── Diary Engine ──
+  'diary.today': 'Hoy',
+  'diary.yesterday': 'Ayer',
+  'diary.newEntry': 'Nueva Entrada',
+  'diary.searchEntries': 'Buscar entradas...',
+  'diary.allMoods': 'Todos los ánimos',
+  'diary.entry.singular': 'entrada',
+  'diary.entry.plural': 'entradas',
+  'diary.noEntries': 'Aún no hay entradas. Escribe una nota rápida arriba o crea una entrada completa.',
+  'diary.noResults': 'Ninguna entrada coincide con tu búsqueda.',
+
+  // ── Storyboard Engine ──
+  'storyboard.yourStoryboards': 'Tus Storyboards',
+  'storyboard.defaultName': 'Storyboard Principal',
+  'storyboard.new': 'Nuevo',
+  'storyboard.namePlaceholder': 'Nombre del storyboard',
+  'storyboard.deleteConfirm': '¿Eliminar storyboard "{name}"? Se perderán todos sus paneles y conectores.',
+  'storyboard.deleteStoryboard': 'Eliminar storyboard',
+  'storyboard.panels': 'paneles',
+  'storyboard.columns': 'columnas',
+
+  // ── Video Planner Engine ──
+  'videoPlanner.title': 'Planes de Video',
+  'videoPlanner.newPlan': 'Nuevo Plan',
+  'videoPlanner.titlePlaceholder': 'Introduce el título del plan...',
+  'videoPlanner.noPlans': 'Aún no hay planes de video.',
+  'videoPlanner.createFirst': 'Crea Tu Primer Plan',
+
+  // ── Scrapper Engine ──
+  'scrapper.searchSnapshots': 'Buscar capturas...',
+  'scrapper.gridView': 'Vista cuadrícula',
+  'scrapper.listView': 'Vista lista',
+  'scrapper.noResults': 'Sin resultados',
+  'scrapper.noSnapshots': 'Aún no hay capturas',
+  'scrapper.adjustSearch': 'Intenta ajustar tus términos de búsqueda',
+  'scrapper.startCapturing': 'Empieza a capturar contenido de investigación pegando URLs arriba',
+  'scrapper.manualEntry': 'Entrada manual',
 } as const;
 
 export default es;

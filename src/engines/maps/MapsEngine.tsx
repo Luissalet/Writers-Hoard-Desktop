@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Map } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard } from '@/engines/_shared';
 import { useWorldMaps, useMapPins } from './hooks';
@@ -7,6 +8,7 @@ import MapView from '@/components/maps/MapView';
 import { generateId } from '@/utils/idGenerator';
 
 export default function MapsEngine({ projectId }: EngineComponentProps) {
+  const { t } = useTranslation();
   const { items: maps, addItem: addMap, editItem: editMap, removeItem: removeMap } = useWorldMaps(projectId);
   const [activeMapId, setActiveMapId] = useState<string>('');
   const { items: pins, addItem: addPin, removeItem: removePin } = useMapPins(activeMapId);
@@ -19,7 +21,7 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
     createDefault: () => ({
       id: generateId('map'),
       projectId,
-      title: 'World Map',
+      title: t('mapsEngine.defaultName'),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }),
@@ -78,7 +80,7 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
         onSelect={setActiveMapId}
         onCreate={handleCreateMap}
         onDelete={handleDeleteMap}
-        placeholder="Map name..."
+        placeholder={t('mapsEngine.namePlaceholder')}
       />
     </div>
   );

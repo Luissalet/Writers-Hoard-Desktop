@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Clock } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard } from '@/engines/_shared';
 import { useTimelines, useTimelineEvents } from './hooks';
@@ -7,6 +8,7 @@ import { generateId } from '@/utils/idGenerator';
 import TimelineView from './components/TimelineView';
 
 export default function TimelineEngine({ projectId }: EngineComponentProps) {
+  const { t } = useTranslation();
   const { timelines, loading: timelinesLoading, addTimeline, removeTimeline } = useTimelines(projectId);
   const [activeTimelineId, setActiveTimelineId] = useState<string>('');
   const { events, addEvent, editEvent, removeEvent } = useTimelineEvents(activeTimelineId);
@@ -19,7 +21,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
     createDefault: () => ({
       id: generateId('tl'),
       projectId,
-      title: 'Main Timeline',
+      title: t('timeline.defaultName'),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }),
@@ -70,14 +72,14 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
 
       <CollectionDashboard
         icon={Clock}
-        title="Your Timelines"
+        title={t('timeline.yourTimelines')}
         itemNoun="Timeline"
         items={timelines}
         activeId={activeTimelineId}
         onSelect={setActiveTimelineId}
         onCreate={handleCreateTimeline}
         onDelete={handleDeleteTimeline}
-        placeholder="Timeline name..."
+        placeholder={t('timeline.namePlaceholder')}
       />
     </div>
   );

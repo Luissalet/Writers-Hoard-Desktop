@@ -4,8 +4,10 @@ import { Search, BookOpen, Layers, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import { useGlobalSearch, type SearchResult } from '@/hooks/useGlobalSearch';
+import { useTranslation } from '@/i18n/useTranslation';
 
 export default function GlobalSearch() {
+  const { t } = useTranslation();
   const { searchOpen, setSearchOpen } = useAppStore();
   const { search } = useGlobalSearch();
   const [query, setQuery] = useState('');
@@ -93,7 +95,7 @@ export default function GlobalSearch() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Search projects, characters, locations..."
+                placeholder={t('search.placeholder')}
                 className="flex-1 bg-transparent border-none outline-none text-text-primary"
               />
               <button onClick={() => setSearchOpen(false)} className="p-1 hover:bg-elevated rounded">
@@ -123,7 +125,7 @@ export default function GlobalSearch() {
 
             {query && results.length === 0 && (
               <div className="py-8 text-center text-text-muted text-sm">
-                No results for "{query}"
+                {t('search.noResults')} "{query}"
               </div>
             )}
           </motion.div>

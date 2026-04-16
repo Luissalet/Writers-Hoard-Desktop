@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { ListTree, Plus } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { useAutoSelect, useEnsureDefault, EngineSpinner } from '@/engines/_shared';
 import { useOutlines, useOutlineBeats } from '../hooks';
@@ -10,6 +11,7 @@ import TemplateSelector from './TemplateSelector';
 import BeatList from './BeatList';
 
 export default function OutlineEngine({ projectId }: EngineComponentProps) {
+  const { t } = useTranslation();
   const { items: outlines, loading, addItem: addOutline, editItem: editOutline, removeItem: removeOutline } = useOutlines(projectId);
   const [activeOutlineId, setActiveOutlineId] = useState<string>('');
   const [showNewOutline, setShowNewOutline] = useState(false);
@@ -28,7 +30,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
     createDefault: () => ({
       id: generateId('outline'),
       projectId,
-      title: 'New Outline',
+      title: t('outline.defaultName'),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }),
@@ -113,11 +115,11 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
               value={activeOutline.title}
               onChange={(e) => editOutline(activeOutlineId, { title: e.target.value, updatedAt: Date.now() })}
               className="text-2xl font-semibold text-text-primary bg-transparent focus:outline-none focus:ring-2 focus:ring-accent-gold/50 rounded px-2 py-1 -mx-2 mb-2 w-full"
-              placeholder="Outline title..."
+              placeholder={t('outline.titlePlaceholder')}
             />
             {activeOutline.templateId && (
               <p className="text-xs text-text-dim">
-                Using template: {BEAT_SHEET_TEMPLATES.find((t) => t.id === activeOutline.templateId)?.name}
+                {t('outline.usingTemplate')} {BEAT_SHEET_TEMPLATES.find((tmpl) => tmpl.id === activeOutline.templateId)?.name}
               </p>
             )}
           </div>
@@ -145,7 +147,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
             <ListTree size={14} className="text-accent-gold" />
-            Your Outlines
+            {t('outline.yourOutlines')}
           </h3>
           {showNewOutline ? (
             <div className="flex items-center gap-2">
@@ -162,7 +164,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
                     setNewOutlineName('');
                   }
                 }}
-                placeholder="Outline name..."
+                placeholder={t('outline.namePlaceholder')}
                 className="px-3 py-1.5 text-xs bg-surface border border-border rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-gold/50"
               />
               <button
@@ -172,7 +174,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
                 }}
                 className="px-2 py-1.5 text-xs rounded hover:bg-surface/80"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
             </div>
           ) : (
@@ -181,7 +183,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-accent-gold/10 text-accent-gold rounded-lg hover:bg-accent-gold/20 transition"
             >
               <Plus size={13} />
-              New Outline
+              {t('outline.newOutline')}
             </button>
           )}
         </div>
@@ -202,7 +204,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
         {/* Outlines Grid */}
         {outlines.length === 0 ? (
           <p className="text-sm text-text-dim text-center py-4">
-            No outlines yet. Create one to get started.
+            {t('outline.noOutlines')}
           </p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
@@ -226,7 +228,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
                     {outline.title}
                   </p>
                   <p className="text-xs text-text-dim mt-1">
-                    {beats.filter((b) => b.outlineId === outline.id).length} beats
+                    {beats.filter((b) => b.outlineId === outline.id).length} {t('outline.beats')}
                   </p>
                 </button>
               );

@@ -4,6 +4,7 @@
 
 import { useState, useMemo } from 'react';
 import { Lightbulb, Plus, Trash2 } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import NewItemForm from '@/engines/_shared/components/NewItemForm';
@@ -13,6 +14,7 @@ import BrainstormCanvas from './BrainstormCanvas';
 import { generateId } from '@/utils/idGenerator';
 
 export default function BrainstormEngine({ projectId }: EngineComponentProps) {
+  const { t } = useTranslation();
   const { items: boards, loading: boardsLoading, addItem: addBoard, removeItem: deleteBoard } = useBrainstormBoards(projectId);
   const [activeBoardId, setActiveBoardId] = useState<string>('');
   const [showNewBoard, setShowNewBoard] = useState(false);
@@ -85,7 +87,7 @@ export default function BrainstormEngine({ projectId }: EngineComponentProps) {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
             <Lightbulb size={14} className="text-accent-gold" />
-            Your Boards
+            {t('brainstorm.yourBoards')}
           </h3>
           {showNewBoard ? (
             <NewItemForm
@@ -105,13 +107,13 @@ export default function BrainstormEngine({ projectId }: EngineComponentProps) {
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-accent-gold/10 text-accent-gold rounded-lg hover:bg-accent-gold/20 transition"
             >
               <Plus size={13} />
-              New Board
+              {t('brainstorm.newBoard')}
             </button>
           )}
         </div>
 
         {boards.length === 0 ? (
-          <p className="text-sm text-text-dim text-center py-4">No boards yet. Create one to get started.</p>
+          <p className="text-sm text-text-dim text-center py-4">{t('brainstorm.noBoards')}</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
             {boards.map((board) => {
@@ -132,7 +134,7 @@ export default function BrainstormEngine({ projectId }: EngineComponentProps) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (confirm(`Delete "${board.title}"? This cannot be undone.`)) {
+                      if (confirm(t('brainstorm.deleteConfirm').replace('{name}', board.title))) {
                         deleteBoard(board.id);
                       }
                     }}

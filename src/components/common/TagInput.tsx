@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent } from 'react';
 import { X } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface TagInputProps {
   tags: string[];
@@ -7,7 +8,9 @@ interface TagInputProps {
   placeholder?: string;
 }
 
-export default function TagInput({ tags, onChange, placeholder = 'Add tag...' }: TagInputProps) {
+export default function TagInput({ tags, onChange, placeholder }: TagInputProps) {
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder ?? t('common.addTag');
   const [input, setInput] = useState('');
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -43,7 +46,7 @@ export default function TagInput({ tags, onChange, placeholder = 'Add tag...' }:
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={tags.length === 0 ? placeholder : ''}
+        placeholder={tags.length === 0 ? resolvedPlaceholder : ''}
         className="flex-1 min-w-[80px] bg-transparent border-none outline-none text-text-primary text-sm"
       />
     </div>

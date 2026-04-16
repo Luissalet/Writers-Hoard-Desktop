@@ -8,6 +8,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { icons, type LucideIcon } from 'lucide-react';
 import { Search, X } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 
 // ---------------------------------------------------------------------------
 // Curated "featured" icons shown first when search is empty
@@ -54,6 +55,7 @@ export default function IconPicker({
   color = '#c4973b',
   size = 'md',
 }: IconPickerProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -114,7 +116,7 @@ export default function IconPicker({
         onClick={() => setOpen(!open)}
         className={`${btnSize} rounded-xl flex items-center justify-center border border-border hover:border-accent-gold/50 bg-elevated transition`}
         style={{ backgroundColor: `${color}15` }}
-        title={value ? `Icon: ${value}` : 'Pick an icon'}
+        title={value ? t('common.iconLabel', { name: value }) : t('common.pickIcon')}
       >
         {SelectedIcon ? (
           <SelectedIcon size={iconSize} style={{ color }} />
@@ -133,7 +135,7 @@ export default function IconPicker({
               ref={searchInputRef}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search icons..."
+              placeholder={t('common.searchIcons')}
               className="w-full pl-8 pr-8 py-2 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
             />
             {search && (
@@ -169,7 +171,7 @@ export default function IconPicker({
           </div>
 
           {filtered.length === 0 && (
-            <p className="text-center text-text-dim text-xs py-6">No icons found</p>
+            <p className="text-center text-text-dim text-xs py-6">{t('common.noIconsFound')}</p>
           )}
 
           {/* Clear selection */}
@@ -179,7 +181,7 @@ export default function IconPicker({
               onClick={() => { onChange(''); setOpen(false); }}
               className="mt-2 w-full text-center text-xs text-text-dim hover:text-text-muted py-1 transition"
             >
-              Reset to default
+              {t('common.resetDefault')}
             </button>
           )}
         </div>
@@ -199,6 +201,7 @@ interface InlineIconPickerProps {
 }
 
 export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineIconPickerProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -280,7 +283,7 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
           ref={searchInputRef}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search icons..."
+          placeholder={t('common.searchIcons')}
           className="w-full pl-7 pr-7 py-1.5 text-xs bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
           onClick={(e) => e.stopPropagation()}
         />
@@ -316,7 +319,7 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
       </div>
 
       {filtered.length === 0 && (
-        <p className="text-center text-text-dim text-xs py-4">No icons found</p>
+        <p className="text-center text-text-dim text-xs py-4">{t('common.noIconsFound')}</p>
       )}
 
       {value && (
@@ -325,7 +328,7 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
           onClick={(e) => { e.stopPropagation(); onChange(''); setOpen(false); }}
           className="mt-1.5 w-full text-center text-xs text-text-dim hover:text-text-muted py-1 transition"
         >
-          Reset to default
+          {t('common.resetDefault')}
         </button>
       )}
     </div>,
@@ -338,7 +341,7 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
         ref={buttonRef}
         onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
         className="p-1.5 rounded-lg hover:bg-accent-gold/20 transition"
-        title="Change icon"
+        title={t('common.changeIcon')}
       >
         <Sparkles size={14} className="text-accent-gold" />
       </button>

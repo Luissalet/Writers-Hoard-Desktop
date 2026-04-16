@@ -7,6 +7,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { hsvToHex, hexToHsv } from '@/utils/colorMath';
 import { useDrag } from '@/hooks/useColorDrag';
+import { useTranslation } from '@/i18n/useTranslation';
 import {
   SaturationCanvas,
   HueSlider,
@@ -48,6 +49,7 @@ export default function ColorPicker({
   size = 'md',
   label,
 }: ColorPickerProps) {
+  const { t } = useTranslation();
   const [showPicker, setShowPicker] = useState(false);
   const [tempColor, setTempColor] = useState(value);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -188,7 +190,7 @@ export default function ColorPicker({
         onClick={() => setShowPicker(!showPicker)}
         className="mt-2 px-3 py-1 text-xs bg-elevated border border-border rounded hover:border-accent-gold transition"
       >
-        {showPicker ? 'Close' : 'Open'} Picker
+        {showPicker ? t('common.close') : t('common.open')} {t('common.picker')}
       </button>
     </div>
   );
@@ -204,6 +206,7 @@ export function InlineColorPicker({
   onChange,
   size = 'sm',
 }: Pick<ColorPickerProps, 'value' | 'onChange' | 'size'>) {
+  const { t } = useTranslation();
   const [showPicker, setShowPicker] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -272,7 +275,7 @@ export function InlineColorPicker({
         onClick={() => setShowPicker(!showPicker)}
         className={`${dim} rounded-full ring-2 ring-white/20 hover:ring-accent-gold/60 transition-all cursor-pointer`}
         style={{ backgroundColor: value }}
-        title="Pick a color"
+        title={t('common.changeColor')}
       />
 
       {showPicker && (

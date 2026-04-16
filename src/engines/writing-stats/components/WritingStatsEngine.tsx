@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Play, Settings, Flame } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import { useWritingSessions, useWritingGoals, useWritingStats } from '../hooks';
@@ -16,6 +17,7 @@ import { generateId } from '@/utils/idGenerator';
 // ============================================================================
 
 export default function WritingStatsEngine({ projectId }: EngineComponentProps) {
+  const { t } = useTranslation();
   const {
     items: sessions,
     loading: sessionsLoading,
@@ -84,17 +86,17 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
           SECTION 1: TODAY'S DASHBOARD
           ===================================================================== */}
       <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-4">
-        <h2 className="text-2xl font-bold text-gray-900">Today</h2>
+        <h2 className="text-2xl font-bold text-gray-900">{t('stats.today')}</h2>
 
         <div className="space-y-3">
           {/* Word Count Hero */}
           <div className="bg-gradient-to-br from-accent-gold/10 to-accent-gold/5 border-2 border-accent-gold/30 rounded-lg p-6 text-center">
-            <div className="text-sm font-medium text-gray-600 mb-1">Words Written Today</div>
+            <div className="text-sm font-medium text-gray-600 mb-1">{t('stats.wordsWrittenToday')}</div>
             <div className="text-5xl font-bold text-accent-gold">{stats.todayWords}</div>
             {dailyGoalTarget > 0 && (
               <div className="mt-3 space-y-2">
                 <div className="flex items-center justify-between text-sm font-medium text-gray-600">
-                  <span>Goal: {dailyGoalTarget}</span>
+                  <span>{t('stats.goal')} {dailyGoalTarget}</span>
                   <span>{Math.min(100, Math.round(todayProgress))}%</span>
                 </div>
                 <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
@@ -110,13 +112,13 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
           {/* Time & Streak Stats */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
-              <div className="text-xs font-medium text-blue-600 mb-1">Time Spent</div>
+              <div className="text-xs font-medium text-blue-600 mb-1">{t('stats.timeSpent')}</div>
               <div className="text-2xl font-bold text-blue-900">
                 {Math.floor(stats.todayTime / 3600)}h {Math.floor((stats.todayTime % 3600) / 60)}m
               </div>
             </div>
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
-              <div className="text-xs font-medium text-red-600 mb-1">Streak</div>
+              <div className="text-xs font-medium text-red-600 mb-1">{t('stats.streak')}</div>
               <div className="text-2xl font-bold text-red-900 flex items-center justify-center gap-1">
                 <Flame size={24} />
                 {stats.streak}
@@ -130,7 +132,7 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
             className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-accent-gold text-black font-semibold rounded-lg hover:bg-accent-gold/90 transition-colors"
           >
             <Play size={20} />
-            Start Sprint
+            {t('stats.startSprint')}
           </button>
         </div>
       </div>
@@ -140,7 +142,7 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
           ===================================================================== */}
       {sprintActive && (
         <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Focus Session</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-4">{t('stats.focusSession')}</h2>
           <SprintTimer
             projectId={projectId}
             onComplete={handleSprintComplete}
@@ -154,13 +156,13 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
           ===================================================================== */}
       <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold text-gray-900">Last 7 Days</h2>
+          <h2 className="text-xl font-bold text-gray-900">{t('stats.last7Days')}</h2>
           <button
             onClick={() => setGoalSettingOpen(true)}
             className="flex items-center gap-2 px-3 py-1 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
           >
             <Settings size={16} />
-            Goals
+            {t('stats.goals')}
           </button>
         </div>
 
@@ -172,7 +174,7 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
             {projectGoal && (
               <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 flex justify-between items-center">
                 <div>
-                  <div className="text-xs font-medium text-purple-600">Project Goal</div>
+                  <div className="text-xs font-medium text-purple-600">{t('stats.projectGoal')}</div>
                   <div className="text-sm font-semibold text-purple-900">
                     {stats.totalWords.toLocaleString()} / {projectGoal.targetWords.toLocaleString()} words
                   </div>
@@ -187,7 +189,7 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
             {deadlineGoal && deadlineInfo && (
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex justify-between items-center">
                 <div>
-                  <div className="text-xs font-medium text-orange-600">Deadline Goal</div>
+                  <div className="text-xs font-medium text-orange-600">{t('stats.deadlineGoal')}</div>
                   <div className="text-sm font-semibold text-orange-900">
                     {deadlineGoal.targetWords.toLocaleString()} words by{' '}
                     {new Date(deadlineGoal.deadline + 'T00:00:00').toLocaleDateString()}
@@ -211,7 +213,7 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
           ===================================================================== */}
       {recentSessions.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-3">
-          <h2 className="text-lg font-bold text-gray-900">Recent Sessions</h2>
+          <h2 className="text-lg font-bold text-gray-900">{t('stats.recentSessions')}</h2>
           {recentSessions.map((session) => (
             <SessionCard key={session.id} session={session} />
           ))}

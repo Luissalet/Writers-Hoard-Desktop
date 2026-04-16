@@ -8,10 +8,11 @@ import TopBar from '@/components/layout/TopBar';
 import CreateProjectModal from '@/components/dashboard/CreateProjectModal';
 import { importProjectData, importFullDatabase } from '@/db/operations';
 import { exportFullZip, importFullZip } from '@/services/zipBackup';
-import { t } from '@/i18n/useTranslation';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { Project } from '@/types';
 
 export default function Dashboard() {
+  const { t } = useTranslation();
   const { projects, loading, addProject, editProject, removeProject, refresh } = useProjects();
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
@@ -33,7 +34,7 @@ export default function Dashboard() {
       navigate(`/project/${newId}`);
     } catch (err) {
       console.error('Import failed:', err);
-      alert('Error importing project. Make sure the file is a valid export.');
+      alert(t('dashboard.import.error'));
     } finally {
       setImporting(false);
       if (importRef.current) importRef.current.value = '';
@@ -46,7 +47,7 @@ export default function Dashboard() {
       await exportFullZip();
     } catch (err) {
       console.error('Full export failed:', err);
-      alert('Error exporting database.');
+      alert(t('dashboard.export.error'));
     } finally {
       setExporting(false);
     }
@@ -84,7 +85,7 @@ export default function Dashboard() {
       }
     } catch (err) {
       console.error('Full import failed:', err);
-      alert('Error importing backup. Make sure the file is a valid export.');
+      alert(t('dashboard.import.fullError'));
     } finally {
       setImporting(false);
       if (fullImportRef.current) fullImportRef.current.value = '';
@@ -98,14 +99,14 @@ export default function Dashboard() {
 
   return (
     <>
-      <TopBar title="Writer's Hoard" subtitle="Your creative workspace" />
+      <TopBar title={t('dashboard.title')} subtitle={t('dashboard.subtitle')} />
       <div className="flex-1 overflow-y-auto p-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-serif font-bold text-accent-gold">Projects</h1>
+            <h1 className="text-3xl font-serif font-bold text-accent-gold">{t('dashboard.projects')}</h1>
             <p className="text-text-muted mt-1">
-              {projects.length} {projects.length === 1 ? 'world' : 'worlds'} in your hoard
+              {projects.length} {projects.length === 1 ? t('dashboard.worldCount.singular') : t('dashboard.worldCount.plural')}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -117,21 +118,21 @@ export default function Dashboard() {
               onClick={handleFullExport}
               disabled={exporting}
               className="flex items-center gap-2 px-3 py-2.5 border border-accent-plum/30 text-accent-plum-light rounded-xl hover:bg-accent-plum/10 transition text-sm"
-              title="Export entire database (all projects) as a backup"
+              title={t('dashboard.fullExport.title')}
             >
               <Database size={14} />
               <Download size={14} />
-              {exporting ? 'Exporting...' : 'Full Backup'}
+              {exporting ? t('dashboard.fullExport.exporting') : t('dashboard.fullExport.button')}
             </button>
             <button
               onClick={() => fullImportRef.current?.click()}
               disabled={importing}
               className="flex items-center gap-2 px-3 py-2.5 border border-accent-plum/30 text-accent-plum-light rounded-xl hover:bg-accent-plum/10 transition text-sm"
-              title="Restore from a full backup (replaces all data)"
+              title={t('dashboard.fullImport.title')}
             >
               <Database size={14} />
               <Upload size={14} />
-              {importing ? 'Restoring...' : 'Restore Backup'}
+              {importing ? t('dashboard.fullImport.restoring') : t('dashboard.fullImport.button')}
             </button>
 
             <div className="w-px h-8 bg-border" />
@@ -142,14 +143,14 @@ export default function Dashboard() {
               className="flex items-center gap-2 px-4 py-2.5 border border-border text-text-muted rounded-xl hover:text-text-primary hover:bg-elevated transition"
             >
               <Upload size={16} />
-              {importing ? 'Importing...' : 'Import Project'}
+              {importing ? t('dashboard.import.importing') : t('dashboard.import.button')}
             </button>
             <button
               onClick={() => setShowCreate(true)}
               className="flex items-center gap-2 px-5 py-2.5 bg-accent-gold text-deep font-semibold rounded-xl hover:bg-accent-amber transition shadow-lg shadow-accent-gold/20"
             >
               <Plus size={18} />
-              New Project
+              {t('dashboard.newProject')}
             </button>
           </div>
         </div>
@@ -162,9 +163,9 @@ export default function Dashboard() {
         ) : projects.length === 0 ? (
           <EmptyState
             icon={<Feather size={48} />}
-            title="Your hoard awaits"
-            message="Create your first project to start building worlds, characters, and stories."
-            action={{ label: 'Create Project', onClick: () => setShowCreate(true) }}
+            title={t('dashboard.empty.title')}
+            message={t('dashboard.empty.message')}
+            action={{ label: t('dashboard.empty.action'), onClick: () => setShowCreate(true) }}
           />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">

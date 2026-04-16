@@ -4,6 +4,7 @@ import type { CodexEntry, CodexEntryType, InspirationImage } from '@/types';
 import Modal from '@/components/common/Modal';
 import CodexEntryForm from './CodexEntryForm';
 import EmptyState from '@/components/common/EmptyState';
+import { useTranslation } from '@/i18n/useTranslation';
 
 const typeIcons: Record<CodexEntryType, typeof User> = {
   character: User,
@@ -35,6 +36,7 @@ interface CodexEntryListProps {
 }
 
 export default function CodexEntryList({ projectId, entries, images = [], onAdd, onEdit, onDelete }: CodexEntryListProps) {
+  const { t } = useTranslation();
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editEntry, setEditEntry] = useState<CodexEntry | null>(null);
@@ -59,7 +61,7 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search entries..."
+            placeholder={t('codex.searchEntries')}
             className="w-full pl-9 pr-4 py-2 bg-elevated border border-border rounded-lg text-text-primary text-sm outline-none focus:border-accent-gold transition"
           />
         </div>
@@ -83,7 +85,7 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
           className="flex items-center gap-1.5 px-4 py-2 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
         >
           <Plus size={16} />
-          New Entry
+          {t('codex.newEntry')}
         </button>
       </div>
 
@@ -91,9 +93,9 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
       {filtered.length === 0 ? (
         <EmptyState
           icon={<User size={40} />}
-          title="No entries yet"
-          message="Create your first codex entry to start building your world."
-          action={{ label: 'Create Entry', onClick: () => setShowForm(true) }}
+          title={t('codex.noEntries.title')}
+          message={t('codex.noEntries.message')}
+          action={{ label: t('codex.createEntry'), onClick: () => setShowForm(true) }}
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -137,7 +139,7 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
       )}
 
       {/* Create/Edit Modal */}
-      <Modal open={showForm || !!editEntry} onClose={() => { setShowForm(false); setEditEntry(null); }} title={editEntry ? 'Edit Entry' : 'New Codex Entry'} wide>
+      <Modal open={showForm || !!editEntry} onClose={() => { setShowForm(false); setEditEntry(null); }} title={editEntry ? t('codex.editEntry') : t('codex.newCodexEntry')} wide>
         <CodexEntryForm
           projectId={projectId}
           entry={editEntry || undefined}
@@ -201,7 +203,7 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
                 <div>
                   <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
                     <ImageIcon size={14} className="text-accent-gold" />
-                    Gallery ({entryImages.length})
+                    {t('codex.gallery')} ({entryImages.length})
                   </h4>
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
                     {entryImages.map(img => (
@@ -223,13 +225,13 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
                 onClick={() => { setSelectedEntry(null); setEditEntry(selectedEntry); }}
                 className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition"
               >
-                Edit
+                {t('common.edit')}
               </button>
               <button
                 onClick={() => { onDelete(selectedEntry.id); setSelectedEntry(null); }}
                 className="px-6 py-2.5 border border-danger/50 text-danger rounded-lg hover:bg-danger/10 transition"
               >
-                Delete
+                {t('common.delete')}
               </button>
             </div>
           </div>

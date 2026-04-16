@@ -5,42 +5,43 @@ import { generateId } from '@/utils/idGenerator';
 import TiptapEditor from '@/components/editor/TiptapEditor';
 import TagInput from '@/components/common/TagInput';
 import { User, MapPin, Sword, Shield, Sparkles, HelpCircle, BookOpen, ImagePlus, X } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 
-const typeConfig: Record<CodexEntryType, { icon: typeof User; label: string; color: string }> = {
-  character: { icon: User, label: 'Character', color: '#c4973b' },
-  location: { icon: MapPin, label: 'Location', color: '#4a9e6d' },
-  item: { icon: Sword, label: 'Item', color: '#4a7ec4' },
-  faction: { icon: Shield, label: 'Faction', color: '#c4463a' },
-  concept: { icon: Sparkles, label: 'Concept', color: '#7c5cbf' },
-  magic: { icon: Sparkles, label: 'Magic System', color: '#d4a843' },
-  custom: { icon: HelpCircle, label: 'Custom', color: '#8a8690' },
+const typeConfig: Record<CodexEntryType, { icon: typeof User; labelKey: string; color: string }> = {
+  character: { icon: User, labelKey: 'codex.types.character', color: '#c4973b' },
+  location: { icon: MapPin, labelKey: 'codex.types.location', color: '#4a9e6d' },
+  item: { icon: Sword, labelKey: 'codex.types.item', color: '#4a7ec4' },
+  faction: { icon: Shield, labelKey: 'codex.types.faction', color: '#c4463a' },
+  concept: { icon: Sparkles, labelKey: 'codex.types.concept', color: '#7c5cbf' },
+  magic: { icon: Sparkles, labelKey: 'codex.types.magic', color: '#d4a843' },
+  custom: { icon: HelpCircle, labelKey: 'codex.types.custom', color: '#8a8690' },
 };
 
-const FIELD_LABELS: Record<string, string> = {
-  name: 'Name',
-  age: 'Age',
-  species: 'Species / Race',
-  role: 'Role in Story',
-  physicalDescription: 'Physical Description',
-  personality: 'Personality',
-  backstory: 'Backstory',
-  abilities: 'Abilities',
-  goals: 'Goals & Motivations',
-  flaws: 'Flaws & Weaknesses',
-  region: 'Region',
-  climate: 'Climate',
-  population: 'Population',
-  history: 'History',
-  notableFeatures: 'Notable Features',
-  inhabitants: 'Key Inhabitants',
-  type: 'Type',
-  origin: 'Origin',
-  properties: 'Properties',
-  currentOwner: 'Current Owner',
-  leader: 'Leader',
-  territory: 'Territory',
-  allies: 'Allies',
-  enemies: 'Enemies',
+const FIELD_LABEL_KEYS: Record<string, string> = {
+  name: 'codex.field.name',
+  age: 'codex.field.age',
+  species: 'codex.field.species',
+  role: 'codex.field.role',
+  physicalDescription: 'codex.field.physicalDescription',
+  personality: 'codex.field.personality',
+  backstory: 'codex.field.backstory',
+  abilities: 'codex.field.abilities',
+  goals: 'codex.field.goals',
+  flaws: 'codex.field.flaws',
+  region: 'codex.field.region',
+  climate: 'codex.field.climate',
+  population: 'codex.field.population',
+  history: 'codex.field.history',
+  notableFeatures: 'codex.field.notableFeatures',
+  inhabitants: 'codex.field.inhabitants',
+  type: 'codex.field.type',
+  origin: 'codex.field.origin',
+  properties: 'codex.field.properties',
+  currentOwner: 'codex.field.currentOwner',
+  leader: 'codex.field.leader',
+  territory: 'codex.field.territory',
+  allies: 'codex.field.allies',
+  enemies: 'codex.field.enemies',
 };
 
 interface CodexEntryFormProps {
@@ -51,6 +52,7 @@ interface CodexEntryFormProps {
 }
 
 export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: CodexEntryFormProps) {
+  const { t } = useTranslation();
   const [type, setType] = useState<CodexEntryType>(entry?.type || 'character');
   const [title, setTitle] = useState(entry?.title || '');
   const [avatar, setAvatar] = useState(entry?.avatar || '');
@@ -96,24 +98,24 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
       {/* Type selector */}
       {!entry && (
         <div>
-          <label className="block text-sm text-text-muted mb-2">Entry Type</label>
+          <label className="block text-sm text-text-muted mb-2">{t('codex.entryType')}</label>
           <div className="flex flex-wrap gap-2">
-            {(Object.keys(typeConfig) as CodexEntryType[]).map(t => {
-              const config = typeConfig[t];
+            {(Object.keys(typeConfig) as CodexEntryType[]).map(entryType => {
+              const config = typeConfig[entryType];
               const Icon = config.icon;
               return (
                 <button
-                  key={t}
-                  onClick={() => handleTypeChange(t)}
+                  key={entryType}
+                  onClick={() => handleTypeChange(entryType)}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition ${
-                    type === t
+                    type === entryType
                       ? 'border-2'
                       : 'border border-border text-text-muted hover:text-text-primary hover:bg-elevated'
                   }`}
-                  style={type === t ? { borderColor: config.color, color: config.color, backgroundColor: `${config.color}15` } : {}}
+                  style={type === entryType ? { borderColor: config.color, color: config.color, backgroundColor: `${config.color}15` } : {}}
                 >
                   <Icon size={16} />
-                  {config.label}
+                  {t(config.labelKey)}
                 </button>
               );
             })}
@@ -125,7 +127,7 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
       <div className="flex gap-4 items-start">
         {/* Avatar */}
         <div className="flex-shrink-0">
-          <label className="block text-sm text-text-muted mb-1.5">Avatar</label>
+          <label className="block text-sm text-text-muted mb-1.5">{t('codex.avatar')}</label>
           <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
           {avatar ? (
             <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-border group">
@@ -134,14 +136,14 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
                 <button
                   onClick={() => avatarInputRef.current?.click()}
                   className="p-1.5 bg-white/20 rounded-full hover:bg-white/30 transition"
-                  title="Change"
+                  title={t('common.change')}
                 >
                   <ImagePlus size={12} className="text-white" />
                 </button>
                 <button
                   onClick={() => setAvatar('')}
                   className="p-1.5 bg-white/20 rounded-full hover:bg-red-500/50 transition"
-                  title="Remove"
+                  title={t('common.remove')}
                 >
                   <X size={12} className="text-white" />
                 </button>
@@ -153,18 +155,18 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
               className="w-20 h-20 rounded-xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-1 text-text-muted hover:border-accent-gold/50 hover:text-accent-gold transition"
             >
               <ImagePlus size={20} />
-              <span className="text-[10px]">Image</span>
+              <span className="text-[10px]">{t('common.image')}</span>
             </button>
           )}
         </div>
 
         {/* Title */}
         <div className="flex-1">
-          <label className="block text-sm text-text-muted mb-1.5">Title</label>
+          <label className="block text-sm text-text-muted mb-1.5">{t('common.title')}</label>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Entry name..."
+            placeholder={t('codex.entryName')}
             className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition text-lg font-serif"
           />
         </div>
@@ -175,7 +177,7 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
         {Object.entries(fields).map(([key, value]) => (
           <div key={key}>
             <label className="block text-sm text-text-muted mb-1.5">
-              {FIELD_LABELS[key] || key}
+              {t(FIELD_LABEL_KEYS[key] || key)}
             </label>
             {key === 'backstory' || key === 'history' || key === 'physicalDescription' || key === 'personality' ? (
               <textarea
@@ -199,14 +201,14 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
       <div>
         <label className="flex items-center gap-2 text-sm text-text-muted mb-1.5">
           <BookOpen size={14} />
-          Extended Notes
+          {t('codex.extendedNotes')}
         </label>
-        <TiptapEditor content={content} onChange={setContent} placeholder="Write detailed notes, lore, story connections..." />
+        <TiptapEditor content={content} onChange={setContent} placeholder={t('codex.extendedNotesPlaceholder')} />
       </div>
 
       {/* Tags */}
       <div>
-        <label className="block text-sm text-text-muted mb-1.5">Tags</label>
+        <label className="block text-sm text-text-muted mb-1.5">{t('common.tags')}</label>
         <TagInput tags={tags} onChange={setTags} />
       </div>
 
@@ -216,13 +218,13 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
           onClick={handleSave}
           className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition"
         >
-          {entry ? 'Save Changes' : 'Create Entry'}
+          {entry ? t('codex.saveChanges') : t('codex.createEntry')}
         </button>
         <button
           onClick={onCancel}
           className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
       </div>
     </div>

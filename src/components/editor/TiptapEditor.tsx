@@ -3,6 +3,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
+import { useTranslation } from '@/i18n/useTranslation';
 import {
   Bold,
   Italic,
@@ -22,13 +23,15 @@ interface TiptapEditorProps {
   placeholder?: string;
 }
 
-export default function TiptapEditor({ content, onChange, placeholder = 'Start writing...' }: TiptapEditorProps) {
+export default function TiptapEditor({ content, onChange, placeholder }: TiptapEditorProps) {
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder ?? t('editor.placeholder');
   const editor = useEditor({
     extensions: [
       StarterKit,
       Link.configure({ openOnClick: false }),
       Image,
-      Placeholder.configure({ placeholder }),
+      Placeholder.configure({ placeholder: resolvedPlaceholder }),
     ],
     content,
     onUpdate: ({ editor }) => {
@@ -55,7 +58,7 @@ export default function TiptapEditor({ content, onChange, placeholder = 'Start w
   );
 
   const addLink = () => {
-    const url = prompt('Enter URL:');
+    const url = prompt(t('editor.enterUrl'));
     if (url) {
       editor.chain().focus().setLink({ href: url }).run();
     }

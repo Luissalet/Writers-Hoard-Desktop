@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from '@/i18n/useTranslation';
 import { generateId } from '@/utils/idGenerator';
 import type { VideoPlan } from '../types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
@@ -12,6 +13,7 @@ interface VideoPlannerEngineProps {
 }
 
 export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProps) {
+  const { t } = useTranslation();
   const { items: plans, loading: plansLoading, addItem: addPlan, removeItem: removePlan } = useVideoPlans(projectId);
   const [activePlanId, setActivePlanId] = useState<string | null>(null);
   const [showNewPlanForm, setShowNewPlanForm] = useState(false);
@@ -59,14 +61,14 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
       {/* Plan Selector */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="font-serif text-lg text-neutral-50">Video Plans</h3>
+          <h3 className="font-serif text-lg text-neutral-50">{t('videoPlanner.title')}</h3>
           {plans.length > 0 && (
             <button
               onClick={() => setShowNewPlanForm(!showNewPlanForm)}
               className="flex items-center gap-2 px-3 py-1.5 rounded bg-accent-gold text-deep font-medium hover:bg-accent-gold/90 transition-colors text-sm"
             >
               <Plus className="w-4 h-4" />
-              New Plan
+              {t('videoPlanner.newPlan')}
             </button>
           )}
         </div>
@@ -92,7 +94,7 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
                   }
                 }}
                 autoFocus
-                placeholder="Enter plan title..."
+                placeholder={t('videoPlanner.titlePlaceholder')}
                 className="w-full bg-deep border border-border rounded px-3 py-2 text-neutral-50 focus:border-accent-gold focus:outline-none"
               />
               <div className="flex gap-2 justify-end">
@@ -103,14 +105,14 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
                   }}
                   className="px-3 py-1.5 rounded border border-border text-neutral-300 hover:bg-surface transition-colors text-sm"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleCreatePlan}
                   disabled={!newPlanTitle.trim()}
                   className="px-3 py-1.5 rounded bg-accent-gold text-deep font-medium hover:bg-accent-gold/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
                 >
-                  Create
+                  {t('common.create')}
                 </button>
               </div>
             </motion.div>
@@ -120,13 +122,13 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
         {/* Plans list or empty state */}
         {plans.length === 0 ? (
           <div className="text-center py-8">
-            <p className="text-neutral-400 mb-4">No video plans yet.</p>
+            <p className="text-neutral-400 mb-4">{t('videoPlanner.noPlans')}</p>
             <button
               onClick={() => setShowNewPlanForm(true)}
               className="inline-flex items-center gap-2 px-4 py-2 rounded bg-accent-gold text-deep font-medium hover:bg-accent-gold/90 transition-colors"
             >
               <Plus className="w-4 h-4" />
-              Create Your First Plan
+              {t('videoPlanner.createFirst')}
             </button>
           </div>
         ) : (
@@ -155,7 +157,7 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
                     }}
                     className="px-2 py-1 rounded text-xs text-red-400 hover:bg-red-400/10 transition-colors"
                   >
-                    Delete
+                    {t('common.delete')}
                   </button>
                 </div>
               </button>

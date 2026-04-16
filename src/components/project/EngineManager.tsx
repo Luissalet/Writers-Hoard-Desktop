@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Grip, ChevronUp, ChevronDown } from 'lucide-react';
 import { getAllEngines } from '@/engines';
 import Modal from '@/components/common/Modal';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { Project } from '@/types';
 
 interface EngineManagerProps {
@@ -17,6 +18,7 @@ export default function EngineManager({
   project,
   onUpdate,
 }: EngineManagerProps) {
+  const { t } = useTranslation();
   const allEngines = getAllEngines();
   const [enabledIds, setEnabledIds] = useState<string[]>(
     project.enabledEngines || []
@@ -79,7 +81,7 @@ export default function EngineManager({
     <Modal
       open={open}
       onClose={onClose}
-      title="Engine Manager"
+      title={t('engines.manager')}
       wide={false}
     >
       <div className="space-y-6">
@@ -87,11 +89,11 @@ export default function EngineManager({
         <div>
           <h3 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
             <span className="w-2 h-2 bg-accent-gold rounded-full" />
-            Active Engines
+            {t('engines.active')}
           </h3>
           {order.length === 0 ? (
             <p className="text-sm text-text-dim text-center py-4">
-              No engines enabled. Add one below.
+              {t('engines.noActive')}
             </p>
           ) : (
             <div className="space-y-2 bg-elevated rounded-lg p-3">
@@ -121,7 +123,7 @@ export default function EngineManager({
                         onClick={() => moveUp(engineId)}
                         disabled={idx === 0}
                         className="p-1.5 rounded-lg text-text-muted hover:bg-elevated disabled:opacity-40 disabled:cursor-not-allowed transition"
-                        title="Move up"
+                        title={t('engines.moveUp')}
                       >
                         <ChevronUp size={14} />
                       </button>
@@ -129,7 +131,7 @@ export default function EngineManager({
                         onClick={() => moveDown(engineId)}
                         disabled={idx === order.length - 1}
                         className="p-1.5 rounded-lg text-text-muted hover:bg-elevated disabled:opacity-40 disabled:cursor-not-allowed transition"
-                        title="Move down"
+                        title={t('engines.moveDown')}
                       >
                         <ChevronDown size={14} />
                       </button>
@@ -139,7 +141,7 @@ export default function EngineManager({
                     <button
                       onClick={() => toggleEngine(engineId)}
                       className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 transition flex-shrink-0"
-                      title="Disable engine"
+                      title={t('engines.disable')}
                     >
                       <X size={14} />
                     </button>
@@ -155,7 +157,7 @@ export default function EngineManager({
           <div>
             <h3 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
               <span className="w-2 h-2 bg-text-dim rounded-full" />
-              Available Engines
+              {t('engines.available')}
             </h3>
             <div className="space-y-2 bg-elevated rounded-lg p-3 max-h-64 overflow-y-auto">
               {disabledEngines.map((engine) => {
@@ -176,7 +178,7 @@ export default function EngineManager({
                       </p>
                     </div>
                     <span className="text-xs px-2 py-1 rounded bg-accent-gold/10 text-accent-gold flex-shrink-0">
-                      Add
+                      {t('common.add')}
                     </span>
                   </button>
                 );
@@ -191,14 +193,14 @@ export default function EngineManager({
             onClick={onClose}
             className="px-4 py-2 rounded-lg bg-elevated text-text-primary hover:bg-elevated/80 transition text-sm font-medium"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
             className="px-4 py-2 rounded-lg bg-accent-gold text-surface hover:bg-accent-amber disabled:opacity-60 transition text-sm font-medium"
           >
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving ? t('common.saving') : t('common.save')}
           </button>
         </div>
       </div>

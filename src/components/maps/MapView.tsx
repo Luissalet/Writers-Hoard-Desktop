@@ -5,6 +5,7 @@ import type { MapPin } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
+import { useTranslation } from '@/i18n/useTranslation';
 
 const PIN_ICONS: Record<string, { icon: typeof MapPinIcon; color: string }> = {
   city: { icon: MapPinIcon, color: '#c4973b' },
@@ -30,6 +31,7 @@ interface MapViewProps {
 }
 
 export default function MapView({ projectId, mapId, backgroundImage, pins, onUploadBackground, onAddPin, onDeletePin }: MapViewProps) {
+  const { t } = useTranslation();
   const [placingPin, setPlacingPin] = useState(false);
   const [pinType, setPinType] = useState<MapPin['icon']>('city');
   const [showPinForm, setShowPinForm] = useState(false);
@@ -87,7 +89,7 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
           className="flex items-center gap-1.5 px-4 py-2 bg-elevated border border-border rounded-lg text-sm text-text-muted hover:text-text-primary transition"
         >
           <Upload size={16} />
-          {backgroundImage ? 'Change Map' : 'Upload Map Image'}
+          {backgroundImage ? t('maps.changeMap') : t('maps.uploadMapImage')}
         </button>
 
         {backgroundImage && (
@@ -102,7 +104,7 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
               }`}
             >
               <Plus size={16} />
-              {placingPin ? 'Click map to place pin...' : 'Add Pin'}
+              {placingPin ? t('maps.clickToPlace') : t('maps.addPin')}
             </button>
 
             {placingPin && (
@@ -130,9 +132,9 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
       {!backgroundImage ? (
         <EmptyState
           icon={<MapPinIcon size={40} />}
-          title="No map yet"
-          message="Upload an image of your world map to start placing pins and markers."
-          action={{ label: 'Upload Map', onClick: () => fileInputRef.current?.click() }}
+          title={t('maps.empty.title')}
+          message={t('maps.empty.message')}
+          action={{ label: t('maps.empty.action'), onClick: () => fileInputRef.current?.click() }}
         />
       ) : (
         <div className="rounded-xl overflow-hidden border border-border bg-deep">
@@ -175,7 +177,7 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
                               onClick={(e) => { e.stopPropagation(); onDeletePin(pin.id); }}
                               className="mt-1 text-xs text-danger hover:underline flex items-center gap-1"
                             >
-                              <Trash2 size={10} /> Remove
+                              <Trash2 size={10} /> {t('common.remove')}
                             </button>
                           </div>
                         )}
@@ -192,7 +194,7 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
       {/* Pin sidebar */}
       {pins.length > 0 && (
         <div className="bg-surface border border-border rounded-xl p-4">
-          <h4 className="font-serif font-bold text-accent-gold text-sm mb-3">Map Markers ({pins.length})</h4>
+          <h4 className="font-serif font-bold text-accent-gold text-sm mb-3">{t('maps.markers')} ({pins.length})</h4>
           <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
             {pins.map(pin => {
               const config = PIN_ICONS[pin.icon] || PIN_ICONS.custom;
@@ -215,34 +217,34 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
       )}
 
       {/* Pin creation modal */}
-      <Modal open={showPinForm} onClose={() => { setShowPinForm(false); setPendingPosition(null); }} title="New Map Pin">
+      <Modal open={showPinForm} onClose={() => { setShowPinForm(false); setPendingPosition(null); }} title={t('maps.newPin')}>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Name</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('common.name')}</label>
             <input
               value={pinName}
               onChange={(e) => setPinName(e.target.value)}
-              placeholder="Location name..."
+              placeholder={t('maps.locationName')}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
               autoFocus
             />
           </div>
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Description</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('common.description')}</label>
             <textarea
               value={pinDescription}
               onChange={(e) => setPinDescription(e.target.value)}
-              placeholder="Brief description..."
+              placeholder={t('maps.briefDescription')}
               rows={2}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition resize-none"
             />
           </div>
           <div className="flex gap-3 pt-2">
             <button onClick={handleSavePin} className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition">
-              Place Pin
+              {t('maps.placePin')}
             </button>
             <button onClick={() => { setShowPinForm(false); setPendingPosition(null); }} className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition">
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
         </div>

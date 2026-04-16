@@ -4,6 +4,7 @@ import Modal from '@/components/common/Modal';
 import ColorPicker from '@/components/common/ColorPicker';
 import IconPicker from '@/components/common/IconPicker';
 import { PROJECT_MODES, getAllEngines, getEnginesForMode, getSuggestedEnginesForMode } from '@/engines';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { Project, ProjectMode } from '@/types';
 
 interface CreateProjectModalProps {
@@ -21,6 +22,7 @@ interface FormState {
 }
 
 export default function CreateProjectModal({ open, onClose, onCreate }: CreateProjectModalProps) {
+  const { t } = useTranslation();
   const [creationStep, setCreationStep] = useState<'mode' | 'details'>('mode');
   const [selectedMode, setSelectedMode] = useState<ProjectMode | null>(null);
   const [enabledEngines, setEnabledEngines] = useState<string[]>([]);
@@ -85,12 +87,12 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
     <Modal
       open={open}
       onClose={handleResetCreate}
-      title={creationStep === 'mode' ? 'Choose Your Mode' : 'New Project'}
+      title={creationStep === 'mode' ? t('createProject.chooseMode') : t('createProject.newProject')}
     >
       {creationStep === 'mode' ? (
         // Step 1: Mode Selection
         <div className="space-y-6">
-          <p className="text-text-muted text-sm">Select your creative focus. You can always change this later.</p>
+          <p className="text-text-muted text-sm">{t('createProject.modeHint')}</p>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {PROJECT_MODES.map(modeConfig => {
               const IconComponent = modeConfig.icon;
@@ -126,7 +128,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
               onClick={handleResetCreate}
               className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
         </div>
@@ -134,11 +136,11 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
         // Step 2: Project Details
         <div className="space-y-5">
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Title</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('common.title')}</label>
             <input
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder="The name of your world..."
+              placeholder={t('createProject.titlePlaceholder')}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
               autoFocus
               onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
@@ -146,7 +148,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
           </div>
 
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Type</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('createProject.type')}</label>
             <div className="grid grid-cols-2 gap-2">
               {(['saga', 'standalone', 'collection', 'idea'] as const).map(type => (
                 <button
@@ -165,11 +167,11 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
           </div>
 
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Description</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('common.description')}</label>
             <textarea
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="A brief description..."
+              placeholder={t('createProject.descriptionPlaceholder')}
               rows={3}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition resize-none"
             />
@@ -177,14 +179,14 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
 
           <div className="flex gap-6">
             <div className="flex-1">
-              <label className="block text-sm text-text-muted mb-1.5">Color</label>
+              <label className="block text-sm text-text-muted mb-1.5">{t('createProject.color')}</label>
               <ColorPicker
                 value={form.color}
                 onChange={(color) => setForm({ ...form, color })}
               />
             </div>
             <div>
-              <label className="block text-sm text-text-muted mb-1.5">Icon</label>
+              <label className="block text-sm text-text-muted mb-1.5">{t('createProject.icon')}</label>
               <IconPicker
                 value={form.icon}
                 onChange={(icon) => setForm({ ...form, icon })}
@@ -195,12 +197,12 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
 
           {/* Engines Section */}
           <div className="bg-elevated border border-border rounded-lg p-4">
-            <h3 className="font-serif font-semibold text-text-primary mb-3 text-sm">Active Engines</h3>
+            <h3 className="font-serif font-semibold text-text-primary mb-3 text-sm">{t('createProject.activeEngines')}</h3>
             <div className="space-y-3">
               {/* Default engines */}
               {defaultEnginesForMode.length > 0 && (
                 <div>
-                  <p className="text-xs text-text-muted mb-2">Included with {selectedMode}</p>
+                  <p className="text-xs text-text-muted mb-2">{t('createProject.includedWith')} {selectedMode}</p>
                   <div className="flex flex-wrap gap-2">
                     {defaultEnginesForMode.map(engine => (
                       <button
@@ -229,7 +231,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
               {/* Suggested engines */}
               {suggestedEnginesForMode.length > 0 && (
                 <div>
-                  <p className="text-xs text-text-muted mb-2">Recommended for {selectedMode}</p>
+                  <p className="text-xs text-text-muted mb-2">{t('createProject.recommendedFor')} {selectedMode}</p>
                   <div className="flex flex-wrap gap-2">
                     {suggestedEnginesForMode.map(engine => (
                       <button
@@ -258,7 +260,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
               {/* Additional available engines */}
               {selectedMode === 'custom' && allAvailableEngines.length > 0 && (
                 <div>
-                  <p className="text-xs text-text-muted mb-2">All Available Engines</p>
+                  <p className="text-xs text-text-muted mb-2">{t('createProject.allEngines')}</p>
                   <div className="flex flex-wrap gap-2">
                     {allAvailableEngines.map(engine => (
                       <button
@@ -292,19 +294,19 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
               disabled={!form.title.trim() || enabledEngines.length === 0 || creating}
               className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {creating ? 'Creating...' : 'Create Project'}
+              {creating ? t('common.creating') : t('createProject.createButton')}
             </button>
             <button
               onClick={() => setCreationStep('mode')}
               className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition"
             >
-              Back
+              {t('common.back')}
             </button>
             <button
               onClick={handleResetCreate}
               className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
         </div>

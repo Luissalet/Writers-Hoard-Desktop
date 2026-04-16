@@ -6,8 +6,10 @@ import { getEnginesByIds } from '@/engines';
 import TopBar from '@/components/layout/TopBar';
 import EngineManager from '@/components/project/EngineManager';
 import { updateProject } from '@/db/operations';
+import { useTranslation } from '@/i18n/useTranslation';
 
 export default function ProjectDetail() {
+  const { t } = useTranslation();
   const { id, tab } = useParams<{ id: string; tab?: string }>();
   const { project, loading } = useProject(id);
   const [showEngineManager, setShowEngineManager] = useState(false);
@@ -59,7 +61,7 @@ export default function ProjectDetail() {
   if (!project) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-text-muted">Project not found</p>
+        <p className="text-text-muted">{t('project.notFound')}</p>
       </div>
     );
   }
@@ -98,7 +100,7 @@ export default function ProjectDetail() {
           <button
             onClick={() => setShowEngineManager(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-text-muted hover:text-text-primary transition"
-            title="Manage engines"
+            title={t('project.manageEngines')}
           >
             <Settings2 size={14} />
           </button>
@@ -107,10 +109,10 @@ export default function ProjectDetail() {
           <button
             onClick={handleExport}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-text-muted hover:text-text-primary transition"
-            title="Export project"
+            title={t('project.exportProject')}
           >
             <Download size={14} />
-            Export
+            {t('project.export')}
           </button>
         </div>
 
@@ -120,7 +122,7 @@ export default function ProjectDetail() {
             <activeEngine.component projectId={id!} />
           ) : (
             <div className="flex items-center justify-center h-full">
-              <p className="text-text-muted">No engines enabled</p>
+              <p className="text-text-muted">{t('project.noEngines')}</p>
             </div>
           )}
         </div>

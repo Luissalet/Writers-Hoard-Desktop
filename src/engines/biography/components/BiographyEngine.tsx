@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { BookUser, Plus, Trash2 } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import NewItemForm from '@/engines/_shared/components/NewItemForm';
@@ -9,6 +10,7 @@ import BiographyView from './BiographyView';
 import { generateId } from '@/utils/idGenerator';
 
 export default function BiographyEngine({ projectId }: EngineComponentProps) {
+  const { t } = useTranslation();
   const { items: biographies, loading, addItem: addBiography, editItem: editBiography, removeItem: removeBiography } = useBiographies(projectId);
   const [activeBiographyId, setActiveBiographyId] = useState<string>('');
   const [showNewBio, setShowNewBio] = useState(false);
@@ -66,7 +68,7 @@ export default function BiographyEngine({ projectId }: EngineComponentProps) {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
             <BookUser size={14} className="text-accent-gold" />
-            Your Biographies
+            {t('biography.yourBiographies')}
           </h3>
           {showNewBio ? (
             <NewItemForm
@@ -86,13 +88,13 @@ export default function BiographyEngine({ projectId }: EngineComponentProps) {
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-accent-gold/10 text-accent-gold rounded-lg hover:bg-accent-gold/20 transition"
             >
               <Plus size={13} />
-              New Biography
+              {t('biography.newBiography')}
             </button>
           )}
         </div>
 
         {biographies.length === 0 ? (
-          <p className="text-sm text-text-dim text-center py-4">No biographies yet. Create one to get started.</p>
+          <p className="text-sm text-text-dim text-center py-4">{t('biography.noBiographies')}</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
             {biographies.map((bio) => {
@@ -128,7 +130,7 @@ export default function BiographyEngine({ projectId }: EngineComponentProps) {
                     <button
                       onClick={async (e) => {
                         e.stopPropagation();
-                        if (confirm(`Delete biography of "${bio.subjectName}"? All facts will be lost.`)) {
+                        if (confirm(t('biography.deleteConfirm').replace('{name}', bio.subjectName))) {
                           await removeBiography(bio.id);
                           if (activeBiographyId === bio.id) {
                             const remaining = biographies.filter((b) => b.id !== bio.id);
@@ -137,7 +139,7 @@ export default function BiographyEngine({ projectId }: EngineComponentProps) {
                         }
                       }}
                       className="absolute top-1.5 right-1.5 p-1 rounded-full opacity-0 group-hover:opacity-100 text-text-dim hover:text-danger hover:bg-danger/10 transition"
-                      title="Delete biography"
+                      title={t('biography.deleteBiography')}
                     >
                       <Trash2 size={11} />
                     </button>

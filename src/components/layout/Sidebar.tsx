@@ -14,23 +14,25 @@ import {
   Feather,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
-
-const mainNav = [
-  { path: '/', icon: Home, label: 'Home' },
-];
-
-const projectNav = [
-  { path: 'writings', icon: PenLine, label: 'Writings' },
-  { path: 'codex', icon: BookOpen, label: 'Codex' },
-  { path: 'timeline', icon: Clock, label: 'Timeline' },
-  { path: 'maps', icon: Map, label: 'Maps' },
-  { path: 'yarn', icon: Network, label: 'Yarn Board' },
-  { path: 'gallery', icon: Image, label: 'Gallery' },
-  { path: 'links', icon: Link2, label: 'Links' },
-];
+import { useTranslation } from '@/i18n/useTranslation';
 
 export default function Sidebar() {
+  const { t } = useTranslation();
   const { sidebarOpen, toggleSidebar } = useAppStore();
+
+  const mainNav = [
+    { path: '/', icon: Home, label: t('sidebar.home') },
+  ];
+
+  const projectNav = [
+    { path: 'writings', icon: PenLine, label: t('sidebar.writings') },
+    { path: 'codex', icon: BookOpen, label: t('sidebar.codex') },
+    { path: 'timeline', icon: Clock, label: t('sidebar.timeline') },
+    { path: 'maps', icon: Map, label: t('sidebar.maps') },
+    { path: 'yarn', icon: Network, label: t('sidebar.yarnBoard') },
+    { path: 'gallery', icon: Image, label: t('sidebar.gallery') },
+    { path: 'links', icon: Link2, label: t('sidebar.links') },
+  ];
   const location = useLocation();
   const navigate = useNavigate();
   const { id: projectId } = useParams();
@@ -58,7 +60,7 @@ export default function Sidebar() {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.1 }}
           >
-            Writer's Hoard
+            {t('sidebar.brand')}
           </motion.span>
         )}
       </div>
@@ -85,7 +87,7 @@ export default function Sidebar() {
             <div className="pt-3 pb-1 px-3">
               {sidebarOpen && (
                 <span className="text-xs font-semibold text-text-dim uppercase tracking-wider">
-                  Project
+                  {t('sidebar.project')}
                 </span>
               )}
               {!sidebarOpen && <div className="border-t border-border" />}

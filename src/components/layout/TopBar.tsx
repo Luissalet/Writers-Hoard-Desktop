@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { Search, Settings } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useAiStore } from '@/stores/aiStore';
-import AiSettings from '@/components/settings/AiSettings';
+import { useLocaleStore } from '@/stores/localeStore';
+import { useTranslation } from '@/i18n/useTranslation';
+import SettingsModal from '@/components/settings/SettingsModal';
 
 interface TopBarProps {
   title?: string;
@@ -10,13 +12,16 @@ interface TopBarProps {
 }
 
 export default function TopBar({ title, subtitle }: TopBarProps) {
+  const { t } = useTranslation();
   const { setSearchOpen } = useAppStore();
   const { loadSettings } = useAiStore();
+  const { loadLocale } = useLocaleStore();
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     loadSettings();
-  }, [loadSettings]);
+    loadLocale();
+  }, [loadSettings, loadLocale]);
 
   return (
     <>
@@ -33,7 +38,7 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
           <button
             onClick={() => setShowSettings(true)}
             className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-elevated transition"
-            title="AI Settings"
+            title={t('topbar.settings')}
           >
             <Settings size={16} />
           </button>
@@ -42,7 +47,7 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
             className="flex items-center gap-2 px-3 py-1.5 bg-elevated border border-border rounded-lg text-text-muted text-sm hover:border-accent-gold/50 transition"
           >
             <Search size={14} />
-            <span>Search</span>
+            <span>{t('topbar.search')}</span>
             <kbd className="ml-2 px-1.5 py-0.5 bg-deep border border-border rounded text-[10px] font-mono">
               ⌘K
             </kbd>
@@ -50,7 +55,7 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
         </div>
       </header>
 
-      <AiSettings open={showSettings} onClose={() => setShowSettings(false)} />
+      <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
     </>
   );
 }

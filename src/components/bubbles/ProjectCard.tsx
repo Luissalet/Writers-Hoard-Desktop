@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { motion } from 'framer-motion';
 import { BookOpen, Library, Lightbulb, Layers, Trash2, Palette } from 'lucide-react';
 import { InlineIconPicker, resolveIcon } from '@/components/common/IconPicker';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { Project } from '@/types';
 
 const typeIcons = {
@@ -27,6 +28,7 @@ interface ProjectCardProps {
 }
 
 export default function ProjectCard({ project, onClick, onDelete, onColorChange, onIconChange, index }: ProjectCardProps) {
+  const { t } = useTranslation();
   const CustomIcon = resolveIcon(project.icon);
   const Icon = CustomIcon || typeIcons[project.type] || BookOpen;
   const colorInputRef = useRef<HTMLInputElement>(null);
@@ -93,7 +95,7 @@ export default function ProjectCard({ project, onClick, onDelete, onColorChange,
                   <button
                     onClick={(e) => { e.stopPropagation(); colorInputRef.current?.click(); }}
                     className="p-1.5 rounded-lg hover:bg-accent-gold/20 transition"
-                    title="Change color"
+                    title={t('projectCard.changeColor')}
                   >
                     <Palette size={14} className="text-accent-gold" />
                   </button>

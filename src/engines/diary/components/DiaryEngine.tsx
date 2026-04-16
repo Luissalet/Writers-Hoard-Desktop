@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { BookOpen, Plus, Search, Calendar, ChevronDown, ChevronRight } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import { useDiaryEntries } from '../hooks';
@@ -30,8 +31,8 @@ function formatDayHeader(iso: string): string {
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
 
-  if (d.toDateString() === today.toDateString()) return 'Today';
-  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  if (d.toDateString() === today.toDateString()) return '__TODAY__';
+  if (d.toDateString() === yesterday.toDateString()) return '__YESTERDAY__';
 
   return d.toLocaleDateString(undefined, {
     weekday: 'long',
@@ -46,6 +47,7 @@ function formatDayHeader(iso: string): string {
 // ---------------------------------------------------------------------------
 
 export default function DiaryEngine({ projectId }: EngineComponentProps) {
+  const { t } = useTranslation();
   const { items: entries, loading, addItem: addEntry, editItem: editEntry, removeItem: removeEntry } = useDiaryEntries(projectId);
 
   // null = timeline view, string = editing existing, 'new' = creating new full entry
@@ -171,7 +173,7 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
           className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium bg-accent-gold/10 text-accent-gold rounded-xl hover:bg-accent-gold/20 border border-accent-gold/20 transition whitespace-nowrap mt-0.5"
         >
           <Plus size={15} />
-          New Entry
+          {t('diary.newEntry')}
         </button>
       </div>
 
@@ -182,7 +184,7 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
           <input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search entries..."
+            placeholder={t('diary.searchEntries')}
             className="w-full pl-8 pr-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
           />
         </div>
@@ -193,7 +195,7 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
           onChange={(e) => setFilterMood(e.target.value as DiaryMood | '')}
           className="px-2.5 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition cursor-pointer"
         >
-          <option value="">All moods</option>
+          <option value="">{t('diary.allMoods')}</option>
           {Object.entries(MOOD_CONFIG).map(([key, cfg]) => (
             <option key={key} value={key}>
               {cfg.emoji} {cfg.label}
@@ -202,7 +204,7 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
         </select>
 
         <span className="text-xs text-text-dim whitespace-nowrap">
-          {filtered.length} entr{filtered.length === 1 ? 'y' : 'ies'}
+          {filtered.length} {filtered.length === 1 ? t('diary.entry.singular') : t('diary.entry.plural')}
         </span>
       </div>
 
@@ -212,8 +214,8 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
           <BookOpen size={36} className="mb-3 opacity-40" />
           <p className="text-sm">
             {entries.length === 0
-              ? 'No entries yet. Write a quick note above or create a full entry.'
-              : 'No entries match your search.'}
+              ? t('diary.noEntries')
+              : t('diary.noResults')}
           </p>
         </div>
       ) : (
@@ -235,7 +237,12 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
                   )}
                   <Calendar size={12} className="text-accent-gold" />
                   <span className="text-sm font-semibold text-text-primary">
-                    {formatDayHeader(day)}
+                    {(() => {
+                      const header = formatDayHeader(day);
+                      if (header === '__TODAY__') return t('diary.today');
+                      if (header === '__YESTERDAY__') return t('diary.yesterday');
+                      return header;
+                    })()}
                   </span>
                   <span className="text-xs text-text-dim">
                     ({dayEntries.length})

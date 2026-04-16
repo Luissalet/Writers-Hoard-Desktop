@@ -4,6 +4,7 @@
 
 import { useState, useMemo } from 'react';
 import { Grid3x3, List } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import { useSnapshots } from '../hooks';
@@ -14,6 +15,7 @@ import ManualSnapshotModal from './ManualSnapshotModal';
 type ViewMode = 'grid' | 'list';
 
 export default function ScrapperEngine({ projectId }: EngineComponentProps) {
+  const { t } = useTranslation();
   const { items: snapshots, loading, addItem: addSnapshot, editItem: editSnapshot, removeItem: removeSnapshot } =
     useSnapshots(projectId);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
@@ -48,7 +50,7 @@ export default function ScrapperEngine({ projectId }: EngineComponentProps) {
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search snapshots..."
+          placeholder={t('scrapper.searchSnapshots')}
           className="flex-1 px-3 py-1.5 bg-elevated border border-border rounded-lg text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent-gold"
         />
         <div className="flex items-center gap-1 bg-elevated border border-border rounded-lg p-1">
@@ -59,7 +61,7 @@ export default function ScrapperEngine({ projectId }: EngineComponentProps) {
                 ? 'bg-accent-gold text-black'
                 : 'text-muted hover:text-foreground'
             }`}
-            title="Grid view"
+            title={t('scrapper.gridView')}
           >
             <Grid3x3 size={16} />
           </button>
@@ -70,7 +72,7 @@ export default function ScrapperEngine({ projectId }: EngineComponentProps) {
                 ? 'bg-accent-gold text-black'
                 : 'text-muted hover:text-foreground'
             }`}
-            title="List view"
+            title={t('scrapper.listView')}
           >
             <List size={16} />
           </button>
@@ -97,12 +99,12 @@ export default function ScrapperEngine({ projectId }: EngineComponentProps) {
               </svg>
             </div>
             <h3 className="text-lg font-serif font-semibold text-foreground mb-2">
-              {searchQuery ? 'No results found' : 'No snapshots yet'}
+              {searchQuery ? t('scrapper.noResults') : t('scrapper.noSnapshots')}
             </h3>
             <p className="text-muted text-sm max-w-sm">
               {searchQuery
-                ? 'Try adjusting your search terms'
-                : 'Start capturing research content by pasting URLs above'}
+                ? t('scrapper.adjustSearch')
+                : t('scrapper.startCapturing')}
             </p>
           </div>
         ) : viewMode === 'grid' ? (
@@ -140,7 +142,7 @@ export default function ScrapperEngine({ projectId }: EngineComponentProps) {
                       onClick={(e) => e.stopPropagation()}
                       className="text-xs text-accent-gold hover:underline block truncate mt-1"
                     >
-                      {snapshot.url || 'Manual entry'}
+                      {snapshot.url || t('scrapper.manualEntry')}
                     </a>
                     {snapshot.notes && (
                       <p className="text-xs text-muted mt-2 line-clamp-1">{snapshot.notes}</p>

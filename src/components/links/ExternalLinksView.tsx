@@ -4,6 +4,7 @@ import type { ExternalLink, ExternalLinkType } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
+import { useTranslation } from '@/i18n/useTranslation';
 
 const typeConfig: Record<ExternalLinkType, { icon: typeof LinkIcon; color: string; label: string }> = {
   youtube: { icon: Play, color: '#c4463a', label: 'YouTube' },
@@ -37,6 +38,7 @@ interface ExternalLinksViewProps {
 }
 
 export default function ExternalLinksView({ projectId, links, onAdd, onDelete }: ExternalLinksViewProps) {
+  const { t } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ url: '', title: '', notes: '' });
   const [expandedYT, setExpandedYT] = useState<string | null>(null);
@@ -62,21 +64,21 @@ export default function ExternalLinksView({ projectId, links, onAdd, onDelete }:
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-serif font-bold text-accent-gold">External Links</h3>
+        <h3 className="text-lg font-serif font-bold text-accent-gold">{t('links.title')}</h3>
         <button
           onClick={() => setShowForm(true)}
           className="flex items-center gap-1.5 px-4 py-2 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
         >
-          <Plus size={16} /> Add Link
+          <Plus size={16} /> {t('links.addLink')}
         </button>
       </div>
 
       {links.length === 0 ? (
         <EmptyState
           icon={<LinkIcon size={40} />}
-          title="No links yet"
-          message="Add links to YouTube playlists, Google Docs, Instagram posts, and more."
-          action={{ label: 'Add Link', onClick: () => setShowForm(true) }}
+          title={t('links.empty.title')}
+          message={t('links.empty.message')}
+          action={{ label: t('links.addLink'), onClick: () => setShowForm(true) }}
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -116,7 +118,7 @@ export default function ExternalLinksView({ projectId, links, onAdd, onDelete }:
                         <button
                           onClick={() => setExpandedYT(expandedYT === link.id ? null : link.id)}
                           className="p-1.5 hover:bg-elevated rounded transition"
-                          title="Toggle player"
+                          title={t('links.togglePlayer')}
                         >
                           <Play size={14} className="text-yarn-red" />
                         </button>
@@ -126,7 +128,7 @@ export default function ExternalLinksView({ projectId, links, onAdd, onDelete }:
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1.5 hover:bg-elevated rounded transition"
-                        title="Open link"
+                        title={t('links.openLink')}
                       >
                         <LinkIcon size={14} className="text-text-muted" />
                       </a>
@@ -146,48 +148,48 @@ export default function ExternalLinksView({ projectId, links, onAdd, onDelete }:
       )}
 
       {/* Add Link Modal */}
-      <Modal open={showForm} onClose={() => setShowForm(false)} title="Add External Link">
+      <Modal open={showForm} onClose={() => setShowForm(false)} title={t('links.addModal.title')}>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">URL</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('common.url')}</label>
             <input
               value={form.url}
               onChange={(e) => setForm({ ...form, url: e.target.value })}
-              placeholder="https://..."
+              placeholder={t('links.urlPlaceholder')}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
               autoFocus
             />
             {form.url && (
               <span className="text-xs mt-1 inline-block px-2 py-0.5 rounded" style={{ color: typeConfig[detectLinkType(form.url)]?.color, backgroundColor: `${typeConfig[detectLinkType(form.url)]?.color}15` }}>
-                Detected: {typeConfig[detectLinkType(form.url)]?.label}
+                {t('links.detected')} {typeConfig[detectLinkType(form.url)]?.label}
               </span>
             )}
           </div>
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Title</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('common.title')}</label>
             <input
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder="Link title..."
+              placeholder={t('links.titlePlaceholder')}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
             />
           </div>
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Notes</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('common.notes')}</label>
             <textarea
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              placeholder="Personal notes about this link..."
+              placeholder={t('links.notesPlaceholder')}
               rows={2}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition resize-none"
             />
           </div>
           <div className="flex gap-3 pt-2">
             <button onClick={handleAdd} className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition">
-              Add Link
+              {t('links.addLink')}
             </button>
             <button onClick={() => setShowForm(false)} className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition">
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
         </div>

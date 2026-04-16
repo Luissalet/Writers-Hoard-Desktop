@@ -6,6 +6,7 @@ import type { InspirationImage, ImageCollection, CodexEntry, CodexEntryType } fr
 import { generateId } from '@/utils/idGenerator';
 import TagInput from '@/components/common/TagInput';
 import EmptyState from '@/components/common/EmptyState';
+import { useTranslation } from '@/i18n/useTranslation';
 
 const typeIcons: Record<CodexEntryType, typeof User> = {
   character: User,
@@ -50,6 +51,7 @@ export default function InspirationGallery({
   onAddCollection,
   onDeleteCollection,
 }: InspirationGalleryProps) {
+  const { t } = useTranslation();
   const [lightboxImage, setLightboxImage] = useState<InspirationImage | null>(null);
   const [filterTag, setFilterTag] = useState<string>('');
   const [filterEntryId, setFilterEntryId] = useState<string>('');
@@ -164,7 +166,7 @@ export default function InspirationGallery({
           }`}
         >
           <ImageIcon size={14} />
-          All Images
+          {t('gallery.allImages')}
           <span className="text-xs opacity-60 ml-1">({images.length})</span>
         </button>
 
@@ -186,7 +188,7 @@ export default function InspirationGallery({
               </button>
               <button
                 onClick={() => {
-                  if (confirm(`Delete album "${col.title}"? Images will be moved to All Images.`)) {
+                  if (confirm(t('gallery.deleteAlbumConfirm').replace('{name}', col.title))) {
                     // Move images to no collection before deleting
                     images.filter(img => img.collectionId === col.id).forEach(img => {
                       onEditImage(img.id, { collectionId: undefined });
@@ -196,7 +198,7 @@ export default function InspirationGallery({
                   }
                 }}
                 className="p-1 text-text-dim opacity-0 group-hover:opacity-100 hover:text-danger transition"
-                title="Delete album"
+                title={t('gallery.deleteAlbum')}
               >
                 <X size={12} />
               </button>
@@ -209,7 +211,7 @@ export default function InspirationGallery({
             <input
               value={newAlbumName}
               onChange={(e) => setNewAlbumName(e.target.value)}
-              placeholder="Album name..."
+              placeholder={t('gallery.albumName')}
               className="px-2 py-1 bg-elevated border border-border rounded text-sm text-text-primary outline-none focus:border-accent-gold w-32"
               autoFocus
               onKeyDown={(e) => { if (e.key === 'Enter') handleCreateAlbum(); if (e.key === 'Escape') setShowNewAlbum(false); }}
@@ -227,7 +229,7 @@ export default function InspirationGallery({
             className="flex items-center gap-1 px-2 py-1.5 text-text-muted hover:text-accent-gold transition text-sm"
           >
             <FolderPlus size={14} />
-            New Album
+            {t('gallery.newAlbum')}
           </button>
         )}
       </div>
@@ -239,7 +241,7 @@ export default function InspirationGallery({
         }`}>
           <input {...getInputProps()} />
           <Upload size={16} />
-          <span className="text-sm">{isDragActive ? 'Drop images here...' : 'Upload Images'}</span>
+          <span className="text-sm">{isDragActive ? t('gallery.dropImages') : t('gallery.uploadImages')}</span>
         </div>
 
         {allTags.length > 0 && (
@@ -248,7 +250,7 @@ export default function InspirationGallery({
               onClick={() => { setFilterTag(''); setFilterEntryId(''); }}
               className={`px-2.5 py-1 rounded text-xs transition ${!filterTag && !filterEntryId ? 'bg-accent-gold/20 text-accent-gold' : 'text-text-muted hover:text-text-primary'}`}
             >
-              All
+              {t('common.all')}
             </button>
             {allTags.map(tag => (
               <button
@@ -291,9 +293,9 @@ export default function InspirationGallery({
 
       {/* Upload tags */}
       <div className="flex items-center gap-2">
-        <span className="text-xs text-text-muted">Tags for uploads:</span>
+        <span className="text-xs text-text-muted">{t('gallery.tagsForUploads')}</span>
         <div className="flex-1">
-          <TagInput tags={uploadTags} onChange={setUploadTags} placeholder="Tag new uploads..." />
+          <TagInput tags={uploadTags} onChange={setUploadTags} placeholder={t('gallery.tagPlaceholder')} />
         </div>
       </div>
 
@@ -301,9 +303,9 @@ export default function InspirationGallery({
       {filtered.length === 0 ? (
         <EmptyState
           icon={<ImageIcon size={40} />}
-          title={activeCollectionId ? "Album is empty" : "No inspiration yet"}
-          message={activeCollectionId ? "Upload images or move them here from another album." : "Upload images to create your mood board and visual references."}
-          action={{ label: 'Upload Images', onClick: () => {} }}
+          title={activeCollectionId ? t('gallery.albumEmpty.title') : t('gallery.empty.title')}
+          message={activeCollectionId ? t('gallery.albumEmpty.message') : t('gallery.empty.message')}
+          action={{ label: t('gallery.uploadImages'), onClick: () => {} }}
         />
       ) : (
         <Masonry
@@ -360,7 +362,7 @@ export default function InspirationGallery({
                             setShowEntryPicker(true);
                           }}
                           className="p-1.5 bg-black/50 rounded hover:bg-accent-plum/70 transition"
-                          title="Link codex entries"
+                          title={t('gallery.linkEntries')}
                         >
                           <Tag size={14} className="text-white" />
                         </button>
@@ -372,9 +374,9 @@ export default function InspirationGallery({
                           onChange={(e) => handleMoveToAlbum(image.id, e.target.value || null)}
                           onClick={(e) => e.stopPropagation()}
                           className="text-[10px] bg-black/50 text-white/80 rounded px-1 py-0.5 outline-none border-0 max-w-[80px]"
-                          title="Move to album"
+                          title={t('gallery.moveToAlbum')}
                         >
-                          <option value="">No album</option>
+                          <option value="">{t('gallery.noAlbum')}</option>
                           {collections.map(col => (
                             <option key={col.id} value={col.id}>{col.title}</option>
                           ))}
@@ -407,7 +409,7 @@ export default function InspirationGallery({
                       <input
                         value={entrySearchQuery}
                         onChange={(e) => setEntrySearchQuery(e.target.value)}
-                        placeholder="Search entries..."
+                        placeholder={t('codex.searchEntries')}
                         className="flex-1 px-2 py-1 bg-elevated border border-border rounded text-xs text-text-primary outline-none focus:border-accent-gold"
                         autoFocus
                       />
@@ -438,7 +440,7 @@ export default function InspirationGallery({
                         );
                       })}
                       {filteredPickerEntries.length === 0 && (
-                        <p className="text-[10px] text-text-dim text-center py-2">No entries found</p>
+                        <p className="text-[10px] text-text-dim text-center py-2">{t('gallery.noEntriesFound')}</p>
                       )}
                     </div>
                   </div>
