@@ -10,7 +10,7 @@ export interface DragOptions {
 }
 
 export interface DragResult {
-  ref: React.RefObject<HTMLDivElement>;
+  ref: React.RefObject<HTMLDivElement | null>;
   start: (e: React.MouseEvent | React.TouchEvent) => void;
 }
 

@@ -6,7 +6,6 @@ import ProjectCard from '@/components/bubbles/ProjectCard';
 import EmptyState from '@/components/common/EmptyState';
 import TopBar from '@/components/layout/TopBar';
 import CreateProjectModal from '@/components/dashboard/CreateProjectModal';
-import { generateId } from '@/utils/idGenerator';
 import { importProjectData, importFullDatabase } from '@/db/operations';
 import { exportFullZip, importFullZip } from '@/services/zipBackup';
 import { t } from '@/i18n/useTranslation';

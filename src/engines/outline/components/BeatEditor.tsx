@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import type { OutlineBeat, BeatStatus } from '../types';
-import { BEAT_STATUS_CONFIG, BEAT_LEVEL_LABEL } from '../types';
 
 interface BeatEditorProps {
   beat: OutlineBeat;

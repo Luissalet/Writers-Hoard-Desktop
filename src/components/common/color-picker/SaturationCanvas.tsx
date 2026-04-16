@@ -11,7 +11,7 @@ export interface SaturationCanvasProps {
   saturation: number;
   value: number;
   currentColor: string;
-  canvasRef: React.RefObject<HTMLDivElement>;
+  canvasRef: React.RefObject<HTMLDivElement | null>;
   onMouseDown: (e: React.MouseEvent | React.TouchEvent) => void;
   onTouchStart: (e: React.TouchEvent) => void;
   size?: 'sm' | 'md';

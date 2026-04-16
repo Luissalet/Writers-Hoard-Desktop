@@ -3,7 +3,7 @@
  * Renders quick-access preset color buttons.
  */
 
-import React from 'react';
+// React import not needed with JSX transform
 
 export interface PresetGridProps {
   presets: string[];

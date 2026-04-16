@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import { makeEntityHook } from '@/engines/_shared';
 import * as ops from './operations';
 import type { WritingSession, WritingGoal, WritingStatsData } from './types';
@@ -37,7 +37,6 @@ export function useWritingStats(projectId: string): WritingStatsData {
     const todayStart = new Date(today);
     const last7Start = new Date(todayStart);
     last7Start.setDate(last7Start.getDate() - 6);
-    const last7StartStr = last7Start.toISOString().split('T')[0];
 
     // Today's stats
     const todaySessions = sessions.filter((s) => s.date === today);
@@ -46,7 +45,6 @@ export function useWritingStats(projectId: string): WritingStatsData {
 
     // All-time totals
     const totalWords = sessions.reduce((sum, s) => sum + s.wordCount, 0);
-    const totalSessions = sessions.length;
 
     // Average daily (only count days with writing)
     const daysWithWriting = new Set(sessions.map((s) => s.date));

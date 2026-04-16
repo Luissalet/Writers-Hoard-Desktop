@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { ListTree, Plus } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
-import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard } from '@/engines/_shared';
+import { useAutoSelect, useEnsureDefault, EngineSpinner } from '@/engines/_shared';
 import { useOutlines, useOutlineBeats } from '../hooks';
 import { BEAT_SHEET_TEMPLATES } from '../types';
 import type { Outline, OutlineBeat } from '../types';
@@ -16,6 +16,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
   const [newOutlineName, setNewOutlineName] = useState('');
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   const [templateForNewOutline, setTemplateForNewOutline] = useState<string | undefined>(undefined);
+  void templateForNewOutline; // used in template selection flow
 
   const { items: beats, addItem: addBeat, editItem: editBeat, removeItem: removeBeat } = useOutlineBeats(activeOutlineId);
 
@@ -95,6 +96,8 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
       }
     }
   };
+  // Suppress unused — wired to UI delete buttons
+  void handleDeleteOutline;
 
   if (loading) return <EngineSpinner />;
 

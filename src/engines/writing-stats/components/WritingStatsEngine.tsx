@@ -3,7 +3,7 @@ import { Play, Settings, Flame } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import { useWritingSessions, useWritingGoals, useWritingStats } from '../hooks';
-import { createSession } from '../operations';
+import type { WritingGoal } from '../types';
 import type { WritingSession } from '../types';
 import SprintTimer from './SprintTimer';
 import ProgressChart from './ProgressChart';
@@ -47,7 +47,7 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
   );
 
   const handleGoalSave = useCallback(
-    async (goal) => {
+    async (goal: WritingGoal) => {
       if (goal.id && goals.find((g) => g.id === goal.id)) {
         // Update existing
         await editGoal(goal.id, goal);

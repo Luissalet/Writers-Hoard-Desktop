@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical } from 'lucide-react';
 import type { OutlineBeat } from '../types';
-import { BEAT_STATUS_CONFIG, BEAT_LEVEL_INDENT, BEAT_LEVEL_LABEL } from '../types';
+import { BEAT_STATUS_CONFIG, BEAT_LEVEL_LABEL } from '../types';
 import BeatEditor from './BeatEditor';
 
 interface BeatListProps {

@@ -8,7 +8,7 @@ import { hsvToHex } from '@/utils/colorMath';
 
 export interface HueSliderProps {
   hue: number;
-  sliderRef: React.RefObject<HTMLDivElement>;
+  sliderRef: React.RefObject<HTMLDivElement | null>;
   onMouseDown: (e: React.MouseEvent | React.TouchEvent) => void;
   onTouchStart: (e: React.TouchEvent) => void;
   size?: 'sm' | 'md';
