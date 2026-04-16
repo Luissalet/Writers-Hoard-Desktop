@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus,
@@ -8,10 +8,12 @@ import {
   CheckCircle2,
   FileText,
   ArrowLeft,
-  ChevronRight,
   Hash,
   Cloud,
   ExternalLink,
+  ArrowRightLeft,
+  Copy,
+  X,
 } from 'lucide-react';
 import type { Writing, WritingStatus } from '@/types';
 import { generateId } from '@/utils/idGenerator';
@@ -125,6 +127,34 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
       setOpenWriting({ ...openWriting, status: newSt });
     }
   };
+
+  const handleDuplicate = (writing: Writing, targetStatus: WritingStatus) => {
+    onAdd({
+      ...writing,
+      id: generateId('wrt'),
+      status: targetStatus,
+      title: `${writing.title} (copia)`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      // Strip Google Doc link from copies
+      googleDocId: undefined,
+      googleDocUrl: undefined,
+      googleDocName: undefined,
+      lastSyncedAt: undefined,
+      syncDirection: undefined,
+      isGoogleDoc: undefined,
+    });
+  };
+
+  // Card action menu state — close on outside click
+  const [cardMenuId, setCardMenuId] = useState<string | null>(null);
+  const closeCardMenu = useCallback(() => setCardMenuId(null), []);
+  useEffect(() => {
+    if (!cardMenuId) return;
+    const handler = () => closeCardMenu();
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [cardMenuId, closeCardMenu]);
 
   const handleSynopsisUpdate = (synopsis: string) => {
     if (!openWriting) return;
@@ -430,26 +460,107 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
-                    {/* Move between statuses */}
-                    {writing.status !== 'finished' && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleStatusChange(writing.id, writing.status === 'idea' ? 'draft' : 'finished');
-                        }}
-                        className="p-1.5 hover:bg-elevated rounded transition"
-                        title={writing.status === 'idea' ? 'Move to Drafts' : 'Mark as Finished'}
-                      >
-                        <ChevronRight size={14} className="text-text-muted" />
-                      </button>
-                    )}
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition relative">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCardMenuId(cardMenuId === writing.id ? null : writing.id);
+                      }}
+                      className="p-1.5 hover:bg-elevated rounded-lg transition"
+                      title="Mover o copiar"
+                    >
+                      <ArrowRightLeft size={14} className="text-text-muted" />
+                    </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); onDelete(writing.id); }}
-                      className="p-1.5 hover:bg-danger/20 rounded transition"
+                      className="p-1.5 hover:bg-danger/20 rounded-lg transition"
                     >
                       <Trash2 size={14} className="text-danger" />
                     </button>
+
+                    {/* Status action popover */}
+                    {cardMenuId === writing.id && (
+                      <div
+                        className="absolute right-0 top-full mt-2 z-50 bg-surface border border-border/80 rounded-2xl shadow-2xl w-64 overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {/* Header */}
+                        <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                          <span className="text-xs font-semibold text-text-primary">Mover o copiar</span>
+                          <button
+                            onClick={() => setCardMenuId(null)}
+                            className="p-1 hover:bg-elevated rounded-lg transition"
+                          >
+                            <X size={12} className="text-text-dim" />
+                          </button>
+                        </div>
+
+                        {/* Move section */}
+                        <div className="px-4 pb-3">
+                          <p className="text-[10px] uppercase tracking-widest text-text-dim font-semibold mb-2">
+                            <ArrowRightLeft size={10} className="inline mr-1 -mt-px" />
+                            Mover a
+                          </p>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {(Object.entries(STATUS_CONFIG) as [WritingStatus, typeof STATUS_CONFIG['idea']][]).map(([st, stCfg]) => {
+                              const StIcon = stCfg.icon;
+                              const isCurrent = writing.status === st;
+                              return (
+                                <button
+                                  key={st}
+                                  disabled={isCurrent}
+                                  onClick={() => {
+                                    handleStatusChange(writing.id, st);
+                                    setCardMenuId(null);
+                                  }}
+                                  className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl text-[11px] transition ${
+                                    isCurrent
+                                      ? 'font-semibold ring-1'
+                                      : 'text-text-muted hover:bg-elevated'
+                                  }`}
+                                  style={isCurrent
+                                    ? { color: stCfg.color, backgroundColor: stCfg.bg, ringColor: `${stCfg.color}40` }
+                                    : {}
+                                  }
+                                >
+                                  <StIcon size={16} />
+                                  {stCfg.labelEs}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Divider */}
+                        <div className="border-t border-border/60 mx-4" />
+
+                        {/* Copy section */}
+                        <div className="px-4 pt-3 pb-4">
+                          <p className="text-[10px] uppercase tracking-widest text-text-dim font-semibold mb-2">
+                            <Copy size={10} className="inline mr-1 -mt-px" />
+                            Copiar a
+                          </p>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {(Object.entries(STATUS_CONFIG) as [WritingStatus, typeof STATUS_CONFIG['idea']][]).map(([st, stCfg]) => {
+                              const StIcon = stCfg.icon;
+                              return (
+                                <button
+                                  key={st}
+                                  onClick={() => {
+                                    handleDuplicate(writing, st);
+                                    setCardMenuId(null);
+                                  }}
+                                  className="flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl text-[11px] text-text-muted hover:bg-elevated transition"
+                                >
+                                  <StIcon size={16} />
+                                  {stCfg.labelEs}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </motion.button>
               );

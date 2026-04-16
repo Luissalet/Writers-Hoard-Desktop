@@ -20,19 +20,19 @@ export default function EngineManager({
 }: EngineManagerProps) {
   const { t } = useTranslation();
   const allEngines = getAllEngines();
-  const [enabledIds, setEnabledIds] = useState<string[]>(
-    project.enabledEngines || []
+  const [enabledIds, setEnabledIds] = useState<string[]>(() =>
+    [...new Set(project.enabledEngines || [])]
   );
-  const [order, setOrder] = useState<string[]>(
-    project.engineOrder || project.enabledEngines || []
+  const [order, setOrder] = useState<string[]>(() =>
+    [...new Set(project.engineOrder || project.enabledEngines || [])]
   );
   const [saving, setSaving] = useState(false);
 
-  // Sync state when modal opens
+  // Sync state when modal opens — deduplicate to heal any bad data
   useEffect(() => {
     if (open) {
-      setEnabledIds(project.enabledEngines || []);
-      setOrder(project.engineOrder || project.enabledEngines || []);
+      setEnabledIds([...new Set(project.enabledEngines || [])]);
+      setOrder([...new Set(project.engineOrder || project.enabledEngines || [])]);
     }
   }, [open, project]);
 
@@ -43,8 +43,8 @@ export default function EngineManager({
         setOrder((o) => o.filter((id) => id !== engineId));
         return prev.filter((id) => id !== engineId);
       } else {
-        // Enable: add to end of order
-        setOrder((o) => [...o, engineId]);
+        // Enable: add to end of order (guard against duplicates)
+        setOrder((o) => o.includes(engineId) ? o : [...o, engineId]);
         return [...prev, engineId];
       }
     });
@@ -69,7 +69,10 @@ export default function EngineManager({
   const handleSave = async () => {
     setSaving(true);
     try {
-      await onUpdate(enabledIds, order);
+      // Deduplicate before persisting as a safety net
+      const uniqueEnabled = [...new Set(enabledIds)];
+      const uniqueOrder = [...new Set(order)];
+      await onUpdate(uniqueEnabled, uniqueOrder);
     } finally {
       setSaving(false);
     }

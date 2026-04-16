@@ -14,10 +14,24 @@ export default function ProjectDetail() {
   const { project, loading, refresh } = useProject(id);
   const [showEngineManager, setShowEngineManager] = useState(false);
 
-  // Get enabled engines from project
-  const engines = project
-    ? getEnginesByIds(project.engineOrder || project.enabledEngines || [])
-    : [];
+  // Get enabled engines from project — deduplicate to heal any corrupt data
+  const rawOrder = project?.engineOrder || project?.enabledEngines || [];
+  const rawEnabled = project?.enabledEngines || [];
+  const engineIds = [...new Set(rawOrder)];
+  const engines = getEnginesByIds(engineIds);
+
+  // Auto-heal: if duplicates detected in DB, clean them up silently
+  useEffect(() => {
+    if (!project || !id) return;
+    const hasDuplicateOrder = rawOrder.length !== new Set(rawOrder).size;
+    const hasDuplicateEnabled = rawEnabled.length !== new Set(rawEnabled).size;
+    if (hasDuplicateOrder || hasDuplicateEnabled) {
+      updateProject(id, {
+        enabledEngines: [...new Set(rawEnabled)],
+        engineOrder: [...new Set(rawOrder)],
+      }).then(() => refresh());
+    }
+  }, [project, id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Active tab state
   const [activeEngineId, setActiveEngineId] = useState<string>('');
