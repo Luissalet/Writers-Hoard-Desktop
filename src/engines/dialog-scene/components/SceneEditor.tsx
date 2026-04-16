@@ -18,7 +18,7 @@ import {
 } from '@dnd-kit/sortable';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { Scene, DialogBlock, SceneCast } from '../types';
+import type { Scene, DialogBlock, DialogBlockType, BlockFormatting, SceneCast } from '../types';
 import { useDialogBlocks, useSceneCast } from '../hooks';
 import CastBar from './CastBar';
 import DialogBlockComponent from './DialogBlockComponent';
@@ -33,10 +33,12 @@ interface SceneEditorProps {
 function SortableBlockWrapper({
   block,
   onUpdate,
+  onUpdateFormatting,
   onDelete,
 }: {
   block: DialogBlock;
   onUpdate: (content: string, parenthetical?: string) => void;
+  onUpdateFormatting: (formatting: BlockFormatting) => void;
   onDelete: () => void;
 }) {
   const { listeners, setNodeRef, transform, isDragging } = useSortable({
@@ -52,6 +54,7 @@ function SortableBlockWrapper({
       <DialogBlockComponent
         block={block}
         onUpdate={onUpdate}
+        onUpdateFormatting={onUpdateFormatting}
         onDelete={onDelete}
         isDragging={isDragging}
         dragHandleProps={listeners}
@@ -106,13 +109,13 @@ export default function SceneEditor({
     await addBlock(block);
   };
 
-  const handleAddStageDirection = async () => {
+  const handleAddBlockType = async (type: DialogBlockType) => {
     const nextOrder = blocks.length > 0 ? Math.max(...blocks.map((b) => b.order)) + 1 : 0;
     const block: DialogBlock = {
       id: generateId('block'),
       sceneId: scene.id,
       projectId: scene.projectId,
-      type: 'stage-direction',
+      type,
       characterName: '',
       characterColor: '',
       content: '',
@@ -256,6 +259,9 @@ export default function SceneEditor({
                         onUpdate={(content, parenthetical) => {
                           editBlock(block.id, { content, parenthetical });
                         }}
+                        onUpdateFormatting={(formatting) => {
+                          editBlock(block.id, { formatting });
+                        }}
                         onDelete={() => removeBlock(block.id)}
                       />
                     ))}
@@ -300,12 +306,43 @@ export default function SceneEditor({
                     </div>
                   </div>
                 )}
-                <button
-                  onClick={handleAddStageDirection}
-                  className="w-full px-3 py-2 text-xs bg-elevated border border-border rounded hover:border-accent-gold/40 transition text-text-muted hover:text-text-primary"
-                >
-                  + Stage Direction
-                </button>
+                <div>
+                  <p className="text-xs text-text-muted mb-2 font-semibold">
+                    Elements:
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <button
+                      onClick={() => handleAddBlockType('stage-direction')}
+                      className="px-3 py-2 text-xs bg-elevated border border-border rounded hover:border-accent-gold/40 transition text-text-muted hover:text-text-primary text-left"
+                    >
+                      + Stage Direction
+                    </button>
+                    <button
+                      onClick={() => handleAddBlockType('action')}
+                      className="px-3 py-2 text-xs bg-elevated border border-border rounded hover:border-accent-gold/40 transition text-text-muted hover:text-text-primary text-left"
+                    >
+                      + Action
+                    </button>
+                    <button
+                      onClick={() => handleAddBlockType('transition')}
+                      className="px-3 py-2 text-xs bg-elevated border border-border rounded hover:border-accent-gold/40 transition text-text-muted hover:text-text-primary text-left"
+                    >
+                      + Transition
+                    </button>
+                    <button
+                      onClick={() => handleAddBlockType('slug')}
+                      className="px-3 py-2 text-xs bg-elevated border border-border rounded hover:border-accent-gold/40 transition text-text-muted hover:text-text-primary text-left"
+                    >
+                      + Scene Heading
+                    </button>
+                    <button
+                      onClick={() => handleAddBlockType('note')}
+                      className="px-3 py-2 text-xs bg-elevated border border-border rounded hover:border-accent-gold/40 transition text-text-muted hover:text-text-primary text-left"
+                    >
+                      + Note
+                    </button>
+                  </div>
+                </div>
                 <button
                   onClick={() => setShowAddMenu(false)}
                   className="w-full px-3 py-2 text-xs bg-border/20 border border-border rounded hover:bg-border/30 transition text-text-muted"

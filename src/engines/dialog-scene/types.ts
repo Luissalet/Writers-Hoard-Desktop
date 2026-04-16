@@ -10,17 +10,31 @@ export interface Scene {
   updatedAt: number;
 }
 
+export type DialogBlockType =
+  | 'dialog'
+  | 'stage-direction'
+  | 'action'
+  | 'transition'
+  | 'note'
+  | 'slug';
+
+export interface BlockFormatting {
+  fontFamily?: 'serif' | 'sans' | 'mono';
+  fontSize?: 'xs' | 'sm' | 'base' | 'lg';
+}
+
 export interface DialogBlock {
   id: string;
   sceneId: string;
   projectId: string;
-  type: 'dialog' | 'stage-direction' | 'note' | 'action';
+  type: DialogBlockType;
   characterId?: string;
   characterName: string;
   characterColor: string;
   content: string;
   order: number;
   parenthetical?: string;
+  formatting?: BlockFormatting;
   createdAt: number;
   updatedAt: number;
 }

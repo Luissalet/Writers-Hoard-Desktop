@@ -1,25 +1,155 @@
-import { Trash2, GripVertical } from 'lucide-react';
-import { motion } from 'framer-motion';
-import type { DialogBlock } from '../types';
+import { useState } from 'react';
+import { Trash2, GripVertical, Type, ChevronDown } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import type { DialogBlock, BlockFormatting } from '../types';
 
 interface DialogBlockComponentProps {
   block: DialogBlock;
   onUpdate: (content: string, parenthetical?: string) => void;
+  onUpdateFormatting: (formatting: BlockFormatting) => void;
   onDelete: () => void;
   isDragging?: boolean;
   dragHandleProps?: any;
 }
 
+const FONT_FAMILIES: { key: BlockFormatting['fontFamily']; label: string; cls: string }[] = [
+  { key: 'serif', label: 'Serif', cls: 'font-serif' },
+  { key: 'sans', label: 'Sans', cls: 'font-sans' },
+  { key: 'mono', label: 'Mono', cls: 'font-mono' },
+];
+
+const FONT_SIZES: { key: BlockFormatting['fontSize']; label: string; cls: string }[] = [
+  { key: 'xs', label: '10', cls: 'text-xs' },
+  { key: 'sm', label: '12', cls: 'text-sm' },
+  { key: 'base', label: '14', cls: 'text-base' },
+  { key: 'lg', label: '16', cls: 'text-lg' },
+];
+
+function fontCls(f?: BlockFormatting) {
+  const family = FONT_FAMILIES.find((ff) => ff.key === (f?.fontFamily ?? 'serif'))?.cls ?? 'font-serif';
+  const size = FONT_SIZES.find((fs) => fs.key === (f?.fontSize ?? 'sm'))?.cls ?? 'text-sm';
+  return `${family} ${size}`;
+}
+
+function FormatToolbar({
+  formatting,
+  onChange,
+}: {
+  formatting?: BlockFormatting;
+  onChange: (f: BlockFormatting) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = { fontFamily: formatting?.fontFamily ?? 'serif', fontSize: formatting?.fontSize ?? 'sm' };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 p-1 text-text-dim hover:text-text-muted rounded transition"
+        title="Text format"
+      >
+        <Type size={12} />
+        <ChevronDown size={10} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className="absolute top-full right-0 mt-1 z-20 bg-elevated border border-border rounded-lg p-3 shadow-xl min-w-[160px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-[10px] text-text-dim mb-1.5 font-semibold uppercase tracking-wide">Font</p>
+            <div className="flex gap-1 mb-3">
+              {FONT_FAMILIES.map((ff) => (
+                <button
+                  key={ff.key}
+                  onClick={() => { onChange({ ...current, fontFamily: ff.key }); }}
+                  className={`px-2 py-1 text-xs rounded transition ${
+                    current.fontFamily === ff.key
+                      ? 'bg-accent-gold/20 text-accent-gold border border-accent-gold/40'
+                      : 'border border-border text-text-muted hover:text-text-primary'
+                  } ${ff.cls}`}
+                >
+                  {ff.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-text-dim mb-1.5 font-semibold uppercase tracking-wide">Size</p>
+            <div className="flex gap-1">
+              {FONT_SIZES.map((fs) => (
+                <button
+                  key={fs.key}
+                  onClick={() => { onChange({ ...current, fontSize: fs.key }); }}
+                  className={`px-2 py-1 text-xs rounded transition ${
+                    current.fontSize === fs.key
+                      ? 'bg-accent-gold/20 text-accent-gold border border-accent-gold/40'
+                      : 'border border-border text-text-muted hover:text-text-primary'
+                  }`}
+                >
+                  {fs.label}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── Block type labels & styling ───
+
+const BLOCK_META: Record<
+  string,
+  { label: string; wrapCls: string; textCls: string; align: string }
+> = {
+  'stage-direction': {
+    label: 'STAGE DIRECTION',
+    wrapCls: 'bg-elevated/50',
+    textCls: 'italic text-text-muted',
+    align: 'text-center',
+  },
+  action: {
+    label: 'ACTION',
+    wrapCls: 'bg-elevated/30',
+    textCls: 'text-text-primary',
+    align: 'text-left',
+  },
+  transition: {
+    label: 'TRANSITION',
+    wrapCls: 'bg-elevated/30 border-r-4 border-r-accent-gold/40',
+    textCls: 'uppercase font-semibold text-text-muted tracking-wide',
+    align: 'text-right',
+  },
+  note: {
+    label: 'NOTE',
+    wrapCls: 'bg-amber-950/20 border-l-4 border-l-amber-500/40',
+    textCls: 'text-amber-200/80 italic',
+    align: 'text-left',
+  },
+  slug: {
+    label: 'SCENE HEADING',
+    wrapCls: 'bg-elevated/40',
+    textCls: 'uppercase font-bold text-text-primary tracking-wider',
+    align: 'text-left',
+  },
+};
+
 export default function DialogBlockComponent({
   block,
   onUpdate,
+  onUpdateFormatting,
   onDelete,
   isDragging,
   dragHandleProps,
 }: DialogBlockComponentProps) {
-  const isStageDirection = block.type === 'stage-direction';
+  const isDialog = block.type === 'dialog';
+  const meta = BLOCK_META[block.type];
 
-  if (isStageDirection) {
+  // ─── Non-dialog block types (stage-direction, action, transition, note, slug) ───
+  if (!isDialog && meta) {
     return (
       <motion.div
         layout
@@ -29,29 +159,48 @@ export default function DialogBlockComponent({
         className="group relative mb-3"
       >
         <div
-          className={`rounded-lg border border-border px-4 py-3 bg-elevated/50 transition ${
+          className={`rounded-lg border border-border px-4 py-3 transition ${meta.wrapCls} ${
             isDragging ? 'opacity-50' : ''
           }`}
         >
-          <div className="flex items-start gap-2">
-            <div className="flex-1">
-              <p className="text-sm italic text-text-muted text-center">
-                {block.content}
-              </p>
+          {/* Header row */}
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-text-dim/60">
+              {meta.label}
+            </span>
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+              <FormatToolbar formatting={block.formatting} onChange={onUpdateFormatting} />
+              <button
+                {...dragHandleProps}
+                className="p-1 text-text-dim hover:text-text-primary cursor-grab active:cursor-grabbing transition"
+                title="Drag to reorder"
+              >
+                <GripVertical size={14} />
+              </button>
+              <button
+                onClick={onDelete}
+                className="p-1 text-text-dim hover:text-danger hover:bg-danger/10 rounded transition"
+                title="Delete block"
+              >
+                <Trash2 size={14} />
+              </button>
             </div>
-            <button
-              onClick={onDelete}
-              className="opacity-0 group-hover:opacity-100 p-1 text-text-dim hover:text-danger hover:bg-danger/10 rounded transition flex-shrink-0"
-              title="Delete block"
-            >
-              <Trash2 size={14} />
-            </button>
           </div>
+
+          {/* Editable content */}
+          <textarea
+            value={block.content}
+            onChange={(e) => onUpdate(e.target.value)}
+            className={`w-full bg-transparent resize-none focus:outline-none border-none p-0 leading-relaxed ${meta.textCls} ${meta.align} ${fontCls(block.formatting)}`}
+            rows={Math.max(1, Math.ceil(block.content.length / 60))}
+            placeholder={`Enter ${meta.label.toLowerCase()}...`}
+          />
         </div>
       </motion.div>
     );
   }
 
+  // ─── Dialog block ───
   return (
     <motion.div
       layout
@@ -78,6 +227,7 @@ export default function DialogBlockComponent({
             {block.characterName}
           </span>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+            <FormatToolbar formatting={block.formatting} onChange={onUpdateFormatting} />
             <button
               {...dragHandleProps}
               className="p-1 text-text-dim hover:text-text-primary cursor-grab active:cursor-grabbing transition"
@@ -105,7 +255,7 @@ export default function DialogBlockComponent({
           <textarea
             value={block.content}
             onChange={(e) => onUpdate(e.target.value, block.parenthetical)}
-            className="w-full bg-elevated text-text-primary text-sm resize-none focus:outline-none border-none p-0 font-serif leading-relaxed"
+            className={`w-full bg-elevated text-text-primary resize-none focus:outline-none border-none p-0 leading-relaxed ${fontCls(block.formatting)}`}
             rows={Math.max(2, Math.ceil(block.content.length / 60))}
             placeholder="Enter dialog..."
           />

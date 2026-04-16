@@ -39,30 +39,31 @@ import { toPng } from 'html-to-image';
 import { generateId } from '@/utils/idGenerator';
 import { InlineColorPicker } from '@/components/common/ColorPicker';
 import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
+import { useTranslation } from '@/i18n/useTranslation';
 import { nodeTypes } from './nodes';
 import type { YarnNode, YarnEdge, YarnNodeType, YarnEdgeDirection } from '@/types';
 
-const YARN_COLORS = {
-  red: { color: '#c4463a', label: 'Conflict' },
-  green: { color: '#4a9e6d', label: 'Alliance' },
-  blue: { color: '#4a7ec4', label: 'Romance' },
-  yellow: { color: '#d4a843', label: 'Mystery' },
-  plum: { color: '#7c5cbf', label: 'Other' },
+const YARN_COLORS_CONFIG = {
+  red: { color: '#c4463a', key: 'yarn.color.conflict' },
+  green: { color: '#4a9e6d', key: 'yarn.color.alliance' },
+  blue: { color: '#4a7ec4', key: 'yarn.color.romance' },
+  yellow: { color: '#d4a843', key: 'yarn.color.mystery' },
+  plum: { color: '#7c5cbf', key: 'yarn.color.other' },
 };
 
 const SEMANTIC_NODE_CONFIG = {
-  character: { icon: User, label: 'Character', color: '#c4973b' },
-  event: { icon: Zap, label: 'Event', color: '#4a7ec4' },
-  concept: { icon: Lightbulb, label: 'Concept', color: '#7c5cbf' },
-  note: { icon: StickyNote, label: 'Note', color: '#4a9e6d' },
+  character: { icon: User, key: 'yarn.node.character', color: '#c4973b' },
+  event: { icon: Zap, key: 'yarn.node.event', color: '#4a7ec4' },
+  concept: { icon: Lightbulb, key: 'yarn.node.concept', color: '#7c5cbf' },
+  note: { icon: StickyNote, key: 'yarn.node.note', color: '#4a9e6d' },
 };
 
 const CANVAS_NODE_CONFIG = {
-  postit: { icon: StickyNote, label: 'Post-it', color: '#fef3c7' },
-  image: { icon: ImageIcon, label: 'Image', color: '#d4a843' },
-  text: { icon: Type, label: 'Text', color: '#8a8690' },
-  shape: { icon: Square, label: 'Shape', color: '#c4973b' },
-  group: { icon: Grid3x3, label: 'Group', color: '#4a7ec4' },
+  postit: { icon: StickyNote, key: 'yarn.node.postit', color: '#fef3c7' },
+  image: { icon: ImageIcon, key: 'yarn.node.image', color: '#d4a843' },
+  text: { icon: Type, key: 'yarn.node.text', color: '#8a8690' },
+  shape: { icon: Square, key: 'yarn.node.shape', color: '#c4973b' },
+  group: { icon: Grid3x3, key: 'yarn.node.group', color: '#4a7ec4' },
 };
 
 interface YarnBoardProps {
@@ -88,6 +89,7 @@ function NodeEditModal({
   onSave: (changes: Partial<YarnNode>) => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState(node.title);
   const [content, setContent] = useState(node.content);
   const [nodeType, setNodeType] = useState(node.type);
@@ -152,7 +154,7 @@ function NodeEditModal({
       >
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-serif font-bold text-lg text-[#e8e5e0]">
-            Edit {nodeType.charAt(0).toUpperCase() + nodeType.slice(1)}
+            {t('yarn.editNode').replace('{type}', t(`yarn.node.${nodeType}`))}
           </h3>
           <button
             onClick={onClose}
@@ -166,7 +168,7 @@ function NodeEditModal({
           {/* Type selector for semantic types */}
           {isSemanticType && (
             <div>
-              <label className="block text-sm text-[#8a8690] mb-1.5">Type</label>
+              <label className="block text-sm text-[#8a8690] mb-1.5">{t('yarn.type')}</label>
               <div className="flex gap-2">
                 {(
                   Object.entries(SEMANTIC_NODE_CONFIG) as [
@@ -198,7 +200,7 @@ function NodeEditModal({
                       }
                     >
                       <TypeIcon size={13} />
-                      {cfg.label}
+                      {t(cfg.key)}
                     </button>
                   );
                 })}
@@ -209,7 +211,7 @@ function NodeEditModal({
           {/* Image upload for semantic/image types */}
           {(isSemanticType || nodeType === 'image') && (
             <div>
-              <label className="block text-sm text-[#8a8690] mb-1.5">Image</label>
+              <label className="block text-sm text-[#8a8690] mb-1.5">{t('yarn.image')}</label>
               <div className="flex items-center gap-3">
                 {image ? (
                   <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-[#2a2a3a] cursor-pointer" onClick={() => setPendingImage(imageOriginal || image)}>
@@ -227,7 +229,7 @@ function NodeEditModal({
                     className="w-20 h-20 rounded-lg border-2 border-dashed border-[#2a2a3a] flex flex-col items-center justify-center gap-1 text-[#8a8690] hover:border-[#c4973b]/50 hover:text-[#c4973b] transition"
                   >
                     <ImagePlus size={18} />
-                    <span className="text-[10px]">Add</span>
+                    <span className="text-[10px]">{t('yarn.addImage')}</span>
                   </button>
                 )}
                 <input
@@ -242,7 +244,7 @@ function NodeEditModal({
                     onClick={() => fileInputRef.current?.click()}
                     className="text-xs text-[#8a8690] hover:text-[#c4973b] transition"
                   >
-                    Change
+                    {t('yarn.changeImage')}
                   </button>
                 )}
               </div>
@@ -251,7 +253,7 @@ function NodeEditModal({
 
           {/* Title */}
           <div>
-            <label className="block text-sm text-[#8a8690] mb-1.5">Title</label>
+            <label className="block text-sm text-[#8a8690] mb-1.5">{t('yarn.title')}</label>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -263,13 +265,13 @@ function NodeEditModal({
           {/* Content for semantic and text types */}
           {(isSemanticType || nodeType === 'text') && (
             <div>
-              <label className="block text-sm text-[#8a8690] mb-1.5">Content</label>
+              <label className="block text-sm text-[#8a8690] mb-1.5">{t('yarn.content')}</label>
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 rows={3}
                 className="w-full px-3 py-2 bg-[#1a1a25] border border-[#2a2a3a] rounded-lg text-[#e8e5e0] outline-none focus:border-[#c4973b] transition resize-none text-sm"
-                placeholder="Description, notes..."
+                placeholder={t('yarn.contentPlaceholder')}
               />
             </div>
           )}
@@ -277,7 +279,7 @@ function NodeEditModal({
           {/* Shape selector for shape type */}
           {nodeType === 'shape' && (
             <div>
-              <label className="block text-sm text-[#8a8690] mb-1.5">Shape</label>
+              <label className="block text-sm text-[#8a8690] mb-1.5">{t('yarn.shape')}</label>
               <div className="flex gap-2">
                 {['rectangle', 'circle', 'diamond', 'pill'].map((s) => (
                   <button
@@ -295,7 +297,7 @@ function NodeEditModal({
                     {s === 'circle' && <Circle size={13} />}
                     {s === 'diamond' && <Diamond size={13} />}
                     {s === 'pill' && <Pill size={13} />}
-                    {s}
+                    {t(`yarn.shape.${s}`)}
                   </button>
                 ))}
               </div>
@@ -304,7 +306,7 @@ function NodeEditModal({
 
           {/* Color picker */}
           <div>
-            <label className="block text-sm text-[#8a8690] mb-1.5">Color</label>
+            <label className="block text-sm text-[#8a8690] mb-1.5">{t('yarn.color')}</label>
             <InlineColorPicker value={color} onChange={setColor} />
           </div>
 
@@ -314,13 +316,13 @@ function NodeEditModal({
               onClick={handleSave}
               className="flex-1 py-2.5 bg-[#c4973b] text-[#07070d] font-semibold rounded-lg hover:bg-[#e4a853] transition"
             >
-              Save
+              {t('yarn.save')}
             </button>
             <button
               onClick={onClose}
               className="px-6 py-2.5 border border-[#2a2a3a] text-[#8a8690] rounded-lg hover:bg-[#1a1a25] transition"
             >
-              Cancel
+              {t('yarn.cancel')}
             </button>
           </div>
         </div>
@@ -350,6 +352,7 @@ function EdgeEditModal({
   onDelete: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [label, setLabel] = useState(edge.label || '');
   const [color, setColor] = useState(edge.color);
   const [style, setStyle] = useState(edge.style);
@@ -374,7 +377,7 @@ function EdgeEditModal({
       >
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-serif font-bold text-lg text-[#e8e5e0]">
-            Edit Connection
+            {t('yarn.editConnection')}
           </h3>
           <button
             onClick={onClose}
@@ -387,26 +390,26 @@ function EdgeEditModal({
         <div className="space-y-4">
           {/* Label */}
           <div>
-            <label className="block text-sm text-[#8a8690] mb-1.5">Label</label>
+            <label className="block text-sm text-[#8a8690] mb-1.5">{t('yarn.label')}</label>
             <input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               className="w-full px-3 py-2 bg-[#1a1a25] border border-[#2a2a3a] rounded-lg text-[#e8e5e0] outline-none focus:border-[#c4973b] transition text-sm"
-              placeholder="Relationship type..."
+              placeholder={t('yarn.labelPlaceholder')}
               autoFocus
             />
           </div>
 
           {/* Yarn Color */}
           <div>
-            <label className="block text-sm text-[#8a8690] mb-1.5">Yarn Color</label>
+            <label className="block text-sm text-[#8a8690] mb-1.5">{t('yarn.yarnColor')}</label>
             <div className="flex gap-2 flex-wrap mb-2">
-              {Object.entries(YARN_COLORS).map(([key, val]) => (
+              {Object.entries(YARN_COLORS_CONFIG).map(([key, val]) => (
                 <button
                   key={key}
                   onClick={() => {
                     setColor(val.color);
-                    if (!label) setLabel(val.label);
+                    if (!label) setLabel(t(val.key));
                   }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition ${
                     color === val.color ? 'ring-2 ring-white/30' : ''
@@ -414,19 +417,19 @@ function EdgeEditModal({
                   style={{ backgroundColor: `${val.color}30`, color: val.color }}
                 >
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: val.color }} />
-                  {val.label}
+                  {t(val.key)}
                 </button>
               ))}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-[#8a8690]">Custom:</span>
+              <span className="text-xs text-[#8a8690]">{t('yarn.custom')}</span>
               <InlineColorPicker value={color} onChange={setColor} size="sm" />
             </div>
           </div>
 
           {/* Line Style */}
           <div>
-            <label className="block text-sm text-[#8a8690] mb-1.5">Line Style</label>
+            <label className="block text-sm text-[#8a8690] mb-1.5">{t('yarn.lineStyle')}</label>
             <div className="flex gap-2">
               {(['solid', 'dashed', 'dotted'] as const).map((s) => (
                 <button
@@ -451,7 +454,7 @@ function EdgeEditModal({
                       }
                     />
                   </svg>
-                  {s}
+                  {t(`yarn.style.${s}`)}
                 </button>
               ))}
             </div>
@@ -459,7 +462,7 @@ function EdgeEditModal({
 
           {/* Direction */}
           <div>
-            <label className="block text-sm text-[#8a8690] mb-1.5">Direction</label>
+            <label className="block text-sm text-[#8a8690] mb-1.5">{t('yarn.direction')}</label>
             <div className="flex gap-2">
               {(['none', 'forward', 'backward', 'both'] as const).map((d) => (
                 <button
@@ -475,7 +478,7 @@ function EdgeEditModal({
                   {d === 'forward' && <ArrowRight size={13} />}
                   {d === 'backward' && <ArrowRight size={13} className="rotate-180" />}
                   {d === 'both' && <ArrowLeftRight size={13} />}
-                  {d}
+                  {t(`yarn.direction.${d}`)}
                 </button>
               ))}
             </div>
@@ -483,7 +486,7 @@ function EdgeEditModal({
 
           {/* Curvature */}
           <div>
-            <label className="block text-sm text-[#8a8690] mb-1.5">Path Type</label>
+            <label className="block text-sm text-[#8a8690] mb-1.5">{t('yarn.pathType')}</label>
             <div className="flex gap-2">
               {(['straight', 'curved', 'step'] as const).map((c) => (
                 <button
@@ -523,7 +526,7 @@ function EdgeEditModal({
                       />
                     )}
                   </svg>
-                  {c}
+                  {t(`yarn.path.${c}`)}
                 </button>
               ))}
             </div>
@@ -535,7 +538,7 @@ function EdgeEditModal({
               onClick={handleSave}
               className="flex-1 py-2.5 bg-[#c4973b] text-[#07070d] font-semibold rounded-lg hover:bg-[#e4a853] transition"
             >
-              Save
+              {t('yarn.save')}
             </button>
             <button
               onClick={() => {
@@ -550,7 +553,7 @@ function EdgeEditModal({
               onClick={onClose}
               className="px-6 py-2.5 border border-[#2a2a3a] text-[#8a8690] rounded-lg hover:bg-[#1a1a25] transition"
             >
-              Cancel
+              {t('yarn.cancel')}
             </button>
           </div>
         </div>
@@ -572,7 +575,8 @@ export default function YarnBoard({
   onDeleteEdge,
   projectId,
 }: YarnBoardProps) {
-  const [yarnColor, setYarnColor] = useState(YARN_COLORS.red.color);
+  const { t } = useTranslation();
+  const [yarnColor, setYarnColor] = useState(YARN_COLORS_CONFIG.red.color);
   const [selectedNodeCategory, setSelectedNodeCategory] = useState<
     'semantic' | 'canvas' | 'layout'
   >('semantic');
@@ -758,11 +762,11 @@ export default function YarnBoard({
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      // Find a label from YARN_COLORS if the current color matches a preset
-      const preset = Object.values(YARN_COLORS).find(
+      // Find a label from YARN_COLORS_CONFIG if the current color matches a preset
+      const preset = Object.values(YARN_COLORS_CONFIG).find(
         (v) => v.color === yarnColor
       );
-      const label = preset?.label || '';
+      const label = preset ? t(preset.key) : '';
       const newEdge: YarnEdge = {
         id: generateId('edge'),
         boardId,
@@ -826,7 +830,7 @@ export default function YarnBoard({
       projectId,
       boardId,
       type: nodeType,
-      title: `New ${config?.label || 'Node'}`,
+      title: t('yarn.newNode').replace('{label}', config ? t(config.key) : 'Node'),
       content: '',
       color: config?.color || '#8a8690',
       position: {
@@ -972,7 +976,7 @@ export default function YarnBoard({
                     : 'text-text-muted hover:text-text-primary'
                 }`}
               >
-                {cat}
+                {t(`yarn.${cat}`)}
               </button>
             ))}
           </div>
@@ -991,7 +995,7 @@ export default function YarnBoard({
                         ? 'bg-[#c4973b]/30 border border-[#c4973b]/50'
                         : 'hover:bg-surface text-text-muted hover:text-text-primary'
                     }`}
-                    title={cfg.label}
+                    title={t(cfg.key)}
                   >
                     <Icon size={14} />
                   </button>
@@ -1009,7 +1013,7 @@ export default function YarnBoard({
                         ? 'bg-[#c4973b]/30 border border-[#c4973b]/50'
                         : 'hover:bg-surface text-text-muted hover:text-text-primary'
                     }`}
-                    title={cfg.label}
+                    title={t(cfg.key)}
                   >
                     <Icon size={14} />
                   </button>
@@ -1023,7 +1027,7 @@ export default function YarnBoard({
                     ? 'bg-[#c4973b]/30 border border-[#c4973b]/50'
                     : 'hover:bg-surface text-text-muted hover:text-text-primary'
                 }`}
-                title="Group"
+                title={t('yarn.node.group')}
               >
                 <Grid3x3 size={14} />
               </button>
@@ -1035,12 +1039,12 @@ export default function YarnBoard({
             onClick={handleAddNode}
             className="flex items-center gap-1 bg-surface/90 border border-border rounded-lg px-2 py-1.5 text-xs text-text-muted hover:text-text-primary transition backdrop-blur-sm w-fit"
           >
-            <Plus size={14} /> Add
+            <Plus size={14} /> {t('yarn.add')}
           </button>
 
           {/* Yarn color */}
           <div className="flex items-center gap-1.5 bg-surface/90 border border-border rounded-lg px-2 py-1.5 backdrop-blur-sm">
-            <span className="text-[10px] text-text-muted">Edge color:</span>
+            <span className="text-[10px] text-text-muted">{t('yarn.edgeColor')}</span>
             <InlineColorPicker value={yarnColor} onChange={setYarnColor} size="sm" />
           </div>
 
@@ -1049,14 +1053,14 @@ export default function YarnBoard({
             onClick={handleExport}
             className="flex items-center gap-1 bg-surface/90 border border-border rounded-lg px-2 py-1.5 text-xs text-text-muted hover:text-text-primary transition backdrop-blur-sm w-fit"
           >
-            <Download size={12} /> Export
+            <Download size={12} /> {t('yarn.export')}
           </button>
         </Panel>
 
         <Panel position="bottom-left">
           <div className="bg-surface/80 border border-border rounded-lg px-3 py-2 backdrop-blur-sm text-[10px] text-text-dim space-y-0.5">
-            <p>Double-click node to edit · Hover for actions</p>
-            <p>Click a connection to edit · Drag between nodes to connect</p>
+            <p>{t('yarn.hintNodes')}</p>
+            <p>{t('yarn.hintEdges')}</p>
           </div>
         </Panel>
       </ReactFlow>
