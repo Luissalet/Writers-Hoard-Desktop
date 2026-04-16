@@ -116,7 +116,7 @@ export default function IconPicker({
         onClick={() => setOpen(!open)}
         className={`${btnSize} rounded-xl flex items-center justify-center border border-border hover:border-accent-gold/50 bg-elevated transition`}
         style={{ backgroundColor: `${color}15` }}
-        title={value ? t('common.iconLabel', { name: value }) : t('common.pickIcon')}
+        title={value ? t('common.iconLabel') : t('common.pickIcon')}
       >
         {SelectedIcon ? (
           <SelectedIcon size={iconSize} style={{ color }} />

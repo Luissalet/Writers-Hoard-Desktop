@@ -1,18 +1,19 @@
-import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import { Download, Settings2 } from 'lucide-react';
+import { useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useProject } from '@/hooks/useProjects';
 import { getEnginesByIds } from '@/engines';
 import TopBar from '@/components/layout/TopBar';
 import EngineManager from '@/components/project/EngineManager';
 import { updateProject } from '@/db/operations';
 import { useTranslation } from '@/i18n/useTranslation';
+import { useAppStore } from '@/stores/appStore';
 
 export default function ProjectDetail() {
   const { t } = useTranslation();
   const { id, tab } = useParams<{ id: string; tab?: string }>();
+  const navigate = useNavigate();
   const { project, loading, refresh } = useProject(id);
-  const [showEngineManager, setShowEngineManager] = useState(false);
+  const { showEngineManager, setShowEngineManager } = useAppStore();
 
   // Get enabled engines from project — deduplicate to heal any corrupt data
   const rawOrder = project?.engineOrder || project?.enabledEngines || [];
@@ -33,36 +34,15 @@ export default function ProjectDetail() {
     }
   }, [project, id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Active tab state
-  const [activeEngineId, setActiveEngineId] = useState<string>('');
-
-  // Set initial active engine from URL or first engine
+  // Redirect to first engine if no tab in URL
   useEffect(() => {
-    if (engines.length > 0 && !activeEngineId) {
-      setActiveEngineId(tab || engines[0].id);
+    if (id && engines.length > 0 && !tab) {
+      navigate(`/project/${id}/${engines[0].id}`, { replace: true });
     }
-  }, [engines, activeEngineId, tab]);
+  }, [id, engines, tab, navigate]);
 
-  const activeEngine = engines.find((e) => e.id === activeEngineId);
-
-  const handleExport = async () => {
-    if (!id) return;
-    try {
-      // Dynamically import to avoid issues in non-browser contexts
-      const { exportProjectData } = await import('@/db/operations');
-      const data = await exportProjectData(id);
-      const json = JSON.stringify(data, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${project?.title || 'project'}-export.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Export failed:', error);
-    }
-  };
+  // Active engine is fully URL-driven
+  const activeEngine = engines.find((e) => e.id === tab);
 
   if (loading) {
     return (
@@ -88,49 +68,7 @@ export default function ProjectDetail() {
       />
 
       <div className="flex-1 overflow-hidden flex flex-col">
-        {/* Tab bar */}
-        <div className="flex items-center gap-1 px-6 py-2 border-b border-border bg-surface/50 overflow-x-auto flex-shrink-0">
-          {engines.map((engine) => {
-            const Icon = engine.icon;
-            return (
-              <button
-                key={engine.id}
-                onClick={() => setActiveEngineId(engine.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm whitespace-nowrap transition ${
-                  activeEngineId === engine.id
-                    ? 'bg-accent-gold/15 text-accent-gold font-semibold'
-                    : 'text-text-muted hover:text-text-primary hover:bg-elevated'
-                }`}
-              >
-                <Icon size={16} />
-                {t(`engines.${engine.id}.name`)}
-              </button>
-            );
-          })}
-
-          <div className="flex-1" />
-
-          {/* Engine Manager button */}
-          <button
-            onClick={() => setShowEngineManager(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-text-muted hover:text-text-primary transition"
-            title={t('project.manageEngines')}
-          >
-            <Settings2 size={14} />
-          </button>
-
-          {/* Export button */}
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-text-muted hover:text-text-primary transition"
-            title={t('project.exportProject')}
-          >
-            <Download size={14} />
-            {t('project.export')}
-          </button>
-        </div>
-
-        {/* Tab content */}
+        {/* Engine content — no more tab bar */}
         <div className="flex-1 overflow-y-auto p-6">
           {activeEngine ? (
             <activeEngine.component projectId={id!} />

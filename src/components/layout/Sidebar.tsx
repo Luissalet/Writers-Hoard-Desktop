@@ -2,44 +2,50 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Home,
-  PenLine,
-  BookOpen,
-  Clock,
-  Map,
-  Network,
-  Image,
-  Link2,
   ChevronLeft,
   ChevronRight,
   Feather,
+  Settings2,
+  Download,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
+import { useProject } from '@/hooks/useProjects';
+import { getEnginesByIds } from '@/engines';
 
 export default function Sidebar() {
   const { t } = useTranslation();
-  const { sidebarOpen, toggleSidebar } = useAppStore();
-
-  const mainNav = [
-    { path: '/', icon: Home, label: t('sidebar.home') },
-  ];
-
-  const projectNav = [
-    { path: 'writings', icon: PenLine, label: t('sidebar.writings') },
-    { path: 'codex', icon: BookOpen, label: t('sidebar.codex') },
-    { path: 'timeline', icon: Clock, label: t('sidebar.timeline') },
-    { path: 'maps', icon: Map, label: t('sidebar.maps') },
-    { path: 'yarn', icon: Network, label: t('sidebar.yarnBoard') },
-    { path: 'gallery', icon: Image, label: t('sidebar.gallery') },
-    { path: 'links', icon: Link2, label: t('sidebar.links') },
-  ];
-  const location = useLocation();
+  const { sidebarOpen, toggleSidebar, setShowEngineManager } = useAppStore();
   const navigate = useNavigate();
-  const { id: projectId } = useParams();
+  const location = useLocation();
+  const { id: projectId, tab } = useParams<{ id?: string; tab?: string }>();
 
-  const isActive = (path: string) => {
-    if (path === '/') return location.pathname === '/';
-    return location.pathname.includes(path);
+  // Fetch project data to get dynamic engine list
+  const { project } = useProject(projectId);
+
+  const rawOrder = project?.engineOrder || project?.enabledEngines || [];
+  const engineIds = [...new Set(rawOrder)];
+  const engines = getEnginesByIds(engineIds);
+
+  const isHome = location.pathname === '/';
+  const activeTab = tab || (engines.length > 0 ? engines[0].id : '');
+
+  const handleExport = async () => {
+    if (!projectId) return;
+    try {
+      const { exportProjectData } = await import('@/db/operations');
+      const data = await exportProjectData(projectId);
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${project?.title || 'project'}-export.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Export failed:', error);
+    }
   };
 
   return (
@@ -67,22 +73,21 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
-        {mainNav.map(item => (
-          <button
-            key={item.path}
-            onClick={() => navigate(item.path)}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
-              isActive(item.path)
-                ? 'bg-accent-gold/15 text-accent-gold'
-                : 'text-text-muted hover:text-text-primary hover:bg-elevated'
-            }`}
-          >
-            <item.icon size={18} className="flex-shrink-0" />
-            {sidebarOpen && <span className="whitespace-nowrap">{item.label}</span>}
-          </button>
-        ))}
+        {/* Home */}
+        <button
+          onClick={() => navigate('/')}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
+            isHome
+              ? 'bg-accent-gold/15 text-accent-gold'
+              : 'text-text-muted hover:text-text-primary hover:bg-elevated'
+          }`}
+        >
+          <Home size={18} className="flex-shrink-0" />
+          {sidebarOpen && <span className="whitespace-nowrap">{t('sidebar.home')}</span>}
+        </button>
 
-        {projectId && (
+        {/* Dynamic engine list — only when inside a project */}
+        {projectId && engines.length > 0 && (
           <>
             <div className="pt-3 pb-1 px-3">
               {sidebarOpen && (
@@ -92,23 +97,51 @@ export default function Sidebar() {
               )}
               {!sidebarOpen && <div className="border-t border-border" />}
             </div>
-            {projectNav.map(item => (
-              <button
-                key={item.path}
-                onClick={() => navigate(`/project/${projectId}/${item.path}`)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
-                  isActive(item.path)
-                    ? 'bg-accent-gold/15 text-accent-gold'
-                    : 'text-text-muted hover:text-text-primary hover:bg-elevated'
-                }`}
-              >
-                <item.icon size={18} className="flex-shrink-0" />
-                {sidebarOpen && <span className="whitespace-nowrap">{item.label}</span>}
-              </button>
-            ))}
+            {engines.map((engine) => {
+              const Icon = engine.icon;
+              const isActive = activeTab === engine.id;
+              return (
+                <button
+                  key={engine.id}
+                  onClick={() => navigate(`/project/${projectId}/${engine.id}`)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
+                    isActive
+                      ? 'bg-accent-gold/15 text-accent-gold font-semibold'
+                      : 'text-text-muted hover:text-text-primary hover:bg-elevated'
+                  }`}
+                >
+                  <Icon size={18} className="flex-shrink-0" />
+                  {sidebarOpen && (
+                    <span className="whitespace-nowrap">{t(`engines.${engine.id}.name`)}</span>
+                  )}
+                </button>
+              );
+            })}
           </>
         )}
       </nav>
+
+      {/* Bottom actions — only when inside a project */}
+      {projectId && (
+        <div className="px-2 py-2 border-t border-border space-y-1">
+          <button
+            onClick={() => setShowEngineManager(true)}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-text-primary hover:bg-elevated transition"
+            title={t('project.manageEngines')}
+          >
+            <Settings2 size={18} className="flex-shrink-0" />
+            {sidebarOpen && <span className="whitespace-nowrap">{t('project.manageEngines')}</span>}
+          </button>
+          <button
+            onClick={handleExport}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-text-primary hover:bg-elevated transition"
+            title={t('project.exportProject')}
+          >
+            <Download size={18} className="flex-shrink-0" />
+            {sidebarOpen && <span className="whitespace-nowrap">{t('project.export')}</span>}
+          </button>
+        </div>
+      )}
 
       {/* Collapse toggle */}
       <button

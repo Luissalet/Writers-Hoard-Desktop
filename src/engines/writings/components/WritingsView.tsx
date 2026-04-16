@@ -519,7 +519,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                                       : 'text-text-muted hover:bg-elevated'
                                   }`}
                                   style={isCurrent
-                                    ? { color: stCfg.color, backgroundColor: stCfg.bg, ringColor: `${stCfg.color}40` }
+                                    ? { color: stCfg.color, backgroundColor: stCfg.bg, boxShadow: `inset 0 0 0 1px ${stCfg.color}40` }
                                     : {}
                                   }
                                 >
