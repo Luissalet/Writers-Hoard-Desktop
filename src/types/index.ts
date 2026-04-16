@@ -12,6 +12,7 @@ export interface Project {
   mode: ProjectMode;                    // Writer type / engine preset
   type: 'saga' | 'standalone' | 'collection' | 'idea';
   color: string;
+  icon?: string; // Lucide icon name (e.g. 'BookOpen', 'Feather')
   coverImage?: string; // base64 data URL
   description: string;
   parentId?: string; // For books within a saga

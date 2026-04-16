@@ -176,6 +176,7 @@ export default function Dashboard() {
                 onClick={() => navigate(`/project/${project.id}`)}
                 onDelete={() => removeProject(project.id)}
                 onColorChange={(color) => editProject(project.id, { color })}
+                onIconChange={(icon) => editProject(project.id, { icon: icon || undefined })}
               />
             ))}
           </div>

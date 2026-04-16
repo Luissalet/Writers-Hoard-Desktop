@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { motion } from 'framer-motion';
 import { BookOpen, Library, Lightbulb, Layers, Trash2, Palette } from 'lucide-react';
+import { InlineIconPicker, resolveIcon } from '@/components/common/IconPicker';
 import type { Project } from '@/types';
 
 const typeIcons = {
@@ -21,11 +22,13 @@ interface ProjectCardProps {
   onClick: () => void;
   onDelete: () => void;
   onColorChange?: (color: string) => void;
+  onIconChange?: (icon: string) => void;
   index: number;
 }
 
-export default function ProjectCard({ project, onClick, onDelete, onColorChange, index }: ProjectCardProps) {
-  const Icon = typeIcons[project.type] || BookOpen;
+export default function ProjectCard({ project, onClick, onDelete, onColorChange, onIconChange, index }: ProjectCardProps) {
+  const CustomIcon = resolveIcon(project.icon);
+  const Icon = CustomIcon || typeIcons[project.type] || BookOpen;
   const colorInputRef = useRef<HTMLInputElement>(null);
 
   return (
@@ -78,6 +81,13 @@ export default function ProjectCard({ project, onClick, onDelete, onColorChange,
               {project.type}
             </span>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+              {onIconChange && (
+                <InlineIconPicker
+                  value={project.icon}
+                  onChange={onIconChange}
+                  color={project.color}
+                />
+              )}
               {onColorChange && (
                 <div className="relative">
                   <button

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Check } from 'lucide-react';
 import Modal from '@/components/common/Modal';
 import ColorPicker from '@/components/common/ColorPicker';
+import IconPicker from '@/components/common/IconPicker';
 import { PROJECT_MODES, getAllEngines, getEnginesForMode, getSuggestedEnginesForMode } from '@/engines';
 import type { Project, ProjectMode } from '@/types';
 
@@ -16,6 +17,7 @@ interface FormState {
   type: Project['type'];
   description: string;
   color: string;
+  icon: string;
 }
 
 export default function CreateProjectModal({ open, onClose, onCreate }: CreateProjectModalProps) {
@@ -27,6 +29,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
     type: 'standalone',
     description: '',
     color: '#c4973b',
+    icon: '',
   });
   const [creating, setCreating] = useState(false);
 
@@ -48,7 +51,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
     setCreationStep('mode');
     setSelectedMode(null);
     setEnabledEngines([]);
-    setForm({ title: '', type: 'standalone', description: '', color: '#c4973b' });
+    setForm({ title: '', type: 'standalone', description: '', color: '#c4973b', icon: '' });
   };
 
   const handleCreate = async () => {
@@ -63,6 +66,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
         type: form.type,
         mode: selectedMode,
         color: form.color,
+        ...(form.icon ? { icon: form.icon } : {}),
         description: form.description,
         enabledEngines: enabledEngines,
         engineOrder: enabledEngines, // Initial order matches enabled order
@@ -171,12 +175,22 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
             />
           </div>
 
-          <div>
-            <label className="block text-sm text-text-muted mb-1.5">Color</label>
-            <ColorPicker
-              value={form.color}
-              onChange={(color) => setForm({ ...form, color })}
-            />
+          <div className="flex gap-6">
+            <div className="flex-1">
+              <label className="block text-sm text-text-muted mb-1.5">Color</label>
+              <ColorPicker
+                value={form.color}
+                onChange={(color) => setForm({ ...form, color })}
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-text-muted mb-1.5">Icon</label>
+              <IconPicker
+                value={form.icon}
+                onChange={(icon) => setForm({ ...form, icon })}
+                color={form.color}
+              />
+            </div>
           </div>
 
           {/* Engines Section */}
