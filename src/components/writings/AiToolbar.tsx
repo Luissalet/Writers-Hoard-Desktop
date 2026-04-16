@@ -5,7 +5,7 @@ import { useAiStore } from '@/stores/aiStore';
 import { generateSummary, extractCharacters } from '@/services/aiFeatures';
 import { safeAiCall } from '@/services/aiService';
 import { generateId } from '@/utils/idGenerator';
-import * as ops from '@/db/operations';
+import { useCodexEntries } from '@/hooks/useCodexEntries';
 import type { Writing, ExtractedCharacter, CodexEntry } from '@/types';
 import { CHARACTER_FIELDS } from '@/types';
 
@@ -19,6 +19,7 @@ interface AiToolbarProps {
 
 export default function AiToolbar({ writing, projectId, onSynopsisUpdate, contentFetcher }: AiToolbarProps) {
   const { config } = useAiStore();
+  const { entries: codexEntries, addEntry, editEntry } = useCodexEntries(projectId);
 
   // Transiently fetched content (Google Docs, not persisted locally)
   const [fetchedContent, setFetchedContent] = useState<string | null>(null);
@@ -138,7 +139,7 @@ export default function AiToolbar({ writing, projectId, onSynopsisUpdate, conten
 
     try {
       const selected = extractedChars.filter((_, i) => selectedChars.has(i));
-      const existingEntries = await ops.getCodexEntries(projectId);
+      const existingEntries = codexEntries;
       const existingChars = existingEntries.filter(e => e.type === 'character');
 
       const toCreate: ExtractedCharacter[] = [];
@@ -181,7 +182,7 @@ ${char.citasRelevantes.length > 0
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };
-        await ops.createCodexEntry(entry);
+        await addEntry(entry);
       }
 
       // If there are merge conflicts, show merge UI
@@ -230,7 +231,7 @@ ${extracted.citasRelevantes.length > 0
     setCharsImporting(true);
     try {
       for (const conflict of mergeConflicts) {
-        await ops.updateCodexEntry(conflict.existing.id, {
+        await editEntry(conflict.existing.id, {
           fields: conflict.mergedFields,
           content: conflict.mergeContent,
           tags: [...new Set([...conflict.existing.tags, 'ai-merged'])],
