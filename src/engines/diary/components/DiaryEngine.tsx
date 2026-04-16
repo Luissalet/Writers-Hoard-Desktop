@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { BookOpen, Plus, Search, Calendar, ChevronDown, ChevronRight } from 'lucide-react';
+import { BookOpen, Search, Calendar, ChevronDown, ChevronRight } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
 import { useDiaryEntries } from '../hooks';
 import type { DiaryEntry, DiaryMood } from '../types';
