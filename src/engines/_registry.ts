@@ -60,8 +60,8 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     description: 'Fiction writers: novels, short stories, sagas',
     icon: PenLine,
     color: '#c4973b',
-    defaultEngines: ['writings', 'codex', 'timeline', 'yarn-board', 'maps', 'gallery'],
-    suggestedEngines: ['brainstorm', 'storyboard', 'links', 'diary'],
+    defaultEngines: ['writings', 'codex', 'timeline', 'yarn-board', 'maps', 'gallery', 'outline'],
+    suggestedEngines: ['brainstorm', 'storyboard', 'links', 'diary', 'writing-stats'],
   },
   {
     id: 'biographer',
@@ -70,7 +70,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: BookUser,
     color: '#4a7ec4',
     defaultEngines: ['biography', 'timeline', 'codex', 'gallery', 'scrapper', 'yarn-board'],
-    suggestedEngines: ['writings', 'links', 'brainstorm', 'diary'],
+    suggestedEngines: ['writings', 'links', 'brainstorm', 'diary', 'outline', 'writing-stats'],
   },
   {
     id: 'reporter',
@@ -79,7 +79,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: Globe,
     color: '#c4463a',
     defaultEngines: ['scrapper', 'timeline', 'yarn-board', 'codex', 'gallery', 'links'],
-    suggestedEngines: ['writings', 'brainstorm', 'biography'],
+    suggestedEngines: ['writings', 'brainstorm', 'biography', 'writing-stats'],
   },
   {
     id: 'playwright',
@@ -87,8 +87,8 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     description: 'Theater, screenwriting, dialog-heavy work',
     icon: MessageSquare,
     color: '#7c5cbf',
-    defaultEngines: ['dialog-scene', 'codex', 'timeline', 'storyboard', 'yarn-board'],
-    suggestedEngines: ['gallery', 'brainstorm', 'writings'],
+    defaultEngines: ['dialog-scene', 'codex', 'timeline', 'storyboard', 'yarn-board', 'outline'],
+    suggestedEngines: ['gallery', 'brainstorm', 'writings', 'writing-stats'],
   },
   {
     id: 'content-creator',
@@ -97,7 +97,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: Video,
     color: '#4a9e6d',
     defaultEngines: ['video-planner', 'storyboard', 'gallery', 'scrapper', 'timeline'],
-    suggestedEngines: ['brainstorm', 'links', 'dialog-scene'],
+    suggestedEngines: ['brainstorm', 'links', 'dialog-scene', 'outline', 'writing-stats'],
   },
   {
     id: 'custom',

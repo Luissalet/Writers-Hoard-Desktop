@@ -17,6 +17,8 @@ import '@/engines/video-planner';
 import '@/engines/scrapper';
 import '@/engines/biography';
 import '@/engines/diary';
+import '@/engines/outline';
+import '@/engines/writing-stats';
 
 // Re-export registry functions and types for consumer code
 export {
