@@ -2,7 +2,7 @@
 // Storyboard Engine — Database Operations
 // ============================================
 
-import { makeTableOps } from '@/engines/_shared';
+import { makeTableOps, makeCascadeDeleteOp } from '@/engines/_shared';
 import { db } from '@/db';
 import type { Storyboard, StoryboardPanel, StoryboardConnector } from './types';
 
@@ -18,13 +18,13 @@ export const createStoryboard = storyboardOps.create;
 export const updateStoryboard = storyboardOps.update;
 
 // deleteStoryboard cascades to panels and connectors
-export async function deleteStoryboard(id: string): Promise<void> {
-  await db.transaction('rw', ['storyboards', 'storyboardPanels', 'storyboardConnectors'], async tx => {
-    await tx.table('storyboards').delete(id);
-    await tx.table('storyboardPanels').where('storyboardId').equals(id).delete();
-    await tx.table('storyboardConnectors').where('storyboardId').equals(id).delete();
-  });
-}
+export const deleteStoryboard = makeCascadeDeleteOp({
+  tableName: 'storyboards',
+  cascades: [
+    { table: 'storyboardPanels', foreignKey: 'storyboardId' },
+    { table: 'storyboardConnectors', foreignKey: 'storyboardId' },
+  ],
+});
 
 // ===== Storyboard Panels =====
 const panelOps = makeTableOps<StoryboardPanel>({

@@ -2,7 +2,7 @@
 // Brainstorm Engine — Database Operations
 // ============================================
 
-import { makeTableOps } from '@/engines/_shared';
+import { makeTableOps, makeCascadeDeleteOp } from '@/engines/_shared';
 import { db } from '@/db';
 import type { BrainstormBoard, BrainstormItem, BrainstormConnection } from './types';
 
@@ -18,13 +18,13 @@ export const createBrainstormBoard = boardOps.create;
 export const updateBrainstormBoard = boardOps.update;
 
 // deleteBrainstormBoard cascades to items and connections
-export async function deleteBrainstormBoard(id: string): Promise<void> {
-  await db.transaction('rw', ['brainstormBoards', 'brainstormItems', 'brainstormConnections'], async tx => {
-    await tx.table('brainstormBoards').delete(id);
-    await tx.table('brainstormItems').where('boardId').equals(id).delete();
-    await tx.table('brainstormConnections').where('boardId').equals(id).delete();
-  });
-}
+export const deleteBrainstormBoard = makeCascadeDeleteOp({
+  tableName: 'brainstormBoards',
+  cascades: [
+    { table: 'brainstormItems', foreignKey: 'boardId' },
+    { table: 'brainstormConnections', foreignKey: 'boardId' },
+  ],
+});
 
 // ===== Brainstorm Items =====
 const itemOps = makeTableOps<BrainstormItem>({

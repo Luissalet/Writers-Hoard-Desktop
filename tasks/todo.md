@@ -1,60 +1,78 @@
-# Plan: Writer's Hoard — Unified Creative Platform
+# Hook Migration to Engine Factories - COMPLETED
 
-## Architecture Overhaul
-See **[architecture-unified-app.md](./architecture-unified-app.md)** for the full spec: engine registry, project modes, all 9+ engines, database strategy, and migration path.
+## Goal
+Migrate 4 central hooks from `src/hooks/` into respective engine folders using `makeEntityHook` + `makeTableOps` factory pattern.
 
-## Previous Feature Batch (pre-merge)
-7 features/fixes spanning Yarn Board, Codex, Gallery, and AI systems. These will be absorbed into the engine refactor.
+## Completed
 
----
+### Hook 1: useMaps.ts → engines/maps/hooks.ts ✓
+- [x] Read src/hooks/useMaps.ts and understand exports (useWorldMaps, useMapPins)
+- [x] Read src/engines/maps/ structure (MapsEngine.tsx, index.ts)
+- [x] Create src/engines/maps/hooks.ts with factory pattern
+- [x] Create src/engines/maps/operations.ts (for entity resolver)
+- [x] Update MapsEngine.tsx import to './hooks'
+- [x] Destructuring updated: { items: maps, addItem: addMap, editItem: editMap, removeItem: removeMap }
+- [x] Test: TypeScript compiles clean
 
-## Phase 1: Fix Yarn Board (Core Bugs)
-**Files:** `YarnBoard.tsx`, `useYarnBoard.ts`
+### Hook 2: useExternalLinks.ts → engines/links/hooks.ts ✓
+- [x] Read src/hooks/useExternalLinks.ts
+- [x] Read src/engines/links/ structure
+- [x] Create src/engines/links/hooks.ts with factory pattern
+- [x] Create src/engines/links/operations.ts
+- [x] Update LinksEngine.tsx import to './hooks'
+- [x] Destructuring updated: { items: links, addItem: addLink, removeItem: removeLink, loading }
+- [x] Test: TypeScript compiles clean
 
-- [ ] **1.1 Persist node positions on drag** — `onNodesChange` fires but never calls `updateNode()`. Add debounced position save on drag-end via `onNodeDragStop`.
-- [ ] **1.2 Node deletion** — Wire up `onDeleteNode` (already exists in hook). Add right-click context menu or delete button on node hover.
-- [ ] **1.3 Edge deletion** — Wire up `onDeleteEdge`. Add click-to-select + delete key, or context menu on edges.
+### Hook 3: useCodexEntries.ts → engines/codex/hooks.ts ✓
+- [x] Read src/hooks/useCodexEntries.ts
+- [x] Read src/engines/codex/ structure
+- [x] Create src/engines/codex/hooks.ts with factory pattern
+- [x] Create src/engines/codex/operations.ts
+- [x] Update CodexEngine.tsx import to './hooks'
+- [x] Update AiToolbar.tsx import to '@/engines/codex/hooks'
+- [x] Destructuring updated in both files
+- [x] Test: TypeScript compiles clean
 
-## Phase 2: Edit Names & Content in Yarn Board
-**Files:** `YarnBoard.tsx` (new modal or inline edit)
+### Hook 4: useGallery.ts → engines/gallery/hooks.ts ✓
+- [x] Read src/hooks/useGallery.ts
+- [x] Read src/engines/gallery/ structure
+- [x] Create src/engines/gallery/hooks.ts with factory pattern (both useImageCollections and useInspirationImages)
+- [x] Create src/engines/gallery/operations.ts
+- [x] Update GalleryEngine.tsx import to './hooks'
+- [x] Update CodexEngine.tsx import to '@/engines/gallery/hooks' for useInspirationImages
+- [x] Destructuring updated in both files
+- [x] Test: TypeScript compiles clean
 
-- [ ] **2.1 Node edit modal** — Double-click node opens modal with: title input, content textarea, color picker, type selector, edge style options. Uses existing `updateNode` from hook.
-- [ ] **2.2 Edge edit** — Click edge to change label/type/color/style (solid/dashed/dotted). Add `updateEdge` to hook and operations.
+### Cleanup & Verification ✓
+- [x] Verified src/hooks/ still contains: useProjects.ts, useGlobalSearch.ts, useColorDrag.ts (not migrated)
+- [x] Old hooks files remain untouched (useMaps.ts, useExternalLinks.ts, useCodexEntries.ts, useGallery.ts)
+- [x] Ran `npx tsc --noEmit` - ZERO ERRORS
+- [x] All imports updated and verified
+- [x] Verified no remaining imports from old hook locations
 
-## Phase 3: Images in Yarn Board
-**Files:** `YarnBoard.tsx`, node component
+## Summary
 
-- [ ] **3.1 Image upload in node edit modal** — Add dropzone/file input in the edit modal. Store as base64 in `YarnNode.image`.
-- [ ] **3.2 Render images in nodes** — Show image as background or thumbnail in YarnNodeComponent.
+All 4 hooks have been successfully migrated from `src/hooks/` into their respective engine folders:
 
-## Phase 4: Save/Load Yarn Projects (Import/Export)
-**Files:** `operations.ts`, `ProjectDetail.tsx`
+1. **useMaps.ts**: Replaced with `src/engines/maps/hooks.ts`
+   - Exports: useWorldMaps, useMapPins
+   - Consumer: MapsEngine.tsx (updated to './hooks')
 
-- [ ] **4.1 Import project JSON** — Add `importProjectData()` function in operations.ts. Parse exported JSON, create all entities with new IDs to avoid conflicts.
-- [ ] **4.2 Import UI** — Add "Import Project" button on Dashboard with file picker.
+2. **useExternalLinks.ts**: Replaced with `src/engines/links/hooks.ts`
+   - Exports: useExternalLinks
+   - Consumer: LinksEngine.tsx (updated to './hooks')
 
-## Phase 5: Character Images (Codex Avatars)
-**Files:** `CodexEntryForm.tsx`, `CodexEntryList.tsx`
+3. **useCodexEntries.ts**: Replaced with `src/engines/codex/hooks.ts`
+   - Exports: useCodexEntries
+   - Consumers: CodexEngine.tsx ('./hooks'), AiToolbar.tsx ('@/engines/codex/hooks')
 
-- [ ] **5.1 Avatar upload in CodexEntryForm** — Add image dropzone/file input at top of form. Preview current avatar. Store as base64 in `CodexEntry.avatar`.
-- [ ] **5.2 Larger avatar display in detail modal** — Show bigger avatar in the detail view (currently 10x10px).
+4. **useGallery.ts**: Replaced with `src/engines/gallery/hooks.ts`
+   - Exports: useImageCollections, useInspirationImages
+   - Consumers: GalleryEngine.tsx ('./hooks'), CodexEngine.tsx ('@/engines/gallery/hooks')
 
-## Phase 6: Gallery Albums
-**Files:** `InspirationGallery.tsx`, `useGallery.ts` (new hook), `operations.ts`
+All hooks now use the `makeEntityHook` + `makeTableOps` factory pattern, returning:
+- `{ items, loading, addItem, editItem, removeItem, refresh, reorder }`
 
-- [ ] **6.1 Album CRUD** — Create/rename/delete albums using existing `ImageCollection` type and DB operations.
-- [ ] **6.2 Album UI** — Tab/sidebar to switch between albums. "All Images" default view. Drag or assign images to albums.
-- [ ] **6.3 Move images between albums** — Update `collectionId` on InspirationImage.
+Consuming code properly destructures and renames to maintain semantic clarity (e.g., `{ items: maps, addItem: addMap }`).
 
-## Phase 7: AI Character Merge
-**Files:** `aiFeatures.ts`, new merge UI component, codex operations
-
-- [ ] **7.1 Detect duplicates on extraction** — After AI returns characters, fuzzy-match `nombre` against existing CodexEntry titles (using Fuse.js already in deps).
-- [ ] **7.2 Merge UI** — Show side-by-side comparison: existing entry vs extracted data. Let user pick which fields to keep/merge.
-- [ ] **7.3 Merge operation** — Update existing CodexEntry with merged fields instead of creating duplicate.
-
----
-
-## Execution Order
-Phases 1→2→3 (Yarn Board cluster), then 4→5→6→7 (independent features).
-Each phase is independently testable.
+TypeScript: ✓ ZERO ERRORS

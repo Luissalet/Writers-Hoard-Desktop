@@ -2,14 +2,14 @@ import { useState, useMemo } from 'react';
 import { Map } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
 import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard } from '@/engines/_shared';
-import { useWorldMaps, useMapPins } from '@/hooks/useMaps';
+import { useWorldMaps, useMapPins } from './hooks';
 import MapView from '@/components/maps/MapView';
 import { generateId } from '@/utils/idGenerator';
 
 export default function MapsEngine({ projectId }: EngineComponentProps) {
-  const { maps, addMap, editMap, removeMap } = useWorldMaps(projectId);
+  const { items: maps, addItem: addMap, editItem: editMap, removeItem: removeMap } = useWorldMaps(projectId);
   const [activeMapId, setActiveMapId] = useState<string>('');
-  const { pins, addPin, removePin } = useMapPins(activeMapId);
+  const { items: pins, addItem: addPin, removeItem: removePin } = useMapPins(activeMapId);
 
   useAutoSelect(maps, activeMapId, setActiveMapId);
 

@@ -51,13 +51,69 @@ Major architectural refactoring session focused on reducing duplication, standar
 
 Net LOC change: approximately -250 lines of duplication removed, +276 lines of reusable shared code. The shared code serves 15 engines rather than being duplicated per-engine.
 
+---
+
+## Commit 2: Hook Migration, Component Splits, i18n, Graph Hook
+
+### 5. Central Hook Migration (HIGH IMPACT)
+
+**Problem**: 4 hooks in `src/hooks/` (useMaps, useCodexEntries, useExternalLinks, useGallery) were hand-written CRUD implementations that duplicated the `makeEntityHook` factory pattern.
+
+**Solution**: Created `hooks.ts` + `operations.ts` in each engine folder (codex, gallery, links, maps) using `makeEntityHook` + `makeTableOps` factories. Updated all consumers to import from engine folders.
+
+**Impact**: 8 new files. All 15 engines now fully own their data layer. `src/hooks/` only contains project-level hooks (useProjects, useGlobalSearch, useColorDrag).
+
+### 6. makeGraphHook Factory (MEDIUM IMPACT)
+
+**Problem**: Brainstorm and Yarn Board both implemented ~80-100 lines of custom "batched node+edge refresh" logic to prevent double re-renders on canvas.
+
+**Solution**: Created `makeGraphHook<N, E>()` factory in `_shared/`. Both engines now use it with domain-specific name mapping (~25 lines each instead of ~100).
+
+### 7. ColorPicker Decomposition (MEDIUM IMPACT)
+
+**Problem**: 457-line component with two nearly identical variants (dropdown + inline) sharing 80% logic but duplicated.
+
+**Solution**: Extracted into focused sub-components:
+- `colorMath.ts` (pure HSV↔Hex functions)
+- `useColorDrag.ts` (canvas/slider drag hook)
+- `SaturationCanvas.tsx`, `HueSlider.tsx`, `PresetGrid.tsx`, `HexInput.tsx`
+- Main file reduced from 457 → ~302 lines (34% reduction)
+
+### 8. Page Component Extraction (MEDIUM IMPACT)
+
+**Problem**: Dashboard.tsx (451L) and ProjectDetail.tsx (348L) each contained large embedded modals.
+
+**Solution**: Extracted `CreateProjectModal` (300L) from Dashboard and `EngineManager` (207L) from ProjectDetail. Dashboard: 451→194 lines (-57%). ProjectDetail: 348→146 lines (-58%).
+
+### 9. i18n Foundation (LOW-MEDIUM IMPACT)
+
+**Problem**: 24 Spanish strings hardcoded across 6 files (aiService, aiFeatures, AiToolbar, GoogleDocsPicker, AiSettings, Dashboard).
+
+**Solution**: Created `src/locales/es.ts` with typed translation keys and `src/i18n/useTranslation.ts` with `t()` function. Replaced all hardcoded strings with `t('key')` calls.
+
+## Combined Metrics
+
+| Metric | Before | After |
+|--------|--------|-------|
+| entityResolver.ts | 220 lines | 14 lines |
+| MapsEngine.tsx | 192 lines | 85 lines |
+| TimelineEngine.tsx | 197 lines | 84 lines |
+| ColorPicker.tsx | 457 lines | ~302 lines |
+| Dashboard.tsx | 451 lines | 194 lines |
+| ProjectDetail.tsx | 348 lines | 146 lines |
+| Shared utilities | 8 files, 340 LOC | 12 files, ~800 LOC |
+| Engines self-contained | 8 of 15 | 15 of 15 |
+| Cascade delete styles | 3 patterns | 1 pattern |
+| i18n coverage | 0 keys | 24 keys |
+
 ## Remaining Opportunities
 
-1. **Central hooks migration**: `src/hooks/useMaps.ts`, `useCodexEntries.ts`, `useExternalLinks.ts`, `useGallery.ts` could be moved into their respective engine folders using `makeEntityHook` for full self-containment.
-2. **Large component splits**: ColorPicker (457 lines), InspirationGallery (491 lines), zipBackup (451 lines) could be decomposed.
-3. **i18n extraction**: Spanish strings hardcoded in aiService/aiFeatures should move to a localization system.
-4. **DB schema deduplication**: Every Dexie version copies all table definitions. Could define base schema once + apply diffs.
-5. **makeGraphDataHook**: For Brainstorm/Storyboard/Yarn Board — batched node+edge refresh pattern.
+1. **Split zipBackup.ts** (451L) into entity-specific export/import strategy modules
+2. **Split InspirationGallery.tsx** (491L) into ImageGrid, CollectionManager, LinkedEntrySelector
+3. **DB schema deduplication**: Define base schema once + apply diffs per version
+4. **Extend CollectionDashboard** to more engines (Storyboard, Biography)
+5. **Add more translation keys** as UI grows
+6. **Delete old central hook files** in `src/hooks/` once all consumers confirmed migrated
 
 ## TypeScript Status
-✅ `tsc --noEmit` passes with zero errors.
+✅ `tsc --noEmit` passes with zero errors (both commits).
