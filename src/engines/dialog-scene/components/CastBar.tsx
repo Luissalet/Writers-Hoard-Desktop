@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { SceneCast } from '../types';
 import { generateId } from '@/utils/idGenerator';
+import { InlineColorPicker } from '@/components/common/ColorPicker';
 
 interface CastBarProps {
   cast: SceneCast[];
@@ -10,15 +11,6 @@ interface CastBarProps {
   onAddDialog: (characterName: string, characterColor: string) => void;
   onRemoveCharacter: (id: string) => void;
 }
-
-const DEFAULT_COLORS = [
-  '#c4973b', // gold
-  '#7c5cbf', // plum
-  '#4a7ec4', // blue
-  '#4a9e6d', // green
-  '#d4a843', // amber
-  '#c4463a', // red
-];
 
 export default function CastBar({
   cast,
@@ -28,7 +20,7 @@ export default function CastBar({
 }: CastBarProps) {
   const [showNewMember, setShowNewMember] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newColor, setNewColor] = useState(DEFAULT_COLORS[0]);
+  const [newColor, setNewColor] = useState('#c4973b');
 
   const handleAddMember = async () => {
     if (!newName.trim()) return;
@@ -42,7 +34,7 @@ export default function CastBar({
 
     onAddCharacter(member);
     setNewName('');
-    setNewColor(DEFAULT_COLORS[0]);
+    setNewColor('#c4973b');
     setShowNewMember(false);
   };
 
@@ -82,21 +74,7 @@ export default function CastBar({
               />
               <div className="flex items-center gap-2">
                 <span className="text-xs text-text-muted">Color:</span>
-                <div className="flex gap-1.5">
-                  {DEFAULT_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => setNewColor(color)}
-                      className={`w-6 h-6 rounded-full border-2 transition ${
-                        newColor === color
-                          ? 'border-accent-gold'
-                          : 'border-transparent hover:border-border'
-                      }`}
-                      style={{ backgroundColor: color }}
-                      title={`Select color ${color}`}
-                    />
-                  ))}
-                </div>
+                <InlineColorPicker value={newColor} onChange={setNewColor} size="sm" />
               </div>
               <div className="flex items-center gap-2 pt-1">
                 <button

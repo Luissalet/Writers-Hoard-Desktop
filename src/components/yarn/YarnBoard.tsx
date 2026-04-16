@@ -20,6 +20,7 @@ import '@xyflow/react/dist/style.css';
 import { Plus, Download, User, Zap, Lightbulb, StickyNote, Trash2, Edit3, X, ImagePlus } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { generateId } from '@/utils/idGenerator';
+import { InlineColorPicker } from '@/components/common/ColorPicker';
 import type { YarnNode, YarnEdge } from '@/types';
 
 const YARN_COLORS = {
@@ -318,7 +319,7 @@ function EdgeEditModal({
           {/* Yarn Color */}
           <div>
             <label className="block text-sm text-[#8a8690] mb-1.5">Yarn Color</label>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex gap-2 flex-wrap mb-2">
               {Object.entries(YARN_COLORS).map(([key, val]) => (
                 <button
                   key={key}
@@ -332,6 +333,10 @@ function EdgeEditModal({
                   {val.label}
                 </button>
               ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[#8a8690]">Custom:</span>
+              <InlineColorPicker value={color} onChange={setColor} size="sm" />
             </div>
           </div>
 

@@ -1,5 +1,6 @@
+import { useRef } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Library, Lightbulb, Layers, Trash2 } from 'lucide-react';
+import { BookOpen, Library, Lightbulb, Layers, Trash2, Palette } from 'lucide-react';
 import type { Project } from '@/types';
 
 const typeIcons = {
@@ -19,11 +20,13 @@ interface ProjectCardProps {
   project: Project;
   onClick: () => void;
   onDelete: () => void;
+  onColorChange?: (color: string) => void;
   index: number;
 }
 
-export default function ProjectCard({ project, onClick, onDelete, index }: ProjectCardProps) {
+export default function ProjectCard({ project, onClick, onDelete, onColorChange, index }: ProjectCardProps) {
   const Icon = typeIcons[project.type] || BookOpen;
+  const colorInputRef = useRef<HTMLInputElement>(null);
 
   return (
     <motion.div
@@ -74,12 +77,34 @@ export default function ProjectCard({ project, onClick, onDelete, index }: Proje
             <span className="text-xs text-text-dim capitalize px-2 py-1 bg-elevated rounded">
               {project.type}
             </span>
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-danger/20 transition"
-            >
-              <Trash2 size={14} className="text-danger" />
-            </button>
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+              {onColorChange && (
+                <div className="relative">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); colorInputRef.current?.click(); }}
+                    className="p-1.5 rounded-lg hover:bg-accent-gold/20 transition"
+                    title="Change color"
+                  >
+                    <Palette size={14} className="text-accent-gold" />
+                  </button>
+                  <input
+                    ref={colorInputRef}
+                    type="color"
+                    value={project.color}
+                    onChange={(e) => { e.stopPropagation(); onColorChange(e.target.value); }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute opacity-0 w-0 h-0 pointer-events-none"
+                    tabIndex={-1}
+                  />
+                </div>
+              )}
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                className="p-1.5 rounded-lg hover:bg-danger/20 transition"
+              >
+                <Trash2 size={14} className="text-danger" />
+              </button>
+            </div>
           </div>
         </div>
       </div>

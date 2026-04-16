@@ -5,8 +5,7 @@ import type { TimelineEvent, DateMode } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
-
-const LANE_COLORS = ['#c4973b', '#7c5cbf', '#4a7ec4', '#4a9e6d', '#c4463a', '#d4a843'];
+import ColorPicker from '@/components/common/ColorPicker';
 
 interface TimelineViewProps {
   projectId: string;
@@ -54,7 +53,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
     realDate: '',
     realDateEnd: '',
     lane: 'Main',
-    color: LANE_COLORS[0],
+    color: '#c4973b',
   });
 
   const lanes = [...new Set(events.map(e => e.lane))];
@@ -106,7 +105,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
   };
 
   const resetForm = () => {
-    setForm({ title: '', description: '', date: '', dateMode: 'text', realDate: '', realDateEnd: '', lane: 'Main', color: LANE_COLORS[0] });
+    setForm({ title: '', description: '', date: '', dateMode: 'text', realDate: '', realDateEnd: '', lane: 'Main', color: '#c4973b' });
   };
 
   const openEdit = (evt: TimelineEvent) => {
@@ -340,16 +339,11 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
           </div>
           <div>
             <label className="block text-sm text-text-muted mb-1.5">Color</label>
-            <div className="flex gap-2">
-              {LANE_COLORS.map(c => (
-                <button
-                  key={c}
-                  onClick={() => setForm({ ...form, color: c })}
-                  className={`w-7 h-7 rounded-full transition-transform ${form.color === c ? 'scale-125 ring-2 ring-white/30' : 'hover:scale-110'}`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-            </div>
+            <ColorPicker
+              value={form.color}
+              onChange={(color) => setForm({ ...form, color })}
+              size="sm"
+            />
           </div>
           <div className="flex gap-3 pt-2">
             <button onClick={handleSave} className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition">

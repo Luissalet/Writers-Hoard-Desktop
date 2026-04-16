@@ -16,6 +16,7 @@ import { Lightbulb, Plus, Type, Image, Grid3x3 } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 import BrainstormItemNode from './BrainstormItemNode';
 import BrainstormItemEditor from './BrainstormItemEditor';
+import { InlineColorPicker } from '@/components/common/ColorPicker';
 import type { BrainstormItem, BrainstormConnection } from '../types';
 import { generateId } from '@/utils/idGenerator';
 
@@ -47,7 +48,7 @@ export default function BrainstormCanvas({
   onAddConnection,
 }: BrainstormCanvasProps) {
   const [editingItem, setEditingItem] = useState<BrainstormItem | null>(null);
-  const [selectedColor, setSelectedColor] = useState<'yellow' | 'pink' | 'blue' | 'green' | 'purple'>('yellow');
+  const [selectedColor, setSelectedColor] = useState('#fef3c7');
 
   // Convert items to ReactFlow nodes
   const nodes = items.map((item) => ({
@@ -237,26 +238,7 @@ export default function BrainstormCanvas({
 
         <div className="flex items-center gap-1 px-3 py-2 rounded-lg bg-surface/80 border border-border backdrop-blur ml-4">
           <span className="text-xs text-text-muted mr-2">Note Color:</span>
-          <div className="flex gap-1.5">
-            {(['yellow', 'pink', 'blue', 'green', 'purple'] as const).map((color) => (
-              <button
-                key={color}
-                onClick={() => setSelectedColor(color)}
-                className={`w-5 h-5 rounded-full border-2 transition ${
-                  selectedColor === color ? 'border-accent-gold' : 'border-transparent'
-                }`}
-                style={{
-                  backgroundColor: {
-                    yellow: '#fef3c7',
-                    pink: '#fce7f3',
-                    blue: '#dbeafe',
-                    green: '#d1fae5',
-                    purple: '#ede9fe',
-                  }[color],
-                }}
-              />
-            ))}
-          </div>
+          <InlineColorPicker value={selectedColor} onChange={setSelectedColor} size="sm" />
         </div>
       </div>
 

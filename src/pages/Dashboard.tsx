@@ -10,12 +10,11 @@ import { generateId } from '@/utils/idGenerator';
 import { importProjectData, importFullDatabase } from '@/db/operations';
 import { exportFullZip, importFullZip } from '@/services/zipBackup';
 import { PROJECT_MODES, getAllEngines, getEnginesForMode, getSuggestedEnginesForMode } from '@/engines';
+import ColorPicker from '@/components/common/ColorPicker';
 import type { Project, ProjectMode } from '@/types';
 
-const PROJECT_COLORS = ['#c4973b', '#7c5cbf', '#4a7ec4', '#4a9e6d', '#c4463a', '#d4a843', '#9b7ed8', '#e4a853'];
-
 export default function Dashboard() {
-  const { projects, loading, addProject, removeProject, refresh } = useProjects();
+  const { projects, loading, addProject, editProject, removeProject, refresh } = useProjects();
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -32,7 +31,7 @@ export default function Dashboard() {
     title: '',
     type: 'standalone' as Project['type'],
     description: '',
-    color: PROJECT_COLORS[0],
+    color: '#c4973b',
   });
 
   // Get engines for current mode
@@ -225,6 +224,7 @@ export default function Dashboard() {
                 index={i}
                 onClick={() => navigate(`/project/${project.id}`)}
                 onDelete={() => removeProject(project.id)}
+                onColorChange={(color) => editProject(project.id, { color })}
               />
             ))}
           </div>
@@ -323,18 +323,10 @@ export default function Dashboard() {
 
             <div>
               <label className="block text-sm text-text-muted mb-1.5">Color</label>
-              <div className="flex gap-2">
-                {PROJECT_COLORS.map(color => (
-                  <button
-                    key={color}
-                    onClick={() => setForm({ ...form, color })}
-                    className={`w-8 h-8 rounded-full transition-transform ${
-                      form.color === color ? 'scale-125 ring-2 ring-white/30' : 'hover:scale-110'
-                    }`}
-                    style={{ backgroundColor: color }}
-                  />
-                ))}
-              </div>
+              <ColorPicker
+                value={form.color}
+                onChange={(color) => setForm({ ...form, color })}
+              />
             </div>
 
             {/* Engines Section */}

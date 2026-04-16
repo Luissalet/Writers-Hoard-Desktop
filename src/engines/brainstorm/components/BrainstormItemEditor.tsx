@@ -5,6 +5,7 @@
 import { useState, useRef } from 'react';
 import { X } from 'lucide-react';
 import TiptapEditor from '@/components/editor/TiptapEditor';
+import ColorPicker from '@/components/common/ColorPicker';
 import type { BrainstormItem } from '../types';
 
 interface BrainstormItemEditorProps {
@@ -13,15 +14,23 @@ interface BrainstormItemEditorProps {
   onClose: () => void;
 }
 
-const NOTE_COLORS = ['yellow', 'pink', 'blue', 'green', 'purple'] as const;
+const NOTE_COLOR_PRESETS = ['#fef3c7', '#fce7f3', '#dbeafe', '#d1fae5', '#ede9fe', '#fde68a', '#c7d2fe', '#fbcfe8'];
+const SECTION_COLOR_PRESETS = ['#6b7280', '#fbbf24', '#f87171', '#60a5fa', '#10b981', '#c4973b', '#7c5cbf'];
 
-const SECTION_COLORS = [
-  '#6b7280', // gray
-  '#fbbf24', // amber
-  '#f87171', // red
-  '#60a5fa', // blue
-  '#10b981', // emerald
-];
+/** Map legacy named colors to hex for backward compat */
+const LEGACY_NOTE_COLORS: Record<string, string> = {
+  yellow: '#fef3c7',
+  pink: '#fce7f3',
+  blue: '#dbeafe',
+  green: '#d1fae5',
+  purple: '#ede9fe',
+};
+
+function resolveNoteColor(raw?: string): string {
+  if (!raw) return '#fef3c7';
+  if (LEGACY_NOTE_COLORS[raw]) return LEGACY_NOTE_COLORS[raw];
+  return raw;
+}
 
 export default function BrainstormItemEditor({ item, onSave, onClose }: BrainstormItemEditorProps) {
   const [changes, setChanges] = useState<Partial<BrainstormItem>>(item);
@@ -65,32 +74,12 @@ export default function BrainstormItemEditor({ item, onSave, onClose }: Brainsto
           {item.type === 'note' && (
             <>
               <div>
-                <label className="block text-sm font-medium text-text-primary mb-2">
-                  Color
-                </label>
-                <div className="flex gap-2">
-                  {NOTE_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => setChanges({ ...changes, color })}
-                      className={`w-8 h-8 rounded-full border-2 transition ${
-                        changes.color === color
-                          ? 'border-accent-gold'
-                          : 'border-transparent'
-                      }`}
-                      style={{
-                        backgroundColor: {
-                          yellow: '#fef3c7',
-                          pink: '#fce7f3',
-                          blue: '#dbeafe',
-                          green: '#d1fae5',
-                          purple: '#ede9fe',
-                        }[color],
-                      }}
-                      title={color}
-                    />
-                  ))}
-                </div>
+                <ColorPicker
+                  label="Color"
+                  value={resolveNoteColor(changes.color)}
+                  onChange={(color) => setChanges({ ...changes, color })}
+                  presets={NOTE_COLOR_PRESETS}
+                />
               </div>
 
               <div>
@@ -166,24 +155,12 @@ export default function BrainstormItemEditor({ item, onSave, onClose }: Brainsto
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-text-primary mb-2">
-                  Color
-                </label>
-                <div className="flex gap-2 flex-wrap">
-                  {SECTION_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => setChanges({ ...changes, sectionColor: color })}
-                      className={`w-8 h-8 rounded-full border-2 transition ${
-                        changes.sectionColor === color
-                          ? 'border-accent-gold'
-                          : 'border-transparent'
-                      }`}
-                      style={{ backgroundColor: color }}
-                      title={color}
-                    />
-                  ))}
-                </div>
+                <ColorPicker
+                  label="Color"
+                  value={changes.sectionColor || '#6b7280'}
+                  onChange={(color) => setChanges({ ...changes, sectionColor: color })}
+                  presets={SECTION_COLOR_PRESETS}
+                />
               </div>
             </>
           )}

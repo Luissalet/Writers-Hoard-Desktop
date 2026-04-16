@@ -14,7 +14,8 @@ interface BrainstormItemNodeProps {
   };
 }
 
-const NOTE_COLORS = {
+// Legacy named color maps (for backward compatibility with existing items)
+const NOTE_COLORS: Record<string, string> = {
   yellow: '#fef3c7',
   pink: '#fce7f3',
   blue: '#dbeafe',
@@ -22,7 +23,7 @@ const NOTE_COLORS = {
   purple: '#ede9fe',
 };
 
-const NOTE_COLORS_DARK = {
+const NOTE_COLORS_DARK: Record<string, string> = {
   yellow: '#92400e',
   pink: '#831843',
   blue: '#0c4a6e',
@@ -30,14 +31,32 @@ const NOTE_COLORS_DARK = {
   purple: '#4c1d95',
 };
 
+/** Darken a hex color by a factor (0–1). Used when a custom hex is provided. */
+function darkenHex(hex: string, factor = 0.45): string {
+  const h = hex.replace('#', '');
+  const r = Math.round(parseInt(h.substring(0, 2), 16) * factor);
+  const g = Math.round(parseInt(h.substring(2, 4), 16) * factor);
+  const b = Math.round(parseInt(h.substring(4, 6), 16) * factor);
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+/** Resolve a note color (named or hex) into bg + text pair. */
+function resolveNoteColor(raw?: string): { bg: string; text: string } {
+  if (!raw) return { bg: NOTE_COLORS.yellow, text: NOTE_COLORS_DARK.yellow };
+  // Named color?
+  if (NOTE_COLORS[raw]) return { bg: NOTE_COLORS[raw], text: NOTE_COLORS_DARK[raw] };
+  // Hex color → use as-is for bg, darken for text
+  if (raw.startsWith('#')) return { bg: raw, text: darkenHex(raw) };
+  return { bg: NOTE_COLORS.yellow, text: NOTE_COLORS_DARK.yellow };
+}
+
 export default function BrainstormItemNode({ data }: BrainstormItemNodeProps) {
   const [hovering, setHovering] = useState(false);
 
   const renderContent = () => {
     switch (data.type) {
       case 'note': {
-        const bgColor = (NOTE_COLORS[data.color as keyof typeof NOTE_COLORS] || NOTE_COLORS.yellow);
-        const textColor = (NOTE_COLORS_DARK[data.color as keyof typeof NOTE_COLORS_DARK] || NOTE_COLORS_DARK.yellow);
+        const { bg: bgColor, text: textColor } = resolveNoteColor(data.color);
         return (
           <div
             style={{
