@@ -303,6 +303,73 @@ const en = {
   'timeline.yourTimelines': 'Your Timelines',
   'timeline.defaultName': 'Main Timeline',
   'timeline.namePlaceholder': 'Timeline name...',
+  'timeline.itemNoun': 'Timeline',
+  // View modes
+  'timeline.viewSwimLanes': 'Swim Lanes',
+  'timeline.viewList': 'List',
+  'timeline.swimLaneView': 'Swim-Lane View',
+  'timeline.timelineHeading': 'Timeline',
+  // Stats
+  'timeline.statsTimelines': '{count} timelines',
+  'timeline.statsEvents': '{count} events',
+  'timeline.statsConnections': '{count} connections',
+  // Sort
+  'timeline.sortedByDate': 'Sorted by date',
+  'timeline.sortedManually': 'Sorted manually',
+  'timeline.byDate': 'By date',
+  'timeline.manualOrder': 'Manual order',
+  // Actions
+  'timeline.addEvent': 'Add Event',
+  'timeline.addFirstEvent': 'Add First Event',
+  'timeline.editEvent': 'Edit Event',
+  'timeline.newEvent': 'New Event',
+  'timeline.deleteEvent': 'Delete Event',
+  'timeline.deleteConnection': 'Delete Connection',
+  'timeline.connectTo': 'Connect to…',
+  'timeline.reorder': 'Reorder',
+  'timeline.moveLeft': 'Move left',
+  'timeline.moveRight': 'Move right',
+  'timeline.zoomIn': 'Zoom in',
+  'timeline.zoomOut': 'Zoom out',
+  // Empty state
+  'timeline.emptyTitle': 'Empty timeline',
+  'timeline.emptyMessage': "Add events to visualize your story's chronology.",
+  // Form labels
+  'timeline.labelTitle': 'Title',
+  'timeline.labelDate': 'Date',
+  'timeline.labelEventType': 'Event type',
+  'timeline.labelLane': 'Lane',
+  'timeline.labelDescription': 'Description',
+  'timeline.labelColor': 'Color',
+  'timeline.labelTimeline': 'Timeline',
+  // Form placeholders
+  'timeline.placeholderEventName': 'Event name...',
+  'timeline.placeholderFreeDate': 'e.g. Year 342, Third Age...',
+  'timeline.placeholderFreeDateAlt': 'e.g. Year 342, Phase 2, Nov 1955...',
+  'timeline.placeholderLane': 'e.g. Main, Kingdom A, Character Arc...',
+  'timeline.placeholderDescription': 'What happened...',
+  // Date modes
+  'timeline.freeText': 'Free text',
+  'timeline.calendar': 'Calendar',
+  'timeline.startDate': 'Start date',
+  'timeline.endDate': 'End date',
+  'timeline.endDateOptional': '(optional, for ranges)',
+  // Event types
+  'timeline.typePoint': 'Point',
+  'timeline.typeRange': 'Range',
+  'timeline.typeMilestone': 'Milestone',
+  'timeline.typePointSymbol': '● Point',
+  'timeline.typeRangeSymbol': '━ Range',
+  'timeline.typeMilestoneSymbol': '◆ Milestone',
+  // Buttons
+  'timeline.save': 'Save',
+  'timeline.create': 'Create',
+  'timeline.cancel': 'Cancel',
+  // Swim lane hints
+  'timeline.connectingFrom': 'Connecting from',
+  'timeline.clickAnyEvent': '— click any event on any lane',
+  'timeline.dragging': 'Dragging…',
+  'timeline.canvasHint': 'Ctrl+scroll to zoom · Double-click to edit · Drag to reorder',
 
   // ── Yarn Board Engine ──
   'yarn.yourBoards': 'Your Boards',

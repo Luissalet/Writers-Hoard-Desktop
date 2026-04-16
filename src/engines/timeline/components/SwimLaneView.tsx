@@ -3,6 +3,7 @@ import { ZoomIn, ZoomOut, Link2, Trash2, Edit3, X, Calendar, Type, ChevronLeft, 
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Timeline, TimelineEvent, TimelineConnection, TimelineEventType, DateMode } from '@/types';
 import { generateId } from '@/utils/idGenerator';
+import { useTranslation } from '@/i18n/useTranslation';
 import Modal from '@/components/common/Modal';
 import ColorPicker from '@/components/common/ColorPicker';
 
@@ -161,7 +162,7 @@ function formatDate(iso: string, endIso?: string): string {
   } catch { return iso; }
 }
 
-const TYPE_LABELS: Record<string, string> = { point: '● Point', range: '━ Range', milestone: '◆ Milestone' };
+// TYPE_LABELS is built inside the component to use t() — see getTypeLabels()
 
 // ── Tooltip state ──
 
@@ -313,6 +314,12 @@ export default function SwimLaneView({
   onAddEvent, onEditEvent, onDeleteEvent,
   onAddConnection, onDeleteConnection, onEditTimeline: _onEditTimeline,
 }: SwimLaneViewProps) {
+  const { t } = useTranslation();
+  const TYPE_LABELS: Record<string, string> = useMemo(() => ({
+    point: t('timeline.typePointSymbol'),
+    range: t('timeline.typeRangeSymbol'),
+    milestone: t('timeline.typeMilestoneSymbol'),
+  }), [t]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -611,27 +618,27 @@ export default function SwimLaneView({
     <div className="space-y-3">
       {/* Toolbar */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h3 className="text-lg font-serif font-bold text-accent-gold">Swim-Lane View</h3>
+        <h3 className="text-lg font-serif font-bold text-accent-gold">{t('timeline.swimLaneView')}</h3>
         <div className="flex items-center gap-2">
           {connectingFromId && (() => {
             const src = events.find(e => e.id === connectingFromId);
             return (
               <span className="text-xs bg-blue-500/10 border border-blue-500/30 text-blue-400 px-3 py-1.5 rounded-lg flex items-center gap-1.5 animate-pulse">
                 <Link2 size={13} />
-                Connecting from <strong className="text-blue-300">{src?.title || '?'}</strong> — click any event on any lane
+                {t('timeline.connectingFrom')} <strong className="text-blue-300">{src?.title || '?'}</strong> {t('timeline.clickAnyEvent')}
                 <button onClick={() => setConnectingFromId(null)} className="ml-1 p-0.5 rounded hover:bg-blue-500/20"><X size={13} /></button>
               </span>
             );
           })()}
           {draggingId && (
-            <span className="text-xs text-accent-gold animate-pulse">Dragging…</span>
+            <span className="text-xs text-accent-gold animate-pulse">{t('timeline.dragging')}</span>
           )}
-          <span className="text-[10px] text-text-dim hidden sm:inline">Ctrl+scroll to zoom · Double-click to edit · Drag to reorder</span>
-          <button onClick={handleZoomOut} className="p-2 border border-border rounded-lg hover:bg-elevated transition" title="Zoom out">
+          <span className="text-[10px] text-text-dim hidden sm:inline">{t('timeline.canvasHint')}</span>
+          <button onClick={handleZoomOut} className="p-2 border border-border rounded-lg hover:bg-elevated transition" title={t('timeline.zoomOut')}>
             <ZoomOut size={14} className="text-text-muted" />
           </button>
           <span className="text-xs text-text-dim w-12 text-center">{Math.round(zoom * 100)}%</span>
-          <button onClick={handleZoomIn} className="p-2 border border-border rounded-lg hover:bg-elevated transition" title="Zoom in">
+          <button onClick={handleZoomIn} className="p-2 border border-border rounded-lg hover:bg-elevated transition" title={t('timeline.zoomIn')}>
             <ZoomIn size={14} className="text-text-muted" />
           </button>
         </div>
@@ -941,21 +948,21 @@ export default function SwimLaneView({
             >
               <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-elevated transition"
                 onClick={() => { if (evt) openEditForm(evt); }}>
-                <Edit3 size={13} /> Edit Event
+                <Edit3 size={13} /> {t('timeline.editEvent')}
               </button>
               <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-elevated transition"
                 onClick={() => { setConnectingFromId(contextMenu.eventId); setContextMenu(null); }}>
-                <Link2 size={13} /> Connect to…
+                <Link2 size={13} /> {t('timeline.connectTo')}
               </button>
               <div className="border-t border-border my-1" />
               {/* Reorder buttons */}
               <div className="flex items-center px-3 py-1 gap-1">
-                <span className="text-[10px] text-text-dim uppercase tracking-wider mr-auto">Reorder</span>
+                <span className="text-[10px] text-text-dim uppercase tracking-wider mr-auto">{t('timeline.reorder')}</span>
                 <button
                   className="p-1.5 rounded hover:bg-elevated transition disabled:opacity-20"
                   disabled={idx <= 0}
                   onClick={() => moveEvent(contextMenu.eventId, -1)}
-                  title="Move left"
+                  title={t('timeline.moveLeft')}
                 >
                   <ChevronLeft size={14} className="text-text-muted" />
                 </button>
@@ -963,7 +970,7 @@ export default function SwimLaneView({
                   className="p-1.5 rounded hover:bg-elevated transition disabled:opacity-20"
                   disabled={idx >= laneEvts.length - 1}
                   onClick={() => moveEvent(contextMenu.eventId, 1)}
-                  title="Move right"
+                  title={t('timeline.moveRight')}
                 >
                   <ChevronRight size={14} className="text-text-muted" />
                 </button>
@@ -971,7 +978,7 @@ export default function SwimLaneView({
               <div className="border-t border-border my-1" />
               <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10 transition"
                 onClick={() => { onDeleteEvent(contextMenu.eventId); setContextMenu(null); setSelectedEventId(null); }}>
-                <Trash2 size={13} /> Delete Event
+                <Trash2 size={13} /> {t('timeline.deleteEvent')}
               </button>
             </motion.div>
           );
@@ -997,7 +1004,7 @@ export default function SwimLaneView({
               </div>
               <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10 transition"
                 onClick={() => { onDeleteConnection(connContextMenu.connId); setConnContextMenu(null); }}>
-                <Trash2 size={13} /> Delete Connection
+                <Trash2 size={13} /> {t('timeline.deleteConnection')}
               </button>
             </motion.div>
           );
@@ -1006,12 +1013,12 @@ export default function SwimLaneView({
 
       {/* Add/Edit Event Modal */}
       <Modal open={showEventForm} onClose={() => { setShowEventForm(false); setEditingEvent(null); }}
-        title={editingEvent ? 'Edit Event' : 'New Event'}>
+        title={editingEvent ? t('timeline.editEvent') : t('timeline.newEvent')}>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Title</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelTitle')}</label>
             <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder="Event name..."
+              placeholder={t('timeline.placeholderEventName')}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
               autoFocus />
           </div>
@@ -1020,7 +1027,7 @@ export default function SwimLaneView({
           {timelines.length > 1 && (
             <div>
               <label className="block text-sm text-text-muted mb-1.5 flex items-center gap-1.5">
-                <ArrowRightLeft size={13} /> Timeline
+                <ArrowRightLeft size={13} /> {t('timeline.labelTimeline')}
               </label>
               <select
                 value={form.timelineId}
@@ -1036,7 +1043,7 @@ export default function SwimLaneView({
 
           {/* Event Type */}
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Event type</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelEventType')}</label>
             <div className="flex items-center gap-1 p-0.5 bg-elevated rounded-lg border border-border w-fit">
               {(['point', 'range', 'milestone'] as const).map(type => (
                 <button key={type} onClick={() => setForm({ ...form, eventType: type })}
@@ -1053,36 +1060,36 @@ export default function SwimLaneView({
 
           {/* Date Mode Toggle + Inputs */}
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Date</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelDate')}</label>
             <div className="flex items-center gap-1 mb-2 p-0.5 bg-elevated rounded-lg border border-border w-fit">
               <button onClick={() => setForm({ ...form, dateMode: 'text' })}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition ${
                   form.dateMode === 'text' ? 'bg-accent-gold/20 text-accent-gold font-semibold' : 'text-text-muted hover:text-text-primary'
                 }`}>
-                <Type size={12} /> Free text
+                <Type size={12} /> {t('timeline.freeText')}
               </button>
               <button onClick={() => setForm({ ...form, dateMode: 'calendar' })}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition ${
                   form.dateMode === 'calendar' ? 'bg-accent-gold/20 text-accent-gold font-semibold' : 'text-text-muted hover:text-text-primary'
                 }`}>
-                <Calendar size={12} /> Calendar
+                <Calendar size={12} /> {t('timeline.calendar')}
               </button>
             </div>
 
             {form.dateMode === 'text' ? (
               <input value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
-                placeholder="e.g. Year 342, Phase 2, Nov 1955..."
+                placeholder={t('timeline.placeholderFreeDateAlt')}
                 className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition" />
             ) : (
               <div className="space-y-2">
                 <div>
-                  <label className="block text-[11px] text-text-dim mb-1">Start date</label>
+                  <label className="block text-[11px] text-text-dim mb-1">{t('timeline.startDate')}</label>
                   <input type="date" value={form.realDate}
                     onChange={(e) => setForm({ ...form, realDate: e.target.value })}
                     className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition [color-scheme:dark]" />
                 </div>
                 <div>
-                  <label className="block text-[11px] text-text-dim mb-1">End date <span className="text-text-dim">(optional, for ranges)</span></label>
+                  <label className="block text-[11px] text-text-dim mb-1">{t('timeline.endDate')} <span className="text-text-dim">{t('timeline.endDateOptional')}</span></label>
                   <input type="date" value={form.realDateEnd}
                     onChange={(e) => setForm({ ...form, realDateEnd: e.target.value })}
                     min={form.realDate || undefined}
@@ -1093,25 +1100,25 @@ export default function SwimLaneView({
           </div>
 
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Description</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelDescription')}</label>
             <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="What happened..." rows={3}
+              placeholder={t('timeline.placeholderDescription')} rows={3}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition resize-none" />
           </div>
 
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Color</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelColor')}</label>
             <ColorPicker value={form.color} onChange={(color) => setForm({ ...form, color })} size="sm" />
           </div>
 
           <div className="flex gap-3 pt-2">
             <button onClick={handleSave}
               className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition">
-              {editingEvent ? 'Save' : 'Create'}
+              {editingEvent ? t('timeline.save') : t('timeline.create')}
             </button>
             <button onClick={() => { setShowEventForm(false); setEditingEvent(null); }}
               className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition">
-              Cancel
+              {t('timeline.cancel')}
             </button>
           </div>
         </div>

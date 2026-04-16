@@ -6,6 +6,12 @@ export interface Scene {
   order: number;
   setting?: string;
   tags: string[];
+  /** Manually assigned scene number (auto-generated if not locked) */
+  sceneNumber?: number;
+  /** When true, sceneNumber won't be recalculated on reorder */
+  isLocked?: boolean;
+  /** Omitted scenes are hidden from output but preserved in the project */
+  isOmitted?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -35,6 +41,8 @@ export interface DialogBlock {
   order: number;
   parenthetical?: string;
   formatting?: BlockFormatting;
+  /** Group ID for dual/parallel dialogue — blocks sharing the same dualGroupId render side-by-side */
+  dualGroupId?: string;
   createdAt: number;
   updatedAt: number;
 }

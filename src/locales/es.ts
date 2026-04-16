@@ -303,6 +303,73 @@ const es = {
   'timeline.yourTimelines': 'Tus Líneas Temporales',
   'timeline.defaultName': 'Línea temporal principal',
   'timeline.namePlaceholder': 'Nombre de la línea temporal...',
+  'timeline.itemNoun': 'Línea temporal',
+  // View modes
+  'timeline.viewSwimLanes': 'Carriles',
+  'timeline.viewList': 'Lista',
+  'timeline.swimLaneView': 'Vista de Carriles',
+  'timeline.timelineHeading': 'Línea Temporal',
+  // Stats
+  'timeline.statsTimelines': '{count} líneas temporales',
+  'timeline.statsEvents': '{count} eventos',
+  'timeline.statsConnections': '{count} conexiones',
+  // Sort
+  'timeline.sortedByDate': 'Ordenado por fecha',
+  'timeline.sortedManually': 'Orden manual',
+  'timeline.byDate': 'Por fecha',
+  'timeline.manualOrder': 'Orden manual',
+  // Actions
+  'timeline.addEvent': 'Añadir Evento',
+  'timeline.addFirstEvent': 'Añadir Primer Evento',
+  'timeline.editEvent': 'Editar Evento',
+  'timeline.newEvent': 'Nuevo Evento',
+  'timeline.deleteEvent': 'Eliminar Evento',
+  'timeline.deleteConnection': 'Eliminar Conexión',
+  'timeline.connectTo': 'Conectar a…',
+  'timeline.reorder': 'Reordenar',
+  'timeline.moveLeft': 'Mover a la izquierda',
+  'timeline.moveRight': 'Mover a la derecha',
+  'timeline.zoomIn': 'Acercar',
+  'timeline.zoomOut': 'Alejar',
+  // Empty state
+  'timeline.emptyTitle': 'Línea temporal vacía',
+  'timeline.emptyMessage': 'Añade eventos para visualizar la cronología de tu historia.',
+  // Form labels
+  'timeline.labelTitle': 'Título',
+  'timeline.labelDate': 'Fecha',
+  'timeline.labelEventType': 'Tipo de evento',
+  'timeline.labelLane': 'Carril',
+  'timeline.labelDescription': 'Descripción',
+  'timeline.labelColor': 'Color',
+  'timeline.labelTimeline': 'Línea temporal',
+  // Form placeholders
+  'timeline.placeholderEventName': 'Nombre del evento...',
+  'timeline.placeholderFreeDate': 'ej. Año 342, Tercera Edad...',
+  'timeline.placeholderFreeDateAlt': 'ej. Año 342, Fase 2, Nov 1955...',
+  'timeline.placeholderLane': 'ej. Principal, Reino A, Arco del personaje...',
+  'timeline.placeholderDescription': 'Qué sucedió...',
+  // Date modes
+  'timeline.freeText': 'Texto libre',
+  'timeline.calendar': 'Calendario',
+  'timeline.startDate': 'Fecha de inicio',
+  'timeline.endDate': 'Fecha de fin',
+  'timeline.endDateOptional': '(opcional, para rangos)',
+  // Event types
+  'timeline.typePoint': 'Punto',
+  'timeline.typeRange': 'Rango',
+  'timeline.typeMilestone': 'Hito',
+  'timeline.typePointSymbol': '● Punto',
+  'timeline.typeRangeSymbol': '━ Rango',
+  'timeline.typeMilestoneSymbol': '◆ Hito',
+  // Buttons
+  'timeline.save': 'Guardar',
+  'timeline.create': 'Crear',
+  'timeline.cancel': 'Cancelar',
+  // Swim lane hints
+  'timeline.connectingFrom': 'Conectando desde',
+  'timeline.clickAnyEvent': '— haz clic en cualquier evento de cualquier carril',
+  'timeline.dragging': 'Arrastrando…',
+  'timeline.canvasHint': 'Ctrl+scroll para zoom · Doble clic para editar · Arrastra para reordenar',
 
   // ── Yarn Board Engine ──
   'yarn.yourBoards': 'Tus Tableros',

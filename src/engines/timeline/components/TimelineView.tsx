@@ -3,6 +3,7 @@ import { Plus, Trash2, Clock, GripVertical, Calendar, Type, ArrowUpDown, Circle,
 import { motion, AnimatePresence } from 'framer-motion';
 import type { TimelineEvent, DateMode, TimelineEventType } from '@/types';
 import { generateId } from '@/utils/idGenerator';
+import { useTranslation } from '@/i18n/useTranslation';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
 import ColorPicker from '@/components/common/ColorPicker';
@@ -42,6 +43,7 @@ function getDisplayDate(evt: TimelineEvent): string {
 type SortMode = 'manual' | 'chronological';
 
 export default function TimelineView({ projectId, timelineId, events, onAddEvent, onEditEvent, onDeleteEvent }: TimelineViewProps) {
+  const { t } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [editingEvent, setEditingEvent] = useState<TimelineEvent | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('manual');
@@ -148,7 +150,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-serif font-bold text-accent-gold">Timeline</h3>
+        <h3 className="text-lg font-serif font-bold text-accent-gold">{t('timeline.timelineHeading')}</h3>
         <div className="flex items-center gap-2">
           {/* Sort toggle — only show when there are calendar events */}
           {hasCalendarEvents && (
@@ -159,17 +161,17 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
                   ? 'border-accent-gold/40 bg-accent-gold/10 text-accent-gold'
                   : 'border-border text-text-muted hover:text-text-primary hover:bg-elevated'
               }`}
-              title={sortMode === 'chronological' ? 'Sorted by date' : 'Sorted manually'}
+              title={sortMode === 'chronological' ? t('timeline.sortedByDate') : t('timeline.sortedManually')}
             >
               <ArrowUpDown size={13} />
-              {sortMode === 'chronological' ? 'By date' : 'Manual order'}
+              {sortMode === 'chronological' ? t('timeline.byDate') : t('timeline.manualOrder')}
             </button>
           )}
           <button
             onClick={() => { resetForm(); setEditingEvent(null); setShowForm(true); }}
             className="flex items-center gap-1.5 px-4 py-2 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
           >
-            <Plus size={16} /> Add Event
+            <Plus size={16} /> {t('timeline.addEvent')}
           </button>
         </div>
       </div>
@@ -177,9 +179,9 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
       {sortedEvents.length === 0 ? (
         <EmptyState
           icon={<Clock size={40} />}
-          title="Empty timeline"
-          message="Add events to visualize your story's chronology."
-          action={{ label: 'Add First Event', onClick: () => setShowForm(true) }}
+          title={t('timeline.emptyTitle')}
+          message={t('timeline.emptyMessage')}
+          action={{ label: t('timeline.addFirstEvent'), onClick: () => setShowForm(true) }}
         />
       ) : (
         <div className="relative">
@@ -272,14 +274,14 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
       )}
 
       {/* Form Modal */}
-      <Modal open={showForm} onClose={() => { setShowForm(false); setEditingEvent(null); }} title={editingEvent ? 'Edit Event' : 'New Event'}>
+      <Modal open={showForm} onClose={() => { setShowForm(false); setEditingEvent(null); }} title={editingEvent ? t('timeline.editEvent') : t('timeline.newEvent')}>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Title</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelTitle')}</label>
             <input
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder="Event name..."
+              placeholder={t('timeline.placeholderEventName')}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
               autoFocus
             />
@@ -287,7 +289,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
 
           {/* Date Mode Toggle */}
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Date</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelDate')}</label>
             <div className="flex items-center gap-1 mb-2 p-0.5 bg-elevated rounded-lg border border-border w-fit">
               <button
                 onClick={() => setForm({ ...form, dateMode: 'text' })}
@@ -298,7 +300,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
                 }`}
               >
                 <Type size={12} />
-                Free text
+                {t('timeline.freeText')}
               </button>
               <button
                 onClick={() => setForm({ ...form, dateMode: 'calendar' })}
@@ -309,7 +311,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
                 }`}
               >
                 <Calendar size={12} />
-                Calendar
+                {t('timeline.calendar')}
               </button>
             </div>
 
@@ -317,13 +319,13 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
               <input
                 value={form.date}
                 onChange={(e) => setForm({ ...form, date: e.target.value })}
-                placeholder="e.g. Year 342, Third Age..."
+                placeholder={t('timeline.placeholderFreeDate')}
                 className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
               />
             ) : (
               <div className="space-y-2">
                 <div>
-                  <label className="block text-[11px] text-text-dim mb-1">Start date</label>
+                  <label className="block text-[11px] text-text-dim mb-1">{t('timeline.startDate')}</label>
                   <input
                     type="date"
                     value={form.realDate}
@@ -332,7 +334,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] text-text-dim mb-1">End date <span className="text-text-dim">(optional, for ranges)</span></label>
+                  <label className="block text-[11px] text-text-dim mb-1">{t('timeline.endDate')} <span className="text-text-dim">{t('timeline.endDateOptional')}</span></label>
                   <input
                     type="date"
                     value={form.realDateEnd}
@@ -347,12 +349,12 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
 
           {/* Event Type selector */}
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Event type</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelEventType')}</label>
             <div className="flex items-center gap-1 p-0.5 bg-elevated rounded-lg border border-border w-fit">
               {([
-                { type: 'point' as const, icon: Circle, label: 'Point' },
-                { type: 'range' as const, icon: ArrowRight, label: 'Range' },
-                { type: 'milestone' as const, icon: Diamond, label: 'Milestone' },
+                { type: 'point' as const, icon: Circle, label: t('timeline.typePoint') },
+                { type: 'range' as const, icon: ArrowRight, label: t('timeline.typeRange') },
+                { type: 'milestone' as const, icon: Diamond, label: t('timeline.typeMilestone') },
               ]).map(({ type, icon: Icon, label }) => (
                 <button
                   key={type}
@@ -371,26 +373,26 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
           </div>
 
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Lane</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelLane')}</label>
             <input
               value={form.lane}
               onChange={(e) => setForm({ ...form, lane: e.target.value })}
-              placeholder="e.g. Main, Kingdom A, Character Arc..."
+              placeholder={t('timeline.placeholderLane')}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
             />
           </div>
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Description</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelDescription')}</label>
             <textarea
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="What happened..."
+              placeholder={t('timeline.placeholderDescription')}
               rows={3}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition resize-none"
             />
           </div>
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Color</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelColor')}</label>
             <ColorPicker
               value={form.color}
               onChange={(color) => setForm({ ...form, color })}
@@ -399,10 +401,10 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
           </div>
           <div className="flex gap-3 pt-2">
             <button onClick={handleSave} className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition">
-              {editingEvent ? 'Save' : 'Create'}
+              {editingEvent ? t('timeline.save') : t('timeline.create')}
             </button>
             <button onClick={() => { setShowForm(false); setEditingEvent(null); }} className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition">
-              Cancel
+              {t('timeline.cancel')}
             </button>
           </div>
         </div>

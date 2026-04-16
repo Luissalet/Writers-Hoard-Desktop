@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { makeEntityHook } from '@/engines/_shared';
 import * as ops from './operations';
 import type { Scene, DialogBlock, SceneCast } from './types';
+import type { OutlineBeat } from '@/engines/outline/types';
 
 export const useScenes = makeEntityHook<Scene>({
   fetchFn: ops.getScenes,
@@ -61,4 +62,16 @@ export function useSceneCast(sceneId: string) {
   );
 
   return { cast, loading, addMember, removeMember, updateMember, refresh };
+}
+
+/** Hook to fetch outline beats linked to a specific scene */
+export function useLinkedBeats(sceneId: string) {
+  const [beats, setBeats] = useState<OutlineBeat[]>([]);
+
+  useEffect(() => {
+    if (!sceneId) return;
+    ops.getLinkedBeats(sceneId).then(setBeats);
+  }, [sceneId]);
+
+  return beats;
 }

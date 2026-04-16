@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Trash2, GripVertical, Type, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { DialogBlock, BlockFormatting } from '../types';
+import ScriptAutocomplete, { type AutocompleteSuggestion } from './ScriptAutocomplete';
 
 interface DialogBlockComponentProps {
   block: DialogBlock;
@@ -10,6 +11,8 @@ interface DialogBlockComponentProps {
   onDelete: () => void;
   isDragging?: boolean;
   dragHandleProps?: any;
+  /** Autocomplete suggestions for script intelligence */
+  suggestions?: AutocompleteSuggestion[];
 }
 
 const FONT_FAMILIES: { key: BlockFormatting['fontFamily']; label: string; cls: string }[] = [
@@ -144,9 +147,19 @@ export default function DialogBlockComponent({
   onDelete,
   isDragging,
   dragHandleProps,
+  suggestions = [],
 }: DialogBlockComponentProps) {
   const isDialog = block.type === 'dialog';
   const meta = BLOCK_META[block.type];
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
+
+  // Filter suggestions by block type context
+  const contextSuggestions = suggestions.filter((s) => {
+    if (block.type === 'slug') return s.category === 'location' || s.label.startsWith('INT') || s.label.startsWith('EXT');
+    if (block.type === 'transition') return s.category === 'transition';
+    return true;
+  });
 
   // ─── Non-dialog block types (stage-direction, action, transition, note, slug) ───
   if (!isDialog && meta) {
@@ -188,13 +201,28 @@ export default function DialogBlockComponent({
           </div>
 
           {/* Editable content */}
-          <textarea
-            value={block.content}
-            onChange={(e) => onUpdate(e.target.value)}
-            className={`w-full bg-transparent resize-none focus:outline-none border-none p-0 leading-relaxed ${meta.textCls} ${meta.align} ${fontCls(block.formatting)}`}
-            rows={Math.max(1, Math.ceil(block.content.length / 60))}
-            placeholder={`Enter ${meta.label.toLowerCase()}...`}
-          />
+          <div className="relative">
+            <textarea
+              ref={textareaRef}
+              value={block.content}
+              onChange={(e) => onUpdate(e.target.value)}
+              onFocus={() => setShowAutocomplete(true)}
+              onBlur={() => setTimeout(() => setShowAutocomplete(false), 200)}
+              className={`w-full bg-transparent resize-none focus:outline-none border-none p-0 leading-relaxed ${meta.textCls} ${meta.align} ${fontCls(block.formatting)}`}
+              rows={Math.max(1, Math.ceil(block.content.length / 60))}
+              placeholder={`Enter ${meta.label.toLowerCase()}...`}
+            />
+            <ScriptAutocomplete
+              value={block.content}
+              suggestions={contextSuggestions}
+              anchorRef={textareaRef}
+              active={showAutocomplete && block.content.length > 0}
+              onSelect={(s) => {
+                onUpdate(s.label);
+                setShowAutocomplete(false);
+              }}
+            />
+          </div>
         </div>
       </motion.div>
     );
@@ -247,18 +275,33 @@ export default function DialogBlockComponent({
 
         {/* Dialog content */}
         <div className="px-4 py-3 bg-elevated">
-          {block.parenthetical && (
+          {block.parenthetical !== undefined && block.parenthetical !== '' && (
             <p className="text-xs italic text-text-muted mb-2">
               ({block.parenthetical})
             </p>
           )}
-          <textarea
-            value={block.content}
-            onChange={(e) => onUpdate(e.target.value, block.parenthetical)}
-            className={`w-full bg-elevated text-text-primary resize-none focus:outline-none border-none p-0 leading-relaxed ${fontCls(block.formatting)}`}
-            rows={Math.max(2, Math.ceil(block.content.length / 60))}
-            placeholder="Enter dialog..."
-          />
+          <div className="relative">
+            <textarea
+              ref={textareaRef}
+              value={block.content}
+              onChange={(e) => onUpdate(e.target.value, block.parenthetical)}
+              onFocus={() => setShowAutocomplete(true)}
+              onBlur={() => setTimeout(() => setShowAutocomplete(false), 200)}
+              className={`w-full bg-elevated text-text-primary resize-none focus:outline-none border-none p-0 leading-relaxed ${fontCls(block.formatting)}`}
+              rows={Math.max(2, Math.ceil(block.content.length / 60))}
+              placeholder="Enter dialog..."
+            />
+            <ScriptAutocomplete
+              value={block.content}
+              suggestions={contextSuggestions.filter((s) => s.category === 'character')}
+              anchorRef={textareaRef}
+              active={showAutocomplete && block.content.length > 0 && block.content.startsWith('@')}
+              onSelect={(s) => {
+                onUpdate(s.label, block.parenthetical);
+                setShowAutocomplete(false);
+              }}
+            />
+          </div>
         </div>
       </div>
     </motion.div>

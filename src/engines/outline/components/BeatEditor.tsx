@@ -1,11 +1,14 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
+import { X, Link2, Unlink } from 'lucide-react';
 import type { OutlineBeat, BeatStatus } from '../types';
+import type { Scene } from '@/engines/dialog-scene/types';
 
 interface BeatEditorProps {
   beat: OutlineBeat;
   onSave: (changes: Partial<OutlineBeat>) => void;
   onClose: () => void;
+  /** Available scenes for linking */
+  scenes?: Scene[];
 }
 
 const PRESET_COLORS = [
@@ -14,7 +17,7 @@ const PRESET_COLORS = [
   '#4a9e6d', '#06b6d4', '#ec4899', '#a855f7',
 ];
 
-export default function BeatEditor({ beat, onSave, onClose }: BeatEditorProps) {
+export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatEditorProps) {
   const [title, setTitle] = useState(beat.title);
   const [description, setDescription] = useState(beat.description);
   const [level, setLevel] = useState<'act' | 'chapter' | 'scene' | 'beat'>(beat.level);
@@ -22,6 +25,7 @@ export default function BeatEditor({ beat, onSave, onClose }: BeatEditorProps) {
   const [storyPosition, setStoryPosition] = useState(beat.storyPosition || 0);
   const [color, setColor] = useState(beat.color || '#c4973b');
   const [wordTarget, setWordTarget] = useState(beat.wordTarget || 0);
+  const [linkedSceneId, setLinkedSceneId] = useState(beat.linkedSceneId || '');
 
   const handleSave = () => {
     onSave({
@@ -32,6 +36,7 @@ export default function BeatEditor({ beat, onSave, onClose }: BeatEditorProps) {
       storyPosition,
       color,
       wordTarget: wordTarget || undefined,
+      linkedSceneId: linkedSceneId || undefined,
       updatedAt: Date.now(),
     });
     onClose();
@@ -165,6 +170,43 @@ export default function BeatEditor({ beat, onSave, onClose }: BeatEditorProps) {
               ))}
             </div>
           </div>
+
+          {/* Link to Scene */}
+          {scenes.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-1 flex items-center gap-1.5">
+                <Link2 size={14} className="text-accent-gold" />
+                Linked Scene
+              </label>
+              <div className="flex items-center gap-2">
+                <select
+                  value={linkedSceneId}
+                  onChange={(e) => setLinkedSceneId(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-surface border border-border rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-gold/50 text-sm"
+                >
+                  <option value="">No linked scene</option>
+                  {scenes.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.sceneNumber ? `#${s.sceneNumber} ` : ''}{s.title}
+                      {s.isOmitted ? ' (omitted)' : ''}
+                    </option>
+                  ))}
+                </select>
+                {linkedSceneId && (
+                  <button
+                    onClick={() => setLinkedSceneId('')}
+                    className="p-2 text-text-dim hover:text-danger rounded transition"
+                    title="Unlink scene"
+                  >
+                    <Unlink size={14} />
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-text-dim mt-1">
+                Link this beat to a Dialog/Scene to track it bidirectionally.
+              </p>
+            </div>
+          )}
 
           {/* Buttons */}
           <div className="flex gap-2 justify-end pt-4">

@@ -132,7 +132,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
             }`}
           >
             <Layers size={13} />
-            Swim Lanes
+            {t('timeline.viewSwimLanes')}
           </button>
           <button
             onClick={() => setViewMode('list')}
@@ -143,12 +143,12 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
             }`}
           >
             <List size={13} />
-            List
+            {t('timeline.viewList')}
           </button>
         </div>
         {viewMode === 'swimlane' && timelines.length > 1 && (
           <span className="text-[10px] text-text-dim">
-            {timelines.length} timelines · {allEvents.length} events · {connections.length} connections
+            {t('timeline.statsTimelines').replace('{count}', String(timelines.length))} · {t('timeline.statsEvents').replace('{count}', String(allEvents.length))} · {t('timeline.statsConnections').replace('{count}', String(connections.length))}
           </span>
         )}
       </div>
@@ -183,7 +183,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
       <CollectionDashboard
         icon={Clock}
         title={t('timeline.yourTimelines')}
-        itemNoun="Timeline"
+        itemNoun={t('timeline.itemNoun')}
         items={timelines}
         activeId={activeTimelineId}
         onSelect={setActiveTimelineId}

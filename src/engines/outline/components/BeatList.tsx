@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical, Link2 } from 'lucide-react';
 import type { OutlineBeat } from '../types';
+import type { Scene } from '@/engines/dialog-scene/types';
 import { BEAT_STATUS_CONFIG, BEAT_LEVEL_LABEL } from '../types';
 import BeatEditor from './BeatEditor';
 
@@ -9,6 +10,8 @@ interface BeatListProps {
   onAddBeat: (beat: Omit<OutlineBeat, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onUpdateBeat: (beatId: string, changes: Partial<OutlineBeat>) => void;
   onDeleteBeat: (beatId: string) => void;
+  /** Scenes available for linking */
+  scenes?: Scene[];
 }
 
 export default function BeatList({
@@ -16,6 +19,7 @@ export default function BeatList({
   onAddBeat,
   onUpdateBeat,
   onDeleteBeat,
+  scenes = [],
 }: BeatListProps) {
   const [expandedBeats, setExpandedBeats] = useState<Set<string>>(new Set());
   const [editingBeat, setEditingBeat] = useState<OutlineBeat | null>(null);
@@ -87,6 +91,17 @@ export default function BeatList({
               </div>
             )}
           </div>
+
+          {/* Linked Scene indicator */}
+          {beat.linkedSceneId && (() => {
+            const linkedScene = scenes.find((s) => s.id === beat.linkedSceneId);
+            return linkedScene ? (
+              <div className="flex items-center gap-1 text-xs text-accent-gold/80 px-2 py-1 bg-accent-gold/10 rounded flex-shrink-0" title={`Linked: ${linkedScene.title}`}>
+                <Link2 size={10} />
+                <span className="max-w-20 truncate">#{linkedScene.sceneNumber ?? '?'}</span>
+              </div>
+            ) : null;
+          })()}
 
           {/* Story Position */}
           {beat.storyPosition !== undefined && (
@@ -176,6 +191,7 @@ export default function BeatList({
             onUpdateBeat(editingBeat.id, changes);
           }}
           onClose={() => setEditingBeat(null)}
+          scenes={scenes}
         />
       )}
     </div>

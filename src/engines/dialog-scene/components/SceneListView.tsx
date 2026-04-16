@@ -1,4 +1,4 @@
-import { Plus, Trash2, GripVertical } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Lock, Unlock, EyeOff, Eye } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -25,6 +25,7 @@ interface SceneListViewProps {
   scenes: Scene[];
   onSelectScene: (sceneId: string) => void;
   onCreateScene: (scene: Scene) => void;
+  onUpdateScene: (sceneId: string, changes: Partial<Scene>) => void;
   onDeleteScene: (sceneId: string) => void;
   onReorderScenes: (orderedIds: string[]) => void;
 }
@@ -32,10 +33,12 @@ interface SceneListViewProps {
 function SortableSceneCard({
   scene,
   onSelect,
+  onUpdate,
   onDelete,
 }: {
   scene: Scene;
   onSelect: () => void;
+  onUpdate: (changes: Partial<Scene>) => void;
   onDelete: () => void;
 }) {
   const { listeners, setNodeRef, transform, isDragging } = useSortable({
@@ -52,7 +55,9 @@ function SortableSceneCard({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
-        className="group relative rounded-lg border border-border bg-elevated hover:bg-elevated/70 transition cursor-pointer p-4"
+        className={`group relative rounded-lg border bg-elevated hover:bg-elevated/70 transition cursor-pointer p-4 ${
+          scene.isOmitted ? 'border-border/50 opacity-60' : 'border-border'
+        }`}
         onClick={onSelect}
       >
         <div className="flex items-start gap-3">
@@ -65,9 +70,24 @@ function SortableSceneCard({
             <GripVertical size={16} />
           </button>
 
+          {/* Scene number badge */}
+          <div className="flex-shrink-0 pt-0.5">
+            <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold ${
+              scene.isOmitted
+                ? 'bg-border/30 text-text-dim line-through'
+                : scene.isLocked
+                  ? 'bg-accent-gold/20 text-accent-gold border border-accent-gold/30'
+                  : 'bg-surface text-text-muted border border-border'
+            }`}>
+              {scene.sceneNumber ?? '—'}
+            </span>
+          </div>
+
           {/* Scene info */}
           <div className="flex-1 min-w-0">
-            <h3 className="font-serif font-semibold text-text-primary truncate">
+            <h3 className={`font-serif font-semibold truncate ${
+              scene.isOmitted ? 'text-text-dim line-through' : 'text-text-primary'
+            }`}>
               {scene.title}
             </h3>
             {scene.setting && (
@@ -85,17 +105,52 @@ function SortableSceneCard({
             </p>
           </div>
 
-          {/* Delete button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="p-2 text-text-dim hover:text-danger hover:bg-danger/10 rounded transition opacity-0 group-hover:opacity-100 flex-shrink-0"
-            title="Delete scene"
-          >
-            <Trash2 size={16} />
-          </button>
+          {/* Scene controls */}
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition flex-shrink-0">
+            {/* Lock/Unlock number */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdate({ isLocked: !scene.isLocked });
+              }}
+              className={`p-1.5 rounded transition ${
+                scene.isLocked
+                  ? 'text-accent-gold bg-accent-gold/10'
+                  : 'text-text-dim hover:text-text-primary hover:bg-surface'
+              }`}
+              title={scene.isLocked ? 'Unlock scene number' : 'Lock scene number'}
+            >
+              {scene.isLocked ? <Lock size={14} /> : <Unlock size={14} />}
+            </button>
+
+            {/* Omit/Restore */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdate({ isOmitted: !scene.isOmitted });
+              }}
+              className={`p-1.5 rounded transition ${
+                scene.isOmitted
+                  ? 'text-amber-400 bg-amber-500/10'
+                  : 'text-text-dim hover:text-text-primary hover:bg-surface'
+              }`}
+              title={scene.isOmitted ? 'Restore scene' : 'Omit scene'}
+            >
+              {scene.isOmitted ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+
+            {/* Delete */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="p-1.5 text-text-dim hover:text-danger hover:bg-danger/10 rounded transition"
+              title="Delete scene"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
         </div>
       </motion.div>
     </div>
@@ -106,6 +161,7 @@ export default function SceneListView({
   scenes,
   onSelectScene,
   onCreateScene,
+  onUpdateScene,
   onDeleteScene,
   onReorderScenes,
 }: SceneListViewProps) {
@@ -231,6 +287,7 @@ export default function SceneListView({
                       key={scene.id}
                       scene={scene}
                       onSelect={() => onSelectScene(scene.id)}
+                      onUpdate={(changes) => onUpdateScene(scene.id, changes)}
                       onDelete={() => {
                         if (
                           confirm(

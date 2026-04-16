@@ -4,6 +4,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { useAutoSelect, useEnsureDefault, EngineSpinner } from '@/engines/_shared';
 import { useOutlines, useOutlineBeats } from '../hooks';
+import { useScenes } from '@/engines/dialog-scene/hooks';
 import { BEAT_SHEET_TEMPLATES } from '../types';
 import type { Outline, OutlineBeat } from '../types';
 import { generateId } from '@/utils/idGenerator';
@@ -21,6 +22,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
   void templateForNewOutline; // used in template selection flow
 
   const { items: beats, addItem: addBeat, editItem: editBeat, removeItem: removeBeat } = useOutlineBeats(activeOutlineId);
+  const { items: scenes } = useScenes(projectId);
 
   useAutoSelect(outlines, activeOutlineId, setActiveOutlineId);
 
@@ -127,6 +129,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
           {/* Beat List */}
           <BeatList
             beats={beats}
+            scenes={scenes}
             onAddBeat={async (beatData) => {
               const beat: OutlineBeat = {
                 ...beatData,
