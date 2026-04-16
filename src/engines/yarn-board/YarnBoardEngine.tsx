@@ -9,7 +9,7 @@ import YarnBoard from './components/YarnBoard';
 import { generateId } from '@/utils/idGenerator';
 
 export default function YarnBoardEngine({ projectId }: EngineComponentProps) {
-  const { boards, addBoard, removeBoard } = useYarnBoards(projectId);
+  const { items: boards, addItem: addBoard, removeItem: removeBoard } = useYarnBoards(projectId);
   const [activeBoardId, setActiveBoardId] = useState<string>('');
   const [showNewBoard, setShowNewBoard] = useState(false);
   const [newBoardName, setNewBoardName] = useState('');

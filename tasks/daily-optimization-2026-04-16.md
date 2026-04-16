@@ -106,6 +106,61 @@ Net LOC change: approximately -250 lines of duplication removed, +276 lines of r
 | Cascade delete styles | 3 patterns | 1 pattern |
 | i18n coverage | 0 keys | 24 keys |
 
+---
+
+## Commit 3: New Engines — Outline + Writing Stats (HIGH IMPACT)
+
+### 10. Outline Engine (HIGH IMPACT)
+
+**Gap identified**: Competitors like Plottr, Scrivener, and Campfire Blaze all offer structured plot planning with beat sheet templates. Writers Hoard had no equivalent.
+
+**Solution**: Built complete Outline engine (~1,196 lines across 8 files):
+- **types.ts**: Outline + OutlineBeat interfaces, 4 built-in beat sheet templates (Save the Cat!, Three-Act, Hero's Journey, Five-Act)
+- **operations.ts**: CRUD via makeTableOps + makeCascadeDeleteOp
+- **hooks.ts**: useOutlines, useOutlineBeats using makeEntityHook factory
+- **components/**: OutlineEngine.tsx (main), BeatList.tsx (drag-reorder), BeatEditor.tsx (rich editing), TemplateSelector.tsx (template browser)
+- **index.ts**: Self-registered with id 'outline', icon ListTree, category 'planning'
+- DB v12: outlines + outlineBeats tables
+
+### 11. Writing Stats Engine (HIGH IMPACT)
+
+**Gap identified**: Tools like Novelium and One Stop For Writers offer sprint timers, word count tracking, and goal setting. Every serious writing app has this.
+
+**Solution**: Built complete Writing Stats engine (~1,042 lines across 9 files):
+- **types.ts**: WritingSession + WritingGoal interfaces
+- **operations.ts**: CRUD + custom getSessionsByDateRange, getTodaySessions
+- **hooks.ts**: useWritingSessions, useWritingGoals, useWritingStats (computed analytics)
+- **components/**: WritingStatsEngine.tsx (main), SprintTimer.tsx (configurable timer), ProgressChart.tsx (visual tracking), GoalSetter.tsx (daily/weekly/monthly goals), SessionCard.tsx (session history)
+- **index.ts**: Self-registered with id 'writing-stats', icon BarChart3, category 'core'
+- DB v13: writingSessions + writingGoals tables
+
+### Project Mode Integration
+
+Both engines wired into relevant project modes:
+- **Novelist**: outline (default), writing-stats (suggested)
+- **Playwright**: outline (default), writing-stats (suggested)
+- **Biographer**: outline + writing-stats (suggested)
+- **Reporter**: writing-stats (suggested)
+- **Content Creator**: outline + writing-stats (suggested)
+
+## Final Combined Metrics
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Total engines | 15 | 17 |
+| entityResolver.ts | 220 lines | 14 lines |
+| MapsEngine.tsx | 192 lines | 85 lines |
+| TimelineEngine.tsx | 197 lines | 84 lines |
+| ColorPicker.tsx | 457 lines | ~302 lines |
+| Dashboard.tsx | 451 lines | 194 lines |
+| ProjectDetail.tsx | 348 lines | 146 lines |
+| Shared utilities | 8 files, 340 LOC | 12 files, ~800 LOC |
+| Engines self-contained | 8 of 15 | 17 of 17 |
+| Cascade delete styles | 3 patterns | 1 pattern |
+| i18n coverage | 0 keys | 24 keys |
+| DB tables | 27 (v11) | 31 (v13) |
+| New engine LOC | — | ~2,238 lines |
+
 ## Remaining Opportunities
 
 1. **Split zipBackup.ts** (451L) into entity-specific export/import strategy modules
@@ -114,6 +169,7 @@ Net LOC change: approximately -250 lines of duplication removed, +276 lines of r
 4. **Extend CollectionDashboard** to more engines (Storyboard, Biography)
 5. **Add more translation keys** as UI grows
 6. **Delete old central hook files** in `src/hooks/` once all consumers confirmed migrated
+7. **Future engines**: Character Arc Tracker, Relationship Maps (character graph), Magic/World Systems Builder, AI-powered Consistency Checker
 
 ## TypeScript Status
-✅ `tsc --noEmit` passes with zero errors (both commits).
+✅ `tsc --noEmit` passes with zero errors (all 3 commits).

@@ -5,7 +5,7 @@ import * as ops from './operations';
 export const useYarnBoards = makeEntityHook<YarnBoard>({
   fetchFn: ops.getYarnBoards,
   createFn: ops.createYarnBoard,
-  updateFn: (id: string, changes: Partial<YarnBoard>) => ops.updateYarnBoard?.(id, changes) ?? Promise.resolve(),
+  updateFn: ops.updateYarnBoard,
   deleteFn: ops.deleteYarnBoard,
 });
 

@@ -18,7 +18,6 @@ import type {
 } from '../types';
 import type { Storyboard, StoryboardPanel, StoryboardConnector } from '@/engines/storyboard/types';
 import type { Scene, DialogBlock, SceneCast } from '@/engines/dialog-scene/types';
-import type { BrainstormBoard, BrainstormItem, BrainstormConnection } from '@/engines/brainstorm/types';
 import type { VideoPlan, VideoSegment } from '@/engines/video-planner/types';
 import type { Snapshot } from '@/engines/scrapper/types';
 import type { Biography, BiographyFact } from '@/engines/biography/types';
@@ -48,9 +47,6 @@ export class WritersHoardDB extends Dexie {
   scenes!: Table<Scene>;
   dialogBlocks!: Table<DialogBlock>;
   sceneCasts!: Table<SceneCast>;
-  brainstormBoards!: Table<BrainstormBoard>;
-  brainstormItems!: Table<BrainstormItem>;
-  brainstormConnections!: Table<BrainstormConnection>;
   videoPlans!: Table<VideoPlan>;
   videoSegments!: Table<VideoSegment>;
   snapshots!: Table<Snapshot>;
@@ -64,46 +60,6 @@ export class WritersHoardDB extends Dexie {
 
   constructor() {
     super('WritersHoardDB');
-    this.version(2).stores({
-      projects: 'id, type, parentId, status, updatedAt',
-      codexEntries: 'id, projectId, type, *tags, updatedAt',
-      writings: 'id, projectId, status, *tags, updatedAt',
-      timelines: 'id, projectId',
-      timelineEvents: 'id, projectId, timelineId, order',
-      yarnBoards: 'id, projectId',
-      yarnNodes: 'id, projectId, boardId',
-      yarnEdges: 'id, boardId, sourceId, targetId',
-      worldMaps: 'id, projectId',
-      mapPins: 'id, projectId, mapId',
-      imageCollections: 'id, projectId',
-      inspirationImages: 'id, projectId, collectionId, *tags',
-      externalLinks: 'id, projectId, type, *tags',
-      tags: 'id, name',
-    });
-    this.version(3).stores({
-      projects: 'id, type, parentId, status, updatedAt',
-      codexEntries: 'id, projectId, type, *tags, updatedAt',
-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
-      timelines: 'id, projectId',
-      timelineEvents: 'id, projectId, timelineId, order',
-      yarnBoards: 'id, projectId',
-      yarnNodes: 'id, projectId, boardId',
-      yarnEdges: 'id, boardId, sourceId, targetId',
-      worldMaps: 'id, projectId',
-      mapPins: 'id, projectId, mapId',
-      imageCollections: 'id, projectId',
-      inspirationImages: 'id, projectId, collectionId, *tags',
-      externalLinks: 'id, projectId, type, *tags',
-      tags: 'id, name',
-      settings: 'id, key',
-    });
-
-    this.version(4).stores({
-      projects: 'id, type, parentId, status, updatedAt',
-      codexEntries: 'id, projectId, type, *tags, updatedAt',
-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
-      timelines: 'id, projectId',
-      timelineEvents: 'id, projectId, timelineId, order',
     this.version(2).stores({
       projects: 'id, type, parentId, status, updatedAt',
       codexEntries: 'id, projectId, type, *tags, updatedAt',
@@ -233,9 +189,7 @@ export class WritersHoardDB extends Dexie {
       scenes: 'id, projectId, order',
       dialogBlocks: 'id, sceneId, projectId, order',
       sceneCasts: 'id, sceneId',
-      brainstormBoards: 'id, projectId',
-      brainstormItems: 'id, boardId, projectId, type',
-      brainstormConnections: 'id, boardId, sourceId, targetId',
+
     });
 
     this.version(8).stores({
@@ -260,9 +214,7 @@ export class WritersHoardDB extends Dexie {
       scenes: 'id, projectId, order',
       dialogBlocks: 'id, sceneId, projectId, order',
       sceneCasts: 'id, sceneId',
-      brainstormBoards: 'id, projectId',
-      brainstormItems: 'id, boardId, projectId, type',
-      brainstormConnections: 'id, boardId, sourceId, targetId',
+
       videoPlans: 'id, projectId',
       videoSegments: 'id, videoPlanId, projectId, order',
       snapshots: 'id, projectId, source, status, createdAt',
@@ -293,9 +245,7 @@ export class WritersHoardDB extends Dexie {
       scenes: 'id, projectId, order',
       dialogBlocks: 'id, sceneId, projectId, order',
       sceneCasts: 'id, sceneId',
-      brainstormBoards: 'id, projectId',
-      brainstormItems: 'id, boardId, projectId, type',
-      brainstormConnections: 'id, boardId, sourceId, targetId',
+
       videoPlans: 'id, projectId',
       videoSegments: 'id, videoPlanId, projectId, order',
       snapshots: 'id, projectId, source, status, createdAt',
@@ -339,9 +289,7 @@ export class WritersHoardDB extends Dexie {
       scenes: 'id, projectId, order',
       dialogBlocks: 'id, sceneId, projectId, order',
       sceneCasts: 'id, sceneId',
-      brainstormBoards: 'id, projectId',
-      brainstormItems: 'id, boardId, projectId, type',
-      brainstormConnections: 'id, boardId, sourceId, targetId',
+
       videoPlans: 'id, projectId',
       videoSegments: 'id, videoPlanId, projectId, order',
       snapshots: 'id, projectId, source, status, createdAt',
@@ -378,9 +326,7 @@ export class WritersHoardDB extends Dexie {
       scenes: 'id, projectId, order',
       dialogBlocks: 'id, sceneId, projectId, order',
       sceneCasts: 'id, sceneId',
-      brainstormBoards: 'id, projectId',
-      brainstormItems: 'id, boardId, projectId, type',
-      brainstormConnections: 'id, boardId, sourceId, targetId',
+
       videoPlans: 'id, projectId',
       videoSegments: 'id, videoPlanId, projectId, order',
       snapshots: 'id, projectId, source, status, createdAt',
@@ -412,9 +358,7 @@ export class WritersHoardDB extends Dexie {
       scenes: 'id, projectId, order',
       dialogBlocks: 'id, sceneId, projectId, order',
       sceneCasts: 'id, sceneId',
-      brainstormBoards: 'id, projectId',
-      brainstormItems: 'id, boardId, projectId, type',
-      brainstormConnections: 'id, boardId, sourceId, targetId',
+
       videoPlans: 'id, projectId',
       videoSegments: 'id, videoPlanId, projectId, order',
       snapshots: 'id, projectId, source, status, createdAt',
@@ -423,42 +367,6 @@ export class WritersHoardDB extends Dexie {
       diaryEntries: 'id, projectId, entryDate, *tags, pinned',
       outlines: 'id, projectId',
       outlineBeats: 'id, outlineId, projectId, order, level, parentId',
-    // v13: Add writing stats tables
-    this.version(13).stores({
-      projects: 'id, mode, type, parentId, status, updatedAt',
-      codexEntries: 'id, projectId, type, *tags, updatedAt',
-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
-      timelines: 'id, projectId',
-      timelineEvents: 'id, projectId, timelineId, order, dateMode',
-      yarnBoards: 'id, projectId',
-      yarnNodes: 'id, projectId, boardId',
-      yarnEdges: 'id, boardId, sourceId, targetId',
-      worldMaps: 'id, projectId',
-      mapPins: 'id, projectId, mapId',
-      imageCollections: 'id, projectId',
-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
-      externalLinks: 'id, projectId, type, *tags',
-      tags: 'id, name',
-      settings: 'id, key',
-      storyboards: 'id, projectId',
-      storyboardPanels: 'id, projectId, storyboardId, order',
-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
-      scenes: 'id, projectId, order',
-      dialogBlocks: 'id, sceneId, projectId, order',
-      sceneCasts: 'id, sceneId',
-      brainstormBoards: 'id, projectId',
-      brainstormItems: 'id, boardId, projectId, type',
-      brainstormConnections: 'id, boardId, sourceId, targetId',
-      videoPlans: 'id, projectId',
-      videoSegments: 'id, videoPlanId, projectId, order',
-      snapshots: 'id, projectId, source, status, createdAt',
-      biographies: 'id, projectId',
-      biographyFacts: 'id, biographyId, projectId, order, category',
-      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
-      outlines: 'id, projectId',
-      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
-      writingSessions: 'id, projectId, date, type, createdAt',
-      writingGoals: 'id, projectId, type, active',
     });
 
     // v13: Add writing stats tables
@@ -484,9 +392,7 @@ export class WritersHoardDB extends Dexie {
       scenes: 'id, projectId, order',
       dialogBlocks: 'id, sceneId, projectId, order',
       sceneCasts: 'id, sceneId',
-      brainstormBoards: 'id, projectId',
-      brainstormItems: 'id, boardId, projectId, type',
-      brainstormConnections: 'id, boardId, sourceId, targetId',
+
       videoPlans: 'id, projectId',
       videoSegments: 'id, videoPlanId, projectId, order',
       snapshots: 'id, projectId, source, status, createdAt',

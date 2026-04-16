@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Play, Settings, Fire } from 'lucide-react';
+import { Play, Settings, Flame } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import { useWritingSessions, useWritingGoals, useWritingStats } from '../hooks';
@@ -118,7 +118,7 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
               <div className="text-xs font-medium text-red-600 mb-1">Streak</div>
               <div className="text-2xl font-bold text-red-900 flex items-center justify-center gap-1">
-                <Fire size={24} />
+                <Flame size={24} />
                 {stats.streak}
               </div>
             </div>

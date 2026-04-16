@@ -16,6 +16,10 @@ export async function createYarnBoard(board: YarnBoard): Promise<string> {
   return db.yarnBoards.add(board);
 }
 
+export async function updateYarnBoard(id: string, changes: Partial<YarnBoard>): Promise<void> {
+  await db.yarnBoards.update(id, changes);
+}
+
 export const deleteYarnBoard = makeCascadeDeleteOp({
   tableName: 'yarnBoards',
   cascades: [

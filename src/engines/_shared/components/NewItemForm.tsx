@@ -2,7 +2,7 @@ import { ChevronRight, X } from 'lucide-react';
 
 export interface NewItemFormProps {
   /**
-   * 'compact'  — inline flex row in a header bar (biography/brainstorm/maps/yarn-board style)
+   * 'compact'  — inline flex row in a header bar (biography/maps/yarn-board style)
    * 'expanded' — card with padding, suitable for list sections (storyboard/timeline style)
    */
   variant: 'compact' | 'expanded';
