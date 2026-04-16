@@ -1,36 +1,53 @@
-import { useState } from 'react';
-import { ArrowLeft, Trash2, Pin } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { ArrowLeft, Trash2, Pin, Clock } from 'lucide-react';
 import type { DiaryEntry, DiaryMood } from '../types';
 import { MOOD_CONFIG } from '../types';
+import TiptapEditor from '@/components/editor/TiptapEditor';
 
 interface EntryEditorProps {
   entry: DiaryEntry;
+  isNew?: boolean;
   onSave: (changes: Partial<DiaryEntry>) => Promise<void>;
   onDelete: () => Promise<void>;
   onClose: () => void;
 }
 
-export default function EntryEditor({ entry, onSave, onDelete, onClose }: EntryEditorProps) {
+export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }: EntryEditorProps) {
   const [title, setTitle] = useState(entry.title);
   const [content, setContent] = useState(entry.content);
   const [entryDate, setEntryDate] = useState(entry.entryDate);
   const [mood, setMood] = useState<DiaryMood | ''>(entry.mood || '');
   const [tagsText, setTagsText] = useState(entry.tags.join(', '));
   const [pinned, setPinned] = useState(entry.pinned);
+  const [saving, setSaving] = useState(false);
+  const contentRef = useRef(content);
+
+  // Keep a ref for TipTap's onChange (avoids stale closure issues)
+  const handleContentChange = (html: string) => {
+    contentRef.current = html;
+    setContent(html);
+  };
 
   const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
     const tags = tagsText
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean);
     await onSave({
       title: title.trim(),
-      content,
+      content: contentRef.current,
       entryDate,
       mood: mood || undefined,
       tags,
       pinned,
     });
+    setSaving(false);
+  };
+
+  const setToNow = () => {
+    setEntryDate(new Date().toISOString().slice(0, 16));
   };
 
   return (
@@ -45,33 +62,45 @@ export default function EntryEditor({ entry, onSave, onDelete, onClose }: EntryE
           Back
         </button>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              if (confirm('Delete this entry permanently?')) onDelete();
-            }}
-            className="p-2 rounded-lg text-text-dim hover:text-danger hover:bg-danger/10 transition"
-            title="Delete entry"
-          >
-            <Trash2 size={14} />
-          </button>
+          {!isNew && (
+            <button
+              onClick={() => {
+                if (confirm('Delete this entry permanently?')) onDelete();
+              }}
+              className="p-2 rounded-lg text-text-dim hover:text-danger hover:bg-danger/10 transition"
+              title="Delete entry"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
           <button
             onClick={handleSave}
-            className="px-4 py-1.5 text-sm bg-accent-gold text-white rounded-lg hover:bg-accent-amber transition font-medium"
+            disabled={saving}
+            className="px-4 py-1.5 text-sm bg-accent-gold text-white rounded-lg hover:bg-accent-amber transition font-medium disabled:opacity-50"
           >
-            Save
+            {saving ? 'Saving...' : isNew ? 'Create Entry' : 'Save'}
           </button>
         </div>
       </div>
 
-      {/* Date & time picker */}
+      {/* Date & time + pin */}
       <div className="flex items-center gap-3 flex-wrap">
-        <label className="text-xs text-text-dim">Date & time</label>
-        <input
-          type="datetime-local"
-          value={entryDate}
-          onChange={(e) => setEntryDate(e.target.value)}
-          className="px-2.5 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
-        />
+        <div className="flex items-center gap-1.5">
+          <label className="text-xs text-text-dim">Date & time</label>
+          <input
+            type="datetime-local"
+            value={entryDate}
+            onChange={(e) => setEntryDate(e.target.value)}
+            className="px-2.5 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
+          />
+          <button
+            onClick={setToNow}
+            className="p-1.5 rounded-lg text-text-dim hover:text-accent-gold hover:bg-accent-gold/10 transition"
+            title="Set to now"
+          >
+            <Clock size={13} />
+          </button>
+        </div>
         <button
           onClick={() => setPinned(!pinned)}
           className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition ${
@@ -112,13 +141,11 @@ export default function EntryEditor({ entry, onSave, onDelete, onClose }: EntryE
         className="w-full px-3 py-2 text-lg font-serif bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
       />
 
-      {/* Content */}
-      <textarea
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
+      {/* Rich text editor */}
+      <TiptapEditor
+        content={content}
+        onChange={handleContentChange}
         placeholder="Write your thoughts..."
-        rows={12}
-        className="w-full px-3 py-2.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition resize-y leading-relaxed"
       />
 
       {/* Tags */}

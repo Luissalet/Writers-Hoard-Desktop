@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { BookOpen, Search, Calendar, ChevronDown, ChevronRight } from 'lucide-react';
+import { BookOpen, Plus, Search, Calendar, ChevronDown, ChevronRight } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
 import { useDiaryEntries } from '../hooks';
 import type { DiaryEntry, DiaryMood } from '../types';
@@ -13,7 +13,6 @@ import EntryEditor from './EntryEditor';
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Group entries by date string (YYYY-MM-DD) */
 function groupByDate(entries: DiaryEntry[]): Map<string, DiaryEntry[]> {
   const map = new Map<string, DiaryEntry[]>();
   for (const e of entries) {
@@ -48,7 +47,8 @@ function formatDayHeader(iso: string): string {
 export default function DiaryEngine({ projectId }: EngineComponentProps) {
   const { entries, loading, addEntry, editEntry, removeEntry } = useDiaryEntries(projectId);
 
-  const [editingId, setEditingId] = useState<string | null>(null);
+  // null = timeline view, string = editing existing, 'new' = creating new full entry
+  const [editingId, setEditingId] = useState<string | 'new' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMood, setFilterMood] = useState<DiaryMood | ''>('');
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
@@ -114,7 +114,36 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
     );
   }
 
-  // --- Editing overlay ---
+  // --- New full entry ---
+  if (editingId === 'new') {
+    const now = new Date();
+    const blank: DiaryEntry = {
+      id: generateId('diary'),
+      projectId,
+      entryDate: now.toISOString().slice(0, 16),
+      title: '',
+      content: '',
+      mood: undefined,
+      tags: [],
+      pinned: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    return (
+      <EntryEditor
+        entry={blank}
+        isNew
+        onSave={async (changes) => {
+          await addEntry({ ...blank, ...changes });
+          setEditingId(null);
+        }}
+        onDelete={async () => setEditingId(null)}
+        onClose={() => setEditingId(null)}
+      />
+    );
+  }
+
+  // --- Editing existing entry ---
   if (editingId) {
     const entry = entries.find((e) => e.id === editingId);
     if (entry) {
@@ -137,8 +166,19 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
 
   return (
     <div className="space-y-4">
-      {/* ---- Quick entry bar ---- */}
-      <QuickEntry onSubmit={handleQuickAdd} />
+      {/* ---- Top bar: Quick entry + New full entry ---- */}
+      <div className="flex items-start gap-3">
+        <div className="flex-1">
+          <QuickEntry onSubmit={handleQuickAdd} />
+        </div>
+        <button
+          onClick={() => setEditingId('new')}
+          className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium bg-accent-gold/10 text-accent-gold rounded-xl hover:bg-accent-gold/20 border border-accent-gold/20 transition whitespace-nowrap mt-0.5"
+        >
+          <Plus size={15} />
+          New Entry
+        </button>
+      </div>
 
       {/* ---- Search / filter bar ---- */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -166,7 +206,6 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
           ))}
         </select>
 
-        {/* Entry count */}
         <span className="text-xs text-text-dim whitespace-nowrap">
           {filtered.length} entr{filtered.length === 1 ? 'y' : 'ies'}
         </span>
@@ -177,7 +216,9 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
         <div className="flex flex-col items-center justify-center py-16 text-text-dim">
           <BookOpen size={36} className="mb-3 opacity-40" />
           <p className="text-sm">
-            {entries.length === 0 ? 'No entries yet. Write your first one above.' : 'No entries match your search.'}
+            {entries.length === 0
+              ? 'No entries yet. Write a quick note above or create a full entry.'
+              : 'No entries match your search.'}
           </p>
         </div>
       ) : (
@@ -188,7 +229,6 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
 
             return (
               <div key={day}>
-                {/* Day header */}
                 <button
                   onClick={() => toggleDay(day)}
                   className="flex items-center gap-2 mb-2 group w-full text-left"
@@ -207,7 +247,6 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
                   </span>
                 </button>
 
-                {/* Entries for the day */}
                 {!collapsed && (
                   <div className="ml-5 space-y-2 border-l-2 border-border pl-4">
                     {dayEntries.map((entry) => (
