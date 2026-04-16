@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Network, Plus, Trash2, X, ChevronRight } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
-import { useYarnBoards, useYarnBoardData } from '@/hooks/useYarnBoard';
-import YarnBoard from '@/components/yarn/YarnBoard';
+import { useYarnBoards, useYarnBoardData } from './hooks';
+import YarnBoard from './components/YarnBoard';
 import { generateId } from '@/utils/idGenerator';
 
 export default function YarnBoardEngine({ projectId }: EngineComponentProps) {

@@ -19,9 +19,9 @@ import TiptapEditor from '@/components/editor/TiptapEditor';
 import TagInput from '@/components/common/TagInput';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
-import GoogleDocsPicker from '@/components/writings/GoogleDocsPicker';
-import GoogleDocBadge from '@/components/writings/GoogleDocBadge';
-import AiToolbar from '@/components/writings/AiToolbar';
+import GoogleDocsPicker from './GoogleDocsPicker';
+import GoogleDocBadge from './GoogleDocBadge';
+import AiToolbar from './AiToolbar';
 import { useGoogleStore } from '@/stores/googleStore';
 import { fetchGoogleDocForAi } from '@/services/googleDocs';
 

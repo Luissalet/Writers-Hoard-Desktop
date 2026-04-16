@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Writing } from '@/types';
-import * as ops from '@/db/operations';
+import * as ops from './operations';
 
 export function useWritings(projectId: string) {
   const [writings, setWritings] = useState<Writing[]>([]);
