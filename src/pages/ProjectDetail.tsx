@@ -11,7 +11,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 export default function ProjectDetail() {
   const { t } = useTranslation();
   const { id, tab } = useParams<{ id: string; tab?: string }>();
-  const { project, loading } = useProject(id);
+  const { project, loading, refresh } = useProject(id);
   const [showEngineManager, setShowEngineManager] = useState(false);
 
   // Get enabled engines from project
@@ -89,7 +89,7 @@ export default function ProjectDetail() {
                 }`}
               >
                 <Icon size={16} />
-                {engine.name}
+                {t(`engines.${engine.id}.name`)}
               </button>
             );
           })}
@@ -139,6 +139,7 @@ export default function ProjectDetail() {
               enabledEngines,
               engineOrder,
             });
+            await refresh();
             setShowEngineManager(false);
           }
         }}

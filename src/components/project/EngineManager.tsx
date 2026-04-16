@@ -110,10 +110,10 @@ export default function EngineManager({
                     <Icon size={16} className="text-text-muted flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-text-primary truncate">
-                        {engine.name}
+                        {t(`engines.${engine.id}.name`)}
                       </p>
                       <p className="text-xs text-text-dim truncate">
-                        {engine.description}
+                        {t(`engines.${engine.id}.description`)}
                       </p>
                     </div>
 
@@ -171,10 +171,10 @@ export default function EngineManager({
                     <Icon size={16} className="text-text-muted flex-shrink-0 group-hover:text-accent-gold transition" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-text-primary truncate group-hover:text-accent-gold transition">
-                        {engine.name}
+                        {t(`engines.${engine.id}.name`)}
                       </p>
                       <p className="text-xs text-text-dim truncate">
-                        {engine.description}
+                        {t(`engines.${engine.id}.description`)}
                       </p>
                     </div>
                     <span className="text-xs px-2 py-1 rounded bg-accent-gold/10 text-accent-gold flex-shrink-0">

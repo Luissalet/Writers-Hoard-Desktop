@@ -116,8 +116,8 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
                       <IconComponent size={28} style={{ color: modeConfig.color }} className="flex-shrink-0" />
                       <div className="w-5 h-5 rounded-full border-2 border-border group-hover:border-accent-gold transition" />
                     </div>
-                    <h3 className="font-serif font-bold text-text-primary text-sm mb-1">{modeConfig.name}</h3>
-                    <p className="text-xs text-text-muted leading-tight">{modeConfig.description}</p>
+                    <h3 className="font-serif font-bold text-text-primary text-sm mb-1">{t(`modes.${modeConfig.id}.name`)}</h3>
+                    <p className="text-xs text-text-muted leading-tight">{t(`modes.${modeConfig.id}.description`)}</p>
                   </div>
                 </button>
               );
@@ -202,7 +202,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
               {/* Default engines */}
               {defaultEnginesForMode.length > 0 && (
                 <div>
-                  <p className="text-xs text-text-muted mb-2">{t('createProject.includedWith')} {selectedMode}</p>
+                  <p className="text-xs text-text-muted mb-2">{t('createProject.includedWith')} {selectedMode ? t(`modes.${selectedMode}.name`) : ''}</p>
                   <div className="flex flex-wrap gap-2">
                     {defaultEnginesForMode.map(engine => (
                       <button
@@ -221,7 +221,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
                         }`}
                       >
                         {enabledEngines.includes(engine.id) && <Check size={14} />}
-                        {engine.name}
+                        {t(`engines.${engine.id}.name`)}
                       </button>
                     ))}
                   </div>
@@ -231,7 +231,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
               {/* Suggested engines */}
               {suggestedEnginesForMode.length > 0 && (
                 <div>
-                  <p className="text-xs text-text-muted mb-2">{t('createProject.recommendedFor')} {selectedMode}</p>
+                  <p className="text-xs text-text-muted mb-2">{t('createProject.recommendedFor')} {selectedMode ? t(`modes.${selectedMode}.name`) : ''}</p>
                   <div className="flex flex-wrap gap-2">
                     {suggestedEnginesForMode.map(engine => (
                       <button
@@ -250,7 +250,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
                         }`}
                       >
                         {enabledEngines.includes(engine.id) && <Check size={14} />}
-                        {engine.name}
+                        {t(`engines.${engine.id}.name`)}
                       </button>
                     ))}
                   </div>
@@ -279,7 +279,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
                         }`}
                       >
                         {enabledEngines.includes(engine.id) && <Check size={14} />}
-                        {engine.name}
+                        {t(`engines.${engine.id}.name`)}
                       </button>
                     ))}
                   </div>
