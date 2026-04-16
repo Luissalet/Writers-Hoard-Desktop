@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Map } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
@@ -9,7 +9,7 @@ import { generateId } from '@/utils/idGenerator';
 
 export default function MapsEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
-  const { items: maps, addItem: addMap, editItem: editMap, removeItem: removeMap } = useWorldMaps(projectId);
+  const { items: maps, loading: mapsLoading, addItem: addMap, editItem: editMap, removeItem: removeMap } = useWorldMaps(projectId);
   const [activeMapId, setActiveMapId] = useState<string>('');
   const { items: pins, addItem: addPin, removeItem: removePin } = useMapPins(activeMapId);
 
@@ -17,7 +17,7 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
 
   useEnsureDefault({
     items: maps,
-    loading: false,
+    loading: mapsLoading,
     createDefault: () => ({
       id: generateId('map'),
       projectId,
@@ -29,9 +29,7 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
     onCreated: setActiveMapId,
   });
 
-  const loading = useMemo(() => maps.length === 0, [maps.length]);
-
-  if (loading) return <EngineSpinner />;
+  if (mapsLoading && maps.length === 0) return <EngineSpinner />;
 
   const handleCreateMap = async (name: string) => {
     const map = {

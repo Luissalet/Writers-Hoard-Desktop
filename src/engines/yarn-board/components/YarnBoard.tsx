@@ -38,6 +38,7 @@ import {
 import { toPng } from 'html-to-image';
 import { generateId } from '@/utils/idGenerator';
 import { InlineColorPicker } from '@/components/common/ColorPicker';
+import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import { nodeTypes } from './nodes';
 import type { YarnNode, YarnEdge, YarnNodeType, YarnEdgeDirection } from '@/types';
 
@@ -92,7 +93,9 @@ function NodeEditModal({
   const [nodeType, setNodeType] = useState(node.type);
   const [color, setColor] = useState(node.color);
   const [image, setImage] = useState(node.image || '');
+  const [imageOriginal, setImageOriginal] = useState(node.imageOriginal || node.image || '');
   const [shape, setShape] = useState(node.shape || 'rectangle');
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isSemanticType = ['character', 'event', 'concept', 'note'].includes(nodeType);
@@ -101,7 +104,7 @@ function NodeEditModal({
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => setImage(ev.target?.result as string);
+    reader.onload = (ev) => setPendingImage(ev.target?.result as string);
     reader.readAsDataURL(file);
   };
 
@@ -115,11 +118,17 @@ function NodeEditModal({
     if (isSemanticType) {
       updates.type = nodeType;
       updates.content = content;
-      if (image) updates.image = image;
+      if (image) {
+        updates.image = image;
+        updates.imageOriginal = imageOriginal || image;
+      }
     } else if (nodeType === 'postit') {
       // postit: just title + color
     } else if (nodeType === 'image') {
-      if (image) updates.image = image;
+      if (image) {
+        updates.image = image;
+        updates.imageOriginal = imageOriginal || image;
+      }
     } else if (nodeType === 'text') {
       updates.content = content;
     } else if (nodeType === 'group') {
@@ -203,10 +212,10 @@ function NodeEditModal({
               <label className="block text-sm text-[#8a8690] mb-1.5">Image</label>
               <div className="flex items-center gap-3">
                 {image ? (
-                  <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-[#2a2a3a]">
+                  <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-[#2a2a3a] cursor-pointer" onClick={() => setPendingImage(imageOriginal || image)}>
                     <img src={image} alt="" className="w-full h-full object-cover" />
                     <button
-                      onClick={() => setImage('')}
+                      onClick={(e) => { e.stopPropagation(); setImage(''); }}
                       className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center"
                     >
                       <X size={10} className="text-white" />
@@ -296,27 +305,7 @@ function NodeEditModal({
           {/* Color picker */}
           <div>
             <label className="block text-sm text-[#8a8690] mb-1.5">Color</label>
-            <div className="flex gap-2 items-center">
-              {[
-                '#c4973b',
-                '#4a7ec4',
-                '#7c5cbf',
-                '#4a9e6d',
-                '#c4463a',
-                '#d4a843',
-                '#e4a853',
-                '#8a8690',
-              ].map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setColor(c)}
-                  className={`w-6 h-6 rounded-full transition-transform ${
-                    color === c ? 'scale-125 ring-2 ring-white/30' : 'hover:scale-110'
-                  }`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-            </div>
+            <InlineColorPicker value={color} onChange={setColor} />
           </div>
 
           {/* Actions */}
@@ -336,6 +325,15 @@ function NodeEditModal({
           </div>
         </div>
       </div>
+      <ImagePreviewCrop
+        imageSrc={pendingImage}
+        onConfirm={(cropped, original) => {
+          setImage(cropped);
+          setImageOriginal(original);
+          setPendingImage(null);
+        }}
+        onCancel={() => setPendingImage(null)}
+      />
     </div>
   );
 }

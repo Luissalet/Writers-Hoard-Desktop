@@ -6,6 +6,7 @@ import type { InspirationImage, ImageCollection, CodexEntry, CodexEntryType } fr
 import { generateId } from '@/utils/idGenerator';
 import TagInput from '@/components/common/TagInput';
 import EmptyState from '@/components/common/EmptyState';
+import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import { useTranslation } from '@/i18n/useTranslation';
 
 const typeIcons: Record<CodexEntryType, typeof User> = {
@@ -62,26 +63,19 @@ export default function InspirationGallery({
   const [editingImageId, setEditingImageId] = useState<string | null>(null);
   const [entrySearchQuery, setEntrySearchQuery] = useState('');
   const [showEntryPicker, setShowEntryPicker] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<string[]>([]);
   const entryPickerRef = useRef<HTMLDivElement>(null);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    acceptedFiles.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const imageData = e.target?.result as string;
-        onAdd({
-          id: generateId('img'),
-          projectId,
-          collectionId: activeCollectionId || undefined,
-          imageData,
-          tags: [...uploadTags],
-          notes: '',
-          createdAt: Date.now(),
-        });
-      };
-      reader.readAsDataURL(file);
-    });
-  }, [projectId, onAdd, uploadTags, activeCollectionId]);
+    const readers: Promise<string>[] = acceptedFiles.map(file =>
+      new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.readAsDataURL(file);
+      })
+    );
+    Promise.all(readers).then(results => setPendingFiles(results));
+  }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -487,6 +481,26 @@ export default function InspirationGallery({
             )}
           </div>
         </div>
+      )}
+
+      {pendingFiles.length > 0 && (
+        <ImagePreviewCrop
+          imageSrc={pendingFiles[0]}
+          onConfirm={(cropped, original) => {
+            onAdd({
+              id: generateId('img'),
+              projectId,
+              collectionId: activeCollectionId || undefined,
+              imageData: cropped,
+              imageDataOriginal: original,
+              tags: [...uploadTags],
+              notes: '',
+              createdAt: Date.now(),
+            });
+            setPendingFiles(prev => prev.slice(1));
+          }}
+          onCancel={() => setPendingFiles(prev => prev.slice(1))}
+        />
       )}
     </div>
   );

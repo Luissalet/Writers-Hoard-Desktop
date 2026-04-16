@@ -25,7 +25,7 @@ export default function SemanticNode({ data, id }: NodeProps) {
 
   return (
     <div
-      className="px-4 py-3 rounded-xl border-2 shadow-lg min-w-[160px] max-w-[220px] relative group"
+      className="px-4 py-3 rounded-xl border-2 shadow-lg min-w-[160px] max-w-[260px] relative group"
       style={{ backgroundColor: '#1a1a25', borderColor: d.color || config.color }}
     >
       <Handle
@@ -81,8 +81,8 @@ export default function SemanticNode({ data, id }: NodeProps) {
 
       {/* Image */}
       {d.image && (
-        <div className="mb-2 -mx-2 -mt-1">
-          <img src={d.image} alt="" className="w-full h-20 object-cover rounded-lg" />
+        <div className="mb-2 -mx-2 -mt-1 overflow-hidden rounded-lg">
+          <img src={d.image} alt="" className="w-full max-h-40 object-contain" />
         </div>
       )}
 

@@ -25,6 +25,7 @@ export interface BrainstormItem {
   color?: string;
   // For 'image' type
   imageData?: string;
+  imageDataOriginal?: string;
   // For 'entity-ref' type
   refEntityId?: string;
   refEntityType?: string;

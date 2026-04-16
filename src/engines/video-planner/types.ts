@@ -22,7 +22,8 @@ export interface VideoSegment {
   speakerName?: string;
   visualType: VisualType;
   visualDescription?: string;
-  visualImageData?: string; // base64
+  visualImageData?: string; // base64 (cropped for display)
+  visualImageDataOriginal?: string; // base64 — original uncropped source
   audioNotes?: string;
   notes?: string;
   tags: string[];

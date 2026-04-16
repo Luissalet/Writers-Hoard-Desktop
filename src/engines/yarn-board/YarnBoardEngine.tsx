@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Network, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
@@ -11,7 +11,7 @@ import { generateId } from '@/utils/idGenerator';
 
 export default function YarnBoardEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
-  const { items: boards, addItem: addBoard, removeItem: removeBoard } = useYarnBoards(projectId);
+  const { items: boards, loading: boardsLoading, addItem: addBoard, removeItem: removeBoard } = useYarnBoards(projectId);
   const [activeBoardId, setActiveBoardId] = useState<string>('');
   const [showNewBoard, setShowNewBoard] = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
@@ -21,7 +21,7 @@ export default function YarnBoardEngine({ projectId }: EngineComponentProps) {
 
   useEnsureDefault({
     items: boards,
-    loading: false,
+    loading: boardsLoading,
     createDefault: () => ({
       id: generateId('board'),
       projectId,
@@ -33,9 +33,7 @@ export default function YarnBoardEngine({ projectId }: EngineComponentProps) {
     onCreated: setActiveBoardId,
   });
 
-  const loading = useMemo(() => boards.length === 0, [boards.length]);
-
-  if (loading) return <EngineSpinner />;
+  if (boardsLoading && boards.length === 0) return <EngineSpinner />;
 
   const handleCreateBoard = async () => {
     const board = {

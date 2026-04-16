@@ -4,6 +4,7 @@ import { getTemplateFields } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import TiptapEditor from '@/components/editor/TiptapEditor';
 import TagInput from '@/components/common/TagInput';
+import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import { User, MapPin, Sword, Shield, Sparkles, HelpCircle, BookOpen, ImagePlus, X } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 
@@ -56,16 +57,18 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
   const [type, setType] = useState<CodexEntryType>(entry?.type || 'character');
   const [title, setTitle] = useState(entry?.title || '');
   const [avatar, setAvatar] = useState(entry?.avatar || '');
+  const [avatarOriginal, setAvatarOriginal] = useState(entry?.avatarOriginal || entry?.avatar || '');
   const [fields, setFields] = useState<Record<string, string>>(entry?.fields || getTemplateFields(type));
   const [content, setContent] = useState(entry?.content || '');
   const [tags, setTags] = useState<string[]>(entry?.tags || []);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [pendingAvatar, setPendingAvatar] = useState<string | null>(null);
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => setAvatar(ev.target?.result as string);
+    reader.onload = (ev) => setPendingAvatar(ev.target?.result as string);
     reader.readAsDataURL(file);
   };
 
@@ -84,6 +87,7 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
       type,
       title,
       avatar: avatar || undefined,
+      avatarOriginal: avatarOriginal || avatar || undefined,
       fields,
       content,
       tags,
@@ -130,18 +134,18 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
           <label className="block text-sm text-text-muted mb-1.5">{t('codex.avatar')}</label>
           <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
           {avatar ? (
-            <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-border group">
+            <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-border group cursor-pointer" onClick={() => setPendingAvatar(avatarOriginal || avatar)}>
               <img src={avatar} alt="" className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-1">
                 <button
-                  onClick={() => avatarInputRef.current?.click()}
+                  onClick={(e) => { e.stopPropagation(); avatarInputRef.current?.click(); }}
                   className="p-1.5 bg-white/20 rounded-full hover:bg-white/30 transition"
                   title={t('common.change')}
                 >
                   <ImagePlus size={12} className="text-white" />
                 </button>
                 <button
-                  onClick={() => setAvatar('')}
+                  onClick={(e) => { e.stopPropagation(); setAvatar(''); }}
                   className="p-1.5 bg-white/20 rounded-full hover:bg-red-500/50 transition"
                   title={t('common.remove')}
                 >
@@ -227,6 +231,15 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
           {t('common.cancel')}
         </button>
       </div>
+      <ImagePreviewCrop
+        imageSrc={pendingAvatar}
+        onConfirm={(cropped, original) => {
+          setAvatar(cropped);
+          setAvatarOriginal(original);
+          setPendingAvatar(null);
+        }}
+        onCancel={() => setPendingAvatar(null)}
+      />
     </div>
   );
 }

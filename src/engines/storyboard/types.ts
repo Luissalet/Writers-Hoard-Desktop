@@ -16,7 +16,8 @@ export interface StoryboardPanel {
   storyboardId: string;
   projectId: string;
   order: number;
-  imageData?: string; // base64
+  imageData?: string; // base64 (cropped for display)
+  imageDataOriginal?: string; // base64 — original uncropped source
   imageRef?: string; // reference to gallery image ID
   subtitle: string;
   description?: string;

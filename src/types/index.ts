@@ -32,7 +32,8 @@ export interface CodexEntry {
   projectId: string;
   type: CodexEntryType;
   title: string;
-  avatar?: string; // base64 data URL
+  avatar?: string; // base64 data URL (cropped for display)
+  avatarOriginal?: string; // base64 — original uncropped source
   fields: Record<string, string>;
   content: string; // HTML from TipTap
   tags: string[];
@@ -98,7 +99,8 @@ export interface YarnNode {
   type: YarnNodeType;
   title: string;
   content: string;
-  image?: string;                          // base64 — used by image node + character/event cards
+  image?: string;                          // base64 — cropped for display
+  imageOriginal?: string;                  // base64 — original uncropped source
   color: string;
   position: { x: number; y: number };
   width?: number;                          // resizable nodes (group, image, text)
@@ -162,7 +164,8 @@ export interface InspirationImage {
   id: string;
   projectId: string;
   collectionId?: string;
-  imageData: string; // base64
+  imageData: string; // base64 (cropped for display)
+  imageDataOriginal?: string; // base64 — original uncropped source
   thumbnailData?: string; // compressed base64
   tags: string[];
   notes: string;

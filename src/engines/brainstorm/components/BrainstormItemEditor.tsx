@@ -6,6 +6,7 @@ import { useState, useRef } from 'react';
 import { X } from 'lucide-react';
 import TiptapEditor from '@/components/editor/TiptapEditor';
 import ColorPicker from '@/components/common/ColorPicker';
+import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import type { BrainstormItem } from '../types';
 
 interface BrainstormItemEditorProps {
@@ -35,6 +36,7 @@ function resolveNoteColor(raw?: string): string {
 export default function BrainstormItemEditor({ item, onSave, onClose }: BrainstormItemEditorProps) {
   const [changes, setChanges] = useState<Partial<BrainstormItem>>(item);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
 
   const handleSave = async () => {
     onSave(changes);
@@ -48,7 +50,7 @@ export default function BrainstormItemEditor({ item, onSave, onClose }: Brainsto
     const reader = new FileReader();
     reader.onload = (event) => {
       const result = event.target?.result as string;
-      setChanges({ ...changes, imageData: result });
+      setPendingImage(result);
     };
     reader.readAsDataURL(file);
   };
@@ -106,7 +108,8 @@ export default function BrainstormItemEditor({ item, onSave, onClose }: Brainsto
                   <img
                     src={changes.imageData}
                     alt="Preview"
-                    className="w-full h-auto rounded-lg mb-3"
+                    className="w-full h-auto rounded-lg mb-3 cursor-pointer hover:opacity-90 transition"
+                    onClick={() => setPendingImage(changes.imageDataOriginal || changes.imageData!)}
                   />
                 )}
                 <button
@@ -193,6 +196,14 @@ export default function BrainstormItemEditor({ item, onSave, onClose }: Brainsto
           </button>
         </div>
       </div>
+      <ImagePreviewCrop
+        imageSrc={pendingImage}
+        onConfirm={(cropped, original) => {
+          setChanges({ ...changes, imageData: cropped, imageDataOriginal: original });
+          setPendingImage(null);
+        }}
+        onCancel={() => setPendingImage(null)}
+      />
     </div>
   );
 }

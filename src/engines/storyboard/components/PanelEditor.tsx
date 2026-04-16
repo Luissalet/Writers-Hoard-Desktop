@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Upload } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import Modal from '@/components/common/Modal';
+import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import type { StoryboardPanel } from '../types';
 
 interface PanelEditorProps {
@@ -20,6 +21,8 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
     panel || { subtitle: '', description: '', duration: '', tags: [] }
   );
   const [previewImage, setPreviewImage] = useState<string | undefined>(panel?.imageData);
+  const [previewOriginal, setPreviewOriginal] = useState<string | undefined>(panel?.imageDataOriginal || panel?.imageData);
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
 
   const onDrop = (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -27,8 +30,7 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
       const reader = new FileReader();
       reader.onload = (e) => {
         const result = e.target?.result as string;
-        setPreviewImage(result);
-        setFormData(prev => ({ ...prev, imageData: result }));
+        setPendingImage(result);
       };
       reader.readAsDataURL(file);
     }
@@ -56,7 +58,8 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
   if (!isOpen || !panel) return null;
 
   return (
-    <Modal open={isOpen} onClose={onClose} title="Edit Panel">
+    <>
+      <Modal open={isOpen} onClose={onClose} title="Edit Panel">
       <div className="space-y-6 max-w-2xl">
         {/* Image Upload */}
         <div>
@@ -75,14 +78,17 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
                 <img
                   src={previewImage}
                   alt="Preview"
-                  className="max-h-48 mx-auto rounded"
+                  className="max-h-48 mx-auto rounded cursor-pointer hover:opacity-90 transition"
+                  onClick={(e) => { e.stopPropagation(); setPendingImage(previewOriginal || previewImage!); }}
                 />
                 <button
                   type="button"
                   onClick={(e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     setPreviewImage(undefined);
-                    setFormData(prev => ({ ...prev, imageData: undefined }));
+                    setPreviewOriginal(undefined);
+                    setFormData(prev => ({ ...prev, imageData: undefined, imageDataOriginal: undefined }));
                   }}
                   className="text-sm text-accent-gold hover:text-accent-amber"
                 >
@@ -171,5 +177,16 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
         </div>
       </div>
     </Modal>
+      <ImagePreviewCrop
+        imageSrc={pendingImage}
+        onConfirm={(cropped, original) => {
+          setPreviewImage(cropped);
+          setPreviewOriginal(original);
+          setFormData(prev => ({ ...prev, imageData: cropped, imageDataOriginal: original }));
+          setPendingImage(null);
+        }}
+        onCancel={() => setPendingImage(null)}
+      />
+    </>
   );
 }

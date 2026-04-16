@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { X, Upload } from 'lucide-react';
 import type { VideoSegment, VisualType } from '../types';
+import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 
 interface SegmentEditorProps {
   segment: VideoSegment;
@@ -26,17 +27,19 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
   const [visualType, setVisualType] = useState<VisualType>(segment.visualType);
   const [visualDescription, setVisualDescription] = useState(segment.visualDescription || '');
   const [visualImageData, setVisualImageData] = useState(segment.visualImageData || '');
+  const [visualImageDataOriginal, setVisualImageDataOriginal] = useState(segment.visualImageDataOriginal || segment.visualImageData || '');
   const [audioNotes, setAudioNotes] = useState(segment.audioNotes || '');
   const [notes, setNotes] = useState(segment.notes || '');
   const [tags, setTags] = useState(segment.tags.join(', '));
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = (event) => {
-        setVisualImageData(event.target?.result as string);
+        setPendingImage(event.target?.result as string);
       };
       reader.readAsDataURL(file);
     }
@@ -52,6 +55,7 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
       visualType,
       visualDescription: visualDescription || undefined,
       visualImageData: visualImageData || undefined,
+      visualImageDataOriginal: visualImageDataOriginal || visualImageData || undefined,
       audioNotes: audioNotes || undefined,
       notes: notes || undefined,
       tags: tags
@@ -179,7 +183,7 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
               className="hidden"
             />
             <div
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => visualImageData ? setPendingImage(visualImageDataOriginal || visualImageData) : fileInputRef.current?.click()}
               className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-accent-gold/50 cursor-pointer transition-colors"
             >
               {visualImageData ? (
@@ -189,7 +193,7 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
                     alt="Visual"
                     className="w-full max-h-40 object-contain rounded mb-2"
                   />
-                  <p className="text-xs text-neutral-400">Click to change image</p>
+                  <p className="text-xs text-neutral-400">Click to preview / recrop</p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-2">
@@ -251,6 +255,15 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
           </button>
         </div>
       </div>
+      <ImagePreviewCrop
+        imageSrc={pendingImage}
+        onConfirm={(cropped, original) => {
+          setVisualImageData(cropped);
+          setVisualImageDataOriginal(original);
+          setPendingImage(null);
+        }}
+        onCancel={() => setPendingImage(null)}
+      />
     </div>
   );
 }
