@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Plus, Trash2, Clock, GripVertical, Calendar, Type, ArrowUpDown } from 'lucide-react';
+import { Plus, Trash2, Clock, GripVertical, Calendar, Type, ArrowUpDown, Circle, Diamond, ArrowRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { TimelineEvent, DateMode } from '@/types';
+import type { TimelineEvent, DateMode, TimelineEventType } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
@@ -50,6 +50,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
     description: '',
     date: '',
     dateMode: 'text' as DateMode,
+    eventType: 'point' as TimelineEventType,
     realDate: '',
     realDateEnd: '',
     lane: 'Main',
@@ -69,12 +70,17 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
       ? formatRealDate(form.realDate, form.realDateEnd)
       : form.date;
 
+    // Auto-detect eventType: if there's an end date, it's a range
+    const effectiveType: TimelineEventType =
+      form.dateMode === 'calendar' && form.realDateEnd ? 'range' : form.eventType;
+
     if (editingEvent) {
       onEditEvent(editingEvent.id, {
         title: form.title,
         description: form.description,
         date: dateValue,
         dateMode: form.dateMode,
+        eventType: effectiveType,
         realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
         lane: form.lane,
@@ -89,6 +95,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
         description: form.description,
         date: dateValue,
         dateMode: form.dateMode,
+        eventType: effectiveType,
         realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
         order: events.length,
@@ -105,7 +112,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
   };
 
   const resetForm = () => {
-    setForm({ title: '', description: '', date: '', dateMode: 'text', realDate: '', realDateEnd: '', lane: 'Main', color: '#c4973b' });
+    setForm({ title: '', description: '', date: '', dateMode: 'text', eventType: 'point', realDate: '', realDateEnd: '', lane: 'Main', color: '#c4973b' });
   };
 
   const openEdit = (evt: TimelineEvent) => {
@@ -114,6 +121,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
       description: evt.description,
       date: evt.date,
       dateMode: evt.dateMode || 'text',
+      eventType: evt.eventType || 'point',
       realDate: evt.realDate || '',
       realDateEnd: evt.realDateEnd || '',
       lane: evt.lane,
@@ -188,17 +196,36 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.05 }}
                 >
-                  {/* Node dot */}
-                  <div
-                    className="relative z-10 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border-2"
-                    style={{ borderColor: evt.color, backgroundColor: `${evt.color}20` }}
-                  >
-                    {evt.dateMode === 'calendar' ? (
-                      <Calendar size={12} style={{ color: evt.color }} />
-                    ) : (
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: evt.color }} />
-                    )}
-                  </div>
+                  {/* Node shape — varies by eventType */}
+                  {(evt.eventType || 'point') === 'milestone' ? (
+                    <div
+                      className="relative z-10 w-8 h-8 flex items-center justify-center flex-shrink-0"
+                      style={{ color: evt.color }}
+                    >
+                      <div
+                        className="w-6 h-6 border-2 rotate-45"
+                        style={{ borderColor: evt.color, backgroundColor: `${evt.color}30` }}
+                      />
+                    </div>
+                  ) : (evt.eventType || 'point') === 'range' ? (
+                    <div
+                      className="relative z-10 w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 border-2"
+                      style={{ borderColor: evt.color, backgroundColor: `${evt.color}30` }}
+                    >
+                      <ArrowRight size={12} style={{ color: evt.color }} />
+                    </div>
+                  ) : (
+                    <div
+                      className="relative z-10 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border-2"
+                      style={{ borderColor: evt.color, backgroundColor: `${evt.color}20` }}
+                    >
+                      {evt.dateMode === 'calendar' ? (
+                        <Calendar size={12} style={{ color: evt.color }} />
+                      ) : (
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: evt.color }} />
+                      )}
+                    </div>
+                  )}
 
                   {/* Event card */}
                   <div
@@ -316,6 +343,31 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Event Type selector */}
+          <div>
+            <label className="block text-sm text-text-muted mb-1.5">Event type</label>
+            <div className="flex items-center gap-1 p-0.5 bg-elevated rounded-lg border border-border w-fit">
+              {([
+                { type: 'point' as const, icon: Circle, label: 'Point' },
+                { type: 'range' as const, icon: ArrowRight, label: 'Range' },
+                { type: 'milestone' as const, icon: Diamond, label: 'Milestone' },
+              ]).map(({ type, icon: Icon, label }) => (
+                <button
+                  key={type}
+                  onClick={() => setForm({ ...form, eventType: type })}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition ${
+                    form.eventType === type
+                      ? 'bg-accent-gold/20 text-accent-gold font-semibold'
+                      : 'text-text-muted hover:text-text-primary'
+                  }`}
+                >
+                  <Icon size={12} />
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>

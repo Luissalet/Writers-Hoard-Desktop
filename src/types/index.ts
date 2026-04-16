@@ -55,11 +55,14 @@ export interface Timeline {
   id: string;
   projectId: string;
   title: string;
+  color: string;             // Lane color in swim-lane view
+  description?: string;      // Phase / era description
   createdAt: number;
   updatedAt: number;
 }
 
 export type DateMode = 'text' | 'calendar';
+export type TimelineEventType = 'point' | 'range' | 'milestone';
 
 export interface TimelineEvent {
   id: string;
@@ -71,12 +74,28 @@ export interface TimelineEvent {
   dateMode: DateMode; // 'text' for free-form, 'calendar' for real dates
   realDate?: string; // ISO date string (YYYY-MM-DD) when dateMode === 'calendar'
   realDateEnd?: string; // Optional end date for date ranges
+  eventType: TimelineEventType; // 'point' = dot, 'range' = bar, 'milestone' = diamond
   order: number;
   lane: string;
   color: string;
   linkedEntryId?: string;
   createdAt: number;
   updatedAt: number;
+}
+
+// Timeline Connection — links between events (time travel jumps, causal links, etc.)
+export type TimelineConnectionStyle = 'solid' | 'dashed' | 'dotted';
+
+export interface TimelineConnection {
+  id: string;
+  projectId: string;
+  timelineId: string;         // Parent timeline (for scoping; connections can cross timelines)
+  sourceEventId: string;
+  targetEventId: string;
+  label?: string;             // e.g. "DeLorean trip", "Time portal"
+  color: string;
+  style: TimelineConnectionStyle;
+  createdAt: number;
 }
 
 // Yarn Board

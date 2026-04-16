@@ -4,6 +4,7 @@ import type {
   CodexEntry,
   Timeline,
   TimelineEvent,
+  TimelineConnection,
   YarnBoard,
   YarnNode,
   YarnEdge,
@@ -32,6 +33,7 @@ export class WritersHoardDB extends Dexie {
   writings!: Table<Writing>;
   timelines!: Table<Timeline>;
   timelineEvents!: Table<TimelineEvent>;
+  timelineConnections!: Table<TimelineConnection>;
   yarnBoards!: Table<YarnBoard>;
   yarnNodes!: Table<YarnNode>;
   yarnEdges!: Table<YarnEdge>;
@@ -446,6 +448,60 @@ export class WritersHoardDB extends Dexie {
       brainstormBoards: 'id, projectId',
       brainstormItems: 'id, boardId, projectId, type',
       brainstormConnections: 'id, boardId, sourceId, targetId',
+    });
+
+    // v15: Timeline overhaul — connections table, event types, timeline colors
+    this.version(15).stores({
+      projects: 'id, mode, type, parentId, status, updatedAt',
+      codexEntries: 'id, projectId, type, *tags, updatedAt',
+      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+      timelines: 'id, projectId',
+      timelineEvents: 'id, projectId, timelineId, order, dateMode, eventType',
+      timelineConnections: 'id, projectId, timelineId, sourceEventId, targetEventId',
+      yarnBoards: 'id, projectId',
+      yarnNodes: 'id, projectId, boardId',
+      yarnEdges: 'id, boardId, sourceId, targetId',
+      worldMaps: 'id, projectId',
+      mapPins: 'id, projectId, mapId',
+      imageCollections: 'id, projectId',
+      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+      externalLinks: 'id, projectId, type, *tags',
+      tags: 'id, name',
+      settings: 'id, key',
+      storyboards: 'id, projectId',
+      storyboardPanels: 'id, projectId, storyboardId, order',
+      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+      scenes: 'id, projectId, order',
+      dialogBlocks: 'id, sceneId, projectId, order',
+      sceneCasts: 'id, sceneId',
+
+      videoPlans: 'id, projectId',
+      videoSegments: 'id, videoPlanId, projectId, order',
+      snapshots: 'id, projectId, source, status, createdAt',
+      biographies: 'id, projectId',
+      biographyFacts: 'id, biographyId, projectId, order, category',
+      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
+      outlines: 'id, projectId',
+      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
+      writingSessions: 'id, projectId, date, type, createdAt',
+      writingGoals: 'id, projectId, type, active',
+      brainstormBoards: 'id, projectId',
+      brainstormItems: 'id, boardId, projectId, type',
+      brainstormConnections: 'id, boardId, sourceId, targetId',
+    }).upgrade(tx => {
+      // Backfill existing timeline events with eventType
+      tx.table('timelineEvents').toCollection().modify(evt => {
+        if (!evt.eventType) {
+          // If event has an end date, it's a range; otherwise a point
+          evt.eventType = evt.realDateEnd ? 'range' : 'point';
+        }
+      });
+      // Backfill existing timelines with color
+      tx.table('timelines').toCollection().modify(tl => {
+        if (!tl.color) {
+          tl.color = '#c4973b'; // default gold
+        }
+      });
     });
   }
 }

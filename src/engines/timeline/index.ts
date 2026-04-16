@@ -7,12 +7,13 @@ import TimelineEngine from './TimelineEngine';
 const timelineEngine: EngineDefinition = {
   id: 'timeline',
   name: 'Timeline',
-  description: 'Chronological event sequencing with lanes and colors',
+  description: 'Multi-lane chronological timelines with connections and ranges',
   icon: Clock,
   category: 'core',
   tables: {
     timelines: 'id, projectId',
-    timelineEvents: 'id, projectId, timelineId, order',
+    timelineEvents: 'id, projectId, timelineId, order, dateMode, eventType',
+    timelineConnections: 'id, projectId, timelineId, sourceEventId, targetEventId',
   },
   component: TimelineEngine,
 };
