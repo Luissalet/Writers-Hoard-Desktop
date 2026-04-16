@@ -1,21 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, BookOpen, Layers, X } from 'lucide-react';
-import Fuse from 'fuse.js';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
-import { db } from '@/db/index';
-
-interface SearchResult {
-  type: 'project' | 'codex';
-  id: string;
-  title: string;
-  subtitle: string;
-  projectId?: string;
-}
+import { useGlobalSearch, type SearchResult } from '@/hooks/useGlobalSearch';
 
 export default function GlobalSearch() {
   const { searchOpen, setSearchOpen } = useAppStore();
+  const { search } = useGlobalSearch();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -45,22 +37,10 @@ export default function GlobalSearch() {
   }, [searchOpen]);
 
   const doSearch = useCallback(async (q: string) => {
-    if (!q.trim()) { setResults([]); return; }
-
-    const [projects, entries] = await Promise.all([
-      db.projects.toArray(),
-      db.codexEntries.toArray(),
-    ]);
-
-    const allItems: SearchResult[] = [
-      ...projects.map(p => ({ type: 'project' as const, id: p.id, title: p.title, subtitle: p.type })),
-      ...entries.map(e => ({ type: 'codex' as const, id: e.id, title: e.title, subtitle: e.type, projectId: e.projectId })),
-    ];
-
-    const fuse = new Fuse(allItems, { keys: ['title', 'subtitle'], threshold: 0.3 });
-    setResults(fuse.search(q).map(r => r.item).slice(0, 10));
+    const found = await search(q);
+    setResults(found);
     setSelectedIdx(0);
-  }, []);
+  }, [search]);
 
   useEffect(() => { doSearch(query); }, [query, doSearch]);
 
