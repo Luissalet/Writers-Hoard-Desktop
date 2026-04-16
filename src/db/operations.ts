@@ -54,6 +54,10 @@ export async function getCodexEntries(projectId: string): Promise<CodexEntry[]> 
   return db.codexEntries.where('projectId').equals(projectId).toArray();
 }
 
+export async function getAllCodexEntries(): Promise<CodexEntry[]> {
+  return db.codexEntries.toArray();
+}
+
 export async function getCodexEntry(id: string): Promise<CodexEntry | undefined> {
   return db.codexEntries.get(id);
 }
