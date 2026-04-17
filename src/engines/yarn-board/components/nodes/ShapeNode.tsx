@@ -1,5 +1,6 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Edit3, Trash2 } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface ShapeNodeData {
   title: string;
@@ -10,6 +11,7 @@ interface ShapeNodeData {
 }
 
 export default function ShapeNode({ data, id }: NodeProps) {
+  const { t } = useTranslation();
   const d = data as unknown as ShapeNodeData;
   const shape = d.shape || 'rectangle';
 
@@ -97,7 +99,7 @@ export default function ShapeNode({ data, id }: NodeProps) {
             d.onEdit(id);
           }}
           className="w-6 h-6 rounded-full bg-[#c4973b] flex items-center justify-center hover:bg-[#e4a853] transition shadow-md"
-          title="Edit"
+          title={t('common.edit')}
         >
           <Edit3 size={11} className="text-[#07070d]" />
         </button>
@@ -107,7 +109,7 @@ export default function ShapeNode({ data, id }: NodeProps) {
             d.onDelete(id);
           }}
           className="w-6 h-6 rounded-full bg-red-600 flex items-center justify-center hover:bg-red-500 transition shadow-md"
-          title="Delete"
+          title={t('common.delete')}
         >
           <Trash2 size={11} className="text-white" />
         </button>

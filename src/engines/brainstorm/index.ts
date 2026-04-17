@@ -5,6 +5,7 @@
 import { Lightbulb } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
 import BrainstormEngine from './components/BrainstormEngine';
 
@@ -48,5 +49,13 @@ registerEntityResolver({
     }));
   },
 });
+
+// Note: brainstorm items have `imageData` inline as base64. They ride along
+// in the JSON dump. If files grow large we can migrate to an image-folder
+// layout like codex/yarn-board later.
+registerBackupStrategy(makeSimpleBackupStrategy({
+  engineId: 'brainstorm',
+  tables: ['brainstormBoards', 'brainstormItems', 'brainstormConnections'],
+}));
 
 export { brainstormEngine };

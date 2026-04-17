@@ -1,11 +1,14 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { User, Zap, Lightbulb, StickyNote, Edit3, Trash2 } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 
+// Icon + color config per semantic type. Labels are translated via i18n
+// (`yarn.node.<type>`), not hardcoded here.
 const NODE_TYPES_CONFIG = {
-  character: { icon: User, label: 'Character', color: '#c4973b' },
-  event: { icon: Zap, label: 'Event', color: '#4a7ec4' },
-  concept: { icon: Lightbulb, label: 'Concept', color: '#7c5cbf' },
-  note: { icon: StickyNote, label: 'Note', color: '#4a9e6d' },
+  character: { icon: User, color: '#c4973b' },
+  event: { icon: Zap, color: '#4a7ec4' },
+  concept: { icon: Lightbulb, color: '#7c5cbf' },
+  note: { icon: StickyNote, color: '#4a9e6d' },
 };
 
 interface SemanticNodeData {
@@ -19,6 +22,7 @@ interface SemanticNodeData {
 }
 
 export default function SemanticNode({ data, id }: NodeProps) {
+  const { t } = useTranslation();
   const d = data as unknown as SemanticNodeData;
   const config = NODE_TYPES_CONFIG[d.nodeType] || NODE_TYPES_CONFIG.note;
   const Icon = config.icon;
@@ -63,7 +67,7 @@ export default function SemanticNode({ data, id }: NodeProps) {
             d.onEdit(id);
           }}
           className="w-6 h-6 rounded-full bg-[#c4973b] flex items-center justify-center hover:bg-[#e4a853] transition shadow-md"
-          title="Edit"
+          title={t('common.edit')}
         >
           <Edit3 size={11} className="text-[#07070d]" />
         </button>
@@ -73,7 +77,7 @@ export default function SemanticNode({ data, id }: NodeProps) {
             d.onDelete(id);
           }}
           className="w-6 h-6 rounded-full bg-red-600 flex items-center justify-center hover:bg-red-500 transition shadow-md"
-          title="Delete"
+          title={t('common.delete')}
         >
           <Trash2 size={11} className="text-white" />
         </button>
@@ -92,7 +96,7 @@ export default function SemanticNode({ data, id }: NodeProps) {
           className="text-xs uppercase tracking-wider"
           style={{ color: d.color || config.color }}
         >
-          {d.nodeType}
+          {t(`yarn.node.${d.nodeType}`)}
         </span>
       </div>
       <h4 className="font-serif font-bold text-sm text-text-primary leading-tight">

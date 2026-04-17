@@ -1,6 +1,7 @@
 import { BookOpen } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
 import DiaryEngine from './components/DiaryEngine';
 
@@ -42,5 +43,10 @@ registerEntityResolver({
     }));
   },
 });
+
+registerBackupStrategy(makeSimpleBackupStrategy({
+  engineId: 'diary',
+  tables: ['diaryEntries'],
+}));
 
 export { diaryEngine };

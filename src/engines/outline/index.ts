@@ -1,6 +1,7 @@
 import { ListTree } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
 import OutlineEngine from './components/OutlineEngine';
 
@@ -68,5 +69,10 @@ registerEntityResolver({
     return results;
   },
 });
+
+registerBackupStrategy(makeSimpleBackupStrategy({
+  engineId: 'outline',
+  tables: ['outlines', 'outlineBeats'],
+}));
 
 export { outlineEngine };

@@ -378,6 +378,7 @@ const en = {
   'yarn.noBoards': 'No boards yet. Create one to get started.',
   'yarn.deleteConfirm': 'Delete board "{name}"? All its nodes and connections will be lost.',
   'yarn.deleteBoard': 'Delete board',
+  'yarn.boardNamePlaceholder': 'Board name...',
   // Yarn Board Canvas
   'yarn.color.conflict': 'Conflict',
   'yarn.color.alliance': 'Alliance',

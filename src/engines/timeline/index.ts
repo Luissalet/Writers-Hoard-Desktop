@@ -1,6 +1,7 @@
 import { Clock } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
 import TimelineEngine from './TimelineEngine';
 
@@ -48,5 +49,15 @@ registerEntityResolver({
     }));
   },
 });
+
+// Supplemental backup: legacy zipBackup already exports `timelines` and
+// `timelineEvents`. We only register `timelineConnections` here so it is no
+// longer silently dropped during backup/restore (v15 added the table after
+// the original backup code was written).
+registerBackupStrategy(makeSimpleBackupStrategy({
+  engineId: 'timeline',
+  tables: ['timelineConnections'],
+  folder: 'timeline-extras',
+}));
 
 export { timelineEngine };

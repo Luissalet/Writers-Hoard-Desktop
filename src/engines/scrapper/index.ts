@@ -5,6 +5,7 @@
 import { Globe } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
 import ScrapperEngine from './components/ScrapperEngine';
 
@@ -50,5 +51,10 @@ registerEntityResolver({
     }));
   },
 });
+
+registerBackupStrategy(makeSimpleBackupStrategy({
+  engineId: 'scrapper',
+  tables: ['snapshots'],
+}));
 
 export { scrapperEngine };

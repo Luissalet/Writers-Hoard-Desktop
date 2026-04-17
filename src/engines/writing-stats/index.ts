@@ -1,6 +1,7 @@
 import { BarChart3 } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
 import WritingStatsEngine from './components/WritingStatsEngine';
 
@@ -50,5 +51,10 @@ registerEntityResolver({
     }));
   },
 });
+
+registerBackupStrategy(makeSimpleBackupStrategy({
+  engineId: 'writing-stats',
+  tables: ['writingSessions', 'writingGoals'],
+}));
 
 export { writingStatsEngine };

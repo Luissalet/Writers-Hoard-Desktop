@@ -1,6 +1,7 @@
 import { BookUser } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
 import BiographyEngine from './components/BiographyEngine';
 
@@ -45,5 +46,12 @@ registerEntityResolver({
     }));
   },
 });
+
+// Backup: subject photos stay inline as base64 inside biographies.json — simpler
+// than per-row folders and consistent with how facts and sources are serialized.
+registerBackupStrategy(makeSimpleBackupStrategy({
+  engineId: 'biography',
+  tables: ['biographies', 'biographyFacts'],
+}));
 
 export { biographyEngine };

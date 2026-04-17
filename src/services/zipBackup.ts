@@ -1,6 +1,11 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { db } from '@/db/index';
+import { getAllBackupStrategies } from '@/engines/_shared/backupRegistry';
+// Engine barrel import guarantees every engine has registered its backup
+// strategy before export/import run. Without this import the registry would
+// be empty when backup is triggered from a screen that hasn't touched engines.
+import '@/engines';
 
 // ============================================
 // Structured ZIP Backup — Export & Import
@@ -226,6 +231,20 @@ export async function exportFullZip(): Promise<void> {
     if (projLinks.length > 0) {
       zip.file(`${projDir}/links/links.json`, JSON.stringify(projLinks, null, 2));
     }
+
+    // ---- Engine-registered backup strategies ----
+    // Each engine that has registered a BackupStrategy in its index.ts
+    // gets a chance to write its own data here. This is how we cover
+    // engines added after the original backup format was designed
+    // (diary, biography, dialog-scene, brainstorm, outline, writing-stats,
+    // storyboard, video-planner, scrapper, timelineConnections).
+    for (const strategy of getAllBackupStrategies()) {
+      try {
+        await strategy.exportProject({ zip, projectId: project.id, projectDir: projDir });
+      } catch (err) {
+        console.error(`Backup export failed for engine "${strategy.engineId}":`, err);
+      }
+    }
   }
 
   // Generate and download
@@ -271,19 +290,22 @@ export async function importFullZip(file: File): Promise<void> {
     throw new Error('Invalid backup file: not a Writer\'s Hoard backup');
   }
 
-  // Clear all tables
-  await db.transaction('rw', [
-    db.projects, db.codexEntries, db.writings, db.timelines, db.timelineEvents,
-    db.yarnBoards, db.yarnNodes, db.yarnEdges, db.worldMaps, db.mapPins,
-    db.imageCollections, db.inspirationImages, db.externalLinks, db.tags, db.settings,
-  ], async () => {
-    await Promise.all([
-      db.projects.clear(), db.codexEntries.clear(), db.writings.clear(),
-      db.timelines.clear(), db.timelineEvents.clear(), db.yarnBoards.clear(),
-      db.yarnNodes.clear(), db.yarnEdges.clear(), db.worldMaps.clear(),
-      db.mapPins.clear(), db.imageCollections.clear(), db.inspirationImages.clear(),
-      db.externalLinks.clear(), db.tags.clear(), db.settings.clear(),
-    ]);
+  // Clear all tables. The legacy list covers engines hardcoded into this
+  // file; engine-registered strategies contribute their own table names so
+  // no data from previously-imported projects lingers in newer tables
+  // (diary, biography, outline, etc.).
+  const legacyTables: string[] = [
+    'projects', 'codexEntries', 'writings', 'timelines', 'timelineEvents',
+    'yarnBoards', 'yarnNodes', 'yarnEdges', 'worldMaps', 'mapPins',
+    'imageCollections', 'inspirationImages', 'externalLinks', 'tags', 'settings',
+  ];
+  const strategyTables = getAllBackupStrategies().flatMap(s => s.tables);
+  const knownTables = new Set(db.tables.map(t => t.name));
+  const allTables = Array.from(new Set([...legacyTables, ...strategyTables]))
+    .filter(t => knownTables.has(t));
+
+  await db.transaction('rw', allTables.map(t => db.table(t)), async () => {
+    await Promise.all(allTables.map(t => db.table(t).clear()));
   });
 
   // Import global data
@@ -447,5 +469,19 @@ export async function importFullZip(file: File): Promise<void> {
     // --- External Links ---
     const links = await readJson<Record<string, unknown>[]>(zip, `${projDir}/links/links.json`);
     if (links?.length) await db.externalLinks.bulkAdd(links as never[]);
+
+    // --- Engine-registered backup strategies ---
+    // Invoke every strategy for this project. Strategies no-op silently if
+    // their folder is missing (backward compatible with older backups).
+    const projectIdForStrategies = (projData.id as string) || '';
+    if (projectIdForStrategies) {
+      for (const strategy of getAllBackupStrategies()) {
+        try {
+          await strategy.importProject({ zip, projectId: projectIdForStrategies, projectDir: projDir });
+        } catch (err) {
+          console.error(`Backup import failed for engine "${strategy.engineId}":`, err);
+        }
+      }
+    }
   }
 }

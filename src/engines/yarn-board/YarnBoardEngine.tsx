@@ -79,7 +79,7 @@ export default function YarnBoardEngine({ projectId }: EngineComponentProps) {
               variant="compact"
               value={newBoardName}
               onChange={setNewBoardName}
-              placeholder="Board name..."
+              placeholder={t('yarn.boardNamePlaceholder')}
               onConfirm={handleCreateBoard}
               onCancel={() => {
                 setShowNewBoard(false);

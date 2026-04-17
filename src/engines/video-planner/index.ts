@@ -1,6 +1,7 @@
 import { Video } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
 import VideoPlannerEngine from './components/VideoPlannerEngine';
 
@@ -43,5 +44,10 @@ registerEntityResolver({
     }));
   },
 });
+
+registerBackupStrategy(makeSimpleBackupStrategy({
+  engineId: 'video-planner',
+  tables: ['videoPlans', 'videoSegments'],
+}));
 
 export { videoPlannerEngine };

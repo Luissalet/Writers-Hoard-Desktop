@@ -378,6 +378,7 @@ const es = {
   'yarn.noBoards': 'Aún no hay tableros. Crea uno para empezar.',
   'yarn.deleteConfirm': '¿Eliminar tablero "{name}"? Se perderán todos sus nodos y conexiones.',
   'yarn.deleteBoard': 'Eliminar tablero',
+  'yarn.boardNamePlaceholder': 'Nombre del tablero...',
   // Yarn Board Canvas
   'yarn.color.conflict': 'Conflicto',
   'yarn.color.alliance': 'Alianza',

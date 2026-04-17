@@ -1,5 +1,6 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useState } from 'react';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface PostItNodeData {
   title: string;
@@ -18,6 +19,7 @@ const POSTIT_COLORS = [
 ];
 
 export default function PostItNode({ data, id }: NodeProps) {
+  const { t } = useTranslation();
   const d = data as unknown as PostItNodeData;
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(d.title);
@@ -105,7 +107,7 @@ export default function PostItNode({ data, id }: NodeProps) {
             d.onEdit(id);
           }}
           className="w-5 h-5 rounded-full bg-white flex items-center justify-center hover:bg-gray-100 transition shadow-md text-gray-800 text-xs"
-          title="Edit"
+          title={t('common.edit')}
         >
           ✏
         </button>
@@ -115,7 +117,7 @@ export default function PostItNode({ data, id }: NodeProps) {
             d.onDelete(id);
           }}
           className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center hover:bg-red-400 transition shadow-md text-white text-xs"
-          title="Delete"
+          title={t('common.delete')}
         >
           ×
         </button>
