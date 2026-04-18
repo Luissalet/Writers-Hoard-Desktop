@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import NewItemForm from './NewItemForm';
+import { useTranslation } from '@/i18n/useTranslation';
 
 export interface CollectionDashboardProps<T extends { id: string; title: string; createdAt: number }> {
   /** Lucide icon component for the header and cards */
@@ -33,10 +34,13 @@ export default function CollectionDashboard<T extends { id: string; title: strin
   onSelect,
   onCreate,
   onDelete,
-  placeholder = 'Name...',
+  placeholder,
 }: CollectionDashboardProps<T>) {
+  const { t } = useTranslation();
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
+
+  const effectivePlaceholder = placeholder ?? t('shared.dashboard.namePlaceholder');
 
   const handleCreate = async () => {
     if (newName.trim()) {
@@ -50,7 +54,10 @@ export default function CollectionDashboard<T extends { id: string; title: strin
     const item = items.find(i => i.id === id);
     if (!item) return;
 
-    if (confirm(`Delete ${itemNoun} "${item.title}"?`)) {
+    const message = t('shared.dashboard.deleteConfirm')
+      .replace('{item}', itemNoun)
+      .replace('{name}', item.title);
+    if (confirm(message)) {
       await onDelete(id);
     }
   };
@@ -67,7 +74,7 @@ export default function CollectionDashboard<T extends { id: string; title: strin
             variant="compact"
             value={newName}
             onChange={setNewName}
-            placeholder={placeholder}
+            placeholder={effectivePlaceholder}
             onConfirm={handleCreate}
             onCancel={() => {
               setShowNew(false);
@@ -80,14 +87,14 @@ export default function CollectionDashboard<T extends { id: string; title: strin
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-accent-gold/10 text-accent-gold rounded-lg hover:bg-accent-gold/20 transition"
           >
             <Plus size={13} />
-            New {itemNoun}
+            {t('shared.dashboard.newItem').replace('{item}', itemNoun)}
           </button>
         )}
       </div>
 
       {items.length === 0 ? (
         <p className="text-sm text-text-dim text-center py-4">
-          No {itemNoun.toLowerCase()}s yet. Create one to get started.
+          {t('shared.dashboard.empty').replace('{item}', itemNoun.toLowerCase())}
         </p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
@@ -120,7 +127,7 @@ export default function CollectionDashboard<T extends { id: string; title: strin
                       await handleDelete(item.id);
                     }}
                     className="absolute top-1.5 right-1.5 p-1 rounded-full opacity-0 group-hover:opacity-100 text-text-dim hover:text-danger hover:bg-danger/10 transition"
-                    title={`Delete ${itemNoun}`}
+                    title={t('shared.dashboard.deleteItem').replace('{item}', itemNoun)}
                   >
                     <Trash2 size={11} />
                   </button>

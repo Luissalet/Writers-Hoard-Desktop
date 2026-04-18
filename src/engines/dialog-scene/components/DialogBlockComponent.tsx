@@ -3,6 +3,7 @@ import { Trash2, GripVertical, Type, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { DialogBlock, BlockFormatting } from '../types';
 import ScriptAutocomplete, { type AutocompleteSuggestion } from './ScriptAutocomplete';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface DialogBlockComponentProps {
   block: DialogBlock;
@@ -41,6 +42,7 @@ function FormatToolbar({
   formatting?: BlockFormatting;
   onChange: (f: BlockFormatting) => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const current = { fontFamily: formatting?.fontFamily ?? 'serif', fontSize: formatting?.fontSize ?? 'sm' };
 
@@ -49,7 +51,7 @@ function FormatToolbar({
       <button
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1 p-1 text-text-dim hover:text-text-muted rounded transition"
-        title="Text format"
+        title={t('dialogScene.textFormat')}
       >
         <Type size={12} />
         <ChevronDown size={10} />
@@ -63,7 +65,7 @@ function FormatToolbar({
             className="absolute top-full right-0 mt-1 z-20 bg-elevated border border-border rounded-lg p-3 shadow-xl min-w-[160px]"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="text-[10px] text-text-dim mb-1.5 font-semibold uppercase tracking-wide">Font</p>
+            <p className="text-[10px] text-text-dim mb-1.5 font-semibold uppercase tracking-wide">{t('dialogScene.font')}</p>
             <div className="flex gap-1 mb-3">
               {FONT_FAMILIES.map((ff) => (
                 <button
@@ -79,7 +81,7 @@ function FormatToolbar({
                 </button>
               ))}
             </div>
-            <p className="text-[10px] text-text-dim mb-1.5 font-semibold uppercase tracking-wide">Size</p>
+            <p className="text-[10px] text-text-dim mb-1.5 font-semibold uppercase tracking-wide">{t('dialogScene.size')}</p>
             <div className="flex gap-1">
               {FONT_SIZES.map((fs) => (
                 <button
@@ -149,6 +151,7 @@ export default function DialogBlockComponent({
   dragHandleProps,
   suggestions = [],
 }: DialogBlockComponentProps) {
+  const { t } = useTranslation();
   const isDialog = block.type === 'dialog';
   const meta = BLOCK_META[block.type];
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -186,14 +189,14 @@ export default function DialogBlockComponent({
               <button
                 {...dragHandleProps}
                 className="p-1 text-text-dim hover:text-text-primary cursor-grab active:cursor-grabbing transition"
-                title="Drag to reorder"
+                title={t('common.dragToReorder')}
               >
                 <GripVertical size={14} />
               </button>
               <button
                 onClick={onDelete}
                 className="p-1 text-text-dim hover:text-danger hover:bg-danger/10 rounded transition"
-                title="Delete block"
+                title={t('dialogScene.deleteBlock')}
               >
                 <Trash2 size={14} />
               </button>
@@ -259,14 +262,14 @@ export default function DialogBlockComponent({
             <button
               {...dragHandleProps}
               className="p-1 text-text-dim hover:text-text-primary cursor-grab active:cursor-grabbing transition"
-              title="Drag to reorder"
+              title={t('common.dragToReorder')}
             >
               <GripVertical size={14} />
             </button>
             <button
               onClick={onDelete}
               className="p-1 text-text-dim hover:text-danger hover:bg-danger/10 rounded transition"
-              title="Delete block"
+              title={t('dialogScene.deleteBlock')}
             >
               <Trash2 size={14} />
             </button>
@@ -289,7 +292,7 @@ export default function DialogBlockComponent({
               onBlur={() => setTimeout(() => setShowAutocomplete(false), 200)}
               className={`w-full bg-elevated text-text-primary resize-none focus:outline-none border-none p-0 leading-relaxed ${fontCls(block.formatting)}`}
               rows={Math.max(2, Math.ceil(block.content.length / 60))}
-              placeholder="Enter dialog..."
+              placeholder={t('dialogScene.dialogPlaceholder')}
             />
             <ScriptAutocomplete
               value={block.content}

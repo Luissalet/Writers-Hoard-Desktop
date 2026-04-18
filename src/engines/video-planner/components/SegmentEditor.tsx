@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { X, Upload } from 'lucide-react';
 import type { VideoSegment, VisualType } from '../types';
 import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface SegmentEditorProps {
   segment: VideoSegment;
@@ -9,16 +10,17 @@ interface SegmentEditorProps {
   onCancel: () => void;
 }
 
-const VISUAL_TYPES: Array<{ value: VisualType; label: string; icon: string }> = [
-  { value: 'camera', label: 'Camera', icon: '📷' },
-  { value: 'broll', label: 'B-Roll', icon: '🎬' },
-  { value: 'screen-capture', label: 'Screen', icon: '🖥️' },
-  { value: 'graphic', label: 'Graphic', icon: '✨' },
-  { value: 'text-overlay', label: 'Text', icon: '📝' },
-  { value: 'custom', label: 'Custom', icon: '🎨' },
+const VISUAL_TYPES: Array<{ value: VisualType; icon: string }> = [
+  { value: 'camera', icon: '📷' },
+  { value: 'broll', icon: '🎬' },
+  { value: 'screen-capture', icon: '🖥️' },
+  { value: 'graphic', icon: '✨' },
+  { value: 'text-overlay', icon: '📝' },
+  { value: 'custom', icon: '🎨' },
 ];
 
 export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEditorProps) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState(segment.title);
   const [startTime, setStartTime] = useState(segment.startTime || '');
   const [endTime, setEndTime] = useState(segment.endTime || '');
@@ -60,7 +62,7 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
       notes: notes || undefined,
       tags: tags
         .split(',')
-        .map(t => t.trim())
+        .map(tag => tag.trim())
         .filter(Boolean),
     });
   };
@@ -70,7 +72,7 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
       <div className="bg-surface border border-border rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 flex items-center justify-between bg-elevated border-b border-border p-4">
-          <h2 className="font-serif text-xl text-neutral-50">Edit Segment</h2>
+          <h2 className="font-serif text-xl text-neutral-50">{t('videoPlanner.segment.editTitle')}</h2>
           <button
             onClick={onCancel}
             className="p-1 hover:bg-surface rounded transition-colors"
@@ -83,20 +85,20 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
         <div className="p-6 space-y-6">
           {/* Title */}
           <div>
-            <label className="block text-sm font-medium text-accent-gold mb-2">Title</label>
+            <label className="block text-sm font-medium text-accent-gold mb-2">{t('videoPlanner.segment.title')}</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full bg-deep border border-border rounded px-3 py-2 text-neutral-50 focus:border-accent-gold focus:outline-none"
-              placeholder="Segment title"
+              placeholder={t('videoPlanner.segment.titlePlaceholder')}
             />
           </div>
 
           {/* Timing */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-accent-gold mb-2">Start Time</label>
+              <label className="block text-sm font-medium text-accent-gold mb-2">{t('videoPlanner.segment.startTime')}</label>
               <input
                 type="text"
                 value={startTime}
@@ -106,7 +108,7 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-accent-gold mb-2">End Time</label>
+              <label className="block text-sm font-medium text-accent-gold mb-2">{t('videoPlanner.segment.endTime')}</label>
               <input
                 type="text"
                 value={endTime}
@@ -119,30 +121,30 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
 
           {/* Script (large textarea) */}
           <div>
-            <label className="block text-sm font-medium text-accent-gold mb-2">Script</label>
+            <label className="block text-sm font-medium text-accent-gold mb-2">{t('videoPlanner.segment.script')}</label>
             <textarea
               value={script}
               onChange={(e) => setScript(e.target.value)}
               className="w-full bg-deep border border-border rounded px-3 py-2 text-neutral-50 focus:border-accent-gold focus:outline-none font-serif min-h-32 resize-none"
-              placeholder="Enter the script for this segment..."
+              placeholder={t('videoPlanner.segment.scriptPlaceholder')}
             />
           </div>
 
           {/* Speaker */}
           <div>
-            <label className="block text-sm font-medium text-accent-gold mb-2">Speaker Name</label>
+            <label className="block text-sm font-medium text-accent-gold mb-2">{t('videoPlanner.segment.speakerName')}</label>
             <input
               type="text"
               value={speakerName}
               onChange={(e) => setSpeakerName(e.target.value)}
               className="w-full bg-deep border border-border rounded px-3 py-2 text-neutral-50 focus:border-accent-gold focus:outline-none"
-              placeholder="e.g., Host, Narrator"
+              placeholder={t('videoPlanner.segment.speakerPlaceholder')}
             />
           </div>
 
           {/* Visual Type */}
           <div>
-            <label className="block text-sm font-medium text-accent-gold mb-3">Visual Type</label>
+            <label className="block text-sm font-medium text-accent-gold mb-3">{t('videoPlanner.segment.visualType')}</label>
             <div className="grid grid-cols-3 gap-2">
               {VISUAL_TYPES.map((vt) => (
                 <button
@@ -155,7 +157,7 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
                   }`}
                 >
                   <span className="text-2xl block mb-1">{vt.icon}</span>
-                  <span className="text-xs text-neutral-300">{vt.label}</span>
+                  <span className="text-xs text-neutral-300">{t(`videoPlanner.segment.visual.${vt.value}`)}</span>
                 </button>
               ))}
             </div>
@@ -163,18 +165,18 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
 
           {/* Visual Description */}
           <div>
-            <label className="block text-sm font-medium text-accent-gold mb-2">Visual Description</label>
+            <label className="block text-sm font-medium text-accent-gold mb-2">{t('videoPlanner.segment.visualDescription')}</label>
             <textarea
               value={visualDescription}
               onChange={(e) => setVisualDescription(e.target.value)}
               className="w-full bg-deep border border-border rounded px-3 py-2 text-neutral-50 focus:border-accent-gold focus:outline-none min-h-20 resize-none"
-              placeholder="Describe the visual content..."
+              placeholder={t('videoPlanner.segment.visualDescriptionPlaceholder')}
             />
           </div>
 
           {/* Image Upload */}
           <div>
-            <label className="block text-sm font-medium text-accent-gold mb-2">Visual Image</label>
+            <label className="block text-sm font-medium text-accent-gold mb-2">{t('videoPlanner.segment.visualImage')}</label>
             <input
               ref={fileInputRef}
               type="file"
@@ -193,12 +195,12 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
                     alt="Visual"
                     className="w-full max-h-40 object-contain rounded mb-2"
                   />
-                  <p className="text-xs text-neutral-400">Click to preview / recrop</p>
+                  <p className="text-xs text-neutral-400">{t('videoPlanner.segment.clickToPreview')}</p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-2">
                   <Upload className="w-5 h-5 text-accent-gold/50" />
-                  <p className="text-sm text-neutral-300">Drop image or click to upload</p>
+                  <p className="text-sm text-neutral-300">{t('videoPlanner.segment.dropImage')}</p>
                 </div>
               )}
             </div>
@@ -206,35 +208,35 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
 
           {/* Audio Notes */}
           <div>
-            <label className="block text-sm font-medium text-accent-gold mb-2">Audio Notes</label>
+            <label className="block text-sm font-medium text-accent-gold mb-2">{t('videoPlanner.segment.audioNotes')}</label>
             <textarea
               value={audioNotes}
               onChange={(e) => setAudioNotes(e.target.value)}
               className="w-full bg-deep border border-border rounded px-3 py-2 text-neutral-50 focus:border-accent-gold focus:outline-none min-h-16 resize-none"
-              placeholder="Music cues, sound effects, ambient audio..."
+              placeholder={t('videoPlanner.segment.audioNotesPlaceholder')}
             />
           </div>
 
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium text-accent-gold mb-2">Production Notes</label>
+            <label className="block text-sm font-medium text-accent-gold mb-2">{t('videoPlanner.segment.productionNotes')}</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="w-full bg-deep border border-border rounded px-3 py-2 text-neutral-50 focus:border-accent-gold focus:outline-none min-h-16 resize-none"
-              placeholder="Internal notes, reminders, location info..."
+              placeholder={t('videoPlanner.segment.productionNotesPlaceholder')}
             />
           </div>
 
           {/* Tags */}
           <div>
-            <label className="block text-sm font-medium text-accent-gold mb-2">Tags</label>
+            <label className="block text-sm font-medium text-accent-gold mb-2">{t('videoPlanner.segment.tags')}</label>
             <input
               type="text"
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               className="w-full bg-deep border border-border rounded px-3 py-2 text-neutral-50 focus:border-accent-gold focus:outline-none"
-              placeholder="Separate with commas..."
+              placeholder={t('videoPlanner.segment.tagsPlaceholder')}
             />
           </div>
         </div>
@@ -245,13 +247,13 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
             onClick={onCancel}
             className="px-4 py-2 rounded border border-border hover:bg-surface transition-colors text-neutral-300"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleSave}
             className="px-4 py-2 rounded bg-accent-gold text-deep font-medium hover:bg-accent-gold/90 transition-colors"
           >
-            Save Changes
+            {t('videoPlanner.segment.saveChanges')}
           </button>
         </div>
       </div>

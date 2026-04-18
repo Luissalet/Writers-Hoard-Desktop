@@ -26,6 +26,9 @@ import type { DiaryEntry } from '@/engines/diary/types';
 import type { Outline, OutlineBeat } from '@/engines/outline/types';
 import type { WritingSession, WritingGoal } from '@/engines/writing-stats/types';
 import type { BrainstormBoard, BrainstormItem, BrainstormConnection } from '@/engines/brainstorm/types';
+import type { CharacterArc, ArcBeat } from '@/engines/character-arc/types';
+import type { Relationship } from '@/engines/relationships/types';
+import type { Seed, Payoff } from '@/engines/seeds/types';
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -63,6 +66,11 @@ export class WritersHoardDB extends Dexie {
   brainstormBoards!: Table<BrainstormBoard>;
   brainstormItems!: Table<BrainstormItem>;
   brainstormConnections!: Table<BrainstormConnection>;
+  characterArcs!: Table<CharacterArc>;
+  arcBeats!: Table<ArcBeat>;
+  relationships!: Table<Relationship>;
+  seeds!: Table<Seed>;
+  payoffs!: Table<Payoff>;
 
   constructor() {
     super('WritersHoardDB');
@@ -502,6 +510,51 @@ export class WritersHoardDB extends Dexie {
           tl.color = '#c4973b'; // default gold
         }
       });
+    });
+
+    // v16: Character Arcs, Relationship Matrix, Seeds & Payoffs
+    this.version(16).stores({
+      projects: 'id, mode, type, parentId, status, updatedAt',
+      codexEntries: 'id, projectId, type, *tags, updatedAt',
+      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+      timelines: 'id, projectId',
+      timelineEvents: 'id, projectId, timelineId, order, dateMode, eventType',
+      timelineConnections: 'id, projectId, timelineId, sourceEventId, targetEventId',
+      yarnBoards: 'id, projectId',
+      yarnNodes: 'id, projectId, boardId',
+      yarnEdges: 'id, boardId, sourceId, targetId',
+      worldMaps: 'id, projectId',
+      mapPins: 'id, projectId, mapId',
+      imageCollections: 'id, projectId',
+      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+      externalLinks: 'id, projectId, type, *tags',
+      tags: 'id, name',
+      settings: 'id, key',
+      storyboards: 'id, projectId',
+      storyboardPanels: 'id, projectId, storyboardId, order',
+      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+      scenes: 'id, projectId, order',
+      dialogBlocks: 'id, sceneId, projectId, order',
+      sceneCasts: 'id, sceneId',
+
+      videoPlans: 'id, projectId',
+      videoSegments: 'id, videoPlanId, projectId, order',
+      snapshots: 'id, projectId, source, status, createdAt',
+      biographies: 'id, projectId',
+      biographyFacts: 'id, biographyId, projectId, order, category',
+      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
+      outlines: 'id, projectId',
+      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
+      writingSessions: 'id, projectId, date, type, createdAt',
+      writingGoals: 'id, projectId, type, active',
+      brainstormBoards: 'id, projectId',
+      brainstormItems: 'id, boardId, projectId, type',
+      brainstormConnections: 'id, boardId, sourceId, targetId',
+      characterArcs: 'id, projectId, characterId, templateId, status',
+      arcBeats: 'id, arcId, projectId, order, stage',
+      relationships: 'id, projectId, entityAId, entityBId, kind, state',
+      seeds: 'id, projectId, kind, status, plantedAt',
+      payoffs: 'id, seedId, projectId, paidAt',
     });
   }
 }

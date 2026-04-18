@@ -2,12 +2,14 @@ import { useState, useRef, useEffect } from 'react';
 import { Send } from 'lucide-react';
 import type { DiaryMood } from '../types';
 import { MOOD_CONFIG } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface QuickEntryProps {
   onSubmit: (content: string, mood?: DiaryMood) => Promise<void>;
 }
 
 export default function QuickEntry({ onSubmit }: QuickEntryProps) {
+  const { t } = useTranslation();
   const [text, setText] = useState('');
   const [mood, setMood] = useState<DiaryMood | ''>('');
   const [submitting, setSubmitting] = useState(false);
@@ -39,7 +41,7 @@ export default function QuickEntry({ onSubmit }: QuickEntryProps) {
           ref={inputRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="What's on your mind? Write a quick entry..."
+          placeholder={t('diary.quickEntryPlaceholder')}
           rows={1}
           className="flex-1 resize-none bg-elevated border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-dim outline-none focus:border-accent-gold transition"
           onKeyDown={(e) => {
@@ -53,7 +55,7 @@ export default function QuickEntry({ onSubmit }: QuickEntryProps) {
           onClick={handleSubmit}
           disabled={!text.trim() || submitting}
           className="self-end p-2.5 rounded-lg bg-accent-gold/10 text-accent-gold hover:bg-accent-gold/20 disabled:opacity-40 disabled:cursor-not-allowed transition"
-          title="Save entry (Ctrl+Enter)"
+          title={t('diary.saveEntryShort')}
         >
           <Send size={16} />
         </button>

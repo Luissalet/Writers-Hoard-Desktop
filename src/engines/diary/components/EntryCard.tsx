@@ -1,6 +1,7 @@
 import { Pencil, Pin, FileText, MessageSquare } from 'lucide-react';
 import type { DiaryEntry } from '../types';
 import { MOOD_CONFIG } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface EntryCardProps {
   entry: DiaryEntry;
@@ -26,6 +27,7 @@ function stripHtml(html: string): string {
 }
 
 export default function EntryCard({ entry, onEdit, onTogglePin }: EntryCardProps) {
+  const { t } = useTranslation();
   const moodCfg = entry.mood ? MOOD_CONFIG[entry.mood] : null;
   const rich = isRichContent(entry.content);
 
@@ -111,7 +113,7 @@ export default function EntryCard({ entry, onEdit, onTogglePin }: EntryCardProps
         <button
           onClick={(e) => { e.stopPropagation(); onEdit(); }}
           className="p-1 rounded text-text-dim hover:text-accent-gold transition"
-          title="Edit entry"
+          title={t('diary.editEntry')}
         >
           <Pencil size={12} />
         </button>

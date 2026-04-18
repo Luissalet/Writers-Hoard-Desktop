@@ -94,7 +94,7 @@ export default function BrainstormEngine({ projectId }: EngineComponentProps) {
               variant="compact"
               value={newBoardName}
               onChange={setNewBoardName}
-              placeholder="Board name..."
+              placeholder={t('brainstorm.boardNamePlaceholder')}
               onConfirm={handleCreateBoard}
               onCancel={() => {
                 setShowNewBoard(false);

@@ -27,6 +27,7 @@ import DualDialogGroup from './DualDialogGroup';
 import ChronometryBadge from './ChronometryBadge';
 import { SCREENPLAY_TRANSITIONS, SLUG_PREFIXES, type AutocompleteSuggestion } from './ScriptAutocomplete';
 import { generateId } from '@/utils/idGenerator';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface SceneEditorProps {
   scene: Scene;
@@ -77,6 +78,7 @@ export default function SceneEditor({
   onUpdateScene,
   onBack,
 }: SceneEditorProps) {
+  const { t } = useTranslation();
   void _scenes; // available for future scene-navigation features
   const { items: blocks, addItem: addBlock, editItem: editBlock, removeItem: removeBlock, reorder } =
     useDialogBlocks(scene.id);
@@ -280,7 +282,7 @@ export default function SceneEditor({
               value={scene.setting || ''}
               onChange={(e) => onUpdateScene({ setting: e.target.value })}
               onBlur={() => setEditingSetting(false)}
-              placeholder="Add setting..."
+              placeholder={t('dialogScene.settingPlaceholder')}
               className="text-xs text-text-muted bg-elevated/50 rounded px-2 py-1 border border-border focus:border-accent-gold outline-none mt-1"
             />
           ) : (
@@ -324,7 +326,7 @@ export default function SceneEditor({
               value={scene.description || ''}
               onChange={(e) => onUpdateScene({ description: e.target.value })}
               onBlur={() => setEditingDesc(false)}
-              placeholder="Scene description..."
+              placeholder={t('dialogScene.descriptionPlaceholder')}
               className="w-full text-xs text-text-muted bg-elevated border border-border rounded px-3 py-2 focus:border-accent-gold outline-none"
               rows={2}
             />
@@ -362,7 +364,7 @@ export default function SceneEditor({
           {/* Dual-select mode indicator */}
           {dualSelectMode && (
             <div className="mt-4 flex items-center gap-2 px-3 py-2 bg-blue-500/10 border border-blue-500/30 rounded-lg text-xs text-blue-300">
-              <span>Click another dialog block to pair as dual dialogue</span>
+              <span>{t('dialogScene.pairHint')}</span>
               <button
                 onClick={() => setDualSelectMode(null)}
                 className="ml-auto px-2 py-0.5 bg-blue-500/20 rounded hover:bg-blue-500/30 transition"

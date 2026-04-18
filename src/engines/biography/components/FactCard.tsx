@@ -3,6 +3,7 @@ import { Trash2, GripVertical, ChevronDown, Check, AlertCircle, HelpCircle, Minu
 import { motion } from 'framer-motion';
 import type { BiographyFact } from '../types';
 import { BIOGRAPHY_CATEGORIES, CONFIDENCE_LEVELS } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface FactCardProps {
   fact: BiographyFact;
@@ -12,6 +13,7 @@ interface FactCardProps {
 }
 
 export default function FactCard({ fact, onEdit, onDelete, isDragging }: FactCardProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const category = BIOGRAPHY_CATEGORIES[fact.category];
   const confidence = CONFIDENCE_LEVELS[fact.confidence];
@@ -155,14 +157,14 @@ export default function FactCard({ fact, onEdit, onDelete, isDragging }: FactCar
         <button
           onClick={onEdit}
           className="p-1.5 rounded-lg bg-accent-gold/20 text-accent-gold hover:bg-accent-gold/30 transition text-xs"
-          title="Edit fact"
+          title={t('biography.editFact')}
         >
           ✎
         </button>
         <button
           onClick={onDelete}
           className="p-1.5 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition"
-          title="Delete fact"
+          title={t('biography.deleteFact')}
         >
           <Trash2 size={13} />
         </button>

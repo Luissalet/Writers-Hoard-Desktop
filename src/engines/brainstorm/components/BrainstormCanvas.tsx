@@ -19,6 +19,7 @@ import BrainstormItemEditor from './BrainstormItemEditor';
 import { InlineColorPicker } from '@/components/common/ColorPicker';
 import type { BrainstormItem, BrainstormConnection } from '../types';
 import { generateId } from '@/utils/idGenerator';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface BrainstormCanvasProps {
   projectId: string;
@@ -47,6 +48,7 @@ export default function BrainstormCanvas({
   onDeleteItem,
   onAddConnection,
 }: BrainstormCanvasProps) {
+  const { t } = useTranslation();
   const [editingItem, setEditingItem] = useState<BrainstormItem | null>(null);
   const [selectedColor, setSelectedColor] = useState('#fef3c7');
 
@@ -189,17 +191,17 @@ export default function BrainstormCanvas({
       <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-surface to-transparent p-4 flex items-center gap-2">
         <div className="flex items-center gap-1 px-3 py-2 rounded-lg bg-surface/80 border border-border backdrop-blur">
           <Lightbulb size={16} className="text-accent-gold" />
-          <span className="text-sm font-semibold text-text-primary">Brainstorm</span>
+          <span className="text-sm font-semibold text-text-primary">{t('brainstorm.title')}</span>
         </div>
 
         <div className="flex items-center gap-1 px-3 py-2 rounded-lg bg-surface/80 border border-border backdrop-blur">
           <button
             onClick={handleAddNote}
             className="p-1.5 text-text-muted hover:text-text-primary transition flex items-center gap-1.5"
-            title="Add Note"
+            title={t('brainstorm.addNote')}
           >
             <Plus size={14} />
-            <span className="text-xs font-medium">Note</span>
+            <span className="text-xs font-medium">{t('brainstorm.note')}</span>
           </button>
 
           <div className="w-px h-4 bg-border" />
@@ -207,10 +209,10 @@ export default function BrainstormCanvas({
           <button
             onClick={handleAddTextBlock}
             className="p-1.5 text-text-muted hover:text-text-primary transition flex items-center gap-1.5"
-            title="Add Text Block"
+            title={t('brainstorm.addText')}
           >
             <Type size={14} />
-            <span className="text-xs font-medium">Text</span>
+            <span className="text-xs font-medium">{t('brainstorm.text')}</span>
           </button>
 
           <div className="w-px h-4 bg-border" />
@@ -218,10 +220,10 @@ export default function BrainstormCanvas({
           <button
             onClick={handleAddImage}
             className="p-1.5 text-text-muted hover:text-text-primary transition flex items-center gap-1.5"
-            title="Add Image"
+            title={t('brainstorm.addImage')}
           >
             <Image size={14} />
-            <span className="text-xs font-medium">Image</span>
+            <span className="text-xs font-medium">{t('brainstorm.image')}</span>
           </button>
 
           <div className="w-px h-4 bg-border" />
@@ -229,10 +231,10 @@ export default function BrainstormCanvas({
           <button
             onClick={handleAddSection}
             className="p-1.5 text-text-muted hover:text-text-primary transition flex items-center gap-1.5"
-            title="Add Section"
+            title={t('brainstorm.addSection')}
           >
             <Grid3x3 size={14} />
-            <span className="text-xs font-medium">Section</span>
+            <span className="text-xs font-medium">{t('brainstorm.section')}</span>
           </button>
         </div>
 

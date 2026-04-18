@@ -19,6 +19,7 @@ export {
   readImageAsDataUrl,
   readJson as readBackupJson,
 } from './backupRegistry';
+export { assertBackupCoverage, checkBackupCoverage } from './assertBackupCoverage';
 
 export type { EntityHookOptions, EntityHookResult } from './makeEntityHook';
 export type { GraphHookOptions, GraphHookResult } from './makeGraphHook';

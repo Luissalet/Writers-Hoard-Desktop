@@ -18,6 +18,14 @@ import '@/engines/biography';
 import '@/engines/diary';
 import '@/engines/outline';
 import '@/engines/writing-stats';
+import '@/engines/brainstorm';
+import '@/engines/character-arc';
+import '@/engines/relationships';
+import '@/engines/seeds';
+
+// Dev-mode guardrail: warn if any engine's tables slipped through the backup net.
+import { assertBackupCoverage } from '@/engines/_shared/assertBackupCoverage';
+assertBackupCoverage();
 
 // Re-export registry functions and types for consumer code
 export {

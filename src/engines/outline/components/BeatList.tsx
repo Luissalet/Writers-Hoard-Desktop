@@ -4,6 +4,7 @@ import type { OutlineBeat } from '../types';
 import type { Scene } from '@/engines/dialog-scene/types';
 import { BEAT_STATUS_CONFIG, BEAT_LEVEL_LABEL } from '../types';
 import BeatEditor from './BeatEditor';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface BeatListProps {
   beats: OutlineBeat[];
@@ -21,6 +22,7 @@ export default function BeatList({
   onDeleteBeat,
   scenes = [],
 }: BeatListProps) {
+  const { t } = useTranslation();
   const [expandedBeats, setExpandedBeats] = useState<Set<string>>(new Set());
   const [editingBeat, setEditingBeat] = useState<OutlineBeat | null>(null);
 
@@ -122,14 +124,14 @@ export default function BeatList({
             <button
               onClick={() => setEditingBeat(beat)}
               className="p-1.5 hover:bg-accent-gold/10 rounded text-accent-gold transition"
-              title="Edit"
+              title={t('common.edit')}
             >
               <div className="w-4 h-4" />
             </button>
             <button
               onClick={() => onDeleteBeat(beat.id)}
               className="p-1.5 hover:bg-red-500/10 rounded text-red-500 transition"
-              title="Delete"
+              title={t('common.delete')}
             >
               <Trash2 size={14} />
             </button>

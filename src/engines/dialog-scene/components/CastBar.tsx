@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { SceneCast } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import { InlineColorPicker } from '@/components/common/ColorPicker';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface CastBarProps {
   cast: SceneCast[];
@@ -18,6 +19,7 @@ export default function CastBar({
   onAddDialog,
   onRemoveCharacter,
 }: CastBarProps) {
+  const { t } = useTranslation();
   const [showNewMember, setShowNewMember] = useState(false);
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState('#c4973b');
@@ -41,14 +43,14 @@ export default function CastBar({
   return (
     <div className="border border-border rounded-lg bg-surface/50 p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-text-primary">Scene Cast</h3>
+        <h3 className="text-sm font-semibold text-text-primary">{t('dialogScene.cast')}</h3>
         <button
           onClick={() => setShowNewMember(!showNewMember)}
           className="flex items-center gap-1.5 px-2 py-1 text-xs bg-accent-gold/10 text-accent-gold rounded hover:bg-accent-gold/20 transition"
-          title="Add character"
+          title={t('dialogScene.addCharacter')}
         >
           <Plus size={13} />
-          Add Character
+          {t('dialogScene.addCharacter')}
         </button>
       </div>
 
@@ -65,7 +67,7 @@ export default function CastBar({
                 autoFocus
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="Character name..."
+                placeholder={t('dialogScene.characterNamePlaceholder')}
                 className="w-full px-2.5 py-1.5 bg-surface border border-border rounded text-sm text-text-primary placeholder:text-text-dim focus:border-accent-gold outline-none"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleAddMember();
@@ -73,7 +75,7 @@ export default function CastBar({
                 }}
               />
               <div className="flex items-center gap-2">
-                <span className="text-xs text-text-muted">Color:</span>
+                <span className="text-xs text-text-muted">{t('dialogScene.color')}:</span>
                 <InlineColorPicker value={newColor} onChange={setNewColor} size="sm" />
               </div>
               <div className="flex items-center gap-2 pt-1">
@@ -81,7 +83,7 @@ export default function CastBar({
                   onClick={handleAddMember}
                   className="flex-1 px-2 py-1.5 bg-accent-gold/20 text-accent-gold text-xs font-semibold rounded hover:bg-accent-gold/30 transition"
                 >
-                  Add
+                  {t('common.add')}
                 </button>
                 <button
                   onClick={() => {
@@ -90,7 +92,7 @@ export default function CastBar({
                   }}
                   className="flex-1 px-2 py-1.5 bg-border/30 text-text-muted text-xs rounded hover:bg-border/50 transition"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
               </div>
             </div>
@@ -100,7 +102,7 @@ export default function CastBar({
 
       {cast.length === 0 ? (
         <p className="text-xs text-text-dim text-center py-3">
-          No characters yet. Add one to get started.
+          {t('dialogScene.noCast')}
         </p>
       ) : (
         <div className="flex flex-wrap gap-2">

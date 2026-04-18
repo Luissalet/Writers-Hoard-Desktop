@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import type { DialogBlock, BlockFormatting } from '../types';
 import type { AutocompleteSuggestion } from './ScriptAutocomplete';
 import ScriptAutocomplete from './ScriptAutocomplete';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface DualDialogGroupProps {
   left: DialogBlock;
@@ -47,6 +48,7 @@ function DualColumn({
   onUpdate: (content: string, parenthetical?: string) => void;
   suggestions?: AutocompleteSuggestion[];
 }) {
+  const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
 
@@ -82,7 +84,7 @@ function DualColumn({
             onBlur={() => setTimeout(() => setShowAutocomplete(false), 200)}
             className={`w-full bg-transparent resize-none focus:outline-none border-none p-0 leading-relaxed text-text-primary ${fontCls(block.formatting)}`}
             rows={Math.max(2, Math.ceil(block.content.length / 30))}
-            placeholder="Enter dialog..."
+            placeholder={t('dialogScene.dialogPlaceholder')}
           />
           {suggestions && (
             <ScriptAutocomplete
@@ -112,6 +114,7 @@ export default function DualDialogGroup({
   onUnpair,
   suggestions,
 }: DualDialogGroupProps) {
+  const { t } = useTranslation();
   return (
     <motion.div
       layout
@@ -123,20 +126,20 @@ export default function DualDialogGroup({
       {/* Dual Dialog label */}
       <div className="flex items-center justify-between mb-1">
         <span className="text-[9px] font-bold uppercase tracking-widest text-text-dim/60">
-          DUAL DIALOGUE
+          {t('dialogScene.dualDialogue')}
         </span>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
           <button
             onClick={onUnpair}
             className="px-2 py-0.5 text-[10px] text-text-dim hover:text-text-primary bg-border/30 rounded transition"
-            title="Unpair dual dialogue"
+            title={t('dialogScene.unpairDual')}
           >
-            Unpair
+            {t('dialogScene.unpair')}
           </button>
           <button
             onClick={() => { onDeleteLeft(); onDeleteRight(); }}
             className="p-1 text-text-dim hover:text-danger hover:bg-danger/10 rounded transition"
-            title="Delete both"
+            title={t('dialogScene.deleteBoth')}
           >
             <Trash2 size={12} />
           </button>

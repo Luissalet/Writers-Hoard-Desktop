@@ -8,6 +8,7 @@ import { useDropzone } from 'react-dropzone';
 import Modal from '@/components/common/Modal';
 import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import type { StoryboardPanel } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface PanelEditorProps {
   panel: StoryboardPanel | null;
@@ -17,6 +18,7 @@ interface PanelEditorProps {
 }
 
 export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEditorProps) {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState<Partial<StoryboardPanel>>(
     panel || { subtitle: '', description: '', duration: '', tags: [] }
   );
@@ -59,11 +61,11 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
 
   return (
     <>
-      <Modal open={isOpen} onClose={onClose} title="Edit Panel">
+      <Modal open={isOpen} onClose={onClose} title={t('storyboard.editPanel')}>
       <div className="space-y-6 max-w-2xl">
         {/* Image Upload */}
         <div>
-          <label className="block text-sm font-semibold text-text-primary mb-2">Image</label>
+          <label className="block text-sm font-semibold text-text-primary mb-2">{t('storyboard.form.image')}</label>
           <div
             {...getRootProps()}
             className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition ${
@@ -92,14 +94,14 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
                   }}
                   className="text-sm text-accent-gold hover:text-accent-amber"
                 >
-                  Remove image
+                  {t('storyboard.form.removeImage')}
                 </button>
               </div>
             ) : (
               <div className="space-y-2">
                 <Upload className="mx-auto text-text-muted" size={24} />
-                <p className="text-text-primary font-medium">Drop image or click to select</p>
-                <p className="text-text-muted text-xs">Supports JPG, PNG, GIF, WebP</p>
+                <p className="text-text-primary font-medium">{t('storyboard.form.dropImage')}</p>
+                <p className="text-text-muted text-xs">{t('storyboard.form.imageFormats')}</p>
               </div>
             )}
           </div>
@@ -107,23 +109,23 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
 
         {/* Subtitle */}
         <div>
-          <label className="block text-sm font-semibold text-text-primary mb-2">Subtitle</label>
+          <label className="block text-sm font-semibold text-text-primary mb-2">{t('storyboard.form.subtitle')}</label>
           <input
             type="text"
             value={formData.subtitle || ''}
             onChange={(e) => setFormData(prev => ({ ...prev, subtitle: e.target.value }))}
-            placeholder="Brief title for this panel"
+            placeholder={t('storyboard.form.subtitlePlaceholder')}
             className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary placeholder-text-muted focus:border-accent-gold focus:outline-none transition"
           />
         </div>
 
         {/* Description */}
         <div>
-          <label className="block text-sm font-semibold text-text-primary mb-2">Description</label>
+          <label className="block text-sm font-semibold text-text-primary mb-2">{t('storyboard.form.description')}</label>
           <textarea
             value={formData.description || ''}
             onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-            placeholder="Detailed notes about this panel"
+            placeholder={t('storyboard.form.descriptionPlaceholder')}
             rows={4}
             className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary placeholder-text-muted focus:border-accent-gold focus:outline-none transition resize-none"
           />
@@ -131,31 +133,31 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
 
         {/* Duration (for video storyboards) */}
         <div>
-          <label className="block text-sm font-semibold text-text-primary mb-2">Duration (optional)</label>
+          <label className="block text-sm font-semibold text-text-primary mb-2">{t('storyboard.form.duration')}</label>
           <input
             type="text"
             value={formData.duration || ''}
             onChange={(e) => setFormData(prev => ({ ...prev, duration: e.target.value }))}
-            placeholder="e.g., 00:15-00:23"
+            placeholder={t('storyboard.form.durationPlaceholder')}
             className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary placeholder-text-muted focus:border-accent-gold focus:outline-none transition"
           />
-          <p className="text-text-muted text-xs mt-1">Format: HH:MM-HH:MM for video timecodes</p>
+          <p className="text-text-muted text-xs mt-1">{t('storyboard.form.durationHint')}</p>
         </div>
 
         {/* Tags */}
         <div>
-          <label className="block text-sm font-semibold text-text-primary mb-2">Tags</label>
+          <label className="block text-sm font-semibold text-text-primary mb-2">{t('storyboard.form.tags')}</label>
           <input
             type="text"
             value={(Array.isArray(formData.tags) ? formData.tags : []).join(', ')}
             onChange={(e) => {
               const tags = e.target.value
                 .split(',')
-                .map(t => t.trim())
-                .filter(t => t.length > 0);
+                .map(tag => tag.trim())
+                .filter(tag => tag.length > 0);
               setFormData(prev => ({ ...prev, tags }));
             }}
-            placeholder="Separate tags with commas"
+            placeholder={t('storyboard.form.tagsPlaceholder')}
             className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary placeholder-text-muted focus:border-accent-gold focus:outline-none transition"
           />
         </div>
@@ -166,13 +168,13 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
             onClick={onClose}
             className="flex-1 px-4 py-2 bg-surface border border-border text-text-primary rounded-lg hover:bg-elevated transition font-semibold"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleSave}
             className="flex-1 px-4 py-2 bg-accent-gold text-deep rounded-lg hover:bg-accent-amber transition font-semibold"
           >
-            Save Panel
+            {t('storyboard.form.savePanel')}
           </button>
         </div>
       </div>

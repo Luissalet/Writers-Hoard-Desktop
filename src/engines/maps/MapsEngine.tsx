@@ -71,8 +71,8 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
 
       <CollectionDashboard
         icon={Map}
-        title="Your Maps"
-        itemNoun="Map"
+        title={t('maps.yourMaps')}
+        itemNoun={t('maps.itemNoun')}
         items={maps}
         activeId={activeMapId}
         onSelect={setActiveMapId}

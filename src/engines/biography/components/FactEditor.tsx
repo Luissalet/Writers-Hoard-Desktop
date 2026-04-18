@@ -4,6 +4,7 @@ import TipTapEditor from '@/components/editor/TiptapEditor';
 import TagInput from '@/components/common/TagInput';
 import type { BiographyFact, FactSource, BiographyCategory } from '../types';
 import { BIOGRAPHY_CATEGORIES, CONFIDENCE_LEVELS } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface FactEditorProps {
   fact?: BiographyFact;
@@ -13,6 +14,7 @@ interface FactEditorProps {
 }
 
 export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditorProps) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState(fact?.title ?? '');
   const [content, setContent] = useState(fact?.content ?? '');
   const [date, setDate] = useState(fact?.date ?? '');
@@ -93,7 +95,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g., Born in London"
+              placeholder={t('biography.labelPlaceholder')}
               className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-text-primary placeholder-text-dim focus:outline-none focus:border-accent-gold"
             />
           </div>
@@ -104,7 +106,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
             <TipTapEditor
               content={content}
               onChange={setContent}
-              placeholder="Write the details of this fact..."
+              placeholder={t('biography.detailsPlaceholder')}
             />
           </div>
 
@@ -116,7 +118,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
                 type="text"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                placeholder="1980-01-15 or just a year"
+                placeholder={t('biography.datePlaceholder')}
                 className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-text-primary placeholder-text-dim focus:outline-none focus:border-accent-gold text-sm"
               />
             </div>
@@ -126,7 +128,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
                 type="text"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                placeholder="1990 (for date ranges)"
+                placeholder={t('biography.dateEndPlaceholder')}
                 className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-text-primary placeholder-text-dim focus:outline-none focus:border-accent-gold text-sm"
               />
             </div>
@@ -178,7 +180,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
             <TagInput
               tags={tags}
               onChange={setTags}
-              placeholder="Add tags..."
+              placeholder={t('common.addTag')}
             />
           </div>
 
@@ -244,7 +246,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
                 type="text"
                 value={newSourceDescription}
                 onChange={(e) => setNewSourceDescription(e.target.value)}
-                placeholder="Source description..."
+                placeholder={t('biography.sourcePlaceholder')}
                 className="w-full px-2 py-1.5 bg-surface border border-border rounded text-sm text-text-primary placeholder-text-dim focus:outline-none focus:border-accent-gold"
               />
 
@@ -252,7 +254,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
                 type="text"
                 value={newSourceUrl}
                 onChange={(e) => setNewSourceUrl(e.target.value)}
-                placeholder="URL (optional)"
+                placeholder={t('biography.urlPlaceholder')}
                 className="w-full px-2 py-1.5 bg-surface border border-border rounded text-sm text-text-primary placeholder-text-dim focus:outline-none focus:border-accent-gold"
               />
 

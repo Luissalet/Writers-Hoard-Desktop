@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, Link2, Unlink } from 'lucide-react';
 import type { OutlineBeat, BeatStatus } from '../types';
 import type { Scene } from '@/engines/dialog-scene/types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface BeatEditorProps {
   beat: OutlineBeat;
@@ -18,6 +19,7 @@ const PRESET_COLORS = [
 ];
 
 export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatEditorProps) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState(beat.title);
   const [description, setDescription] = useState(beat.description);
   const [level, setLevel] = useState<'act' | 'chapter' | 'scene' | 'beat'>(beat.level);
@@ -66,7 +68,7 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-gold/50"
-              placeholder="Beat title..."
+              placeholder={t('outline.beatTitlePlaceholder')}
             />
           </div>
 
@@ -80,7 +82,7 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
               className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-gold/50 resize-none"
-              placeholder="What happens in this beat?"
+              placeholder={t('outline.beatDescriptionPlaceholder')}
             />
           </div>
 
@@ -145,7 +147,7 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
               onChange={(e) => setWordTarget(Number(e.target.value) || 0)}
               min="0"
               className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-gold/50"
-              placeholder="Leave blank for no target"
+              placeholder={t('outline.beatTargetPlaceholder')}
             />
           </div>
 
@@ -196,7 +198,7 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
                   <button
                     onClick={() => setLinkedSceneId('')}
                     className="p-2 text-text-dim hover:text-danger rounded transition"
-                    title="Unlink scene"
+                    title={t('outline.unlinkScene')}
                   >
                     <Unlink size={14} />
                   </button>

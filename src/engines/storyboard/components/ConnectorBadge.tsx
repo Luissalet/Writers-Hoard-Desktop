@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { ArrowRight, Scissors, Edit2, Trash2 } from 'lucide-react';
 import type { StoryboardConnector } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface ConnectorBadgeProps {
   connector: StoryboardConnector | null;
@@ -30,6 +31,7 @@ export default function ConnectorBadge({
   onEdit,
   onDelete,
 }: ConnectorBadgeProps) {
+  const { t } = useTranslation();
   const [isHovering, setIsHovering] = useState(false);
 
   if (!connector) {
@@ -37,7 +39,7 @@ export default function ConnectorBadge({
       <button
         onClick={() => onEdit(fromPanelId, toPanelId)}
         className="px-2 py-1 text-xs rounded bg-surface/50 border border-dashed border-text-muted text-text-muted hover:border-accent-gold hover:text-accent-gold transition"
-        title="Add connector"
+        title={t('storyboard.addConnector')}
       >
         +
       </button>
@@ -68,12 +70,12 @@ export default function ConnectorBadge({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            if (confirm('Delete this connector?')) {
+            if (confirm(t('storyboard.deleteConnector') + '?')) {
               onDelete();
             }
           }}
           className="ml-1 p-1 text-red-600 hover:text-red-700 transition opacity-0 group-hover:opacity-100"
-          title="Delete connector"
+          title={t('storyboard.deleteConnector')}
         >
           <Trash2 size={14} />
         </button>

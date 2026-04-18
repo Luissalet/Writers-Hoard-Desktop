@@ -3,6 +3,7 @@ import { ArrowLeft, Trash2, Pin, Clock } from 'lucide-react';
 import type { DiaryEntry, DiaryMood } from '../types';
 import { MOOD_CONFIG } from '../types';
 import TiptapEditor from '@/components/editor/TiptapEditor';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface EntryEditorProps {
   entry: DiaryEntry;
@@ -13,6 +14,7 @@ interface EntryEditorProps {
 }
 
 export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }: EntryEditorProps) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState(entry.title);
   const [content, setContent] = useState(entry.content);
   const [entryDate, setEntryDate] = useState(entry.entryDate);
@@ -68,7 +70,7 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
                 if (confirm('Delete this entry permanently?')) onDelete();
               }}
               className="p-2 rounded-lg text-text-dim hover:text-danger hover:bg-danger/10 transition"
-              title="Delete entry"
+              title={t('diary.deleteEntry')}
             >
               <Trash2 size={14} />
             </button>
@@ -96,7 +98,7 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
           <button
             onClick={setToNow}
             className="p-1.5 rounded-lg text-text-dim hover:text-accent-gold hover:bg-accent-gold/10 transition"
-            title="Set to now"
+            title={t('diary.setToNow')}
           >
             <Clock size={13} />
           </button>
@@ -137,7 +139,7 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        placeholder="Title (optional)"
+        placeholder={t('diary.titlePlaceholder')}
         className="w-full px-3 py-2 text-lg font-serif bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
       />
 
@@ -145,7 +147,7 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
       <TiptapEditor
         content={content}
         onChange={handleContentChange}
-        placeholder="Write your thoughts..."
+        placeholder={t('diary.contentPlaceholder')}
       />
 
       {/* Tags */}
@@ -154,7 +156,7 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
         <input
           value={tagsText}
           onChange={(e) => setTagsText(e.target.value)}
-          placeholder="inspiration, research, idea..."
+          placeholder={t('diary.tagsHint')}
           className="w-full px-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
         />
       </div>

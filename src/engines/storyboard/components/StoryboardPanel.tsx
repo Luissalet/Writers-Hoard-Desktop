@@ -5,6 +5,7 @@
 import { useState, useRef } from 'react';
 import { Camera, Edit2, Trash2 } from 'lucide-react';
 import type { StoryboardPanel as StoryboardPanelType } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface StoryboardPanelProps {
   panel: StoryboardPanelType;
@@ -23,6 +24,7 @@ export default function StoryboardPanel({
   onDelete,
   onUpdateSubtitle,
 }: StoryboardPanelProps) {
+  const { t } = useTranslation();
   const [isHovering, setIsHovering] = useState(false);
   const [isEditingSubtitle, setIsEditingSubtitle] = useState(false);
   const [subtitleText, setSubtitleText] = useState(panel.subtitle);
@@ -93,19 +95,19 @@ export default function StoryboardPanel({
                 onEdit(panel);
               }}
               className="p-2 bg-accent-gold text-deep rounded-lg hover:bg-accent-amber transition"
-              title="Edit panel"
+              title={t('storyboard.editPanelTooltip')}
             >
               <Edit2 size={18} />
             </button>
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                if (confirm('Delete this panel?')) {
+                if (confirm(t('storyboard.deletePanelConfirm'))) {
                   onDelete(panel.id);
                 }
               }}
               className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
-              title="Delete panel"
+              title={t('storyboard.deletePanelTooltip')}
             >
               <Trash2 size={18} />
             </button>
@@ -125,7 +127,7 @@ export default function StoryboardPanel({
             onBlur={handleSubtitleSave}
             onKeyDown={handleSubtitleKeyDown}
             className="w-full px-2 py-1 bg-surface border border-accent-gold rounded text-sm text-text-primary font-semibold placeholder-text-muted focus:outline-none"
-            placeholder="Panel subtitle"
+            placeholder={t('storyboard.panelSubtitle')}
           />
         ) : (
           <p

@@ -75,7 +75,7 @@ export default function BiographyEngine({ projectId }: EngineComponentProps) {
               variant="compact"
               value={newBioName}
               onChange={setNewBioName}
-              placeholder="Subject name..."
+              placeholder={t('biography.subjectNamePlaceholder')}
               onConfirm={handleCreateBio}
               onCancel={() => {
                 setShowNewBio(false);

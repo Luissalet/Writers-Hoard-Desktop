@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Edit2, Trash2 } from 'lucide-react';
 import type { BrainstormItem } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface BrainstormItemNodeProps {
   data: BrainstormItem & {
@@ -51,6 +52,7 @@ function resolveNoteColor(raw?: string): { bg: string; text: string } {
 }
 
 export default function BrainstormItemNode({ data }: BrainstormItemNodeProps) {
+  const { t } = useTranslation();
   const [hovering, setHovering] = useState(false);
 
   const renderContent = () => {
@@ -165,14 +167,14 @@ export default function BrainstormItemNode({ data }: BrainstormItemNodeProps) {
           <button
             onClick={() => data.onEdit(data)}
             className="p-1.5 rounded bg-accent-gold/10 text-accent-gold hover:bg-accent-gold/20 transition"
-            title="Edit"
+            title={t('common.edit')}
           >
             <Edit2 size={14} />
           </button>
           <button
             onClick={() => data.onDelete(data.id)}
             className="p-1.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition"
-            title="Delete"
+            title={t('common.delete')}
           >
             <Trash2 size={14} />
           </button>

@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Copy, Download } from 'lucide-react';
 import type { BiographyFact } from '../types';
 import { BIOGRAPHY_CATEGORIES } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface NarrativeViewProps {
   facts: BiographyFact[];
@@ -9,6 +10,7 @@ interface NarrativeViewProps {
 }
 
 export default function NarrativeView({ facts, subjectName }: NarrativeViewProps) {
+  const { t } = useTranslation();
   // Group facts chronologically, with special handling for birth/death
   const narrativeGroups = useMemo(() => {
     const groups: Array<{ title: string; items: BiographyFact[] }> = [];
@@ -92,7 +94,7 @@ export default function NarrativeView({ facts, subjectName }: NarrativeViewProps
         <button
           onClick={handleCopy}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-surface text-text-muted hover:text-text-primary rounded-lg text-sm font-medium transition"
-          title="Copy to clipboard"
+          title={t('biography.copyToClipboard')}
         >
           <Copy size={14} />
           Copy
@@ -100,7 +102,7 @@ export default function NarrativeView({ facts, subjectName }: NarrativeViewProps
         <button
           onClick={handleDownload}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-surface text-text-muted hover:text-text-primary rounded-lg text-sm font-medium transition"
-          title="Download as text file"
+          title={t('biography.downloadText')}
         >
           <Download size={14} />
           Export

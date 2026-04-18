@@ -20,6 +20,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Scene } from '../types';
 import { generateId } from '@/utils/idGenerator';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface SceneListViewProps {
   scenes: Scene[];
@@ -41,6 +42,7 @@ function SortableSceneCard({
   onUpdate: (changes: Partial<Scene>) => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation();
   const { listeners, setNodeRef, transform, isDragging } = useSortable({
     id: scene.id,
   });
@@ -65,7 +67,7 @@ function SortableSceneCard({
           <button
             {...listeners}
             className="pt-1 text-text-dim opacity-0 group-hover:opacity-100 transition flex-shrink-0 cursor-grab active:cursor-grabbing"
-            title="Drag to reorder"
+            title={t('common.dragToReorder')}
           >
             <GripVertical size={16} />
           </button>
@@ -92,7 +94,7 @@ function SortableSceneCard({
             </h3>
             {scene.setting && (
               <p className="text-xs text-text-muted mt-1">
-                Setting: {scene.setting}
+                {t('dialogScene.setting')}: {scene.setting}
               </p>
             )}
             {scene.description && (
@@ -118,7 +120,7 @@ function SortableSceneCard({
                   ? 'text-accent-gold bg-accent-gold/10'
                   : 'text-text-dim hover:text-text-primary hover:bg-surface'
               }`}
-              title={scene.isLocked ? 'Unlock scene number' : 'Lock scene number'}
+              title={scene.isLocked ? t('dialogScene.unlockNumber') : t('dialogScene.lockNumber')}
             >
               {scene.isLocked ? <Lock size={14} /> : <Unlock size={14} />}
             </button>
@@ -134,7 +136,7 @@ function SortableSceneCard({
                   ? 'text-amber-400 bg-amber-500/10'
                   : 'text-text-dim hover:text-text-primary hover:bg-surface'
               }`}
-              title={scene.isOmitted ? 'Restore scene' : 'Omit scene'}
+              title={scene.isOmitted ? t('dialogScene.restoreScene') : t('dialogScene.omitScene')}
             >
               {scene.isOmitted ? <EyeOff size={14} /> : <Eye size={14} />}
             </button>
@@ -146,7 +148,7 @@ function SortableSceneCard({
                 onDelete();
               }}
               className="p-1.5 text-text-dim hover:text-danger hover:bg-danger/10 rounded transition"
-              title="Delete scene"
+              title={t('dialogScene.deleteScene')}
             >
               <Trash2 size={14} />
             </button>
@@ -165,6 +167,7 @@ export default function SceneListView({
   onDeleteScene,
   onReorderScenes,
 }: SceneListViewProps) {
+  const { t } = useTranslation();
   const [showNewScene, setShowNewScene] = useState(false);
   const [newTitle, setNewTitle] = useState('');
 
@@ -207,13 +210,13 @@ export default function SceneListView({
     <div className="h-full flex flex-col bg-deep">
       {/* Header */}
       <div className="border-b border-border bg-surface/30 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-2xl font-serif font-bold text-text-primary">Scenes</h1>
+        <h1 className="text-2xl font-serif font-bold text-text-primary">{t('dialogScene.title')}</h1>
         <button
           onClick={() => setShowNewScene(!showNewScene)}
           className="flex items-center gap-2 px-4 py-2 text-sm bg-accent-gold text-deep rounded-lg font-semibold hover:bg-accent-amber transition"
         >
           <Plus size={16} />
-          New Scene
+          {t('dialogScene.newScene')}
         </button>
       </div>
 
@@ -233,7 +236,7 @@ export default function SceneListView({
                   autoFocus
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="Scene title (e.g., 'Scene 1 - The Meeting')..."
+                  placeholder={t('dialogScene.sceneTitlePlaceholder')}
                   className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary placeholder:text-text-dim focus:border-accent-gold outline-none text-sm"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleCreateScene();
@@ -248,7 +251,7 @@ export default function SceneListView({
                     onClick={handleCreateScene}
                     className="flex-1 px-3 py-1.5 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
                   >
-                    Create Scene
+                    {t('dialogScene.createScene')}
                   </button>
                   <button
                     onClick={() => {
@@ -257,7 +260,7 @@ export default function SceneListView({
                     }}
                     className="flex-1 px-3 py-1.5 bg-border/30 text-text-muted text-sm rounded-lg hover:bg-border/50 transition"
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                 </div>
               </motion.div>
@@ -268,7 +271,7 @@ export default function SceneListView({
           {scenes.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-text-dim text-sm mb-4">
-                No scenes yet. Create one to start writing dialog.
+                {t('dialogScene.noScenes')}
               </p>
             </div>
           ) : (
@@ -291,7 +294,7 @@ export default function SceneListView({
                       onDelete={() => {
                         if (
                           confirm(
-                            `Delete scene "${scene.title}"? This cannot be undone.`
+                            t('dialogScene.deleteConfirm').replace('{name}', scene.title)
                           )
                         ) {
                           onDeleteScene(scene.id);

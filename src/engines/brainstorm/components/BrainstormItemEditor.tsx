@@ -8,6 +8,7 @@ import TiptapEditor from '@/components/editor/TiptapEditor';
 import ColorPicker from '@/components/common/ColorPicker';
 import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import type { BrainstormItem } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface BrainstormItemEditorProps {
   item: BrainstormItem;
@@ -34,6 +35,7 @@ function resolveNoteColor(raw?: string): string {
 }
 
 export default function BrainstormItemEditor({ item, onSave, onClose }: BrainstormItemEditorProps) {
+  const { t } = useTranslation();
   const [changes, setChanges] = useState<Partial<BrainstormItem>>(item);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
@@ -91,7 +93,7 @@ export default function BrainstormItemEditor({ item, onSave, onClose }: Brainsto
                 <textarea
                   value={changes.content || ''}
                   onChange={(e) => setChanges({ ...changes, content: e.target.value })}
-                  placeholder="Write your note..."
+                  placeholder={t('brainstorm.notePlaceholder')}
                   className="w-full h-32 px-3 py-2 bg-elevated border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-gold"
                 />
               </div>
@@ -137,7 +139,7 @@ export default function BrainstormItemEditor({ item, onSave, onClose }: Brainsto
               <TiptapEditor
                 content={changes.richContent || ''}
                 onChange={(html) => setChanges({ ...changes, richContent: html })}
-                placeholder="Write your text block..."
+                placeholder={t('brainstorm.textBlockPlaceholder')}
               />
             </div>
           )}
@@ -152,7 +154,7 @@ export default function BrainstormItemEditor({ item, onSave, onClose }: Brainsto
                   type="text"
                   value={changes.label || ''}
                   onChange={(e) => setChanges({ ...changes, label: e.target.value })}
-                  placeholder="Section name..."
+                  placeholder={t('brainstorm.sectionNamePlaceholder')}
                   className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-gold"
                 />
               </div>
