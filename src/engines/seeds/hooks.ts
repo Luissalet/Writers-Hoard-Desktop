@@ -1,5 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
-import { makeEntityHook } from '@/engines/_shared';
+import { makeEntityHook, makeReadOnlyHook } from '@/engines/_shared';
 import * as ops from './operations';
 import type { Seed, Payoff } from './types';
 
@@ -21,20 +20,6 @@ export const usePayoffs = makeEntityHook<Payoff>({
  * Convenience hook — all payoffs for the project, across every seed.
  * Useful for the dashboard totals/timeline.
  */
-export function useAllPayoffs(projectId: string) {
-  const [items, setItems] = useState<Payoff[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    const rows = await ops.getAllPayoffsForProject(projectId);
-    setItems(rows);
-    setLoading(false);
-  }, [projectId]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  return { items, loading, refresh };
-}
+export const useAllPayoffs = makeReadOnlyHook<Payoff>({
+  fetchFn: ops.getAllPayoffsForProject,
+});

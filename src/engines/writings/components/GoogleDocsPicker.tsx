@@ -102,20 +102,20 @@ export default function GoogleDocsPicker({
   // Not authenticated — show connect screen
   if (!isAuthenticated) {
     return (
-      <Modal open={open} onClose={onClose} title="Vincular Google Docs">
+      <Modal open={open} onClose={onClose} title={t('gdocs.linkTitle')}>
         <div className="text-center py-6 space-y-4">
           <Cloud size={48} className="mx-auto text-blue-400 opacity-60" />
           <div>
-            <h3 className="text-text-primary font-semibold mb-1">Conecta tu cuenta de Google</h3>
+            <h3 className="text-text-primary font-semibold mb-1">{t('gdocs.connectHeading')}</h3>
             <p className="text-sm text-text-muted">
-              Para vincular tus documentos, necesitas conectar tu cuenta de Google Drive.
+              {t('gdocs.connectHint')}
             </p>
           </div>
 
           {!isGisLoaded() && (
             <div className="flex items-center gap-2 px-4 py-2 bg-yellow-500/10 text-yellow-400 text-xs rounded-lg">
               <AlertCircle size={14} />
-              <span>Google Identity Services no cargado. Verifica tu conexión a internet y que VITE_GOOGLE_CLIENT_ID esté configurado.</span>
+              <span>{t('gdocs.gisNotLoaded')}</span>
             </div>
           )}
 
@@ -134,12 +134,12 @@ export default function GoogleDocsPicker({
             {authLoading ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                Conectando...
+                {t('gdocs.connecting')}
               </>
             ) : (
               <>
                 <Cloud size={16} />
-                Conectar Google Drive
+                {t('gdocs.connectDrive')}
               </>
             )}
           </button>
@@ -150,12 +150,12 @@ export default function GoogleDocsPicker({
 
   // Authenticated — show file browser
   return (
-    <Modal open={open} onClose={onClose} title="Vincular Google Docs" wide>
+    <Modal open={open} onClose={onClose} title={t('gdocs.linkTitle')} wide>
       <div className="space-y-4">
         {/* User info */}
         <div className="flex items-center justify-between">
           <span className="text-xs text-text-muted">
-            Conectado como <span className="text-blue-400">{userEmail}</span>
+            {t('gdocs.connectedAs')} <span className="text-blue-400">{userEmail}</span>
           </span>
         </div>
 
@@ -167,7 +167,7 @@ export default function GoogleDocsPicker({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
-              placeholder="Buscar documentos..."
+              placeholder={t('gdocs.searchDocs')}
               className="w-full pl-9 pr-4 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-blue-400/50 transition"
             />
           </div>
@@ -175,7 +175,7 @@ export default function GoogleDocsPicker({
             onClick={handleSearch}
             className="px-4 py-2 bg-elevated border border-border rounded-lg text-sm text-text-muted hover:text-text-primary transition"
           >
-            Buscar
+            {t('gdocs.searchButton')}
           </button>
         </div>
 
@@ -195,7 +195,7 @@ export default function GoogleDocsPicker({
             </div>
           ) : docs.length === 0 ? (
             <div className="text-center py-12 text-text-muted text-sm">
-              No se encontraron documentos
+              {t('gdocs.noDocsFound')}
             </div>
           ) : (
             docs.map((doc) => {
@@ -233,7 +233,7 @@ export default function GoogleDocsPicker({
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-text-primary truncate">{doc.name}</p>
                     <p className="text-[10px] text-text-dim">
-                      {isImported ? 'Ya vinculado' : `Modificado ${new Date(doc.modifiedTime).toLocaleDateString()}`}
+                      {isImported ? t('gdocs.alreadyLinked') : `${t('gdocs.modified')} ${new Date(doc.modifiedTime).toLocaleDateString()}`}
                     </p>
                   </div>
                 </button>
@@ -246,7 +246,7 @@ export default function GoogleDocsPicker({
         {selectedIds.size > 0 && (
           <div className="flex items-center justify-between pt-2 border-t border-border">
             <span className="text-sm text-text-muted">
-              {selectedIds.size} documento{selectedIds.size > 1 ? 's' : ''} seleccionado{selectedIds.size > 1 ? 's' : ''}
+              {t('gdocs.selectedCount').replace('{count}', String(selectedIds.size))}
             </span>
             <button
               onClick={handleImport}
@@ -256,10 +256,10 @@ export default function GoogleDocsPicker({
               {importing ? (
                 <>
                   <Loader2 size={14} className="animate-spin" />
-                  Vinculando... {importProgress}%
+                  {t('gdocs.linking')} {importProgress}%
                 </>
               ) : (
-                'Vincular'
+                t('gdocs.link')
               )}
             </button>
           </div>

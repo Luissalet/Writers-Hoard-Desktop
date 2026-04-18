@@ -6,6 +6,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Globe, Twitter, Instagram, Youtube, Plus } from 'lucide-react';
 import type { Snapshot } from '../types';
 import { detectUrlSource, extractDomainFromUrl } from '../services/urlDetector';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface CaptureBarProps {
   projectId: string;
@@ -14,6 +15,7 @@ interface CaptureBarProps {
 }
 
 export default function CaptureBar({ projectId, onCapture, onManualEntry }: CaptureBarProps) {
+  const { t } = useTranslation();
   const [url, setUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -93,7 +95,7 @@ export default function CaptureBar({ projectId, onCapture, onManualEntry }: Capt
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Paste or type a URL to capture..."
+            placeholder={t('scrapper.urlPlaceholder')}
             className="w-full pl-10 pr-4 py-2 bg-elevated border border-border rounded-lg text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent-gold"
           />
         </div>
@@ -102,7 +104,7 @@ export default function CaptureBar({ projectId, onCapture, onManualEntry }: Capt
           disabled={!url.trim() || isLoading}
           className="px-4 py-2 bg-accent-gold hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed text-black font-medium rounded-lg transition-colors"
         >
-          {isLoading ? 'Capturing...' : 'Capture'}
+          {isLoading ? t('scrapper.capturing') : t('scrapper.capture')}
         </button>
       </div>
 
@@ -110,7 +112,7 @@ export default function CaptureBar({ projectId, onCapture, onManualEntry }: Capt
         <p className="text-xs text-muted">
           {url && source && (
             <span className="capitalize">
-              Detected: <span className="font-medium text-foreground">{source}</span>
+              {t('scrapper.detected')}: <span className="font-medium text-foreground">{source}</span>
             </span>
           )}
         </p>
@@ -119,7 +121,7 @@ export default function CaptureBar({ projectId, onCapture, onManualEntry }: Capt
           className="flex items-center gap-1 px-3 py-1.5 text-xs bg-elevated hover:bg-surface border border-border rounded-lg text-foreground transition-colors"
         >
           <Plus size={14} />
-          Manual Entry
+          {t('scrapper.manualEntry')}
         </button>
       </div>
     </div>

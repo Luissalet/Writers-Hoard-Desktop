@@ -22,6 +22,7 @@ import '@/engines/brainstorm';
 import '@/engines/character-arc';
 import '@/engines/relationships';
 import '@/engines/seeds';
+import '@/engines/pov-audit';
 
 // Dev-mode guardrail: warn if any engine's tables slipped through the backup net.
 import { assertBackupCoverage } from '@/engines/_shared/assertBackupCoverage';

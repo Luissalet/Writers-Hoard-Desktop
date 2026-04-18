@@ -61,7 +61,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: PenLine,
     color: '#c4973b',
     defaultEngines: ['writings', 'codex', 'timeline', 'yarn-board', 'maps', 'gallery', 'outline'],
-    suggestedEngines: ['storyboard', 'links', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds'],
+    suggestedEngines: ['storyboard', 'links', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit'],
   },
   {
     id: 'biographer',
@@ -88,7 +88,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: MessageSquare,
     color: '#7c5cbf',
     defaultEngines: ['dialog-scene', 'codex', 'timeline', 'storyboard', 'yarn-board', 'outline'],
-    suggestedEngines: ['gallery', 'writings', 'writing-stats', 'character-arc', 'relationships', 'seeds'],
+    suggestedEngines: ['gallery', 'writings', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit'],
   },
   {
     id: 'content-creator',

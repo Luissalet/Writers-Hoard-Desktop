@@ -26,11 +26,12 @@ import GoogleDocBadge from './GoogleDocBadge';
 import AiToolbar from './AiToolbar';
 import { useGoogleStore } from '@/stores/googleStore';
 import { fetchGoogleDocForAi } from '@/services/googleDocs';
+import { useTranslation } from '@/i18n/useTranslation';
 
-const STATUS_CONFIG: Record<WritingStatus, { icon: typeof Lightbulb; label: string; labelEs: string; color: string; bg: string }> = {
-  idea: { icon: Lightbulb, label: 'Ideas', labelEs: 'Ideas', color: '#d4a843', bg: 'rgba(212, 168, 67, 0.12)' },
-  draft: { icon: PenLine, label: 'Drafts', labelEs: 'Borradores', color: '#4a7ec4', bg: 'rgba(74, 126, 196, 0.12)' },
-  finished: { icon: CheckCircle2, label: 'Finished', labelEs: 'Terminados', color: '#4a9e6d', bg: 'rgba(74, 158, 109, 0.12)' },
+const STATUS_CONFIG: Record<WritingStatus, { icon: typeof Lightbulb; color: string; bg: string }> = {
+  idea: { icon: Lightbulb, color: '#d4a843', bg: 'rgba(212, 168, 67, 0.12)' },
+  draft: { icon: PenLine, color: '#4a7ec4', bg: 'rgba(74, 126, 196, 0.12)' },
+  finished: { icon: CheckCircle2, color: '#4a9e6d', bg: 'rgba(74, 158, 109, 0.12)' },
 };
 
 function countWords(html: string): number {
@@ -49,6 +50,8 @@ interface WritingsViewProps {
 }
 
 export default function WritingsView({ projectId, writings, onAdd, onEdit, onDelete, onRefresh }: WritingsViewProps) {
+  const { t } = useTranslation();
+  const statusLabel = (status: WritingStatus) => t(`writings.status.${status}`);
   const [activeStatus, setActiveStatus] = useState<WritingStatus>('draft');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [openWriting, setOpenWriting] = useState<Writing | null>(null);
@@ -179,7 +182,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-muted hover:text-text-primary transition rounded-lg hover:bg-elevated"
           >
             <ArrowLeft size={16} />
-            Back
+            {t('common.back')}
           </button>
           <div className="flex-1" />
           {/* Status switcher */}
@@ -196,7 +199,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                   style={openWriting.status === st ? { color: cfg.color, backgroundColor: cfg.bg } : {}}
                 >
                   <Icon size={13} />
-                  {cfg.labelEs}
+                  {statusLabel(st)}
                 </button>
               );
             })}
@@ -215,8 +218,8 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
         <div className="flex items-center gap-3 p-4 bg-blue-500/5 border border-blue-400/20 rounded-xl">
           <Cloud size={20} className="text-blue-400 flex-shrink-0" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-text-primary">El contenido vive en Google Docs</p>
-            <p className="text-xs text-text-muted mt-0.5">Escribe ahí y usa las herramientas de IA aquí abajo para analizarlo.</p>
+            <p className="text-sm font-medium text-text-primary">{t('writings.gdocLivesHere')}</p>
+            <p className="text-xs text-text-muted mt-0.5">{t('writings.gdocHint')}</p>
           </div>
           <a
             href={openWriting.googleDocUrl}
@@ -224,16 +227,16 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-500 text-white text-sm font-semibold rounded-lg hover:bg-blue-600 transition flex-shrink-0"
           >
-            Abrir
+            {t('writings.gdocOpen')}
             <ExternalLink size={14} />
           </a>
         </div>
 
         {/* AI Tools */}
         <div className="space-y-2">
-          <p className="text-xs text-text-dim uppercase tracking-wider font-medium">Herramientas IA</p>
+          <p className="text-xs text-text-dim uppercase tracking-wider font-medium">{t('writings.aiTools')}</p>
           <p className="text-xs text-text-muted">
-            Al hacer clic, Claude cargará el documento desde Google Docs y lo analizará.
+            {t('writings.aiHint')}
           </p>
           <AiToolbar
             writing={openWriting}
@@ -261,7 +264,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-muted hover:text-text-primary transition rounded-lg hover:bg-elevated"
           >
             <ArrowLeft size={16} />
-            Back
+            {t('common.back')}
           </button>
           <div className="flex-1" />
 
@@ -281,7 +284,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                   style={openWriting.status === st ? { color: cfg.color, backgroundColor: cfg.bg } : {}}
                 >
                   <Icon size={13} />
-                  {cfg.labelEs}
+                  {statusLabel(st)}
                 </button>
               );
             })}
@@ -291,7 +294,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
             onClick={handleSaveContent}
             className="px-4 py-1.5 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
           >
-            Save
+            {t('writings.save')}
           </button>
         </div>
 
@@ -300,21 +303,21 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
           value={editedTitle}
           onChange={(e) => setEditedTitle(e.target.value)}
           className="w-full text-2xl font-serif font-bold bg-transparent border-none outline-none text-text-primary placeholder:text-text-dim"
-          placeholder="Untitled writing..."
+          placeholder={t('writings.untitled')}
         />
 
         {/* Word count, chapter & Google Doc badge */}
         <div className="flex items-center gap-4 text-xs text-text-muted">
-          <span>{wc.toLocaleString()} words</span>
+          <span>{wc.toLocaleString()} {t('writings.words')}</span>
           {openWriting.chapter !== undefined && (
             <span className="flex items-center gap-1">
               <Hash size={12} />
-              Chapter {openWriting.chapter}
+              {t('writings.chapter')} {openWriting.chapter}
             </span>
           )}
           <span>
             <StatusIcon size={12} className="inline mr-1" style={{ color: config.color }} />
-            {config.labelEs}
+            {statusLabel(openWriting.status)}
           </span>
           {openWriting.isGoogleDoc && (
             <GoogleDocBadge
@@ -335,7 +338,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
         <TiptapEditor
           content={editedContent}
           onChange={setEditedContent}
-          placeholder="Start writing your story..."
+          placeholder={t('writings.startWriting')}
         />
       </div>
     );
@@ -360,7 +363,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
               style={activeStatus === st ? { color: cfg.color, backgroundColor: cfg.bg, borderColor: `${cfg.color}30` } : {}}
             >
               <Icon size={16} />
-              {cfg.labelEs}
+              {statusLabel(st)}
               <span className={`ml-1 text-xs px-1.5 py-0.5 rounded-full ${
                 activeStatus === st ? 'opacity-80' : 'bg-elevated'
               }`}>
@@ -377,7 +380,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
           className="flex items-center gap-1.5 px-3 py-2 border border-border text-text-muted text-sm rounded-lg hover:text-blue-400 hover:border-blue-400/30 transition"
         >
           <Cloud size={16} />
-          Google Docs
+          {t('writings.googleDocs')}
         </button>
 
         <button
@@ -385,7 +388,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
           className="flex items-center gap-1.5 px-4 py-2 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
         >
           <Plus size={16} />
-          New Writing
+          {t('writings.newWriting')}
         </button>
       </div>
 
@@ -393,15 +396,21 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
       {filtered.length === 0 ? (
         <EmptyState
           icon={<FileText size={40} />}
-          title={`No ${STATUS_CONFIG[activeStatus].labelEs.toLowerCase()}`}
+          title={
+            activeStatus === 'idea'
+              ? t('writings.noIdeas')
+              : activeStatus === 'draft'
+              ? t('writings.noDrafts')
+              : t('writings.noFinished')
+          }
           message={
             activeStatus === 'idea'
-              ? 'Capture fleeting ideas before they escape. Quick notes, what-ifs, sparks.'
+              ? t('writings.noIdeas.message')
               : activeStatus === 'draft'
-              ? 'Your works in progress live here. Start writing and shape your stories.'
-              : 'Completed works you\'re proud of. Move drafts here when they\'re done.'
+              ? t('writings.noDrafts.message')
+              : t('writings.noFinished.message')
           }
-          action={{ label: 'Create One', onClick: () => { setNewStatus(activeStatus); setShowCreateForm(true); } }}
+          action={{ label: t('writings.createOne'), onClick: () => { setNewStatus(activeStatus); setShowCreateForm(true); } }}
         />
       ) : (
         <div className="space-y-2">
@@ -439,10 +448,10 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                     </div>
                     <div className="flex items-center gap-3 mt-2 flex-wrap">
                       <span className="text-[10px] text-text-dim">
-                        {writing.wordCount.toLocaleString()} words
+                        {writing.wordCount.toLocaleString()} {t('writings.words')}
                       </span>
                       <span className="text-[10px] text-text-dim">
-                        Updated {new Date(writing.updatedAt).toLocaleDateString()}
+                        {t('writings.updated')} {new Date(writing.updatedAt).toLocaleDateString()}
                       </span>
                       {writing.isGoogleDoc && (
                         <GoogleDocBadge compact />
@@ -467,7 +476,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                         setCardMenuId(cardMenuId === writing.id ? null : writing.id);
                       }}
                       className="p-1.5 hover:bg-elevated rounded-lg transition"
-                      title="Mover o copiar"
+                      title={t('writings.moveOrCopy')}
                     >
                       <ArrowRightLeft size={14} className="text-text-muted" />
                     </button>
@@ -486,7 +495,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                       >
                         {/* Header */}
                         <div className="flex items-center justify-between px-4 pt-3 pb-2">
-                          <span className="text-xs font-semibold text-text-primary">Mover o copiar</span>
+                          <span className="text-xs font-semibold text-text-primary">{t('writings.moveOrCopy')}</span>
                           <button
                             onClick={() => setCardMenuId(null)}
                             className="p-1 hover:bg-elevated rounded-lg transition"
@@ -499,7 +508,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                         <div className="px-4 pb-3">
                           <p className="text-[10px] uppercase tracking-widest text-text-dim font-semibold mb-2">
                             <ArrowRightLeft size={10} className="inline mr-1 -mt-px" />
-                            Mover a
+                            {t('writings.moveTo')}
                           </p>
                           <div className="grid grid-cols-3 gap-1.5">
                             {(Object.entries(STATUS_CONFIG) as [WritingStatus, typeof STATUS_CONFIG['idea']][]).map(([st, stCfg]) => {
@@ -524,7 +533,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                                   }
                                 >
                                   <StIcon size={16} />
-                                  {stCfg.labelEs}
+                                  {statusLabel(st)}
                                 </button>
                               );
                             })}
@@ -538,7 +547,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                         <div className="px-4 pt-3 pb-4">
                           <p className="text-[10px] uppercase tracking-widest text-text-dim font-semibold mb-2">
                             <Copy size={10} className="inline mr-1 -mt-px" />
-                            Copiar a
+                            {t('writings.copyTo')}
                           </p>
                           <div className="grid grid-cols-3 gap-1.5">
                             {(Object.entries(STATUS_CONFIG) as [WritingStatus, typeof STATUS_CONFIG['idea']][]).map(([st, stCfg]) => {
@@ -553,7 +562,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                                   className="flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl text-[11px] text-text-muted hover:bg-elevated transition"
                                 >
                                   <StIcon size={16} />
-                                  {stCfg.labelEs}
+                                  {statusLabel(st)}
                                 </button>
                               );
                             })}
@@ -570,14 +579,14 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
       )}
 
       {/* Create Modal */}
-      <Modal open={showCreateForm} onClose={() => setShowCreateForm(false)} title="New Writing">
+      <Modal open={showCreateForm} onClose={() => setShowCreateForm(false)} title={t('writings.newWriting')}>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Title</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('common.title')}</label>
             <input
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="Chapter title, idea name..."
+              placeholder={t('writings.titlePlaceholder')}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition font-serif text-lg"
               autoFocus
               onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
@@ -585,7 +594,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
           </div>
 
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Category</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('writings.category')}</label>
             <div className="flex gap-2">
               {(Object.entries(STATUS_CONFIG) as [WritingStatus, typeof STATUS_CONFIG['idea']][]).map(([st, cfg]) => {
                 const Icon = cfg.icon;
@@ -601,7 +610,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                     style={newStatus === st ? { color: cfg.color, backgroundColor: cfg.bg, borderColor: `${cfg.color}30` } : {}}
                   >
                     <Icon size={16} />
-                    {cfg.labelEs}
+                    {statusLabel(st)}
                   </button>
                 );
               })}
@@ -610,27 +619,27 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm text-text-muted mb-1.5">Chapter # (optional)</label>
+              <label className="block text-sm text-text-muted mb-1.5">{t('writings.chapterOptional')}</label>
               <input
                 value={newChapter}
                 onChange={(e) => setNewChapter(e.target.value.replace(/\D/g, ''))}
-                placeholder="e.g. 1"
+                placeholder={t('writings.chapterExample')}
                 className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
               />
             </div>
             <div>
-              <label className="block text-sm text-text-muted mb-1.5">Synopsis (optional)</label>
+              <label className="block text-sm text-text-muted mb-1.5">{t('writings.synopsisOptional')}</label>
               <input
                 value={newSynopsis}
                 onChange={(e) => setNewSynopsis(e.target.value)}
-                placeholder="Brief summary..."
+                placeholder={t('writings.synopsisPlaceholder')}
                 className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">Tags</label>
+            <label className="block text-sm text-text-muted mb-1.5">{t('common.tags')}</label>
             <TagInput tags={newTags} onChange={setNewTags} />
           </div>
 
@@ -639,13 +648,13 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
               onClick={handleCreate}
               className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition"
             >
-              Create
+              {t('common.create')}
             </button>
             <button
               onClick={() => setShowCreateForm(false)}
               className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
         </div>

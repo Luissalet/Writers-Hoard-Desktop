@@ -7,6 +7,7 @@ import { X, ExternalLink, Trash2, Twitter, Instagram, Youtube, Globe } from 'luc
 import type { Snapshot } from '../types';
 import TagInput from '@/components/common/TagInput';
 import { extractYouTubeId } from '../services/urlDetector';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface SnapshotDetailProps {
   snapshot: Snapshot;
@@ -21,6 +22,7 @@ export default function SnapshotDetail({
   onDelete,
   onClose,
 }: SnapshotDetailProps) {
+  const { t } = useTranslation();
   const [notes, setNotes] = useState(snapshot.notes);
   const [tags, setTags] = useState(snapshot.tags);
 
@@ -36,7 +38,7 @@ export default function SnapshotDetail({
   }, [snapshot.id, onUpdate]);
 
   const handleDelete = useCallback(() => {
-    if (confirm('Delete this snapshot? This action cannot be undone.')) {
+    if (confirm(t('scrapper.deleteConfirm'))) {
       onDelete(snapshot.id);
       onClose();
     }
@@ -104,27 +106,27 @@ export default function SnapshotDetail({
           <div className="grid grid-cols-2 gap-4 text-sm">
             {snapshot.author && (
               <div>
-                <p className="text-muted font-medium">Author</p>
+                <p className="text-muted font-medium">{t('scrapper.author')}</p>
                 <p className="text-foreground">{snapshot.author}</p>
               </div>
             )}
             {snapshot.publishDate && (
               <div>
-                <p className="text-muted font-medium">Date</p>
+                <p className="text-muted font-medium">{t('scrapper.date')}</p>
                 <p className="text-foreground">
                   {new Date(snapshot.publishDate).toLocaleDateString()}
                 </p>
               </div>
             )}
             <div>
-              <p className="text-muted font-medium">Captured</p>
+              <p className="text-muted font-medium">{t('scrapper.captured')}</p>
               <p className="text-foreground">
                 {new Date(snapshot.createdAt).toLocaleDateString()}
               </p>
             </div>
             {snapshot.status && (
               <div>
-                <p className="text-muted font-medium">Status</p>
+                <p className="text-muted font-medium">{t('scrapper.status')}</p>
                 <p className="text-foreground capitalize">{snapshot.status}</p>
               </div>
             )}
@@ -158,7 +160,7 @@ export default function SnapshotDetail({
           {/* Extracted Text */}
           {snapshot.extractedText && (
             <div className="space-y-2">
-              <h3 className="font-serif font-semibold text-foreground">Extracted Text</h3>
+              <h3 className="font-serif font-semibold text-foreground">{t('scrapper.extractedText')}</h3>
               <div className="bg-surface rounded-lg p-4 max-h-40 overflow-y-auto text-xs text-muted leading-relaxed whitespace-pre-wrap break-words">
                 {snapshot.extractedText}
               </div>
@@ -167,21 +169,21 @@ export default function SnapshotDetail({
 
           {/* Notes */}
           <div className="space-y-2">
-            <label className="font-serif font-semibold text-foreground block">Notes</label>
+            <label className="font-serif font-semibold text-foreground block">{t('common.notes')}</label>
             <textarea
               value={notes}
               onChange={(e) => {
                 setNotes(e.target.value);
               }}
               onBlur={handleNotesBlur}
-              placeholder="Add your research notes..."
+              placeholder={t('scrapper.notesPlaceholderDetail')}
               className="w-full px-4 py-2 bg-elevated border border-border rounded-lg text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent-gold resize-none h-32"
             />
           </div>
 
           {/* Tags */}
           <div className="space-y-2">
-            <label className="font-serif font-semibold text-foreground block">Tags</label>
+            <label className="font-serif font-semibold text-foreground block">{t('common.tags')}</label>
             <TagInput tags={tags} onChange={handleTagsChange} />
           </div>
         </div>
@@ -193,13 +195,13 @@ export default function SnapshotDetail({
             className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-600/10 rounded-lg transition-colors font-medium"
           >
             <Trash2 size={16} />
-            Delete
+            {t('common.delete')}
           </button>
           <button
             onClick={onClose}
             className="px-4 py-2 bg-accent-gold hover:bg-yellow-600 text-black rounded-lg transition-colors font-medium"
           >
-            Done
+            {t('common.done')}
           </button>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Save, X } from 'lucide-react';
 import type { WritingGoal } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface GoalSetterProps {
   goals: WritingGoal[];
@@ -10,6 +11,7 @@ interface GoalSetterProps {
 }
 
 export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSetterProps) {
+  const { t } = useTranslation();
   // Find active goals by type
   const dailyGoal = goals.find((g) => g.type === 'daily' && g.active);
   const projectGoal = goals.find((g) => g.type === 'project' && g.active);
@@ -90,7 +92,7 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 space-y-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold text-gray-900">Writing Goals</h2>
+          <h2 className="text-xl font-bold text-gray-900">{t('writingStats.goals.title')}</h2>
           <button
             onClick={onClose}
             className="text-gray-500 hover:text-gray-700 transition-colors"
@@ -102,39 +104,39 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
         <div className="space-y-4">
           {/* Daily Goal */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Daily Target (words)</label>
+            <label className="text-sm font-medium text-gray-700">{t('writingStats.goals.dailyTarget')}</label>
             <input
               type="number"
               value={dailyTarget}
               onChange={(e) => setDailyTarget(e.target.value)}
-              placeholder="e.g., 1000"
+              placeholder={t('writingStats.goals.dailyExample')}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-gold"
             />
-            <p className="text-xs text-gray-500">How many words per day?</p>
+            <p className="text-xs text-gray-500">{t('writingStats.goals.dailyHint')}</p>
           </div>
 
           {/* Project Goal */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Project Total (words)</label>
+            <label className="text-sm font-medium text-gray-700">{t('writingStats.goals.projectTarget')}</label>
             <input
               type="number"
               value={projectTarget}
               onChange={(e) => setProjectTarget(e.target.value)}
-              placeholder="e.g., 50000"
+              placeholder={t('writingStats.goals.projectExample')}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-gold"
             />
-            <p className="text-xs text-gray-500">Final word count target for this project</p>
+            <p className="text-xs text-gray-500">{t('writingStats.goals.projectHint')}</p>
           </div>
 
           {/* Deadline Goal */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Deadline Target (words)</label>
+            <label className="text-sm font-medium text-gray-700">{t('writingStats.goals.deadlineTarget')}</label>
             <div className="flex gap-2">
               <input
                 type="number"
                 value={deadlineTarget}
                 onChange={(e) => setDeadlineTarget(e.target.value)}
-                placeholder="e.g., 20000"
+                placeholder={t('writingStats.goals.deadlineExample')}
                 className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-gold"
               />
               <input
@@ -144,7 +146,7 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
                 className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-gold"
               />
             </div>
-            <p className="text-xs text-gray-500">Words to write by a specific date</p>
+            <p className="text-xs text-gray-500">{t('writingStats.goals.deadlineHint')}</p>
           </div>
         </div>
 
@@ -154,14 +156,14 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
             onClick={onClose}
             className="px-4 py-2 text-gray-700 font-medium rounded-lg hover:bg-gray-100 transition-colors"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleSave}
             className="flex items-center gap-2 px-4 py-2 bg-accent-gold text-black font-medium rounded-lg hover:bg-accent-gold/90 transition-colors"
           >
             <Save size={18} />
-            Save Goals
+            {t('writingStats.goals.saveGoals')}
           </button>
         </div>
       </div>

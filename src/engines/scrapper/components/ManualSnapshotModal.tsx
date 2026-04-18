@@ -6,6 +6,7 @@ import { useState, useRef } from 'react';
 import { X, Image as ImageIcon } from 'lucide-react';
 import type { Snapshot } from '../types';
 import TagInput from '@/components/common/TagInput';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface ManualSnapshotModalProps {
   projectId: string;
@@ -18,6 +19,7 @@ export default function ManualSnapshotModal({
   onSave,
   onCancel,
 }: ManualSnapshotModalProps) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [tags, setTags] = useState<string[]>([]);
@@ -38,7 +40,7 @@ export default function ManualSnapshotModal({
 
   const handleSave = async () => {
     if (!title.trim()) {
-      alert('Please enter a title');
+      alert(t('scrapper.enterTitle'));
       return;
     }
 
@@ -81,7 +83,7 @@ export default function ManualSnapshotModal({
       >
         {/* Header */}
         <div className="bg-surface border-b border-border px-6 py-4 flex items-center justify-between">
-          <h2 className="text-lg font-serif font-bold text-foreground">Add Research Note</h2>
+          <h2 className="text-lg font-serif font-bold text-foreground">{t('scrapper.addResearchNote')}</h2>
           <button
             onClick={onCancel}
             className="p-1 hover:bg-elevated rounded-lg transition-colors"
@@ -94,13 +96,13 @@ export default function ManualSnapshotModal({
         <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
           {/* Title */}
           <div className="space-y-2">
-            <label className="font-serif font-semibold text-foreground block">Title</label>
+            <label className="font-serif font-semibold text-foreground block">{t('common.title')}</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Research topic or note title..."
+              placeholder={t('scrapper.titlePlaceholder')}
               className="w-full px-4 py-2 bg-elevated border border-border rounded-lg text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent-gold"
               autoFocus
             />
@@ -108,11 +110,11 @@ export default function ManualSnapshotModal({
 
           {/* Notes */}
           <div className="space-y-2">
-            <label className="font-serif font-semibold text-foreground block">Notes</label>
+            <label className="font-serif font-semibold text-foreground block">{t('common.notes')}</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Write your research notes here..."
+              placeholder={t('scrapper.notesPlaceholder')}
               className="w-full px-4 py-2 bg-elevated border border-border rounded-lg text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent-gold resize-none h-32"
             />
           </div>
@@ -120,7 +122,7 @@ export default function ManualSnapshotModal({
           {/* Image Upload */}
           <div className="space-y-2">
             <label className="font-serif font-semibold text-foreground block">
-              Attachment (Optional)
+              {t('scrapper.attachmentOptional')}
             </label>
             <div
               onClick={() => fileInputRef.current?.click()}
@@ -141,13 +143,13 @@ export default function ManualSnapshotModal({
                       setScreenshot(undefined);
                     }}
                   >
-                    Remove
+                    {t('common.remove')}
                   </button>
                 </div>
               ) : (
                 <div className="space-y-2">
                   <ImageIcon size={24} className="mx-auto text-muted" />
-                  <p className="text-sm text-muted">Click to upload screenshot or image</p>
+                  <p className="text-sm text-muted">{t('scrapper.uploadHint')}</p>
                 </div>
               )}
               <input
@@ -162,7 +164,7 @@ export default function ManualSnapshotModal({
 
           {/* Tags */}
           <div className="space-y-2">
-            <label className="font-serif font-semibold text-foreground block">Tags</label>
+            <label className="font-serif font-semibold text-foreground block">{t('common.tags')}</label>
             <TagInput tags={tags} onChange={setTags} />
           </div>
         </div>
@@ -173,14 +175,14 @@ export default function ManualSnapshotModal({
             onClick={onCancel}
             className="px-4 py-2 text-foreground hover:bg-elevated rounded-lg transition-colors font-medium"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleSave}
             disabled={!title.trim() || isSaving}
             className="px-4 py-2 bg-accent-gold hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed text-black rounded-lg transition-colors font-medium"
           >
-            {isSaving ? 'Saving...' : 'Save'}
+            {isSaving ? t('common.saving') : t('common.save')}
           </button>
         </div>
       </div>
