@@ -1,6 +1,13 @@
 import { BookOpen } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import {
+  registerAnchorAdapter,
+  htmlToText,
+  navigateTo,
+  getCurrentProjectIdFromUrl,
+} from '@/engines/_shared/anchoring';
+import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
 import CodexEngine from './CodexEngine';
 
@@ -44,6 +51,26 @@ registerEntityResolver({
       subtitle: e.type,
       thumbnail: e.avatar,
     }));
+  },
+});
+
+registerAnchorAdapter({
+  engineId: 'codex',
+  supportsTextRange: true,
+  async getEntityText(entityId: string) {
+    const entry = await db.codexEntries.get(entityId);
+    if (!entry) return null;
+    return htmlToText(entry.content);
+  },
+  async getEntityTitle(entityId: string) {
+    const entry = await db.codexEntries.get(entityId);
+    return entry?.title ?? null;
+  },
+  getEngineChipLabel: () => t('annotations.chipLabel.codex'),
+  navigateToEntity(entityId: string) {
+    const pid = getCurrentProjectIdFromUrl();
+    if (!pid) return;
+    navigateTo(`/project/${pid}/codex?entry=${encodeURIComponent(entityId)}`);
   },
 });
 

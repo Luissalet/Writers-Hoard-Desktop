@@ -27,6 +27,9 @@ import AiToolbar from './AiToolbar';
 import { useGoogleStore } from '@/stores/googleStore';
 import { fetchGoogleDocForAi } from '@/services/googleDocs';
 import { useTranslation } from '@/i18n/useTranslation';
+import MarginPanel from '@/engines/annotations/components/MarginPanel';
+import BacklinksSection from '@/engines/annotations/components/BacklinksSection';
+import type { AnnotationAnchor } from '@/engines/annotations/types';
 
 const STATUS_CONFIG: Record<WritingStatus, { icon: typeof Lightbulb; color: string; bg: string }> = {
   idea: { icon: Lightbulb, color: '#d4a843', bg: 'rgba(212, 168, 67, 0.12)' },
@@ -58,6 +61,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
   const [editedContent, setEditedContent] = useState('');
   const [editedTitle, setEditedTitle] = useState('');
   const [showGooglePicker, setShowGooglePicker] = useState(false);
+  const [pendingAnchor, setPendingAnchor] = useState<AnnotationAnchor | null>(null);
 
   const { accessToken } = useGoogleStore();
 
@@ -334,12 +338,28 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
           onSynopsisUpdate={handleSynopsisUpdate}
         />
 
-        {/* Editor */}
-        <TiptapEditor
-          content={editedContent}
-          onChange={setEditedContent}
-          placeholder={t('writings.startWriting')}
-        />
+        {/* Editor + Margin notes */}
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
+          <TiptapEditor
+            content={editedContent}
+            onChange={setEditedContent}
+            placeholder={t('writings.startWriting')}
+            onAnnotate={(anchor) => setPendingAnchor(anchor)}
+          />
+          <div className="space-y-5 lg:sticky lg:top-4">
+            <MarginPanel
+              projectId={projectId}
+              engineId="writings"
+              entityId={openWriting.id}
+              pendingAnchor={pendingAnchor}
+              onPendingAnchorConsumed={() => setPendingAnchor(null)}
+            />
+            <BacklinksSection
+              engineId="writings"
+              entityId={openWriting.id}
+            />
+          </div>
+        </div>
       </div>
     );
   }

@@ -1,6 +1,13 @@
 import { PenLine } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import {
+  registerAnchorAdapter,
+  htmlToText,
+  navigateTo,
+  getCurrentProjectIdFromUrl,
+} from '@/engines/_shared/anchoring';
+import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
 import WritingsEngine from './WritingsEngine';
 
@@ -42,6 +49,26 @@ registerEntityResolver({
       title: w.title,
       subtitle: w.status,
     }));
+  },
+});
+
+registerAnchorAdapter({
+  engineId: 'writings',
+  supportsTextRange: true,
+  async getEntityText(entityId: string) {
+    const writing = await db.writings.get(entityId);
+    if (!writing) return null;
+    return htmlToText(writing.content);
+  },
+  async getEntityTitle(entityId: string) {
+    const writing = await db.writings.get(entityId);
+    return writing?.title ?? null;
+  },
+  getEngineChipLabel: () => t('annotations.chipLabel.writings'),
+  navigateToEntity(entityId: string) {
+    const pid = getCurrentProjectIdFromUrl();
+    if (!pid) return;
+    navigateTo(`/project/${pid}/writings?writing=${encodeURIComponent(entityId)}`);
   },
 });
 

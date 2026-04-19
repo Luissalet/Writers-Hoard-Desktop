@@ -1,6 +1,12 @@
 import { Map } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import {
+  registerAnchorAdapter,
+  navigateTo,
+  getCurrentProjectIdFromUrl,
+} from '@/engines/_shared/anchoring';
+import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
 import MapsEngine from './MapsEngine';
 
@@ -43,6 +49,21 @@ registerEntityResolver({
       title: p.name,
       subtitle: p.description,
     }));
+  },
+});
+
+registerAnchorAdapter({
+  engineId: 'maps',
+  supportsTextRange: false,
+  async getEntityTitle(entityId: string) {
+    const pin = await db.mapPins.get(entityId);
+    return pin?.name ?? null;
+  },
+  getEngineChipLabel: () => t('annotations.chipLabel.maps'),
+  navigateToEntity(entityId: string) {
+    const pid = getCurrentProjectIdFromUrl();
+    if (!pid) return;
+    navigateTo(`/project/${pid}/maps?pin=${encodeURIComponent(entityId)}`);
   },
 });
 

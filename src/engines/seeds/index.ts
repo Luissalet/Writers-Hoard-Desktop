@@ -2,6 +2,12 @@ import { Sprout } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
+import {
+  registerAnchorAdapter,
+  navigateTo,
+  getCurrentProjectIdFromUrl,
+} from '@/engines/_shared/anchoring';
+import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
 import SeedsEngine from './components/SeedsEngine';
 
@@ -61,5 +67,22 @@ registerBackupStrategy(makeSimpleBackupStrategy({
   engineId: 'seeds',
   tables: ['seeds', 'payoffs'],
 }));
+
+registerAnchorAdapter({
+  engineId: 'seeds',
+  supportsTextRange: false,
+  async getEntityTitle(entityId: string) {
+    const seed = await db.seeds.get(entityId);
+    if (seed) return seed.title;
+    const payoff = await db.payoffs.get(entityId);
+    return payoff?.title ?? null;
+  },
+  getEngineChipLabel: () => t('annotations.chipLabel.seeds'),
+  navigateToEntity(entityId: string) {
+    const pid = getCurrentProjectIdFromUrl();
+    if (!pid) return;
+    navigateTo(`/project/${pid}/seeds?seed=${encodeURIComponent(entityId)}`);
+  },
+});
 
 export { seedsEngine };

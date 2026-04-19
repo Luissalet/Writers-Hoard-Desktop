@@ -29,6 +29,7 @@ import type { BrainstormBoard, BrainstormItem, BrainstormConnection } from '@/en
 import type { CharacterArc, ArcBeat } from '@/engines/character-arc/types';
 import type { Relationship } from '@/engines/relationships/types';
 import type { Seed, Payoff } from '@/engines/seeds/types';
+import type { Annotation, AnnotationReference } from '@/engines/annotations/types';
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -71,6 +72,8 @@ export class WritersHoardDB extends Dexie {
   relationships!: Table<Relationship>;
   seeds!: Table<Seed>;
   payoffs!: Table<Payoff>;
+  annotations!: Table<Annotation>;
+  annotationReferences!: Table<AnnotationReference>;
 
   constructor() {
     super('WritersHoardDB');
@@ -555,6 +558,58 @@ export class WritersHoardDB extends Dexie {
       relationships: 'id, projectId, entityAId, entityBId, kind, state',
       seeds: 'id, projectId, kind, status, plantedAt',
       payoffs: 'id, seedId, projectId, paidAt',
+    });
+
+    // v17: Interconnectedness — annotations (margin notes) + reference payload
+    this.version(17).stores({
+      projects: 'id, mode, type, parentId, status, updatedAt',
+      codexEntries: 'id, projectId, type, *tags, updatedAt',
+      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+      timelines: 'id, projectId',
+      timelineEvents: 'id, projectId, timelineId, order, dateMode, eventType',
+      timelineConnections: 'id, projectId, timelineId, sourceEventId, targetEventId',
+      yarnBoards: 'id, projectId',
+      yarnNodes: 'id, projectId, boardId',
+      yarnEdges: 'id, boardId, sourceId, targetId',
+      worldMaps: 'id, projectId',
+      mapPins: 'id, projectId, mapId',
+      imageCollections: 'id, projectId',
+      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+      externalLinks: 'id, projectId, type, *tags',
+      tags: 'id, name',
+      settings: 'id, key',
+      storyboards: 'id, projectId',
+      storyboardPanels: 'id, projectId, storyboardId, order',
+      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+      scenes: 'id, projectId, order',
+      dialogBlocks: 'id, sceneId, projectId, order',
+      sceneCasts: 'id, sceneId',
+
+      videoPlans: 'id, projectId',
+      videoSegments: 'id, videoPlanId, projectId, order',
+      snapshots: 'id, projectId, source, status, createdAt',
+      biographies: 'id, projectId',
+      biographyFacts: 'id, biographyId, projectId, order, category',
+      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
+      outlines: 'id, projectId',
+      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
+      writingSessions: 'id, projectId, date, type, createdAt',
+      writingGoals: 'id, projectId, type, active',
+      brainstormBoards: 'id, projectId',
+      brainstormItems: 'id, boardId, projectId, type',
+      brainstormConnections: 'id, boardId, sourceId, targetId',
+      characterArcs: 'id, projectId, characterId, templateId, status',
+      arcBeats: 'id, arcId, projectId, order, stage',
+      relationships: 'id, projectId, entityAId, entityBId, kind, state',
+      seeds: 'id, projectId, kind, status, plantedAt',
+      payoffs: 'id, seedId, projectId, paidAt',
+      // New in v17: shell table keyed by (projectId, sourceEngineId, sourceEntityId).
+      // `isOrphaned` is indexed so the project-level "needs reanchor" dashboard
+      // can pull orphans cheaply.
+      annotations: 'id, projectId, sourceEngineId, sourceEntityId, isOrphaned, noteType, updatedAt, [sourceEngineId+sourceEntityId]',
+      // `annotationId` is unique in v1 (1 reference per annotation). Index on
+      // (targetEngineId, targetEntityId) powers useEntityBacklinks.
+      annotationReferences: 'id, &annotationId, targetEngineId, targetEntityId, [targetEngineId+targetEntityId]',
     });
   }
 }

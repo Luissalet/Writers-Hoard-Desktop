@@ -1,6 +1,12 @@
 import { Network } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
+import {
+  registerAnchorAdapter,
+  navigateTo,
+  getCurrentProjectIdFromUrl,
+} from '@/engines/_shared/anchoring';
+import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
 import YarnBoardEngine from './YarnBoardEngine';
 
@@ -48,6 +54,21 @@ registerEntityResolver({
       thumbnail: n.image,
       color: n.color,
     }));
+  },
+});
+
+registerAnchorAdapter({
+  engineId: 'yarn-board',
+  supportsTextRange: false,
+  async getEntityTitle(entityId: string) {
+    const node = await db.yarnNodes.get(entityId);
+    return node?.title ?? null;
+  },
+  getEngineChipLabel: () => t('annotations.chipLabel.yarnBoard'),
+  navigateToEntity(entityId: string) {
+    const pid = getCurrentProjectIdFromUrl();
+    if (!pid) return;
+    navigateTo(`/project/${pid}/yarn-board?node=${encodeURIComponent(entityId)}`);
   },
 });
 
