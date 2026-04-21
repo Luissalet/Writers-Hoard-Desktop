@@ -96,11 +96,14 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {PROJECT_MODES.map(modeConfig => {
               const IconComponent = modeConfig.icon;
+              const isRecommended = modeConfig.id === 'essentials';
               return (
                 <button
                   key={modeConfig.id}
                   onClick={() => handleModeSelect(modeConfig.id as ProjectMode)}
-                  className="group relative p-4 rounded-lg border border-border bg-elevated hover:bg-surface transition overflow-hidden text-left"
+                  className={`group relative p-4 rounded-lg border bg-elevated hover:bg-surface transition overflow-hidden text-left ${
+                    isRecommended ? 'border-accent-gold/60 ring-1 ring-accent-gold/30' : 'border-border'
+                  }`}
                   style={{
                     borderLeftWidth: '4px',
                     borderLeftColor: modeConfig.color,
@@ -111,10 +114,17 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
                     className="absolute inset-0 opacity-0 group-hover:opacity-5 transition pointer-events-none"
                     style={{ backgroundColor: modeConfig.color }}
                   />
+                  {isRecommended && (
+                    <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-accent-gold/20 text-accent-gold text-[10px] font-semibold uppercase tracking-wide z-10">
+                      {t('modes.essentials.recommended')}
+                    </span>
+                  )}
                   <div className="relative z-10">
                     <div className="flex items-center justify-between mb-3">
                       <IconComponent size={28} style={{ color: modeConfig.color }} className="flex-shrink-0" />
-                      <div className="w-5 h-5 rounded-full border-2 border-border group-hover:border-accent-gold transition" />
+                      {!isRecommended && (
+                        <div className="w-5 h-5 rounded-full border-2 border-border group-hover:border-accent-gold transition" />
+                      )}
                     </div>
                     <h3 className="font-serif font-bold text-text-primary text-sm mb-1">{t(`modes.${modeConfig.id}.name`)}</h3>
                     <p className="text-xs text-text-muted leading-tight">{t(`modes.${modeConfig.id}.description`)}</p>

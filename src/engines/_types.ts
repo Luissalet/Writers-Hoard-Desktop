@@ -15,6 +15,7 @@ export type EngineCategory = 'core' | 'creative' | 'research' | 'planning';
  * Users can always add or remove engines after creation.
  */
 export type ProjectMode =
+  | 'essentials'
   | 'novelist'
   | 'biographer'
   | 'reporter'

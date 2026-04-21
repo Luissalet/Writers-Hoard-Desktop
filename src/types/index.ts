@@ -3,7 +3,7 @@
 // ============================================
 
 // Project Mode (determines which engines are visible by default)
-export type ProjectMode = 'novelist' | 'biographer' | 'reporter' | 'playwright' | 'content-creator' | 'custom';
+export type ProjectMode = 'essentials' | 'novelist' | 'biographer' | 'reporter' | 'playwright' | 'content-creator' | 'custom';
 
 // Project (Bubble)
 export interface Project {

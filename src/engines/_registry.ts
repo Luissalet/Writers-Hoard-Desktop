@@ -4,7 +4,7 @@
 
 import {
   Globe, Lightbulb, MessageSquare,
-  BookUser, Video, PenLine,
+  BookUser, Video, PenLine, Sparkles,
 } from 'lucide-react';
 import type { EngineDefinition, ProjectMode, ProjectModeConfig } from './_types';
 import { registerEntityResolver } from './_shared/entityResolverRegistry';
@@ -54,6 +54,18 @@ export function getEnginesByIds(ids: string[]): EngineDefinition[] {
 // ---------------------------------------------------------------------------
 
 export const PROJECT_MODES: ProjectModeConfig[] = [
+  {
+    // MVP starter preset — leanest possible first-run experience.
+    // Only 3 default engines so users can start writing immediately and
+    // discover the rest via EngineManager when they need them.
+    id: 'essentials',
+    name: 'Essentials',
+    description: 'Start writing immediately — add more tools as you need them',
+    icon: Sparkles,
+    color: '#e8c577',
+    defaultEngines: ['writings', 'codex', 'outline'],
+    suggestedEngines: ['timeline', 'diary', 'writing-stats', 'character-arc'],
+  },
   {
     id: 'novelist',
     name: 'Novelist',

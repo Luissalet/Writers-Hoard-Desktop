@@ -349,6 +349,9 @@ const en = {
   'annotations.chipLabel.yarnBoard': 'Yarn Board',
 
   // ── Project Modes ──
+  'modes.essentials.name': 'Essentials',
+  'modes.essentials.description': 'Start writing immediately — add more tools as you need them',
+  'modes.essentials.recommended': 'Recommended for getting started',
   'modes.novelist.name': 'Novelist',
   'modes.novelist.description': 'Fiction writers: novels, short stories, sagas',
   'modes.biographer.name': 'Biographer',

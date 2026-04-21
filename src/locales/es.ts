@@ -349,6 +349,9 @@ const es = {
   'annotations.chipLabel.yarnBoard': 'Tablero de Hilos',
 
   // ── Modos de Proyecto ──
+  'modes.essentials.name': 'Esenciales',
+  'modes.essentials.description': 'Empieza a escribir al instante — añade más herramientas según las necesites',
+  'modes.essentials.recommended': 'Recomendado para empezar',
   'modes.novelist.name': 'Novelista',
   'modes.novelist.description': 'Escritores de ficción: novelas, cuentos, sagas',
   'modes.biographer.name': 'Biógrafo',
