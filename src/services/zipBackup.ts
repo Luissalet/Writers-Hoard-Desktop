@@ -38,7 +38,7 @@ export async function exportFullZip(): Promise<void> {
   // Gather all data
   const [projects, codexEntries, writings, timelines, timelineEvents,
     yarnBoards, yarnNodes, yarnEdges, worldMaps, mapPins,
-    imageCollections, inspirationImages, externalLinks, tags, settings,
+    imageCollections, inspirationImages, tags, settings,
   ] = await Promise.all([
     db.projects.toArray(),
     db.codexEntries.toArray(),
@@ -52,7 +52,6 @@ export async function exportFullZip(): Promise<void> {
     db.mapPins.toArray(),
     db.imageCollections.toArray(),
     db.inspirationImages.toArray(),
-    db.externalLinks.toArray(),
     db.tags.toArray(),
     db.settings.toArray(),
   ]);
@@ -226,11 +225,7 @@ export async function exportFullZip(): Promise<void> {
       }
     }
 
-    // ---- External Links ----
-    const projLinks = externalLinks.filter(l => l.projectId === project.id);
-    if (projLinks.length > 0) {
-      zip.file(`${projDir}/links/links.json`, JSON.stringify(projLinks, null, 2));
-    }
+    // (External Links migrated to modular BackupStrategy in src/engines/links/index.ts)
 
     // ---- Engine-registered backup strategies ----
     // Each engine that has registered a BackupStrategy in its index.ts
@@ -297,7 +292,7 @@ export async function importFullZip(file: File): Promise<void> {
   const legacyTables: string[] = [
     'projects', 'codexEntries', 'writings', 'timelines', 'timelineEvents',
     'yarnBoards', 'yarnNodes', 'yarnEdges', 'worldMaps', 'mapPins',
-    'imageCollections', 'inspirationImages', 'externalLinks', 'tags', 'settings',
+    'imageCollections', 'inspirationImages', 'tags', 'settings',
   ];
   const strategyTables = getAllBackupStrategies().flatMap(s => s.tables);
   const knownTables = new Set(db.tables.map(t => t.name));
@@ -466,9 +461,7 @@ export async function importFullZip(file: File): Promise<void> {
       }
     }
 
-    // --- External Links ---
-    const links = await readJson<Record<string, unknown>[]>(zip, `${projDir}/links/links.json`);
-    if (links?.length) await db.externalLinks.bulkAdd(links as never[]);
+    // (External Links migrated to modular BackupStrategy in src/engines/links/index.ts)
 
     // --- Engine-registered backup strategies ---
     // Invoke every strategy for this project. Strategies no-op silently if

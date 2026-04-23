@@ -6,6 +6,7 @@ import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard } f
 import { useWorldMaps, useMapPins } from './hooks';
 import MapView from '@/components/maps/MapView';
 import { generateId } from '@/utils/idGenerator';
+import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 
 export default function MapsEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
@@ -58,15 +59,26 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
   return (
     <div className="space-y-4">
       {activeMapId && (
-        <MapView
-          projectId={projectId}
-          mapId={activeMapId}
-          backgroundImage={maps.find((m) => m.id === activeMapId)?.backgroundImage}
-          pins={pins}
-          onUploadBackground={(img) => editMap(activeMapId, { backgroundImage: img })}
-          onAddPin={addPin}
-          onDeletePin={removePin}
-        />
+        <>
+          <MapView
+            projectId={projectId}
+            mapId={activeMapId}
+            backgroundImage={maps.find((m) => m.id === activeMapId)?.backgroundImage}
+            pins={pins}
+            onUploadBackground={(img) => editMap(activeMapId, { backgroundImage: img })}
+            onAddPin={addPin}
+            onDeletePin={removePin}
+          />
+          {/* Annotation surface — margin notes + backlinks for the active map */}
+          <div className="pt-2 border-t border-border">
+            <AnnotationSurface
+              projectId={projectId}
+              engineId="maps"
+              entityId={activeMapId}
+              layout="stack"
+            />
+          </div>
+        </>
       )}
 
       <CollectionDashboard

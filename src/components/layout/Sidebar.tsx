@@ -100,6 +100,7 @@ export default function Sidebar() {
             {engines.map((engine) => {
               const Icon = engine.icon;
               const isActive = activeTab === engine.id;
+              const Badge = engine.SidebarBadge;
               return (
                 <button
                   key={engine.id}
@@ -112,7 +113,10 @@ export default function Sidebar() {
                 >
                   <Icon size={18} className="flex-shrink-0" />
                   {sidebarOpen && (
-                    <span className="whitespace-nowrap">{t(`engines.${engine.id}.name`)}</span>
+                    <>
+                      <span className="whitespace-nowrap">{t(`engines.${engine.id}.name`)}</span>
+                      {Badge && projectId && <Badge projectId={projectId} />}
+                    </>
                   )}
                 </button>
               );

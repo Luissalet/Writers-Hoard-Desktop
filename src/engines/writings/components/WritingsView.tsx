@@ -27,9 +27,9 @@ import AiToolbar from './AiToolbar';
 import { useGoogleStore } from '@/stores/googleStore';
 import { fetchGoogleDocForAi } from '@/services/googleDocs';
 import { useTranslation } from '@/i18n/useTranslation';
-import MarginPanel from '@/engines/annotations/components/MarginPanel';
-import BacklinksSection from '@/engines/annotations/components/BacklinksSection';
+import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import type { AnnotationAnchor } from '@/engines/annotations/types';
+import GettingStartedChecklist from '@/components/project/GettingStartedChecklist';
 
 const STATUS_CONFIG: Record<WritingStatus, { icon: typeof Lightbulb; color: string; bg: string }> = {
   idea: { icon: Lightbulb, color: '#d4a843', bg: 'rgba(212, 168, 67, 0.12)' },
@@ -346,19 +346,15 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
             placeholder={t('writings.startWriting')}
             onAnnotate={(anchor) => setPendingAnchor(anchor)}
           />
-          <div className="space-y-5 lg:sticky lg:top-4">
-            <MarginPanel
-              projectId={projectId}
-              engineId="writings"
-              entityId={openWriting.id}
-              pendingAnchor={pendingAnchor}
-              onPendingAnchorConsumed={() => setPendingAnchor(null)}
-            />
-            <BacklinksSection
-              engineId="writings"
-              entityId={openWriting.id}
-            />
-          </div>
+          <AnnotationSurface
+            projectId={projectId}
+            engineId="writings"
+            entityId={openWriting.id}
+            layout="sidebar"
+            pendingAnchor={pendingAnchor}
+            onPendingAnchorConsumed={() => setPendingAnchor(null)}
+          />
+
         </div>
       </div>
     );
@@ -367,6 +363,9 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
   // ---- List View ----
   return (
     <div className="space-y-5">
+      {/* Getting Started checklist — auto-hides outside essentials mode */}
+      <GettingStartedChecklist projectId={projectId} />
+
       {/* Status tabs */}
       <div className="flex items-center gap-2">
         {(Object.entries(STATUS_CONFIG) as [WritingStatus, typeof STATUS_CONFIG['idea']][]).map(([st, cfg]) => {

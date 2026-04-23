@@ -8,6 +8,7 @@ import { useAutoSelect, useEnsureDefault } from '@/engines/_shared';
 import { useYarnBoards, useYarnBoardData } from './hooks';
 import YarnBoard from './components/YarnBoard';
 import { generateId } from '@/utils/idGenerator';
+import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 
 export default function YarnBoardEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
@@ -53,18 +54,29 @@ export default function YarnBoardEngine({ projectId }: EngineComponentProps) {
     <div className="space-y-4">
       {/* Board canvas */}
       {activeBoardId && (
-        <YarnBoard
-          projectId={projectId}
-          boardId={activeBoardId}
-          initialNodes={nodes}
-          initialEdges={edges}
-          onSaveNode={addNode}
-          onUpdateNode={updateNode}
-          onSaveEdge={addEdge}
-          onUpdateEdge={updateEdge}
-          onDeleteNode={removeNode}
-          onDeleteEdge={removeEdge}
-        />
+        <>
+          <YarnBoard
+            projectId={projectId}
+            boardId={activeBoardId}
+            initialNodes={nodes}
+            initialEdges={edges}
+            onSaveNode={addNode}
+            onUpdateNode={updateNode}
+            onSaveEdge={addEdge}
+            onUpdateEdge={updateEdge}
+            onDeleteNode={removeNode}
+            onDeleteEdge={removeEdge}
+          />
+          {/* Annotation surface — margin notes + backlinks for the active board */}
+          <div className="pt-2 border-t border-border">
+            <AnnotationSurface
+              projectId={projectId}
+              engineId="yarn-board"
+              entityId={activeBoardId}
+              layout="stack"
+            />
+          </div>
+        </>
       )}
 
       {/* Boards dashboard */}

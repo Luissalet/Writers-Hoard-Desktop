@@ -131,6 +131,14 @@ const en = {
   'common.dragToReorder': 'Drag to reorder',
   'common.refresh': 'Refresh',
   'common.loading': 'Loading...',
+  'common.dismiss': 'Dismiss',
+  'common.recommended': 'Recommended',
+
+  // ── Getting Started (Essentials onboarding checklist) ──
+  'gettingStarted.title': 'Getting started',
+  'gettingStarted.nameWorld': 'Name your world',
+  'gettingStarted.createCharacter': 'Create a character in Codex',
+  'gettingStarted.firstPage': 'Write your first page',
 
   // Shared collection dashboard — templates use {item} / {name}
   'shared.dashboard.newItem': 'New {item}',
@@ -351,7 +359,6 @@ const en = {
   // ── Project Modes ──
   'modes.essentials.name': 'Essentials',
   'modes.essentials.description': 'Start writing immediately — add more tools as you need them',
-  'modes.essentials.recommended': 'Recommended for getting started',
   'modes.novelist.name': 'Novelist',
   'modes.novelist.description': 'Fiction writers: novels, short stories, sagas',
   'modes.biographer.name': 'Biographer',

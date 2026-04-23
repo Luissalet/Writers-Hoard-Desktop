@@ -7,6 +7,7 @@ import { useSeeds, usePayoffs, useAllPayoffs } from '../hooks';
 import type { Seed, Payoff, SeedKind, SeedStatus } from '../types';
 import { SEED_KIND_CONFIG, SEED_STATUS_CONFIG, computeSeedStatus } from '../types';
 import { generateId } from '@/utils/idGenerator';
+import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 
 // ---------------------------------------------------------------------------
 // SeedsEngine
@@ -481,6 +482,16 @@ function SeedDetail({
             ))}
           </div>
         )}
+      </div>
+
+      {/* Annotation surface — margin notes + backlinks */}
+      <div className="pt-2 border-t border-border">
+        <AnnotationSurface
+          projectId={projectId}
+          engineId="seeds"
+          entityId={seed.id}
+          layout="stack"
+        />
       </div>
     </div>
   );

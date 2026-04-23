@@ -116,7 +116,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
                   />
                   {isRecommended && (
                     <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-accent-gold/20 text-accent-gold text-[10px] font-semibold uppercase tracking-wide z-10">
-                      {t('modes.essentials.recommended')}
+                      {t('common.recommended')}
                     </span>
                   )}
                   <div className="relative z-10">

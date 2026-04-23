@@ -1,30 +1,12 @@
 import { useState } from 'react';
-import { Plus, Search, User, MapPin, Sword, Shield, Sparkles, HelpCircle, Image as ImageIcon, X } from 'lucide-react';
+import { Plus, Search, User, HelpCircle, Image as ImageIcon, X } from 'lucide-react';
 import type { CodexEntry, CodexEntryType, InspirationImage } from '@/types';
 import Modal from '@/components/common/Modal';
 import CodexEntryForm from './CodexEntryForm';
 import EmptyState from '@/components/common/EmptyState';
 import { useTranslation } from '@/i18n/useTranslation';
-
-const typeIcons: Record<CodexEntryType, typeof User> = {
-  character: User,
-  location: MapPin,
-  item: Sword,
-  faction: Shield,
-  concept: Sparkles,
-  magic: Sparkles,
-  custom: HelpCircle,
-};
-
-const typeColors: Record<CodexEntryType, string> = {
-  character: '#c4973b',
-  location: '#4a9e6d',
-  item: '#4a7ec4',
-  faction: '#c4463a',
-  concept: '#7c5cbf',
-  magic: '#d4a843',
-  custom: '#8a8690',
-};
+import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
+import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from './codexTypeMeta';
 
 interface CodexEntryListProps {
   projectId: string;
@@ -219,6 +201,16 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
                 </div>
               );
             })()}
+
+            {/* Annotation surface — margin notes + backlinks */}
+            <div className="pt-2 border-t border-border">
+              <AnnotationSurface
+                projectId={projectId}
+                engineId="codex"
+                entityId={selectedEntry.id}
+                layout="stack"
+              />
+            </div>
 
             <div className="flex gap-3 pt-2">
               <button

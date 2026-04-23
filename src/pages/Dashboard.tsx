@@ -94,7 +94,14 @@ export default function Dashboard() {
 
   const handleCreate = async (project: Project) => {
     await addProject(project);
-    navigate(`/project/${project.id}`);
+    // Essentials mode goes straight into the writings engine — the whole
+    // point of the preset is "start writing immediately, no extra clicks".
+    // Other modes land on the project detail page so users can browse tabs.
+    if (project.mode === 'essentials') {
+      navigate(`/project/${project.id}/writings`);
+    } else {
+      navigate(`/project/${project.id}`);
+    }
   };
 
   return (

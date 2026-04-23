@@ -1,33 +1,15 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Masonry from 'react-masonry-css';
-import { Upload, Trash2, X, Image as ImageIcon, ZoomIn, FolderPlus, Folder, ChevronRight, Tag, User, MapPin, Sword, Shield, Sparkles, HelpCircle } from 'lucide-react';
-import type { InspirationImage, ImageCollection, CodexEntry, CodexEntryType } from '@/types';
+import { Upload, Trash2, X, Image as ImageIcon, ZoomIn, FolderPlus, Folder, ChevronRight, Tag } from 'lucide-react';
+import type { InspirationImage, ImageCollection, CodexEntry } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import TagInput from '@/components/common/TagInput';
 import EmptyState from '@/components/common/EmptyState';
 import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import { useTranslation } from '@/i18n/useTranslation';
-
-const typeIcons: Record<CodexEntryType, typeof User> = {
-  character: User,
-  location: MapPin,
-  item: Sword,
-  faction: Shield,
-  concept: Sparkles,
-  magic: Sparkles,
-  custom: HelpCircle,
-};
-
-const typeColors: Record<CodexEntryType, string> = {
-  character: '#c4973b',
-  location: '#4a9e6d',
-  item: '#4a7ec4',
-  faction: '#c4463a',
-  concept: '#7c5cbf',
-  magic: '#d4a843',
-  custom: '#8a8690',
-};
+import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from '@/components/codex/codexTypeMeta';
+import GalleryLightbox from './GalleryLightbox';
 
 interface InspirationGalleryProps {
   projectId: string;
@@ -447,40 +429,11 @@ export default function InspirationGallery({
 
       {/* Lightbox */}
       {lightboxImage && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
-          onClick={() => setLightboxImage(null)}
-        >
-          <button className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition">
-            <X size={24} className="text-white" />
-          </button>
-          <div className="flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
-            <img
-              src={lightboxImage.imageData}
-              alt=""
-              className="max-w-[90vw] max-h-[80vh] rounded-lg shadow-2xl"
-            />
-            {/* Linked entries in lightbox */}
-            {getLinkedEntries(lightboxImage).length > 0 && (
-              <div className="flex gap-2 flex-wrap justify-center">
-                {getLinkedEntries(lightboxImage).map(entry => {
-                  const Icon = typeIcons[entry.type];
-                  const color = typeColors[entry.type];
-                  return (
-                    <span
-                      key={entry.id}
-                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full"
-                      style={{ backgroundColor: `${color}30`, color }}
-                    >
-                      <Icon size={12} />
-                      {entry.title}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+        <GalleryLightbox
+          image={lightboxImage}
+          linkedEntries={getLinkedEntries(lightboxImage)}
+          onClose={() => setLightboxImage(null)}
+        />
       )}
 
       {pendingFiles.length > 0 && (

@@ -12,6 +12,7 @@ import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine } from '@/engines/_registry';
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import AnnotationsEngine from './components/AnnotationsEngine';
+import AnnotationsSidebarBadge from './components/AnnotationsSidebarBadge';
 
 const annotationsEngine: EngineDefinition = {
   id: 'annotations',
@@ -26,6 +27,7 @@ const annotationsEngine: EngineDefinition = {
       'id, &annotationId, targetEngineId, targetEntityId, [targetEngineId+targetEntityId]',
   },
   component: AnnotationsEngine,
+  SidebarBadge: AnnotationsSidebarBadge,
 };
 
 registerEngine(annotationsEngine);

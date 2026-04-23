@@ -54,6 +54,16 @@ export interface EngineDefinition {
    * Optional default config values for this engine (per-project overrides).
    */
   defaultConfig?: Record<string, unknown>;
+  /**
+   * Optional sidebar badge component. If present, the Sidebar will render
+   * this tiny component alongside the tab label — e.g. an orphan count,
+   * completion percentage, unread indicator. Receives `{ projectId }`.
+   *
+   * Keeping this as a component (not a hook) sidesteps the rule-of-hooks
+   * problem that conditional hook invocation would cause in the Sidebar:
+   * each engine owns its own badge logic, and the Sidebar stays dumb.
+   */
+  SidebarBadge?: ComponentType<EngineComponentProps>;
 }
 
 /**

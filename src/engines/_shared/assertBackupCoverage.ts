@@ -30,7 +30,7 @@ const LEGACY_BACKUP_TABLES: string[] = [
   'yarnBoards', 'yarnNodes', 'yarnEdges',
   'worldMaps', 'mapPins',
   'imageCollections', 'inspirationImages',
-  'externalLinks',
+  // externalLinks migrated to engines/links modular BackupStrategy on 2026-04-23
   'tags',
   'settings',
 ];

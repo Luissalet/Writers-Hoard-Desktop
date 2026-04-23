@@ -131,6 +131,14 @@ const es = {
   'common.dragToReorder': 'Arrastra para reordenar',
   'common.refresh': 'Actualizar',
   'common.loading': 'Cargando...',
+  'common.dismiss': 'Descartar',
+  'common.recommended': 'Recomendado',
+
+  // ── Primeros pasos (onboarding Esenciales) ──
+  'gettingStarted.title': 'Primeros pasos',
+  'gettingStarted.nameWorld': 'Nombra tu mundo',
+  'gettingStarted.createCharacter': 'Crea un personaje en el Códice',
+  'gettingStarted.firstPage': 'Escribe tu primera página',
 
   // Shared collection dashboard — templates use {item} / {name}
   'shared.dashboard.newItem': 'Nuevo {item}',
@@ -351,7 +359,6 @@ const es = {
   // ── Modos de Proyecto ──
   'modes.essentials.name': 'Esenciales',
   'modes.essentials.description': 'Empieza a escribir al instante — añade más herramientas según las necesites',
-  'modes.essentials.recommended': 'Recomendado para empezar',
   'modes.novelist.name': 'Novelista',
   'modes.novelist.description': 'Escritores de ficción: novelas, cuentos, sagas',
   'modes.biographer.name': 'Biógrafo',
