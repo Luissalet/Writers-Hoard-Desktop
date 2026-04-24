@@ -19,3 +19,8 @@ export {
   navigateTo,
   getCurrentProjectIdFromUrl,
 } from './navigation';
+export {
+  useTextareaSelectionAnchor,
+  type UseTextareaSelectionAnchorResult,
+  type TextareaSelectionAnchorBindings,
+} from './useTextareaSelectionAnchor';

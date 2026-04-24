@@ -7,6 +7,13 @@ import {
   navigateTo,
   getCurrentProjectIdFromUrl,
 } from '@/engines/_shared/anchoring';
+import {
+  registerBackupStrategy,
+  sanitizeBackupName,
+  externalizeImage,
+  internalizeImage,
+  readBackupJson,
+} from '@/engines/_shared';
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
 import CodexEngine from './CodexEngine';
@@ -71,6 +78,48 @@ registerAnchorAdapter({
     const pid = getCurrentProjectIdFromUrl();
     if (!pid) return;
     navigateTo(`/project/${pid}/codex?entry=${encodeURIComponent(entityId)}`);
+  },
+});
+
+// ============================================
+// Backup strategy — preserves legacy on-disk format:
+//   {projectDir}/codex/{sanitizedTitle}__{id}/entry.json
+//   {projectDir}/codex/{sanitizedTitle}__{id}/avatar.{ext}
+// so existing user ZIPs restore without migration. Uses the new
+// `externalizeImage`/`internalizeImage` helpers from _shared.
+// ============================================
+registerBackupStrategy({
+  engineId: 'codex',
+  tables: ['codexEntries'],
+  async exportProject({ zip, projectId, projectDir }) {
+    const rows = await db.codexEntries.where('projectId').equals(projectId).toArray();
+    for (const entry of rows) {
+      const entryDir = `${projectDir}/codex/${sanitizeBackupName(entry.title)}__${entry.id}`;
+      const meta: Record<string, unknown> = { ...entry };
+      const avatarPath = externalizeImage(zip, entryDir, entry.avatar, 'avatar');
+      if (avatarPath) meta.avatar = avatarPath;
+      else if (entry.avatar && !entry.avatar.startsWith('data:')) meta.avatar = entry.avatar;
+      zip.file(`${entryDir}/entry.json`, JSON.stringify(meta, null, 2));
+    }
+  },
+  async importProject({ zip, projectDir }) {
+    const codexFolder = `${projectDir}/codex/`;
+    const dirs = new Set<string>();
+    zip.forEach((path) => {
+      if (path.startsWith(codexFolder)) {
+        const sub = path.slice(codexFolder.length);
+        const dir = sub.split('/')[0];
+        if (dir) dirs.add(`${codexFolder}${dir}`);
+      }
+    });
+    for (const entryDir of dirs) {
+      const entry = await readBackupJson<Record<string, unknown>>(zip, `${entryDir}/entry.json`);
+      if (!entry) continue;
+      if (entry.avatar && typeof entry.avatar === 'string' && !entry.avatar.startsWith('data:')) {
+        entry.avatar = (await internalizeImage(zip, entryDir, entry.avatar)) || undefined;
+      }
+      await db.codexEntries.add(entry as never);
+    }
   },
 });
 

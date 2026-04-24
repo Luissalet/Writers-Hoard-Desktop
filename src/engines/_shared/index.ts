@@ -19,6 +19,8 @@ export {
   dataUrlToBlob,
   readImageAsDataUrl,
   readJson as readBackupJson,
+  externalizeImage,
+  internalizeImage,
 } from './backupRegistry';
 export { assertBackupCoverage, checkBackupCoverage } from './assertBackupCoverage';
 

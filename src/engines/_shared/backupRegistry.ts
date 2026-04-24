@@ -130,6 +130,46 @@ export function getAllBackupTables(): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Image externalization — reduce boilerplate for engines that store base64
+// ---------------------------------------------------------------------------
+
+/**
+ * Takes a base64 data URL, writes it as a binary file inside the zip, and
+ * returns the relative path that should replace the field in the exported
+ * JSON. No-op for already-relative values (e.g. re-exports of imported data).
+ *
+ * @param zip The JSZip instance being built.
+ * @param basePath Folder (relative to zip root) where the image should live.
+ *                 Example: `projects/MyNovel__abc/codex/Draven__xyz`.
+ * @param dataUrl The `data:image/...;base64,...` value from the DB row.
+ * @param basename Filename stem without extension. Example: `avatar`, `cover`,
+ *                 `001_thumb`, `node-images/xyz`.
+ * @returns The relative path (e.g. `avatar.png`) to store in the JSON, or
+ *          `undefined` if the input was not a data URL.
+ */
+export function externalizeImage(
+  zip: JSZip,
+  basePath: string,
+  dataUrl: string | undefined | null,
+  basename: string,
+): string | undefined {
+  if (!dataUrl) return undefined;
+  if (!dataUrl.startsWith('data:')) return dataUrl; // already relative — trust the caller
+  const { blob, ext } = dataUrlToBlob(dataUrl);
+  if (blob.byteLength === 0) return undefined;
+  const filename = `${basename}.${ext}`;
+  zip.file(`${basePath}/${filename}`, blob);
+  return filename;
+}
+
+/**
+ * Inverse of `externalizeImage` — resolves a stored path back to a
+ * data-URL so it can round-trip into Dexie. Thin alias over
+ * `readImageAsDataUrl` to read fluently in the same import/export pair.
+ */
+export const internalizeImage = readImageAsDataUrl;
+
+// ---------------------------------------------------------------------------
 // Factory: simple project-scoped JSON dumper
 // ---------------------------------------------------------------------------
 

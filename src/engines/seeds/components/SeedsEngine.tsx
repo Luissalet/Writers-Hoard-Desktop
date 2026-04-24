@@ -8,6 +8,7 @@ import type { Seed, Payoff, SeedKind, SeedStatus } from '../types';
 import { SEED_KIND_CONFIG, SEED_STATUS_CONFIG, computeSeedStatus } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
+import { useTextareaSelectionAnchor } from '@/engines/_shared/anchoring';
 
 // ---------------------------------------------------------------------------
 // SeedsEngine
@@ -321,6 +322,11 @@ function SeedDetail({
   const { t } = useTranslation();
   const { items: payoffs, addItem: addPayoff, editItem: editPayoff, removeItem: removePayoff } = usePayoffs(seed.id);
   const kindCfg = SEED_KIND_CONFIG[seed.kind];
+  // Text-range anchoring for the description — selection in the textarea
+  // stages a pendingAnchor which AnnotationSurface consumes to open the
+  // composer pre-seeded with that range.
+  const { pendingAnchor, consumePendingAnchor, bindProps } =
+    useTextareaSelectionAnchor(seed.description ?? '');
 
   const handleField = <K extends keyof Seed>(key: K) => (value: Seed[K]) => {
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<Seed>);
@@ -431,6 +437,7 @@ function SeedDetail({
             rows={3}
             placeholder={t('seeds.descriptionPlaceholder')}
             className="w-full px-3 py-2 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition resize-none"
+            {...bindProps}
           />
         </label>
 
@@ -484,13 +491,16 @@ function SeedDetail({
         )}
       </div>
 
-      {/* Annotation surface — margin notes + backlinks */}
+      {/* Annotation surface — margin notes + backlinks. Text-range anchors
+          flow in from the description textarea via `pendingAnchor`. */}
       <div className="pt-2 border-t border-border">
         <AnnotationSurface
           projectId={projectId}
           engineId="seeds"
           entityId={seed.id}
           layout="stack"
+          pendingAnchor={pendingAnchor}
+          onPendingAnchorConsumed={consumePendingAnchor}
         />
       </div>
     </div>

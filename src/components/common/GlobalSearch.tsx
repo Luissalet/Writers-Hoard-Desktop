@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, BookOpen, Layers, X } from 'lucide-react';
+import { Search, Layers, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import { useGlobalSearch, type SearchResult } from '@/hooks/useGlobalSearch';
 import { useTranslation } from '@/i18n/useTranslation';
+import { getEngine } from '@/engines/_registry';
+import { getAnchorAdapter } from '@/engines/_shared/anchoring';
 
 export default function GlobalSearch() {
   const { t } = useTranslation();
@@ -49,8 +51,15 @@ export default function GlobalSearch() {
   const handleSelect = (result: SearchResult) => {
     if (result.type === 'project') {
       navigate(`/project/${result.id}`);
-    } else if (result.type === 'codex' && result.projectId) {
-      navigate(`/project/${result.projectId}/codex?entry=${result.id}`);
+    } else if (result.type === 'entity' && result.engineId) {
+      // Prefer the engine's own navigator (anchor-adapter has route knowledge).
+      const adapter = getAnchorAdapter(result.engineId);
+      if (adapter) {
+        adapter.navigateToEntity(result.id);
+      }
+      // For engines without an anchor adapter (diary, timeline, etc.), we
+      // can't yet deep-link to an individual row — fall back to the engine
+      // tab on the current project if we have one.
     }
     setSearchOpen(false);
   };
@@ -62,12 +71,18 @@ export default function GlobalSearch() {
     else if (e.key === 'Escape') { setSearchOpen(false); }
   };
 
-  const getIcon = (type: string) => {
-    switch (type) {
-      case 'project': return <Layers size={16} className="text-accent-gold" />;
-      case 'codex': return <BookOpen size={16} className="text-accent-plum-light" />;
-      default: return <Search size={16} className="text-text-muted" />;
+  const renderIcon = (result: SearchResult) => {
+    if (result.type === 'project') {
+      return <Layers size={16} className="text-accent-gold" />;
     }
+    if (result.type === 'entity' && result.engineId) {
+      const engine = getEngine(result.engineId);
+      if (engine) {
+        const Icon = engine.icon;
+        return <Icon size={16} className="text-accent-plum-light" />;
+      }
+    }
+    return <Search size={16} className="text-text-muted" />;
   };
 
   return (
@@ -113,10 +128,12 @@ export default function GlobalSearch() {
                       idx === selectedIdx ? 'bg-elevated' : 'hover:bg-elevated/50'
                     }`}
                   >
-                    {getIcon(result.type)}
-                    <div>
-                      <div className="text-sm text-text-primary">{result.title}</div>
-                      <div className="text-xs text-text-muted capitalize">{result.subtitle}</div>
+                    {renderIcon(result)}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-text-primary truncate">{result.title}</div>
+                      <div className="text-xs text-text-muted capitalize truncate">
+                        {result.engineId ? `${result.engineId} · ` : ''}{result.subtitle}
+                      </div>
                     </div>
                   </button>
                 ))}

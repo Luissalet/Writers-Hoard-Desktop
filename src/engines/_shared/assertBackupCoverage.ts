@@ -23,14 +23,11 @@ import { getAllBackupStrategies } from './backupRegistry';
  * Keep this list in sync with `legacyTables` there.
  */
 const LEGACY_BACKUP_TABLES: string[] = [
+  // On 2026-04-23 the last 6 hardcoded engines migrated to modular
+  // BackupStrategies: codex, writings, yarn-board (3 tables), maps
+  // (2 tables), gallery (2 tables). This list is now only the top-level
+  // tables that `zipBackup.ts` still owns directly.
   'projects',
-  'codexEntries',
-  'writings',
-  'timelines', 'timelineEvents',
-  'yarnBoards', 'yarnNodes', 'yarnEdges',
-  'worldMaps', 'mapPins',
-  'imageCollections', 'inspirationImages',
-  // externalLinks migrated to engines/links modular BackupStrategy on 2026-04-23
   'tags',
   'settings',
 ];

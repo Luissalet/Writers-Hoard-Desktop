@@ -9,15 +9,26 @@
 // Examples in the wild:
 //   - seeds/useAllPayoffs(projectId)  — gathers every payoff across every seed
 //   - pov-audit/useScenesForAudit(projectId) — read-only scene scan
+//   - annotations/useAnnotationsForProject(projectId)
 //
 // Returns the same `{ items, loading, refresh }` shape every consumer expects.
-// Provide `enabled: false` (or omit a scopeId) to short-circuit the fetch.
+// Provide an empty scopeId to short-circuit the fetch.
+//
+// 2026-04-23 — Added optional `useDeps` so callers can re-fetch on
+// filter/dimension changes (e.g. POV Audit's "include minor characters" toggle
+// or Seeds' "only Chekhov's guns" filter). The hook accepts a second argument,
+// a value passed through to `fetchFn` alongside the scopeId. Any change to
+// that value triggers a refresh; a deep-equality check is not performed —
+// consumers should memoize the value if it's an object literal.
 
 import { useCallback, useEffect, useState } from 'react';
 
-export interface ReadOnlyHookOptions<T> {
-  /** Async function that returns the rows for a given scope id. */
-  fetchFn: (scopeId: string) => Promise<T[]>;
+export interface ReadOnlyHookOptions<T, Deps = void> {
+  /**
+   * Async function that returns the rows for a given scope id. If the hook is
+   * used with deps, the second argument is the current deps value.
+   */
+  fetchFn: (scopeId: string, deps: Deps) => Promise<T[]>;
 }
 
 export interface ReadOnlyHookResult<T> {
@@ -26,20 +37,28 @@ export interface ReadOnlyHookResult<T> {
   refresh: () => Promise<void>;
 }
 
-/**
- * Factory returning a read-only hook keyed by a scope id (e.g. projectId).
- * No mutation paths — callers that need writes should use `makeEntityHook`
- * with createFn/updateFn/deleteFn, or fall back to the engine's `operations.ts`.
- *
- * The returned hook is safe to call with an empty scopeId — it returns
- * `{ items: [], loading: false }` and skips the fetch.
- */
-export function makeReadOnlyHook<T>(
-  options: ReadOnlyHookOptions<T>,
-): (scopeId: string | undefined) => ReadOnlyHookResult<T> {
+// ---------------------------------------------------------------------------
+// Overloads — callers that don't pass a deps arg keep the original 1-arg
+// signature; callers that do pick up a second positional arg of type Deps.
+// ---------------------------------------------------------------------------
+
+export function makeReadOnlyHook<T>(options: {
+  fetchFn: (scopeId: string) => Promise<T[]>;
+}): (scopeId: string | undefined) => ReadOnlyHookResult<T>;
+
+export function makeReadOnlyHook<T, Deps>(options: {
+  fetchFn: (scopeId: string, deps: Deps) => Promise<T[]>;
+}): (scopeId: string | undefined, deps: Deps) => ReadOnlyHookResult<T>;
+
+export function makeReadOnlyHook<T, Deps = void>(
+  options: ReadOnlyHookOptions<T, Deps>,
+) {
   const { fetchFn } = options;
 
-  return function useReadOnly(scopeId: string | undefined): ReadOnlyHookResult<T> {
+  return function useReadOnly(
+    scopeId: string | undefined,
+    deps?: Deps,
+  ): ReadOnlyHookResult<T> {
     const [items, setItems] = useState<T[]>([]);
     const [loading, setLoading] = useState<boolean>(false);
 
@@ -51,12 +70,13 @@ export function makeReadOnlyHook<T>(
       }
       setLoading(true);
       try {
-        const rows = await fetchFn(scopeId);
+        const rows = await fetchFn(scopeId, deps as Deps);
         setItems(rows);
       } finally {
         setLoading(false);
       }
-    }, [scopeId]);
+      // deps is intentionally part of the dep array — refetch on any change.
+    }, [scopeId, deps]);
 
     useEffect(() => {
       refresh();

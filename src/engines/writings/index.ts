@@ -7,6 +7,11 @@ import {
   navigateTo,
   getCurrentProjectIdFromUrl,
 } from '@/engines/_shared/anchoring';
+import {
+  registerBackupStrategy,
+  sanitizeBackupName,
+  readBackupJson,
+} from '@/engines/_shared';
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
 import WritingsEngine from './WritingsEngine';
@@ -69,6 +74,34 @@ registerAnchorAdapter({
     const pid = getCurrentProjectIdFromUrl();
     if (!pid) return;
     navigateTo(`/project/${pid}/writings?writing=${encodeURIComponent(entityId)}`);
+  },
+});
+
+// ============================================
+// Backup strategy — preserves legacy on-disk format:
+//   {projectDir}/writings/{sanitizedTitle}__{id}.json
+// One file per writing (no folder per writing, no binaries).
+// ============================================
+registerBackupStrategy({
+  engineId: 'writings',
+  tables: ['writings'],
+  async exportProject({ zip, projectId, projectDir }) {
+    const rows = await db.writings.where('projectId').equals(projectId).toArray();
+    for (const writing of rows) {
+      const filename = `${sanitizeBackupName(writing.title)}__${writing.id}.json`;
+      zip.file(`${projectDir}/writings/${filename}`, JSON.stringify(writing, null, 2));
+    }
+  },
+  async importProject({ zip, projectDir }) {
+    const folder = `${projectDir}/writings/`;
+    const files: string[] = [];
+    zip.forEach((path) => {
+      if (path.startsWith(folder) && path.endsWith('.json')) files.push(path);
+    });
+    for (const wf of files) {
+      const writing = await readBackupJson<Record<string, unknown>>(zip, wf);
+      if (writing) await db.writings.add(writing as never);
+    }
   },
 });
 

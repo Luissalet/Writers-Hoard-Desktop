@@ -70,7 +70,13 @@ registerBackupStrategy(makeSimpleBackupStrategy({
 
 registerAnchorAdapter({
   engineId: 'seeds',
-  supportsTextRange: false,
+  supportsTextRange: true,
+  async getEntityText(entityId: string) {
+    const seed = await db.seeds.get(entityId);
+    if (seed) return seed.description ?? '';
+    const payoff = await db.payoffs.get(entityId);
+    return payoff?.description ?? '';
+  },
   async getEntityTitle(entityId: string) {
     const seed = await db.seeds.get(entityId);
     if (seed) return seed.title;
