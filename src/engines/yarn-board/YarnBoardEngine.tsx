@@ -4,7 +4,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import NewItemForm from '@/engines/_shared/components/NewItemForm';
-import { useAutoSelect, useEnsureDefault } from '@/engines/_shared';
+import { useAutoSelect, useEnsureDefault, ConfirmDialog } from '@/engines/_shared';
 import { useYarnBoards, useYarnBoardData } from './hooks';
 import YarnBoard from './components/YarnBoard';
 import { generateId } from '@/utils/idGenerator';
@@ -16,6 +16,7 @@ export default function YarnBoardEngine({ projectId }: EngineComponentProps) {
   const [activeBoardId, setActiveBoardId] = useState<string>('');
   const [showNewBoard, setShowNewBoard] = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
+  const [pendingDeleteBoardId, setPendingDeleteBoardId] = useState<string | null>(null);
   const { nodes, edges, addNode, updateNode, addEdge, updateEdge, removeNode, removeEdge } = useYarnBoardData(activeBoardId);
 
   useAutoSelect(boards, activeBoardId, setActiveBoardId);
@@ -137,15 +138,9 @@ export default function YarnBoardEngine({ projectId }: EngineComponentProps) {
                   {/* Delete button */}
                   {boards.length > 1 && (
                     <button
-                      onClick={async (e) => {
+                      onClick={(e) => {
                         e.stopPropagation();
-                        if (confirm(t('yarn.deleteConfirm').replace('{name}', board.title))) {
-                          await removeBoard(board.id);
-                          if (activeBoardId === board.id) {
-                            const remaining = boards.filter((b) => b.id !== board.id);
-                            if (remaining.length > 0) setActiveBoardId(remaining[0].id);
-                          }
-                        }
+                        setPendingDeleteBoardId(board.id);
                       }}
                       className="absolute top-1.5 right-1.5 p-1 rounded-full opacity-0 group-hover:opacity-100 text-text-dim hover:text-danger hover:bg-danger/10 transition"
                       title={t('yarn.deleteBoard')}
@@ -159,6 +154,30 @@ export default function YarnBoardEngine({ projectId }: EngineComponentProps) {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteBoardId !== null}
+        destructive
+        message={
+          pendingDeleteBoardId
+            ? t('yarn.deleteConfirm').replace(
+                '{name}',
+                boards.find((b) => b.id === pendingDeleteBoardId)?.title ?? '',
+              )
+            : ''
+        }
+        onConfirm={async () => {
+          if (!pendingDeleteBoardId) return;
+          const id = pendingDeleteBoardId;
+          setPendingDeleteBoardId(null);
+          await removeBoard(id);
+          if (activeBoardId === id) {
+            const remaining = boards.filter((b) => b.id !== id);
+            if (remaining.length > 0) setActiveBoardId(remaining[0].id);
+          }
+        }}
+        onCancel={() => setPendingDeleteBoardId(null)}
+      />
     </div>
   );
 }

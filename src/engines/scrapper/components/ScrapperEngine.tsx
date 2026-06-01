@@ -1,20 +1,70 @@
 // ============================================
-// Scrapper Engine — Main Component
+// Scrapper Engine — Main Component (dual-mode)
 // ============================================
+//
+// Two modes:
+// - `archive` (default): used inside a project tab. Persists URL metadata
+//   into the snapshots table and renders the snapshot grid/list.
+// - `download`: used by the standalone `/media-downloader` page. Renders
+//   only the CaptureBar plus an ephemeral "this session" list of completed
+//   downloads. No DB, no archive UI.
 
 import { useState, useMemo } from 'react';
-import { Grid3x3, List } from 'lucide-react';
+import { Grid3x3, List, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
-import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import { useSnapshots } from '../hooks';
 import CaptureBar from './CaptureBar';
 import SnapshotCard from './SnapshotCard';
 import ManualSnapshotModal from './ManualSnapshotModal';
+import type { MediaFormat } from '@/services/mediaDownloader';
 
 type ViewMode = 'grid' | 'list';
 
-export default function ScrapperEngine({ projectId }: EngineComponentProps) {
+export interface SessionDownload {
+  id: string;
+  url: string;
+  filename: string;
+  sizeBytes: number;
+  format: MediaFormat;
+  status: 'success' | 'error';
+  errorMessage?: string;
+  at: number;
+}
+
+interface ArchiveProps {
+  mode?: 'archive';
+  projectId: string;
+}
+
+interface DownloadModeProps {
+  mode: 'download';
+  /** Async download handler — page owns the folder handle + backend call */
+  onDownload: (url: string, format: MediaFormat) => Promise<void>;
+  /** Disable the submit button (e.g. no folder picked, server offline) */
+  downloadDisabled?: boolean;
+  /** Show "Downloading…" while a download is in flight */
+  downloadBusy?: boolean;
+  /** In-memory log of downloads completed in this session */
+  sessionDownloads?: SessionDownload[];
+  /** Optional banner content above the capture bar (e.g. offline / no folder) */
+  banner?: React.ReactNode;
+}
+
+type ScrapperEngineProps = ArchiveProps | DownloadModeProps;
+
+export default function ScrapperEngine(props: ScrapperEngineProps) {
+  if (props.mode === 'download') {
+    return <DownloadModeView {...props} />;
+  }
+  return <ArchiveModeView projectId={props.projectId} />;
+}
+
+// ---------------------------------------------------------------------------
+// Archive mode (existing behavior, project-scoped)
+// ---------------------------------------------------------------------------
+
+function ArchiveModeView({ projectId }: { projectId: string }) {
   const { t } = useTranslation();
   const { items: snapshots, loading, addItem: addSnapshot, editItem: editSnapshot, removeItem: removeSnapshot } =
     useSnapshots(projectId);
@@ -24,27 +74,24 @@ export default function ScrapperEngine({ projectId }: EngineComponentProps) {
 
   const filteredSnapshots = useMemo(() => {
     if (!searchQuery.trim()) return snapshots;
-    const filtered = snapshots.filter(s =>
+    return snapshots.filter(s =>
       s.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.url.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.notes.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (s.extractedText && s.extractedText.toLowerCase().includes(searchQuery.toLowerCase()))
     );
-    return filtered;
   }, [snapshots, searchQuery]);
 
   if (loading) return <EngineSpinner className="flex items-center justify-center h-64 bg-deep" />;
 
   return (
     <div className="flex flex-col h-full bg-deep">
-      {/* Capture Bar */}
       <CaptureBar
         projectId={projectId}
         onCapture={addSnapshot}
         onManualEntry={() => setIsManualModalOpen(true)}
       />
 
-      {/* Search and Controls */}
       <div className="bg-surface border-b border-border px-4 py-3 flex items-center justify-between gap-3">
         <input
           type="text"
@@ -79,7 +126,6 @@ export default function ScrapperEngine({ projectId }: EngineComponentProps) {
         </div>
       </div>
 
-      {/* Content Area */}
       <div className="flex-1 overflow-y-auto p-4">
         {filteredSnapshots.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-12">
@@ -125,7 +171,6 @@ export default function ScrapperEngine({ projectId }: EngineComponentProps) {
                 key={snapshot.id}
                 className="bg-elevated border border-border rounded-lg p-4 hover:border-accent-gold cursor-pointer transition-all hover:shadow-md"
                 onClick={() => {
-                  // Open detail modal
                   const card = document.querySelector(`[data-snapshot-id="${snapshot.id}"]`);
                   if (card) card.dispatchEvent(new Event('click', { bubbles: true }));
                 }}
@@ -158,7 +203,6 @@ export default function ScrapperEngine({ projectId }: EngineComponentProps) {
         )}
       </div>
 
-      {/* Manual Entry Modal */}
       {isManualModalOpen && (
         <ManualSnapshotModal
           projectId={projectId}
@@ -171,4 +215,96 @@ export default function ScrapperEngine({ projectId }: EngineComponentProps) {
       )}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Download mode (standalone /media-downloader page)
+// ---------------------------------------------------------------------------
+
+function DownloadModeView({
+  onDownload,
+  downloadDisabled,
+  downloadBusy,
+  sessionDownloads = [],
+  banner,
+}: DownloadModeProps) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="flex flex-col h-full bg-deep">
+      {banner}
+      <CaptureBar
+        mode="download"
+        onDownload={onDownload}
+        disabled={downloadDisabled}
+        busy={downloadBusy}
+      />
+      <div className="flex-1 overflow-y-auto p-4">
+        {sessionDownloads.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center py-12">
+            <div className="w-16 h-16 rounded-full bg-elevated flex items-center justify-center mb-4">
+              <svg
+                className="w-8 h-8 text-muted"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"
+                />
+              </svg>
+            </div>
+            <h3 className="text-lg font-serif font-semibold text-foreground mb-2">
+              {t('mediaDownloader.noDownloads')}
+            </h3>
+            <p className="text-muted text-sm max-w-sm">
+              {t('mediaDownloader.noDownloadsHint')}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2 max-w-4xl mx-auto">
+            <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">
+              {t('mediaDownloader.sessionDownloads')}
+            </h4>
+            {sessionDownloads.map((d) => (
+              <div
+                key={d.id}
+                className="bg-elevated border border-border rounded-lg p-3 flex items-start gap-3"
+              >
+                {d.status === 'success' ? (
+                  <CheckCircle2 size={18} className="text-green-500 flex-shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {d.status === 'success' ? d.filename : t('mediaDownloader.downloadFailed')}
+                  </p>
+                  <p className="text-xs text-muted truncate">{d.url}</p>
+                  {d.status === 'error' && d.errorMessage && (
+                    <p className="text-xs text-red-400 mt-1">{d.errorMessage}</p>
+                  )}
+                </div>
+                {d.status === 'success' && (
+                  <span className="text-xs text-muted whitespace-nowrap">
+                    {formatBytes(d.sizeBytes)}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }

@@ -9,6 +9,7 @@ import CreateProjectModal from '@/components/dashboard/CreateProjectModal';
 import { importProjectData, importFullDatabase } from '@/db/operations';
 import { exportFullZip, importFullZip } from '@/services/zipBackup';
 import { useTranslation } from '@/i18n/useTranslation';
+import { ConfirmDialog } from '@/engines/_shared';
 import type { Project } from '@/types';
 
 export default function Dashboard() {
@@ -20,6 +21,11 @@ export default function Dashboard() {
   const importRef = useRef<HTMLInputElement>(null);
   const fullImportRef = useRef<HTMLInputElement>(null);
   const [exporting, setExporting] = useState(false);
+  // Stash the picked file until the user explicitly confirms the destructive
+  // full-database restore. We deliberately do NOT use native `window.confirm()`
+  // here — it can auto-resolve to `true` after tab suspend/resume on some
+  // browser/OS combos, which has caused real data loss. See tasks/lessons.md.
+  const [pendingFullImportFile, setPendingFullImportFile] = useState<File | null>(null);
 
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -53,10 +59,24 @@ export default function Dashboard() {
     }
   };
 
-  const handleFullImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFullImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!confirm(t('dashboard.fullImport.confirm'))) {
+    // Stash the file and open the React-owned confirmation dialog. The actual
+    // restore runs in `runFullImport` only after the user clicks the confirm
+    // button explicitly.
+    setPendingFullImportFile(file);
+  };
+
+  const cancelFullImport = () => {
+    setPendingFullImportFile(null);
+    if (fullImportRef.current) fullImportRef.current.value = '';
+  };
+
+  const runFullImport = async () => {
+    const file = pendingFullImportFile;
+    setPendingFullImportFile(null);
+    if (!file) {
       if (fullImportRef.current) fullImportRef.current.value = '';
       return;
     }
@@ -196,6 +216,14 @@ export default function Dashboard() {
         open={showCreate}
         onClose={() => setShowCreate(false)}
         onCreate={handleCreate}
+      />
+
+      <ConfirmDialog
+        open={pendingFullImportFile !== null}
+        destructive
+        message={t('dashboard.fullImport.confirm')}
+        onConfirm={runFullImport}
+        onCancel={cancelFullImport}
       />
     </>
   );

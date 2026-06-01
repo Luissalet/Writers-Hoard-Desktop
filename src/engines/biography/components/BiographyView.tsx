@@ -8,6 +8,8 @@ import FactCard from './FactCard';
 import FactEditor from './FactEditor';
 import NarrativeView from './NarrativeView';
 import { generateId } from '@/utils/idGenerator';
+import { ConfirmDialog } from '@/engines/_shared';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface BiographyViewProps {
   biography: Biography;
@@ -17,11 +19,13 @@ interface BiographyViewProps {
 type ViewMode = 'cards' | 'narrative';
 
 export default function BiographyView({ biography, onUpdate }: BiographyViewProps) {
+  const { t } = useTranslation();
   const { items: facts, addItem: addFact, editItem: editFact, removeItem: removeFact } = useBiographyFacts(biography.id);
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingFact, setEditingFact] = useState<BiographyFact | undefined>();
   const [selectedCategory, setSelectedCategory] = useState<BiographyCategory | null>(null);
+  const [pendingDeleteFactId, setPendingDeleteFactId] = useState<string | null>(null);
 
   // Extract birth/death dates from facts
   const birthDate = useMemo(() => {
@@ -73,10 +77,15 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
     setEditingFact(undefined);
   };
 
-  const handleDeleteFact = async (factId: string) => {
-    if (confirm('Delete this fact? This cannot be undone.')) {
-      await removeFact(factId);
-    }
+  const handleDeleteFact = (factId: string) => {
+    setPendingDeleteFactId(factId);
+  };
+
+  const confirmDeleteFact = async () => {
+    if (!pendingDeleteFactId) return;
+    const id = pendingDeleteFactId;
+    setPendingDeleteFactId(null);
+    await removeFact(id);
   };
 
   return (
@@ -254,6 +263,14 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
           setEditingFact(undefined);
         }}
         onSave={handleSaveFact}
+      />
+
+      <ConfirmDialog
+        open={pendingDeleteFactId !== null}
+        destructive
+        message={t('biography.fact.deleteConfirm')}
+        onConfirm={confirmDeleteFact}
+        onCancel={() => setPendingDeleteFactId(null)}
       />
     </div>
   );

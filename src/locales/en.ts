@@ -78,6 +78,7 @@ const en = {
   // ── Sidebar ──
   'sidebar.brand': "Writer's Hoard",
   'sidebar.home': 'Home',
+  'sidebar.mediaDownloader': 'Media Downloader',
   'sidebar.project': 'Project',
   'sidebar.writings': 'Writings',
   'sidebar.codex': 'Codex',
@@ -97,6 +98,7 @@ const en = {
 
   // ── Common ──
   'common.cancel': 'Cancel',
+  'common.confirm': 'Confirm',
   'common.save': 'Save Changes',
   'common.create': 'Create',
   'common.edit': 'Edit',
@@ -586,6 +588,7 @@ const en = {
   'biography.subjectNamePlaceholder': 'Subject name...',
   'biography.editFact': 'Edit fact',
   'biography.deleteFact': 'Delete fact',
+  'biography.fact.deleteConfirm': 'Delete this fact? This cannot be undone.',
   'biography.copyToClipboard': 'Copy to clipboard',
   'biography.downloadText': 'Download as text file',
   'biography.labelPlaceholder': 'e.g., Born in London',
@@ -600,6 +603,7 @@ const en = {
   'brainstorm.newBoard': 'New Board',
   'brainstorm.noBoards': 'No boards yet. Create one to get started.',
   'brainstorm.deleteConfirm': 'Delete "{name}"? This cannot be undone.',
+  'brainstorm.deleteItemConfirm': 'Are you sure you want to delete this item?',
   'brainstorm.deleteBoard': 'Delete board',
   'brainstorm.title': 'Brainstorm',
   'brainstorm.boardNamePlaceholder': 'Board name...',
@@ -627,6 +631,7 @@ const en = {
   'diary.noResults': 'No entries match your search.',
   'diary.editEntry': 'Edit entry',
   'diary.deleteEntry': 'Delete entry',
+  'diary.deleteConfirm': 'Delete this entry permanently?',
   'diary.saveEntryShort': 'Save entry (Ctrl+Enter)',
   'diary.setToNow': 'Set to now',
   'diary.quickEntryPlaceholder': "What's on your mind? Write a quick entry...",
@@ -693,6 +698,7 @@ const en = {
   // ── Video Planner Engine ──
   'videoPlanner.title': 'Video Plans',
   'videoPlanner.newPlan': 'New Plan',
+  'videoPlanner.deleteConfirm': 'Delete this video plan? This cannot be undone.',
   'videoPlanner.titlePlaceholder': 'Enter plan title...',
   'videoPlanner.noPlans': 'No video plans yet.',
   'videoPlanner.createFirst': 'Create Your First Plan',
@@ -802,6 +808,30 @@ const en = {
   'scrapper.date': 'Date',
   'scrapper.captured': 'Captured',
   'scrapper.status': 'Status',
+
+  // ── Media Downloader (standalone page) ──
+  'mediaDownloader.title': 'Media Downloader',
+  'mediaDownloader.subtitle': 'Download video or audio from YouTube, X, Instagram, Audiomack',
+  'mediaDownloader.chooseFolder': 'Choose download folder…',
+  'mediaDownloader.changeFolder': 'Change folder…',
+  'mediaDownloader.currentFolder': 'Download folder',
+  'mediaDownloader.noFolder': 'No folder selected',
+  'mediaDownloader.format.video': 'Video',
+  'mediaDownloader.format.audio': 'Audio',
+  'mediaDownloader.download': 'Download',
+  'mediaDownloader.downloading': 'Downloading…',
+  'mediaDownloader.serverOffline': 'Local downloader server is offline',
+  'mediaDownloader.serverOfflineHint': 'Open the Universal Video Downloader folder in a terminal and run "python server.py", then click Retry.',
+  'mediaDownloader.retry': 'Retry',
+  'mediaDownloader.unsupportedBrowser': 'Your browser does not support folder downloads',
+  'mediaDownloader.unsupportedBrowserHint': 'Use a recent version of Chrome, Edge, or another Chromium browser. Firefox and Safari do not expose the File System Access API.',
+  'mediaDownloader.unsupportedUrl': 'This URL is not supported',
+  'mediaDownloader.downloadComplete': 'Download complete',
+  'mediaDownloader.downloadFailed': 'Download failed',
+  'mediaDownloader.sessionDownloads': 'Downloads this session',
+  'mediaDownloader.noDownloads': 'No downloads yet',
+  'mediaDownloader.noDownloadsHint': 'Pick a folder above, paste a YouTube / X / Instagram / Audiomack URL, and the file will be saved there.',
+  'mediaDownloader.permissionDenied': 'Folder access denied — click Change folder to re-grant',
 
   // ── Character Arc Engine ──
   'characterArc.title': 'Character Arcs',

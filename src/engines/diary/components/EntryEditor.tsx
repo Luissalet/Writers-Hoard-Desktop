@@ -4,6 +4,7 @@ import type { DiaryEntry, DiaryMood } from '../types';
 import { MOOD_CONFIG } from '../types';
 import TiptapEditor from '@/components/editor/TiptapEditor';
 import { useTranslation } from '@/i18n/useTranslation';
+import { ConfirmDialog } from '@/engines/_shared';
 
 interface EntryEditorProps {
   entry: DiaryEntry;
@@ -22,6 +23,7 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
   const [tagsText, setTagsText] = useState(entry.tags.join(', '));
   const [pinned, setPinned] = useState(entry.pinned);
   const [saving, setSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(false);
   const contentRef = useRef(content);
 
   // Keep a ref for TipTap's onChange (avoids stale closure issues)
@@ -66,9 +68,7 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
         <div className="flex items-center gap-2">
           {!isNew && (
             <button
-              onClick={() => {
-                if (confirm('Delete this entry permanently?')) onDelete();
-              }}
+              onClick={() => setPendingDelete(true)}
               className="p-2 rounded-lg text-text-dim hover:text-danger hover:bg-danger/10 transition"
               title={t('diary.deleteEntry')}
             >
@@ -160,6 +160,17 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
           className="w-full px-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
         />
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete}
+        destructive
+        message={t('diary.deleteConfirm')}
+        onConfirm={async () => {
+          setPendingDelete(false);
+          await onDelete();
+        }}
+        onCancel={() => setPendingDelete(false)}
+      />
     </div>
   );
 }

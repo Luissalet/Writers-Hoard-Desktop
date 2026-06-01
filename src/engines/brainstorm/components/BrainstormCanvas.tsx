@@ -20,6 +20,7 @@ import { InlineColorPicker } from '@/components/common/ColorPicker';
 import type { BrainstormItem, BrainstormConnection } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
+import { ConfirmDialog } from '@/engines/_shared';
 
 interface BrainstormCanvasProps {
   projectId: string;
@@ -51,6 +52,7 @@ export default function BrainstormCanvas({
   const { t } = useTranslation();
   const [editingItem, setEditingItem] = useState<BrainstormItem | null>(null);
   const [selectedColor, setSelectedColor] = useState('#fef3c7');
+  const [pendingDeleteItemId, setPendingDeleteItemId] = useState<string | null>(null);
 
   // Convert items to ReactFlow nodes
   const nodes = items.map((item) => ({
@@ -159,10 +161,8 @@ export default function BrainstormCanvas({
     input.click();
   };
 
-  const handleDeleteItem = async (itemId: string) => {
-    if (confirm('Are you sure you want to delete this item?')) {
-      await onDeleteItem(itemId);
-    }
+  const handleDeleteItem = (itemId: string) => {
+    setPendingDeleteItemId(itemId);
   };
 
   const handleNodeDragStop = async (_event: any, node: any) => {
@@ -275,6 +275,19 @@ export default function BrainstormCanvas({
           onClose={() => setEditingItem(null)}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteItemId !== null}
+        destructive
+        message={t('brainstorm.deleteItemConfirm')}
+        onConfirm={async () => {
+          if (!pendingDeleteItemId) return;
+          const id = pendingDeleteItemId;
+          setPendingDeleteItemId(null);
+          await onDeleteItem(id);
+        }}
+        onCancel={() => setPendingDeleteItemId(null)}
+      />
     </div>
   );
 }

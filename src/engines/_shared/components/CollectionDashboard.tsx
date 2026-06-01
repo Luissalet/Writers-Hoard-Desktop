@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import NewItemForm from './NewItemForm';
+import ConfirmDialog from './ConfirmDialog';
 import { useTranslation } from '@/i18n/useTranslation';
 
 export interface CollectionDashboardProps<T extends { id: string; title: string; createdAt: number }> {
@@ -39,6 +40,12 @@ export default function CollectionDashboard<T extends { id: string; title: strin
   const { t } = useTranslation();
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
+  // `pendingDeleteId` drives a React-owned confirmation dialog. We deliberately
+  // do NOT use native `window.confirm()` here: it can be auto-dismissed (and on
+  // some browser/OS combinations auto-resolved as confirmed) when the tab is
+  // suspended and resumed — which has caused real data loss. See
+  // `tasks/lessons.md`.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const effectivePlaceholder = placeholder ?? t('shared.dashboard.namePlaceholder');
 
@@ -50,16 +57,18 @@ export default function CollectionDashboard<T extends { id: string; title: strin
     }
   };
 
-  const handleDelete = async (id: string) => {
-    const item = items.find(i => i.id === id);
-    if (!item) return;
+  const pendingItem = pendingDeleteId ? items.find(i => i.id === pendingDeleteId) ?? null : null;
+  const deleteMessage = pendingItem
+    ? t('shared.dashboard.deleteConfirm')
+        .replace('{item}', itemNoun)
+        .replace('{name}', pendingItem.title)
+    : '';
 
-    const message = t('shared.dashboard.deleteConfirm')
-      .replace('{item}', itemNoun)
-      .replace('{name}', item.title);
-    if (confirm(message)) {
-      await onDelete(id);
-    }
+  const confirmDelete = async () => {
+    if (!pendingDeleteId) return;
+    const id = pendingDeleteId;
+    setPendingDeleteId(null);
+    await onDelete(id);
   };
 
   return (
@@ -122,9 +131,9 @@ export default function CollectionDashboard<T extends { id: string; title: strin
                 </button>
                 {items.length > 1 && (
                   <button
-                    onClick={async e => {
+                    onClick={e => {
                       e.stopPropagation();
-                      await handleDelete(item.id);
+                      setPendingDeleteId(item.id);
                     }}
                     className="absolute top-1.5 right-1.5 p-1 rounded-full opacity-0 group-hover:opacity-100 text-text-dim hover:text-danger hover:bg-danger/10 transition"
                     title={t('shared.dashboard.deleteItem').replace('{item}', itemNoun)}
@@ -137,6 +146,15 @@ export default function CollectionDashboard<T extends { id: string; title: strin
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingItem !== null}
+        destructive
+        title={t('shared.dashboard.deleteItem').replace('{item}', itemNoun)}
+        message={deleteMessage}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

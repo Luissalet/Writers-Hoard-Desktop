@@ -4,7 +4,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import NewItemForm from '@/engines/_shared/components/NewItemForm';
-import { useAutoSelect, useEnsureDefault } from '@/engines/_shared';
+import { useAutoSelect, useEnsureDefault, ConfirmDialog } from '@/engines/_shared';
 import { useBiographies } from '../hooks';
 import BiographyView from './BiographyView';
 import { generateId } from '@/utils/idGenerator';
@@ -15,6 +15,7 @@ export default function BiographyEngine({ projectId }: EngineComponentProps) {
   const [activeBiographyId, setActiveBiographyId] = useState<string>('');
   const [showNewBio, setShowNewBio] = useState(false);
   const [newBioName, setNewBioName] = useState('');
+  const [pendingDeleteBioId, setPendingDeleteBioId] = useState<string | null>(null);
 
   useAutoSelect(biographies, activeBiographyId, setActiveBiographyId);
 
@@ -51,6 +52,18 @@ export default function BiographyEngine({ projectId }: EngineComponentProps) {
     setActiveBiographyId(bio.id);
     setNewBioName('');
     setShowNewBio(false);
+  };
+
+  const pendingBio = pendingDeleteBioId ? biographies.find(b => b.id === pendingDeleteBioId) ?? null : null;
+  const confirmDeleteBio = async () => {
+    if (!pendingDeleteBioId) return;
+    const id = pendingDeleteBioId;
+    setPendingDeleteBioId(null);
+    await removeBiography(id);
+    if (activeBiographyId === id) {
+      const remaining = biographies.filter((b) => b.id !== id);
+      if (remaining.length > 0) setActiveBiographyId(remaining[0].id);
+    }
   };
 
   return (
@@ -128,15 +141,9 @@ export default function BiographyEngine({ projectId }: EngineComponentProps) {
                   {/* Delete button */}
                   {biographies.length > 1 && (
                     <button
-                      onClick={async (e) => {
+                      onClick={(e) => {
                         e.stopPropagation();
-                        if (confirm(t('biography.deleteConfirm').replace('{name}', bio.subjectName))) {
-                          await removeBiography(bio.id);
-                          if (activeBiographyId === bio.id) {
-                            const remaining = biographies.filter((b) => b.id !== bio.id);
-                            if (remaining.length > 0) setActiveBiographyId(remaining[0].id);
-                          }
-                        }
+                        setPendingDeleteBioId(bio.id);
                       }}
                       className="absolute top-1.5 right-1.5 p-1 rounded-full opacity-0 group-hover:opacity-100 text-text-dim hover:text-danger hover:bg-danger/10 transition"
                       title={t('biography.deleteBiography')}
@@ -150,6 +157,14 @@ export default function BiographyEngine({ projectId }: EngineComponentProps) {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingBio !== null}
+        destructive
+        message={pendingBio ? t('biography.deleteConfirm').replace('{name}', pendingBio.subjectName) : ''}
+        onConfirm={confirmDeleteBio}
+        onCancel={() => setPendingDeleteBioId(null)}
+      />
     </div>
   );
 }

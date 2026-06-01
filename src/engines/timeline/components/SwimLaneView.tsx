@@ -35,6 +35,9 @@ const EVENT_RADIUS = 20;
 const RANGE_HEIGHT = 36;
 const MILESTONE_SIZE = 16;
 const TOP_PADDING = 40;
+// Vertical offset between events that share the same X within a lane.
+// Stacking keeps circles visible; labels may overlap when stacks are tall.
+const STACK_SPACING = 32;
 
 // ── Helpers ──
 
@@ -59,6 +62,12 @@ function getEventTimeKey(evt: TimelineEvent): number | null {
  * Build a shared time axis so events at the same date align vertically
  * across all lanes. Calendar events are placed on a proportional axis,
  * text-only events are interleaved by their manual order within each lane.
+ *
+ * When two or more events in the same lane share the same X position
+ * (same calendar timestamp, or same manual slot), their Y values are
+ * fanned around the lane center using `STACK_SPACING` so they don't
+ * overlap. Within a stack, events are ordered top→bottom by their
+ * `order` field (ascending).
  */
 function buildEventPositions(
   timelines: Timeline[],
@@ -77,54 +86,82 @@ function buildEventPositions(
   const sortedTimestamps = [...allTimestamps].sort((a, b) => a - b);
   const hasCalendar = sortedTimestamps.length > 0;
 
+  // 2. Compute X for every event up-front (so we can detect stacks before
+  //    assigning Y). We don't write to `map` yet — Y depends on stack data.
+  const xByEvent = new Map<string, number>();
+  let maxX = START_X;
+
   if (!hasCalendar) {
-    // Pure manual mode — evenly spaced per lane
-    let maxX = START_X;
-    timelines.forEach((tl, laneIdx) => {
+    // Pure manual mode — evenly spaced per lane by order
+    timelines.forEach((tl) => {
       const laneEvents = getEventsForTimeline(events, tl.id);
-      const y = getLaneY(laneIdx);
       laneEvents.forEach((evt, evtIdx) => {
         const x = START_X + evtIdx * EVENT_SPACING;
-        map.set(evt.id, { x, y, laneIdx, evtIdx });
+        xByEvent.set(evt.id, x);
         maxX = Math.max(maxX, x);
       });
     });
-    return { positions: map, totalWidth: maxX + EVENT_SPACING };
+  } else {
+    // Build slot index: each unique timestamp gets one slot
+    const slotMap = new Map<number, number>();
+    sortedTimestamps.forEach((ts, i) => slotMap.set(ts, i));
+    const totalSlots = sortedTimestamps.length;
+
+    timelines.forEach((tl) => {
+      const laneEvents = getEventsForTimeline(events, tl.id);
+      let textCounter = 0;
+      laneEvents.forEach((evt) => {
+        const ts = getEventTimeKey(evt);
+        let x: number;
+        if (ts !== null) {
+          // Calendar event → align to shared slot
+          x = START_X + slotMap.get(ts)! * EVENT_SPACING;
+        } else {
+          // Text event → place after all calendar slots + its own offset
+          x = START_X + totalSlots * EVENT_SPACING + textCounter * EVENT_SPACING;
+          textCounter++;
+        }
+        xByEvent.set(evt.id, x);
+        maxX = Math.max(maxX, x);
+      });
+    });
   }
 
-  // 2. Build a slot index: each unique timestamp gets a slot position
-  //    Slots are evenly spaced along the X axis.
-  const slotMap = new Map<number, number>(); // timestamp → slot index
-  sortedTimestamps.forEach((ts, i) => slotMap.set(ts, i));
-  const totalSlots = sortedTimestamps.length;
+  // 3. Group events that share the same (timelineId, x) — these are stacks.
+  //    Sort each stack by `order` ascending so the rendered top-to-bottom
+  //    sequence matches the user's manual ordering.
+  const stacks = new Map<string, TimelineEvent[]>();
+  const stackKey = (tlId: string, x: number) => `${tlId}:${x}`;
+  events.forEach(evt => {
+    const x = xByEvent.get(evt.id);
+    if (x === undefined) return;
+    const key = stackKey(evt.timelineId, x);
+    const arr = stacks.get(key);
+    if (arr) {
+      arr.push(evt);
+    } else {
+      stacks.set(key, [evt]);
+    }
+  });
+  stacks.forEach(arr => arr.sort((a, b) => a.order - b.order));
 
-  // 3. For each lane, place events:
-  //    - Calendar events → placed at their slot's X position
-  //    - Text events → placed in gaps between calendar events or at the end
-  let maxX = START_X;
-
+  // 4. Assign Y per event: lane center + fan offset within its stack.
+  //    For a stack of n events, the kth (0-indexed) sits at
+  //    centerY + (k - (n-1)/2) * STACK_SPACING.
   timelines.forEach((tl, laneIdx) => {
     const laneEvents = getEventsForTimeline(events, tl.id);
-    const y = getLaneY(laneIdx);
-
-    // Separate calendar and text events while preserving order
-    let textCounter = 0;
+    const centerY = getLaneY(laneIdx);
     laneEvents.forEach((evt, evtIdx) => {
-      const ts = getEventTimeKey(evt);
-      let x: number;
-
-      if (ts !== null) {
-        // Calendar event → align to shared slot
-        const slot = slotMap.get(ts)!;
-        x = START_X + slot * EVENT_SPACING;
-      } else {
-        // Text event → place after all calendar slots + its own offset
-        x = START_X + totalSlots * EVENT_SPACING + textCounter * EVENT_SPACING;
-        textCounter++;
+      const x = xByEvent.get(evt.id);
+      if (x === undefined) return;
+      const stack = stacks.get(stackKey(tl.id, x)) ?? [evt];
+      const n = stack.length;
+      let y = centerY;
+      if (n > 1) {
+        const idxInStack = stack.findIndex(e => e.id === evt.id);
+        y = centerY + (idxInStack - (n - 1) / 2) * STACK_SPACING;
       }
-
       map.set(evt.id, { x, y, laneIdx, evtIdx });
-      maxX = Math.max(maxX, x);
     });
   });
 

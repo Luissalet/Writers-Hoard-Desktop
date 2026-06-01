@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import Modal from '@/components/common/Modal';
 import type { StoryboardConnector } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
+import { ConfirmDialog } from '@/engines/_shared';
 
 interface ConnectorEditorProps {
   isOpen: boolean;
@@ -41,6 +42,7 @@ export default function ConnectorEditor({
   const [formData, setFormData] = useState<Partial<StoryboardConnector>>(
     connector || { type: 'arrow', label: '', symbol: '' }
   );
+  const [pendingDelete, setPendingDelete] = useState(false);
 
   useEffect(() => {
     if (connector) {
@@ -118,12 +120,7 @@ export default function ConnectorEditor({
         <div className="flex gap-3 pt-4 border-t border-border">
           {connector && onDelete && (
             <button
-              onClick={() => {
-                if (confirm(t('storyboard.connector.deleteConfirm'))) {
-                  onDelete(connector.id);
-                  onClose();
-                }
-              }}
+              onClick={() => setPendingDelete(true)}
               className="px-4 py-2 bg-red-600/10 border border-red-600 text-red-600 rounded-lg hover:bg-red-600/20 transition font-semibold text-sm"
             >
               {t('common.delete')}
@@ -145,6 +142,20 @@ export default function ConnectorEditor({
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete}
+        destructive
+        message={t('storyboard.connector.deleteConfirm')}
+        onConfirm={() => {
+          setPendingDelete(false);
+          if (connector && onDelete) {
+            onDelete(connector.id);
+            onClose();
+          }
+        }}
+        onCancel={() => setPendingDelete(false)}
+      />
     </Modal>
   );
 }

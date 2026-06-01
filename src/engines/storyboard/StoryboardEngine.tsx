@@ -8,7 +8,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import NewItemForm from '@/engines/_shared/components/NewItemForm';
-import { useAutoSelect, useEnsureDefault } from '@/engines/_shared';
+import { useAutoSelect, useEnsureDefault, ConfirmDialog } from '@/engines/_shared';
 import { useStoryboards, useStoryboardPanels, useStoryboardConnectors } from './hooks';
 import { generateId } from '@/utils/idGenerator';
 import StoryboardView from './components/StoryboardView';
@@ -19,6 +19,7 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
   const [activeStoryboardId, setActiveStoryboardId] = useState<string>('');
   const [showNewStoryboard, setShowNewStoryboard] = useState(false);
   const [newStoryboardName, setNewStoryboardName] = useState('');
+  const [pendingDeleteStoryboardId, setPendingDeleteStoryboardId] = useState<string | null>(null);
 
   const { items: panels, addItem: addPanel, editItem: updatePanel, removeItem: deletePanel, reorder: reorderPanels } = useStoryboardPanels(activeStoryboardId);
   const { items: connectors, addItem: addConnector, editItem: updateConnector, removeItem: deleteConnector } = useStoryboardConnectors(activeStoryboardId);
@@ -60,10 +61,10 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
     setShowNewStoryboard(false);
   };
 
-  const handleDeleteStoryboard = async (storyboardId: string) => {
-    if (!confirm(t('storyboard.deleteConfirm').replace('{name}', storyboards.find(s => s.id === storyboardId)?.title || 'Unnamed'))) {
-      return;
-    }
+  const confirmDeleteStoryboard = async () => {
+    if (!pendingDeleteStoryboardId) return;
+    const storyboardId = pendingDeleteStoryboardId;
+    setPendingDeleteStoryboardId(null);
     await deleteStoryboard(storyboardId);
     if (activeStoryboardId === storyboardId) {
       const remaining = storyboards.filter(s => s.id !== storyboardId);
@@ -144,7 +145,7 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDeleteStoryboard(sb.id);
+                    setPendingDeleteStoryboardId(sb.id);
                   }}
                   className="p-1 text-red-600 hover:text-red-700 transition opacity-0 hover:opacity-100"
                   title={t('storyboard.deleteStoryboard')}
@@ -156,6 +157,21 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
           ))}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteStoryboardId !== null}
+        destructive
+        message={
+          pendingDeleteStoryboardId
+            ? t('storyboard.deleteConfirm').replace(
+                '{name}',
+                storyboards.find((s) => s.id === pendingDeleteStoryboardId)?.title || 'Unnamed',
+              )
+            : ''
+        }
+        onConfirm={confirmDeleteStoryboard}
+        onCancel={() => setPendingDeleteStoryboardId(null)}
+      />
     </div>
   );
 }

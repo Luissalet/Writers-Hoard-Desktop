@@ -78,6 +78,7 @@ const es = {
   // ── Sidebar ──
   'sidebar.brand': "Writer's Hoard",
   'sidebar.home': 'Inicio',
+  'sidebar.mediaDownloader': 'Descargar medios',
   'sidebar.project': 'Proyecto',
   'sidebar.writings': 'Escritos',
   'sidebar.codex': 'Códex',
@@ -97,6 +98,7 @@ const es = {
 
   // ── Common ──
   'common.cancel': 'Cancelar',
+  'common.confirm': 'Confirmar',
   'common.save': 'Guardar Cambios',
   'common.create': 'Crear',
   'common.edit': 'Editar',
@@ -636,6 +638,7 @@ const es = {
   'biography.subjectNamePlaceholder': 'Nombre del sujeto...',
   'biography.editFact': 'Editar hecho',
   'biography.deleteFact': 'Eliminar hecho',
+  'biography.fact.deleteConfirm': '¿Eliminar este hecho? Esta acción no se puede deshacer.',
   'biography.copyToClipboard': 'Copiar al portapapeles',
   'biography.downloadText': 'Descargar como archivo de texto',
   'biography.labelPlaceholder': 'ej. Nacido en Londres',
@@ -650,6 +653,7 @@ const es = {
   'brainstorm.newBoard': 'Nuevo Tablero',
   'brainstorm.noBoards': 'Aún no hay tableros. Crea uno para empezar.',
   'brainstorm.deleteConfirm': '¿Eliminar "{name}"? Esta acción no se puede deshacer.',
+  'brainstorm.deleteItemConfirm': '¿Seguro que quieres eliminar este elemento?',
   'brainstorm.deleteBoard': 'Eliminar tablero',
   'brainstorm.title': 'Lluvia de Ideas',
   'brainstorm.boardNamePlaceholder': 'Nombre del tablero...',
@@ -677,6 +681,7 @@ const es = {
   'diary.noResults': 'Ninguna entrada coincide con tu búsqueda.',
   'diary.editEntry': 'Editar entrada',
   'diary.deleteEntry': 'Eliminar entrada',
+  'diary.deleteConfirm': '¿Eliminar esta entrada permanentemente?',
   'diary.saveEntryShort': 'Guardar entrada (Ctrl+Enter)',
   'diary.setToNow': 'Usar la hora actual',
   'diary.quickEntryPlaceholder': '¿Qué tienes en mente? Escribe una entrada rápida...',
@@ -743,6 +748,7 @@ const es = {
   // ── Video Planner Engine ──
   'videoPlanner.title': 'Planes de Video',
   'videoPlanner.newPlan': 'Nuevo Plan',
+  'videoPlanner.deleteConfirm': '¿Eliminar este plan de video? Esta acción no se puede deshacer.',
   'videoPlanner.titlePlaceholder': 'Introduce el título del plan...',
   'videoPlanner.noPlans': 'Aún no hay planes de video.',
   'videoPlanner.createFirst': 'Crea Tu Primer Plan',
@@ -802,6 +808,30 @@ const es = {
   'scrapper.date': 'Fecha',
   'scrapper.captured': 'Capturado',
   'scrapper.status': 'Estado',
+
+  // ── Media Downloader (página independiente) ──
+  'mediaDownloader.title': 'Descargar medios',
+  'mediaDownloader.subtitle': 'Descarga vídeo o audio de YouTube, X, Instagram y Audiomack',
+  'mediaDownloader.chooseFolder': 'Elegir carpeta de descargas…',
+  'mediaDownloader.changeFolder': 'Cambiar carpeta…',
+  'mediaDownloader.currentFolder': 'Carpeta de descargas',
+  'mediaDownloader.noFolder': 'Sin carpeta seleccionada',
+  'mediaDownloader.format.video': 'Vídeo',
+  'mediaDownloader.format.audio': 'Audio',
+  'mediaDownloader.download': 'Descargar',
+  'mediaDownloader.downloading': 'Descargando…',
+  'mediaDownloader.serverOffline': 'El servidor local de descargas está apagado',
+  'mediaDownloader.serverOfflineHint': 'Abre la carpeta Universal Video Downloader en una terminal y ejecuta "python server.py", luego pulsa Reintentar.',
+  'mediaDownloader.retry': 'Reintentar',
+  'mediaDownloader.unsupportedBrowser': 'Tu navegador no soporta descargas a carpeta',
+  'mediaDownloader.unsupportedBrowserHint': 'Usa una versión reciente de Chrome, Edge u otro navegador Chromium. Firefox y Safari no exponen la File System Access API.',
+  'mediaDownloader.unsupportedUrl': 'Esta URL no está soportada',
+  'mediaDownloader.downloadComplete': 'Descarga completa',
+  'mediaDownloader.downloadFailed': 'Descarga fallida',
+  'mediaDownloader.sessionDownloads': 'Descargas de esta sesión',
+  'mediaDownloader.noDownloads': 'Aún no hay descargas',
+  'mediaDownloader.noDownloadsHint': 'Elige una carpeta arriba, pega una URL de YouTube / X / Instagram / Audiomack y el archivo se guardará ahí.',
+  'mediaDownloader.permissionDenied': 'Acceso a la carpeta denegado — pulsa Cambiar carpeta para reautorizar',
 
   // ── Character Arc Engine ──
   'characterArc.title': 'Arcos de personaje',

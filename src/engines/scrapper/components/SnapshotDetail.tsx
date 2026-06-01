@@ -8,6 +8,7 @@ import type { Snapshot } from '../types';
 import TagInput from '@/components/common/TagInput';
 import { extractYouTubeId } from '../services/urlDetector';
 import { useTranslation } from '@/i18n/useTranslation';
+import { ConfirmDialog } from '@/engines/_shared';
 
 interface SnapshotDetailProps {
   snapshot: Snapshot;
@@ -25,6 +26,7 @@ export default function SnapshotDetail({
   const { t } = useTranslation();
   const [notes, setNotes] = useState(snapshot.notes);
   const [tags, setTags] = useState(snapshot.tags);
+  const [pendingDelete, setPendingDelete] = useState(false);
 
   const handleNotesBlur = useCallback(() => {
     if (notes !== snapshot.notes) {
@@ -38,10 +40,13 @@ export default function SnapshotDetail({
   }, [snapshot.id, onUpdate]);
 
   const handleDelete = useCallback(() => {
-    if (confirm(t('scrapper.deleteConfirm'))) {
-      onDelete(snapshot.id);
-      onClose();
-    }
+    setPendingDelete(true);
+  }, []);
+
+  const confirmDelete = useCallback(() => {
+    setPendingDelete(false);
+    onDelete(snapshot.id);
+    onClose();
   }, [snapshot.id, onDelete, onClose]);
 
   const youtubeId = snapshot.source === 'youtube' ? extractYouTubeId(snapshot.url) : null;
@@ -205,6 +210,14 @@ export default function SnapshotDetail({
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete}
+        destructive
+        message={t('scrapper.deleteConfirm')}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(false)}
+      />
     </div>
   );
 }

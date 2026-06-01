@@ -8,7 +8,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import NewItemForm from '@/engines/_shared/components/NewItemForm';
-import { useAutoSelect, useEnsureDefault } from '@/engines/_shared';
+import { useAutoSelect, useEnsureDefault, ConfirmDialog } from '@/engines/_shared';
 import { useBrainstormBoards, useBrainstormData } from '../hooks';
 import BrainstormCanvas from './BrainstormCanvas';
 import { generateId } from '@/utils/idGenerator';
@@ -19,6 +19,7 @@ export default function BrainstormEngine({ projectId }: EngineComponentProps) {
   const [activeBoardId, setActiveBoardId] = useState<string>('');
   const [showNewBoard, setShowNewBoard] = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
+  const [pendingDeleteBoardId, setPendingDeleteBoardId] = useState<string | null>(null);
   const {
     items,
     connections,
@@ -134,9 +135,7 @@ export default function BrainstormEngine({ projectId }: EngineComponentProps) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (confirm(t('brainstorm.deleteConfirm').replace('{name}', board.title))) {
-                        deleteBoard(board.id);
-                      }
+                      setPendingDeleteBoardId(board.id);
                     }}
                     className="absolute top-1 right-1 p-1 rounded text-text-muted hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition"
                   >
@@ -148,6 +147,26 @@ export default function BrainstormEngine({ projectId }: EngineComponentProps) {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteBoardId !== null}
+        destructive
+        message={
+          pendingDeleteBoardId
+            ? t('brainstorm.deleteConfirm').replace(
+                '{name}',
+                boards.find((b) => b.id === pendingDeleteBoardId)?.title ?? '',
+              )
+            : ''
+        }
+        onConfirm={async () => {
+          if (!pendingDeleteBoardId) return;
+          const id = pendingDeleteBoardId;
+          setPendingDeleteBoardId(null);
+          await deleteBoard(id);
+        }}
+        onCancel={() => setPendingDeleteBoardId(null)}
+      />
     </div>
   );
 }

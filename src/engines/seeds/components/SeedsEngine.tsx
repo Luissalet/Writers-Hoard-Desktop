@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Sprout, Plus, Trash2, Target, ArrowRight, ArrowLeft } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { EngineSpinner } from '@/engines/_shared';
+import { EngineSpinner, ConfirmDialog } from '@/engines/_shared';
 import { useSeeds, usePayoffs, useAllPayoffs } from '../hooks';
 import type { Seed, Payoff, SeedKind, SeedStatus } from '../types';
 import { SEED_KIND_CONFIG, SEED_STATUS_CONFIG, computeSeedStatus } from '../types';
@@ -22,6 +22,7 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
   const [showNew, setShowNew] = useState(false);
   const [filterKind, setFilterKind] = useState<SeedKind | ''>('');
   const [filterStatus, setFilterStatus] = useState<SeedStatus | ''>('');
+  const [pendingDeleteSeedId, setPendingDeleteSeedId] = useState<string | null>(null);
 
   const payoffsBySeed = useMemo(() => {
     const map = new Map<string, Payoff[]>();
@@ -142,16 +143,25 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
               seed={seed}
               payoffs={payoffsBySeed.get(seed.id) ?? []}
               onOpen={() => setActiveSeedId(seed.id)}
-              onDelete={async () => {
-                if (confirm(t('seeds.confirmDelete'))) {
-                  await removeSeed(seed.id);
-                  await refreshAllPayoffs();
-                }
-              }}
+              onDelete={() => setPendingDeleteSeedId(seed.id)}
             />
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteSeedId !== null}
+        destructive
+        message={t('seeds.confirmDelete')}
+        onConfirm={async () => {
+          if (!pendingDeleteSeedId) return;
+          const id = pendingDeleteSeedId;
+          setPendingDeleteSeedId(null);
+          await removeSeed(id);
+          await refreshAllPayoffs();
+        }}
+        onCancel={() => setPendingDeleteSeedId(null)}
+      />
     </div>
   );
 }
@@ -182,7 +192,7 @@ function SeedCard({
   seed: Seed;
   payoffs: Payoff[];
   onOpen: () => void;
-  onDelete: () => Promise<void>;
+  onDelete: () => void;
 }) {
   const { t } = useTranslation();
   const status = computeSeedStatus(seed, payoffs);
@@ -322,6 +332,8 @@ function SeedDetail({
   const { t } = useTranslation();
   const { items: payoffs, addItem: addPayoff, editItem: editPayoff, removeItem: removePayoff } = usePayoffs(seed.id);
   const kindCfg = SEED_KIND_CONFIG[seed.kind];
+  const [pendingDeleteSeed, setPendingDeleteSeed] = useState(false);
+  const [pendingDeletePayoffId, setPendingDeletePayoffId] = useState<string | null>(null);
   // Text-range anchoring for the description — selection in the textarea
   // stages a pendingAnchor which AnnotationSurface consumes to open the
   // composer pre-seeded with that range.
@@ -378,9 +390,7 @@ function SeedDetail({
           </div>
         </div>
         <button
-          onClick={async () => {
-            if (confirm(t('seeds.confirmDelete'))) await onDelete();
-          }}
+          onClick={() => setPendingDeleteSeed(true)}
           className="p-1.5 rounded-lg text-text-dim hover:text-danger hover:bg-danger/10 transition"
           title={t('common.delete')}
         >
@@ -479,12 +489,7 @@ function SeedDetail({
                   await editPayoff(p.id, changes);
                   await onPayoffsChanged();
                 }}
-                onDelete={async () => {
-                  if (confirm(t('seeds.payoff.confirmDelete'))) {
-                    await removePayoff(p.id);
-                    await onPayoffsChanged();
-                  }
-                }}
+                onDelete={() => setPendingDeletePayoffId(p.id)}
               />
             ))}
           </div>
@@ -503,6 +508,31 @@ function SeedDetail({
           onPendingAnchorConsumed={consumePendingAnchor}
         />
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteSeed}
+        destructive
+        message={t('seeds.confirmDelete')}
+        onConfirm={async () => {
+          setPendingDeleteSeed(false);
+          await onDelete();
+        }}
+        onCancel={() => setPendingDeleteSeed(false)}
+      />
+
+      <ConfirmDialog
+        open={pendingDeletePayoffId !== null}
+        destructive
+        message={t('seeds.payoff.confirmDelete')}
+        onConfirm={async () => {
+          if (!pendingDeletePayoffId) return;
+          const id = pendingDeletePayoffId;
+          setPendingDeletePayoffId(null);
+          await removePayoff(id);
+          await onPayoffsChanged();
+        }}
+        onCancel={() => setPendingDeletePayoffId(null)}
+      />
     </div>
   );
 }
@@ -518,7 +548,7 @@ function PayoffCard({
 }: {
   payoff: Payoff;
   onUpdate: (changes: Partial<Payoff>) => Promise<void>;
-  onDelete: () => Promise<void>;
+  onDelete: () => void;
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
