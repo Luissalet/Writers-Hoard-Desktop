@@ -1,5 +1,16 @@
 # Lessons Learned
 
+## 12. Never use `window.confirm()` for destructive actions
+**Date:** 2026-05-26
+**Context:** A user left a Timeline tab open, closed the laptop, walked away. On resume, the deletion-confirmation popup flashed for a fraction of a second and the timeline was deleted instantly. Root cause: `CollectionDashboard.tsx` gated deletion with native `window.confirm()`. When a tab is suspended (laptop closed, OS sleep, Page Lifecycle `frozen`) while a native dialog is up or a click is buffered for one, the browser/OS may auto-dismiss it on resume — and on some browser/OS combinations the dismissed dialog resolves as `true`. Native dialogs are also opaque to React state.
+**Rule:** Never use `window.confirm()`, `window.alert()`, or `window.prompt()` for destructive or irreversible actions. Always use the React-owned `ConfirmDialog` (`@/engines/_shared` → `ConfirmDialog`): it requires an explicit click on the confirm button, default-focuses Cancel (so an accidental Enter cancels), maps Escape/backdrop/X to Cancel, and has a `destructive` variant for the danger styling. Senior-engineer rule of thumb: a destructive action should require an explicit, React-owned, focus-managed click that cannot be triggered by the OS or browser life-cycle.
+**Status:** Fully migrated. All 23 previously-flagged native `confirm()` call sites across 17 files have been replaced with `ConfirmDialog`. Four hardcoded-English confirm strings were promoted to locale keys in the same pass (`biography.fact.deleteConfirm`, `brainstorm.deleteItemConfirm`, `diary.deleteConfirm`, `videoPlanner.deleteConfirm`). An ESLint `no-restricted-globals` rule in `eslint.config.js` now blocks native `confirm` / `alert` / `prompt` so this can't regress.
+
+## 13. The Linux sandbox `bash` mount can go stale mid-session
+**Date:** 2026-05-26
+**Context:** While doing a large multi-file migration via a subagent, the Linux `bindfs` mount at `/sessions/.../mnt/Writers hoard/` stopped reflecting writes from the file tools. `bash`/`tsc`/`wc -l` saw a snapshot frozen at an old modify time (2026-04-18 in this case) while the Read/Write/Edit tools continued to see the actual Windows files. This produced a flood of phantom "JSX element has no corresponding closing tag" tsc errors against files that were actually well-formed on disk.
+**Rule:** If `tsc` errors look like JSX-truncation across many unrelated files, do NOT panic-revert. First confirm the bash view matches the Read-tool view by `stat`-ing one of the files and comparing the modify time against the file's actual most recent edit. If bash sees an older modify time than expected, the mount is stale and tsc is reading lies. In that case, do not trust sandbox-side typecheck for that session; verify file contents via the Read tool and ask the user to typecheck from Windows. Reverting to "fix" tsc errors against a stale mount would destroy correctly-migrated code.
+
 ## 1. Always run `npx tsc -b --noEmit` before declaring work complete
 **Date:** 2026-04-16
 **Context:** Delivered code changes without checking TypeScript compilation. User caught two TS errors.

@@ -7,6 +7,7 @@ import type { VideoPlan } from '../types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import { useVideoPlans, useVideoSegments } from '../hooks';
 import VideoPlanView from './VideoPlanView';
+import { ConfirmDialog } from '@/engines/_shared';
 
 interface VideoPlannerEngineProps {
   projectId: string;
@@ -18,6 +19,7 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
   const [activePlanId, setActivePlanId] = useState<string | null>(null);
   const [showNewPlanForm, setShowNewPlanForm] = useState(false);
   const [newPlanTitle, setNewPlanTitle] = useState('');
+  const [pendingDeletePlanId, setPendingDeletePlanId] = useState<string | null>(null);
 
   const activePlan = plans.find(p => p.id === activePlanId);
   const { items: segments, addItem: addSegment, editItem: editSegment, removeItem: removeSegment, reorder } = useVideoSegments(
@@ -45,12 +47,13 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
     setActivePlanId(planId);
   };
 
-  const handleDeletePlan = async (planId: string) => {
-    if (confirm('Delete this video plan? This cannot be undone.')) {
-      await removePlan(planId);
-      if (activePlanId === planId) {
-        setActivePlanId(plans.find(p => p.id !== planId)?.id || null);
-      }
+  const confirmDeletePlan = async () => {
+    if (!pendingDeletePlanId) return;
+    const planId = pendingDeletePlanId;
+    setPendingDeletePlanId(null);
+    await removePlan(planId);
+    if (activePlanId === planId) {
+      setActivePlanId(plans.find(p => p.id !== planId)?.id || null);
     }
   };
 
@@ -153,7 +156,7 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleDeletePlan(plan.id);
+                      setPendingDeletePlanId(plan.id);
                     }}
                     className="px-2 py-1 rounded text-xs text-red-400 hover:bg-red-400/10 transition-colors"
                   >
@@ -179,6 +182,14 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
           />
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDeletePlanId !== null}
+        destructive
+        message={t('videoPlanner.deleteConfirm')}
+        onConfirm={confirmDeletePlan}
+        onCancel={() => setPendingDeletePlanId(null)}
+      />
     </div>
   );
 }

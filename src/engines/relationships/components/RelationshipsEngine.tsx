@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Network, Plus, Trash2, X, LayoutGrid, List } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { EngineSpinner } from '@/engines/_shared';
+import { EngineSpinner, ConfirmDialog } from '@/engines/_shared';
 import { useRelationships } from '../hooks';
 import type { Relationship, RelationshipKind } from '../types';
 import { RELATIONSHIP_KIND_CONFIG, RELATIONSHIP_STATE_CONFIG, intensityColor } from '../types';
@@ -23,6 +23,7 @@ export default function RelationshipsEngine({ projectId }: EngineComponentProps)
   const [viewMode, setViewMode] = useState<ViewMode>('matrix');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [pendingDeleteRelId, setPendingDeleteRelId] = useState<string | null>(null);
 
   const characters = useMemo(
     () => codexEntries.filter((e) => e.type === 'character'),
@@ -134,11 +135,22 @@ export default function RelationshipsEngine({ projectId }: EngineComponentProps)
         <ListView
           relationships={relationships}
           onEdit={(r) => setEditingId(r.id)}
-          onDelete={async (id) => {
-            if (confirm(t('relationships.confirmDelete'))) await removeRel(id);
-          }}
+          onDelete={(id) => setPendingDeleteRelId(id)}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteRelId !== null}
+        destructive
+        message={t('relationships.confirmDelete')}
+        onConfirm={async () => {
+          if (!pendingDeleteRelId) return;
+          const id = pendingDeleteRelId;
+          setPendingDeleteRelId(null);
+          await removeRel(id);
+        }}
+        onCancel={() => setPendingDeleteRelId(null)}
+      />
     </div>
   );
 }
@@ -421,6 +433,7 @@ function RelationshipEditor({
 }) {
   const { t } = useTranslation();
   const cfg = RELATIONSHIP_KIND_CONFIG[r.kind];
+  const [pendingDelete, setPendingDelete] = useState(false);
 
   const handleField = <K extends keyof Relationship>(key: K) => (value: Relationship[K]) => {
     onSave({ [key]: value, updatedAt: Date.now() } as Partial<Relationship>);
@@ -532,9 +545,7 @@ function RelationshipEditor({
         </div>
         <div className="flex items-center justify-between p-4 border-t border-border">
           <button
-            onClick={async () => {
-              if (confirm(t('relationships.confirmDelete'))) await onDelete();
-            }}
+            onClick={() => setPendingDelete(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-danger hover:bg-danger/10 rounded-lg transition"
           >
             <Trash2 size={12} />
@@ -545,6 +556,17 @@ function RelationshipEditor({
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete}
+        destructive
+        message={t('relationships.confirmDelete')}
+        onConfirm={async () => {
+          setPendingDelete(false);
+          await onDelete();
+        }}
+        onCancel={() => setPendingDelete(false)}
+      />
     </div>
   );
 }

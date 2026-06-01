@@ -28,6 +28,7 @@ export default function Sidebar() {
   const engines = getEnginesByIds(engineIds);
 
   const isHome = location.pathname === '/';
+  const isMediaDownloader = location.pathname === '/media-downloader';
   const activeTab = tab || (engines.length > 0 ? engines[0].id : '');
 
   const handleExport = async () => {
@@ -84,6 +85,22 @@ export default function Sidebar() {
         >
           <Home size={18} className="flex-shrink-0" />
           {sidebarOpen && <span className="whitespace-nowrap">{t('sidebar.home')}</span>}
+        </button>
+
+        {/* Media Downloader — global, no project required */}
+        <button
+          onClick={() => navigate('/media-downloader')}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
+            isMediaDownloader
+              ? 'bg-accent-gold/15 text-accent-gold'
+              : 'text-text-muted hover:text-text-primary hover:bg-elevated'
+          }`}
+          title={t('sidebar.mediaDownloader')}
+        >
+          <Download size={18} className="flex-shrink-0" />
+          {sidebarOpen && (
+            <span className="whitespace-nowrap">{t('sidebar.mediaDownloader')}</span>
+          )}
         </button>
 
         {/* Dynamic engine list — only when inside a project */}

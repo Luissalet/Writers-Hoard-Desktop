@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { ArrowRight, Scissors, Edit2, Trash2 } from 'lucide-react';
 import type { StoryboardConnector } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
+import { ConfirmDialog } from '@/engines/_shared';
 
 interface ConnectorBadgeProps {
   connector: StoryboardConnector | null;
@@ -33,6 +34,7 @@ export default function ConnectorBadge({
 }: ConnectorBadgeProps) {
   const { t } = useTranslation();
   const [isHovering, setIsHovering] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(false);
 
   if (!connector) {
     return (
@@ -70,9 +72,7 @@ export default function ConnectorBadge({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            if (confirm(t('storyboard.deleteConnector') + '?')) {
-              onDelete();
-            }
+            setPendingDelete(true);
           }}
           className="ml-1 p-1 text-red-600 hover:text-red-700 transition opacity-0 group-hover:opacity-100"
           title={t('storyboard.deleteConnector')}
@@ -80,6 +80,17 @@ export default function ConnectorBadge({
           <Trash2 size={14} />
         </button>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete}
+        destructive
+        message={t('storyboard.deleteConnector') + '?'}
+        onConfirm={() => {
+          setPendingDelete(false);
+          onDelete();
+        }}
+        onCancel={() => setPendingDelete(false)}
+      />
     </div>
   );
 }

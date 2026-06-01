@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { TrendingUp, Plus, Trash2, ArrowLeft, ChevronDown, ChevronRight, Sparkles, GripVertical } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { EngineSpinner } from '@/engines/_shared';
+import { EngineSpinner, ConfirmDialog } from '@/engines/_shared';
 import { useCharacterArcs, useArcBeats } from '../hooks';
 import type { CharacterArc, ArcBeat, ArcTemplateId, ArcBeatStage, ArcStatus } from '../types';
 import { ARC_TEMPLATES, ARC_STAGE_CONFIG, ARC_STATUS_CONFIG } from '../types';
@@ -19,6 +19,7 @@ export default function CharacterArcEngine({ projectId }: EngineComponentProps) 
     useCharacterArcs(projectId);
   const [activeArcId, setActiveArcId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [pendingDeleteArcId, setPendingDeleteArcId] = useState<string | null>(null);
 
   if (loading) return <EngineSpinner />;
 
@@ -83,13 +84,24 @@ export default function CharacterArcEngine({ projectId }: EngineComponentProps) 
               key={arc.id}
               arc={arc}
               onOpen={() => setActiveArcId(arc.id)}
-              onDelete={async () => {
-                if (confirm(t('characterArc.confirmDelete'))) await removeArc(arc.id);
-              }}
+              onDelete={() => setPendingDeleteArcId(arc.id)}
             />
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteArcId !== null}
+        destructive
+        message={t('characterArc.confirmDelete')}
+        onConfirm={async () => {
+          if (!pendingDeleteArcId) return;
+          const id = pendingDeleteArcId;
+          setPendingDeleteArcId(null);
+          await removeArc(id);
+        }}
+        onCancel={() => setPendingDeleteArcId(null)}
+      />
     </div>
   );
 }
@@ -271,6 +283,7 @@ function ArcEditor({
   const { t } = useTranslation();
   const { items: beats, addItem: addBeat, editItem: editBeat, removeItem: removeBeat } = useArcBeats(arc.id);
   const [corePanelOpen, setCorePanelOpen] = useState(true);
+  const [pendingDeleteArc, setPendingDeleteArc] = useState(false);
 
   const handleField = (key: keyof CharacterArc) => (value: string) => {
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<CharacterArc>);
@@ -343,9 +356,7 @@ function ArcEditor({
             ))}
           </select>
           <button
-            onClick={async () => {
-              if (confirm(t('characterArc.confirmDelete'))) await onDelete();
-            }}
+            onClick={() => setPendingDeleteArc(true)}
             className="p-1.5 rounded-lg text-text-dim hover:text-danger hover:bg-danger/10 transition"
             title={t('common.delete')}
           >
@@ -423,6 +434,17 @@ function ArcEditor({
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteArc}
+        destructive
+        message={t('characterArc.confirmDelete')}
+        onConfirm={async () => {
+          setPendingDeleteArc(false);
+          await onDelete();
+        }}
+        onCancel={() => setPendingDeleteArc(false)}
+      />
     </div>
   );
 }
@@ -474,6 +496,7 @@ function BeatRow({
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(false);
 
   const handleField = (key: keyof ArcBeat) => (value: string) => {
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<ArcBeat>);
@@ -504,9 +527,7 @@ function BeatRow({
           ))}
         </select>
         <button
-          onClick={async () => {
-            if (confirm(t('characterArc.beat.confirmDelete'))) await onDelete();
-          }}
+          onClick={() => setPendingDelete(true)}
           className="p-1 rounded text-text-dim opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/10 transition"
           title={t('common.delete')}
         >
@@ -541,6 +562,17 @@ function BeatRow({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete}
+        destructive
+        message={t('characterArc.beat.confirmDelete')}
+        onConfirm={async () => {
+          setPendingDelete(false);
+          await onDelete();
+        }}
+        onCancel={() => setPendingDelete(false)}
+      />
     </div>
   );
 }

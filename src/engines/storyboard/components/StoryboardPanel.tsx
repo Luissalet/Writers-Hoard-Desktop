@@ -6,6 +6,7 @@ import { useState, useRef } from 'react';
 import { Camera, Edit2, Trash2 } from 'lucide-react';
 import type { StoryboardPanel as StoryboardPanelType } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
+import { ConfirmDialog } from '@/engines/_shared';
 
 interface StoryboardPanelProps {
   panel: StoryboardPanelType;
@@ -28,6 +29,7 @@ export default function StoryboardPanel({
   const [isHovering, setIsHovering] = useState(false);
   const [isEditingSubtitle, setIsEditingSubtitle] = useState(false);
   const [subtitleText, setSubtitleText] = useState(panel.subtitle);
+  const [pendingDelete, setPendingDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const getAspectRatioClass = () => {
@@ -102,9 +104,7 @@ export default function StoryboardPanel({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                if (confirm(t('storyboard.deletePanelConfirm'))) {
-                  onDelete(panel.id);
-                }
+                setPendingDelete(true);
               }}
               className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
               title={t('storyboard.deletePanelTooltip')}
@@ -141,6 +141,17 @@ export default function StoryboardPanel({
           </p>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete}
+        destructive
+        message={t('storyboard.deletePanelConfirm')}
+        onConfirm={() => {
+          setPendingDelete(false);
+          onDelete(panel.id);
+        }}
+        onCancel={() => setPendingDelete(false)}
+      />
     </div>
   );
 }

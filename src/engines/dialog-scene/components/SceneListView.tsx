@@ -21,6 +21,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { Scene } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
+import { ConfirmDialog } from '@/engines/_shared';
 
 interface SceneListViewProps {
   scenes: Scene[];
@@ -170,6 +171,7 @@ export default function SceneListView({
   const { t } = useTranslation();
   const [showNewScene, setShowNewScene] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [pendingDeleteSceneId, setPendingDeleteSceneId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -291,15 +293,7 @@ export default function SceneListView({
                       scene={scene}
                       onSelect={() => onSelectScene(scene.id)}
                       onUpdate={(changes) => onUpdateScene(scene.id, changes)}
-                      onDelete={() => {
-                        if (
-                          confirm(
-                            t('dialogScene.deleteConfirm').replace('{name}', scene.title)
-                          )
-                        ) {
-                          onDeleteScene(scene.id);
-                        }
-                      }}
+                      onDelete={() => setPendingDeleteSceneId(scene.id)}
                     />
                   ))}
                 </AnimatePresence>
@@ -308,6 +302,26 @@ export default function SceneListView({
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteSceneId !== null}
+        destructive
+        message={
+          pendingDeleteSceneId
+            ? t('dialogScene.deleteConfirm').replace(
+                '{name}',
+                scenes.find((s) => s.id === pendingDeleteSceneId)?.title ?? '',
+              )
+            : ''
+        }
+        onConfirm={() => {
+          if (!pendingDeleteSceneId) return;
+          const id = pendingDeleteSceneId;
+          setPendingDeleteSceneId(null);
+          onDeleteScene(id);
+        }}
+        onCancel={() => setPendingDeleteSceneId(null)}
+      />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import { useTranslation } from '@/i18n/useTranslation';
 import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from '@/components/codex/codexTypeMeta';
 import GalleryLightbox from './GalleryLightbox';
+import { ConfirmDialog } from '@/engines/_shared';
 
 interface InspirationGalleryProps {
   projectId: string;
@@ -46,6 +47,7 @@ export default function InspirationGallery({
   const [entrySearchQuery, setEntrySearchQuery] = useState('');
   const [showEntryPicker, setShowEntryPicker] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<string[]>([]);
+  const [pendingDeleteCollectionId, setPendingDeleteCollectionId] = useState<string | null>(null);
   const entryPickerRef = useRef<HTMLDivElement>(null);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -163,16 +165,7 @@ export default function InspirationGallery({
                 <span className="text-xs opacity-60 ml-1">({count})</span>
               </button>
               <button
-                onClick={() => {
-                  if (confirm(t('gallery.deleteAlbumConfirm').replace('{name}', col.title))) {
-                    // Move images to no collection before deleting
-                    images.filter(img => img.collectionId === col.id).forEach(img => {
-                      onEditImage(img.id, { collectionId: undefined });
-                    });
-                    onDeleteCollection(col.id);
-                    if (activeCollectionId === col.id) setActiveCollectionId(null);
-                  }
-                }}
+                onClick={() => setPendingDeleteCollectionId(col.id)}
                 className="p-1 text-text-dim opacity-0 group-hover:opacity-100 hover:text-danger transition"
                 title={t('gallery.deleteAlbum')}
               >
@@ -455,6 +448,31 @@ export default function InspirationGallery({
           onCancel={() => setPendingFiles(prev => prev.slice(1))}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteCollectionId !== null}
+        destructive
+        message={
+          pendingDeleteCollectionId
+            ? t('gallery.deleteAlbumConfirm').replace(
+                '{name}',
+                collections.find((c) => c.id === pendingDeleteCollectionId)?.title ?? '',
+              )
+            : ''
+        }
+        onConfirm={() => {
+          if (!pendingDeleteCollectionId) return;
+          const id = pendingDeleteCollectionId;
+          setPendingDeleteCollectionId(null);
+          // Move images to no collection before deleting
+          images.filter(img => img.collectionId === id).forEach(img => {
+            onEditImage(img.id, { collectionId: undefined });
+          });
+          onDeleteCollection(id);
+          if (activeCollectionId === id) setActiveCollectionId(null);
+        }}
+        onCancel={() => setPendingDeleteCollectionId(null)}
+      />
     </div>
   );
 }
