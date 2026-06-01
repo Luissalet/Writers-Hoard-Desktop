@@ -812,10 +812,6 @@ const en = {
   // ── Media Downloader (standalone page) ──
   'mediaDownloader.title': 'Media Downloader',
   'mediaDownloader.subtitle': 'Download video or audio from YouTube, X, Instagram, Audiomack',
-  'mediaDownloader.chooseFolder': 'Choose download folder…',
-  'mediaDownloader.changeFolder': 'Change folder…',
-  'mediaDownloader.currentFolder': 'Download folder',
-  'mediaDownloader.noFolder': 'No folder selected',
   'mediaDownloader.format.video': 'Video',
   'mediaDownloader.format.audio': 'Audio',
   'mediaDownloader.download': 'Download',
@@ -823,15 +819,12 @@ const en = {
   'mediaDownloader.serverOffline': 'Local downloader server is offline',
   'mediaDownloader.serverOfflineHint': 'Open the Universal Video Downloader folder in a terminal and run "python server.py", then click Retry.',
   'mediaDownloader.retry': 'Retry',
-  'mediaDownloader.unsupportedBrowser': 'Your browser does not support folder downloads',
-  'mediaDownloader.unsupportedBrowserHint': 'Use a recent version of Chrome, Edge, or another Chromium browser. Firefox and Safari do not expose the File System Access API.',
   'mediaDownloader.unsupportedUrl': 'This URL is not supported',
   'mediaDownloader.downloadComplete': 'Download complete',
   'mediaDownloader.downloadFailed': 'Download failed',
   'mediaDownloader.sessionDownloads': 'Downloads this session',
   'mediaDownloader.noDownloads': 'No downloads yet',
-  'mediaDownloader.noDownloadsHint': 'Pick a folder above, paste a YouTube / X / Instagram / Audiomack URL, and the file will be saved there.',
-  'mediaDownloader.permissionDenied': 'Folder access denied — click Change folder to re-grant',
+  'mediaDownloader.noDownloadsHint': 'Paste a YouTube / X / Instagram / Audiomack URL and the file will be saved to your Downloads folder (or wherever your browser is configured to save).',
 
   // ── Character Arc Engine ──
   'characterArc.title': 'Character Arcs',
