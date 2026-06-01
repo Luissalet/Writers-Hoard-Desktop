@@ -79,6 +79,35 @@ Make the **Scrapper** experience accessible from the global sidebar without an a
 - Auto-starting the Python server from the React app. User runs `python server.py` manually.
 - Firefox/Safari support for the save-folder UX — those browsers lack `showDirectoryPicker`. We'll degrade to per-file `showSaveFilePicker`, or fall back to `<a download>` to the browser default folder.
 
+## Status (2026-05-28, end of session): PAUSED — UI hidden
+
+The web is deployed on **GitHub Pages** (static), and the architecture I built requires the user to run a local Python server. Wrong fit for a shared/public site. Pulled the sidebar entry and the `/media-downloader` route so visitors don't hit a broken page. **All other files remain in place** for when this is resumed.
+
+### When resuming, pick one of:
+
+1. **Cobalt.tools redirect** — change the Download button to open `https://cobalt.tools/?u=<url>` in a new tab. Zero infra. ~5 min of work. Trade-off: download happens on cobalt's site, not ours.
+2. **Cobalt API client** — call `api.cobalt.tools` from the frontend; in-app UX. Risk: cobalt may require an API key / restrict CORS. May need a Cloudflare Worker proxy (free tier sufficient).
+3. **Self-hosted backend** — deploy `server.py` to Fly.io / Render / Railway. Best UX for visitors. Trade-offs: monthly cost (~$5 or free tier with cold starts), occasional YouTube IP-bans of the host, some hosting providers (Vercel) prohibit yt-dlp in TOS — Fly/Railway are OK.
+
+### To re-enable the page after picking one of the above:
+
+1. Uncomment the `MediaDownloader` import and `Route` in `src/App.tsx`.
+2. Restore the sidebar entry: re-add `isMediaDownloader` state and the button block in `src/components/layout/Sidebar.tsx`.
+3. Update `src/services/mediaDownloader.ts` to point at the chosen backend.
+4. The page (`src/pages/MediaDownloader.tsx`), CaptureBar download-mode, ScrapperEngine download-mode, locale keys, and `useDownloadFolder` stub are all already in place.
+
+## Update (2026-05-28, after user feedback)
+
+First pass used `showDirectoryPicker()` + a persistent `FileSystemDirectoryHandle`. On first run the user saw the "browser doesn't support folder downloads" banner and pushed back: should be like any web download — click and the OS save dialog opens (if the user has that browser setting on). Refactored to browser-native flow:
+
+- `src/services/mediaDownloader.ts` — replaced `downloadToDirectory(url, format, dirHandle)` with `downloadInBrowser(url, format)`. Uses `fetch` → `await res.blob()` → `<a download>` click → revoke object URL on next tick. No folder handle, no permission re-prompts, works in every browser.
+- `src/pages/MediaDownloader.tsx` — stripped the folder-picker bar, the "browser unsupported" banner, and all `useDownloadFolder` plumbing. Only the server-offline banner remains. Page is now: TopBar + ScrapperEngine.
+- `src/hooks/useDownloadFolder.ts` — reduced to a deprecated `export {};` stub (sandbox can't `rm`; pending real `git rm` on a clean checkout — see lesson #4).
+- `src/locales/{en,es}.ts` — removed `mediaDownloader.chooseFolder`, `changeFolder`, `currentFolder`, `noFolder`, `unsupportedBrowser`, `unsupportedBrowserHint`, `permissionDenied`. Updated `noDownloadsHint` to mention Downloads folder.
+- `tasks/lessons.md` — added lesson #14 ("Default to browser-native downloads, not File System Access API") with the implementation pattern.
+
+The Python `server.py` did not need any changes — it already streamed files with `Content-Disposition: attachment; filename="..."`, which is everything the browser needs.
+
 ## Review (2026-05-28)
 
 ### Files added (8)

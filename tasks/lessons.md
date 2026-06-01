@@ -1,5 +1,11 @@
 # Lessons Learned
 
+## 14. Default to browser-native downloads, not File System Access API
+**Date:** 2026-05-28
+**Context:** Built the Media Downloader page with `showDirectoryPicker()` + persistent `FileSystemDirectoryHandle` because the user said "use File System Access API". On first run the page was unusable: the embedded/native browser tier flagged the API as unsupported and showed a big "your browser doesn't support folder downloads" banner. The user pushed back: "should be like anything you download on the web — click download and a Windows pop-up opens for choosing folder".
+**Rule:** For one-off file downloads triggered from a button click, default to the browser-native flow: `fetch` → `await res.blob()` → `<a download>` click → revoke the object URL on the next tick. The OS save-as dialog only appears if the user has "Ask where to save each file before downloading" enabled in their browser — that's the right place for the preference to live; we don't replicate it. Reserve File System Access API for genuine repeated-saves-into-the-same-folder workflows (e.g. a continuous logger), and even then degrade gracefully when the API is missing.
+**Implementation note:** The `<a download>` href can be either an object URL (from a fetched blob) or a direct GET endpoint. Object URLs let us POST + handle errors but buffer the file in memory. For typical yt-dlp output (audio ≤ ~10 MB, video tens to a few hundred MB) memory is fine. If we ever need true streaming, switch to a GET endpoint with the URL in query params and let the browser stream directly.
+
 ## 12. Never use `window.confirm()` for destructive actions
 **Date:** 2026-05-26
 **Context:** A user left a Timeline tab open, closed the laptop, walked away. On resume, the deletion-confirmation popup flashed for a fraction of a second and the timeline was deleted instantly. Root cause: `CollectionDashboard.tsx` gated deletion with native `window.confirm()`. When a tab is suspended (laptop closed, OS sleep, Page Lifecycle `frozen`) while a native dialog is up or a click is buffered for one, the browser/OS may auto-dismiss it on resume — and on some browser/OS combinations the dismissed dialog resolves as `true`. Native dialogs are also opaque to React state.

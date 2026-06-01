@@ -10,6 +10,12 @@
 //
 // The base URL is configurable via the `VITE_MEDIA_DOWNLOADER_URL` env var.
 // Defaults to http://localhost:8765, matching server.py's default port.
+//
+// `downloadInBrowser()` triggers a normal browser download: the file lands
+// in the user's configured Downloads folder. If the user has the
+// "Ask where to save each file before downloading" browser setting enabled
+// (Chrome / Edge / Firefox all support this), Windows' native save-as
+// dialog appears instead. We do NOT use the File System Access API.
 
 const DEFAULT_BASE_URL = 'http://localhost:8765';
 
@@ -77,7 +83,7 @@ export async function detectPlatform(url: string): Promise<MediaPlatform> {
 }
 
 // ---------------------------------------------------------------------------
-// Download
+// Download (browser-native save-as)
 // ---------------------------------------------------------------------------
 
 /**
@@ -100,15 +106,23 @@ function parseFilename(header: string | null, fallback: string): string {
 }
 
 /**
- * Download `url` via the backend and write the resulting file directly
- * into the given directory handle (File System Access API).
+ * Trigger a browser download for the given media URL.
  *
- * Returns the final filename + size for UI feedback.
+ * Flow: fetch the backend response (which streams the file with
+ * Content-Disposition: attachment), buffer it as a Blob, then click
+ * an `<a download>` link with an object URL. The browser handles the
+ * save location — it goes to the user's Downloads folder by default,
+ * or shows the OS save-as dialog if "Ask where to save each file" is
+ * enabled in browser settings.
+ *
+ * We buffer in memory because a streaming `<a download>` would require
+ * a GET endpoint with the URL in the query string, exposing it in
+ * browser history / server logs. For typical yt-dlp output sizes
+ * (audio: ~5 MB, video: tens to a few hundred MB) this is acceptable.
  */
-export async function downloadToDirectory(
+export async function downloadInBrowser(
   url: string,
   format: MediaFormat,
-  directoryHandle: FileSystemDirectoryHandle,
   opts?: { signal?: AbortSignal },
 ): Promise<DownloadResult> {
   const res = await fetch(`${getBaseUrl()}/api/download`, {
@@ -129,47 +143,28 @@ export async function downloadToDirectory(
     throw new Error(message);
   }
 
-  if (!res.body) {
-    throw new Error('download response has no body');
-  }
-
   const filename = parseFilename(
     res.headers.get('Content-Disposition'),
     `download-${Date.now()}`,
   );
 
-  // Create / overwrite the file inside the chosen folder.
-  const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
-  const writable = await fileHandle.createWritable();
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
 
-  let sizeBytes = 0;
   try {
-    const reader = res.body.getReader();
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (value) {
-        await writable.write(value);
-        sizeBytes += value.byteLength;
-      }
-    }
-    await writable.close();
-  } catch (e) {
-    try {
-      await writable.abort();
-    } catch {
-      // ignore secondary error
-    }
-    throw e;
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = filename;
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } finally {
+    // Release the object URL on the next tick — Chrome needs a beat
+    // to start the download before we can revoke the URL.
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
   }
 
-  return { filename, sizeBytes };
-}
-
-// ---------------------------------------------------------------------------
-// Capability check
-// ---------------------------------------------------------------------------
-
-export function supportsDirectoryPicker(): boolean {
-  return typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function';
+  return { filename, sizeBytes: blob.size };
 }

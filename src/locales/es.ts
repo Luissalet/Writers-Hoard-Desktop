@@ -812,10 +812,6 @@ const es = {
   // ── Media Downloader (página independiente) ──
   'mediaDownloader.title': 'Descargar medios',
   'mediaDownloader.subtitle': 'Descarga vídeo o audio de YouTube, X, Instagram y Audiomack',
-  'mediaDownloader.chooseFolder': 'Elegir carpeta de descargas…',
-  'mediaDownloader.changeFolder': 'Cambiar carpeta…',
-  'mediaDownloader.currentFolder': 'Carpeta de descargas',
-  'mediaDownloader.noFolder': 'Sin carpeta seleccionada',
   'mediaDownloader.format.video': 'Vídeo',
   'mediaDownloader.format.audio': 'Audio',
   'mediaDownloader.download': 'Descargar',
@@ -823,15 +819,12 @@ const es = {
   'mediaDownloader.serverOffline': 'El servidor local de descargas está apagado',
   'mediaDownloader.serverOfflineHint': 'Abre la carpeta Universal Video Downloader en una terminal y ejecuta "python server.py", luego pulsa Reintentar.',
   'mediaDownloader.retry': 'Reintentar',
-  'mediaDownloader.unsupportedBrowser': 'Tu navegador no soporta descargas a carpeta',
-  'mediaDownloader.unsupportedBrowserHint': 'Usa una versión reciente de Chrome, Edge u otro navegador Chromium. Firefox y Safari no exponen la File System Access API.',
   'mediaDownloader.unsupportedUrl': 'Esta URL no está soportada',
   'mediaDownloader.downloadComplete': 'Descarga completa',
   'mediaDownloader.downloadFailed': 'Descarga fallida',
   'mediaDownloader.sessionDownloads': 'Descargas de esta sesión',
   'mediaDownloader.noDownloads': 'Aún no hay descargas',
-  'mediaDownloader.noDownloadsHint': 'Elige una carpeta arriba, pega una URL de YouTube / X / Instagram / Audiomack y el archivo se guardará ahí.',
-  'mediaDownloader.permissionDenied': 'Acceso a la carpeta denegado — pulsa Cambiar carpeta para reautorizar',
+  'mediaDownloader.noDownloadsHint': 'Pega una URL de YouTube / X / Instagram / Audiomack y el archivo se guardará en tu carpeta de Descargas (o donde tengas configurado tu navegador).',
 
   // ── Character Arc Engine ──
   'characterArc.title': 'Arcos de personaje',
