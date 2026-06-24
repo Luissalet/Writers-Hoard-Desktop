@@ -109,7 +109,11 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
     [snapshots, removeSnapshot],
   );
 
-  if (loading) return <EngineSpinner className="flex items-center justify-center h-64 bg-deep" />;
+  // Only show the full-view spinner on the initial load. A refresh after an
+  // edit (e.g. saving a tag) also flips `loading`, and collapsing to the spinner
+  // here would unmount the open detail modal — closing it mid-edit.
+  if (loading && snapshots.length === 0)
+    return <EngineSpinner className="flex items-center justify-center h-64 bg-deep" />;
 
   return (
     <div className="flex flex-col h-full bg-deep">
