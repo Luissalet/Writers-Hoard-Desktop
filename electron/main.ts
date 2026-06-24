@@ -16,9 +16,18 @@
 
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron';
 import path from 'node:path';
+import os from 'node:os';
 import { promises as fs } from 'node:fs';
 import { autoUpdater } from 'electron-updater';
 import { startMediaServer, stopMediaServer, MEDIA_SERVER_URL } from './media/server';
+import { transcodeWebmToMp4 } from './media/transcode';
+
+interface SaveResult {
+  ok: boolean;
+  canceled?: boolean;
+  filePath?: string;
+  error?: string;
+}
 
 const isDev = !app.isPackaged;
 const RENDERER_DEV_URL = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5174';
@@ -186,6 +195,48 @@ function initAutoUpdates(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Export helpers (teleprompter MP4, script PDF)
+// ---------------------------------------------------------------------------
+
+/** Prompt for a destination and write `bytes` there. */
+async function saveBytesViaDialog(
+  bytes: Buffer,
+  suggestedName: string,
+  filters: Electron.FileFilter[],
+): Promise<SaveResult> {
+  if (!mainWindow) return { ok: false, error: 'no window' };
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: suggestedName,
+    filters,
+  });
+  if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+  try {
+    await fs.writeFile(result.filePath, bytes);
+    return { ok: true, filePath: result.filePath };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Render a standalone HTML string to PDF bytes via a hidden, script-free window. */
+async function htmlToPdf(html: string): Promise<Buffer> {
+  const win = new BrowserWindow({
+    show: false,
+    webPreferences: { sandbox: true, javascript: false, contextIsolation: true },
+  });
+  const tmpdir = await fs.mkdtemp(path.join(os.tmpdir(), 'wh-script-'));
+  const htmlPath = path.join(tmpdir, 'script.html');
+  try {
+    await fs.writeFile(htmlPath, html, 'utf8');
+    await win.loadFile(htmlPath);
+    return await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
+  } finally {
+    win.destroy();
+    await fs.rm(tmpdir, { recursive: true, force: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // IPC — the renderer's only door to native capabilities (see preload.ts)
 // ---------------------------------------------------------------------------
 
@@ -214,6 +265,36 @@ function registerIpc(): void {
       return false;
     }
   });
+
+  // Teleprompter video: re-encode the renderer's WebM capture to MP4 and save it.
+  ipcMain.handle(
+    'media:saveTeleprompterMp4',
+    async (_e, webm: ArrayBuffer, suggestedName: string): Promise<SaveResult> => {
+      try {
+        const mp4 = await transcodeWebmToMp4(Buffer.from(webm));
+        return await saveBytesViaDialog(mp4, suggestedName, [
+          { name: 'MP4 Video', extensions: ['mp4'] },
+        ]);
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
+  // Script: render styled HTML to a real PDF and save it.
+  ipcMain.handle(
+    'export:scriptToPdf',
+    async (_e, html: string, suggestedName: string): Promise<SaveResult> => {
+      try {
+        const pdf = await htmlToPdf(html);
+        return await saveBytesViaDialog(pdf, suggestedName, [
+          { name: 'PDF Document', extensions: ['pdf'] },
+        ]);
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
 
   ipcMain.handle('updates:check', () => checkForUpdates(true));
   ipcMain.handle('updates:quitAndInstall', () => {

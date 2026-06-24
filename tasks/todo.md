@@ -1,161 +1,68 @@
-# TODO — Standalone Media Downloader Route
+# Video Planner — rename plans + export teleprompter video (MP4) & script (PDF)
 
-**Date:** 2026-05-28
-**Owner:** Claude (working with Luis)
+**Date:** 2026-06-24 · Target: **Writers hoard desktop** (Electron, now the primary repo)
 
-## Goal
+## Context
+- `video-planner` engine. `VideoPlan` has `title`; `updateVideoPlan` op + hook `editItem` exist, but there is **no rename UI** (list shows title + date + delete only).
+- `TeleprompterView` scrolls script text on black. The current "Export" button only dumps the plan as **JSON**, and `VideoPlanView` strings are hardcoded English (not `t()`).
+- Electron main already bundles `ffmpeg-static` (used by yt-dlp). IPC = `ipcMain.handle` + `window.electronAPI` (preload). `isDesktop()` (`src/utils/platform.ts`) gates desktop-only features.
 
-Make the **Scrapper** experience accessible from the global sidebar without an active project. Behavior is **dual-mode**:
+## Plan (checkable)
+- [ ] 1. i18n: add `videoPlanner.*` keys (rename, export menu, recorder progress/cancel) to `locales/en.ts` + `locales/es.ts`; switch hardcoded `VideoPlanView` strings to `t()` (lesson #11: backfill BOTH locales).
+- [ ] 2. Rename plans: inline pencil-edit in plan list rows (`VideoPlannerEngine`) + click-to-edit header title (`VideoPlanView`) → `editItem(id, { title, updatedAt })`. Inline input, no native prompt (lesson #12).
+- [ ] 3. Electron IPC:
+  - `media:transcodeWebmToMp4(bytes, suggestedName)` → temp webm → bundled ffmpeg `-c:v libx264 -pix_fmt yuv420p -movflags +faststart` → `showSaveDialog` → write .mp4.
+  - `export:scriptToPdf(html, suggestedName)` → offscreen `BrowserWindow` → `printToPDF` → save dialog.
+  - Expose via `preload.ts`; extend `electron-env.d.ts`.
+- [ ] 4. Teleprompter MP4 recorder (renderer util): canvas (1080p, black) lays out segments, scrolls at `50*speed` px/s, `captureStream`+`MediaRecorder` (webm) → MP4 via IPC. Progress + cancel modal. Web fallback = download `.webm` (lesson #14).
+- [ ] 5. Wire export menu in `VideoPlanView`: dropdown → Plan (JSON, existing), Script (PDF), Teleprompter video (MP4).
+- [ ] 6. Verify: `tsc -b --noEmit` (renderer) + `typecheck:electron` + `lint`. Watch for stale-mount phantom errors (lesson #13). **No commit** (no-autocommit) — leave for review.
 
-- **Inside a project** (`/project/:id/scrapper`) → existing behavior: archive URL metadata to IndexedDB. No file download.
-- **From the sidebar** (`/media-downloader`) → **actually download** the media (video/audio) to a folder on the user's PC via the File System Access API, using the user's existing **Universal Video Downloader** Python project (yt-dlp-based) as the backend.
+## Defaults chosen (say the word to change)
+- Video: **1080p**, H.264 MP4, 30fps, real-time capture (a teleprompter is watched in real time); progress bar + cancel.
+- Script PDF: styled doc — plan title, then per segment: title / speaker / time / script / visual & audio notes.
+- Web build (no Electron): MP4 → `.webm` download; PDF → print dialog.
 
-## Architecture decisions
+## Review (2026-06-24)
 
-1. **Re-use the Scrapper UI** by adding a `mode: 'archive' | 'download'` prop to `ScrapperEngine.tsx` and `CaptureBar.tsx`. No projectId required in download mode.
-2. **New top-level route** `/media-downloader` in `App.tsx`, rendered inside `MainLayout` so the sidebar is visible.
-3. **Sidebar entry** (always visible — like Home) below `Home`, using the `Download` icon already imported from lucide.
-4. **New page** `src/pages/MediaDownloader.tsx` that mounts `<ScrapperEngine mode="download" />` and owns the save-folder picker state.
-5. **Backend client** `src/services/mediaDownloader.ts` — typed wrapper around the Python server's HTTP API (POST `/api/download`, GET `/api/health`, POST `/api/detect`). Configurable base URL via `VITE_MEDIA_DOWNLOADER_URL` env var; defaults to `http://localhost:8765`.
-6. **Python HTTP wrapper** — add a small Flask server (`server.py`) to the Universal video downloader folder that exposes the existing `DownloadManager` over HTTP. Streams files back to the browser so the React client can save them via the directory handle.
-7. **File System Access API** — call `showDirectoryPicker()` once, remember the handle in IndexedDB (so it survives reloads), then `directoryHandle.getFileHandle(filename, { create: true })` for each download.
-8. **No new DB tables, no new engine registration** — download mode is ephemeral, archives nothing. The existing `scrapper` engine stays as-is for project mode.
+### Files added (5)
+1. `electron/media/transcode.ts` — `transcodeWebmToMp4(Buffer)` via bundled ffmpeg-static (H.264 / yuv420p / +faststart, `-an`). Bundled into main.cjs automatically (esbuild follows imports).
+2. `src/engines/video-planner/teleprompterRecorder.ts` — canvas teleprompter renderer + `MediaRecorder` capture → WebM. AbortSignal cancel, progress callback, resolution-scaled scroll speed.
+3. `src/engines/video-planner/scriptExport.ts` — builds print-styled HTML + `exportScriptPdf()` (desktop → IPC printToPDF; web → print-dialog fallback).
+4. `src/engines/video-planner/components/PlanExportMenu.tsx` — Export dropdown: Plan (JSON) / Script (PDF) / Teleprompter video (MP4).
+5. `src/engines/video-planner/components/TeleprompterExportModal.tsx` — options (resolution + speed) → progress + cancel → save MP4 (web: WebM fallback).
 
-## File-level plan (checkable)
+### Files modified (7)
+1. `electron/main.ts` — IPC `media:saveTeleprompterMp4` (transcode + save dialog) and `export:scriptToPdf` (hidden-window printToPDF + save dialog); `saveBytesViaDialog`/`htmlToPdf` helpers.
+2. `electron/preload.ts` — exposed `media.saveTeleprompterMp4` + `exporter.scriptToPdf` (+ `SaveResult`).
+3. `src/electron-env.d.ts` — renderer typings for the two new bridges + `SaveResult`.
+4. `src/engines/video-planner/components/VideoPlannerEngine.tsx` — inline rename in the plan list (pencil → input, Enter/Esc), `editItem` wired; list row is now a div with `role="button"`/keyboard support so nested action buttons are valid HTML.
+5. `src/engines/video-planner/components/VideoPlanView.tsx` — click-to-edit header title; `<PlanExportMenu>` replaces the old JSON-only Export button; hardcoded English → `t()`.
+6. `src/locales/en.ts` + `src/locales/es.ts` — full `videoPlanner.*` key block for rename/export/recorder (both locales, lesson #11).
 
-### Phase 1 — Python backend (in `Universal video downloader/`)
-- [ ] `server.py` — Flask app, CORS-enabled for `http://localhost:5173`, with:
-  - `GET  /api/health` → `{ok: true, platforms: [...]}`
-  - `POST /api/detect` `{url}` → `{platform: "YouTube" | "..." | "Desconocida"}`
-  - `POST /api/download` `{url, format: "video"|"audio"}` → streams the resulting file as `application/octet-stream` with `Content-Disposition: attachment; filename="..."`. Uses a tempdir then deletes after streaming.
-- [ ] Append `flask` and `flask-cors` to `requirements.txt`.
-- [ ] Update `README.md` with the new "Run as server" section.
+### Verification
+- ✅ Cross-file correctness reviewed via the Read tool (real files) + a subagent that checked every external API against `node_modules`: lucide icons all exported, Electron 33 `printToPDF(): Promise<Buffer>`, ffmpeg-static/file-saver/`t()` imports correct, recorder Promise settles once on every path, JSX balanced, no dangling/unused imports, preload↔typings consistent. **No issues found.**
+- ⚠️ **Sandbox `tsc`/`lint` NOT run** — the Linux bash mount went stale mid-session (lesson #13): it served truncated Jun-19 snapshots of edited files (e.g. `App.tsx` seen as 23 lines) while new files read fresh, guaranteeing phantom JSX/“unterminated string” errors against untouched files. Did NOT act on those.
+- ▶️ **User action:** run from a Windows terminal: `npx tsc -b --noEmit`, `npm run typecheck:electron`, `npm run lint`. Then `npm run dev:desktop` to try Export ▾ → Teleprompter video (MP4) and plan rename.
+- 🚫 Not committed (no-autocommit) — left for review.
 
-### Phase 2 — React: routing + sidebar
-- [ ] `src/App.tsx` — add `<Route path="/media-downloader" element={<MediaDownloader />} />` inside `MainLayout`.
-- [ ] `src/components/layout/Sidebar.tsx` — add a top-level "Media Downloader" button below Home (always visible, regardless of `projectId`), active when `location.pathname === '/media-downloader'`. Use `Download` icon.
+### Out of scope / notes
+- `TeleprompterView.tsx` still has a few pre-existing hardcoded English strings (“Speed:”, “Click to play/pause • ESC to exit”, “Segment X of Y”) — untouched; can be localized in a follow-up.
+- MP4 recording is real-time (a teleprompter is watched in real time). Faster-than-real-time (offscreen frame-pump to ffmpeg stdin) is a possible later optimization.
 
-### Phase 3 — React: standalone page
-- [ ] `src/pages/MediaDownloader.tsx` — page shell. Owns:
-  - Save-folder picker UI (button: "Choose download folder…", shows current folder name)
-  - Mounts `<ScrapperEngine mode="download" projectId={undefined} />`
-  - Reads/writes the `directoryHandle` via a small `useDownloadFolder()` hook backed by IndexedDB (handles persist across reloads).
-- [ ] `src/hooks/useDownloadFolder.ts` — get/set the directory handle, request permission on load, expose `{handle, pick, hasHandle}`.
+## Update — import plans from JSON (2026-06-24)
 
-### Phase 4 — React: dual-mode Scrapper
-- [ ] `src/engines/_types.ts` (or inline prop) — extend so `projectId` can be optional when `mode === 'download'`.
-- [ ] `src/engines/scrapper/components/ScrapperEngine.tsx` — accept optional `mode?: 'archive' | 'download'` (default `'archive'`). In download mode:
-  - Hide the snapshot list / search / view toggle (nothing is archived).
-  - Show the CaptureBar in download mode, plus a "Downloads this session" list (in-memory only).
-- [ ] `src/engines/scrapper/components/CaptureBar.tsx` — accept the same `mode` prop. In download mode the Enter / button click calls `mediaDownloader.download(url, format, dirHandle)` instead of `onCapture(snapshot)`. Adds a Video/Audio toggle.
+Complement to the JSON export (round-trips the same shape).
 
-### Phase 5 — React: backend client + download flow
-- [ ] `src/services/mediaDownloader.ts` — typed client:
-  - `detect(url): Promise<Platform>`
-  - `download(url, opts, dirHandle): Promise<{filename, sizeBytes}>` — fetch as stream, write to `dirHandle.getFileHandle(filename, {create:true})`.
-  - `checkHealth(): Promise<boolean>`
-- [ ] Backend-offline banner on the page when `checkHealth()` returns false, with the exact command to start it (`python server.py` from the universal downloader folder).
+### Added
+- `src/engines/video-planner/planImport.ts` — `parsePlanJson(raw, fallbackTitle)` (tolerant: accepts `{plan,segments}`, a bare segments array, or a flat plan object; bad/missing fields → safe defaults; throws typed `PlanImportError` `invalid-json`/`invalid-shape`) and `importPlan(projectId, parsed)` which writes a new plan + segments **atomically** via `db.transaction('rw', …)` + `bulkAdd`.
 
-### Phase 6 — i18n
-- [ ] `src/locales/en.ts` & `src/locales/es.ts` — add keys under `mediaDownloader.*`:
-  `title`, `subtitle`, `chooseFolder`, `currentFolder`, `noFolder`, `format.video`, `format.audio`, `download`, `downloading`, `serverOffline`, `serverOfflineHint`, `unsupportedUrl`, `downloadComplete`, `downloadFailed`, `sessionDownloads`, `permissionDenied`.
-- [ ] Add `sidebar.mediaDownloader` for the sidebar label.
-- [ ] **NO `engines.media-downloader.*` keys** — this is intentionally NOT a registered engine; per lesson #7 those keys are only required for registered engines.
+### Modified
+- `VideoPlannerEngine.tsx` — hidden `<input type="file" accept=".json">`, **Import** button next to *New Plan* and in the empty state, inline auto-dismissing success/error banner (no native alert). On success: refresh list + select the imported plan.
+- `locales/en.ts` + `locales/es.ts` — `videoPlanner.import.*` (label, invalid-json, invalid-shape, failed, imported) in both locales.
 
-### Phase 7 — Verification (per CLAUDE.md §4)
-- [ ] `npx tsc -b --noEmit` — zero errors (per lesson #1).
-- [ ] Sidebar shows "Media Downloader" entry both on `/` and inside a project.
-- [ ] `/media-downloader` loads, prompts for save folder, and (with server off) shows the offline banner.
-- [ ] Inside a project, `Scrapper` engine still archives URLs as before (no regression).
-- [ ] No native `confirm/alert/prompt` introduced (lesson #12).
-- [ ] No English string templates in shared components (lesson #8).
-- [ ] Don't trust stale bash mount if tsc errors look weird (lesson #13).
-
-## Out of scope (for this pass)
-
-- Progress bar with percent/speed/ETA — the Python `DownloadManager` reports progress, but plumbing it into React needs SSE or WebSocket. For v1 just show a spinner and "Downloading…" text.
-- Cookies file upload for private content — defer.
-- Persistent history of downloaded files (would need a new table). v1 keeps an in-memory "this session" list.
-- Auto-starting the Python server from the React app. User runs `python server.py` manually.
-- Firefox/Safari support for the save-folder UX — those browsers lack `showDirectoryPicker`. We'll degrade to per-file `showSaveFilePicker`, or fall back to `<a download>` to the browser default folder.
-
-## Status (2026-05-28, end of session): PAUSED — UI hidden
-
-The web is deployed on **GitHub Pages** (static), and the architecture I built requires the user to run a local Python server. Wrong fit for a shared/public site. Pulled the sidebar entry and the `/media-downloader` route so visitors don't hit a broken page. **All other files remain in place** for when this is resumed.
-
-### When resuming, pick one of:
-
-1. **Cobalt.tools redirect** — change the Download button to open `https://cobalt.tools/?u=<url>` in a new tab. Zero infra. ~5 min of work. Trade-off: download happens on cobalt's site, not ours.
-2. **Cobalt API client** — call `api.cobalt.tools` from the frontend; in-app UX. Risk: cobalt may require an API key / restrict CORS. May need a Cloudflare Worker proxy (free tier sufficient).
-3. **Self-hosted backend** — deploy `server.py` to Fly.io / Render / Railway. Best UX for visitors. Trade-offs: monthly cost (~$5 or free tier with cold starts), occasional YouTube IP-bans of the host, some hosting providers (Vercel) prohibit yt-dlp in TOS — Fly/Railway are OK.
-
-### To re-enable the page after picking one of the above:
-
-1. Uncomment the `MediaDownloader` import and `Route` in `src/App.tsx`.
-2. Restore the sidebar entry: re-add `isMediaDownloader` state and the button block in `src/components/layout/Sidebar.tsx`.
-3. Update `src/services/mediaDownloader.ts` to point at the chosen backend.
-4. The page (`src/pages/MediaDownloader.tsx`), CaptureBar download-mode, ScrapperEngine download-mode, locale keys, and `useDownloadFolder` stub are all already in place.
-
-## Update (2026-05-28, after user feedback)
-
-First pass used `showDirectoryPicker()` + a persistent `FileSystemDirectoryHandle`. On first run the user saw the "browser doesn't support folder downloads" banner and pushed back: should be like any web download — click and the OS save dialog opens (if the user has that browser setting on). Refactored to browser-native flow:
-
-- `src/services/mediaDownloader.ts` — replaced `downloadToDirectory(url, format, dirHandle)` with `downloadInBrowser(url, format)`. Uses `fetch` → `await res.blob()` → `<a download>` click → revoke object URL on next tick. No folder handle, no permission re-prompts, works in every browser.
-- `src/pages/MediaDownloader.tsx` — stripped the folder-picker bar, the "browser unsupported" banner, and all `useDownloadFolder` plumbing. Only the server-offline banner remains. Page is now: TopBar + ScrapperEngine.
-- `src/hooks/useDownloadFolder.ts` — reduced to a deprecated `export {};` stub (sandbox can't `rm`; pending real `git rm` on a clean checkout — see lesson #4).
-- `src/locales/{en,es}.ts` — removed `mediaDownloader.chooseFolder`, `changeFolder`, `currentFolder`, `noFolder`, `unsupportedBrowser`, `unsupportedBrowserHint`, `permissionDenied`. Updated `noDownloadsHint` to mention Downloads folder.
-- `tasks/lessons.md` — added lesson #14 ("Default to browser-native downloads, not File System Access API") with the implementation pattern.
-
-The Python `server.py` did not need any changes — it already streamed files with `Content-Disposition: attachment; filename="..."`, which is everything the browser needs.
-
-## Review (2026-05-28)
-
-### Files added (8)
-
-1. `Universal video downloader/server.py` — Flask HTTP wrapper over `DownloadManager`. Endpoints: `GET /api/health`, `POST /api/detect`, `POST /api/download`. Streams the file back with proper `Content-Disposition` (RFC 5987 for non-ASCII). Defaults to port 8765, configurable via `PORT` env var.
-2. `Universal video downloader/requirements.txt` — appended `flask>=3.0.0` and `flask-cors>=4.0.0`.
-3. `Universal video downloader/README.md` — added "Ejecutar como servidor HTTP" section.
-4. `src/services/mediaDownloader.ts` — typed client (`checkHealth`, `detectPlatform`, `downloadToDirectory`, `supportsDirectoryPicker`). Uses streaming `ReadableStream` → File System Access API writes, so we never buffer the whole file in memory.
-5. `src/hooks/useDownloadFolder.ts` — persists `FileSystemDirectoryHandle` in a tiny standalone IndexedDB store (NOT in Dexie — no schema bump). Handles permission re-request on reload.
-6. `src/pages/MediaDownloader.tsx` — standalone page. Owns folder handle, health probe, in-memory `SessionDownload[]`, banner state.
-
-### Files modified (5)
-
-1. `src/App.tsx` — added `<Route path="/media-downloader" element={<MediaDownloader />} />`.
-2. `src/components/layout/Sidebar.tsx` — added always-visible "Media Downloader" button below Home, active state on `/media-downloader`.
-3. `src/engines/scrapper/components/CaptureBar.tsx` — refactored into a discriminated-union component (`mode: 'archive' | 'download'`). Download mode adds a Video/Audio toggle and calls `onDownload` instead of `onCapture`.
-4. `src/engines/scrapper/components/ScrapperEngine.tsx` — split into `ArchiveModeView` (existing behavior, unchanged for projects) and `DownloadModeView` (used by the standalone page). The exported `ScrapperEngine` is a thin switch on `mode`.
-5. `src/locales/{en,es}.ts` — added `sidebar.mediaDownloader` and the full `mediaDownloader.*` key block.
-
-### Verification status
-
-- ✅ All edits confirmed intact via `Read` tool.
-- ⚠️ **Sandbox typecheck was unreliable** — the Linux bash mount returned a snapshot from 2026-05-26, producing phantom JSX-truncation errors against files that are well-formed on disk. This is exactly **lesson #13**, so I did NOT panic-revert. The user needs to run `npx tsc -b --noEmit` from a Windows terminal to get the real signal.
-- ✅ Inside a project, `Scrapper` still archives URLs — `ArchiveModeView` is a clean rename of the prior body. Zero behavior change.
-- ✅ No native `confirm/alert/prompt` introduced.
-- ✅ No English string templates in shared components (all visible copy is via `t()` keys).
-- ✅ Scrapper engine `EngineDefinition` unchanged — no new engine registration, no schema migration.
-
-### Run instructions for the user
-
-1. **Backend** (once per machine):
-   ```bash
-   cd "Universal video downloader"
-   pip install -r requirements.txt
-   python server.py
-   ```
-   Listens on http://localhost:8765 by default.
-
-2. **Front-end**: just `npm run dev` as usual. Click "Media Downloader" in the sidebar, pick a folder, paste a URL.
-
-3. **Typecheck** (from Windows terminal, NOT WSL/Linux):
-   ```
-   npx tsc -b --noEmit
-   ```
-
-### Known limitations (out of scope, documented in plan)
-
-- Progress bar is just a spinner — backend reports per-chunk progress but no SSE yet.
-- Firefox / Safari will show the "browser unsupported" banner (no `showDirectoryPicker`).
-- The Python server has zero auth — it's meant for `localhost` only. Don't expose to a network.
-- First download attempt after a reload may show a permission prompt to re-confirm folder access.
+### Verified
+- `db.videoPlans` / `db.videoSegments` are typed `Table<…>` (db/index.ts:57-58) → transaction + bulkAdd typecheck.
+- Locale key parity confirmed (5/5 in both); all referenced keys exist.
+- `React.ChangeEvent` used as the existing code uses `React.DragEvent` (global React namespace) — consistent.
+- Same caveat: run `npx tsc -b --noEmit` / `npm run lint` on Windows. Not committed.
