@@ -75,7 +75,11 @@ export interface DownloadOutcome {
  * Download a single media item into a private temp directory and return the
  * largest produced file (yt-dlp may emit several; we keep the real one).
  */
-export async function downloadMedia(url: string, format: MediaFormat): Promise<DownloadOutcome> {
+export async function downloadMedia(
+  url: string,
+  format: MediaFormat,
+  signal?: AbortSignal,
+): Promise<DownloadOutcome> {
   const tmpdir = await fs.mkdtemp(path.join(os.tmpdir(), 'wh-media-'));
   const ytdlp = await resolveYtDlpPath();
   const ffmpeg = resolveFfmpegPath();
@@ -97,7 +101,7 @@ export async function downloadMedia(url: string, format: MediaFormat): Promise<D
   args.push(url);
 
   try {
-    await runProcess(ytdlp, args);
+    await runProcess(ytdlp, args, signal);
   } catch (err) {
     await fs.rm(tmpdir, { recursive: true, force: true });
     throw err;
@@ -125,22 +129,66 @@ export async function downloadMedia(url: string, format: MediaFormat): Promise<D
   };
 }
 
-function runProcess(cmd: string, args: string[]): Promise<void> {
+/** Kill a process and its descendants (yt-dlp spawns ffmpeg as a child). */
+function killProcessTree(pid: number): void {
+  if (process.platform === 'win32') {
+    // Detached taskkill survives our own exit and reaps the whole tree.
+    spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true });
+  } else {
+    try {
+      process.kill(-pid, 'SIGKILL');
+    } catch {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+}
+
+function runProcess(cmd: string, args: string[], signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('cancelled'));
+      return;
+    }
     const child = spawn(cmd, args, { windowsHide: true });
+
+    // Run the download/mux below normal priority so a heavy ffmpeg pass never
+    // starves the UI or the rest of the machine.
+    try {
+      if (child.pid != null) {
+        os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
+      }
+    } catch {
+      /* best-effort; not fatal if the OS refuses */
+    }
+
+    const onAbort = () => {
+      if (child.pid != null) killProcessTree(child.pid);
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+
     let stderr = '';
     child.stderr.on('data', (d: Buffer) => {
       stderr += d.toString();
     });
-    child.on('error', (err) =>
+    child.on('error', (err) => {
+      signal?.removeEventListener('abort', onAbort);
       reject(
         new Error(
           `Could not launch yt-dlp (${err.message}). ` +
             `Make sure the binary exists — run "npm run fetch:bin".`,
         ),
-      ),
-    );
+      );
+    });
     child.on('close', (code) => {
+      signal?.removeEventListener('abort', onAbort);
+      if (signal?.aborted) {
+        reject(new Error('cancelled'));
+        return;
+      }
       if (code === 0) {
         resolve();
         return;

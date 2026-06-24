@@ -848,6 +848,11 @@ const en = {
   'scrapper.date': 'Date',
   'scrapper.captured': 'Captured',
   'scrapper.status': 'Status',
+  'scrapper.downloadingVideo': 'Downloading video…',
+  'scrapper.playableLocally': 'Saved & playable',
+  'scrapper.downloadFailed': "Couldn't download the video",
+  'scrapper.retryDownload': 'Retry',
+  'scrapper.cancelDownload': 'Cancel',
 
   // ── Media Downloader (standalone page) ──
   'mediaDownloader.title': 'Media Downloader',

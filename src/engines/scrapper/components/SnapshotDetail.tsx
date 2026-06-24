@@ -3,10 +3,22 @@
 // ============================================
 
 import { useState, useCallback } from 'react';
-import { X, ExternalLink, Trash2, Twitter, Instagram, Youtube, Globe } from 'lucide-react';
+import {
+  X,
+  ExternalLink,
+  Trash2,
+  Twitter,
+  Instagram,
+  Youtube,
+  Globe,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
+} from 'lucide-react';
 import type { Snapshot } from '../types';
 import TagInput from '@/components/common/TagInput';
 import { extractYouTubeId } from '../services/urlDetector';
+import { snapshotMediaUrl, runSnapshotDownload, cancelSnapshotDownload } from '@/services/scrapperMedia';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 
@@ -38,6 +50,10 @@ export default function SnapshotDetail({
     setTags(newTags);
     onUpdate(snapshot.id, { tags: newTags });
   }, [snapshot.id, onUpdate]);
+
+  const handleRetryDownload = useCallback(() => {
+    void runSnapshotDownload(snapshot, onUpdate, snapshot.mediaKind === 'audio' ? 'audio' : 'video');
+  }, [snapshot, onUpdate]);
 
   const handleDelete = useCallback(() => {
     setPendingDelete(true);
@@ -148,8 +164,55 @@ export default function SnapshotDetail({
             </div>
           )}
 
-          {/* YouTube Embed */}
-          {youtubeId && (
+          {/* Local media player → download state → YouTube embed fallback */}
+          {snapshot.downloadState === 'downloading' ? (
+            <div className="flex flex-col items-center justify-center gap-3 aspect-video rounded-lg bg-surface text-muted">
+              <div className="flex items-center gap-3">
+                <Loader2 size={20} className="animate-spin" />
+                <span className="text-sm">{t('scrapper.downloadingVideo')}</span>
+              </div>
+              <button
+                onClick={() => cancelSnapshotDownload(snapshot.id)}
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-xs bg-elevated hover:bg-surface border border-border rounded-lg text-foreground transition-colors"
+              >
+                <X size={14} />
+                {t('scrapper.cancelDownload')}
+              </button>
+            </div>
+          ) : snapshot.localMediaPath ? (
+            snapshot.mediaKind === 'audio' ? (
+              <audio
+                controls
+                src={snapshotMediaUrl(snapshot.localMediaPath)}
+                className="w-full"
+              />
+            ) : (
+              <video
+                controls
+                src={snapshotMediaUrl(snapshot.localMediaPath)}
+                className="w-full max-h-[60vh] rounded-lg bg-black"
+              />
+            )
+          ) : snapshot.downloadState === 'error' ? (
+            <div className="rounded-lg bg-surface border border-border p-4 space-y-3">
+              <div className="flex items-start gap-2 text-sm">
+                <AlertCircle size={18} className="flex-shrink-0 mt-0.5 text-red-400" />
+                <div className="min-w-0">
+                  <p className="font-medium text-foreground">{t('scrapper.downloadFailed')}</p>
+                  {snapshot.downloadError && (
+                    <p className="text-xs text-muted mt-1 break-words">{snapshot.downloadError}</p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={handleRetryDownload}
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-xs bg-elevated hover:bg-surface border border-border rounded-lg text-foreground transition-colors"
+              >
+                <RefreshCw size={14} />
+                {t('scrapper.retryDownload')}
+              </button>
+            </div>
+          ) : youtubeId ? (
             <div className="aspect-video rounded-lg overflow-hidden bg-surface">
               <iframe
                 width="100%"
@@ -160,7 +223,7 @@ export default function SnapshotDetail({
                 allowFullScreen
               />
             </div>
-          )}
+          ) : null}
 
           {/* Extracted Text */}
           {snapshot.extractedText && (

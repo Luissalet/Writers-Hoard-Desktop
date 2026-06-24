@@ -3,10 +3,12 @@
 // ============================================
 
 import { useState } from 'react';
-import { Globe, Twitter, Instagram, Youtube } from 'lucide-react';
+import { Globe, Twitter, Instagram, Youtube, Loader2, AlertCircle, PlayCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Snapshot } from '../types';
 import SnapshotDetail from './SnapshotDetail';
+import { useTranslation } from '@/i18n/useTranslation';
+import { snapshotMediaUrl } from '@/services/scrapperMedia';
 
 interface SnapshotCardProps {
   snapshot: Snapshot;
@@ -15,6 +17,7 @@ interface SnapshotCardProps {
 }
 
 export default function SnapshotCard({ snapshot, onUpdate, onDelete }: SnapshotCardProps) {
+  const { t } = useTranslation();
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
   const getSourceColor = () => {
@@ -59,16 +62,28 @@ export default function SnapshotCard({ snapshot, onUpdate, onDelete }: SnapshotC
         onClick={() => setIsDetailOpen(true)}
         className="bg-elevated border border-border rounded-lg overflow-hidden hover:border-accent-gold cursor-pointer transition-all hover:shadow-lg"
       >
-        {snapshot.thumbnail && (
-          <div className="relative w-full h-32 overflow-hidden bg-surface">
+        {snapshot.localMediaPath && snapshot.mediaKind !== 'audio' ? (
+          <div className="relative w-full h-56 overflow-hidden bg-black/60 flex items-center justify-center">
+            <video
+              src={`${snapshotMediaUrl(snapshot.localMediaPath)}#t=0.5`}
+              className="max-h-full max-w-full object-contain"
+              muted
+              preload="metadata"
+              playsInline
+            />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <PlayCircle size={40} className="text-white/95 drop-shadow-lg" />
+            </div>
+          </div>
+        ) : snapshot.thumbnail ? (
+          <div className="relative w-full h-56 overflow-hidden bg-black/60 flex items-center justify-center">
             <img
               src={snapshot.thumbnail}
               alt={snapshot.title}
-              className="w-full h-full object-cover"
+              className="max-h-full max-w-full object-contain"
             />
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-elevated/40" />
           </div>
-        )}
+        ) : null}
 
         <div className="p-4 space-y-3">
           <div className="flex items-start justify-between gap-2">
@@ -94,6 +109,25 @@ export default function SnapshotCard({ snapshot, onUpdate, onDelete }: SnapshotC
           >
             {truncateUrl(snapshot.url)}
           </a>
+
+          {snapshot.downloadState === 'downloading' && (
+            <div className="flex items-center gap-1.5 text-xs text-muted">
+              <Loader2 size={12} className="animate-spin" />
+              {t('scrapper.downloadingVideo')}
+            </div>
+          )}
+          {snapshot.downloadState === 'done' && snapshot.localMediaPath && (
+            <div className="flex items-center gap-1.5 text-xs text-green-500">
+              <PlayCircle size={12} />
+              {t('scrapper.playableLocally')}
+            </div>
+          )}
+          {snapshot.downloadState === 'error' && (
+            <div className="flex items-center gap-1.5 text-xs text-red-400">
+              <AlertCircle size={12} />
+              {t('scrapper.downloadFailed')}
+            </div>
+          )}
 
           {(snapshot.author || snapshot.publishDate) && (
             <div className="flex items-center gap-2 text-xs text-muted">

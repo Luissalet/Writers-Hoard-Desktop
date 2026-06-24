@@ -1,68 +1,90 @@
-# Video Planner — rename plans + export teleprompter video (MP4) & script (PDF)
+# Scrapper (Recortes) — descargar el vídeo a local y reproducirlo en el recorte
 
-**Date:** 2026-06-24 · Target: **Writers hoard desktop** (Electron, now the primary repo)
+**Date:** 2026-06-24 · Target: **Writers hoard desktop** (Electron, repo primario)
 
-## Context
-- `video-planner` engine. `VideoPlan` has `title`; `updateVideoPlan` op + hook `editItem` exist, but there is **no rename UI** (list shows title + date + delete only).
-- `TeleprompterView` scrolls script text on black. The current "Export" button only dumps the plan as **JSON**, and `VideoPlanView` strings are hardcoded English (not `t()`).
-- Electron main already bundles `ffmpeg-static` (used by yt-dlp). IPC = `ipcMain.handle` + `window.electronAPI` (preload). `isDesktop()` (`src/utils/platform.ts`) gates desktop-only features.
+## Problema
+Hoy, al pegar un enlace de Instagram/Twitter/YouTube en Recortes, el recorte guarda **solo el enlace** (metadata + tags). El `SnapshotDetail` muestra la URL y, para YouTube, un `<iframe>` al CDN — nunca descarga el archivo ni lo reproduce desde disco. El usuario quiere: **pego enlace → se descarga el vídeo a local → aparece reproducible en el recorte**.
+
+## Lo que ya existe (verificado)
+- `electron/media/ytdlp.ts` → `downloadMedia(url, 'video'|'audio')` ya descarga a un tempdir y devuelve `{ filePath, filename, sizeBytes, cleanup }`. Plataformas: YouTube, X (Twitter), Instagram, Audiomack.
+- `electron/media/server.ts` → HTTP `:8765` que hace stream del archivo y luego `cleanup()` (lo borra). No persiste.
+- `electron/main.ts` → patrón IPC `ipcMain.handle` + `app.getPath('userData')`. **No** hay protocolo custom para servir archivos al renderer (sandbox + `file://`).
+- `src/engines/scrapper/types.ts` → `Snapshot` sin campos de media local. Índice Dexie `snapshots: 'id, projectId, source, status, createdAt'` → **los campos nuevos no van indexados ⇒ sin migración de versión** (lección #9: no inventar storage de más).
+- `SnapshotDetail.tsx` / `SnapshotCard.tsx` → render del recorte; `useSnapshots` (makeEntityHook) para CRUD.
+- `src/utils/platform.ts` → `isDesktop()` para gatear features de escritorio.
+- Electron **^33.2.1** ⇒ `protocol.handle()` disponible (sirve `file://` vía `net.fetch`, con Range/seeking gratis). Sin meta-CSP en `index.html` que estorbe.
+
+## Decisiones de producto (confirmadas con el usuario)
+- **Descarga automática al capturar** un enlace de plataforma soportada (en segundo plano; reproductor aparece al terminar).
+- **Formato: vídeo con audio (mp4).**
+
+## Decisiones técnicas
+- **Reproducir local** vía protocolo privilegiado **`wh-media://`** (no blob-en-memoria): `<video controls src="wh-media://media/<projectId>/<file>">`. Soporta seeking y no carga el archivo entero en RAM. (Matiz vs lección #14: el flujo browser-native blob es para descargas one-off de la página media-downloader; aquí es "guardado gestionado y repetido en carpeta de la app", donde el IPC/protocolo nativo es lo correcto.)
+- **Guardar gestionado** en `<userData>/scrapper-media/<projectId>/<snapshotId>.<ext>` (lo posee la app; se puede limpiar al borrar el recorte). Descarga vía **IPC en main process** (el archivo nunca pasa por el renderer ni por IndexedDB).
+- **Sin migración Dexie** (campos no indexados).
 
 ## Plan (checkable)
-- [ ] 1. i18n: add `videoPlanner.*` keys (rename, export menu, recorder progress/cancel) to `locales/en.ts` + `locales/es.ts`; switch hardcoded `VideoPlanView` strings to `t()` (lesson #11: backfill BOTH locales).
-- [ ] 2. Rename plans: inline pencil-edit in plan list rows (`VideoPlannerEngine`) + click-to-edit header title (`VideoPlanView`) → `editItem(id, { title, updatedAt })`. Inline input, no native prompt (lesson #12).
-- [ ] 3. Electron IPC:
-  - `media:transcodeWebmToMp4(bytes, suggestedName)` → temp webm → bundled ffmpeg `-c:v libx264 -pix_fmt yuv420p -movflags +faststart` → `showSaveDialog` → write .mp4.
-  - `export:scriptToPdf(html, suggestedName)` → offscreen `BrowserWindow` → `printToPDF` → save dialog.
-  - Expose via `preload.ts`; extend `electron-env.d.ts`.
-- [ ] 4. Teleprompter MP4 recorder (renderer util): canvas (1080p, black) lays out segments, scrolls at `50*speed` px/s, `captureStream`+`MediaRecorder` (webm) → MP4 via IPC. Progress + cancel modal. Web fallback = download `.webm` (lesson #14).
-- [ ] 5. Wire export menu in `VideoPlanView`: dropdown → Plan (JSON, existing), Script (PDF), Teleprompter video (MP4).
-- [ ] 6. Verify: `tsc -b --noEmit` (renderer) + `typecheck:electron` + `lint`. Watch for stale-mount phantom errors (lesson #13). **No commit** (no-autocommit) — leave for review.
+- [ ] 1. **Electron — protocolo + IPC** (`electron/main.ts`):
+  - `protocol.registerSchemesAsPrivileged([{ scheme: 'wh-media', privileges: { standard, secure, supportFetchAPI, stream } }])` antes de `app.whenReady`.
+  - Tras ready: `protocol.handle('wh-media', …)` → resuelve a `<userData>/scrapper-media/…`, **valida que la ruta resuelta queda dentro de esa carpeta** (anti path-traversal), devuelve `net.fetch(pathToFileURL(abs))`.
+  - IPC `media:downloadToLibrary({ url, format, projectId, snapshotId })` → `downloadMedia()` → copia a `scrapper-media/<projectId>/<snapshotId>.<ext>` → `cleanup()` temp → `{ ok, relPath, filename, sizeBytes, kind, error? }`.
+  - IPC `media:deleteLibraryFile(relPath)` (limpieza al borrar; ruta validada).
+- [ ] 2. **Bridge** (`electron/preload.ts` + `src/electron-env.d.ts`): exponer `media.downloadToLibrary` y `media.deleteLibraryFile` con tipos.
+- [ ] 3. **Tipo Snapshot** (`src/engines/scrapper/types.ts`): `localMediaPath?`, `mediaFilename?`, `mediaSizeBytes?`, `mediaKind?: 'video'|'audio'`, `downloadState?: 'idle'|'downloading'|'done'|'error'`, `downloadError?`.
+- [ ] 4. **Servicio renderer** (`src/services/` p. ej. `scrapperMedia.ts`): `canDownload(source)`, `downloadSnapshotMedia({url,format,projectId,snapshotId})` (gate `isDesktop()`), `snapshotMediaUrl(relPath)` → `wh-media://media/<relPath>`.
+- [ ] 5. **Auto-descarga al capturar** (`ScrapperEngine.tsx` ArchiveMode): al crear un recorte de fuente descargable en desktop → set `downloadState:'downloading'` → disparar descarga en background → `editSnapshot(id, { localMediaPath, mediaFilename, mediaSizeBytes, mediaKind, downloadState:'done' })` o `{ downloadState:'error', downloadError }`. No bloquea la UI.
+- [ ] 6. **Reproductor + estado** (`SnapshotDetail.tsx`): si `downloadState==='downloading'` → spinner "Descargando vídeo…"; si `localMediaPath` → `<video controls>` (o `<audio>`); si `'error'` → aviso + botón **Reintentar**. Mantener `<iframe>` YouTube como fallback solo si no hay archivo local. Indicador de estado en `SnapshotCard.tsx`.
+- [ ] 7. **Limpieza al borrar**: en el borrado del recorte, si hay `localMediaPath` → `deleteLibraryFile`.
+- [ ] 8. **i18n** (`locales/en.ts` + `locales/es.ts`): claves `scrapper.downloading`, `downloadFailed`, `retryDownload`, `localVideo`, etc. Backfill en **ambos** locales (lección #11). Sin native prompts (lección #12).
+- [ ] 9. **Verificación** (lección #1): `npx tsc -b --noEmit` (renderer) + `npm run typecheck:electron` + `npm run lint`. Si aparecen errores de truncación JSX en masa → comprobar mount stale por `stat` antes de tocar nada (lección #13). **Sin commit** — se deja para revisión (feedback: no-autocommit).
 
-## Defaults chosen (say the word to change)
-- Video: **1080p**, H.264 MP4, 30fps, real-time capture (a teleprompter is watched in real time); progress bar + cancel.
-- Script PDF: styled doc — plan title, then per segment: title / speaker / time / script / visual & audio notes.
-- Web build (no Electron): MP4 → `.webm` download; PDF → print dialog.
+## Riesgos / notas
+- Descargas grandes: la auto-descarga puede tardar/ocupar espacio; el estado `downloading` y el botón Reintentar lo cubren. (Futuro: ajuste para desactivar auto-descarga, o límite de tamaño.)
+- Backups (`zipBackup`): los vídeos NO se incluyen por ahora (pueden ser cientos de MB). Anotar como decisión; reconsiderar con externalización de assets.
+- Web build (no Electron): `isDesktop()` falso ⇒ se mantiene el comportamiento actual (solo enlace). Sin regresión.
 
 ## Review (2026-06-24)
 
-### Files added (5)
-1. `electron/media/transcode.ts` — `transcodeWebmToMp4(Buffer)` via bundled ffmpeg-static (H.264 / yuv420p / +faststart, `-an`). Bundled into main.cjs automatically (esbuild follows imports).
-2. `src/engines/video-planner/teleprompterRecorder.ts` — canvas teleprompter renderer + `MediaRecorder` capture → WebM. AbortSignal cancel, progress callback, resolution-scaled scroll speed.
-3. `src/engines/video-planner/scriptExport.ts` — builds print-styled HTML + `exportScriptPdf()` (desktop → IPC printToPDF; web → print-dialog fallback).
-4. `src/engines/video-planner/components/PlanExportMenu.tsx` — Export dropdown: Plan (JSON) / Script (PDF) / Teleprompter video (MP4).
-5. `src/engines/video-planner/components/TeleprompterExportModal.tsx` — options (resolution + speed) → progress + cancel → save MP4 (web: WebM fallback).
+### Archivos nuevos (1)
+1. `src/services/scrapperMedia.ts` — `canDownloadMedia(source)`, `downloadSnapshotMedia()` (IPC), `deleteSnapshotMedia()`, `snapshotMediaUrl(relPath)` → `wh-media://media/…`, y `runSnapshotDownload(snapshot, update, format)` (ciclo completo descargando→done/error; nunca lanza).
 
-### Files modified (7)
-1. `electron/main.ts` — IPC `media:saveTeleprompterMp4` (transcode + save dialog) and `export:scriptToPdf` (hidden-window printToPDF + save dialog); `saveBytesViaDialog`/`htmlToPdf` helpers.
-2. `electron/preload.ts` — exposed `media.saveTeleprompterMp4` + `exporter.scriptToPdf` (+ `SaveResult`).
-3. `src/electron-env.d.ts` — renderer typings for the two new bridges + `SaveResult`.
-4. `src/engines/video-planner/components/VideoPlannerEngine.tsx` — inline rename in the plan list (pencil → input, Enter/Esc), `editItem` wired; list row is now a div with `role="button"`/keyboard support so nested action buttons are valid HTML.
-5. `src/engines/video-planner/components/VideoPlanView.tsx` — click-to-edit header title; `<PlanExportMenu>` replaces the old JSON-only Export button; hardcoded English → `t()`.
-6. `src/locales/en.ts` + `src/locales/es.ts` — full `videoPlanner.*` key block for rename/export/recorder (both locales, lesson #11).
+### Archivos modificados (8)
+1. `electron/main.ts` — esquema privilegiado `wh-media://` + `protocol.handle` (sirve `<userData>/scrapper-media` vía `net.fetch(file://)`, con guarda anti path-traversal `resolveLibraryPath`); IPC `media:downloadToLibrary` (downloadMedia → copia a `<projectId>/<snapshotId>.<ext>` → cleanup) y `media:deleteLibraryFile`.
+2. `electron/preload.ts` — `media.downloadToLibrary` + `media.deleteLibraryFile` (+ `DownloadToLibraryResult`).
+3. `src/electron-env.d.ts` — tipos de los dos métodos nuevos.
+4. `src/engines/scrapper/types.ts` — `Snapshot`: localMediaPath, mediaFilename, mediaSizeBytes, mediaKind, downloadState, downloadError (sin migración Dexie).
+5. `src/engines/scrapper/components/ScrapperEngine.tsx` — `handleCapture` (auto-descarga tras persistir) + `handleDelete` (limpia el archivo).
+6. `src/engines/scrapper/components/SnapshotDetail.tsx` — reproductor `<video>/<audio>` (wh-media://) + estados descargando/error+reintentar; YouTube embed como fallback.
+7. `src/engines/scrapper/components/SnapshotCard.tsx` — indicador de estado (descargando / reproducible / error).
+8. `src/locales/en.ts` + `es.ts` — 4 claves `scrapper.*` en ambos locales.
 
-### Verification
-- ✅ Cross-file correctness reviewed via the Read tool (real files) + a subagent that checked every external API against `node_modules`: lucide icons all exported, Electron 33 `printToPDF(): Promise<Buffer>`, ffmpeg-static/file-saver/`t()` imports correct, recorder Promise settles once on every path, JSX balanced, no dangling/unused imports, preload↔typings consistent. **No issues found.**
-- ⚠️ **Sandbox `tsc`/`lint` NOT run** — the Linux bash mount went stale mid-session (lesson #13): it served truncated Jun-19 snapshots of edited files (e.g. `App.tsx` seen as 23 lines) while new files read fresh, guaranteeing phantom JSX/“unterminated string” errors against untouched files. Did NOT act on those.
-- ▶️ **User action:** run from a Windows terminal: `npx tsc -b --noEmit`, `npm run typecheck:electron`, `npm run lint`. Then `npm run dev:desktop` to try Export ▾ → Teleprompter video (MP4) and plan rename.
-- 🚫 Not committed (no-autocommit) — left for review.
+### Verificación
+- ✅ Revisión cruzada por subagente vía Read tool (archivos reales) + node_modules: APIs de Electron 33 (`registerSchemesAsPrivileged`/`protocol.handle`/`net.fetch`/`Response` global con @types/node) correctas; iconos lucide 0.575 existen; firmas preload↔electron-env.d.ts↔scrapperMedia coherentes; ternario JSX balanceado; sin imports sin usar; paridad de claves locales 4/4. **Sin defectos.**
+- ⚠️ **tsc/lint NO ejecutados**: el mount bash del sandbox volvió a quedar stale/corrupto a mitad de sesión (lección #13: `main.ts` visto con fecha del 19-jun, `package.json` leído como JSON corrupto). No se actuó sobre esos falsos errores.
+- ▶️ **Acción del usuario (Windows):** `npx tsc -b --noEmit` · `npm run typecheck:electron` · `npm run lint`; luego `npm run dev:desktop` y probar: pegar un reel de Instagram en Recortes → ver "Descargando…" → reproductor al terminar; borrar → archivo eliminado de `<userData>/scrapper-media`.
+- 🚫 Sin commit (no-autocommit) — para revisión.
 
-### Out of scope / notes
-- `TeleprompterView.tsx` still has a few pre-existing hardcoded English strings (“Speed:”, “Click to play/pause • ESC to exit”, “Segment X of Y”) — untouched; can be localized in a follow-up.
-- MP4 recording is real-time (a teleprompter is watched in real time). Faster-than-real-time (offscreen frame-pump to ffmpeg stdin) is a possible later optimization.
+### Notas
+- Requiere el binario yt-dlp (`npm run fetch:bin`) — ya parte del flujo desktop existente.
+- 100% desktop: sin ramas web ni inclusión en backups (por decisión del usuario).
 
-## Update — import plans from JSON (2026-06-24)
+## Update — blindaje CPU/procesos (2026-06-24)
 
-Complement to the JSON export (round-trips the same shape).
+**Motivo:** al guardar un reel, pico de CPU (ffmpeg muxando) y riesgo de procesos huérfanos si se cierra la app a media descarga. (Nota: el "97%" que se vio era un pico transitorio; en Detalles, System Idle Process 79% = CPU al ~21%.)
 
-### Added
-- `src/engines/video-planner/planImport.ts` — `parsePlanJson(raw, fallbackTitle)` (tolerant: accepts `{plan,segments}`, a bare segments array, or a flat plan object; bad/missing fields → safe defaults; throws typed `PlanImportError` `invalid-json`/`invalid-shape`) and `importPlan(projectId, parsed)` which writes a new plan + segments **atomically** via `db.transaction('rw', …)` + `bulkAdd`.
+**Cambios:**
+- `electron/media/ytdlp.ts` — `downloadMedia(url, format, signal?)`; `runProcess` baja prioridad (`os.setPriority` BELOW_NORMAL), escucha `AbortSignal` y, al abortar, mata el **árbol** de procesos (`taskkill /pid <pid> /T /F` en Windows — mata yt-dlp **y** su ffmpeg hijo), y rechaza con `'cancelled'`.
+- `electron/main.ts` — `activeDownloads: Map<snapshotId, AbortController>`; **cola de concurrencia 1** (`enqueueDownload`) para no spawnear descargas en paralelo; guard anti-duplicado; IPC `media:cancelDownload`; `abortAllDownloads()` en `will-quit` (no quedan huérfanos al cerrar).
+- `electron/preload.ts` + `src/electron-env.d.ts` — `media.cancelDownload(snapshotId)`.
+- `src/services/scrapperMedia.ts` — `cancelSnapshotDownload()`; `runSnapshotDownload` trata `'cancelled'` (→ `idle`) y `'already downloading'` (no-op) sin marcar error.
+- `src/engines/scrapper/components/SnapshotDetail.tsx` — botón **Cancelar** mientras descarga.
+- `src/locales/en.ts` + `es.ts` — `scrapper.cancelDownload`.
 
-### Modified
-- `VideoPlannerEngine.tsx` — hidden `<input type="file" accept=".json">`, **Import** button next to *New Plan* and in the empty state, inline auto-dismissing success/error banner (no native alert). On success: refresh list + select the imported plan.
-- `locales/en.ts` + `locales/es.ts` — `videoPlanner.import.*` (label, invalid-json, invalid-shape, failed, imported) in both locales.
+**Verificación:** revisión vía Read (APIs Node/Electron: `os.setPriority`/`os.constants.priority`, `AbortController`/`AbortSignal.addEventListener`, `taskkill`; cola sin fugas; tipos preload↔d.ts↔servicio; paridad locales 5/5). El mount bash siguió stale → **correr en Windows** `npx tsc -b --noEmit` · `npm run typecheck:electron` · `npm run lint`. Sin commit.
 
-### Verified
-- `db.videoPlans` / `db.videoSegments` are typed `Table<…>` (db/index.ts:57-58) → transaction + bulkAdd typecheck.
-- Locale key parity confirmed (5/5 in both); all referenced keys exist.
-- `React.ChangeEvent` used as the existing code uses `React.DragEvent` (global React namespace) — consistent.
-- Same caveat: run `npx tsc -b --noEmit` / `npm run lint` on Windows. Not committed.
+## Update — miniaturas de vídeo en las tarjetas (2026-06-24)
+
+**Motivo:** la tarjeta solo mostraba la URL; no se distingue qué reel es.
+**Cambio:** `src/engines/scrapper/components/SnapshotCard.tsx` — si hay `localMediaPath` (vídeo), la tarjeta muestra un `<video muted preload="metadata">` con el fotograma a `#t=0.5` como miniatura + overlay `PlayCircle`; fallback al `thumbnail` base64 (entradas manuales). Reutiliza `snapshotMediaUrl` y el archivo ya descargado → **cubre también los recortes existentes** sin tocar backend ni almacenar pósters. Sin commit.
+
+**Ajuste (a petición):** mostrar la miniatura **entera en cualquier formato** (vertical/horizontal/cuadrado) → contenedor `h-56` con fondo neutro + `object-contain` (antes recortaba con `object-cover`/`aspect-[9/16]`). Grid a `grid-cols-2 md:3 lg:4`.
