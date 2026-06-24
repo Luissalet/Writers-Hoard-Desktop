@@ -12,6 +12,7 @@ import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useProject } from '@/hooks/useProjects';
 import { getEnginesByIds } from '@/engines';
+import { isDesktop } from '@/utils/platform';
 
 export default function Sidebar() {
   const { t } = useTranslation();
@@ -28,6 +29,8 @@ export default function Sidebar() {
   const engines = getEnginesByIds(engineIds);
 
   const isHome = location.pathname === '/';
+  const isMediaDownloader = location.pathname === '/media-downloader';
+  const desktop = isDesktop();
   const activeTab = tab || (engines.length > 0 ? engines[0].id : '');
 
   const handleExport = async () => {
@@ -86,8 +89,22 @@ export default function Sidebar() {
           {sidebarOpen && <span className="whitespace-nowrap">{t('sidebar.home')}</span>}
         </button>
 
-        {/* Media Downloader entry — disabled 2026-05-28, pending backend decision.
-            See tasks/lessons.md #14 and tasks/todo.md. */}
+        {/* Media Downloader — desktop only (bundled yt-dlp backend). */}
+        {desktop && (
+          <button
+            onClick={() => navigate('/media-downloader')}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
+              isMediaDownloader
+                ? 'bg-accent-gold/15 text-accent-gold'
+                : 'text-text-muted hover:text-text-primary hover:bg-elevated'
+            }`}
+          >
+            <Download size={18} className="flex-shrink-0" />
+            {sidebarOpen && (
+              <span className="whitespace-nowrap">{t('sidebar.mediaDownloader')}</span>
+            )}
+          </button>
+        )}
 
         {/* Dynamic engine list — only when inside a project */}
         {projectId && engines.length > 0 && (

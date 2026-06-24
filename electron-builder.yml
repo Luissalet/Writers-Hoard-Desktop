@@ -1,0 +1,55 @@
+appId: com.luissalet.writershoard
+productName: Writers Hoard
+copyright: Copyright © 2026 Luis Salet
+
+directories:
+  output: release
+  buildResources: build
+
+# Only ship the built renderer, the bundled main/preload, and package.json.
+# electron-builder pulls in production dependencies (electron-updater,
+# ffmpeg-static) automatically.
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+# Native/binary deps can't run from inside app.asar — unpack ffmpeg.
+asarUnpack:
+  - '**/node_modules/ffmpeg-static/**'
+
+# The yt-dlp binary lives outside asar entirely (downloaded by `npm run fetch:bin`).
+extraResources:
+  - from: resources/bin
+    to: bin
+    filter:
+      - '**/*'
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # Add build/icon.ico to customise the app icon (optional).
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+
+linux:
+  category: Office
+  target:
+    - AppImage
+
+publish:
+  provider: github
+  owner: Luissalet
+  repo: Writers-Hoard-Desktop
