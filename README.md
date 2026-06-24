@@ -1,73 +1,72 @@
-# React + TypeScript + Vite
+# Writers Hoard — Desktop
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Local-first creative writing platform, packaged as a desktop app with
+**Electron**. Same React/Vite/Dexie codebase as the web build, wrapped in a
+native shell that lifts the browser storage ceiling and bundles a real media
+downloader (`yt-dlp`) — no separate Python server.
 
-Currently, two official plugins are available:
+> Transition plan and rationale: [`tasks/desktop-transition.md`](tasks/desktop-transition.md)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Quick start
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install            # installs deps (incl. electron, esbuild, electron-builder)
+npm run fetch:bin      # downloads the yt-dlp binary into resources/bin/
+npm run dev:desktop    # Vite dev server + Electron window (HMR)
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+`npm run dev` still runs the plain web app in a browser if you prefer.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Scripts
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+| Script | What it does |
+| --- | --- |
+| `dev` | Web app only (Vite, browser). |
+| `dev:desktop` | Vite + Electron with hot reload. |
+| `build` | Typecheck + build the web renderer. |
+| `build:desktop` | Build renderer (relative base) + bundle Electron main/preload. |
+| `electron:build` | Bundle `electron/` → `dist-electron/*.cjs` (esbuild). |
+| `typecheck:electron` | Typecheck the main-process code. |
+| `fetch:bin` | Download the `yt-dlp` binary for this OS into `resources/bin/`. |
+| `dist` | Build a local installer into `release/`. |
+| `dist:publish` | Build + publish a release to GitHub. |
+
+## Architecture (desktop bits)
+
 ```
+electron/
+  main.ts            Window, security, IPC, auto-update, starts media server
+  preload.ts         contextBridge → window.electronAPI (app/fs/updates)
+  media/
+    ytdlp.ts         Resolve + spawn bundled yt-dlp; ffmpeg via ffmpeg-static
+    server.ts        Embedded 127.0.0.1:8765 HTTP service (same contract as
+                     the old Python server → renderer needs no changes)
+  build.mjs          esbuild → dist-electron/*.cjs (CommonJS)
+scripts/fetch-ytdlp.mjs   Downloads the yt-dlp binary
+electron-builder.yml      NSIS installer + GitHub publish config
+```
+
+The renderer detects Electron at runtime (`src/utils/platform.ts`) to choose
+`HashRouter` (needed under `file://`) and to show the desktop-only Media
+Downloader. The web build is unchanged and still deploys to GitHub Pages.
+
+## Releasing
+
+```bash
+# bump "version" in package.json, then:
+git tag v0.1.0
+git push origin v0.1.0     # .github/workflows/release.yml builds + publishes
+```
+
+Auto-update is wired via `electron-updater` against the
+`Luissalet/Writers-Hoard-Desktop` releases. Users get updates automatically;
+**Help ▸ Check for Updates…** triggers a manual check.
+
+## Notes
+
+- Run `npm install` once and commit the regenerated `package-lock.json` so CI
+  (`npm ci`) stays in sync.
+- Add `build/icon.ico` to customise the app icon (optional).
+- Google Docs sync uses a web OAuth popup; on desktop that may need a
+  loopback/system-browser flow. Sync is optional — the rest of the app works
+  offline regardless.
