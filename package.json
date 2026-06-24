@@ -1,13 +1,23 @@
 {
   "name": "writers-hoard",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Writers Hoard — local-first creative writing platform (desktop).",
+  "author": "Luis Salet <luismasc16@gmail.com>",
   "type": "module",
+  "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck:electron": "tsc -p electron/tsconfig.json",
+    "fetch:bin": "node scripts/fetch-ytdlp.mjs",
+    "electron:build": "node electron/build.mjs",
+    "dev:desktop": "concurrently -k -n vite,electron -c blue,magenta \"vite --host 127.0.0.1\" \"wait-on tcp:127.0.0.1:5174 && npm run electron:build && cross-env NODE_ENV=development ELECTRON_RENDERER_URL=http://127.0.0.1:5174 electron .\"",
+    "build:desktop": "cross-env VITE_BASE_URL=./ npm run build && npm run electron:build",
+    "dist": "npm run build:desktop && electron-builder",
+    "dist:publish": "npm run build:desktop && electron-builder --publish always"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -23,6 +33,8 @@
     "browser-image-compression": "^2.0.2",
     "dexie": "^4.3.0",
     "dexie-react-hooks": "^4.2.0",
+    "electron-updater": "^6.3.9",
+    "ffmpeg-static": "^5.2.0",
     "file-saver": "^2.0.5",
     "framer-motion": "^12.34.3",
     "fuse.js": "^7.1.0",
@@ -46,6 +58,11 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.2",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
@@ -53,6 +70,7 @@
     "tailwindcss": "^4.2.1",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "wait-on": "^8.0.1"
   }
 }

@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 CLIProxyAPI/
+
+# Desktop (Electron) build artifacts
+dist-electron
+release
+resources/bin
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
