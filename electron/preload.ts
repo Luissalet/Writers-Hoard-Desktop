@@ -18,6 +18,17 @@ interface SaveResult {
   error?: string;
 }
 
+/** Result of downloading a link's media into the managed scrapper library. */
+interface DownloadToLibraryResult {
+  ok: boolean;
+  /** Path relative to the media root, e.g. "<projectId>/<snapshotId>.mp4". */
+  relPath?: string;
+  filename?: string;
+  sizeBytes?: number;
+  kind?: 'video' | 'audio';
+  error?: string;
+}
+
 const api = {
   /** Always true when running inside the desktop shell. */
   isDesktop: true as const,
@@ -45,6 +56,19 @@ const api = {
     /** Transcode a WebM capture to MP4 and prompt the user to save it. */
     saveTeleprompterMp4: (webm: ArrayBuffer, suggestedName: string): Promise<SaveResult> =>
       ipcRenderer.invoke('media:saveTeleprompterMp4', webm, suggestedName),
+    /** Download a link's media into the managed library; resolves with its relative path. */
+    downloadToLibrary: (args: {
+      url: string;
+      format: 'video' | 'audio';
+      projectId: string;
+      snapshotId: string;
+    }): Promise<DownloadToLibraryResult> => ipcRenderer.invoke('media:downloadToLibrary', args),
+    /** Cancel an in-flight download for a snapshot (kills its yt-dlp/ffmpeg). */
+    cancelDownload: (snapshotId: string): Promise<void> =>
+      ipcRenderer.invoke('media:cancelDownload', snapshotId),
+    /** Delete a downloaded media file by its relative library path. */
+    deleteLibraryFile: (relPath: string): Promise<void> =>
+      ipcRenderer.invoke('media:deleteLibraryFile', relPath),
   },
   exporter: {
     /** Render a styled HTML script to PDF and prompt the user to save it. */

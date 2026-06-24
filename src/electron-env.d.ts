@@ -8,6 +8,16 @@ export interface SaveResult {
   error?: string;
 }
 
+export interface DownloadToLibraryResult {
+  ok: boolean;
+  /** Path relative to the media root, e.g. "<projectId>/<snapshotId>.mp4". */
+  relPath?: string;
+  filename?: string;
+  sizeBytes?: number;
+  kind?: 'video' | 'audio';
+  error?: string;
+}
+
 export interface ElectronAPI {
   isDesktop: true;
   app: {
@@ -24,6 +34,14 @@ export interface ElectronAPI {
   };
   media: {
     saveTeleprompterMp4: (webm: ArrayBuffer, suggestedName: string) => Promise<SaveResult>;
+    downloadToLibrary: (args: {
+      url: string;
+      format: 'video' | 'audio';
+      projectId: string;
+      snapshotId: string;
+    }) => Promise<DownloadToLibraryResult>;
+    cancelDownload: (snapshotId: string) => Promise<void>;
+    deleteLibraryFile: (relPath: string) => Promise<void>;
   };
   exporter: {
     scriptToPdf: (html: string, suggestedName: string) => Promise<SaveResult>;
