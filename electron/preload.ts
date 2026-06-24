@@ -10,6 +10,14 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 
+/** Result of a native "save file" flow. */
+interface SaveResult {
+  ok: boolean;
+  canceled?: boolean;
+  filePath?: string;
+  error?: string;
+}
+
 const api = {
   /** Always true when running inside the desktop shell. */
   isDesktop: true as const,
@@ -30,6 +38,18 @@ const api = {
     writeFile: (filePath: string, data: string): Promise<void> =>
       ipcRenderer.invoke('fs:writeFile', filePath, data),
     exists: (filePath: string): Promise<boolean> => ipcRenderer.invoke('fs:exists', filePath),
+  },
+
+  // Export pipelines that need native muscle (ffmpeg, PDF printing, save dialog).
+  media: {
+    /** Transcode a WebM capture to MP4 and prompt the user to save it. */
+    saveTeleprompterMp4: (webm: ArrayBuffer, suggestedName: string): Promise<SaveResult> =>
+      ipcRenderer.invoke('media:saveTeleprompterMp4', webm, suggestedName),
+  },
+  exporter: {
+    /** Render a styled HTML script to PDF and prompt the user to save it. */
+    scriptToPdf: (html: string, suggestedName: string): Promise<SaveResult> =>
+      ipcRenderer.invoke('export:scriptToPdf', html, suggestedName),
   },
 
   updates: {
