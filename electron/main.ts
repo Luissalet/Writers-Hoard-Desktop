@@ -14,13 +14,15 @@
 // electron/build.mjs, so `__dirname` and `require` are available at runtime
 // even though the project's package.json declares `"type": "module"`.
 
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, protocol, net } from 'electron';
 import path from 'node:path';
 import os from 'node:os';
 import { promises as fs } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { autoUpdater } from 'electron-updater';
 import { startMediaServer, stopMediaServer, MEDIA_SERVER_URL } from './media/server';
 import { transcodeWebmToMp4 } from './media/transcode';
+import { downloadMedia, type MediaFormat } from './media/ytdlp';
 
 interface SaveResult {
   ok: boolean;
@@ -29,10 +31,73 @@ interface SaveResult {
   error?: string;
 }
 
+interface DownloadToLibraryResult {
+  ok: boolean;
+  relPath?: string;
+  filename?: string;
+  sizeBytes?: number;
+  kind?: MediaFormat;
+  error?: string;
+}
+
 const isDev = !app.isPackaged;
 const RENDERER_DEV_URL = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5174';
 
 let mainWindow: BrowserWindow | null = null;
+
+// ---------------------------------------------------------------------------
+// Scrapper media library — downloaded inspiration videos/audio live under
+// <userData>/scrapper-media/<projectId>/<snapshotId>.<ext> and are served to
+// the renderer through the privileged `wh-media://` scheme (registered below).
+// ---------------------------------------------------------------------------
+
+/** Only UUID-ish segments are allowed in a media path (no separators, no `..`). */
+const SAFE_SEGMENT = /^[A-Za-z0-9._-]+$/;
+
+function scrapperMediaDir(): string {
+  return path.join(app.getPath('userData'), 'scrapper-media');
+}
+
+/**
+ * Resolve a renderer-supplied relative path ("<projectId>/<file>") to an
+ * absolute path, guaranteeing it stays inside the media directory. Returns
+ * null if the path escapes the root (path-traversal guard).
+ */
+function resolveLibraryPath(relPath: string): string | null {
+  const root = path.resolve(scrapperMediaDir());
+  const abs = path.resolve(root, relPath);
+  if (abs !== root && !abs.startsWith(root + path.sep)) return null;
+  return abs;
+}
+
+/** In-flight downloads keyed by snapshotId, so we can cancel them / kill on quit. */
+const activeDownloads = new Map<string, AbortController>();
+
+/** Serialize downloads (concurrency 1) so several captures can't saturate the CPU. */
+let downloadQueue: Promise<unknown> = Promise.resolve();
+function enqueueDownload<T>(task: () => Promise<T>): Promise<T> {
+  const run = downloadQueue.then(task, task);
+  downloadQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/** Abort every in-flight download (used on app quit so nothing is orphaned). */
+function abortAllDownloads(): void {
+  for (const controller of activeDownloads.values()) controller.abort();
+  activeDownloads.clear();
+}
+
+// Must run before app `ready`. `stream`+`supportFetchAPI` let <video> issue
+// Range requests for smooth seeking; `secure` keeps it a trusted origin.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'wh-media',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+  },
+]);
 
 // ---------------------------------------------------------------------------
 // Window
@@ -296,6 +361,67 @@ function registerIpc(): void {
     },
   );
 
+  // Scrapper: download a link's media into the managed library, return its rel path.
+  ipcMain.handle(
+    'media:downloadToLibrary',
+    async (
+      _e,
+      args: { url: string; format: MediaFormat; projectId: string; snapshotId: string },
+    ): Promise<DownloadToLibraryResult> => {
+      const { url, projectId, snapshotId } = args ?? ({} as typeof args);
+      const format: MediaFormat = args?.format === 'audio' ? 'audio' : 'video';
+      if (!url || !SAFE_SEGMENT.test(projectId) || !SAFE_SEGMENT.test(snapshotId)) {
+        return { ok: false, error: 'invalid request' };
+      }
+      // Don't double-spawn yt-dlp for a snapshot already downloading.
+      if (activeDownloads.has(snapshotId)) {
+        return { ok: false, error: 'already downloading' };
+      }
+      const controller = new AbortController();
+      activeDownloads.set(snapshotId, controller);
+      try {
+        // Serialized (concurrency 1) so multiple captures queue instead of
+        // spawning parallel yt-dlp/ffmpeg processes that pin the CPU.
+        return await enqueueDownload(async (): Promise<DownloadToLibraryResult> => {
+          if (controller.signal.aborted) return { ok: false, error: 'cancelled' };
+          const outcome = await downloadMedia(url, format, controller.signal);
+          try {
+            const ext = path.extname(outcome.filename) || (format === 'audio' ? '.mp3' : '.mp4');
+            const destDir = path.join(scrapperMediaDir(), projectId);
+            await fs.mkdir(destDir, { recursive: true });
+            const fileName = `${snapshotId}${ext}`;
+            await fs.copyFile(outcome.filePath, path.join(destDir, fileName));
+            return {
+              ok: true,
+              relPath: `${projectId}/${fileName}`,
+              filename: outcome.filename,
+              sizeBytes: outcome.sizeBytes,
+              kind: format,
+            };
+          } finally {
+            await outcome.cleanup();
+          }
+        });
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      } finally {
+        activeDownloads.delete(snapshotId);
+      }
+    },
+  );
+
+  // Scrapper: cancel an in-flight download (kills yt-dlp + its ffmpeg child).
+  ipcMain.handle('media:cancelDownload', (_e, snapshotId: string): void => {
+    activeDownloads.get(snapshotId)?.abort();
+  });
+
+  // Scrapper: remove a downloaded media file (called when its snapshot is deleted).
+  ipcMain.handle('media:deleteLibraryFile', async (_e, relPath: string): Promise<void> => {
+    const abs = typeof relPath === 'string' ? resolveLibraryPath(relPath) : null;
+    if (!abs) return;
+    await fs.rm(abs, { force: true });
+  });
+
   ipcMain.handle('updates:check', () => checkForUpdates(true));
   ipcMain.handle('updates:quitAndInstall', () => {
     autoUpdater.quitAndInstall();
@@ -322,6 +448,19 @@ if (!gotLock) {
     registerIpc();
     buildMenu();
 
+    // Serve downloaded scrapper media to the renderer with Range/seeking support.
+    // URL shape: wh-media://media/<projectId>/<file>  →  <userData>/scrapper-media/...
+    protocol.handle('wh-media', async (request) => {
+      try {
+        const rel = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, '');
+        const abs = resolveLibraryPath(rel);
+        if (!abs) return new Response(null, { status: 403 });
+        return await net.fetch(pathToFileURL(abs).toString());
+      } catch {
+        return new Response(null, { status: 404 });
+      }
+    });
+
     try {
       await startMediaServer();
     } catch (err) {
@@ -345,4 +484,5 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   stopMediaServer();
+  abortAllDownloads();
 });

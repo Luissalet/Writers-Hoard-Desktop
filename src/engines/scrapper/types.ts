@@ -20,6 +20,16 @@ export interface Snapshot {
   extractedText?: string;
   htmlContent?: string;
   screenshotBase64?: string;
+  // --- Downloaded media (desktop): the link's video/audio saved to local disk ---
+  /** Path relative to the scrapper-media root, e.g. "<projectId>/<snapshotId>.mp4". */
+  localMediaPath?: string;
+  /** Original human-readable filename produced by yt-dlp. */
+  mediaFilename?: string;
+  mediaSizeBytes?: number;
+  mediaKind?: 'video' | 'audio';
+  /** Lifecycle of the local download. Absent = never attempted (link-only). */
+  downloadState?: 'idle' | 'downloading' | 'done' | 'error';
+  downloadError?: string;
   metadata?: Record<string, string>;
   preservedAt: number;
   createdAt: number;

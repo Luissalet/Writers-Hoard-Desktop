@@ -9,7 +9,7 @@
 //   only the CaptureBar plus an ephemeral "this session" list of completed
 //   downloads. No DB, no archive UI.
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Grid3x3, List, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
@@ -18,6 +18,9 @@ import CaptureBar from './CaptureBar';
 import SnapshotCard from './SnapshotCard';
 import ManualSnapshotModal from './ManualSnapshotModal';
 import type { MediaFormat } from '@/services/mediaDownloader';
+import { canDownloadMedia, deleteSnapshotMedia, runSnapshotDownload } from '@/services/scrapperMedia';
+import { isDesktop } from '@/utils/platform';
+import type { Snapshot } from '../types';
 
 type ViewMode = 'grid' | 'list';
 
@@ -82,13 +85,37 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
     );
   }, [snapshots, searchQuery]);
 
+  // Capture: persist the snapshot first, then (desktop, downloadable source)
+  // kick off the background download that fills in the local playable file.
+  const handleCapture = useCallback(
+    (snapshot: Snapshot) => {
+      void (async () => {
+        await addSnapshot(snapshot);
+        if (isDesktop() && canDownloadMedia(snapshot.source)) {
+          await runSnapshotDownload(snapshot, editSnapshot, 'video');
+        }
+      })();
+    },
+    [addSnapshot, editSnapshot],
+  );
+
+  // Delete: also remove the downloaded file so the library doesn't leak.
+  const handleDelete = useCallback(
+    (id: string) => {
+      const target = snapshots.find((s) => s.id === id);
+      if (target?.localMediaPath) void deleteSnapshotMedia(target.localMediaPath);
+      void removeSnapshot(id);
+    },
+    [snapshots, removeSnapshot],
+  );
+
   if (loading) return <EngineSpinner className="flex items-center justify-center h-64 bg-deep" />;
 
   return (
     <div className="flex flex-col h-full bg-deep">
       <CaptureBar
         projectId={projectId}
-        onCapture={addSnapshot}
+        onCapture={handleCapture}
         onManualEntry={() => setIsManualModalOpen(true)}
       />
 
@@ -154,13 +181,13 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
             </p>
           </div>
         ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {filteredSnapshots.map((snapshot) => (
               <SnapshotCard
                 key={snapshot.id}
                 snapshot={snapshot}
                 onUpdate={editSnapshot}
-                onDelete={removeSnapshot}
+                onDelete={handleDelete}
               />
             ))}
           </div>

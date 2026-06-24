@@ -1,5 +1,10 @@
 # Lessons Learned
 
+## 15. Spawned child processes (yt-dlp/ffmpeg) must be tracked, throttled, and tree-killed
+**Date:** 2026-06-24
+**Context:** Auto-download on capture (Scrapper) spawned yt-dlp + ffmpeg per captured link with no tracking. A heavy ffmpeg mux spiked CPU, and closing the app mid-download could orphan the processes — they kept running and looked "invisible" in Task Manager's *Processes* tab (only visible under *Details*). The user reported a CPU spike. Aside on diagnosis: the "97% CPU" was a transient peak; in *Details*, **System Idle Process at 79% means the CPU was actually ~21% used** — read the Idle process correctly before concluding something is runaway.
+**Rule:** Whenever the main process spawns external binaries: (1) keep a registry (`Map` keyed by a stable id, e.g. snapshotId) of in-flight children, each with its own `AbortController`; (2) **serialize** with a concurrency-1 queue so captures can't fan out into parallel CPU-pinning processes; (3) lower priority via `os.setPriority(pid, os.constants.priority.PRIORITY_BELOW_NORMAL)`; (4) on cancel/quit kill the **whole tree** — on Windows `taskkill /pid <pid> /T /F`, because `child.kill()` alone leaves ffmpeg (a grandchild) alive; (5) expose a cancel IPC + a Cancel button, and wire `app.on('will-quit', abortAllDownloads)`. A detached `taskkill` still completes even though the parent is exiting.
+
 ## 14. Default to browser-native downloads, not File System Access API
 **Date:** 2026-05-28
 **Context:** Built the Media Downloader page with `showDirectoryPicker()` + persistent `FileSystemDirectoryHandle` because the user said "use File System Access API". On first run the page was unusable: the embedded/native browser tier flagged the API as unsupported and showed a big "your browser doesn't support folder downloads" banner. The user pushed back: "should be like anything you download on the web — click download and a Windows pop-up opens for choosing folder".
