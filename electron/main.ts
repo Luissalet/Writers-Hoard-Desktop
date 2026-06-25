@@ -37,6 +37,10 @@ interface DownloadToLibraryResult {
   filename?: string;
   sizeBytes?: number;
   kind?: MediaFormat;
+  description?: string;
+  uploader?: string;
+  uploadDate?: string;
+  title?: string;
   error?: string;
 }
 
@@ -397,6 +401,10 @@ function registerIpc(): void {
               filename: outcome.filename,
               sizeBytes: outcome.sizeBytes,
               kind: format,
+              description: outcome.metadata?.description,
+              uploader: outcome.metadata?.uploader,
+              uploadDate: outcome.metadata?.uploadDate,
+              title: outcome.metadata?.title,
             };
           } finally {
             await outcome.cleanup();

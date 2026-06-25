@@ -88,3 +88,17 @@ Hoy, al pegar un enlace de Instagram/Twitter/YouTube en Recortes, el recorte gua
 **Cambio:** `src/engines/scrapper/components/SnapshotCard.tsx` — si hay `localMediaPath` (vídeo), la tarjeta muestra un `<video muted preload="metadata">` con el fotograma a `#t=0.5` como miniatura + overlay `PlayCircle`; fallback al `thumbnail` base64 (entradas manuales). Reutiliza `snapshotMediaUrl` y el archivo ya descargado → **cubre también los recortes existentes** sin tocar backend ni almacenar pósters. Sin commit.
 
 **Ajuste (a petición):** mostrar la miniatura **entera en cualquier formato** (vertical/horizontal/cuadrado) → contenedor `h-56` con fondo neutro + `object-contain` (antes recortaba con `object-cover`/`aspect-[9/16]`). Grid a `grid-cols-2 md:3 lg:4`.
+
+## Update — etiquetas (UX) (2026-06-24)
+
+- **Guardado fiable:** `TagInput` confirma la etiqueta en curso en `onBlur` (antes solo con Enter → se perdía al pulsar Hecho).
+- **Separación por coma:** teclear o pegar `,` divide en varias etiquetas (`commitInput` hace split).
+- **El modal ya no se cierra al guardar:** `ScrapperEngine` ArchiveMode mostraba el spinner global en cada refresh y desmontaba el modal → ahora `loading && snapshots.length === 0` (solo carga inicial). Ver lección #16.
+- **Autocompletado:** `TagInput` recibe `suggestions`; dropdown (hacia arriba, `onMouseDown` para no perder foco) con las etiquetas existentes que coinciden, navegable con flechas/Enter/Escape. `ScrapperEngine` computa `allTags` (únicas del proyecto) → `SnapshotCard` → `SnapshotDetail` → `TagInput`.
+- **Búsqueda por etiquetas:** `filteredSnapshots` ahora incluye `s.tags.some(...)` además de título/url/notas/texto.
+- **Autocompletado en el buscador:** el input de búsqueda muestra el mismo dropdown de etiquetas (reutiliza `allTags`, excluye el término exacto para cerrarse al elegir); al seleccionar, `setSearchQuery(tag)` filtra por ella.
+- **Campo Descripción:** nuevo `description?: string` en `Snapshot` + textarea en `SnapshotDetail` (guardado `onBlur`) **encima de Notas** + claves `scrapper.description(.Placeholder)` en ambos locales.
+- **Autorrelleno desde el reel:** al descargar, `yt-dlp --write-info-json` → `ytdlp.ts` lee el sidecar y devuelve `MediaMetadata` (description/uploader/uploadDate/title); el bridge (`DownloadToLibraryResult`) lo propaga; `runSnapshotDownload` rellena `description` (caption), `author` y `publishDate` (YYYYMMDD→ISO) **solo si están vacíos** (no pisa ediciones del usuario). Best-effort, y solo en descargas **nuevas** (no retroactivo a recortes ya guardados). NOTA: cambios en `electron/` requieren reiniciar `dev:desktop` (rebuild del main), no basta `Ctrl+R`.
+- **Descripción legible:** el textarea de Descripción auto-crece con el contenido (`useRef`+`useEffect`, cap 360px, luego scroll) + `leading-relaxed`. Solo renderer (basta `Ctrl+R`).
+
+Verificación: revisión cruzada por subagente vía Read (flujo de tipos `tagSuggestions?`, `React.KeyboardEvent` en scope, JSX balanceado, paridad de locales, autocomplete y filtro) → sin errores. Mount stale → typecheck/lint en Windows. Sin commit.

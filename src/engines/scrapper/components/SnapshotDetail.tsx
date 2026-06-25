@@ -2,7 +2,7 @@
 // Scrapper Engine — Snapshot Detail Modal
 // ============================================
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   X,
   ExternalLink,
@@ -27,6 +27,7 @@ interface SnapshotDetailProps {
   onUpdate: (id: string, changes: Partial<Snapshot>) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
+  tagSuggestions?: string[];
 }
 
 export default function SnapshotDetail({
@@ -34,17 +35,34 @@ export default function SnapshotDetail({
   onUpdate,
   onDelete,
   onClose,
+  tagSuggestions,
 }: SnapshotDetailProps) {
   const { t } = useTranslation();
+  const [description, setDescription] = useState(snapshot.description ?? '');
   const [notes, setNotes] = useState(snapshot.notes);
   const [tags, setTags] = useState(snapshot.tags);
   const [pendingDelete, setPendingDelete] = useState(false);
+
+  const handleDescriptionBlur = useCallback(() => {
+    if (description !== (snapshot.description ?? '')) {
+      onUpdate(snapshot.id, { description });
+    }
+  }, [description, snapshot.id, snapshot.description, onUpdate]);
 
   const handleNotesBlur = useCallback(() => {
     if (notes !== snapshot.notes) {
       onUpdate(snapshot.id, { notes });
     }
   }, [notes, snapshot.id, snapshot.notes, onUpdate]);
+
+  // Auto-grow the description box to fit its content (capped, then it scrolls).
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = descriptionRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 360)}px`;
+  }, [description]);
 
   const handleTagsChange = useCallback((newTags: string[]) => {
     setTags(newTags);
@@ -235,6 +253,19 @@ export default function SnapshotDetail({
             </div>
           )}
 
+          {/* Description */}
+          <div className="space-y-2">
+            <label className="font-serif font-semibold text-foreground block">{t('scrapper.description')}</label>
+            <textarea
+              ref={descriptionRef}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onBlur={handleDescriptionBlur}
+              placeholder={t('scrapper.descriptionPlaceholder')}
+              className="w-full px-4 py-2 bg-elevated border border-border rounded-lg text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent-gold resize-none overflow-y-auto min-h-[5rem] max-h-[360px] leading-relaxed"
+            />
+          </div>
+
           {/* Notes */}
           <div className="space-y-2">
             <label className="font-serif font-semibold text-foreground block">{t('common.notes')}</label>
@@ -252,7 +283,7 @@ export default function SnapshotDetail({
           {/* Tags */}
           <div className="space-y-2">
             <label className="font-serif font-semibold text-foreground block">{t('common.tags')}</label>
-            <TagInput tags={tags} onChange={handleTagsChange} />
+            <TagInput tags={tags} onChange={handleTagsChange} suggestions={tagSuggestions} />
           </div>
         </div>
 

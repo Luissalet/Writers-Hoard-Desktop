@@ -63,10 +63,20 @@ export function detectPlatform(url: string): string {
   return 'Desconocida';
 }
 
+export interface MediaMetadata {
+  /** The post's caption / description. */
+  description?: string;
+  title?: string;
+  uploader?: string;
+  /** yt-dlp `upload_date`, format YYYYMMDD. */
+  uploadDate?: string;
+}
+
 export interface DownloadOutcome {
   filePath: string;
   filename: string;
   sizeBytes: number;
+  metadata?: MediaMetadata;
   /** Removes the temp directory holding the produced file. Call after streaming. */
   cleanup: () => Promise<void>;
 }
@@ -89,6 +99,7 @@ export async function downloadMedia(
     '--no-progress',
     '--no-warnings',
     '--restrict-filenames',
+    '--write-info-json',
     '-o',
     path.join(tmpdir, '%(title).80s.%(ext)s'),
   ];
@@ -108,12 +119,36 @@ export async function downloadMedia(
   }
 
   const entries = await fs.readdir(tmpdir);
+
+  // Pull caption/uploader/date from the sidecar info.json (best-effort).
+  let metadata: MediaMetadata | undefined;
+  const infoName = entries.find((n) => n.endsWith('.info.json'));
+  if (infoName) {
+    try {
+      const raw = await fs.readFile(path.join(tmpdir, infoName), 'utf8');
+      const j = JSON.parse(raw) as Record<string, unknown>;
+      const str = (v: unknown): string | undefined =>
+        typeof v === 'string' && v.trim() ? v : undefined;
+      metadata = {
+        description: str(j.description),
+        title: str(j.title),
+        uploader: str(j.uploader) ?? str(j.uploader_id) ?? str(j.channel),
+        uploadDate: str(j.upload_date),
+      };
+    } catch {
+      /* metadata is best-effort; ignore parse errors */
+    }
+  }
+
+  // The produced media is the largest non-metadata file.
   const stats = await Promise.all(
-    entries.map(async (name) => {
-      const fp = path.join(tmpdir, name);
-      const st = await fs.stat(fp);
-      return { fp, name, size: st.isFile() ? st.size : -1 };
-    }),
+    entries
+      .filter((name) => !name.endsWith('.info.json'))
+      .map(async (name) => {
+        const fp = path.join(tmpdir, name);
+        const st = await fs.stat(fp);
+        return { fp, name, size: st.isFile() ? st.size : -1 };
+      }),
   );
   const produced = stats.filter((s) => s.size >= 0).sort((a, b) => b.size - a.size)[0];
   if (!produced) {
@@ -125,6 +160,7 @@ export async function downloadMedia(
     filePath: produced.fp,
     filename: produced.name,
     sizeBytes: produced.size,
+    metadata,
     cleanup: () => fs.rm(tmpdir, { recursive: true, force: true }),
   };
 }

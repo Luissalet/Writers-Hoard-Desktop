@@ -22,6 +22,11 @@ export interface DownloadedMedia {
   filename?: string;
   sizeBytes?: number;
   kind: 'video' | 'audio';
+  description?: string;
+  uploader?: string;
+  /** yt-dlp upload_date, format YYYYMMDD. */
+  uploadDate?: string;
+  title?: string;
 }
 
 /**
@@ -46,6 +51,10 @@ export async function downloadSnapshotMedia(args: {
     filename: res.filename,
     sizeBytes: res.sizeBytes,
     kind: res.kind ?? 'video',
+    description: res.description,
+    uploader: res.uploader,
+    uploadDate: res.uploadDate,
+    title: res.title,
   };
 }
 
@@ -81,8 +90,13 @@ export function snapshotMediaUrl(relPath: string): string {
  * capture and the manual retry. `update` is the entity hook's `editItem`.
  * Never throws — failures are written into the snapshot's downloadError.
  */
+/** Convert yt-dlp's YYYYMMDD upload_date to YYYY-MM-DD (parseable by `new Date`). */
+function isoFromYtDate(d: string | undefined): string | undefined {
+  return d && /^\d{8}$/.test(d) ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` : undefined;
+}
+
 export async function runSnapshotDownload(
-  snapshot: Pick<Snapshot, 'id' | 'url' | 'projectId'>,
+  snapshot: Pick<Snapshot, 'id' | 'url' | 'projectId' | 'description' | 'author' | 'publishDate'>,
   update: (id: string, changes: Partial<Snapshot>) => void | Promise<void>,
   format: MediaFormat = 'video',
 ): Promise<void> {
@@ -94,14 +108,22 @@ export async function runSnapshotDownload(
       projectId: snapshot.projectId,
       snapshotId: snapshot.id,
     });
-    await update(snapshot.id, {
+    const changes: Partial<Snapshot> = {
       localMediaPath: media.relPath,
       mediaFilename: media.filename,
       mediaSizeBytes: media.sizeBytes,
       mediaKind: media.kind,
       downloadState: 'done',
       downloadError: undefined,
-    });
+    };
+    // Fill in the reel's own caption/author/date — but never overwrite the user's edits.
+    if (media.description && !snapshot.description?.trim()) changes.description = media.description;
+    if (media.uploader && !snapshot.author?.trim()) changes.author = media.uploader;
+    if (!snapshot.publishDate) {
+      const iso = isoFromYtDate(media.uploadDate);
+      if (iso) changes.publishDate = iso;
+    }
+    await update(snapshot.id, changes);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // User cancelled → back to link-only; duplicate request → leave as-is.
