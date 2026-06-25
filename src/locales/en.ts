@@ -853,6 +853,8 @@ const en = {
   'scrapper.downloadFailed': "Couldn't download the video",
   'scrapper.retryDownload': 'Retry',
   'scrapper.cancelDownload': 'Cancel',
+  'scrapper.description': 'Description',
+  'scrapper.descriptionPlaceholder': 'A short description of this reference…',
 
   // ── Media Downloader (standalone page) ──
   'mediaDownloader.title': 'Media Downloader',

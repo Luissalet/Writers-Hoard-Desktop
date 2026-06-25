@@ -14,9 +14,10 @@ interface SnapshotCardProps {
   snapshot: Snapshot;
   onUpdate: (id: string, changes: Partial<Snapshot>) => void;
   onDelete: (id: string) => void;
+  tagSuggestions?: string[];
 }
 
-export default function SnapshotCard({ snapshot, onUpdate, onDelete }: SnapshotCardProps) {
+export default function SnapshotCard({ snapshot, onUpdate, onDelete, tagSuggestions }: SnapshotCardProps) {
   const { t } = useTranslation();
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
@@ -169,6 +170,7 @@ export default function SnapshotCard({ snapshot, onUpdate, onDelete }: SnapshotC
           onUpdate={onUpdate}
           onDelete={onDelete}
           onClose={() => setIsDetailOpen(false)}
+          tagSuggestions={tagSuggestions}
         />
       )}
     </>
