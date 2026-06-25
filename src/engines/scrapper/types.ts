@@ -15,6 +15,8 @@ export interface Snapshot {
   thumbnail?: string; // base64
   author?: string;
   publishDate?: string;
+  /** Optional short description / caption, shown above notes in the detail view. */
+  description?: string;
   notes: string;
   tags: string[];
   extractedText?: string;

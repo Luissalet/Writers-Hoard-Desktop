@@ -1,5 +1,10 @@
 # Lessons Learned
 
+## 16. `loading` from makeEntityHook flips on every refresh — don't gate the whole view on it while a modal is open
+**Date:** 2026-06-24
+**Context:** The Scrapper detail modal closed itself every time the user added a tag. Root cause: `editItem` (makeEntityHook) does `await updateFn` then `await refresh()`, and `refresh()` sets `loading=true`. The engine view did `if (loading) return <EngineSpinner/>`, so each edit briefly replaced the whole subtree (grid + the open `<SnapshotDetail>` modal) with the spinner; when loading cleared, `SnapshotCard` re-mounted with `isDetailOpen=false` → the modal closed mid-edit. The tag had actually saved — it just looked like "Enter closes the modal".
+**Rule:** A full-view `if (loading) return <Spinner/>` must only fire on the INITIAL load, never on post-edit refreshes. Gate it on `loading && items.length === 0` (or a dedicated `initialLoading` flag). Any engine that (a) renders a detail/edit modal inside the list and (b) saves via `editItem` is exposed to this — the modal's open state lives in the child component and is lost on unmount. Audit other engines for the same `if (loading) return` pattern.
+
 ## 15. Spawned child processes (yt-dlp/ffmpeg) must be tracked, throttled, and tree-killed
 **Date:** 2026-06-24
 **Context:** Auto-download on capture (Scrapper) spawned yt-dlp + ffmpeg per captured link with no tracking. A heavy ffmpeg mux spiked CPU, and closing the app mid-download could orphan the processes — they kept running and looked "invisible" in Task Manager's *Processes* tab (only visible under *Details*). The user reported a CPU spike. Aside on diagnosis: the "97% CPU" was a transient peak; in *Details*, **System Idle Process at 79% means the CPU was actually ~21% used** — read the Idle process correctly before concluding something is runaway.

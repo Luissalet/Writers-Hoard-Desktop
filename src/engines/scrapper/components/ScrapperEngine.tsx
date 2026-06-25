@@ -73,17 +73,56 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
     useSnapshots(projectId);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
+  const [searchFocused, setSearchFocused] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
 
   const filteredSnapshots = useMemo(() => {
-    if (!searchQuery.trim()) return snapshots;
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return snapshots;
     return snapshots.filter(s =>
-      s.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.url.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.notes.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (s.extractedText && s.extractedText.toLowerCase().includes(searchQuery.toLowerCase()))
+      s.title.toLowerCase().includes(q) ||
+      s.url.toLowerCase().includes(q) ||
+      s.notes.toLowerCase().includes(q) ||
+      s.tags.some(tag => tag.toLowerCase().includes(q)) ||
+      (s.extractedText && s.extractedText.toLowerCase().includes(q))
     );
   }, [snapshots, searchQuery]);
+
+  // All distinct tags already used in this project — offered as autocomplete.
+  const allTags = useMemo(
+    () => Array.from(new Set(snapshots.flatMap((s) => s.tags))).sort((a, b) => a.localeCompare(b)),
+    [snapshots],
+  );
+
+  // Tag suggestions for the search box (exclude the exact term so it closes on pick).
+  const searchMatches = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return allTags.filter((tg) => tg.toLowerCase() !== q && tg.toLowerCase().includes(q)).slice(0, 8);
+  }, [allTags, searchQuery]);
+
+  const pickSearchTag = (tag: string) => {
+    setSearchQuery(tag);
+    setSearchActiveIndex(-1);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (searchMatches.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSearchActiveIndex((i) => (i + 1) % searchMatches.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSearchActiveIndex((i) => (i <= 0 ? searchMatches.length - 1 : i - 1));
+    } else if (e.key === 'Enter' && searchActiveIndex >= 0) {
+      e.preventDefault();
+      pickSearchTag(searchMatches[searchActiveIndex]);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setSearchFocused(false);
+    }
+  };
 
   // Capture: persist the snapshot first, then (desktop, downloadable source)
   // kick off the background download that fills in the local playable file.
@@ -124,13 +163,44 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
       />
 
       <div className="bg-surface border-b border-border px-4 py-3 flex items-center justify-between gap-3">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder={t('scrapper.searchSnapshots')}
-          className="flex-1 px-3 py-1.5 bg-elevated border border-border rounded-lg text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent-gold"
-        />
+        <div className="relative flex-1">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setSearchActiveIndex(-1);
+            }}
+            onKeyDown={handleSearchKeyDown}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+            placeholder={t('scrapper.searchSnapshots')}
+            className="w-full px-3 py-1.5 bg-elevated border border-border rounded-lg text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent-gold"
+          />
+          {searchFocused && searchMatches.length > 0 && (
+            <ul className="absolute z-20 left-0 right-0 top-full mt-1 max-h-48 overflow-y-auto bg-elevated border border-border rounded-lg shadow-xl py-1">
+              {searchMatches.map((tg, i) => (
+                <li key={tg}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      pickSearchTag(tg);
+                    }}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
+                      i === searchActiveIndex
+                        ? 'bg-accent-gold/20 text-foreground'
+                        : 'text-muted hover:bg-surface hover:text-foreground'
+                    }`}
+                  >
+                    <span className="text-accent-plum-light">#</span>
+                    {tg}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <div className="flex items-center gap-1 bg-elevated border border-border rounded-lg p-1">
           <button
             onClick={() => setViewMode('grid')}
@@ -192,6 +262,7 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
                 snapshot={snapshot}
                 onUpdate={editSnapshot}
                 onDelete={handleDelete}
+                tagSuggestions={allTags}
               />
             ))}
           </div>

@@ -15,6 +15,10 @@ export interface DownloadToLibraryResult {
   filename?: string;
   sizeBytes?: number;
   kind?: 'video' | 'audio';
+  description?: string;
+  uploader?: string;
+  uploadDate?: string;
+  title?: string;
   error?: string;
 }
 
