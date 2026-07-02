@@ -101,4 +101,28 @@ Hoy, al pegar un enlace de Instagram/Twitter/YouTube en Recortes, el recorte gua
 - **Autorrelleno desde el reel:** al descargar, `yt-dlp --write-info-json` → `ytdlp.ts` lee el sidecar y devuelve `MediaMetadata` (description/uploader/uploadDate/title); el bridge (`DownloadToLibraryResult`) lo propaga; `runSnapshotDownload` rellena `description` (caption), `author` y `publishDate` (YYYYMMDD→ISO) **solo si están vacíos** (no pisa ediciones del usuario). Best-effort, y solo en descargas **nuevas** (no retroactivo a recortes ya guardados). NOTA: cambios en `electron/` requieren reiniciar `dev:desktop` (rebuild del main), no basta `Ctrl+R`.
 - **Descripción legible:** el textarea de Descripción auto-crece con el contenido (`useRef`+`useEffect`, cap 360px, luego scroll) + `leading-relaxed`. Solo renderer (basta `Ctrl+R`).
 
+## Update — fotos y carruseles de Instagram (gallery-dl) (2026-06-24)
+
+**Motivo:** yt-dlp solo baja vídeos ("There is no video in this post"); fotos/carruseles requieren login.
+**Enfoque:** para Instagram, `downloadToLibrary` intenta yt-dlp (vídeo, anónimo); si falla → **gallery-dl** con `--cookies-from-browser` (prueba Firefox/Chrome/Edge/Brave/…) y baja la foto o el carrusel a `scrapper-media/<projectId>/<snapshotId>/`.
+
+**Archivos:** `scripts/fetch-ytdlp.mjs` (baja también gallery-dl); `electron/media/gallerydl.ts` (NUEVO — prueba navegadores, `-D`+`--write-metadata`, lista imágenes/vídeos, extrae description/uploader/date, prioridad baja+cancelación+tree-kill); `ytdlp.ts` exporta `killProcessTree`; `main.ts` (fallback yt-dlp→gallery-dl, `items[]`+`kind 'image'`, `deleteLibraryFile` recursivo); bridge `MediaItemRef`+`items[]`; `types.ts` (`mediaItems[]`, `mediaKind 'image'`); `scrapperMedia.ts` (mapea items, `deleteSnapshotMedia(snapshot)` deriva archivo/carpeta); `MediaGallery.tsx` (NUEVO — carrusel); `SnapshotDetail.tsx` (usa galería); `SnapshotCard.tsx` (miniatura 1er item + badge nº).
+
+**Verificación:** subagente vía Read (A–H) → sin errores de tipos/lint; bridge coincide a 3 bandas; `mediaItems` persiste en Dexie.
+
+**Prueba en Windows (no testeable en sandbox):** (1) `npm run fetch:bin` (baja gallery-dl); (2) reiniciar `npm run dev:desktop` (rebuild del main); (3) **Instagram logueado** en Firefox/Chrome/Edge/Brave; (4) capturar un post de fotos/carrusel.
+
+**Riesgos:** depende de cookies del navegador; si ninguno tiene sesión IG → error claro. Carrusel mixto (vídeo+foto): si yt-dlp baja el vídeo, no se llega a gallery-dl. Sin commit.
+
+## Update — login de Instagram embebido (2026-06-24)
+
+**Motivo:** depender de cookies de un navegador externo es frágil; mejor sesión propia en la app.
+**Enfoque:** ventana de Instagram embebida (NO usuario/contraseña). El usuario inicia sesión normal (2FA incluido) en una `BrowserWindow` con `partition: 'persist:instagram'`; al detectar `sessionid` se exportan las cookies a Netscape `cookies.txt` en userData. yt-dlp y gallery-dl reciben `--cookies <file>` (gallery-dl mantiene `--cookies-from-browser` como respaldo). La contraseña nunca toca el código.
+
+**Archivos:** `electron/media/igAuth.ts` (NUEVO — `openIgLogin`/`exportIgCookies`/`igStatus`/`igLogout`/`igCookiesPath`, UA de Chrome); `ytdlp.ts`+`gallerydl.ts` aceptan `cookiesFile`; `main.ts` (refresca cookies antes de cada descarga, IPC `ig:login`/`ig:status`/`ig:logout`); bridge `instagram` en preload/env; `InstagramConnect.tsx` (NUEVO — botón Conectar/Desconectar con estado) en la cabecera de Recortes.
+
+**Verificación:** subagente vía Read + electron.d.ts (A–H) → APIs `session`/`cookies`/`BrowserWindow` correctas, bridge coincide, JSX balanceado, sin errores.
+
+**Prueba en Windows:** (1) `npm run fetch:bin`; (2) reiniciar `npm run dev:desktop`; (3) en Recortes → **Conectar Instagram** → iniciar sesión en la ventana → queda "Instagram ✓"; (4) capturar un post de fotos. **No testeable en sandbox** (login real). Riesgo: IG puede pedir verificación/captcha en el webview. Sin commit.
+
 Verificación: revisión cruzada por subagente vía Read (flujo de tipos `tagSuggestions?`, `React.KeyboardEvent` en scope, JSX balanceado, paridad de locales, autocomplete y filtro) → sin errores. Mount stale → typecheck/lint en Windows. Sin commit.

@@ -25,10 +25,12 @@ export interface Snapshot {
   // --- Downloaded media (desktop): the link's video/audio saved to local disk ---
   /** Path relative to the scrapper-media root, e.g. "<projectId>/<snapshotId>.mp4". */
   localMediaPath?: string;
+  /** For photo/carousel posts: every downloaded item in order (under <projectId>/<snapshotId>/). */
+  mediaItems?: { relPath: string; kind: 'image' | 'video' }[];
   /** Original human-readable filename produced by yt-dlp. */
   mediaFilename?: string;
   mediaSizeBytes?: number;
-  mediaKind?: 'video' | 'audio';
+  mediaKind?: 'video' | 'audio' | 'image';
   /** Lifecycle of the local download. Absent = never attempted (link-only). */
   downloadState?: 'idle' | 'downloading' | 'done' | 'error';
   downloadError?: string;

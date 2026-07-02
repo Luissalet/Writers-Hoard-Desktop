@@ -23,6 +23,8 @@ import { autoUpdater } from 'electron-updater';
 import { startMediaServer, stopMediaServer, MEDIA_SERVER_URL } from './media/server';
 import { transcodeWebmToMp4 } from './media/transcode';
 import { downloadMedia, type MediaFormat } from './media/ytdlp';
+import { downloadGallery } from './media/gallerydl';
+import { openIgLogin, igStatus, igLogout, exportIgCookies, igCookiesPath } from './media/igAuth';
 
 interface SaveResult {
   ok: boolean;
@@ -31,12 +33,18 @@ interface SaveResult {
   error?: string;
 }
 
+interface MediaItemRef {
+  relPath: string;
+  kind: 'image' | 'video';
+}
+
 interface DownloadToLibraryResult {
   ok: boolean;
   relPath?: string;
+  items?: MediaItemRef[];
   filename?: string;
   sizeBytes?: number;
-  kind?: MediaFormat;
+  kind?: 'video' | 'audio' | 'image';
   description?: string;
   uploader?: string;
   uploadDate?: string;
@@ -388,26 +396,72 @@ function registerIpc(): void {
         // spawning parallel yt-dlp/ffmpeg processes that pin the CPU.
         return await enqueueDownload(async (): Promise<DownloadToLibraryResult> => {
           if (controller.signal.aborted) return { ok: false, error: 'cancelled' };
-          const outcome = await downloadMedia(url, format, controller.signal);
+
+          // Refresh exported Instagram cookies if the user connected their account.
+          const hasIg = await exportIgCookies().catch(() => false);
+          const cookiesFile = hasIg ? igCookiesPath() : undefined;
+
+          // 1) Try yt-dlp (video, anonymous — reels and video posts).
           try {
-            const ext = path.extname(outcome.filename) || (format === 'audio' ? '.mp3' : '.mp4');
-            const destDir = path.join(scrapperMediaDir(), projectId);
-            await fs.mkdir(destDir, { recursive: true });
-            const fileName = `${snapshotId}${ext}`;
-            await fs.copyFile(outcome.filePath, path.join(destDir, fileName));
-            return {
-              ok: true,
-              relPath: `${projectId}/${fileName}`,
-              filename: outcome.filename,
-              sizeBytes: outcome.sizeBytes,
-              kind: format,
-              description: outcome.metadata?.description,
-              uploader: outcome.metadata?.uploader,
-              uploadDate: outcome.metadata?.uploadDate,
-              title: outcome.metadata?.title,
-            };
-          } finally {
-            await outcome.cleanup();
+            const outcome = await downloadMedia(url, format, controller.signal, cookiesFile);
+            try {
+              const ext = path.extname(outcome.filename) || (format === 'audio' ? '.mp3' : '.mp4');
+              const destDir = path.join(scrapperMediaDir(), projectId);
+              await fs.mkdir(destDir, { recursive: true });
+              const fileName = `${snapshotId}${ext}`;
+              await fs.copyFile(outcome.filePath, path.join(destDir, fileName));
+              const relPath = `${projectId}/${fileName}`;
+              return {
+                ok: true,
+                relPath,
+                items: [{ relPath, kind: 'video' }],
+                filename: outcome.filename,
+                sizeBytes: outcome.sizeBytes,
+                kind: format,
+                description: outcome.metadata?.description,
+                uploader: outcome.metadata?.uploader,
+                uploadDate: outcome.metadata?.uploadDate,
+                title: outcome.metadata?.title,
+              };
+            } finally {
+              await outcome.cleanup();
+            }
+          } catch (ytErr) {
+            const ymsg = ytErr instanceof Error ? ytErr.message : String(ytErr);
+            if (ymsg === 'cancelled') return { ok: false, error: 'cancelled' };
+
+            // 2) yt-dlp couldn't (likely a photo / carousel) → gallery-dl with cookies.
+            let gallery;
+            try {
+              gallery = await downloadGallery(url, controller.signal, cookiesFile);
+            } catch (gErr) {
+              return { ok: false, error: gErr instanceof Error ? gErr.message : String(gErr) };
+            }
+            try {
+              const destDir = path.join(scrapperMediaDir(), projectId, snapshotId);
+              await fs.mkdir(destDir, { recursive: true });
+              const items: MediaItemRef[] = [];
+              for (let i = 0; i < gallery.items.length; i++) {
+                const it = gallery.items[i];
+                const ext = path.extname(it.filePath) || (it.kind === 'video' ? '.mp4' : '.jpg');
+                const fileName = `${i}${ext}`;
+                await fs.copyFile(it.filePath, path.join(destDir, fileName));
+                items.push({ relPath: `${projectId}/${snapshotId}/${fileName}`, kind: it.kind });
+              }
+              if (items.length === 0) return { ok: false, error: 'no media found' };
+              const firstVideo = items.find((i) => i.kind === 'video');
+              return {
+                ok: true,
+                relPath: (firstVideo ?? items[0]).relPath,
+                items,
+                kind: firstVideo ? 'video' : 'image',
+                description: gallery.metadata?.description,
+                uploader: gallery.metadata?.uploader,
+                uploadDate: gallery.metadata?.uploadDate,
+              };
+            } finally {
+              await gallery.cleanup();
+            }
           }
         });
       } catch (err) {
@@ -427,8 +481,13 @@ function registerIpc(): void {
   ipcMain.handle('media:deleteLibraryFile', async (_e, relPath: string): Promise<void> => {
     const abs = typeof relPath === 'string' ? resolveLibraryPath(relPath) : null;
     if (!abs) return;
-    await fs.rm(abs, { force: true });
+    await fs.rm(abs, { recursive: true, force: true });
   });
+
+  // Instagram session — embedded login window → cookies for yt-dlp / gallery-dl.
+  ipcMain.handle('ig:login', () => openIgLogin(mainWindow));
+  ipcMain.handle('ig:status', () => igStatus());
+  ipcMain.handle('ig:logout', () => igLogout());
 
   ipcMain.handle('updates:check', () => checkForUpdates(true));
   ipcMain.handle('updates:quitAndInstall', () => {

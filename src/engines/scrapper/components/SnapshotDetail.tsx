@@ -19,6 +19,7 @@ import type { Snapshot } from '../types';
 import TagInput from '@/components/common/TagInput';
 import { extractYouTubeId } from '../services/urlDetector';
 import { snapshotMediaUrl, runSnapshotDownload, cancelSnapshotDownload } from '@/services/scrapperMedia';
+import MediaGallery from './MediaGallery';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 
@@ -197,6 +198,8 @@ export default function SnapshotDetail({
                 {t('scrapper.cancelDownload')}
               </button>
             </div>
+          ) : snapshot.mediaItems && snapshot.mediaItems.length > 0 ? (
+            <MediaGallery items={snapshot.mediaItems} />
           ) : snapshot.localMediaPath ? (
             snapshot.mediaKind === 'audio' ? (
               <audio
