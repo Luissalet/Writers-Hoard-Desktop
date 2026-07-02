@@ -19,13 +19,20 @@ interface SaveResult {
 }
 
 /** Result of downloading a link's media into the managed scrapper library. */
+interface MediaItemRef {
+  relPath: string;
+  kind: 'image' | 'video';
+}
+
 interface DownloadToLibraryResult {
   ok: boolean;
   /** Path relative to the media root, e.g. "<projectId>/<snapshotId>.mp4". */
   relPath?: string;
+  /** All downloaded items (carousel/photos); single video → one item. */
+  items?: MediaItemRef[];
   filename?: string;
   sizeBytes?: number;
-  kind?: 'video' | 'audio';
+  kind?: 'video' | 'audio' | 'image';
   description?: string;
   uploader?: string;
   uploadDate?: string;
@@ -73,6 +80,14 @@ const api = {
     /** Delete a downloaded media file by its relative library path. */
     deleteLibraryFile: (relPath: string): Promise<void> =>
       ipcRenderer.invoke('media:deleteLibraryFile', relPath),
+  },
+
+  // Instagram session for photo/carousel downloads (embedded login window).
+  instagram: {
+    /** Open the embedded Instagram login; resolves once a session is saved. */
+    login: (): Promise<{ connected: boolean }> => ipcRenderer.invoke('ig:login'),
+    status: (): Promise<{ connected: boolean }> => ipcRenderer.invoke('ig:status'),
+    logout: (): Promise<void> => ipcRenderer.invoke('ig:logout'),
   },
   exporter: {
     /** Render a styled HTML script to PDF and prompt the user to save it. */

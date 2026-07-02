@@ -19,12 +19,13 @@ export function canDownloadMedia(source: SnapshotSource): boolean {
 
 export interface DownloadedMedia {
   relPath: string;
+  items?: { relPath: string; kind: 'image' | 'video' }[];
   filename?: string;
   sizeBytes?: number;
-  kind: 'video' | 'audio';
+  kind: 'video' | 'audio' | 'image';
   description?: string;
   uploader?: string;
-  /** yt-dlp upload_date, format YYYYMMDD. */
+  /** upload_date, format YYYYMMDD. */
   uploadDate?: string;
   title?: string;
 }
@@ -48,6 +49,7 @@ export async function downloadSnapshotMedia(args: {
   }
   return {
     relPath: res.relPath,
+    items: res.items,
     filename: res.filename,
     sizeBytes: res.sizeBytes,
     kind: res.kind ?? 'video',
@@ -58,11 +60,19 @@ export async function downloadSnapshotMedia(args: {
   };
 }
 
-/** Delete a downloaded file from the library (best-effort; safe to call on web). */
-export async function deleteSnapshotMedia(relPath: string): Promise<void> {
+/** Delete a snapshot's downloaded media (single file or carousel folder; best-effort). */
+export async function deleteSnapshotMedia(
+  snapshot: Pick<Snapshot, 'localMediaPath' | 'mediaItems'>,
+): Promise<void> {
   if (!isDesktop() || !window.electronAPI) return;
+  // Media root: a carousel folder (<proj>/<id>) or a single file (<proj>/<id>.ext).
+  // slice(0,2) yields the folder for 3-segment carousel paths and the file itself
+  // for 2-segment single-video paths.
+  const ref = snapshot.mediaItems?.[0]?.relPath ?? snapshot.localMediaPath;
+  if (!ref) return;
+  const target = ref.split('/').slice(0, 2).join('/');
   try {
-    await window.electronAPI.media.deleteLibraryFile(relPath);
+    await window.electronAPI.media.deleteLibraryFile(target);
   } catch {
     /* best-effort cleanup — a leftover file is harmless */
   }
@@ -110,6 +120,7 @@ export async function runSnapshotDownload(
     });
     const changes: Partial<Snapshot> = {
       localMediaPath: media.relPath,
+      mediaItems: media.items,
       mediaFilename: media.filename,
       mediaSizeBytes: media.sizeBytes,
       mediaKind: media.kind,

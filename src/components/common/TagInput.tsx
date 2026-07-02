@@ -66,6 +66,10 @@ export default function TagInput({ tags, onChange, placeholder, suggestions = []
     } else if (e.key === 'ArrowUp' && matches.length > 0) {
       e.preventDefault();
       setActiveIndex((i) => (i <= 0 ? matches.length - 1 : i - 1));
+    } else if (e.key === 'Tab' && !e.shiftKey && matches.length > 0) {
+      // Tab accepts the highlighted suggestion (or the first match) without a click.
+      e.preventDefault();
+      selectSuggestion(activeIndex >= 0 ? matches[activeIndex] : matches[0]);
     } else if (e.key === 'Enter') {
       // Pick the highlighted suggestion if any, otherwise commit the typed text.
       if (activeIndex >= 0 && matches[activeIndex]) {
