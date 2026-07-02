@@ -17,6 +17,7 @@ import { useSnapshots } from '../hooks';
 import CaptureBar from './CaptureBar';
 import SnapshotCard from './SnapshotCard';
 import ManualSnapshotModal from './ManualSnapshotModal';
+import InstagramConnect from './InstagramConnect';
 import type { MediaFormat } from '@/services/mediaDownloader';
 import { canDownloadMedia, deleteSnapshotMedia, runSnapshotDownload } from '@/services/scrapperMedia';
 import { isDesktop } from '@/utils/platform';
@@ -142,7 +143,9 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
   const handleDelete = useCallback(
     (id: string) => {
       const target = snapshots.find((s) => s.id === id);
-      if (target?.localMediaPath) void deleteSnapshotMedia(target.localMediaPath);
+      if (target && (target.localMediaPath || target.mediaItems?.length)) {
+        void deleteSnapshotMedia(target);
+      }
       void removeSnapshot(id);
     },
     [snapshots, removeSnapshot],
@@ -201,6 +204,7 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
             </ul>
           )}
         </div>
+        <InstagramConnect />
         <div className="flex items-center gap-1 bg-elevated border border-border rounded-lg p-1">
           <button
             onClick={() => setViewMode('grid')}

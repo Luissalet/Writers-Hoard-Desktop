@@ -89,6 +89,7 @@ export async function downloadMedia(
   url: string,
   format: MediaFormat,
   signal?: AbortSignal,
+  cookiesFile?: string,
 ): Promise<DownloadOutcome> {
   const tmpdir = await fs.mkdtemp(path.join(os.tmpdir(), 'wh-media-'));
   const ytdlp = await resolveYtDlpPath();
@@ -104,6 +105,7 @@ export async function downloadMedia(
     path.join(tmpdir, '%(title).80s.%(ext)s'),
   ];
   if (ffmpeg) args.push('--ffmpeg-location', ffmpeg);
+  if (cookiesFile) args.push('--cookies', cookiesFile);
   if (format === 'audio') {
     args.push('-x', '--audio-format', 'mp3', '--audio-quality', '0');
   } else {
@@ -166,7 +168,7 @@ export async function downloadMedia(
 }
 
 /** Kill a process and its descendants (yt-dlp spawns ffmpeg as a child). */
-function killProcessTree(pid: number): void {
+export function killProcessTree(pid: number): void {
   if (process.platform === 'win32') {
     // Detached taskkill survives our own exit and reaps the whole tree.
     spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true });

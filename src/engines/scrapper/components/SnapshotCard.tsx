@@ -3,7 +3,7 @@
 // ============================================
 
 import { useState } from 'react';
-import { Globe, Twitter, Instagram, Youtube, Loader2, AlertCircle, PlayCircle } from 'lucide-react';
+import { Globe, Twitter, Instagram, Youtube, Loader2, AlertCircle, PlayCircle, Layers } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Snapshot } from '../types';
 import SnapshotDetail from './SnapshotDetail';
@@ -52,6 +52,8 @@ export default function SnapshotCard({ snapshot, onUpdate, onDelete, tagSuggesti
   };
 
   const notesPreview = snapshot.notes.substring(0, 80).trim();
+  const firstItem = snapshot.mediaItems?.[0];
+  const itemCount = snapshot.mediaItems?.length ?? 0;
 
   return (
     <>
@@ -63,7 +65,36 @@ export default function SnapshotCard({ snapshot, onUpdate, onDelete, tagSuggesti
         onClick={() => setIsDetailOpen(true)}
         className="bg-elevated border border-border rounded-lg overflow-hidden hover:border-accent-gold cursor-pointer transition-all hover:shadow-lg"
       >
-        {snapshot.localMediaPath && snapshot.mediaKind !== 'audio' ? (
+        {firstItem ? (
+          <div className="relative w-full h-56 overflow-hidden bg-black/60 flex items-center justify-center">
+            {firstItem.kind === 'image' ? (
+              <img
+                src={snapshotMediaUrl(firstItem.relPath)}
+                alt={snapshot.title}
+                className="max-h-full max-w-full object-contain"
+              />
+            ) : (
+              <>
+                <video
+                  src={`${snapshotMediaUrl(firstItem.relPath)}#t=0.5`}
+                  className="max-h-full max-w-full object-contain"
+                  muted
+                  preload="metadata"
+                  playsInline
+                />
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <PlayCircle size={40} className="text-white/95 drop-shadow-lg" />
+                </div>
+              </>
+            )}
+            {itemCount > 1 && (
+              <div className="absolute top-2 right-2 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-xs">
+                <Layers size={12} />
+                {itemCount}
+              </div>
+            )}
+          </div>
+        ) : snapshot.localMediaPath && snapshot.mediaKind !== 'audio' ? (
           <div className="relative w-full h-56 overflow-hidden bg-black/60 flex items-center justify-center">
             <video
               src={`${snapshotMediaUrl(snapshot.localMediaPath)}#t=0.5`}

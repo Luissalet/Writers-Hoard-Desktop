@@ -8,13 +8,20 @@ export interface SaveResult {
   error?: string;
 }
 
+export interface MediaItemRef {
+  relPath: string;
+  kind: 'image' | 'video';
+}
+
 export interface DownloadToLibraryResult {
   ok: boolean;
   /** Path relative to the media root, e.g. "<projectId>/<snapshotId>.mp4". */
   relPath?: string;
+  /** All downloaded items (carousel/photos); single video → one item. */
+  items?: MediaItemRef[];
   filename?: string;
   sizeBytes?: number;
-  kind?: 'video' | 'audio';
+  kind?: 'video' | 'audio' | 'image';
   description?: string;
   uploader?: string;
   uploadDate?: string;
@@ -46,6 +53,11 @@ export interface ElectronAPI {
     }) => Promise<DownloadToLibraryResult>;
     cancelDownload: (snapshotId: string) => Promise<void>;
     deleteLibraryFile: (relPath: string) => Promise<void>;
+  };
+  instagram: {
+    login: () => Promise<{ connected: boolean }>;
+    status: () => Promise<{ connected: boolean }>;
+    logout: () => Promise<void>;
   };
   exporter: {
     scriptToPdf: (html: string, suggestedName: string) => Promise<SaveResult>;
