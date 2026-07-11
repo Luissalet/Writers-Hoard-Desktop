@@ -171,18 +171,6 @@ function unwrapEmptySpans(container: HTMLElement): void {
   });
 }
 
-/**
- * Strip all HTML tags and return plain text
- */
-export function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-/**
- * Count words in HTML content
- */
-export function countWords(html: string): number {
-  const text = stripHtml(html);
-  if (!text) return 0;
-  return text.split(' ').length;
-}
+// stripHtml / countWords now live in `@/utils/text` (single source of truth —
+// this file's old `split(' ')` variant miscounted on multiple spaces).
+export { stripHtml, countWords } from './text';

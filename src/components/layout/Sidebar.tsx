@@ -36,18 +36,19 @@ export default function Sidebar() {
   const handleExport = async () => {
     if (!projectId) return;
     try {
-      const { exportProjectData } = await import('@/db/operations');
-      const data = await exportProjectData(projectId);
-      const json = JSON.stringify(data, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${project?.title || 'project'}-export.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      // ZIP export covers EVERY engine's tables via the backup registry —
+      // the old JSON export silently dropped everything added after the
+      // original 13-table schema.
+      const [{ exportProjectZip }, { toast }] = await Promise.all([
+        import('@/services/zipBackup'),
+        import('@/components/common/toast'),
+      ]);
+      await exportProjectZip(projectId);
+      toast.success(t('project.exportDone'));
     } catch (error) {
       console.error('Export failed:', error);
+      const { toast } = await import('@/components/common/toast');
+      toast.error(t('project.exportError'));
     }
   };
 

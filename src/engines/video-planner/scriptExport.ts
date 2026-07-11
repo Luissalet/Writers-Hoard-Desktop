@@ -19,7 +19,7 @@ function escapeHtml(s: string): string {
 }
 
 function sanitizeFileName(name: string): string {
-  return name.replace(/[^\w\-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'script';
+  return name.replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'script';
 }
 
 /** Build a self-contained, print-styled HTML document for the plan's script. */

@@ -39,6 +39,35 @@ function sanitize(name: string): string {
 // ============================================
 // EXPORT
 // ============================================
+
+/** Serialize one project (metadata + every engine's data) into the zip. */
+async function writeProjectToZip(zip: JSZip, project: { id: string; title: string; coverImage?: string }): Promise<void> {
+  const projName = sanitize(project.title);
+  const projDir = `projects/${projName}__${project.id}`;
+
+  // Project metadata (with cover-image externalization)
+  const projMeta = { ...project };
+  if (projMeta.coverImage) {
+    const { blob, ext } = dataUrlToBlob(projMeta.coverImage);
+    zip.file(`${projDir}/cover.${ext}`, blob);
+    (projMeta as Record<string, unknown>).coverImage = `cover.${ext}`;
+  }
+  zip.file(`${projDir}/project.json`, JSON.stringify(projMeta, null, 2));
+
+  // ---- Engine-registered backup strategies ----
+  // Every engine — codex, writings, timeline, yarn-board, maps, gallery,
+  // links, diary, biography, dialog-scene, brainstorm, outline,
+  // writing-stats, storyboard, video-planner, scrapper, character-arc,
+  // relationships, seeds, annotations, etc. — writes its own data here.
+  for (const strategy of getAllBackupStrategies()) {
+    try {
+      await strategy.exportProject({ zip, projectId: project.id, projectDir: projDir });
+    } catch (err) {
+      console.error(`Backup export failed for engine "${strategy.engineId}":`, err);
+    }
+  }
+}
+
 export async function exportFullZip(): Promise<void> {
   const zip = new JSZip();
 
@@ -62,36 +91,37 @@ export async function exportFullZip(): Promise<void> {
 
   // --- Per-project folders ---
   for (const project of projects) {
-    const projName = sanitize(project.title);
-    const projDir = `projects/${projName}__${project.id}`;
-
-    // Project metadata (with cover-image externalization)
-    const projMeta = { ...project };
-    if (projMeta.coverImage) {
-      const { blob, ext } = dataUrlToBlob(projMeta.coverImage);
-      zip.file(`${projDir}/cover.${ext}`, blob);
-      (projMeta as Record<string, unknown>).coverImage = `cover.${ext}`;
-    }
-    zip.file(`${projDir}/project.json`, JSON.stringify(projMeta, null, 2));
-
-    // ---- Engine-registered backup strategies ----
-    // Every engine — codex, writings, timeline, yarn-board, maps, gallery,
-    // links, diary, biography, dialog-scene, brainstorm, outline,
-    // writing-stats, storyboard, video-planner, scrapper, character-arc,
-    // relationships, seeds, annotations, etc. — writes its own data here.
-    for (const strategy of getAllBackupStrategies()) {
-      try {
-        await strategy.exportProject({ zip, projectId: project.id, projectDir: projDir });
-      } catch (err) {
-        console.error(`Backup export failed for engine "${strategy.engineId}":`, err);
-      }
-    }
+    await writeProjectToZip(zip, project);
   }
 
   // Generate and download
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
   const date = new Date().toISOString().slice(0, 10);
   saveAs(blob, `writers-hoard-backup-${date}.zip`);
+}
+
+/**
+ * Export a SINGLE project as a ZIP (same structure as the full backup, one
+ * project folder). Replaces the legacy 13-table JSON export, which silently
+ * dropped every engine table added since the original schema.
+ */
+export async function exportProjectZip(projectId: string): Promise<void> {
+  const project = await db.projects.get(projectId);
+  if (!project) throw new Error('Project not found');
+
+  const zip = new JSZip();
+  zip.file('manifest.json', JSON.stringify({
+    app: 'WritersHoard',
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    projectCount: 1,
+    singleProject: true,
+  }, null, 2));
+
+  await writeProjectToZip(zip, project);
+
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  saveAs(blob, `${sanitize(project.title)}-project.zip`);
 }
 
 
@@ -120,6 +150,62 @@ async function readImageAsDataUrl(zip: JSZip, basePath: string, relativePath: st
 
   const base64 = await file.async('base64');
   return `data:${mime};base64,${base64}`;
+}
+
+/**
+ * Import a project ZIP WITHOUT wiping the database (merge/restore semantics,
+ * unlike `importFullZip` which is a full-database replace).
+ *
+ * If a project in the zip already exists locally (same id), it is restored
+ * in place: the local copy is deleted first (thorough cascade), then the
+ * backup's rows are inserted with their original IDs — cross-references
+ * survive intact. Brand-new projects are simply added.
+ *
+ * Returns the ids of the imported projects.
+ */
+export async function importProjectZip(file: File): Promise<string[]> {
+  const zip = await JSZip.loadAsync(file);
+
+  const manifest = await readJson<{ app: string; version: number }>(zip, 'manifest.json');
+  if (!manifest || manifest.app !== 'WritersHoard') {
+    throw new Error('Invalid backup file: not a Writer\'s Hoard backup');
+  }
+
+  const projectDirs = new Set<string>();
+  zip.forEach((path) => {
+    const match = path.match(/^projects\/([^/]+)\//);
+    if (match) projectDirs.add(`projects/${match[1]}`);
+  });
+  if (projectDirs.size === 0) throw new Error('Backup contains no projects');
+
+  const { deleteProject } = await import('@/db/operations');
+  const importedIds: string[] = [];
+
+  for (const projDir of projectDirs) {
+    const projData = await readJson<Record<string, unknown>>(zip, `${projDir}/project.json`);
+    if (!projData?.id) continue;
+    const projectId = projData.id as string;
+
+    // Restore-in-place: clear any existing copy of this project first.
+    const existing = await db.projects.get(projectId);
+    if (existing) await deleteProject(projectId);
+
+    if (projData.coverImage && typeof projData.coverImage === 'string' && !projData.coverImage.startsWith('data:')) {
+      projData.coverImage = await readImageAsDataUrl(zip, projDir, projData.coverImage as string) || undefined;
+    }
+    await db.projects.add(projData as never);
+
+    for (const strategy of getAllBackupStrategies()) {
+      try {
+        await strategy.importProject({ zip, projectId, projectDir: projDir });
+      } catch (err) {
+        console.error(`Backup import failed for engine "${strategy.engineId}":`, err);
+      }
+    }
+    importedIds.push(projectId);
+  }
+
+  return importedIds;
 }
 
 export async function importFullZip(file: File): Promise<void> {

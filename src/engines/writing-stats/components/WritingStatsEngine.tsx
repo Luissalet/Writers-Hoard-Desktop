@@ -85,21 +85,21 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
       {/* =====================================================================
           SECTION 1: TODAY'S DASHBOARD
           ===================================================================== */}
-      <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-4">
-        <h2 className="text-2xl font-bold text-gray-900">{t('stats.today')}</h2>
+      <div className="bg-surface border border-border rounded-lg p-6 space-y-4">
+        <h2 className="text-2xl font-bold text-text-primary">{t('stats.today')}</h2>
 
         <div className="space-y-3">
           {/* Word Count Hero */}
           <div className="bg-gradient-to-br from-accent-gold/10 to-accent-gold/5 border-2 border-accent-gold/30 rounded-lg p-6 text-center">
-            <div className="text-sm font-medium text-gray-600 mb-1">{t('stats.wordsWrittenToday')}</div>
+            <div className="text-sm font-medium text-text-muted mb-1">{t('stats.wordsWrittenToday')}</div>
             <div className="text-5xl font-bold text-accent-gold">{stats.todayWords}</div>
             {dailyGoalTarget > 0 && (
               <div className="mt-3 space-y-2">
-                <div className="flex items-center justify-between text-sm font-medium text-gray-600">
+                <div className="flex items-center justify-between text-sm font-medium text-text-muted">
                   <span>{t('stats.goal')} {dailyGoalTarget}</span>
                   <span>{Math.min(100, Math.round(todayProgress))}%</span>
                 </div>
-                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-2 bg-elevated rounded-full overflow-hidden">
                   <div
                     className="h-full bg-accent-gold transition-all duration-500"
                     style={{ width: `${Math.min(100, todayProgress)}%` }}
@@ -129,7 +129,7 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
           {/* Start Sprint Button */}
           <button
             onClick={() => setSprintActive(true)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-accent-gold text-black font-semibold rounded-lg hover:bg-accent-gold/90 transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-gold/90 transition-colors"
           >
             <Play size={20} />
             {t('stats.startSprint')}
@@ -141,8 +141,8 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
           SECTION 2: SPRINT TIMER (when active)
           ===================================================================== */}
       {sprintActive && (
-        <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">{t('stats.focusSession')}</h2>
+        <div className="bg-surface border border-border rounded-lg p-6">
+          <h2 className="text-xl font-bold text-text-primary mb-4">{t('stats.focusSession')}</h2>
           <SprintTimer
             projectId={projectId}
             onComplete={handleSprintComplete}
@@ -154,12 +154,12 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
       {/* =====================================================================
           SECTION 3: PROGRESS OVERVIEW
           ===================================================================== */}
-      <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-4">
+      <div className="bg-surface border border-border rounded-lg p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold text-gray-900">{t('stats.last7Days')}</h2>
+          <h2 className="text-xl font-bold text-text-primary">{t('stats.last7Days')}</h2>
           <button
             onClick={() => setGoalSettingOpen(true)}
-            className="flex items-center gap-2 px-3 py-1 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            className="flex items-center gap-2 px-3 py-1 text-sm font-medium text-text-muted bg-elevated rounded-lg hover:bg-border transition-colors"
           >
             <Settings size={16} />
             {t('stats.goals')}
@@ -170,7 +170,7 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
 
         {/* Goal Info Cards */}
         {(projectGoal || deadlineGoal) && (
-          <div className="space-y-2 pt-4 border-t border-gray-200">
+          <div className="space-y-2 pt-4 border-t border-border">
             {projectGoal && (
               <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 flex justify-between items-center">
                 <div>
@@ -212,8 +212,8 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
           SECTION 4: RECENT SESSIONS
           ===================================================================== */}
       {recentSessions.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-3">
-          <h2 className="text-lg font-bold text-gray-900">{t('stats.recentSessions')}</h2>
+        <div className="bg-surface border border-border rounded-lg p-6 space-y-3">
+          <h2 className="text-lg font-bold text-text-primary">{t('stats.recentSessions')}</h2>
           {recentSessions.map((session) => (
             <SessionCard key={session.id} session={session} />
           ))}

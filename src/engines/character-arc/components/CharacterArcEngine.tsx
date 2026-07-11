@@ -171,6 +171,7 @@ function NewArcForm({
     if (!name) return;
     const character = characters.find((c) => c.id === characterId);
     const template = ARC_TEMPLATES.find((t) => t.id === templateId);
+    // eslint-disable-next-line react-hooks/purity -- submit handler: runs at event time, not during render
     const now = Date.now();
     const arc: CharacterArc = {
       id: generateId('arc'),

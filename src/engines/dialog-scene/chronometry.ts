@@ -1,4 +1,5 @@
 import type { DialogBlock } from './types';
+import { countWords } from '@/utils/text';
 
 /**
  * Scene Chronometry — estimate scene duration from dialog blocks.
@@ -39,10 +40,6 @@ const DIALOG_WPM = 150; // spoken words per minute
 const ACTION_WPM = 200; // read/action words per minute
 const DIRECTION_WPM = 180; // stage directions, mid-range
 
-function countWords(text: string): number {
-  if (!text || !text.trim()) return 0;
-  return text.trim().split(/\s+/).length;
-}
 
 export function estimateSceneDuration(
   blocks: DialogBlock[],

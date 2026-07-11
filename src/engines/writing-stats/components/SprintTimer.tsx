@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, RotateCcw, Check } from 'lucide-react';
 import type { WritingSession } from '../types';
 import { generateId } from '@/utils/idGenerator';
+import { toast } from '@/components/common/toast';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface SprintTimerProps {
   projectId: string;
@@ -10,6 +12,7 @@ interface SprintTimerProps {
 }
 
 export default function SprintTimer({ projectId, onComplete, onCancel }: SprintTimerProps) {
+  const { t } = useTranslation();
   const [duration, setDuration] = useState(25 * 60); // 25 minutes default
   const [timeRemaining, setTimeRemaining] = useState(25 * 60);
   const [isRunning, setIsRunning] = useState(false);
@@ -63,7 +66,7 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
     const elapsedSeconds = duration - timeRemaining;
 
     if (elapsedSeconds < 1) {
-      alert('Sprint must be at least 1 second to log');
+      toast.error(t('stats.sprintTooShort'));
       return;
     }
 
@@ -79,7 +82,7 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
     };
 
     await onComplete(session);
-  }, [projectId, duration, timeRemaining, startWordCount, endWordCount, sessionType, onComplete]);
+  }, [projectId, duration, timeRemaining, startWordCount, endWordCount, sessionType, onComplete, t]);
 
   const minutes = Math.floor(timeRemaining / 60);
   const seconds = timeRemaining % 60;
@@ -92,7 +95,7 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
         <div className="text-5xl font-bold text-accent-gold tabular-nums">
           {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
         </div>
-        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+        <div className="h-2 bg-elevated rounded-full overflow-hidden">
           <div
             className="h-full bg-accent-gold transition-all duration-300"
             style={{ width: `${progressPercent}%` }}
@@ -114,8 +117,8 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
             disabled={isRunning}
             className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
               duration === mins * 60
-                ? 'bg-accent-gold text-black'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-50'
+                ? 'bg-accent-gold text-deep'
+                : 'bg-elevated text-text-muted hover:bg-border disabled:opacity-50'
             }`}
           >
             {mins}m
@@ -125,42 +128,42 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
 
       {/* Session Type */}
       <div className="space-y-1">
-        <label className="text-sm font-medium text-gray-600">Session Type</label>
+        <label className="text-sm font-medium text-text-muted">{t('stats.sessionType')}</label>
         <select
           value={sessionType}
-          onChange={(e) => setSessionType(e.target.value as any)}
+          onChange={(e) => setSessionType(e.target.value as 'freewrite' | 'sprint' | 'edit' | 'outline')}
           disabled={isRunning}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-gold disabled:opacity-50"
+          className="w-full px-3 py-2 bg-elevated text-text-primary border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-gold disabled:opacity-50"
         >
-          <option value="freewrite">Freewrite</option>
-          <option value="sprint">Sprint</option>
-          <option value="edit">Edit</option>
-          <option value="outline">Outline</option>
+          <option value="freewrite">{t('stats.type.freewrite')}</option>
+          <option value="sprint">{t('stats.type.sprint')}</option>
+          <option value="edit">{t('stats.type.edit')}</option>
+          <option value="outline">{t('stats.type.outline')}</option>
         </select>
       </div>
 
       {/* Word Count Inputs */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600 block">Start Words</label>
+          <label className="text-xs font-medium text-text-muted block">{t('stats.startWords')}</label>
           <input
             type="number"
             value={startWordCount}
             onChange={(e) => setStartWordCount(e.target.value)}
             disabled={isRunning}
             placeholder="0"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-gold disabled:opacity-50"
+            className="w-full px-3 py-2 bg-elevated text-text-primary border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-gold disabled:opacity-50"
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600 block">End Words</label>
+          <label className="text-xs font-medium text-text-muted block">{t('stats.endWords')}</label>
           <input
             type="number"
             value={endWordCount}
             onChange={(e) => setEndWordCount(e.target.value)}
             disabled={isRunning}
             placeholder="0"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-gold disabled:opacity-50"
+            className="w-full px-3 py-2 bg-elevated text-text-primary border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-gold disabled:opacity-50"
           />
         </div>
       </div>
@@ -170,28 +173,28 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
         {!isRunning ? (
           <button
             onClick={handleStart}
-            className="flex items-center gap-2 px-6 py-2 bg-accent-gold text-black font-medium rounded-lg hover:bg-accent-gold/90 transition-colors"
+            className="flex items-center gap-2 px-6 py-2 bg-accent-gold text-deep font-medium rounded-lg hover:bg-accent-gold/90 transition-colors"
           >
             <Play size={18} />
-            Start
+            {t('stats.start')}
           </button>
         ) : (
           <button
             onClick={handlePause}
-            className="flex items-center gap-2 px-6 py-2 bg-yellow-500 text-black font-medium rounded-lg hover:bg-yellow-600 transition-colors"
+            className="flex items-center gap-2 px-6 py-2 bg-yellow-500 text-deep font-medium rounded-lg hover:bg-yellow-600 transition-colors"
           >
             <Pause size={18} />
-            Pause
+            {t('stats.pause')}
           </button>
         )}
 
         <button
           onClick={handleReset}
           disabled={isRunning}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 bg-elevated text-text-muted font-medium rounded-lg hover:bg-border transition-colors disabled:opacity-50"
         >
           <RotateCcw size={18} />
-          Reset
+          {t('stats.reset')}
         </button>
       </div>
 
@@ -203,13 +206,13 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
           className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white font-medium rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50"
         >
           <Check size={18} />
-          Stop & Log
+          {t('stats.stopAndLog')}
         </button>
         <button
           onClick={onCancel}
-          className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 font-medium rounded-lg hover:bg-gray-300 transition-colors"
+          className="flex-1 px-4 py-2 bg-elevated text-text-muted font-medium rounded-lg hover:bg-border transition-colors"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
       </div>
     </div>

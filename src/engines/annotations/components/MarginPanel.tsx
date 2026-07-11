@@ -11,7 +11,7 @@
 // to seed a text-range anchor from the current selection; otherwise the
 // panel creates entity-level anchors on its own "Add note" button.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Plus, MessageSquare } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useAnnotationsForEntity } from '../hooks';
@@ -54,13 +54,12 @@ export default function MarginPanel({
   }>(null);
 
   // If the host staged a selection-derived anchor, auto-open the composer.
-  // Use an effect so we don't update state during render — running per-render
-  // would loop until composing != null.
-  useEffect(() => {
-    if (pendingAnchor && !composing) {
-      setComposing({ anchor: pendingAnchor, defaultType: 'text' });
-    }
-  }, [pendingAnchor, composing]);
+  // Render-adjust pattern: setState during render runs exactly one extra
+  // pass (composing becomes non-null, the condition goes false) — no loop,
+  // and no cascading effect render.
+  if (pendingAnchor && !composing) {
+    setComposing({ anchor: pendingAnchor, defaultType: 'text' });
+  }
 
   const handleAddEntityLevel = useCallback(() => {
     setComposing({

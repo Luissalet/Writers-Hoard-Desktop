@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import GlobalSearch from '../common/GlobalSearch';
+import { ToastHost } from '../common/toast';
 import { installNavigator } from '@/engines/_shared/anchoring';
 
 export default function MainLayout() {
@@ -20,6 +21,7 @@ export default function MainLayout() {
         <Outlet />
       </main>
       <GlobalSearch />
+      <ToastHost />
     </div>
   );
 }

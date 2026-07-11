@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { Plus, MonitorPlay, Pencil, Check, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -34,10 +34,14 @@ export default function VideoPlanView({
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(plan.title);
 
-  useEffect(() => {
+  // Render-adjust: sync the editable title when the plan (or its title)
+  // changes externally.
+  const [prevPlanKey, setPrevPlanKey] = useState(`${plan.id}:${plan.title}`);
+  if (prevPlanKey !== `${plan.id}:${plan.title}`) {
+    setPrevPlanKey(`${plan.id}:${plan.title}`);
     setTitleValue(plan.title);
     setIsEditingTitle(false);
-  }, [plan.id, plan.title]);
+  }
 
   const commitTitle = async () => {
     const next = titleValue.trim();

@@ -1,5 +1,15 @@
 # Lessons Learned
 
+## 18. When the sandbox mount goes stale, verify through Desktop Commander (real Windows shell)
+**Date:** 2026-07-11
+**Context:** Two audit sessions in a row, the bash sandbox mount served truncated copies of files written that same session ("Invalid character" on every column past EOF, `'}' expected` mid-file — lesson #13's signature). The previous session died unable to verify its own correct code; the fix was never the code. This session ran `npx tsc -b --noEmit`, `tsc -p electron/tsconfig.json` and `eslint` via the Desktop Commander MCP (`start_process` on powershell.exe in the real repo path) and verification was instant and truthful all session.
+**Rule:** File tools (Read/Write/Edit) always see the real filesystem; only the bash sandbox lies. When mount staleness appears — or preemptively for any verification gate — run typecheck/lint through Desktop Commander on the real Windows path instead of sandbox bash. Also: `Remove-Item` there deletes files the sandbox can't (supersedes the lesson-#4 workaround), and `eslint --format json` + a small `node -e` reducer gives compact, parseable results.
+
+## 17. React Compiler lint: fix the pattern, don't fight the rule
+**Date:** 2026-07-11
+**Context:** Clearing 71 lint problems surfaced recurring compiler-rule classes: `set-state-in-effect` for prop→state syncs, `static-components` for components created inside render (Tiptap's ToolButton remounted per keystroke and lost focus), `preserve-manual-memoization` for stale manual `useMemo`/`useCallback`, and `purity` for `Date.now()` in submit handlers (false positive).
+**Rule:** (1) Prop→state sync belongs in the render-adjust pattern (`const [prev, setPrev] = useState(x); if (prev !== x) { setPrev(x); …sync… }`), not an effect. (2) Never declare a component inside another component's body — hoist to module scope; for dynamic icon components, `useMemo` the reference and disable the rule with a comment if it still fires. (3) When the compiler says it can't preserve manual memoization, DELETE the manual memo — it's bailing out the whole component. (4) `Date.now()`/`generateId` in real event handlers are safe: hoist to one `const now` and add a documented `eslint-disable-next-line react-hooks/purity`. (5) Empty states for keyed fetch hooks should be DERIVED in the return (`items: key ? items : EMPTY`), not set synchronously in the effect.
+
 ## 16. `loading` from makeEntityHook flips on every refresh — don't gate the whole view on it while a modal is open
 **Date:** 2026-06-24
 **Context:** The Scrapper detail modal closed itself every time the user added a tag. Root cause: `editItem` (makeEntityHook) does `await updateFn` then `await refresh()`, and `refresh()` sets `loading=true`. The engine view did `if (loading) return <EngineSpinner/>`, so each edit briefly replaced the whole subtree (grid + the open `<SnapshotDetail>` modal) with the spinner; when loading cleared, `SnapshotCard` re-mounted with `isDetailOpen=false` → the modal closed mid-edit. The tag had actually saved — it just looked like "Enter closes the modal".

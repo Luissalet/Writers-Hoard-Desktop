@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus,
@@ -14,9 +14,15 @@ import {
   ArrowRightLeft,
   Copy,
   X,
+  Maximize2,
+  Minimize2,
+  Check,
+  BookDown,
+  History,
 } from 'lucide-react';
 import type { Writing, WritingStatus } from '@/types';
 import { generateId } from '@/utils/idGenerator';
+import { countWords } from '@/utils/text';
 import TiptapEditor from '@/components/editor/TiptapEditor';
 import TagInput from '@/components/common/TagInput';
 import Modal from '@/components/common/Modal';
@@ -24,9 +30,15 @@ import EmptyState from '@/components/common/EmptyState';
 import GoogleDocsPicker from './GoogleDocsPicker';
 import GoogleDocBadge from './GoogleDocBadge';
 import AiToolbar from './AiToolbar';
+import CompileModal from './CompileModal';
+import HistoryModal from './HistoryModal';
+import { takeSnapshot } from '../snapshots';
+import { useProject } from '@/hooks/useProjects';
 import { useGoogleStore } from '@/stores/googleStore';
 import { fetchGoogleDocForAi } from '@/services/googleDocs';
+import { recordEditorActivity } from '@/services/writingActivity';
 import { useTranslation } from '@/i18n/useTranslation';
+import { ConfirmDialog } from '@/engines/_shared';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import type { AnnotationAnchor } from '@/engines/annotations/types';
 import GettingStartedChecklist from '@/components/project/GettingStartedChecklist';
@@ -37,11 +49,10 @@ const STATUS_CONFIG: Record<WritingStatus, { icon: typeof Lightbulb; color: stri
   finished: { icon: CheckCircle2, color: '#4a9e6d', bg: 'rgba(74, 158, 109, 0.12)' },
 };
 
-function countWords(html: string): number {
-  const text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!text) return 0;
-  return text.split(' ').length;
-}
+/** Debounce for the editor autosave (ms). */
+const AUTOSAVE_MS = 1200;
+/** Cap per-flush "active seconds" so idle pauses don't inflate session time. */
+const MAX_FLUSH_SECONDS = 120;
 
 interface WritingsViewProps {
   projectId: string;
@@ -62,8 +73,14 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
   const [editedTitle, setEditedTitle] = useState('');
   const [showGooglePicker, setShowGooglePicker] = useState(false);
   const [pendingAnchor, setPendingAnchor] = useState<AnnotationAnchor | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [focusMode, setFocusMode] = useState(false);
+  const [saveState, setSaveState] = useState<'saved' | 'dirty'>('saved');
+  const [showCompile, setShowCompile] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   const { accessToken } = useGoogleStore();
+  const { project } = useProject(projectId);
 
   // New writing form
   const [newTitle, setNewTitle] = useState('');
@@ -71,6 +88,96 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
   const [newSynopsis, setNewSynopsis] = useState('');
   const [newChapter, setNewChapter] = useState('');
   const [newTags, setNewTags] = useState<string[]>([]);
+
+  // ---------------------------------------------------------------------
+  // Autosave core.
+  //
+  // Everything the flush needs lives in a ref so the unmount cleanup and
+  // window-level handlers never see stale closures. `flushSave` is
+  // synchronous from the caller's perspective (persistence is fire-and-
+  // forget through `onEdit`), so it's safe in unmount and beforeunload.
+  // ---------------------------------------------------------------------
+  const editorRef = useRef({
+    openId: null as string | null,
+    content: '',
+    title: '',
+    savedContent: '',
+    savedTitle: '',
+    savedWordCount: 0,
+    lastFlushAt: 0,
+  });
+
+  const onEditRef = useRef(onEdit);
+  onEditRef.current = onEdit;
+
+  const flushSave = useCallback(() => {
+    const s = editorRef.current;
+    if (!s.openId) return;
+    if (s.content === s.savedContent && s.title === s.savedTitle) return;
+    const wc = countWords(s.content);
+    onEditRef.current(s.openId, {
+      content: s.content,
+      title: s.title,
+      wordCount: wc,
+    });
+    // Feed real typing into writing-stats (goals/streaks). Fire-and-forget.
+    const now = Date.now();
+    const seconds = s.lastFlushAt ? Math.min(MAX_FLUSH_SECONDS, (now - s.lastFlushAt) / 1000) : 0;
+    const wordsDelta = wc - s.savedWordCount;
+    if (wordsDelta > 0 || seconds > 0) {
+      void recordEditorActivity(projectId, wordsDelta, seconds);
+    }
+    s.savedContent = s.content;
+    s.savedTitle = s.title;
+    s.savedWordCount = wc;
+    s.lastFlushAt = now;
+    setSaveState('saved');
+  }, [projectId]);
+
+  // Keep the ref in sync with typed state + debounce the flush.
+  useEffect(() => {
+    const s = editorRef.current;
+    if (!s.openId) return;
+    s.content = editedContent;
+    s.title = editedTitle;
+    const dirty = editedContent !== s.savedContent || editedTitle !== s.savedTitle;
+    if (!dirty) return;
+    setSaveState('dirty');
+    const timer = window.setTimeout(flushSave, AUTOSAVE_MS);
+    return () => window.clearTimeout(timer);
+  }, [editedContent, editedTitle, flushSave]);
+
+  // Flush on unmount (sidebar navigation, global-search jumps, etc.).
+  useEffect(() => () => flushSave(), [flushSave]);
+
+  // Flush + warn on window close while dirty.
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      const s = editorRef.current;
+      if (!s.openId) return;
+      const dirty = s.content !== s.savedContent || s.title !== s.savedTitle;
+      if (!dirty) return;
+      flushSave();
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [flushSave]);
+
+  // Ctrl/Cmd+S saves immediately; Escape exits focus mode.
+  useEffect(() => {
+    if (!openWriting) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        flushSave();
+      } else if (e.key === 'Escape') {
+        setFocusMode(false);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [openWriting, flushSave]);
 
   const filtered = useMemo(
     () => writings
@@ -88,9 +195,35 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
     finished: writings.filter(w => w.status === 'finished').length,
   }), [writings]);
 
+  const handleOpenWriting = useCallback((writing: Writing) => {
+    setOpenWriting(writing);
+    setEditedContent(writing.content);
+    setEditedTitle(writing.title);
+    setSaveState('saved');
+    editorRef.current = {
+      openId: writing.id,
+      content: writing.content,
+      title: writing.title,
+      savedContent: writing.content,
+      savedTitle: writing.title,
+      savedWordCount: writing.wordCount || countWords(writing.content),
+      lastFlushAt: Date.now(),
+    };
+    // Version history: one automatic restore point per editing session,
+    // capturing the document as it was BEFORE this session's changes.
+    if (!writing.isGoogleDoc) void takeSnapshot(writing, 'auto');
+  }, []);
+
+  const handleCloseWriting = useCallback(() => {
+    flushSave();
+    editorRef.current.openId = null;
+    setOpenWriting(null);
+    setFocusMode(false);
+  }, [flushSave]);
+
   const handleCreate = () => {
     if (!newTitle.trim()) return;
-    onAdd({
+    const writing: Writing = {
       id: generateId('wrt'),
       projectId,
       title: newTitle,
@@ -102,30 +235,23 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
       tags: newTags,
       createdAt: Date.now(),
       updatedAt: Date.now(),
-    });
+    };
+    onAdd(writing);
     setNewTitle('');
     setNewStatus('draft');
     setNewSynopsis('');
     setNewChapter('');
     setNewTags([]);
     setShowCreateForm(false);
-  };
-
-  const handleOpenWriting = (writing: Writing) => {
-    setOpenWriting(writing);
-    setEditedContent(writing.content);
-    setEditedTitle(writing.title);
+    // Straight into the editor — creating and then hunting for the new doc
+    // in the list was a dead-end flow.
+    handleOpenWriting(writing);
   };
 
   const handleSaveContent = () => {
+    flushSave();
     if (!openWriting) return;
-    const wc = countWords(editedContent);
-    onEdit(openWriting.id, {
-      content: editedContent,
-      title: editedTitle,
-      wordCount: wc,
-    });
-    setOpenWriting({ ...openWriting, content: editedContent, title: editedTitle, wordCount: wc });
+    setOpenWriting({ ...openWriting, content: editedContent, title: editedTitle, wordCount: countWords(editedContent) });
   };
 
   const handleStatusChange = (writingId: string, newSt: WritingStatus) => {
@@ -136,13 +262,15 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
   };
 
   const handleDuplicate = (writing: Writing, targetStatus: WritingStatus) => {
+    // eslint-disable-next-line react-hooks/purity -- click handler: runs at event time, not during render
+    const now = Date.now();
     onAdd({
       ...writing,
       id: generateId('wrt'),
       status: targetStatus,
       title: `${writing.title} (copia)`,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
       // Strip Google Doc link from copies
       googleDocId: undefined,
       googleDocUrl: undefined,
@@ -169,10 +297,29 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
     setOpenWriting({ ...openWriting, synopsis });
   };
 
+  const pendingDeleteWriting = pendingDeleteId ? writings.find(w => w.id === pendingDeleteId) : undefined;
+
+  const confirmDeleteDialog = (
+    <ConfirmDialog
+      open={pendingDeleteId !== null}
+      destructive
+      message={t('writings.confirmDelete').replace('{name}', pendingDeleteWriting?.title ?? '')}
+      onConfirm={() => {
+        const id = pendingDeleteId;
+        setPendingDeleteId(null);
+        if (!id) return;
+        if (openWriting?.id === id) {
+          editorRef.current.openId = null; // don't autosave a deleted doc
+          setOpenWriting(null);
+        }
+        onDelete(id);
+      }}
+      onCancel={() => setPendingDeleteId(null)}
+    />
+  );
+
   // ---- Google Doc Detail View ----
   if (openWriting?.isGoogleDoc) {
-    const config = STATUS_CONFIG[openWriting.status];
-
     const contentFetcher = accessToken && openWriting.googleDocId
       ? () => fetchGoogleDocForAi(accessToken, openWriting.googleDocId!)
       : undefined;
@@ -182,7 +329,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
         {/* Header */}
         <div className="flex items-center gap-4">
           <button
-            onClick={() => setOpenWriting(null)}
+            onClick={handleCloseWriting}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-muted hover:text-text-primary transition rounded-lg hover:bg-elevated"
           >
             <ArrowLeft size={16} />
@@ -191,7 +338,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
           <div className="flex-1" />
           {/* Status switcher */}
           <div className="flex items-center gap-1 bg-surface border border-border rounded-lg px-1 py-0.5">
-            {(Object.entries(STATUS_CONFIG) as [WritingStatus, typeof config][]).map(([st, cfg]) => {
+            {(Object.entries(STATUS_CONFIG) as [WritingStatus, typeof STATUS_CONFIG['idea']][]).map(([st, cfg]) => {
               const Icon = cfg.icon;
               return (
                 <button
@@ -260,43 +407,80 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
     const wc = countWords(editedContent);
 
     return (
-      <div className="space-y-4">
+      <div className={focusMode ? 'space-y-4 max-w-3xl mx-auto' : 'space-y-4'}>
         {/* Header */}
         <div className="flex items-center gap-4">
           <button
-            onClick={() => { handleSaveContent(); setOpenWriting(null); }}
+            onClick={handleCloseWriting}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-muted hover:text-text-primary transition rounded-lg hover:bg-elevated"
           >
             <ArrowLeft size={16} />
             {t('common.back')}
           </button>
+
+          {/* Autosave indicator */}
+          <span
+            className={`flex items-center gap-1 text-xs transition ${
+              saveState === 'saved' ? 'text-text-dim' : 'text-accent-amber'
+            }`}
+            title={t('writings.autosaveHint')}
+          >
+            {saveState === 'saved' ? <Check size={12} /> : <PenLine size={12} />}
+            {saveState === 'saved' ? t('writings.savedIndicator') : t('writings.unsavedIndicator')}
+          </span>
+
           <div className="flex-1" />
 
-          {/* Status switcher */}
-          <div className="flex items-center gap-1 bg-surface border border-border rounded-lg px-1 py-0.5">
-            {(Object.entries(STATUS_CONFIG) as [WritingStatus, typeof config][]).map(([st, cfg]) => {
-              const Icon = cfg.icon;
-              return (
-                <button
-                  key={st}
-                  onClick={() => handleStatusChange(openWriting.id, st)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition ${
-                    openWriting.status === st
-                      ? 'font-semibold'
-                      : 'text-text-muted hover:text-text-primary'
-                  }`}
-                  style={openWriting.status === st ? { color: cfg.color, backgroundColor: cfg.bg } : {}}
-                >
-                  <Icon size={13} />
-                  {statusLabel(st)}
-                </button>
-              );
-            })}
-          </div>
+          {!focusMode && (
+            /* Status switcher */
+            <div className="flex items-center gap-1 bg-surface border border-border rounded-lg px-1 py-0.5">
+              {(Object.entries(STATUS_CONFIG) as [WritingStatus, typeof config][]).map(([st, cfg]) => {
+                const Icon = cfg.icon;
+                return (
+                  <button
+                    key={st}
+                    onClick={() => handleStatusChange(openWriting.id, st)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition ${
+                      openWriting.status === st
+                        ? 'font-semibold'
+                        : 'text-text-muted hover:text-text-primary'
+                    }`}
+                    style={openWriting.status === st ? { color: cfg.color, backgroundColor: cfg.bg } : {}}
+                  >
+                    <Icon size={13} />
+                    {statusLabel(st)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Version history */}
+          <button
+            onClick={() => setShowHistory(true)}
+            className="p-1.5 rounded-lg transition border text-text-muted border-border hover:text-text-primary hover:bg-elevated"
+            title={t('writings.history.title')}
+          >
+            <History size={15} />
+          </button>
+
+          {/* Focus mode toggle */}
+          <button
+            onClick={() => setFocusMode(!focusMode)}
+            className={`p-1.5 rounded-lg transition border ${
+              focusMode
+                ? 'text-accent-gold border-accent-gold/40 bg-accent-gold/10'
+                : 'text-text-muted border-border hover:text-text-primary hover:bg-elevated'
+            }`}
+            title={focusMode ? t('writings.exitFocusMode') : t('writings.focusMode')}
+          >
+            {focusMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          </button>
 
           <button
             onClick={handleSaveContent}
             className="px-4 py-1.5 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
+            title="Ctrl+S"
           >
             {t('writings.save')}
           </button>
@@ -331,31 +515,66 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
           )}
         </div>
 
-        {/* AI Toolbar */}
-        <AiToolbar
-          writing={{ ...openWriting, content: editedContent }}
-          projectId={projectId}
-          onSynopsisUpdate={handleSynopsisUpdate}
-        />
+        {/* AI Toolbar — hidden in focus mode */}
+        {!focusMode && (
+          <AiToolbar
+            writing={{ ...openWriting, content: editedContent }}
+            projectId={projectId}
+            onSynopsisUpdate={handleSynopsisUpdate}
+          />
+        )}
 
         {/* Editor + Margin notes */}
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
+        {focusMode ? (
           <TiptapEditor
             content={editedContent}
             onChange={setEditedContent}
             placeholder={t('writings.startWriting')}
-            onAnnotate={(anchor) => setPendingAnchor(anchor)}
           />
-          <AnnotationSurface
-            projectId={projectId}
-            engineId="writings"
-            entityId={openWriting.id}
-            layout="sidebar"
-            pendingAnchor={pendingAnchor}
-            onPendingAnchorConsumed={() => setPendingAnchor(null)}
-          />
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
+            <TiptapEditor
+              content={editedContent}
+              onChange={setEditedContent}
+              placeholder={t('writings.startWriting')}
+              onAnnotate={(anchor) => setPendingAnchor(anchor)}
+            />
+            <AnnotationSurface
+              projectId={projectId}
+              engineId="writings"
+              entityId={openWriting.id}
+              layout="sidebar"
+              pendingAnchor={pendingAnchor}
+              onPendingAnchorConsumed={() => setPendingAnchor(null)}
+            />
+          </div>
+        )}
 
-        </div>
+        {/* Version history */}
+        <HistoryModal
+          open={showHistory}
+          onClose={() => setShowHistory(false)}
+          writing={openWriting}
+          currentContent={editedContent}
+          currentTitle={editedTitle}
+          onRestored={({ title, content, wordCount }) => {
+            setEditedTitle(title);
+            setEditedContent(content);
+            setOpenWriting({ ...openWriting, title, content, wordCount });
+            editorRef.current = {
+              ...editorRef.current,
+              content,
+              title,
+              savedContent: content,
+              savedTitle: title,
+              savedWordCount: wordCount,
+            };
+            setSaveState('saved');
+            setShowHistory(false);
+          }}
+        />
+
+        {confirmDeleteDialog}
       </div>
     );
   }
@@ -393,6 +612,15 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
         })}
 
         <div className="flex-1" />
+
+        <button
+          onClick={() => setShowCompile(true)}
+          className="flex items-center gap-1.5 px-3 py-2 border border-border text-text-muted text-sm rounded-lg hover:text-accent-gold hover:border-accent-gold/40 transition"
+          title={t('writings.compile.hint')}
+        >
+          <BookDown size={16} />
+          {t('writings.compile.button')}
+        </button>
 
         <button
           onClick={() => setShowGooglePicker(true)}
@@ -500,8 +728,9 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                       <ArrowRightLeft size={14} className="text-text-muted" />
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); onDelete(writing.id); }}
+                      onClick={(e) => { e.stopPropagation(); setPendingDeleteId(writing.id); }}
                       className="p-1.5 hover:bg-danger/20 rounded-lg transition"
+                      title={t('common.delete')}
                     >
                       <Trash2 size={14} className="text-danger" />
                     </button>
@@ -689,6 +918,16 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
           onRefresh?.();
         }}
       />
+
+      {/* Compile / Export manuscript */}
+      <CompileModal
+        open={showCompile}
+        onClose={() => setShowCompile(false)}
+        writings={writings.filter(w => !w.isGoogleDoc)}
+        projectTitle={project?.title || t('writings.compile.untitledProject')}
+      />
+
+      {confirmDeleteDialog}
     </div>
   );
 }

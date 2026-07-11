@@ -54,16 +54,38 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
     setEntryDate(new Date().toISOString().slice(0, 16));
   };
 
+  // Back must never discard typed work. If anything changed, save (the
+  // parent closes after persisting); brand-new & completely empty → just
+  // close without creating a junk entry.
+  // Uses `content` state (kept in lockstep with contentRef by
+  // handleContentChange) — reading a ref during render is invalid.
+  const isDirty =
+    title !== entry.title ||
+    content !== entry.content ||
+    entryDate !== entry.entryDate ||
+    (mood || '') !== (entry.mood || '') ||
+    pinned !== entry.pinned ||
+    tagsText !== entry.tags.join(', ');
+
+  const handleBack = async () => {
+    const empty = !title.trim() && !contentRef.current.trim();
+    if (isDirty && !(isNew && empty)) {
+      await handleSave();
+      return;
+    }
+    onClose();
+  };
+
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <button
-          onClick={onClose}
+          onClick={handleBack}
           className="flex items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition"
         >
           <ArrowLeft size={14} />
-          Back
+          {t('common.back')}
         </button>
         <div className="flex items-center gap-2">
           {!isNew && (
@@ -80,7 +102,7 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
             disabled={saving}
             className="px-4 py-1.5 text-sm bg-accent-gold text-white rounded-lg hover:bg-accent-amber transition font-medium disabled:opacity-50"
           >
-            {saving ? 'Saving...' : isNew ? 'Create Entry' : 'Save'}
+            {saving ? t('common.saving') : isNew ? t('common.create') : t('writings.save')}
           </button>
         </div>
       </div>
@@ -88,7 +110,7 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
       {/* Date & time + pin */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-1.5">
-          <label className="text-xs text-text-dim">Date & time</label>
+          <label className="text-xs text-text-dim">{t('diary.dateTime')}</label>
           <input
             type="datetime-local"
             value={entryDate}
@@ -112,13 +134,13 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
           }`}
         >
           <Pin size={11} />
-          {pinned ? 'Pinned' : 'Pin'}
+          {pinned ? t('diary.pinned') : t('diary.pin')}
         </button>
       </div>
 
       {/* Mood row */}
       <div className="flex items-center gap-1.5">
-        <span className="text-xs text-text-dim mr-1">Mood:</span>
+        <span className="text-xs text-text-dim mr-1">{t('diary.mood')}</span>
         {Object.entries(MOOD_CONFIG).map(([key, cfg]) => (
           <button
             key={key}
@@ -152,7 +174,7 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
 
       {/* Tags */}
       <div>
-        <label className="text-xs text-text-dim mb-1 block">Tags (comma-separated)</label>
+        <label className="text-xs text-text-dim mb-1 block">{t('diary.tagsLabel')}</label>
         <input
           value={tagsText}
           onChange={(e) => setTagsText(e.target.value)}

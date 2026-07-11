@@ -1,5 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
-import { makeEntityHook } from '@/engines/_shared';
+import { makeEntityHook, makeReadOnlyHook } from '@/engines/_shared';
 import * as ops from './operations';
 import type { Scene, DialogBlock, SceneCast } from './types';
 import type { OutlineBeat } from '@/engines/outline/types';
@@ -20,58 +19,35 @@ export const useDialogBlocks = makeEntityHook<DialogBlock>({
   reorderFn: ops.reorderDialogBlocks,
 });
 
-// useSceneCast — kept manual: non-standard CRUD (addMember/removeMember, no editMember)
+// Scene cast fits the entity factory exactly (fetch/create/update/delete
+// keyed by sceneId). The old hand-rolled version flipped `loading` on every
+// refresh, left it stuck `true` for an empty sceneId, and had no
+// stale-response/unmount guards — all fixed by the factory. The wrapper
+// preserves the original property names for the call sites.
+const useSceneCastBase = makeEntityHook<SceneCast>({
+  fetchFn: ops.getSceneCast,
+  createFn: ops.addCastMember,
+  updateFn: ops.updateCastMember,
+  deleteFn: ops.removeCastMember,
+});
+
 export function useSceneCast(sceneId: string) {
-  const [cast, setCast] = useState<SceneCast[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async () => {
-    if (!sceneId) return;
-    setLoading(true);
-    const data = await ops.getSceneCast(sceneId);
-    setCast(data);
-    setLoading(false);
-  }, [sceneId]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  const addMember = useCallback(
-    async (member: SceneCast) => {
-      await ops.addCastMember(member);
-      await refresh();
-    },
-    [refresh],
-  );
-
-  const removeMember = useCallback(
-    async (id: string) => {
-      await ops.removeCastMember(id);
-      await refresh();
-    },
-    [refresh],
-  );
-
-  const updateMember = useCallback(
-    async (id: string, changes: Partial<SceneCast>) => {
-      await ops.updateCastMember(id, changes);
-      await refresh();
-    },
-    [refresh],
-  );
-
+  const {
+    items: cast,
+    loading,
+    addItem: addMember,
+    editItem: updateMember,
+    removeItem: removeMember,
+    refresh,
+  } = useSceneCastBase(sceneId);
   return { cast, loading, addMember, removeMember, updateMember, refresh };
 }
 
-/** Hook to fetch outline beats linked to a specific scene */
-export function useLinkedBeats(sceneId: string) {
-  const [beats, setBeats] = useState<OutlineBeat[]>([]);
+/** Outline beats linked to a specific scene (read-only, race-guarded). */
+const useLinkedBeatsBase = makeReadOnlyHook<OutlineBeat>({
+  fetchFn: ops.getLinkedBeats,
+});
 
-  useEffect(() => {
-    if (!sceneId) return;
-    ops.getLinkedBeats(sceneId).then(setBeats);
-  }, [sceneId]);
-
-  return beats;
+export function useLinkedBeats(sceneId: string): OutlineBeat[] {
+  return useLinkedBeatsBase(sceneId).items;
 }

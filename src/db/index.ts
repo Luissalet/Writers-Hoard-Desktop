@@ -30,6 +30,7 @@ import type { CharacterArc, ArcBeat } from '@/engines/character-arc/types';
 import type { Relationship } from '@/engines/relationships/types';
 import type { Seed, Payoff } from '@/engines/seeds/types';
 import type { Annotation, AnnotationReference } from '@/engines/annotations/types';
+import type { WritingSnapshot } from '@/engines/writings/snapshotTypes';
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -74,6 +75,7 @@ export class WritersHoardDB extends Dexie {
   payoffs!: Table<Payoff>;
   annotations!: Table<Annotation>;
   annotationReferences!: Table<AnnotationReference>;
+  writingSnapshots!: Table<WritingSnapshot>;
 
   constructor() {
     super('WritersHoardDB');
@@ -610,6 +612,12 @@ export class WritersHoardDB extends Dexie {
       // `annotationId` is unique in v1 (1 reference per annotation). Index on
       // (targetEngineId, targetEntityId) powers useEntityBacklinks.
       annotationReferences: 'id, &annotationId, targetEngineId, targetEntityId, [targetEngineId+targetEntityId]',
+    });
+
+    // v18: Writing version history — automatic snapshots with restore.
+    // Additive table only; every other store is inherited unchanged from v17.
+    this.version(18).stores({
+      writingSnapshots: 'id, writingId, projectId, createdAt',
     });
   }
 }

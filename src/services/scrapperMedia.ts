@@ -78,6 +78,19 @@ export async function deleteSnapshotMedia(
   }
 }
 
+/**
+ * Delete a project's ENTIRE downloaded-media folder (scrapper-media/<projectId>/).
+ * Called when the project itself is deleted; best-effort.
+ */
+export async function cleanupProjectMedia(projectId: string): Promise<void> {
+  if (!isDesktop() || !window.electronAPI || !projectId) return;
+  try {
+    await window.electronAPI.media.deleteLibraryFile(projectId);
+  } catch {
+    /* best-effort cleanup — leftover files are harmless */
+  }
+}
+
 /** Cancel an in-flight download for a snapshot (kills its yt-dlp/ffmpeg process). */
 export async function cancelSnapshotDownload(snapshotId: string): Promise<void> {
   if (!isDesktop() || !window.electronAPI) return;

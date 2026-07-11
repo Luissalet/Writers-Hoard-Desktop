@@ -59,14 +59,17 @@ export default function ColorPicker({
   const [sat, setSat] = useState(() => hexToHsv(value)[1]);
   const [val, setVal] = useState(() => hexToHsv(value)[2]);
 
-  // Sync when value changes externally
-  useEffect(() => {
+  // Sync when value changes externally — render-adjust pattern (React docs:
+  // "adjusting state when a prop changes"), not a cascading effect.
+  const [prevValue, setPrevValue] = useState(value);
+  if (prevValue !== value) {
+    setPrevValue(value);
     setTempColor(value);
     const [h, s, v] = hexToHsv(value);
     setHue(h);
     setSat(s);
     setVal(v);
-  }, [value]);
+  }
 
   // Emit color
   const emit = useCallback(
@@ -215,13 +218,16 @@ export function InlineColorPicker({
   const [val, setVal] = useState(() => hexToHsv(value)[2]);
   const [tempColor, setTempColor] = useState(value);
 
-  useEffect(() => {
+  // Render-adjust pattern — sync state when the prop changes externally.
+  const [prevValue, setPrevValue] = useState(value);
+  if (prevValue !== value) {
+    setPrevValue(value);
     setTempColor(value);
     const [h, s, v] = hexToHsv(value);
     setHue(h);
     setSat(s);
     setVal(v);
-  }, [value]);
+  }
 
   const emit = useCallback(
     (h: number, s: number, v: number) => {

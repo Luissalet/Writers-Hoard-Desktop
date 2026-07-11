@@ -349,7 +349,7 @@ function EventNode({
 export default function SwimLaneView({
   projectId, timelines, events, connections,
   onAddEvent, onEditEvent, onDeleteEvent,
-  onAddConnection, onDeleteConnection, onEditTimeline: _onEditTimeline,
+  onAddConnection, onDeleteConnection,
 }: SwimLaneViewProps) {
   const { t } = useTranslation();
   const TYPE_LABELS: Record<string, string> = useMemo(() => ({
@@ -452,9 +452,10 @@ export default function SwimLaneView({
     }
   }, [connectingFromId, projectId, onAddConnection]);
 
-  const handleDoubleClick = useCallback((evt: TimelineEvent) => {
-    openEditForm(evt);
-  }, []);
+  // Plain function (not useCallback): it delegates to `openEditForm`, which
+  // is declared later and re-created each render — memoizing on [] both lied
+  // about deps and tripped the compiler's use-before-declaration check.
+  const handleDoubleClick = (evt: TimelineEvent) => openEditForm(evt);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, evtId: string) => {
     e.preventDefault();

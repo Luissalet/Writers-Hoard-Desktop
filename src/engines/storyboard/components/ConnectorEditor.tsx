@@ -2,8 +2,9 @@
 // Storyboard Engine — Connector Editor Modal
 // ============================================
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Modal from '@/components/common/Modal';
+import { generateId } from '@/utils/idGenerator';
 import type { StoryboardConnector } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
@@ -44,17 +45,18 @@ export default function ConnectorEditor({
   );
   const [pendingDelete, setPendingDelete] = useState(false);
 
-  useEffect(() => {
-    if (connector) {
-      setFormData(connector);
-    } else {
-      setFormData({ type: 'arrow', label: '', symbol: '' });
-    }
-  }, [connector, isOpen]);
+  // Render-adjust: re-seed the form each time the modal opens or the target
+  // connector changes.
+  const seedKey = `${isOpen}:${connector?.id ?? 'new'}`;
+  const [prevSeedKey, setPrevSeedKey] = useState(seedKey);
+  if (prevSeedKey !== seedKey) {
+    setPrevSeedKey(seedKey);
+    setFormData(connector || { type: 'arrow', label: '', symbol: '' });
+  }
 
   const handleSave = () => {
     const connectorData: StoryboardConnector = {
-      id: connector?.id || `conn-${Date.now()}`,
+      id: connector?.id || generateId('conn'),
       storyboardId,
       sourceId: fromPanelId,
       targetId: toPanelId,

@@ -1,133 +1,96 @@
-import { useState, useEffect, useCallback } from 'react';
 import type { Timeline, TimelineEvent, TimelineConnection } from '@/types';
+import { makeEntityHook } from '../_shared/makeEntityHook';
 import * as ops from './operations';
 
+/**
+ * Timeline hooks. Migrated onto `makeEntityHook` (2026-07-11) to kill the
+ * hand-rolled duplication and inherit the initial-load-only `loading` semantics
+ * + stale-fetch guard (the swim-lane drag reorder used to fire N concurrent
+ * refreshes that could resolve out of order).
+ */
+
+const useTimelinesEntity = makeEntityHook<Timeline>({
+  fetchFn: ops.getTimelines,
+  createFn: ops.createTimeline,
+  updateFn: ops.updateTimeline,
+  deleteFn: ops.deleteTimeline,
+});
+
 export function useTimelines(projectId: string) {
-  const [timelines, setTimelines] = useState<Timeline[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async () => {
-    if (!projectId) return;
-    setLoading(true);
-    const data = await ops.getTimelines(projectId);
-    setTimelines(data);
-    setLoading(false);
-  }, [projectId]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  const addTimeline = useCallback(async (timeline: Timeline) => {
-    await ops.createTimeline(timeline);
-    await refresh();
-  }, [refresh]);
-
-  const editTimeline = useCallback(async (id: string, changes: Partial<Timeline>) => {
-    await ops.updateTimeline(id, changes);
-    await refresh();
-  }, [refresh]);
-
-  const removeTimeline = useCallback(async (id: string) => {
-    await ops.deleteTimeline(id);
-    await refresh();
-  }, [refresh]);
-
-  return { timelines, loading, refresh, addTimeline, editTimeline, removeTimeline };
+  const { items, loading, refetching, refresh, addItem, editItem, removeItem } =
+    useTimelinesEntity(projectId);
+  return {
+    timelines: items,
+    loading,
+    refetching,
+    refresh,
+    addTimeline: addItem,
+    editTimeline: editItem,
+    removeTimeline: removeItem,
+  };
 }
 
+const useTimelineEventsEntity = makeEntityHook<TimelineEvent>({
+  fetchFn: ops.getTimelineEvents,
+  createFn: ops.createTimelineEvent,
+  updateFn: ops.updateTimelineEvent,
+  deleteFn: ops.deleteTimelineEvent,
+});
+
 export function useTimelineEvents(timelineId: string) {
-  const [events, setEvents] = useState<TimelineEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async () => {
-    if (!timelineId) return;
-    setLoading(true);
-    const data = await ops.getTimelineEvents(timelineId);
-    setEvents(data);
-    setLoading(false);
-  }, [timelineId]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  const addEvent = useCallback(async (event: TimelineEvent) => {
-    await ops.createTimelineEvent(event);
-    await refresh();
-  }, [refresh]);
-
-  const editEvent = useCallback(async (id: string, changes: Partial<TimelineEvent>) => {
-    await ops.updateTimelineEvent(id, changes);
-    await refresh();
-  }, [refresh]);
-
-  const removeEvent = useCallback(async (id: string) => {
-    await ops.deleteTimelineEvent(id);
-    await refresh();
-  }, [refresh]);
-
-  return { events, loading, refresh, addEvent, editEvent, removeEvent };
+  const { items, loading, refetching, refresh, addItem, editItem, removeItem } =
+    useTimelineEventsEntity(timelineId);
+  return {
+    events: items,
+    loading,
+    refetching,
+    refresh,
+    addEvent: addItem,
+    editEvent: editItem,
+    removeEvent: removeItem,
+  };
 }
 
 /** Fetch ALL events across all timelines in a project (for swim-lane view) */
+const useAllProjectEventsEntity = makeEntityHook<TimelineEvent>({
+  fetchFn: ops.getAllProjectEvents,
+  createFn: ops.createTimelineEvent,
+  updateFn: ops.updateTimelineEvent,
+  deleteFn: ops.deleteTimelineEvent,
+});
+
 export function useAllProjectEvents(projectId: string) {
-  const [events, setEvents] = useState<TimelineEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async () => {
-    if (!projectId) return;
-    setLoading(true);
-    const data = await ops.getAllProjectEvents(projectId);
-    setEvents(data);
-    setLoading(false);
-  }, [projectId]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  const addEvent = useCallback(async (event: TimelineEvent) => {
-    await ops.createTimelineEvent(event);
-    await refresh();
-  }, [refresh]);
-
-  const editEvent = useCallback(async (id: string, changes: Partial<TimelineEvent>) => {
-    await ops.updateTimelineEvent(id, changes);
-    await refresh();
-  }, [refresh]);
-
-  const removeEvent = useCallback(async (id: string) => {
-    await ops.deleteTimelineEvent(id);
-    await refresh();
-  }, [refresh]);
-
-  return { events, loading, refresh, addEvent, editEvent, removeEvent };
+  const { items, loading, refetching, refresh, addItem, editItem, removeItem } =
+    useAllProjectEventsEntity(projectId);
+  return {
+    events: items,
+    loading,
+    refetching,
+    refresh,
+    addEvent: addItem,
+    editEvent: editItem,
+    removeEvent: removeItem,
+  };
 }
 
 /** Fetch connections for a project (cross-timeline links) */
+const useTimelineConnectionsEntity = makeEntityHook<TimelineConnection>({
+  fetchFn: ops.getConnectionsForProject,
+  createFn: ops.createConnection,
+  updateFn: ops.updateConnection,
+  deleteFn: ops.deleteConnection,
+});
+
 export function useTimelineConnections(projectId: string) {
-  const [connections, setConnections] = useState<TimelineConnection[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async () => {
-    if (!projectId) return;
-    setLoading(true);
-    const data = await ops.getConnectionsForProject(projectId);
-    setConnections(data);
-    setLoading(false);
-  }, [projectId]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  const addConnection = useCallback(async (conn: TimelineConnection) => {
-    await ops.createConnection(conn);
-    await refresh();
-  }, [refresh]);
-
-  const editConnection = useCallback(async (id: string, changes: Partial<TimelineConnection>) => {
-    await ops.updateConnection(id, changes);
-    await refresh();
-  }, [refresh]);
-
-  const removeConnection = useCallback(async (id: string) => {
-    await ops.deleteConnection(id);
-    await refresh();
-  }, [refresh]);
-
-  return { connections, loading, refresh, addConnection, editConnection, removeConnection };
+  const { items, loading, refetching, refresh, addItem, editItem, removeItem } =
+    useTimelineConnectionsEntity(projectId);
+  return {
+    connections: items,
+    loading,
+    refetching,
+    refresh,
+    addConnection: addItem,
+    editConnection: editItem,
+    removeConnection: removeItem,
+  };
 }

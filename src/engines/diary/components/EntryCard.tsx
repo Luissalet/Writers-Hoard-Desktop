@@ -1,6 +1,7 @@
 import { Pencil, Pin, FileText, MessageSquare } from 'lucide-react';
 import type { DiaryEntry } from '../types';
 import { MOOD_CONFIG } from '../types';
+import { stripHtml } from '@/utils/text';
 import { useTranslation } from '@/i18n/useTranslation';
 
 interface EntryCardProps {
@@ -17,13 +18,6 @@ function formatTime(iso: string): string {
 /** True when content looks like rich HTML (has tags beyond a bare <p>) */
 function isRichContent(html: string): boolean {
   return /<(h[1-6]|ul|ol|blockquote|img|a |strong|em)\b/.test(html);
-}
-
-/** Strip HTML tags for plain-text preview */
-function stripHtml(html: string): string {
-  const div = document.createElement('div');
-  div.innerHTML = html;
-  return div.textContent || div.innerText || '';
 }
 
 export default function EntryCard({ entry, onEdit, onTogglePin }: EntryCardProps) {

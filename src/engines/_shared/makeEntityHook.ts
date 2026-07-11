@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export interface EntityHookOptions<T> {
   /** Fetches all items for a given scope ID (projectId, boardId, etc.) */
@@ -15,7 +15,15 @@ export interface EntityHookOptions<T> {
 
 export interface EntityHookResult<T> {
   items: T[];
+  /**
+   * `true` ONLY while the first load for the current scope is in flight.
+   * Post-mutation refreshes (add/edit/remove/reorder) do NOT flip this back to
+   * `true`, so a view-level `if (loading) return <Spinner/>` never unmounts an
+   * open editor/modal mid-edit. See tasks/lessons.md #16/#17.
+   */
   loading: boolean;
+  /** `true` during any refresh that is NOT the initial load. Purely optional UI. */
+  refetching: boolean;
   addItem: (item: T) => Promise<void>;
   editItem: (id: string, changes: Partial<T>) => Promise<void>;
   removeItem: (id: string) => Promise<void>;
@@ -33,6 +41,15 @@ export interface EntityHookResult<T> {
  * Returned names are generic: `items`, `addItem`, `editItem`, `removeItem`.
  * Callers rename via destructuring aliases:
  *   const { items: entries, addItem: addEntry } = useDiaryEntries(projectId);
+ *
+ * Concurrency guarantees:
+ *   - A monotonic sequence token discards stale fetch results (an older refresh
+ *     resolving after a newer one can never overwrite fresher data).
+ *   - A mounted ref prevents setState after unmount.
+ *   - `loading` reflects the *initial* load only (keyed by scope), never a
+ *     post-mutation refresh — this is the root fix for the "refresh unmounts my
+ *     modal" class of bugs that used to require per-view `items.length === 0`
+ *     guards.
  */
 export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: string) => EntityHookResult<T> {
   const { fetchFn, createFn, updateFn, deleteFn, reorderFn } = options;
@@ -40,13 +57,47 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
   return function useEntities(scopeId: string): EntityHookResult<T> {
     const [items, setItems] = useState<T[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refetching, setRefetching] = useState(false);
+
+    // Scope for which we have completed a successful load. When it differs from
+    // the current scopeId, the next fetch is treated as an initial load.
+    const loadedScopeRef = useRef<string | null>(null);
+    const seqRef = useRef(0);
+    const mountedRef = useRef(true);
+    useEffect(() => {
+      mountedRef.current = true;
+      return () => {
+        mountedRef.current = false;
+      };
+    }, []);
 
     const refresh = useCallback(async () => {
-      if (!scopeId) return;
-      setLoading(true);
-      const data = await fetchFn(scopeId);
-      setItems(data);
-      setLoading(false);
+      if (!scopeId) {
+        setItems([]);
+        setLoading(false);
+        setRefetching(false);
+        loadedScopeRef.current = null;
+        return;
+      }
+      const seq = ++seqRef.current;
+      const isInitialForScope = loadedScopeRef.current !== scopeId;
+      if (isInitialForScope) setLoading(true);
+      else setRefetching(true);
+      try {
+        const data = await fetchFn(scopeId);
+        if (seq !== seqRef.current || !mountedRef.current) return; // superseded
+        setItems(data);
+        loadedScopeRef.current = scopeId;
+      } catch (err) {
+        if (seq === seqRef.current && mountedRef.current) {
+          console.error('[makeEntityHook] fetch failed', err);
+        }
+      } finally {
+        if (seq === seqRef.current && mountedRef.current) {
+          setLoading(false);
+          setRefetching(false);
+        }
+      }
     }, [scopeId]);
 
     useEffect(() => {
@@ -89,6 +140,7 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
     return {
       items,
       loading,
+      refetching,
       addItem,
       editItem,
       removeItem,
