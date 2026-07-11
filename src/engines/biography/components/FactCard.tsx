@@ -3,6 +3,7 @@ import { Trash2, GripVertical, ChevronDown, Check, AlertCircle, HelpCircle, Minu
 import { motion } from 'framer-motion';
 import type { BiographyFact } from '../types';
 import { BIOGRAPHY_CATEGORIES, CONFIDENCE_LEVELS } from '../types';
+import { stripHtml } from '@/utils/text';
 import { useTranslation } from '@/i18n/useTranslation';
 
 interface FactCardProps {
@@ -17,6 +18,7 @@ export default function FactCard({ fact, onEdit, onDelete, isDragging }: FactCar
   const [isExpanded, setIsExpanded] = useState(false);
   const category = BIOGRAPHY_CATEGORIES[fact.category];
   const confidence = CONFIDENCE_LEVELS[fact.confidence];
+  const contentPreview = stripHtml(fact.content);
 
   const confidenceIcon = {
     check: <Check size={13} />,
@@ -61,8 +63,8 @@ export default function FactCard({ fact, onEdit, onDelete, isDragging }: FactCar
 
           {/* Content preview */}
           <p className="text-sm text-text-muted line-clamp-2">
-            {fact.content.replace(/<[^>]*>/g, '').slice(0, 100)}
-            {fact.content.replace(/<[^>]*>/g, '').length > 100 ? '...' : ''}
+            {contentPreview.slice(0, 100)}
+            {contentPreview.length > 100 ? '...' : ''}
           </p>
 
           {/* Tags and metadata row */}

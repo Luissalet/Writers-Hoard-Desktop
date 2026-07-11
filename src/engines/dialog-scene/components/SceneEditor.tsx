@@ -298,7 +298,7 @@ export default function SceneEditor({
             <div className="flex items-center gap-1.5 mt-1.5">
               <Link2 size={11} className="text-accent-gold/70" />
               <span className="text-[10px] text-accent-gold/70">
-                Linked to {linkedBeats.length} outline beat{linkedBeats.length > 1 ? 's' : ''}
+                {t('dialogScene.linkedBeats').replace('{count}', String(linkedBeats.length))}
                 {linkedBeats.length <= 3 && ': '}
                 {linkedBeats.slice(0, 3).map((b) => b.title).join(', ')}
               </span>

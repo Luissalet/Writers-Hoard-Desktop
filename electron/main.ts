@@ -115,10 +115,79 @@ protocol.registerSchemesAsPrivileged([
 // Window
 // ---------------------------------------------------------------------------
 
-function createWindow(): void {
+interface WindowState {
+  width: number;
+  height: number;
+  x?: number;
+  y?: number;
+  isMaximized?: boolean;
+}
+
+const WINDOW_STATE_FILE = () => path.join(app.getPath('userData'), 'window-state.json');
+const DEFAULT_WINDOW_STATE: WindowState = { width: 1440, height: 900 };
+
+async function loadWindowState(): Promise<WindowState> {
+  try {
+    const raw = await fs.readFile(WINDOW_STATE_FILE(), 'utf8');
+    const parsed = JSON.parse(raw) as WindowState;
+    if (typeof parsed.width !== 'number' || typeof parsed.height !== 'number') {
+      return DEFAULT_WINDOW_STATE;
+    }
+    // Sanity: if the saved position is completely off every current display
+    // (monitor unplugged), fall back to centered default.
+    if (parsed.x !== undefined && parsed.y !== undefined) {
+      const { screen } = await import('electron');
+      const visible = screen.getAllDisplays().some((d) => {
+        const b = d.workArea;
+        return (
+          parsed.x! < b.x + b.width - 40 &&
+          parsed.x! + parsed.width > b.x + 40 &&
+          parsed.y! < b.y + b.height - 40 &&
+          parsed.y! >= b.y - 20
+        );
+      });
+      if (!visible) return { ...parsed, x: undefined, y: undefined };
+    }
+    return parsed;
+  } catch {
+    return DEFAULT_WINDOW_STATE;
+  }
+}
+
+function trackWindowState(win: BrowserWindow): void {
+  let saveTimer: NodeJS.Timeout | null = null;
+  const save = () => {
+    if (!win || win.isDestroyed()) return;
+    const isMaximized = win.isMaximized();
+    // Use normal bounds so un-maximizing restores the pre-maximize size.
+    const bounds = win.getNormalBounds();
+    const state: WindowState = {
+      width: bounds.width,
+      height: bounds.height,
+      x: bounds.x,
+      y: bounds.y,
+      isMaximized,
+    };
+    fs.writeFile(WINDOW_STATE_FILE(), JSON.stringify(state)).catch(() => undefined);
+  };
+  const debounced = () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 400);
+  };
+  win.on('resize', debounced);
+  win.on('move', debounced);
+  win.on('maximize', debounced);
+  win.on('unmaximize', debounced);
+  win.on('close', save);
+}
+
+async function createWindow(): Promise<void> {
+  const state = await loadWindowState();
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    width: state.width,
+    height: state.height,
+    x: state.x,
+    y: state.y,
     minWidth: 940,
     minHeight: 600,
     backgroundColor: '#0e0e11',
@@ -133,6 +202,8 @@ function createWindow(): void {
       spellcheck: true,
     },
   });
+  if (state.isMaximized) mainWindow.maximize();
+  trackWindowState(mainWindow);
 
   mainWindow.once('ready-to-show', () => mainWindow?.show());
 
@@ -330,10 +401,11 @@ function registerIpc(): void {
     return result.canceled ? null : result.filePaths[0];
   });
 
-  ipcMain.handle('fs:readFile', (_e, filePath: string) => fs.readFile(filePath, 'utf8'));
-  ipcMain.handle('fs:writeFile', (_e, filePath: string, data: string) =>
-    fs.writeFile(filePath, data, 'utf8'),
-  );
+  // NOTE: fs:readFile / fs:writeFile were removed on purpose. They accepted
+  // ANY absolute path with no validation and had zero renderer callers —
+  // pure attack surface (a renderer compromise could overwrite arbitrary
+  // user files). Re-add scoped variants (userData-rooted, traversal-guarded
+  // like resolveLibraryPath) if an engine ever needs real file IO.
   ipcMain.handle('fs:exists', async (_e, filePath: string) => {
     try {
       await fs.access(filePath);
@@ -536,11 +608,11 @@ if (!gotLock) {
       console.error('[media] failed to start embedded server', err);
     }
 
-    createWindow();
+    void createWindow();
     initAutoUpdates();
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      if (BrowserWindow.getAllWindows().length === 0) void createWindow();
     });
   });
 }

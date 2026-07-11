@@ -20,7 +20,7 @@
 // means re-opening another essentials project still shows the checklist
 // until that project's own items complete or are dismissed.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CheckCircle2, Circle, X, Sparkles } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useCodexEntries } from '@/engines/codex/hooks';
@@ -49,16 +49,13 @@ export default function GettingStartedChecklist({ projectId }: GettingStartedChe
     }
   });
 
-  const items = useMemo(() => {
-    const hasTitle = !!(project?.title && project.title.trim().length > 0);
-    const hasCharacter = codex.length > 0;
-    const hasWriting = writings.length > 0;
-    return [
-      { id: 'title', label: t('gettingStarted.nameWorld'), done: hasTitle },
-      { id: 'character', label: t('gettingStarted.createCharacter'), done: hasCharacter },
-      { id: 'writing', label: t('gettingStarted.firstPage'), done: hasWriting },
-    ];
-  }, [project?.title, codex.length, writings.length, t]);
+  // Cheap derivation — no manual useMemo (it made the compiler bail).
+  const hasTitle = !!(project?.title && project.title.trim().length > 0);
+  const items = [
+    { id: 'title', label: t('gettingStarted.nameWorld'), done: hasTitle },
+    { id: 'character', label: t('gettingStarted.createCharacter'), done: codex.length > 0 },
+    { id: 'writing', label: t('gettingStarted.firstPage'), done: writings.length > 0 },
+  ];
 
   const allDone = items.every((i) => i.done);
   const completed = items.filter((i) => i.done).length;

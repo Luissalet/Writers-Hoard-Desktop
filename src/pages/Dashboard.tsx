@@ -7,7 +7,9 @@ import EmptyState from '@/components/common/EmptyState';
 import TopBar from '@/components/layout/TopBar';
 import CreateProjectModal from '@/components/dashboard/CreateProjectModal';
 import { importProjectData, importFullDatabase } from '@/db/operations';
-import { exportFullZip, importFullZip } from '@/services/zipBackup';
+import { exportFullZip, importFullZip, importProjectZip } from '@/services/zipBackup';
+import { cleanupProjectMedia } from '@/services/scrapperMedia';
+import { toast } from '@/components/common/toast';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 import type { Project } from '@/types';
@@ -26,21 +28,33 @@ export default function Dashboard() {
   // here — it can auto-resolve to `true` after tab suspend/resume on some
   // browser/OS combos, which has caused real data loss. See tasks/lessons.md.
   const [pendingFullImportFile, setPendingFullImportFile] = useState<File | null>(null);
-
+  // Same React-owned confirmation for project deletion — a single hover-click
+  // must never wipe a whole project.
+  const [pendingDeleteProject, setPendingDeleteProject] = useState<Project | null>(null);
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setImporting(true);
     try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-      const newId = await importProjectData(data);
-      await refresh();
-      navigate(`/project/${newId}`);
+      if (file.name.endsWith('.zip')) {
+        // New format: single-project ZIP (merge/restore — no DB wipe)
+        const ids = await importProjectZip(file);
+        await refresh();
+        toast.success(t('dashboard.import.success'));
+        if (ids.length === 1) navigate(`/project/${ids[0]}`);
+      } else {
+        // Legacy format: 13-table project JSON
+        const text = await file.text();
+        const data = JSON.parse(text);
+        const newId = await importProjectData(data);
+        await refresh();
+        toast.success(t('dashboard.import.success'));
+        navigate(`/project/${newId}`);
+      }
     } catch (err) {
       console.error('Import failed:', err);
-      alert(t('dashboard.import.error'));
+      toast.error(t('dashboard.import.error'));
     } finally {
       setImporting(false);
       if (importRef.current) importRef.current.value = '';
@@ -51,9 +65,10 @@ export default function Dashboard() {
     setExporting(true);
     try {
       await exportFullZip();
+      toast.success(t('dashboard.fullExport.success'));
     } catch (err) {
       console.error('Full export failed:', err);
-      alert(t('dashboard.export.error'));
+      toast.error(t('dashboard.export.error'));
     } finally {
       setExporting(false);
     }
@@ -101,14 +116,29 @@ export default function Dashboard() {
           navigate(`/project/${newId}`);
         }
       } else {
-        alert(t('dashboard.unsupportedFormat'));
+        toast.error(t('dashboard.unsupportedFormat'));
       }
     } catch (err) {
       console.error('Full import failed:', err);
-      alert(t('dashboard.import.fullError'));
+      toast.error(t('dashboard.import.fullError'));
     } finally {
       setImporting(false);
       if (fullImportRef.current) fullImportRef.current.value = '';
+    }
+  };
+
+  const runDeleteProject = async () => {
+    const project = pendingDeleteProject;
+    setPendingDeleteProject(null);
+    if (!project) return;
+    try {
+      // Best-effort: wipe the project's downloaded media library (desktop).
+      await cleanupProjectMedia(project.id);
+      await removeProject(project.id);
+      toast.success(t('dashboard.deleteProject.done').replace('{name}', project.title));
+    } catch (err) {
+      console.error('Project delete failed:', err);
+      toast.error(t('dashboard.deleteProject.error'));
     }
   };
 
@@ -137,7 +167,7 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
+            <input ref={importRef} type="file" accept=".json,.zip" className="hidden" onChange={handleImport} />
             <input ref={fullImportRef} type="file" accept=".zip,.json" className="hidden" onChange={handleFullImport} />
 
             {/* Full backup controls */}
@@ -202,7 +232,7 @@ export default function Dashboard() {
                 project={project}
                 index={i}
                 onClick={() => navigate(`/project/${project.id}`)}
-                onDelete={() => removeProject(project.id)}
+                onDelete={() => setPendingDeleteProject(project)}
                 onColorChange={(color) => editProject(project.id, { color })}
                 onIconChange={(icon) => editProject(project.id, { icon: icon || undefined })}
               />
@@ -224,6 +254,14 @@ export default function Dashboard() {
         message={t('dashboard.fullImport.confirm')}
         onConfirm={runFullImport}
         onCancel={cancelFullImport}
+      />
+
+      <ConfirmDialog
+        open={pendingDeleteProject !== null}
+        destructive
+        message={t('dashboard.deleteProject.confirm').replace('{name}', pendingDeleteProject?.title ?? '')}
+        onConfirm={runDeleteProject}
+        onCancel={() => setPendingDeleteProject(null)}
       />
     </>
   );

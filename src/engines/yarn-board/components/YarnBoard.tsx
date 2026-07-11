@@ -600,6 +600,14 @@ export default function YarnBoard({
     edgesDataRef.current = map;
   }, [initialEdges]);
 
+  // State first, handlers second — the delete handler needs setNodes/setEdges,
+  // and referencing them before declaration made the React compiler bail on
+  // the whole component. The sync effects below populate on mount, so the
+  // initial arrays can be empty (the old `rfNodes` mapping was an exact
+  // duplicate of the sync-effect mapping anyway).
+  const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
+
   const handleEditNode = useCallback((nodeId: string) => {
     const nodeData = nodesDataRef.current.get(nodeId);
     if (nodeData) setEditingNode(nodeData);
@@ -613,24 +621,8 @@ export default function YarnBoard({
         eds.filter((e) => e.source !== nodeId && e.target !== nodeId)
       );
     },
-    [onDeleteNode]
+    [onDeleteNode, setNodes, setEdges]
   );
-
-  const rfNodes: Node[] = initialNodes.map((n) => ({
-    id: n.id,
-    type: n.type,
-    position: n.position,
-    data: {
-      title: n.title,
-      content: n.content,
-      nodeType: n.type,
-      color: n.color,
-      image: n.image,
-      shape: n.shape,
-      onEdit: handleEditNode,
-      onDelete: handleDeleteNode,
-    },
-  }));
 
   const getEdgeType = (curvature: string) => {
     switch (curvature) {
@@ -644,43 +636,7 @@ export default function YarnBoard({
     }
   };
 
-  const rfEdges: Edge[] = initialEdges.map((e) => {
-    const strokeDasharray =
-      e.style === 'dashed' ? '8 4' : e.style === 'dotted' ? '3 3' : undefined;
-
-    const markerEnd =
-      e.direction === 'forward' || e.direction === 'both'
-        ? { type: MarkerType.ArrowClosed, color: e.color }
-        : undefined;
-    const markerStart =
-      e.direction === 'backward' || e.direction === 'both'
-        ? { type: MarkerType.ArrowClosed, color: e.color }
-        : undefined;
-
-    return {
-      id: e.id,
-      source: e.sourceId,
-      target: e.targetId,
-      type: getEdgeType(e.curvature || 'curved'),
-      style: {
-        stroke: e.color,
-        strokeWidth: 3,
-        strokeDasharray,
-      },
-      label: e.label,
-      labelStyle: { fill: '#1a1a25', fontSize: 11, fontWeight: 600 },
-      labelBgStyle: { fill: '#e8e5e0', opacity: 0.85, rx: 4, ry: 4 },
-      labelBgPadding: [6, 4] as [number, number],
-      markerEnd,
-      markerStart,
-      animated: false,
-    };
-  });
-
-  const [nodes, setNodes, onNodesChange] = useNodesState(rfNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(rfEdges);
-
-  // Sync when initialNodes/initialEdges change
+  // Sync when initialNodes/initialEdges change (also the initial population)
   useEffect(() => {
     setNodes(
       initialNodes.map((n) => ({
@@ -813,11 +769,11 @@ export default function YarnBoard({
         return newEdges as Edge[];
       });
     },
-    [yarnColor, boardId, onSaveEdge, setEdges]
+    [yarnColor, boardId, onSaveEdge, setEdges, t]
   );
 
   const handleAddNode = () => {
-    let nodeType = selectedNodeType;
+    const nodeType = selectedNodeType;
     let config = SEMANTIC_NODE_CONFIG[nodeType as keyof typeof SEMANTIC_NODE_CONFIG];
 
     if (!config) {

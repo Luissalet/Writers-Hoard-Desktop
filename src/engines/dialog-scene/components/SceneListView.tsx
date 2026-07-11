@@ -1,4 +1,4 @@
-import { Plus, Trash2, GripVertical, Lock, Unlock, EyeOff, Eye } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Lock, Unlock, EyeOff, Eye, Clapperboard } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -22,8 +22,11 @@ import type { Scene } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
+import { toast } from '@/components/common/toast';
+import { useProject } from '@/hooks/useProjects';
 
 interface SceneListViewProps {
+  projectId: string;
   scenes: Scene[];
   onSelectScene: (sceneId: string) => void;
   onCreateScene: (scene: Scene) => void;
@@ -161,6 +164,7 @@ function SortableSceneCard({
 }
 
 export default function SceneListView({
+  projectId,
   scenes,
   onSelectScene,
   onCreateScene,
@@ -169,9 +173,33 @@ export default function SceneListView({
   onReorderScenes,
 }: SceneListViewProps) {
   const { t } = useTranslation();
+  const { project } = useProject(projectId);
   const [showNewScene, setShowNewScene] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [pendingDeleteSceneId, setPendingDeleteSceneId] = useState<string | null>(null);
+
+  // Export the whole screenplay as .fountain — the open format every
+  // screenwriting tool (Final Draft, Highland, Fade In…) imports.
+  const handleExportFountain = async () => {
+    try {
+      const [{ db }, { buildFountain }, { downloadTextFile, sanitizeFilename }] = await Promise.all([
+        import('@/db/index'),
+        import('../fountainExport'),
+        import('@/engines/writings/manuscriptExport'),
+      ]);
+      const blocks = await db.dialogBlocks.where('projectId').equals(projectId).toArray();
+      const text = buildFountain({
+        projectTitle: project?.title || t('dialogScene.title'),
+        scenes,
+        blocks,
+      });
+      downloadTextFile(text, `${sanitizeFilename(project?.title || 'script')}.fountain`, 'text/plain');
+      toast.success(t('dialogScene.fountainDone'));
+    } catch (err) {
+      console.error('Fountain export failed:', err);
+      toast.error(t('dialogScene.fountainError'));
+    }
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -213,13 +241,25 @@ export default function SceneListView({
       {/* Header */}
       <div className="border-b border-border bg-surface/30 px-6 py-4 flex items-center justify-between">
         <h1 className="text-2xl font-serif font-bold text-text-primary">{t('dialogScene.title')}</h1>
-        <button
-          onClick={() => setShowNewScene(!showNewScene)}
-          className="flex items-center gap-2 px-4 py-2 text-sm bg-accent-gold text-deep rounded-lg font-semibold hover:bg-accent-amber transition"
-        >
-          <Plus size={16} />
-          {t('dialogScene.newScene')}
-        </button>
+        <div className="flex items-center gap-2">
+          {scenes.length > 0 && (
+            <button
+              onClick={handleExportFountain}
+              className="flex items-center gap-2 px-3 py-2 text-sm border border-border text-text-muted rounded-lg hover:text-accent-gold hover:border-accent-gold/40 transition"
+              title={t('dialogScene.fountainHint')}
+            >
+              <Clapperboard size={15} />
+              Fountain
+            </button>
+          )}
+          <button
+            onClick={() => setShowNewScene(!showNewScene)}
+            className="flex items-center gap-2 px-4 py-2 text-sm bg-accent-gold text-deep rounded-lg font-semibold hover:bg-accent-amber transition"
+          >
+            <Plus size={16} />
+            {t('dialogScene.newScene')}
+          </button>
+        </div>
       </div>
 
       {/* Content */}

@@ -245,7 +245,7 @@ function ListView({
 }: {
   relationships: Relationship[];
   onEdit: (r: Relationship) => void;
-  onDelete: (id: string) => Promise<void>;
+  onDelete: (id: string) => void;
 }) {
   const { t } = useTranslation();
   if (relationships.length === 0) {
@@ -280,9 +280,7 @@ function ListView({
               </div>
             </button>
             <button
-              onClick={async () => {
-                await onDelete(r.id);
-              }}
+              onClick={() => onDelete(r.id)}
               className="p-1.5 rounded text-text-dim opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/10 transition"
               title={t('common.delete')}
             >

@@ -21,7 +21,7 @@
 // that value triggers a refresh; a deep-equality check is not performed —
 // consumers should memoize the value if it's an object literal.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export interface ReadOnlyHookOptions<T, Deps = void> {
   /**
@@ -33,7 +33,10 @@ export interface ReadOnlyHookOptions<T, Deps = void> {
 
 export interface ReadOnlyHookResult<T> {
   items: T[];
+  /** `true` only during the first load for the current scope/deps. */
   loading: boolean;
+  /** `true` during any non-initial refresh. */
+  refetching: boolean;
   refresh: () => Promise<void>;
 }
 
@@ -61,19 +64,47 @@ export function makeReadOnlyHook<T, Deps = void>(
   ): ReadOnlyHookResult<T> {
     const [items, setItems] = useState<T[]>([]);
     const [loading, setLoading] = useState<boolean>(false);
+    const [refetching, setRefetching] = useState<boolean>(false);
+
+    const loadedKeyRef = useRef<string | null>(null);
+    const seqRef = useRef(0);
+    const mountedRef = useRef(true);
+    useEffect(() => {
+      mountedRef.current = true;
+      return () => {
+        mountedRef.current = false;
+      };
+    }, []);
 
     const refresh = useCallback(async () => {
       if (!scopeId) {
         setItems([]);
         setLoading(false);
+        setRefetching(false);
+        loadedKeyRef.current = null;
         return;
       }
-      setLoading(true);
+      const seq = ++seqRef.current;
+      // Key on scope only: a deps change refetches but shouldn't blank the view
+      // with a full spinner (that would flash a derived dashboard on every filter
+      // toggle). Initial spinner fires once per scope.
+      const isInitial = loadedKeyRef.current !== scopeId;
+      if (isInitial) setLoading(true);
+      else setRefetching(true);
       try {
         const rows = await fetchFn(scopeId, deps as Deps);
+        if (seq !== seqRef.current || !mountedRef.current) return; // superseded
         setItems(rows);
+        loadedKeyRef.current = scopeId;
+      } catch (err) {
+        if (seq === seqRef.current && mountedRef.current) {
+          console.error('[makeReadOnlyHook] fetch failed', err);
+        }
       } finally {
-        setLoading(false);
+        if (seq === seqRef.current && mountedRef.current) {
+          setLoading(false);
+          setRefetching(false);
+        }
       }
       // deps is intentionally part of the dep array — refetch on any change.
     }, [scopeId, deps]);
@@ -82,6 +113,6 @@ export function makeReadOnlyHook<T, Deps = void>(
       refresh();
     }, [refresh]);
 
-    return { items, loading, refresh };
+    return { items, loading, refetching, refresh };
   };
 }

@@ -5,6 +5,7 @@ import TagInput from '@/components/common/TagInput';
 import type { BiographyFact, FactSource, BiographyCategory } from '../types';
 import { BIOGRAPHY_CATEGORIES, CONFIDENCE_LEVELS } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
+import { toast } from '@/components/common/toast';
 
 interface FactEditorProps {
   fact?: BiographyFact;
@@ -33,7 +34,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
 
   const handleSave = () => {
     if (!title.trim() || !content.trim()) {
-      alert('Please fill in title and content');
+      toast.error(t('biography.fillTitleContent'));
       return;
     }
 
@@ -161,7 +162,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
               {Object.entries(CONFIDENCE_LEVELS).map(([key, { label }]) => (
                 <button
                   key={key}
-                  onClick={() => setConfidence(key as any)}
+                  onClick={() => setConfidence(key as 'confirmed' | 'likely' | 'uncertain' | 'disputed')}
                   className={`py-2 px-3 rounded-lg text-xs font-medium transition ${
                     confidence === key
                       ? `bg-accent-gold/20 border border-accent-gold text-accent-gold`
@@ -227,7 +228,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
                 {['manual', 'link', 'snapshot', 'interview'].map((type) => (
                   <button
                     key={type}
-                    onClick={() => setNewSourceType(type as any)}
+                    onClick={() => setNewSourceType(type as 'snapshot' | 'link' | 'manual' | 'interview')}
                     className={`py-1 px-2 rounded text-xs font-medium transition ${
                       newSourceType === type
                         ? 'bg-accent-gold/20 text-accent-gold border border-accent-gold'

@@ -39,6 +39,16 @@ export default function AiToolbar({ writing, projectId, onSynopsisUpdate, conten
   const [charsError, setCharsError] = useState<string | null>(null);
   const [charsImporting, setCharsImporting] = useState(false);
 
+  // Merge state — declared BEFORE the early return below. Hooks after a
+  // conditional return crash React ("rendered more hooks than during the
+  // previous render") the moment `config.enabled` flips while mounted.
+  const [mergeConflicts, setMergeConflicts] = useState<{
+    existing: CodexEntry;
+    extracted: ExtractedCharacter;
+    mergedFields: Record<string, string>;
+    mergeContent: string;
+  }[] | null>(null);
+
   if (!config.enabled) return null;
 
   /** Returns the best available content, fetching from Google Docs if needed */
@@ -125,14 +135,6 @@ export default function AiToolbar({ writing, projectId, onSynopsisUpdate, conten
     }
     setSelectedChars(next);
   };
-
-  // Merge state
-  const [mergeConflicts, setMergeConflicts] = useState<{
-    existing: CodexEntry;
-    extracted: ExtractedCharacter;
-    mergedFields: Record<string, string>;
-    mergeContent: string;
-  }[] | null>(null);
 
   const handleImportCharacters = async () => {
     if (!extractedChars) return;
@@ -348,8 +350,8 @@ ${extracted.citasRelevantes.length > 0
           </p>
 
           <div className="max-h-80 overflow-y-auto space-y-3">
-            {mergeConflicts?.map((conflict, i) => (
-              <div key={i} className="p-3 bg-elevated rounded-lg border border-border">
+            {mergeConflicts?.map((conflict) => (
+              <div key={conflict.existing.id} className="p-3 bg-elevated rounded-lg border border-border">
                 <div className="flex items-center gap-2 mb-2">
                   <Merge size={14} className="text-accent-gold" />
                   <span className="font-semibold text-sm text-text-primary">{conflict.existing.title}</span>
@@ -411,7 +413,7 @@ ${extracted.citasRelevantes.length > 0
           <div className="max-h-80 overflow-y-auto space-y-2">
             {extractedChars?.map((char, i) => (
               <button
-                key={i}
+                key={char.nombre || i}
                 onClick={() => toggleCharSelect(i)}
                 className={`w-full text-left p-3 rounded-lg border transition ${
                   selectedChars.has(i)

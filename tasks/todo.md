@@ -126,3 +126,65 @@ Hoy, al pegar un enlace de Instagram/Twitter/YouTube en Recortes, el recorte gua
 **Prueba en Windows:** (1) `npm run fetch:bin`; (2) reiniciar `npm run dev:desktop`; (3) en Recortes → **Conectar Instagram** → iniciar sesión en la ventana → queda "Instagram ✓"; (4) capturar un post de fotos. **No testeable en sandbox** (login real). Riesgo: IG puede pedir verificación/captcha en el webview. Sin commit.
 
 Verificación: revisión cruzada por subagente vía Read (flujo de tipos `tagSuggestions?`, `React.KeyboardEvent` en scope, JSX balanceado, paridad de locales, autocomplete y filtro) → sin errores. Mount stale → typecheck/lint en Windows. Sin commit.
+
+---
+
+# Full Audit — 2026-07-11
+
+Auditoría completa + mejoras en 5 oleadas (continúa la sesión del audit anterior que quedó a medias por el mount stale). **Verificación esta vez vía Desktop Commander (shell real de Windows)**: `tsc` renderer **0 errores**, `tsc` electron **0 errores**, ESLint **71 problemas → 0 errores / 2 warnings** (preexistentes e intencionados: `useEnsureDefault`, `GoogleDocsPicker`), paridad de locales **931/931**.
+
+## Oleada 0 — verificación de la sesión anterior
+- Fixes de factories (`makeEntityHook` + race guards) y migraciones timeline/writings de la sesión anterior: **compilan limpio** (el mount saboteó su verificación, no su código).
+- `RelationshipsEngine.tsx:138` (error de tipo preexistente): `onDelete` ahora es `(id) => void` (abre ConfirmDialog, no promesa).
+
+## Oleada 1 — bugs y pérdida de datos (CRÍTICOS)
+1. **`deleteProject` reescrito genérico** (`db/operations.ts`): antes borraba solo las 13 tablas originales y dejaba huérfanas ~25 tablas de engines (fugaban a búsqueda global y backlinks para siempre). Ahora barre TODA tabla con índice `projectId` (cubre engines futuros) + hijos sin índice (`yarnEdges`, `sceneCasts`, `storyboardConnectors`, `brainstormConnections`, `annotationReferences`) vía padres. También limpia la carpeta de media descargada (`cleanupProjectMedia`).
+2. **Borrar proyecto pedía 0 confirmaciones** (un clic en el icono papelera = proyecto entero fuera). Ahora `ConfirmDialog` destructivo con nombre del proyecto + toast.
+3. **Editor de Writings: autosave completo.** Antes: cambiar de engine por la sidebar descartaba TODO lo no guardado. Ahora: autosave con debounce 1.2s, flush en unmount/Back/Ctrl+S/beforeunload, indicador Guardado/Sin guardar, sesión de escritura registrada (ver Oleada 4).
+4. Confirmaciones añadidas: borrar writing, borrar entrada de codex.
+5. Diario: **Back guarda** si hay cambios (antes descartaba en silencio); entrada nueva y vacía no crea basura.
+6. `useProjects`/`useProject` con guards del factory (el dashboard ya no parpadea el spinner al recolorear).
+7. `dialog-scene/hooks` migrado al factory (cast + beats); `annotations/hooks` con seq/mounted guards (notas de A ya no aparecen en B al cambiar rápido).
+8. **Sistema de toasts** (`components/common/toast.tsx` + host en MainLayout) y **eliminados los 8 `alert()`/`prompt()` nativos** (Dashboard ×4, TiptapEditor, FactEditor, ManualSnapshotModal, SprintTimer) — la clase exacta del data-loss del Timeline (lección #12).
+9. `AiToolbar`: `useState` condicional (crash real si se activaba la IA con el panel montado) → hoisted.
+10. `TiptapEditor`: `ToolButton` a module scope (los botones se remontaban en cada tecla); link por formulario inline, no `prompt()`.
+11. `GoalSetter`: mutaba los goals de props en sitio → objetos nuevos; ids via `generateId`; reskin dark.
+12. Electron: **IPC `fs:readFile/writeFile` eliminados** (path arbitrario sin validación, 0 callers — pura superficie de ataque); **CORS del media server restringido** (antes `*`: cualquier web podía lanzar yt-dlp local); **persistencia de ventana** (tamaño/posición/maximizado en `window-state.json`, con sanity check multi-monitor).
+13. Import/export: `importFullDatabase` legacy limpia TODAS las tablas (antes 15 → huérfanos tras restore); export de proyecto de la sidebar ahora es **ZIP completo por registry** (el JSON antiguo perdía ~25 tablas silenciosamente); import de proyecto acepta `.zip` con semántica restore-in-place (borra copia local + reimporta con ids originales).
+
+## Oleada 2 — redundancia
+- `src/utils/text.ts`: `countWords`/`stripHtml` únicos (había 4 implementaciones con 2 algoritmos que **daban cuentas distintas**; `split(' ')` contaba mal espacios múltiples). Adoptado en writings, googleDocsHtmlCleaner, chronometry, pov-audit, diary EntryCard, biography FactCard/NarrativeView.
+- 6 archivos muertos borrados (`useCodexEntries`, `useGallery`, `useMaps`, `useExternalLinks`, `useDownloadFolder`, `cropImage`) — por fin, vía shell real.
+- `writing-stats` completo al sistema de tokens (era el único engine en tema claro) + i18n de SprintTimer/GoalSetter.
+- ids ad-hoc → `generateId` (ConnectorEditor, GoalSetter).
+
+## Oleada 3 — UX (integrada en las demás)
+- Crear writing/entrada de codex **abre lo creado** (antes te dejaba en la lista a buscarlo).
+- **Ctrl+S** guarda, **Esc** sale del modo concentración; **modo concentración** (oculta AI toolbar + margen, columna centrada).
+- Toasts de éxito/error en import/export/borrados.
+- Codex: tipos traducidos (el shadowing de `t` en el filtro renderizaba claves en inglés), filtro "Todos".
+
+## Oleada 4 — features nuevas
+1. **Compilar manuscrito** (`writings` → botón "Compilar"): selección/orden de escritos, portada y sinopsis opcionales → **Markdown / HTML imprimible / PDF real** (reusa el pipeline `export:scriptToPdf` de Electron). `manuscriptExport.ts` incluye conversor HTML→MD afinado al output de Tiptap.
+2. **Export Fountain** (`dialog-scene` → botón "Fountain"): guion completo en el formato estándar que abren Final Draft/Highland/Fade In — slug/action/dialog/parenthetical/transiciones/dual dialogue (`^`)/notas `[[…]]`/escenas OMITTED. Cierra el residual del Dialog Engine feedback.
+3. **Historial de versiones de writings** (Dexie **v18**, tabla `writingSnapshots`): snapshot automático al abrir cada sesión de edición + manuales + pre-restore (restaurar es reversible); poda a 25; UI con preview/restaurar/borrar; incluido en backup ZIP y en el cascade de borrado. TiptapEditor ahora sincroniza contenido externo (restore) sin pelear con el cursor.
+4. **La escritura real alimenta writing-stats** (`services/writingActivity.ts`): el flush del autosave acumula palabras+tiempo en una sesión `freewrite` diaria por proyecto — antes solo contaba el sprint timer y escribir horas en el editor no movía metas/racha.
+
+## Oleada 5 — interconectividad
+1. **Red del personaje** en el detalle de codex (`CharacterConnections.tsx`): arcos, relaciones (con emoji del tipo) y escenas donde aparece, con salto a cada engine. Antes esos vínculos existían en datos pero eran invisibles desde el personaje.
+2. **Búsqueda global por CONTENIDO** (`useGlobalSearch`): además de títulos, busca dentro de writings/codex/diario/diálogos con snippet «…contexto…» (filtro barato sobre HTML crudo, stripHtml solo en matches); debounce 160ms; deduplicado contra matches de título.
+3. **Fallback de navegación** en Cmd+K: engines sin anchor-adapter ahora navegan a su pestaña del proyecto (antes el clic no hacía nada).
+4. i18n del indicador de beats vinculados en escenas.
+
+## Lint: 71 → 0 errores
+Incluye: render-adjust pattern en ColorPicker/IconPicker/GlobalSearch/ScriptAutocomplete/ConnectorEditor/VideoPlanView/MarginPanel; `useHydratedList` con estado vacío derivado; memos manuales que hacían bail-out del compiler eliminados (InspirationGallery, GettingStartedChecklist, PovAudit `NO_ROWS`); disables documentados solo para falsos positivos (Date.now() en handlers ×4, resolveIcon, module-singleton del toast, constantes de guion).
+
+## Pendientes sugeridos (no bloqueantes)
+- Seeds: picker de `linkedWritingId` (metadato aún sin UI).
+- Timeline events ↔ escenas (campo + picker).
+- Montar `AnnotationSurface` en más engines (timeline, dialog-scene, outline, diary).
+- Migrar los 6 dashboards forked a `CollectionDashboard` extendido (`renderThumbnail`/`getSubtitle`).
+- Esc/backdrop en los modales hand-rolled restantes (BeatEditor, FactEditor, SegmentEditor, BrainstormItemEditor) o migrarlos a `<Modal>`.
+- `@`-menciones en Tiptap hacia codex (extensión Mention).
+
+**▶️ Prueba manual sugerida:** `npm run dev:desktop` → (1) borrar un proyecto de prueba (confirma + toast, sin huérfanos); (2) escribir en un writing, navegar fuera sin guardar y volver (texto intacto), Ctrl+S, historial→restaurar; (3) Compilar→PDF; (4) Recortes→Fountain en un proyecto con escenas; (5) Cmd+K buscando una frase escrita dentro de un capítulo. 🚫 **Sin commit** (no-autocommit) — todo queda para revisión.

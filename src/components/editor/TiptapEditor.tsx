@@ -42,11 +42,34 @@ interface FloatingMenuState {
 const HIDDEN_MENU: FloatingMenuState = { visible: false, top: 0, left: 0 };
 const CONTEXT_WINDOW = 40;
 
+// Module-scope: creating this inside the component made React remount every
+// toolbar button on each keystroke (react-hooks/static-components).
+function ToolButton({ active, onClick, title, children }: {
+  active?: boolean;
+  onClick: () => void;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`p-1.5 rounded transition ${
+        active ? 'bg-accent-gold/20 text-accent-gold' : 'text-text-muted hover:text-text-primary hover:bg-elevated'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function TiptapEditor({ content, onChange, placeholder, onAnnotate }: TiptapEditorProps) {
   const { t } = useTranslation();
   const resolvedPlaceholder = placeholder ?? t('editor.placeholder');
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<FloatingMenuState>(HIDDEN_MENU);
+  const [showLinkForm, setShowLinkForm] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -64,6 +87,15 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
       },
     },
   });
+
+  // External content sync (e.g. restoring a version snapshot). During normal
+  // typing `editor.getHTML() === content`, so this never fights the cursor.
+  useEffect(() => {
+    if (!editor) return;
+    if (editor.getHTML() !== content) {
+      editor.commands.setContent(content, { emitUpdate: false });
+    }
+  }, [content, editor]);
 
   // Track selection → position the floating "Annotate" button over the
   // active range. Hidden when no editor, no callback, or selection collapses.
@@ -132,22 +164,24 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
 
   if (!editor) return null;
 
-  const ToolButton = ({ active, onClick, children }: { active?: boolean; onClick: () => void; children: React.ReactNode }) => (
-    <button
-      onClick={onClick}
-      className={`p-1.5 rounded transition ${
-        active ? 'bg-accent-gold/20 text-accent-gold' : 'text-text-muted hover:text-text-primary hover:bg-elevated'
-      }`}
-    >
-      {children}
-    </button>
-  );
-
-  const addLink = () => {
-    const url = prompt(t('editor.enterUrl'));
-    if (url) {
-      editor.chain().focus().setLink({ href: url }).run();
+  // Inline URL form (replaces native prompt(), which blocks the JS thread
+  // and misbehaves across the tab lifecycle — see tasks/lessons.md #12).
+  const openLinkForm = () => {
+    if (editor.isActive('link')) {
+      // Toggle off an existing link directly.
+      editor.chain().focus().unsetLink().run();
+      return;
     }
+    setLinkUrl('');
+    setShowLinkForm(true);
+  };
+
+  const applyLink = () => {
+    const url = linkUrl.trim();
+    setShowLinkForm(false);
+    if (!url) return;
+    const href = /^(https?:|mailto:)/i.test(url) ? url : `https://${url}`;
+    editor.chain().focus().setLink({ href }).run();
   };
 
   return (
@@ -193,7 +227,7 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
           <Code size={16} />
         </ToolButton>
         <div className="w-px h-5 bg-border mx-1" />
-        <ToolButton active={editor.isActive('link')} onClick={addLink}>
+        <ToolButton active={editor.isActive('link')} onClick={openLinkForm} title={t('editor.enterUrl')}>
           <LinkIcon size={16} />
         </ToolButton>
         <div className="flex-1" />
@@ -204,6 +238,36 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
           <Redo2 size={16} />
         </ToolButton>
       </div>
+
+      {/* Inline link form */}
+      {showLinkForm && (
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-surface/70">
+          <LinkIcon size={14} className="text-text-dim flex-shrink-0" />
+          <input
+            autoFocus
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); applyLink(); }
+              if (e.key === 'Escape') setShowLinkForm(false);
+            }}
+            placeholder="https://…"
+            className="flex-1 bg-elevated border border-border rounded px-2.5 py-1 text-sm text-text-primary outline-none focus:border-accent-gold transition"
+          />
+          <button
+            onClick={applyLink}
+            className="px-3 py-1 text-xs font-semibold bg-accent-gold text-deep rounded hover:bg-accent-amber transition"
+          >
+            {t('common.add')}
+          </button>
+          <button
+            onClick={() => setShowLinkForm(false)}
+            className="px-2 py-1 text-xs text-text-muted hover:text-text-primary transition"
+          >
+            {t('common.cancel')}
+          </button>
+        </div>
+      )}
 
       {/* Editor */}
       <EditorContent editor={editor} />

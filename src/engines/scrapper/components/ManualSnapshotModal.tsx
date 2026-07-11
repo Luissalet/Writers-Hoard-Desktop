@@ -7,6 +7,7 @@ import { X, Image as ImageIcon } from 'lucide-react';
 import type { Snapshot } from '../types';
 import TagInput from '@/components/common/TagInput';
 import { useTranslation } from '@/i18n/useTranslation';
+import { toast } from '@/components/common/toast';
 
 interface ManualSnapshotModalProps {
   projectId: string;
@@ -40,7 +41,7 @@ export default function ManualSnapshotModal({
 
   const handleSave = async () => {
     if (!title.trim()) {
-      alert(t('scrapper.enterTitle'));
+      toast.error(t('scrapper.enterTitle'));
       return;
     }
 

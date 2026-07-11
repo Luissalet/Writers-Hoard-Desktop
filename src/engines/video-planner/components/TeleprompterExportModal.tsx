@@ -27,7 +27,7 @@ function fmt(sec: number): string {
 }
 
 function sanitize(name: string): string {
-  return name.replace(/[^\w\-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'teleprompter';
+  return name.replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'teleprompter';
 }
 
 export default function TeleprompterExportModal({ plan, segments, onClose }: Props) {

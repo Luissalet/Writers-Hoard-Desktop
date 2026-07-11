@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Copy, Download } from 'lucide-react';
 import type { BiographyFact } from '../types';
 import { BIOGRAPHY_CATEGORIES } from '../types';
+import { stripHtml } from '@/utils/text';
 import { useTranslation } from '@/i18n/useTranslation';
 
 interface NarrativeViewProps {
@@ -56,7 +57,7 @@ export default function NarrativeView({ facts, subjectName }: NarrativeViewProps
           text += `[${fact.date}${fact.endDate ? ` – ${fact.endDate}` : ''}] `;
         }
         text += `${fact.title}\n`;
-        text += fact.content.replace(/<[^>]*>/g, '') + '\n\n';
+        text += stripHtml(fact.content) + '\n\n';
 
         if (fact.sources.length > 0) {
           text += 'Sources:\n';

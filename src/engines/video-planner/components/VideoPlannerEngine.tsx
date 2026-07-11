@@ -86,6 +86,7 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
     setRenamingPlanId(null);
     setRenameValue('');
     if (title && current && title !== current.title) {
+      // eslint-disable-next-line react-hooks/purity -- rename handler: runs at event time, not during render
       await editPlan(planId, { title, updatedAt: Date.now() });
     }
   };

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Masonry from 'react-masonry-css';
 import { Upload, Trash2, X, Image as ImageIcon, ZoomIn, FolderPlus, Folder, ChevronRight, Tag } from 'lucide-react';
@@ -50,16 +50,18 @@ export default function InspirationGallery({
   const [pendingDeleteCollectionId, setPendingDeleteCollectionId] = useState<string | null>(null);
   const entryPickerRef = useRef<HTMLDivElement>(null);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
+  // Plain function — the React compiler memoizes it; a manual useCallback
+  // here made it bail out on the whole component.
+  const onDrop = (acceptedFiles: File[]) => {
     const readers: Promise<string>[] = acceptedFiles.map(file =>
-      new Promise((resolve) => {
+      new Promise<string>((resolve) => {
         const reader = new FileReader();
         reader.onload = (e) => resolve(e.target?.result as string);
         reader.readAsDataURL(file);
       })
     );
     Promise.all(readers).then(results => setPendingFiles(results));
-  }, []);
+  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,

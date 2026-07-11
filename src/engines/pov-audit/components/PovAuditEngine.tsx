@@ -20,13 +20,17 @@ import type { CharacterUsage } from '../types';
 
 type FilterMode = 'all' | 'used' | 'unused' | 'unmapped';
 
+const NO_ROWS: CharacterUsage[] = [];
+
 export default function PovAuditEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
   const { items, loading, refresh } = useUsageReport(projectId);
   const [filter, setFilter] = useState<FilterMode>('all');
 
   const report = items[0];
-  const rows = report?.rows ?? [];
+  // Stable fallback — `?? []` created a fresh array every render, making the
+  // useMemo below recompute (and its dep array change) unconditionally.
+  const rows = report?.rows ?? NO_ROWS;
 
   const filteredRows = useMemo(() => {
     if (filter === 'used') return rows.filter((r) => !r.isUnused);

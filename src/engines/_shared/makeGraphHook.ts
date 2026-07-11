@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 /**
  * Options for makeGraphHook factory.
@@ -22,7 +22,10 @@ export interface GraphHookOptions<N, E> {
 export interface GraphHookResult<N, E> {
   nodes: N[];
   edges: E[];
+  /** `true` only during the initial load for the current scope. */
   loading: boolean;
+  /** `true` during any non-initial refresh. */
+  refetching: boolean;
   addNode: (node: N) => Promise<void>;
   updateNode: (id: string, changes: Partial<N>) => Promise<void>;
   removeNode: (id: string) => Promise<void>;
@@ -66,18 +69,53 @@ export function makeGraphHook<N, E>(
     const [nodes, setNodes] = useState<N[]>([]);
     const [edges, setEdges] = useState<E[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refetching, setRefetching] = useState(false);
 
-    // Batched refresh: fetch both collections in parallel
+    const loadedScopeRef = useRef<string | null>(null);
+    const seqRef = useRef(0);
+    const mountedRef = useRef(true);
+    useEffect(() => {
+      mountedRef.current = true;
+      return () => {
+        mountedRef.current = false;
+      };
+    }, []);
+
+    // Batched refresh: fetch both collections in parallel. `loading` reflects the
+    // initial load only; post-mutation refreshes set `refetching` so a canvas
+    // never blanks to a spinner mid-interaction. Stale results are discarded.
     const refresh = useCallback(async () => {
-      if (!scopeId) return;
-      setLoading(true);
-      const [nodesData, edgesData] = await Promise.all([
-        fetchNodesFn(scopeId),
-        fetchEdgesFn(scopeId),
-      ]);
-      setNodes(nodesData);
-      setEdges(edgesData);
-      setLoading(false);
+      if (!scopeId) {
+        setNodes([]);
+        setEdges([]);
+        setLoading(false);
+        setRefetching(false);
+        loadedScopeRef.current = null;
+        return;
+      }
+      const seq = ++seqRef.current;
+      const isInitialForScope = loadedScopeRef.current !== scopeId;
+      if (isInitialForScope) setLoading(true);
+      else setRefetching(true);
+      try {
+        const [nodesData, edgesData] = await Promise.all([
+          fetchNodesFn(scopeId),
+          fetchEdgesFn(scopeId),
+        ]);
+        if (seq !== seqRef.current || !mountedRef.current) return; // superseded
+        setNodes(nodesData);
+        setEdges(edgesData);
+        loadedScopeRef.current = scopeId;
+      } catch (err) {
+        if (seq === seqRef.current && mountedRef.current) {
+          console.error('[makeGraphHook] fetch failed', err);
+        }
+      } finally {
+        if (seq === seqRef.current && mountedRef.current) {
+          setLoading(false);
+          setRefetching(false);
+        }
+      }
     }, [scopeId]);
 
     // Auto-refresh on scopeId change
@@ -139,6 +177,7 @@ export function makeGraphHook<N, E>(
       nodes,
       edges,
       loading,
+      refetching,
       addNode,
       updateNode,
       removeNode,

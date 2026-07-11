@@ -60,6 +60,7 @@ export default function DialogSceneEngine({ projectId }: EngineComponentProps) {
         />
       ) : (
         <SceneListView
+          projectId={projectId}
           scenes={scenes}
           onSelectScene={setActiveSceneId}
           onCreateScene={handleCreateScene}

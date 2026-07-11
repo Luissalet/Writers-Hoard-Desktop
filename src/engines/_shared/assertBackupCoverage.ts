@@ -74,7 +74,6 @@ export function assertBackupCoverage(): void {
 
   if (uncovered.length > 0) {
     // One grouped warning so the console isn't flooded with N lines.
-    // eslint-disable-next-line no-console
     console.warn(
       '[backup-coverage] %d engine table(s) are not covered by any BackupStrategy ' +
         'or the legacy list in zipBackup.ts — these will be silently dropped ' +
@@ -85,7 +84,6 @@ export function assertBackupCoverage(): void {
   }
 
   if (doubleCovered.length > 0) {
-    // eslint-disable-next-line no-console
     console.info(
       '[backup-coverage] %d table(s) are double-covered (in both a strategy and ' +
         'the legacy list). Harmless, but consider removing one side:\n%s',

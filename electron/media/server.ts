@@ -29,15 +29,29 @@ export const MEDIA_SERVER_URL = `http://${HOST}:${PORT}`;
 
 let server: http.Server | null = null;
 
-function setCors(res: http.ServerResponse): void {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+/**
+ * Only our own renderer may use this server. The Electron renderer loads
+ * from file:// (Origin absent or the literal "null") in production and from
+ * localhost during dev. The previous wildcard CORS let ANY website the user
+ * visited POST arbitrary URLs here — spawning yt-dlp locally and reading the
+ * bytes back cross-origin (SSRF/abuse/DoS).
+ */
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin || origin === 'null') return true; // file:// renderer / same-machine tools
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+}
+
+function setCors(res: http.ServerResponse, origin?: string): void {
+  // Echo the validated origin; "null" covers the file:// renderer.
+  res.setHeader('Access-Control-Allow-Origin', origin && origin !== 'null' ? origin : 'null');
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Filename');
 }
 
-function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
-  setCors(res);
+function sendJson(res: http.ServerResponse, status: number, body: unknown, origin?: string): void {
+  setCors(res, origin);
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(body));
 }
@@ -62,16 +76,24 @@ function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown
 
 async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const { method, url } = req;
+  const origin = req.headers.origin;
+
+  // Reject requests from real web origins outright (see isAllowedOrigin).
+  if (!isAllowedOrigin(origin)) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'forbidden origin' }));
+    return;
+  }
 
   if (method === 'OPTIONS') {
-    setCors(res);
+    setCors(res, origin);
     res.writeHead(204);
     res.end();
     return;
   }
 
   if (method === 'GET' && url === '/api/health') {
-    sendJson(res, 200, { ok: true, platforms: SUPPORTED_PLATFORMS });
+    sendJson(res, 200, { ok: true, platforms: SUPPORTED_PLATFORMS }, origin);
     return;
   }
 
@@ -79,10 +101,10 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     const body = await readJsonBody(req);
     const target = String(body.url ?? '').trim();
     if (!target) {
-      sendJson(res, 400, { error: 'url is required' });
+      sendJson(res, 400, { error: 'url is required' }, origin);
       return;
     }
-    sendJson(res, 200, { platform: detectPlatform(target) });
+    sendJson(res, 200, { platform: detectPlatform(target) }, origin);
     return;
   }
 
@@ -91,11 +113,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     const target = String(body.url ?? '').trim();
     const fmtRaw = String(body.format ?? 'video').toLowerCase();
     if (!target) {
-      sendJson(res, 400, { error: 'url is required' });
+      sendJson(res, 400, { error: 'url is required' }, origin);
       return;
     }
     if (fmtRaw !== 'video' && fmtRaw !== 'audio') {
-      sendJson(res, 400, { error: "format must be 'video' or 'audio'" });
+      sendJson(res, 400, { error: "format must be 'video' or 'audio'" }, origin);
       return;
     }
 
@@ -103,7 +125,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     try {
       outcome = await downloadMedia(target, fmtRaw as MediaFormat);
     } catch (err) {
-      sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) }, origin);
       return;
     }
 
@@ -111,7 +133,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     const encoded = encodeURIComponent(filename);
     const safeAscii = filename.replace(/["\\]/g, '').replace(/[^\x20-\x7E]/g, '_');
 
-    setCors(res);
+    setCors(res, origin);
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
       'Content-Length': String(sizeBytes),
@@ -136,7 +158,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return;
   }
 
-  sendJson(res, 404, { error: 'not found' });
+  sendJson(res, 404, { error: 'not found' }, origin);
 }
 
 export function startMediaServer(): Promise<void> {
@@ -145,7 +167,7 @@ export function startMediaServer(): Promise<void> {
     server = http.createServer((req, res) => {
       handle(req, res).catch((err) => {
         try {
-          sendJson(res, 500, { error: err instanceof Error ? err.message : 'internal error' });
+          sendJson(res, 500, { error: err instanceof Error ? err.message : 'internal error' }, req.headers.origin);
         } catch {
           /* response already sent */
         }

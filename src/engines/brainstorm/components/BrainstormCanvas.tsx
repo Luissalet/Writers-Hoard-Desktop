@@ -11,6 +11,7 @@ import {
   useNodesState,
   useEdgesState,
   type Connection,
+  type Node,
 } from '@xyflow/react';
 import { Lightbulb, Plus, Type, Image, Grid3x3 } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
@@ -165,7 +166,7 @@ export default function BrainstormCanvas({
     setPendingDeleteItemId(itemId);
   };
 
-  const handleNodeDragStop = async (_event: any, node: any) => {
+  const handleNodeDragStop = async (_event: React.MouseEvent, node: Node) => {
     await onUpdateItem(node.id, {
       position: node.position,
     });
