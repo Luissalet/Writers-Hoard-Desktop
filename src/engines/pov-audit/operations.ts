@@ -12,14 +12,11 @@
 import { db } from '@/db/index';
 import type { CodexEntry } from '@/types';
 import type { CharacterUsage, PovAuditReport } from './types';
+import { countWords as countWordsShared } from '@/utils/text';
 
-/** Count words in a string, tolerant to empty / HTML-tag stripped content. */
+/** Count words in a string, tolerant to empty / HTML content. */
 function countWords(text: string | undefined): number {
-  if (!text) return 0;
-  // Strip HTML tags if any, then split on whitespace.
-  const clean = text.replace(/<[^>]*>/g, ' ');
-  const tokens = clean.trim().split(/\s+/);
-  return tokens.length === 1 && tokens[0] === '' ? 0 : tokens.length;
+  return text ? countWordsShared(text) : 0;
 }
 
 /**

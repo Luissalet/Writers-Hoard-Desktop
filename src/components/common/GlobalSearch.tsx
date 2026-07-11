@@ -30,13 +30,21 @@ export default function GlobalSearch() {
     return () => window.removeEventListener('keydown', handler);
   }, [searchOpen, setSearchOpen]);
 
-  // Focus on open
-  useEffect(() => {
+  // Reset when the palette opens — render-adjust pattern (no setState in
+  // effect); only the imperative focus() stays in an effect.
+  const [wasOpen, setWasOpen] = useState(false);
+  if (searchOpen !== wasOpen) {
+    setWasOpen(searchOpen);
     if (searchOpen) {
       setQuery('');
       setResults([]);
       setSelectedIdx(0);
-      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }
+  useEffect(() => {
+    if (searchOpen) {
+      const timer = window.setTimeout(() => inputRef.current?.focus(), 100);
+      return () => window.clearTimeout(timer);
     }
   }, [searchOpen]);
 
@@ -46,7 +54,14 @@ export default function GlobalSearch() {
     setSelectedIdx(0);
   }, [search]);
 
-  useEffect(() => { doSearch(query); }, [query, doSearch]);
+  // Debounced: full-content search fans out over several tables — once per
+  // pause, not per keystroke.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void doSearch(query);
+    }, 160);
+    return () => window.clearTimeout(timer);
+  }, [query, doSearch]);
 
   const handleSelect = (result: SearchResult) => {
     if (result.type === 'project') {
@@ -56,10 +71,11 @@ export default function GlobalSearch() {
       const adapter = getAnchorAdapter(result.engineId);
       if (adapter) {
         adapter.navigateToEntity(result.id);
+      } else if (result.projectId) {
+        // No adapter (diary, timeline, dialog-scene…) — land on the engine's
+        // tab in the owning project instead of going nowhere.
+        navigate(`/project/${result.projectId}/${result.engineId}`);
       }
-      // For engines without an anchor adapter (diary, timeline, etc.), we
-      // can't yet deep-link to an individual row — fall back to the engine
-      // tab on the current project if we have one.
     }
     setSearchOpen(false);
   };
@@ -131,9 +147,13 @@ export default function GlobalSearch() {
                     {renderIcon(result)}
                     <div className="flex-1 min-w-0">
                       <div className="text-sm text-text-primary truncate">{result.title}</div>
-                      <div className="text-xs text-text-muted capitalize truncate">
-                        {result.engineId ? `${result.engineId} · ` : ''}{result.subtitle}
-                      </div>
+                      {result.snippet ? (
+                        <div className="text-xs text-text-muted truncate italic">“{result.snippet}”</div>
+                      ) : (
+                        <div className="text-xs text-text-muted capitalize truncate">
+                          {result.engineId ? `${result.engineId} · ` : ''}{result.subtitle}
+                        </div>
+                      )}
                     </div>
                   </button>
                 ))}

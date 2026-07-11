@@ -1,3 +1,7 @@
+/* eslint-disable react-refresh/only-export-components --
+   the screenplay-vocabulary constants (transitions, slug prefixes) belong
+   with the autocomplete component that consumes them. */
+
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { User, MapPin, Clapperboard } from 'lucide-react';
 
@@ -80,10 +84,13 @@ export default function ScriptAutocomplete({
       .slice(0, 8);
   }, [value, suggestions, active]);
 
-  // Reset selected index when filtered list changes
-  useEffect(() => {
+  // Reset selected index when the filtered list changes — render-adjust
+  // pattern (no setState-in-effect cascade).
+  const [prevFilteredLength, setPrevFilteredLength] = useState(filtered.length);
+  if (prevFilteredLength !== filtered.length) {
+    setPrevFilteredLength(filtered.length);
     setSelectedIndex(0);
-  }, [filtered.length]);
+  }
 
   // Keyboard handler — attach to the anchor element externally
   const handleKeyDown = useCallback(

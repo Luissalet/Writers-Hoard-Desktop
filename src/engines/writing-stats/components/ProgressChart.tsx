@@ -27,10 +27,10 @@ export default function ProgressChart({ stats, dailyGoal }: ProgressChartProps) 
   return (
     <div className="space-y-4">
       {/* Chart Grid */}
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
+      <div className="bg-surface border border-border rounded-lg p-6">
         {/* Goal line (if exists) */}
         {dailyGoal && (
-          <div className="mb-4 text-xs text-gray-500 font-medium">
+          <div className="mb-4 text-xs text-text-dim font-medium">
             Daily Goal: {dailyGoal} words
           </div>
         )}
@@ -44,7 +44,7 @@ export default function ProgressChart({ stats, dailyGoal }: ProgressChartProps) 
             return (
               <div key={idx} className="flex-1 flex flex-col items-center gap-1">
                 {/* Word count label */}
-                <div className="h-5 text-xs font-medium text-gray-700">
+                <div className="h-5 text-xs font-medium text-text-muted">
                   {day.words > 0 ? day.words : ''}
                 </div>
 
@@ -61,7 +61,7 @@ export default function ProgressChart({ stats, dailyGoal }: ProgressChartProps) 
                 </div>
 
                 {/* Day label */}
-                <div className="text-xs font-medium text-gray-600 mt-1">
+                <div className="text-xs font-medium text-text-muted mt-1">
                   {getDayLabel(day.date)}
                 </div>
               </div>
@@ -71,12 +71,12 @@ export default function ProgressChart({ stats, dailyGoal }: ProgressChartProps) 
 
         {/* Goal line (visual reference) */}
         {dailyGoal && (
-          <div className="mt-6 relative h-6 bg-gray-50 rounded border border-gray-200">
+          <div className="mt-6 relative h-6 bg-elevated rounded border border-border">
             <div
-              className="absolute h-full bg-dashed border-t-2 border-dashed border-gray-300 pointer-events-none"
+              className="absolute h-full bg-dashed border-t-2 border-dashed border-border pointer-events-none"
               style={{ left: `${(dailyGoal / maxWords) * 100}%` }}
             />
-            <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-500">
+            <div className="absolute inset-0 flex items-center justify-center text-xs text-text-dim">
               {dailyGoal > 0 ? `Goal: ${dailyGoal}` : ''}
             </div>
           </div>
@@ -101,9 +101,9 @@ interface StatCardProps {
 
 function StatCard({ label, value }: StatCardProps) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-3 text-center">
-      <div className="text-xs font-medium text-gray-600">{label}</div>
-      <div className="text-2xl font-bold text-gray-900">{value}</div>
+    <div className="bg-surface border border-border rounded-lg p-3 text-center">
+      <div className="text-xs font-medium text-text-muted">{label}</div>
+      <div className="text-2xl font-bold text-text-primary">{value}</div>
     </div>
   );
 }

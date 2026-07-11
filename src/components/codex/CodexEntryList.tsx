@@ -3,8 +3,10 @@ import { Plus, Search, User, HelpCircle, Image as ImageIcon, X } from 'lucide-re
 import type { CodexEntry, CodexEntryType, InspirationImage } from '@/types';
 import Modal from '@/components/common/Modal';
 import CodexEntryForm from './CodexEntryForm';
+import CharacterConnections from './CharacterConnections';
 import EmptyState from '@/components/common/EmptyState';
 import { useTranslation } from '@/i18n/useTranslation';
+import { ConfirmDialog } from '@/engines/_shared';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from './codexTypeMeta';
 
@@ -25,6 +27,7 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<CodexEntryType | 'all'>('all');
   const [selectedEntry, setSelectedEntry] = useState<CodexEntry | null>(null);
+  const [pendingDeleteEntry, setPendingDeleteEntry] = useState<CodexEntry | null>(null);
 
   const filtered = entries.filter(e => {
     const matchesSearch = e.title.toLowerCase().includes(search.toLowerCase());
@@ -48,17 +51,17 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
           />
         </div>
         <div className="flex gap-1 flex-wrap">
-          {types.map(t => (
+          {types.map((ty) => (
             <button
-              key={t}
-              onClick={() => setFilterType(t)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs capitalize transition ${
-                filterType === t
+              key={ty}
+              onClick={() => setFilterType(ty)}
+              className={`px-2.5 py-1.5 rounded-lg text-xs transition ${
+                filterType === ty
                   ? 'bg-accent-gold/20 text-accent-gold'
                   : 'text-text-muted hover:text-text-primary hover:bg-elevated'
               }`}
             >
-              {t}
+              {ty === 'all' ? t('codex.types.all') : t(`codex.types.${ty}`)}
             </button>
           ))}
         </div>
@@ -102,7 +105,7 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
                     <h3 className="font-serif font-bold text-text-primary group-hover:text-accent-gold transition truncate">
                       {entry.title}
                     </h3>
-                    <p className="text-xs capitalize mt-0.5" style={{ color }}>{entry.type}</p>
+                    <p className="text-xs mt-0.5" style={{ color }}>{t(`codex.types.${entry.type}`)}</p>
                     {entry.tags.length > 0 && (
                       <div className="flex gap-1 mt-2 flex-wrap">
                         {entry.tags.slice(0, 3).map(tag => (
@@ -130,6 +133,9 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
               onEdit(entry.id, entry);
             } else {
               onAdd(entry);
+              // Open the freshly created entry instead of dumping the user
+              // back on the grid to hunt for it.
+              setSelectedEntry(entry);
             }
             setShowForm(false);
             setEditEntry(null);
@@ -147,8 +153,8 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
                 <img src={selectedEntry.avatar} alt="" className="w-24 h-24 rounded-xl object-cover border border-border flex-shrink-0" />
               )}
               <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-xs capitalize px-2 py-1 rounded" style={{ backgroundColor: `${typeColors[selectedEntry.type]}20`, color: typeColors[selectedEntry.type] }}>
-                  {selectedEntry.type}
+                <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: `${typeColors[selectedEntry.type]}20`, color: typeColors[selectedEntry.type] }}>
+                  {t(`codex.types.${selectedEntry.type}`)}
                 </span>
                 {selectedEntry.tags.map(tag => (
                   <span key={tag} className="text-xs px-2 py-1 bg-elevated rounded text-text-muted">
@@ -202,6 +208,11 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
               );
             })()}
 
+            {/* Character web — arcs, relationships, scene appearances */}
+            {selectedEntry.type === 'character' && (
+              <CharacterConnections projectId={projectId} entry={selectedEntry} />
+            )}
+
             {/* Annotation surface — margin notes + backlinks */}
             <div className="pt-2 border-t border-border">
               <AnnotationSurface
@@ -220,7 +231,7 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
                 {t('common.edit')}
               </button>
               <button
-                onClick={() => { onDelete(selectedEntry.id); setSelectedEntry(null); }}
+                onClick={() => setPendingDeleteEntry(selectedEntry)}
                 className="px-6 py-2.5 border border-danger/50 text-danger rounded-lg hover:bg-danger/10 transition"
               >
                 {t('common.delete')}
@@ -229,6 +240,20 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        open={pendingDeleteEntry !== null}
+        destructive
+        message={t('codex.confirmDelete').replace('{name}', pendingDeleteEntry?.title ?? '')}
+        onConfirm={() => {
+          const entry = pendingDeleteEntry;
+          setPendingDeleteEntry(null);
+          if (!entry) return;
+          onDelete(entry.id);
+          setSelectedEntry(null);
+        }}
+        onCancel={() => setPendingDeleteEntry(null)}
+      />
 
       {/* Image lightbox */}
       {lightboxSrc && (

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { BookOpen, Library, Lightbulb, Layers, Trash2, Palette } from 'lucide-react';
 import { InlineIconPicker, resolveIcon } from '@/components/common/IconPicker';
@@ -29,8 +29,13 @@ interface ProjectCardProps {
 
 export default function ProjectCard({ project, onClick, onDelete, onColorChange, onIconChange, index }: ProjectCardProps) {
   const { t } = useTranslation();
-  const CustomIcon = resolveIcon(project.icon);
-  const Icon = CustomIcon || typeIcons[project.type] || BookOpen;
+  // Memoized so the icon component reference is stable across renders
+  // (react-hooks/static-components: components created during render reset
+  // their state every render).
+  const Icon = useMemo(
+    () => resolveIcon(project.icon) || typeIcons[project.type] || BookOpen,
+    [project.icon, project.type],
+  );
   const colorInputRef = useRef<HTMLInputElement>(null);
 
   return (
@@ -61,6 +66,7 @@ export default function ProjectCard({ project, onClick, onDelete, onColorChange,
               className="w-12 h-12 rounded-xl flex items-center justify-center"
               style={{ backgroundColor: `${project.color}25` }}
             >
+              {/* eslint-disable-next-line react-hooks/static-components -- resolveIcon returns stable module-scope Lucide components; memoized above */}
               <Icon size={24} style={{ color: project.color }} />
             </div>
             <div className="flex items-center gap-2">

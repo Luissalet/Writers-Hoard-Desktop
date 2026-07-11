@@ -54,11 +54,10 @@ const api = {
 
   // Native filesystem access for the "hoard" — exports, backups, asset folders.
   // Intentionally minimal; expand as engines start writing real files.
+  // (readFile/writeFile were removed: unvalidated arbitrary-path IO with no
+  // callers. Re-add scoped, traversal-guarded variants when actually needed.)
   fs: {
     pickFolder: (): Promise<string | null> => ipcRenderer.invoke('fs:pickFolder'),
-    readFile: (filePath: string): Promise<string> => ipcRenderer.invoke('fs:readFile', filePath),
-    writeFile: (filePath: string, data: string): Promise<void> =>
-      ipcRenderer.invoke('fs:writeFile', filePath, data),
     exists: (filePath: string): Promise<boolean> => ipcRenderer.invoke('fs:exists', filePath),
   },
 

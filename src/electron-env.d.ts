@@ -39,8 +39,6 @@ export interface ElectronAPI {
   };
   fs: {
     pickFolder: () => Promise<string | null>;
-    readFile: (filePath: string) => Promise<string>;
-    writeFile: (filePath: string, data: string) => Promise<void>;
     exists: (filePath: string) => Promise<boolean>;
   };
   media: {

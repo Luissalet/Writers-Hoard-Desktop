@@ -4,6 +4,10 @@
 // Renders a searchable grid of every Lucide icon.
 // Selected icon is stored by name string (e.g. 'BookOpen').
 
+/* eslint-disable react-refresh/only-export-components --
+   `resolveIcon` is the module's lookup util and belongs with the pickers;
+   losing HMR granularity here is acceptable. */
+
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { icons, type LucideIcon } from 'lucide-react';
@@ -73,12 +77,17 @@ export default function IconPicker({
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  // Focus search on open
+  // Reset search when closing — render-adjust pattern; only the imperative
+  // focus() stays in the effect.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    if (!open) setSearch('');
+  }
   useEffect(() => {
     if (open) {
-      setTimeout(() => searchInputRef.current?.focus(), 50);
-    } else {
-      setSearch('');
+      const timer = window.setTimeout(() => searchInputRef.current?.focus(), 50);
+      return () => window.clearTimeout(timer);
     }
   }, [open]);
 
@@ -235,11 +244,16 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
+  // Render-adjust: clear the search when the popover closes.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    if (!open) setSearch('');
+  }
   useEffect(() => {
     if (open) {
-      setTimeout(() => searchInputRef.current?.focus(), 50);
-    } else {
-      setSearch('');
+      const timer = window.setTimeout(() => searchInputRef.current?.focus(), 50);
+      return () => window.clearTimeout(timer);
     }
   }, [open]);
 

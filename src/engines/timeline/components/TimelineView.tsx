@@ -89,6 +89,8 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
         color: form.color,
       });
     } else {
+      // eslint-disable-next-line react-hooks/purity -- submit handler: runs at event time, not during render
+      const now = Date.now();
       onAddEvent({
         id: generateId('evt'),
         projectId,
@@ -103,8 +105,8 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
         order: events.length,
         lane: form.lane,
         color: form.color,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        createdAt: now,
+        updatedAt: now,
       });
     }
 

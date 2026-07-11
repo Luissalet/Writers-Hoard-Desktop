@@ -11,7 +11,8 @@ interface DialogBlockComponentProps {
   onUpdateFormatting: (formatting: BlockFormatting) => void;
   onDelete: () => void;
   isDragging?: boolean;
-  dragHandleProps?: any;
+  /** dnd-kit listeners spread onto the drag handle. */
+  dragHandleProps?: React.HTMLAttributes<HTMLElement>;
   /** Autocomplete suggestions for script intelligence */
   suggestions?: AutocompleteSuggestion[];
 }

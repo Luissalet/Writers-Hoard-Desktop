@@ -3,7 +3,7 @@
 // ============================================
 
 import { useState } from 'react';
-import { ArrowRight, Scissors, Edit2, Trash2 } from 'lucide-react';
+import { ArrowRight, Scissors, Edit2, Trash2, type LucideIcon } from 'lucide-react';
 import type { StoryboardConnector } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
@@ -16,7 +16,7 @@ interface ConnectorBadgeProps {
   onDelete: () => void;
 }
 
-const CONNECTOR_ICONS: Record<string, { icon: any; label: string; symbol: string }> = {
+const CONNECTOR_ICONS: Record<string, { icon: LucideIcon; label: string; symbol: string }> = {
   arrow: { icon: ArrowRight, label: 'Arrow', symbol: '→' },
   note: { icon: Edit2, label: 'Note', symbol: '◆' },
   cut: { icon: Scissors, label: 'Cut', symbol: '|' },

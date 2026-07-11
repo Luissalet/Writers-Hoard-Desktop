@@ -52,6 +52,24 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
 
   // null = timeline view, string = editing existing, 'new' = creating new full entry
   const [editingId, setEditingId] = useState<string | 'new' | null>(null);
+  // Blank entry for the 'new' flow, created once at click time (not during
+  // render, where regenerated ids/dates broke the editor's dirty-check).
+  const [draftEntry, setDraftEntry] = useState<DiaryEntry | null>(null);
+  const openNewEntry = useCallback(() => {
+    setDraftEntry({
+      id: generateId('diary'),
+      projectId,
+      entryDate: new Date().toISOString().slice(0, 16),
+      title: '',
+      content: '',
+      mood: undefined,
+      tags: [],
+      pinned: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    setEditingId('new');
+  }, [projectId]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMood, setFilterMood] = useState<DiaryMood | ''>('');
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
@@ -112,20 +130,11 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
   if (loading) return <EngineSpinner />;
 
   // --- New full entry ---
-  if (editingId === 'new') {
-    const now = new Date();
-    const blank: DiaryEntry = {
-      id: generateId('diary'),
-      projectId,
-      entryDate: now.toISOString().slice(0, 16),
-      title: '',
-      content: '',
-      mood: undefined,
-      tags: [],
-      pinned: false,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
+  // `draftEntry` is created ONCE when the user clicks "new" (see below) —
+  // building it inline here regenerated id/dates on every render, which made
+  // the editor's dirty-check compare against a moving target.
+  if (editingId === 'new' && draftEntry) {
+    const blank = draftEntry;
     return (
       <EntryEditor
         entry={blank}
@@ -169,7 +178,7 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
           <QuickEntry onSubmit={handleQuickAdd} />
         </div>
         <button
-          onClick={() => setEditingId('new')}
+          onClick={openNewEntry}
           className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium bg-accent-gold/10 text-accent-gold rounded-xl hover:bg-accent-gold/20 border border-accent-gold/20 transition whitespace-nowrap mt-0.5"
         >
           <Plus size={15} />

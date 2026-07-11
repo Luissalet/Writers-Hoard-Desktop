@@ -32,20 +32,53 @@ export async function updateProject(id: string, changes: Partial<Project>): Prom
   await db.projects.update(id, { ...changes, updatedAt: Date.now() });
 }
 
+/**
+ * Delete a project and EVERY row it owns, across all engine tables.
+ *
+ * Generic by design: any table with a `projectId` index is wiped
+ * automatically, so engines added in the future are covered without touching
+ * this function. Child tables that have no `projectId` index (they hang off a
+ * parent: yarnEdges, sceneCasts, storyboardConnectors, brainstormConnections,
+ * annotationReferences) are resolved through their parents first.
+ *
+ * Previously this only covered the 13 original tables and silently orphaned
+ * ~25 engine tables' rows — which then leaked into global search and
+ * backlinks forever.
+ */
 export async function deleteProject(id: string): Promise<void> {
-  await db.transaction('rw', [db.projects, db.codexEntries, db.writings, db.timelines, db.timelineEvents, db.yarnBoards, db.yarnNodes, db.yarnEdges, db.worldMaps, db.mapPins, db.imageCollections, db.inspirationImages, db.externalLinks], async () => {
+  const projectScoped = db.tables.filter(
+    (t) => t.name !== 'projects' && 'projectId' in t.schema.idxByName,
+  );
+
+  await db.transaction('rw', db.tables, async () => {
+    // --- children without a projectId index: resolve via parent ids ---
+    const [boardIds, sceneIds, storyboardIds, brainstormBoardIds, annotationIds] =
+      await Promise.all([
+        db.yarnBoards.where('projectId').equals(id).primaryKeys(),
+        db.scenes.where('projectId').equals(id).primaryKeys(),
+        db.storyboards.where('projectId').equals(id).primaryKeys(),
+        db.brainstormBoards.where('projectId').equals(id).primaryKeys(),
+        db.annotations.where('projectId').equals(id).primaryKeys(),
+      ]);
+
+    if (boardIds.length) await db.yarnEdges.where('boardId').anyOf(boardIds as string[]).delete();
+    if (sceneIds.length) await db.sceneCasts.where('sceneId').anyOf(sceneIds as string[]).delete();
+    if (storyboardIds.length) {
+      await db.storyboardConnectors.where('storyboardId').anyOf(storyboardIds as string[]).delete();
+    }
+    if (brainstormBoardIds.length) {
+      await db.brainstormConnections.where('boardId').anyOf(brainstormBoardIds as string[]).delete();
+    }
+    if (annotationIds.length) {
+      await db.annotationReferences.where('annotationId').anyOf(annotationIds as string[]).delete();
+    }
+
+    // --- every project-scoped table, current and future ---
+    for (const table of projectScoped) {
+      await table.where('projectId').equals(id).delete();
+    }
+
     await db.projects.delete(id);
-    await db.codexEntries.where('projectId').equals(id).delete();
-    await db.writings.where('projectId').equals(id).delete();
-    await db.timelines.where('projectId').equals(id).delete();
-    await db.timelineEvents.where('projectId').equals(id).delete();
-    await db.yarnBoards.where('projectId').equals(id).delete();
-    await db.yarnNodes.where('projectId').equals(id).delete();
-    await db.worldMaps.where('projectId').equals(id).delete();
-    await db.mapPins.where('projectId').equals(id).delete();
-    await db.imageCollections.where('projectId').equals(id).delete();
-    await db.inspirationImages.where('projectId').equals(id).delete();
-    await db.externalLinks.where('projectId').equals(id).delete();
   });
 }
 
@@ -98,7 +131,10 @@ export async function updateWriting(id: string, changes: Partial<Writing>): Prom
 }
 
 export async function deleteWriting(id: string): Promise<void> {
-  await db.writings.delete(id);
+  await db.transaction('rw', [db.writings, db.writingSnapshots], async () => {
+    await db.writings.delete(id);
+    await db.writingSnapshots.where('writingId').equals(id).delete();
+  });
 }
 
 // ===== Timelines =====
@@ -498,30 +534,12 @@ export async function exportFullDatabase() {
 }
 
 export async function importFullDatabase(data: Awaited<ReturnType<typeof exportFullDatabase>>): Promise<void> {
-  // Clear all existing data, then import everything with original IDs
-  await db.transaction('rw', [
-    db.projects, db.codexEntries, db.writings, db.timelines, db.timelineEvents,
-    db.yarnBoards, db.yarnNodes, db.yarnEdges, db.worldMaps, db.mapPins,
-    db.imageCollections, db.inspirationImages, db.externalLinks, db.tags, db.settings,
-  ], async () => {
-    // Clear all tables
-    await Promise.all([
-      db.projects.clear(),
-      db.codexEntries.clear(),
-      db.writings.clear(),
-      db.timelines.clear(),
-      db.timelineEvents.clear(),
-      db.yarnBoards.clear(),
-      db.yarnNodes.clear(),
-      db.yarnEdges.clear(),
-      db.worldMaps.clear(),
-      db.mapPins.clear(),
-      db.imageCollections.clear(),
-      db.inspirationImages.clear(),
-      db.externalLinks.clear(),
-      db.tags.clear(),
-      db.settings.clear(),
-    ]);
+  // Clear ALL existing data (every table, not just the legacy 15 — otherwise
+  // engine-table rows from the previous database survive the restore as
+  // orphans), then import everything the legacy JSON contains with original
+  // IDs.
+  await db.transaction('rw', db.tables, async () => {
+    await Promise.all(db.tables.map((t) => t.clear()));
 
     // Import all data with original IDs (preserving references)
     if (data.projects?.length) await db.projects.bulkAdd(data.projects);

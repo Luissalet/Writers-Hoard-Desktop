@@ -6,10 +6,10 @@ interface SessionCardProps {
 }
 
 const TYPE_COLORS: Record<WritingSession['type'], string> = {
-  freewrite: 'bg-blue-100 text-blue-800',
-  sprint: 'bg-purple-100 text-purple-800',
-  edit: 'bg-green-100 text-green-800',
-  outline: 'bg-yellow-100 text-yellow-800',
+  freewrite: 'bg-accent-gold/15 text-accent-gold',
+  sprint: 'bg-accent-plum/20 text-accent-plum-light',
+  edit: 'bg-success/15 text-success',
+  outline: 'bg-warning/15 text-warning',
 };
 
 const TYPE_LABELS: Record<WritingSession['type'], string> = {
@@ -34,28 +34,28 @@ export default function SessionCard({ session }: SessionCardProps) {
     hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 
   return (
-    <div className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors">
+    <div className="flex items-center justify-between p-3 bg-elevated border border-border rounded-lg hover:bg-elevated transition-colors">
       <div className="flex items-center gap-3 flex-1 min-w-0">
-        <FileText size={20} className="text-gray-400 flex-shrink-0" />
+        <FileText size={20} className="text-text-dim flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className={`text-xs font-semibold px-2 py-1 rounded ${TYPE_COLORS[session.type]}`}>
               {TYPE_LABELS[session.type]}
             </span>
-            <span className="text-xs text-gray-600">{dateLabel}</span>
+            <span className="text-xs text-text-muted">{dateLabel}</span>
           </div>
           {session.notes && (
-            <p className="text-xs text-gray-600 truncate">{session.notes}</p>
+            <p className="text-xs text-text-muted truncate">{session.notes}</p>
           )}
         </div>
       </div>
 
       <div className="flex items-center gap-4 ml-2 flex-shrink-0 text-right">
         <div>
-          <div className="text-sm font-bold text-gray-900">
+          <div className="text-sm font-bold text-text-primary">
             {session.wordCount.toLocaleString()}
           </div>
-          <div className="text-xs text-gray-500 flex items-center gap-1 justify-end">
+          <div className="text-xs text-text-dim flex items-center gap-1 justify-end">
             <Clock size={12} />
             {durationLabel}
           </div>

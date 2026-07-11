@@ -24,6 +24,7 @@ const writingsEngine: EngineDefinition = {
   category: 'core',
   tables: {
     writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+    writingSnapshots: 'id, writingId, projectId, createdAt',
   },
   component: WritingsEngine,
 };
@@ -84,24 +85,33 @@ registerAnchorAdapter({
 // ============================================
 registerBackupStrategy({
   engineId: 'writings',
-  tables: ['writings'],
+  tables: ['writings', 'writingSnapshots'],
   async exportProject({ zip, projectId, projectDir }) {
     const rows = await db.writings.where('projectId').equals(projectId).toArray();
     for (const writing of rows) {
       const filename = `${sanitizeBackupName(writing.title)}__${writing.id}.json`;
       zip.file(`${projectDir}/writings/${filename}`, JSON.stringify(writing, null, 2));
     }
+    // Version history — one compact file for the whole project.
+    const snapshots = await db.writingSnapshots.where('projectId').equals(projectId).toArray();
+    if (snapshots.length > 0) {
+      zip.file(`${projectDir}/writings/_snapshots.json`, JSON.stringify(snapshots));
+    }
   },
   async importProject({ zip, projectDir }) {
     const folder = `${projectDir}/writings/`;
     const files: string[] = [];
     zip.forEach((path) => {
-      if (path.startsWith(folder) && path.endsWith('.json')) files.push(path);
+      if (path.startsWith(folder) && path.endsWith('.json') && !path.endsWith('/_snapshots.json')) {
+        files.push(path);
+      }
     });
     for (const wf of files) {
       const writing = await readBackupJson<Record<string, unknown>>(zip, wf);
       if (writing) await db.writings.add(writing as never);
     }
+    const snapshots = await readBackupJson<unknown[]>(zip, `${projectDir}/writings/_snapshots.json`);
+    if (snapshots?.length) await db.writingSnapshots.bulkAdd(snapshots as never[]);
   },
 });
 
