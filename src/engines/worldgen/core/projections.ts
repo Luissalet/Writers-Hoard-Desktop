@@ -205,8 +205,8 @@ export function getProjectionIndexMap(projection: Projection, srcW: number, srcH
       }
     }
     indexMapCache.set(key, map);
-    // Bound the cache: maps are ~4–8 MB each.
-    if (indexMapCache.size > 12) {
+    // Bound the cache: maps are ~4–26 MB each at high resolutions.
+    if (indexMapCache.size > 6) {
       const first = indexMapCache.keys().next().value;
       if (first) indexMapCache.delete(first);
     }

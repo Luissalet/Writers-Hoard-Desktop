@@ -73,18 +73,89 @@ export function buildPlates(params: WorldParams, onCell?: (done: number) => void
     }
     const ang = rng() * Math.PI * 2;
     const speed = rngRange(rng, 0.4, 1);
-    // Roughly 40% of plates are continental — Earth-like.
-    const oceanic = rng() > 0.42;
     plates.push({
       u: best!.u,
       v: best!.v,
       du: Math.cos(ang) * speed,
       dv: Math.sin(ang) * speed,
-      oceanic,
-      baseHeight: oceanic
-        ? rngRange(rng, -0.75, -0.45)          // abyssal plain
-        : rngRange(rng, 0.12, 0.4),            // continental platform
+      oceanic: true,           // assigned below
+      baseHeight: 0,
     });
+  }
+
+  // --- Continental crust assignment -------------------------------------
+  // How many plates carry continents follows the requested land coverage,
+  // and WHERE they sit follows `continentClustering`: low → spread apart
+  // (separate landmasses), high → welded together (pangaea).
+  {
+    const contCount = Math.max(
+      plateCount >= 6 ? 2 : 1,
+      Math.min(plateCount - 1, Math.round(plateCount * (0.22 + params.landRatio * 0.95))),
+    );
+    const isCont: boolean[] = new Array(plateCount).fill(false);
+    isCont[Math.floor(rng() * plateCount)] = true;
+    for (let c = 1; c < contCount; c++) {
+      let bestIdx = -1;
+      let bestScore = -Infinity;
+      for (let p = 0; p < plateCount; p++) {
+        if (isCont[p]) continue;
+        let dMin = Infinity;
+        for (let q = 0; q < plateCount; q++) {
+          if (!isCont[q]) continue;
+          const du = wrapDU(plates[p].u, plates[q].u);
+          const dv = (plates[p].v - plates[q].v) * 0.5;
+          const d = Math.hypot(du, dv);
+          if (d < dMin) dMin = d;
+        }
+        // clustering 0 → prefer far, 0.5 → indifferent, 1 → prefer near.
+        const score = (1 - 2 * params.continentClustering) * dMin + rng() * 0.09;
+        if (score > bestScore) { bestScore = score; bestIdx = p; }
+      }
+      if (bestIdx >= 0) isCont[bestIdx] = true;
+    }
+    for (let p = 0; p < plateCount; p++) {
+      plates[p].oceanic = !isCont[p];
+      plates[p].baseHeight = isCont[p]
+        ? rngRange(rng, 0.04, 0.42)            // low continents flood partially
+        : rngRange(rng, -0.78, -0.42);         // abyssal plain
+    }
+  }
+
+  // --- Point features: hotspot island chains + oceanic microcontinents ---
+  interface Bump { u: number; v: number; amp: number; r2: number }
+  const bumps: Bump[] = [];
+  const trails = 2 + Math.floor(rng() * 3);
+  for (let tr = 0; tr < trails; tr++) {
+    let bu = rng();
+    let bv = 0.15 + rng() * 0.7;
+    const ang = rng() * Math.PI * 2;
+    const step = 0.014 + rng() * 0.012;
+    const count = 4 + Math.floor(rng() * 5);
+    let amp = 0.9 + rng() * 0.7;
+    for (let k = 0; k < count; k++) {
+      const r = 0.006 + rng() * 0.005 + amp * 0.003;
+      bumps.push({ u: bu, v: bv, amp, r2: 2 * r * r });
+      bu = (bu + Math.cos(ang) * step + 1) % 1;
+      bv = Math.min(0.92, Math.max(0.08, bv + Math.sin(ang) * step * 0.5));
+      amp *= 0.72 + rng() * 0.1;               // older = more eroded
+    }
+  }
+  for (const p of plates) {
+    if (p.oceanic && rng() < 0.32) {
+      // 2–4 overlapping blobs so microcontinents aren't perfect circles.
+      const cu = (p.u + rngRange(rng, -0.04, 0.04) + 1) % 1;
+      const cv = Math.min(0.9, Math.max(0.1, p.v + rngRange(rng, -0.05, 0.05)));
+      const blobs = 2 + Math.floor(rng() * 3);
+      for (let b = 0; b < blobs; b++) {
+        const r = 0.012 + rng() * 0.024;
+        bumps.push({
+          u: (cu + rngRange(rng, -0.03, 0.03) + 1) % 1,
+          v: Math.min(0.92, Math.max(0.08, cv + rngRange(rng, -0.02, 0.02))),
+          amp: 0.6 + rng() * 0.5,
+          r2: 2 * r * r,
+        });
+      }
+    }
   }
 
   const plateId = new Uint8Array(N);
@@ -110,9 +181,10 @@ export function buildPlates(params: WorldParams, onCell?: (done: number) => void
       const i = y * W + x;
       const u = (x + 0.5) * invW;
 
-      // Warp the query point so plate borders meander like real sutures.
-      const wu = u + WARP * warpN.fbm(u, v, 3, 3);
-      const wv = v + WARP * 1.6 * warpN.fbm(u + 0.37, v + 0.71, 3, 3);
+      // Warp the query point so plate borders meander like real sutures —
+      // two scales: broad meander + fine crinkle for intricate coastlines.
+      const wu = u + WARP * warpN.fbm(u, v, 3, 3) + 0.02 * warpN.fbm(u + 0.53, v + 0.29, 8, 2);
+      const wv = v + WARP * 1.6 * warpN.fbm(u + 0.37, v + 0.71, 3, 3) + 0.03 * warpN.fbm(u + 0.11, v + 0.47, 8, 2);
 
       // Nearest + second nearest plate in the warped metric.
       let d1 = Infinity, d2 = Infinity, k1 = 0, k2 = 0;
@@ -133,11 +205,30 @@ export function buildPlates(params: WorldParams, onCell?: (done: number) => void
       let h = pbh[k2] + (pbh[k1] - pbh[k2]) * (0.5 + 0.5 * smooth);
 
       // Continent interiors get broad relief so they are not flat: rolling
-      // large-scale undulation plus occasional highland plateaus.
-      const interior = shapeN.fbm(u, v, 2.2, 4);
-      const plateau = shapeN.fbm(u + 0.61, v + 0.13, 1.4, 3);
-      h += (h > -0.05 ? 0.3 : 0.12) * interior;
-      if (h > 0.02 && plateau > 0.18) h += Math.min(0.55, (plateau - 0.18) * 1.5) * (0.4 + 0.6 * params.mountainousness);
+      // undulation, occasional highland plateaus, and shallow basins that can
+      // flood into inland seas. Frequencies chosen to FRAGMENT rather than
+      // consolidate — a shared ultra-low-frequency field was what used to
+      // weld everything into one supercontinent.
+      const interior = shapeN.fbm(u, v, 3.1, 4);
+      const plateau = shapeN.fbm(u + 0.61, v + 0.13, 1.8, 3);
+      h += (h > -0.05 ? 0.2 : 0.12) * interior;
+      if (h > 0.02 && plateau > 0.2) h += Math.min(0.45, (plateau - 0.2) * 1.3) * (0.4 + 0.6 * params.mountainousness);
+      // Epeiric basins — dips that the ocean can claim (Baltic/Hudson style).
+      const basin = shapeN.fbm(u + 0.17, v + 0.83, 1.9, 3);
+      if (h > 0 && basin < -0.24) h += Math.max(-0.7, (basin + 0.24) * 2.2);
+
+      // Hotspot trails & microcontinents — noise-modulated so islands get
+      // ragged organic outlines instead of perfect gaussian circles.
+      for (let bi = 0; bi < bumps.length; bi++) {
+        const b = bumps[bi];
+        const bu2 = wrapDU(u, b.u);
+        const bv2 = (v - b.v) * 0.5;
+        const d2 = bu2 * bu2 + bv2 * bv2;
+        if (d2 < b.r2 * 4.5) {
+          const ragged = 0.65 + 0.7 * shapeN.fbm(u + 0.29, v + 0.41, 7, 3);
+          h += b.amp * ragged * Math.exp(-d2 / b.r2);
+        }
+      }
 
       // Ancient interior mountain belts (Urals/Appalachians) — old collisions
       // far from active margins, so continents keep interesting bones even
@@ -178,7 +269,7 @@ export function buildPlates(params: WorldParams, onCell?: (done: number) => void
           if (bothCont) {
             // Continental collision — Himalaya-style broad high belt.
             const wide = Math.exp(-(boundaryDist * boundaryDist) / (2 * (beltWidth * 1.5) ** 2));
-            h += 3.4 * strength * wide * seg;
+            h += 3.8 * strength * wide * seg;
             uplift[i] += 0.048 * strength * wide * seg;
             convergence[i] = Math.max(convergence[i], Math.min(1, strength * wide * seg));
           } else if (bothOce) {
@@ -194,7 +285,7 @@ export function buildPlates(params: WorldParams, onCell?: (done: number) => void
             const onContinent = !poc[k1];
             if (onContinent) {
               const inland = Math.exp(-((boundaryDist - beltWidth * 1.25) ** 2) / (2 * (beltWidth * 0.95) ** 2));
-              h += 3.0 * strength * inland * seg;
+              h += 3.4 * strength * inland * seg;
               uplift[i] += 0.042 * strength * inland * seg;
               convergence[i] = Math.max(convergence[i], Math.min(1, strength * inland * seg));
             } else {
@@ -208,10 +299,13 @@ export function buildPlates(params: WorldParams, onCell?: (done: number) => void
             // Mid-ocean ridge.
             h += 0.5 * strength * fall * seg * 0.7;
           } else if (bothCont) {
-            // Continental rift valley — narrow dip with raised shoulders.
-            h -= 0.55 * strength * fall * seg;
+            // Continental rift valley — trough with raised shoulders; keep
+            // the floor mostly ABOVE sea level so depression-filling turns
+            // it into elongated rift lakes (East-African style) instead of
+            // an ocean channel.
+            h -= 0.7 * strength * fall * seg;
             const shoulder = Math.exp(-((boundaryDist - beltWidth * 1.6) ** 2) / (2 * (beltWidth * 0.6) ** 2));
-            h += 0.35 * strength * shoulder * seg;
+            h += 0.55 * strength * shoulder * seg;
           } else {
             h -= 0.2 * strength * fall * seg;
           }

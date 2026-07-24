@@ -6,6 +6,7 @@
 // can be stored as parameters only and regenerated on demand.
 
 import type { ProgressFn, WorldData, WorldParams } from './types';
+import { normalizeParams } from './types';
 import { buildPlates, assembleTerrain } from './plates';
 import { erode } from './erosion';
 import { computeClimate } from './climate';
@@ -34,7 +35,9 @@ function stageStart(name: string): number {
   return acc;
 }
 
-export function generateWorld(params: WorldParams, onProgress?: ProgressFn): WorldData {
+export function generateWorld(rawParams: WorldParams, onProgress?: ProgressFn): WorldData {
+  // Worlds saved by older engine versions may miss newer params.
+  const params = normalizeParams(rawParams);
   const W = params.width;
   const H = W >> 1;
   const report = (stage: string, frac: number) => {
@@ -54,13 +57,16 @@ export function generateWorld(params: WorldParams, onProgress?: ProgressFn): Wor
   report('terrain', 1);
 
   // 3. Erosion -------------------------------------------------------------
-  const iterations = Math.round(8 + 34 * params.erosion * (params.width >= 2048 ? 0.7 : 1));
+  const iterScale = params.width >= 2560 ? 0.55 : params.width >= 1536 ? 0.75 : 1;
+  const iterations = Math.round(8 + 34 * params.erosion * iterScale);
   const solver = erode(elevation, plates.uplift, W, H, {
     iterations,
     K: 0.013,
     deposition: 0.18,
     talus: 0.5,
-    upliftScale: 0.85,
+    // Total uplift = rate × iterations; keep it constant when high
+    // resolutions run fewer iterations, or mountains come out short.
+    upliftScale: 0.85 / iterScale,
     onProgress: (f) => report('erosion', f),
   });
 
