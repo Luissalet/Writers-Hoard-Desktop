@@ -31,7 +31,7 @@ export function classifyBiomes(
       if (e <= 0) { biome[i] = Biome.Ocean; continue; }
       if (lake[i]) {
         // Frozen solid in polar cold; evaporated to salt flats in hot drylands.
-        biome[i] = temperature[i] < -9 ? Biome.IceCap
+        biome[i] = temperature[i] < -11 ? Biome.IceCap
           : precipitation[i] < 260 && temperature[i] > 12 ? Biome.SaltFlat
           : Biome.Lake;
         continue;
@@ -40,13 +40,13 @@ export function classifyBiomes(
       const u = (x + 0.5) / W;
       // Two dither scales: a broad wobble that bends zone borders and a fine
       // one that feathers them — kills the "ruler-straight latitude band" look.
-      const dT = 2.4 * dither.fbm(u, v, 6, 2) + 1.2 * dither.fbm(u, v, 26, 2);
-      const dP = 220 * dither.fbm(u + 0.5, v + 0.25, 7, 2) + 90 * dither.fbm(u + 0.31, v + 0.62, 27, 2);
+      const dT = 3.2 * dither.fbm(u, v, 5, 2) + 1.2 * dither.fbm(u, v, 26, 2);
+      const dP = 300 * dither.fbm(u + 0.5, v + 0.25, 5, 2) + 90 * dither.fbm(u + 0.31, v + 0.62, 27, 2);
       const T = temperature[i] + dT;
       const P = precipitation[i] + dP;
 
       // --- Cold & high specials ---
-      if (T < -11) { biome[i] = Biome.IceCap; continue; }
+      if (T < -13) { biome[i] = Biome.IceCap; continue; }
       if (e > 2.2 && T < -2) { biome[i] = P > 900 ? Biome.Glacier : Biome.Alpine; continue; }
       if (e > 1.7 && T < 3) { biome[i] = Biome.Alpine; continue; }
       if (T < -2) { biome[i] = Biome.Tundra; continue; }

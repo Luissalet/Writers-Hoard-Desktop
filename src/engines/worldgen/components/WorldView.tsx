@@ -13,6 +13,7 @@ import { worldMapOps, mapPinOps } from '@/engines/maps/operations';
 import type { GeneratedWorld, WorldWaypoint } from '../types';
 import { WAYPOINT_COLORS } from '../types';
 import type { ViewMode, WorldData, WorldParams } from '../core/types';
+import { normalizeParams } from '../core/types';
 import { renderComposite } from '../core/render';
 import { PROJECTION_IDS, reprojectRgba, type Projection } from '../core/projections';
 import { useWorldGeneration } from '../useWorldGeneration';
@@ -49,7 +50,7 @@ export default function WorldView({
   focusWaypoint,
 }: WorldViewProps) {
   const { t } = useTranslation();
-  const [params, setParams] = useState<WorldParams>(world.params);
+  const [params, setParams] = useState<WorldParams>(() => normalizeParams(world.params));
   const [view, setView] = useState<'map' | '3d'>('map');
   const [viewMode, setViewMode] = useState<ViewMode>('atlas');
   const [projection, setProjection] = useState<Projection>('equirect');
@@ -87,9 +88,9 @@ export default function WorldView({
   // Deliberately re-runnable — StrictMode's mount→unmount→mount cycle
   // terminates the in-flight worker during cleanup, so the guard must be the
   // cache (instant hit), never a ref flag. `generate` is stable per world id.
-  const storedParamsRef = useRef(world.params);
+  const storedParamsRef = useRef(normalizeParams(world.params));
   useEffect(() => {
-    storedParamsRef.current = world.params;
+    storedParamsRef.current = normalizeParams(world.params);
   });
   useEffect(() => {
     generate(storedParamsRef.current);

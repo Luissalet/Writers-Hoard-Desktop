@@ -87,9 +87,16 @@ export function computeClimate(
     const lat = (0.5 - (y + 0.5) / h) * 180;
     const a = Math.abs(lat) / 90;
     const baseT = 29 - 47 * Math.pow(a, 1.7) + params.temperature;
+    const aFrac = Math.abs(lat) / 90;
     for (let x = 0; x < w; x++) {
       const j = y * w + x;
-      const wob = 3.5 * varN.fbm(x / w, y / h, 3, 3);
+      // Broad warm/cold anomalies + finer wobble — pure latitude bands are
+      // the fastest way to make every world's biomes look identical.
+      // Amplified toward the poles so ice-cap edges meander instead of
+      // following one ruler-straight isotherm.
+      const wob =
+        (5.5 * varN.fbm(x / w, y / h, 2.3, 3) +
+          2.0 * varN.fbm(x / w + 0.4, y / h + 0.6, 7, 2)) * (1 + 0.8 * aFrac);
       const e = elevHalf[j];
       tempHalf[j] = baseT + wob - 6.5 * Math.max(0, e);
     }
@@ -194,6 +201,20 @@ export function computeClimate(
     if (onProgress && (s & 7) === 0) onProgress(s / SWEEPS);
   }
 
+  // Continentality: after advection, low residual humidity ≈ far from any
+  // ocean. Deep interiors run colder at high latitudes and slightly hotter
+  // in the tropics — breaks the "temperature is only latitude" look.
+  for (let y = 0; y < h; y++) {
+    const a = Math.abs((0.5 - (y + 0.5) / h) * 180);
+    const yW = y * w;
+    for (let x = 0; x < w; x++) {
+      const j = yW + x;
+      if (waterHalf[j]) continue;
+      const cont = Math.min(1, Math.max(0, 1 - hum[j] * 1.15));
+      tempHalf[j] += cont * (a < 20 ? 1.5 : -((a - 20) / 70) * 5);
+    }
+  }
+
   // Gentle 3×3 blur (two passes) — removes residual advection streaks.
   {
     const tmp = new Float32Array(n);
@@ -223,7 +244,10 @@ export function computeClimate(
     const inv = 1 / p96;
     for (let j = 0; j < n; j++) {
       const norm = Math.pow(Math.min(1.35, rain[j] * inv), 0.85);
-      rain[j] = Math.min(3600, 2900 * norm * params.moisture);
+      // Regional wet/dry anomalies so rainfall isn't purely zonal either.
+      const mult = Math.min(1.45, Math.max(0.6,
+        1 + 0.38 * varN.fbm((j % w) / w + 0.77, ((j / w) | 0) / h + 0.31, 2.3, 3)));
+      rain[j] = Math.min(3600, 2900 * norm * mult * params.moisture);
     }
   }
 

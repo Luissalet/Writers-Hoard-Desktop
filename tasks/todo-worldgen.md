@@ -102,3 +102,34 @@ cross-section maps.
   east-to-the-right orientation seen from outside.
 - Verified: tsc/eslint/build clean; Playwright pass extended with Mollweide,
   polar-disc, Robinson, Globe and Disc screenshots — all rendering correctly.
+
+## Update 2 (2026-07-24): generation-quality rework (user feedback)
+
+Feedback: single supercontinent almost always; biomes in latitude stripes;
+wants more resolution and more varied geography. Changes:
+
+- **Continent variety**: continental plate COUNT now follows landRatio and
+  PLACEMENT follows a new `continentClustering` param (0 = scattered, 1 =
+  pangaea; exposed as a slider + per-preset). Interior/plateau noise raised
+  in frequency + lowered in amplitude (the old ultra-low-freq shared field
+  was welding all land into one blob), epeiric basins can flood into inland
+  seas, continental rifts tuned to hold elongated rift lakes.
+- **Geographic features**: hotspot island chains (2–4 trails, decaying
+  height), oceanic microcontinents (2–4 ragged noise-modulated blobs),
+  two-scale boundary warp for intricate coastlines.
+- **Biomes**: temperature anomalies (broad + fine, amplified toward poles so
+  ice edges meander), continentality (interiors colder at high lat / hotter
+  in tropics, derived from residual advected humidity), regional wet/dry
+  rain multiplier, stronger broad biome dither. Ice-cap threshold −13 °C.
+- **Resolution**: options now 768 / 1536 / 2560 (default 1536). Erosion
+  iterations scale down at high res but upliftScale compensates (total
+  uplift constant — mountains no longer shrink with resolution). 3D mesh
+  max-pool downsamples above 1536 so vertex count stays ~1.2M; height scale
+  made resolution-independent. `normalizeParams()` backfills old saved
+  worlds; projection index-map cache bounded (high-res maps are ~26 MB).
+- Perf gotcha fixed: the exaggeration effect re-ran a full ~1.2M-vertex
+  height pass on mount (and again under StrictMode) — now guarded by
+  `appliedExag`.
+- Verified: tsc/eslint/build clean; harness across seeds/presets shows
+  multiple separated continents by default and a proper pangaea at
+  clustering 0.95; live E2E green.

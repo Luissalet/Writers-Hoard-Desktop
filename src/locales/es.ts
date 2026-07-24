@@ -1080,6 +1080,7 @@ const es = {
   'worldgen.params.resHigh': 'Alto',
   'worldgen.params.plates': 'Placas tectónicas',
   'worldgen.params.landRatio': 'Superficie de tierra',
+  'worldgen.params.clustering': 'Agrupación continental',
   'worldgen.params.mountainousness': 'Montañas',
   'worldgen.params.ruggedness': 'Rugosidad',
   'worldgen.params.erosion': 'Erosión',
