@@ -48,6 +48,7 @@
     "react-masonry-css": "^1.0.16",
     "react-router-dom": "^7.13.1",
     "react-zoom-pan-pinch": "^3.7.0",
+    "three": "^0.185.1",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
@@ -57,6 +58,7 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.185.1",
     "@vitejs/plugin-react": "^5.1.1",
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",

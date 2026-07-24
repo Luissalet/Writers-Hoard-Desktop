@@ -1,5 +1,15 @@
 # Lessons Learned
 
+## 20. Choose the platform from the integration target, not the tool at hand
+**Date:** 2026-07-24
+**Context:** The world generator almost started as a Unity (C#) project — an empty Unity template already existed for it. The stated end goal was "plug it into Writers Hoard", which is Electron + React + TS; a Unity build can never embed there cleanly (separate process or 30-80MB WebGL iframe, no shared Dexie/UI, two languages forever). Building the engine as pure TS in a Web Worker hit the perf bar comfortably (1024×512 planet with ~30 erosion iterations ≈ 3s).
+**Rule:** Before picking a stack for a new subsystem, name the system it must ultimately live inside and check what that system is made of. "Most powerful engine" loses to "same runtime as the host" unless measured numbers prove the host runtime can't do the job. Prototype the hot loop and measure before reaching for a second runtime.
+
+## 19. One-shot effects that own a resource must be re-runnable under StrictMode — guard with the cache, not a ref flag
+**Date:** 2026-07-24
+**Context:** Worldgen auto-generation used `useRef(false)` as a "run once" guard around an effect that spawns a Web Worker, while the hook's cleanup terminates the worker. StrictMode's mount→cleanup→remount cycle kept the ref `true` (refs persist), so the cleanup killed the worker and the guarded effect never respawned it — generation hung at 0% forever, only in dev.
+**Rule:** If an effect's cleanup destroys the resource the effect creates (worker, socket, subscription), the effect must be safe to run again after cleanup. Never use a ref flag as a once-guard around resource creation; make the operation idempotent-by-cache (cache hit → instant no-op) or key the effect on stable identity (`[generate]` per entity id). This is the resource-owning sibling of lesson #17's render-adjust pattern.
+
 ## 18. When the sandbox mount goes stale, verify through Desktop Commander (real Windows shell)
 **Date:** 2026-07-11
 **Context:** Two audit sessions in a row, the bash sandbox mount served truncated copies of files written that same session ("Invalid character" on every column past EOF, `'}' expected` mid-file — lesson #13's signature). The previous session died unable to verify its own correct code; the fix was never the code. This session ran `npx tsc -b --noEmit`, `tsc -p electron/tsconfig.json` and `eslint` via the Desktop Commander MCP (`start_process` on powershell.exe in the real repo path) and verification was instant and truthful all session.
