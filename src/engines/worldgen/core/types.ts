@@ -14,6 +14,9 @@ export interface WorldParams {
   plates: number;
   /** Target fraction of the surface that is land (0.1–0.6). */
   landRatio: number;
+  /** 0–1: how tightly continental plates cluster. 0 = scattered continents,
+   *  1 = everything welds into a pangaea. */
+  continentClustering: number;
   /** 0–1: strength of mountain-building along plate collisions. */
   mountainousness: number;
   /** 0–1: small-scale roughness added on top of the tectonic base. */
@@ -32,9 +35,10 @@ export interface WorldParams {
 
 export const DEFAULT_PARAMS: WorldParams = {
   seed: 'new-world',
-  width: 1024,
-  plates: 9,
+  width: 1536,
+  plates: 10,
   landRatio: 0.32,
+  continentClustering: 0.25,
   mountainousness: 0.6,
   ruggedness: 0.5,
   erosion: 0.6,
@@ -43,6 +47,11 @@ export const DEFAULT_PARAMS: WorldParams = {
   riverDensity: 0.5,
   landmarks: true,
 };
+
+/** Fill any missing fields (worlds saved by older versions of the engine). */
+export function normalizeParams(params: Partial<WorldParams>): WorldParams {
+  return { ...DEFAULT_PARAMS, ...params };
+}
 
 /** Land-cover / biome classification per cell. */
 export const Biome = {

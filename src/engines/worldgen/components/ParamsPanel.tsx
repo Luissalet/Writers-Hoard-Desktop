@@ -68,7 +68,7 @@ export default function ParamsPanel({
           {t('worldgen.params.resolution')}
         </label>
         <div className="flex rounded-lg border border-border overflow-hidden">
-          {[512, 1024, 2048].map((w) => (
+          {([[768, 'Fast'], [1536, 'Standard'], [2560, 'High']] as const).map(([w, key]) => (
             <button
               key={w}
               onClick={() => set('width', w)}
@@ -78,7 +78,7 @@ export default function ParamsPanel({
                   : 'bg-elevated text-text-muted hover:text-text-primary'
               }`}
             >
-              {t(`worldgen.params.res${w === 512 ? 'Fast' : w === 1024 ? 'Standard' : 'High'}`)}
+              {t(`worldgen.params.res${key}`)}
             </button>
           ))}
         </div>
@@ -88,6 +88,8 @@ export default function ParamsPanel({
         display={String(params.plates)} onChange={(v) => set('plates', v)} />
       <Slider label={t('worldgen.params.landRatio')} value={params.landRatio} min={0.1} max={0.6} step={0.01}
         display={`${Math.round(params.landRatio * 100)}%`} onChange={(v) => set('landRatio', v)} />
+      <Slider label={t('worldgen.params.clustering')} value={params.continentClustering} min={0} max={1} step={0.05}
+        display={pct(params.continentClustering)} onChange={(v) => set('continentClustering', v)} />
       <Slider label={t('worldgen.params.mountainousness')} value={params.mountainousness} min={0} max={1} step={0.05}
         display={pct(params.mountainousness)} onChange={(v) => set('mountainousness', v)} />
       <Slider label={t('worldgen.params.ruggedness')} value={params.ruggedness} min={0} max={1} step={0.05}

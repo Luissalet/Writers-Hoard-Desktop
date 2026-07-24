@@ -5,6 +5,7 @@ import { mkdirSync } from 'node:fs';
 mkdirSync('harness/shots', { recursive: true });
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', headless: true });
 const page = await browser.newPage({ viewport: { width: 1560, height: 950 } });
+page.setDefaultTimeout(90000); // slow shared-CPU container; 3D rebuilds block the main thread
 const errors = [];
 page.on('console', (m) => {
   if (m.type() === 'error') errors.push(m.text());
@@ -80,18 +81,33 @@ try {
 
   // 3D view
   await page.getByText('3D', { exact: true }).first().click();
-  await page.waitForTimeout(4000); // lazy chunk + first render
+  await page.waitForTimeout(9000); // lazy chunk + first render (1536 grid)
   await shot('08-terrain3d');
 
   // Shapes: globe + disc
   await page.getByText('Globo', { exact: true }).click();
-  await page.waitForTimeout(2200);
+  await page.waitForTimeout(5000);
   await shot('08b-globe');
+  // Orbit up to inspect the north pole cap
+  {
+    const c3d = page.locator('canvas').first();
+    const b = await c3d.boundingBox();
+    const cx3 = b.x + b.width / 2, cy3 = b.y + b.height / 2;
+    await page.mouse.move(cx3, cy3);
+    await page.mouse.down();
+    await page.mouse.move(cx3, cy3 + 260, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(900);
+    // zoom in a bit
+    await page.mouse.wheel(0, -600);
+    await page.waitForTimeout(900);
+    await shot('08b2-globe-pole');
+  }
   await page.getByText('Disco', { exact: true }).click();
-  await page.waitForTimeout(2200);
+  await page.waitForTimeout(5000);
   await shot('08c-disc');
   await page.getByText('Plano', { exact: true }).click();
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(4000);
 
   // Fly to the waypoint from the panel
   const fly = page.locator('button[title*="Fly to"], button[title*="Volar"]').first();

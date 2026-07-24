@@ -45,7 +45,7 @@ export function computeHydrology(
   const lake = new Uint8Array(N);
   const lakeSurface = new Float32Array(N);
   for (let i = 0; i < N; i++) {
-    if (elevation[i] > 0 && filled[i] - elevation[i] > 0.018) {
+    if (elevation[i] > 0 && filled[i] - elevation[i] > 0.012) {
       lake[i] = 1;
       lakeSurface[i] = filled[i];
     }

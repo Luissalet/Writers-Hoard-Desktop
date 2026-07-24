@@ -52,6 +52,7 @@ interface SceneRefs {
   mapCanvas: HTMLCanvasElement;
   chunks: ChunkMeta[];
   currentShape: Shape3D;
+  appliedExag: number;
   fog: THREE.Fog;
   buildShape: (shape: Shape3D, exag: number) => void;
   updateHeights: (exag: number) => void;
@@ -83,6 +84,35 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
     const container = containerRef.current;
     if (!container) return;
 
+    // High-resolution worlds get a downsampled MESH (the texture stays full
+    // resolution) — 2560×1280 would otherwise mean ~3.3M vertices.
+    const step = Math.max(1, Math.ceil(W / 1536));
+    const Wm = Math.floor(W / step);
+    const Hm = Math.floor(H / step);
+    const unitM = SIZE_X / Wm;
+    const sizeZm = Hm * unitM;
+    let elev3d: Float32Array;
+    if (step === 1) {
+      elev3d = world.elevation;
+    } else {
+      // Max-pool so mountain crests survive the downsample.
+      elev3d = new Float32Array(Wm * Hm);
+      for (let y = 0; y < Hm; y++) {
+        for (let x = 0; x < Wm; x++) {
+          let m = -Infinity;
+          for (let dy = 0; dy < step; dy++) {
+            const sy = Math.min(H - 1, y * step + dy);
+            for (let dx = 0; dx < step; dx++) {
+              const sx = Math.min(W - 1, x * step + dx);
+              const e = world.elevation[sy * W + sx];
+              if (e > m) m = e;
+            }
+          }
+          elev3d[y * Wm + x] = m;
+        }
+      }
+    }
+
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -112,13 +142,64 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
     mapCanvas.width = W;
     mapCanvas.height = H;
     mapCanvas.getContext('2d')!.putImageData(new ImageData(rgba, W, H), 0, 0);
-    const texture = new THREE.CanvasTexture(mapCanvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.flipY = false;
-    texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-    texture.wrapS = THREE.RepeatWrapping; // seam-friendly for globe/disc
-    texture.wrapT = THREE.ClampToEdgeWrapping;
+    const setupTexture = (tex: THREE.CanvasTexture): THREE.CanvasTexture => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.flipY = false;
+      tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+      tex.wrapS = THREE.RepeatWrapping; // seam-friendly for globe/disc
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+      return tex;
+    };
+    const texture = setupTexture(new THREE.CanvasTexture(mapCanvas));
     const material = new THREE.MeshLambertMaterial({ map: texture });
+
+    // Polar-softened texture variants: near a pinch point every texture
+    // column fans into a radial sliver, so distinct column colors paint a
+    // pinwheel. Blending the last rows toward their row-average color turns
+    // the cap into one clean tone. Built lazily, cached per variant.
+    const makeSoftPolarCanvas = (softenSouth: boolean): HTMLCanvasElement => {
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const cctx = c.getContext('2d')!;
+      cctx.drawImage(mapCanvas, 0, 0);
+      const img = cctx.getImageData(0, 0, W, H);
+      const d = img.data;
+      const B = Math.max(8, Math.round(H * 0.045));
+      const softenRow = (row: number, wRow: number) => {
+        const off = row * W * 4;
+        let r = 0, g = 0, b = 0;
+        for (let x = 0; x < W; x++) {
+          r += d[off + x * 4];
+          g += d[off + x * 4 + 1];
+          b += d[off + x * 4 + 2];
+        }
+        r /= W; g /= W; b /= W;
+        for (let x = 0; x < W; x++) {
+          const o = off + x * 4;
+          d[o] = d[o] * (1 - wRow) + r * wRow;
+          d[o + 1] = d[o + 1] * (1 - wRow) + g * wRow;
+          d[o + 2] = d[o + 2] * (1 - wRow) + b * wRow;
+        }
+      };
+      for (let k = 0; k < B; k++) {
+        const wRow = Math.pow(1 - k / B, 1.4);
+        softenRow(k, wRow);
+        if (softenSouth) softenRow(H - 1 - k, wRow);
+      }
+      cctx.putImageData(img, 0, 0);
+      return c;
+    };
+    let softBothTex: THREE.CanvasTexture | null = null;   // globe
+    let softNorthTex: THREE.CanvasTexture | null = null;  // disc (centre only)
+    const textureForShape = (shp: Shape3D): THREE.CanvasTexture => {
+      if (shp === 'plane') return texture;
+      if (shp === 'globe') {
+        if (!softBothTex) softBothTex = setupTexture(new THREE.CanvasTexture(makeSoftPolarCanvas(true)));
+        return softBothTex;
+      }
+      if (!softNorthTex) softNorthTex = setupTexture(new THREE.CanvasTexture(makeSoftPolarCanvas(false)));
+      return softNorthTex;
+    };
 
     const terrainGroup = new THREE.Group();
     scene.add(terrainGroup);
@@ -130,48 +211,72 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
     // grid parameterization's handedness equal to the flat map's, so the
     // shared triangle winding stays front-facing — and east correctly
     // appears to the right when you look at the globe from outside.
-    const cosLon = new Float64Array(W + 2);
-    const sinLon = new Float64Array(W + 2);
-    for (let gx = 0; gx <= W + 1; gx++) {
-      const lon = (gx / W) * Math.PI * 2;
+    const cosLon = new Float64Array(Wm + 2);
+    const sinLon = new Float64Array(Wm + 2);
+    for (let gx = 0; gx <= Wm + 1; gx++) {
+      const lon = (gx / Wm) * Math.PI * 2;
       cosLon[gx] = Math.cos(lon);
       sinLon[gx] = -Math.sin(lon);
     }
-    const cosLat = new Float64Array(H + 1);
-    const sinLat = new Float64Array(H + 1);
-    for (let gy = 0; gy <= H; gy++) {
-      const lat = Math.PI / 2 - (gy / H) * Math.PI;
+    const cosLat = new Float64Array(Hm + 1);
+    const sinLat = new Float64Array(Hm + 1);
+    for (let gy = 0; gy <= Hm; gy++) {
+      const lat = Math.PI / 2 - (gy / Hm) * Math.PI;
       cosLat[gy] = Math.cos(lat);
       sinLat[gy] = Math.sin(lat);
     }
 
-    const { elevation } = world;
     const elevAt = (gx: number, gy: number): number => {
-      const x = ((gx % W) + W) % W;
-      const y = gy < 0 ? 0 : gy >= H ? H - 1 : gy;
-      return elevation[y * W + x];
+      const x = ((gx % Wm) + Wm) % Wm;
+      const y = gy < 0 ? 0 : gy >= Hm ? Hm - 1 : gy;
+      return elev3d[y * Wm + x];
     };
 
-    /** Surface position for grid coords (gx may reach W, gy may reach H). */
+    // Where all map columns converge to a point (sphere poles, disc centre),
+    // per-column elevation differences crumple the cap into a spiky "tent".
+    // Blend elevation toward the polar mean across the last ~5% of rows so
+    // the pole converges to one clean radius.
+    const POLE_ROWS = Math.max(6, Math.round(Hm * 0.05));
+    let poleElevN = 0, poleElevS = 0;
+    for (let x = 0; x < Wm; x++) {
+      poleElevN += elev3d[x];
+      poleElevS += elev3d[(Hm - 1) * Wm + x];
+    }
+    poleElevN /= Wm;
+    poleElevS /= Wm;
+
+    /** Surface position for grid coords (gx may reach Wm, gy may reach Hm). */
     const P = (gx: number, gy: number, shp: Shape3D, exag: number, out: number[]): void => {
-      const yMul = unit * exag * Y_PER_KM;
-      const e = elevAt(gx, gy);
+      const yMul = elevKmToY(exag);
+      let e = elevAt(gx, gy);
+      if (shp !== 'plane') {
+        const gyc = gy < 0 ? 0 : gy > Hm ? Hm : gy;
+        if (gyc < POLE_ROWS) {
+          // North pole: pinches on both the globe and the disc centre.
+          const w = Math.pow(1 - gyc / POLE_ROWS, 2);
+          e += (poleElevN - e) * w;
+        } else if (shp === 'globe' && gyc > Hm - POLE_ROWS) {
+          // South pole pinches only on the globe (the disc rim is a full ring).
+          const w = Math.pow(1 - (Hm - gyc) / POLE_ROWS, 2);
+          e += (poleElevS - e) * w;
+        }
+      }
       if (shp === 'plane') {
-        out[0] = gx * unit - SIZE_X / 2;
+        out[0] = gx * unitM - SIZE_X / 2;
         out[1] = e * yMul;
-        out[2] = gy * unit - sizeZ / 2;
+        out[2] = gy * unitM - sizeZm / 2;
       } else if (shp === 'globe') {
-        const gxa = ((gx % W) + W) % W;
-        const gya = gy < 0 ? 0 : gy > H ? H : gy;
+        const gxa = ((gx % Wm) + Wm) % Wm;
+        const gya = gy < 0 ? 0 : gy > Hm ? Hm : gy;
         const r = R_GLOBE + e * yMul * GLOBE_RELIEF;
         const cl = cosLat[gya];
         out[0] = r * cl * cosLon[gxa];
         out[1] = r * sinLat[gya];
         out[2] = r * cl * sinLon[gxa];
       } else {
-        const gxa = ((gx % W) + W) % W;
-        const gya = gy < 0 ? 0 : gy > H ? H : gy;
-        const rho = (gya / H) * R_DISC;
+        const gxa = ((gx % Wm) + Wm) % Wm;
+        const gya = gy < 0 ? 0 : gy > Hm ? Hm : gy;
+        const rho = (gya / Hm) * R_DISC;
         out[0] = rho * cosLon[gxa];
         out[1] = e * yMul;
         out[2] = rho * sinLon[gxa];
@@ -239,16 +344,18 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
     const buildShape = (shp: Shape3D, exag: number): void => {
       disposeTerrain();
       refsObj.currentShape = shp;
+      material.map = textureForShape(shp);
+      material.needsUpdate = true;
 
       // -- terrain chunks --
-      const chunksX = Math.ceil(W / CHUNK);
-      const chunksY = Math.ceil(H / CHUNK);
+      const chunksX = Math.ceil(Wm / CHUNK);
+      const chunksY = Math.ceil(Hm / CHUNK);
       for (let cy = 0; cy < chunksY; cy++) {
         for (let cx = 0; cx < chunksX; cx++) {
           const gx0 = cx * CHUNK;
           const gy0 = cy * CHUNK;
-          const nx = Math.min(CHUNK, W - gx0) + 1;
-          const ny = Math.min(CHUNK, H - gy0) + 1;
+          const nx = Math.min(CHUNK, Wm - gx0) + 1;
+          const ny = Math.min(CHUNK, Hm - gy0) + 1;
           const geo = new THREE.BufferGeometry();
           const count = nx * ny;
           geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
@@ -257,8 +364,8 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
           for (let j = 0; j < ny; j++) {
             for (let i2 = 0; i2 < nx; i2++) {
               const k = j * nx + i2;
-              uvs[k * 2] = (gx0 + i2) / W;
-              uvs[k * 2 + 1] = (gy0 + j) / H;
+              uvs[k * 2] = (gx0 + i2) / Wm;
+              uvs[k * 2 + 1] = (gy0 + j) / Hm;
             }
           }
           geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
@@ -292,12 +399,12 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
       ambient.intensity = shp === 'plane' ? 0.85 : 1.05;
       sun.intensity = shp === 'plane' ? 2.1 : 1.8;
       if (shp === 'plane') {
-        const water = new THREE.Mesh(new THREE.PlaneGeometry(SIZE_X, sizeZ), waterMat);
+        const water = new THREE.Mesh(new THREE.PlaneGeometry(SIZE_X, sizeZm), waterMat);
         water.rotation.x = -Math.PI / 2;
         water.position.y = 0.02;
         terrainGroup.add(water);
         const slab = new THREE.Mesh(
-          new THREE.BoxGeometry(SIZE_X, 2, sizeZ),
+          new THREE.BoxGeometry(SIZE_X, 2, sizeZm),
           new THREE.MeshLambertMaterial({ color: 0x14141d }),
         );
         slab.position.y = -1.35;
@@ -362,6 +469,7 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
       mapCanvas,
       chunks: [],
       currentShape: shapeRef.current,
+      appliedExag: exagRef.current,
       fog,
       buildShape,
       updateHeights,
@@ -470,6 +578,8 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
       disposeMarkers(markerGroup);
       material.dispose();
       texture.dispose();
+      softBothTex?.dispose();
+      softNorthTex?.dispose();
       renderer.dispose();
       container.removeChild(renderer.domElement);
       refs.current = null;
@@ -491,7 +601,10 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
   useEffect(() => {
     exagRef.current = exaggeration;
     const r = refs.current;
-    if (!r) return;
+    // Skip when the meshes already carry this exaggeration (initial mount,
+    // StrictMode re-run) — a full height pass over ~1M vertices is not free.
+    if (!r || r.appliedExag === exaggeration) return;
+    r.appliedExag = exaggeration;
     r.updateHeights(exaggeration);
     placeMarkers(r, world, waypoints, unit, sizeZ, R_GLOBE, R_DISC, exaggeration);
   }, [exaggeration, world, waypoints, unit, sizeZ, R_GLOBE, R_DISC]);
@@ -542,8 +655,10 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
 
 // ---------------------------------------------------------------------------
 
-function elevKmToY(exag: number, unit: number): number {
-  return unit * exag * Y_PER_KM;
+/** 1 km of elevation → scene units. Resolution-independent: exaggeration
+ *  means the same thing whether the world grid is 768 or 2560 wide. */
+function elevKmToY(exag: number): number {
+  return (SIZE_X / 1024) * exag * Y_PER_KM;
 }
 
 /** Surface point + local up for normalized map coords, per shape. */
@@ -562,7 +677,7 @@ function surfacePoint(
   const gx = Math.min(W - 1, Math.max(0, Math.floor(u * W)));
   const gy = Math.min(H - 1, Math.max(0, Math.floor(v * H)));
   const e = Math.max(0, elevation[gy * W + gx]);
-  const yMul = elevKmToY(exag, unit);
+  const yMul = elevKmToY(exag);
   if (shape === 'plane') {
     return {
       pos: new THREE.Vector3(u * W * unit - (W * unit) / 2, e * yMul, v * sizeZ - sizeZ / 2),
