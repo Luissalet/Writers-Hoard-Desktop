@@ -31,6 +31,7 @@ import type { Relationship } from '@/engines/relationships/types';
 import type { Seed, Payoff } from '@/engines/seeds/types';
 import type { Annotation, AnnotationReference } from '@/engines/annotations/types';
 import type { WritingSnapshot } from '@/engines/writings/snapshotTypes';
+import type { GeneratedWorld, WorldWaypoint } from '@/engines/worldgen/types';
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -76,6 +77,8 @@ export class WritersHoardDB extends Dexie {
   annotations!: Table<Annotation>;
   annotationReferences!: Table<AnnotationReference>;
   writingSnapshots!: Table<WritingSnapshot>;
+  generatedWorlds!: Table<GeneratedWorld>;
+  worldWaypoints!: Table<WorldWaypoint>;
 
   constructor() {
     super('WritersHoardDB');
@@ -618,6 +621,13 @@ export class WritersHoardDB extends Dexie {
     // Additive table only; every other store is inherited unchanged from v17.
     this.version(18).stores({
       writingSnapshots: 'id, writingId, projectId, createdAt',
+    });
+
+    // v19: World Generator — worlds stored as seed+params (deterministic
+    // regeneration), waypoints as plain rows. Additive tables only.
+    this.version(19).stores({
+      generatedWorlds: 'id, projectId, updatedAt',
+      worldWaypoints: 'id, projectId, worldId',
     });
   }
 }

@@ -64,7 +64,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: Sparkles,
     color: '#e8c577',
     defaultEngines: ['writings', 'codex', 'outline'],
-    suggestedEngines: ['timeline', 'diary', 'writing-stats', 'character-arc'],
+    suggestedEngines: ['timeline', 'diary', 'writing-stats', 'character-arc', 'worldgen'],
   },
   {
     id: 'novelist',
@@ -73,7 +73,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: PenLine,
     color: '#c4973b',
     defaultEngines: ['writings', 'codex', 'timeline', 'yarn-board', 'maps', 'gallery', 'outline'],
-    suggestedEngines: ['storyboard', 'links', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit'],
+    suggestedEngines: ['worldgen', 'storyboard', 'links', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit'],
   },
   {
     id: 'biographer',
