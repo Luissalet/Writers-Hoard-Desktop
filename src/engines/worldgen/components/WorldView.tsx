@@ -14,15 +14,18 @@ import type { GeneratedWorld, WorldWaypoint } from '../types';
 import { WAYPOINT_COLORS } from '../types';
 import type { ViewMode, WorldData, WorldParams } from '../core/types';
 import { renderComposite } from '../core/render';
+import { PROJECTION_IDS, reprojectRgba, type Projection } from '../core/projections';
 import { useWorldGeneration } from '../useWorldGeneration';
 import { useWorldWaypoints } from '../hooks';
 import Map2D from './Map2D';
 import ParamsPanel from './ParamsPanel';
 import WaypointsPanel from './WaypointsPanel';
+import type { Shape3D } from './Terrain3D';
 
 const Terrain3D = lazy(() => import('./Terrain3D'));
 
 const VIEW_MODES: ViewMode[] = ['atlas', 'elevation', 'temperature', 'precipitation', 'plates', 'flow'];
+const SHAPES_3D: Shape3D[] = ['plane', 'globe', 'disc'];
 
 export interface WaypointFocus {
   id: string;
@@ -49,6 +52,8 @@ export default function WorldView({
   const [params, setParams] = useState<WorldParams>(world.params);
   const [view, setView] = useState<'map' | '3d'>('map');
   const [viewMode, setViewMode] = useState<ViewMode>('atlas');
+  const [projection, setProjection] = useState<Projection>('equirect');
+  const [shape3D, setShape3D] = useState<Shape3D>('plane');
   const [showRivers, setShowRivers] = useState(true);
   const [showLandmarks, setShowLandmarks] = useState(true);
   const [showWaypoints, setShowWaypoints] = useState(true);
@@ -138,12 +143,23 @@ export default function WorldView({
   // ---- Exports -----------------------------------------------------------
   const exportPng = useCallback(() => {
     if (!data) return;
-    const canvas = compositeToCanvas(data, viewMode, showRivers);
+    // Export what's on screen: current view mode AND current projection.
+    let canvas: HTMLCanvasElement;
+    if (projection === 'equirect') {
+      canvas = compositeToCanvas(data, viewMode, showRivers);
+    } else {
+      const px = renderComposite(data, viewMode, showRivers);
+      const { px: proj, w, h } = reprojectRgba(px, data.width, data.height, projection);
+      canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d')!.putImageData(new ImageData(proj, w, h), 0, 0);
+    }
     canvas.toBlob((blob) => {
-      if (blob) saveAs(blob, `${safeName(world.title)}-${viewMode}.png`);
+      if (blob) saveAs(blob, `${safeName(world.title)}-${viewMode}-${projection}.png`);
     }, 'image/png');
     setExportOpen(false);
-  }, [data, viewMode, showRivers, world.title]);
+  }, [data, viewMode, showRivers, projection, world.title]);
 
   const exportHeightmap = useCallback(() => {
     if (!data) return;
@@ -212,17 +228,48 @@ export default function WorldView({
           <ToolbarTab active={view === '3d'} onClick={() => setView('3d')} icon={Box} label={t('worldgen.view.terrain')} disabled={!data} />
         </div>
 
-        {/* 2D view-mode select */}
+        {/* 2D view-mode + projection selects */}
         {view === 'map' && (
-          <select
-            value={viewMode}
-            onChange={(e) => setViewMode(e.target.value as ViewMode)}
-            className="bg-elevated border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-gold/60"
-          >
-            {VIEW_MODES.map((m) => (
-              <option key={m} value={m}>{t(`worldgen.viewMode.${m}`)}</option>
+          <>
+            <select
+              value={viewMode}
+              onChange={(e) => setViewMode(e.target.value as ViewMode)}
+              className="bg-elevated border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-gold/60"
+            >
+              {VIEW_MODES.map((m) => (
+                <option key={m} value={m}>{t(`worldgen.viewMode.${m}`)}</option>
+              ))}
+            </select>
+            <select
+              value={projection}
+              onChange={(e) => setProjection(e.target.value as Projection)}
+              title={t('worldgen.projection.title')}
+              className="bg-elevated border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-gold/60"
+            >
+              {PROJECTION_IDS.map((p) => (
+                <option key={p} value={p}>{t(`worldgen.projection.${p}`)}</option>
+              ))}
+            </select>
+          </>
+        )}
+
+        {/* 3D shape switch */}
+        {view === '3d' && (
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            {SHAPES_3D.map((s) => (
+              <button
+                key={s}
+                onClick={() => setShape3D(s)}
+                className={`px-3 py-1.5 text-xs transition ${
+                  shape3D === s
+                    ? 'bg-accent-gold/15 text-accent-gold'
+                    : 'bg-elevated text-text-muted hover:text-text-primary'
+                }`}
+              >
+                {t(`worldgen.threeD.shape.${s}`)}
+              </button>
             ))}
-          </select>
+          </div>
         )}
 
         {/* Overlay toggles */}
@@ -265,6 +312,7 @@ export default function WorldView({
             <Map2D
               world={data}
               viewMode={viewMode}
+              projection={projection}
               showRivers={showRivers}
               showLandmarks={showLandmarks}
               showWaypoints={showWaypoints}
@@ -284,6 +332,7 @@ export default function WorldView({
                 waypoints={showWaypoints ? waypoints : []}
                 flyTarget={flyTarget}
                 exaggeration={exaggeration}
+                shape={shape3D}
                 onPickWaypoint={(id) => {
                   setSelectedWaypointId(id);
                   setPanelTab('waypoints');
