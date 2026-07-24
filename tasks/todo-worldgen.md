@@ -78,4 +78,27 @@ playwright-core` if you want to run it (deliberately not in package.json).
 
 Follow-ups (future sessions): terrain painting/editing layers, per-region
 zoom regeneration, named label layer, sea ice & glaciers flow, cave
-cross-section maps, globe projection view.
+cross-section maps.
+
+## Update (2026-07-24, same day): projections + 3D shapes
+
+- 2D map projections via `core/projections.ts` (pure forward/inverse math +
+  cached nearest-neighbour index maps for pixel reprojection): equirect,
+  Mercator (±82° clamp), Robinson (classic tables), Mollweide, and a polar
+  azimuthal "Disco polar" (north pole centred). Overlays forward-project,
+  clicks/hover inverse-project, graticule renders as sampled polylines so it
+  curves correctly; wrap-around panning only for the cylindrical two. PNG
+  export honours the active projection.
+- 3D shapes in Terrain3D: Plano (flat slab), Globo (displaced sphere,
+  circumference = map width), and Disco (Mundodisco-style disc on a pedestal,
+  north pole at the centre — matches the 2D azimuthal). One generalized
+  surface mapping with precomputed angle tables + numeric normals; per-shape
+  water bodies, camera presets, fly-to and minimap indicators; waypoint pins
+  orient radially on the globe.
+- Gotcha worth remembering: on the globe/disc the angular parameterization
+  mirrors the grid's handedness — triangles wound backwards and the terrain
+  was backface-culled to invisibility. Negating the longitude direction
+  restores plane-identical winding AND is the cartographically correct
+  east-to-the-right orientation seen from outside.
+- Verified: tsc/eslint/build clean; Playwright pass extended with Mollweide,
+  polar-disc, Robinson, Globe and Disc screenshots — all rendering correctly.

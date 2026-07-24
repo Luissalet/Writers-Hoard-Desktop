@@ -54,6 +54,19 @@ try {
   await page.locator('select').first().selectOption('atlas');
   await page.waitForTimeout(300);
 
+  // Projections
+  await page.locator('select').nth(1).selectOption('mollweide');
+  await page.waitForTimeout(900);
+  await shot('06b-mollweide');
+  await page.locator('select').nth(1).selectOption('azimuthal');
+  await page.waitForTimeout(900);
+  await shot('06c-azimuthal');
+  await page.locator('select').nth(1).selectOption('robinson');
+  await page.waitForTimeout(900);
+  await shot('06d-robinson');
+  await page.locator('select').nth(1).selectOption('equirect');
+  await page.waitForTimeout(400);
+
   // Place a waypoint
   await page.locator('aside button', { hasText: 'Puntos' }).first().click();
   await page.waitForTimeout(300);
@@ -69,6 +82,16 @@ try {
   await page.getByText('3D', { exact: true }).first().click();
   await page.waitForTimeout(4000); // lazy chunk + first render
   await shot('08-terrain3d');
+
+  // Shapes: globe + disc
+  await page.getByText('Globo', { exact: true }).click();
+  await page.waitForTimeout(2200);
+  await shot('08b-globe');
+  await page.getByText('Disco', { exact: true }).click();
+  await page.waitForTimeout(2200);
+  await shot('08c-disc');
+  await page.getByText('Plano', { exact: true }).click();
+  await page.waitForTimeout(1200);
 
   // Fly to the waypoint from the panel
   const fly = page.locator('button[title*="Fly to"], button[title*="Volar"]').first();
