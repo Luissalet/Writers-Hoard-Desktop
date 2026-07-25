@@ -1081,6 +1081,7 @@ const es = {
   'worldgen.params.plates': 'Placas tectónicas',
   'worldgen.params.landRatio': 'Superficie de tierra',
   'worldgen.params.clustering': 'Agrupación continental',
+  'worldgen.params.worldScale': 'Escala del mundo',
   'worldgen.params.mountainousness': 'Montañas',
   'worldgen.params.ruggedness': 'Rugosidad',
   'worldgen.params.erosion': 'Erosión',

@@ -9,7 +9,7 @@
 // shadows and continental-interior deserts. Runs on a half-resolution grid
 // (climate is smooth) and bilinearly upsamples.
 
-import { CylinderNoise } from './noise';
+import { SphereNoise } from './noise';
 import type { WorldParams } from './types';
 
 export interface ClimateResult {
@@ -79,14 +79,15 @@ export function computeClimate(
     }
   }
 
-  const varN = new CylinderNoise(params.seed, 'climate');
+  const varN = new SphereNoise(params.seed, 'climate');
+  const ws = params.worldScale;
 
   // ---- Sea-level temperature by latitude (+ noise wobble) ----
   const tempHalf = new Float32Array(n);
   for (let y = 0; y < h; y++) {
     const lat = (0.5 - (y + 0.5) / h) * 180;
     const a = Math.abs(lat) / 90;
-    const baseT = 29 - 47 * Math.pow(a, 1.7) + params.temperature;
+    const baseT = 29 - 51 * Math.pow(a, 1.9) + params.temperature;
     const aFrac = Math.abs(lat) / 90;
     for (let x = 0; x < w; x++) {
       const j = y * w + x;
@@ -95,8 +96,8 @@ export function computeClimate(
       // Amplified toward the poles so ice-cap edges meander instead of
       // following one ruler-straight isotherm.
       const wob =
-        (5.5 * varN.fbm(x / w, y / h, 2.3, 3) +
-          2.0 * varN.fbm(x / w + 0.4, y / h + 0.6, 7, 2)) * (1 + 0.8 * aFrac);
+        (5.5 * varN.fbm(x / w, y / h, 2.3 * ws, 3) +
+          2.0 * varN.fbm(x / w + 0.4, y / h + 0.6, 7 * ws, 2)) * (1 + 0.55 * aFrac);
       const e = elevHalf[j];
       tempHalf[j] = baseT + wob - 6.5 * Math.max(0, e);
     }
@@ -155,13 +156,21 @@ export function computeClimate(
 
   const SWEEPS = 56;
   const stepLen = 2.2; // in half-res cells
+  // Same physical wind speed covers more grid-x cells near the poles.
+  const invCosRow = new Float32Array(h);
+  for (let y = 0; y < h; y++) {
+    const lat = (0.5 - (y + 0.5) / h) * Math.PI;
+    invCosRow[y] = 1 / Math.max(0.2, Math.cos(lat));
+  }
+  const maxStepX = w * 0.2;
   const next = new Float32Array(n);
   for (let s = 0; s < SWEEPS; s++) {
     for (let y = 0; y < h; y++) {
       const yW = y * w;
       for (let x = 0; x < w; x++) {
         const j = yW + x;
-        const wx = (wxRow[y] + wobX[j]) * stepLen;
+        let wx = (wxRow[y] + wobX[j]) * stepLen * invCosRow[y];
+        if (wx > maxStepX) wx = maxStepX; else if (wx < -maxStepX) wx = -maxStepX;
         const wy = (wyRow[y] + wobY[j]) * stepLen;
         // Sample humidity upwind (semi-Lagrangian, bilinear, x wraps).
         const sx = x - wx;
@@ -246,7 +255,7 @@ export function computeClimate(
       const norm = Math.pow(Math.min(1.35, rain[j] * inv), 0.85);
       // Regional wet/dry anomalies so rainfall isn't purely zonal either.
       const mult = Math.min(1.45, Math.max(0.6,
-        1 + 0.38 * varN.fbm((j % w) / w + 0.77, ((j / w) | 0) / h + 0.31, 2.3, 3)));
+        1 + 0.38 * varN.fbm((j % w) / w + 0.77, ((j / w) | 0) / h + 0.31, 2.3 * ws, 3)));
       rain[j] = Math.min(3600, 2900 * norm * mult * params.moisture);
     }
   }

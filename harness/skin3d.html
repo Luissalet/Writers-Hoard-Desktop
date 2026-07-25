@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><style>html,body{margin:0;overflow:hidden;background:#d8c39a}</style></head>
+<body>
+<script type="module">
+import * as THREE from '/three.module.js';
+
+const meta = await (await fetch('/out/skin-meta.json')).json();
+const { W, H, min, max } = meta;
+
+const SIZE_X = 240;
+const unit = SIZE_X / W;
+const sizeZ = H * unit;
+const Y_PER_KM = 0.24;
+const exag = Number(new URLSearchParams(location.search).get('exag') || 30);
+const skin = new URLSearchParams(location.search).get('skin') || 'carta';
+const yPerKm = (SIZE_X / 1024) * exag * Y_PER_KM;
+
+// --- read the heightmap back out of the PNG ---
+const hImg = new Image();
+await new Promise((r) => { hImg.onload = r; hImg.src = '/out/skin-height.png'; });
+const hc = document.createElement('canvas');
+hc.width = W; hc.height = H;
+const hctx = hc.getContext('2d', { willReadFrequently: true });
+hctx.drawImage(hImg, 0, 0);
+const hd = hctx.getImageData(0, 0, W, H).data;
+const elev = new Float32Array(W * H);
+for (let i = 0; i < W * H; i++) {
+  const v = (hd[i * 4] << 8) | hd[i * 4 + 1];
+  elev[i] = min + (v / 65535) * (max - min);
+}
+
+// --- scene, matching the Terrain3D 'carta' settings exactly ---
+const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+renderer.setSize(1500, 900);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const paperGrain = new THREE.Color('#d8c39a');
+const voidColor = skin === 'carta' ? paperGrain : new THREE.Color(0x0a0e16);
+scene.background = voidColor;
+scene.fog = skin === 'carta'
+  ? new THREE.Fog(voidColor.getHex(), sizeZ * 0.32, sizeZ * 1.9)
+  : new THREE.Fog(0x0a0e16, sizeZ * 2.2, sizeZ * 6);
+
+const sun = new THREE.DirectionalLight(skin === 'carta' ? 0xfff4e2 : 0xfff2dd, skin === 'carta' ? 1.25 : 2.1);
+sun.position.set(-SIZE_X * 0.35, sizeZ * 1.2, -sizeZ * 0.5);
+scene.add(sun);
+scene.add(new THREE.AmbientLight(skin === 'carta' ? 0xe8dcc0 : 0xbfd0e0, skin === 'carta' ? 1.55 : 0.85));
+
+const tex = await new THREE.TextureLoader().loadAsync(skin === 'carta' ? '/out/skin-carta.png' : '/out/baseline-atlas.png');
+tex.colorSpace = THREE.SRGBColorSpace;
+tex.flipY = false;
+tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+const material = new THREE.MeshLambertMaterial({ map: tex });
+
+// --- displaced plane ---
+const geo = new THREE.PlaneGeometry(SIZE_X, sizeZ, W - 1, H - 1);
+geo.rotateX(-Math.PI / 2);
+const pos = geo.attributes.position;
+const uv = geo.attributes.uv;
+for (let i = 0; i < pos.count; i++) {
+  const x = i % W, y = (i / W) | 0;
+  const e = elev[y * W + x];
+  pos.setY(i, Math.max(0, e) * yPerKm);
+  uv.setXY(i, x / (W - 1), y / (H - 1));
+}
+geo.computeVertexNormals();
+scene.add(new THREE.Mesh(geo, material));
+
+// --- sea plane ---
+const water = new THREE.Mesh(
+  new THREE.PlaneGeometry(SIZE_X * 1.6, sizeZ * 1.6),
+  new THREE.MeshPhongMaterial({
+    color: skin === 'carta' ? 0x7fa8bd : 0x27536f,
+    transparent: true, opacity: skin === 'carta' ? 0.93 : 0.88, shininess: 40,
+  }),
+);
+water.rotation.x = -Math.PI / 2;
+water.position.y = 0.035;
+scene.add(water);
+
+// --- camera: a low oblique that shows relief, the way a map illustration would ---
+const camera = new THREE.PerspectiveCamera(50, 1500 / 900, 0.5, sizeZ * 14);
+const cx = Number(new URLSearchParams(location.search).get('cx') || 0.24);
+const cz = Number(new URLSearchParams(location.search).get('cz') || 0.58);
+const target = new THREE.Vector3((cx - 0.5) * SIZE_X, 4, (cz - 0.5) * sizeZ);
+const d = Number(new URLSearchParams(location.search).get('d') || 62);
+camera.position.set(target.x - d * 0.55, d * 0.62, target.z + d * 0.85);
+camera.lookAt(target);
+
+renderer.render(scene, camera);
+window.__ready = true;
+</script>
+</body>
+</html>

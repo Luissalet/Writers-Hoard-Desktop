@@ -14,9 +14,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { WorldData } from '../core/types';
 import { renderComposite } from '../core/render';
+import { getCartoTexture } from '../cartography/texture';
+import { THEME_WONDER, type CartoTheme } from '../cartography/theme';
+import type { HumanGeography } from '../core/settlements';
 import type { WorldWaypoint } from '../types';
 
 export type Shape3D = 'plane' | 'globe' | 'disc';
+export type SkinMode = 'atlas' | 'carta';
 
 const SIZE_X = 240;               // plane width in scene units
 const CHUNK = 128;                // cells per chunk side
@@ -29,6 +33,11 @@ interface Terrain3DProps {
   flyTarget: { u: number; v: number; token: number } | null;
   exaggeration: number;
   shape: Shape3D;
+  /** 'atlas' = the satellite-style raster; 'carta' = the hand-drawn map draped
+   *  over the relief, which is the whole point of this view. */
+  skin?: SkinMode;
+  theme?: CartoTheme;
+  geography?: HumanGeography;
   onPickWaypoint?: (id: string) => void;
 }
 
@@ -61,7 +70,10 @@ interface SceneRefs {
   disposed: boolean;
 }
 
-export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, shape, onPickWaypoint }: Terrain3DProps) {
+export default function Terrain3D({
+  world, waypoints, flyTarget, exaggeration, shape,
+  skin = 'atlas', theme = THEME_WONDER, geography, onPickWaypoint,
+}: Terrain3DProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const minimapRef = useRef<HTMLCanvasElement>(null);
@@ -86,7 +98,7 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
 
     // High-resolution worlds get a downsampled MESH (the texture stays full
     // resolution) — 2560×1280 would otherwise mean ~3.3M vertices.
-    const step = Math.max(1, Math.ceil(W / 1536));
+    const step = Math.max(1, Math.ceil(W / 1792));
     const Wm = Math.floor(W / step);
     const Hm = Math.floor(H / step);
     const unitM = SIZE_X / Wm;
@@ -113,35 +125,70 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
       }
     }
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    // Logarithmic depth: the scene spans ~0.5 to ~1700 units and the sea
+    // surface sits ~0.03 above flat coastal terrain — a linear depth buffer
+    // z-fights exactly there (speckled coasts).
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: 'high-performance',
+      logarithmicDepthBuffer: true,
+    });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
     renderer.domElement.style.display = 'block';
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0e16);
-    const fog = new THREE.Fog(0x0a0e16, sizeZ * 2.2, sizeZ * 6);
+    // On the drawn skin the void is warm paper, and the fog is the aerial
+    // perspective that does most of the painterly work: distant land drifts
+    // toward the sheet colour instead of toward black.
+    const voidColor = skin === 'carta'
+      ? new THREE.Color(theme.paper.grain)
+      : new THREE.Color(0x0a0e16);
+    scene.background = voidColor;
+    const fog = skin === 'carta'
+      ? new THREE.Fog(voidColor.getHex(), sizeZ * 0.32, sizeZ * 1.9)
+      : new THREE.Fog(0x0a0e16, sizeZ * 2.2, sizeZ * 6);
 
-    const camera = new THREE.PerspectiveCamera(50, 1, 0.2, sizeZ * 14);
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.5, sizeZ * 14);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
 
     // Lights — sun from the NW to match the 2D hillshade.
-    const sun = new THREE.DirectionalLight(0xfff2dd, 2.1);
+    // The drawn skin already carries its own light-from-the-upper-left shading
+    // inside every symbol, so the scene light is dialled back to shaping duty
+    // only — a full-strength sun would crush the ink it is lighting.
+    const sun = new THREE.DirectionalLight(
+      skin === 'carta' ? 0xfff4e2 : 0xfff2dd,
+      skin === 'carta' ? 1.25 : 2.1,
+    );
     sun.position.set(-SIZE_X * 0.35, sizeZ * 1.2, -sizeZ * 0.5);
     scene.add(sun);
-    const ambient = new THREE.AmbientLight(0xbfd0e0, 0.85);
+    const ambient = new THREE.AmbientLight(
+      skin === 'carta' ? 0xe8dcc0 : 0xbfd0e0,
+      skin === 'carta' ? 1.55 : 0.85,
+    );
     scene.add(ambient);
 
-    // ---- texture: unshaded atlas + rivers ---------------------------------
-    const rgba = renderComposite(world, 'atlas', true, { shade: false });
+    // ---- texture ----------------------------------------------------------
+    // Both skins are drawn WITHOUT baked relief shading: the scene's own lights
+    // supply the form, and a second NW hillshade in the texture would shade
+    // every slope twice.
     const mapCanvas = document.createElement('canvas');
-    mapCanvas.width = W;
-    mapCanvas.height = H;
-    mapCanvas.getContext('2d')!.putImageData(new ImageData(rgba, W, H), 0, 0);
+    if (skin === 'carta') {
+      const carto = getCartoTexture(world, theme, geography, Math.min(4096, Math.max(2048, W)));
+      mapCanvas.width = carto.width;
+      mapCanvas.height = carto.height;
+      mapCanvas.getContext('2d')!.drawImage(carto, 0, 0);
+    } else {
+      const rgba = renderComposite(world, 'atlas', true, { shade: false });
+      mapCanvas.width = W;
+      mapCanvas.height = H;
+      mapCanvas.getContext('2d')!.putImageData(new ImageData(rgba, W, H), 0, 0);
+    }
+    const TW = mapCanvas.width, TH = mapCanvas.height;
     const setupTexture = (tex: THREE.CanvasTexture): THREE.CanvasTexture => {
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.flipY = false;
@@ -159,22 +206,22 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
     // the cap into one clean tone. Built lazily, cached per variant.
     const makeSoftPolarCanvas = (softenSouth: boolean): HTMLCanvasElement => {
       const c = document.createElement('canvas');
-      c.width = W; c.height = H;
+      c.width = TW; c.height = TH;
       const cctx = c.getContext('2d')!;
       cctx.drawImage(mapCanvas, 0, 0);
-      const img = cctx.getImageData(0, 0, W, H);
+      const img = cctx.getImageData(0, 0, TW, TH);
       const d = img.data;
-      const B = Math.max(8, Math.round(H * 0.045));
+      const B = Math.max(8, Math.round(TH * 0.045));
       const softenRow = (row: number, wRow: number) => {
-        const off = row * W * 4;
+        const off = row * TW * 4;
         let r = 0, g = 0, b = 0;
-        for (let x = 0; x < W; x++) {
+        for (let x = 0; x < TW; x++) {
           r += d[off + x * 4];
           g += d[off + x * 4 + 1];
           b += d[off + x * 4 + 2];
         }
-        r /= W; g /= W; b /= W;
-        for (let x = 0; x < W; x++) {
+        r /= TW; g /= TW; b /= TW;
+        for (let x = 0; x < TW; x++) {
           const o = off + x * 4;
           d[o] = d[o] * (1 - wRow) + r * wRow;
           d[o + 1] = d[o + 1] * (1 - wRow) + g * wRow;
@@ -184,7 +231,7 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
       for (let k = 0; k < B; k++) {
         const wRow = Math.pow(1 - k / B, 1.4);
         softenRow(k, wRow);
-        if (softenSouth) softenRow(H - 1 - k, wRow);
+        if (softenSouth) softenRow(TH - 1 - k, wRow);
       }
       cctx.putImageData(img, 0, 0);
       return c;
@@ -386,8 +433,11 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
       }
 
       // -- water + base --
+      // The sea has to be the theme's own shallow tone, or the drawn coast rings
+      // stop at a differently coloured ocean.
+      const waterColor = skin === 'carta' ? new THREE.Color(theme.ocean.shallow).getHex() : undefined;
       const waterMat = new THREE.MeshPhongMaterial({
-        color: 0x2e6f8e,
+        color: waterColor ?? 0x2e6f8e,
         transparent: true,
         opacity: shp === 'globe' ? 0.78 : 0.72,
         shininess: 42,
@@ -401,27 +451,27 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
       if (shp === 'plane') {
         const water = new THREE.Mesh(new THREE.PlaneGeometry(SIZE_X, sizeZm), waterMat);
         water.rotation.x = -Math.PI / 2;
-        water.position.y = 0.02;
+        water.position.y = 0.035;
         terrainGroup.add(water);
         const slab = new THREE.Mesh(
           new THREE.BoxGeometry(SIZE_X, 2, sizeZm),
-          new THREE.MeshLambertMaterial({ color: 0x14141d }),
+          new THREE.MeshLambertMaterial({ color: skin === 'carta' ? new THREE.Color(theme.paper.grain).getHex() : 0x14141d }),
         );
         slab.position.y = -1.35;
         terrainGroup.add(slab);
       } else if (shp === 'globe') {
-        const water = new THREE.Mesh(new THREE.SphereGeometry(R_GLOBE + 0.02, 96, 64), waterMat);
+        const water = new THREE.Mesh(new THREE.SphereGeometry(R_GLOBE + 0.035, 96, 64), waterMat);
         terrainGroup.add(water);
       } else {
         const water = new THREE.Mesh(new THREE.CircleGeometry(R_DISC, 128), waterMat);
         water.rotation.x = -Math.PI / 2;
-        water.position.y = 0.02;
+        water.position.y = 0.035;
         terrainGroup.add(water);
         // The disc rides on a dark pedestal. (Elephants and turtle sold
         // separately.)
         const base = new THREE.Mesh(
           new THREE.CylinderGeometry(R_DISC + 0.6, R_DISC * 0.92, 3.2, 128),
-          new THREE.MeshLambertMaterial({ color: 0x14141d }),
+          new THREE.MeshLambertMaterial({ color: skin === 'carta' ? new THREE.Color(theme.paper.grain).getHex() : 0x14141d }),
         );
         base.position.y = -1.65;
         terrainGroup.add(base);
@@ -479,7 +529,7 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
     };
     refs.current = refsObj;
 
-    buildShape(shapeRef.current, exagRef.current);
+    buildShape(shapeRef.current, skinExaggeration(exagRef.current, skin));
 
     // ---- sizing --------------------------------------------------------------
     const fit = () => {
@@ -585,15 +635,15 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
       refs.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [world]);
+  }, [world, skin, theme, geography]);
 
   // ---- shape switching ---------------------------------------------------------
   useEffect(() => {
     shapeRef.current = shape;
     const r = refs.current;
     if (!r || r.currentShape === shape) return;
-    r.buildShape(shape, exagRef.current);
-    placeMarkers(r, world, waypoints, unit, sizeZ, R_GLOBE, R_DISC, exagRef.current);
+    r.buildShape(shape, skinExaggeration(exagRef.current, skin));
+    placeMarkers(r, world, waypoints, unit, sizeZ, R_GLOBE, R_DISC, skinExaggeration(exagRef.current, skin));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape]);
 
@@ -605,24 +655,25 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
     // StrictMode re-run) — a full height pass over ~1M vertices is not free.
     if (!r || r.appliedExag === exaggeration) return;
     r.appliedExag = exaggeration;
-    r.updateHeights(exaggeration);
-    placeMarkers(r, world, waypoints, unit, sizeZ, R_GLOBE, R_DISC, exaggeration);
-  }, [exaggeration, world, waypoints, unit, sizeZ, R_GLOBE, R_DISC]);
+    const eff = skinExaggeration(exaggeration, skin);
+    r.updateHeights(eff);
+    placeMarkers(r, world, waypoints, unit, sizeZ, R_GLOBE, R_DISC, eff);
+  }, [exaggeration, skin, world, waypoints, unit, sizeZ, R_GLOBE, R_DISC]);
 
   // ---- waypoint markers --------------------------------------------------------
   useEffect(() => {
     const r = refs.current;
     if (!r) return;
-    placeMarkers(r, world, waypoints, unit, sizeZ, R_GLOBE, R_DISC, exagRef.current);
-  }, [waypoints, world, unit, sizeZ, R_GLOBE, R_DISC]);
+    placeMarkers(r, world, waypoints, unit, sizeZ, R_GLOBE, R_DISC, skinExaggeration(exagRef.current, skin));
+  }, [waypoints, world, unit, sizeZ, R_GLOBE, R_DISC, skin]);
 
   // ---- fly-to -------------------------------------------------------------------
   useEffect(() => {
     if (!flyTarget) return;
     const r = refs.current;
     if (!r) return;
-    startFly(r, world, flyTarget.u, flyTarget.v, unit, sizeZ, R_GLOBE, R_DISC, exagRef.current);
-  }, [flyTarget, world, unit, sizeZ, R_GLOBE, R_DISC]);
+    startFly(r, world, flyTarget.u, flyTarget.v, unit, sizeZ, R_GLOBE, R_DISC, skinExaggeration(exagRef.current, skin));
+  }, [flyTarget, world, unit, sizeZ, R_GLOBE, R_DISC, skin]);
 
   // ---- minimap click → jump ------------------------------------------------------
   const handleMinimapClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -632,11 +683,31 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
     const rect = mc.getBoundingClientRect();
     const u = (e.clientX - rect.left) / rect.width;
     const v = (e.clientY - rect.top) / rect.height;
-    startFly(r, world, u, v, unit, sizeZ, R_GLOBE, R_DISC, exagRef.current);
+    startFly(r, world, u, v, unit, sizeZ, R_GLOBE, R_DISC, skinExaggeration(exagRef.current, skin));
   };
 
   return (
     <div ref={containerRef} className="absolute inset-0">
+      {skin === 'carta' && (
+        // Screen-space sheet: a vignette plus a faint tooth, laid over the
+        // finished frame. Doing it here rather than in the shader means it does
+        // not follow the terrain in perspective — which is correct, because the
+        // paper is in front of the scene, not part of it.
+        <div
+          className="absolute inset-0 z-[5] pointer-events-none mix-blend-multiply"
+          style={{
+            backgroundImage:
+              `radial-gradient(120% 90% at 50% 45%, rgba(255,255,255,0) 45%, ${theme.paper.stain}66 100%),`
+              + `url("data:image/svg+xml;utf8,${encodeURIComponent(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="140" height="140">'
+                + '<filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3"/>'
+                + '<feColorMatrix type="saturate" values="0"/></filter>'
+                + '<rect width="140" height="140" filter="url(#n)" opacity="0.16"/></svg>',
+              )}")`,
+            backgroundSize: 'cover, 140px 140px',
+          }}
+        />
+      )}
       <canvas
         ref={minimapRef}
         width={192}
@@ -659,6 +730,19 @@ export default function Terrain3D({ world, waypoints, flyTarget, exaggeration, s
  *  means the same thing whether the world grid is 768 or 2560 wide. */
 function elevKmToY(exag: number): number {
   return (SIZE_X / 1024) * exag * Y_PER_KM;
+}
+
+/**
+ * The drawn skin cannot take the same vertical scale as the satellite raster.
+ * Its mountain symbols are pictures of mountains; stretch the mesh under them
+ * and each symbol smears up the slope it is sitting on. A satellite texture has
+ * no such structure to distort, so it tolerates any exaggeration.
+ *
+ * Damping rather than clamping keeps the slider honest — it still does what it
+ * says, just over a range the texture survives.
+ */
+export function skinExaggeration(exag: number, skin: SkinMode): number {
+  return skin === 'carta' ? exag * 0.62 : exag;
 }
 
 /** Surface point + local up for normalized map coords, per shape. */

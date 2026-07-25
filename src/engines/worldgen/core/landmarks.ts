@@ -13,7 +13,7 @@
 // Greedy min-distance sampling keeps markers legible.
 
 import { createRng } from './rng';
-import { CylinderNoise } from './noise';
+import { SphereNoise } from './noise';
 import type { Landmark, RiverPath, WorldParams } from './types';
 
 export function detectLandmarks(
@@ -28,7 +28,7 @@ export function detectLandmarks(
   if (!params.landmarks) return [];
   const W = params.width, H = W >> 1;
   const rng = createRng(params.seed, 'landmarks');
-  const karstN = new CylinderNoise(params.seed, 'karst');
+  const karstN = new SphereNoise(params.seed, 'karst');
   const scale = W / 1024; // budgets scale with map size
 
   const out: Landmark[] = [];
@@ -93,7 +93,7 @@ export function detectLandmarks(
         if (e < 0.08 || e > 2.4 || lake[i]) continue;
         if (precipitation[i] < 420) continue;
         const u = (x + 0.5) / W;
-        const karst = karstN.fbm(u, v, 5, 3);
+        const karst = karstN.fbm(u, v, 5 * params.worldScale, 3);
         if (karst < 0.24) continue;
         // Relief: prefer hills/valley flanks over flats.
         const xr = x + 1 < W ? i + 1 : i + 1 - W;
