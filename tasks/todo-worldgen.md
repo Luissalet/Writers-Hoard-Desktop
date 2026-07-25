@@ -133,3 +133,54 @@ wants more resolution and more varied geography. Changes:
 - Verified: tsc/eslint/build clean; harness across seeds/presets shows
   multiple separated continents by default and a proper pangaea at
   clustering 0.95; live E2E green.
+
+## Update 3 (2026-07-24): spherical topology + realistic scale
+
+User feedback: polar terrain still pinched to infinity on the globe ("take
+the sphere into account when generating"), everything too big — one islet,
+not a world. Changes:
+
+- **Spherical generation**: all noise now sampled ON the unit sphere
+  (`SphereNoise`, was `CylinderNoise`) — isotropic features on the planet,
+  correctly E-W-stretched at the poles on the 2D equirect map. Plate seeds,
+  Mitchell scatter, continental clustering and hotspot/craton bumps use
+  great-circle (chord) distances; plate drift lives in 3D tangent frames
+  with pairwise convergence precomputed. Erosion/flow use latitude-corrected
+  neighbor distances and cell AREAS (cos lat) for drainage; sea level is an
+  area-weighted percentile; moisture advection divides the grid-x step by
+  cos lat. Z-fighting on coasts fixed with a logarithmic depth buffer +
+  slightly raised water surface.
+- **`worldScale` param** (0.75–2.5, default 1.5, slider "Escala del mundo"):
+  multiplies every feature frequency and divides physical widths/radii —
+  higher = smaller coastline wiggles, peninsulas, belts, islands relative to
+  the globe. Presets set their own.
+- **Resolution tiers now 1024 / 2048 / 3072** (default 2048); erosion
+  iterations scale down but total uplift is compensated; 3D mesh downsamples
+  above 1792 grid width; projection cache bounded at 4 maps.
+- Re-tuned after the rework: polar baseline colder (29 − 51·a^1.9), ice-cap
+  threshold −11 °C, collision/subduction belt amplitudes raised (peaks
+  ~3.5–4 km again), convergence gets a +0.35 baseline so weak collisions
+  still build real ranges.
+
+## Update 4 (2026-07-24): craton-based continents + polar band-limit
+
+User feedback: continents looked rectilinear/banana-shaped (they WERE the
+Voronoi plate polygons + boundary belts), and globe poles still crumpled
+(erosion carves per-column channels the sphere can't hold). Fixes:
+
+- **Craton fields**: continents are no longer plate polygons. Continental
+  plates get 1–2 "craton" cores; the landmass is the level-set of a fractal
+  field around them (spherical chord distance × fractal radius modulation) —
+  compact organic shapes with real bays/peninsulas, independent of plate
+  edges. Plate `baseHeight` is now the OCEAN FLOOR for every plate; belts,
+  cordilleras and rifts are gated by local crust (`crust*2+0.12`) so ranges
+  rise on land at sutures, and trenches are gated by `1−crust*1.8` so they
+  don't slice straight canals through overhanging landmasses. Boundary warp
+  restored to full amplitude (broad 0.055 + medium 0.028/0.042, NOT divided
+  by worldScale — weak warp made every border a straight geodesic).
+- **`polarBandlimit`** (pipeline, after erosion): per-row circular box blur
+  with window ∝ 1/cos(lat) enforces uniform physical bandwidth around each
+  parallel. Kills the radial pleats: azimuthal σ at 89° ≈ 72 m vs ~900 m at
+  mid-latitudes (was ~600 m+ at the pinch before).
+- Verified: tsc/eslint/build/E2E green; harness shows organic compact
+  continents (default) and an organic pangaea (clustering 0.95).

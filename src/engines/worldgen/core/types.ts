@@ -17,10 +17,20 @@ export interface WorldParams {
   /** 0–1: how tightly continental plates cluster. 0 = scattered continents,
    *  1 = everything welds into a pangaea. */
   continentClustering: number;
+  /** 0.75–2.5: how BIG the planet feels. Higher = every feature (coastline
+   *  wiggles, peninsulas, mountain belts, islands) is smaller relative to
+   *  the globe — a more realistic planetary scale. */
+  worldScale: number;
   /** 0–1: strength of mountain-building along plate collisions. */
   mountainousness: number;
   /** 0–1: small-scale roughness added on top of the tectonic base. */
   ruggedness: number;
+  /** 0–1: how convoluted the coastlines are. This is a real, measurable axis —
+   *  it sets the fractal dimension of the shoreline. 0 gives smooth, steep
+   *  margins like South Africa (D ≈ 1.02); 0.6 gives Britain (D ≈ 1.25); 1
+   *  gives fjord country. Works by domain-warping the landmass field and
+   *  raising the fBm gain, not by adding surface noise. */
+  coastalComplexity: number;
   /** 0–1: how strongly rivers carve the terrain (erosion iterations). */
   erosion: number;
   /** Global temperature offset in °C (-10 … +10). 0 = Earth-like. */
@@ -35,12 +45,14 @@ export interface WorldParams {
 
 export const DEFAULT_PARAMS: WorldParams = {
   seed: 'new-world',
-  width: 1536,
-  plates: 10,
+  width: 2048,
+  plates: 12,
   landRatio: 0.32,
   continentClustering: 0.25,
+  worldScale: 1.5,
   mountainousness: 0.6,
   ruggedness: 0.5,
+  coastalComplexity: 0.68,
   erosion: 0.6,
   temperature: 0,
   moisture: 1.0,

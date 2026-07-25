@@ -2,7 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { randomSeed } from '../randomSeed';
 import {
   Map as MapIcon, Box, Dices, Download, Waves, Flame, MapPin, Globe,
-  Loader2, X, ChevronDown, Send, Mountain,
+  Loader2, X, ChevronDown, Send, Mountain, ScrollText, Trees, Route, Landmark,
+  Signpost, Compass,
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -21,7 +22,13 @@ import { useWorldWaypoints } from '../hooks';
 import Map2D from './Map2D';
 import ParamsPanel from './ParamsPanel';
 import WaypointsPanel from './WaypointsPanel';
-import type { Shape3D } from './Terrain3D';
+import type { Shape3D, SkinMode } from './Terrain3D';
+import CartoMap from './CartoMap';
+import CityPlanView from './CityPlanView';
+import { THEMES, themeById } from '../cartography/theme';
+import { getGeography, renderCartoCanvas } from '../cartography/texture';
+import type { HumanGeography, Settlement } from '../core/settlements';
+import type { CartoLayers } from '../cartography/render';
 
 const Terrain3D = lazy(() => import('./Terrain3D'));
 
@@ -51,7 +58,15 @@ export default function WorldView({
 }: WorldViewProps) {
   const { t } = useTranslation();
   const [params, setParams] = useState<WorldParams>(() => normalizeParams(world.params));
-  const [view, setView] = useState<'map' | '3d'>('map');
+  const [view, setView] = useState<'map' | 'carta' | '3d'>('map');
+  const [themeId, setThemeId] = useState<string>('wonder');
+  const [skin3D, setSkin3D] = useState<SkinMode>('carta');
+  const [cityFor, setCityFor] = useState<Settlement | null>(null);
+  const [cartoLayers, setCartoLayers] = useState<Partial<CartoLayers>>({
+    relief: true, forests: true, labels: true, settlements: true,
+    roads: true, borders: false, frame: true, compass: true, scaleBar: true,
+  });
+  const [reliefAmount, setReliefAmount] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>('atlas');
   const [projection, setProjection] = useState<Projection>('equirect');
   const [shape3D, setShape3D] = useState<Shape3D>('plane');
@@ -113,6 +128,30 @@ export default function WorldView({
     setPanelTab('waypoints');
   }
 
+  // Human geography costs ~2 s on a 1024-wide world. Computing it inside a
+  // render would freeze the toolbar mid-click, so it is kicked off in an effect
+  // the first time a view that needs it is opened, and cached on the world.
+  const [geography, setGeography] = useState<HumanGeography | null>(null);
+  const [geoBusy, setGeoBusy] = useState(false);
+  const needsGeo = view === 'carta' || (view === '3d' && skin3D === 'carta');
+  useEffect(() => {
+    setGeography(null);
+  }, [data]);
+  useEffect(() => {
+    if (!needsGeo || !data || geography) return;
+    setGeoBusy(true);
+    const id = window.setTimeout(() => {
+      try {
+        setGeography(getGeography(data));
+      } finally {
+        setGeoBusy(false);
+      }
+    }, 30);
+    return () => window.clearTimeout(id);
+  }, [needsGeo, data, geography]);
+
+  const theme = useMemo(() => themeById(themeId), [themeId]);
+
   const handleGenerate = useCallback(() => {
     onSaveParams(params);
     generate(params);
@@ -161,6 +200,25 @@ export default function WorldView({
     }, 'image/png');
     setExportOpen(false);
   }, [data, viewMode, showRivers, projection, world.title]);
+
+  const exportCarta = useCallback(() => {
+    if (!data) return;
+    setExportOpen(false);
+    const canvas = renderCartoCanvas(data, {
+      theme,
+      width: 4096,
+      height: 2048,
+      layers: cartoLayers,
+      reliefAmount,
+      geography: geography ?? undefined,
+      title: world.title,
+      subtitle: t('worldgen.export.atlasSuffix'),
+      typeScale: 1.5,
+    });
+    canvas.toBlob((blob) => {
+      if (blob) saveAs(blob, `${safeName(world.title)}-carta.png`);
+    }, 'image/png');
+  }, [data, theme, cartoLayers, reliefAmount, geography, world.title, t]);
 
   const exportHeightmap = useCallback(() => {
     if (!data) return;
@@ -226,6 +284,7 @@ export default function WorldView({
         {/* View switch */}
         <div className="flex rounded-lg border border-border overflow-hidden">
           <ToolbarTab active={view === 'map'} onClick={() => setView('map')} icon={MapIcon} label={t('worldgen.view.map')} />
+          <ToolbarTab active={view === 'carta'} onClick={() => setView('carta')} icon={ScrollText} label="Carta" disabled={!data} />
           <ToolbarTab active={view === '3d'} onClick={() => setView('3d')} icon={Box} label={t('worldgen.view.terrain')} disabled={!data} />
         </div>
 
@@ -252,6 +311,59 @@ export default function WorldView({
               ))}
             </select>
           </>
+        )}
+
+        {/* Carta: theme, layer toggles, relief density */}
+        {(view === 'carta' || (view === '3d' && skin3D === 'carta')) && (
+          <select
+            value={themeId}
+            onChange={(e) => setThemeId(e.target.value)}
+            title="Estilo cartográfico"
+            className="bg-elevated border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-gold/60"
+          >
+            {THEMES.map((th) => (
+              <option key={th.id} value={th.id}>{th.name}</option>
+            ))}
+          </select>
+        )}
+        {view === 'carta' && (
+          <>
+            <div className="flex items-center gap-1">
+              <OverlayToggle active={cartoLayers.forests !== false} onClick={() => setCartoLayers((l) => ({ ...l, forests: l.forests === false }))} icon={Trees} title="Bosques" />
+              <OverlayToggle active={cartoLayers.roads !== false} onClick={() => setCartoLayers((l) => ({ ...l, roads: l.roads === false }))} icon={Route} title="Caminos" />
+              <OverlayToggle active={cartoLayers.settlements !== false} onClick={() => setCartoLayers((l) => ({ ...l, settlements: l.settlements === false }))} icon={Landmark} title="Ciudades" />
+              <OverlayToggle active={cartoLayers.labels !== false} onClick={() => setCartoLayers((l) => ({ ...l, labels: l.labels === false }))} icon={Signpost} title="Nombres" />
+              <OverlayToggle active={cartoLayers.borders === true} onClick={() => setCartoLayers((l) => ({ ...l, borders: l.borders !== true }))} icon={Globe} title="Fronteras" />
+              <OverlayToggle active={cartoLayers.frame !== false} onClick={() => setCartoLayers((l) => ({ ...l, frame: l.frame === false, compass: l.frame === false, scaleBar: l.frame === false }))} icon={Compass} title="Marco y rosa de los vientos" />
+            </div>
+            <label className="flex items-center gap-1.5 text-[11px] text-text-muted" title="Cuánta tierra recibe símbolos de relieve">
+              Relieve
+              <input
+                type="range" min={0.3} max={2} step={0.1}
+                value={reliefAmount}
+                onChange={(e) => setReliefAmount(Number(e.target.value))}
+                className="w-20 accent-accent-gold"
+              />
+            </label>
+          </>
+        )}
+
+        {/* 3D skin switch */}
+        {view === '3d' && (
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button
+              onClick={() => setSkin3D('carta')}
+              className={`px-3 py-1.5 text-xs transition ${skin3D === 'carta' ? 'bg-accent-gold/15 text-accent-gold' : 'bg-elevated text-text-muted hover:text-text-primary'}`}
+            >
+              Dibujado
+            </button>
+            <button
+              onClick={() => setSkin3D('atlas')}
+              className={`px-3 py-1.5 text-xs transition ${skin3D === 'atlas' ? 'bg-accent-gold/15 text-accent-gold' : 'bg-elevated text-text-muted hover:text-text-primary'}`}
+            >
+              Satélite
+            </button>
+          </div>
         )}
 
         {/* 3D shape switch */}
@@ -299,6 +411,7 @@ export default function WorldView({
           {exportOpen && data && (
             <div className="absolute right-0 top-full mt-1 z-30 w-56 rounded-lg border border-border bg-elevated shadow-xl shadow-black/40 py-1">
               <ExportItem icon={Download} label={t('worldgen.export.png')} onClick={exportPng} />
+              <ExportItem icon={ScrollText} label="Carta dibujada (4K)" onClick={exportCarta} />
               <ExportItem icon={Mountain} label={t('worldgen.export.heightmap')} onClick={exportHeightmap} />
               <ExportItem icon={Send} label={t('worldgen.export.sendToMaps')} onClick={sendToMaps} />
             </div>
@@ -326,6 +439,21 @@ export default function WorldView({
               onFlyTo={flyTo}
             />
           )}
+          {data && view === 'carta' && (
+            geoBusy || !geography ? <EngineSpinner /> : (
+              <CartoMap
+                world={data}
+                theme={theme}
+                geography={geography}
+                layers={cartoLayers}
+                density={1}
+                reliefAmount={reliefAmount}
+                title={world.title}
+                subtitle={t('worldgen.export.atlasSuffix')}
+                onPickSettlement={setCityFor}
+              />
+            )
+          )}
           {data && view === '3d' && (
             <Suspense fallback={<EngineSpinner />}>
               <Terrain3D
@@ -334,6 +462,9 @@ export default function WorldView({
                 flyTarget={flyTarget}
                 exaggeration={exaggeration}
                 shape={shape3D}
+                skin={skin3D}
+                theme={theme}
+                geography={geography ?? undefined}
                 onPickWaypoint={(id) => {
                   setSelectedWaypointId(id);
                   setPanelTab('waypoints');
@@ -462,7 +593,23 @@ export default function WorldView({
               .replace('{landmarks}', String(data.landmarks.length))}
           </span>
         )}
+        {view === 'carta' && geography && (
+          <span className="ml-3">
+            {geography.settlements.length} asentamientos · {geography.realms.length} reinos ·
+            {' '}pincha una ciudad para ver su plano
+          </span>
+        )}
       </div>
+
+      {/* ---- City plan ---- */}
+      {data && cityFor && (
+        <CityPlanView
+          world={data}
+          settlement={cityFor}
+          theme={theme}
+          onClose={() => setCityFor(null)}
+        />
+      )}
     </div>
   );
 }
