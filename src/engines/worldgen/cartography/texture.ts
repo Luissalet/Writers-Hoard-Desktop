@@ -13,19 +13,132 @@ import type { Ctx } from './symbols';
 
 // A world object is identity-stable for as long as it is loaded, so a WeakMap
 // keyed on it is exactly the right cache lifetime.
-const GEO_CACHE = new WeakMap<WorldData, { key: string; geo: HumanGeography }>();
+interface GeoEntry {
+  key: string;
+  rev: number;
+  geo: HumanGeography;
+  /** The last FULLY rebuilt geography, and the revision it was built at. */
+  base: HumanGeography;
+  baseRev: number;
+}
+const GEO_CACHE = new WeakMap<WorldData, GeoEntry>();
 
-/** Human geography for a world, computed at most once per parameter set. */
+/**
+ * Human geography for a world.
+ *
+ * Building it fully costs ~4 s on a 1024-wide world: cultures, a language
+ * family with regular sound changes, settlement siting, realms by flood fill,
+ * roads by A*, landform extraction, ruin siting and 176 place names. Keying the
+ * cache on the world's revision therefore meant that every single brush stroke
+ * spent four seconds recomputing the languages of a planet because the reader
+ * had raised two hundred cells of ground — which is most of what "va lentillo"
+ * was actually made of.
+ *
+ * So a stroke gets a PATCH, not a rebuild: painted marks appear immediately and
+ * anything that drowned disappears, while roads, realms and names stay as they
+ * were. `rebuildGeography` forces the full pass when it is genuinely wanted —
+ * the caller schedules it once the reader stops painting.
+ */
 export function getGeography(world: WorldData, params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS): HumanGeography {
   const key = JSON.stringify(params);
+  const rev = world.revision ?? 0;
   const hit = GEO_CACHE.get(world);
-  if (hit && hit.key === key) return hit.geo;
-  const geo = buildHumanGeography(world, params);
-  GEO_CACHE.set(world, { key, geo });
-  return geo;
+  if (hit && hit.key === key && hit.rev === rev) return hit.geo;
+  if (hit && hit.key === key) {
+    const geo = patchGeography(world, hit.base);
+    GEO_CACHE.set(world, { ...hit, rev, geo });
+    return geo;
+  }
+  const base = buildHumanGeography(world, params);
+  GEO_CACHE.set(world, { key, rev, geo: base, base, baseRev: rev });
+  return base;
+}
+
+/** Force the full pass and adopt the result as the new base. */
+export function rebuildGeography(
+  world: WorldData,
+  params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS,
+): HumanGeography {
+  const key = JSON.stringify(params);
+  const rev = world.revision ?? 0;
+  const base = buildHumanGeography(world, params);
+  GEO_CACHE.set(world, { key, rev, geo: base, base, baseRev: rev });
+  return base;
+}
+
+/** True when the cached geography is a patch rather than a full build. */
+export function geographyIsStale(world: WorldData): boolean {
+  const hit = GEO_CACHE.get(world);
+  return !!hit && hit.baseRev !== (world.revision ?? 0);
+}
+
+/**
+ * Cheap update of a geography after an edit.
+ *
+ * Everything here is O(settlements + ruins), which on any world is a few hundred
+ * items. Nothing that costs a pass over the grid is allowed in this function.
+ */
+function patchGeography(world: WorldData, base: HumanGeography): HumanGeography {
+  const W = world.width, H = world.height;
+  const at = (x: number, y: number) => {
+    const yy = Math.min(H - 1, Math.max(0, Math.round(y)));
+    return yy * W + (((Math.round(x) % W) + W) % W);
+  };
+  const drowned = (x: number, y: number) => world.elevation[at(x, y)] <= 0;
+  const kOf = (x: number, y: number) => `${Math.round(x)},${Math.round(y)}`;
+
+  const settlements = base.settlements.filter((s) => !drowned(s.x, s.y));
+  const ruins = base.ruins.filter((r) => !drowned(r.x, r.y));
+  const haveS = new Set(settlements.map((s) => kOf(s.x, s.y)));
+  const haveR = new Set(ruins.map((r) => kOf(r.x, r.y)));
+
+  let nextId = settlements.reduce((m, s) => Math.max(m, s.id), 0) + 1;
+  for (const m of world.painted?.markers ?? []) {
+    const k = kOf(m.x, m.y);
+    if (m.marker === 'settlement') {
+      if (haveS.has(k) || drowned(m.x, m.y)) continue;
+      haveS.add(k);
+      const rank = m.rank ?? 'town';
+      settlements.push({
+        id: nextId++,
+        x: Math.round(m.x), y: Math.round(m.y),
+        // Named on the next full pass, when the language machinery is running.
+        name: m.name ?? '·',
+        culture: settlements[0]?.culture ?? 'imperial',
+        rank,
+        population: m.population
+          ?? (rank === 'capital' ? 42000 : rank === 'city' ? 16000 : rank === 'town' ? 3800 : 700),
+        port: false,
+        river: false,
+        realm: base.realmOf[at(m.x, m.y)] ?? -1,
+        score: 1,
+        painted: true,
+      });
+    } else if (m.marker === 'ruin') {
+      if (haveR.has(k) || drowned(m.x, m.y)) continue;
+      haveR.add(k);
+      ruins.push({
+        id: ruins.length,
+        kind: m.ruin ?? 'city',
+        x: Math.round(m.x), y: Math.round(m.y),
+        name: m.name ?? '·',
+        condition: 'overgrown',
+        site: 'holy',
+        importance: 0.72,
+        painted: true,
+      });
+    }
+  }
+
+  // Roads and realm borders are left exactly as they were: they are wrong in the
+  // painted area until the next full pass, and being wrong for a second beats
+  // being right four seconds after every stroke.
+  return { ...base, settlements, ruins };
 }
 
 export interface CartoCanvasOptions {
+  /** GPU base pass, when the caller has one. */
+  drawBase?: (w: number, h: number, view: CartoView) => CanvasImageSource | null;
   theme: CartoTheme;
   width: number;
   height: number;
@@ -58,11 +171,12 @@ export function renderCartoCanvas(world: WorldData, opts: CartoCanvasOptions): H
     title: opts.title,
     subtitle: opts.subtitle,
     geography: opts.geography,
+    drawBase: opts.drawBase,
   });
   return canvas;
 }
 
-const TEX_CACHE = new WeakMap<WorldData, Map<string, HTMLCanvasElement>>();
+const TEX_CACHE = new WeakMap<WorldData, { rev: number; map: Map<string, HTMLCanvasElement> }>();
 
 /**
  * Whole-world cartographic texture for the 3D view.
@@ -81,8 +195,10 @@ export function getCartoTexture(
   geography: HumanGeography | undefined,
   size = 2048,
 ): HTMLCanvasElement {
-  let per = TEX_CACHE.get(world);
-  if (!per) TEX_CACHE.set(world, (per = new Map()));
+  const rev = world.revision ?? 0;
+  let entry = TEX_CACHE.get(world);
+  if (!entry || entry.rev !== rev) TEX_CACHE.set(world, (entry = { rev, map: new Map() }));
+  const per = entry.map;
   const key = `${theme.id}:${size}:${geography ? 'geo' : 'bare'}`;
   const hit = per.get(key);
   if (hit) return hit;

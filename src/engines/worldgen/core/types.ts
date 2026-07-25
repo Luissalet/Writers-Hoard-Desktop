@@ -31,6 +31,10 @@ export interface WorldParams {
    *  gives fjord country. Works by domain-warping the landmass field and
    *  raising the fBm gain, not by adding surface noise. */
   coastalComplexity: number;
+  /** 0–1: how heavily ice carved the world. Glacial troughs cut BELOW sea level,
+   *  which is the only way to get real fjords, hanging valleys and skerries.
+   *  0 = an ice-free world; 0.5 = Earth-like; 1 = fjords into the mid-latitudes. */
+  glaciation: number;
   /** 0–1: how strongly rivers carve the terrain (erosion iterations). */
   erosion: number;
   /** Global temperature offset in °C (-10 … +10). 0 = Earth-like. */
@@ -53,6 +57,7 @@ export const DEFAULT_PARAMS: WorldParams = {
   mountainousness: 0.6,
   ruggedness: 0.5,
   coastalComplexity: 0.68,
+  glaciation: 0.55,
   erosion: 0.6,
   temperature: 0,
   moisture: 1.0,
@@ -85,9 +90,38 @@ export const Biome = {
   Glacier: 15,
   Beach: 16,
   SaltFlat: 17,
+  // --- added with the ecology overhaul; appended so existing indices hold ---
+  /** Tidal forest on a sheltered warm coast. */
+  Mangrove: 18,
+  /** Tidal grassland on a sheltered cool coast. */
+  SaltMarsh: 19,
+  /** Freshwater wetland: reeds, standing water, no trees. */
+  Marsh: 20,
+  /** Cold waterlogged flatland: sphagnum, peat, pools. */
+  PeatBog: 21,
+  /** Semi-arid grassland — drier and shorter than prairie. */
+  Steppe: 22,
+  /** Mediterranean scrub: dry summers, hard evergreen leaves. */
+  Chaparral: 23,
+  /** Seasonally deciduous tropical forest. */
+  MonsoonForest: 24,
+  /** Tropical montane forest, permanently in cloud. */
+  CloudForest: 25,
+  /** The conifer belt below the treeline. */
+  MontaneForest: 26,
+  /** Turf above the treeline, below the rock. */
+  AlpineMeadow: 27,
+  /** Sand sea. */
+  Erg: 28,
+  /** Stone desert, wind-stripped. */
+  Reg: 29,
+  /** Arid, eroded, high-relief waste. */
+  Badlands: 30,
+  /** Gallery forest along a river in dry country. */
+  RiparianForest: 31,
 } as const;
 export type BiomeId = (typeof Biome)[keyof typeof Biome];
-export const BIOME_COUNT = 18;
+export const BIOME_COUNT = 32;
 
 export type LandmarkType =
   | 'volcano'
@@ -95,6 +129,18 @@ export type LandmarkType =
   | 'waterfall'
   | 'gorge'
   | 'hotspring';
+
+/**
+ * What kind of abandoned structure stands on a site.
+ *
+ * Lives here rather than beside either the ruin generator or the paint engine
+ * because both produce ruins — one from geography, one from the brush — and the
+ * renderer must not care which.
+ */
+export type RuinKind = 'city' | 'fort' | 'tower' | 'temple' | 'stones' | 'bridge' | 'mine' | 'wall';
+
+/** What a hand-placed mark on the map represents. */
+export type MarkerKind = 'settlement' | 'ruin' | 'landmark';
 
 export interface Landmark {
   type: LandmarkType;
@@ -138,6 +184,31 @@ export interface WorldData {
   landmarks: Landmark[];
   /** Plate kinematics for the plates view (per plate: sx, sy = seed cell; dx, dy = drift). */
   plateInfo: { seedX: number; seedY: number; driftX: number; driftY: number; oceanic: boolean }[];
+  /** Ocean surface current, eastward component (0 on land). */
+  currentU: Float32Array;
+  /** Ocean surface current, southward component (0 on land). */
+  currentV: Float32Array;
+  /** Sea-surface temperature anomaly in °C from the zonal mean. */
+  sst: Float32Array;
+  /** Current speed 0–1, for the currents view. */
+  currentSpeed: Float32Array;
+  /** Ice thickness proxy 0–1 at the glacial maximum. */
+  ice: Float32Array;
+  /**
+   * Bumped every time the world is mutated by an edit. Downstream caches key on
+   * it, so a painted stroke cannot leave a stale coastline, biome tint or symbol
+   * layout behind — which it did, until this existed.
+   */
+  revision: number;
+  /**
+   * What the last `applyEdits` produced that isn't a raster field: hand-placed
+   * markers, hand-written labels, hand-drawn rivers.
+   *
+   * It lives on the world rather than being threaded through every renderer
+   * argument list so that a painted town is indistinguishable from a generated
+   * one by the time anything draws it.
+   */
+  painted?: import('./edits').AppliedEdits;
 }
 
 export type ViewMode =
@@ -146,7 +217,9 @@ export type ViewMode =
   | 'temperature'
   | 'precipitation'
   | 'plates'
-  | 'flow';
+  | 'flow'
+  | 'currents'
+  | 'glaciers';
 
 /** Progress callback: stage key + overall 0–1. */
 export type ProgressFn = (stage: string, overall: number) => void;
@@ -167,6 +240,12 @@ export interface WorldTransfer {
   rivers: { cells: ArrayBuffer; flow: number }[];
   landmarks: Landmark[];
   plateInfo: WorldData['plateInfo'];
+  currentU: ArrayBuffer;
+  currentV: ArrayBuffer;
+  sst: ArrayBuffer;
+  currentSpeed: ArrayBuffer;
+  ice: ArrayBuffer;
+  revision: number;
 }
 
 export function packWorld(w: WorldData): { transfer: WorldTransfer; buffers: ArrayBuffer[] } {
@@ -185,6 +264,12 @@ export function packWorld(w: WorldData): { transfer: WorldTransfer; buffers: Arr
     rivers: w.rivers.map((r) => ({ cells: r.cells.buffer as ArrayBuffer, flow: r.flow })),
     landmarks: w.landmarks,
     plateInfo: w.plateInfo,
+    currentU: w.currentU.buffer as ArrayBuffer,
+    currentV: w.currentV.buffer as ArrayBuffer,
+    sst: w.sst.buffer as ArrayBuffer,
+    currentSpeed: w.currentSpeed.buffer as ArrayBuffer,
+    ice: w.ice.buffer as ArrayBuffer,
+    revision: w.revision,
   };
   const buffers = [
     transfer.elevation,
@@ -195,6 +280,11 @@ export function packWorld(w: WorldData): { transfer: WorldTransfer; buffers: Arr
     transfer.biome,
     transfer.flow,
     transfer.lake,
+    transfer.currentU,
+    transfer.currentV,
+    transfer.sst,
+    transfer.currentSpeed,
+    transfer.ice,
     ...transfer.rivers.map((r) => r.cells),
   ];
   return { transfer, buffers };
@@ -216,5 +306,11 @@ export function unpackWorld(t: WorldTransfer): WorldData {
     rivers: t.rivers.map((r) => ({ cells: new Uint32Array(r.cells), flow: r.flow })),
     landmarks: t.landmarks,
     plateInfo: t.plateInfo,
+    currentU: new Float32Array(t.currentU),
+    currentV: new Float32Array(t.currentV),
+    sst: new Float32Array(t.sst),
+    currentSpeed: new Float32Array(t.currentSpeed),
+    ice: new Float32Array(t.ice),
+    revision: t.revision ?? 0,
   };
 }

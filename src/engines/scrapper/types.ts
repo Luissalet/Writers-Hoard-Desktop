@@ -22,6 +22,18 @@ export interface Snapshot {
   extractedText?: string;
   htmlContent?: string;
   screenshotBase64?: string;
+  // --- Archived web page (desktop): PDF print + full-page shot + rendered HTML ---
+  // All three live on disk under the scrapper-media root, same as downloaded
+  // media — a page archive is megabytes, far too heavy for IndexedDB.
+  /** "<projectId>/<snapshotId>.pdf" — the page printed at screen width. */
+  capturePdfPath?: string;
+  /** "<projectId>/<snapshotId>.png" — full-page screenshot. */
+  captureImagePath?: string;
+  /** "<projectId>/<snapshotId>.html" — fully rendered HTML archive. */
+  captureHtmlPath?: string;
+  /** Lifecycle of the page archive. Absent = never attempted (link-only). */
+  captureState?: 'idle' | 'capturing' | 'done' | 'error';
+  captureError?: string;
   // --- Downloaded media (desktop): the link's video/audio saved to local disk ---
   /** Path relative to the scrapper-media root, e.g. "<projectId>/<snapshotId>.mp4". */
   localMediaPath?: string;

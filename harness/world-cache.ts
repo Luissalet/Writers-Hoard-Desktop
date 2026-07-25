@@ -49,7 +49,7 @@ export function getWorld(overrides: Partial<WorldParams> = {}): WorldData {
   const { transfer } = packWorld(world);
   const layout: [string, number][] = [];
   const chunks: ArrayBuffer[] = [];
-  for (const name of ['elevation', 'plateId', 'boundary', 'temperature', 'precipitation', 'biome', 'flow', 'lake'] as const) {
+  for (const name of ['elevation', 'plateId', 'boundary', 'temperature', 'precipitation', 'biome', 'flow', 'lake', 'currentU', 'currentV', 'sst', 'currentSpeed', 'ice'] as const) {
     const b = transfer[name];
     layout.push([name, b.byteLength]);
     chunks.push(b);
@@ -67,7 +67,7 @@ export function getWorld(overrides: Partial<WorldParams> = {}): WorldData {
   writeFileSync(bin, out);
   writeFileSync(file, JSON.stringify({
     width: transfer.width, height: transfer.height, params: transfer.params,
-    landmarks: transfer.landmarks, plateInfo: transfer.plateInfo,
+    landmarks: transfer.landmarks, plateInfo: transfer.plateInfo, revision: 0,
     __layout: layout, __riverFlows: riverFlows,
   }));
   // re-read so callers always get a fresh (non-detached) copy

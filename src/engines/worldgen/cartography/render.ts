@@ -13,9 +13,9 @@
 // low minutes, and it is the only way to get the coast rings to respect real
 // geodesic distance instead of a blurred alpha mask.
 
-import { Biome, type BiomeId, type WorldData } from '../core/types';
+import { Biome, type WorldData } from '../core/types';
 import { createRng, type Rng } from '../core/rng';
-import { blur, distanceTo, labelLandmasses, localRelief, ridgeMask, sampleField, scatterByScore, traceRidgeChains } from './fields';
+import { blur, distanceTo, labelLandmasses, localRelief, ridgeMask, scatterByScore, traceRidgeChains } from './fields';
 import { chaikin, marchingSquares, resample, simplify, wobble, type Contour, type Pt } from './contours';
 import { renderPaper } from './paper';
 import { drawBroadleaf, drawCactus, drawConifer, drawDune, drawMarsh, drawMountain, drawPalm, type Ctx } from './symbols';
@@ -93,6 +93,23 @@ export interface CartoOptions {
   /** Creates an offscreen drawing surface (needed for the paper composite).
    *  Defaults to OffscreenCanvas / document.createElement in the browser. */
   createSurface?: (w: number, h: number) => { ctx: Ctx; canvas: unknown };
+  /**
+   * Draws the raster base and returns something `drawImage` accepts, replacing
+   * the CPU pixel loop.
+   *
+   * This is the seam the GPU path goes through. Keeping it as an injected
+   * function rather than an import means the renderer stays a pure function of
+   * its inputs, still runs under node in the harness, and falls back to the CPU
+   * automatically wherever WebGL is missing.
+   */
+  drawBase?: (w: number, h: number, view: CartoView) => CanvasImageSource | null;
+  /**
+   * Collects symbol placements instead of drawing them, so a GPU pass can issue
+   * all of them in one instanced call. When present, the canvas2D symbol drawing
+   * is skipped entirely and `drawSymbols` composites the result.
+   */
+  emitSymbol?: (s: EmittedSymbol) => void;
+  drawSymbols?: (w: number, h: number) => CanvasImageSource | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,11 +131,16 @@ export interface CartoFields {
   reliefQuantile: (q: number) => number;
 }
 
-const FIELD_CACHE = new WeakMap<WorldData, CartoFields>();
+// Every cache below is keyed on the world object AND its revision. Keying on the
+// object alone meant that painting a stroke left the old coastline, the old biome
+// washes and the old symbol layout in place — the edit was in the data and
+// invisible on the map.
+const FIELD_CACHE = new WeakMap<WorldData, { rev: number; fields: CartoFields }>();
 
 export function computeFields(world: WorldData): CartoFields {
+  const rev = world.revision ?? 0;
   const cached = FIELD_CACHE.get(world);
-  if (cached) return cached;
+  if (cached && cached.rev === rev) return cached.fields;
   const { width: W, height: H, elevation } = world;
   const land = new Uint8Array(W * H);
   const sea = new Uint8Array(W * H);
@@ -144,16 +166,22 @@ export function computeFields(world: WorldData): CartoFields {
   const ridges = ridgeMask(elevation, relief, W, H, Math.max(0.02, reliefQuantile(0.6)));
   const { label } = labelLandmasses(elevation, W, H);
   const fields: CartoFields = { land, seaDist, landDist, relief, ridges, landmass: label, reliefQuantile };
-  FIELD_CACHE.set(world, fields);
+  FIELD_CACHE.set(world, { rev, fields });
   return fields;
 }
 
 interface TintField { r: Float32Array; g: Float32Array; b: Float32Array; a: Float32Array }
-const TINT_CACHE = new WeakMap<WorldData, Map<string, TintField>>();
+const TINT_CACHE = new WeakMap<WorldData, { rev: number; map: Map<string, TintField> }>();
+
+export function getTintFieldFor(world: WorldData, theme: CartoTheme): TintField {
+  return getTintField(world, theme);
+}
 
 function getTintField(world: WorldData, theme: CartoTheme): TintField {
-  let perTheme = TINT_CACHE.get(world);
-  if (!perTheme) TINT_CACHE.set(world, (perTheme = new Map()));
+  const rev = world.revision ?? 0;
+  let entry = TINT_CACHE.get(world);
+  if (!entry || entry.rev !== rev) TINT_CACHE.set(world, (entry = { rev, map: new Map() }));
+  const perTheme = entry.map;
   const hit = perTheme.get(theme.id);
   if (hit) return hit;
 
@@ -182,6 +210,79 @@ function getTintField(world: WorldData, theme: CartoTheme): TintField {
   return field;
 }
 
+/**
+ * Paper cache. The sheet depends on the seed, the theme and the output size —
+ * NOT on the view. Regenerating it per pan was 76% of every redraw, which is
+ * what made panning feel like the renderer had died.
+ *
+ * A tiny LRU rather than a WeakMap: the key is a string, and two entries is
+ * enough to survive a theme toggle without holding several megabytes each.
+ */
+interface PaperEntry { key: string; px: Uint8ClampedArray }
+const PAPER_LRU: PaperEntry[] = [];
+const PAPER_LRU_MAX = 3;
+
+function getPaper(seed: string, theme: CartoTheme, W: number, H: number): Uint8ClampedArray {
+  const key = `${seed}|${theme.id}|${W}x${H}`;
+  const hit = PAPER_LRU.findIndex((e) => e.key === key);
+  if (hit >= 0) {
+    const [entry] = PAPER_LRU.splice(hit, 1);
+    PAPER_LRU.unshift(entry);
+    return entry.px;
+  }
+  const px = renderPaper({ width: W, height: H, seed, theme });
+  PAPER_LRU.unshift({ key, px });
+  if (PAPER_LRU.length > PAPER_LRU_MAX) PAPER_LRU.length = PAPER_LRU_MAX;
+  return px;
+}
+
+/**
+ * Symbol placement cache.
+ *
+ * Placement runs a greedy blue-noise rejection over the whole world grid, which
+ * costs the same regardless of how much of the world is on screen. It used to
+ * also REJECT out-of-view candidates inside that greedy pass — which not only
+ * made it impossible to cache, it made the layout depend on where the reader was
+ * looking: pan, and the surviving symbols reshuffled. Placement is now global
+ * and view-independent, cached per zoom bucket, and the view filter happens at
+ * draw time where it belongs.
+ */
+export interface SymbolPlacement { x: number; y: number; score: number; isHill: boolean }
+interface PlacementEntry { key: string; items: SymbolPlacement[] }
+const PLACE_CACHE = new WeakMap<WorldData, { rev: number; list: PlacementEntry[] }>();
+const PLACE_MAX = 8;
+
+/** Quarter-octave zoom buckets: panning never changes the bucket, and zooming
+ *  reuses a placement across a 19% span of scale. Symbol SIZE still tracks the
+ *  live scale continuously, so nothing pops. */
+function scaleBucket(scale: number): number {
+  return Math.pow(2, Math.round(Math.log2(Math.max(1e-3, scale)) * 4) / 4);
+}
+
+function cachedPlacement(
+  world: WorldData,
+  key: string,
+  compute: (bucketScale: number) => SymbolPlacement[],
+  scale: number,
+): SymbolPlacement[] {
+  const rev = world.revision ?? 0;
+  let entry = PLACE_CACHE.get(world);
+  if (!entry || entry.rev !== rev) PLACE_CACHE.set(world, (entry = { rev, list: [] }));
+  const list = entry.list;
+  const bs = scaleBucket(scale);
+  const full = `${key}|${bs.toFixed(4)}`;
+  const hit = list.findIndex((e) => e.key === full);
+  if (hit >= 0) {
+    const [entry] = list.splice(hit, 1);
+    list.unshift(entry);
+    return entry.items;
+  }
+  const items = compute(bs);
+  list.unshift({ key: full, items });
+  if (list.length > PLACE_MAX) list.length = PLACE_MAX;
+  return items;
+}
+
 // ---------------------------------------------------------------------------
 // Colour helpers
 // ---------------------------------------------------------------------------
@@ -198,6 +299,18 @@ function rgbCss(r: number, g: number, b: number): string {
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
+
+/** A symbol placement in OUTPUT PIXELS, anchored at its feet. */
+export interface EmittedSymbol {
+  kind: 'mountain' | 'hill' | 'conifer' | 'broadleaf' | 'palm' | 'cactus' | 'dune' | 'marsh';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** 0–1 selector for the pre-rendered variant. */
+  variant: number;
+  snow: number;
+}
 
 export interface CartoResult {
   /** Screen transform actually used, for callers that need to place overlays. */
@@ -221,10 +334,15 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
   const toScreenY = (wy: number) => (wy - view.y) * scale;
 
   // ---- stage 1: the raster base ------------------------------------------
-  const base = renderBaseRaster(world, fields, opts, view, scale, L);
-  const img = ctx.createImageData(OW, OH);
-  img.data.set(base);
-  ctx.putImageData(img, 0, 0);
+  const gpu = opts.drawBase?.(OW, OH, view) ?? null;
+  if (gpu) {
+    ctx.drawImage(gpu as unknown as CanvasImageSource, 0, 0, OW, OH);
+  } else {
+    const base = renderBaseRaster(world, fields, opts, view, scale, L);
+    const img = ctx.createImageData(OW, OH);
+    img.data.set(base);
+    ctx.putImageData(img, 0, 0);
+  }
 
   ctx.save();
   ctx.lineJoin = 'round';
@@ -242,8 +360,15 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
   drawLakes(ctx, world, theme, view, rng, scale, toScreenX, toScreenY);
 
   let symbolCount = 0;
-  if (L.forests) symbolCount += drawForests(ctx, world, fields, theme, view, scale, density, seed, toScreenX, toScreenY);
-  if (L.relief) symbolCount += drawRelief(ctx, world, fields, theme, view, scale, density, reliefAmount, seed, toScreenX, toScreenY);
+  const emit = opts.emitSymbol;
+  if (L.forests) symbolCount += drawForests(ctx, world, fields, theme, view, scale, density, seed, toScreenX, toScreenY, emit);
+  if (L.relief) symbolCount += drawRelief(ctx, world, fields, theme, view, scale, density, reliefAmount, seed, toScreenX, toScreenY, emit);
+  if (emit && opts.drawSymbols) {
+    // Composited HERE, between the ink and the culture layer, which is exactly
+    // where the canvas2D symbols used to land in the painter's order.
+    const layer = opts.drawSymbols(OW, OH);
+    if (layer) ctx.drawImage(layer as unknown as CanvasImageSource, 0, 0, OW, OH);
+  }
 
   // ---- stage 3: culture layer, lettering and furniture --------------------
   if (opts.geography) {
@@ -289,13 +414,9 @@ function renderBaseRaster(
 ): Uint8ClampedArray {
   const theme = opts.theme;
   const OW = opts.width, OH = opts.height;
-  const { width: W, height: H, elevation, biome, temperature, lake } = world;
+  const { width: W, height: H, elevation, temperature, lake } = world;
 
-  const paper = renderPaper({
-    width: OW, height: OH,
-    seed: `${world.params.seed}::paper`,
-    theme,
-  });
+  const paper = getPaper(`${world.params.seed}::paper`, theme, OW, OH);
 
   const out = new Uint8ClampedArray(OW * OH * 4);
   const shallow = hexToRgb(theme.ocean.shallow);
@@ -329,7 +450,21 @@ function renderBaseRaster(
       const pl = paper[o] * 0.3 + paper[o + 1] * 0.5 + paper[o + 2] * 0.2;
       const mod = pl / (paperLum || 1);
 
-      const e = sampleField(elevation, W, H, wx - 0.5, wy - 0.5);
+      // One set of bilinear weights, reused for every field sampled at this
+      // pixel. Six independent sampleField() calls meant six times the index
+      // arithmetic and six times the wrap handling for identical coordinates.
+      const fx = wx - 0.5, fy = wy - 0.5;
+      const ix = Math.floor(fx);
+      const iy0 = Math.min(H - 1, Math.max(0, Math.floor(fy)));
+      const tx = fx - ix, ty = fy - iy0;
+      const iy1 = Math.min(H - 1, iy0 + 1);
+      const ia = wrapX(ix), ib = wrapX(ix + 1);
+      const o00 = iy0 * W + ia, o10 = iy0 * W + ib, o01 = iy1 * W + ia, o11 = iy1 * W + ib;
+      const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
+      // Written out rather than wrapped in a helper: a closure allocated per
+      // pixel is not something the JIT will optimise away, and measuring showed
+      // it doubling the cost of the whole pass.
+      const e = elevation[o00] * w00 + elevation[o10] * w10 + elevation[o01] * w01 + elevation[o11] * w11;
       let r: number, g: number, b: number;
 
       if (e <= 0) {
@@ -342,7 +477,8 @@ function renderBaseRaster(
         if (L.coastRings && ring.count > 0) {
           // Distance from the coast in OUTPUT pixels, so ring spacing is a
           // constant visual rhythm regardless of zoom.
-          const dPx = sampleField(fields.seaDist, W, H, wx - 0.5, wy - 0.5) * scale;
+          const sd = fields.seaDist;
+          const dPx = (sd[o00] * w00 + sd[o10] * w10 + sd[o01] * w01 + sd[o11] * w11) * scale;
           for (let k = 0; k < ring.count; k++) {
             const centre = (k + 1) * ring.spacing;
             const dd = Math.abs(dPx - centre);
@@ -367,11 +503,13 @@ function renderBaseRaster(
         b += (landBase[2] - b) * 0.55;
 
         if (L.biomeTint) {
-          const a = theme.land.tintAlpha * sampleField(tint.a, W, H, wx - 0.5, wy - 0.5);
+          const ta = tint.a;
+          const a = theme.land.tintAlpha * (ta[o00] * w00 + ta[o10] * w10 + ta[o01] * w01 + ta[o11] * w11);
           if (a > 0.002) {
-            r += (sampleField(tint.r, W, H, wx - 0.5, wy - 0.5) - r) * a;
-            g += (sampleField(tint.g, W, H, wx - 0.5, wy - 0.5) - g) * a;
-            b += (sampleField(tint.b, W, H, wx - 0.5, wy - 0.5) - b) * a;
+            const tr = tint.r, tg = tint.g, tb = tint.b;
+            r += (tr[o00] * w00 + tr[o10] * w10 + tr[o01] * w01 + tr[o11] * w11 - r) * a;
+            g += (tg[o00] * w00 + tg[o10] * w10 + tg[o01] * w01 + tg[o11] * w11 - g) * a;
+            b += (tb[o00] * w00 + tb[o10] * w10 + tb[o01] * w01 + tb[o11] * w11 - b) * a;
           }
         }
 
@@ -417,9 +555,42 @@ function renderBaseRaster(
 // Stage 2 — ink layers
 // ---------------------------------------------------------------------------
 
+// Marching squares runs over the whole world grid, so it does not depend on the
+// view at all — but it was being re-run on every pan. Same for the lake mask.
+const COAST_CACHE = new WeakMap<WorldData, { rev: number; c: Contour[] }>();
+const LAKE_CACHE = new WeakMap<WorldData, { rev: number; c: Contour[] }>();
+
+function allCoastlines(world: WorldData): Contour[] {
+  const rev = world.revision ?? 0;
+  const cached = COAST_CACHE.get(world);
+  if (cached && cached.rev === rev) return cached.c;
+  const c = marchingSquares(world.elevation, world.width, world.height, 0, true);
+  COAST_CACHE.set(world, { rev, c });
+  return c;
+}
+
+function allLakeShores(world: WorldData): Contour[] {
+  const rev = world.revision ?? 0;
+  const cached = LAKE_CACHE.get(world);
+  if (cached && cached.rev === rev) return cached.c;
+  let hit: Contour[];
+  {
+    const { width: W, height: H, lake } = world;
+    let any = false;
+    for (let i = 0; i < lake.length; i++) if (lake[i]) { any = true; break; }
+    if (!any) hit = [];
+    else {
+      const f = new Float32Array(W * H);
+      for (let i = 0; i < W * H; i++) f[i] = lake[i];
+      hit = marchingSquares(f, W, H, 0.5, true);
+    }
+  }
+  LAKE_CACHE.set(world, { rev, c: hit });
+  return hit;
+}
+
 function extractCoastlines(world: WorldData, view: CartoView): Contour[] {
-  // Work on the full grid: contours must close correctly across the seam.
-  const contours = marchingSquares(world.elevation, world.width, world.height, 0, true);
+  const contours = allCoastlines(world);
   const pad = Math.max(8, view.w * 0.04);
   return contours.filter((c) => {
     if (c.pts.length < 6) return false;
@@ -494,7 +665,13 @@ function drawRivers(
   ctx.strokeStyle = theme.rivers.color;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  for (const river of world.rivers) {
+  // Generated and hand-drawn rivers go through exactly the same ink. A painted
+  // watercourse that looked different from a generated one would announce itself
+  // on every map it appeared on.
+  const all = world.painted?.rivers.length
+    ? [...world.rivers, ...world.painted.rivers]
+    : world.rivers;
+  for (const river of all) {
     const n = river.cells.length;
     if (n < 3) continue;
     const raw: Pt[] = [];
@@ -553,13 +730,9 @@ function drawLakes(
   toX: (x: number) => number,
   toY: (y: number) => number,
 ): void {
-  const { width: W, height: H, lake } = world;
-  let any = false;
-  for (let i = 0; i < lake.length; i++) if (lake[i]) { any = true; break; }
-  if (!any) return;
-  const f = new Float32Array(W * H);
-  for (let i = 0; i < W * H; i++) f[i] = lake[i];
-  const contours = marchingSquares(f, W, H, 0.5, true);
+  const W = world.width;
+  const contours = allLakeShores(world);
+  if (!contours.length) return;
   ctx.strokeStyle = theme.lakes.stroke;
   ctx.lineWidth = theme.lakes.width * Math.max(0.7, Math.min(2, scale));
   const cx = view.x + view.w / 2;
@@ -590,20 +763,20 @@ const FOREST_BIOMES = new Set<number>([
   Biome.TropicalForest, Biome.TropicalRainforest,
 ]);
 
-function drawRelief(
-  ctx: Ctx,
+/**
+ * World-global relief placement. Deliberately independent of the view so it can
+ * be cached across pans; the caller clips to the viewport when drawing.
+ */
+function placeRelief(
   world: WorldData,
   fields: CartoFields,
   theme: CartoTheme,
-  view: CartoView,
-  scale: number,
+  bucketScale: number,
   density: number,
   reliefAmount: number,
   seed: string,
-  toX: (x: number) => number,
-  toY: (y: number) => number,
-): number {
-  const { width: W, height: H, elevation, temperature } = world;
+): SymbolPlacement[] {
+  const { width: W, height: H, elevation } = world;
   const rng = createRng(seed, 'relief');
 
   // Dual threshold on LOCAL RELIEF, taken as quantiles of the land: above
@@ -624,18 +797,55 @@ function drawRelief(
     score[i] = t * (fields.ridges[i] ? 1.25 : 1) + Math.max(0, elevation[i]) * 0.05;
   }
 
-  // Screen size of a typical peak, and the world-space exclusion radius that
-  // produces it. Overlap is deliberate — a little is what makes a range read as
-  // a range rather than a row of stamps.
-  const mSize = theme.mountains.size * Math.max(0.55, Math.min(1.9, 0.55 + 0.45 * scale));
-  const hSize = theme.hills.size * Math.max(0.55, Math.min(1.9, 0.55 + 0.45 * scale));
+  const mSize = symbolSize(theme.mountains.size, bucketScale);
+  const hSize = symbolSize(theme.hills.size, bucketScale);
 
-  const pad = (mSize / scale) * 2;
-  const inView = (x: number, y: number) =>
-    y > view.y - pad && y < view.y + view.h + pad &&
-    ((x > view.x - pad && x < view.x + view.w + pad) ||
-      (x + W > view.x - pad && x + W < view.x + view.w + pad) ||
-      (x - W > view.x - pad && x - W < view.x + view.w + pad));
+  // Occupancy on a uniform grid. The previous version compared every candidate
+  // against every symbol already placed — quadratic, and with a few thousand
+  // symbols it was millions of distance checks per redraw.
+  const cell = Math.max(2, (mSize * 1.6) / bucketScale);
+  const gw = Math.max(1, Math.ceil(W / cell));
+  const gh = Math.max(1, Math.ceil(H / cell));
+  const grid: SymbolPlacement[][] = Array.from({ length: gw * gh }, () => []);
+  const sizeOf = (p: SymbolPlacement) =>
+    (p.isHill ? hSize : mSize) * (0.7 + Math.min(1.05, p.score * 0.5));
+
+  // On-screen symbol density is scale-invariant by construction (the exclusion
+  // radius is a constant number of SCREEN pixels), so the world-wide count grows
+  // with the square of the zoom. A fixed cap would spend the whole budget on the
+  // highest peaks worldwide and leave a zoomed-in view almost empty.
+  const budget = Math.round(Math.min(220_000, Math.max(14_000, 14_000 * bucketScale * bucketScale)));
+
+  const placed: SymbolPlacement[] = [];
+  const push = (p: SymbolPlacement) => {
+    placed.push(p);
+    const gx = Math.min(gw - 1, Math.max(0, Math.floor(p.x / cell)));
+    const gy = Math.min(gh - 1, Math.max(0, Math.floor(p.y / cell)));
+    grid[gy * gw + gx].push(p);
+  };
+  const symWidth = (size: number) => size * 1.5; // ≈ mean silhouette width
+  const tooClose = (x: number, y: number, size: number, slack: number) => {
+    const r = (symWidth(size) * slack) / bucketScale;
+    const gx = Math.floor(x / cell), gy = Math.floor(y / cell);
+    const span2 = Math.ceil((r * 2) / cell) + 1;
+    for (let dy = -span2; dy <= span2; dy++) {
+      const yy = gy + dy;
+      if (yy < 0 || yy >= gh) continue;
+      for (let dx = -span2; dx <= span2; dx++) {
+        const xx = ((gx + dx) % gw + gw) % gw;
+        for (const o of grid[yy * gw + xx]) {
+          let ddx = o.x - x;
+          if (ddx > W / 2) ddx -= W;
+          if (ddx < -W / 2) ddx += W;
+          // Symbols are wide: allow tighter vertical packing than horizontal.
+          const ddy = (o.y - y) * 1.35;
+          const rr = (r + (symWidth(sizeOf(o)) * slack) / bucketScale) * 0.5;
+          if (ddx * ddx + ddy * ddy < rr * rr) return true;
+        }
+      }
+    }
+    return false;
+  };
 
   // ---- pass 1: chains along the crests ----------------------------------
   // A mountain range is a line, not a cloud. Trace the crest, walk along it and
@@ -643,24 +853,6 @@ function drawRelief(
   const chainRidges = new Uint8Array(W * H);
   for (let i = 0; i < W * H; i++) if (fields.ridges[i] && fields.relief[i] >= mtnMin) chainRidges[i] = 1;
   const chains = traceRidgeChains(chainRidges, elevation, W, H, 5);
-
-  interface Placed { x: number; y: number; size: number; isHill: boolean }
-  const placed: Placed[] = [];
-  const occupied: Placed[] = [];
-
-  const symWidth = (size: number) => size * 1.5; // ≈ mean silhouette width
-  const tooClose = (x: number, y: number, size: number, slack: number) => {
-    const r = (symWidth(size) * slack) / scale;
-    for (const o of occupied) {
-      let dx = o.x - x;
-      if (dx > W / 2) dx -= W;
-      if (dx < -W / 2) dx += W;
-      const dy = (o.y - y) * 1.35; // symbols are wide: allow tighter vertical packing
-      const rr = (r + (symWidth(o.size) * slack) / scale) * 0.5;
-      if (dx * dx + dy * dy < rr * rr) return true;
-    }
-    return false;
-  };
 
   for (const chain of chains) {
     // Cell path → world polyline, un-wrapped so it stays continuous.
@@ -679,38 +871,34 @@ function drawRelief(
     if (raw.length < 3) continue;
     const smooth = chaikin(simplify(raw, 0.8), false, 2);
     // Spacing in world cells so consecutive symbols overlap by roughly a third.
-    const step = Math.max(1.2, (mSize * 1.05) / scale / density);
+    const step = Math.max(1.2, (mSize * 1.05) / bucketScale / density);
     const walk = resample(smooth, step, false);
     for (const p of walk) {
       const xi = ((Math.round(p.x) % W) + W) % W;
       const yi = Math.min(H - 1, Math.max(0, Math.round(p.y)));
       if (elevation[yi * W + xi] <= 0) continue;
-      if (!inView(p.x, p.y)) continue;
       const sc = score[yi * W + xi];
       if (sc <= 0) continue;
-      const size = mSize * (0.72 + Math.min(1.05, sc * 0.5));
-      if (tooClose(p.x, p.y, size, 0.55)) continue;
-      const item = { x: p.x, y: p.y, size, isHill: false };
-      placed.push(item);
-      occupied.push(item);
+      const item: SymbolPlacement = { x: ((p.x % W) + W) % W, y: p.y, score: sc, isHill: false };
+      if (tooClose(item.x, item.y, sizeOf(item), 0.55)) continue;
+      push(item);
     }
   }
 
   // ---- pass 2: scatter fill ----------------------------------------------
   const pts = scatterByScore(score, W, H, {
     minScore: 0.02,
-    radiusAt: (s) => {
-      const size = s >= 1 ? mSize : hSize;
-      return Math.max(1.6, (size * (s >= 1 ? 1.5 : 1.15)) / scale / density);
+    radiusAt: (sc) => {
+      const size = sc >= 1 ? mSize : hSize;
+      return Math.max(1.6, (size * (sc >= 1 ? 1.5 : 1.15)) / bucketScale / density);
     },
-    maxPoints: 14000,
+    maxPoints: budget,
     accept: (x, y) => {
-      if (!inView(x, y)) return false;
       // Both feet on land, and on the SAME landmass — a symbol that bridges a
       // strait reads as a mistake.
-      const foot = mSize / scale;
-      const xi = Math.round(x), yi = Math.min(H - 1, Math.max(0, Math.round(y)));
-      const lm = fields.landmass[yi * W + ((xi % W) + W) % W];
+      const foot = mSize / bucketScale;
+      const yi = Math.min(H - 1, Math.max(0, Math.round(y)));
+      const lm = fields.landmass[yi * W + ((Math.round(x) % W) + W) % W];
       if (lm < 0) return false;
       for (const dx of [-foot * 0.5, foot * 0.5]) {
         const fx = ((Math.round(x + dx) % W) + W) % W;
@@ -724,49 +912,135 @@ function drawRelief(
   });
 
   for (const p of pts) {
-    const isHill = p.score < 1;
-    const size = (isHill ? hSize : mSize) * (0.7 + Math.min(1.05, p.score * 0.5));
-    if (tooClose(p.x, p.y, size, 0.72)) continue;
-    const item = { x: p.x, y: p.y, size, isHill };
-    placed.push(item);
-    occupied.push(item);
+    const item: SymbolPlacement = {
+      x: ((p.x % W) + W) % W, y: p.y, score: p.score, isHill: p.score < 1,
+    };
+    if (tooClose(item.x, item.y, sizeOf(item), 0.72)) continue;
+    push(item);
   }
+  return placed;
+}
 
-  // Painter's algorithm: back to front by the symbol's base line.
-  placed.sort((a, b) => a.y - b.y);
+/** Screen height of a symbol at a given scale. */
+function symbolSize(base: number, scale: number): number {
+  return base * Math.max(0.55, Math.min(1.9, 0.55 + 0.45 * scale));
+}
 
-  const landBase = theme.land.base;
-  for (const { x: wx0, y: wy0, isHill, size } of placed) {
-    const p = { x: wx0, y: wy0 };
-    // World x may need a wrap shift to land in view.
+function drawRelief(
+  ctx: Ctx,
+  world: WorldData,
+  fields: CartoFields,
+  theme: CartoTheme,
+  view: CartoView,
+  scale: number,
+  density: number,
+  reliefAmount: number,
+  seed: string,
+  toX: (x: number) => number,
+  toY: (y: number) => number,
+  emit?: (s: EmittedSymbol) => void,
+): number {
+  const { width: W, height: H, elevation, temperature } = world;
+  const all = cachedPlacement(
+    world,
+    `relief|${theme.id}|${density}|${reliefAmount}`,
+    (bs) => placeRelief(world, fields, theme, bs, density, reliefAmount, seed),
+    scale,
+  );
+
+  const mSize = symbolSize(theme.mountains.size, scale);
+  const hSize = symbolSize(theme.hills.size, scale);
+  const pad = (mSize / scale) * 2.2;
+  const cx = view.x + view.w / 2;
+
+  // Clip to the viewport HERE, not during placement: the layout must not depend
+  // on where the reader is looking.
+  const visible: { x: number; wx: number; y: number; size: number; isHill: boolean }[] = [];
+  for (const p of all) {
     let x = p.x;
-    const cx = view.x + view.w / 2;
     while (x < cx - W / 2) x += W;
     while (x > cx + W / 2) x -= W;
-    const sx = toX(x), sy = toY(p.y);
+    if (p.y < view.y - pad || p.y > view.y + view.h + pad) continue;
+    if (x < view.x - pad || x > view.x + view.w + pad) continue;
+    visible.push({
+      x, wx: p.x, y: p.y,
+      size: (p.isHill ? hSize : mSize) * (0.7 + Math.min(1.05, p.score * 0.5)),
+      isHill: p.isHill,
+    });
+  }
+  // Painter's algorithm: back to front by the symbol's base line.
+  visible.sort((a, b) => a.y - b.y);
 
-    const jitterSeed = rngFor(seed, p.x, p.y);
+  const landBase = theme.land.base;
+  for (const { x, wx, y, isHill, size } of visible) {
+    const sx = toX(x), sy = toY(y);
+    const jitterSeed = rngFor(seed, wx, y);
     const h = size * (1 + (jitterSeed() - 0.5) * 2 * theme.mountains.sizeJitter);
     const ratio = isHill ? 1.7 + jitterSeed() * 0.8 : 2.3 + jitterSeed() * 2.2;
     const w = h * ratio * 0.55;
 
-    const xi = ((Math.round(p.x) % W) + W) % W;
-    const yi = Math.min(H - 1, Math.max(0, Math.round(p.y)));
+    const xi = ((Math.round(wx) % W) + W) % W;
+    const yi = Math.min(H - 1, Math.max(0, Math.round(y)));
     const T = temperature[yi * W + xi];
     const e = elevation[yi * W + xi];
     const snow = Math.min(1, Math.max(0, (-T - 2) / 12 + Math.max(0, e - 2.6) * 0.25));
 
+    if (emit) {
+      emit({ kind: isHill ? 'hill' : 'mountain', x: sx, y: sy, w, h, variant: jitterSeed(), snow });
+      continue;
+    }
     ctx.save();
     ctx.translate(sx, sy);
     drawMountain(ctx, jitterSeed, theme, { h, w, snow, fill: landBase }, isHill);
     ctx.restore();
   }
-  return placed.length;
+  return visible.length;
 }
 
 /** Position-derived RNG: a symbol keeps its exact shape when the view pans. */
 function rngFor(seed: string, x: number, y: number): Rng {
   return createRng(seed, `sym:${Math.round(x * 4)}:${Math.round(y * 4)}`);
+}
+
+/** World-global forest/scrub placement, cached per zoom bucket. */
+function placeForests(
+  world: WorldData,
+  fields: CartoFields,
+  theme: CartoTheme,
+  bucketScale: number,
+  density: number,
+  seed: string,
+): SymbolPlacement[] {
+  const { width: W, height: H, biome, elevation, precipitation } = world;
+  const rng = createRng(seed, 'forest');
+  const score = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    if (elevation[i] <= 0) continue;
+    const b = biome[i];
+    if (FOREST_BIOMES.has(b)) score[i] = 0.5 + Math.min(0.5, precipitation[i] / 3000);
+    else if (b === Biome.Savanna || b === Biome.Shrubland) score[i] = 0.22;
+    else if (b === Biome.Desert) score[i] = 0.12;
+  }
+  const tSize = theme.forest.size * Math.max(0.5, Math.min(1.8, 0.5 + 0.5 * bucketScale));
+  // Keep canopy off the ground the relief symbols already occupy.
+  const reliefCap = fields.reliefQuantile(0.8);
+  // Same scale-invariance argument as the relief budget.
+  const budget = Math.round(Math.min(400_000, Math.max(26_000, 26_000 * bucketScale * bucketScale)));
+
+  const pts = scatterByScore(score, W, H, {
+    minScore: 0.1,
+    radiusAt: (sc) => Math.max(1.1, (tSize * (sc > 0.4 ? 0.95 : 2.1)) / bucketScale / density),
+    maxPoints: budget,
+    accept: (x, y) => {
+      const xi = ((Math.round(x) % W) + W) % W;
+      const yi = Math.min(H - 1, Math.max(0, Math.round(y)));
+      // Keep the shoreline legible: no canopy sitting on the coast ink.
+      return fields.landDist[yi * W + xi] > 0.9 && fields.relief[yi * W + xi] < reliefCap;
+    },
+    jitter: 0.8,
+    rng,
+  });
+  return pts.map((p) => ({ x: ((p.x % W) + W) % W, y: p.y, score: p.score, isHill: false }));
 }
 
 function drawForests(
@@ -780,84 +1054,86 @@ function drawForests(
   seed: string,
   toX: (x: number) => number,
   toY: (y: number) => number,
+  emit?: (s: EmittedSymbol) => void,
 ): number {
-  const { width: W, height: H, biome, elevation, precipitation, temperature } = world;
-  const rng = createRng(seed, 'forest');
-  const score = new Float32Array(W * H);
-  for (let i = 0; i < W * H; i++) {
-    if (elevation[i] <= 0) continue;
-    const b = biome[i];
-    if (FOREST_BIOMES.has(b)) score[i] = 0.5 + Math.min(0.5, precipitation[i] / 3000);
-    else if (b === Biome.Savanna || b === Biome.Shrubland) score[i] = 0.22;
-    else if (b === Biome.Desert) score[i] = 0.12;
-  }
+  const { width: W, height: H, biome, temperature } = world;
+  const all = cachedPlacement(
+    world,
+    `forest|${theme.id}|${density}`,
+    (bs) => placeForests(world, fields, theme, bs, density, seed),
+    scale,
+  );
 
   const tSize = theme.forest.size * Math.max(0.5, Math.min(1.8, 0.5 + 0.5 * scale));
-  // Keep canopy off the ground the relief symbols already occupy.
-  const reliefCap = fields.reliefQuantile(0.8);
-  const pad = tSize / scale * 2;
-  const inView = (x: number, y: number) =>
-    y > view.y - pad && y < view.y + view.h + pad &&
-    ((x > view.x - pad && x < view.x + view.w + pad) ||
-      (x + W > view.x - pad && x + W < view.x + view.w + pad) ||
-      (x - W > view.x - pad && x - W < view.x + view.w + pad));
-
-  const pts = scatterByScore(score, W, H, {
-    minScore: 0.1,
-    radiusAt: (s) => Math.max(1.1, (tSize * (s > 0.4 ? 0.95 : 2.1)) / scale / density),
-    maxPoints: 26000,
-    accept: (x, y) => {
-      if (!inView(x, y)) return false;
-      const xi = ((Math.round(x) % W) + W) % W;
-      const yi = Math.min(H - 1, Math.max(0, Math.round(y)));
-      // Keep the shoreline legible: no canopy sitting on the coast ink.
-      return fields.landDist[yi * W + xi] > 0.9 && fields.relief[yi * W + xi] < reliefCap;
-    },
-    jitter: 0.8,
-    rng,
-  });
-
-  const placed = pts.map((p) => p).sort((a, b) => a.y - b.y);
+  const pad = (tSize / scale) * 2.2;
   const cx = view.x + view.w / 2;
-  for (const p of placed) {
+
+  const visible: { x: number; wx: number; y: number }[] = [];
+  for (const p of all) {
     let x = p.x;
     while (x < cx - W / 2) x += W;
     while (x > cx + W / 2) x -= W;
-    const xi = ((Math.round(p.x) % W) + W) % W;
-    const yi = Math.min(H - 1, Math.max(0, Math.round(p.y)));
+    if (p.y < view.y - pad || p.y > view.y + view.h + pad) continue;
+    if (x < view.x - pad || x > view.x + view.w + pad) continue;
+    visible.push({ x, wx: p.x, y: p.y });
+  }
+  visible.sort((a, b) => a.y - b.y);
+
+  for (const { x, wx, y } of visible) {
+    const xi = ((Math.round(wx) % W) + W) % W;
+    const yi = Math.min(H - 1, Math.max(0, Math.round(y)));
     const b = biome[yi * W + xi];
     const T = temperature[yi * W + xi];
-    const r = rngFor(seed, p.x, p.y);
+    const r = rngFor(seed, wx, y);
     const h = tSize * (1 + (r() - 0.5) * 2 * theme.forest.sizeJitter);
     // Marsh: wet, nearly flat, close to standing water or a river mouth.
     const wetland = world.precipitation[yi * W + xi] > 1100
       && fields.relief[yi * W + xi] < fields.reliefQuantile(0.25)
       && world.elevation[yi * W + xi] < 0.35;
 
-    ctx.save();
-    ctx.translate(toX(x), toY(p.y));
+    // Which symbol this cell gets, decided once so the CPU and GPU paths cannot
+    // disagree about what is standing there.
+    let kind: EmittedSymbol['kind'];
+    let scale2 = 1;
     if (b === Biome.Desert) {
-      if (r() < 0.45) drawCactus(ctx, r, theme, h * 0.8);
-      else drawDune(ctx, r, theme, h * 1.7);
+      if (r() < 0.45) { kind = 'cactus'; scale2 = 0.8; } else { kind = 'dune'; scale2 = 1.7; }
     } else if (b === Biome.SaltFlat || b === Biome.ColdDesert) {
-      drawDune(ctx, r, theme, h * 1.6);
+      kind = 'dune'; scale2 = 1.6;
     } else if (b === Biome.TropicalRainforest || b === Biome.TropicalForest) {
-      if (r() < 0.32) drawPalm(ctx, r, theme, h * 1.1);
-      else drawBroadleaf(ctx, r, theme, h);
+      if (r() < 0.32) { kind = 'palm'; scale2 = 1.1; } else kind = 'broadleaf';
     } else if (b === Biome.BorealForest || T < 4) {
-      drawConifer(ctx, r, theme, h * 1.15);
+      kind = 'conifer'; scale2 = 1.15;
     } else if (b === Biome.Savanna || b === Biome.Shrubland) {
-      drawBroadleaf(ctx, r, theme, h * 0.75);
+      kind = 'broadleaf'; scale2 = 0.75;
     } else if (wetland && r() < 0.55) {
       // Low, flat, wet ground gets the standard marsh tuft instead of canopy.
-      drawMarsh(ctx, r, theme, h * 1.3);
+      kind = 'marsh'; scale2 = 1.3;
+    } else if (r() < 0.4) {
+      kind = 'conifer'; scale2 = 1.1;
     } else {
-      if (r() < 0.4) drawConifer(ctx, r, theme, h * 1.1);
-      else drawBroadleaf(ctx, r, theme, h);
+      kind = 'broadleaf';
+    }
+    const hh = h * scale2;
+
+    if (emit) {
+      // A tree's atlas cell is square, so the quad is too; a mountain's carries
+      // its own width, which is what gives the range its silhouette.
+      emit({ kind, x: toX(x), y: toY(y), w: hh * (kind === 'dune' || kind === 'marsh' ? 1.9 : 1), h: hh, variant: r(), snow: 0 });
+      continue;
+    }
+    ctx.save();
+    ctx.translate(toX(x), toY(y));
+    switch (kind) {
+      case 'cactus': drawCactus(ctx, r, theme, hh); break;
+      case 'dune': drawDune(ctx, r, theme, hh); break;
+      case 'palm': drawPalm(ctx, r, theme, hh); break;
+      case 'conifer': drawConifer(ctx, r, theme, hh); break;
+      case 'marsh': drawMarsh(ctx, r, theme, hh); break;
+      default: drawBroadleaf(ctx, r, theme, hh); break;
     }
     ctx.restore();
   }
-  return placed.length;
+  return visible.length;
 }
 
 export { rgbCss, resample };
