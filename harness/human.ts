@@ -1,0 +1,12 @@
+import { getWorld } from './world-cache';
+import { buildHumanGeography, DEFAULT_HUMAN_PARAMS } from '../src/engines/worldgen/core/settlements';
+const w = getWorld({ seed: process.argv[2]||'monstruo', width: Number(process.argv[3]||1024) });
+const t0 = Date.now();
+const hg = buildHumanGeography(w, DEFAULT_HUMAN_PARAMS);
+console.log(`${((Date.now()-t0)/1000).toFixed(1)}s  settlements ${hg.settlements.length}  roads ${hg.roads.length}  realms ${hg.realms.length}  features ${hg.features.length}`);
+console.log('ranks:', hg.settlements.reduce((a,s)=>{a[s.rank]=(a[s.rank]||0)+1;return a;},{} as Record<string,number>));
+console.log('sample towns:', hg.settlements.slice(0,10).map(s=>`${s.name} (${s.rank},${s.culture}${s.port?',puerto':''})`).join(' · '));
+console.log('realms:', hg.realms.map(r=>`${r.name} [${r.cellCount}]`).join(' · '));
+const byKind: Record<string,string[]> = {};
+for (const f of hg.features) (byKind[f.kind] ||= []).push(f.name);
+for (const k of Object.keys(byKind)) console.log(`${k}: ${byKind[k].slice(0,6).join(' · ')}`);

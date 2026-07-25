@@ -13,7 +13,6 @@
 //      survive the carving (that fight is what makes them look real).
 // Everything is allocation-free inside the loop and deterministic.
 
-const SQRT2 = Math.SQRT2;
 const EPS = 2e-5; // km — flat-drainage gradient
 
 export interface FlowResult {
@@ -27,6 +26,8 @@ export interface FlowResult {
   count: number;
   /** Drainage accumulation (sum of weights) per cell. */
   acc: Float32Array;
+  /** Distance to the chosen receiver (latitude-corrected grid units). */
+  recvDist: Float32Array;
 }
 
 /** Reusable scratch buffers so per-iteration GC pressure is zero. */
@@ -48,6 +49,11 @@ export class FlowSolver {
   readonly receiver: Int32Array;
   readonly order: Uint32Array;
   readonly acc: Float32Array;
+  readonly recvDist: Float32Array;
+  // Spherical grid corrections per row: east-west cells shrink with cos(lat).
+  private rowDistE: Float32Array;
+  private rowDistDiag: Float32Array;
+  private rowArea: Float32Array;
 
   constructor(width: number, height: number) {
     this.W = width; this.H = height; this.N = width * height;
@@ -59,6 +65,17 @@ export class FlowSolver {
     this.receiver = new Int32Array(this.N);
     this.order = new Uint32Array(this.N);
     this.acc = new Float32Array(this.N);
+    this.recvDist = new Float32Array(this.N);
+    this.rowDistE = new Float32Array(height);
+    this.rowDistDiag = new Float32Array(height);
+    this.rowArea = new Float32Array(height);
+    for (let y = 0; y < height; y++) {
+      const lat = (0.5 - (y + 0.5) / height) * Math.PI;
+      const c = Math.cos(lat);
+      this.rowDistE[y] = Math.max(0.06, c);
+      this.rowDistDiag[y] = Math.hypot(this.rowDistE[y], 1);
+      this.rowArea[y] = Math.max(0.02, c);
+    }
   }
 
   private heapPush(idx: number, key: number): void {
@@ -157,33 +174,49 @@ export class FlowSolver {
     }
 
     // --- D8 receivers on the filled surface --------------------------------
+    // Latitude-corrected distances: an east-west step near the pole is a
+    // much shorter physical hop than at the equator.
+    const { recvDist, rowDistE, rowDistDiag, rowArea } = this;
     for (let y = 0; y < H; y++) {
       const yW = y * W;
+      const dE = rowDistE[y];
+      const dD = rowDistDiag[y];
       for (let x = 0; x < W; x++) {
         const i = yW + x;
+        recvDist[i] = 1;
         if (elev[i] <= 0) { receiver[i] = i; continue; }
         const fi = filled[i];
-        let best = i, bestDrop = 0;
+        let best = i, bestRate = 0, bestDist = 1;
         for (let d = 0; d < 8; d++) {
           const n = this.neighbor(i, x, y, d);
           if (n < 0) continue;
-          const drop = (fi - filled[n]) / (d < 4 ? 1 : SQRT2);
-          if (drop > bestDrop) { bestDrop = drop; best = n; }
+          const dist = d < 2 ? dE : d < 4 ? 1 : dD;
+          const rate = (fi - filled[n]) / dist;
+          if (rate > bestRate) { bestRate = rate; best = n; bestDist = dist; }
         }
         receiver[i] = best;
+        recvDist[i] = bestDist;
       }
     }
 
     // --- Accumulation: walk pop order from highest to lowest ---------------
-    if (weights) acc.set(weights);
-    else acc.fill(1);
+    // Each cell contributes its (latitude-corrected) AREA times the weight —
+    // polar cells drain tiny slivers of the planet, not full-size cells.
+    for (let y = 0; y < H; y++) {
+      const yW = y * W;
+      const area = rowArea[y];
+      for (let x = 0; x < W; x++) {
+        const i = yW + x;
+        acc[i] = (weights ? weights[i] : 1) * area;
+      }
+    }
     for (let k = count - 1; k >= 0; k--) {
       const c = order[k];
       const r = receiver[c];
       if (r !== c) acc[r] += acc[c];
     }
 
-    return { filled, receiver, order, count, acc };
+    return { filled, receiver, order, count, acc, recvDist };
   }
 
   /** Neighbor index with x-wrap and y-clamp; -1 when off the top/bottom. */
@@ -231,9 +264,14 @@ export function erode(
   const solver = new FlowSolver(width, height);
   const N = width * height;
   const { iterations, K, deposition, talus, upliftScale } = opts;
+  // East-west neighbor distance per row (cos lat, clamped).
+  const rowE = new Float32Array(height);
+  for (let y = 0; y < height; y++) {
+    rowE[y] = Math.max(0.06, Math.cos((0.5 - (y + 0.5) / height) * Math.PI));
+  }
 
   for (let it = 0; it < iterations; it++) {
-    const { filled, receiver, order, count, acc } = solver.solve(elev, null);
+    const { filled, receiver, order, count, acc, recvDist } = solver.solve(elev, null);
 
     // --- Stream-power incision (skip cells under lake water) -------------
     for (let k = count - 1; k >= 0; k--) {
@@ -247,7 +285,7 @@ export function erode(
       const er = elev[r];
       const drop = e - Math.max(er, 0);
       if (drop <= 0) continue;
-      let dh = K * Math.sqrt(acc[c]) * ((filled[c] - filled[r]) );
+      let dh = K * Math.sqrt(acc[c]) * ((filled[c] - filled[r]) / recvDist[c]);
       if (dh > drop * 0.35) dh = drop * 0.35;
       if (dh > 0.06) dh = 0.06;
       elev[c] = e - dh;
@@ -264,20 +302,21 @@ export function erode(
     const talusEff = talus * (1024 / width);
     for (let y = 0; y < height; y++) {
       const yW = y * width;
+      const dE = rowE[y];
       for (let x = 0; x < width; x++) {
         const i = yW + x;
         const e = elev[i];
         if (e <= 0) continue;
-        // lowest 4-neighbor (orthogonal is enough for creep)
+        // Steepest 4-neighbor by latitude-corrected slope RATE.
         const xr = x + 1 < width ? i + 1 : i + 1 - width;
         const xl = x > 0 ? i - 1 : i - 1 + width;
-        let lo = xr;
-        if (elev[xl] < elev[lo]) lo = xl;
-        if (y + 1 < height && elev[i + width] < elev[lo]) lo = i + width;
-        if (y > 0 && elev[i - width] < elev[lo]) lo = i - width;
-        const slope = e - elev[lo];
-        if (slope > talusEff) {
-          const move = (slope - talusEff) * 0.12;
+        let lo = xr, loDist = dE;
+        if (elev[xl] < elev[lo]) { lo = xl; loDist = dE; }
+        if (y + 1 < height && elev[i + width] < elev[lo]) { lo = i + width; loDist = 1; }
+        if (y > 0 && elev[i - width] < elev[lo]) { lo = i - width; loDist = 1; }
+        const rate = (e - elev[lo]) / loDist;
+        if (rate > talusEff) {
+          const move = (rate - talusEff) * 0.12 * loDist;
           elev[i] = e - move;
           elev[lo] += move * 0.8;
         }

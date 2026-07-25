@@ -8,6 +8,35 @@
 import type { ProgressFn, WorldData, WorldParams } from './types';
 import { normalizeParams } from './types';
 import { buildPlates, assembleTerrain } from './plates';
+
+/**
+ * Enforce uniform PHYSICAL bandwidth around each parallel: near the poles
+ * the grid packs W columns into a tiny circle, and erosion carves
+ * per-column channels the sphere cannot actually hold — rendered on the
+ * globe they become radial pleats ("crumpled pole"). Each row gets a
+ * circular box blur whose window grows as columns physically shrink
+ * (∝ 1/cos lat); at the equator it's a no-op.
+ */
+function polarBandlimit(elev: Float32Array, W: number, H: number): void {
+  const tmp = new Float32Array(W);
+  for (let y = 0; y < H; y++) {
+    const lat = (0.5 - (y + 0.5) / H) * Math.PI;
+    const c = Math.max(0.02, Math.cos(lat));
+    const R = Math.min(W >> 3, Math.round((1 / c - 1) * 1.1));
+    if (R < 1) continue;
+    const yW = y * W;
+    let sum = 0;
+    for (let k = -R; k <= R; k++) sum += elev[yW + ((k % W) + W) % W];
+    const inv = 1 / (2 * R + 1);
+    for (let x = 0; x < W; x++) {
+      tmp[x] = sum * inv;
+      const drop = (x - R + W) % W;
+      const add = (x + R + 1) % W;
+      sum += elev[yW + add] - elev[yW + drop];
+    }
+    elev.set(tmp.subarray(0, W), yW);
+  }
+}
 import { erode } from './erosion';
 import { computeClimate } from './climate';
 import { computeHydrology } from './hydrology';
@@ -57,7 +86,7 @@ export function generateWorld(rawParams: WorldParams, onProgress?: ProgressFn): 
   report('terrain', 1);
 
   // 3. Erosion -------------------------------------------------------------
-  const iterScale = params.width >= 2560 ? 0.55 : params.width >= 1536 ? 0.75 : 1;
+  const iterScale = params.width >= 3072 ? 0.5 : params.width >= 2048 ? 0.62 : params.width >= 1536 ? 0.75 : 1;
   const iterations = Math.round(8 + 34 * params.erosion * iterScale);
   const solver = erode(elevation, plates.uplift, W, H, {
     iterations,
@@ -69,6 +98,9 @@ export function generateWorld(rawParams: WorldParams, onProgress?: ProgressFn): 
     upliftScale: 0.85 / iterScale,
     onProgress: (f) => report('erosion', f),
   });
+
+  // 3b. Kill grid-anisotropy artifacts at the poles (radial pleats).
+  polarBandlimit(elevation, W, H);
 
   // 4. Climate (first pass without lakes) -----------------------------------
   report('climate', 0);

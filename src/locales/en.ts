@@ -1081,6 +1081,7 @@ const en = {
   'worldgen.params.plates': 'Tectonic plates',
   'worldgen.params.landRatio': 'Land coverage',
   'worldgen.params.clustering': 'Continent clustering',
+  'worldgen.params.worldScale': 'World scale',
   'worldgen.params.mountainousness': 'Mountains',
   'worldgen.params.ruggedness': 'Ruggedness',
   'worldgen.params.erosion': 'Erosion',

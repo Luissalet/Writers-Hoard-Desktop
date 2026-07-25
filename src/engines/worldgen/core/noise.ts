@@ -96,12 +96,14 @@ export class Simplex3 {
 const TAU = Math.PI * 2;
 
 /**
- * Noise field over normalized map coordinates (u ∈ [0,1) wraps, v ∈ [0,1]),
- * seamless in u. `frequency` ≈ number of feature repetitions across the map
- * width. Aspect is 2:1 (equirectangular), so v is scaled by 0.5 relative to u
- * to keep features isotropic.
+ * Noise field over normalized map coordinates (u ∈ [0,1) longitude,
+ * v ∈ [0,1] pole→pole), sampled ON THE SPHERE: features are isotropic on the
+ * planet's surface, so nothing pinches into wedges at the poles. On the 2D
+ * equirectangular map, polar features correctly appear stretched east–west
+ * (like Antarctica in a real atlas). `frequency` ≈ feature repetitions
+ * around the equator.
  */
-export class CylinderNoise {
+export class SphereNoise {
   private simplex: Simplex3;
 
   constructor(seed: string, stream: string) {
@@ -109,11 +111,11 @@ export class CylinderNoise {
   }
 
   sample(u: number, v: number, frequency: number): number {
-    // Radius chosen so one trip around the cylinder covers `frequency` cells
-    // of noise; z uses the same length scale (v spans half the u distance).
     const r = frequency / TAU;
-    const a = u * TAU;
-    return this.simplex.noise(Math.cos(a) * r, Math.sin(a) * r, v * frequency * 0.5);
+    const lon = u * TAU;
+    const lat = (0.5 - v) * Math.PI;
+    const cl = Math.cos(lat);
+    return this.simplex.noise(r * cl * Math.cos(lon), r * Math.sin(lat), r * cl * Math.sin(lon));
   }
 
   /** Fractional Brownian motion, output roughly in [-1, 1]. */
