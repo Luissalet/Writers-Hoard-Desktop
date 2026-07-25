@@ -25,8 +25,12 @@ import WaypointsPanel from './WaypointsPanel';
 import type { Shape3D, SkinMode } from './Terrain3D';
 import CartoMap from './CartoMap';
 import CityPlanView from './CityPlanView';
+import PaintPanel, { DEFAULT_PAINT_TOOL, type PaintTool } from './PaintPanel';
+import SculptView from './SculptView';
+import { PaintSession } from '../core/paintSession';
+import type { WorldEdit } from '../core/edits';
 import { THEMES, themeById } from '../cartography/theme';
-import { getGeography, renderCartoCanvas } from '../cartography/texture';
+import { getGeography, geographyIsStale, rebuildGeography, renderCartoCanvas } from '../cartography/texture';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import type { CartoLayers } from '../cartography/render';
 
@@ -58,7 +62,7 @@ export default function WorldView({
 }: WorldViewProps) {
   const { t } = useTranslation();
   const [params, setParams] = useState<WorldParams>(() => normalizeParams(world.params));
-  const [view, setView] = useState<'map' | 'carta' | '3d'>('map');
+  const [view, setView] = useState<'map' | 'carta' | 'sculpt' | '3d'>('map');
   const [themeId, setThemeId] = useState<string>('wonder');
   const [skin3D, setSkin3D] = useState<SkinMode>('carta');
   const [cityFor, setCityFor] = useState<Settlement | null>(null);
@@ -74,7 +78,7 @@ export default function WorldView({
   const [showLandmarks, setShowLandmarks] = useState(true);
   const [showWaypoints, setShowWaypoints] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
-  const [panelTab, setPanelTab] = useState<'params' | 'waypoints'>('params');
+  const [panelTab, setPanelTab] = useState<'params' | 'waypoints' | 'paint'>('params');
   const [placing, setPlacing] = useState(false);
   const [selectedWaypointId, setSelectedWaypointId] = useState<string | null>(null);
   const [flyTarget, setFlyTarget] = useState<{ u: number; v: number; token: number } | null>(null);
@@ -132,6 +136,8 @@ export default function WorldView({
   // render would freeze the toolbar mid-click, so it is kicked off in an effect
   // the first time a view that needs it is opened, and cached on the world.
   const [geography, setGeography] = useState<HumanGeography | null>(null);
+  // Kept for the badge the Carta view shows while a full rebuild runs in the
+  // background; the map itself is never unmounted for it any more.
   const [geoBusy, setGeoBusy] = useState(false);
   const needsGeo = view === 'carta' || (view === '3d' && skin3D === 'carta');
   useEffect(() => {
@@ -149,6 +155,88 @@ export default function WorldView({
     }, 30);
     return () => window.clearTimeout(id);
   }, [needsGeo, data, geography]);
+
+  // ---- painting ------------------------------------------------------------
+  // A world is stored as seed + params + edit list, so the session holds the list
+  // and a pristine snapshot; the world object itself is mutated in place and its
+  // revision counter is what tells every cache and the map to redraw.
+  const [tool, setTool] = useState<PaintTool>(DEFAULT_PAINT_TOOL);
+  const [paintRev, setPaintRev] = useState(0);
+  const [painting, setPainting] = useState(false);
+  const session = useRef<PaintSession | null>(null);
+  useEffect(() => {
+    session.current = data ? new PaintSession(data) : null;
+    setPaintRev(0);
+  }, [data]);
+
+  // A full geography rebuild is ~4 s. After a stroke we take the cheap patch —
+  // painted marks appear at once, anything drowned disappears — and schedule the
+  // real rebuild for when the reader stops painting, so roads and realms catch up
+  // without a four-second stall between brush strokes.
+  const rebuildTimer = useRef(0);
+  const afterEdit = useCallback(() => {
+    if (data) setGeography(getGeography(data));
+    setPaintRev((r) => r + 1);
+    window.clearTimeout(rebuildTimer.current);
+    rebuildTimer.current = window.setTimeout(() => {
+      if (!data || !geographyIsStale(data)) return;
+      setGeoBusy(true);
+      window.setTimeout(() => {
+        try {
+          setGeography(rebuildGeography(data));
+        } finally {
+          setGeoBusy(false);
+        }
+      }, 20);
+    }, 2200);
+  }, [data]);
+
+  useEffect(() => () => window.clearTimeout(rebuildTimer.current), []);
+
+  const applyEdit = useCallback((edit: WorldEdit) => {
+    const s = session.current;
+    if (!s) return;
+    setPainting(true);
+    // One frame of breathing room so the brush ring clears and the busy flag
+    // paints before the main thread blocks on the edit.
+    window.setTimeout(() => {
+      try {
+        s.push(edit);
+      } finally {
+        setPainting(false);
+        afterEdit();
+      }
+    }, 0);
+  }, [afterEdit]);
+
+  const undoEdit = useCallback(() => {
+    const s = session.current;
+    if (!s?.canUndo) return;
+    s.undo();
+    afterEdit();
+  }, [afterEdit]);
+
+  const redoEdit = useCallback(() => {
+    const s = session.current;
+    if (!s?.canRedo) return;
+    s.redo();
+    afterEdit();
+  }, [afterEdit]);
+
+  const clearEdits = useCallback(() => {
+    const s = session.current;
+    if (!s) return;
+    s.clear();
+    afterEdit();
+  }, [afterEdit]);
+
+  useEffect(() => {
+    const u = () => undoEdit();
+    const r = () => redoEdit();
+    window.addEventListener('wg-undo', u);
+    window.addEventListener('wg-redo', r);
+    return () => { window.removeEventListener('wg-undo', u); window.removeEventListener('wg-redo', r); };
+  }, [undoEdit, redoEdit]);
 
   const theme = useMemo(() => themeById(themeId), [themeId]);
 
@@ -285,6 +373,7 @@ export default function WorldView({
         <div className="flex rounded-lg border border-border overflow-hidden">
           <ToolbarTab active={view === 'map'} onClick={() => setView('map')} icon={MapIcon} label={t('worldgen.view.map')} />
           <ToolbarTab active={view === 'carta'} onClick={() => setView('carta')} icon={ScrollText} label="Carta" disabled={!data} />
+          <ToolbarTab active={view === 'sculpt'} onClick={() => { setView('sculpt'); setPanelTab('paint'); }} icon={Mountain} label="Esculpir" disabled={!data} />
           <ToolbarTab active={view === '3d'} onClick={() => setView('3d')} icon={Box} label={t('worldgen.view.terrain')} disabled={!data} />
         </div>
 
@@ -440,7 +529,7 @@ export default function WorldView({
             />
           )}
           {data && view === 'carta' && (
-            geoBusy || !geography ? <EngineSpinner /> : (
+            !geography ? <EngineSpinner /> : (
               <CartoMap
                 world={data}
                 theme={theme}
@@ -450,9 +539,19 @@ export default function WorldView({
                 reliefAmount={reliefAmount}
                 title={world.title}
                 subtitle={t('worldgen.export.atlasSuffix')}
-                onPickSettlement={setCityFor}
+                onPickSettlement={tool.mode === 'off' ? setCityFor : undefined}
+                paint={tool}
+                onEdit={applyEdit}
               />
             )
+          )}
+          {data && view === 'sculpt' && (
+            <SculptView
+              world={data}
+              tool={tool}
+              onEdit={applyEdit}
+              revision={paintRev}
+            />
           )}
           {data && view === '3d' && (
             <Suspense fallback={<EngineSpinner />}>
@@ -474,6 +573,14 @@ export default function WorldView({
           )}
 
           {/* 3D exaggeration slider */}
+          {data && view === 'sculpt' && (
+            <SculptView
+              world={data}
+              tool={tool}
+              onEdit={applyEdit}
+              revision={paintRev}
+            />
+          )}
           {data && view === '3d' && (
             <div className="absolute bottom-3 right-3 z-10 flex items-center gap-2 bg-surface/85 border border-border rounded-lg px-3 py-2 backdrop-blur">
               <Mountain size={12} className="text-text-muted" />
@@ -545,9 +652,29 @@ export default function WorldView({
           <div className="flex border-b border-border">
             <PanelTab active={panelTab === 'params'} onClick={() => setPanelTab('params')} label={t('worldgen.params.title')} />
             <PanelTab active={panelTab === 'waypoints'} onClick={() => setPanelTab('waypoints')} label={`${t('worldgen.waypoints.title')}${waypoints.length ? ` (${waypoints.length})` : ''}`} />
+            <PanelTab active={panelTab === 'paint'} onClick={() => { setPanelTab('paint'); setView('sculpt'); }} label={`Pincel${paintRev ? ` (${paintRev})` : ''}`} />
           </div>
           <div className="flex-1 overflow-y-auto p-3">
-            {panelTab === 'params' ? (
+            {panelTab === 'paint' ? (
+              <PaintPanel
+                tool={tool}
+                onChange={setTool}
+                strokeCount={session.current?.edits.length ?? 0}
+                canUndo={!!session.current?.canUndo}
+                canRedo={!!session.current?.canRedo}
+                onUndo={undoEdit}
+                onRedo={redoEdit}
+                onClear={clearEdits}
+                onExport={() => {
+                  const json = session.current?.serialize();
+                  if (!json) return;
+                  void navigator.clipboard?.writeText(json);
+                  toast.success('Ediciones copiadas al portapapeles');
+                }}
+                cellKm={Math.round(40075 / (data?.width ?? 1024))}
+                busy={painting}
+              />
+            ) : panelTab === 'params' ? (
               <ParamsPanel
                 params={params}
                 onChange={setParams}
@@ -593,10 +720,14 @@ export default function WorldView({
               .replace('{landmarks}', String(data.landmarks.length))}
           </span>
         )}
+        {geoBusy && <span className="ml-3 text-accent-gold/80">recalculando calzadas y fronteras…</span>}
         {view === 'carta' && geography && (
           <span className="ml-3">
             {geography.settlements.length} asentamientos · {geography.realms.length} reinos ·
-            {' '}pincha una ciudad para ver su plano
+            {' '}{geography.ruins.length} ruinas ·
+            {' '}{tool.mode === 'off'
+              ? 'pincha una ciudad para ver su plano'
+              : 'arrastra para pintar; Espacio para mover'}
           </span>
         )}
       </div>

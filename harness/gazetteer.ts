@@ -1,0 +1,11 @@
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { getWorld } from './world-cache';
+import { buildHumanGeography, DEFAULT_HUMAN_PARAMS } from '../src/engines/worldgen/core/settlements';
+import { buildGazetteer } from '../src/engines/worldgen/core/gazetteer';
+const seed = process.argv[2] || 'monstruo';
+const w = getWorld({ seed, width: Number(process.argv[3] || 1024) });
+const geo = buildHumanGeography(w, DEFAULT_HUMAN_PARAMS);
+const md = buildGazetteer(w, geo, { title: process.env.TITLE || 'Aetheria', etymologies: true });
+mkdirSync('harness/out', { recursive: true });
+writeFileSync('harness/out/gazetteer.md', md);
+console.log(`${md.length} caracteres, ${md.split('\n').length} líneas`);

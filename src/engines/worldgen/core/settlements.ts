@@ -14,6 +14,12 @@
 import { Biome, type WorldData } from './types';
 import { createRng, type Rng } from './rng';
 import { cultureMap, NameRegistry, type CultureId, type FeatureKind } from './naming';
+import {
+  buildLanguageFamily, coinName, settlementBias, type CoinedName, type Gloss,
+  type Language, type LanguageFamily,
+} from './language';
+import { findLandforms, type Landform, type LandformKind } from './landforms';
+import { generateRuins, ruinPrefix, RUIN_BIAS, type Ruin } from './ruins';
 
 export type SettlementRank = 'capital' | 'city' | 'town' | 'village';
 
@@ -33,6 +39,10 @@ export interface Settlement {
   /** Index into `realms`, or -1. */
   realm: number;
   score: number;
+  /** Etymology, when the name was coined in a generated language. */
+  etym?: CoinedName;
+  /** Placed by hand with the brush rather than sited by the generator. */
+  painted?: boolean;
 }
 
 export interface Road {
@@ -65,6 +75,7 @@ export interface NamedFeature {
   /** Cells belonging to the feature, for path labels. */
   cells?: number[];
   importance: number;
+  etym?: CoinedName;
 }
 
 export interface HumanGeography {
@@ -74,6 +85,13 @@ export interface HumanGeography {
   /** Realm id per cell, -1 for unclaimed/water. */
   realmOf: Int32Array;
   features: NamedFeature[];
+  /** Abandoned structures, sited where the world made a place worth holding. */
+  ruins: Ruin[];
+  /** The raw landform hits, before naming — the ruin generator wants these too. */
+  landforms: Landform[];
+  /** The world's language family, and which language each culture speaks. */
+  languages: LanguageFamily;
+  languageOf: Record<string, string>;
 }
 
 export interface HumanGeographyParams {
@@ -252,7 +270,31 @@ export function buildHumanGeography(
   const seed = world.params.seed;
   const rng = createRng(seed, 'human');
   const registry = new NameRegistry(seed);
-  const { cultureAt } = cultureMap(seed, W, H, params.cultureCount);
+  const { cultureAt, seeds: cultureSeeds } = cultureMap(seed, W, H, params.cultureCount);
+
+  // One living language per culture present on the map, all descended from a
+  // single reconstructed proto-language — so neighbours share cognates and the
+  // gazetteer can print an etymology for every name it prints.
+  const cultureIds = [...new Set(cultureSeeds.map((c) => c.culture))];
+  const languages = buildLanguageFamily(seed, Math.max(2, cultureIds.length));
+  const languageOf: Record<string, string> = {};
+  cultureIds.forEach((c, i) => { languageOf[c] = languages.living[i % languages.living.length].id; });
+  const langFor = (c: CultureId): Language =>
+    languages.byId.get(languageOf[c]) ?? languages.living[0];
+
+  /** Coin a unique name in the local language. */
+  const coin = (
+    culture: CultureId,
+    key: string,
+    bias?: { heads?: Gloss[]; modifiers?: Gloss[] },
+  ): CoinedName => {
+    const lang = langFor(culture);
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const n = coinName(lang, languages.proto, `${key}#${attempt}`, seed, bias);
+      if (registry.claim(n.text)) return n;
+    }
+    return coinName(lang, languages.proto, `${key}#final`, seed, bias);
+  };
 
   // ---- coastal / river proximity -----------------------------------------
   const coastal = new Uint8Array(W * H);
@@ -395,10 +437,53 @@ export function buildHumanGeography(
       realm: -1,
       score: score[i],
     };
-    s.name = registry.take(`s${s.id}`, {
+    const b = biome[i];
+    const et = coin(culture, `s${s.id}`, settlementBias({
+      port,
+      river: onRiver,
+      capital: rank === 'capital',
+      mountainous: elevation[i] > 0.9,
+      forested: b === Biome.TemperateForest || b === Biome.BorealForest
+        || b === Biome.TropicalForest || b === Biome.TemperateRainforest,
+      arid: b === Biome.Desert || b === Biome.SaltFlat || b === Biome.Shrubland,
+      cold: temperature[i] < 4,
+      marshy: riverine[i] > 0.5 && elevation[i] < 0.2,
+    }));
+    s.etym = et;
+    s.name = et.text;
+    settlements.push(s);
+    const k = gkey(x, y);
+    let bucket = grid.get(k);
+    if (!bucket) grid.set(k, (bucket = []));
+    bucket.push(s);
+  }
+
+  // ---- hand-placed settlements -------------------------------------------
+  // Merged HERE, before realms and roads, not at the end: a painted town has to
+  // join the road network and belong to a realm, or it sits on the map as an
+  // orphan and every reader can see that it was added later.
+  for (const m of world.painted?.markers ?? []) {
+    if (m.marker !== 'settlement') continue;
+    const x = ((Math.round(m.x) % W) + W) % W;
+    const y = Math.min(H - 1, Math.max(0, Math.round(m.y)));
+    const i = y * W + x;
+    if (elevation[i] <= 0) continue;      // refuse to found a town in the sea
+    const rank = m.rank ?? 'town';
+    const culture = cultureAt(x, y);
+    const s: Settlement = {
+      id: settlements.length,
+      x, y,
+      name: m.name ?? coin(culture, `painted:${x},${y}`).text,
       culture,
-      kind: rank === 'capital' ? 'capital' : 'settlement',
-    });
+      rank,
+      population: m.population
+        ?? (rank === 'capital' ? 42000 : rank === 'city' ? 16000 : rank === 'town' ? 3800 : 700),
+      port: coastal[i] === 1,
+      river: riverine[i] > 0.35,
+      realm: -1,
+      score: 1,
+      painted: true,
+    };
     settlements.push(s);
     const k = gkey(x, y);
     let bucket = grid.get(k);
@@ -407,16 +492,52 @@ export function buildHumanGeography(
   }
 
   // ---- realms -------------------------------------------------------------
-  const { realms, realmOf } = growRealms(world, settlements, params, registry, rng);
+  // A realm is named for its people, not invented separately: the same roots,
+  // with a political suffix.
+  const realmTitle = ['Reino de', 'Ducado de', 'Dominio de', 'Confederación de', 'Marca de', 'Principado de'];
+  const { realms, realmOf } = growRealms(world, settlements, params, (idx, cap) => {
+    const et = coin(cap.culture, `realm${idx}`, {
+      heads: ['people', 'king', 'town', 'field', 'wall'],
+      modifiers: ['great', 'old', 'holy', 'high', 'gold', 'far'],
+    });
+    return `${realmTitle[idx % realmTitle.length]} ${et.text}`;
+  }, rng);
   for (const s of settlements) s.realm = realmOf[s.y * W + s.x];
 
   // ---- roads --------------------------------------------------------------
   const roads = buildRoads(world, settlements, coastal);
 
   // ---- named geography ----------------------------------------------------
-  const features = nameGeography(world, registry, cultureAt);
+  // Landforms are found once and used twice: the label layer names them, and the
+  // ruin generator treats passes, straits and capes as sites worth having held.
+  const landforms = findLandforms(world);
+  const features = nameGeography(world, coin, cultureAt, landforms);
 
-  return { settlements, roads, realms, realmOf, features };
+  // ---- ruins --------------------------------------------------------------
+  const ruins = generateRuins(world, settlements, landforms, (kind, x, y) => {
+    const et = coin(cultureAt(x, y), `ruin:${kind}:${x},${y}`, RUIN_BIAS[kind]);
+    return `${ruinPrefix(kind, x, y)} ${et.text}`;
+  });
+
+  for (const m of world.painted?.markers ?? []) {
+    if (m.marker !== 'ruin') continue;
+    const x = ((Math.round(m.x) % W) + W) % W;
+    const y = Math.min(H - 1, Math.max(0, Math.round(m.y)));
+    const kind = m.ruin ?? 'city';
+    ruins.push({
+      id: ruins.length,
+      kind,
+      x, y,
+      name: m.name
+        ?? `${ruinPrefix(kind, x, y)} ${coin(cultureAt(x, y), `pruin:${x},${y}`, RUIN_BIAS[kind]).text}`,
+      condition: 'overgrown',
+      site: 'holy',
+      importance: 0.72,
+      painted: true,
+    });
+  }
+
+  return { settlements, roads, realms, realmOf, features, ruins, landforms, languages, languageOf };
 }
 
 // ---------------------------------------------------------------------------
@@ -427,7 +548,7 @@ function growRealms(
   world: WorldData,
   settlements: Settlement[],
   params: HumanGeographyParams,
-  registry: NameRegistry,
+  realmName: (idx: number, capital: Settlement) => string,
   rng: Rng,
 ): { realms: Realm[]; realmOf: Int32Array } {
   const { width: W, height: H, elevation, biome } = world;
@@ -435,7 +556,7 @@ function growRealms(
   const capitals = settlements.filter((s) => s.rank === 'capital').slice(0, params.realmCount);
   const realms: Realm[] = capitals.map((c, idx) => ({
     id: idx,
-    name: registry.take(`realm${idx}`, { culture: c.culture, kind: 'realm' }),
+    name: realmName(idx, c),
     capital: c.id,
     culture: c.culture,
     hue: Math.round((idx * 137.508 + rng() * 20) % 360),
@@ -637,29 +758,103 @@ function aStar(
 // Named geography
 // ---------------------------------------------------------------------------
 
+// These sets must cover every biome the classifier can emit, or a whole class of
+// country silently loses its names. Splitting Desert into erg/reg/badlands did
+// exactly that: for one build the world had no deserts to name, because the only
+// id this set knew about had stopped being assigned.
 const FOREST_SET = new Set<number>([
   Biome.BorealForest, Biome.TemperateForest, Biome.TemperateRainforest,
-  Biome.TropicalForest, Biome.TropicalRainforest,
+  Biome.TropicalForest, Biome.TropicalRainforest, Biome.MonsoonForest,
+  Biome.MontaneForest, Biome.CloudForest,
 ]);
+
+const DESERT_SET = new Set<number>([
+  Biome.Desert, Biome.SaltFlat, Biome.Erg, Biome.Reg, Biome.Badlands, Biome.ColdDesert,
+]);
+
+const PLAIN_SET = new Set<number>([
+  Biome.Grassland, Biome.Savanna, Biome.Steppe,
+]);
+
+const MARSH_SET = new Set<number>([
+  Biome.Marsh, Biome.SaltMarsh, Biome.Mangrove, Biome.PeatBog,
+]);
+
+/** Spanish wording per landform, varied so a coast is not forty "Cabo"s. */
+const LANDFORM_LABELS: Record<LandformKind, string[]> = {
+  cape: ['Cabo', 'Punta', 'Cabo'],
+  bay: ['Bahía de', 'Ensenada de', 'Golfo de'],
+  fjord: ['Fiordo de', 'Ría de', 'Fiordo de'],
+  strait: ['Estrecho de', 'Paso de', 'Canal de'],
+  isthmus: ['Istmo de', 'Lengua de', 'Istmo de'],
+  peninsula: ['Península de', 'Península', 'Tierras de'],
+  delta: ['Delta del', 'Bocas del', 'Delta del'],
+  pass: ['Paso de', 'Puerto de', 'Collado de'],
+  valley: ['Valle de', 'Cañada de', 'Vega de'],
+  gorge: ['Garganta de', 'Desfiladero de', 'Tajo de'],
+};
+
+/** Which FeatureKind each landform is filed under for styling and gazetteering. */
+const LANDFORM_FEATURE: Record<LandformKind, FeatureKind> = {
+  cape: 'cape', bay: 'bay', fjord: 'bay', strait: 'strait', isthmus: 'cape',
+  peninsula: 'cape', delta: 'marsh', pass: 'valley', valley: 'valley', gorge: 'gorge',
+};
+
+const LANDFORM_BIAS: Record<LandformKind, { heads: Gloss[]; modifiers?: Gloss[] }> = {
+  cape: { heads: ['rock', 'cliff', 'stone'], modifiers: ['far', 'grey', 'wild', 'black'] },
+  bay: { heads: ['bay', 'water', 'sea'], modifiers: ['quiet', 'small', 'green', 'bright'] },
+  fjord: { heads: ['bay', 'water', 'cliff'], modifiers: ['cold', 'dark', 'grey', 'quiet'] },
+  strait: { heads: ['gate', 'water', 'sea'], modifiers: ['small', 'dark', 'cold'] },
+  isthmus: { heads: ['road', 'gate', 'field'], modifiers: ['small', 'great', 'old'] },
+  peninsula: { heads: ['field', 'rock', 'people'], modifiers: ['far', 'wild', 'green'] },
+  delta: { heads: ['marsh', 'water', 'river'], modifiers: ['great', 'green', 'quiet'] },
+  pass: { heads: ['pass', 'gate', 'mountain'], modifiers: ['high', 'cold', 'grey'] },
+  valley: { heads: ['valley', 'river', 'meadow'], modifiers: ['green', 'quiet', 'low'] },
+  gorge: { heads: ['cliff', 'stone', 'valley'], modifiers: ['dark', 'black', 'cold'] },
+};
+
+/** Which roots suit which class of feature, so a mountain is not called a bay. */
+const FEATURE_BIAS: Partial<Record<FeatureKind, { heads: Gloss[]; modifiers?: Gloss[] }>> = {
+  continent: { heads: ['people', 'field', 'town', 'king'], modifiers: ['great', 'old', 'far'] },
+  isle: { heads: ['island', 'rock', 'cliff'], modifiers: ['small', 'far', 'grey', 'wild'] },
+  ocean: { heads: ['sea', 'water'], modifiers: ['great', 'far', 'dark', 'wild'] },
+  sea: { heads: ['sea', 'bay', 'water'], modifiers: ['small', 'quiet', 'green'] },
+  range: { heads: ['mountain', 'rock', 'cliff', 'wall'], modifiers: ['high', 'grey', 'cold', 'black'] },
+  peak: { heads: ['mountain', 'rock', 'tower'], modifiers: ['high', 'white', 'holy', 'god'] },
+  forest: { heads: ['forest', 'tree'], modifiers: ['dark', 'old', 'green', 'wild', 'oak', 'pine'] },
+  desert: { heads: ['sand', 'stone', 'moor'], modifiers: ['white', 'warm', 'dark', 'wild'] },
+  plain: { heads: ['field', 'meadow', 'moor'], modifiers: ['great', 'green', 'wild', 'horse'] },
+  lake: { heads: ['lake', 'water'], modifiers: ['black', 'bright', 'quiet', 'holy'] },
+  river: { heads: ['river', 'water'], modifiers: ['great', 'black', 'bright', 'salmon', 'cold'] },
+};
 
 function nameGeography(
   world: WorldData,
-  registry: NameRegistry,
+  coin: (c: CultureId, key: string, bias?: { heads?: Gloss[]; modifiers?: Gloss[] }) => CoinedName,
   cultureAt: (x: number, y: number) => CultureId,
+  landforms: Landform[] = [],
 ): NamedFeature[] {
   const { width: W, height: H, elevation, biome, lake } = world;
   const out: NamedFeature[] = [];
   const total = W * H;
 
+  const label: Partial<Record<FeatureKind, string>> = {
+    continent: '', isle: 'Isla de', ocean: 'Océano', sea: 'Mar de', range: 'Montes',
+    peak: 'Monte', forest: 'Bosque de', desert: 'Desierto de', plain: 'Llanura de',
+    lake: 'Lago', river: 'Río', marsh: 'Marismas de',
+  };
   const add = (kind: FeatureKind, cells: number[], importance: number) => {
     const a = regionAnchor(cells, W, H);
+    const et = coin(cultureAt(a.x, a.y), `${kind}:${a.x},${a.y}`, FEATURE_BIAS[kind]);
+    const pre = label[kind] ?? '';
     out.push({
       kind,
-      name: registry.take(`${kind}:${a.x},${a.y}`, { culture: cultureAt(a.x, a.y), kind }),
+      name: pre ? `${pre} ${et.text}` : et.text,
       x: a.x, y: a.y,
       extent: a.extent,
       angle: a.angle,
       importance,
+      etym: et,
     });
   };
 
@@ -690,10 +885,11 @@ function nameGeography(
     let best = cells[0];
     for (const c of cells) if (elevation[c] > elevation[best]) best = c;
     const x = best % W, y = (best / W) | 0;
+    const et = coin(cultureAt(x, y), `peak:${x},${y}`, FEATURE_BIAS.peak);
     out.push({
       kind: 'peak',
-      name: registry.take(`peak:${x},${y}`, { culture: cultureAt(x, y), kind: 'peak' }),
-      x, y, extent: 3, angle: 0, importance: 0.55,
+      name: `Monte ${et.text}`,
+      x, y, extent: 3, angle: 0, importance: 0.55, etym: et,
     });
   });
 
@@ -702,17 +898,24 @@ function nameGeography(
 
   const deserts = components(
     W, H,
-    (i) => elevation[i] > 0 && (biome[i] === Biome.Desert || biome[i] === Biome.SaltFlat),
+    (i) => elevation[i] > 0 && DESERT_SET.has(biome[i]),
     Math.round(total * 0.0018),
   );
   deserts.slice(0, 14).forEach((cells, idx) => add('desert', cells, 0.6 - idx * 0.02));
 
   const plains = components(
     W, H,
-    (i) => elevation[i] > 0 && (biome[i] === Biome.Grassland || biome[i] === Biome.Savanna),
+    (i) => elevation[i] > 0 && PLAIN_SET.has(biome[i]),
     Math.round(total * 0.0026),
   );
   plains.slice(0, 14).forEach((cells, idx) => add('plain', cells, 0.45 - idx * 0.02));
+
+  const marshes = components(
+    W, H,
+    (i) => elevation[i] > 0 && MARSH_SET.has(biome[i]),
+    Math.round(total * 0.0007),
+  );
+  marshes.slice(0, 12).forEach((cells, idx) => add('marsh', cells, 0.4 - idx * 0.02));
 
   const lakes = components(W, H, (i) => lake[i] === 1, Math.round(total * 0.00012));
   lakes.slice(0, 18).forEach((cells, idx) => add('lake', cells, 0.5 - idx * 0.02));
@@ -722,9 +925,11 @@ function nameGeography(
   byFlow.slice(0, 26).forEach((r, idx) => {
     const mid = r.cells[Math.floor(r.cells.length * 0.55)];
     const x = mid % W, y = (mid / W) | 0;
+    const et = coin(cultureAt(x, y), `river:${x},${y}`, FEATURE_BIAS.river);
     out.push({
       kind: 'river',
-      name: registry.take(`river:${x},${y}`, { culture: cultureAt(x, y), kind: 'river' }),
+      name: `Río ${et.text}`,
+      etym: et,
       x, y,
       extent: r.cells.length,
       angle: 0,
@@ -732,6 +937,28 @@ function nameGeography(
       importance: 0.5 + r.flow * 0.4 - idx * 0.008,
     });
   });
+
+  // Landforms: capes, bays, straits, isthmuses, peninsulas, deltas, passes and
+  // valleys. These carry their own extent and angle from the detector, so the
+  // label layer can size and slant them without re-measuring anything.
+  for (const lf of landforms) {
+    const wording = LANDFORM_LABELS[lf.kind];
+    const pre = wording[(lf.x * 7 + lf.y * 13) % wording.length];
+    const et = coin(cultureAt(lf.x, lf.y), `${lf.kind}:${lf.x},${lf.y}`, LANDFORM_BIAS[lf.kind]);
+    out.push({
+      kind: LANDFORM_FEATURE[lf.kind],
+      name: `${pre} ${et.text}`,
+      x: lf.x,
+      y: lf.y,
+      extent: lf.extent,
+      angle: lf.angle,
+      cells: lf.cells,
+      // Deliberately below the continent/ocean band: these are the fine print of
+      // a map, and they must lose the space fight against a realm name.
+      importance: 0.18 + lf.importance * 0.22,
+      etym: et,
+    });
+  }
 
   return out;
 }

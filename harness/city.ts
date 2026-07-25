@@ -15,10 +15,11 @@ const plan = generateCity({ ...DEFAULT_CITY, seed, size,
   walls: process.env.WALLS !== '0' });
 const nb = plan.patches.reduce((a,p)=>a+p.buildings.length,0);
 console.log(`plan in ${Date.now()-t0}ms — ${plan.patches.length} patches, ${nb} buildings, ${plan.gates.length} gates, ${plan.towers.length} towers`);
+console.log(`  calles: ${plan.mainStreets.length} avenidas, ${plan.streets.length} secundarias · ${plan.bridges.length} puentes · ${plan.piers.length} embarcaderos · muralla ${plan.wallClosed ? 'cerrada' : 'abierta al mar'}`);
 const canvas = createCanvas(out, out);
 const ctx = canvas.getContext('2d') as unknown as Ctx;
 const t1 = Date.now();
-renderCity(plan, ctx, { theme: themeById(process.env.THEME || 'wonder'), width: out, height: out });
+renderCity(plan, ctx, { theme: themeById(process.env.THEME || 'wonder'), width: out, height: out, margin: Number(process.env.MARGIN ?? 0.35) });
 console.log(`render in ${Date.now()-t1}ms`);
 mkdirSync('harness/out', { recursive: true });
 const f = process.env.OUT || `harness/out/city-${seed}.png`;

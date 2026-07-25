@@ -39,17 +39,22 @@ function polarBandlimit(elev: Float32Array, W: number, H: number): void {
 }
 import { erode } from './erosion';
 import { computeClimate } from './climate';
+import { computeCurrents, nearshoreSst } from './currents';
+import { applyGlaciers } from './glaciers';
 import { computeHydrology } from './hydrology';
 import { classifyBiomes } from './biomes';
+import { distanceTo, localRelief } from './fields';
 import { detectLandmarks } from './landmarks';
 
 // Stage weights for the progress bar (sums to 1).
 const STAGES: [string, number][] = [
-  ['plates', 0.10],
-  ['terrain', 0.05],
-  ['erosion', 0.50],
-  ['climate', 0.15],
-  ['hydrology', 0.08],
+  ['plates', 0.09],
+  ['terrain', 0.04],
+  ['erosion', 0.44],
+  ['glaciers', 0.04],
+  ['currents', 0.08],
+  ['climate', 0.14],
+  ['hydrology', 0.07],
   ['biomes', 0.05],
   ['landmarks', 0.04],
   ['finish', 0.03],
@@ -99,12 +104,27 @@ export function generateWorld(rawParams: WorldParams, onProgress?: ProgressFn): 
     onProgress: (f) => report('erosion', f),
   });
 
-  // 3b. Kill grid-anisotropy artifacts at the poles (radial pleats).
+  // 3b. Glacial carving. After fluvial erosion, because ice exploits the
+  // valleys rivers cut; before everything downstream, because it moves the
+  // coastline — a fjord IS a coastline change.
+  report('glaciers', 0);
+  const glacial = applyGlaciers(params, elevation, (f) => report('glaciers', f));
+
+  // 3c. Kill grid-anisotropy artifacts at the poles (radial pleats).
   polarBandlimit(elevation, W, H);
 
-  // 4. Climate (first pass without lakes) -----------------------------------
+  // 4. Ocean currents ------------------------------------------------------
+  // Must come after the final coastline, since gyres are shaped by the coasts,
+  // and before climate, which depends on the heat they carry.
+  report('currents', 0);
+  const currents = computeCurrents(params, elevation, (f) => report('currents', f));
+  // Diffuse the anomaly a short way inland so a coastline feels the water it
+  // actually faces rather than the single nearest cell.
+  const sstInland = nearshoreSst(currents.sst, elevation, W, H, Math.max(3, Math.round(W / 150)));
+
+  // 5. Climate --------------------------------------------------------------
   report('climate', 0);
-  const climate = computeClimate(params, elevation, null, (f) => report('climate', f));
+  const climate = computeClimate(params, elevation, null, (f) => report('climate', f), { sst: sstInland });
 
   // 5. Hydrology (rain-weighted rivers + lakes) ------------------------------
   report('hydrology', 0);
@@ -113,7 +133,22 @@ export function generateWorld(rawParams: WorldParams, onProgress?: ProgressFn): 
 
   // 6. Biomes ----------------------------------------------------------------
   report('biomes', 0);
-  const biome = classifyBiomes(params, elevation, climate.temperature, climate.precipitation, hydro.lake);
+  // The classifier needs more than climate now: relief decides sand from stone
+  // and flat from carved, drainage decides wetland and gallery forest, and
+  // distance to the sea decides mangrove from marsh.
+  const bioRelief = localRelief(elevation, W, H, Math.max(3, Math.round(W / 150)));
+  const seaMask = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) seaMask[i] = elevation[i] <= 0 ? 1 : 0;
+  const bioSeaDist = distanceTo(seaMask, W, H);
+  const biome = classifyBiomes(params, {
+    elevation,
+    temperature: climate.temperature,
+    precipitation: climate.precipitation,
+    lake: hydro.lake,
+    flow: hydro.flowMap,
+    relief: bioRelief,
+    seaDist: bioSeaDist,
+  });
   report('biomes', 1);
 
   // 7. Landmarks --------------------------------------------------------------
@@ -146,5 +181,14 @@ export function generateWorld(rawParams: WorldParams, onProgress?: ProgressFn): 
     rivers: hydro.rivers,
     landmarks,
     plateInfo: plates.plateInfo,
+    currentU: currents.u,
+    currentV: currents.v,
+    // The inland-diffused field, not the raw ocean one: a coastal settlement
+    // needs to know the temperature of the water it FACES, and the raw field is
+    // zero on land.
+    sst: sstInland,
+    currentSpeed: currents.speed,
+    ice: glacial.ice,
+    revision: 0,
   };
 }

@@ -13,7 +13,7 @@
 //      importance order, and a label that cannot fit is dropped rather than
 //      allowed to overlap
 
-import type { WorldData } from '../core/types';
+import type { RuinKind, WorldData } from '../core/types';
 import { createRng } from '../core/rng';
 import type { HumanGeography, NamedFeature, Settlement } from '../core/settlements';
 import type { CartoTheme } from './theme';
@@ -309,6 +309,118 @@ function drawSettlementMark(ctx: Ctx, s: Settlement, theme: CartoTheme, r: numbe
   }
 }
 
+/**
+ * Ruin glyphs.
+ *
+ * Every one is drawn BROKEN — a gap in the wall, a snapped tower, one arch
+ * missing from the bridge. That asymmetry is the entire signal: a neat little
+ * tower reads as a living castle, and no amount of grey ink fixes it.
+ */
+function drawRuinMark(ctx: Ctx, kind: RuinKind, theme: CartoTheme, r: number): void {
+  ctx.lineWidth = Math.max(0.55, r * 0.2);
+  ctx.strokeStyle = theme.settlement.ink;
+  ctx.fillStyle = theme.settlement.fill;
+  const line = (x0: number, y0: number, x1: number, y1: number) => {
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  };
+  switch (kind) {
+    case 'tower': {
+      // A stump: two walls standing, the top jagged.
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.45, r * 0.6);
+      ctx.lineTo(-r * 0.45, -r * 0.75);
+      ctx.lineTo(-r * 0.12, -r * 0.45);
+      ctx.lineTo(r * 0.12, -r * 0.95);
+      ctx.lineTo(r * 0.45, -r * 0.3);
+      ctx.lineTo(r * 0.45, r * 0.6);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      break;
+    }
+    case 'fort': {
+      // A curtain wall with a breach in the middle.
+      ctx.beginPath();
+      ctx.moveTo(-r, r * 0.55);
+      ctx.lineTo(-r, -r * 0.45);
+      ctx.lineTo(-r * 0.62, -r * 0.45);
+      ctx.lineTo(-r * 0.62, r * 0.1);
+      ctx.lineTo(-r * 0.2, r * 0.1);
+      ctx.lineTo(-r * 0.2, r * 0.55);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(r * 0.25, r * 0.55);
+      ctx.lineTo(r * 0.25, -r * 0.2);
+      ctx.lineTo(r, -r * 0.6);
+      ctx.lineTo(r, r * 0.55);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      break;
+    }
+    case 'wall': {
+      line(-r, r * 0.35, -r * 0.25, r * 0.35);
+      line(-r * 0.25, r * 0.35, -r * 0.25, -r * 0.35);
+      line(r * 0.3, r * 0.35, r, r * 0.35);
+      line(r * 0.3, r * 0.35, r * 0.3, -r * 0.2);
+      break;
+    }
+    case 'temple': {
+      // Columns and a fallen lintel.
+      for (const cx of [-r * 0.6, -r * 0.15, r * 0.55]) line(cx, r * 0.6, cx, -r * 0.4);
+      line(-r * 0.8, -r * 0.5, r * 0.1, -r * 0.62);
+      break;
+    }
+    case 'stones': {
+      // A ring seen obliquely, one stone down.
+      const n = 6;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const px = Math.cos(a) * r * 0.85, py = Math.sin(a) * r * 0.45;
+        if (i === 3) { line(px - r * 0.2, py, px + r * 0.2, py); continue; }
+        ctx.beginPath();
+        ctx.rect(px - r * 0.12, py - r * 0.42, r * 0.24, r * 0.52);
+        ctx.fill(); ctx.stroke();
+      }
+      break;
+    }
+    case 'bridge': {
+      // Two piers and one surviving arch.
+      ctx.beginPath();
+      ctx.arc(-r * 0.35, r * 0.45, r * 0.42, Math.PI, 0);
+      ctx.stroke();
+      line(-r, r * 0.55, -r, r * 0.05);
+      line(r * 0.35, r * 0.55, r * 0.35, -r * 0.05);
+      line(r * 0.35, r * 0.02, r * 0.68, r * 0.02);
+      break;
+    }
+    case 'mine': {
+      // An adit: a dark mouth in a hillside, with spoil below.
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.75, r * 0.55);
+      ctx.lineTo(0, -r * 0.7);
+      ctx.lineTo(r * 0.75, r * 0.55);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = theme.settlement.ink;
+      ctx.beginPath();
+      ctx.arc(0, r * 0.3, r * 0.24, Math.PI, 0);
+      ctx.fill();
+      break;
+    }
+    default: {
+      // A dead city: a broken block plan.
+      ctx.beginPath();
+      ctx.rect(-r * 0.9, -r * 0.25, r * 0.7, r * 0.8);
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.rect(-r * 0.05, -r * 0.6, r * 0.55, r * 1.15);
+      ctx.fill(); ctx.stroke();
+      line(r * 0.7, r * 0.55, r * 0.7, -r * 0.1);
+      break;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The full overlay
 // ---------------------------------------------------------------------------
@@ -345,12 +457,22 @@ export function drawOverlay(ctx: Ctx, world: WorldData, geo: HumanGeography, opt
       if (!inside(x, y, 60)) continue;
 
       const text = style.caps ? f.name.toUpperCase() : f.name;
-      let size = Math.max(8, Math.min(52, style.size * ts * Math.pow(Math.max(0.35, scale), 0.55) * (0.75 + f.importance * 0.6)));
+      // FIXED SCREEN SIZE, not a function of the zoom.
+      //
+      // Tying type size to `pow(scale, 0.55)` meant every name grew and shrank
+      // continuously as the reader turned the wheel, and because the shrink-to-fit
+      // and the collision test both re-ran against those changing sizes, labels
+      // also popped in and out at different moments. On a real atlas a city name
+      // is the same height on the sheet whatever the sheet's scale; what changes
+      // with scale is WHICH names are on it. So size is constant per class and
+      // visibility is gated on a discrete threshold, which cannot flicker.
+      let size = Math.max(8, Math.min(52, style.size * ts * (0.85 + f.importance * 0.35)));
+      if (f.extent * scale < (style.bounded === false ? 26 : 46)) continue;
 
       // Shrink to fit the region. A continent label wider than its continent is
       // the single most common way a generated map betrays itself, so the
       // region's own screen extent is a hard cap, not a suggestion.
-      const budget = f.extent * scale * 0.92;
+      const budget = style.bounded === false ? Infinity : f.extent * scale * 0.92;
       ctx.font = `${style.italic ? 'italic ' : ''}${style.weight} ${size}px ${theme.type.display}`;
       let w = ctx.measureText(text).width + size * style.tracking * (text.length - 1);
       if (w > budget) {
@@ -367,7 +489,8 @@ export function drawOverlay(ctx: Ctx, world: WorldData, geo: HumanGeography, opt
       if (!space.fits(rect, 3)) continue;
       // A sea name lying across a continent is worse than no sea name: sample
       // the label's own footprint and require it to stay on the right medium.
-      if (!footprintMatches(world, opts, rect, style.water === true)) continue;
+      if (style.footprint !== false
+        && !footprintMatches(world, opts, rect, style.water === true, style.bounded === false ? 0.55 : 0.72)) continue;
       space.add(rect);
 
       ctx.save();
@@ -381,11 +504,10 @@ export function drawOverlay(ctx: Ctx, world: WorldData, geo: HumanGeography, opt
     }
 
     // ---- river labels, curved along the channel ---------------------------
-    ctx.font = `italic 400 ${Math.max(7, 11 * ts * Math.pow(Math.max(0.35, scale), 0.5))}px ${theme.type.body}`;
     ctx.fillStyle = theme.rivers.color;
     for (const f of geo.features) {
       if (f.kind !== 'river' || !f.cells) continue;
-      const size = Math.max(7, 11 * ts * Math.pow(Math.max(0.35, scale), 0.5));
+      const size = 11 * ts;
       ctx.font = `italic 400 ${size}px ${theme.type.body}`;
       // Label the middle third — the mouth is busy and the source is thin.
       const a = Math.floor(f.cells.length * 0.35), b = Math.floor(f.cells.length * 0.8);
@@ -408,8 +530,8 @@ export function drawOverlay(ctx: Ctx, world: WorldData, geo: HumanGeography, opt
     for (const s of order) {
       const x = pr.x(s.x), y = pr.y(s.y);
       if (!inside(x, y, 24)) continue;
-      const r = (s.rank === 'capital' ? 5.2 : s.rank === 'city' ? 4.2 : s.rank === 'town' ? 3 : 2.1)
-        * Math.max(0.75, Math.min(2.4, Math.pow(scale, 0.6))) * ts;
+      // The mark is a symbol on the sheet, so it keeps its size too.
+      const r = (s.rank === 'capital' ? 5.6 : s.rank === 'city' ? 4.6 : s.rank === 'town' ? 3.4 : 2.4) * ts;
       const markRect: Rect = { x: x - r * 1.3, y: y - r * 2.6, w: r * 2.6, h: r * 3.4 };
       if (!space.fits(markRect, 1)) continue;
       space.add(markRect);
@@ -420,9 +542,12 @@ export function drawOverlay(ctx: Ctx, world: WorldData, geo: HumanGeography, opt
       ctx.restore();
 
       if (!opts.layers.labels) continue;
-      const size = Math.max(6.5, (s.rank === 'capital' ? 13 : s.rank === 'city' ? 11 : s.rank === 'town' ? 9 : 7.6)
-        * ts * Math.pow(Math.max(0.35, scale), 0.5));
-      if (size < 7 && s.rank === 'village') continue;
+      const size = (s.rank === 'capital' ? 13 : s.rank === 'city' ? 11 : s.rank === 'town' ? 9 : 7.6) * ts;
+      // Smaller places appear as you zoom in, at fixed thresholds — the atlas
+      // convention, and the only way the set of visible names stays stable while
+      // the wheel is turning.
+      const minScale = s.rank === 'capital' ? 0 : s.rank === 'city' ? 0.8 : s.rank === 'town' ? 1.6 : 3.2;
+      if (scale < minScale) continue;
       ctx.font = `${s.rank === 'capital' ? '600' : '400'} ${size}px ${theme.type.display}`;
       const text = s.rank === 'capital' ? s.name.toUpperCase() : s.name;
       const tw = ctx.measureText(text).width;
@@ -449,6 +574,74 @@ export function drawOverlay(ctx: Ctx, world: WorldData, geo: HumanGeography, opt
       void rng;
     }
   }
+
+  // ---- ruins ---------------------------------------------------------------
+  // Drawn AFTER settlements so a living town always wins the space fight: a ruin
+  // crowding out a city is the wrong way round.
+  if (opts.layers.settlements) {
+    for (const ru of geo.ruins.slice().sort((a, b) => b.importance - a.importance)) {
+      const x = pr.x(ru.x), y = pr.y(ru.y);
+      if (!inside(x, y, 20)) continue;
+      const r = (ru.kind === 'city' ? 5.4 : ru.kind === 'fort' ? 5 : 4.2) * ts;
+      if (scale < 1.4) continue;  // below this a ruin is clutter, not information
+      const markRect: Rect = { x: x - r * 1.2, y: y - r * 1.3, w: r * 2.4, h: r * 2.4 };
+      if (!space.fits(markRect, 1)) continue;
+      space.add(markRect);
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.globalAlpha = 0.85;      // ruins sit back from the living map
+      drawRuinMark(ctx, ru.kind, theme, r);
+      ctx.restore();
+
+      if (!opts.layers.labels) continue;
+      const size = 8.4 * ts;
+      ctx.font = `italic 400 ${size}px ${theme.type.body}`;
+      const tw = ctx.measureText(ru.name).width;
+      for (const [lx, ly] of [
+        [x, y + r * 1.5 + size * 0.7],
+        [x + r * 1.5 + tw / 2, y + size * 0.1],
+        [x - r * 1.5 - tw / 2, y + size * 0.1],
+        [x, y - r * 1.5 - size * 0.6],
+      ] as [number, number][]) {
+        const rect: Rect = { x: lx - tw / 2, y: ly - size * 0.6, w: tw, h: size * 1.2 };
+        if (!space.fits(rect, 2)) continue;
+        space.add(rect);
+        ctx.fillStyle = theme.type.color;
+        halo(size);
+        ctx.strokeText(ru.name, lx, ly);
+        ctx.fillText(ru.name, lx, ly);
+        break;
+      }
+    }
+  }
+
+  // ---- hand-written labels -------------------------------------------------
+  // Last, and unconditionally placed: the reader typed these, so they outrank
+  // everything the generator has an opinion about.
+  if (opts.layers.labels && world.painted?.labels.length) {
+    for (const pl of world.painted.labels) {
+      const x = pr.x(pl.x), y = pr.y(pl.y);
+      if (!inside(x, y, 80)) continue;
+      const style = AREA_STYLE[pl.style === 'water' ? 'sea' : pl.style === 'range' ? 'range'
+        : pl.style === 'settlement' ? 'default' : pl.style === 'note' ? 'default' : 'continent'];
+      const size = Math.max(8, (pl.size ?? style.size) * ts * Math.pow(Math.max(0.35, scale), 0.55));
+      ctx.font = `${style.italic ? 'italic ' : ''}${style.weight} ${size}px ${theme.type.display}`;
+      const text = style.caps ? pl.text.toUpperCase() : pl.text;
+      const tracking = size * style.tracking;
+      const w = ctx.measureText(text).width + tracking * (text.length - 1);
+      const angle = pl.angle ?? 0;
+      space.add(rotatedBounds(x, y, w, size * 1.4, angle));
+      ctx.save();
+      ctx.translate(x, y);
+      if (angle) ctx.rotate(angle);
+      ctx.fillStyle = pl.style === 'water' ? theme.type.oceanColor : theme.type.color;
+      halo(size);
+      trackedText(ctx, text, 0, 0, tracking, true);
+      trackedText(ctx, text, 0, 0, tracking, false);
+      ctx.restore();
+    }
+  }
   ctx.restore();
 }
 
@@ -457,7 +650,13 @@ export function drawOverlay(ctx: Ctx, world: WorldData, geo: HumanGeography, opt
  * water for hydronyms, land for everything else. Sampled on a coarse grid
  * because a label is allowed to clip a headland, just not to straddle one.
  */
-function footprintMatches(world: WorldData, opts: OverlayOptions, r: Rect, wantWater: boolean): boolean {
+function footprintMatches(
+  world: WorldData,
+  opts: OverlayOptions,
+  r: Rect,
+  wantWater: boolean,
+  need = 0.72,
+): boolean {
   const { worldWidth: W, view, scale } = opts;
   const H = world.height;
   let hit = 0, total = 0;
@@ -473,7 +672,7 @@ function footprintMatches(world: WorldData, opts: OverlayOptions, r: Rect, wantW
       if (isWater === wantWater) hit++;
     }
   }
-  return total === 0 || hit / total >= 0.72;
+  return total === 0 || hit / total >= need;
 }
 
 /** Axis-aligned bounds of a rotated, centred box. */
@@ -514,6 +713,15 @@ interface AreaStyle {
   tracking: number;
   rotate: boolean;
   water?: boolean;
+  /**
+   * False for point features (a cape, a pass, a delta), which are allowed a name
+   * longer than the thing they name. Shrinking "Cabo Tormentas" to fit inside a
+   * seven-cell headland produces four-pixel type, which is how the first version
+   * of this managed to place every coastal name and show none of them.
+   */
+  bounded?: boolean;
+  /** Whether the label's footprint must sit on the right medium. */
+  footprint?: boolean;
 }
 
 /** Type hierarchy. Water is italic and blue by convention; physical regions get
@@ -522,7 +730,7 @@ const AREA_STYLE: Record<string, AreaStyle> = {
   continent: { size: 30, caps: true, italic: false, weight: '600', tracking: 0.4, rotate: true },
   ocean: { size: 26, caps: true, italic: true, weight: '400', tracking: 0.55, rotate: true, water: true },
   sea: { size: 18, caps: true, italic: true, weight: '400', tracking: 0.4, rotate: true, water: true },
-  bay: { size: 12, caps: false, italic: true, weight: '400', tracking: 0.12, rotate: true, water: true },
+  bay: { size: 11, caps: false, italic: true, weight: '400', tracking: 0.12, rotate: true, water: true, bounded: false },
   isle: { size: 11, caps: false, italic: true, weight: '400', tracking: 0.1, rotate: false },
   range: { size: 15, caps: true, italic: false, weight: '500', tracking: 0.28, rotate: true },
   forest: { size: 13, caps: false, italic: true, weight: '400', tracking: 0.14, rotate: true },
@@ -530,6 +738,16 @@ const AREA_STYLE: Record<string, AreaStyle> = {
   plain: { size: 13, caps: false, italic: true, weight: '400', tracking: 0.2, rotate: true },
   lake: { size: 10, caps: false, italic: true, weight: '400', tracking: 0.08, rotate: false, water: true },
   realm: { size: 20, caps: true, italic: false, weight: '600', tracking: 0.45, rotate: true },
+  // The fine print of a coast. Small, unspaced, and — for the water ones — italic
+  // blue, which is the convention that lets a reader tell a bay from a headland
+  // without reading either name.
+  // A cape name lies over the water beside the headland — that is the convention,
+  // so it must NOT be footprint-tested against land.
+  cape: { size: 9, caps: false, italic: false, weight: '400', tracking: 0.06, rotate: false, bounded: false, footprint: false },
+  strait: { size: 9.5, caps: false, italic: true, weight: '400', tracking: 0.08, rotate: true, water: true, bounded: false },
+  valley: { size: 9.5, caps: false, italic: true, weight: '400', tracking: 0.08, rotate: true, bounded: false, footprint: false },
+  gorge: { size: 9, caps: false, italic: true, weight: '400', tracking: 0.06, rotate: true, bounded: false, footprint: false },
+  marsh: { size: 9.5, caps: false, italic: true, weight: '400', tracking: 0.1, rotate: true, bounded: false, footprint: false },
   default: { size: 12, caps: false, italic: false, weight: '400', tracking: 0.1, rotate: false },
 };
 

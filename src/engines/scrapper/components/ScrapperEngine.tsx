@@ -20,6 +20,7 @@ import ManualSnapshotModal from './ManualSnapshotModal';
 import InstagramConnect from './InstagramConnect';
 import type { MediaFormat } from '@/services/mediaDownloader';
 import { canDownloadMedia, deleteSnapshotMedia, runSnapshotDownload } from '@/services/scrapperMedia';
+import { canCapturePage, deleteSnapshotCapture, runSnapshotCapture } from '@/services/pageCapture';
 import { isDesktop } from '@/utils/platform';
 import type { Snapshot } from '../types';
 
@@ -125,26 +126,33 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
     }
   };
 
-  // Capture: persist the snapshot first, then (desktop, downloadable source)
-  // kick off the background download that fills in the local playable file.
+  // Capture: persist the snapshot first, then kick off the background job that
+  // fills in the local copy — yt-dlp for media links, a full page archive
+  // (PDF + screenshot + HTML) for ordinary web pages.
   const handleCapture = useCallback(
     (snapshot: Snapshot) => {
       void (async () => {
         await addSnapshot(snapshot);
-        if (isDesktop() && canDownloadMedia(snapshot.source)) {
+        if (!isDesktop()) return;
+        if (canDownloadMedia(snapshot.source)) {
           await runSnapshotDownload(snapshot, editSnapshot, 'video');
+        } else if (canCapturePage(snapshot.source)) {
+          await runSnapshotCapture(snapshot, editSnapshot);
         }
       })();
     },
     [addSnapshot, editSnapshot],
   );
 
-  // Delete: also remove the downloaded file so the library doesn't leak.
+  // Delete: also remove the local files so the library doesn't leak.
   const handleDelete = useCallback(
     (id: string) => {
       const target = snapshots.find((s) => s.id === id);
       if (target && (target.localMediaPath || target.mediaItems?.length)) {
         void deleteSnapshotMedia(target);
+      }
+      if (target && (target.capturePdfPath || target.captureImagePath || target.captureHtmlPath)) {
+        void deleteSnapshotCapture(target);
       }
       void removeSnapshot(id);
     },
