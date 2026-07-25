@@ -21,8 +21,9 @@
 import { createRng, type Rng } from '../core/rng';
 import { generateName, type CultureId } from '../core/naming';
 import {
-  area, bisect, centroid, circle, compactness, contains, dist, lerp, longestEdge,
-  radial, rect, relax, ring, semiRadial, shrink, shrinkEdges, smoothPoly, voronoi,
+  area, bisect, centroid, circle, clipHalfPlane, compactness, contains, dist, lerp, longestEdge,
+  norm, radial, rect, relax, ring, rot90, semiRadial, shrink, shrinkEdges, smoothPoly,
+  sub, voronoi,
   type Poly, type V,
 } from './geometry';
 
@@ -69,6 +70,8 @@ export interface CityPlan {
   patches: Patch[];
   /** Curtain-wall ring, or null for an open town. */
   wall: Poly | null;
+  /** False when the wall is an open arc ending at the water on both sides. */
+  wallClosed: boolean;
   /** Wall vertices that are gates. */
   gates: V[];
   towers: V[];
@@ -76,6 +79,13 @@ export interface CityPlan {
   citadel: Poly | null;
   /** Street centrelines inside the town. */
   streets: V[][];
+  /** The avenues: gate → market, routed along the gaps between blocks. */
+  mainStreets: V[][];
+  /** Bridge decks, only where a street really crosses the water. */
+  bridges: Poly[];
+  /** Quay along the shore, and the piers off it. */
+  quays: Poly[];
+  piers: Poly[];
   /** Roads leaving the gates into the countryside. */
   roads: V[][];
   /** River polyline crossing the town, if any. */
@@ -158,6 +168,159 @@ function weldVertices(patches: Poly[], tol = 0.35): void {
       else { map.set(k, p[i]); pool.push(p[i]); }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// The street graph
+// ---------------------------------------------------------------------------
+// A town's streets are not lines drawn across it. They are the GAPS BETWEEN ITS
+// BLOCKS, which means the street network already exists the moment the patches
+// do: it is the edge graph of the patch subdivision. Routing along it is what
+// makes a main street bend around a block the way a real one does, instead of
+// cutting through six houses on its way to the market.
+//
+// `weldVertices` has already made neighbouring patches share vertex OBJECTS, so
+// the graph can be keyed on identity and needs no geometric matching.
+
+interface StreetGraph {
+  nodes: V[];
+  index: Map<V, number>;
+  adj: number[][];
+  /** How many patches an edge borders: 1 = on the town's edge, 2 = interior. */
+  shared: Map<string, number>;
+}
+
+function buildStreetGraph(patches: Poly[]): StreetGraph {
+  const index = new Map<V, number>();
+  const nodes: V[] = [];
+  const adj: number[][] = [];
+  const shared = new Map<string, number>();
+  const id = (v: V) => {
+    let i = index.get(v);
+    if (i === undefined) {
+      i = nodes.length;
+      index.set(v, i);
+      nodes.push(v);
+      adj.push([]);
+    }
+    return i;
+  };
+  const ek = (a: number, b: number) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+  for (const poly of patches) {
+    for (let i = 0; i < poly.length; i++) {
+      const a = id(poly[i]), b = id(poly[(i + 1) % poly.length]);
+      if (a === b) continue;
+      const k = ek(a, b);
+      const seen = shared.get(k) ?? 0;
+      shared.set(k, seen + 1);
+      if (seen === 0) { adj[a].push(b); adj[b].push(a); }
+    }
+  }
+  return { nodes, index, adj, shared };
+}
+
+/**
+ * Cheapest path along the block boundaries.
+ *
+ * The cost is length, but scaled by a per-edge multiplier the caller supplies —
+ * that is where "prefer streets that already exist" and "never route through the
+ * castle" live. Straight A* on raw length gives every gate the same boring
+ * radial, which is exactly what this replaced.
+ */
+function routeStreet(
+  g: StreetGraph,
+  from: number,
+  to: number,
+  weight: (a: number, b: number) => number,
+): number[] | null {
+  const n = g.nodes.length;
+  const gScore = new Float64Array(n).fill(Infinity);
+  const came = new Int32Array(n).fill(-1);
+  const closed = new Uint8Array(n);
+  const h = (i: number) => dist(g.nodes[i], g.nodes[to]);
+  gScore[from] = 0;
+  // A binary heap is overkill here: a town has a few hundred nodes and the
+  // linear scan is measurably faster than the bookkeeping.
+  const open = new Set<number>([from]);
+  while (open.size) {
+    let cur = -1, best = Infinity;
+    for (const i of open) {
+      const f = gScore[i] + h(i);
+      if (f < best) { best = f; cur = i; }
+    }
+    if (cur < 0) break;
+    if (cur === to) {
+      const path: number[] = [];
+      for (let i = to; i >= 0; i = came[i]) path.push(i);
+      return path.reverse();
+    }
+    open.delete(cur);
+    closed[cur] = 1;
+    for (const nb of g.adj[cur]) {
+      if (closed[nb]) continue;
+      const w = weight(cur, nb);
+      if (!Number.isFinite(w)) continue;
+      const tentative = gScore[cur] + dist(g.nodes[cur], g.nodes[nb]) * w;
+      if (tentative >= gScore[nb]) continue;
+      gScore[nb] = tentative;
+      came[nb] = cur;
+      open.add(nb);
+    }
+  }
+  return null;
+}
+
+/** Nearest graph node to a point, restricted to nodes passing `ok`. */
+function nearestNode(g: StreetGraph, at: V, ok?: (i: number) => boolean): number {
+  let best = -1, bd = Infinity;
+  for (let i = 0; i < g.nodes.length; i++) {
+    if (ok && !ok(i)) continue;
+    const d = dist(g.nodes[i], at);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+
+/**
+ * Round off a routed path.
+ *
+ * A path along Voronoi edges is correct and looks like a circuit diagram. Two
+ * Chaikin passes turn the corners into the slight curves a street worn by traffic
+ * actually has, while keeping it inside the gap between the blocks.
+ */
+function smoothStreet(pts: V[]): V[] {
+  let out = pts;
+  for (let pass = 0; pass < 2; pass++) {
+    if (out.length < 3) break;
+    const next: V[] = [out[0]];
+    for (let i = 0; i < out.length - 1; i++) {
+      next.push(lerp(out[i], out[i + 1], 0.25), lerp(out[i], out[i + 1], 0.75));
+    }
+    next.push(out[out.length - 1]);
+    out = next;
+  }
+  return out;
+}
+
+/** Where a polyline crosses another, as a list of intersection points. */
+function crossings(a: V[], b: V[]): { at: V; dir: V }[] {
+  const out: { at: V; dir: V }[] = [];
+  for (let i = 0; i < a.length - 1; i++) {
+    const p1 = a[i], p2 = a[i + 1];
+    for (let j = 0; j < b.length - 1; j++) {
+      const p3 = b[j], p4 = b[j + 1];
+      const d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
+      if (Math.abs(d) < 1e-9) continue;
+      const t = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / d;
+      const u = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / d;
+      if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+      out.push({
+        at: lerp(p1, p2, t),
+        dir: norm(sub(p2, p1)),
+      });
+    }
+  }
+  return out;
 }
 
 /** Ordered boundary of a set of patches: edges used exactly once. */
@@ -284,8 +447,28 @@ function createOrthoBuilding(poly: Poly, minBlockSq: number, fill: number, rng: 
 
 const WARD_WEIGHTS: [WardType, number][] = [
   ['craftsmen', 40], ['merchant', 6], ['patriciate', 4], ['administration', 3],
-  ['military', 3], ['slum', 11], ['park', 3], ['cathedral', 2],
+  ['military', 3], ['slum', 11], ['park', 3],
 ];
+
+/**
+ * How many districts of a kind a town is allowed.
+ *
+ * Drawing each ward independently from a weighted bag is right for the common
+ * ones and wrong for the singular ones: a town of twenty districts came out with
+ * three cathedrals and three parks, or with none at all, because 4% of twenty is
+ * a coin toss and nobody had told the generator that a cathedral is *the*
+ * cathedral. Rare wards get a quota instead.
+ */
+function wardQuota(ward: WardType, innerCount: number): number {
+  switch (ward) {
+    case 'cathedral': return innerCount >= 10 ? 1 : 0;
+    case 'park': return Math.max(1, Math.round(innerCount / 14));
+    case 'military': return Math.max(1, Math.round(innerCount / 12));
+    case 'administration': return Math.max(1, Math.round(innerCount / 15));
+    case 'patriciate': return Math.max(1, Math.round(innerCount / 10));
+    default: return Infinity;
+  }
+}
 
 function pickWard(rng: Rng): WardType {
   const total = WARD_WEIGHTS.reduce((s, w) => s + w[1], 0);
@@ -363,7 +546,10 @@ export function generateCity(params: CityParams): CityPlan {
   if (p.coast) {
     const a = rng() * Math.PI * 2;
     const n = { x: Math.cos(a), y: Math.sin(a) };
-    coast = { p: { x: center.x + n.x * radius * 0.82, y: center.y + n.y * radius * 0.82 }, n };
+    // 0.82 left the shore grazing the town: no wall reached it, so no quay, no
+    // piers and no clipped wall ever appeared on a "coastal" plan. The sea has to
+    // bite into the plan for the town to be a port.
+    coast = { p: { x: center.x + n.x * radius * 0.6, y: center.y + n.y * radius * 0.6 }, n };
   }
   let river: V[] | null = null;
   if (p.river) {
@@ -374,9 +560,14 @@ export function generateCity(params: CityParams): CityPlan {
     const dir = { x: Math.cos(a), y: Math.sin(a) };
     const perp = { x: -dir.y, y: dir.x };
     const L = radius * 2.6;
+    // Offset the channel off-centre. Running it exactly through the middle put
+    // the river through the market square of every river town ever generated,
+    // because the market is chosen as the most central district — the two
+    // definitions collided and nobody noticed until a reader saw twenty maps.
+    const off = (rng() < 0.5 ? -1 : 1) * radius * (0.22 + rng() * 0.3);
     const pts: V[] = [];
     for (let t = -1; t <= 1.0001; t += 0.1) {
-      const wobbleAmt = Math.sin(t * 5 + rng() * 0.4) * radius * 0.12;
+      const wobbleAmt = off + Math.sin(t * 5 + rng() * 0.4) * radius * 0.12;
       pts.push({
         x: center.x + dir.x * L * t * 0.5 + perp.x * wobbleAmt,
         y: center.y + dir.y * L * t * 0.5 + perp.y * wobbleAmt,
@@ -392,6 +583,31 @@ export function generateCity(params: CityParams): CityPlan {
       const cutAt = ordered.findIndex(wet);
       river = cutAt < 0 ? ordered : ordered.slice(0, cutAt + 1);
       if (river.length < 3) river = null;
+    }
+  }
+
+  // A wall does not run into the sea. Clip the ring to the dry arc so it ends at
+  // the waterline on both sides, the way a real harbour town's does — the sea
+  // wall was the harbour chain, not masonry.
+  let wallClosed = true;
+  if (coast && wallRing.length >= 6) {
+    const dry = (v: V) => (v.x - coast!.p.x) * coast!.n.x + (v.y - coast!.p.y) * coast!.n.y < 0;
+    const n = wallRing.length;
+    if (wallRing.some((v) => !dry(v)) && wallRing.some(dry)) {
+      // Find the first vertex whose predecessor is wet: the start of the arc.
+      let start = -1;
+      for (let i = 0; i < n; i++) {
+        if (dry(wallRing[i]) && !dry(wallRing[(i - 1 + n) % n])) { start = i; break; }
+      }
+      if (start >= 0) {
+        const arc: V[] = [];
+        for (let k = 0; k < n; k++) {
+          const v = wallRing[(start + k) % n];
+          if (!dry(v)) break;
+          arc.push(v);
+        }
+        if (arc.length >= 3) { wallRing = arc; wallClosed = false; }
+      }
     }
   }
 
@@ -416,11 +632,33 @@ export function generateCity(params: CityParams): CityPlan {
   // The market takes the most central district; the castle takes a peripheral
   // one, which is where urban castles actually sat — commanding the town from
   // an edge, with one gate to the fields and one to the streets.
+  //
+  // "Most central" is the rule, but it is not the only rule: a market square is
+  // a dry open place where carts stand, so a district the river runs through or
+  // one that is half sea is disqualified outright. It has to be a hard veto and
+  // not a penalty — a slightly-less-central square is free, a market under two
+  // feet of water is not.
+  const riverWidth = radius * 0.09;
+  const inWater = (v: V): boolean => {
+    if (coast && (v.x - coast.p.x) * coast.n.x + (v.y - coast.p.y) * coast.n.y > -riverWidth) return true;
+    if (river && river.some((rp) => dist(rp, v) < riverWidth * 1.5)) return true;
+    return false;
+  };
+  const dryPatch = (q: Patch) => !q.shape.some(inWater) && !inWater(centroid(q.shape));
+
   let market: Patch | null = null;
   let bestD = Infinity;
   for (const q of inner) {
+    if (!dryPatch(q)) continue;
     const d = dist(centroid(q.shape), center);
     if (d < bestD) { bestD = d; market = q; }
+  }
+  // Fall back to plain centrality only if literally every district is wet.
+  if (!market) {
+    for (const q of inner) {
+      const d = dist(centroid(q.shape), center);
+      if (d < bestD) { bestD = d; market = q; }
+    }
   }
   if (market) market.ward = 'market';
 
@@ -428,7 +666,7 @@ export function generateCity(params: CityParams): CityPlan {
   if (p.citadel && inner.length > 5) {
     let best = -Infinity;
     for (const q of inner) {
-      if (q === market) continue;
+      if (q === market || !dryPatch(q)) continue;
       const c = centroid(q.shape);
       const score = dist(c, center) * compactness(q.shape);
       if (score > best) { best = score; citadelPatch = q; }
@@ -450,6 +688,35 @@ export function generateCity(params: CityParams): CityPlan {
     if (ward === 'military' && d < 0.5 && rng() < 0.6) ward = 'craftsmen';
     q.ward = ward;
   }
+
+  // Enforce the quotas: keep the best-suited district of each rare ward and turn
+  // the rest over to the craftsmen, who will take any street in any town.
+  const dryEnough = (q: Patch) => dryPatch(q);
+  const counted = new Map<WardType, Patch[]>();
+  for (const q of inner) {
+    if (q.ward === 'market' || q.ward === 'castle' || q.ward === 'gate') continue;
+    let l = counted.get(q.ward);
+    if (!l) counted.set(q.ward, (l = []));
+    l.push(q);
+  }
+  for (const [ward, list] of counted) {
+    const quota = wardQuota(ward, inner.length);
+    if (list.length <= quota) continue;
+    // A cathedral wants a big dry central block; a park wants whatever is left.
+    const ranked = list.slice().sort((a, b) => {
+      const score = (q: Patch) => area(q.shape) * (dryEnough(q) ? 1 : 0.15)
+        * (ward === 'cathedral' ? 1 / (1 + dist(centroid(q.shape), center) / radius) : 1);
+      return score(b) - score(a);
+    });
+    for (const q of ranked.slice(quota)) q.ward = 'craftsmen';
+  }
+  // A town of any size has one cathedral, even if the bag never dealt one.
+  if (!inner.some((q) => q.ward === 'cathedral') && wardQuota('cathedral', inner.length) > 0) {
+    const pick = inner
+      .filter((q) => q.ward === 'craftsmen' && dryEnough(q))
+      .sort((a, b) => area(b.shape) - area(a.shape))[0];
+    if (pick) pick.ward = 'cathedral';
+  }
   // Outer ring: farms if requested, otherwise ragged outskirts.
   for (const q of patches) {
     if (q.withinCity) continue;
@@ -458,24 +725,41 @@ export function generateCity(params: CityParams): CityPlan {
   }
 
   // ---- streets ------------------------------------------------------------
-  // Straight-ish spokes from each gate to the market, bowed so they read as
-  // worn paths rather than avenues, plus a ring road just inside the wall.
+  // Routed along the gaps between blocks, not drawn across them. See
+  // `buildStreetGraph` for why that is the whole trick.
   const streets: V[][] = [];
+  const mainStreets: V[][] = [];
   const roads: V[][] = [];
   const marketC = market ? centroid(market.shape) : center;
+
+  const graph = buildStreetGraph(inner.map((q) => q.shape));
+  const citadelVerts = new Set(citadelPatch ? citadelPatch.shape : []);
+  // Edges already carrying a main street are cheaper, so later routes prefer to
+  // join an existing avenue instead of cutting a parallel one two blocks over.
+  // That single term is what turns N independent paths into a network.
+  const used = new Set<string>();
+  const ekey = (a: number, b: number) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+  const weight = (a: number, b: number) => {
+    // A street may not run through the castle bailey.
+    if (citadelVerts.has(graph.nodes[a]) && citadelVerts.has(graph.nodes[b])) return Infinity;
+    let w = used.has(ekey(a, b)) ? 0.45 : 1;
+    // Fording is expensive; a bridge is a decision, not an accident. The route
+    // will cross where the town is narrow, which is where bridges really go.
+    const mid = lerp(graph.nodes[a], graph.nodes[b], 0.5);
+    if (river && river.some((rp) => dist(rp, mid) < riverWidth * 1.4)) w *= 3.2;
+    if (coast && (mid.x - coast.p.x) * coast.n.x + (mid.y - coast.p.y) * coast.n.y > 0) return Infinity;
+    return w;
+  };
+
+  const marketNode = nearestNode(graph, marketC);
   for (const g of gates) {
-    const seg: V[] = [];
-    const steps = 7;
-    const bow = (rng() - 0.5) * radius * 0.22;
-    const dirx = marketC.x - g.x, diry = marketC.y - g.y;
-    const px = -diry, py = dirx;
-    const pl = Math.hypot(px, py) || 1;
-    for (let s = 0; s <= steps; s++) {
-      const t = s / steps;
-      const k = Math.sin(t * Math.PI) * bow;
-      seg.push({ x: g.x + dirx * t + (px / pl) * k, y: g.y + diry * t + (py / pl) * k });
+    const from = graph.index.get(g) ?? nearestNode(graph, g);
+    if (marketNode < 0 || from < 0) continue;
+    const path = routeStreet(graph, from, marketNode, weight);
+    if (path && path.length >= 2) {
+      for (let i = 0; i < path.length - 1; i++) used.add(ekey(path[i], path[i + 1]));
+      mainStreets.push(smoothStreet(path.map((i) => graph.nodes[i])));
     }
-    streets.push(seg);
 
     // Road out of the gate, away from the centre.
     const out = { x: g.x - center.x, y: g.y - center.y };
@@ -490,13 +774,141 @@ export function generateCity(params: CityParams): CityPlan {
     }
     roads.push(road);
   }
+
+  // Secondary streets: from the far corners of the town back to the network, so
+  // the quarters that no gate route happened to pass through are still reachable.
+  // Without them a town has four grand avenues and a lot of sealed courtyards.
+  const onNetwork = new Set<number>();
+  for (const k of used) for (const part of k.split('|')) onNetwork.add(Number(part));
+  const far = [...inner]
+    .map((q) => ({ q, d: dist(centroid(q.shape), center) }))
+    .sort((a, b) => b.d - a.d)
+    .slice(0, Math.max(2, Math.round(inner.length * 0.35)));
+  for (const { q } of far) {
+    const from = nearestNode(graph, centroid(q.shape));
+    if (from < 0 || onNetwork.has(from)) continue;
+    const to = nearestNode(graph, graph.nodes[from], (i) => onNetwork.has(i));
+    if (to < 0) continue;
+    const path = routeStreet(graph, from, to, weight);
+    if (!path || path.length < 2) continue;
+    for (let i = 0; i < path.length - 1; i++) {
+      used.add(ekey(path[i], path[i + 1]));
+      onNetwork.add(path[i]); onNetwork.add(path[i + 1]);
+    }
+    streets.push(smoothStreet(path.map((i) => graph.nodes[i])));
+  }
+
   if (wallRing.length >= 6) {
     const inner1 = shrink(wallRing, MAIN_STREET * 1.6);
-    if (inner1.length >= 3) streets.push([...inner1, inner1[0]]);
+    // On a big town the road just inside the wall is an avenue in its own right:
+    // it is how the garrison moves between gates without crossing the market square.
+    // On a small one it is a back lane.
+    if (inner1.length >= 3) {
+      const ringRoad = wallClosed ? [...inner1, inner1[0]] : inner1;
+      (nInner >= 24 ? mainStreets : streets).push(ringRoad);
+    }
+  }
+
+  // ---- bridges ------------------------------------------------------------
+  // Wherever a street actually crosses the water there is a bridge, and where it
+  // does not there is nothing. Placing bridges independently of the streets is
+  // how generated towns end up with a bridge to a blank wall.
+  const bridges: Poly[] = [];
+  if (river) {
+    const seen: V[] = [];
+    for (const st of [...mainStreets, ...streets]) {
+      for (const x of crossings(st, river)) {
+        if (seen.some((s) => dist(s, x.at) < riverWidth * 2)) continue;
+        seen.push(x.at);
+        const halfLen = riverWidth * 1.9;
+        const halfW = MAIN_STREET * 1.5;
+        const d = x.dir, n = rot90(d);
+        bridges.push([
+          { x: x.at.x - d.x * halfLen - n.x * halfW, y: x.at.y - d.y * halfLen - n.y * halfW },
+          { x: x.at.x + d.x * halfLen - n.x * halfW, y: x.at.y + d.y * halfLen - n.y * halfW },
+          { x: x.at.x + d.x * halfLen + n.x * halfW, y: x.at.y + d.y * halfLen + n.y * halfW },
+          { x: x.at.x - d.x * halfLen + n.x * halfW, y: x.at.y - d.y * halfLen + n.y * halfW },
+        ]);
+      }
+    }
+  }
+
+  // ---- waterfront ---------------------------------------------------------
+  // A quay running along the shore inside the town, with piers off it. A coastal
+  // town without them is an inland town that happens to end at some blue.
+  // The waterfront is a STREET, not a slab. Modelling it as a filled quay drew a
+  // brown bar across the harbour and out the other side of the town; as a ribbon
+  // along the shore it reads immediately as the road the warehouses face onto,
+  // and it cannot escape the street layer's colours.
+  const quays: Poly[] = [];
+  const piers: Poly[] = [];
+  if (coast) {
+    const n = coast.n, t = rot90(n);
+    const signed = (v: V) => (v.x - coast.p.x) * n.x + (v.y - coast.p.y) * n.y;
+    // Measured on the districts, not the wall: on a town whose wall stops short
+    // of the water the wall test produced a quay floating offshore with piers
+    // running from nothing to nothing.
+    const along: number[] = [];
+    for (const q of inner) {
+      for (const v of q.shape) {
+        if (signed(v) > -radius * 0.3) along.push((v.x - coast.p.x) * t.x + (v.y - coast.p.y) * t.y);
+      }
+    }
+    if (along.length >= 4) {
+      // Trim the outliers: one stray district corner reaching along the shore
+      // was stretching the quay right out of the town.
+      along.sort((x, y) => x - y);
+      const a0 = along[Math.floor(along.length * 0.08)];
+      const a1 = along[Math.floor(along.length * 0.92)];
+      const base = -MAIN_STREET * 1.6;
+      const at = (sAlong: number, d: number): V => ({
+        x: coast.p.x + t.x * sAlong + n.x * d,
+        y: coast.p.y + t.y * sAlong + n.y * d,
+      });
+      if (a1 - a0 > radius * 0.3) {
+        const quay: V[] = [];
+        const steps = 10;
+        for (let i = 0; i <= steps; i++) {
+          const sAlong = a0 + ((a1 - a0) * i) / steps;
+          quay.push(at(sAlong, base - Math.sin((i / steps) * Math.PI) * MAIN_STREET * 0.4));
+        }
+        mainStreets.push(quay);
+
+        const pierCount = Math.max(1, Math.round((a1 - a0) / (radius * 0.55)));
+        for (let i = 0; i < pierCount; i++) {
+          const sAlong = a0 + ((i + 0.5) / pierCount) * (a1 - a0) + (rng() - 0.5) * radius * 0.08;
+          const w = MAIN_STREET * (0.6 + rng() * 0.4);
+          // A pier is a jetty, not a causeway. At radius*0.28 they reached a third
+          // of the way across the bay and read as breakwaters.
+          const out = radius * (0.05 + rng() * 0.06);
+          piers.push([
+            at(sAlong - w, base), at(sAlong + w, base),
+            at(sAlong + w * 0.7, base + out), at(sAlong - w * 0.7, base + out),
+          ]);
+        }
+      }
+    }
+  }
+
+  // ---- clip the land ------------------------------------------------------
+  // Only NOW, after the street graph has been routed on the un-clipped shapes:
+  // clipping earlier would replace the welded vertex objects the graph is keyed
+  // on. From here on a district ends at the waterline, so its ward wash, its
+  // courtyards and its blocks all stop there too — previously the wash carried
+  // on across the harbour and the cathedral was cut in half with no shoreline to
+  // explain why.
+  if (coast) {
+    for (const q of patches) {
+      const clipped = clipHalfPlane(q.shape, coast.p, coast.n);
+      if (clipped.length >= 3) q.shape = clipped;
+      else if (q.withinCity) { q.shape = []; q.withinCity = false; }
+      else q.shape = [];
+    }
   }
 
   // ---- building geometry --------------------------------------------------
   for (const q of patches) {
+    if (q.shape.length < 3) continue;
     const isEdge = !q.withinCity;
     // Pull the block back from its streets. A block facing a main street sits
     // further back than one facing an alley — that differential is most of what
@@ -504,8 +916,18 @@ export function generateCity(params: CityParams): CityPlan {
     const inset = q.shape.map((_, i) => {
       const v1 = q.shape[i], v2 = q.shape[(i + 1) % q.shape.length];
       const mid = lerp(v1, v2, 0.5);
-      const nearStreet = streets.some((st) => st.some((sp) => dist(sp, mid) < MAIN_STREET * 2.2));
-      return (nearStreet ? MAIN_STREET : q.withinCity ? REGULAR_STREET : ALLEY) / 2;
+      const onAvenue = mainStreets.some((st) => st.some((sp) => dist(sp, mid) < MAIN_STREET * 1.4));
+      const nearStreet = onAvenue || streets.some((st) => st.some((sp) => dist(sp, mid) < MAIN_STREET * 1.2));
+      // An avenue is wider than a street is wider than an alley, and the blocks
+      // stepping back by different amounts is most of what makes the hierarchy
+      // legible from the footprints alone.
+      //
+      // The set-back is capped against the block's own size: a small patch with
+      // an avenue down two of its sides was being inset until nothing was left,
+      // which read on the map as a plaza the size of a district.
+      const cap = Math.sqrt(area(q.shape)) * 0.16;
+      const want = onAvenue ? MAIN_STREET * 1.15 : nearStreet ? MAIN_STREET : q.withinCity ? REGULAR_STREET : ALLEY;
+      return Math.min(want, cap * 2) / 2;
     });
     const block = shrinkEdges(q.shape, inset);
     if (block.length < 3) continue;
@@ -522,18 +944,48 @@ export function generateCity(params: CityParams): CityPlan {
         break;
       }
       case 'cathedral': {
-        if (rng() < 0.45) {
-          const { strips, court } = ring(block, 2 + 4 * rng());
+        // The precinct: a claustral range around the edge, or a dense chapter
+        // block. Either way THE CHURCH ITSELF goes in the middle — the ring
+        // branch alone produced a walled enclosure with nothing inside it, which
+        // is a monastery that has lost its abbey.
+        const { strips, court } = ring(block, 2 + 4 * rng());
+        if (rng() < 0.55) {
           q.buildings.push(...strips);
           if (court) q.courts.push(court);
         } else {
           q.buildings.push(...createOrthoBuilding(block, 50, 0.8, rng));
         }
+        const inner2 = court ?? block;
+        const c = centroid(inner2);
+        const span = Math.sqrt(area(inner2));
+        if (span > 6) {
+          // A cross on the ground: nave, then transepts across it.
+          const ang = rng() * Math.PI;
+          const nave = rect(span * 0.28, span * 0.62, c, ang);
+          const trans = rect(span * 0.52, span * 0.2, c, ang);
+          q.buildings.push(nave, trans);
+        }
         break;
       }
       case 'castle': {
-        const keep = shrink(block, MAIN_STREET * 2);
-        if (keep.length >= 3) q.buildings.push(...createOrthoBuilding(keep, Math.sqrt(area(keep)) * 4, 0.6, rng));
+        // A bailey: ranges built against the inside of the wall, a courtyard, and
+        // a rectangular keep. Subdividing the raw polygon instead produced two
+        // enormous triangles that read as a bowtie, not a castle.
+        const bailey = shrink(block, MAIN_STREET * 1.2);
+        if (bailey.length < 3) break;
+        const { strips, court } = ring(bailey, Math.sqrt(area(bailey)) * 0.17);
+        q.buildings.push(...strips);
+        const yard = court ?? bailey;
+        if (court) q.courts.push(court);
+        const c = centroid(yard);
+        const span = Math.sqrt(area(yard));
+        if (span > 4) {
+          const ang = rng() * Math.PI;
+          q.buildings.push(rect(span * 0.5, span * 0.42, c, ang));
+          // A corner tower, offset, so the keep is not a lonely rectangle.
+          const v = yard[Math.floor(rng() * yard.length)];
+          q.buildings.push(rect(span * 0.2, span * 0.2, lerp(v, c, 0.45), ang));
+        }
         break;
       }
       case 'park': {
@@ -582,7 +1034,7 @@ export function generateCity(params: CityParams): CityPlan {
     }
   }
   if (river) {
-    const nearRiver = (v: V) => river!.some((rp) => dist(rp, v) < radius * 0.1);
+    const nearRiver = (v: V) => river!.some((rp) => dist(rp, v) < riverWidth * 0.8);
     for (const q of patches) {
       q.buildings = q.buildings.filter((b) => !b.some(nearRiver));
       q.courts = q.courts.filter((c) => !c.some(nearRiver));
@@ -598,10 +1050,15 @@ export function generateCity(params: CityParams): CityPlan {
     size: nInner,
     patches,
     wall: p.walls && wallRing.length >= 6 ? wallRing : null,
+    wallClosed,
     gates,
     towers: p.walls ? towers : [],
     citadel: citadelPatch ? citadelPatch.shape : null,
     streets,
+    mainStreets,
+    bridges,
+    quays,
+    piers,
     roads,
     river,
     coast,

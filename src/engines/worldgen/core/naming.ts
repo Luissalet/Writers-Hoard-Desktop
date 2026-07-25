@@ -227,7 +227,22 @@ export function generateName(seed: string, key: string, opts: NameOptions): stri
 /** A pool that refuses to hand out the same name twice in one world. */
 export class NameRegistry {
   private used = new Set<string>();
-  constructor(private seed: string) {}
+  private seed: string;
+
+  // Assigned in the body rather than declared as a constructor parameter
+  // property: the project builds with `erasableSyntaxOnly`, which forbids the
+  // shorthand because it emits code rather than only erasing types.
+  constructor(seed: string) {
+    this.seed = seed;
+  }
+
+  /** Reserve an externally-coined name. False if it is already taken. */
+  claim(name: string): boolean {
+    const norm = name.toLowerCase();
+    if (this.used.has(norm)) return false;
+    this.used.add(norm);
+    return true;
+  }
 
   take(key: string, opts: NameOptions): string {
     for (let attempt = 0; attempt < 24; attempt++) {

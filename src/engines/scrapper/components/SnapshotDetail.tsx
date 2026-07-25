@@ -14,11 +14,15 @@ import {
   Loader2,
   AlertCircle,
   RefreshCw,
+  FileText,
+  ImageIcon,
+  Code2,
 } from 'lucide-react';
 import type { Snapshot } from '../types';
 import TagInput from '@/components/common/TagInput';
 import { extractYouTubeId } from '../services/urlDetector';
 import { snapshotMediaUrl, runSnapshotDownload, cancelSnapshotDownload } from '@/services/scrapperMedia';
+import { runSnapshotCapture, cancelSnapshotCapture } from '@/services/pageCapture';
 import MediaGallery from './MediaGallery';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
@@ -43,6 +47,7 @@ export default function SnapshotDetail({
   const [notes, setNotes] = useState(snapshot.notes);
   const [tags, setTags] = useState(snapshot.tags);
   const [pendingDelete, setPendingDelete] = useState(false);
+  const [archiveTab, setArchiveTab] = useState<'screenshot' | 'pdf' | 'html'>('screenshot');
 
   const handleDescriptionBlur = useCallback(() => {
     if (description !== (snapshot.description ?? '')) {
@@ -72,6 +77,10 @@ export default function SnapshotDetail({
 
   const handleRetryDownload = useCallback(() => {
     void runSnapshotDownload(snapshot, onUpdate, snapshot.mediaKind === 'audio' ? 'audio' : 'video');
+  }, [snapshot, onUpdate]);
+
+  const handleRetryCapture = useCallback(() => {
+    void runSnapshotCapture(snapshot, onUpdate);
   }, [snapshot, onUpdate]);
 
   const handleDelete = useCallback(() => {
@@ -243,6 +252,101 @@ export default function SnapshotDetail({
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
               />
+            </div>
+          ) : null}
+
+          {/* Archived page — screenshot / PDF print / rendered HTML */}
+          {snapshot.captureState === 'capturing' ? (
+            <div className="flex flex-col items-center justify-center gap-3 aspect-video rounded-lg bg-surface text-muted">
+              <div className="flex items-center gap-3">
+                <Loader2 size={20} className="animate-spin" />
+                <span className="text-sm">{t('scrapper.capturingPage')}</span>
+              </div>
+              <button
+                onClick={() => cancelSnapshotCapture(snapshot.id)}
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-xs bg-elevated hover:bg-surface border border-border rounded-lg text-foreground transition-colors"
+              >
+                <X size={14} />
+                {t('scrapper.cancelDownload')}
+              </button>
+            </div>
+          ) : snapshot.captureState === 'error' ? (
+            <div className="rounded-lg bg-surface border border-border p-4 space-y-3">
+              <div className="flex items-start gap-2 text-sm">
+                <AlertCircle size={18} className="flex-shrink-0 mt-0.5 text-red-400" />
+                <div className="min-w-0">
+                  <p className="font-medium text-foreground">{t('scrapper.captureFailed')}</p>
+                  {snapshot.captureError && (
+                    <p className="text-xs text-muted mt-1 break-words">{snapshot.captureError}</p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={handleRetryCapture}
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-xs bg-elevated hover:bg-surface border border-border rounded-lg text-foreground transition-colors"
+              >
+                <RefreshCw size={14} />
+                {t('scrapper.retryCapture')}
+              </button>
+            </div>
+          ) : snapshot.capturePdfPath || snapshot.captureImagePath ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1 bg-elevated border border-border rounded-lg p-1 w-fit">
+                {([
+                  ['screenshot', ImageIcon, t('scrapper.tabScreenshot'), !!snapshot.captureImagePath],
+                  ['pdf', FileText, t('scrapper.tabPdf'), !!snapshot.capturePdfPath],
+                  ['html', Code2, t('scrapper.tabPage'), !!snapshot.captureHtmlPath],
+                ] as const).map(([id, Icon, label, available]) =>
+                  available ? (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setArchiveTab(id)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors ${
+                        archiveTab === id
+                          ? 'bg-accent-gold text-black'
+                          : 'text-muted hover:text-foreground'
+                      }`}
+                    >
+                      <Icon size={14} />
+                      {label}
+                    </button>
+                  ) : null,
+                )}
+                <button
+                  type="button"
+                  onClick={handleRetryCapture}
+                  title={t('scrapper.retryCapture')}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs text-muted hover:text-foreground transition-colors"
+                >
+                  <RefreshCw size={14} />
+                </button>
+              </div>
+
+              {archiveTab === 'screenshot' && snapshot.captureImagePath && (
+                <div className="rounded-lg overflow-y-auto max-h-[60vh] bg-white border border-border">
+                  <img
+                    src={snapshotMediaUrl(snapshot.captureImagePath)}
+                    alt={snapshot.title}
+                    className="w-full"
+                  />
+                </div>
+              )}
+              {archiveTab === 'pdf' && snapshot.capturePdfPath && (
+                <iframe
+                  src={snapshotMediaUrl(snapshot.capturePdfPath)}
+                  title={`${snapshot.title} (PDF)`}
+                  className="w-full h-[60vh] rounded-lg border border-border bg-white"
+                />
+              )}
+              {archiveTab === 'html' && snapshot.captureHtmlPath && (
+                <iframe
+                  src={snapshotMediaUrl(snapshot.captureHtmlPath)}
+                  title={snapshot.title}
+                  sandbox=""
+                  className="w-full h-[60vh] rounded-lg border border-border bg-white"
+                />
+              )}
             </div>
           ) : null}
 

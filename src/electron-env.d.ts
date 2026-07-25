@@ -29,6 +29,34 @@ export interface DownloadToLibraryResult {
   error?: string;
 }
 
+/** Metadata scraped from a captured web page (og:/article:/twitter: tags). */
+export interface PageMeta {
+  title?: string;
+  author?: string;
+  publishDate?: string;
+  siteName?: string;
+  description?: string;
+  favicon?: string;
+  ogImage?: string;
+  language?: string;
+  /** Heuristic main-content text, used when Readability finds too little. */
+  fallbackText?: string;
+  wordCount?: number;
+}
+
+/** Result of archiving a plain web page (PDF + screenshot + HTML). */
+export interface CapturePageResult {
+  ok: boolean;
+  /** "<projectId>/<snapshotId>.pdf", relative to the media library root. */
+  pdfPath?: string;
+  imagePath?: string;
+  htmlPath?: string;
+  /** Rendered HTML, returned inline so the renderer can run Readability on it. */
+  html?: string;
+  meta?: PageMeta;
+  error?: string;
+}
+
 export interface ElectronAPI {
   isDesktop: true;
   app: {
@@ -51,6 +79,14 @@ export interface ElectronAPI {
     }) => Promise<DownloadToLibraryResult>;
     cancelDownload: (snapshotId: string) => Promise<void>;
     deleteLibraryFile: (relPath: string) => Promise<void>;
+  };
+  capture: {
+    page: (args: {
+      url: string;
+      projectId: string;
+      snapshotId: string;
+    }) => Promise<CapturePageResult>;
+    cancel: (snapshotId: string) => Promise<void>;
   };
   instagram: {
     login: () => Promise<{ connected: boolean }>;

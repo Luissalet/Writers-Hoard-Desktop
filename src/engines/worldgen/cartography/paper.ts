@@ -29,6 +29,16 @@ export interface PaperOptions {
   theme: CartoTheme;
   /** Scale factor: effects are authored for a ~1200px sheet. */
   scale?: number;
+  /**
+   * Resolution divisor for the TONE layers. The blotch/stain/fibre/vignette
+   * fields are all smooth, so computing them on a reduced lattice and
+   * interpolating is visually free — and it is the difference between a 2-second
+   * render and a 200-millisecond one, because those layers are ~45 noise
+   * evaluations per pixel. The per-pixel grain stays at full resolution: it is a
+   * single hash, and it is the layer the eye reads as paper tooth.
+   * Defaults to 3, which is indistinguishable from 1 at any sane sheet size.
+   */
+  toneStep?: number;
 }
 
 /**
@@ -63,22 +73,25 @@ export function renderPaper(opts: PaperOptions): Uint8ClampedArray {
     return ((hash >>> 0) / 4294967296) * 2 - 1;
   };
 
-  for (let y = 0; y < H; y++) {
-    const v = y / H;
-    for (let x = 0; x < W; x++) {
-      const u = x / W;
-      const i = (y * W + x) * 4;
+  // ---- pass 1: the smooth tone layers, on a reduced lattice ---------------
+  const step = Math.max(1, Math.round(opts.toneStep ?? 3));
+  const LW = Math.ceil(W / step) + 1;
+  const LH = Math.ceil(H / step) + 1;
+  const lr = new Float32Array(LW * LH);
+  const lg = new Float32Array(LW * LH);
+  const lb = new Float32Array(LW * LH);
 
-      // --- large tone field ------------------------------------------------
+  for (let ly = 0; ly < LH; ly++) {
+    const v = Math.min(1, (ly * step) / H);
+    for (let lx = 0; lx < LW; lx++) {
+      const u = Math.min(1, (lx * step) / W);
+
       const blotch = nBlotch.fbm(u, v, 2.4, 4, 2.05, 0.58) * 0.5 + 0.5;
-      // --- mid mottle, multiplied so stains stay dark and sparse ------------
       const m1 = nStain.fbm(u, v, 7.5, 5, 2.1, 0.5) * 0.5 + 0.5;
       const m2 = nStain.fbm(u + 3.1, v + 1.7, 15, 4, 2.1, 0.5) * 0.5 + 0.5;
       const mottle = m1 * m2;
-      // --- fibre: fBm sampled with a stretched x so streaks run horizontally -
       const fibre = nFibre.fbm(u * 0.14, v * 3.2, 90, 4, 2.0, 0.6);
 
-      // Compose tone: 0 = grain color, 1 = base color.
       let tone = 0.62 + 0.38 * blotch;
       tone -= bAmt * 0.42 * Math.max(0, 0.55 - mottle) * 2;
       tone += gAmt * 0.1 * fibre;
@@ -87,16 +100,12 @@ export function renderPaper(opts: PaperOptions): Uint8ClampedArray {
       let g = grain[1] + (base[1] - grain[1]) * tone;
       let b = grain[2] + (base[2] - grain[2]) * tone;
 
-      // --- stains: thresholded low-frequency noise, warm and translucent ----
       const stainMask = Math.max(0, mottle * 1.9 - 0.95);
       if (stainMask > 0) {
         const t = Math.min(0.5, stainMask) * bAmt;
         r += (stainC[0] - r) * t; g += (stainC[1] - g) * t; b += (stainC[2] - b) * t;
       }
 
-      // --- edge burn: perturb the DISTANCE FIELD, not the colour ------------
-      // e.x*e.y*16 is the classic polynomial vignette; two noise bands turn its
-      // smooth oval into scalloped, fibre-ragged paper edge.
       if (vAmt > 0) {
         const ex = u * (1 - u), ey = v * (1 - v);
         let d = Math.min(1, ex * ey * 16);
@@ -106,9 +115,31 @@ export function renderPaper(opts: PaperOptions): Uint8ClampedArray {
         r *= 1 - k * 0.55; g *= 1 - k * 0.62; b *= 1 - k * 0.7;
       }
 
-      // --- tooth ------------------------------------------------------------
+      const li = ly * LW + lx;
+      lr[li] = r; lg[li] = g; lb[li] = b;
+    }
+  }
+
+  // ---- pass 2: bilinear upsample + full-resolution tooth ------------------
+  const inv = 1 / step;
+  for (let y = 0; y < H; y++) {
+    const fy = y * inv;
+    const y0 = fy | 0;
+    const ty = fy - y0;
+    const row0 = y0 * LW, row1 = Math.min(LH - 1, y0 + 1) * LW;
+    for (let x = 0; x < W; x++) {
+      const fx = x * inv;
+      const x0 = fx | 0;
+      const tx = fx - x0;
+      const x1 = Math.min(LW - 1, x0 + 1);
+      const a = row0 + x0, b2 = row0 + x1, c = row1 + x0, d2 = row1 + x1;
+      const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
       const n = rand() * 6.5 * gAmt;
-      px[i] = r + n; px[i + 1] = g + n; px[i + 2] = b + n; px[i + 3] = 255;
+      const i = (y * W + x) * 4;
+      px[i] = lr[a] * w00 + lr[b2] * w10 + lr[c] * w01 + lr[d2] * w11 + n;
+      px[i + 1] = lg[a] * w00 + lg[b2] * w10 + lg[c] * w01 + lg[d2] * w11 + n;
+      px[i + 2] = lb[a] * w00 + lb[b2] * w10 + lb[c] * w01 + lb[d2] * w11 + n;
+      px[i + 3] = 255;
     }
   }
   // `s` keeps the signature honest for callers that scale effects; the noise

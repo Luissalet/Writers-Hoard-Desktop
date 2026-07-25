@@ -40,6 +40,31 @@ interface DownloadToLibraryResult {
   error?: string;
 }
 
+/** Metadata scraped from a captured web page (og:/article:/twitter: tags). */
+interface PageMeta {
+  title?: string;
+  author?: string;
+  publishDate?: string;
+  siteName?: string;
+  description?: string;
+  favicon?: string;
+  ogImage?: string;
+  language?: string;
+  fallbackText?: string;
+  wordCount?: number;
+}
+
+/** Result of archiving a plain web page (PDF + screenshot + HTML). */
+interface CapturePageResult {
+  ok: boolean;
+  pdfPath?: string;
+  imagePath?: string;
+  htmlPath?: string;
+  html?: string;
+  meta?: PageMeta;
+  error?: string;
+}
+
 const api = {
   /** Always true when running inside the desktop shell. */
   isDesktop: true as const,
@@ -79,6 +104,19 @@ const api = {
     /** Delete a downloaded media file by its relative library path. */
     deleteLibraryFile: (relPath: string): Promise<void> =>
       ipcRenderer.invoke('media:deleteLibraryFile', relPath),
+  },
+
+  // Plain web pages: archive as PDF + full-page screenshot + rendered HTML.
+  capture: {
+    /** Render the URL in a hidden window; resolves with the saved file paths. */
+    page: (args: {
+      url: string;
+      projectId: string;
+      snapshotId: string;
+    }): Promise<CapturePageResult> => ipcRenderer.invoke('capture:page', args),
+    /** Cancel an in-flight capture for a snapshot. */
+    cancel: (snapshotId: string): Promise<void> =>
+      ipcRenderer.invoke('capture:cancel', snapshotId),
   },
 
   // Instagram session for photo/carousel downloads (embedded login window).

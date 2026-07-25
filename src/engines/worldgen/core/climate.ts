@@ -49,11 +49,21 @@ function smooth01(t: number): number {
   return c * c * (3 - 2 * c);
 }
 
+export interface ClimateInputs {
+  /**
+   * Sea-surface temperature anomaly per cell (°C from the zonal mean), already
+   * diffused a short way inland so a coast feels the water it faces. Omit for
+   * the old current-free behaviour.
+   */
+  sst?: Float32Array;
+}
+
 export function computeClimate(
   params: WorldParams,
   elevation: Float32Array,
   lake: Uint8Array | null,
   onProgress?: (f: number) => void,
+  inputs?: ClimateInputs,
 ): ClimateResult {
   const W = params.width, H = W >> 1;
 
@@ -82,6 +92,20 @@ export function computeClimate(
   const varN = new SphereNoise(params.seed, 'climate');
   const ws = params.worldScale;
 
+  // Ocean-current anomaly on the working grid. Sampled rather than averaged:
+  // it is already a smooth field.
+  const sstHalf = new Float32Array(n);
+  if (inputs?.sst) {
+    const src = inputs.sst;
+    for (let y = 0; y < h; y++) {
+      const sy = Math.min(H - 1, Math.round(((y + 0.5) / h) * H - 0.5));
+      for (let x = 0; x < w; x++) {
+        const sx = Math.min(W - 1, Math.round(((x + 0.5) / w) * W - 0.5));
+        sstHalf[y * w + x] = src[sy * W + sx];
+      }
+    }
+  }
+
   // ---- Sea-level temperature by latitude (+ noise wobble) ----
   const tempHalf = new Float32Array(n);
   for (let y = 0; y < h; y++) {
@@ -99,7 +123,9 @@ export function computeClimate(
         (5.5 * varN.fbm(x / w, y / h, 2.3 * ws, 3) +
           2.0 * varN.fbm(x / w + 0.4, y / h + 0.6, 7 * ws, 2)) * (1 + 0.55 * aFrac);
       const e = elevHalf[j];
-      tempHalf[j] = baseT + wob - 6.5 * Math.max(0, e);
+      // Ocean currents. This is the term that lets two coasts at the same
+      // latitude be temperate and subarctic, which latitude alone cannot do.
+      tempHalf[j] = baseT + wob - 6.5 * Math.max(0, e) + sstHalf[j];
     }
   }
 
@@ -111,7 +137,8 @@ export function computeClimate(
   for (let j = 0; j < n; j++) {
     const t = tempHalf[j];
     if (waterHalf[j]) {
-      // Warm water evaporates more.
+      // Warm water evaporates more — and since `t` now carries the current
+      // anomaly, a warm current is a moisture source and a cold one is not.
       evap[j] = Math.max(0.15, Math.min(1, 0.45 + t / 38));
       hum[j] = evap[j];
     } else if (t > 0) {
@@ -221,6 +248,29 @@ export function computeClimate(
       if (waterHalf[j]) continue;
       const cont = Math.min(1, Math.max(0, 1 - hum[j] * 1.15));
       tempHalf[j] += cont * (a < 20 ? 1.5 : -((a - 20) / 70) * 5);
+    }
+  }
+
+  // Cold-current coastal deserts. Air over cold water is stable: it cannot
+  // rise, so it does not rain, and the driest places on Earth are tropical west
+  // coasts behind an upwelling current — Atacama, Namib, Baja. Suppression is
+  // strongest in the subtropics, where the inversion is strongest, and needs the
+  // water to be genuinely cold rather than merely cool.
+  if (inputs?.sst) {
+    for (let y = 0; y < h; y++) {
+      const lat = Math.abs((0.5 - (y + 0.5) / h) * 180);
+      // Peak around 22°, gone by the mid-latitudes where storms dominate.
+      const belt = Math.exp(-((lat - 22) ** 2) / (2 * 13 * 13));
+      const yW = y * w;
+      for (let x = 0; x < w; x++) {
+        const j = yW + x;
+        // Threshold measured, not guessed: coastal anomalies in this model run
+        // about ±2 °C (the ±6 extremes sit in mid-gyre), so a 1.2 °C floor meant
+        // the term never fired at all.
+        const cold = Math.max(0, -sstHalf[j] - 0.35) / 2.2;
+        if (cold <= 0) continue;
+        rain[j] *= Math.max(0.16, 1 - 0.84 * Math.min(1, cold) * belt);
+      }
     }
   }
 

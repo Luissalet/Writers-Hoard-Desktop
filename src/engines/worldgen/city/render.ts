@@ -14,7 +14,7 @@ import { createRng } from '../core/rng';
 import type { CartoTheme } from '../cartography/theme';
 import type { Ctx } from '../cartography/symbols';
 import { area, centroid, dist, type Poly, type V } from './geometry';
-import { ALLEY, MAIN_STREET, WARD_LABEL, type CityPlan, type Patch, type WardType } from './generate';
+import { ALLEY, MAIN_STREET, WARD_LABEL, type CityPlan, type WardType } from './generate';
 
 export interface CityRenderOptions {
   theme: CartoTheme;
@@ -71,38 +71,6 @@ export function renderCity(plan: CityPlan, ctx: Ctx, opts: CityRenderOptions): v
   const unit = 1 / s; // one screen pixel in plan units
   const px = (n: number) => n * unit;
 
-  // ---- water --------------------------------------------------------------
-  if (plan.coast) {
-    const { p, n } = plan.coast;
-    const far = plan.radius * 6;
-    const t = { x: -n.y, y: n.x };
-    ctx.beginPath();
-    ctx.moveTo(p.x + t.x * far, p.y + t.y * far);
-    ctx.lineTo(p.x - t.x * far, p.y - t.y * far);
-    ctx.lineTo(p.x - t.x * far + n.x * far, p.y - t.y * far + n.y * far);
-    ctx.lineTo(p.x + t.x * far + n.x * far, p.y + t.y * far + n.y * far);
-    ctx.closePath();
-    ctx.fillStyle = theme.ocean.shallow;
-    ctx.fill();
-    ctx.strokeStyle = theme.coastline.color;
-    ctx.lineWidth = px(1.4);
-    ctx.beginPath();
-    ctx.moveTo(p.x + t.x * far, p.y + t.y * far);
-    ctx.lineTo(p.x - t.x * far, p.y - t.y * far);
-    ctx.stroke();
-  }
-  if (plan.river) {
-    ctx.strokeStyle = theme.rivers.color;
-    ctx.lineWidth = plan.radius * 0.09;
-    ctx.beginPath();
-    ctx.moveTo(plan.river[0].x, plan.river[0].y);
-    for (let i = 1; i < plan.river.length; i++) ctx.lineTo(plan.river[i].x, plan.river[i].y);
-    ctx.stroke();
-    ctx.strokeStyle = theme.lakes.stroke;
-    ctx.lineWidth = px(0.9);
-    ctx.stroke();
-  }
-
   // ---- ward washes and open space -----------------------------------------
   if (opts.showWardTints !== false) {
     ctx.globalAlpha = 0.5;
@@ -154,6 +122,41 @@ export function renderCity(plan: CityPlan, ctx: Ctx, opts: CityRenderOptions): v
   }
   ctx.globalAlpha = 1;
 
+  // ---- water --------------------------------------------------------------
+  // Drawn AFTER the ward washes. Before them, the half-opaque district tints
+  // were painted straight over the river, which came out as a grey smear
+  // wherever it passed through the town — i.e. everywhere that mattered.
+  if (plan.coast) {
+    const { p, n } = plan.coast;
+    const far = plan.radius * 6;
+    const t = { x: -n.y, y: n.x };
+    ctx.beginPath();
+    ctx.moveTo(p.x + t.x * far, p.y + t.y * far);
+    ctx.lineTo(p.x - t.x * far, p.y - t.y * far);
+    ctx.lineTo(p.x - t.x * far + n.x * far, p.y - t.y * far + n.y * far);
+    ctx.lineTo(p.x + t.x * far + n.x * far, p.y + t.y * far + n.y * far);
+    ctx.closePath();
+    ctx.fillStyle = theme.ocean.shallow;
+    ctx.fill();
+    ctx.strokeStyle = theme.coastline.color;
+    ctx.lineWidth = px(1.4);
+    ctx.beginPath();
+    ctx.moveTo(p.x + t.x * far, p.y + t.y * far);
+    ctx.lineTo(p.x - t.x * far, p.y - t.y * far);
+    ctx.stroke();
+  }
+  if (plan.river) {
+    ctx.strokeStyle = theme.rivers.color;
+    ctx.lineWidth = plan.radius * 0.09;
+    ctx.beginPath();
+    ctx.moveTo(plan.river[0].x, plan.river[0].y);
+    for (let i = 1; i < plan.river.length; i++) ctx.lineTo(plan.river[i].x, plan.river[i].y);
+    ctx.stroke();
+    ctx.strokeStyle = theme.lakes.stroke;
+    ctx.lineWidth = px(0.9);
+    ctx.stroke();
+  }
+
   // ---- streets: pale ribbon with a thin casing ----------------------------
   const drawRibbon = (path: V[], w: number) => {
     ctx.beginPath();
@@ -166,8 +169,39 @@ export function renderCity(plan: CityPlan, ctx: Ctx, opts: CityRenderOptions): v
     ctx.lineWidth = Math.max(px(0.6), w - px(0.6));
     ctx.stroke();
   };
+  const fillPoly = (poly: Poly, fill: string, stroke?: string, lw = px(0.8)) => {
+    ctx.beginPath();
+    tracePoly(ctx, poly);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
+  };
+
   for (const r of plan.roads) drawRibbon(r, MAIN_STREET * 0.8);
   for (const st of plan.streets) drawRibbon(st, MAIN_STREET);
+  // Avenues last and wider, so the hierarchy survives every crossing.
+  for (const st of plan.mainStreets) drawRibbon(st, MAIN_STREET * 1.45);
+
+  // ---- waterfront and bridges ---------------------------------------------
+  // Drawn after the streets and before the buildings: a quay is paving that the
+  // houses stand back from, and a bridge deck has to cover the water the street
+  // was just drawn across.
+  for (const pier of plan.piers) fillPoly(pier, theme.roads.minor, theme.settlement.ink, px(0.8));
+  for (const b of plan.bridges) {
+    fillPoly(b, theme.paper.base, theme.settlement.ink, px(1.1));
+    // Two parapet lines along the deck read as a bridge at any zoom; a plain
+    // rectangle over a river reads as a mistake.
+    if (b.length === 4) {
+      ctx.strokeStyle = theme.settlement.ink;
+      ctx.lineWidth = px(0.7);
+      for (const [i, j] of [[0, 1], [2, 3]] as [number, number][]) {
+        ctx.beginPath();
+        ctx.moveTo(b[i].x, b[i].y);
+        ctx.lineTo(b[j].x, b[j].y);
+        ctx.stroke();
+      }
+    }
+  }
 
   // ---- buildings ----------------------------------------------------------
   // Painter's order by lowest point so the tiny drop shadows stack correctly.
@@ -201,7 +235,10 @@ export function renderCity(plan: CityPlan, ctx: Ctx, opts: CityRenderOptions): v
   // ---- walls, towers, gates ------------------------------------------------
   if (plan.wall) {
     ctx.beginPath();
-    tracePoly(ctx, plan.wall);
+    if (plan.wallClosed === false) {
+      ctx.moveTo(plan.wall[0].x, plan.wall[0].y);
+      for (let i = 1; i < plan.wall.length; i++) ctx.lineTo(plan.wall[i].x, plan.wall[i].y);
+    } else tracePoly(ctx, plan.wall);
     ctx.strokeStyle = theme.settlement.ink;
     ctx.lineWidth = MAIN_STREET * 0.85;
     ctx.stroke();

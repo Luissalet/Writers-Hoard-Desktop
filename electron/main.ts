@@ -25,6 +25,7 @@ import { transcodeWebmToMp4 } from './media/transcode';
 import { downloadMedia, type MediaFormat } from './media/ytdlp';
 import { downloadGallery } from './media/gallerydl';
 import { openIgLogin, igStatus, igLogout, exportIgCookies, igCookiesPath } from './media/igAuth';
+import { capturePage, type PageMeta } from './media/pageCapture';
 
 interface SaveResult {
   ok: boolean;
@@ -66,6 +67,12 @@ let mainWindow: BrowserWindow | null = null;
 /** Only UUID-ish segments are allowed in a media path (no separators, no `..`). */
 const SAFE_SEGMENT = /^[A-Za-z0-9._-]+$/;
 
+/** Content types the wh-media:// handler pins explicitly (see protocol.handle). */
+const MEDIA_CONTENT_TYPES: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.html': 'text/html; charset=utf-8',
+};
+
 function scrapperMediaDir(): string {
   return path.join(app.getPath('userData'), 'scrapper-media');
 }
@@ -100,6 +107,38 @@ function enqueueDownload<T>(task: () => Promise<T>): Promise<T> {
 function abortAllDownloads(): void {
   for (const controller of activeDownloads.values()) controller.abort();
   activeDownloads.clear();
+  for (const controller of activeCaptures.values()) controller.abort();
+  activeCaptures.clear();
+}
+
+// --- Page captures (plain web pages → PDF + screenshot + HTML archive) ------
+// Kept on their own queue so archiving an article never waits behind a big
+// yt-dlp video, and vice versa. Concurrency 1: each capture spins up a real
+// browser window, and several at once would thrash the machine.
+
+/** In-flight page captures keyed by snapshotId, so we can cancel them. */
+const activeCaptures = new Map<string, AbortController>();
+
+let captureQueue: Promise<unknown> = Promise.resolve();
+function enqueueCapture<T>(task: () => Promise<T>): Promise<T> {
+  const run = captureQueue.then(task, task);
+  captureQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+interface CapturePageResult {
+  ok: boolean;
+  /** "<projectId>/<snapshotId>.pdf" — relative to the media library root. */
+  pdfPath?: string;
+  imagePath?: string;
+  htmlPath?: string;
+  /** Rendered HTML, returned inline so the renderer can run Readability on it. */
+  html?: string;
+  meta?: PageMeta;
+  error?: string;
 }
 
 // Must run before app `ready`. `stream`+`supportFetchAPI` let <video> issue
@@ -556,6 +595,66 @@ function registerIpc(): void {
     await fs.rm(abs, { recursive: true, force: true });
   });
 
+  // Scrapper: archive a plain web page — PDF print, full-page screenshot and
+  // the rendered HTML, all written into the managed media library.
+  ipcMain.handle(
+    'capture:page',
+    async (
+      _e,
+      args: { url: string; projectId: string; snapshotId: string },
+    ): Promise<CapturePageResult> => {
+      const { url, projectId, snapshotId } = args ?? ({} as typeof args);
+      if (!url || !SAFE_SEGMENT.test(projectId) || !SAFE_SEGMENT.test(snapshotId)) {
+        return { ok: false, error: 'invalid request' };
+      }
+      if (!/^https?:\/\//i.test(url)) return { ok: false, error: 'unsupported url' };
+      if (activeCaptures.has(snapshotId)) return { ok: false, error: 'already capturing' };
+
+      const controller = new AbortController();
+      activeCaptures.set(snapshotId, controller);
+      try {
+        return await enqueueCapture(async (): Promise<CapturePageResult> => {
+          if (controller.signal.aborted) return { ok: false, error: 'cancelled' };
+
+          const result = await capturePage(url, controller.signal);
+
+          const destDir = path.join(scrapperMediaDir(), projectId);
+          await fs.mkdir(destDir, { recursive: true });
+
+          const pdfName = `${snapshotId}.pdf`;
+          const htmlName = `${snapshotId}.html`;
+          await fs.writeFile(path.join(destDir, pdfName), result.pdf);
+          await fs.writeFile(path.join(destDir, htmlName), result.html, 'utf8');
+
+          let imagePath: string | undefined;
+          if (result.png) {
+            const pngName = `${snapshotId}.png`;
+            await fs.writeFile(path.join(destDir, pngName), result.png);
+            imagePath = `${projectId}/${pngName}`;
+          }
+
+          return {
+            ok: true,
+            pdfPath: `${projectId}/${pdfName}`,
+            htmlPath: `${projectId}/${htmlName}`,
+            imagePath,
+            html: result.html,
+            meta: result.meta,
+          };
+        });
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      } finally {
+        activeCaptures.delete(snapshotId);
+      }
+    },
+  );
+
+  // Scrapper: cancel an in-flight page capture (destroys its hidden window).
+  ipcMain.handle('capture:cancel', (_e, snapshotId: string): void => {
+    activeCaptures.get(snapshotId)?.abort();
+  });
+
   // Instagram session — embedded login window → cookies for yt-dlp / gallery-dl.
   ipcMain.handle('ig:login', () => openIgLogin(mainWindow));
   ipcMain.handle('ig:status', () => igStatus());
@@ -594,7 +693,16 @@ if (!gotLock) {
         const rel = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, '');
         const abs = resolveLibraryPath(rel);
         if (!abs) return new Response(null, { status: 403 });
-        return await net.fetch(pathToFileURL(abs).toString());
+        const res = await net.fetch(pathToFileURL(abs).toString());
+        // Archived pages are served back into <iframe>s: without an explicit
+        // type the PDF viewer never engages and the HTML renders as plain text.
+        const forced = MEDIA_CONTENT_TYPES[path.extname(abs).toLowerCase()];
+        if (forced) {
+          const headers = new Headers(res.headers);
+          headers.set('Content-Type', forced);
+          return new Response(res.body, { status: res.status, headers });
+        }
+        return res;
       } catch {
         return new Response(null, { status: 404 });
       }

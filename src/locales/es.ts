@@ -927,6 +927,13 @@ const es = {
   'scrapper.cancelDownload': 'Cancelar',
   'scrapper.description': 'Descripción',
   'scrapper.descriptionPlaceholder': 'Una breve descripción de esta referencia…',
+  'scrapper.capturingPage': 'Archivando la página…',
+  'scrapper.pageArchived': 'Página archivada',
+  'scrapper.captureFailed': 'No se pudo archivar la página',
+  'scrapper.retryCapture': 'Reintentar captura',
+  'scrapper.tabScreenshot': 'Captura',
+  'scrapper.tabPdf': 'PDF',
+  'scrapper.tabPage': 'Página',
 
   // ── Media Downloader (página independiente) ──
   'mediaDownloader.title': 'Descargar medios',

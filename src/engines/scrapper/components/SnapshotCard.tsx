@@ -3,7 +3,7 @@
 // ============================================
 
 import { useState } from 'react';
-import { Globe, Twitter, Instagram, Youtube, Loader2, AlertCircle, PlayCircle, Layers } from 'lucide-react';
+import { Globe, Twitter, Instagram, Youtube, Loader2, AlertCircle, PlayCircle, Layers, FileText } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Snapshot } from '../types';
 import SnapshotDetail from './SnapshotDetail';
@@ -107,6 +107,16 @@ export default function SnapshotCard({ snapshot, onUpdate, onDelete, tagSuggesti
               <PlayCircle size={40} className="text-white/95 drop-shadow-lg" />
             </div>
           </div>
+        ) : snapshot.captureImagePath ? (
+          // Archived page: show the top of the full-page screenshot, cropped to
+          // the card like a browser thumbnail would be.
+          <div className="relative w-full h-56 overflow-hidden bg-white">
+            <img
+              src={snapshotMediaUrl(snapshot.captureImagePath)}
+              alt={snapshot.title}
+              className="w-full object-cover object-top"
+            />
+          </div>
         ) : snapshot.thumbnail ? (
           <div className="relative w-full h-56 overflow-hidden bg-black/60 flex items-center justify-center">
             <img
@@ -158,6 +168,25 @@ export default function SnapshotCard({ snapshot, onUpdate, onDelete, tagSuggesti
             <div className="flex items-center gap-1.5 text-xs text-red-400">
               <AlertCircle size={12} />
               {t('scrapper.downloadFailed')}
+            </div>
+          )}
+
+          {snapshot.captureState === 'capturing' && (
+            <div className="flex items-center gap-1.5 text-xs text-muted">
+              <Loader2 size={12} className="animate-spin" />
+              {t('scrapper.capturingPage')}
+            </div>
+          )}
+          {snapshot.captureState === 'done' && snapshot.capturePdfPath && (
+            <div className="flex items-center gap-1.5 text-xs text-green-500">
+              <FileText size={12} />
+              {t('scrapper.pageArchived')}
+            </div>
+          )}
+          {snapshot.captureState === 'error' && (
+            <div className="flex items-center gap-1.5 text-xs text-red-400">
+              <AlertCircle size={12} />
+              {t('scrapper.captureFailed')}
             </div>
           )}
 
