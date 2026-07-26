@@ -84,6 +84,18 @@ export function biomeName(b: number): string {
     case Biome.RiparianForest: return 'bosque de ribera';
     default: return 'llano';
   }
+  if (b === 32) return 'karst';
+  if (b === 33) return 'bambusal';
+  if (b === 34) return 'desierto de niebla';
+  if (b === 35) return 'espinar';
+  if (b === 36) return 'páramo';
+  if (b === 37) return 'puna';
+  if (b === 38) return 'malpaís volcánico';
+  if (b === 39) return 'llanura de ceniza';
+  if (b === 40) return 'bosque petrificado';
+  if (b === 41) return 'bosque fúngico';
+  if (b === 42) return 'llanos de cristal';
+  if (b === 43) return 'marisma luminosa';
 }
 
 // ---------------------------------------------------------------------------

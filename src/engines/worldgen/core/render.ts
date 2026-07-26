@@ -13,6 +13,18 @@ function hex(c: string): [number, number, number] {
 }
 
 export const BIOME_COLORS: Record<number, [number, number, number]> = {
+  32: [143, 168, 126],   // Karst
+  33: [127, 174, 92],   // Bamboo
+  34: [185, 182, 166],   // FogDesert
+  35: [168, 154, 99],   // ThornScrub
+  36: [138, 127, 102],   // Moor
+  37: [176, 166, 142],   // Puna
+  38: [74, 67, 64],   // Volcanic
+  39: [141, 135, 129],   // AshPlain
+  40: [155, 138, 118],   // PetrifiedForest
+  41: [123, 106, 148],   // FungalForest
+  42: [195, 211, 220],   // CrystalFlats
+  43: [95, 143, 131],   // GlowMarsh
   [Biome.Ocean]: hex('#2e6f8e'),
   [Biome.Lake]: hex('#4589a8'),
   [Biome.IceCap]: hex('#e9eef3'),

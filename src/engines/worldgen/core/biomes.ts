@@ -24,6 +24,7 @@
 import { Biome } from './types';
 import { SphereNoise } from './noise';
 import type { WorldParams } from './types';
+import { DEFAULT_FILTERS, resolveBiome, type GenerationFilters } from './generation';
 
 export interface BiomeInputs {
   elevation: Float32Array;
@@ -36,6 +37,12 @@ export interface BiomeInputs {
   relief: Float32Array;
   /** Distance in cells from a land cell to the nearest sea cell. */
   seaDist: Float32Array;
+  /** Sea-surface temperature anomaly, for fog deserts. Optional. */
+  sst?: Float32Array;
+  /** Plate-boundary convergence, for volcanic and karst country. Optional. */
+  boundary?: Float32Array;
+  /** What the world is allowed to contain. */
+  filters?: GenerationFilters;
 }
 
 /**
@@ -73,7 +80,14 @@ export function classifyBiomes(
   const biome = out ?? new Uint8Array(N);
   const dither = new SphereNoise(params.seed, 'biome-dither');
   const patch = new SphereNoise(params.seed, 'biome-patch');
+  const rock = new SphereNoise(params.seed, 'biome-rock');
   const ws = params.worldScale;
+  const filters = inputs.filters ?? DEFAULT_FILTERS;
+  const sst = inputs.sst, boundary = inputs.boundary;
+  // Every write goes through the filter, so a disabled biome becomes the nearest
+  // thing the reader still allows instead of a hole in the map.
+  const put = (i: number, b: number) => { biome[i] = resolveBiome(b, filters); };
+  const exotic = filters.exotic;
 
   const y0 = rect ? Math.max(0, rect.y0) : 0;
   const y1 = rect ? Math.min(H, rect.y0 + rect.h) : H;
@@ -90,11 +104,11 @@ export function classifyBiomes(
       const i = yW + x;
       const e = elevation[i];
 
-      if (e <= 0) { biome[i] = Biome.Ocean; continue; }
+      if (e <= 0) { put(i, Biome.Ocean); continue; }
       if (lake[i]) {
-        biome[i] = temperature[i] < -11 ? Biome.IceCap
+        put(i, temperature[i] < -11 ? Biome.IceCap
           : precipitation[i] < 260 && temperature[i] > 12 ? Biome.SaltFlat
-            : Biome.Lake;
+            : Biome.Lake);
         continue;
       }
 
@@ -110,25 +124,25 @@ export function classifyBiomes(
       const fl = flow[i];
 
       // --- ice ---------------------------------------------------------------
-      if (T < -11) { biome[i] = Biome.IceCap; continue; }
+      if (T < -11) { put(i, Biome.IceCap); continue; }
 
       // --- the mountain sequence --------------------------------------------
       // Read from the top down: each band is defined by being below the one above.
-      if (e > tl + 1.15 && T < 2) { biome[i] = P > 900 ? Biome.Glacier : Biome.Alpine; continue; }
-      if (e > tl + 0.45) { biome[i] = Biome.Alpine; continue; }
+      if (e > tl + 1.15 && T < 2) { put(i, P > 900 ? Biome.Glacier : Biome.Alpine); continue; }
+      if (e > tl + 0.45) { put(i, Biome.Alpine); continue; }
       if (e > tl) {
         // Above the trees, below the rock: turf, cushion plants, snowmelt.
-        biome[i] = P > 350 ? Biome.AlpineMeadow : Biome.Alpine;
+        put(i, P > 350 ? Biome.AlpineMeadow : Biome.Alpine);
         continue;
       }
       if (e > tl - 0.75 && e > 0.6 && P > 500) {
         // The montane belt: conifers standing where the broadleaf forest below
         // has already given up.
-        biome[i] = T > 17 && P > 1500 ? Biome.CloudForest : Biome.MontaneForest;
+        put(i, T > 17 && P > 1500 ? Biome.CloudForest : Biome.MontaneForest);
         continue;
       }
       if (T < -2) {
-        biome[i] = P > 520 && rel < 0.12 ? Biome.PeatBog : Biome.Tundra;
+        put(i, P > 520 && rel < 0.12 ? Biome.PeatBog : Biome.Tundra);
         continue;
       }
 
@@ -137,50 +151,96 @@ export function classifyBiomes(
       // heavy rain, on ground flat enough to pond.
       const flat = rel < 0.055;
       if (flat && e < 0.45 && (fl > 0.55 || (P > 1500 && fl > 0.3))) {
-        if (coast < 2.5 && T > 19) { biome[i] = Biome.Mangrove; continue; }
-        if (coast < 2.5) { biome[i] = Biome.SaltMarsh; continue; }
-        biome[i] = T < 6 ? Biome.PeatBog : Biome.Marsh;
+        if (coast < 2.5 && T > 19) { put(i, Biome.Mangrove); continue; }
+        if (coast < 2.5) { put(i, Biome.SaltMarsh); continue; }
+        put(i, T < 6 ? Biome.PeatBog : Biome.Marsh);
         continue;
       }
       // A sheltered warm coast grows mangrove even without a river behind it.
-      if (coast < 1.6 && e < 0.06 && T > 20 && P > 1100) { biome[i] = Biome.Mangrove; continue; }
-      if (coast < 1.6 && e < 0.05 && T > 4 && P > 800 && flat) { biome[i] = Biome.SaltMarsh; continue; }
+      if (coast < 1.6 && e < 0.06 && T > 20 && P > 1100) { put(i, Biome.Mangrove); continue; }
+      if (coast < 1.6 && e < 0.05 && T > 4 && P > 800 && flat) { put(i, Biome.SaltMarsh); continue; }
 
       // --- riparian corridor -------------------------------------------------
       // A gallery forest along a major river, but ONLY where the surrounding
       // country is too dry to grow one anyway. Anywhere else it is invisible, and
       // painting it regardless would just thicken every river into a green line.
-      if (fl > 0.62 && P < 700 && T > 4 && e < 1.4) { biome[i] = Biome.RiparianForest; continue; }
+      if (fl > 0.62 && P < 700 && T > 4 && e < 1.4) { put(i, Biome.RiparianForest); continue; }
 
       // --- beaches: patchy, not a continuous ring ---------------------------
-      if (e < 0.03 && T > 9 && P < 1900 && coast < 1.6 && dT > -0.6) { biome[i] = Biome.Beach; continue; }
+      if (e < 0.03 && T > 9 && P < 1900 && coast < 1.6 && dT > -0.6) { put(i, Biome.Beach); continue; }
+
+      // --- rock, fire and fog: country the climate alone cannot explain -----
+      // A limestone belt, a young volcano and a cold current each override the
+      // climate rule that would otherwise apply, because the SUBSTRATE decides.
+      const bnd = boundary ? boundary[i] : 0;
+      if (bnd > 0.42 && e > 0.25 && patch.fbm(u + 0.61, v + 0.17, 6 * ws, 2) > 0.28) {
+        put(i, T > 0 ? Biome.Volcanic : Biome.Alpine);
+        continue;
+      }
+      if (bnd > 0.3 && rel < 0.09 && P < 900 && patch.fbm(u + 0.44, v + 0.9, 5 * ws, 2) > 0.34) {
+        put(i, Biome.AshPlain);
+        continue;
+      }
+      // Karst: soluble rock needs water to dissolve it, so it only shows in the wet.
+      const soluble = rock.fbm(u + 0.23, v + 0.41, 3.1 * ws, 3);
+      if (soluble > 0.3 && P > 1200 && T > 8 && e > 0.15 && e < 1.6) {
+        put(i, Biome.Karst);
+        continue;
+      }
+      // Fog desert: no rain at all, but a cold current offshore. The Atacama and
+      // the Namib both exist for this reason and neither is explicable from
+      // rainfall alone.
+      if (P < 190 && coast < 5 && sst && sst[i] < -1.2 && T > 8) {
+        put(i, Biome.FogDesert);
+        continue;
+      }
+      if (exotic > 0) {
+        const weird = patch.fbm(u + 0.77, v + 0.31, 2.6 * ws, 3);
+        if (weird > 1.02 - exotic * 0.55) {
+          if (P > 1400 && T > 4 && e < 1.2) { put(i, Biome.FungalForest); continue; }
+          if (P < 220 && rel < 0.05) { put(i, Biome.CrystalFlats); continue; }
+          if (P < 400 && rel > 0.06) { put(i, Biome.PetrifiedForest); continue; }
+          if (flat && fl > 0.4) { put(i, Biome.GlowMarsh); continue; }
+        }
+      }
 
       // --- the Whittaker grid, split by seasonality and substrate ------------
       if (T > 21) {
-        if (P > 2050) biome[i] = Biome.TropicalRainforest;
+        if (P > 2050) put(i, Biome.TropicalRainforest);
         // Monsoon forest: rainforest totals delivered in a season, so the canopy
         // is deciduous and opens out.
-        else if (P > 1150) biome[i] = P < 1650 ? Biome.MonsoonForest : Biome.TropicalForest;
-        else if (P > 600) biome[i] = Biome.Savanna;
-        else if (P > 250) biome[i] = Biome.Shrubland;
-        else biome[i] = desertKind(rel, P, patch, u, v, ws);
+        else if (P > 1150) put(i, P < 1650 ? Biome.MonsoonForest : Biome.TropicalForest);
+        // Bamboo takes the wet edge of the seasonal belt, where forest cut down
+        // grows back faster than anything else can claim the ground. It has to be
+        // tested BEFORE savanna: placed after, its P > 900 condition could never
+        // be reached, because savanna had already claimed everything above 600.
+        else if (P > 900 && patch.fbm(u + 0.2, v + 0.5, 4 * ws, 2) > 0.35) put(i, Biome.Bamboo);
+        else if (P > 600) put(i, Biome.Savanna);
+        else if (P > 250) put(i, T > 24 ? Biome.ThornScrub : Biome.Shrubland);
+        else put(i, desertKind(rel, P, patch, u, v, ws));
       } else if (T > 11) {
-        if (P > 1800) biome[i] = Biome.TemperateRainforest;
-        else if (P > 900) biome[i] = Biome.TemperateForest;
+        if (P > 1800) put(i, Biome.TemperateRainforest);
+        else if (P > 900) put(i, Biome.TemperateForest);
         // Mediterranean scrub: the dry-summer margin of the temperate belt,
         // recognised by warmth with moderate rain within reach of a coast.
-        else if (P > 430) biome[i] = T > 14 && P < 720 && coast < 26 ? Biome.Chaparral : Biome.Grassland;
-        else if (P > 220) biome[i] = Biome.Steppe;
-        else biome[i] = desertKind(rel, P, patch, u, v, ws);
+        else if (P > 430) put(i, T > 14 && P < 720 && coast < 26 ? Biome.Chaparral : Biome.Grassland);
+        else if (P > 220) put(i, Biome.Steppe);
+        else put(i, desertKind(rel, P, patch, u, v, ws));
       } else if (T > 3) {
-        if (P > 820) biome[i] = Biome.TemperateForest;
-        else if (P > 430) biome[i] = Biome.Grassland;
-        else if (P > 240) biome[i] = Biome.Steppe;
-        else biome[i] = Biome.ColdDesert;
+        // Moor: cool, wet, high and acid. Not a forest that failed — a distinct
+        // country, and the one most of northern Europe actually looks like.
+        if (P > 900 && e > 0.35 && rel < 0.1) put(i, Biome.Moor);
+        else if (P > 820) put(i, Biome.TemperateForest);
+        else if (P > 430) put(i, Biome.Grassland);
+        else if (P > 240) put(i, Biome.Steppe);
+        else put(i, Biome.ColdDesert);
       } else {
-        if (P > 460) biome[i] = Biome.BorealForest;
-        else if (P > 200) biome[i] = Biome.Tundra;
-        else biome[i] = Biome.ColdDesert;
+        // Puna: cold and dry but HIGH and low-latitude — the altiplano, which is
+        // neither tundra nor cold desert and reads as neither on a map.
+        if (P < 420 && e > 2.6 && latAbs < 35) put(i, Biome.Puna);
+        else if (P > 460) put(i, Biome.BorealForest);
+        else if (P > 200) put(i, Biome.Tundra);
+        else put(i, Biome.ColdDesert);
       }
     }
   }

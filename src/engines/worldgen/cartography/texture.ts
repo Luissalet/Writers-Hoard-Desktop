@@ -87,8 +87,19 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
   const drowned = (x: number, y: number) => world.elevation[at(x, y)] <= 0;
   const kOf = (x: number, y: number) => `${Math.round(x)},${Math.round(y)}`;
 
-  const settlements = base.settlements.filter((s) => !drowned(s.x, s.y));
-  const ruins = base.ruins.filter((r) => !drowned(r.x, r.y));
+  // The reader's renames and deletions apply on the cheap path too, or a rename
+  // would visibly disappear for two seconds after every brush stroke and come
+  // back when the full rebuild landed.
+  const ren = world.painted?.renames ?? {};
+  const gone = world.painted?.removed ?? new Set<string>();
+  const fix = <T extends { x: number; y: number; name: string }>(list: T[], target: 'settlement' | 'ruin'): T[] =>
+    list.filter((o) => !gone.has(`${target}:${Math.round(o.x)},${Math.round(o.y)}`))
+      .map((o) => {
+        const n = ren[`${target}:${Math.round(o.x)},${Math.round(o.y)}`];
+        return n ? { ...o, name: n } : o;
+      });
+  const settlements = fix(base.settlements.filter((s) => !drowned(s.x, s.y)), 'settlement');
+  const ruins = fix(base.ruins.filter((r) => !drowned(r.x, r.y)), 'ruin');
   const haveS = new Set(settlements.map((s) => kOf(s.x, s.y)));
   const haveR = new Set(ruins.map((r) => kOf(r.x, r.y)));
 
@@ -133,7 +144,17 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
   // Roads and realm borders are left exactly as they were: they are wrong in the
   // painted area until the next full pass, and being wrong for a second beats
   // being right four seconds after every stroke.
-  return { ...base, settlements, ruins };
+  const features = base.features
+    .filter((f) => !gone.has(`feature:${f.kind}:${Math.round(f.x)},${Math.round(f.y)}`))
+    .map((f) => {
+      const n = ren[`feature:${f.kind}:${Math.round(f.x)},${Math.round(f.y)}`];
+      return n ? { ...f, name: n } : f;
+    });
+  const realms = base.realms.map((r) => {
+    const n = ren[`realm:${r.id}`];
+    return n ? { ...r, name: n } : r;
+  });
+  return { ...base, settlements, ruins, features, realms };
 }
 
 export interface CartoCanvasOptions {

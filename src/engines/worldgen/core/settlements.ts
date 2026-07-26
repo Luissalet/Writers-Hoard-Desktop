@@ -20,6 +20,7 @@ import {
 } from './language';
 import { findLandforms, type Landform, type LandformKind } from './landforms';
 import { generateRuins, ruinPrefix, RUIN_BIAS, type Ruin } from './ruins';
+import { editKey } from './edits';
 
 export type SettlementRank = 'capital' | 'city' | 'town' | 'village';
 
@@ -517,7 +518,7 @@ export function buildHumanGeography(
   const ruins = generateRuins(world, settlements, landforms, (kind, x, y) => {
     const et = coin(cultureAt(x, y), `ruin:${kind}:${x},${y}`, RUIN_BIAS[kind]);
     return `${ruinPrefix(kind, x, y)} ${et.text}`;
-  });
+  }, { density: world.params.filters?.ruinDensity ?? 1, filters: world.params.filters });
 
   for (const m of world.painted?.markers ?? []) {
     if (m.marker !== 'ruin') continue;
@@ -537,7 +538,55 @@ export function buildHumanGeography(
     });
   }
 
-  return { settlements, roads, realms, realmOf, features, ruins, landforms, languages, languageOf };
+  // ---- the reader's corrections ------------------------------------------
+  // Renames and deletions of GENERATED content, applied last so they win over
+  // everything the generator decided. Keyed by position rather than by index:
+  // the same seed always puts the same city in the same place, but nothing
+  // guarantees it keeps the same array slot once a parameter moves, and a rename
+  // that survives only until a slider is touched is not a rename.
+  const painted2 = world.painted;
+  if (painted2 && (Object.keys(painted2.renames).length || painted2.removed.size)) {
+    const ren = painted2.renames, gone = painted2.removed;
+    const keep = <T extends { x: number; y: number; name: string }>(list: T[], target: 'settlement' | 'ruin') =>
+      list.filter((o) => !gone.has(editKey(target, o.x, o.y)))
+        .map((o) => {
+          const n = ren[editKey(target, o.x, o.y)];
+          return n ? { ...o, name: n } : o;
+        });
+    const keptS = keep(settlements, 'settlement');
+    settlements.length = 0;
+    settlements.push(...keptS as Settlement[]);
+    const keptR = keep(ruins, 'ruin');
+    ruins.length = 0;
+    ruins.push(...keptR as Ruin[]);
+
+    for (let i = 0; i < features.length; i++) {
+      const f = features[i];
+      const k = editKey('feature', f.x, f.y, `${f.kind}:`);
+      if (gone.has(k)) { features.splice(i--, 1); continue; }
+      if (ren[k]) features[i] = { ...f, name: ren[k] };
+    }
+    for (let i = 0; i < realms.length; i++) {
+      const k = `realm:${realms[i].id}`;
+      if (ren[k]) realms[i] = { ...realms[i], name: ren[k] };
+    }
+  }
+
+  // Hand-drawn roads join the network; erased ones leave it.
+  const finalRoads: Road[] = [];
+  for (const r of roads) {
+    const erased = (world.painted?.roadErasers ?? []).some((e) =>
+      r.cells.some((c) => {
+        const x = c % W, y = (c / W) | 0;
+        let dx = Math.abs(x - e.x);
+        if (dx > W / 2) dx = W - dx;
+        return dx * dx + (y - e.y) ** 2 <= e.radius * e.radius;
+      }));
+    if (!erased) finalRoads.push(r);
+  }
+  for (const r of world.painted?.roads ?? []) finalRoads.push({ cells: r.cells, major: r.major });
+
+  return { settlements, roads: finalRoads, realms, realmOf, features, ruins, landforms, languages, languageOf };
 }
 
 // ---------------------------------------------------------------------------
