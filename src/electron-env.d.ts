@@ -57,6 +57,21 @@ export interface CapturePageResult {
   error?: string;
 }
 
+/** What the main window is currently looking at — drives the capture target. */
+export interface QuickNoteContext {
+  projectId: string | null;
+  projectTitle: string | null;
+  locale: string;
+}
+
+/** A note relayed from the floating capture window into the main renderer. */
+export interface QuickNotePayload {
+  text: string;
+  kind: 'note' | 'quote' | 'idea' | 'word';
+  /** null → the project-less inbox. */
+  projectId: string | null;
+}
+
 export interface ElectronAPI {
   isDesktop: true;
   app: {
@@ -95,6 +110,14 @@ export interface ElectronAPI {
   };
   exporter: {
     scriptToPdf: (html: string, suggestedName: string) => Promise<SaveResult>;
+  };
+  quickNote: {
+    setContext: (ctx: QuickNoteContext) => void;
+    getContext: () => Promise<QuickNoteContext>;
+    submit: (payload: QuickNotePayload) => Promise<{ ok: boolean }>;
+    close: () => void;
+    onCapture: (callback: (payload: QuickNotePayload) => void) => () => void;
+    onOpenInline: (callback: () => void) => () => void;
   };
   updates: {
     check: () => Promise<void>;

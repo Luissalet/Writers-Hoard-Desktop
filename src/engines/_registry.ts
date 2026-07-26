@@ -64,7 +64,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: Sparkles,
     color: '#e8c577',
     defaultEngines: ['writings', 'codex', 'outline'],
-    suggestedEngines: ['timeline', 'diary', 'writing-stats', 'character-arc', 'worldgen'],
+    suggestedEngines: ['notes', 'timeline', 'diary', 'writing-stats', 'character-arc', 'worldgen'],
   },
   {
     id: 'novelist',
@@ -73,7 +73,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: PenLine,
     color: '#c4973b',
     defaultEngines: ['writings', 'codex', 'timeline', 'yarn-board', 'maps', 'gallery', 'outline'],
-    suggestedEngines: ['worldgen', 'storyboard', 'links', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit'],
+    suggestedEngines: ['worldgen', 'storyboard', 'notes', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit'],
   },
   {
     id: 'biographer',
@@ -82,7 +82,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: BookUser,
     color: '#4a7ec4',
     defaultEngines: ['biography', 'timeline', 'codex', 'gallery', 'scrapper', 'yarn-board'],
-    suggestedEngines: ['writings', 'links', 'diary', 'outline', 'writing-stats', 'relationships'],
+    suggestedEngines: ['writings', 'notes', 'diary', 'outline', 'writing-stats', 'relationships'],
   },
   {
     id: 'reporter',
@@ -90,7 +90,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     description: 'Investigative journalism, research',
     icon: Globe,
     color: '#c4463a',
-    defaultEngines: ['scrapper', 'timeline', 'yarn-board', 'codex', 'gallery', 'links'],
+    defaultEngines: ['scrapper', 'timeline', 'yarn-board', 'codex', 'gallery', 'notes'],
     suggestedEngines: ['writings', 'biography', 'writing-stats', 'relationships'],
   },
   {
@@ -100,7 +100,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: MessageSquare,
     color: '#7c5cbf',
     defaultEngines: ['dialog-scene', 'codex', 'timeline', 'storyboard', 'yarn-board', 'outline'],
-    suggestedEngines: ['gallery', 'writings', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit'],
+    suggestedEngines: ['gallery', 'writings', 'notes', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit'],
   },
   {
     id: 'content-creator',
@@ -109,7 +109,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: Video,
     color: '#4a9e6d',
     defaultEngines: ['video-planner', 'storyboard', 'gallery', 'scrapper', 'timeline'],
-    suggestedEngines: ['yarn-board', 'links', 'dialog-scene', 'outline', 'writing-stats'],
+    suggestedEngines: ['yarn-board', 'notes', 'dialog-scene', 'outline', 'writing-stats'],
   },
   {
     id: 'custom',

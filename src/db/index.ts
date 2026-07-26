@@ -12,7 +12,6 @@ import type {
   MapPin,
   ImageCollection,
   InspirationImage,
-  ExternalLink,
   Writing,
   Tag,
   AppSettings,
@@ -32,6 +31,8 @@ import type { Seed, Payoff } from '@/engines/seeds/types';
 import type { Annotation, AnnotationReference } from '@/engines/annotations/types';
 import type { WritingSnapshot } from '@/engines/writings/snapshotTypes';
 import type { GeneratedWorld, WorldSnapshot, WorldWaypoint } from '@/engines/worldgen/types';
+import type { Note } from '@/engines/notes/types';
+import { legacyLinksToSnapshots } from '@/engines/scrapper/legacyLinks';
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -47,7 +48,6 @@ export class WritersHoardDB extends Dexie {
   mapPins!: Table<MapPin>;
   imageCollections!: Table<ImageCollection>;
   inspirationImages!: Table<InspirationImage>;
-  externalLinks!: Table<ExternalLink>;
   tags!: Table<Tag>;
   settings!: Table<AppSettings>;
   storyboards!: Table<Storyboard>;
@@ -80,6 +80,7 @@ export class WritersHoardDB extends Dexie {
   generatedWorlds!: Table<GeneratedWorld>;
   worldWaypoints!: Table<WorldWaypoint>;
   worldSnapshots!: Table<WorldSnapshot>;
+  notes!: Table<Note>;
 
   constructor() {
     super('WritersHoardDB');
@@ -641,6 +642,58 @@ export class WritersHoardDB extends Dexie {
     // bytes have no business in an export.
     this.version(20).stores({
       worldSnapshots: 'worldId, savedAt',
+    });
+
+    // v21: Notes engine in, Links engine out.
+    //
+    // `notes` is the quick-capture table (short thoughts, quotes, stray
+    // ideas). `projectId` doubles as the scope key: real project ids for
+    // project notes, the `__inbox__` sentinel for captures made outside any
+    // project — Dexie can't index undefined, so a sentinel beats a nullable
+    // column here.
+    //
+    // The upgrade also retires Links: every `externalLinks` row becomes a
+    // link-only Scrapper snapshot (Links stored url+title+notes+tags, an
+    // exact subset of Snapshot), and 'links' is stripped from every project's
+    // engine lists so no project boots pointing at an engine that no longer
+    // registers. The table itself is dropped in v22 — deleting it here would
+    // make it unreadable inside this very upgrade.
+    this.version(21).stores({
+      notes: 'id, projectId, kind, *tags, pinned, createdAt',
+    }).upgrade(async (tx) => {
+      const links = await tx.table('externalLinks').toArray();
+      if (links.length) {
+        const snapshots = legacyLinksToSnapshots(links);
+        // bulkPut, not bulkAdd: a half-finished upgrade that runs again must
+        // not explode on ids it already wrote.
+        if (snapshots.length) await tx.table('snapshots').bulkPut(snapshots);
+      }
+      // Rewrite each project's engine lists: drop 'links'; make sure the
+      // engine its data moved INTO is actually visible; and switch every
+      // existing project on to Notes, which is new and would otherwise be
+      // invisible until the user went looking for it in the Engine Manager
+      // (where it can just as easily be switched back off).
+      const hadLinks = links.length > 0;
+      const rewrite = (list: unknown): string[] | undefined => {
+        if (!Array.isArray(list)) return undefined;
+        const next = (list as string[]).filter((e) => e !== 'links');
+        if (hadLinks && !next.includes('scrapper')) next.push('scrapper');
+        if (!next.includes('notes')) next.push('notes');
+        return next;
+      };
+      await tx.table('projects').toCollection().modify((project) => {
+        const enabled = rewrite(project.enabledEngines);
+        if (enabled) project.enabledEngines = enabled;
+        const order = rewrite(project.engineOrder);
+        if (order) project.engineOrder = order;
+      });
+    });
+
+    // v22: drop the now-empty `externalLinks` store. Separate version on
+    // purpose — Dexie applies each version's schema diff before running that
+    // version's upgrader, so v21 still sees the table it needs to read.
+    this.version(22).stores({
+      externalLinks: null,
     });
   }
 }

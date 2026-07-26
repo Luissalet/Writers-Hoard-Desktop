@@ -4,6 +4,7 @@ import MainLayout from './components/layout/MainLayout';
 import Dashboard from './pages/Dashboard';
 import ProjectDetail from './pages/ProjectDetail';
 import MediaDownloader from './pages/MediaDownloader';
+import NotesInbox from './pages/NotesInbox';
 import { isDesktop } from './utils/platform';
 
 // In the desktop shell the renderer loads from file://, so we use HashRouter
@@ -22,6 +23,8 @@ export default function App() {
           {/* Media Downloader is desktop-only: it needs the bundled yt-dlp
               backend that GitHub Pages can't host. */}
           {desktop && <Route path="/media-downloader" element={<MediaDownloader />} />}
+          {/* Project-less quick-capture drawer — reachable from anywhere. */}
+          <Route path="/notes" element={<NotesInbox />} />
           <Route path="/project/:id" element={<ProjectDetail />} />
           <Route path="/project/:id/:tab" element={<ProjectDetail />} />
         </Route>

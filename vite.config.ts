@@ -11,6 +11,17 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      input: {
+        // The app itself…
+        main: path.resolve(__dirname, 'index.html'),
+        // …and the standalone floating capture window the global Ctrl+Shift+N
+        // opens (electron/main.ts loads dist/quick-note.html directly).
+        'quick-note': path.resolve(__dirname, 'quick-note.html'),
+      },
+    },
+  },
   server: {
     port: 5174,
   },

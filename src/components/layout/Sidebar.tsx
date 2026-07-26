@@ -7,11 +7,13 @@ import {
   Feather,
   Settings2,
   Download,
+  StickyNote,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useProject } from '@/hooks/useProjects';
 import { getEnginesByIds } from '@/engines';
+import { useInboxNoteCount } from '@/engines/notes/hooks';
 import { isDesktop } from '@/utils/platform';
 
 export default function Sidebar() {
@@ -30,7 +32,9 @@ export default function Sidebar() {
 
   const isHome = location.pathname === '/';
   const isMediaDownloader = location.pathname === '/media-downloader';
+  const isNotesInbox = location.pathname === '/notes';
   const desktop = isDesktop();
+  const inboxCount = useInboxNoteCount();
   const activeTab = tab || (engines.length > 0 ? engines[0].id : '');
 
   const handleExport = async () => {
@@ -88,6 +92,29 @@ export default function Sidebar() {
         >
           <Home size={18} className="flex-shrink-0" />
           {sidebarOpen && <span className="whitespace-nowrap">{t('sidebar.home')}</span>}
+        </button>
+
+        {/* Notes inbox — project-less quick captures, always reachable. */}
+        <button
+          onClick={() => navigate('/notes')}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
+            isNotesInbox
+              ? 'bg-accent-gold/15 text-accent-gold'
+              : 'text-text-muted hover:text-text-primary hover:bg-elevated'
+          }`}
+          title={t('sidebar.notes')}
+        >
+          <StickyNote size={18} className="flex-shrink-0" />
+          {sidebarOpen && (
+            <>
+              <span className="whitespace-nowrap">{t('sidebar.notes')}</span>
+              {inboxCount > 0 && (
+                <span className="ml-auto px-1.5 py-0.5 rounded-full bg-accent-gold/20 text-accent-gold text-[10px] font-semibold">
+                  {inboxCount}
+                </span>
+              )}
+            </>
+          )}
         </button>
 
         {/* Media Downloader — desktop only (bundled yt-dlp backend). */}
