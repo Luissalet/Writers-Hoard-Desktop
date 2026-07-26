@@ -31,7 +31,7 @@ import type { Relationship } from '@/engines/relationships/types';
 import type { Seed, Payoff } from '@/engines/seeds/types';
 import type { Annotation, AnnotationReference } from '@/engines/annotations/types';
 import type { WritingSnapshot } from '@/engines/writings/snapshotTypes';
-import type { GeneratedWorld, WorldWaypoint } from '@/engines/worldgen/types';
+import type { GeneratedWorld, WorldSnapshot, WorldWaypoint } from '@/engines/worldgen/types';
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -79,6 +79,7 @@ export class WritersHoardDB extends Dexie {
   writingSnapshots!: Table<WritingSnapshot>;
   generatedWorlds!: Table<GeneratedWorld>;
   worldWaypoints!: Table<WorldWaypoint>;
+  worldSnapshots!: Table<WorldSnapshot>;
 
   constructor() {
     super('WritersHoardDB');
@@ -628,6 +629,18 @@ export class WritersHoardDB extends Dexie {
     this.version(19).stores({
       generatedWorlds: 'id, projectId, updatedAt',
       worldWaypoints: 'id, projectId, worldId',
+    });
+
+    // v20: the forged world, kept.
+    //
+    // Regenerating from the seed is deterministic and correct and takes
+    // twenty-six seconds, and it ran on every single application start. This
+    // table is a CACHE — quantised, compressed, keyed by the parameters it was
+    // made from, and reforgeable from `generatedWorlds` at any time. It is
+    // deliberately absent from the backup registry: eleven megabytes of derived
+    // bytes have no business in an export.
+    this.version(20).stores({
+      worldSnapshots: 'worldId, savedAt',
     });
   }
 }

@@ -1,0 +1,1044 @@
+diff -urN wg-dev4/src/engines/worldgen/cartography/render.ts wg/src/engines/worldgen/cartography/render.ts
+--- a/src/engines/worldgen/cartography/render.ts	2026-07-26 20:29:45.893407814 +0000
++++ b/src/engines/worldgen/cartography/render.ts	2026-07-26 20:21:44.203131142 +0000
+@@ -13,6 +13,7 @@
+ // low minutes, and it is the only way to get the coast rings to respect real
+ // geodesic distance instead of a blurred alpha mask.
+ 
++import { riverKey } from '../core/edits';
+ import { Biome, type WorldData } from '../core/types';
+ import { createRng, type Rng } from '../core/rng';
+ import { blur, distanceTo, labelLandmasses, localRelief, ridgeMask, scatterByScore, traceRidgeChains } from './fields';
+@@ -668,9 +669,14 @@
+   // Generated and hand-drawn rivers go through exactly the same ink. A painted
+   // watercourse that looked different from a generated one would announce itself
+   // on every map it appeared on.
+-  const all = world.painted?.rivers.length
+-    ? [...world.rivers, ...world.painted.rivers]
++  // And a river the reader erased is gone from both, generated or not.
++  const gone = world.painted?.removed;
++  const generated = gone?.size
++    ? world.rivers.filter((r) => !gone.has(riverKey(r.cells)))
+     : world.rivers;
++  const all = world.painted?.rivers.length
++    ? [...generated, ...world.painted.rivers]
++    : generated;
+   for (const river of all) {
+     const n = river.cells.length;
+     if (n < 3) continue;
+diff -urN wg-dev4/src/engines/worldgen/components/AtlasPanel.tsx wg/src/engines/worldgen/components/AtlasPanel.tsx
+--- a/src/engines/worldgen/components/AtlasPanel.tsx	2026-07-26 20:29:45.906247452 +0000
++++ b/src/engines/worldgen/components/AtlasPanel.tsx	2026-07-26 20:26:19.377814833 +0000
+@@ -41,6 +41,8 @@
+    * both routes emit the same position-keyed `rename` edit.
+    */
+   onRename?: (key: string, name: string) => void;
++  /** Delete the selected place from the world. */
++  onDelete?: (key: string) => void;
+   /** Centre the map on a place. */
+   onFlyTo?: (x: number, y: number) => void;
+   /** Open the host's own editor for a linked item. */
+@@ -53,7 +55,7 @@
+ };
+ 
+ export default function AtlasPanel({
+-  world, geography, links, selectedKey, onSelect, onRename, onFlyTo, onOpenLink,
++  world, geography, links, selectedKey, onSelect, onRename, onDelete, onFlyTo, onOpenLink,
+ }: AtlasPanelProps) {
+   const [query, setQuery] = useState('');
+ 
+@@ -151,12 +153,23 @@
+               </button>
+             ))}
+           </div>
+-          <button
+-            onClick={() => onFlyTo?.(selected.x, selected.y)}
+-            className="self-start px-2 py-1 rounded bg-white/8 hover:bg-white/15 text-[10px] mt-1"
+-          >
+-            Ir al lugar
+-          </button>
++          <div className="flex items-center gap-1 mt-1">
++            <button
++              onClick={() => onFlyTo?.(selected.x, selected.y)}
++              className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px]"
++            >
++              Ir al lugar
++            </button>
++            {onDelete && (
++              <button
++                onClick={() => { onDelete(selected.key); onSelect(null); }}
++                title="Quitarlo del mundo"
++                className="px-2 py-1 rounded bg-white/10 hover:bg-red-500/25 hover:text-red-200 text-[10px]"
++              >
++                Quitar
++              </button>
++            )}
++          </div>
+         </div>
+       ) : (
+         <p className="text-[10px] text-white/40 leading-snug border-t border-white/10 pt-2">
+diff -urN wg-dev4/src/engines/worldgen/components/CityPlanView.tsx wg/src/engines/worldgen/components/CityPlanView.tsx
+--- a/src/engines/worldgen/components/CityPlanView.tsx	2026-07-26 20:29:45.906904253 +0000
++++ b/src/engines/worldgen/components/CityPlanView.tsx	2026-07-26 20:26:19.376846248 +0000
+@@ -1,5 +1,5 @@
+ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+-import { Dices, Download, X } from 'lucide-react';
++import { Dices, Download, Trash2, X } from 'lucide-react';
+ import { saveAs } from 'file-saver';
+ import type { WorldData } from '../core/types';
+ import type { Settlement } from '../core/settlements';
+@@ -27,9 +27,11 @@
+    * simply reads as text rather than pretending to be editable.
+    */
+   onRename?: (name: string) => void;
++  /** Delete this town from the world. The modal closes itself afterwards. */
++  onDelete?: () => void;
+ }
+ 
+-export default function CityPlanView({ world, settlement, theme, onClose, onRename }: CityPlanViewProps) {
++export default function CityPlanView({ world, settlement, theme, onClose, onRename, onDelete }: CityPlanViewProps) {
+   const hostRef = useRef<HTMLDivElement>(null);
+   const canvasRef = useRef<HTMLCanvasElement>(null);
+   const [size, setSize] = useState({ w: 0, h: 0 });
+@@ -122,6 +124,15 @@
+             />
+           </label>
+ 
++          {onDelete && (
++            <IconBtn
++              title="Quitar esta población del mundo"
++              onClick={() => { onDelete(); onClose(); }}
++              danger
++            >
++              <Trash2 size={14} />
++            </IconBtn>
++          )}
+           <IconBtn title="Otra variante" onClick={() => setVariant((v) => v + 1)}><Dices size={14} /></IconBtn>
+           <IconBtn title="Exportar PNG" onClick={exportPng}><Download size={14} /></IconBtn>
+           <IconBtn title="Cerrar" onClick={onClose}><X size={14} /></IconBtn>
+@@ -150,12 +161,18 @@
+   );
+ }
+ 
+-function IconBtn({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
++function IconBtn({ title, onClick, danger, children }: {
++  title: string; onClick: () => void; danger?: boolean; children: React.ReactNode;
++}) {
+   return (
+     <button
+       onClick={onClick}
+       title={title}
+-      className="w-7 h-7 grid place-items-center rounded border border-border bg-elevated text-text-muted hover:text-text-primary hover:border-accent-gold/50 transition"
++      className={`w-7 h-7 grid place-items-center rounded border bg-elevated transition ${
++        danger
++          ? 'border-border text-text-muted hover:text-danger hover:border-danger/50'
++          : 'border-border text-text-muted hover:text-text-primary hover:border-accent-gold/50'
++      }`}
+     >
+       {children}
+     </button>
+diff -urN wg-dev4/src/engines/worldgen/components/Map2D.tsx wg/src/engines/worldgen/components/Map2D.tsx
+--- a/src/engines/worldgen/components/Map2D.tsx	2026-07-26 20:29:45.896574702 +0000
++++ b/src/engines/worldgen/components/Map2D.tsx	2026-07-26 20:25:19.679643864 +0000
+@@ -12,7 +12,7 @@
+ import type { WorldData, ViewMode, Landmark } from '../core/types';
+ import { renderBase, renderRivers } from '../core/render';
+ import { PROJECTIONS, reprojectRgba, type Projection } from '../core/projections';
+-import { commitPaintStroke, pickGeneratedAt } from '../core/paintCommit';
++import { commitPaintStroke, negativeOf, pickGeneratedAt } from '../core/paintCommit';
+ import type { Pt, WorldEdit } from '../core/edits';
+ import type { HumanGeography, Settlement } from '../core/settlements';
+ import type { WorldWaypoint } from '../types';
+@@ -83,7 +83,8 @@
+   /** Cells the pointer has crossed this stroke, and where the ring is drawn. */
+   const stroke = useRef<Pt[] | null>(null);
+   const brushAt = useRef<{ x: number; y: number } | null>(null);
+-  const altRef = useRef(false);
++  /** Ctrl at the moment the gesture started: the negative of whatever is out. */
++  const negRef = useRef(false);
+   const spaceRef = useRef(false);
+   const brushing = !!tool && tool.mode !== 'off' && !!onEdit;
+   const brushRef = useRef({ tool, onEdit, geography, brushing });
+@@ -458,7 +459,7 @@
+     const view = viewRef.current;
+     if (!view) return;
+     (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+-    altRef.current = e.altKey;
++    negRef.current = e.ctrlKey || e.metaKey;
+     const rect = e.currentTarget.getBoundingClientRect();
+     const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+ 
+@@ -550,8 +551,11 @@
+       if (bt && commit) {
+         const view = viewRef.current;
+         const cellsPerPx = view ? W / Math.max(1, PW * view.scale) : 1;
+-        const edit = commitPaintStroke(bt, pts, {
+-          alt: altRef.current,
++        // Terrain and coast invert the OPERATION, everything else inverts at
++        // commit time — one rule, resolved in the one place that knows both.
++        const spec = negRef.current ? negativeOf(bt) : bt;
++        const edit = commitPaintStroke(spec, pts, {
++          negative: negRef.current,
+           pickGenerated: (x, y) => pickGeneratedAt(world, geo, x, y, Math.max(2, 16 * cellsPerPx)),
+         });
+         if (edit) commit(edit);
+diff -urN wg-dev4/src/engines/worldgen/components/PaintPanel.tsx wg/src/engines/worldgen/components/PaintPanel.tsx
+--- a/src/engines/worldgen/components/PaintPanel.tsx	2026-07-26 20:29:45.907402707 +0000
++++ b/src/engines/worldgen/components/PaintPanel.tsx	2026-07-26 20:24:55.164953205 +0000
+@@ -2,6 +2,8 @@
+ import { Biome, type BiomeId, type RuinKind } from '../core/types';
+ import type { SettlementRank } from '../core/settlements';
+ import type { LandOp, TerrainOp } from '../core/edits';
++import type { PointKind } from '../core/paintCommit';
++export type { PointKind };
+ import { biomeName } from '../core/gazetteer';
+ import { BIOME_COLORS } from '../core/render';
+ 
+@@ -19,17 +21,33 @@
+  * lie about what the next stroke will do.
+  */
+ 
++/**
++ * Three kinds of gesture, not ten modes.
++ *
++ * The old list had a mode for every noun — marker, label, erase, remove, rename,
++ * road — and that hid the fact that they are not the same KIND of thing:
++ *
++ *   a brush covers area          coast, relief, biome     radius, strength
++ *   a line is a polyline         river                    drawn, not stamped
++ *   a point is an object         town, ruin, name, pin    placed, then edited
++ *
++ * An object is not paint: you put it down, and afterwards you rename it or
++ * delete it — in the thing's own view, not with a second tool aimed at it. That
++ * is why `rename` and `remove` are gone from here entirely, and why `marker`,
++ * `label` and the marker eraser collapsed into one `point`.
++ *
++ * And every tool now has a negative on Ctrl instead of an eraser of its own.
++ */
+ export type PaintMode =
+-  | 'off' | 'terrain' | 'land' | 'biome' | 'river' | 'marker' | 'label' | 'erase'
+-  // The two that edit what the GENERATOR made rather than the raster. They work
+-  // by position-derived key, so a change survives a full regeneration — which is
+-  // the whole reason they are edits and not a separate layer of overrides.
+-  //
+-  // There used to be a third, `rename`, and it did not belong here. Renaming is
+-  // not a stroke: it is something you do TO A THING, once you have it in front
+-  // of you. It now lives where the thing does — the name in a town's plan is
+-  // editable, and so is the name of whatever the index has selected.
+-  | 'remove' | 'road';
++  | 'off'
++  // the brush
++  | 'terrain' | 'land' | 'biome'
++  // the line
++  | 'river'
++  // the object
++  | 'point'
++  // and the one that is neither: two clicks and an A* between them
++  | 'road';
+ 
+ export interface PaintTool {
+   mode: PaintMode;
+@@ -49,6 +67,8 @@
+   labelText: string;
+   /** Road tool: a trade artery or a local track. */
+   roadMajor: boolean;
++  /** What the point tool puts down. */
++  point: PointKind;
+ }
+ 
+ export const DEFAULT_PAINT_TOOL: PaintTool = {
+@@ -66,19 +86,52 @@
+   roadMajor: false,
+   labelStyle: 'region',
+   labelText: '',
++  point: 'town',
+ };
+ 
+-const MODES: { id: PaintMode; label: string; hint: string }[] = [
+-  { id: 'off', label: 'Mano', hint: 'Mover y hacer zoom sin pintar' },
+-  { id: 'land', label: 'Costa', hint: 'Crear tierra o hundirla en el mar' },
+-  { id: 'terrain', label: 'Relieve', hint: 'Levantar, hundir, suavizar o rugosear' },
+-  { id: 'biome', label: 'Bioma', hint: 'Pintar vegetación y terreno' },
+-  { id: 'river', label: 'Río', hint: 'Trazar un cauce a mano' },
+-  { id: 'marker', label: 'Marca', hint: 'Colocar una ciudad o una ruina' },
+-  { id: 'label', label: 'Rótulo', hint: 'Escribir un nombre en el mapa' },
+-  { id: 'erase', label: 'Borrar', hint: 'Quitar marcas y rótulos de una zona' },
+-  { id: 'remove', label: 'Quitar', hint: 'Pincha algo que el generador puso y desaparece del mundo' },
+-  { id: 'road', label: 'Camino', hint: 'Arrastra para trazar un camino; con Alt borra los que cruces' },
++interface ModeSpec { id: PaintMode; label: string; hint: string; negative: string }
++
++const GROUPS: { title: string; note: string; modes: ModeSpec[] }[] = [
++  {
++    title: 'Pincel',
++    note: 'Cubre superficie. Radio, fuerza y dureza.',
++    modes: [
++      { id: 'land', label: 'Costa', hint: 'Crear tierra donde había mar', negative: 'hunde la tierra en el mar' },
++      { id: 'terrain', label: 'Relieve', hint: 'Levantar, suavizar, afilar, escalonar', negative: 'hace lo contrario de la operación elegida' },
++      { id: 'biome', label: 'Bioma', hint: 'Pintar vegetación y terreno', negative: 'se lo devuelve al clasificador' },
++    ],
++  },
++  {
++    title: 'Trazo',
++    note: 'Una línea, no un disco.',
++    modes: [
++      { id: 'river', label: 'Río', hint: 'Trazar un cauce a mano', negative: 'borra los ríos que cruces, tuyos o del generador' },
++    ],
++  },
++  {
++    title: 'Punto',
++    note: 'Cosas: se colocan, y luego se editan o se borran donde viven.',
++    modes: [
++      { id: 'point', label: 'Colocar', hint: 'Pon una ciudad, una ruina, un rótulo o una chincheta', negative: 'borra lo que haya debajo' },
++      { id: 'road', label: 'Camino', hint: 'Pincha dos poblaciones y la ruta se calcula sola', negative: 'borra el camino que pinches' },
++    ],
++  },
++];
++
++const MODES: ModeSpec[] = [
++  { id: 'off', label: 'Mano', hint: 'Mover y hacer zoom sin pintar', negative: '' },
++  ...GROUPS.flatMap((g) => g.modes),
++];
++
++/** What the point tool puts down. */
++const POINTS: { id: PointKind; label: string; hint: string }[] = [
++  { id: 'capital', label: 'Capital', hint: 'La sede de un reino' },
++  { id: 'city', label: 'Ciudad', hint: 'Una ciudad' },
++  { id: 'town', label: 'Villa', hint: 'Una villa' },
++  { id: 'village', label: 'Aldea', hint: 'Una aldea' },
++  { id: 'ruin', label: 'Ruina', hint: 'Algo abandonado' },
++  { id: 'label', label: 'Rótulo', hint: 'Un nombre escrito sobre el mapa' },
++  { id: 'waypoint', label: 'Chincheta', hint: 'Una marca tuya, con color y nota, que no forma parte del mundo' },
+ ];
+ 
+ const TERRAIN_OPS: { id: TerrainOp; label: string }[] = [
+@@ -104,12 +157,6 @@
+   { id: 'wall', label: 'Muralla' },
+ ];
+ 
+-const RANKS: { id: SettlementRank; label: string }[] = [
+-  { id: 'capital', label: 'Capital' },
+-  { id: 'city', label: 'Ciudad' },
+-  { id: 'town', label: 'Villa' },
+-  { id: 'village', label: 'Aldea' },
+-];
+ 
+ const LABEL_STYLES: { id: PaintTool['labelStyle']; label: string }[] = [
+   { id: 'region', label: 'Región' },
+@@ -148,7 +195,9 @@
+ }: PaintPanelProps) {
+   const set = <K extends keyof PaintTool>(k: K, v: PaintTool[K]) => onChange({ ...tool, [k]: v });
+   const active = tool.mode !== 'off';
+-  const hint = useMemo(() => MODES.find((m) => m.id === tool.mode)?.hint ?? '', [tool.mode]);
++  const spec = useMemo(() => MODES.find((m) => m.id === tool.mode), [tool.mode]);
++  const hint = spec?.hint ?? '';
++  const negative = spec?.negative ?? '';
+ 
+   return (
+     <div className="flex flex-col gap-3 text-[11px] text-white/80">
+@@ -157,23 +206,51 @@
+         {busy && <span className="text-[10px] text-amber-300/80">aplicando…</span>}
+       </div>
+ 
+-      <div className="grid grid-cols-4 gap-1">
+-        {MODES.map((m) => (
+-          <button
+-            key={m.id}
+-            title={m.hint}
+-            onClick={() => set('mode', m.id)}
+-            className={`px-1.5 py-1.5 rounded text-[10px] transition ${
+-              tool.mode === m.id
+-                ? 'bg-amber-400/85 text-black font-medium'
+-                : 'bg-white/8 hover:bg-white/15'
+-            }`}
+-          >
+-            {m.label}
+-          </button>
+-        ))}
+-      </div>
+-      <p className="text-[10px] text-white/40 leading-snug -mt-1">{hint}</p>
++      <button
++        onClick={() => set('mode', 'off')}
++        className={`px-2 py-1.5 rounded text-[11px] transition ${
++          tool.mode === 'off' ? 'bg-amber-400/85 text-black font-medium' : 'bg-white/10 hover:bg-white/20'
++        }`}
++      >
++        Mano — mover y hacer zoom sin tocar nada
++      </button>
++
++      {GROUPS.map((g) => (
++        <div key={g.title} className="flex flex-col gap-1">
++          <div className="flex items-baseline justify-between gap-2">
++            <span className="text-[10px] font-semibold uppercase tracking-wider text-white/60">{g.title}</span>
++            <span className="text-[9px] text-white/40 truncate">{g.note}</span>
++          </div>
++          <div className="grid grid-cols-3 gap-1">
++            {g.modes.map((m) => (
++              <button
++                key={m.id}
++                title={m.hint}
++                onClick={() => set('mode', m.id)}
++                className={`px-1.5 py-1.5 rounded text-[11px] transition ${
++                  tool.mode === m.id
++                    ? 'bg-amber-400/85 text-black font-medium'
++                    : 'bg-white/10 hover:bg-white/20'
++                }`}
++              >
++                {m.label}
++              </button>
++            ))}
++          </div>
++        </div>
++      ))}
++
++      {active && (
++        <p className="text-[11px] text-white/70 leading-snug rounded bg-white/[0.06] px-2 py-1.5">
++          {hint}.
++          {negative && (
++            <>
++              <br />
++              <strong className="text-amber-200">Ctrl</strong> {negative}.
++            </>
++          )}
++        </p>
++      )}
+ 
+       {tool.mode === 'terrain' && (
+         <Row label="Operación">
+@@ -223,23 +300,19 @@
+         </div>
+       )}
+ 
+-      {tool.mode === 'marker' && (
++      {tool.mode === 'point' && (
+         <div className="flex flex-col gap-2">
+           <Row label="Qué colocar">
+-            <div className="grid grid-cols-2 gap-1">
+-              <Chip on={tool.marker === 'settlement'} onClick={() => set('marker', 'settlement')}>Poblado</Chip>
+-              <Chip on={tool.marker === 'ruin'} onClick={() => set('marker', 'ruin')}>Ruina</Chip>
++            <div className="grid grid-cols-4 gap-1">
++              {POINTS.map((k) => (
++                <Chip key={k.id} on={tool.point === k.id} onClick={() => set('point', k.id)} title={k.hint}>
++                  {k.label}
++                </Chip>
++              ))}
+             </div>
+           </Row>
+-          {tool.marker === 'settlement' ? (
+-            <Row label="Rango">
+-              <div className="grid grid-cols-4 gap-1">
+-                {RANKS.map((r) => (
+-                  <Chip key={r.id} on={tool.rank === r.id} onClick={() => set('rank', r.id)}>{r.label}</Chip>
+-                ))}
+-              </div>
+-            </Row>
+-          ) : (
++
++          {tool.point === 'ruin' && (
+             <Row label="Tipo de ruina">
+               <div className="grid grid-cols-4 gap-1">
+                 {RUINS.map((r) => (
+@@ -248,29 +321,32 @@
+               </div>
+             </Row>
+           )}
+-          <p className="text-[10px] text-white/40 leading-snug">
+-            Se nombra solo en la lengua de la zona. Un clic la coloca.
+-          </p>
+-        </div>
+-      )}
+ 
+-      {tool.mode === 'label' && (
+-        <div className="flex flex-col gap-2">
+-          <Row label="Texto">
+-            <input
+-              value={tool.labelText}
+-              onChange={(e) => set('labelText', e.target.value)}
+-              placeholder="Escribe el nombre…"
+-              className="w-full px-2 py-1 rounded bg-black/40 border border-white/15 text-[11px] text-white/90 outline-none focus:border-amber-400/60"
+-            />
+-          </Row>
+-          <Row label="Estilo">
+-            <div className="grid grid-cols-5 gap-1">
+-              {LABEL_STYLES.map((s) => (
+-                <Chip key={s.id} on={tool.labelStyle === s.id} onClick={() => set('labelStyle', s.id)}>{s.label}</Chip>
+-              ))}
+-            </div>
+-          </Row>
++          {tool.point === 'label' && (
++            <>
++              <Row label="Texto">
++                <input
++                  value={tool.labelText}
++                  onChange={(e) => set('labelText', e.target.value)}
++                  placeholder="Escribe el nombre…"
++                  className="w-full px-2 py-1 rounded bg-black/40 border border-white/15 text-[11px] text-white/90 outline-none focus:border-amber-400/60"
++                />
++              </Row>
++              <Row label="Estilo">
++                <div className="grid grid-cols-5 gap-1">
++                  {LABEL_STYLES.map((st) => (
++                    <Chip key={st.id} on={tool.labelStyle === st.id} onClick={() => set('labelStyle', st.id)}>{st.label}</Chip>
++                  ))}
++                </div>
++              </Row>
++            </>
++          )}
++
++          <p className="text-[10px] text-white/55 leading-snug">
++            {tool.point === 'waypoint'
++              ? 'La chincheta es tuya, no del mundo: tiene color y nota, y vive en su propia lista.'
++              : 'Se nombra solo en la lengua de la zona. Después, para cambiarle el nombre o quitarlo, pínchalo: una ciudad abre su plano y lo demás se edita en el Índice.'}
++          </p>
+         </div>
+       )}
+ 
+@@ -294,25 +370,15 @@
+               <Chip on={tool.roadMajor} onClick={() => set('roadMajor', true)}>Calzada real</Chip>
+             </div>
+           </Row>
+-          <p className="text-[10px] text-white/40 leading-snug">
+-            El trazo se guarda como una edición, así que sobrevive a regenerar el mundo.
+-            Con Alt pulsado, en lugar de dibujar borra los caminos que cruces.
++          <p className="text-[10px] text-white/55 leading-snug">
++            Pincha una población y luego otra: la ruta se calcula buscando pasos y evitando
++            pantanos, igual que los caminos que trazó el generador. Un camino a mano seguía la
++            línea recta que dibujaras y no sabía nada del terreno que cruzaba.
+           </p>
+         </div>
+       )}
+ 
+-      {tool.mode === 'remove' && (
+-        <p className="text-[10px] text-white/55 leading-snug">
+-          Funciona sobre lo que generó el mundo: ciudades, ruinas, mares, sierras, bosques y
+-          reinos. Se identifica por dónde está, no por su posición en una lista, de modo que
+-          el cambio sigue ahí después de regenerar.
+-          <br />
+-          Para <strong className="text-white/75">cambiar un nombre</strong>, pincha la ciudad y
+-          edítalo en su plano, o selecciona el lugar en el Índice.
+-        </p>
+-      )}
+-
+-      {(tool.mode === 'terrain' || tool.mode === 'land' || tool.mode === 'biome' || tool.mode === 'erase') && (
++      {(tool.mode === 'terrain' || tool.mode === 'land' || tool.mode === 'biome') && (
+         <div className="flex flex-col gap-2">
+           <Slider
+             label="Tamaño"
+@@ -323,7 +389,7 @@
+             format={(v) => (cellKm ? `${v} celdas · ${Math.round(v * cellKm)} km` : `${v} celdas`)}
+             onChange={(v) => set('radius', v)}
+           />
+-          {tool.mode !== 'erase' && (
++          {(
+             <>
+               <Slider
+                 label="Fuerza"
+@@ -401,12 +467,15 @@
+   );
+ }
+ 
+-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
++function Chip({ on, onClick, title, children }: {
++  on: boolean; onClick: () => void; title?: string; children: React.ReactNode;
++}) {
+   return (
+     <button
+       onClick={onClick}
++      title={title}
+       className={`px-1 py-1 rounded text-[10px] transition ${
+-        on ? 'bg-amber-400/85 text-black font-medium' : 'bg-white/8 hover:bg-white/15'
++        on ? 'bg-amber-400/85 text-black font-medium' : 'bg-white/10 hover:bg-white/20'
+       }`}
+     >
+       {children}
+diff -urN wg-dev4/src/engines/worldgen/components/SculptView.tsx wg/src/engines/worldgen/components/SculptView.tsx
+--- a/src/engines/worldgen/components/SculptView.tsx	2026-07-26 20:29:45.895380430 +0000
++++ b/src/engines/worldgen/components/SculptView.tsx	2026-07-26 20:24:55.165691759 +0000
+@@ -7,6 +7,7 @@
+ import { drawSculptFallback } from '../sculpt/fallback';
+ import type { LandOp, Pt, TerrainOp, WorldEdit } from '../core/edits';
+ import type { PaintTool } from './PaintPanel';
++import { commitPaintStroke } from '../core/paintCommit';
+ 
+ /**
+  * The editing view.
+@@ -368,7 +369,7 @@
+       request();
+       return;
+     }
+-    if (wantsPaint && (t.mode === 'marker' || t.mode === 'label' || t.mode === 'erase' || t.mode === 'biome' || t.mode === 'river')) return;
++    if (wantsPaint && (t.mode === 'point' || t.mode === 'road' || t.mode === 'biome' || t.mode === 'river')) return;
+     drag.current = { x: e.clientX, y: e.clientY, cu: view.current.cu, cv: view.current.cv };
+   }, [toCell, startStroke, world.elevation, request]);
+ 
+@@ -407,21 +408,14 @@
+     stroke.current = null;
+     drag.current = null;
+     if (!st) {
+-      // A click with a marker/label/erase tool: one edit, no live preview needed.
++      // A click with a tool that stamps rather than strokes. One edit, no live
++      // preview needed — and it goes through the same commit every other view
++      // uses, so this fallback cannot drift away from them.
+       const p = toCell(e.clientX, e.clientY);
+       const t = toolRef.current;
+       if (!p) return;
+-      if (t.mode === 'marker') {
+-        onEdit(t.marker === 'ruin'
+-          ? { kind: 'marker', marker: 'ruin', x: p.x, y: p.y, ruin: t.ruin }
+-          : { kind: 'marker', marker: 'settlement', x: p.x, y: p.y, rank: t.rank });
+-      } else if (t.mode === 'label' && t.labelText.trim()) {
+-        onEdit({ kind: 'label', x: p.x, y: p.y, text: t.labelText.trim(), style: t.labelStyle });
+-      } else if (t.mode === 'erase') {
+-        onEdit({ kind: 'eraseMarkers', x: p.x, y: p.y, radius: t.radius });
+-      } else if (t.mode === 'biome') {
+-        onEdit({ kind: 'biome', biome: t.biome, stroke: { pts: [p], radius: t.radius, strength: t.strength, softness: t.softness } });
+-      }
++      const edit = commitPaintStroke(t, [p], { negative: e.ctrlKey || e.metaKey });
++      if (edit) onEdit(edit);
+       return;
+     }
+     // Roll the preview back and hand the stroke to the session, which replays it
+diff -urN wg-dev4/src/engines/worldgen/components/World3D.tsx wg/src/engines/worldgen/components/World3D.tsx
+--- a/src/engines/worldgen/components/World3D.tsx	2026-07-26 20:29:45.896339278 +0000
++++ b/src/engines/worldgen/components/World3D.tsx	2026-07-26 20:25:19.681206644 +0000
+@@ -12,7 +12,7 @@
+   SculptSurface, pickCell, visibleWindow, SIZE_X, R_GLOBE, type SculptShape,
+ } from '../sculpt/scene3d';
+ import type { Pt, TerrainOp, WorldEdit } from '../core/edits';
+-import { commitPaintStroke, isSculptMode, pickGeneratedAt } from '../core/paintCommit';
++import { commitPaintStroke, isSculptMode, negativeOf, pickGeneratedAt } from '../core/paintCommit';
+ import type { HumanGeography, Settlement } from '../core/settlements';
+ import { getCartoTexture } from '../cartography/texture';
+ import type { CartoTheme } from '../cartography/theme';
+@@ -824,7 +824,9 @@
+   const onPointerDown = useCallback((e: React.PointerEvent) => {
+     const st = R.current;
+     if (!st) return;
+-    altRef.current = e.altKey;
++    // Ctrl, not Alt: one key means "the other way round" for every tool, and it
++    // is already what the sculpt preview reads while a stroke is in flight.
++    altRef.current = e.ctrlKey || e.metaKey;
+     press.current = { x: e.clientX, y: e.clientY, moved: false, button: e.button };
+     if (e.button !== 0 || !brushingRef.current) return;
+     const p = cellUnder(e.clientX, e.clientY);
+@@ -925,8 +927,9 @@
+     }
+ 
+     if (tr && tr.length) {
+-      const edit = commitPaintStroke(toolRef.current, tr, {
+-        alt: altRef.current,
++      const spec = altRef.current ? negativeOf(toolRef.current) : toolRef.current;
++      const edit = commitPaintStroke(spec, tr, {
++        negative: altRef.current,
+         pickGenerated: (x, y) => pickGeneratedAt(
+           world, propsRef.current.geography, x, y,
+           Math.max(3, st ? st.surface.uvWindow.size * world.width * 0.02 : 8),
+diff -urN wg-dev4/src/engines/worldgen/components/WorldView.tsx wg/src/engines/worldgen/components/WorldView.tsx
+--- a/src/engines/worldgen/components/WorldView.tsx	2026-07-26 20:29:45.907646863 +0000
++++ b/src/engines/worldgen/components/WorldView.tsx	2026-07-26 20:27:19.317149831 +0000
+@@ -32,6 +32,7 @@
+ import FiltersPanel from './FiltersPanel';
+ import { PaintSession } from '../core/paintSession';
+ import { deserializeEdits, editKey, targetFromKey } from '../core/edits';
++import { planRoute } from '../core/travel';
+ import { nameBridges, paleoMap } from '../core/paleo';
+ import type { WorldEdit } from '../core/edits';
+ import { THEMES, themeById } from '../cartography/theme';
+@@ -143,6 +144,8 @@
+   const [placing, setPlacing] = useState(false);
+   const [selectedWaypointId, setSelectedWaypointId] = useState<string | null>(null);
+   const [flyTarget, setFlyTarget] = useState<{ u: number; v: number; token: number } | null>(null);
++  /** First end of a road being laid, waiting for its second click. */
++  const [roadFrom, setRoadFrom] = useState<Settlement | null>(null);
+   const [exaggeration, setExaggeration] = useState(30);
+   const [exportOpen, setExportOpen] = useState(false);
+   // Declared up here with the rest of the view state rather than down in the
+@@ -451,6 +454,53 @@
+     applyEdit({ kind: 'rename', target, key, name });
+   }, [applyEdit]);
+ 
++  const removeByKey = useCallback((key: string) => {
++    const target = targetFromKey(key);
++    if (target) applyEdit({ kind: 'remove', target, key });
++  }, [applyEdit]);
++
++  /**
++   * What a click on a town means, which depends on what is in the reader's hand.
++   *
++   * With the road tool out it is one end of a road; with the journey panel open
++   * it is one end of a journey; otherwise it opens the town. Three meanings for
++   * one gesture is usually a smell, but here the tool IS the mode indicator and
++   * the alternative is three different ways to point at the same dot.
++   */
++  const pickSettlement = useCallback((s: Settlement) => {
++    if (brushIsOut && brush.mode === 'road') {
++      if (!roadFrom) { setRoadFrom(s); return; }
++      setRoadFrom(null);
++      if (roadFrom.id === s.id || !data || !geography) return;
++      // A* over the real ground, the same search the journey planner runs, so a
++      // road laid by hand goes through the pass instead of over the mountain.
++      const r = planRoute(data, geography, roadFrom, s, { mode: 'cart', season: 'summer' });
++      if (r.impossible || r.cells.length < 2) {
++        toast.error('No hay ruta por tierra entre esas dos poblaciones');
++        return;
++      }
++      const W = data.width;
++      applyEdit({
++        kind: 'road',
++        pts: r.cells.map((c) => ({ x: c % W, y: Math.floor(c / W) })),
++        major: brush.roadMajor,
++      });
++      return;
++    }
++    if (journeyPick === 'from') { setJourneyFrom(s); setJourneyPick('to'); return; }
++    if (journeyPick === 'to') { setJourneyTo(s); setJourneyPick(null); return; }
++    if (journeyPick === 'via') {
++      setJourneyVia((v) => (v.some((q) => q.id === s.id) ? v : [...v, s]));
++      return;
++    }
++    setCityFor(s);
++  }, [brushIsOut, brush.mode, brush.roadMajor, roadFrom, data, geography, journeyPick, applyEdit]);
++
++  // Putting the tool away abandons a half-drawn road.
++  useEffect(() => {
++    if (!brushIsOut || brush.mode !== 'road') setRoadFrom(null);
++  }, [brushIsOut, brush.mode]);
++
+   const undoEdit = useCallback(() => {
+     const s = session.current;
+     if (!s?.canUndo) return;
+@@ -784,7 +834,7 @@
+               showSettlements={showSettlements}
+               tool={paintable ? tool : undefined}
+               onEdit={paintable ? applyEdit : undefined}
+-              onPickSettlement={setCityFor}
++              onPickSettlement={pickSettlement}
+               onOpenRegion={(x, y) => setRegionAt({ x, y })}
+               revision={paintRev}
+             />
+@@ -800,12 +850,7 @@
+                 reliefAmount={reliefAmount}
+                 title={world.title}
+                 subtitle={t('worldgen.export.atlasSuffix')}
+-                onPickSettlement={(s: Settlement) => {
+-                  if (journeyPick === 'from') { setJourneyFrom(s); setJourneyPick('to'); }
+-                  else if (journeyPick === 'to') { setJourneyTo(s); setJourneyPick(null); }
+-                  else if (journeyPick === 'via') setJourneyVia((v) => (v.some((q) => q.id === s.id) ? v : [...v, s]));
+-                  else setCityFor(s);
+-                }}
++                onPickSettlement={pickSettlement}
+                 annotations={annotations}
+                 onOpenRegion={(x, y) => setRegionAt({ x, y })}
+                 onInspect={panelTab === 'atlas' && data && geography
+@@ -839,7 +884,7 @@
+                 onEdits={applyEditGroup}
+                 revision={paintRev}
+                 flyTarget={flyTarget}
+-                onPickSettlement={setCityFor}
++                onPickSettlement={pickSettlement}
+                 onPickWaypoint={(id) => {
+                   setSelectedWaypointId(id);
+                   setPanelTab('waypoints');
+@@ -943,6 +988,7 @@
+                   selectedKey={atlasKey}
+                   onSelect={setAtlasKey}
+                   onRename={renameByKey}
++                  onDelete={removeByKey}
+                   onFlyTo={(x, y) => flyTo(x / data.width, y / data.height)}
+                   onOpenLink={onOpenManuscriptLink}
+                 />
+@@ -1047,6 +1093,11 @@
+           </span>
+         )}
+         {geoBusy && <span className="ml-3 text-accent-gold/80">recalculando calzadas y fronteras…</span>}
++        {brushIsOut && brush.mode === 'road' && (
++          <span className="ml-3 text-accent-gold">
++            {roadFrom ? `Camino desde ${roadFrom.name} — pincha la otra punta` : 'Pincha la población de partida'}
++          </span>
++        )}
+         {geography && (
+           <span className="ml-3">
+             {geography.settlements.length} asentamientos · {geography.realms.length} reinos ·
+@@ -1077,6 +1128,7 @@
+           settlement={cityFor}
+           theme={theme}
+           onClose={() => setCityFor(null)}
++          onDelete={() => removeByKey(editKey('settlement', cityFor.x, cityFor.y))}
+           onRename={(name) => {
+             renameByKey(editKey('settlement', cityFor.x, cityFor.y), name);
+             // The open modal holds the settlement it was given, and the patched
+diff -urN wg-dev4/src/engines/worldgen/core/edits.ts wg/src/engines/worldgen/core/edits.ts
+--- a/src/engines/worldgen/core/edits.ts	2026-07-26 20:29:45.907894958 +0000
++++ b/src/engines/worldgen/core/edits.ts	2026-07-26 20:21:04.249992918 +0000
+@@ -116,10 +116,22 @@
+     size?: number;
+     angle?: number;
+   }
+-  /** Remove painted markers and labels within a radius. Terrain and biome
+-   *  paints are undone by dropping their edit, not by erasing over them. */
++  /** Remove painted markers and labels within a radius. */
+   | { kind: 'eraseMarkers'; x: number; y: number; radius: number }
+   /**
++   * Give a patch of ground back to the classifier.
++   *
++   * The negative of the biome brush, and the one negative that is not simply
++   * "the opposite colour": what you want when you regret a stroke of desert is
++   * not another colour, it is whatever the world would have decided on its own.
++   * Applied in list order with the biome paints, so it undoes only what was
++   * painted BEFORE it — which is what makes it a brush stroke rather than a
++   * command.
++   */
++  | { kind: 'eraseBiome'; stroke: Stroke }
++  /** The negative of the river brush: unmake the watercourses it crosses. */
++  | { kind: 'eraseRivers'; x: number; y: number; radius: number }
++  /**
+    * Rename something the GENERATOR produced.
+    *
+    * Identified by a position-derived key rather than by array index: a world is
+@@ -138,6 +150,17 @@
+ 
+ export type EditTarget = 'settlement' | 'ruin' | 'realm' | 'feature' | 'road';
+ 
++/**
++ * Identity for a generated river: the cell it ends at.
++ *
++ * A river is regenerated from the seed every time the world is opened, so it has
++ * no id worth storing. Its mouth is the one cell that does not move while the
++ * river exists, which makes it the natural name for "this river".
++ */
++export function riverKey(cells: ArrayLike<number>): string {
++  return `river:${cells[cells.length - 1]}`;
++}
++
+ /** Stable identity for a generated object, derived from where it is. */
+ export function editKey(target: EditTarget, x: number, y: number, extra = ''): string {
+   return `${target}:${extra}${Math.round(x)},${Math.round(y)}`;
+@@ -364,9 +387,17 @@
+   }
+ 
+   // ---- 3. explicit biome paint, which wins over the classifier -----------
++  //
++  // Resolved into an OVERLAY first rather than written straight into the world,
++  // because the eraser has to be able to take a painted cell back off — and it
++  // can only do that if what the classifier decided is still sitting underneath.
++  // Order matters and is the list's order: paint, erase, paint again.
++  let overlay: Int16Array | null = null;
+   for (const e of edits) {
+-    if (e.kind !== 'biome') continue;
++    if (e.kind !== 'biome' && e.kind !== 'eraseBiome') continue;
++    if (!overlay) { overlay = new Int16Array(N); overlay.fill(-1); }
+     const s = strokeMask(e.stroke, W, H);
++    const painting = e.kind === 'biome';
+     s?.each((i, c) => {
+       // A soft edge on a categorical field cannot blend, so coverage becomes a
+       // threshold. Dithering it by cell index keeps the border ragged instead of
+@@ -374,11 +405,15 @@
+       const hsh = Math.sin(i * 45.164 + 11.71) * 27183.13;
+       const jitter = (hsh - Math.floor(hsh)) * 0.45;
+       if (c * e.stroke.strength <= 0.35 + jitter * 0.4) return;
++      if (!painting) { overlay![i] = -1; return; }
+       // Painting a land biome onto sea would be a contradiction; lift it first.
+       if (elev[i] <= 0 && e.biome !== Biome.Ocean && e.biome !== Biome.Lake) return;
+-      world.biome[i] = e.biome;
++      overlay![i] = e.biome;
+     });
+   }
++  if (overlay) {
++    for (let i = 0; i < N; i++) if (overlay[i] >= 0) world.biome[i] = overlay[i];
++  }
+ 
+   // ---- 4. hand-drawn rivers as polylines ---------------------------------
+   for (const e of edits) {
+@@ -400,6 +435,30 @@
+     }
+   }
+ 
++  // ---- 4b. and unmaking them --------------------------------------------
++  //
++  // Both kinds, because "erase the river I am dragging over" has to mean the
++  // river the reader can SEE, and half the rivers they can see came from the
++  // generator. A generated one cannot be deleted from `world.rivers` — that
++  // array is rebuilt from the seed every time — so it is marked, by the cell it
++  // ends at, and the two renderers skip what is marked.
++  for (const e of edits) {
++    if (e.kind !== 'eraseRivers') continue;
++    const r2 = Math.max(1, e.radius) ** 2;
++    const near = (cell: number): boolean => {
++      const x = cell % W, y = (cell / W) | 0;
++      let dx = Math.abs(x - e.x);
++      if (dx > W / 2) dx = W - dx;
++      return dx * dx + (y - e.y) ** 2 <= r2;
++    };
++    for (let k = out.rivers.length - 1; k >= 0; k--) {
++      if (out.rivers[k].cells.some(near)) out.rivers.splice(k, 1);
++    }
++    for (const r of world.rivers) {
++      if (r.cells.length && r.cells.some(near)) out.removed.add(riverKey(r.cells));
++    }
++  }
++
+   // ---- 5. markers and labels ---------------------------------------------
+   for (const e of edits) {
+     if (e.kind === 'marker') {
+@@ -457,7 +516,8 @@
+  *  visible moment. Terrain edits pay for the distance transform and a full
+  *  reclassification; everything else is local. */
+ export function editCostClass(edits: WorldEdit[]): 'local' | 'global' {
+-  return edits.some((e) => e.kind === 'terrain' || e.kind === 'land' || e.kind === 'river')
++  return edits.some((e) => e.kind === 'terrain' || e.kind === 'land' || e.kind === 'river'
++    || e.kind === 'eraseBiome')
+     ? 'global'
+     : 'local';
+ }
+diff -urN wg-dev4/src/engines/worldgen/core/paintCommit.ts wg/src/engines/worldgen/core/paintCommit.ts
+--- a/src/engines/worldgen/core/paintCommit.ts	2026-07-26 20:29:45.908067016 +0000
++++ b/src/engines/worldgen/core/paintCommit.ts	2026-07-26 20:22:32.127115473 +0000
+@@ -39,16 +39,60 @@
+   labelStyle: 'region' | 'water' | 'range' | 'settlement' | 'note';
+   labelText: string;
+   roadMajor: boolean;
++  /** What the point tool puts down. */
++  point: PointKind;
+ }
+ 
++/**
++ * The things that are objects rather than paint.
++ *
++ * A town, a ruin, a name on the map and a pin of the reader's own are all the
++ * same gesture — put one here, then edit or delete it — and they were four
++ * separate brush modes with four separate erasers. They are one tool with a
++ * type, and `waypoint` is handled by the view rather than by an edit because it
++ * is the reader's own annotation and lives in its own table.
++ */
++export type PointKind =
++  | 'capital' | 'city' | 'town' | 'village' | 'ruin' | 'label' | 'waypoint';
++
++const RANK_OF: Partial<Record<PointKind, SettlementRank>> = {
++  capital: 'capital', city: 'city', town: 'town', village: 'village',
++};
++
+ export interface CommitContext {
+-  /** Alt was held: the road brush erases instead of drawing. */
+-  alt?: boolean;
+-  /** What generated object is under a point — only the remove brush needs it. */
++  /**
++   * The stroke is the NEGATIVE of the tool: Ctrl, everywhere, for everything.
++   *
++   * There used to be a separate eraser mode, an Alt on the road tool and no way
++   * at all to take back a biome or a river. One rule beats four exceptions: what
++   * "the opposite" means is the tool's business, not the reader's.
++   */
++  negative?: boolean;
++  /** What generated object is under a point, for the negative of the point tool. */
+   pickGenerated?: (x: number, y: number) => { target: EditTarget; key: string; name: string } | null;
+ }
+ 
+ /**
++ * The same tool, the other way round.
++ *
++ * Terrain and coast resolve their negative when the button goes DOWN, not when
++ * it comes up, because the 3D view previews the stroke live and the preview has
++ * to be the thing that gets committed. Views that have no preview call this at
++ * commit time instead. One definition either way.
++ */
++export function negativeOf(p: PaintSpec): PaintSpec {
++  const INVERSE: Record<string, TerrainOp> = {
++    raise: 'lower', lower: 'raise', smooth: 'sharpen', sharpen: 'smooth',
++    roughen: 'smooth', gully: 'smooth',
++  };
++  return {
++    ...p,
++    terrainOp: INVERSE[p.terrainOp] ?? p.terrainOp,
++    landOp: p.landOp === 'land' ? 'sea' : 'land',
++  };
++}
++
++/**
+  * The whole gesture as one edit (or none).
+  *
+  * Returns the edit rather than calling a callback so the caller decides whether
+@@ -70,32 +114,42 @@
+     case 'land':
+       return { kind: 'land', op: p.landOp, stroke };
+     case 'biome':
+-      return { kind: 'biome', biome: p.biome, stroke };
++      return ctx.negative
++        ? { kind: 'eraseBiome', stroke }
++        : { kind: 'biome', biome: p.biome, stroke };
+     case 'river':
++      if (ctx.negative) {
++        return { kind: 'eraseRivers', x: at.x, y: at.y, radius: Math.max(3, p.riverWidth * 3) };
++      }
+       return pts.length >= 2 ? { kind: 'river', pts, width: p.riverWidth } : null;
+-    case 'erase':
+-      return { kind: 'eraseMarkers', x: pts[0].x, y: pts[0].y, radius: p.radius };
+-    case 'marker':
+-      return p.marker === 'ruin'
+-        ? { kind: 'marker', marker: 'ruin', x: at.x, y: at.y, ruin: p.ruin }
+-        : { kind: 'marker', marker: 'settlement', x: at.x, y: at.y, rank: p.rank };
+-    case 'label': {
+-      const text = p.labelText.trim();
+-      return text ? { kind: 'label', x: at.x, y: at.y, text, style: p.labelStyle } : null;
++    case 'point': {
++      if (ctx.negative) {
++        // Deleting a point means deleting whatever is there, and what is there
++        // may be the reader's or may be the generator's. Painted marks and
++        // labels come off with the eraser; a generated town or sea needs the
++        // position-keyed `remove` that survives a regeneration.
++        const target = ctx.pickGenerated?.(at.x, at.y);
++        if (target) return { kind: 'remove', target: target.target, key: target.key };
++        return { kind: 'eraseMarkers', x: at.x, y: at.y, radius: Math.max(3, p.radius * 0.5) };
++      }
++      if (p.point === 'label') {
++        const text = p.labelText.trim();
++        return text ? { kind: 'label', x: at.x, y: at.y, text, style: p.labelStyle } : null;
++      }
++      if (p.point === 'ruin') {
++        return { kind: 'marker', marker: 'ruin', x: at.x, y: at.y, ruin: p.ruin };
++      }
++      // 'waypoint' never reaches here: the view places it in its own table.
++      const rank = RANK_OF[p.point];
++      return rank ? { kind: 'marker', marker: 'settlement', x: at.x, y: at.y, rank } : null;
+     }
+     case 'road':
+-      if (ctx.alt) {
++      // A road is two clicks and an A* between them; the view owns that gesture
++      // and hands the routed cells here as points.
++      if (ctx.negative) {
+         return { kind: 'eraseRoads', x: pts[0].x, y: pts[0].y, radius: Math.max(2, p.radius) };
+       }
+       return pts.length >= 2 ? { kind: 'road', pts, major: p.roadMajor } : null;
+-    case 'remove': {
+-      // Renaming used to share this branch and a `window.prompt`. It is not a
+-      // stroke and it never was: it is an edit to one named thing, and it now
+-      // happens in the town's own plan and in the index.
+-      const target = ctx.pickGenerated?.(at.x, at.y);
+-      if (!target) return null;
+-      return { kind: 'remove', target: target.target, key: target.key };
+-    }
+     default:
+       return null;
+   }
+diff -urN wg-dev4/src/engines/worldgen/core/render.ts wg/src/engines/worldgen/core/render.ts
+--- a/src/engines/worldgen/core/render.ts	2026-07-26 20:29:45.898636987 +0000
++++ b/src/engines/worldgen/core/render.ts	2026-07-26 20:21:26.311675192 +0000
+@@ -7,6 +7,7 @@
+ // without re-rendering the base, and so the 3D view can bake a composite.
+ 
+ import { Biome, type ViewMode, type WorldData } from './types';
++import { riverKey } from './edits';
+ 
+ function hex(c: string): [number, number, number] {
+   return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
+@@ -389,7 +390,11 @@
+   // raster, which is now the main view, a painted river was a shaded groove in
+   // the ground with no water in it: a scar, not a river.
+   const painted = world.painted?.rivers;
+-  const all = painted?.length ? [...world.rivers, ...painted] : world.rivers;
++  const gone = world.painted?.removed;
++  const generated = gone?.size
++    ? world.rivers.filter((r) => !gone.has(riverKey(r.cells)))
++    : world.rivers;
++  const all = painted?.length ? [...generated, ...painted] : generated;
+   for (const river of all) {
+     const cells = river.cells;
+     const n = cells.length;

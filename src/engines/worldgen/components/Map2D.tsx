@@ -12,7 +12,11 @@ import { useTranslation } from '@/i18n/useTranslation';
 import type { WorldData, ViewMode, Landmark } from '../core/types';
 import { renderBase, renderRivers } from '../core/render';
 import { PROJECTIONS, reprojectRgba, type Projection } from '../core/projections';
+import { commitPaintStroke, negativeOf, pickGeneratedAt } from '../core/paintCommit';
+import type { Pt, WorldEdit } from '../core/edits';
+import type { HumanGeography, Settlement } from '../core/settlements';
 import type { WorldWaypoint } from '../types';
+import type { PaintTool } from './PaintPanel';
 
 export const BIOME_KEYS = [
   'ocean', 'lake', 'iceCap', 'tundra', 'boreal', 'tempForest', 'tempRain',
@@ -33,7 +37,21 @@ interface Map2DProps {
   placing: boolean;
   onPlace: (u: number, v: number) => void;
   onSelectWaypoint: (id: string | null) => void;
-  onFlyTo: (u: number, v: number) => void;
+  /**
+   * Everything below turns this from a picture of the world into one of the two
+   * places it can be edited. The satellite map is the flat, undistorted view —
+   * the one where a coastline is a coastline and not a coastline seen at an
+   * angle — so it carries the same brush the 3D view does, and the same click
+   * into a town.
+   */
+  geography?: HumanGeography | null;
+  showSettlements?: boolean;
+  tool?: PaintTool;
+  onEdit?: (edit: WorldEdit) => void;
+  onPickSettlement?: (s: Settlement) => void;
+  onOpenRegion?: (x: number, y: number) => void;
+  /** Bumped when an edit changed the world under us, so the raster is rebuilt. */
+  revision?: number;
 }
 
 interface ViewState {
@@ -51,7 +69,8 @@ function makeCanvas(px: Uint8ClampedArray<ArrayBuffer>, w: number, h: number): H
 
 export default function Map2D({
   world, viewMode, projection, showRivers, showLandmarks, showWaypoints, showGrid,
-  waypoints, selectedWaypointId, placing, onPlace, onSelectWaypoint, onFlyTo,
+  waypoints, selectedWaypointId, placing, onPlace, onSelectWaypoint,
+  geography, showSettlements, tool, onEdit, onPickSettlement, onOpenRegion, revision = 0,
 }: Map2DProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -61,13 +80,34 @@ export default function Map2D({
   const rafRef = useRef(0);
   const [hover, setHover] = useState<{ x: number; y: number; text: string } | null>(null);
 
+  /** Cells the pointer has crossed this stroke, and where the ring is drawn. */
+  const stroke = useRef<Pt[] | null>(null);
+  const brushAt = useRef<{ x: number; y: number } | null>(null);
+  /** Ctrl at the moment the gesture started: the negative of whatever is out. */
+  const negRef = useRef(false);
+  const spaceRef = useRef(false);
+  const brushing = !!tool && tool.mode !== 'off' && !!onEdit;
+  const brushRef = useRef({ tool, onEdit, geography, brushing });
+  brushRef.current = { tool, onEdit, geography, brushing };
+
   const W = world.width, H = world.height;
   const spec = PROJECTIONS[projection];
   const wraps = spec.wraps;
 
   // ---- layers -------------------------------------------------------------
-  const basePixels = useMemo(() => renderBase(world, viewMode), [world, viewMode]);
-  const riverPixels = useMemo(() => renderRivers(world), [world]);
+  // `revision` is in the dependency list on purpose: painting MUTATES the world
+  // in place, so its object identity is unchanged and a memo keyed on the object
+  // alone would keep serving the raster from before the stroke.
+  const basePixels = useMemo(
+    () => renderBase(world, viewMode),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [world, viewMode, revision],
+  );
+  const riverPixels = useMemo(
+    () => renderRivers(world),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [world, revision],
+  );
 
   const baseCanvas = useMemo(() => {
     if (projection === 'equirect') return makeCanvas(basePixels, W, H);
@@ -173,6 +213,41 @@ export default function Map2D({
       }
     }
 
+    // Towns. Drawn before the waypoints so a pin the reader placed is never
+    // hidden behind a dot the generator placed.
+    if (showSettlements && geography) {
+      // Only as much of the gazetteer as the zoom can carry: every village at
+      // full extent is a grey smear along every coast.
+      const maxRank = scale < 1.4 ? 1 : scale < 4 ? 2 : 3;
+      const order: Record<string, number> = { capital: 0, city: 1, town: 2, village: 3 };
+      ctx.font = '600 11px "Source Sans 3", sans-serif';
+      ctx.textBaseline = 'middle';
+      for (const copyOx of copies) {
+        for (const s of geography.settlements) {
+          const rank = order[s.rank] ?? 3;
+          if (rank > maxRank) continue;
+          const [sx, sy] = toScreen((s.x + 0.5) / W, (s.y + 0.5) / H, copyOx);
+          if (sx < -40 || sx > cw + 40 || sy < -20 || sy > ch + 20) continue;
+          const r = rank === 0 ? 5 : rank === 1 ? 4 : rank === 2 ? 3 : 2.2;
+          ctx.beginPath();
+          ctx.arc(sx, sy, r, 0, Math.PI * 2);
+          ctx.fillStyle = rank === 0 ? '#ffd479' : '#f4ead4';
+          ctx.fill();
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = 'rgba(6,8,13,0.92)';
+          ctx.stroke();
+          if (rank <= 1 || scale > 6) {
+            ctx.lineWidth = 3;
+            ctx.lineJoin = 'round';
+            ctx.strokeStyle = 'rgba(6,8,13,0.85)';
+            ctx.strokeText(s.name, sx + r + 5, sy);
+            ctx.fillStyle = '#f6efe0';
+            ctx.fillText(s.name, sx + r + 5, sy);
+          }
+        }
+      }
+    }
+
     // Waypoints
     if (showWaypoints) {
       ctx.font = '600 11px "Source Sans 3", sans-serif';
@@ -197,6 +272,34 @@ export default function Map2D({
           ctx.fillStyle = selected ? '#e4a853' : '#e8e5e0';
           ctx.fillText(label, sx + 13, sy + 4);
         }
+      }
+    }
+
+    // The brush ring, last, over everything. Two circles: where the stroke
+    // stops, and where it stops being at full strength — softness is otherwise a
+    // number you set and then discover the effect of.
+    const at = brushAt.current;
+    const bt = brushRef.current.tool;
+    if (at && bt && brushRef.current.brushing) {
+      const pxPerCell = (PW * scale) / W;
+      const rOuter = Math.max(3, bt.radius * pxPerCell);
+      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = 'rgba(10,12,18,0.75)';
+      ctx.beginPath();
+      ctx.arc(at.x, at.y, rOuter + 1, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+      ctx.beginPath();
+      ctx.arc(at.x, at.y, rOuter, 0, Math.PI * 2);
+      ctx.stroke();
+      const rInner = rOuter * (1 - Math.min(0.98, bt.softness));
+      if (rInner > 2) {
+        ctx.strokeStyle = 'rgba(255,220,140,0.75)';
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(at.x, at.y, rInner, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
     }
   };
@@ -312,20 +415,64 @@ export default function Map2D({
     return null;
   };
 
+  // Space suspends the brush for as long as it is held, the way every paint
+  // program does it, so the reader can reposition mid-drawing without changing
+  // tool. Ctrl+Z goes to the world's own history, which is shared with 3D.
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.code === 'Space') spaceRef.current = true;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent(e.shiftKey ? 'wg-redo' : 'wg-undo'));
+      }
+    };
+    const up = (e: KeyboardEvent) => { if (e.code === 'Space') spaceRef.current = false; };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
+  }, []);
+
+  /** The nearest town to a screen point, within a screen-sized reach. */
+  const settlementAt = (sx: number, sy: number): Settlement | null => {
+    const view = viewRef.current;
+    if (!view || !geography) return null;
+    const mapW = PW * view.scale, mapH = PH * view.scale;
+    let best: Settlement | null = null;
+    let bestD = 14 * 14;
+    const bias: Record<string, number> = { capital: 0.45, city: 0.65, town: 0.85, village: 1 };
+    for (const s of geography.settlements) {
+      const [X, Y] = spec.forward((s.x + 0.5) / W, (s.y + 0.5) / H);
+      const py = view.oy + Y * mapH;
+      let px = view.ox + X * mapW;
+      if (wraps) {
+        const dxRaw = (((sx - px) % mapW) + mapW) % mapW;
+        px = sx - (dxRaw > mapW / 2 ? dxRaw - mapW : dxRaw);
+      }
+      const d = ((sx - px) ** 2 + (sy - py) ** 2) * (bias[s.rank] ?? 1);
+      if (d < bestD) { bestD = d; best = s; }
+    }
+    return best;
+  };
+
   // ---- pointer events ----------------------------------------------------------
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const view = viewRef.current;
     if (!view) return;
     (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
-    if (!placing) e.currentTarget.style.cursor = 'grabbing';
+    negRef.current = e.ctrlKey || e.metaKey;
     const rect = e.currentTarget.getBoundingClientRect();
-    dragRef.current = {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-      ox: view.ox,
-      oy: view.oy,
-      moved: false,
-    };
+    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+
+    if (brushing && e.button === 0 && !spaceRef.current && !e.shiftKey) {
+      const m = screenToMap(sx, sy);
+      if (!m) return;
+      stroke.current = [{ x: m.u * W, y: m.v * H }];
+      brushAt.current = { x: sx, y: sy };
+      scheduleDraw();
+      return;
+    }
+    if (!placing) e.currentTarget.style.cursor = 'grabbing';
+    dragRef.current = { x: sx, y: sy, ox: view.ox, oy: view.oy, moved: false };
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -333,6 +480,28 @@ export default function Map2D({
     if (!view) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+
+    // The ring follows the pointer whenever a brush is out, button down or not:
+    // without it the reader cannot tell how big the next stroke is.
+    if (brushing) {
+      brushAt.current = { x: sx, y: sy };
+      const pts = stroke.current;
+      if (pts) {
+        const m = screenToMap(sx, sy);
+        if (m) {
+          const p = { x: m.u * W, y: m.v * H };
+          const last = pts[pts.length - 1];
+          // One point per half-cell keeps the serialized edit small enough to
+          // store a hundred strokes.
+          if (Math.hypot(p.x - last.x, p.y - last.y) > 0.5) pts.push(p);
+        }
+      }
+      setHover(null);
+      scheduleDraw();
+      return;
+    }
+    if (brushAt.current) { brushAt.current = null; scheduleDraw(); }
+
     const drag = dragRef.current;
     if (drag) {
       const dx = sx - drag.x, dy = sy - drag.y;
@@ -369,25 +538,57 @@ export default function Map2D({
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.currentTarget.style.cursor = '';
+    const rect = e.currentTarget.getBoundingClientRect();
+    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+
+    // A stroke becomes an edit on release, not per move: a terrain stroke costs
+    // a few hundred milliseconds, which is fine once and unusable sixty times a
+    // second.
+    const pts = stroke.current;
+    stroke.current = null;
+    if (pts) {
+      const { tool: bt, onEdit: commit, geography: geo } = brushRef.current;
+      if (bt && commit) {
+        const view = viewRef.current;
+        const cellsPerPx = view ? W / Math.max(1, PW * view.scale) : 1;
+        // Terrain and coast invert the OPERATION, everything else inverts at
+        // commit time — one rule, resolved in the one place that knows both.
+        const spec = negRef.current ? negativeOf(bt) : bt;
+        const edit = commitPaintStroke(spec, pts, {
+          negative: negRef.current,
+          pickGenerated: (x, y) => pickGeneratedAt(world, geo, x, y, Math.max(2, 16 * cellsPerPx)),
+        });
+        if (edit) commit(edit);
+      }
+      scheduleDraw();
+      return;
+    }
+
     const drag = dragRef.current;
     dragRef.current = null;
     if (!drag || drag.moved) return;
     // It was a click.
-    const rect = e.currentTarget.getBoundingClientRect();
-    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
     if (placing) {
       const m = screenToMap(sx, sy);
       if (m) onPlace(m.u, m.v);
       return;
     }
     const wp = waypointAt(sx, sy);
-    onSelectWaypoint(wp ? wp.id : null);
+    if (wp) { onSelectWaypoint(wp.id); return; }
+    // A town under the pointer opens its plan — the same gesture as on the
+    // carta and in 3D, because it is the same question being asked.
+    if (onPickSettlement) {
+      const s = settlementAt(sx, sy);
+      if (s) { onPickSettlement(s); return; }
+    }
+    onSelectWaypoint(null);
   };
 
   const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (brushing || !onOpenRegion) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const m = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
-    if (m) onFlyTo(m.u, m.v);
+    if (m) onOpenRegion(m.u * W, m.v * H);
   };
 
   return (
@@ -395,14 +596,18 @@ export default function Map2D({
       <canvas
         ref={canvasRef}
         className="block"
-        style={{ cursor: placing ? 'crosshair' : 'grab', touchAction: 'none' }}
+        style={{ cursor: placing || brushing ? 'crosshair' : 'grab', touchAction: 'none' }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerLeave={() => setHover(null)}
+        onPointerCancel={() => { stroke.current = null; brushAt.current = null; scheduleDraw(); }}
+        onPointerLeave={() => {
+          setHover(null);
+          if (brushAt.current) { brushAt.current = null; scheduleDraw(); }
+        }}
         onDoubleClick={handleDoubleClick}
       />
-      {hover && !placing && (
+      {hover && !placing && !brushing && (
         <div
           className="absolute z-10 pointer-events-none px-2 py-1 rounded-md bg-surface/95 border border-border text-[11px] text-text-primary whitespace-nowrap shadow-lg"
           style={{ left: hover.x, top: hover.y }}
@@ -410,8 +615,10 @@ export default function Map2D({
           {hover.text}
         </div>
       )}
-      <div className="absolute bottom-2 left-2 text-[10px] text-text-dim bg-deep/60 rounded px-1.5 py-0.5 pointer-events-none">
-        {t('worldgen.mapHint')}
+      <div className="absolute bottom-2 left-2 px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] leading-snug text-white shadow-lg shadow-black/50 backdrop-blur-sm pointer-events-none">
+        {brushing
+          ? 'arrastra para pintar · Espacio para mover el mapa · Ctrl+Z deshace'
+          : `${t('worldgen.mapHint')}${onPickSettlement ? ' · clic en una ciudad abre su plano · doble clic baja a la comarca' : ''}`}
       </div>
     </div>
   );

@@ -1,0 +1,421 @@
+diff -urN wg-dev3/src/engines/worldgen/cartography/texture.ts wg/src/engines/worldgen/cartography/texture.ts
+--- a/src/engines/worldgen/cartography/texture.ts	2026-07-26 18:29:30.296959177 +0000
++++ b/src/engines/worldgen/cartography/texture.ts	2026-07-26 18:24:30.487918062 +0000
+@@ -62,9 +62,12 @@
+     GEO_CACHE.set(world, { ...hit, rev, geo });
+     return geo;
+   }
+-  const base = buildHumanGeography(world, params, depth);
+-  GEO_CACHE.set(world, { key, rev, geo: base, base, baseRev: rev, depth });
+-  return base;
++  // The base is built WITHOUT the reader's corrections and the patch applies
++  // them, so that the patch can also apply none — see `buildHumanGeography`.
++  const base = buildHumanGeography(world, params, depth, false);
++  const geo = patchGeography(world, base);
++  GEO_CACHE.set(world, { key, rev, geo, base, baseRev: rev, depth });
++  return geo;
+ }
+ 
+ /** Force the full pass at this depth and adopt the result as the new base. */
+@@ -79,9 +82,10 @@
+   // the named seas and the ruins if the reader has already paid for them.
+   const hit = GEO_CACHE.get(world);
+   const want: GeoDepth = hit && hit.key === key && hit.depth === 'full' ? 'full' : depth;
+-  const base = buildHumanGeography(world, params, want);
+-  GEO_CACHE.set(world, { key, rev, geo: base, base, baseRev: rev, depth: want });
+-  return base;
++  const base = buildHumanGeography(world, params, want, false);
++  const geo = patchGeography(world, base);
++  GEO_CACHE.set(world, { key, rev, geo, base, baseRev: rev, depth: want });
++  return geo;
+ }
+ 
+ /**
+diff -urN wg-dev3/src/engines/worldgen/components/AtlasPanel.tsx wg/src/engines/worldgen/components/AtlasPanel.tsx
+--- a/src/engines/worldgen/components/AtlasPanel.tsx	2026-07-26 18:29:30.298626434 +0000
++++ b/src/engines/worldgen/components/AtlasPanel.tsx	2026-07-26 18:20:35.196152842 +0000
+@@ -7,6 +7,7 @@
+   LINK_KIND_ES, RELATION_ES,
+   type AtlasPlace, type ManuscriptLink,
+ } from '../core/atlas';
++import EditableName from './EditableName';
+ 
+ /**
+  * The map as an index of the manuscript.
+@@ -32,6 +33,14 @@
+   /** The place the reader last clicked on the carta. */
+   selectedKey: string | null;
+   onSelect: (key: string | null) => void;
++  /**
++   * Rename the selected place.
++   *
++   * The index is where the things without a view of their own live — a sea, a
++   * sierra, a realm, a ruin. A town has its plan; these have this list, and
++   * both routes emit the same position-keyed `rename` edit.
++   */
++  onRename?: (key: string, name: string) => void;
+   /** Centre the map on a place. */
+   onFlyTo?: (x: number, y: number) => void;
+   /** Open the host's own editor for a linked item. */
+@@ -44,7 +53,7 @@
+ };
+ 
+ export default function AtlasPanel({
+-  world, geography, links, selectedKey, onSelect, onFlyTo, onOpenLink,
++  world, geography, links, selectedKey, onSelect, onRename, onFlyTo, onOpenLink,
+ }: AtlasPanelProps) {
+   const [query, setQuery] = useState('');
+ 
+@@ -112,7 +121,11 @@
+       {selected ? (
+         <div className="flex flex-col gap-1.5 border-t border-white/10 pt-2">
+           <div className="flex items-baseline justify-between gap-2">
+-            <span className="text-[13px] text-white/90 truncate">{selected.name || '(sin nombre)'}</span>
++            <EditableName
++              value={selected.name}
++              onRename={onRename ? ((name) => onRename(selected.key, name)) : undefined}
++              className="text-[13px] text-white/90 min-w-0"
++            />
+             <span className="text-[9px] text-white/35 shrink-0">{KIND_ES[selected.kind] ?? selected.kind}</span>
+           </div>
+           {describePlace(selected, selectedLinks).map((line, i) => (
+diff -urN wg-dev3/src/engines/worldgen/components/CityPlanView.tsx wg/src/engines/worldgen/components/CityPlanView.tsx
+--- a/src/engines/worldgen/components/CityPlanView.tsx	2026-07-26 18:29:30.297187972 +0000
++++ b/src/engines/worldgen/components/CityPlanView.tsx	2026-07-26 18:20:14.915583829 +0000
+@@ -8,6 +8,7 @@
+ import { cityParamsFor } from '../cartography/texture';
+ import type { CartoTheme } from '../cartography/theme';
+ import type { Ctx } from '../cartography/symbols';
++import EditableName from './EditableName';
+ 
+ /**
+  * City plan panel. A settlement's plan is derived from its own id, so the same
+@@ -21,9 +22,14 @@
+   settlement: Settlement;
+   theme: CartoTheme;
+   onClose: () => void;
++  /**
++   * Rename this town. Absent means the caller cannot take edits — the name then
++   * simply reads as text rather than pretending to be editable.
++   */
++  onRename?: (name: string) => void;
+ }
+ 
+-export default function CityPlanView({ world, settlement, theme, onClose }: CityPlanViewProps) {
++export default function CityPlanView({ world, settlement, theme, onClose, onRename }: CityPlanViewProps) {
+   const hostRef = useRef<HTMLDivElement>(null);
+   const canvasRef = useRef<HTMLCanvasElement>(null);
+   const [size, setSize] = useState({ w: 0, h: 0 });
+@@ -87,7 +93,12 @@
+       >
+         <div className="flex items-center gap-2 px-3 py-2 border-b border-border flex-wrap">
+           <div className="min-w-0">
+-            <div className="text-sm text-text-primary truncate">{plan.name}</div>
++            {/* The town's name lives here, where the town is. */}
++            <EditableName
++              value={settlement.name || plan.name}
++              onRename={onRename}
++              className="text-sm text-text-primary"
++            />
+             <div className="text-[11px] text-text-muted">
+               {plan.population.toLocaleString('es-ES')} hab · {buildings.toLocaleString('es-ES')} edificios
+               {plan.wall ? ` · ${plan.gates.length} puertas, ${plan.towers.length} torres` : ' · sin murallas'}
+diff -urN wg-dev3/src/engines/worldgen/components/EditableName.tsx wg/src/engines/worldgen/components/EditableName.tsx
+--- a/src/engines/worldgen/components/EditableName.tsx	1970-01-01 00:00:00.000000000 +0000
++++ b/src/engines/worldgen/components/EditableName.tsx	2026-07-26 18:20:03.991430919 +0000
+@@ -0,0 +1,95 @@
++import { useEffect, useRef, useState } from 'react';
++import { Check, Pencil, X } from 'lucide-react';
++
++/**
++ * A name you can change, in place.
++ *
++ * This exists because renaming used to be a BRUSH — you picked "rename" from the
++ * tool box, hunted for the dot, clicked it, and answered a `window.prompt`. That
++ * is three decisions and a modal dialogue to change one word, and it treated an
++ * edit to a single named thing as though it were a stroke across the ground.
++ *
++ * Renaming belongs to the thing. Open a town's plan and its name is at the top,
++ * editable; select a sea in the index and the same is true there. Both routes
++ * produce exactly the same `rename` edit, keyed by position, so the new name
++ * still survives a full regeneration — which was always the good part of the
++ * old design and is the part worth keeping.
++ */
++export default function EditableName({ value, onRename, className, placeholder }: {
++  value: string;
++  /** Absent means the name is not editable here — it simply renders as text. */
++  onRename?: (name: string) => void;
++  className?: string;
++  placeholder?: string;
++}) {
++  const [editing, setEditing] = useState(false);
++  const [draft, setDraft] = useState(value);
++  const inputRef = useRef<HTMLInputElement>(null);
++
++  // A rename elsewhere, or a different place selected, must not leave a stale
++  // draft sitting in the box.
++  useEffect(() => {
++    setDraft(value);
++    setEditing(false);
++  }, [value]);
++
++  useEffect(() => {
++    if (editing) inputRef.current?.select();
++  }, [editing]);
++
++  const commit = () => {
++    const next = draft.trim();
++    setEditing(false);
++    if (!next || next === value) { setDraft(value); return; }
++    onRename?.(next);
++  };
++
++  if (!onRename) {
++    return <span className={className}>{value || placeholder || '(sin nombre)'}</span>;
++  }
++
++  if (!editing) {
++    return (
++      <button
++        onClick={() => setEditing(true)}
++        title="Cambiar el nombre"
++        className={`group inline-flex items-center gap-1.5 min-w-0 text-left ${className ?? ''}`}
++      >
++        <span className="truncate">{value || placeholder || '(sin nombre)'}</span>
++        <Pencil size={11} className="shrink-0 opacity-0 group-hover:opacity-70 transition" />
++      </button>
++    );
++  }
++
++  return (
++    <span className="inline-flex items-center gap-1 min-w-0">
++      <input
++        ref={inputRef}
++        value={draft}
++        autoFocus
++        onChange={(e) => setDraft(e.target.value)}
++        onKeyDown={(e) => {
++          // Stop here: the map underneath binds single letters to tools and
++          // Ctrl+Z to the world's undo, and neither should fire while somebody
++          // is typing a name.
++          e.stopPropagation();
++          if (e.key === 'Enter') commit();
++          if (e.key === 'Escape') { setDraft(value); setEditing(false); }
++        }}
++        onBlur={commit}
++        className={`min-w-0 flex-1 bg-black/40 border border-accent-gold/50 rounded px-1.5 py-0.5 outline-none ${className ?? ''}`}
++      />
++      <button onMouseDown={(e) => e.preventDefault()} onClick={commit} title="Guardar" className="shrink-0 text-accent-gold/80 hover:text-accent-gold">
++        <Check size={12} />
++      </button>
++      <button
++        onMouseDown={(e) => e.preventDefault()}
++        onClick={() => { setDraft(value); setEditing(false); }}
++        title="Cancelar"
++        className="shrink-0 text-text-dim hover:text-text-muted"
++      >
++        <X size={12} />
++      </button>
++    </span>
++  );
++}
+diff -urN wg-dev3/src/engines/worldgen/components/PaintPanel.tsx wg/src/engines/worldgen/components/PaintPanel.tsx
+--- a/src/engines/worldgen/components/PaintPanel.tsx	2026-07-26 18:29:30.298263065 +0000
++++ b/src/engines/worldgen/components/PaintPanel.tsx	2026-07-26 18:19:44.087431522 +0000
+@@ -21,11 +21,15 @@
+ 
+ export type PaintMode =
+   | 'off' | 'terrain' | 'land' | 'biome' | 'river' | 'marker' | 'label' | 'erase'
+-  // The three that edit what the GENERATOR made rather than the raster. They
+-  // work by position-derived key, so a renamed city keeps its new name through
+-  // a full regeneration — which is the whole reason they are edits and not a
+-  // separate layer of overrides.
+-  | 'rename' | 'remove' | 'road';
++  // The two that edit what the GENERATOR made rather than the raster. They work
++  // by position-derived key, so a change survives a full regeneration — which is
++  // the whole reason they are edits and not a separate layer of overrides.
++  //
++  // There used to be a third, `rename`, and it did not belong here. Renaming is
++  // not a stroke: it is something you do TO A THING, once you have it in front
++  // of you. It now lives where the thing does — the name in a town's plan is
++  // editable, and so is the name of whatever the index has selected.
++  | 'remove' | 'road';
+ 
+ export interface PaintTool {
+   mode: PaintMode;
+@@ -73,7 +77,6 @@
+   { id: 'marker', label: 'Marca', hint: 'Colocar una ciudad o una ruina' },
+   { id: 'label', label: 'Rótulo', hint: 'Escribir un nombre en el mapa' },
+   { id: 'erase', label: 'Borrar', hint: 'Quitar marcas y rótulos de una zona' },
+-  { id: 'rename', label: 'Renombrar', hint: 'Pincha una ciudad, ruina, accidente o reino y escribe su nombre' },
+   { id: 'remove', label: 'Quitar', hint: 'Pincha algo que el generador puso y desaparece del mundo' },
+   { id: 'road', label: 'Camino', hint: 'Arrastra para trazar un camino; con Alt borra los que cruces' },
+ ];
+@@ -298,11 +301,14 @@
+         </div>
+       )}
+ 
+-      {(tool.mode === 'rename' || tool.mode === 'remove') && (
+-        <p className="text-[10px] text-white/40 leading-snug">
++      {tool.mode === 'remove' && (
++        <p className="text-[10px] text-white/55 leading-snug">
+           Funciona sobre lo que generó el mundo: ciudades, ruinas, mares, sierras, bosques y
+           reinos. Se identifica por dónde está, no por su posición en una lista, de modo que
+           el cambio sigue ahí después de regenerar.
++          <br />
++          Para <strong className="text-white/75">cambiar un nombre</strong>, pincha la ciudad y
++          edítalo en su plano, o selecciona el lugar en el Índice.
+         </p>
+       )}
+ 
+diff -urN wg-dev3/src/engines/worldgen/components/WorldView.tsx wg/src/engines/worldgen/components/WorldView.tsx
+--- a/src/engines/worldgen/components/WorldView.tsx	2026-07-26 18:29:30.297307696 +0000
++++ b/src/engines/worldgen/components/WorldView.tsx	2026-07-26 18:20:49.255627435 +0000
+@@ -31,7 +31,7 @@
+ import PaintPanel, { DEFAULT_PAINT_TOOL, type PaintTool } from './PaintPanel';
+ import FiltersPanel from './FiltersPanel';
+ import { PaintSession } from '../core/paintSession';
+-import { deserializeEdits } from '../core/edits';
++import { deserializeEdits, editKey, targetFromKey } from '../core/edits';
+ import { nameBridges, paleoMap } from '../core/paleo';
+ import type { WorldEdit } from '../core/edits';
+ import { THEMES, themeById } from '../cartography/theme';
+@@ -437,6 +437,20 @@
+     }, 0);
+   }, [afterEdit]);
+ 
++  /**
++   * Rename one generated thing, from wherever the reader is looking at it.
++   *
++   * Both callers hand over a key that `editKey` produced, so the target comes
++   * back out of the key rather than being passed alongside it and drifting.
++   * The cheap geography patch applies renames, so the label on the map changes
++   * within a millisecond of the edit — no rebuild, no wait.
++   */
++  const renameByKey = useCallback((key: string, name: string) => {
++    const target = targetFromKey(key);
++    if (!target) return;
++    applyEdit({ kind: 'rename', target, key, name });
++  }, [applyEdit]);
++
+   const undoEdit = useCallback(() => {
+     const s = session.current;
+     if (!s?.canUndo) return;
+@@ -928,6 +942,7 @@
+                   links={manuscriptLinks ?? []}
+                   selectedKey={atlasKey}
+                   onSelect={setAtlasKey}
++                  onRename={renameByKey}
+                   onFlyTo={(x, y) => flyTo(x / data.width, y / data.height)}
+                   onOpenLink={onOpenManuscriptLink}
+                 />
+@@ -1062,6 +1077,13 @@
+           settlement={cityFor}
+           theme={theme}
+           onClose={() => setCityFor(null)}
++          onRename={(name) => {
++            renameByKey(editKey('settlement', cityFor.x, cityFor.y), name);
++            // The open modal holds the settlement it was given, and the patched
++            // geography hands back new objects — so the name in front of the
++            // reader is updated here rather than waiting for a round trip.
++            setCityFor((c) => (c ? { ...c, name } : c));
++          }}
+         />
+       )}
+     </div>
+diff -urN wg-dev3/src/engines/worldgen/core/edits.ts wg/src/engines/worldgen/core/edits.ts
+--- a/src/engines/worldgen/core/edits.ts	2026-07-26 18:29:30.303453711 +0000
++++ b/src/engines/worldgen/core/edits.ts	2026-07-26 18:19:19.513940147 +0000
+@@ -143,6 +143,20 @@
+   return `${target}:${extra}${Math.round(x)},${Math.round(y)}`;
+ }
+ 
++const TARGETS: EditTarget[] = ['settlement', 'ruin', 'realm', 'feature', 'road'];
++
++/**
++ * Read the target back out of a key.
++ *
++ * The alternative is a table mapping every place kind the atlas knows to an
++ * edit target, kept in step by hand. The key already carries the answer —
++ * `editKey` put it there — so ask the key.
++ */
++export function targetFromKey(key: string): EditTarget | null {
++  const head = key.slice(0, key.indexOf(':'));
++  return (TARGETS as string[]).includes(head) ? head as EditTarget : null;
++}
++
+ export interface PaintedMarker {
+   marker: MarkerKind;
+   x: number;
+diff -urN wg-dev3/src/engines/worldgen/core/paintCommit.ts wg/src/engines/worldgen/core/paintCommit.ts
+--- a/src/engines/worldgen/core/paintCommit.ts	2026-07-26 18:29:30.300086276 +0000
++++ b/src/engines/worldgen/core/paintCommit.ts	2026-07-26 18:19:44.090790135 +0000
+@@ -44,10 +44,8 @@
+ export interface CommitContext {
+   /** Alt was held: the road brush erases instead of drawing. */
+   alt?: boolean;
+-  /** What generated object is under a point — only the rename/remove brushes need it. */
++  /** What generated object is under a point — only the remove brush needs it. */
+   pickGenerated?: (x: number, y: number) => { target: EditTarget; key: string; name: string } | null;
+-  /** How the reader is asked for a new name. Injectable so tests do not open a prompt. */
+-  askName?: (current: string) => string | null;
+ }
+ 
+ /**
+@@ -90,17 +88,13 @@
+         return { kind: 'eraseRoads', x: pts[0].x, y: pts[0].y, radius: Math.max(2, p.radius) };
+       }
+       return pts.length >= 2 ? { kind: 'road', pts, major: p.roadMajor } : null;
+-    case 'rename':
+     case 'remove': {
++      // Renaming used to share this branch and a `window.prompt`. It is not a
++      // stroke and it never was: it is an edit to one named thing, and it now
++      // happens in the town's own plan and in the index.
+       const target = ctx.pickGenerated?.(at.x, at.y);
+       if (!target) return null;
+-      if (p.mode === 'remove') return { kind: 'remove', target: target.target, key: target.key };
+-      const next = ctx.askName
+-        ? ctx.askName(target.name)
+-        : window.prompt(`Nuevo nombre para «${target.name}»`, target.name);
+-      const trimmed = next?.trim();
+-      if (!trimmed || trimmed === target.name) return null;
+-      return { kind: 'rename', target: target.target, key: target.key, name: trimmed };
++      return { kind: 'remove', target: target.target, key: target.key };
+     }
+     default:
+       return null;
+diff -urN wg-dev3/src/engines/worldgen/core/settlements.ts wg/src/engines/worldgen/core/settlements.ts
+--- a/src/engines/worldgen/core/settlements.ts	2026-07-26 18:29:30.299403099 +0000
++++ b/src/engines/worldgen/core/settlements.ts	2026-07-26 18:24:30.487406674 +0000
+@@ -287,10 +287,22 @@
+  */
+ export type GeoDepth = 'places' | 'full';
+ 
++/**
++ * @param corrections Apply the reader's renames and deletions at the end.
++ *
++ * The cache in `cartography/texture.ts` asks for `false`, and there is one
++ * reason: it keeps a BASE and patches it cheaply after every stroke, and a base
++ * that already has the corrections baked in cannot be patched back out of them.
++ * Undoing a rename left the new name on the map, because the only copy of the
++ * generated name had been overwritten before the patch ever ran. With the base
++ * kept free of them, `patchGeography` is the single place corrections are
++ * applied and it can therefore also apply NONE of them.
++ */
+ export function buildHumanGeography(
+   world: WorldData,
+   params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS,
+   depth: GeoDepth = 'full',
++  corrections = true,
+ ): HumanGeography {
+   const { width: W, height: H, elevation, biome, temperature, precipitation, flow, lake } = world;
+   const seed = world.params.seed;
+@@ -575,7 +587,7 @@
+   // the same seed always puts the same city in the same place, but nothing
+   // guarantees it keeps the same array slot once a parameter moves, and a rename
+   // that survives only until a slider is touched is not a rename.
+-  const painted2 = world.painted;
++  const painted2 = corrections ? world.painted : undefined;
+   if (painted2 && (Object.keys(painted2.renames).length || painted2.removed.size)) {
+     const ren = painted2.renames, gone = painted2.removed;
+     const keep = <T extends { x: number; y: number; name: string }>(list: T[], target: 'settlement' | 'ruin') =>

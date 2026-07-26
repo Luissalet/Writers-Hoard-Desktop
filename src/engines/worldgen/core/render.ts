@@ -7,6 +7,7 @@
 // without re-rendering the base, and so the 3D view can bake a composite.
 
 import { Biome, type ViewMode, type WorldData } from './types';
+import { riverKey } from './edits';
 
 function hex(c: string): [number, number, number] {
   return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
@@ -381,7 +382,20 @@ export function renderRivers(world: WorldData): Uint8ClampedArray<ArrayBuffer> {
     px[o] = rr; px[o + 1] = rg; px[o + 2] = rb; px[o + 3] = a;
   };
 
-  for (const river of world.rivers) {
+  // Hand-drawn rivers are rivers.
+  //
+  // They were carved into the elevation so they show up in drainage and in the
+  // biomes along their banks — and then drawn by the carta and by nobody else,
+  // because this function only ever looked at `world.rivers`. On the satellite
+  // raster, which is now the main view, a painted river was a shaded groove in
+  // the ground with no water in it: a scar, not a river.
+  const painted = world.painted?.rivers;
+  const gone = world.painted?.removed;
+  const generated = gone?.size
+    ? world.rivers.filter((r) => !gone.has(riverKey(r.cells)))
+    : world.rivers;
+  const all = painted?.length ? [...generated, ...painted] : generated;
+  for (const river of all) {
     const cells = river.cells;
     const n = cells.length;
     for (let k = 0; k < n; k++) {

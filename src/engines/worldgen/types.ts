@@ -12,10 +12,41 @@ export interface GeneratedWorld {
   projectId: string;
   title: string;
   params: WorldParams;
+  /**
+   * The brush strokes, serialised.
+   *
+   * This is the other half of the world and it was not being saved: a coastline
+   * painted by hand, a river drawn by hand, a town placed by hand and every
+   * renamed sea existed only until the application was closed. Seed and
+   * parameters describe what the generator made; this describes what the reader
+   * made of it, and a world is both.
+   *
+   * Stored as the JSON `PaintSession.serialize()` produces — an ordered list,
+   * replayed from the pristine world on load. A few hundred bytes for a normal
+   * session, and it travels in the backup with the rest of the row.
+   */
+  edits?: string;
   /** Small JPEG data URL preview for dashboards / future use. */
   thumbnail?: string;
   createdAt: number;
   updatedAt: number;
+}
+
+/**
+ * A forged world, kept so it does not have to be forged again.
+ *
+ * A cache row, not a record: see `snapshots.ts` and `core/worldStore.ts`. The
+ * bytes are quantised and gzipped, and anything whose `key` or `version` no
+ * longer matches is discarded and regenerated.
+ */
+export interface WorldSnapshot {
+  worldId: string;
+  key: string;
+  version: number;
+  bytes: Uint8Array;
+  width: number;
+  height: number;
+  savedAt: number;
 }
 
 export interface WorldWaypoint {

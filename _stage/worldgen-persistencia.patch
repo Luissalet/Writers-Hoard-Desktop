@@ -1,0 +1,2099 @@
+diff -urN wg-orig/src/db/index.ts wg/src/db/index.ts
+--- a/src/db/index.ts	2026-07-26 17:03:02.546077791 +0000
++++ b/src/db/index.ts	2026-07-26 17:05:22.718442768 +0000
+@@ -1,635 +1,648 @@
+-import Dexie, { type Table } from 'dexie';
+-import type {
+-  Project,
+-  CodexEntry,
+-  Timeline,
+-  TimelineEvent,
+-  TimelineConnection,
+-  YarnBoard,
+-  YarnNode,
+-  YarnEdge,
+-  WorldMap,
+-  MapPin,
+-  ImageCollection,
+-  InspirationImage,
+-  ExternalLink,
+-  Writing,
+-  Tag,
+-  AppSettings,
+-} from '../types';
+-import type { Storyboard, StoryboardPanel, StoryboardConnector } from '@/engines/storyboard/types';
+-import type { Scene, DialogBlock, SceneCast } from '@/engines/dialog-scene/types';
+-import type { VideoPlan, VideoSegment } from '@/engines/video-planner/types';
+-import type { Snapshot } from '@/engines/scrapper/types';
+-import type { Biography, BiographyFact } from '@/engines/biography/types';
+-import type { DiaryEntry } from '@/engines/diary/types';
+-import type { Outline, OutlineBeat } from '@/engines/outline/types';
+-import type { WritingSession, WritingGoal } from '@/engines/writing-stats/types';
+-import type { BrainstormBoard, BrainstormItem, BrainstormConnection } from '@/engines/brainstorm/types';
+-import type { CharacterArc, ArcBeat } from '@/engines/character-arc/types';
+-import type { Relationship } from '@/engines/relationships/types';
+-import type { Seed, Payoff } from '@/engines/seeds/types';
+-import type { Annotation, AnnotationReference } from '@/engines/annotations/types';
+-import type { WritingSnapshot } from '@/engines/writings/snapshotTypes';
+-import type { GeneratedWorld, WorldWaypoint } from '@/engines/worldgen/types';
+-
+-export class WritersHoardDB extends Dexie {
+-  projects!: Table<Project>;
+-  codexEntries!: Table<CodexEntry>;
+-  writings!: Table<Writing>;
+-  timelines!: Table<Timeline>;
+-  timelineEvents!: Table<TimelineEvent>;
+-  timelineConnections!: Table<TimelineConnection>;
+-  yarnBoards!: Table<YarnBoard>;
+-  yarnNodes!: Table<YarnNode>;
+-  yarnEdges!: Table<YarnEdge>;
+-  worldMaps!: Table<WorldMap>;
+-  mapPins!: Table<MapPin>;
+-  imageCollections!: Table<ImageCollection>;
+-  inspirationImages!: Table<InspirationImage>;
+-  externalLinks!: Table<ExternalLink>;
+-  tags!: Table<Tag>;
+-  settings!: Table<AppSettings>;
+-  storyboards!: Table<Storyboard>;
+-  storyboardPanels!: Table<StoryboardPanel>;
+-  storyboardConnectors!: Table<StoryboardConnector>;
+-  scenes!: Table<Scene>;
+-  dialogBlocks!: Table<DialogBlock>;
+-  sceneCasts!: Table<SceneCast>;
+-  videoPlans!: Table<VideoPlan>;
+-  videoSegments!: Table<VideoSegment>;
+-  snapshots!: Table<Snapshot>;
+-  biographies!: Table<Biography>;
+-  biographyFacts!: Table<BiographyFact>;
+-  diaryEntries!: Table<DiaryEntry>;
+-  outlines!: Table<Outline>;
+-  outlineBeats!: Table<OutlineBeat>;
+-  writingSessions!: Table<WritingSession>;
+-  writingGoals!: Table<WritingGoal>;
+-  brainstormBoards!: Table<BrainstormBoard>;
+-  brainstormItems!: Table<BrainstormItem>;
+-  brainstormConnections!: Table<BrainstormConnection>;
+-  characterArcs!: Table<CharacterArc>;
+-  arcBeats!: Table<ArcBeat>;
+-  relationships!: Table<Relationship>;
+-  seeds!: Table<Seed>;
+-  payoffs!: Table<Payoff>;
+-  annotations!: Table<Annotation>;
+-  annotationReferences!: Table<AnnotationReference>;
+-  writingSnapshots!: Table<WritingSnapshot>;
+-  generatedWorlds!: Table<GeneratedWorld>;
+-  worldWaypoints!: Table<WorldWaypoint>;
+-
+-  constructor() {
+-    super('WritersHoardDB');
+-    this.version(2).stores({
+-      projects: 'id, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-    });
+-    this.version(3).stores({
+-      projects: 'id, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-    });
+-
+-    this.version(4).stores({
+-      projects: 'id, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-    }).upgrade(tx => {
+-      // Migrate linkedEntryId -> linkedEntryIds
+-      return tx.table('inspirationImages').toCollection().modify(img => {
+-        if (img.linkedEntryId && !img.linkedEntryIds) {
+-          img.linkedEntryIds = [img.linkedEntryId];
+-        }
+-        if (!img.linkedEntryIds) {
+-          img.linkedEntryIds = [];
+-        }
+-      });
+-    });
+-
+-    this.version(5).stores({
+-      projects: 'id, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-      storyboards: 'id, projectId',
+-      storyboardPanels: 'id, projectId, storyboardId, order',
+-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+-    });
+-
+-    this.version(6).stores({
+-      projects: 'id, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-      storyboards: 'id, projectId',
+-      storyboardPanels: 'id, projectId, storyboardId, order',
+-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+-      scenes: 'id, projectId, order',
+-      dialogBlocks: 'id, sceneId, projectId, order',
+-      sceneCasts: 'id, sceneId',
+-    });
+-
+-    this.version(7).stores({
+-      projects: 'id, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-      storyboards: 'id, projectId',
+-      storyboardPanels: 'id, projectId, storyboardId, order',
+-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+-      scenes: 'id, projectId, order',
+-      dialogBlocks: 'id, sceneId, projectId, order',
+-      sceneCasts: 'id, sceneId',
+-
+-    });
+-
+-    this.version(8).stores({
+-      projects: 'id, mode, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-      storyboards: 'id, projectId',
+-      storyboardPanels: 'id, projectId, storyboardId, order',
+-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+-      scenes: 'id, projectId, order',
+-      dialogBlocks: 'id, sceneId, projectId, order',
+-      sceneCasts: 'id, sceneId',
+-
+-      videoPlans: 'id, projectId',
+-      videoSegments: 'id, videoPlanId, projectId, order',
+-      snapshots: 'id, projectId, source, status, createdAt',
+-      biographies: 'id, projectId',
+-      biographyFacts: 'id, biographyId, projectId, order, category',
+-    });
+-
+-    // v9: Backfill existing projects with mode + enabledEngines
+-    this.version(9).stores({
+-      projects: 'id, mode, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-      storyboards: 'id, projectId',
+-      storyboardPanels: 'id, projectId, storyboardId, order',
+-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+-      scenes: 'id, projectId, order',
+-      dialogBlocks: 'id, sceneId, projectId, order',
+-      sceneCasts: 'id, sceneId',
+-
+-      videoPlans: 'id, projectId',
+-      videoSegments: 'id, videoPlanId, projectId, order',
+-      snapshots: 'id, projectId, source, status, createdAt',
+-      biographies: 'id, projectId',
+-      biographyFacts: 'id, biographyId, projectId, order, category',
+-    }).upgrade(tx => {
+-      const defaultEngines = ['writings', 'codex', 'timeline', 'yarn-board', 'maps', 'gallery', 'links'];
+-      return tx.table('projects').toCollection().modify(project => {
+-        if (!project.mode) {
+-          project.mode = 'novelist';
+-        }
+-        if (!project.enabledEngines) {
+-          project.enabledEngines = defaultEngines;
+-        }
+-        if (!project.engineOrder) {
+-          project.engineOrder = defaultEngines;
+-        }
+-      });
+-    });
+-
+-    // v10: Backfill timeline events with dateMode
+-    this.version(10).stores({
+-      projects: 'id, mode, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order, dateMode',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-      storyboards: 'id, projectId',
+-      storyboardPanels: 'id, projectId, storyboardId, order',
+-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+-      scenes: 'id, projectId, order',
+-      dialogBlocks: 'id, sceneId, projectId, order',
+-      sceneCasts: 'id, sceneId',
+-
+-      videoPlans: 'id, projectId',
+-      videoSegments: 'id, videoPlanId, projectId, order',
+-      snapshots: 'id, projectId, source, status, createdAt',
+-      biographies: 'id, projectId',
+-      biographyFacts: 'id, biographyId, projectId, order, category',
+-    }).upgrade(tx => {
+-      return tx.table('timelineEvents').toCollection().modify(evt => {
+-        if (!evt.dateMode) {
+-          evt.dateMode = 'text';
+-        }
+-      });
+-    });
+-
+-    // v11: Add diary entries table
+-    this.version(11).stores({
+-      projects: 'id, mode, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order, dateMode',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-      storyboards: 'id, projectId',
+-      storyboardPanels: 'id, projectId, storyboardId, order',
+-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+-      scenes: 'id, projectId, order',
+-      dialogBlocks: 'id, sceneId, projectId, order',
+-      sceneCasts: 'id, sceneId',
+-
+-      videoPlans: 'id, projectId',
+-      videoSegments: 'id, videoPlanId, projectId, order',
+-      snapshots: 'id, projectId, source, status, createdAt',
+-      biographies: 'id, projectId',
+-      biographyFacts: 'id, biographyId, projectId, order, category',
+-      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
+-    });
+-
+-    // v12: Add outline tables
+-    this.version(12).stores({
+-      projects: 'id, mode, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order, dateMode',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-      storyboards: 'id, projectId',
+-      storyboardPanels: 'id, projectId, storyboardId, order',
+-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+-      scenes: 'id, projectId, order',
+-      dialogBlocks: 'id, sceneId, projectId, order',
+-      sceneCasts: 'id, sceneId',
+-
+-      videoPlans: 'id, projectId',
+-      videoSegments: 'id, videoPlanId, projectId, order',
+-      snapshots: 'id, projectId, source, status, createdAt',
+-      biographies: 'id, projectId',
+-      biographyFacts: 'id, biographyId, projectId, order, category',
+-      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
+-      outlines: 'id, projectId',
+-      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
+-    });
+-
+-    // v13: Add writing stats tables
+-    this.version(13).stores({
+-      projects: 'id, mode, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order, dateMode',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-      storyboards: 'id, projectId',
+-      storyboardPanels: 'id, projectId, storyboardId, order',
+-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+-      scenes: 'id, projectId, order',
+-      dialogBlocks: 'id, sceneId, projectId, order',
+-      sceneCasts: 'id, sceneId',
+-
+-      videoPlans: 'id, projectId',
+-      videoSegments: 'id, videoPlanId, projectId, order',
+-      snapshots: 'id, projectId, source, status, createdAt',
+-      biographies: 'id, projectId',
+-      biographyFacts: 'id, biographyId, projectId, order, category',
+-      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
+-      outlines: 'id, projectId',
+-      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
+-      writingSessions: 'id, projectId, date, type, createdAt',
+-      writingGoals: 'id, projectId, type, active',
+-    });
+-
+-    // v14: Add brainstorm tables
+-    this.version(14).stores({
+-      projects: 'id, mode, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order, dateMode',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-      storyboards: 'id, projectId',
+-      storyboardPanels: 'id, projectId, storyboardId, order',
+-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+-      scenes: 'id, projectId, order',
+-      dialogBlocks: 'id, sceneId, projectId, order',
+-      sceneCasts: 'id, sceneId',
+-
+-      videoPlans: 'id, projectId',
+-      videoSegments: 'id, videoPlanId, projectId, order',
+-      snapshots: 'id, projectId, source, status, createdAt',
+-      biographies: 'id, projectId',
+-      biographyFacts: 'id, biographyId, projectId, order, category',
+-      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
+-      outlines: 'id, projectId',
+-      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
+-      writingSessions: 'id, projectId, date, type, createdAt',
+-      writingGoals: 'id, projectId, type, active',
+-      brainstormBoards: 'id, projectId',
+-      brainstormItems: 'id, boardId, projectId, type',
+-      brainstormConnections: 'id, boardId, sourceId, targetId',
+-    });
+-
+-    // v15: Timeline overhaul — connections table, event types, timeline colors
+-    this.version(15).stores({
+-      projects: 'id, mode, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order, dateMode, eventType',
+-      timelineConnections: 'id, projectId, timelineId, sourceEventId, targetEventId',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-      storyboards: 'id, projectId',
+-      storyboardPanels: 'id, projectId, storyboardId, order',
+-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+-      scenes: 'id, projectId, order',
+-      dialogBlocks: 'id, sceneId, projectId, order',
+-      sceneCasts: 'id, sceneId',
+-
+-      videoPlans: 'id, projectId',
+-      videoSegments: 'id, videoPlanId, projectId, order',
+-      snapshots: 'id, projectId, source, status, createdAt',
+-      biographies: 'id, projectId',
+-      biographyFacts: 'id, biographyId, projectId, order, category',
+-      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
+-      outlines: 'id, projectId',
+-      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
+-      writingSessions: 'id, projectId, date, type, createdAt',
+-      writingGoals: 'id, projectId, type, active',
+-      brainstormBoards: 'id, projectId',
+-      brainstormItems: 'id, boardId, projectId, type',
+-      brainstormConnections: 'id, boardId, sourceId, targetId',
+-    }).upgrade(tx => {
+-      // Backfill existing timeline events with eventType
+-      tx.table('timelineEvents').toCollection().modify(evt => {
+-        if (!evt.eventType) {
+-          // If event has an end date, it's a range; otherwise a point
+-          evt.eventType = evt.realDateEnd ? 'range' : 'point';
+-        }
+-      });
+-      // Backfill existing timelines with color
+-      tx.table('timelines').toCollection().modify(tl => {
+-        if (!tl.color) {
+-          tl.color = '#c4973b'; // default gold
+-        }
+-      });
+-    });
+-
+-    // v16: Character Arcs, Relationship Matrix, Seeds & Payoffs
+-    this.version(16).stores({
+-      projects: 'id, mode, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order, dateMode, eventType',
+-      timelineConnections: 'id, projectId, timelineId, sourceEventId, targetEventId',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-      storyboards: 'id, projectId',
+-      storyboardPanels: 'id, projectId, storyboardId, order',
+-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+-      scenes: 'id, projectId, order',
+-      dialogBlocks: 'id, sceneId, projectId, order',
+-      sceneCasts: 'id, sceneId',
+-
+-      videoPlans: 'id, projectId',
+-      videoSegments: 'id, videoPlanId, projectId, order',
+-      snapshots: 'id, projectId, source, status, createdAt',
+-      biographies: 'id, projectId',
+-      biographyFacts: 'id, biographyId, projectId, order, category',
+-      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
+-      outlines: 'id, projectId',
+-      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
+-      writingSessions: 'id, projectId, date, type, createdAt',
+-      writingGoals: 'id, projectId, type, active',
+-      brainstormBoards: 'id, projectId',
+-      brainstormItems: 'id, boardId, projectId, type',
+-      brainstormConnections: 'id, boardId, sourceId, targetId',
+-      characterArcs: 'id, projectId, characterId, templateId, status',
+-      arcBeats: 'id, arcId, projectId, order, stage',
+-      relationships: 'id, projectId, entityAId, entityBId, kind, state',
+-      seeds: 'id, projectId, kind, status, plantedAt',
+-      payoffs: 'id, seedId, projectId, paidAt',
+-    });
+-
+-    // v17: Interconnectedness — annotations (margin notes) + reference payload
+-    this.version(17).stores({
+-      projects: 'id, mode, type, parentId, status, updatedAt',
+-      codexEntries: 'id, projectId, type, *tags, updatedAt',
+-      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+-      timelines: 'id, projectId',
+-      timelineEvents: 'id, projectId, timelineId, order, dateMode, eventType',
+-      timelineConnections: 'id, projectId, timelineId, sourceEventId, targetEventId',
+-      yarnBoards: 'id, projectId',
+-      yarnNodes: 'id, projectId, boardId',
+-      yarnEdges: 'id, boardId, sourceId, targetId',
+-      worldMaps: 'id, projectId',
+-      mapPins: 'id, projectId, mapId',
+-      imageCollections: 'id, projectId',
+-      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+-      externalLinks: 'id, projectId, type, *tags',
+-      tags: 'id, name',
+-      settings: 'id, key',
+-      storyboards: 'id, projectId',
+-      storyboardPanels: 'id, projectId, storyboardId, order',
+-      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
+-      scenes: 'id, projectId, order',
+-      dialogBlocks: 'id, sceneId, projectId, order',
+-      sceneCasts: 'id, sceneId',
+-
+-      videoPlans: 'id, projectId',
+-      videoSegments: 'id, videoPlanId, projectId, order',
+-      snapshots: 'id, projectId, source, status, createdAt',
+-      biographies: 'id, projectId',
+-      biographyFacts: 'id, biographyId, projectId, order, category',
+-      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
+-      outlines: 'id, projectId',
+-      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
+-      writingSessions: 'id, projectId, date, type, createdAt',
+-      writingGoals: 'id, projectId, type, active',
+-      brainstormBoards: 'id, projectId',
+-      brainstormItems: 'id, boardId, projectId, type',
+-      brainstormConnections: 'id, boardId, sourceId, targetId',
+-      characterArcs: 'id, projectId, characterId, templateId, status',
+-      arcBeats: 'id, arcId, projectId, order, stage',
+-      relationships: 'id, projectId, entityAId, entityBId, kind, state',
+-      seeds: 'id, projectId, kind, status, plantedAt',
+-      payoffs: 'id, seedId, projectId, paidAt',
+-      // New in v17: shell table keyed by (projectId, sourceEngineId, sourceEntityId).
+-      // `isOrphaned` is indexed so the project-level "needs reanchor" dashboard
+-      // can pull orphans cheaply.
+-      annotations: 'id, projectId, sourceEngineId, sourceEntityId, isOrphaned, noteType, updatedAt, [sourceEngineId+sourceEntityId]',
+-      // `annotationId` is unique in v1 (1 reference per annotation). Index on
+-      // (targetEngineId, targetEntityId) powers useEntityBacklinks.
+-      annotationReferences: 'id, &annotationId, targetEngineId, targetEntityId, [targetEngineId+targetEntityId]',
+-    });
+-
+-    // v18: Writing version history — automatic snapshots with restore.
+-    // Additive table only; every other store is inherited unchanged from v17.
+-    this.version(18).stores({
+-      writingSnapshots: 'id, writingId, projectId, createdAt',
+-    });
+-
+-    // v19: World Generator — worlds stored as seed+params (deterministic
+-    // regeneration), waypoints as plain rows. Additive tables only.
+-    this.version(19).stores({
+-      generatedWorlds: 'id, projectId, updatedAt',
+-      worldWaypoints: 'id, projectId, worldId',
+-    });
+-  }
+-}
+-
+-export const db = new WritersHoardDB();
++import Dexie, { type Table } from 'dexie';
++import type {
++  Project,
++  CodexEntry,
++  Timeline,
++  TimelineEvent,
++  TimelineConnection,
++  YarnBoard,
++  YarnNode,
++  YarnEdge,
++  WorldMap,
++  MapPin,
++  ImageCollection,
++  InspirationImage,
++  ExternalLink,
++  Writing,
++  Tag,
++  AppSettings,
++} from '../types';
++import type { Storyboard, StoryboardPanel, StoryboardConnector } from '@/engines/storyboard/types';
++import type { Scene, DialogBlock, SceneCast } from '@/engines/dialog-scene/types';
++import type { VideoPlan, VideoSegment } from '@/engines/video-planner/types';
++import type { Snapshot } from '@/engines/scrapper/types';
++import type { Biography, BiographyFact } from '@/engines/biography/types';
++import type { DiaryEntry } from '@/engines/diary/types';
++import type { Outline, OutlineBeat } from '@/engines/outline/types';
++import type { WritingSession, WritingGoal } from '@/engines/writing-stats/types';
++import type { BrainstormBoard, BrainstormItem, BrainstormConnection } from '@/engines/brainstorm/types';
++import type { CharacterArc, ArcBeat } from '@/engines/character-arc/types';
++import type { Relationship } from '@/engines/relationships/types';
++import type { Seed, Payoff } from '@/engines/seeds/types';
++import type { Annotation, AnnotationReference } from '@/engines/annotations/types';
++import type { WritingSnapshot } from '@/engines/writings/snapshotTypes';
++import type { GeneratedWorld, WorldSnapshot, WorldWaypoint } from '@/engines/worldgen/types';
++
++export class WritersHoardDB extends Dexie {
++  projects!: Table<Project>;
++  codexEntries!: Table<CodexEntry>;
++  writings!: Table<Writing>;
++  timelines!: Table<Timeline>;
++  timelineEvents!: Table<TimelineEvent>;
++  timelineConnections!: Table<TimelineConnection>;
++  yarnBoards!: Table<YarnBoard>;
++  yarnNodes!: Table<YarnNode>;
++  yarnEdges!: Table<YarnEdge>;
++  worldMaps!: Table<WorldMap>;
++  mapPins!: Table<MapPin>;
++  imageCollections!: Table<ImageCollection>;
++  inspirationImages!: Table<InspirationImage>;
++  externalLinks!: Table<ExternalLink>;
++  tags!: Table<Tag>;
++  settings!: Table<AppSettings>;
++  storyboards!: Table<Storyboard>;
++  storyboardPanels!: Table<StoryboardPanel>;
++  storyboardConnectors!: Table<StoryboardConnector>;
++  scenes!: Table<Scene>;
++  dialogBlocks!: Table<DialogBlock>;
++  sceneCasts!: Table<SceneCast>;
++  videoPlans!: Table<VideoPlan>;
++  videoSegments!: Table<VideoSegment>;
++  snapshots!: Table<Snapshot>;
++  biographies!: Table<Biography>;
++  biographyFacts!: Table<BiographyFact>;
++  diaryEntries!: Table<DiaryEntry>;
++  outlines!: Table<Outline>;
++  outlineBeats!: Table<OutlineBeat>;
++  writingSessions!: Table<WritingSession>;
++  writingGoals!: Table<WritingGoal>;
++  brainstormBoards!: Table<BrainstormBoard>;
++  brainstormItems!: Table<BrainstormItem>;
++  brainstormConnections!: Table<BrainstormConnection>;
++  characterArcs!: Table<CharacterArc>;
++  arcBeats!: Table<ArcBeat>;
++  relationships!: Table<Relationship>;
++  seeds!: Table<Seed>;
++  payoffs!: Table<Payoff>;
++  annotations!: Table<Annotation>;
++  annotationReferences!: Table<AnnotationReference>;
++  writingSnapshots!: Table<WritingSnapshot>;
++  generatedWorlds!: Table<GeneratedWorld>;
++  worldWaypoints!: Table<WorldWaypoint>;
++  worldSnapshots!: Table<WorldSnapshot>;
++
++  constructor() {
++    super('WritersHoardDB');
++    this.version(2).stores({
++      projects: 'id, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++    });
++    this.version(3).stores({
++      projects: 'id, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++    });
++
++    this.version(4).stores({
++      projects: 'id, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++    }).upgrade(tx => {
++      // Migrate linkedEntryId -> linkedEntryIds
++      return tx.table('inspirationImages').toCollection().modify(img => {
++        if (img.linkedEntryId && !img.linkedEntryIds) {
++          img.linkedEntryIds = [img.linkedEntryId];
++        }
++        if (!img.linkedEntryIds) {
++          img.linkedEntryIds = [];
++        }
++      });
++    });
++
++    this.version(5).stores({
++      projects: 'id, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++      storyboards: 'id, projectId',
++      storyboardPanels: 'id, projectId, storyboardId, order',
++      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
++    });
++
++    this.version(6).stores({
++      projects: 'id, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++      storyboards: 'id, projectId',
++      storyboardPanels: 'id, projectId, storyboardId, order',
++      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
++      scenes: 'id, projectId, order',
++      dialogBlocks: 'id, sceneId, projectId, order',
++      sceneCasts: 'id, sceneId',
++    });
++
++    this.version(7).stores({
++      projects: 'id, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++      storyboards: 'id, projectId',
++      storyboardPanels: 'id, projectId, storyboardId, order',
++      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
++      scenes: 'id, projectId, order',
++      dialogBlocks: 'id, sceneId, projectId, order',
++      sceneCasts: 'id, sceneId',
++
++    });
++
++    this.version(8).stores({
++      projects: 'id, mode, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++      storyboards: 'id, projectId',
++      storyboardPanels: 'id, projectId, storyboardId, order',
++      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
++      scenes: 'id, projectId, order',
++      dialogBlocks: 'id, sceneId, projectId, order',
++      sceneCasts: 'id, sceneId',
++
++      videoPlans: 'id, projectId',
++      videoSegments: 'id, videoPlanId, projectId, order',
++      snapshots: 'id, projectId, source, status, createdAt',
++      biographies: 'id, projectId',
++      biographyFacts: 'id, biographyId, projectId, order, category',
++    });
++
++    // v9: Backfill existing projects with mode + enabledEngines
++    this.version(9).stores({
++      projects: 'id, mode, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++      storyboards: 'id, projectId',
++      storyboardPanels: 'id, projectId, storyboardId, order',
++      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
++      scenes: 'id, projectId, order',
++      dialogBlocks: 'id, sceneId, projectId, order',
++      sceneCasts: 'id, sceneId',
++
++      videoPlans: 'id, projectId',
++      videoSegments: 'id, videoPlanId, projectId, order',
++      snapshots: 'id, projectId, source, status, createdAt',
++      biographies: 'id, projectId',
++      biographyFacts: 'id, biographyId, projectId, order, category',
++    }).upgrade(tx => {
++      const defaultEngines = ['writings', 'codex', 'timeline', 'yarn-board', 'maps', 'gallery', 'links'];
++      return tx.table('projects').toCollection().modify(project => {
++        if (!project.mode) {
++          project.mode = 'novelist';
++        }
++        if (!project.enabledEngines) {
++          project.enabledEngines = defaultEngines;
++        }
++        if (!project.engineOrder) {
++          project.engineOrder = defaultEngines;
++        }
++      });
++    });
++
++    // v10: Backfill timeline events with dateMode
++    this.version(10).stores({
++      projects: 'id, mode, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order, dateMode',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++      storyboards: 'id, projectId',
++      storyboardPanels: 'id, projectId, storyboardId, order',
++      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
++      scenes: 'id, projectId, order',
++      dialogBlocks: 'id, sceneId, projectId, order',
++      sceneCasts: 'id, sceneId',
++
++      videoPlans: 'id, projectId',
++      videoSegments: 'id, videoPlanId, projectId, order',
++      snapshots: 'id, projectId, source, status, createdAt',
++      biographies: 'id, projectId',
++      biographyFacts: 'id, biographyId, projectId, order, category',
++    }).upgrade(tx => {
++      return tx.table('timelineEvents').toCollection().modify(evt => {
++        if (!evt.dateMode) {
++          evt.dateMode = 'text';
++        }
++      });
++    });
++
++    // v11: Add diary entries table
++    this.version(11).stores({
++      projects: 'id, mode, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order, dateMode',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++      storyboards: 'id, projectId',
++      storyboardPanels: 'id, projectId, storyboardId, order',
++      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
++      scenes: 'id, projectId, order',
++      dialogBlocks: 'id, sceneId, projectId, order',
++      sceneCasts: 'id, sceneId',
++
++      videoPlans: 'id, projectId',
++      videoSegments: 'id, videoPlanId, projectId, order',
++      snapshots: 'id, projectId, source, status, createdAt',
++      biographies: 'id, projectId',
++      biographyFacts: 'id, biographyId, projectId, order, category',
++      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
++    });
++
++    // v12: Add outline tables
++    this.version(12).stores({
++      projects: 'id, mode, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order, dateMode',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++      storyboards: 'id, projectId',
++      storyboardPanels: 'id, projectId, storyboardId, order',
++      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
++      scenes: 'id, projectId, order',
++      dialogBlocks: 'id, sceneId, projectId, order',
++      sceneCasts: 'id, sceneId',
++
++      videoPlans: 'id, projectId',
++      videoSegments: 'id, videoPlanId, projectId, order',
++      snapshots: 'id, projectId, source, status, createdAt',
++      biographies: 'id, projectId',
++      biographyFacts: 'id, biographyId, projectId, order, category',
++      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
++      outlines: 'id, projectId',
++      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
++    });
++
++    // v13: Add writing stats tables
++    this.version(13).stores({
++      projects: 'id, mode, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order, dateMode',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++      storyboards: 'id, projectId',
++      storyboardPanels: 'id, projectId, storyboardId, order',
++      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
++      scenes: 'id, projectId, order',
++      dialogBlocks: 'id, sceneId, projectId, order',
++      sceneCasts: 'id, sceneId',
++
++      videoPlans: 'id, projectId',
++      videoSegments: 'id, videoPlanId, projectId, order',
++      snapshots: 'id, projectId, source, status, createdAt',
++      biographies: 'id, projectId',
++      biographyFacts: 'id, biographyId, projectId, order, category',
++      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
++      outlines: 'id, projectId',
++      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
++      writingSessions: 'id, projectId, date, type, createdAt',
++      writingGoals: 'id, projectId, type, active',
++    });
++
++    // v14: Add brainstorm tables
++    this.version(14).stores({
++      projects: 'id, mode, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order, dateMode',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++      storyboards: 'id, projectId',
++      storyboardPanels: 'id, projectId, storyboardId, order',
++      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
++      scenes: 'id, projectId, order',
++      dialogBlocks: 'id, sceneId, projectId, order',
++      sceneCasts: 'id, sceneId',
++
++      videoPlans: 'id, projectId',
++      videoSegments: 'id, videoPlanId, projectId, order',
++      snapshots: 'id, projectId, source, status, createdAt',
++      biographies: 'id, projectId',
++      biographyFacts: 'id, biographyId, projectId, order, category',
++      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
++      outlines: 'id, projectId',
++      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
++      writingSessions: 'id, projectId, date, type, createdAt',
++      writingGoals: 'id, projectId, type, active',
++      brainstormBoards: 'id, projectId',
++      brainstormItems: 'id, boardId, projectId, type',
++      brainstormConnections: 'id, boardId, sourceId, targetId',
++    });
++
++    // v15: Timeline overhaul — connections table, event types, timeline colors
++    this.version(15).stores({
++      projects: 'id, mode, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order, dateMode, eventType',
++      timelineConnections: 'id, projectId, timelineId, sourceEventId, targetEventId',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++      storyboards: 'id, projectId',
++      storyboardPanels: 'id, projectId, storyboardId, order',
++      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
++      scenes: 'id, projectId, order',
++      dialogBlocks: 'id, sceneId, projectId, order',
++      sceneCasts: 'id, sceneId',
++
++      videoPlans: 'id, projectId',
++      videoSegments: 'id, videoPlanId, projectId, order',
++      snapshots: 'id, projectId, source, status, createdAt',
++      biographies: 'id, projectId',
++      biographyFacts: 'id, biographyId, projectId, order, category',
++      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
++      outlines: 'id, projectId',
++      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
++      writingSessions: 'id, projectId, date, type, createdAt',
++      writingGoals: 'id, projectId, type, active',
++      brainstormBoards: 'id, projectId',
++      brainstormItems: 'id, boardId, projectId, type',
++      brainstormConnections: 'id, boardId, sourceId, targetId',
++    }).upgrade(tx => {
++      // Backfill existing timeline events with eventType
++      tx.table('timelineEvents').toCollection().modify(evt => {
++        if (!evt.eventType) {
++          // If event has an end date, it's a range; otherwise a point
++          evt.eventType = evt.realDateEnd ? 'range' : 'point';
++        }
++      });
++      // Backfill existing timelines with color
++      tx.table('timelines').toCollection().modify(tl => {
++        if (!tl.color) {
++          tl.color = '#c4973b'; // default gold
++        }
++      });
++    });
++
++    // v16: Character Arcs, Relationship Matrix, Seeds & Payoffs
++    this.version(16).stores({
++      projects: 'id, mode, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order, dateMode, eventType',
++      timelineConnections: 'id, projectId, timelineId, sourceEventId, targetEventId',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++      storyboards: 'id, projectId',
++      storyboardPanels: 'id, projectId, storyboardId, order',
++      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
++      scenes: 'id, projectId, order',
++      dialogBlocks: 'id, sceneId, projectId, order',
++      sceneCasts: 'id, sceneId',
++
++      videoPlans: 'id, projectId',
++      videoSegments: 'id, videoPlanId, projectId, order',
++      snapshots: 'id, projectId, source, status, createdAt',
++      biographies: 'id, projectId',
++      biographyFacts: 'id, biographyId, projectId, order, category',
++      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
++      outlines: 'id, projectId',
++      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
++      writingSessions: 'id, projectId, date, type, createdAt',
++      writingGoals: 'id, projectId, type, active',
++      brainstormBoards: 'id, projectId',
++      brainstormItems: 'id, boardId, projectId, type',
++      brainstormConnections: 'id, boardId, sourceId, targetId',
++      characterArcs: 'id, projectId, characterId, templateId, status',
++      arcBeats: 'id, arcId, projectId, order, stage',
++      relationships: 'id, projectId, entityAId, entityBId, kind, state',
++      seeds: 'id, projectId, kind, status, plantedAt',
++      payoffs: 'id, seedId, projectId, paidAt',
++    });
++
++    // v17: Interconnectedness — annotations (margin notes) + reference payload
++    this.version(17).stores({
++      projects: 'id, mode, type, parentId, status, updatedAt',
++      codexEntries: 'id, projectId, type, *tags, updatedAt',
++      writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
++      timelines: 'id, projectId',
++      timelineEvents: 'id, projectId, timelineId, order, dateMode, eventType',
++      timelineConnections: 'id, projectId, timelineId, sourceEventId, targetEventId',
++      yarnBoards: 'id, projectId',
++      yarnNodes: 'id, projectId, boardId',
++      yarnEdges: 'id, boardId, sourceId, targetId',
++      worldMaps: 'id, projectId',
++      mapPins: 'id, projectId, mapId',
++      imageCollections: 'id, projectId',
++      inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++      externalLinks: 'id, projectId, type, *tags',
++      tags: 'id, name',
++      settings: 'id, key',
++      storyboards: 'id, projectId',
++      storyboardPanels: 'id, projectId, storyboardId, order',
++      storyboardConnectors: 'id, storyboardId, sourceId, targetId',
++      scenes: 'id, projectId, order',
++      dialogBlocks: 'id, sceneId, projectId, order',
++      sceneCasts: 'id, sceneId',
++
++      videoPlans: 'id, projectId',
++      videoSegments: 'id, videoPlanId, projectId, order',
++      snapshots: 'id, projectId, source, status, createdAt',
++      biographies: 'id, projectId',
++      biographyFacts: 'id, biographyId, projectId, order, category',
++      diaryEntries: 'id, projectId, entryDate, *tags, pinned',
++      outlines: 'id, projectId',
++      outlineBeats: 'id, outlineId, projectId, order, level, parentId',
++      writingSessions: 'id, projectId, date, type, createdAt',
++      writingGoals: 'id, projectId, type, active',
++      brainstormBoards: 'id, projectId',
++      brainstormItems: 'id, boardId, projectId, type',
++      brainstormConnections: 'id, boardId, sourceId, targetId',
++      characterArcs: 'id, projectId, characterId, templateId, status',
++      arcBeats: 'id, arcId, projectId, order, stage',
++      relationships: 'id, projectId, entityAId, entityBId, kind, state',
++      seeds: 'id, projectId, kind, status, plantedAt',
++      payoffs: 'id, seedId, projectId, paidAt',
++      // New in v17: shell table keyed by (projectId, sourceEngineId, sourceEntityId).
++      // `isOrphaned` is indexed so the project-level "needs reanchor" dashboard
++      // can pull orphans cheaply.
++      annotations: 'id, projectId, sourceEngineId, sourceEntityId, isOrphaned, noteType, updatedAt, [sourceEngineId+sourceEntityId]',
++      // `annotationId` is unique in v1 (1 reference per annotation). Index on
++      // (targetEngineId, targetEntityId) powers useEntityBacklinks.
++      annotationReferences: 'id, &annotationId, targetEngineId, targetEntityId, [targetEngineId+targetEntityId]',
++    });
++
++    // v18: Writing version history — automatic snapshots with restore.
++    // Additive table only; every other store is inherited unchanged from v17.
++    this.version(18).stores({
++      writingSnapshots: 'id, writingId, projectId, createdAt',
++    });
++
++    // v19: World Generator — worlds stored as seed+params (deterministic
++    // regeneration), waypoints as plain rows. Additive tables only.
++    this.version(19).stores({
++      generatedWorlds: 'id, projectId, updatedAt',
++      worldWaypoints: 'id, projectId, worldId',
++    });
++
++    // v20: the forged world, kept.
++    //
++    // Regenerating from the seed is deterministic and correct and takes
++    // twenty-six seconds, and it ran on every single application start. This
++    // table is a CACHE — quantised, compressed, keyed by the parameters it was
++    // made from, and reforgeable from `generatedWorlds` at any time. It is
++    // deliberately absent from the backup registry: eleven megabytes of derived
++    // bytes have no business in an export.
++    this.version(20).stores({
++      worldSnapshots: 'worldId, savedAt',
++    });
++  }
++}
++
++export const db = new WritersHoardDB();
+diff -urN wg-orig/src/engines/worldgen/components/WorldView.tsx wg/src/engines/worldgen/components/WorldView.tsx
+--- a/src/engines/worldgen/components/WorldView.tsx	2026-07-26 17:03:02.547946172 +0000
++++ b/src/engines/worldgen/components/WorldView.tsx	2026-07-26 17:07:06.478763815 +0000
+@@ -31,6 +31,7 @@
+ import PaintPanel, { DEFAULT_PAINT_TOOL, type PaintTool } from './PaintPanel';
+ import FiltersPanel from './FiltersPanel';
+ import { PaintSession } from '../core/paintSession';
++import { deserializeEdits } from '../core/edits';
+ import { nameBridges, paleoMap } from '../core/paleo';
+ import type { WorldEdit } from '../core/edits';
+ import { THEMES, themeById } from '../cartography/theme';
+@@ -75,6 +76,16 @@
+   /** Open the host's own editor for a linked scene, character or event. */
+   onOpenManuscriptLink?: (link: ManuscriptLink) => void;
+   onSaveParams: (params: WorldParams) => Promise<void> | void;
++  /**
++   * Persist the brush strokes.
++   *
++   * Everything painted used to live in memory and nowhere else: close the
++   * application and the hand-drawn coast, the hand-placed towns and every
++   * renamed sea were gone, and the world came back as the generator had first
++   * made it. The list is small — a few hundred bytes — and it is the other half
++   * of what a world is.
++   */
++  onSaveEdits: (edits: string) => Promise<void> | void;
+   onThumbnail: (thumbnail: string) => Promise<void> | void;
+   focusWaypoint: WaypointFocus | null;
+ }
+@@ -85,6 +96,7 @@
+   manuscriptLinks,
+   onOpenManuscriptLink,
+   onSaveParams,
++  onSaveEdits,
+   onThumbnail,
+   focusWaypoint,
+ }: WorldViewProps) {
+@@ -149,7 +161,7 @@
+     }
+   }, [onThumbnail]);
+ 
+-  const { world: data, gen, generate, cancel } = useWorldGeneration(world.id, handleDone);
++  const { world: data, gen, generate, cancel, restorePristine } = useWorldGeneration(world.id, handleDone);
+ 
+   // First open (or cache miss): generate from stored params automatically.
+   // Deliberately re-runnable — StrictMode's mount→unmount→mount cycle
+@@ -295,10 +307,49 @@
+   const [paintRev, setPaintRev] = useState(0);
+   const [painting, setPainting] = useState(false);
+   const session = useRef<PaintSession | null>(null);
++  /**
++   * The stored strokes, read ONCE.
++   *
++   * Saving them updates the world row, which hands this component a new `world`
++   * prop; reading `world.edits` on every render would then rebuild the session
++   * from what was just written and undo the reader's undo.
++   */
++  const savedEdits = useRef<string | undefined>(world.edits);
+   useEffect(() => {
+-    session.current = data ? new PaintSession(data) : null;
+-    setPaintRev(0);
+-  }, [data]);
++    if (!data) { session.current = null; return; }
++    // The cached world object carries whatever the last session painted on it,
++    // so it is put back the way the generator left it before the list is
++    // replayed — otherwise the strokes apply on top of themselves.
++    restorePristine(data);
++    const stored = savedEdits.current;
++    let initial: WorldEdit[] = [];
++    if (stored) {
++      try {
++        initial = deserializeEdits(stored);
++      } catch (err) {
++        console.warn('[worldgen] no se pudieron leer las ediciones guardadas', err);
++      }
++    }
++    session.current = new PaintSession(data, initial);
++    setPaintRev(initial.length);
++  }, [data, restorePristine]);
++
++  // Written after the world has settled rather than on every stroke: a terrain
++  // stroke is followed by more terrain strokes, and a write per stroke is a
++  // write per fifty milliseconds of somebody drawing a coastline.
++  const saveTimer = useRef(0);
++  const saveEditsRef = useRef(onSaveEdits);
++  saveEditsRef.current = onSaveEdits;
++  const scheduleSaveEdits = useCallback(() => {
++    window.clearTimeout(saveTimer.current);
++    saveTimer.current = window.setTimeout(() => {
++      const json = session.current?.serialize();
++      if (json === undefined || json === savedEdits.current) return;
++      savedEdits.current = json;
++      void saveEditsRef.current(json);
++    }, 900);
++  }, []);
++  useEffect(() => () => window.clearTimeout(saveTimer.current), []);
+ 
+   // A full geography rebuild is ~4 s. After a stroke we take the cheap patch —
+   // painted marks appear at once, anything drowned disappears — and schedule the
+@@ -317,6 +368,7 @@
+       setGeography(getGeography(data));
+     }
+     setPaintRev((r) => r + 1);
++    scheduleSaveEdits();
+     window.clearTimeout(rebuildTimer.current);
+     rebuildTimer.current = window.setTimeout(() => {
+       if (!data || !needsGeoRef.current || !geographyIsStale(data)) return;
+@@ -329,7 +381,7 @@
+         }
+       }, 20);
+     }, 2200);
+-  }, [data]);
++  }, [data, scheduleSaveEdits]);
+ 
+   useEffect(() => () => window.clearTimeout(rebuildTimer.current), []);
+ 
+@@ -520,7 +572,11 @@
+     toast.success(t('worldgen.export.sentToMaps'));
+   }, [data, projectId, world.title, waypoints, t]);
+ 
+-  const stageLabel = gen.running ? t(`worldgen.stage.${gen.stage}`) : '';
++  // 'loading' is not a pipeline stage — it is the snapshot coming back off the
++  // disk — so it does not go looking for a translation of a stage name.
++  const stageLabel = !gen.running ? ''
++    : gen.stage === 'loading' ? 'recuperando el mundo guardado…'
++      : t(`worldgen.stage.${gen.stage}`);
+   const selectedWaypoint = useMemo(
+     () => waypoints.find((w) => w.id === selectedWaypointId) ?? null,
+     [waypoints, selectedWaypointId],
+diff -urN wg-orig/src/engines/worldgen/components/WorldgenEngine.tsx wg/src/engines/worldgen/components/WorldgenEngine.tsx
+--- a/src/engines/worldgen/components/WorldgenEngine.tsx	2026-07-26 17:03:02.546690811 +0000
++++ b/src/engines/worldgen/components/WorldgenEngine.tsx	2026-07-26 17:07:06.490286166 +0000
+@@ -94,6 +94,7 @@
+             projectId={projectId}
+             world={activeWorld}
+             onSaveParams={(params) => editWorld(activeWorld.id, { params })}
++            onSaveEdits={(edits) => editWorld(activeWorld.id, { edits })}
+             onThumbnail={(thumbnail) => editWorld(activeWorld.id, { thumbnail })}
+             focusWaypoint={focusWaypoint && focusWaypoint.id ? focusWaypoint : null}
+           />
+diff -urN wg-orig/src/engines/worldgen/core/worldStore.ts wg/src/engines/worldgen/core/worldStore.ts
+--- a/src/engines/worldgen/core/worldStore.ts	1970-01-01 00:00:00.000000000 +0000
++++ b/src/engines/worldgen/core/worldStore.ts	2026-07-26 17:04:25.260630222 +0000
+@@ -0,0 +1,289 @@
++// ============================================
++// World Generator — keeping the forged world
++// ============================================
++// A world is stored as seed + parameters + an edit list, and regenerated from
++// them on demand. That decision is right — it keeps the database small, it makes
++// backups tiny, and it means a world is a recipe rather than a blob.
++//
++// What was wrong was treating "regenerated on demand" as free. It is not: the
++// full pipeline is about twenty-six seconds on a 2048 × 1024 grid, of which the
++// tectonics and the erosion alone are twenty, and it ran again every single time
++// the application was opened. The recipe is still the source of truth; this file
++// is the loaf, kept in a bread bin so you do not bake it twice.
++//
++// The snapshot is a CACHE, not a record. It is keyed by the parameters it was
++// made from, it carries a format version, and anything that does not match is
++// thrown away and re-forged. Nothing here is ever the only copy of anything: the
++// world can always be rebuilt from the row in `generatedWorlds`. That is why it
++// is deliberately NOT part of the backup — a 11 MB derived artefact has no place
++// in an export whose whole virtue is that it is small.
++//
++// Size, measured on the default grid:
++//
++//   raw typed arrays          86.0 MB
++//   quantised                 38.0 MB
++//   quantised + gzip          11.5 MB      ~450 ms to compress
++//
++// The quantisation is lossy and chosen field by field so that the loss cannot
++// matter. Elevation keeps a millimetre of a kilometre — one metre — across a
++// cell twenty kilometres wide, and the sea-level predicate is preserved exactly
++// (see `packElevation`). Biome, lake and plate ids are integers and are stored
++// as themselves. The rest are display fields where a part in 255 is invisible.
++
++import { unpackWorld, type WorldData, type WorldParams, type WorldTransfer } from './types';
++
++/** Bumped whenever the layout below changes; older snapshots are discarded. */
++export const SNAPSHOT_VERSION = 1;
++
++const MAGIC = 0x57475331; // 'WGS1'
++
++type Codec =
++  | { kind: 'f32-i16'; scale: number }
++  | { kind: 'f32-u16'; scale: number }
++  | { kind: 'f32-u8'; scale: number }
++  | { kind: 'u8' };
++
++/**
++ * One entry per field of `WorldData` that is a grid.
++ *
++ * The scales are set from measured ranges with a wide margin, because a world
++ * with a taller mountain than the one that was measured must not silently clip.
++ * Every one of these has at least a factor of three of headroom.
++ */
++const FIELDS: { name: keyof WorldData & string; codec: Codec }[] = [
++  // Handled specially — see packElevation.
++  { name: 'elevation', codec: { kind: 'f32-i16', scale: 1000 } },
++  { name: 'plateId', codec: { kind: 'u8' } },
++  { name: 'boundary', codec: { kind: 'f32-u8', scale: 255 } },
++  { name: 'temperature', codec: { kind: 'f32-i16', scale: 100 } },
++  { name: 'precipitation', codec: { kind: 'f32-u16', scale: 8 } },
++  { name: 'biome', codec: { kind: 'u8' } },
++  { name: 'flow', codec: { kind: 'f32-u8', scale: 255 } },
++  { name: 'lake', codec: { kind: 'u8' } },
++  { name: 'currentU', codec: { kind: 'f32-i16', scale: 2000 } },
++  { name: 'currentV', codec: { kind: 'f32-i16', scale: 2000 } },
++  { name: 'sst', codec: { kind: 'f32-i16', scale: 200 } },
++  { name: 'currentSpeed', codec: { kind: 'f32-u8', scale: 255 } },
++  { name: 'ice', codec: { kind: 'f32-u8', scale: 255 } },
++];
++
++interface Header {
++  v: number;
++  width: number;
++  height: number;
++  params: WorldParams;
++  revision: number;
++  landmarks: WorldData['landmarks'];
++  plateInfo: WorldData['plateInfo'];
++  riverFlows: number[];
++  riverLengths: number[];
++  /** Byte length of each field's payload, in FIELDS order, then the rivers. */
++  layout: number[];
++}
++
++/**
++ * Elevation, to the metre, WITHOUT ever moving a coastline.
++ *
++ * Rounding is the obvious way to lose a coast: ground four decimetres above the
++ * water rounds to zero and the cell becomes ocean, and since `elevation > 0` is
++ * the sea-level test used by the renderer, the biome classifier and the
++ * settlement siting, a reloaded world would come back with slightly different
++ * islands. Nudging the two cells that straddle zero to the nearest non-zero
++ * value on the correct side costs one metre of accuracy and preserves the
++ * predicate exactly.
++ */
++function packElevation(src: Float32Array, scale: number): Int16Array {
++  const out = new Int16Array(src.length);
++  for (let i = 0; i < src.length; i++) {
++    let q = Math.round(src[i] * scale);
++    if (q > 32767) q = 32767;
++    else if (q < -32768) q = -32768;
++    if (src[i] > 0 && q <= 0) q = 1;
++    else if (src[i] <= 0 && q > 0) q = 0;
++    out[i] = q;
++  }
++  return out;
++}
++
++function encodeField(src: ArrayLike<number>, codec: Codec): ArrayBufferView {
++  const n = src.length;
++  switch (codec.kind) {
++    case 'u8': {
++      const out = new Uint8Array(n);
++      out.set(src as ArrayLike<number> as Uint8Array);
++      return out;
++    }
++    case 'f32-i16': {
++      const out = new Int16Array(n);
++      for (let i = 0; i < n; i++) {
++        out[i] = Math.max(-32768, Math.min(32767, Math.round(src[i] * codec.scale)));
++      }
++      return out;
++    }
++    case 'f32-u16': {
++      const out = new Uint16Array(n);
++      for (let i = 0; i < n; i++) {
++        out[i] = Math.max(0, Math.min(65535, Math.round(src[i] * codec.scale)));
++      }
++      return out;
++    }
++    case 'f32-u8': {
++      const out = new Uint8Array(n);
++      for (let i = 0; i < n; i++) {
++        out[i] = Math.max(0, Math.min(255, Math.round(src[i] * codec.scale)));
++      }
++      return out;
++    }
++  }
++}
++
++function decodeField(buf: ArrayBuffer, off: number, len: number, n: number, codec: Codec): ArrayBufferView {
++  switch (codec.kind) {
++    case 'u8':
++      return new Uint8Array(buf.slice(off, off + len));
++    case 'f32-i16': {
++      const q = new Int16Array(buf.slice(off, off + len));
++      const out = new Float32Array(n);
++      for (let i = 0; i < n; i++) out[i] = q[i] / codec.scale;
++      return out;
++    }
++    case 'f32-u16': {
++      const q = new Uint16Array(buf.slice(off, off + len));
++      const out = new Float32Array(n);
++      for (let i = 0; i < n; i++) out[i] = q[i] / codec.scale;
++      return out;
++    }
++    case 'f32-u8': {
++      const q = new Uint8Array(buf.slice(off, off + len));
++      const out = new Float32Array(n);
++      for (let i = 0; i < n; i++) out[i] = q[i] / codec.scale;
++      return out;
++    }
++  }
++}
++
++// ---------------------------------------------------------------------------
++// gzip, when the platform has it
++// ---------------------------------------------------------------------------
++// `CompressionStream` has been in Chromium since 80 and this is an Electron app,
++// so it is there — but a snapshot that cannot be written is a cache miss and
++// nothing worse, so the absence is handled rather than asserted.
++
++async function gzip(bytes: Uint8Array): Promise<Uint8Array> {
++  if (typeof CompressionStream === 'undefined') return bytes;
++  const cs = new CompressionStream('gzip');
++  const blob = new Blob([bytes as unknown as BlobPart]);
++  const out = await new Response(blob.stream().pipeThrough(cs)).arrayBuffer();
++  return new Uint8Array(out);
++}
++
++async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
++  // A stored snapshot always carries the magic in the clear when it was NOT
++  // compressed, so the two cases are told apart by trying to read it.
++  if (looksUncompressed(bytes)) return bytes;
++  if (typeof DecompressionStream === 'undefined') throw new Error('sin DecompressionStream');
++  const ds = new DecompressionStream('gzip');
++  const blob = new Blob([bytes as unknown as BlobPart]);
++  const out = await new Response(blob.stream().pipeThrough(ds)).arrayBuffer();
++  return new Uint8Array(out);
++}
++
++function looksUncompressed(bytes: Uint8Array): boolean {
++  if (bytes.byteLength < 4) return false;
++  const dv = new DataView(bytes.buffer, bytes.byteOffset, 4);
++  return dv.getUint32(0, false) === MAGIC;
++}
++
++// ---------------------------------------------------------------------------
++
++/** Serialise a generated world to a compressed byte array. */
++export async function encodeWorld(w: WorldData): Promise<Uint8Array> {
++  const parts: ArrayBufferView[] = [];
++  const layout: number[] = [];
++
++  for (const f of FIELDS) {
++    const src = w[f.name] as unknown as ArrayLike<number>;
++    const view = f.name === 'elevation'
++      ? packElevation(w.elevation, (f.codec as { scale: number }).scale)
++      : encodeField(src, f.codec);
++    parts.push(view);
++    layout.push(view.byteLength);
++  }
++  const riverFlows: number[] = [];
++  const riverLengths: number[] = [];
++  for (const r of w.rivers) {
++    parts.push(r.cells);
++    layout.push(r.cells.byteLength);
++    riverFlows.push(r.flow);
++    riverLengths.push(r.cells.length);
++  }
++
++  const header: Header = {
++    v: SNAPSHOT_VERSION,
++    width: w.width,
++    height: w.height,
++    params: w.params,
++    revision: 0,
++    landmarks: w.landmarks,
++    plateInfo: w.plateInfo,
++    riverFlows,
++    riverLengths,
++    layout,
++  };
++  const headerBytes = new TextEncoder().encode(JSON.stringify(header));
++  let total = 8 + headerBytes.byteLength;
++  for (const p of parts) total += p.byteLength;
++
++  const out = new Uint8Array(total);
++  const dv = new DataView(out.buffer);
++  dv.setUint32(0, MAGIC, false);
++  dv.setUint32(4, headerBytes.byteLength, true);
++  out.set(headerBytes, 8);
++  let off = 8 + headerBytes.byteLength;
++  for (const p of parts) {
++    out.set(new Uint8Array(p.buffer, p.byteOffset, p.byteLength), off);
++    off += p.byteLength;
++  }
++  return gzip(out);
++}
++
++/** The inverse. Throws on anything it does not recognise; callers treat that as a miss. */
++export async function decodeWorld(stored: Uint8Array): Promise<WorldData> {
++  const bytes = await gunzip(stored);
++  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
++  if (dv.getUint32(0, false) !== MAGIC) throw new Error('instantánea ilegible');
++  const headerLen = dv.getUint32(4, true);
++  const header = JSON.parse(
++    new TextDecoder().decode(bytes.subarray(8, 8 + headerLen)),
++  ) as Header;
++  if (header.v !== SNAPSHOT_VERSION) throw new Error(`versión ${header.v}`);
++
++  // One contiguous copy so every `slice` below is a plain byte range rather than
++  // an offset into a possibly unaligned view.
++  const payload = bytes.slice(8 + headerLen).buffer;
++  const n = header.width * header.height;
++  const t: Record<string, unknown> = {
++    width: header.width,
++    height: header.height,
++    params: header.params,
++    landmarks: header.landmarks,
++    plateInfo: header.plateInfo,
++    revision: 0,
++  };
++  let off = 0;
++  let k = 0;
++  for (const f of FIELDS) {
++    const len = header.layout[k++];
++    const view = decodeField(payload, off, len, n, f.codec);
++    t[f.name] = view.buffer;
++    off += len;
++  }
++  const rivers: { cells: ArrayBuffer; flow: number }[] = [];
++  for (let i = 0; i < header.riverFlows.length; i++) {
++    const len = header.layout[k++];
++    rivers.push({ cells: payload.slice(off, off + len), flow: header.riverFlows[i] });
++    off += len;
++  }
++  t.rivers = rivers;
++  return unpackWorld(t as unknown as WorldTransfer);
++}
+diff -urN wg-orig/src/engines/worldgen/operations.ts wg/src/engines/worldgen/operations.ts
+--- a/src/engines/worldgen/operations.ts	2026-07-26 17:03:02.548641429 +0000
++++ b/src/engines/worldgen/operations.ts	2026-07-26 17:05:22.718971864 +0000
+@@ -14,10 +14,11 @@
+   sortFn: (a, b) => a.createdAt - b.createdAt,
+ });
+ 
+-/** Deleting a world removes its waypoints too. */
++/** Deleting a world removes its waypoints and its forged snapshot too. */
+ export async function deleteWorldCascade(worldId: string): Promise<void> {
+-  await db.transaction('rw', [db.generatedWorlds, db.worldWaypoints], async () => {
++  await db.transaction('rw', [db.generatedWorlds, db.worldWaypoints, db.worldSnapshots], async () => {
+     await db.worldWaypoints.where('worldId').equals(worldId).delete();
++    await db.worldSnapshots.delete(worldId);
+     await db.generatedWorlds.delete(worldId);
+   });
+ }
+diff -urN wg-orig/src/engines/worldgen/snapshots.ts wg/src/engines/worldgen/snapshots.ts
+--- a/src/engines/worldgen/snapshots.ts	1970-01-01 00:00:00.000000000 +0000
++++ b/src/engines/worldgen/snapshots.ts	2026-07-26 17:05:22.718841546 +0000
+@@ -0,0 +1,82 @@
++// ============================================
++// World Generator — the snapshot bin
++// ============================================
++// Dexie access for the world cache. Kept out of `core/` on purpose: everything
++// under `core/` is pure and runs in a worker, in a harness and in a browser
++// alike, and the moment it imports the database it stops being any of those.
++//
++// Every function here fails soft. A snapshot that cannot be read, cannot be
++// written, or does not match the parameters it was made from is a cache miss,
++// and a cache miss costs twenty-six seconds — never correctness.
++
++import { db } from '@/db';
++import type { WorldData } from './core/types';
++import type { WorldSnapshot } from './types';
++import { decodeWorld, encodeWorld, SNAPSHOT_VERSION } from './core/worldStore';
++
++export type { WorldSnapshot };
++
++/**
++ * How many forged worlds are kept.
++ *
++ * Each is about eleven megabytes. Four is a reader with a couple of projects
++ * open and no thought spared for the bread bin; a hundred would be a database
++ * that grows without anyone asking it to.
++ */
++const KEEP = 4;
++
++/** Read back a forged world, or null if there isn't one that still applies. */
++export async function loadSnapshot(worldId: string, key: string): Promise<WorldData | null> {
++  try {
++    const row = await db.worldSnapshots.get(worldId);
++    if (!row || row.key !== key || row.version !== SNAPSHOT_VERSION) return null;
++    const world = await decodeWorld(row.bytes);
++    // Touch it so the eviction below keeps what is actually being used rather
++    // than what happened to be forged most recently.
++    void db.worldSnapshots.update(worldId, { savedAt: Date.now() }).catch(() => {});
++    return world;
++  } catch (err) {
++    console.warn('[worldgen] instantánea ilegible, se vuelve a forjar', err);
++    void dropSnapshot(worldId);
++    return null;
++  }
++}
++
++/**
++ * Keep a forged world.
++ *
++ * Deliberately fire-and-forget from the caller's point of view: the reader has
++ * their world on screen already and nothing about this is worth making them
++ * wait for, or worth an error dialogue if the disk is full.
++ */
++export async function saveSnapshot(worldId: string, key: string, world: WorldData): Promise<void> {
++  try {
++    const bytes = await encodeWorld(world);
++    await db.worldSnapshots.put({
++      worldId,
++      key,
++      version: SNAPSHOT_VERSION,
++      bytes,
++      width: world.width,
++      height: world.height,
++      savedAt: Date.now(),
++    });
++    await evict();
++  } catch (err) {
++    console.warn('[worldgen] no se pudo guardar la instantánea', err);
++  }
++}
++
++export async function dropSnapshot(worldId: string): Promise<void> {
++  try {
++    await db.worldSnapshots.delete(worldId);
++  } catch {
++    // Nothing to do: a snapshot that will not delete is still only a cache.
++  }
++}
++
++async function evict(): Promise<void> {
++  const keys = await db.worldSnapshots.orderBy('savedAt').reverse().primaryKeys();
++  if (keys.length <= KEEP) return;
++  await db.worldSnapshots.bulkDelete(keys.slice(KEEP) as string[]);
++}
+diff -urN wg-orig/src/engines/worldgen/types.ts wg/src/engines/worldgen/types.ts
+--- a/src/engines/worldgen/types.ts	2026-07-26 17:03:02.548630322 +0000
++++ b/src/engines/worldgen/types.ts	2026-07-26 17:05:22.718211608 +0000
+@@ -12,12 +12,43 @@
+   projectId: string;
+   title: string;
+   params: WorldParams;
++  /**
++   * The brush strokes, serialised.
++   *
++   * This is the other half of the world and it was not being saved: a coastline
++   * painted by hand, a river drawn by hand, a town placed by hand and every
++   * renamed sea existed only until the application was closed. Seed and
++   * parameters describe what the generator made; this describes what the reader
++   * made of it, and a world is both.
++   *
++   * Stored as the JSON `PaintSession.serialize()` produces — an ordered list,
++   * replayed from the pristine world on load. A few hundred bytes for a normal
++   * session, and it travels in the backup with the rest of the row.
++   */
++  edits?: string;
+   /** Small JPEG data URL preview for dashboards / future use. */
+   thumbnail?: string;
+   createdAt: number;
+   updatedAt: number;
+ }
+ 
++/**
++ * A forged world, kept so it does not have to be forged again.
++ *
++ * A cache row, not a record: see `snapshots.ts` and `core/worldStore.ts`. The
++ * bytes are quantised and gzipped, and anything whose `key` or `version` no
++ * longer matches is discarded and regenerated.
++ */
++export interface WorldSnapshot {
++  worldId: string;
++  key: string;
++  version: number;
++  bytes: Uint8Array;
++  width: number;
++  height: number;
++  savedAt: number;
++}
++
+ export interface WorldWaypoint {
+   id: string;
+   projectId: string;
+diff -urN wg-orig/src/engines/worldgen/useWorldGeneration.ts wg/src/engines/worldgen/useWorldGeneration.ts
+--- a/src/engines/worldgen/useWorldGeneration.ts	2026-07-26 17:03:02.548651859 +0000
++++ b/src/engines/worldgen/useWorldGeneration.ts	2026-07-26 17:08:18.592386127 +0000
+@@ -1,22 +1,70 @@
+ // ============================================
+ // World Generator — generation lifecycle hook
+ // ============================================
+-// Owns the worker, progress state and the in-memory world cache. Worlds are
+-// regenerated from (seed, params) whenever they aren't cached — deterministic
+-// pipeline, so the result is identical every time.
++// Owns the worker, the progress state, and the two caches a world lives in.
++//
++// Worlds are (seed, params, edits) and the pipeline is deterministic, so the
++// terrain can always be rebuilt. It just must not have to be: rebuilding is
++// twenty-six seconds on the default grid, and before the snapshot below existed
++// that bill was paid on every application start, for every world, for ever.
++//
++// So there are two caches in front of one generator:
++//
++//   1. THE SESSION CACHE, in this module. Instant, holds the live objects, dies
++//      with the tab.
++//   2. THE SNAPSHOT, in IndexedDB. About a second, survives everything, and is
++//      discarded whenever its parameters or its format no longer match.
++//
++// And one rule that is easy to miss and expensive to get wrong: PAINTING
++// MUTATES THE WORLD IN PLACE. The cached object is therefore the EDITED world,
++// not the generated one, so the session cache also keeps a pristine copy of the
++// three fields an edit can touch. Handing a caller the edited arrays and then
++// letting `PaintSession` snapshot them as "pristine" would bake the strokes in
++// permanently and replay the saved list on top of itself.
+ 
+ import { useCallback, useEffect, useRef, useState } from 'react';
+ import type { WorldData, WorldParams } from './core/types';
+ import { unpackWorld } from './core/types';
++import { loadSnapshot, saveSnapshot } from './snapshots';
+ import type { WorkerReply } from './worldgen.worker';
+ 
+-/** Session-lifetime cache: worldId → { key, data }. */
+-const cache = new Map<string, { key: string; data: WorldData }>();
++interface Entry {
++  key: string;
++  data: WorldData;
++  /** The generated world, before any brush touched it. */
++  pristine: { elevation: Float32Array; biome: Uint8Array; lake: Uint8Array };
++}
++
++/** Session-lifetime cache: worldId → entry. */
++const cache = new Map<string, Entry>();
+ 
+ export function paramsKey(params: WorldParams): string {
+   return JSON.stringify(params);
+ }
+ 
++function remember(worldId: string, key: string, data: WorldData): Entry {
++  const entry: Entry = {
++    key,
++    data,
++    pristine: {
++      elevation: Float32Array.from(data.elevation),
++      biome: Uint8Array.from(data.biome),
++      lake: Uint8Array.from(data.lake),
++    },
++  };
++  cache.delete(worldId);
++  cache.set(worldId, entry);
++  // Three worlds of pristine copies is about thirty-six megabytes; a reader who
++  // browses ten in one sitting should not be carrying all ten. Map iteration is
++  // insertion-ordered, so the first key is the least recently remembered.
++  while (cache.size > 3) {
++    const oldest = cache.keys().next().value;
++    if (!oldest || oldest === worldId) break;
++    cache.delete(oldest);
++  }
++  return entry;
++}
++
+ export function getCachedWorld(worldId: string, params: WorldParams): WorldData | null {
+   const hit = cache.get(worldId);
+   if (hit && hit.key === paramsKey(params)) return hit.data;
+@@ -31,6 +79,7 @@
+ }
+ 
+ const IDLE: GenerationState = { running: false, stage: '', progress: 0, error: null };
++const LOADING: GenerationState = { running: true, stage: 'loading', progress: 0.5, error: null };
+ 
+ export function useWorldGeneration(
+   worldId: string,
+@@ -40,10 +89,20 @@
+   gen: GenerationState;
+   generate: (params: WorldParams) => void;
+   cancel: () => void;
++  /**
++   * Put the world's editable fields back the way the generator left them.
++   *
++   * Called immediately before a `PaintSession` is built over the world, so the
++   * session's own pristine snapshot is genuinely pristine and the saved edit
++   * list replays exactly once instead of on top of itself.
++   */
++  restorePristine: (world: WorldData) => void;
+ } {
+   const [world, setWorld] = useState<WorldData | null>(() => cache.get(worldId)?.data ?? null);
+   const [gen, setGen] = useState<GenerationState>(IDLE);
+   const workerRef = useRef<Worker | null>(null);
++  /** Monotonic token: a load or a generation that finishes late is discarded. */
++  const runRef = useRef(0);
+   const onDoneRef = useRef(onDone);
+   useEffect(() => {
+     onDoneRef.current = onDone;
+@@ -57,6 +116,7 @@
+     const hit = cache.get(worldId);
+     setWorld(hit ? hit.data : null);
+     setGen(IDLE);
++    runRef.current++;
+   }
+ 
+   // Kill any in-flight worker when the world changes or on unmount.
+@@ -64,23 +124,28 @@
+     return () => {
+       workerRef.current?.terminate();
+       workerRef.current = null;
++      runRef.current++;
+     };
+   }, [worldId]);
+ 
+   const cancel = useCallback(() => {
+     workerRef.current?.terminate();
+     workerRef.current = null;
++    runRef.current++;
+     setGen(IDLE);
+   }, []);
+ 
+-  const generate = useCallback((params: WorldParams) => {
+-    // Cache hit → instant.
+-    const hit = getCachedWorld(worldId, params);
+-    if (hit) {
+-      setWorld(hit);
+-      setGen(IDLE);
+-      return;
+-    }
++  const restorePristine = useCallback((w: WorldData) => {
++    const entry = cache.get(worldId);
++    if (!entry || entry.data !== w) return;
++    w.elevation.set(entry.pristine.elevation);
++    w.biome.set(entry.pristine.biome);
++    w.lake.set(entry.pristine.lake);
++    w.painted = undefined;
++    w.revision = (w.revision ?? 0) + 1;
++  }, [worldId]);
++
++  const forge = useCallback((params: WorldParams, key: string, run: number) => {
+     workerRef.current?.terminate();
+     const worker = new Worker(new URL('./worldgen.worker.ts', import.meta.url), { type: 'module' });
+     workerRef.current = worker;
+@@ -89,29 +154,70 @@
+     worker.onmessage = (e: MessageEvent<WorkerReply>) => {
+       const msg = e.data;
+       if (msg.type === 'progress') {
++        if (run !== runRef.current) return;
+         setGen({ running: true, stage: msg.stage, progress: msg.overall, error: null });
+       } else if (msg.type === 'done') {
++        worker.terminate();
++        if (workerRef.current === worker) workerRef.current = null;
++        if (run !== runRef.current) return;
+         const data = unpackWorld(msg.world);
+-        cache.set(worldId, { key: paramsKey(params), data });
++        remember(worldId, key, data);
+         setWorld(data);
+         setGen(IDLE);
+-        worker.terminate();
+-        if (workerRef.current === worker) workerRef.current = null;
++        // Kept for next time. Deferred rather than immediate: quantising
++        // thirty-eight megabytes is about half a second of main thread, and the
++        // moment the world arrives is precisely when the reader is watching it
++        // draw. Nothing waits on it and nothing breaks if it fails — the worst
++        // case is that the world gets forged again one day.
++        window.setTimeout(() => { void saveSnapshot(worldId, key, data); }, 2500);
+         onDoneRef.current?.(data);
+       } else {
+-        setGen({ running: false, stage: '', progress: 0, error: msg.message });
+         worker.terminate();
+         if (workerRef.current === worker) workerRef.current = null;
++        if (run !== runRef.current) return;
++        setGen({ running: false, stage: '', progress: 0, error: msg.message });
+       }
+     };
+     worker.onerror = (err) => {
+-      setGen({ running: false, stage: '', progress: 0, error: err.message || 'Worker error' });
+       worker.terminate();
+       if (workerRef.current === worker) workerRef.current = null;
++      if (run !== runRef.current) return;
++      setGen({ running: false, stage: '', progress: 0, error: err.message || 'Worker error' });
+     };
+ 
+     worker.postMessage({ type: 'generate', params });
+   }, [worldId]);
+ 
+-  return { world, gen, generate, cancel };
++  const generate = useCallback((params: WorldParams) => {
++    const key = paramsKey(params);
++    const run = ++runRef.current;
++
++    // 1. Session cache → instant.
++    const hit = cache.get(worldId);
++    if (hit && hit.key === key) {
++      setWorld(hit.data);
++      setGen(IDLE);
++      return;
++    }
++
++    // 2. Snapshot → about a second. The overlay says "loading" rather than
++    //    naming a pipeline stage, because no pipeline stage is running.
++    setGen(LOADING);
++    void loadSnapshot(worldId, key).then((stored) => {
++      if (run !== runRef.current) return;
++      if (!stored) {
++        forge(params, key, run);
++        return;
++      }
++      remember(worldId, key, stored);
++      setWorld(stored);
++      setGen(IDLE);
++      onDoneRef.current?.(stored);
++    }).catch(() => {
++      if (run !== runRef.current) return;
++      forge(params, key, run);
++    });
++  }, [worldId, forge]);
++
++  return { world, gen, generate, cancel, restorePristine };
+ }

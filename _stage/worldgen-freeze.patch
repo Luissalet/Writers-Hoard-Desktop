@@ -1,0 +1,344 @@
+diff -urN wg-dev/src/engines/worldgen/cartography/texture.ts wg/src/engines/worldgen/cartography/texture.ts
+--- a/src/engines/worldgen/cartography/texture.ts	2026-07-26 17:47:53.249235328 +0000
++++ b/src/engines/worldgen/cartography/texture.ts	2026-07-26 17:38:47.997384737 +0000
+@@ -6,7 +6,7 @@
+ // panning, switching views and opening the 3D scene never pay for them twice.
+ 
+ import type { WorldData } from '../core/types';
+-import { buildHumanGeography, DEFAULT_HUMAN_PARAMS, type HumanGeography, type HumanGeographyParams, type Settlement } from '../core/settlements';
++import { buildHumanGeography, DEFAULT_HUMAN_PARAMS, type GeoDepth, type HumanGeography, type HumanGeographyParams, type Settlement } from '../core/settlements';
+ import { renderCartography, type CartoLayers, type CartoView } from './render';
+ import type { CartoTheme } from './theme';
+ import type { Ctx } from './symbols';
+@@ -20,6 +20,13 @@
+   /** The last FULLY rebuilt geography, and the revision it was built at. */
+   base: HumanGeography;
+   baseRev: number;
++  /** How much of the human world this entry actually contains. */
++  depth: GeoDepth;
++}
++
++/** A cached entry answers a request when it holds at least as much as it asks for. */
++function covers(entry: GeoEntry, depth: GeoDepth): boolean {
++  return entry.depth === 'full' || depth === 'places';
+ }
+ const GEO_CACHE = new WeakMap<WorldData, GeoEntry>();
+ 
+@@ -39,37 +46,54 @@
+  * were. `rebuildGeography` forces the full pass when it is genuinely wanted —
+  * the caller schedules it once the reader stops painting.
+  */
+-export function getGeography(world: WorldData, params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS): HumanGeography {
++export function getGeography(
++  world: WorldData,
++  depth: GeoDepth = 'full',
++  params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS,
++): HumanGeography {
+   const key = JSON.stringify(params);
+   const rev = world.revision ?? 0;
+   const hit = GEO_CACHE.get(world);
+-  if (hit && hit.key === key && hit.rev === rev) return hit.geo;
+-  if (hit && hit.key === key) {
++  // A deeper entry answers a shallower question, so opening the 3D world after
++  // the carta never throws away the expensive half and builds it again.
++  if (hit && hit.key === key && covers(hit, depth)) {
++    if (hit.rev === rev) return hit.geo;
+     const geo = patchGeography(world, hit.base);
+     GEO_CACHE.set(world, { ...hit, rev, geo });
+     return geo;
+   }
+-  const base = buildHumanGeography(world, params);
+-  GEO_CACHE.set(world, { key, rev, geo: base, base, baseRev: rev });
++  const base = buildHumanGeography(world, params, depth);
++  GEO_CACHE.set(world, { key, rev, geo: base, base, baseRev: rev, depth });
+   return base;
+ }
+ 
+-/** Force the full pass and adopt the result as the new base. */
++/** Force the full pass at this depth and adopt the result as the new base. */
+ export function rebuildGeography(
+   world: WorldData,
++  depth: GeoDepth = 'full',
+   params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS,
+ ): HumanGeography {
+   const key = JSON.stringify(params);
+   const rev = world.revision ?? 0;
+-  const base = buildHumanGeography(world, params);
+-  GEO_CACHE.set(world, { key, rev, geo: base, base, baseRev: rev });
++  // Never downgrade: a rebuild asked for the dots must not discard the roads,
++  // the named seas and the ruins if the reader has already paid for them.
++  const hit = GEO_CACHE.get(world);
++  const want: GeoDepth = hit && hit.key === key && hit.depth === 'full' ? 'full' : depth;
++  const base = buildHumanGeography(world, params, want);
++  GEO_CACHE.set(world, { key, rev, geo: base, base, baseRev: rev, depth: want });
+   return base;
+ }
+ 
+-/** True when the cached geography is a patch rather than a full build. */
+-export function geographyIsStale(world: WorldData): boolean {
++/**
++ * True when what is cached is not good enough for what is being asked.
++ *
++ * Two ways to fall short: it is a cheap patch of an older revision, or it was
++ * built shallow and the caller now wants the whole thing.
++ */
++export function geographyIsStale(world: WorldData, depth: GeoDepth = 'full'): boolean {
+   const hit = GEO_CACHE.get(world);
+-  return !!hit && hit.baseRev !== (world.revision ?? 0);
++  if (!hit) return false;
++  return hit.baseRev !== (world.revision ?? 0) || !covers(hit, depth);
+ }
+ 
+ /**
+diff -urN wg-dev/src/engines/worldgen/components/WorldView.tsx wg/src/engines/worldgen/components/WorldView.tsx
+--- a/src/engines/worldgen/components/WorldView.tsx	2026-07-26 17:47:53.260316461 +0000
++++ b/src/engines/worldgen/components/WorldView.tsx	2026-07-26 17:41:30.779796041 +0000
+@@ -36,6 +36,7 @@
+ import type { WorldEdit } from '../core/edits';
+ import { THEMES, themeById } from '../cartography/theme';
+ import { getGeography, geographyIsStale, rebuildGeography, renderCartoCanvas } from '../cartography/texture';
++import type { GeoDepth } from '../core/settlements';
+ import type { HumanGeography, Settlement } from '../core/settlements';
+ import type { CartoLayers } from '../cartography/render';
+ import type { CartoAnnotations } from '../cartography/annotations';
+@@ -144,6 +145,12 @@
+   const [flyTarget, setFlyTarget] = useState<{ u: number; v: number; token: number } | null>(null);
+   const [exaggeration, setExaggeration] = useState(30);
+   const [exportOpen, setExportOpen] = useState(false);
++  // Declared up here with the rest of the view state rather than down in the
++  // painting section, because whether a brush is out decides when the human
++  // geography may be rebuilt — and that effect runs above it.
++  const [tool, setTool] = useState<PaintTool>(DEFAULT_PAINT_TOOL);
++  // Same reason: a stroke bumps this, and the geography effect has to notice.
++  const [paintRev, setPaintRev] = useState(0);
+ 
+   const thumbRef = useRef<string | undefined>(world.thumbnail);
+ 
+@@ -200,20 +207,47 @@
+   // background; the map itself is never unmounted for it any more.
+   const [geoBusy, setGeoBusy] = useState(false);
+   /**
+-   * Who needs the human geography, now that towns are on every view.
++   * Who needs the human geography, and HOW MUCH of it.
++   *
++   * These are two different questions and conflating them cost seconds of frozen
++   * main thread. The dots you click to open a town's plan are on every view now,
++   * and they are cheap: cultures, siting, realms and roads are about a second
++   * and a half. The named capes and seas and the ruins are another eighteen,
++   * because both walk every cell of the grid — and neither is on screen unless
++   * the reader has asked for the sheet that draws them.
+    *
+-   * It used to be "the carta, and 3D when it is wearing the carta". But the dots
+-   * you click to open a town's plan come from here, and those are on the 3D
+-   * world and the satellite map too — so the answer is now "unless the reader
+-   * has turned the towns off". It is still computed off the render path and the
+-   * map is never unmounted waiting for it.
++   * So the 3D world and the satellite map ask for `places`, and the carta, the
++   * index and the journey panel ask for `full`. See `GeoDepth` in settlements.
+    */
+-  const needsGeo = view === 'carta' || skin3D === 'dibujado' || showSettlements;
++  const needsFullGeo = view === 'carta' || skin3D === 'dibujado'
++    || panelTab === 'atlas' || panelTab === 'journey';
++  const needsGeo = needsFullGeo || showSettlements;
++  const geoDepth: GeoDepth = needsFullGeo ? 'full' : 'places';
++
++  /**
++   * A brush exists only where it can be used.
++   *
++   * Two bugs came out of the tool being a single piece of state that outlived
++   * the place it was chosen: the crosshair followed the reader into panels that
++   * have nothing to paint, and the carta — which is a finished drawing, not a
++   * working surface — accepted strokes. Both are the same mistake, so both get
++   * the same fix: leaving the brush box, or opening the carta, puts the brush
++   * down. `paintable` is the single source of truth for "can this view paint",
++   * and the views are handed a brush only when it is true.
++   */
++  const paintable = view !== 'carta' && panelTab === 'paint';
++  const brush = paintable ? tool : DEFAULT_PAINT_TOOL;
++  /** True while the reader is holding a brush: nothing expensive may run. */
++  const brushIsOut = brush.mode !== 'off';
++  const brushingRef = useRef(brushIsOut);
++  brushingRef.current = brushIsOut;
+   // Read through a ref so `afterEdit` does not have to be rebuilt — and so a
+   // stroke started in one view cannot be judged by the view the reader has
+   // since switched to.
+   const needsGeoRef = useRef(needsGeo);
+   needsGeoRef.current = needsGeo;
++  const geoDepthRef = useRef(geoDepth);
++  geoDepthRef.current = geoDepth;
+   /** The world revision the cached geography was built at. */
+   const geoRev = useRef(-1);
+ 
+@@ -268,43 +302,37 @@
+    */
+   useEffect(() => {
+     if (!needsGeo || !data) return;
++    // NOT WHILE A BRUSH IS OUT. Rebuilding costs one and a half seconds at
++    // `places` and nineteen at `full`, and a reader mid-stroke wants neither —
++    // the cheap patch in `afterEdit` keeps the dots honest until they stop.
++    if (brushingRef.current) return;
+     const rev = data.revision ?? 0;
+-    if (geography && geoRev.current === rev) return;
++    // Two ways to be out of date, and they need different answers. A cheap patch
++    // of the current revision is REPAIRED by a full pass; a missing or shallow
++    // build is simply BUILT. Asking `getGeography` in the first case would hand
++    // back the same patch it already has and the roads would never catch up.
++    const stale = geographyIsStale(data, geoDepth);
++    if (geography && geoRev.current === rev && !stale) return;
+     setGeoBusy(true);
+     const id = window.setTimeout(() => {
+       try {
+         geoRev.current = rev;
+-        setGeography(getGeography(data));
++        setGeography(stale ? rebuildGeography(data, geoDepth) : getGeography(data, geoDepth));
+       } finally {
+         setGeoBusy(false);
+       }
+     }, 30);
+     return () => window.clearTimeout(id);
+-  }, [needsGeo, data, geography, view, skin3D]);
++  }, [needsGeo, geoDepth, brushIsOut, data, geography, paintRev]);
+ 
+   // ---- painting ------------------------------------------------------------
+   // A world is stored as seed + params + edit list, so the session holds the list
+   // and a pristine snapshot; the world object itself is mutated in place and its
+   // revision counter is what tells every cache and the map to redraw.
+-  const [tool, setTool] = useState<PaintTool>(DEFAULT_PAINT_TOOL);
+-  /**
+-   * A brush exists only where it can be used.
+-   *
+-   * Two bugs came out of the tool being a single piece of state that outlived
+-   * the place it was chosen: the crosshair followed the reader into panels that
+-   * have nothing to paint, and the carta — which is a finished drawing, not a
+-   * working surface — accepted strokes. Both are the same mistake, so both get
+-   * the same fix: leaving the brush box, or opening the carta, puts the brush
+-   * down. `paintable` is the single source of truth for "can this view paint",
+-   * and the views are handed a brush only when it is true.
+-   */
+-  const paintable = view !== 'carta' && panelTab === 'paint';
+   useEffect(() => {
+     if (!paintable) setTool((t) => (t.mode === 'off' ? t : { ...t, mode: 'off' }));
+   }, [paintable]);
+-  const brush = paintable ? tool : DEFAULT_PAINT_TOOL;
+ 
+-  const [paintRev, setPaintRev] = useState(0);
+   const [painting, setPainting] = useState(false);
+   const session = useRef<PaintSession | null>(null);
+   /**
+@@ -355,36 +383,23 @@
+   // painted marks appear at once, anything drowned disappears — and schedule the
+   // real rebuild for when the reader stops painting, so roads and realms catch up
+   // without a four-second stall between brush strokes.
+-  const rebuildTimer = useRef(0);
+   const afterEdit = useCallback(() => {
+-    // The human geography is what the CARTA needs — cultures, a language family,
+-    // settlement siting, roads by A*, ruins and a hundred and seventy place
+-    // names. While the reader is sculpting, none of it is on screen and none of
+-    // it is worth six and a half seconds of frozen main thread on the first
+-    // stroke, which is exactly what the console reported. It is recomputed when
+-    // they go back to a view that shows it.
++    // A stroke gets the PATCH and nothing else: two milliseconds, measured.
++    // Painted marks appear at once and anything drowned disappears, while roads,
++    // realms and named seas stay as they were.
++    //
++    // What used to be here — a full rebuild scheduled 2.2 s after every stroke —
++    // is the freeze Luis reported. On a 2048-wide world that pass is nineteen
++    // seconds, and it fired every time he stopped moving the brush. The rebuild
++    // now belongs to the effect above, which runs when the brush goes away.
+     if (data && needsGeoRef.current) {
+       geoRev.current = data.revision ?? 0;
+-      setGeography(getGeography(data));
++      setGeography(getGeography(data, geoDepthRef.current));
+     }
+     setPaintRev((r) => r + 1);
+     scheduleSaveEdits();
+-    window.clearTimeout(rebuildTimer.current);
+-    rebuildTimer.current = window.setTimeout(() => {
+-      if (!data || !needsGeoRef.current || !geographyIsStale(data)) return;
+-      setGeoBusy(true);
+-      window.setTimeout(() => {
+-        try {
+-          setGeography(rebuildGeography(data));
+-        } finally {
+-          setGeoBusy(false);
+-        }
+-      }, 20);
+-    }, 2200);
+   }, [data, scheduleSaveEdits]);
+ 
+-  useEffect(() => () => window.clearTimeout(rebuildTimer.current), []);
+-
+   const applyEdit = useCallback((edit: WorldEdit) => {
+     const s = session.current;
+     if (!s) return;
+diff -urN wg-dev/src/engines/worldgen/core/settlements.ts wg/src/engines/worldgen/core/settlements.ts
+--- a/src/engines/worldgen/core/settlements.ts	2026-07-26 17:47:53.252335077 +0000
++++ b/src/engines/worldgen/core/settlements.ts	2026-07-26 17:46:00.360594349 +0000
+@@ -263,9 +263,34 @@
+ // Main
+ // ---------------------------------------------------------------------------
+ 
++/**
++ * How much of the human world to work out.
++ *
++ * Measured on a 2048 × 1024 grid, by timing the real calls:
++ *
++ *   cultures, languages, coasts, siting, realms     1 158 ms
++ *   + the road network (A* between 162 towns)       7 888 ms
++ *   + landforms, named geography, ruins             8 818 ms
++ *   ────────────────────────────────────────────── 17 864 ms
++ *
++ * The 3D world and the satellite map want dots you can click and a name to put
++ * beside each one. They draw no roads, no named capes and no ruins. The carta,
++ * the index and the journey panel want all of it.
++ *
++ * Splitting that turns opening a world into a second and a bit instead of
++ * eighteen, and leaves the expensive pass exactly where it always was: paid
++ * once, when the reader asks for the sheet that draws it.
++ *
++ * NOTE FOR WHOEVER PROFILES THIS NEXT: the first attempt put timing marks at the
++ * section comments and mis-attributed the cost by one phase, which sent an hour
++ * of work at the wrong function. Time the CALLS.
++ */
++export type GeoDepth = 'places' | 'full';
++
+ export function buildHumanGeography(
+   world: WorldData,
+   params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS,
++  depth: GeoDepth = 'full',
+ ): HumanGeography {
+   const { width: W, height: H, elevation, biome, temperature, precipitation, flow, lake } = world;
+   const seed = world.params.seed;
+@@ -506,19 +531,25 @@
+   for (const s of settlements) s.realm = realmOf[s.y * W + s.x];
+ 
+   // ---- roads --------------------------------------------------------------
+-  const roads = buildRoads(world, settlements, coastal);
++  // A* between every pair of towns worth joining: eight seconds, and nothing
++  // outside the carta and the journey panel draws or walks them.
++  const roads = depth === 'full' ? buildRoads(world, settlements, coastal) : [];
+ 
+   // ---- named geography ----------------------------------------------------
+   // Landforms are found once and used twice: the label layer names them, and the
+   // ruin generator treats passes, straits and capes as sites worth having held.
+-  const landforms = findLandforms(world);
+-  const features = nameGeography(world, coin, cultureAt, landforms);
++  const landforms = depth === 'full' ? findLandforms(world) : [];
++  const features = depth === 'full' ? nameGeography(world, coin, cultureAt, landforms) : [];
+ 
+   // ---- ruins --------------------------------------------------------------
+-  const ruins = generateRuins(world, settlements, landforms, (kind, x, y) => {
+-    const et = coin(cultureAt(x, y), `ruin:${kind}:${x},${y}`, RUIN_BIAS[kind]);
+-    return `${ruinPrefix(kind, x, y)} ${et.text}`;
+-  }, { density: world.params.filters?.ruinDensity ?? 1, filters: world.params.filters });
++  // Generated ruins are part of the expensive half; ruins the reader PLACED are
++  // theirs and appear at either depth, which is the loop just below.
++  const ruins: Ruin[] = depth === 'full'
++    ? generateRuins(world, settlements, landforms, (kind, x, y) => {
++      const et = coin(cultureAt(x, y), `ruin:${kind}:${x},${y}`, RUIN_BIAS[kind]);
++      return `${ruinPrefix(kind, x, y)} ${et.text}`;
++    }, { density: world.params.filters?.ruinDensity ?? 1, filters: world.params.filters })
++    : [];
+ 
+   for (const m of world.painted?.markers ?? []) {
+     if (m.marker !== 'ruin') continue;

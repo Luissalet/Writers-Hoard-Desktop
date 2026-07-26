@@ -1,0 +1,80 @@
+diff -urN wg-dev2/src/engines/worldgen/core/edits.ts wg/src/engines/worldgen/core/edits.ts
+--- a/src/engines/worldgen/core/edits.ts	2026-07-26 18:06:08.941262736 +0000
++++ b/src/engines/worldgen/core/edits.ts	2026-07-26 18:00:58.657218756 +0000
+@@ -235,6 +235,44 @@
+  * everything else means), then the derived fields and the biome classifier, then
+  * explicit biome paints on top, then rivers, then markers and labels.
+  */
++/**
++ * The distance-to-sea field, recomputed only when the sea actually moved.
++ *
++ * The exact EDT is 230 ms of the ~410 ms a brush stroke costs, and it depends on
++ * ONE thing: which cells are below sea level. Raising a ridge inland does not
++ * move a single coastline cell — measured, exactly zero — so the whole transform
++ * was being recomputed to produce the array it had already produced. Comparing
++ * the two masks costs three milliseconds a word at a time.
++ *
++ * The cache hangs off the world in a WeakMap, so it lives exactly as long as the
++ * world object does and never has to be invalidated by hand.
++ */
++interface SeaCache { mask: Uint8Array; dist: Float32Array }
++const SEA_CACHE = new WeakMap<WorldData, SeaCache>();
++
++function sameMask(a: Uint8Array, b: Uint8Array): boolean {
++  if (a.length !== b.length) return false;
++  // Both are freshly allocated, so both start at byte offset zero and the
++  // 32-bit view is safe.
++  const words = a.length >>> 2;
++  const A = new Uint32Array(a.buffer, 0, words);
++  const B = new Uint32Array(b.buffer, 0, words);
++  for (let i = 0; i < words; i++) if (A[i] !== B[i]) return false;
++  for (let i = words << 2; i < a.length; i++) if (a[i] !== b[i]) return false;
++  return true;
++}
++
++function seaDistanceFor(world: WorldData, elev: Float32Array, W: number, H: number): Float32Array {
++  const N = W * H;
++  const mask = new Uint8Array(N);
++  for (let i = 0; i < N; i++) mask[i] = elev[i] <= 0 ? 1 : 0;
++  const hit = SEA_CACHE.get(world);
++  if (hit && sameMask(hit.mask, mask)) return hit.dist;
++  const dist = distanceTo(mask, W, H);
++  SEA_CACHE.set(world, { mask, dist });
++  return dist;
++}
++
+ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
+   const W = world.width, H = world.height, N = W * H;
+   const out: AppliedEdits = {
+@@ -288,9 +326,7 @@
+ 
+   // ---- 2. re-derive what the terrain decides -----------------------------
+   if (out.terrainChanged) {
+-    const seaMask = new Uint8Array(N);
+-    for (let i = 0; i < N; i++) seaMask[i] = elev[i] <= 0 ? 1 : 0;
+-    const seaDist = distanceTo(seaMask, W, H);
++    const seaDist = seaDistanceFor(world, elev, W, H);
+     const reliefR = Math.max(3, Math.round(W / 150));
+     const relief = localRelief(elev, W, H, reliefR);
+     // Lakes are a hydrology product; a painted basin below sea level should read
+diff -urN wg-dev2/src/engines/worldgen/core/render.ts wg/src/engines/worldgen/core/render.ts
+--- a/src/engines/worldgen/core/render.ts	2026-07-26 18:06:08.941153346 +0000
++++ b/src/engines/worldgen/core/render.ts	2026-07-26 18:00:58.655790781 +0000
+@@ -381,7 +381,16 @@
+     px[o] = rr; px[o + 1] = rg; px[o + 2] = rb; px[o + 3] = a;
+   };
+ 
+-  for (const river of world.rivers) {
++  // Hand-drawn rivers are rivers.
++  //
++  // They were carved into the elevation so they show up in drainage and in the
++  // biomes along their banks — and then drawn by the carta and by nobody else,
++  // because this function only ever looked at `world.rivers`. On the satellite
++  // raster, which is now the main view, a painted river was a shaded groove in
++  // the ground with no water in it: a scar, not a river.
++  const painted = world.painted?.rivers;
++  const all = painted?.length ? [...world.rivers, ...painted] : world.rivers;
++  for (const river of all) {
+     const cells = river.cells;
+     const n = cells.length;
+     for (let k = 0; k < n; k++) {

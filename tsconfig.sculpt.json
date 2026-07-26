@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler",
+    "lib": ["ES2022","DOM","DOM.Iterable"], "strict": true, "noEmit": true,
+    "skipLibCheck": true, "jsx": "react-jsx", "types": ["node"],
+    "noUnusedLocals": true, "noUnusedParameters": true, "erasableSyntaxOnly": true
+  },
+  "include": [
+    "src/engines/worldgen/sculpt/**/*.ts",
+    "src/engines/worldgen/components/Sculpt3D.tsx",
+    "src/engines/worldgen/components/SculptView.tsx",
+    "src/engines/worldgen/core/**/*.ts"
+  ]
+}

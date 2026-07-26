@@ -1,0 +1,3161 @@
+diff -urN wg-orig/src/db/operations.ts wg/src/db/operations.ts
+--- a/src/db/operations.ts	2026-07-26 10:54:54.755622963 +0000
++++ b/src/db/operations.ts	2026-07-26 10:55:18.984271712 +0000
+@@ -16,6 +16,41 @@
+ } from '../types';
+ 
+ // ===== Projects =====
++
++/**
++ * Project rows are read by more than one component at a time.
++ *
++ * The sidebar and the project page each call `useProject(id)`, and each keeps
++ * its OWN copy of the row. So a save made from the page — adding an engine, for
++ * instance — refreshed the page's copy and left the sidebar's untouched: the new
++ * engine did not appear in the list until you left the project and came back,
++ * which remounted the sidebar and made it fetch again.
++ *
++ * The fix is not to lift the project into a store (every consumer would then
++ * have to be rewritten) but to make the WRITE announce itself. Every project
++ * mutation bumps a version; the hooks subscribe to it and re-read. One line at
++ * each write site, and any future reader gets the same guarantee for free.
++ */
++let projectsVersion = 0;
++const projectListeners = new Set<() => void>();
++
++export function subscribeProjects(fn: () => void): () => void {
++  projectListeners.add(fn);
++  return () => {
++    projectListeners.delete(fn);
++  };
++}
++
++export function getProjectsVersion(): number {
++  return projectsVersion;
++}
++
++/** Announce that a project row changed. Safe to call from anywhere. */
++export function notifyProjectsChanged(): void {
++  projectsVersion++;
++  for (const fn of [...projectListeners]) fn();
++}
++
+ export async function getAllProjects(): Promise<Project[]> {
+   return db.projects.orderBy('updatedAt').reverse().toArray();
+ }
+@@ -25,11 +60,14 @@
+ }
+ 
+ export async function createProject(project: Project): Promise<string> {
+-  return db.projects.add(project);
++  const key = await db.projects.add(project);
++  notifyProjectsChanged();
++  return key;
+ }
+ 
+ export async function updateProject(id: string, changes: Partial<Project>): Promise<void> {
+   await db.projects.update(id, { ...changes, updatedAt: Date.now() });
++  notifyProjectsChanged();
+ }
+ 
+ /**
+@@ -80,6 +118,7 @@
+ 
+     await db.projects.delete(id);
+   });
++  notifyProjectsChanged();
+ }
+ 
+ // ===== Codex Entries =====
+diff -urN wg-orig/src/engines/worldgen/components/CartoMap.tsx wg/src/engines/worldgen/components/CartoMap.tsx
+--- a/src/engines/worldgen/components/CartoMap.tsx	2026-07-26 10:54:54.756690161 +0000
++++ b/src/engines/worldgen/components/CartoMap.tsx	2026-07-26 11:15:11.168198446 +0000
+@@ -4,8 +4,6 @@
+ import { renderCartoCanvas, pickSettlement } from '../cartography/texture';
+ import type { CartoLayers, CartoView } from '../cartography/render';
+ import type { CartoTheme } from '../cartography/theme';
+-import { editKey, type EditTarget, type Pt, type WorldEdit } from '../core/edits';
+-import type { PaintTool } from './PaintPanel';
+ import { CartoBaseGL } from '../cartography/glbase';
+ import { computeFields, getTintFieldFor } from '../cartography/render';
+ import { drawAnnotations, type CartoAnnotations } from '../cartography/annotations';
+@@ -59,12 +57,22 @@
+    */
+   annotations?: CartoAnnotations;
+   onViewChange?: (view: CartoView) => void;
+-  /** Active brush. When its mode is 'off' the map behaves as a plain viewer. */
+-  paint?: PaintTool;
+-  /** Called once per completed stroke or click, never per pointer event. */
+-  onEdit?: (edit: WorldEdit) => void;
+ }
+ 
++/*
++ * There is deliberately no brush here.
++ *
++ * The carta used to accept strokes, and it was wrong twice over. It is a
++ * FINISHED DRAWING: what you see is symbols placed by a blue-noise pass over
++ * quantiles of local relief, so the mountain you are pointing at is not where
++ * the mountain is, it is where a picture of a mountain fitted. Painting on it
++ * meant aiming at the drawing and hitting the data somewhere else. And the map
++ * you edit should be the one that shows you what is actually there — the
++ * satellite raster and the 3D world — with the carta as the thing you make
++ * afterwards from a world you are happy with. So the brush lives in those two
++ * and only in those two.
++ */
++
+ const MIN_ZOOM = 1;
+ const MAX_ZOOM = 22;
+ /**
+@@ -85,7 +93,7 @@
+ 
+ export default function CartoMap({
+   world, theme, geography, layers, density, reliefAmount, title, subtitle,
+-  onPickSettlement, onOpenRegion, onInspect, onViewChange, paint, onEdit, annotations,
++  onPickSettlement, onOpenRegion, onInspect, onViewChange, annotations,
+ }: CartoMapProps) {
+   const hostRef = useRef<HTMLDivElement>(null);
+   const canvasRef = useRef<HTMLCanvasElement>(null);
+@@ -125,18 +133,8 @@
+   // to be rebuilt when a prop changes.
+   const propsRef = useRef({ world, theme, geography, layers, density, reliefAmount, title, subtitle });
+   propsRef.current = { world, theme, geography, layers, density, reliefAmount, title, subtitle };
+-  const paintRef = useRef<{ paint?: PaintTool; onEdit?: (e: WorldEdit) => void }>({ paint, onEdit });
+-  paintRef.current = { paint, onEdit };
+   const annRef = useRef<CartoAnnotations | undefined>(annotations);
+   annRef.current = annotations;
+-  /** Alt at the moment the stroke started — the road tool's erase modifier. */
+-  const altRef = useRef(false);
+-
+-  // The stroke in progress, in WORLD cell coordinates. Storing screen points
+-  // instead would make a stroke drift the moment the view moved under it.
+-  const stroke = useRef<Pt[] | null>(null);
+-  const cursor = useRef<{ x: number; y: number } | null>(null);
+-  const spaceDown = useRef(false);
+ 
+   useEffect(() => {
+     const host = hostRef.current;
+@@ -298,11 +296,12 @@
+     });
+   }, [size.w, size.h, viewFor]);
+ 
+-  // ---- brush overlay -------------------------------------------------------
+-  // A separate transparent canvas above the map. The stroke and the brush ring
+-  // are redrawn on it every pointer move; the map underneath is never touched,
+-  // which is what makes painting feel immediate on top of a render that costs
+-  // a couple of hundred milliseconds.
++  // ---- the ink layer -------------------------------------------------------
++  // A separate transparent canvas above the map: the reader's own marks — a
++  // planned route, an ancient coastline, the two ends of a journey — live here
++  // rather than in the cartographic render, because they change for reasons the
++  // map does not. Dragging a sea-level slider must not cost a full re-render of
++  // the sheet.
+   const paintInk = useCallback(() => {
+     const ink = inkRef.current;
+     if (!ink) return;
+@@ -322,74 +321,8 @@
+       return d * k;
+     };
+     const sy = (wy: number) => (wy - v.y) * k;
+-
+     drawAnnotations(ctx, annRef.current, world, sx, sy, k);
+-
+-    const p = paintRef.current.paint;
+-    if (!p || p.mode === 'off') return;
+-
+-    // Point tools get a crosshair, not a brush ring: showing a nine-cell disc
+-    // for "rename the thing under the cursor" tells the reader the wrong thing
+-    // about what the click is going to do.
+-    const pointTool = p.mode === 'rename' || p.mode === 'remove';
+-    if (pointTool) {
+-      const c0 = cursor.current;
+-      if (c0) {
+-        ctx.strokeStyle = p.mode === 'remove' ? 'rgba(255,140,140,0.95)' : 'rgba(255,215,120,0.95)';
+-        ctx.lineWidth = 1.4;
+-        ctx.beginPath();
+-        ctx.arc(c0.x, c0.y, 9, 0, Math.PI * 2);
+-        ctx.moveTo(c0.x - 14, c0.y); ctx.lineTo(c0.x - 3, c0.y);
+-        ctx.moveTo(c0.x + 3, c0.y); ctx.lineTo(c0.x + 14, c0.y);
+-        ctx.moveTo(c0.x, c0.y - 14); ctx.lineTo(c0.x, c0.y - 3);
+-        ctx.moveTo(c0.x, c0.y + 3); ctx.lineTo(c0.x, c0.y + 14);
+-        ctx.stroke();
+-      }
+-      return;
+-    }
+-
+-    const pts = stroke.current;
+-    const rPx = p.mode === 'road'
+-      ? Math.max(2, k * 1.6)
+-      : Math.max(2, (p.mode === 'river' ? p.riverWidth : p.radius) * k);
+-    if (pts && pts.length) {
+-      ctx.strokeStyle = p.mode === 'erase' ? 'rgba(255,120,120,0.5)'
+-        : p.mode === 'road' ? 'rgba(180,130,70,0.85)'
+-          : p.mode === 'land' && p.landOp === 'sea' ? 'rgba(90,150,220,0.5)'
+-            : 'rgba(255,215,120,0.5)';
+-      ctx.lineWidth = rPx * 2;
+-      ctx.lineJoin = 'round';
+-      ctx.lineCap = 'round';
+-      ctx.beginPath();
+-      ctx.moveTo(sx(pts[0].x), sy(pts[0].y));
+-      for (let i = 1; i < pts.length; i++) ctx.lineTo(sx(pts[i].x), sy(pts[i].y));
+-      if (pts.length === 1) ctx.lineTo(sx(pts[0].x) + 0.01, sy(pts[0].y));
+-      ctx.stroke();
+-    }
+-    const c = cursor.current;
+-    if (c) {
+-      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+-      ctx.lineWidth = 1.25;
+-      ctx.beginPath();
+-      ctx.arc(c.x, c.y, rPx, 0, Math.PI * 2);
+-      ctx.stroke();
+-      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+-      ctx.beginPath();
+-      ctx.arc(c.x, c.y, rPx + 1.25, 0, Math.PI * 2);
+-      ctx.stroke();
+-    }
+-  }, [viewFor, size.w, size.h, world.width]);
+-
+-  /** Pointer position in world cell coordinates. */
+-  const toWorld = useCallback((clientX: number, clientY: number): Pt | null => {
+-    const host = hostRef.current;
+-    if (!host) return null;
+-    const rect = host.getBoundingClientRect();
+-    const v = viewFor(live.current, size.w, size.h);
+-    const x = v.x + ((clientX - rect.left) / rect.width) * v.w;
+-    const y = v.y + ((clientY - rect.top) / rect.height) * v.h;
+-    return { x: ((x % world.width) + world.width) % world.width, y };
+-  }, [viewFor, size.w, size.h, world.width]);
++  }, [viewFor, size.w, size.h, world]);
+ 
+   /** Queue the two-tier settle. */
+   const scheduleRender = useCallback(() => {
+@@ -493,186 +426,32 @@
+     return () => host.removeEventListener('wheel', onWheel);
+   }, [viewFor, size.w, size.h, world.width, world.height, viewChanged]);
+ 
+-  // Space temporarily suspends the brush, the way every paint program does it, so
+-  // the reader can reposition mid-drawing without changing tool.
++  // Undo and redo belong to the world, not to a view, and the pointer is always
++  // over the map — so the shortcut has to work from here even though nothing on
++  // this sheet is editable.
+   useEffect(() => {
+     const down = (e: KeyboardEvent) => {
+-      if (e.code === 'Space') spaceDown.current = true;
+       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+-        // Undo/redo belong to the panel, but the keyboard shortcut has to work
+-        // while the pointer is over the map, which is where it always is.
+         e.preventDefault();
+         window.dispatchEvent(new CustomEvent(e.shiftKey ? 'wg-redo' : 'wg-undo'));
+       }
+     };
+-    const up = (e: KeyboardEvent) => { if (e.code === 'Space') spaceDown.current = false; };
+     window.addEventListener('keydown', down);
+-    window.addEventListener('keyup', up);
+-    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
+-  }, []);
+-
+-  /** True when this gesture should paint rather than pan. */
+-  const painting = useCallback((e: React.PointerEvent): boolean => {
+-    const p = paintRef.current.paint;
+-    return !!p && p.mode !== 'off' && !!paintRef.current.onEdit
+-      && e.button === 0 && !spaceDown.current && !e.shiftKey;
++    return () => window.removeEventListener('keydown', down);
+   }, []);
+ 
+-  /** Turn a finished gesture into one edit. */
+-  const commitStroke = useCallback((pts: Pt[]) => {
+-    const { paint: p, onEdit } = paintRef.current;
+-    if (!p || !onEdit || !pts.length) return;
+-    const s = { pts, radius: p.radius, strength: p.strength, softness: p.softness };
+-    switch (p.mode) {
+-      case 'terrain': onEdit({ kind: 'terrain', op: p.terrainOp, stroke: s }); break;
+-      case 'land': onEdit({ kind: 'land', op: p.landOp, stroke: s }); break;
+-      case 'biome': onEdit({ kind: 'biome', biome: p.biome, stroke: s }); break;
+-      case 'river':
+-        if (pts.length >= 2) onEdit({ kind: 'river', pts, width: p.riverWidth });
+-        break;
+-      case 'erase':
+-        onEdit({ kind: 'eraseMarkers', x: pts[0].x, y: pts[0].y, radius: p.radius });
+-        break;
+-      case 'marker': {
+-        const at = pts[pts.length - 1];
+-        if (p.marker === 'ruin') {
+-          onEdit({ kind: 'marker', marker: 'ruin', x: at.x, y: at.y, ruin: p.ruin });
+-        } else {
+-          onEdit({ kind: 'marker', marker: 'settlement', x: at.x, y: at.y, rank: p.rank });
+-        }
+-        break;
+-      }
+-      case 'label': {
+-        const at = pts[pts.length - 1];
+-        const text = p.labelText.trim();
+-        if (text) onEdit({ kind: 'label', x: at.x, y: at.y, text, style: p.labelStyle });
+-        break;
+-      }
+-      case 'road': {
+-        if (altRef.current) {
+-          onEdit({ kind: 'eraseRoads', x: pts[0].x, y: pts[0].y, radius: Math.max(2, p.radius) });
+-        } else if (pts.length >= 2) {
+-          onEdit({ kind: 'road', pts, major: p.roadMajor });
+-        }
+-        break;
+-      }
+-      case 'rename':
+-      case 'remove': {
+-        const at = pts[pts.length - 1];
+-        const target = pickGenerated(at.x, at.y);
+-        if (!target) return;
+-        if (p.mode === 'remove') {
+-          onEdit({ kind: 'remove', target: target.target, key: target.key });
+-        } else {
+-          // A prompt, deliberately. An inline editor on the canvas would need a
+-          // whole text-input overlay that follows the map through pan and zoom,
+-          // and the reader is renaming one thing, not typing a paragraph.
+-          const next = window.prompt(`Nuevo nombre para «${target.name}»`, target.name);
+-          if (next && next.trim() && next.trim() !== target.name) {
+-            onEdit({ kind: 'rename', target: target.target, key: target.key, name: next.trim() });
+-          }
+-        }
+-        break;
+-      }
+-      default: break;
+-    }
+-  }, []);
+-
+-  /**
+-   * What generated object is under this point, and its stable key.
+-   *
+-   * Ordered smallest-target-first: a settlement sits inside a realm and often
+-   * inside a named plain as well, and the reader who clicked on a dot meant the
+-   * dot. Areas are only offered when nothing pointlike is close.
+-   */
+-  const pickGenerated = useCallback((wx: number, wy: number): {
+-    target: EditTarget; key: string; name: string;
+-  } | null => {
+-    const geo = propsRef.current.geography;
+-    const world = propsRef.current.world;
+-    if (!geo) return null;
+-    const v = viewFor(live.current, size.w, size.h);
+-    // Tolerance in world cells for a ~16 px reach, so the hit area is the same
+-    // size on screen at every zoom.
+-    const tol = Math.max(2, (16 / Math.max(1, size.w)) * v.w);
+-    const dist = (ax: number, ay: number) => {
+-      let dx = Math.abs(ax - wx);
+-      if (dx > world.width / 2) dx = world.width - dx;
+-      return Math.hypot(dx, ay - wy);
+-    };
+-
+-    let best: { target: EditTarget; key: string; name: string; d: number } | null = null;
+-    const offer = (target: EditTarget, key: string, name: string, d: number, reach: number) => {
+-      if (d > reach) return;
+-      if (!best || d < best.d) best = { target, key, name, d };
+-    };
+-    for (const st of geo.settlements) {
+-      offer('settlement', editKey('settlement', st.x, st.y), st.name, dist(st.x, st.y), tol);
+-    }
+-    for (const ru of geo.ruins) {
+-      offer('ruin', editKey('ruin', ru.x, ru.y), ru.name, dist(ru.x, ru.y), tol);
+-    }
+-    if (best) return best;
+-    for (const f of geo.features) {
+-      offer('feature', editKey('feature', f.x, f.y, `${f.kind}:`), f.name,
+-        dist(f.x, f.y), Math.max(tol, f.extent));
+-    }
+-    if (best) return best;
+-    const ix = (((Math.round(wx) % world.width) + world.width) % world.width);
+-    const iy = Math.min(world.height - 1, Math.max(0, Math.round(wy)));
+-    const realmId = geo.realmOf[iy * world.width + ix];
+-    const realm = geo.realms.find((q) => q.id === realmId);
+-    if (realm) return { target: 'realm', key: editKey('realm', 0, 0, `${realm.id}:`), name: realm.name };
+-    return null;
+-  }, [viewFor, size.w, size.h]);
+-
+   const onPointerDown = useCallback((e: React.PointerEvent) => {
+-    altRef.current = e.altKey;
+     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+-    if (painting(e)) {
+-      const w = toWorld(e.clientX, e.clientY);
+-      if (!w) return;
+-      stroke.current = [w];
+-      const host = hostRef.current;
+-      if (host) {
+-        const rect = host.getBoundingClientRect();
+-        cursor.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+-      }
+-      paintInk();
+-      return;
+-    }
+     drag.current = {
+       x: e.clientX, y: e.clientY,
+       cu: live.current.cu, cv: live.current.cv, moved: false,
+     };
+-  }, [painting, toWorld, paintInk]);
++  }, []);
+ 
+   const onPointerMove = useCallback((e: React.PointerEvent) => {
+     const host = hostRef.current;
+     if (!host) return;
+ 
+-    // Brush ring follows the pointer whenever a brush is selected, even with no
+-    // button down: without it the reader cannot tell how big the next stroke is.
+-    const p = paintRef.current.paint;
+-    if (p && p.mode !== 'off') {
+-      const rect = host.getBoundingClientRect();
+-      cursor.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+-    } else {
+-      cursor.current = null;
+-    }
+-
+-    if (stroke.current) {
+-      const w = toWorld(e.clientX, e.clientY);
+-      if (w) {
+-        const last = stroke.current[stroke.current.length - 1];
+-        // Thin the polyline: one point per half-cell is plenty, and it keeps the
+-        // serialized edit small enough to store a hundred strokes.
+-        if (Math.hypot(w.x - last.x, w.y - last.y) > 0.5) stroke.current.push(w);
+-      }
+-      paintInk();
+-      return;
+-    }
+-
+     const d = drag.current;
+     if (!d) { paintInk(); return; }
+     const dx = e.clientX - d.x, dy = e.clientY - d.y;
+@@ -682,18 +461,9 @@
+     live.current.cu = d.cu - (dx / host.clientWidth) * (v.w / world.width);
+     live.current.cv = Math.min(1, Math.max(0, d.cv - (dy / host.clientHeight) * (v.h / world.height)));
+     viewChanged();
+-  }, [viewFor, size.w, size.h, world.width, world.height, viewChanged, toWorld, paintInk]);
++  }, [viewFor, size.w, size.h, world.width, world.height, viewChanged, paintInk]);
+ 
+   const onPointerUp = useCallback((e: React.PointerEvent) => {
+-    if (stroke.current) {
+-      const pts = stroke.current;
+-      stroke.current = null;
+-      paintInk();
+-      // Applied on release, not per move: a terrain stroke costs a few hundred
+-      // milliseconds, which is fine once and unusable sixty times a second.
+-      commitStroke(pts);
+-      return;
+-    }
+     const d = drag.current;
+     drag.current = null;
+     const geo = propsRef.current.geography;
+@@ -713,20 +483,18 @@
+     const tol = (18 / rect.width) * v.w;
+     const s = pickSettlement(world, geo, ((wx / world.width) % 1 + 1) % 1, wy / world.height, Math.max(6, tol));
+     if (s) onPickSettlement(s);
+-  }, [onPickSettlement, onInspect, viewFor, size.w, size.h, world, paintInk, commitStroke]);
++  }, [onPickSettlement, onInspect, viewFor, size.w, size.h, world]);
+ 
+   const setZoom = useCallback((z: number) => {
+     live.current.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
+     viewChanged();
+   }, [viewChanged]);
+ 
+-  const brushing = !!paint && paint.mode !== 'off' && !!onEdit;
+-
+   // Double-click drops a league below the world map. Deliberately not a mode or
+   // a tool: descending into the country you are looking at should cost one
+   // gesture, the same way a settlement's plan costs one click.
+   const onDoubleClick = useCallback((e: React.MouseEvent) => {
+-    if (brushing || !onOpenRegion) return;
++    if (!onOpenRegion) return;
+     const host = hostRef.current;
+     if (!host) return;
+     const rect = host.getBoundingClientRect();
+@@ -735,20 +503,17 @@
+     const y = v.y + ((e.clientY - rect.top) / rect.height) * v.h;
+     onOpenRegion(((x % world.width) + world.width) % world.width,
+       Math.min(world.height - 1, Math.max(0, y)));
+-  }, [brushing, onOpenRegion, viewFor, size.w, size.h, world.width, world.height]);
++  }, [onOpenRegion, viewFor, size.w, size.h, world.width, world.height]);
+ 
+   return (
+     <div
+       ref={hostRef}
+-      className={`absolute inset-0 overflow-hidden touch-none ${
+-        brushing ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+-      }`}
++      className="absolute inset-0 overflow-hidden touch-none cursor-grab active:cursor-grabbing"
+       onPointerDown={onPointerDown}
+       onPointerMove={onPointerMove}
+       onPointerUp={onPointerUp}
+       onDoubleClick={onDoubleClick}
+-      onPointerLeave={() => { cursor.current = null; paintInk(); }}
+-      onPointerCancel={() => { drag.current = null; stroke.current = null; paintInk(); }}
++      onPointerCancel={() => { drag.current = null; }}
+     >
+       <canvas ref={canvasRef} className="block" />
+       {/* Fixed frame. The border belongs to the sheet the reader is holding, not
+@@ -765,11 +530,11 @@
+       />
+ 
+       <div className="absolute left-2 bottom-2 flex items-center gap-2 pointer-events-none">
+-        <span className="px-2 py-0.5 rounded bg-black/45 text-[10px] text-white/80 tabular-nums">
++        <span className="px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] text-white tabular-nums shadow-lg shadow-black/50">
+           ×{zoomLabel.toFixed(1)}
+         </span>
+         {busy && (
+-          <span className="px-2 py-0.5 rounded bg-black/45 text-[10px] text-white/80">dibujando…</span>
++          <span className="px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] text-white shadow-lg shadow-black/50">dibujando…</span>
+         )}
+       </div>
+ 
+@@ -794,7 +559,7 @@
+     <button
+       onClick={onClick}
+       title={title}
+-      className="w-7 h-7 grid place-items-center rounded bg-black/45 text-white/85 text-sm hover:bg-black/60 transition"
++      className="w-7 h-7 grid place-items-center rounded-md border border-white/20 bg-[#0b0e14]/92 text-white text-sm hover:bg-[#161b26] transition shadow-lg shadow-black/50"
+     >
+       {label}
+     </button>
+diff -urN wg-orig/src/engines/worldgen/components/FiltersPanel.tsx wg/src/engines/worldgen/components/FiltersPanel.tsx
+--- a/src/engines/worldgen/components/FiltersPanel.tsx	2026-07-26 10:54:54.756316360 +0000
++++ b/src/engines/worldgen/components/FiltersPanel.tsx	2026-07-26 11:13:08.057186511 +0000
+@@ -74,6 +74,11 @@
+   { id: 'hotspring', label: 'Termas' },
+ ];
+ 
++/** How many switches in a map are off — the number the collapsed header shows. */
++function offIn(map: Record<string | number, boolean>): number {
++  return Object.values(map).filter((v) => v === false).length;
++}
++
+ export default function FiltersPanel({ params, onChange, onGenerate, generating, hasWorld }: FiltersPanelProps) {
+   const f: GenerationFilters = params.filters ?? DEFAULT_FILTERS;
+   const [dirty, setDirty] = useState(false);
+@@ -88,29 +93,33 @@
+     return copy;
+   };
+ 
+-  const offCount = useMemo(() => {
+-    const n = (m: Record<string | number, boolean>) => Object.values(m).filter((v) => v === false).length;
+-    return n(f.biomes) + n(f.ruinKinds) + n(f.ruinSites) + n(f.landforms) + n(f.landmarks);
+-  }, [f]);
++  const offBiomes = useMemo(() => offIn(f.biomes), [f.biomes]);
++  const offRuins = useMemo(() => offIn(f.ruinKinds) + offIn(f.ruinSites), [f.ruinKinds, f.ruinSites]);
++  const offLandforms = useMemo(() => offIn(f.landforms), [f.landforms]);
++  const offLandmarks = useMemo(() => offIn(f.landmarks), [f.landmarks]);
+ 
+   return (
+-    <div className="flex flex-col gap-3 text-[11px] text-white/80">
+-      <p className="text-[10px] text-white/45 leading-snug">
+-        Todo lo que apagues aquí <strong className="text-white/70">no existirá</strong> en el
++    /* The whole panel used to be nine- and ten-pixel type at a third opacity in
++       a 320 px column — legible in a screenshot at 200 %, not on a monitor. It
++       is now one readable size, and every group is a row you open, so the
++       column shows five headings instead of two hundred switches. */
++    <div className="flex flex-col gap-2 text-xs text-white/85">
++      <p className="text-[11px] text-white/60 leading-relaxed">
++        Todo lo que apagues aquí <strong className="text-white/90">no existirá</strong> en el
+         mundo generado. El terreno no se queda vacío: pasa a ser lo que habría sido en un mundo
+         sin esa cosa — sin desiertos hay estepa, sin bosques hay pradera.
+       </p>
+ 
+-      <Section title={`Biomas${offCount ? ` · ${offCount} apagados` : ''}`} defaultOpen>
++      <Section title="Biomas" off={offBiomes}>
+         <div className="flex flex-col gap-2">
+           {GROUPS.map((g) => {
+             const exoticGroup = g.title === 'Extraños';
+             return (
+               <div key={g.title}>
+                 <div className="flex items-center justify-between mb-0.5">
+-                  <span className="text-[9px] uppercase tracking-wider text-white/35">{g.title}</span>
++                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/60">{g.title}</span>
+                   {exoticGroup && f.exotic <= 0 && (
+-                    <span className="text-[9px] text-amber-300/70">sube “rareza” para activarlos</span>
++                    <span className="text-[10px] text-amber-200">sube «rareza» para activarlos</span>
+                   )}
+                 </div>
+                 <div className="flex flex-wrap gap-1">
+@@ -121,12 +130,14 @@
+                         key={b}
+                         title={BIOME_LABEL_ES[b] ?? String(b)}
+                         onClick={() => set({ biomes: toggleIn(f.biomes, b) })}
+-                        className={`flex items-center gap-1 pl-1 pr-1.5 py-0.5 rounded-sm border text-[9px] transition ${
+-                          off ? 'border-white/10 text-white/25 line-through' : 'border-white/25 text-white/80 hover:border-white/60'
++                        className={`flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded border text-[11px] transition ${
++                          off
++                            ? 'border-white/10 text-white/35 line-through'
++                            : 'border-white/30 bg-white/[0.06] text-white hover:border-white/70'
+                         }`}
+                       >
+                         <span
+-                          className="w-2.5 h-2.5 rounded-[2px] border border-black/40"
++                          className="w-3 h-3 rounded-[2px] border border-black/50"
+                           style={{ background: swatch(b), opacity: off ? 0.25 : 1 }}
+                         />
+                         {BIOME_LABEL_ES[b] ?? b}
+@@ -149,10 +160,10 @@
+         onChange={(v) => set({ exotic: v })}
+       />
+ 
+-      <Section title="Ruinas">
++      <Section title="Ruinas" off={offRuins}>
+         <div className="flex flex-col gap-2">
+           <div>
+-            <div className="text-[9px] uppercase tracking-wider text-white/35 mb-0.5">Qué se conserva en pie</div>
++            <div className="text-[10px] font-semibold uppercase tracking-wider text-white/60 mb-1">Qué se conserva en pie</div>
+             <div className="flex flex-wrap gap-1">
+               {RUIN_KINDS.map((k) => (
+                 <Chip key={k} off={f.ruinKinds[k] === false} onClick={() => set({ ruinKinds: toggleIn(f.ruinKinds, k) })}>
+@@ -162,7 +173,7 @@
+             </div>
+           </div>
+           <div>
+-            <div className="text-[9px] uppercase tracking-wider text-white/35 mb-0.5">Por qué había algo ahí</div>
++            <div className="text-[10px] font-semibold uppercase tracking-wider text-white/60 mb-1">Por qué había algo ahí</div>
+             <div className="flex flex-wrap gap-1">
+               {RUIN_SITES.map((k) => (
+                 <Chip key={k} off={f.ruinSites[k] === false} onClick={() => set({ ruinSites: toggleIn(f.ruinSites, k) })}>
+@@ -181,7 +192,7 @@
+         </div>
+       </Section>
+ 
+-      <Section title="Accidentes con nombre">
++      <Section title="Accidentes con nombre" off={offLandforms}>
+         <div className="flex flex-wrap gap-1">
+           {LANDFORMS.map((l) => (
+             <Chip key={l.id} off={f.landforms[l.id] === false} onClick={() => set({ landforms: toggleIn(f.landforms, l.id) })}>
+@@ -191,7 +202,7 @@
+         </div>
+       </Section>
+ 
+-      <Section title="Hitos naturales">
++      <Section title="Hitos naturales" off={offLandmarks}>
+         <div className="flex flex-wrap gap-1">
+           {LANDMARKS.map((l) => (
+             <Chip key={l.id} off={f.landmarks[l.id] === false} onClick={() => set({ landmarks: toggleIn(f.landmarks, l.id) })}>
+@@ -205,14 +216,14 @@
+       <div className="flex items-center gap-2">
+         <button
+           onClick={() => { onChange({ ...params, filters: { ...DEFAULT_FILTERS } }); setDirty(true); }}
+-          className="px-2 py-1.5 rounded bg-white/8 hover:bg-white/15 text-[10px]"
++          className="px-3 py-2 rounded bg-white/10 hover:bg-white/20 text-[11px] text-white"
+         >
+           Restablecer
+         </button>
+         <button
+           onClick={() => { onGenerate(); setDirty(false); }}
+           disabled={generating}
+-          className="flex-1 px-2 py-1.5 rounded bg-amber-400/85 text-black font-medium text-[10px] disabled:opacity-40"
++          className="flex-1 px-3 py-2 rounded bg-amber-400 text-black font-semibold text-[11px] hover:bg-amber-300 disabled:opacity-40 transition"
+         >
+           {generating ? 'Generando…' : hasWorld ? 'Regenerar el mundo' : 'Generar'}
+         </button>
+@@ -220,7 +231,7 @@
+       {dirty && hasWorld && (
+         // Said plainly, because the alternative is a reader who changes ten
+         // switches, sees nothing happen, and concludes the panel is broken.
+-        <p className="text-[10px] text-amber-300/80 leading-snug">
++        <p className="text-[11px] text-amber-200 leading-snug">
+           Estos ajustes cambian cómo se genera el mundo, así que no se ven hasta que lo regeneras.
+         </p>
+       )}
+@@ -228,20 +239,39 @@
+   );
+ }
+ 
+-function Section({ title, children, defaultOpen = false }: {
+-  title: string; children: React.ReactNode; defaultOpen?: boolean;
++/**
++ * One collapsible group.
++ *
++ * Closed by default and closed on purpose: the reader opens this panel to change
++ * one thing, and a wall of two hundred chips is not a list of options, it is a
++ * texture. The header carries the count of what is switched off inside, so a
++ * shut group still tells you whether you have touched it.
++ */
++function Section({ title, off = 0, children, defaultOpen = false }: {
++  title: string; off?: number; children: React.ReactNode; defaultOpen?: boolean;
+ }) {
+   const [open, setOpen] = useState(defaultOpen);
+   return (
+-    <div className="flex flex-col gap-1">
++    <div className="rounded-lg border border-white/12 bg-white/[0.03] overflow-hidden">
+       <button
+         onClick={() => setOpen(!open)}
+-        className="flex items-center justify-between text-[10px] uppercase tracking-wider text-white/45 hover:text-white/70"
++        aria-expanded={open}
++        className="w-full flex items-center gap-2 px-2.5 py-2 text-left text-xs font-medium text-white/85 hover:bg-white/[0.06] transition"
+       >
+-        <span>{title}</span>
+-        <span className="text-white/30">{open ? '−' : '+'}</span>
++        <span
++          className={`text-white/50 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
++          aria-hidden
++        >
++          ▸
++        </span>
++        <span className="flex-1">{title}</span>
++        {off > 0 && (
++          <span className="px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-200 text-[10px] tabular-nums">
++            {off} apagado{off === 1 ? '' : 's'}
++          </span>
++        )}
+       </button>
+-      {open && children}
++      {open && <div className="px-2.5 pb-2.5 pt-0.5">{children}</div>}
+     </div>
+   );
+ }
+@@ -250,8 +280,10 @@
+   return (
+     <button
+       onClick={onClick}
+-      className={`px-1.5 py-0.5 rounded-sm border text-[9px] transition ${
+-        off ? 'border-white/10 text-white/25 line-through' : 'border-white/25 text-white/80 hover:border-white/60'
++      className={`px-2 py-1 rounded border text-[11px] transition ${
++        off
++          ? 'border-white/10 bg-transparent text-white/35 line-through'
++          : 'border-white/30 bg-white/[0.06] text-white hover:border-white/70'
+       }`}
+     >
+       {children}
+@@ -265,16 +297,16 @@
+ }) {
+   return (
+     <label className="flex flex-col gap-0.5">
+-      <span className="flex justify-between text-[10px] text-white/45">
++      <span className="flex justify-between text-[11px] text-white/75">
+         <span>{label}</span>
+-        <span className="tabular-nums text-white/65">{format(value)}</span>
++        <span className="tabular-nums text-white">{format(value)}</span>
+       </span>
+       <input
+         type="range" min={min} max={max} step={step} value={value}
+         onChange={(e) => onChange(Number(e.target.value))}
+         className="w-full accent-amber-400"
+       />
+-      {hint && <span className="text-[9px] text-white/35 leading-snug">{hint}</span>}
++      {hint && <span className="text-[10px] text-white/55 leading-snug">{hint}</span>}
+     </label>
+   );
+ }
+diff -urN wg-orig/src/engines/worldgen/components/Map2D.tsx wg/src/engines/worldgen/components/Map2D.tsx
+--- a/src/engines/worldgen/components/Map2D.tsx	2026-07-26 10:54:54.757170832 +0000
++++ b/src/engines/worldgen/components/Map2D.tsx	2026-07-26 11:09:40.148322902 +0000
+@@ -12,7 +12,11 @@
+ import type { WorldData, ViewMode, Landmark } from '../core/types';
+ import { renderBase, renderRivers } from '../core/render';
+ import { PROJECTIONS, reprojectRgba, type Projection } from '../core/projections';
++import { commitPaintStroke, pickGeneratedAt } from '../core/paintCommit';
++import type { Pt, WorldEdit } from '../core/edits';
++import type { HumanGeography, Settlement } from '../core/settlements';
+ import type { WorldWaypoint } from '../types';
++import type { PaintTool } from './PaintPanel';
+ 
+ export const BIOME_KEYS = [
+   'ocean', 'lake', 'iceCap', 'tundra', 'boreal', 'tempForest', 'tempRain',
+@@ -33,7 +37,21 @@
+   placing: boolean;
+   onPlace: (u: number, v: number) => void;
+   onSelectWaypoint: (id: string | null) => void;
+-  onFlyTo: (u: number, v: number) => void;
++  /**
++   * Everything below turns this from a picture of the world into one of the two
++   * places it can be edited. The satellite map is the flat, undistorted view —
++   * the one where a coastline is a coastline and not a coastline seen at an
++   * angle — so it carries the same brush the 3D view does, and the same click
++   * into a town.
++   */
++  geography?: HumanGeography | null;
++  showSettlements?: boolean;
++  tool?: PaintTool;
++  onEdit?: (edit: WorldEdit) => void;
++  onPickSettlement?: (s: Settlement) => void;
++  onOpenRegion?: (x: number, y: number) => void;
++  /** Bumped when an edit changed the world under us, so the raster is rebuilt. */
++  revision?: number;
+ }
+ 
+ interface ViewState {
+@@ -51,7 +69,8 @@
+ 
+ export default function Map2D({
+   world, viewMode, projection, showRivers, showLandmarks, showWaypoints, showGrid,
+-  waypoints, selectedWaypointId, placing, onPlace, onSelectWaypoint, onFlyTo,
++  waypoints, selectedWaypointId, placing, onPlace, onSelectWaypoint,
++  geography, showSettlements, tool, onEdit, onPickSettlement, onOpenRegion, revision = 0,
+ }: Map2DProps) {
+   const { t } = useTranslation();
+   const containerRef = useRef<HTMLDivElement>(null);
+@@ -61,13 +80,33 @@
+   const rafRef = useRef(0);
+   const [hover, setHover] = useState<{ x: number; y: number; text: string } | null>(null);
+ 
++  /** Cells the pointer has crossed this stroke, and where the ring is drawn. */
++  const stroke = useRef<Pt[] | null>(null);
++  const brushAt = useRef<{ x: number; y: number } | null>(null);
++  const altRef = useRef(false);
++  const spaceRef = useRef(false);
++  const brushing = !!tool && tool.mode !== 'off' && !!onEdit;
++  const brushRef = useRef({ tool, onEdit, geography, brushing });
++  brushRef.current = { tool, onEdit, geography, brushing };
++
+   const W = world.width, H = world.height;
+   const spec = PROJECTIONS[projection];
+   const wraps = spec.wraps;
+ 
+   // ---- layers -------------------------------------------------------------
+-  const basePixels = useMemo(() => renderBase(world, viewMode), [world, viewMode]);
+-  const riverPixels = useMemo(() => renderRivers(world), [world]);
++  // `revision` is in the dependency list on purpose: painting MUTATES the world
++  // in place, so its object identity is unchanged and a memo keyed on the object
++  // alone would keep serving the raster from before the stroke.
++  const basePixels = useMemo(
++    () => renderBase(world, viewMode),
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++    [world, viewMode, revision],
++  );
++  const riverPixels = useMemo(
++    () => renderRivers(world),
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++    [world, revision],
++  );
+ 
+   const baseCanvas = useMemo(() => {
+     if (projection === 'equirect') return makeCanvas(basePixels, W, H);
+@@ -173,6 +212,41 @@
+       }
+     }
+ 
++    // Towns. Drawn before the waypoints so a pin the reader placed is never
++    // hidden behind a dot the generator placed.
++    if (showSettlements && geography) {
++      // Only as much of the gazetteer as the zoom can carry: every village at
++      // full extent is a grey smear along every coast.
++      const maxRank = scale < 1.4 ? 1 : scale < 4 ? 2 : 3;
++      const order: Record<string, number> = { capital: 0, city: 1, town: 2, village: 3 };
++      ctx.font = '600 11px "Source Sans 3", sans-serif';
++      ctx.textBaseline = 'middle';
++      for (const copyOx of copies) {
++        for (const s of geography.settlements) {
++          const rank = order[s.rank] ?? 3;
++          if (rank > maxRank) continue;
++          const [sx, sy] = toScreen((s.x + 0.5) / W, (s.y + 0.5) / H, copyOx);
++          if (sx < -40 || sx > cw + 40 || sy < -20 || sy > ch + 20) continue;
++          const r = rank === 0 ? 5 : rank === 1 ? 4 : rank === 2 ? 3 : 2.2;
++          ctx.beginPath();
++          ctx.arc(sx, sy, r, 0, Math.PI * 2);
++          ctx.fillStyle = rank === 0 ? '#ffd479' : '#f4ead4';
++          ctx.fill();
++          ctx.lineWidth = 1.5;
++          ctx.strokeStyle = 'rgba(6,8,13,0.92)';
++          ctx.stroke();
++          if (rank <= 1 || scale > 6) {
++            ctx.lineWidth = 3;
++            ctx.lineJoin = 'round';
++            ctx.strokeStyle = 'rgba(6,8,13,0.85)';
++            ctx.strokeText(s.name, sx + r + 5, sy);
++            ctx.fillStyle = '#f6efe0';
++            ctx.fillText(s.name, sx + r + 5, sy);
++          }
++        }
++      }
++    }
++
+     // Waypoints
+     if (showWaypoints) {
+       ctx.font = '600 11px "Source Sans 3", sans-serif';
+@@ -199,6 +273,34 @@
+         }
+       }
+     }
++
++    // The brush ring, last, over everything. Two circles: where the stroke
++    // stops, and where it stops being at full strength — softness is otherwise a
++    // number you set and then discover the effect of.
++    const at = brushAt.current;
++    const bt = brushRef.current.tool;
++    if (at && bt && brushRef.current.brushing) {
++      const pxPerCell = (PW * scale) / W;
++      const rOuter = Math.max(3, bt.radius * pxPerCell);
++      ctx.lineWidth = 1.6;
++      ctx.strokeStyle = 'rgba(10,12,18,0.75)';
++      ctx.beginPath();
++      ctx.arc(at.x, at.y, rOuter + 1, 0, Math.PI * 2);
++      ctx.stroke();
++      ctx.strokeStyle = 'rgba(255,255,255,0.92)';
++      ctx.beginPath();
++      ctx.arc(at.x, at.y, rOuter, 0, Math.PI * 2);
++      ctx.stroke();
++      const rInner = rOuter * (1 - Math.min(0.98, bt.softness));
++      if (rInner > 2) {
++        ctx.strokeStyle = 'rgba(255,220,140,0.75)';
++        ctx.setLineDash([3, 3]);
++        ctx.beginPath();
++        ctx.arc(at.x, at.y, rInner, 0, Math.PI * 2);
++        ctx.stroke();
++        ctx.setLineDash([]);
++      }
++    }
+   };
+ 
+   // `draw` closes over fresh props every render; the stable scheduler calls
+@@ -312,20 +414,64 @@
+     return null;
+   };
+ 
++  // Space suspends the brush for as long as it is held, the way every paint
++  // program does it, so the reader can reposition mid-drawing without changing
++  // tool. Ctrl+Z goes to the world's own history, which is shared with 3D.
++  useEffect(() => {
++    const down = (e: KeyboardEvent) => {
++      if (e.code === 'Space') spaceRef.current = true;
++      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
++        e.preventDefault();
++        window.dispatchEvent(new CustomEvent(e.shiftKey ? 'wg-redo' : 'wg-undo'));
++      }
++    };
++    const up = (e: KeyboardEvent) => { if (e.code === 'Space') spaceRef.current = false; };
++    window.addEventListener('keydown', down);
++    window.addEventListener('keyup', up);
++    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
++  }, []);
++
++  /** The nearest town to a screen point, within a screen-sized reach. */
++  const settlementAt = (sx: number, sy: number): Settlement | null => {
++    const view = viewRef.current;
++    if (!view || !geography) return null;
++    const mapW = PW * view.scale, mapH = PH * view.scale;
++    let best: Settlement | null = null;
++    let bestD = 14 * 14;
++    const bias: Record<string, number> = { capital: 0.45, city: 0.65, town: 0.85, village: 1 };
++    for (const s of geography.settlements) {
++      const [X, Y] = spec.forward((s.x + 0.5) / W, (s.y + 0.5) / H);
++      const py = view.oy + Y * mapH;
++      let px = view.ox + X * mapW;
++      if (wraps) {
++        const dxRaw = (((sx - px) % mapW) + mapW) % mapW;
++        px = sx - (dxRaw > mapW / 2 ? dxRaw - mapW : dxRaw);
++      }
++      const d = ((sx - px) ** 2 + (sy - py) ** 2) * (bias[s.rank] ?? 1);
++      if (d < bestD) { bestD = d; best = s; }
++    }
++    return best;
++  };
++
+   // ---- pointer events ----------------------------------------------------------
+   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+     const view = viewRef.current;
+     if (!view) return;
+     (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+-    if (!placing) e.currentTarget.style.cursor = 'grabbing';
++    altRef.current = e.altKey;
+     const rect = e.currentTarget.getBoundingClientRect();
+-    dragRef.current = {
+-      x: e.clientX - rect.left,
+-      y: e.clientY - rect.top,
+-      ox: view.ox,
+-      oy: view.oy,
+-      moved: false,
+-    };
++    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
++
++    if (brushing && e.button === 0 && !spaceRef.current && !e.shiftKey) {
++      const m = screenToMap(sx, sy);
++      if (!m) return;
++      stroke.current = [{ x: m.u * W, y: m.v * H }];
++      brushAt.current = { x: sx, y: sy };
++      scheduleDraw();
++      return;
++    }
++    if (!placing) e.currentTarget.style.cursor = 'grabbing';
++    dragRef.current = { x: sx, y: sy, ox: view.ox, oy: view.oy, moved: false };
+   };
+ 
+   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+@@ -333,6 +479,28 @@
+     if (!view) return;
+     const rect = e.currentTarget.getBoundingClientRect();
+     const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
++
++    // The ring follows the pointer whenever a brush is out, button down or not:
++    // without it the reader cannot tell how big the next stroke is.
++    if (brushing) {
++      brushAt.current = { x: sx, y: sy };
++      const pts = stroke.current;
++      if (pts) {
++        const m = screenToMap(sx, sy);
++        if (m) {
++          const p = { x: m.u * W, y: m.v * H };
++          const last = pts[pts.length - 1];
++          // One point per half-cell keeps the serialized edit small enough to
++          // store a hundred strokes.
++          if (Math.hypot(p.x - last.x, p.y - last.y) > 0.5) pts.push(p);
++        }
++      }
++      setHover(null);
++      scheduleDraw();
++      return;
++    }
++    if (brushAt.current) { brushAt.current = null; scheduleDraw(); }
++
+     const drag = dragRef.current;
+     if (drag) {
+       const dx = sx - drag.x, dy = sy - drag.y;
+@@ -369,25 +537,54 @@
+ 
+   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+     e.currentTarget.style.cursor = '';
++    const rect = e.currentTarget.getBoundingClientRect();
++    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
++
++    // A stroke becomes an edit on release, not per move: a terrain stroke costs
++    // a few hundred milliseconds, which is fine once and unusable sixty times a
++    // second.
++    const pts = stroke.current;
++    stroke.current = null;
++    if (pts) {
++      const { tool: bt, onEdit: commit, geography: geo } = brushRef.current;
++      if (bt && commit) {
++        const view = viewRef.current;
++        const cellsPerPx = view ? W / Math.max(1, PW * view.scale) : 1;
++        const edit = commitPaintStroke(bt, pts, {
++          alt: altRef.current,
++          pickGenerated: (x, y) => pickGeneratedAt(world, geo, x, y, Math.max(2, 16 * cellsPerPx)),
++        });
++        if (edit) commit(edit);
++      }
++      scheduleDraw();
++      return;
++    }
++
+     const drag = dragRef.current;
+     dragRef.current = null;
+     if (!drag || drag.moved) return;
+     // It was a click.
+-    const rect = e.currentTarget.getBoundingClientRect();
+-    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+     if (placing) {
+       const m = screenToMap(sx, sy);
+       if (m) onPlace(m.u, m.v);
+       return;
+     }
+     const wp = waypointAt(sx, sy);
+-    onSelectWaypoint(wp ? wp.id : null);
++    if (wp) { onSelectWaypoint(wp.id); return; }
++    // A town under the pointer opens its plan — the same gesture as on the
++    // carta and in 3D, because it is the same question being asked.
++    if (onPickSettlement) {
++      const s = settlementAt(sx, sy);
++      if (s) { onPickSettlement(s); return; }
++    }
++    onSelectWaypoint(null);
+   };
+ 
+   const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
++    if (brushing || !onOpenRegion) return;
+     const rect = e.currentTarget.getBoundingClientRect();
+     const m = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
+-    if (m) onFlyTo(m.u, m.v);
++    if (m) onOpenRegion(m.u * W, m.v * H);
+   };
+ 
+   return (
+@@ -395,14 +592,18 @@
+       <canvas
+         ref={canvasRef}
+         className="block"
+-        style={{ cursor: placing ? 'crosshair' : 'grab', touchAction: 'none' }}
++        style={{ cursor: placing || brushing ? 'crosshair' : 'grab', touchAction: 'none' }}
+         onPointerDown={handlePointerDown}
+         onPointerMove={handlePointerMove}
+         onPointerUp={handlePointerUp}
+-        onPointerLeave={() => setHover(null)}
++        onPointerCancel={() => { stroke.current = null; brushAt.current = null; scheduleDraw(); }}
++        onPointerLeave={() => {
++          setHover(null);
++          if (brushAt.current) { brushAt.current = null; scheduleDraw(); }
++        }}
+         onDoubleClick={handleDoubleClick}
+       />
+-      {hover && !placing && (
++      {hover && !placing && !brushing && (
+         <div
+           className="absolute z-10 pointer-events-none px-2 py-1 rounded-md bg-surface/95 border border-border text-[11px] text-text-primary whitespace-nowrap shadow-lg"
+           style={{ left: hover.x, top: hover.y }}
+@@ -410,8 +611,10 @@
+           {hover.text}
+         </div>
+       )}
+-      <div className="absolute bottom-2 left-2 text-[10px] text-text-dim bg-deep/60 rounded px-1.5 py-0.5 pointer-events-none">
+-        {t('worldgen.mapHint')}
++      <div className="absolute bottom-2 left-2 px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] leading-snug text-white shadow-lg shadow-black/50 backdrop-blur-sm pointer-events-none">
++        {brushing
++          ? 'arrastra para pintar · Espacio para mover el mapa · Ctrl+Z deshace'
++          : `${t('worldgen.mapHint')}${onPickSettlement ? ' · clic en una ciudad abre su plano · doble clic baja a la comarca' : ''}`}
+       </div>
+     </div>
+   );
+diff -urN wg-orig/src/engines/worldgen/components/World3D.tsx wg/src/engines/worldgen/components/World3D.tsx
+--- a/src/engines/worldgen/components/World3D.tsx	1970-01-01 00:00:00.000000000 +0000
++++ b/src/engines/worldgen/components/World3D.tsx	2026-07-26 11:06:55.784313131 +0000
+@@ -0,0 +1,1311 @@
++import { useCallback, useEffect, useRef, useState } from 'react';
++import * as THREE from 'three';
++import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
++import {
++  Globe, Layers, Loader2, Sun, Sliders, FlipHorizontal, FlipVertical,
++} from 'lucide-react';
++import type { WorldData } from '../core/types';
++import { BIOME_COUNT } from '../core/types';
++import { BIOME_COLORS, renderComposite } from '../core/render';
++import { SculptGesture, type Falloff } from '../sculpt/ops';
++import {
++  SculptSurface, pickCell, visibleWindow, SIZE_X, R_GLOBE, type SculptShape,
++} from '../sculpt/scene3d';
++import type { Pt, TerrainOp, WorldEdit } from '../core/edits';
++import { commitPaintStroke, isSculptMode, pickGeneratedAt } from '../core/paintCommit';
++import type { HumanGeography, Settlement } from '../core/settlements';
++import { getCartoTexture } from '../cartography/texture';
++import type { CartoTheme } from '../cartography/theme';
++import type { WorldWaypoint } from '../types';
++import type { PaintTool } from './PaintPanel';
++import SculptView from './SculptView';
++
++/**
++ * The world, in three dimensions. The main view.
++ *
++ * There used to be two of these: a "terrain" view that could show a finished map
++ * and could not be touched, and a "sculpt" view that could be touched and showed
++ * grey clay. That split was a mistake in the same way a modal dialogue is a
++ * mistake — it made the reader choose, before doing anything, between seeing the
++ * world and changing it. This is one view: the map is on the ground, the brush
++ * works on it, and the skin is a toggle rather than a mode.
++ *
++ * What makes it possible is that the geometry never changes. The grid is built
++ * once, the height comes from a texture the vertex shader reads, and the grid is
++ * stretched over the square of the world the camera can currently see — so the
++ * same million triangles buy a hundred times the detail when you lean in, and a
++ * brush stroke is a rectangle of texture rather than a mesh rebuild. See
++ * `sculpt/scene3d.ts`.
++ *
++ * Conventions are the ones a sculptor's hands already know:
++ *
++ *   left drag          the brush, or turning the world when no brush is out
++ *   middle / right     turn and move the camera
++ *   wheel              closer and further
++ *   Ctrl + wheel       brush size          (also [ and ])
++ *   Shift + wheel      brush strength
++ *   Shift held         smooth, whatever the brush was
++ *   Ctrl held          the brush inverted
++ *   F                  put what is under the pointer at the centre of the turn
++ *   X / Y              symmetry
++ *   G                  plane or globe
++ *   Ctrl+Z / Ctrl+Y    undo, redo
++ */
++
++/** What is painted on the ground. */
++export type Skin3D = 'satelite' | 'dibujado' | 'arcilla';
++export type Shape3D = SculptShape;
++
++interface World3DProps {
++  world: WorldData;
++  geography?: HumanGeography | null;
++  theme: CartoTheme;
++  waypoints: WorldWaypoint[];
++  showWaypoints: boolean;
++  showSettlements: boolean;
++  skin: Skin3D;
++  shape: Shape3D;
++  onShape: (s: Shape3D) => void;
++  exaggeration: number;
++  tool: PaintTool;
++  /** So the wheel and the bracket keys can change the brush the panel owns. */
++  onTool?: (patch: Partial<PaintTool>) => void;
++  onEdit: (edit: WorldEdit) => void;
++  /** Several edits as ONE undo step — a symmetric stroke is four of them. */
++  onEdits?: (edits: WorldEdit[]) => void;
++  revision: number;
++  flyTarget: { u: number; v: number; token: number } | null;
++  onPickSettlement?: (s: Settlement) => void;
++  onPickWaypoint?: (id: string) => void;
++  onOpenRegion?: (x: number, y: number) => void;
++}
++
++/** Mesh density presets, in vertices across the visible square. */
++const MESH_STEPS = [384, 640, 1024, 1536];
++
++/** Which brush Ctrl turns each one into. */
++const INVERSE: Partial<Record<TerrainOp, TerrainOp>> = {
++  raise: 'lower',
++  lower: 'raise',
++  smooth: 'sharpen',
++  sharpen: 'smooth',
++  roughen: 'smooth',
++  gully: 'smooth',
++};
++
++const OP_LABEL: Record<TerrainOp, string> = {
++  raise: 'Levantar',
++  lower: 'Hundir',
++  smooth: 'Suavizar',
++  sharpen: 'Afilar',
++  flatten: 'Aplanar',
++  terrace: 'Escalonar',
++  roughen: 'Rugosear',
++  gully: 'Barrancos',
++  grab: 'Agarrar',
++};
++
++const OPS: TerrainOp[] = [
++  'raise', 'lower', 'smooth', 'sharpen', 'flatten', 'terrace', 'roughen', 'gully', 'grab',
++];
++
++const CURVES: { id: Falloff; label: string }[] = [
++  { id: 'smooth', label: 'Suave' },
++  { id: 'sharp', label: 'Agudo' },
++  { id: 'linear', label: 'Recto' },
++  { id: 'flat', label: 'Plano' },
++];
++
++/**
++ * One HUD style, used by everything that floats over the map.
++ *
++ * The old chips were `bg-black/45` with `text-white/70` at ten pixels, which over
++ * a bright map is somewhere between hard and impossible to read — a control hint
++ * you have to squint at is a control hint that does not exist. Near-opaque
++ * ground, a light hairline to separate it from whatever is behind, and text at
++ * full white.
++ */
++const HUD = 'rounded-md border border-white/20 bg-[#0b0e14]/92 shadow-lg shadow-black/50 backdrop-blur-sm';
++const HUD_TEXT = 'text-[11px] leading-snug text-white';
++
++const RANK_ORDER: Record<string, number> = { capital: 0, city: 1, town: 2, village: 3 };
++
++interface ScreenMark {
++  x: number;
++  y: number;
++  kind: 'settlement' | 'waypoint';
++  rank: number;
++  label: string;
++  color: string;
++  settlement?: Settlement;
++  waypointId?: string;
++}
++
++export default function World3D({
++  world, geography, theme, waypoints, showWaypoints, showSettlements,
++  skin, shape, onShape, exaggeration, tool, onTool, onEdit, onEdits, revision,
++  flyTarget, onPickSettlement, onPickWaypoint, onOpenRegion,
++}: World3DProps) {
++  const hostRef = useRef<HTMLDivElement>(null);
++  const overlayRef = useRef<HTMLCanvasElement>(null);
++  const [mesh, setMesh] = useState(1);
++  const [cavity, setCavity] = useState(0.5);
++  const [headlight, setHeadlight] = useState(false);
++  const [shadow, setShadow] = useState(0.55);
++  const [contour, setContour] = useState(0);
++  const [sunAz, setSunAz] = useState(140);
++  const [detailAmt, setDetailAmt] = useState(0.65);
++  const [mirrorX, setMirrorX] = useState(false);
++  const [mirrorY, setMirrorY] = useState(false);
++  const [curve, setCurve] = useState<Falloff>('smooth');
++  const [panel, setPanel] = useState(false);
++  const [failed, setFailed] = useState<string | null>(null);
++  const [ms, setMs] = useState(0);
++  const [ready, setReady] = useState(false);
++  const [readout, setReadout] = useState('');
++  const [hovering, setHovering] = useState<string | null>(null);
++  const [detail, setDetail] = useState('');
++  /** What the modifier keys are doing to the brush right now. */
++  const [modifier, setModifier] = useState<'' | 'smooth' | 'invert'>('');
++
++  const R = useRef<{
++    renderer: THREE.WebGLRenderer;
++    scene: THREE.Scene;
++    camera: THREE.PerspectiveCamera;
++    controls: OrbitControls;
++    surface: SculptSurface;
++    sea: THREE.Mesh;
++    seaGlobe: THREE.Mesh;
++    albedo: THREE.CanvasTexture | null;
++    raf: number;
++    timer: number;
++    need: boolean;
++    rafAlive: boolean;
++    booked: number;
++    cost: number;
++    lastDraw: number;
++    uploadedRev: number;
++    skinnedRev: number;
++    skinnedKey: string;
++    poseKey: string;
++    marks: ScreenMark[];
++    fly: { active: boolean; t: number; fromT: THREE.Vector3; toT: THREE.Vector3; fromC: THREE.Vector3; toC: THREE.Vector3 };
++  } | null>(null);
++
++  const gesture = useRef<SculptGesture | null>(null);
++  /** Cells the pointer has passed through, for the brushes that are not sculpts. */
++  const trail = useRef<Pt[] | null>(null);
++  const cursor = useRef<Pt | null>(null);
++  const press = useRef<{ x: number; y: number; moved: boolean; button: number } | null>(null);
++  const altRef = useRef(false);
++  const shapeRef = useRef(shape);
++  shapeRef.current = shape;
++  const toolRef = useRef(tool);
++  toolRef.current = tool;
++  const curveRef = useRef(curve);
++  curveRef.current = curve;
++  const mirrorRef = useRef({ x: mirrorX, y: mirrorY });
++  mirrorRef.current = { x: mirrorX, y: mirrorY };
++  const keys = useRef({ shift: false, ctrl: false });
++  const over = useRef(false);
++  const propsRef = useRef({ geography, waypoints, showWaypoints, showSettlements, onPickSettlement, onPickWaypoint, onOpenRegion });
++  propsRef.current = { geography, waypoints, showWaypoints, showSettlements, onPickSettlement, onPickWaypoint, onOpenRegion };
++
++  /** Every brush takes the left button; only two of them move ground. */
++  const brushing = tool.mode !== 'off';
++  const brushingRef = useRef(brushing);
++  brushingRef.current = brushing;
++  const sculpting = isSculptMode(tool.mode);
++  const sculptingRef = useRef(sculpting);
++  sculptingRef.current = sculpting;
++
++  // ---- scene ---------------------------------------------------------------
++  useEffect(() => {
++    const host = hostRef.current;
++    if (!host) return;
++    let renderer: THREE.WebGLRenderer;
++    try {
++      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
++    } catch (e) {
++      setFailed(e instanceof Error ? e.message : String(e));
++      return;
++    }
++    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
++    renderer.setSize(Math.max(2, host.clientWidth), Math.max(2, host.clientHeight));
++    renderer.outputColorSpace = THREE.SRGBColorSpace;
++    renderer.domElement.style.display = 'block';
++    renderer.domElement.style.touchAction = 'none';
++    host.appendChild(renderer.domElement);
++
++    const scene = new THREE.Scene();
++    scene.background = new THREE.Color(0x0e1116);
++
++    // A narrow field of view: perspective distorts the very thing you are
++    // judging — whether a slope is steeper than the one beside it.
++    const camera = new THREE.PerspectiveCamera(32, 1, 0.05, 6000);
++    const controls = new OrbitControls(camera, renderer.domElement);
++    controls.enableDamping = true;
++    controls.dampingFactor = 0.09;
++    controls.zoomSpeed = 0.9;
++    controls.mouseButtons = {
++      LEFT: THREE.MOUSE.ROTATE,
++      MIDDLE: THREE.MOUSE.ROTATE,
++      RIGHT: THREE.MOUSE.PAN,
++    };
++    controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
++
++    const palette: [number, number, number][] = [];
++    for (let i = 0; i < BIOME_COUNT; i++) {
++      const c = BIOME_COLORS[i] ?? [128, 128, 128];
++      palette.push([c[0] / 255, c[1] / 255, c[2] / 255]);
++    }
++
++    let surface: SculptSurface;
++    try {
++      surface = new SculptSurface({
++        worldWidth: world.width, worldHeight: world.height, mesh: MESH_STEPS[1], palette,
++      });
++    } catch (e) {
++      setFailed(e instanceof Error ? e.message : String(e));
++      renderer.dispose();
++      return;
++    }
++    surface.uploadAll(world.elevation, world.biome);
++    scene.add(surface.mesh);
++
++    // The sea is a real surface, not a colour below zero: you need to see the
++    // land go under it while you are pushing it down.
++    const seaMat = new THREE.MeshBasicMaterial({
++      color: 0x3f6f96, transparent: true, opacity: 0.5, depthWrite: false,
++      side: THREE.DoubleSide,
++    });
++    const sizeZ = SIZE_X * (world.height / world.width);
++    const sea = new THREE.Mesh(new THREE.PlaneGeometry(SIZE_X, sizeZ), seaMat);
++    sea.rotation.x = -Math.PI / 2;
++    sea.renderOrder = 1;
++    scene.add(sea);
++    const seaGlobe = new THREE.Mesh(new THREE.SphereGeometry(R_GLOBE, 96, 64), seaMat);
++    seaGlobe.visible = false;
++    seaGlobe.renderOrder = 1;
++    scene.add(seaGlobe);
++
++    const st = {
++      renderer, scene, camera, controls, surface, sea, seaGlobe,
++      albedo: null as THREE.CanvasTexture | null,
++      raf: 0, timer: 0, need: true, rafAlive: true, booked: 0, cost: 16, lastDraw: 0,
++      uploadedRev: revision, skinnedRev: -1, skinnedKey: '', poseKey: '',
++      marks: [] as ScreenMark[],
++      fly: {
++        active: false, t: 0,
++        fromT: new THREE.Vector3(), toT: new THREE.Vector3(),
++        fromC: new THREE.Vector3(), toC: new THREE.Vector3(),
++      },
++    };
++    R.current = st;
++    setReady(true);
++
++    const resize = () => {
++      const w = Math.max(2, host.clientWidth), h = Math.max(2, host.clientHeight);
++      renderer.setSize(w, h, false);
++      camera.aspect = w / h;
++      camera.updateProjectionMatrix();
++      st.need = true;
++      st.poseKey = '';
++    };
++    const ro = new ResizeObserver(resize);
++    ro.observe(host);
++    resize();
++
++    return () => {
++      ro.disconnect();
++      window.clearInterval(st.timer);
++      if (st.raf) cancelAnimationFrame(st.raf);
++      controls.dispose();
++      surface.dispose();
++      st.albedo?.dispose();
++      seaMat.dispose();
++      sea.geometry.dispose();
++      seaGlobe.geometry.dispose();
++      renderer.dispose();
++      if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
++      R.current = null;
++    };
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [world]);
++
++  // ---- where things are, in the scene and on the screen --------------------
++  const sizeZ = SIZE_X * (world.height / world.width);
++
++  /** Scene position of a world cell, matching the shader's `placeAt` exactly. */
++  const scenePos = useCallback((cx: number, cy: number, out: THREE.Vector3): THREE.Vector3 => {
++    const st = R.current;
++    if (!st) return out.set(0, 0, 0);
++    const e = st.surface.heightAtCell(cx, cy);
++    const yMul = st.surface.yMul;
++    if (shapeRef.current === 'plane') {
++      return out.set(
++        (cx / world.width - 0.5) * SIZE_X,
++        e * yMul,
++        (cy / world.height - 0.5) * sizeZ,
++      );
++    }
++    const lon = (cx / world.width - 0.5) * Math.PI * 2;
++    const lat = (0.5 - cy / world.height) * Math.PI;
++    const r = R_GLOBE + e * yMul * 0.55;
++    return out.set(r * Math.cos(lat) * Math.cos(lon), r * Math.sin(lat), r * Math.cos(lat) * Math.sin(lon));
++  }, [world.width, world.height, sizeZ]);
++
++  /**
++   * The dots and their labels, projected for this frame.
++   *
++   * Deliberately NOT three.js sprites. A sprite per settlement is a texture per
++   * settlement, rebuilt every time a name changes and re-uploaded every time the
++   * exaggeration slider moves; and sprite text is a picture of text, so it goes
++   * soft the moment you lean in — which is exactly when you are reading it. On a
++   * 2D canvas over the frame the labels are real text at device resolution, and
++   * they cost one projection each.
++   */
++  const projectMarks = useCallback((): ScreenMark[] => {
++    const st = R.current;
++    const host = hostRef.current;
++    if (!st || !host) return [];
++    const { geography: geo, waypoints: wps, showWaypoints: sw, showSettlements: ss } = propsRef.current;
++    const w = host.clientWidth, h = host.clientHeight;
++    const out: ScreenMark[] = [];
++    const p = new THREE.Vector3();
++    const camDir = new THREE.Vector3();
++
++    /** Project, cull, and place. Returns null when the point is not on screen. */
++    const place = (cx: number, cy: number): { x: number; y: number } | null => {
++      scenePos(cx, cy, p);
++      if (shapeRef.current === 'globe') {
++        // The far side of a planet is behind the planet.
++        camDir.copy(st.camera.position).sub(p);
++        if (p.dot(camDir) <= 0) return null;
++      }
++      p.project(st.camera);
++      if (p.z > 1 || p.x < -1.08 || p.x > 1.08 || p.y < -1.08 || p.y > 1.08) return null;
++      return { x: (p.x * 0.5 + 0.5) * w, y: (-p.y * 0.5 + 0.5) * h };
++    };
++
++    if (ss && geo) {
++      // How much of the world is on screen decides how much of the gazetteer
++      // is worth drawing: every village at full zoom is a grey smear, and only
++      // the capitals at close range is a map with nothing on it.
++      const win = st.surface.uvWindow.size;
++      const maxRank = win > 0.55 ? 1 : win > 0.22 ? 2 : 3;
++      const ranked = geo.settlements
++        .filter((s) => (RANK_ORDER[s.rank] ?? 3) <= maxRank)
++        .sort((a, b) => (RANK_ORDER[a.rank] ?? 3) - (RANK_ORDER[b.rank] ?? 3))
++        .slice(0, 160);
++      for (const s of ranked) {
++        const at = place(s.x, s.y);
++        if (!at) continue;
++        out.push({
++          x: at.x, y: at.y, kind: 'settlement',
++          rank: RANK_ORDER[s.rank] ?? 3,
++          label: s.name, color: '#f2e3c4', settlement: s,
++        });
++      }
++    }
++    if (sw) {
++      for (const wp of wps) {
++        const at = place(wp.u * world.width, wp.v * world.height);
++        if (!at) continue;
++        out.push({
++          x: at.x, y: at.y, kind: 'waypoint', rank: -1,
++          label: wp.name, color: wp.color, waypointId: wp.id,
++        });
++      }
++    }
++    return out;
++  }, [scenePos, world.width, world.height]);
++
++  const drawOverlay = useCallback((marks: ScreenMark[]) => {
++    const oc = overlayRef.current;
++    const host = hostRef.current;
++    if (!oc || !host) return;
++    const dpr = Math.min(2, window.devicePixelRatio || 1);
++    const w = Math.max(2, host.clientWidth), h = Math.max(2, host.clientHeight);
++    if (oc.width !== Math.round(w * dpr) || oc.height !== Math.round(h * dpr)) {
++      oc.width = Math.round(w * dpr);
++      oc.height = Math.round(h * dpr);
++      oc.style.width = `${w}px`;
++      oc.style.height = `${h}px`;
++    }
++    const ctx = oc.getContext('2d');
++    if (!ctx) return;
++    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
++    ctx.clearRect(0, 0, w, h);
++    ctx.textBaseline = 'middle';
++
++    for (const m of marks) {
++      if (m.kind === 'waypoint') {
++        ctx.beginPath();
++        ctx.moveTo(m.x, m.y);
++        ctx.lineTo(m.x - 5, m.y - 13);
++        ctx.lineTo(m.x + 5, m.y - 13);
++        ctx.closePath();
++        ctx.fillStyle = m.color;
++        ctx.fill();
++        ctx.lineWidth = 1.4;
++        ctx.strokeStyle = 'rgba(6,8,13,0.9)';
++        ctx.stroke();
++        label(ctx, m.label, m.x, m.y - 22, 11, m.color);
++        continue;
++      }
++      const big = m.rank <= 1;
++      const r = m.rank === 0 ? 5 : m.rank === 1 ? 4 : m.rank === 2 ? 3 : 2.2;
++      ctx.beginPath();
++      ctx.arc(m.x, m.y, r, 0, Math.PI * 2);
++      ctx.fillStyle = m.rank === 0 ? '#ffd479' : '#f4ead4';
++      ctx.fill();
++      ctx.lineWidth = 1.5;
++      ctx.strokeStyle = 'rgba(6,8,13,0.92)';
++      ctx.stroke();
++      if (m.rank === 0) {
++        ctx.beginPath();
++        ctx.arc(m.x, m.y, r + 3, 0, Math.PI * 2);
++        ctx.strokeStyle = 'rgba(255,212,121,0.75)';
++        ctx.lineWidth = 1.2;
++        ctx.stroke();
++      }
++      if (big || marks.length < 60) label(ctx, m.label, m.x + r + 5, m.y, big ? 12 : 11, '#f6efe0');
++    }
++  }, []);
++
++  // ---- the frame pump ------------------------------------------------------
++  //
++  // A window whose only content is a static canvas can stop being composited,
++  // and then `requestAnimationFrame` never fires again — which wedged this view
++  // shut once already, with a frozen picture and a brush that changed the data
++  // without changing the image. The pump runs whenever the controls report
++  // change and idles otherwise, with a rescue clock behind it.
++  const drawRef = useRef<() => void>(() => {});
++  const request = useCallback(() => {
++    const st = R.current;
++    if (!st) return;
++    st.need = true;
++    if (!st.rafAlive || st.raf) return;
++    st.booked = performance.now();
++    st.raf = requestAnimationFrame(() => {
++      st.raf = 0;
++      drawRef.current();
++    });
++  }, []);
++
++  const draw = useCallback(() => {
++    const st = R.current;
++    if (!st) return;
++    st.need = false;
++    const t0 = performance.now();
++
++    if (st.fly.active) {
++      st.fly.t = Math.min(1, st.fly.t + 1 / 42);
++      const s = st.fly.t < 0.5 ? 2 * st.fly.t * st.fly.t : 1 - Math.pow(-2 * st.fly.t + 2, 2) / 2;
++      st.controls.target.lerpVectors(st.fly.fromT, st.fly.toT, s);
++      st.camera.position.lerpVectors(st.fly.fromC, st.fly.toC, s);
++      if (st.fly.t >= 1) st.fly.active = false;
++      st.need = true;
++    }
++    const moving = st.controls.update();
++
++    // The UV window: the grid is stretched over what the camera can see, so the
++    // triangles are spent where the reader is looking instead of on the far side
++    // of the world. Recomputed only when the camera actually moved.
++    const c = st.camera;
++    const key = `${c.position.x.toFixed(2)},${c.position.y.toFixed(2)},${c.position.z.toFixed(2)},`
++      + `${st.controls.target.x.toFixed(2)},${st.controls.target.y.toFixed(2)},${st.controls.target.z.toFixed(2)}`;
++    if (key !== st.poseKey) {
++      st.poseKey = key;
++      st.surface.setWindow(visibleWindow(c, shapeRef.current, world.width, world.height));
++      st.surface.setCamera(c.position);
++      const cpq = st.surface.cellsPerQuad(MESH_STEPS[mesh]);
++      const km = Math.round((40075 / world.width) * cpq);
++      setDetail(cpq < 1
++        ? `${(1 / cpq).toFixed(1)} triángulos por celda`
++        : `${cpq.toFixed(1)} celdas por triángulo · ~${km} km`);
++    }
++
++    st.renderer.render(st.scene, st.camera);
++    st.marks = projectMarks();
++    drawOverlay(st.marks);
++
++    const cost = performance.now() - t0;
++    st.cost = cost;
++    st.lastDraw = performance.now();
++    setMs(Math.round(cost));
++    // Damping is a per-FRAME decay, so it silently assumes sixty of them a
++    // second. Below a usable frame rate the camera goes where it is put.
++    st.controls.enableDamping = cost < 40;
++    if (moving) st.need = true;
++  }, [world.width, mesh, projectMarks, drawOverlay]);
++  drawRef.current = draw;
++
++  useEffect(() => {
++    const st = R.current;
++    if (!st) return;
++    st.timer = window.setInterval(() => {
++      const now = performance.now();
++      // A frame that has not arrived is only evidence of a dead clock if the
++      // main thread was FREE to deliver it — and a frame here can legitimately
++      // cost half a second, so the deadline scales with what one actually costs.
++      if (st.raf && now - st.booked > Math.max(500, st.cost * 4)) {
++        st.rafAlive = false;
++        cancelAnimationFrame(st.raf);
++        st.raf = 0;
++      }
++      if (!st.need) return;
++      if (st.rafAlive) { request(); return; }
++      if (now - st.lastDraw < Math.max(16, st.cost)) return;
++      drawRef.current();
++    }, 16);
++    return () => window.clearInterval(st.timer);
++  }, [ready, request]);
++
++  // ---- shape ---------------------------------------------------------------
++  useEffect(() => {
++    const st = R.current;
++    if (!st) return;
++    st.surface.setShape(shape);
++    st.sea.visible = shape === 'plane';
++    st.seaGlobe.visible = shape === 'globe';
++    // How far back the whole thing fits. The bounding extent and the NARROWER of
++    // the two field angles give the distance that cannot crop, whatever the
++    // shape of the panel.
++    const halfV = (st.camera.fov * Math.PI) / 360;
++    const halfH = Math.atan(Math.tan(halfV) * Math.max(0.2, st.camera.aspect));
++    if (shape === 'plane') {
++      // 52° above the ground: high enough to read the whole sheet, low enough
++      // that relief still has a silhouette. Looking straight down is the 2D
++      // view, and the 2D view is what this one exists to stop being.
++      const a = (52 * Math.PI) / 180;
++      const relief = 9 * (0.24 * exaggeration * (SIZE_X / world.width));
++      const dV = (sizeZ * Math.sin(a) * 0.5 + relief) / Math.tan(halfV);
++      const dH = SIZE_X * 0.5 / Math.tan(halfH);
++      const d = Math.max(dV, dH) * 1.06;
++      st.controls.target.set(0, 0, 0);
++      st.camera.position.set(0, Math.sin(a) * d, Math.cos(a) * d);
++      st.controls.minDistance = 0.6;
++      st.controls.maxDistance = d * 2.2;
++      st.controls.maxPolarAngle = Math.PI * 0.499;
++      st.controls.enablePan = true;
++      st.controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
++    } else {
++      const d = (R_GLOBE * 1.1) / Math.sin(Math.max(0.08, Math.min(halfV, halfH)));
++      st.controls.target.set(0, 0, 0);
++      st.camera.position.set(d * 0.42, d * 0.38, d * 0.82);
++      st.controls.minDistance = R_GLOBE * 1.02;
++      st.controls.maxDistance = d * 3;
++      st.controls.maxPolarAngle = Math.PI;
++      st.controls.enablePan = false;
++      // Panning a globe about a fixed centre does nothing useful, so the right
++      // button turns it instead of pretending.
++      st.controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
++    }
++    st.fly.active = false;
++    st.controls.update();
++    st.poseKey = '';
++    request();
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [shape, ready, world.height, world.width, request]);
++
++  // ---- the skin ------------------------------------------------------------
++  //
++  // Rebuilt when the reader changes it, when the theme changes, and when the
++  // world does — a painted island whose raster is a revision behind is an island
++  // that is there in the relief and missing from the ground.
++  useEffect(() => {
++    const st = R.current;
++    if (!st) return;
++    const rev = revision;
++    const key = `${skin}:${theme.id}:${geography ? 'geo' : 'bare'}`;
++    if (st.skinnedKey === key && st.skinnedRev === rev) return;
++    st.skinnedKey = key;
++    st.skinnedRev = rev;
++
++    if (skin === 'arcilla') {
++      st.surface.setAlbedo(null);
++      st.surface.setShading(true, cavity, headlight, shadow);
++      st.albedo?.dispose();
++      st.albedo = null;
++      request();
++      return;
++    }
++
++    let canvas: HTMLCanvasElement;
++    if (skin === 'dibujado') {
++      canvas = getCartoTexture(world, theme, geography ?? undefined,
++        Math.min(4096, Math.max(2048, world.width)));
++    } else {
++      // Unshaded on purpose: the scene supplies the form, and a second NW
++      // hillshade baked into the raster would shade every slope twice.
++      const rgba = renderComposite(world, 'atlas', true, { shade: false });
++      canvas = document.createElement('canvas');
++      canvas.width = world.width;
++      canvas.height = world.height;
++      canvas.getContext('2d')!.putImageData(new ImageData(rgba, world.width, world.height), 0, 0);
++    }
++    const tex = new THREE.CanvasTexture(canvas);
++    tex.colorSpace = THREE.SRGBColorSpace;
++    // v = 0 is the north row of the raster, which is only true if three.js does
++    // not flip it on upload.
++    tex.flipY = false;
++    tex.wrapS = THREE.RepeatWrapping;
++    tex.wrapT = THREE.ClampToEdgeWrapping;
++    tex.minFilter = THREE.LinearMipmapLinearFilter;
++    tex.magFilter = THREE.LinearFilter;
++    tex.generateMipmaps = true;
++    tex.anisotropy = Math.min(8, st.renderer.capabilities.getMaxAnisotropy());
++    st.albedo?.dispose();
++    st.albedo = tex;
++    st.surface.setAlbedo(tex, true);
++    st.surface.setShading(false, cavity, headlight, shadow);
++    request();
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [skin, theme, geography, world, revision, ready, request]);
++
++  // ---- everything else the look depends on ---------------------------------
++  useEffect(() => {
++    const st = R.current;
++    if (!st) return;
++    st.surface.setExaggeration(exaggeration);
++    st.surface.setShading(skin === 'arcilla', cavity, headlight, shadow);
++    st.surface.setContour(contour);
++    st.surface.setSun(sunAz, 38);
++    st.surface.setMirror(mirrorX, mirrorY);
++    st.surface.setDetail(detailAmt);
++    request();
++  }, [exaggeration, skin, cavity, headlight, shadow, contour, sunAz, mirrorX, mirrorY, detailAmt, ready, request]);
++
++  useEffect(() => {
++    const st = R.current;
++    if (!st) return;
++    st.surface.setMesh(MESH_STEPS[mesh]);
++    st.poseKey = '';
++    request();
++  }, [mesh, ready, request]);
++
++  useEffect(() => {
++    const st = R.current;
++    if (!st) return;
++    if (st.uploadedRev !== revision) {
++      st.surface.uploadAll(world.elevation, world.biome);
++      st.uploadedRev = revision;
++    }
++    request();
++  }, [revision, world, ready, request]);
++
++  // Markers move when the gazetteer or the pins do, with no camera movement to
++  // trigger a frame.
++  useEffect(() => { request(); }, [geography, waypoints, showWaypoints, showSettlements, request]);
++
++  // ---- fly to a point ------------------------------------------------------
++  useEffect(() => {
++    const st = R.current;
++    if (!st || !flyTarget) return;
++    const target = new THREE.Vector3();
++    scenePos(flyTarget.u * world.width, flyTarget.v * world.height, target);
++    st.fly.fromT.copy(st.controls.target);
++    st.fly.fromC.copy(st.camera.position);
++    if (shapeRef.current === 'globe') {
++      // A globe turns about its own centre; framing means looking at the point
++      // from outside it, not moving the centre off the origin.
++      st.fly.toT.set(0, 0, 0);
++      st.fly.toC.copy(target).normalize().multiplyScalar(R_GLOBE * 2.0);
++    } else {
++      st.fly.toT.copy(target);
++      const d = Math.max(6, sizeZ * 0.16);
++      st.fly.toC.copy(target).add(new THREE.Vector3(0, d * 0.72, d * 0.62));
++    }
++    st.fly.t = 0;
++    st.fly.active = true;
++    request();
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [flyTarget, request]);
++
++  // ---- picking -------------------------------------------------------------
++  const cellUnder = useCallback((clientX: number, clientY: number): Pt | null => {
++    const st = R.current;
++    const host = hostRef.current;
++    if (!st || !host) return null;
++    const r = host.getBoundingClientRect();
++    const origin = st.camera.position.clone();
++    const dir = new THREE.Vector3(
++      ((clientX - r.left) / r.width) * 2 - 1,
++      -((clientY - r.top) / r.height) * 2 + 1,
++      0.5,
++    ).unproject(st.camera).sub(origin).normalize();
++    return pickCell(st.surface, origin, dir, shapeRef.current, world.width, world.height);
++  }, [world.width, world.height]);
++
++  /** The dot under the pointer, if any, from the marks this frame already drew. */
++  const markUnder = useCallback((clientX: number, clientY: number): ScreenMark | null => {
++    const st = R.current;
++    const host = hostRef.current;
++    if (!st || !host) return null;
++    const r = host.getBoundingClientRect();
++    const px = clientX - r.left, py = clientY - r.top;
++    let best: ScreenMark | null = null;
++    let bestD = 15 * 15;
++    for (const m of st.marks) {
++      const d = (m.x - px) * (m.x - px) + (m.y - py) * (m.y - py);
++      if (d < bestD) { bestD = d; best = m; }
++    }
++    return best;
++  }, []);
++
++  /**
++   * What the next stroke will actually do.
++   *
++   * Modifier keys beat the panel, which is the convention everywhere: Shift is
++   * smooth no matter what was selected, Ctrl is the same brush the other way
++   * round. Resolved once when the button goes down and held for the whole
++   * stroke, so letting go of Shift halfway does not change the brush under the
++   * reader's hand.
++   */
++  const resolveBrush = useCallback((shift: boolean, ctrl: boolean) => {
++    const t = toolRef.current;
++    if (shift) return { kind: 'terrain' as const, op: 'smooth' as TerrainOp };
++    if (t.mode === 'land') {
++      const op = ctrl ? (t.landOp === 'land' ? 'sea' : 'land') : t.landOp;
++      return { kind: 'land' as const, op };
++    }
++    const op = ctrl ? (INVERSE[t.terrainOp] ?? t.terrainOp) : t.terrainOp;
++    return { kind: 'terrain' as const, op };
++  }, []);
++
++  const uploadDirty = useCallback((d: { x0: number; y0: number; x1: number; y1: number }) => {
++    const st = R.current;
++    if (!st || d.x1 < d.x0) return;
++    st.surface.patch(world.elevation, null, d.x0, d.y0, d.x1 - d.x0 + 1, d.y1 - d.y0 + 1);
++  }, [world.elevation]);
++
++  const onPointerDown = useCallback((e: React.PointerEvent) => {
++    const st = R.current;
++    if (!st) return;
++    altRef.current = e.altKey;
++    press.current = { x: e.clientX, y: e.clientY, moved: false, button: e.button };
++    if (e.button !== 0 || !brushingRef.current) return;
++    const p = cellUnder(e.clientX, e.clientY);
++    if (!p) return;
++    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
++    const t = toolRef.current;
++    if (sculptingRef.current) {
++      const b = resolveBrush(e.shiftKey, e.ctrlKey || e.metaKey);
++      gesture.current = new SculptGesture(
++        world.elevation, world.width, world.height, world.params.seed,
++        {
++          kind: b.kind, op: b.op,
++          radius: t.radius, strength: t.strength, softness: t.softness,
++          curve: curveRef.current,
++          mirrorX: mirrorRef.current.x, mirrorY: mirrorRef.current.y,
++        },
++      );
++      uploadDirty(gesture.current.extend(p));
++    } else {
++      // Everything else — biome, river, road, a town, a name — is just the list
++      // of cells the pointer crossed, and becomes an edit when the button comes
++      // back up. There is nothing to preview because the raster underneath is
++      // rebuilt from the edit, not from the gesture.
++      trail.current = [p];
++    }
++    cursor.current = p;
++    request();
++  }, [cellUnder, resolveBrush, uploadDirty, world, request]);
++
++  const onPointerMove = useCallback((e: React.PointerEvent) => {
++    const st = R.current;
++    if (!st) return;
++    if (press.current && !press.current.moved
++        && Math.hypot(e.clientX - press.current.x, e.clientY - press.current.y) > 4) {
++      press.current.moved = true;
++    }
++
++    // With no brush out, the pointer is a pointer: what it is over matters more
++    // than where it is on the ground, and a height query per mouse move is not
++    // free.
++    if (!brushingRef.current) {
++      const m = markUnder(e.clientX, e.clientY);
++      setHovering(m ? m.label : null);
++      if (!press.current) {
++        const p = cellUnder(e.clientX, e.clientY);
++        setReadout(p ? describe(world, p) : '');
++      }
++      return;
++    }
++
++    const p = cellUnder(e.clientX, e.clientY);
++    cursor.current = p;
++    const t = toolRef.current;
++    if (p) {
++      st.surface.setBrush(p.x, p.y, t.radius, t.softness, true);
++      setReadout(describe(world, p));
++    } else {
++      st.surface.setBrush(0, 0, 1, t.softness, false);
++      setReadout('');
++    }
++    const g = gesture.current;
++    if (g && p) uploadDirty(g.extend(p));
++    const tr = trail.current;
++    if (tr && p) {
++      const last = tr[tr.length - 1];
++      // One point per half-cell is plenty, and it keeps the serialized edit
++      // small enough to store a hundred strokes.
++      if (Math.hypot(p.x - last.x, p.y - last.y) > 0.5) tr.push(p);
++    }
++    request();
++  }, [cellUnder, markUnder, uploadDirty, world, request]);
++
++  const finish = useCallback((e: React.PointerEvent) => {
++    const st = R.current;
++    const g = gesture.current;
++    const tr = trail.current;
++    gesture.current = null;
++    trail.current = null;
++    const p = press.current;
++    press.current = null;
++
++    if (g && g.points) {
++      // The live pass is a preview. It is rolled back and the stroke committed
++      // as edits, which the session replays from the pristine snapshot — so what
++      // ends up in the world is exactly what regenerating from the seed and the
++      // edit list would produce, never what the preview happened to do.
++      g.rollback();
++      st?.surface.uploadAll(world.elevation, world.biome);
++      const edits: WorldEdit[] = g.edits().map((ed) => (ed.kind === 'land'
++        ? { kind: 'land', op: ed.op as 'land' | 'sea', stroke: ed.stroke }
++        : { kind: 'terrain', op: ed.op as TerrainOp, stroke: ed.stroke }));
++      if (edits.length) {
++        if (onEdits) onEdits(edits);
++        else for (const ed of edits) onEdit(ed);
++      }
++      request();
++      return;
++    }
++
++    if (tr && tr.length) {
++      const edit = commitPaintStroke(toolRef.current, tr, {
++        alt: altRef.current,
++        pickGenerated: (x, y) => pickGeneratedAt(
++          world, propsRef.current.geography, x, y,
++          Math.max(3, st ? st.surface.uvWindow.size * world.width * 0.02 : 8),
++        ),
++      });
++      if (edit) onEdit(edit);
++      request();
++      return;
++    }
++
++    // No brush: a click that did not turn the world is a click on something.
++    if (!p || p.moved || p.button !== 0 || brushingRef.current) return;
++    const mark = markUnder(e.clientX, e.clientY);
++    if (mark?.kind === 'waypoint' && mark.waypointId) {
++      propsRef.current.onPickWaypoint?.(mark.waypointId);
++      return;
++    }
++    if (mark?.settlement) {
++      propsRef.current.onPickSettlement?.(mark.settlement);
++      return;
++    }
++    // Missed the dot but landed near a town anyway — the reader pointed at the
++    // place, not at the four pixels that represent it.
++    const geo = propsRef.current.geography;
++    const pick = propsRef.current.onPickSettlement;
++    if (!geo || !pick) return;
++    const cell = cellUnder(e.clientX, e.clientY);
++    if (!cell) return;
++    const st2 = R.current;
++    const tol = Math.max(4, (st2 ? st2.surface.uvWindow.size : 1) * world.width * 0.018);
++    const s = pickSettlementNear(geo, world.width, cell.x, cell.y, tol);
++    if (s) pick(s);
++  }, [onEdit, onEdits, world, markUnder, cellUnder, request]);
++
++  const cancel = useCallback(() => {
++    const g = gesture.current;
++    gesture.current = null;
++    trail.current = null;
++    press.current = null;
++    if (!g) return;
++    g.rollback();
++    R.current?.surface.uploadAll(world.elevation, world.biome);
++    request();
++  }, [world, request]);
++
++  const onDoubleClick = useCallback((e: React.MouseEvent) => {
++    if (brushingRef.current) return;
++    const open = propsRef.current.onOpenRegion;
++    if (!open) return;
++    const p = cellUnder(e.clientX, e.clientY);
++    if (p) open(p.x, p.y);
++  }, [cellUnder]);
++
++  // The hand turns the world with the left button; a brush needs it.
++  useEffect(() => {
++    const st = R.current;
++    if (!st) return;
++    st.controls.mouseButtons.LEFT = brushing
++      ? (null as unknown as THREE.MOUSE)
++      : THREE.MOUSE.ROTATE;
++  }, [brushing, ready]);
++
++  // ---- wheel: zoom, or the brush ------------------------------------------
++  useEffect(() => {
++    const host = hostRef.current;
++    if (!host) return;
++    const onWheel = (e: WheelEvent) => {
++      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return;   // let OrbitControls dolly
++      if (!brushingRef.current) return;
++      e.preventDefault();
++      e.stopPropagation();
++      const t = toolRef.current;
++      if (e.shiftKey && !(e.ctrlKey || e.metaKey)) {
++        const s = Math.min(1, Math.max(0.02, t.strength * Math.pow(1.0016, -e.deltaY)));
++        onTool?.({ strength: s });
++      } else {
++        const r = Math.min(240, Math.max(1, t.radius * Math.pow(1.0022, -e.deltaY)));
++        onTool?.({ radius: r });
++        const c = cursor.current;
++        if (c) R.current?.surface.setBrush(c.x, c.y, r, t.softness, true);
++      }
++      request();
++    };
++    host.addEventListener('wheel', onWheel, { passive: false, capture: true });
++    return () => host.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
++  }, [onTool, request]);
++
++  // ---- keys ----------------------------------------------------------------
++  useEffect(() => {
++    const focus = () => {
++      const st = R.current;
++      const c = cursor.current;
++      if (!st || !c) return;
++      // Put what is under the pointer at the centre of the turn, keeping the
++      // distance. Without this, zooming in on a corner of the world orbits
++      // around somewhere you are not looking, which is the single most common
++      // reason a 3D view feels broken.
++      const target = new THREE.Vector3();
++      scenePos(c.x, c.y, target);
++      if (shapeRef.current === 'plane') {
++        const off = st.camera.position.clone().sub(st.controls.target);
++        st.controls.target.copy(target);
++        st.camera.position.copy(target).add(off);
++      } else {
++        const d = st.camera.position.length();
++        st.camera.position.copy(target).normalize().multiplyScalar(d);
++      }
++      st.fly.active = false;
++      st.controls.update();
++      st.poseKey = '';
++      request();
++    };
++
++    const down = (e: KeyboardEvent) => {
++      const tag = (e.target as HTMLElement | null)?.tagName;
++      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement | null)?.isContentEditable) return;
++      if (e.shiftKey !== keys.current.shift || (e.ctrlKey || e.metaKey) !== keys.current.ctrl) {
++        keys.current = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey };
++        setModifier(e.shiftKey ? 'smooth' : keys.current.ctrl ? 'invert' : '');
++      }
++      if (e.ctrlKey || e.metaKey) {
++        // The world's own undo, so a sculpt step and a map step are one history.
++        if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); window.dispatchEvent(new Event('wg-undo')); }
++        if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); window.dispatchEvent(new Event('wg-redo')); }
++        return;
++      }
++      if (!over.current) return;
++      const t = toolRef.current;
++      switch (e.key) {
++        case '[': onTool?.({ radius: Math.max(1, t.radius * 0.85) }); break;
++        case ']': onTool?.({ radius: Math.min(240, t.radius * 1.18) }); break;
++        case 'x': case 'X': setMirrorX((v) => !v); break;
++        case 'y': case 'Y': setMirrorY((v) => !v); break;
++        case 'f': case 'F': focus(); break;
++        case 's': case 'S': setShadow((v) => (v > 0.02 ? 0 : 0.55)); break;
++        case 'g': case 'G': onShape(shapeRef.current === 'plane' ? 'globe' : 'plane'); break;
++        default: return;
++      }
++      request();
++    };
++    const up = (e: KeyboardEvent) => {
++      keys.current = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey };
++      setModifier(e.shiftKey ? 'smooth' : keys.current.ctrl ? 'invert' : '');
++    };
++    const blur = () => { keys.current = { shift: false, ctrl: false }; setModifier(''); };
++    window.addEventListener('keydown', down);
++    window.addEventListener('keyup', up);
++    window.addEventListener('blur', blur);
++    return () => {
++      window.removeEventListener('keydown', down);
++      window.removeEventListener('keyup', up);
++      window.removeEventListener('blur', blur);
++    };
++  }, [onTool, onShape, scenePos, request]);
++
++  if (failed) {
++    // Not a dead end: the 2D heightmap view is a complete sculpting tool and it
++    // runs on anything.
++    return (
++      <div className="absolute inset-0">
++        <SculptView world={world} tool={tool} onEdit={onEdit} revision={revision} />
++        <div className={`absolute left-2 top-2 max-w-sm px-2.5 py-1.5 ${HUD} ${HUD_TEXT} pointer-events-none`}>
++          Esta máquina no ha podido abrir un contexto 3D, así que se esculpe sobre el mapa de
++          alturas. Se pinta igual y las ediciones son las mismas. ({failed})
++        </div>
++      </div>
++    );
++  }
++
++  const t = tool;
++  const activeOp = t.mode === 'terrain'
++    ? (modifier === 'invert' ? (INVERSE[t.terrainOp] ?? t.terrainOp) : t.terrainOp)
++    : null;
++  const activeLand = t.mode === 'land'
++    ? (modifier === 'invert' ? (t.landOp === 'land' ? 'sea' : 'land') : t.landOp)
++    : null;
++
++  return (
++    <div className="absolute inset-0 overflow-hidden select-none">
++      <div
++        ref={hostRef}
++        className={`absolute inset-0 ${
++          brushing ? 'cursor-crosshair' : hovering ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
++        }`}
++        onPointerDown={onPointerDown}
++        onPointerMove={onPointerMove}
++        onPointerUp={finish}
++        onPointerCancel={cancel}
++        onDoubleClick={onDoubleClick}
++        onContextMenu={(e) => e.preventDefault()}
++        onPointerEnter={() => { over.current = true; }}
++        onPointerLeave={() => {
++          over.current = false;
++          cursor.current = null;
++          press.current = null;
++          R.current?.surface.setBrush(0, 0, 1, t.softness, false);
++          setReadout('');
++          setHovering(null);
++          request();
++        }}
++      />
++      <canvas ref={overlayRef} className="absolute inset-0 pointer-events-none" />
++
++      {/* shape, symmetry, look */}
++      <div className="absolute right-2 top-2 flex flex-col gap-1.5 items-end">
++        <div className={`flex gap-1 p-1 ${HUD}`}>
++          <Chip on={shape === 'plane'} onClick={() => onShape('plane')} icon={Layers} label="Plano" title="Plano (G)" />
++          <Chip on={shape === 'globe'} onClick={() => onShape('globe')} icon={Globe} label="Globo" title="Globo (G)" />
++          <span className="w-px my-1 bg-white/20" />
++          <Chip on={mirrorX} onClick={() => setMirrorX((v) => !v)} icon={FlipHorizontal} title="Simetría este–oeste (X)" />
++          <Chip on={mirrorY} onClick={() => setMirrorY((v) => !v)} icon={FlipVertical} title="Simetría norte–sur (Y)" />
++          <span className="w-px my-1 bg-white/20" />
++          <Chip on={panel} onClick={() => setPanel((v) => !v)} icon={Sliders} title="Aspecto" />
++        </div>
++
++        {panel && (
++          <div className={`w-64 p-2.5 flex flex-col gap-2 ${HUD} ${HUD_TEXT}`}>
++            <Slider label="Detalle de cerca" value={detailAmt} min={0} max={1} step={0.05}
++              onChange={setDetailAmt} format={(v) => (v < 0.03 ? 'no' : `${Math.round(v * 100)}%`)} />
++            <Slider label="Cavidad" value={cavity} min={0} max={1.4} step={0.05}
++              onChange={setCavity} format={(v) => v.toFixed(2)} />
++            <Slider label="Sombras" value={shadow} min={0} max={1} step={0.05}
++              onChange={setShadow}
++              format={(v) => (v < 0.03 ? 'no' : v.toFixed(2))}
++              disabled={shape === 'globe' || headlight} />
++            <Slider label="Sol" value={sunAz} min={0} max={360} step={5}
++              onChange={setSunAz} format={(v) => `${v}°`} disabled={headlight} />
++            <Slider label="Curvas de nivel" value={contour} min={0} max={1} step={0.05}
++              onChange={setContour} format={(v) => (v < 0.03 ? 'no' : `${Math.round(v * 1000)} m`)} />
++            <label className="flex items-center justify-between">
++              Malla
++              <span className="flex gap-1">
++                {MESH_STEPS.map((n, i) => (
++                  <button key={n} onClick={() => setMesh(i)}
++                    className={`px-1.5 py-0.5 rounded tabular-nums ${mesh === i ? 'bg-amber-400/40 text-white' : 'text-white/70 hover:bg-white/15'}`}>
++                    {n}
++                  </button>
++                ))}
++              </span>
++            </label>
++            <Toggle on={headlight} onClick={() => setHeadlight((v) => !v)} label="Luz frontal" icon={Sun} />
++            <p className="text-white/60 leading-snug pt-0.5">{detail}</p>
++          </div>
++        )}
++      </div>
++
++      {/* the brush strip: what the left button is about to do */}
++      {sculpting && (
++        <div className="absolute left-1/2 -translate-x-1/2 bottom-2 flex flex-col items-center gap-1">
++          <div className={`flex gap-0.5 p-1 ${HUD}`}>
++            {t.mode === 'terrain'
++              ? OPS.map((op) => (
++                <button
++                  key={op}
++                  onClick={() => onTool?.({ terrainOp: op })}
++                  title={OP_LABEL[op]}
++                  className={`px-2 py-1 rounded text-[11px] transition ${
++                    activeOp === op
++                      ? (modifier ? 'bg-sky-400/45 text-white' : 'bg-amber-400/40 text-white')
++                      : 'text-white/75 hover:text-white hover:bg-white/15'
++                  }`}
++                >
++                  {OP_LABEL[op]}
++                </button>
++              ))
++              : ([['land', 'Tierra'], ['sea', 'Mar']] as const).map(([op, label]) => (
++                <button
++                  key={op}
++                  onClick={() => onTool?.({ landOp: op })}
++                  className={`px-2 py-1 rounded text-[11px] transition ${
++                    activeLand === op
++                      ? (modifier ? 'bg-sky-400/45 text-white' : 'bg-amber-400/40 text-white')
++                      : 'text-white/75 hover:text-white hover:bg-white/15'
++                  }`}
++                >
++                  {label}
++                </button>
++              ))}
++            {modifier === 'smooth' && (
++              <span className="px-2 py-1 rounded text-[11px] bg-sky-400/45 text-white">Suavizar</span>
++            )}
++          </div>
++          <div className={`flex items-center gap-0.5 p-0.5 ${HUD}`}>
++            {CURVES.map((c) => (
++              <button key={c.id} onClick={() => setCurve(c.id)}
++                title={`Borde ${c.label.toLowerCase()}`}
++                className={`px-1.5 py-0.5 rounded text-[10px] ${curve === c.id ? 'bg-white/25 text-white' : 'text-white/70 hover:text-white'}`}>
++                {c.label}
++              </button>
++            ))}
++            <span className="px-1.5 py-0.5 text-[10px] text-white/75 tabular-nums">
++              ⌀{t.radius.toFixed(0)} · fuerza {(t.strength * 100).toFixed(0)}%
++            </span>
++          </div>
++        </div>
++      )}
++
++      {!ready && (
++        <div className="absolute inset-0 grid place-items-center text-white/80 text-xs">
++          <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> levantando el terreno…</span>
++        </div>
++      )}
++
++      <div className="absolute left-2 bottom-2 flex flex-col gap-1 items-start pointer-events-none max-w-[70%]">
++        {(hovering || readout) && (
++          <span className={`px-2 py-1 ${HUD} ${HUD_TEXT} tabular-nums`}>
++            {hovering ? <strong className="font-semibold text-amber-200">{hovering}</strong> : readout}
++          </span>
++        )}
++        <div className="flex gap-1.5 items-center">
++          <span className={`px-2 py-1 ${HUD} ${HUD_TEXT} tabular-nums`}>{ms ? `${ms} ms` : '—'}</span>
++          <span className={`px-2 py-1 ${HUD} ${HUD_TEXT}`}>
++            {!brushing
++              ? 'arrastra para girar · rueda para acercar · clic en una ciudad abre su plano · doble clic baja a la comarca · F centra'
++              : sculpting
++                ? (modifier === 'smooth' ? 'Mayús: suavizar'
++                  : modifier === 'invert' ? 'Ctrl: al revés'
++                    : 'arrastra para esculpir · Mayús suaviza · Ctrl invierte · botón derecho mueve · Ctrl+rueda tamaño')
++                : 'arrastra para pintar · botón derecho mueve la cámara · Ctrl+rueda tamaño'}
++          </span>
++        </div>
++      </div>
++    </div>
++  );
++}
++
++// ---------------------------------------------------------------------------
++
++/** A label with a dark halo, so it reads over ice and over ocean alike. */
++function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, color: string): void {
++  ctx.font = `${size >= 12 ? 600 : 500} ${size}px "Source Sans 3", system-ui, sans-serif`;
++  ctx.lineWidth = 3;
++  ctx.lineJoin = 'round';
++  ctx.strokeStyle = 'rgba(6,8,13,0.85)';
++  ctx.strokeText(text, x, y);
++  ctx.fillStyle = color;
++  ctx.fillText(text, x, y);
++}
++
++/** Height and position of a cell, in the words a reader uses. */
++function describe(world: WorldData, p: Pt): string {
++  const xi = ((Math.round(p.x) % world.width) + world.width) % world.width;
++  const yi = Math.min(world.height - 1, Math.max(0, Math.round(p.y)));
++  const km = world.elevation[yi * world.width + xi];
++  const lat = 90 - (yi / world.height) * 180;
++  const lon = (xi / world.width) * 360 - 180;
++  return `${km >= 0 ? `${Math.round(km * 1000)} m` : `${Math.round(-km * 1000)} m bajo el mar`}`
++    + ` · ${Math.abs(lat).toFixed(1)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? 'E' : 'O'}`;
++}
++
++/**
++ * Nearest settlement to a cell, biased toward the bigger place.
++ *
++ * The same rule the carta uses, in cells rather than in normalized coordinates,
++ * because that is what a ray against a height field gives back.
++ */
++function pickSettlementNear(
++  geo: HumanGeography, worldWidth: number, x: number, y: number, maxCells: number,
++): Settlement | null {
++  let best: Settlement | null = null;
++  let bestD = maxCells * maxCells;
++  for (const s of geo.settlements) {
++    let dx = Math.abs(s.x - x);
++    if (dx > worldWidth / 2) dx = worldWidth - dx;
++    const dy = s.y - y;
++    const bonus = s.rank === 'capital' ? 0.45 : s.rank === 'city' ? 0.65 : s.rank === 'town' ? 0.85 : 1;
++    const d = (dx * dx + dy * dy) * bonus;
++    if (d < bestD) { bestD = d; best = s; }
++  }
++  return best;
++}
++
++function Chip({ on, onClick, icon: Icon, label: text, title }: {
++  on: boolean; onClick: () => void; icon: typeof Globe; label?: string; title?: string;
++}) {
++  return (
++    <button
++      onClick={onClick}
++      title={title}
++      className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] transition ${
++        on ? 'bg-amber-400/40 text-white' : 'text-white/75 hover:text-white hover:bg-white/15'
++      }`}
++    >
++      <Icon size={12} />
++      {text}
++    </button>
++  );
++}
++
++function Toggle({ on, onClick, label: text, icon: Icon, title }: {
++  on: boolean; onClick: () => void; label: string; icon?: typeof Globe; title?: string;
++}) {
++  return (
++    <button
++      onClick={onClick}
++      title={title}
++      className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-[11px] transition ${
++        on ? 'bg-amber-400/40 text-white' : 'text-white/75 hover:text-white hover:bg-white/15'
++      }`}
++    >
++      {Icon && <Icon size={12} />}
++      {text}
++    </button>
++  );
++}
++
++function Slider({ label: text, value, min, max, step, onChange, format, disabled }: {
++  label: string; value: number; min: number; max: number; step: number;
++  onChange: (v: number) => void; format: (v: number) => string; disabled?: boolean;
++}) {
++  return (
++    <label className={`flex items-center gap-2 ${disabled ? 'opacity-40' : ''}`}>
++      <span className="w-28 shrink-0">{text}</span>
++      <input
++        type="range" min={min} max={max} step={step} value={value} disabled={disabled}
++        onChange={(e) => onChange(Number(e.target.value))}
++        className="flex-1 accent-amber-400"
++      />
++      <span className="w-10 text-right tabular-nums text-white/80">{format(value)}</span>
++    </label>
++  );
++}
+diff -urN wg-orig/src/engines/worldgen/components/WorldView.tsx wg/src/engines/worldgen/components/WorldView.tsx
+--- a/src/engines/worldgen/components/WorldView.tsx	2026-07-26 10:54:54.756447537 +0000
++++ b/src/engines/worldgen/components/WorldView.tsx	2026-07-26 11:12:07.372331653 +0000
+@@ -22,7 +22,7 @@
+ import Map2D from './Map2D';
+ import ParamsPanel from './ParamsPanel';
+ import WaypointsPanel from './WaypointsPanel';
+-import type { Shape3D, SkinMode } from './Terrain3D';
++import type { Shape3D, Skin3D } from './World3D';
+ import CartoMap from './CartoMap';
+ import CityPlanView from './CityPlanView';
+ import RegionSheetView from './RegionSheetView';
+@@ -42,13 +42,18 @@
+ import { buildAtlas, buildIndex, linkWeights, placeAt, type ManuscriptLink } from '../core/atlas';
+ import type { Route as TravelRoute } from '../core/travel';
+ 
+-const Terrain3D = lazy(() => import('./Terrain3D'));
+-// three.js and the sculpt shaders are the heaviest thing in the engine and the
+-// reader may never open either view, so both arrive on demand.
+-const Sculpt3D = lazy(() => import('./Sculpt3D'));
++// three.js and the surface shader are the heaviest thing in the engine, so they
++// still arrive on demand — but this IS the opening view now, so the chunk is
++// requested the moment the module loads rather than on a first click.
++const World3D = lazy(() => import('./World3D'));
+ 
+ const VIEW_MODES: ViewMode[] = ['atlas', 'elevation', 'temperature', 'precipitation', 'plates', 'flow'];
+-const SHAPES_3D: Shape3D[] = ['plane', 'globe', 'disc'];
++const SHAPES_3D: Shape3D[] = ['plane', 'globe'];
++const SKINS_3D: { id: Skin3D; label: string; title: string }[] = [
++  { id: 'satelite', label: 'Satélite', title: 'El mundo visto desde arriba: biomas, ríos, hielo' },
++  { id: 'dibujado', label: 'Dibujado', title: 'La carta dibujada, drapeada sobre el relieve' },
++  { id: 'arcilla', label: 'Arcilla', title: 'Sin color: sólo la forma, para esculpir' },
++];
+ 
+ export interface WaypointFocus {
+   id: string;
+@@ -85,9 +90,17 @@
+ }: WorldViewProps) {
+   const { t } = useTranslation();
+   const [params, setParams] = useState<WorldParams>(() => normalizeParams(world.params));
+-  const [view, setView] = useState<'map' | 'carta' | 'sculpt' | '3d'>('map');
++  /**
++   * Which view the reader lands in.
++   *
++   * The 3D world, in satellite. It is the one that shows what the generator
++   * actually made — the shape of the ground and the colour of it — and it is the
++   * one the brush works on. The carta is a beautiful thing to export and a poor
++   * thing to work in, so it is last in the row and never the default.
++   */
++  const [view, setView] = useState<'3d' | 'map' | 'carta'>('3d');
+   const [themeId, setThemeId] = useState<string>('wonder');
+-  const [skin3D, setSkin3D] = useState<SkinMode>('carta');
++  const [skin3D, setSkin3D] = useState<Skin3D>('satelite');
+   const [cityFor, setCityFor] = useState<Settlement | null>(null);
+   const [regionAt, setRegionAt] = useState<{ x: number; y: number } | null>(null);
+   const [cartoLayers, setCartoLayers] = useState<Partial<CartoLayers>>({
+@@ -101,6 +114,7 @@
+   const [showRivers, setShowRivers] = useState(true);
+   const [showLandmarks, setShowLandmarks] = useState(true);
+   const [showWaypoints, setShowWaypoints] = useState(true);
++  const [showSettlements, setShowSettlements] = useState(true);
+   const [showGrid, setShowGrid] = useState(false);
+   const [panelTab, setPanelTab] = useState<'params' | 'waypoints' | 'paint' | 'world' | 'journey' | 'atlas'>('params');
+   const [atlasKey, setAtlasKey] = useState<string | null>(null);
+@@ -173,7 +187,16 @@
+   // Kept for the badge the Carta view shows while a full rebuild runs in the
+   // background; the map itself is never unmounted for it any more.
+   const [geoBusy, setGeoBusy] = useState(false);
+-  const needsGeo = view === 'carta' || (view === '3d' && skin3D === 'carta');
++  /**
++   * Who needs the human geography, now that towns are on every view.
++   *
++   * It used to be "the carta, and 3D when it is wearing the carta". But the dots
++   * you click to open a town's plan come from here, and those are on the 3D
++   * world and the satellite map too — so the answer is now "unless the reader
++   * has turned the towns off". It is still computed off the render path and the
++   * map is never unmounted waiting for it.
++   */
++  const needsGeo = view === 'carta' || skin3D === 'dibujado' || showSettlements;
+   // Read through a ref so `afterEdit` does not have to be rebuilt — and so a
+   // stroke started in one view cannot be judged by the view the reader has
+   // since switched to.
+@@ -252,6 +275,23 @@
+   // and a pristine snapshot; the world object itself is mutated in place and its
+   // revision counter is what tells every cache and the map to redraw.
+   const [tool, setTool] = useState<PaintTool>(DEFAULT_PAINT_TOOL);
++  /**
++   * A brush exists only where it can be used.
++   *
++   * Two bugs came out of the tool being a single piece of state that outlived
++   * the place it was chosen: the crosshair followed the reader into panels that
++   * have nothing to paint, and the carta — which is a finished drawing, not a
++   * working surface — accepted strokes. Both are the same mistake, so both get
++   * the same fix: leaving the brush box, or opening the carta, puts the brush
++   * down. `paintable` is the single source of truth for "can this view paint",
++   * and the views are handed a brush only when it is true.
++   */
++  const paintable = view !== 'carta' && panelTab === 'paint';
++  useEffect(() => {
++    if (!paintable) setTool((t) => (t.mode === 'off' ? t : { ...t, mode: 'off' }));
++  }, [paintable]);
++  const brush = paintable ? tool : DEFAULT_PAINT_TOOL;
++
+   const [paintRev, setPaintRev] = useState(0);
+   const [painting, setPainting] = useState(false);
+   const session = useRef<PaintSession | null>(null);
+@@ -490,12 +530,11 @@
+     <div className="flex flex-col gap-3">
+       {/* ---- Toolbar ---- */}
+       <div className="flex items-center gap-2 flex-wrap">
+-        {/* View switch */}
++        {/* View switch. The order is the order of importance. */}
+         <div className="flex rounded-lg border border-border overflow-hidden">
++          <ToolbarTab active={view === '3d'} onClick={() => setView('3d')} icon={Box} label="Mundo 3D" disabled={!data} />
+           <ToolbarTab active={view === 'map'} onClick={() => setView('map')} icon={MapIcon} label={t('worldgen.view.map')} />
+           <ToolbarTab active={view === 'carta'} onClick={() => setView('carta')} icon={ScrollText} label="Carta" disabled={!data} />
+-          <ToolbarTab active={view === 'sculpt'} onClick={() => { setView('sculpt'); setPanelTab('paint'); }} icon={Mountain} label="Esculpir" disabled={!data} />
+-          <ToolbarTab active={view === '3d'} onClick={() => setView('3d')} icon={Box} label={t('worldgen.view.terrain')} disabled={!data} />
+         </div>
+ 
+         {/* 2D view-mode + projection selects */}
+@@ -524,7 +563,7 @@
+         )}
+ 
+         {/* Carta: theme, layer toggles, relief density */}
+-        {(view === 'carta' || (view === '3d' && skin3D === 'carta')) && (
++        {(view === 'carta' || (view === '3d' && skin3D === 'dibujado')) && (
+           <select
+             value={themeId}
+             onChange={(e) => setThemeId(e.target.value)}
+@@ -561,18 +600,20 @@
+         {/* 3D skin switch */}
+         {view === '3d' && (
+           <div className="flex rounded-lg border border-border overflow-hidden">
+-            <button
+-              onClick={() => setSkin3D('carta')}
+-              className={`px-3 py-1.5 text-xs transition ${skin3D === 'carta' ? 'bg-accent-gold/15 text-accent-gold' : 'bg-elevated text-text-muted hover:text-text-primary'}`}
+-            >
+-              Dibujado
+-            </button>
+-            <button
+-              onClick={() => setSkin3D('atlas')}
+-              className={`px-3 py-1.5 text-xs transition ${skin3D === 'atlas' ? 'bg-accent-gold/15 text-accent-gold' : 'bg-elevated text-text-muted hover:text-text-primary'}`}
+-            >
+-              Satélite
+-            </button>
++            {SKINS_3D.map((s) => (
++              <button
++                key={s.id}
++                onClick={() => setSkin3D(s.id)}
++                title={s.title}
++                className={`px-3 py-1.5 text-xs transition ${
++                  skin3D === s.id
++                    ? 'bg-accent-gold/15 text-accent-gold'
++                    : 'bg-elevated text-text-muted hover:text-text-primary'
++                }`}
++              >
++                {s.label}
++              </button>
++            ))}
+           </div>
+         )}
+ 
+@@ -600,6 +641,14 @@
+           <OverlayToggle active={showRivers} onClick={() => setShowRivers(!showRivers)} icon={Waves} title={t('worldgen.overlay.rivers')} />
+           <OverlayToggle active={showLandmarks} onClick={() => setShowLandmarks(!showLandmarks)} icon={Flame} title={t('worldgen.overlay.landmarks')} />
+           <OverlayToggle active={showWaypoints} onClick={() => setShowWaypoints(!showWaypoints)} icon={MapPin} title={t('worldgen.overlay.waypoints')} />
++          {view !== 'carta' && (
++            <OverlayToggle
++              active={showSettlements}
++              onClick={() => setShowSettlements(!showSettlements)}
++              icon={Landmark}
++              title="Ciudades — pincha una para abrir su plano"
++            />
++          )}
+           {view === 'map' && (
+             <OverlayToggle active={showGrid} onClick={() => setShowGrid(!showGrid)} icon={Globe} title={t('worldgen.overlay.grid')} />
+           )}
+@@ -646,7 +695,13 @@
+               placing={placing}
+               onPlace={handlePlace}
+               onSelectWaypoint={setSelectedWaypointId}
+-              onFlyTo={flyTo}
++              geography={geography}
++              showSettlements={showSettlements}
++              tool={paintable ? tool : undefined}
++              onEdit={paintable ? applyEdit : undefined}
++              onPickSettlement={setCityFor}
++              onOpenRegion={(x, y) => setRegionAt({ x, y })}
++              revision={paintRev}
+             />
+           )}
+           {data && view === 'carta' && (
+@@ -660,15 +715,15 @@
+                 reliefAmount={reliefAmount}
+                 title={world.title}
+                 subtitle={t('worldgen.export.atlasSuffix')}
+-                onPickSettlement={tool.mode === 'off' ? ((s: Settlement) => {
++                onPickSettlement={(s: Settlement) => {
+                   if (journeyPick === 'from') { setJourneyFrom(s); setJourneyPick('to'); }
+                   else if (journeyPick === 'to') { setJourneyTo(s); setJourneyPick(null); }
+                   else if (journeyPick === 'via') setJourneyVia((v) => (v.some((q) => q.id === s.id) ? v : [...v, s]));
+                   else setCityFor(s);
+-                }) : undefined}
++                }}
+                 annotations={annotations}
+-                onOpenRegion={tool.mode === 'off' ? ((x, y) => setRegionAt({ x, y })) : undefined}
+-                onInspect={tool.mode === 'off' && panelTab === 'atlas' && data && geography
++                onOpenRegion={(x, y) => setRegionAt({ x, y })}
++                onInspect={panelTab === 'atlas' && data && geography
+                   ? ((x, y) => {
+                     // Anything with a name, not only the dots: a click on the
+                     // Mar de X has to select the Mar de X, or half the places
+@@ -677,38 +732,34 @@
+                     setAtlasKey(p ? p.key : null);
+                   })
+                   : undefined}
+-                paint={tool}
+-                onEdit={applyEdit}
+               />
+             )
+           )}
+-          {data && view === 'sculpt' && (
++          {data && view === '3d' && (
+             <Suspense fallback={<EngineSpinner />}>
+-              <Sculpt3D
++              <World3D
+                 world={data}
+-                tool={tool}
++                geography={geography}
++                theme={theme}
++                waypoints={waypoints}
++                showWaypoints={showWaypoints}
++                showSettlements={showSettlements}
++                skin={skin3D}
++                shape={shape3D}
++                onShape={setShape3D}
++                exaggeration={exaggeration}
++                tool={brush}
++                onTool={(p) => setTool((prev) => ({ ...prev, ...p }))}
+                 onEdit={applyEdit}
+                 onEdits={applyEditGroup}
+-                onTool={(p) => setTool((prev) => ({ ...prev, ...p }))}
+                 revision={paintRev}
+-              />
+-            </Suspense>
+-          )}
+-          {data && view === '3d' && (
+-            <Suspense fallback={<EngineSpinner />}>
+-              <Terrain3D
+-                world={data}
+-                waypoints={showWaypoints ? waypoints : []}
+                 flyTarget={flyTarget}
+-                exaggeration={exaggeration}
+-                shape={shape3D}
+-                skin={skin3D}
+-                theme={theme}
+-                geography={geography ?? undefined}
++                onPickSettlement={setCityFor}
+                 onPickWaypoint={(id) => {
+                   setSelectedWaypointId(id);
+                   setPanelTab('waypoints');
+                 }}
++                onOpenRegion={(x, y) => setRegionAt({ x, y })}
+               />
+             </Suspense>
+           )}
+@@ -781,12 +832,19 @@
+         </div>
+ 
+         {/* ---- Side panel ---- */}
+-        <aside className="w-80 shrink-0 flex flex-col rounded-xl border border-border bg-surface/50 overflow-hidden">
+-          <div className="flex border-b border-border">
++        <aside className="w-[21rem] shrink-0 flex flex-col rounded-xl border border-border bg-surface/50 overflow-hidden">
++          {/* Six tabs do not fit across a 336 px panel, and squeezing them was
++              why the labels were unreadable. Two rows of three, each with room
++              for its own word. */}
++          <div className="grid grid-cols-3 border-b border-border">
+             <PanelTab active={panelTab === 'params'} onClick={() => setPanelTab('params')} label={t('worldgen.params.title')} />
+-            <PanelTab active={panelTab === 'waypoints'} onClick={() => setPanelTab('waypoints')} label={`${t('worldgen.waypoints.title')}${waypoints.length ? ` (${waypoints.length})` : ''}`} />
+-            <PanelTab active={panelTab === 'paint'} onClick={() => { setPanelTab('paint'); setView('sculpt'); }} label={`Pincel${paintRev ? ` (${paintRev})` : ''}`} />
+             <PanelTab active={panelTab === 'world'} onClick={() => setPanelTab('world')} label="Mundo" />
++            <PanelTab
++              active={panelTab === 'paint'}
++              onClick={() => { setPanelTab('paint'); if (view === 'carta') setView('3d'); }}
++              label={`Pincel${paintRev ? ` (${paintRev})` : ''}`}
++            />
++            <PanelTab active={panelTab === 'waypoints'} onClick={() => setPanelTab('waypoints')} label={`${t('worldgen.waypoints.title')}${waypoints.length ? ` (${waypoints.length})` : ''}`} />
+             <PanelTab active={panelTab === 'journey'} onClick={() => { setPanelTab('journey'); setView('carta'); }} label="Viaje" />
+             <PanelTab active={panelTab === 'atlas'} onClick={() => { setPanelTab('atlas'); setView('carta'); }} label="Índice" />
+           </div>
+@@ -903,13 +961,13 @@
+           </span>
+         )}
+         {geoBusy && <span className="ml-3 text-accent-gold/80">recalculando calzadas y fronteras…</span>}
+-        {view === 'carta' && geography && (
++        {geography && (
+           <span className="ml-3">
+             {geography.settlements.length} asentamientos · {geography.realms.length} reinos ·
+-            {' '}{geography.ruins.length} ruinas ·
+-            {' '}{tool.mode === 'off'
+-              ? 'pincha una ciudad para ver su plano · doble clic para bajar a la comarca'
+-              : 'arrastra para pintar; Espacio para mover'}
++            {' '}{geography.ruins.length} ruinas
++            {view !== 'carta' && brush.mode !== 'off'
++              ? ' · arrastra para pintar'
++              : ' · pincha una ciudad para ver su plano · doble clic para bajar a la comarca'}
+           </span>
+         )}
+       </div>
+diff -urN wg-orig/src/engines/worldgen/core/paintCommit.ts wg/src/engines/worldgen/core/paintCommit.ts
+--- a/src/engines/worldgen/core/paintCommit.ts	1970-01-01 00:00:00.000000000 +0000
++++ b/src/engines/worldgen/core/paintCommit.ts	2026-07-26 10:59:54.204537771 +0000
+@@ -0,0 +1,171 @@
++// ============================================
++// Turning a gesture into an edit
++// ============================================
++// One brush, three views. The carta, the satellite map and the 3D world all
++// have to produce the SAME edit for the same stroke, or the reader discovers
++// that a river drawn in one place is not the river they get back — and the
++// storage contract (seed + params + edit list) means a divergence here is not a
++// display bug, it is a corrupted world.
++//
++// So the translation from "a list of world cells the pointer passed through"
++// to "a WorldEdit" lives here, once, and every view calls it. The views keep
++// only what is genuinely theirs: how a screen point becomes a world cell.
++
++import {
++  editKey, type EditTarget, type LandOp, type Pt, type TerrainOp, type WorldEdit,
++} from './edits';
++import type { HumanGeography, SettlementRank } from './settlements';
++import type { BiomeId, RuinKind, WorldData } from './types';
++
++/**
++ * Everything the commit needs to know about the brush.
++ *
++ * Structural, not the UI's `PaintTool` type: `core` may not import from
++ * `components`, and the brush box is free to carry fields — a colour swatch, a
++ * preview — that have nothing to do with what gets stored.
++ */
++export interface PaintSpec {
++  mode: string;
++  terrainOp: TerrainOp;
++  landOp: LandOp;
++  biome: BiomeId;
++  radius: number;
++  strength: number;
++  softness: number;
++  riverWidth: number;
++  marker: 'settlement' | 'ruin';
++  ruin: RuinKind;
++  rank: SettlementRank;
++  labelStyle: 'region' | 'water' | 'range' | 'settlement' | 'note';
++  labelText: string;
++  roadMajor: boolean;
++}
++
++export interface CommitContext {
++  /** Alt was held: the road brush erases instead of drawing. */
++  alt?: boolean;
++  /** What generated object is under a point — only the rename/remove brushes need it. */
++  pickGenerated?: (x: number, y: number) => { target: EditTarget; key: string; name: string } | null;
++  /** How the reader is asked for a new name. Injectable so tests do not open a prompt. */
++  askName?: (current: string) => string | null;
++}
++
++/**
++ * The whole gesture as one edit (or none).
++ *
++ * Returns the edit rather than calling a callback so the caller decides whether
++ * it is one undo step or part of a group — a mirrored sculpt stroke is four
++ * edits and one Ctrl+Z.
++ */
++export function commitPaintStroke(
++  p: PaintSpec,
++  pts: Pt[],
++  ctx: CommitContext = {},
++): WorldEdit | null {
++  if (!pts.length) return null;
++  const stroke = { pts, radius: p.radius, strength: p.strength, softness: p.softness };
++  const at = pts[pts.length - 1];
++
++  switch (p.mode) {
++    case 'terrain':
++      return { kind: 'terrain', op: p.terrainOp, stroke };
++    case 'land':
++      return { kind: 'land', op: p.landOp, stroke };
++    case 'biome':
++      return { kind: 'biome', biome: p.biome, stroke };
++    case 'river':
++      return pts.length >= 2 ? { kind: 'river', pts, width: p.riverWidth } : null;
++    case 'erase':
++      return { kind: 'eraseMarkers', x: pts[0].x, y: pts[0].y, radius: p.radius };
++    case 'marker':
++      return p.marker === 'ruin'
++        ? { kind: 'marker', marker: 'ruin', x: at.x, y: at.y, ruin: p.ruin }
++        : { kind: 'marker', marker: 'settlement', x: at.x, y: at.y, rank: p.rank };
++    case 'label': {
++      const text = p.labelText.trim();
++      return text ? { kind: 'label', x: at.x, y: at.y, text, style: p.labelStyle } : null;
++    }
++    case 'road':
++      if (ctx.alt) {
++        return { kind: 'eraseRoads', x: pts[0].x, y: pts[0].y, radius: Math.max(2, p.radius) };
++      }
++      return pts.length >= 2 ? { kind: 'road', pts, major: p.roadMajor } : null;
++    case 'rename':
++    case 'remove': {
++      const target = ctx.pickGenerated?.(at.x, at.y);
++      if (!target) return null;
++      if (p.mode === 'remove') return { kind: 'remove', target: target.target, key: target.key };
++      const next = ctx.askName
++        ? ctx.askName(target.name)
++        : window.prompt(`Nuevo nombre para «${target.name}»`, target.name);
++      const trimmed = next?.trim();
++      if (!trimmed || trimmed === target.name) return null;
++      return { kind: 'rename', target: target.target, key: target.key, name: trimmed };
++    }
++    default:
++      return null;
++  }
++}
++
++/**
++ * What generated object is at a world point, and its stable key.
++ *
++ * Ordered smallest-target-first: a settlement sits inside a realm and often
++ * inside a named plain as well, and the reader who clicked on a dot meant the
++ * dot. Areas are only offered when nothing pointlike is close.
++ *
++ * `tolerance` is in world cells and is the caller's job, because "close enough"
++ * means sixteen screen pixels and only the view knows how many cells that is.
++ */
++export function pickGeneratedAt(
++  world: WorldData,
++  geo: HumanGeography | null | undefined,
++  wx: number,
++  wy: number,
++  tolerance: number,
++): { target: EditTarget; key: string; name: string } | null {
++  if (!geo) return null;
++  const tol = Math.max(2, tolerance);
++  const dist = (ax: number, ay: number): number => {
++    let dx = Math.abs(ax - wx);
++    if (dx > world.width / 2) dx = world.width - dx;
++    return Math.hypot(dx, ay - wy);
++  };
++
++  let best: { target: EditTarget; key: string; name: string; d: number } | null = null;
++  const offer = (target: EditTarget, key: string, name: string, d: number, reach: number): void => {
++    if (d > reach) return;
++    if (!best || d < best.d) best = { target, key, name, d };
++  };
++
++  for (const st of geo.settlements) {
++    offer('settlement', editKey('settlement', st.x, st.y), st.name, dist(st.x, st.y), tol);
++  }
++  for (const ru of geo.ruins) {
++    offer('ruin', editKey('ruin', ru.x, ru.y), ru.name, dist(ru.x, ru.y), tol);
++  }
++  if (best) return best;
++  for (const f of geo.features) {
++    offer('feature', editKey('feature', f.x, f.y, `${f.kind}:`), f.name,
++      dist(f.x, f.y), Math.max(tol, f.extent));
++  }
++  if (best) return best;
++
++  const ix = (((Math.round(wx) % world.width) + world.width) % world.width);
++  const iy = Math.min(world.height - 1, Math.max(0, Math.round(wy)));
++  const realmId = geo.realmOf[iy * world.width + ix];
++  const realm = geo.realms.find((q) => q.id === realmId);
++  if (realm) return { target: 'realm', key: editKey('realm', 0, 0, `${realm.id}:`), name: realm.name };
++  return null;
++}
++
++/**
++ * Does this brush move ground?
++ *
++ * The distinction matters to every 3D view: a terrain or coast stroke is
++ * previewed live on the height texture and committed on release, while a biome,
++ * river or marker stroke is only a list of cells until the button comes up.
++ */
++export function isSculptMode(mode: string): boolean {
++  return mode === 'terrain' || mode === 'land';
++}
+diff -urN wg-orig/src/engines/worldgen/sculpt/scene3d.ts wg/src/engines/worldgen/sculpt/scene3d.ts
+--- a/src/engines/worldgen/sculpt/scene3d.ts	2026-07-26 10:54:54.757504805 +0000
++++ b/src/engines/worldgen/sculpt/scene3d.ts	2026-07-26 10:58:55.512284583 +0000
+@@ -113,6 +113,7 @@
+ 
+ uniform sampler2D uHeight;
+ uniform sampler2D uBiome;
++uniform sampler2D uAlbedo;   // the finished map raster, when a skin is showing
+ uniform vec3  uPalette[48];
+ uniform vec2  uGrid;
+ uniform float uYMul;
+@@ -131,6 +132,9 @@
+ uniform float uContour;      // km between contour lines, 0 = none
+ uniform float uSea;
+ uniform float uClay;         // 0 = the world's colours, 1 = clay
++uniform float uAlbedoOn;     // 1 = take the colour from uAlbedo
++uniform float uFlatLight;    // 1 = the skin already carries its own shading
++uniform float uDetail;       // 0–1 how much invented close-range relief
+ uniform float uCavity;       // strength of the crease darkening
+ uniform vec3  uCam;          // camera position, for the headlight
+ uniform float uHeadlight;    // 0 = fixed sun, 1 = light from the camera
+@@ -144,6 +148,53 @@
+ 
+ ${HEIGHT_FN}
+ 
++// ---------------------------------------------------------------------------
++// Close-range detail
++// ---------------------------------------------------------------------------
++// A world cell is about forty kilometres. Lean in and there is nothing left to
++// show — not because the renderer is coarse but because the DATA ends, and a
++// magnified texel is the honest picture of that. So the last two orders of
++// magnitude are invented.
++//
++// Three properties make invented detail acceptable rather than a lie:
++//   · it is a pure function of position, so it does not swim when the camera
++//     moves, and the same crag is in the same place every time you come back;
++//   · it is sampled in SCENE space, not in uv, so it does not tear at the
++//     antimeridian and does not stretch into slivers at the poles;
++//   · it fades in with the uv window, so at map scale it contributes nothing
++//     and cannot contradict the shape the generator actually computed.
++float hash13(vec3 p) {
++  p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
++  p += dot(p, p.yzx + 19.19);
++  return fract((p.x + p.y) * p.z);
++}
++
++float vnoise3(vec3 p) {
++  vec3 i = floor(p);
++  vec3 f = fract(p);
++  f = f * f * (3.0 - 2.0 * f);
++  float n000 = hash13(i);
++  float n100 = hash13(i + vec3(1.0, 0.0, 0.0));
++  float n010 = hash13(i + vec3(0.0, 1.0, 0.0));
++  float n110 = hash13(i + vec3(1.0, 1.0, 0.0));
++  float n001 = hash13(i + vec3(0.0, 0.0, 1.0));
++  float n101 = hash13(i + vec3(1.0, 0.0, 1.0));
++  float n011 = hash13(i + vec3(0.0, 1.0, 1.0));
++  float n111 = hash13(i + vec3(1.0, 1.0, 1.0));
++  return mix(mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
++             mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y), f.z);
++}
++
++float fbm3(vec3 p) {
++  float a = 0.5, s = 0.0;
++  for (int k = 0; k < 4; k++) {
++    s += a * vnoise3(p);
++    p *= 2.07;
++    a *= 0.5;
++  }
++  return s;
++}
++
+ /**
+  * Cast shadow, marched across the height field.
+  *
+@@ -185,6 +236,7 @@
+ 
+ void main() {
+   float e = vElev;
++  bool underwater = e <= uSea;
+   vec2 texel = 1.0 / uGrid;
+ 
+   // ---- form first ---------------------------------------------------------
+@@ -224,10 +276,40 @@
+   float lap = (hxp + hxm + hyp + hym) * 0.25 - e;
+   float cav = clamp(lap * uYMul / max(1e-5, uSizeX * texel.x) * 6.0, -1.0, 1.0);
+ 
++  // ---- invented relief, only once you are close ---------------------------
++  //
++  // The bump is applied to the NORMAL, not to the position: displacing vertices
++  // would need a mesh fine enough to carry it, which is the thing we do not
++  // have. The gradient comes from screen-space derivatives of one noise sample
++  // (Mikkelsen's formula for bump mapping a surface with no uv parameterisation
++  // to differentiate) — a single fbm evaluation per pixel instead of the six a
++  // finite-difference gradient would cost, and correct on the globe as well as
++  // on the plane because it never mentions uv at all.
++  float micro = 0.0;
++  float dAmt = uDetail * (1.0 - smoothstep(0.02, 0.34, uUVSize.x));
++  if (dAmt > 0.004) {
++    float freq = 46.0 / max(0.35, uSizeX / 240.0);
++    float m = fbm3(vWorld * freq);
++    micro = m - 0.5;
++    // Water gets a fraction of it: a swell, not a scree slope.
++    float amp = (underwater ? 0.18 : 1.0) * dAmt * 0.030;
++    vec3 dpx = dFdx(vWorld), dpy = dFdy(vWorld);
++    vec3 r1 = cross(dpy, n), r2 = cross(n, dpx);
++    float det = dot(dpx, r1);
++    if (abs(det) > 1e-9) {
++      vec3 grad = (dFdx(m) * r1 + dFdy(m) * r2) / det;
++      n = normalize(n - grad * amp);
++    }
++  }
++
+   // ---- colour -------------------------------------------------------------
+   vec3 col;
+-  bool underwater = e <= uSea;
+-  if (uClay > 0.5) {
++  if (uAlbedoOn > 0.5) {
++    // A finished map — the satellite raster or the drawn carta — laid over the
++    // relief. Its own coastlines, rivers and ice are already in it, so none of
++    // the elevation-driven colouring below applies.
++    col = texture(uAlbedo, vec2(fract(vUV.x), clamp(vUV.y, 0.0005, 0.9995))).rgb;
++  } else if (uClay > 0.5) {
+     // Clay: one material, no map. When you are shaping a coastline the biome
+     // colours are noise — they tell you what grows there, and you are not asking
+     // about that. Water still reads, because a coastline you cannot see is not
+@@ -253,7 +335,15 @@
+   float rim = pow(1.0 - clamp(dot(n, V), 0.0, 1.0), 3.0) * 0.22;
+   float sh = underwater ? 1.0 : sunShadow(vUV, e);
+ 
+-  col *= 0.30 + 0.92 * lam * sh + 0.18 * sky;
++  // The colour break-up that goes with the invented relief. Without it a slope
++  // reads as one flat wash lit two ways, which is a plastic model of a hill.
++  col *= 1.0 + micro * 0.30 * dAmt;
++
++  // A drawn map is a picture with its own light already in it, and a satellite
++  // raster is close to albedo. So the skins take a flatter, mostly ambient lamp
++  // and let the bump and the cavity do the shaping; the clay takes the full sun.
++  float lightMix = 1.0 - uFlatLight * 0.55;
++  col *= (0.30 + 0.70 * uFlatLight * 0.55) + (0.92 * lam * sh + 0.18 * sky) * lightMix;
+   col *= 1.0 - max(0.0, cav) * uCavity;              // hollows darken
+   col += vec3(1.0) * max(0.0, -cav) * uCavity * 0.35; // ridges catch the light
+   col += spec * sh + rim * vec3(0.55, 0.65, 0.8);
+@@ -326,6 +416,9 @@
+   readonly material: THREE.ShaderMaterial;
+   private heightTex: THREE.DataTexture;
+   private biomeTex: THREE.DataTexture;
++  /** A 1×1 stand-in so the albedo sampler is always bound to something. */
++  private blankTex: THREE.DataTexture;
++  private albedoTex: THREE.Texture | null = null;
+   private W: number;
+   private H: number;
+   private heights: Float32Array;
+@@ -336,6 +429,9 @@
+     this.H = opts.worldHeight;
+     this.heights = new Float32Array(this.W * this.H);
+ 
++    this.blankTex = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1);
++    this.blankTex.needsUpdate = true;
++
+     this.heightTex = new THREE.DataTexture(
+       this.heights, this.W, this.H, THREE.RedFormat, THREE.FloatType,
+     );
+@@ -364,6 +460,7 @@
+       uniforms: {
+         uHeight: { value: this.heightTex },
+         uBiome: { value: this.biomeTex },
++        uAlbedo: { value: this.blankTex },
+         uPalette: { value: pal },
+         uGrid: { value: new THREE.Vector2(this.W, this.H) },
+         uYMul: { value: elevKmToY(30, this.W) },
+@@ -382,6 +479,9 @@
+         uContour: { value: 0.25 },
+         uSea: { value: 0 },
+         uClay: { value: 0 },
++        uAlbedoOn: { value: 0 },
++        uFlatLight: { value: 0 },
++        uDetail: { value: 0.6 },
+         uCavity: { value: 0.55 },
+         uCam: { value: new THREE.Vector3(0, 100, 100) },
+         uHeadlight: { value: 0 },
+@@ -426,6 +526,33 @@
+     this.material.uniforms.uShadow.value = shadow;
+   }
+ 
++  /**
++   * Drape a finished map over the relief, or take it off.
++   *
++   * `flatLight` says the picture already contains its own light — true of the
++   * drawn carta, whose every mountain symbol is shaded from the upper left, and
++   * true enough of the satellite raster, which is rendered unshaded but is a
++   * material colour rather than a clay. Lighting either one at full strength
++   * shades it twice and the result looks like a photograph of a relief model.
++   *
++   * The texture is owned by the caller: this class binds and unbinds it, and
++   * never disposes it, because the same raster is shared with the 2D views.
++   */
++  setAlbedo(tex: THREE.Texture | null, flatLight = true): void {
++    this.albedoTex = tex;
++    this.material.uniforms.uAlbedo.value = tex ?? this.blankTex;
++    this.material.uniforms.uAlbedoOn.value = tex ? 1 : 0;
++    this.material.uniforms.uFlatLight.value = tex && flatLight ? 1 : 0;
++    this.material.needsUpdate = true;
++  }
++
++  get hasAlbedo(): boolean { return !!this.albedoTex; }
++
++  /** How much invented relief the close-up gets. 0 turns it off entirely. */
++  setDetail(amount: number): void {
++    this.material.uniforms.uDetail.value = Math.min(1, Math.max(0, amount));
++  }
++
+   setContour(km: number): void {
+     this.material.uniforms.uContour.value = km;
+   }
+@@ -513,6 +640,7 @@
+     this.material.dispose();
+     this.heightTex.dispose();
+     this.biomeTex.dispose();
++    this.blankTex.dispose();
+   }
+ }
+ 
+diff -urN wg-orig/src/hooks/useProjects.ts wg/src/hooks/useProjects.ts
+--- a/src/hooks/useProjects.ts	2026-07-26 10:55:35.524522059 +0000
++++ b/src/hooks/useProjects.ts	2026-07-26 10:55:53.828273783 +0000
+@@ -1,4 +1,4 @@
+-import { useState, useEffect, useCallback, useRef } from 'react';
++import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
+ import type { Project } from '@/types';
+ import * as ops from '@/db/operations';
+ 
+@@ -8,6 +8,12 @@
+ //    unmount modals) every time a project is renamed or recolored.
+ //  - A monotonic sequence token discards stale fetch results.
+ //  - A mounted ref prevents setState after unmount.
++//
++// And one thing that is NOT that contract: both hooks also re-read whenever any
++// project row is written, from anywhere. Several components hold their own copy
++// of the same project (the sidebar and the project page, for two), and without
++// this a save in one of them left the others showing the row as it was until
++// they happened to remount. See `notifyProjectsChanged` in db/operations.
+ 
+ export function useProjects() {
+   const [projects, setProjects] = useState<Project[]>([]);
+@@ -38,9 +44,10 @@
+     }
+   }, []);
+ 
++  const version = useSyncExternalStore(ops.subscribeProjects, ops.getProjectsVersion);
+   useEffect(() => {
+     refresh();
+-  }, [refresh]);
++  }, [refresh, version]);
+ 
+   const addProject = useCallback(async (project: Project) => {
+     await ops.createProject(project);
+@@ -95,9 +102,10 @@
+     }
+   }, [id]);
+ 
++  const version = useSyncExternalStore(ops.subscribeProjects, ops.getProjectsVersion);
+   useEffect(() => {
+     refresh();
+-  }, [refresh]);
++  }, [refresh, version]);
+ 
+   return { project, loading, refresh };
+ }
