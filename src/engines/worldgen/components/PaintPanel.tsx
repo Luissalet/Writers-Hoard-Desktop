@@ -413,7 +413,7 @@ export default function PaintPanel({
 
           <p className="text-[10px] text-white/55 leading-snug">
             {tool.point === 'waypoint'
-              ? 'La chincheta es tuya, no del mundo: tiene color y nota, y vive en su propia lista.'
+              ? 'La chincheta es tuya, no del mundo: no se pierde al regenerar y no forma parte de las ediciones. Puedes poner varias seguidas; el nombre, el color y la nota se los pones en la pestaña Chinchetas.'
               : 'Se nombra solo en la lengua de la zona. Después, para cambiarle el nombre o quitarlo, pínchalo: una ciudad abre su plano y lo demás se edita en el Índice.'}
           </p>
         </div>

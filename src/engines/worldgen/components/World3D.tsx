@@ -12,7 +12,9 @@ import {
   SculptSurface, pickCell, visibleWindow, SIZE_X, R_GLOBE, type SculptShape,
 } from '../sculpt/scene3d';
 import type { Pt, TerrainOp, WorldEdit } from '../core/edits';
-import { commitPaintStroke, isSculptMode, negativeOf, pickGeneratedAt } from '../core/paintCommit';
+import {
+  commitPaintStroke, isSculptMode, isWaypointTool, negativeOf, pickGeneratedAt,
+} from '../core/paintCommit';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import { getCartoTexture } from '../cartography/texture';
 import type { CartoTheme } from '../cartography/theme';
@@ -77,6 +79,10 @@ interface World3DProps {
   flyTarget: { u: number; v: number; token: number } | null;
   onPickSettlement?: (s: Settlement) => void;
   onPickWaypoint?: (id: string) => void;
+  /** The Punto tool with Chincheta selected. Normalized, which is how a pin is
+   *  stored, and deliberately NOT an edit — see `isWaypointTool`. */
+  onPlaceWaypoint?: (u: number, v: number) => void;
+  onRemoveWaypoint?: (id: string) => void;
   onOpenRegion?: (x: number, y: number) => void;
 }
 
@@ -140,7 +146,8 @@ interface ScreenMark {
 export default function World3D({
   world, geography, theme, waypoints, showWaypoints, showSettlements,
   skin, shape, onShape, exaggeration, tool, onTool, onEdit, onEdits, revision,
-  flyTarget, onPickSettlement, onPickWaypoint, onOpenRegion,
+  flyTarget, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint,
+  onOpenRegion,
 }: World3DProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -201,8 +208,8 @@ export default function World3D({
   mirrorRef.current = { x: mirrorX, y: mirrorY };
   const keys = useRef({ shift: false, ctrl: false });
   const over = useRef(false);
-  const propsRef = useRef({ geography, waypoints, showWaypoints, showSettlements, onPickSettlement, onPickWaypoint, onOpenRegion });
-  propsRef.current = { geography, waypoints, showWaypoints, showSettlements, onPickSettlement, onPickWaypoint, onOpenRegion };
+  const propsRef = useRef({ geography, waypoints, showWaypoints, showSettlements, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint, onOpenRegion });
+  propsRef.current = { geography, waypoints, showWaypoints, showSettlements, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint, onOpenRegion };
 
   /** Every brush takes the left button; only two of them move ground. */
   const brushing = tool.mode !== 'off';
@@ -912,6 +919,23 @@ export default function World3D({
       if (edits.length) {
         if (onEdits) onEdits(edits);
         else for (const ed of edits) onEdit(ed);
+      }
+      request();
+      return;
+    }
+
+    if (tr && tr.length && isWaypointTool(toolRef.current)) {
+      if (altRef.current) {
+        const hit = markUnder(e.clientX, e.clientY);
+        if (hit?.kind === 'waypoint' && hit.waypointId) {
+          propsRef.current.onRemoveWaypoint?.(hit.waypointId);
+        }
+      } else {
+        const at = tr[tr.length - 1];
+        propsRef.current.onPlaceWaypoint?.(
+          (((at.x / world.width) % 1) + 1) % 1,
+          Math.min(1, Math.max(0, at.y / world.height)),
+        );
       }
       request();
       return;
