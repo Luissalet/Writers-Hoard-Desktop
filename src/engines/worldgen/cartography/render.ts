@@ -13,6 +13,7 @@
 // low minutes, and it is the only way to get the coast rings to respect real
 // geodesic distance instead of a blurred alpha mask.
 
+import { riverKey } from '../core/edits';
 import { Biome, type WorldData } from '../core/types';
 import { createRng, type Rng } from '../core/rng';
 import { blur, distanceTo, labelLandmasses, localRelief, ridgeMask, scatterByScore, traceRidgeChains } from './fields';
@@ -668,9 +669,14 @@ function drawRivers(
   // Generated and hand-drawn rivers go through exactly the same ink. A painted
   // watercourse that looked different from a generated one would announce itself
   // on every map it appeared on.
-  const all = world.painted?.rivers.length
-    ? [...world.rivers, ...world.painted.rivers]
+  // And a river the reader erased is gone from both, generated or not.
+  const gone = world.painted?.removed;
+  const generated = gone?.size
+    ? world.rivers.filter((r) => !gone.has(riverKey(r.cells)))
     : world.rivers;
+  const all = world.painted?.rivers.length
+    ? [...generated, ...world.painted.rivers]
+    : generated;
   for (const river of all) {
     const n = river.cells.length;
     if (n < 3) continue;

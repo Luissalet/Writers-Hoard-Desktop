@@ -7,6 +7,7 @@ import {
   LINK_KIND_ES, RELATION_ES,
   type AtlasPlace, type ManuscriptLink,
 } from '../core/atlas';
+import EditableName from './EditableName';
 
 /**
  * The map as an index of the manuscript.
@@ -32,6 +33,16 @@ interface AtlasPanelProps {
   /** The place the reader last clicked on the carta. */
   selectedKey: string | null;
   onSelect: (key: string | null) => void;
+  /**
+   * Rename the selected place.
+   *
+   * The index is where the things without a view of their own live — a sea, a
+   * sierra, a realm, a ruin. A town has its plan; these have this list, and
+   * both routes emit the same position-keyed `rename` edit.
+   */
+  onRename?: (key: string, name: string) => void;
+  /** Delete the selected place from the world. */
+  onDelete?: (key: string) => void;
   /** Centre the map on a place. */
   onFlyTo?: (x: number, y: number) => void;
   /** Open the host's own editor for a linked item. */
@@ -44,7 +55,7 @@ const KIND_ES: Record<string, string> = {
 };
 
 export default function AtlasPanel({
-  world, geography, links, selectedKey, onSelect, onFlyTo, onOpenLink,
+  world, geography, links, selectedKey, onSelect, onRename, onDelete, onFlyTo, onOpenLink,
 }: AtlasPanelProps) {
   const [query, setQuery] = useState('');
 
@@ -112,7 +123,11 @@ export default function AtlasPanel({
       {selected ? (
         <div className="flex flex-col gap-1.5 border-t border-white/10 pt-2">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-[13px] text-white/90 truncate">{selected.name || '(sin nombre)'}</span>
+            <EditableName
+              value={selected.name}
+              onRename={onRename ? ((name) => onRename(selected.key, name)) : undefined}
+              className="text-[13px] text-white/90 min-w-0"
+            />
             <span className="text-[9px] text-white/35 shrink-0">{KIND_ES[selected.kind] ?? selected.kind}</span>
           </div>
           {describePlace(selected, selectedLinks).map((line, i) => (
@@ -138,12 +153,23 @@ export default function AtlasPanel({
               </button>
             ))}
           </div>
-          <button
-            onClick={() => onFlyTo?.(selected.x, selected.y)}
-            className="self-start px-2 py-1 rounded bg-white/8 hover:bg-white/15 text-[10px] mt-1"
-          >
-            Ir al lugar
-          </button>
+          <div className="flex items-center gap-1 mt-1">
+            <button
+              onClick={() => onFlyTo?.(selected.x, selected.y)}
+              className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px]"
+            >
+              Ir al lugar
+            </button>
+            {onDelete && (
+              <button
+                onClick={() => { onDelete(selected.key); onSelect(null); }}
+                title="Quitarlo del mundo"
+                className="px-2 py-1 rounded bg-white/10 hover:bg-red-500/25 hover:text-red-200 text-[10px]"
+              >
+                Quitar
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <p className="text-[10px] text-white/40 leading-snug border-t border-white/10 pt-2">

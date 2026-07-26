@@ -4,8 +4,6 @@ import type { HumanGeography, Settlement } from '../core/settlements';
 import { renderCartoCanvas, pickSettlement } from '../cartography/texture';
 import type { CartoLayers, CartoView } from '../cartography/render';
 import type { CartoTheme } from '../cartography/theme';
-import { editKey, type EditTarget, type Pt, type WorldEdit } from '../core/edits';
-import type { PaintTool } from './PaintPanel';
 import { CartoBaseGL } from '../cartography/glbase';
 import { computeFields, getTintFieldFor } from '../cartography/render';
 import { drawAnnotations, type CartoAnnotations } from '../cartography/annotations';
@@ -59,11 +57,21 @@ interface CartoMapProps {
    */
   annotations?: CartoAnnotations;
   onViewChange?: (view: CartoView) => void;
-  /** Active brush. When its mode is 'off' the map behaves as a plain viewer. */
-  paint?: PaintTool;
-  /** Called once per completed stroke or click, never per pointer event. */
-  onEdit?: (edit: WorldEdit) => void;
 }
+
+/*
+ * There is deliberately no brush here.
+ *
+ * The carta used to accept strokes, and it was wrong twice over. It is a
+ * FINISHED DRAWING: what you see is symbols placed by a blue-noise pass over
+ * quantiles of local relief, so the mountain you are pointing at is not where
+ * the mountain is, it is where a picture of a mountain fitted. Painting on it
+ * meant aiming at the drawing and hitting the data somewhere else. And the map
+ * you edit should be the one that shows you what is actually there — the
+ * satellite raster and the 3D world — with the carta as the thing you make
+ * afterwards from a world you are happy with. So the brush lives in those two
+ * and only in those two.
+ */
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 22;
@@ -85,7 +93,7 @@ interface LiveView { zoom: number; cu: number; cv: number }
 
 export default function CartoMap({
   world, theme, geography, layers, density, reliefAmount, title, subtitle,
-  onPickSettlement, onOpenRegion, onInspect, onViewChange, paint, onEdit, annotations,
+  onPickSettlement, onOpenRegion, onInspect, onViewChange, annotations,
 }: CartoMapProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -125,18 +133,8 @@ export default function CartoMap({
   // to be rebuilt when a prop changes.
   const propsRef = useRef({ world, theme, geography, layers, density, reliefAmount, title, subtitle });
   propsRef.current = { world, theme, geography, layers, density, reliefAmount, title, subtitle };
-  const paintRef = useRef<{ paint?: PaintTool; onEdit?: (e: WorldEdit) => void }>({ paint, onEdit });
-  paintRef.current = { paint, onEdit };
   const annRef = useRef<CartoAnnotations | undefined>(annotations);
   annRef.current = annotations;
-  /** Alt at the moment the stroke started — the road tool's erase modifier. */
-  const altRef = useRef(false);
-
-  // The stroke in progress, in WORLD cell coordinates. Storing screen points
-  // instead would make a stroke drift the moment the view moved under it.
-  const stroke = useRef<Pt[] | null>(null);
-  const cursor = useRef<{ x: number; y: number } | null>(null);
-  const spaceDown = useRef(false);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -298,11 +296,12 @@ export default function CartoMap({
     });
   }, [size.w, size.h, viewFor]);
 
-  // ---- brush overlay -------------------------------------------------------
-  // A separate transparent canvas above the map. The stroke and the brush ring
-  // are redrawn on it every pointer move; the map underneath is never touched,
-  // which is what makes painting feel immediate on top of a render that costs
-  // a couple of hundred milliseconds.
+  // ---- the ink layer -------------------------------------------------------
+  // A separate transparent canvas above the map: the reader's own marks — a
+  // planned route, an ancient coastline, the two ends of a journey — live here
+  // rather than in the cartographic render, because they change for reasons the
+  // map does not. Dragging a sea-level slider must not cost a full re-render of
+  // the sheet.
   const paintInk = useCallback(() => {
     const ink = inkRef.current;
     if (!ink) return;
@@ -322,74 +321,8 @@ export default function CartoMap({
       return d * k;
     };
     const sy = (wy: number) => (wy - v.y) * k;
-
     drawAnnotations(ctx, annRef.current, world, sx, sy, k);
-
-    const p = paintRef.current.paint;
-    if (!p || p.mode === 'off') return;
-
-    // Point tools get a crosshair, not a brush ring: showing a nine-cell disc
-    // for "rename the thing under the cursor" tells the reader the wrong thing
-    // about what the click is going to do.
-    const pointTool = p.mode === 'rename' || p.mode === 'remove';
-    if (pointTool) {
-      const c0 = cursor.current;
-      if (c0) {
-        ctx.strokeStyle = p.mode === 'remove' ? 'rgba(255,140,140,0.95)' : 'rgba(255,215,120,0.95)';
-        ctx.lineWidth = 1.4;
-        ctx.beginPath();
-        ctx.arc(c0.x, c0.y, 9, 0, Math.PI * 2);
-        ctx.moveTo(c0.x - 14, c0.y); ctx.lineTo(c0.x - 3, c0.y);
-        ctx.moveTo(c0.x + 3, c0.y); ctx.lineTo(c0.x + 14, c0.y);
-        ctx.moveTo(c0.x, c0.y - 14); ctx.lineTo(c0.x, c0.y - 3);
-        ctx.moveTo(c0.x, c0.y + 3); ctx.lineTo(c0.x, c0.y + 14);
-        ctx.stroke();
-      }
-      return;
-    }
-
-    const pts = stroke.current;
-    const rPx = p.mode === 'road'
-      ? Math.max(2, k * 1.6)
-      : Math.max(2, (p.mode === 'river' ? p.riverWidth : p.radius) * k);
-    if (pts && pts.length) {
-      ctx.strokeStyle = p.mode === 'erase' ? 'rgba(255,120,120,0.5)'
-        : p.mode === 'road' ? 'rgba(180,130,70,0.85)'
-          : p.mode === 'land' && p.landOp === 'sea' ? 'rgba(90,150,220,0.5)'
-            : 'rgba(255,215,120,0.5)';
-      ctx.lineWidth = rPx * 2;
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(sx(pts[0].x), sy(pts[0].y));
-      for (let i = 1; i < pts.length; i++) ctx.lineTo(sx(pts[i].x), sy(pts[i].y));
-      if (pts.length === 1) ctx.lineTo(sx(pts[0].x) + 0.01, sy(pts[0].y));
-      ctx.stroke();
-    }
-    const c = cursor.current;
-    if (c) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-      ctx.lineWidth = 1.25;
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, rPx, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, rPx + 1.25, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  }, [viewFor, size.w, size.h, world.width]);
-
-  /** Pointer position in world cell coordinates. */
-  const toWorld = useCallback((clientX: number, clientY: number): Pt | null => {
-    const host = hostRef.current;
-    if (!host) return null;
-    const rect = host.getBoundingClientRect();
-    const v = viewFor(live.current, size.w, size.h);
-    const x = v.x + ((clientX - rect.left) / rect.width) * v.w;
-    const y = v.y + ((clientY - rect.top) / rect.height) * v.h;
-    return { x: ((x % world.width) + world.width) % world.width, y };
-  }, [viewFor, size.w, size.h, world.width]);
+  }, [viewFor, size.w, size.h, world]);
 
   /** Queue the two-tier settle. */
   const scheduleRender = useCallback(() => {
@@ -493,185 +426,31 @@ export default function CartoMap({
     return () => host.removeEventListener('wheel', onWheel);
   }, [viewFor, size.w, size.h, world.width, world.height, viewChanged]);
 
-  // Space temporarily suspends the brush, the way every paint program does it, so
-  // the reader can reposition mid-drawing without changing tool.
+  // Undo and redo belong to the world, not to a view, and the pointer is always
+  // over the map — so the shortcut has to work from here even though nothing on
+  // this sheet is editable.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.code === 'Space') spaceDown.current = true;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        // Undo/redo belong to the panel, but the keyboard shortcut has to work
-        // while the pointer is over the map, which is where it always is.
         e.preventDefault();
         window.dispatchEvent(new CustomEvent(e.shiftKey ? 'wg-redo' : 'wg-undo'));
       }
     };
-    const up = (e: KeyboardEvent) => { if (e.code === 'Space') spaceDown.current = false; };
     window.addEventListener('keydown', down);
-    window.addEventListener('keyup', up);
-    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
+    return () => window.removeEventListener('keydown', down);
   }, []);
-
-  /** True when this gesture should paint rather than pan. */
-  const painting = useCallback((e: React.PointerEvent): boolean => {
-    const p = paintRef.current.paint;
-    return !!p && p.mode !== 'off' && !!paintRef.current.onEdit
-      && e.button === 0 && !spaceDown.current && !e.shiftKey;
-  }, []);
-
-  /** Turn a finished gesture into one edit. */
-  const commitStroke = useCallback((pts: Pt[]) => {
-    const { paint: p, onEdit } = paintRef.current;
-    if (!p || !onEdit || !pts.length) return;
-    const s = { pts, radius: p.radius, strength: p.strength, softness: p.softness };
-    switch (p.mode) {
-      case 'terrain': onEdit({ kind: 'terrain', op: p.terrainOp, stroke: s }); break;
-      case 'land': onEdit({ kind: 'land', op: p.landOp, stroke: s }); break;
-      case 'biome': onEdit({ kind: 'biome', biome: p.biome, stroke: s }); break;
-      case 'river':
-        if (pts.length >= 2) onEdit({ kind: 'river', pts, width: p.riverWidth });
-        break;
-      case 'erase':
-        onEdit({ kind: 'eraseMarkers', x: pts[0].x, y: pts[0].y, radius: p.radius });
-        break;
-      case 'marker': {
-        const at = pts[pts.length - 1];
-        if (p.marker === 'ruin') {
-          onEdit({ kind: 'marker', marker: 'ruin', x: at.x, y: at.y, ruin: p.ruin });
-        } else {
-          onEdit({ kind: 'marker', marker: 'settlement', x: at.x, y: at.y, rank: p.rank });
-        }
-        break;
-      }
-      case 'label': {
-        const at = pts[pts.length - 1];
-        const text = p.labelText.trim();
-        if (text) onEdit({ kind: 'label', x: at.x, y: at.y, text, style: p.labelStyle });
-        break;
-      }
-      case 'road': {
-        if (altRef.current) {
-          onEdit({ kind: 'eraseRoads', x: pts[0].x, y: pts[0].y, radius: Math.max(2, p.radius) });
-        } else if (pts.length >= 2) {
-          onEdit({ kind: 'road', pts, major: p.roadMajor });
-        }
-        break;
-      }
-      case 'rename':
-      case 'remove': {
-        const at = pts[pts.length - 1];
-        const target = pickGenerated(at.x, at.y);
-        if (!target) return;
-        if (p.mode === 'remove') {
-          onEdit({ kind: 'remove', target: target.target, key: target.key });
-        } else {
-          // A prompt, deliberately. An inline editor on the canvas would need a
-          // whole text-input overlay that follows the map through pan and zoom,
-          // and the reader is renaming one thing, not typing a paragraph.
-          const next = window.prompt(`Nuevo nombre para «${target.name}»`, target.name);
-          if (next && next.trim() && next.trim() !== target.name) {
-            onEdit({ kind: 'rename', target: target.target, key: target.key, name: next.trim() });
-          }
-        }
-        break;
-      }
-      default: break;
-    }
-  }, []);
-
-  /**
-   * What generated object is under this point, and its stable key.
-   *
-   * Ordered smallest-target-first: a settlement sits inside a realm and often
-   * inside a named plain as well, and the reader who clicked on a dot meant the
-   * dot. Areas are only offered when nothing pointlike is close.
-   */
-  const pickGenerated = useCallback((wx: number, wy: number): {
-    target: EditTarget; key: string; name: string;
-  } | null => {
-    const geo = propsRef.current.geography;
-    const world = propsRef.current.world;
-    if (!geo) return null;
-    const v = viewFor(live.current, size.w, size.h);
-    // Tolerance in world cells for a ~16 px reach, so the hit area is the same
-    // size on screen at every zoom.
-    const tol = Math.max(2, (16 / Math.max(1, size.w)) * v.w);
-    const dist = (ax: number, ay: number) => {
-      let dx = Math.abs(ax - wx);
-      if (dx > world.width / 2) dx = world.width - dx;
-      return Math.hypot(dx, ay - wy);
-    };
-
-    let best: { target: EditTarget; key: string; name: string; d: number } | null = null;
-    const offer = (target: EditTarget, key: string, name: string, d: number, reach: number) => {
-      if (d > reach) return;
-      if (!best || d < best.d) best = { target, key, name, d };
-    };
-    for (const st of geo.settlements) {
-      offer('settlement', editKey('settlement', st.x, st.y), st.name, dist(st.x, st.y), tol);
-    }
-    for (const ru of geo.ruins) {
-      offer('ruin', editKey('ruin', ru.x, ru.y), ru.name, dist(ru.x, ru.y), tol);
-    }
-    if (best) return best;
-    for (const f of geo.features) {
-      offer('feature', editKey('feature', f.x, f.y, `${f.kind}:`), f.name,
-        dist(f.x, f.y), Math.max(tol, f.extent));
-    }
-    if (best) return best;
-    const ix = (((Math.round(wx) % world.width) + world.width) % world.width);
-    const iy = Math.min(world.height - 1, Math.max(0, Math.round(wy)));
-    const realmId = geo.realmOf[iy * world.width + ix];
-    const realm = geo.realms.find((q) => q.id === realmId);
-    if (realm) return { target: 'realm', key: editKey('realm', 0, 0, `${realm.id}:`), name: realm.name };
-    return null;
-  }, [viewFor, size.w, size.h]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
-    altRef.current = e.altKey;
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-    if (painting(e)) {
-      const w = toWorld(e.clientX, e.clientY);
-      if (!w) return;
-      stroke.current = [w];
-      const host = hostRef.current;
-      if (host) {
-        const rect = host.getBoundingClientRect();
-        cursor.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-      }
-      paintInk();
-      return;
-    }
     drag.current = {
       x: e.clientX, y: e.clientY,
       cu: live.current.cu, cv: live.current.cv, moved: false,
     };
-  }, [painting, toWorld, paintInk]);
+  }, []);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const host = hostRef.current;
     if (!host) return;
-
-    // Brush ring follows the pointer whenever a brush is selected, even with no
-    // button down: without it the reader cannot tell how big the next stroke is.
-    const p = paintRef.current.paint;
-    if (p && p.mode !== 'off') {
-      const rect = host.getBoundingClientRect();
-      cursor.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    } else {
-      cursor.current = null;
-    }
-
-    if (stroke.current) {
-      const w = toWorld(e.clientX, e.clientY);
-      if (w) {
-        const last = stroke.current[stroke.current.length - 1];
-        // Thin the polyline: one point per half-cell is plenty, and it keeps the
-        // serialized edit small enough to store a hundred strokes.
-        if (Math.hypot(w.x - last.x, w.y - last.y) > 0.5) stroke.current.push(w);
-      }
-      paintInk();
-      return;
-    }
 
     const d = drag.current;
     if (!d) { paintInk(); return; }
@@ -682,18 +461,9 @@ export default function CartoMap({
     live.current.cu = d.cu - (dx / host.clientWidth) * (v.w / world.width);
     live.current.cv = Math.min(1, Math.max(0, d.cv - (dy / host.clientHeight) * (v.h / world.height)));
     viewChanged();
-  }, [viewFor, size.w, size.h, world.width, world.height, viewChanged, toWorld, paintInk]);
+  }, [viewFor, size.w, size.h, world.width, world.height, viewChanged, paintInk]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
-    if (stroke.current) {
-      const pts = stroke.current;
-      stroke.current = null;
-      paintInk();
-      // Applied on release, not per move: a terrain stroke costs a few hundred
-      // milliseconds, which is fine once and unusable sixty times a second.
-      commitStroke(pts);
-      return;
-    }
     const d = drag.current;
     drag.current = null;
     const geo = propsRef.current.geography;
@@ -713,20 +483,18 @@ export default function CartoMap({
     const tol = (18 / rect.width) * v.w;
     const s = pickSettlement(world, geo, ((wx / world.width) % 1 + 1) % 1, wy / world.height, Math.max(6, tol));
     if (s) onPickSettlement(s);
-  }, [onPickSettlement, onInspect, viewFor, size.w, size.h, world, paintInk, commitStroke]);
+  }, [onPickSettlement, onInspect, viewFor, size.w, size.h, world]);
 
   const setZoom = useCallback((z: number) => {
     live.current.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
     viewChanged();
   }, [viewChanged]);
 
-  const brushing = !!paint && paint.mode !== 'off' && !!onEdit;
-
   // Double-click drops a league below the world map. Deliberately not a mode or
   // a tool: descending into the country you are looking at should cost one
   // gesture, the same way a settlement's plan costs one click.
   const onDoubleClick = useCallback((e: React.MouseEvent) => {
-    if (brushing || !onOpenRegion) return;
+    if (!onOpenRegion) return;
     const host = hostRef.current;
     if (!host) return;
     const rect = host.getBoundingClientRect();
@@ -735,20 +503,17 @@ export default function CartoMap({
     const y = v.y + ((e.clientY - rect.top) / rect.height) * v.h;
     onOpenRegion(((x % world.width) + world.width) % world.width,
       Math.min(world.height - 1, Math.max(0, y)));
-  }, [brushing, onOpenRegion, viewFor, size.w, size.h, world.width, world.height]);
+  }, [onOpenRegion, viewFor, size.w, size.h, world.width, world.height]);
 
   return (
     <div
       ref={hostRef}
-      className={`absolute inset-0 overflow-hidden touch-none ${
-        brushing ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
-      }`}
+      className="absolute inset-0 overflow-hidden touch-none cursor-grab active:cursor-grabbing"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onDoubleClick={onDoubleClick}
-      onPointerLeave={() => { cursor.current = null; paintInk(); }}
-      onPointerCancel={() => { drag.current = null; stroke.current = null; paintInk(); }}
+      onPointerCancel={() => { drag.current = null; }}
     >
       <canvas ref={canvasRef} className="block" />
       {/* Fixed frame. The border belongs to the sheet the reader is holding, not
@@ -765,11 +530,11 @@ export default function CartoMap({
       />
 
       <div className="absolute left-2 bottom-2 flex items-center gap-2 pointer-events-none">
-        <span className="px-2 py-0.5 rounded bg-black/45 text-[10px] text-white/80 tabular-nums">
+        <span className="px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] text-white tabular-nums shadow-lg shadow-black/50">
           ×{zoomLabel.toFixed(1)}
         </span>
         {busy && (
-          <span className="px-2 py-0.5 rounded bg-black/45 text-[10px] text-white/80">dibujando…</span>
+          <span className="px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] text-white shadow-lg shadow-black/50">dibujando…</span>
         )}
       </div>
 
@@ -794,7 +559,7 @@ function ZoomBtn({ label, onClick, title }: { label: string; onClick: () => void
     <button
       onClick={onClick}
       title={title}
-      className="w-7 h-7 grid place-items-center rounded bg-black/45 text-white/85 text-sm hover:bg-black/60 transition"
+      className="w-7 h-7 grid place-items-center rounded-md border border-white/20 bg-[#0b0e14]/92 text-white text-sm hover:bg-[#161b26] transition shadow-lg shadow-black/50"
     >
       {label}
     </button>

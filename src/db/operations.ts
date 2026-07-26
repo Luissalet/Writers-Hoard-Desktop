@@ -16,6 +16,41 @@ import type {
 } from '../types';
 
 // ===== Projects =====
+
+/**
+ * Project rows are read by more than one component at a time.
+ *
+ * The sidebar and the project page each call `useProject(id)`, and each keeps
+ * its OWN copy of the row. So a save made from the page — adding an engine, for
+ * instance — refreshed the page's copy and left the sidebar's untouched: the new
+ * engine did not appear in the list until you left the project and came back,
+ * which remounted the sidebar and made it fetch again.
+ *
+ * The fix is not to lift the project into a store (every consumer would then
+ * have to be rewritten) but to make the WRITE announce itself. Every project
+ * mutation bumps a version; the hooks subscribe to it and re-read. One line at
+ * each write site, and any future reader gets the same guarantee for free.
+ */
+let projectsVersion = 0;
+const projectListeners = new Set<() => void>();
+
+export function subscribeProjects(fn: () => void): () => void {
+  projectListeners.add(fn);
+  return () => {
+    projectListeners.delete(fn);
+  };
+}
+
+export function getProjectsVersion(): number {
+  return projectsVersion;
+}
+
+/** Announce that a project row changed. Safe to call from anywhere. */
+export function notifyProjectsChanged(): void {
+  projectsVersion++;
+  for (const fn of [...projectListeners]) fn();
+}
+
 export async function getAllProjects(): Promise<Project[]> {
   return db.projects.orderBy('updatedAt').reverse().toArray();
 }
@@ -25,11 +60,14 @@ export async function getProject(id: string): Promise<Project | undefined> {
 }
 
 export async function createProject(project: Project): Promise<string> {
-  return db.projects.add(project);
+  const key = await db.projects.add(project);
+  notifyProjectsChanged();
+  return key;
 }
 
 export async function updateProject(id: string, changes: Partial<Project>): Promise<void> {
   await db.projects.update(id, { ...changes, updatedAt: Date.now() });
+  notifyProjectsChanged();
 }
 
 /**
@@ -80,6 +118,7 @@ export async function deleteProject(id: string): Promise<void> {
 
     await db.projects.delete(id);
   });
+  notifyProjectsChanged();
 }
 
 // ===== Codex Entries =====

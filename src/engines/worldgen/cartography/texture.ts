@@ -6,7 +6,7 @@
 // panning, switching views and opening the 3D scene never pay for them twice.
 
 import type { WorldData } from '../core/types';
-import { buildHumanGeography, DEFAULT_HUMAN_PARAMS, type HumanGeography, type HumanGeographyParams, type Settlement } from '../core/settlements';
+import { buildHumanGeography, DEFAULT_HUMAN_PARAMS, type GeoDepth, type HumanGeography, type HumanGeographyParams, type Settlement } from '../core/settlements';
 import { renderCartography, type CartoLayers, type CartoView } from './render';
 import type { CartoTheme } from './theme';
 import type { Ctx } from './symbols';
@@ -20,6 +20,13 @@ interface GeoEntry {
   /** The last FULLY rebuilt geography, and the revision it was built at. */
   base: HumanGeography;
   baseRev: number;
+  /** How much of the human world this entry actually contains. */
+  depth: GeoDepth;
+}
+
+/** A cached entry answers a request when it holds at least as much as it asks for. */
+function covers(entry: GeoEntry, depth: GeoDepth): boolean {
+  return entry.depth === 'full' || depth === 'places';
 }
 const GEO_CACHE = new WeakMap<WorldData, GeoEntry>();
 
@@ -39,37 +46,58 @@ const GEO_CACHE = new WeakMap<WorldData, GeoEntry>();
  * were. `rebuildGeography` forces the full pass when it is genuinely wanted —
  * the caller schedules it once the reader stops painting.
  */
-export function getGeography(world: WorldData, params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS): HumanGeography {
-  const key = JSON.stringify(params);
-  const rev = world.revision ?? 0;
-  const hit = GEO_CACHE.get(world);
-  if (hit && hit.key === key && hit.rev === rev) return hit.geo;
-  if (hit && hit.key === key) {
-    const geo = patchGeography(world, hit.base);
-    GEO_CACHE.set(world, { ...hit, rev, geo });
-    return geo;
-  }
-  const base = buildHumanGeography(world, params);
-  GEO_CACHE.set(world, { key, rev, geo: base, base, baseRev: rev });
-  return base;
-}
-
-/** Force the full pass and adopt the result as the new base. */
-export function rebuildGeography(
+export function getGeography(
   world: WorldData,
+  depth: GeoDepth = 'full',
   params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS,
 ): HumanGeography {
   const key = JSON.stringify(params);
   const rev = world.revision ?? 0;
-  const base = buildHumanGeography(world, params);
-  GEO_CACHE.set(world, { key, rev, geo: base, base, baseRev: rev });
-  return base;
+  const hit = GEO_CACHE.get(world);
+  // A deeper entry answers a shallower question, so opening the 3D world after
+  // the carta never throws away the expensive half and builds it again.
+  if (hit && hit.key === key && covers(hit, depth)) {
+    if (hit.rev === rev) return hit.geo;
+    const geo = patchGeography(world, hit.base);
+    GEO_CACHE.set(world, { ...hit, rev, geo });
+    return geo;
+  }
+  // The base is built WITHOUT the reader's corrections and the patch applies
+  // them, so that the patch can also apply none — see `buildHumanGeography`.
+  const base = buildHumanGeography(world, params, depth, false);
+  const geo = patchGeography(world, base);
+  GEO_CACHE.set(world, { key, rev, geo, base, baseRev: rev, depth });
+  return geo;
 }
 
-/** True when the cached geography is a patch rather than a full build. */
-export function geographyIsStale(world: WorldData): boolean {
+/** Force the full pass at this depth and adopt the result as the new base. */
+export function rebuildGeography(
+  world: WorldData,
+  depth: GeoDepth = 'full',
+  params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS,
+): HumanGeography {
+  const key = JSON.stringify(params);
+  const rev = world.revision ?? 0;
+  // Never downgrade: a rebuild asked for the dots must not discard the roads,
+  // the named seas and the ruins if the reader has already paid for them.
   const hit = GEO_CACHE.get(world);
-  return !!hit && hit.baseRev !== (world.revision ?? 0);
+  const want: GeoDepth = hit && hit.key === key && hit.depth === 'full' ? 'full' : depth;
+  const base = buildHumanGeography(world, params, want, false);
+  const geo = patchGeography(world, base);
+  GEO_CACHE.set(world, { key, rev, geo, base, baseRev: rev, depth: want });
+  return geo;
+}
+
+/**
+ * True when what is cached is not good enough for what is being asked.
+ *
+ * Two ways to fall short: it is a cheap patch of an older revision, or it was
+ * built shallow and the caller now wants the whole thing.
+ */
+export function geographyIsStale(world: WorldData, depth: GeoDepth = 'full'): boolean {
+  const hit = GEO_CACHE.get(world);
+  if (!hit) return false;
+  return hit.baseRev !== (world.revision ?? 0) || !covers(hit, depth);
 }
 
 /**
