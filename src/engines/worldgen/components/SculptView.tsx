@@ -4,6 +4,7 @@ import { BIOME_COUNT } from '../core/types';
 import { BIOME_COLORS } from '../core/render';
 import { SculptGL, type ViewRect } from '../sculpt/gl';
 import { LiveStroke, landRule, terrainRule } from '../sculpt/brush';
+import { drawSculptFallback } from '../sculpt/fallback';
 import { SphereNoise } from '../core/noise';
 import type { Pt, WorldEdit } from '../core/edits';
 import type { PaintTool } from './PaintPanel';
@@ -52,6 +53,17 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
   // the backing store is sized, whether the context exists, whether draws are
   // happening at all, and whether the world arrived.
   const [diag, setDiag] = useState('iniciando');
+  /**
+   * The GPU has had its chance.
+   *
+   * Set when WebGL either refuses to initialise or, worse, initialises and then
+   * never produces a frame — which is the failure this whole flag exists for,
+   * because it is silent. After a second of no picture the view switches to the
+   * Canvas2D renderer and keeps working.
+   */
+  const [soft, setSoft] = useState(false);
+  const softRef = useRef(false);
+  softRef.current = soft;
 
   // Live view state lives in refs: a pan must not re-render React.
   const view = useRef({ zoom: 1, cu: 0.5, cv: 0.5 });
@@ -59,7 +71,23 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
   const stroke = useRef<LiveStroke | null>(null);
   const cursor = useRef<Pt | null>(null);
   const raf = useRef(0);
+  /** Declared above the draw so the diagnostic can report which clock is running. */
+  const rafAliveRef = useRef(true);
   const drawCount = useRef(0);
+  /**
+   * Event counters, on screen.
+   *
+   * Two hypotheses survive for a frozen view: the frames are not arriving, or
+   * the EVENTS are not — a wheel that never reaches the element requests no
+   * draws, and the result is indistinguishable from a dead clock. Counting both
+   * separates them in one glance at a screenshot, which is cheaper than a sixth
+   * round of guessing.
+   */
+  const wheelCount = useRef(0);
+  const pointerCount = useRef(0);
+  const glFailed = useRef(false);
+  const uploadedRev = useRef(-1);
+  const revisionRef = useRef(revision);
   // Filled in below; the layout effect above needs to call it before it exists.
   const requestRef = useRef<() => void>(() => {});
   const frames = useRef<{ n: number; t: number }>({ n: 0, t: 0 });
@@ -96,31 +124,21 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
   }, []);
 
   // ---- GL lifecycle --------------------------------------------------------
+  // A new world means a new context; the draw below builds it on its next frame.
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    try {
-      const gl = new SculptGL(canvas, { width: world.width, height: world.height, palette });
-      gl.uploadAll(world.elevation, world.biome);
-      glRef.current = gl;
-      setFailed(null);
-      // Ask for a frame as soon as the context exists. Signalled through state
-      // rather than by calling `request()` here, because this effect is declared
-      // above it — and a paint that depends on declaration order is a paint that
-      // will go missing again the next time somebody moves a block of code.
-      setGlTick((t) => t + 1);
-    } catch (e) {
-      setFailed(e instanceof Error ? e.message : String(e));
-    }
-    return () => {
-      glRef.current?.dispose();
-      glRef.current = null;
-    };
+    glRef.current?.dispose();
+    glRef.current = null;
+    glFailed.current = false;
+    uploadedRev.current = -1;
+    setFailed(null);
+    setGlTick((t) => t + 1);
+    return () => { glRef.current?.dispose(); glRef.current = null; };
   }, [world, palette]);
 
-  // The owner changed the data (a commit, an undo, a regeneration): re-upload.
+  // The owner changed the data (a commit, an undo, a regeneration): re-upload on
+  // the next frame rather than here, so this too cannot run before the context.
   useEffect(() => {
-    glRef.current?.uploadAll(world.elevation, world.biome);
+    revisionRef.current = revision;
     request();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revision]);
@@ -139,8 +157,58 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
   }, [world.width, world.height]);
 
   const draw = useCallback(() => {
-    const gl = glRef.current, canvas = canvasRef.current, host = hostRef.current;
-    if (!gl || !canvas || !host) return;
+    const canvas = canvasRef.current, host = hostRef.current;
+    if (!canvas || !host) { setDiag('sin lienzo'); return; }
+
+    // ---- the renderer that cannot fail -----------------------------------
+    if (softRef.current) {
+      const cw0 = host.clientWidth, ch0 = host.clientHeight;
+      if (cw0 < 2 || ch0 < 2) { setDiag(`caja ${cw0}x${ch0}: sin tamaño`); return; }
+      const dpr0 = Math.min(2, window.devicePixelRatio || 1);
+      const w0 = Math.max(1, Math.round(cw0 * dpr0)), h0 = Math.max(1, Math.round(ch0 * dpr0));
+      if (canvas.width !== w0 || canvas.height !== h0) { canvas.width = w0; canvas.height = h0; }
+      const c0 = cursor.current;
+      const ok = drawSculptFallback(canvas, {
+        world,
+        palette,
+        view: viewRect(),
+        brush: c0 && toolRef.current.mode !== 'off'
+          ? { x: c0.x, y: c0.y, r: toolRef.current.radius } : null,
+        contourKm: 0.25,
+        shade: 0.85,
+      });
+      drawCount.current++;
+      if (drawCount.current < 3 || drawCount.current % 30 === 0) {
+        setDiag(ok ? `modo compatible · ${canvas.width}x${canvas.height}` : 'ni WebGL ni 2D disponibles');
+      }
+      return;
+    }
+    // The context is created HERE, on the first frame that has a canvas and a
+    // size — not in an effect.
+    //
+    // The effect version took `if (!canvas) return` on its single run and left
+    // the context null forever, with no error to show for it: a black rectangle
+    // and a diagnostic still reading "iniciando". An effect that can fail to
+    // initialise and never retries is a trap; a lazy init inside the frame loop
+    // retries every frame by construction and cannot get stuck.
+    let gl = glRef.current;
+    if (!gl && !glFailed.current) {
+      try {
+        gl = new SculptGL(canvas, { width: world.width, height: world.height, palette });
+        gl.uploadAll(world.elevation, world.biome);
+        glRef.current = gl;
+        uploadedRev.current = revisionRef.current;
+      } catch (e) {
+        glFailed.current = true;
+        setFailed(e instanceof Error ? e.message : String(e));
+        // Not a dead end any more: fall through to the 2D renderer on the next
+        // frame instead of leaving the reader with a black rectangle and a
+        // message they cannot act on.
+        setSoft(true);
+        return;
+      }
+    }
+    if (!gl) return;
     // Measured from the DOM, never from React state.
     //
     // The state version produced a 1×1 backing store stretched across the whole
@@ -149,24 +217,35 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
     // frame, and any ordering between two async sources that has to be right is
     // a bug waiting for a slower machine. Reading the live layout cannot be stale.
     const cw = host.clientWidth, ch = host.clientHeight;
-    if (cw < 2 || ch < 2) return;
+    if (cw < 2 || ch < 2) { setDiag(`caja ${cw}x${ch}: sin tamaño`); return; }
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const w = Math.max(1, Math.round(cw * dpr));
     const h = Math.max(1, Math.round(ch * dpr));
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    if (uploadedRev.current !== revisionRef.current) {
+      gl.uploadAll(world.elevation, world.biome);
+      uploadedRev.current = revisionRef.current;
+    }
     drawCount.current++;
-    if (drawCount.current < 4 || drawCount.current % 30 === 0) {
-      setDiag(`lienzo ${canvas.width}x${canvas.height} · caja ${cw}x${ch} · dibujos ${drawCount.current} · mundo ${world.width}x${world.height}`);
+    if (drawCount.current < 4 || drawCount.current % 20 === 0) {
+      setDiag(`${canvas.width}x${canvas.height} · dibujos ${drawCount.current}`
+        + ` · rueda ${wheelCount.current} · puntero ${pointerCount.current}`
+        + ` · reloj ${rafAliveRef.current ? 'rAF' : 'propio'}`);
     }
     const c = cursor.current;
     gl.setBrush(c?.x ?? 0, c?.y ?? 0, toolRef.current.radius, !!c && toolRef.current.mode !== 'off');
     gl.draw(viewRect());
 
+    // Frame COST, not frame rate. The view draws on demand, so an idle sheet
+    // legitimately runs at zero frames a second and saying so reads as "broken"
+    // — which is exactly how it read. Milliseconds per frame is the number that
+    // means something here, and it is the one that tells you whether a stroke
+    // will feel immediate.
     const now = performance.now();
     const f = frames.current;
     f.n++;
-    if (!f.t) f.t = now;
-    else if (now - f.t > 500) { setFps(Math.round((f.n * 1000) / (now - f.t))); f.n = 0; f.t = now; }
+    if (f.t) setFps(Math.round(now - f.t));
+    f.t = now;
   }, [viewRect]);
 
   // The scheduled frame must call the LATEST draw, not the one that was current
@@ -180,13 +259,60 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
   // the whole class of bug.
   const drawRef = useRef(draw);
   drawRef.current = draw;
+
+  /**
+   * A frame pump that does not trust `requestAnimationFrame`.
+   *
+   * This is the actual bug, and the diagnostic badge caught it: `dibujos 1`.
+   * ONE frame, ever. The first one landed through the rescue interval; then that
+   * interval switched itself off — "a frame has landed, my job is done" — and
+   * every later `request()` booked a rAF that never fired. Because the guard is
+   * `if (raf.current) return`, the very first unfired booking wedges the view
+   * shut forever: zero fps, a dead mouse wheel, and a brush that changes the data
+   * without ever changing the picture. All three symptoms, one cause.
+   *
+   * Why rAF does not fire here I still do not know — it is an Electron window
+   * that believes it is not being composited, most likely — and after five
+   * attempts the honest move is to stop depending on it. So: a flag says a draw
+   * is wanted, rAF is tried because when it works it is the right clock, and a
+   * permanent timer draws whatever rAF did not. If a booked frame is overdue,
+   * rAF is declared dead and never used again.
+   */
+  const needsDraw = useRef(false);
+  const rafAlive = rafAliveRef;
+  const bookedAt = useRef(0);
   const request = useCallback(() => {
-    if (raf.current) return;
-    raf.current = requestAnimationFrame(() => { raf.current = 0; drawRef.current(); });
+    needsDraw.current = true;
+    if (!rafAlive.current || raf.current) return;
+    bookedAt.current = performance.now();
+    raf.current = requestAnimationFrame(() => {
+      raf.current = 0;
+      if (!needsDraw.current) return;
+      needsDraw.current = false;
+      drawRef.current();
+    });
   }, []);
   requestRef.current = request;
 
   useEffect(() => { request(); }, [request, size.w, size.h, glTick]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      // A frame booked and not delivered inside a tenth of a second is not a
+      // slow frame, it is a frame that is not coming.
+      if (raf.current && performance.now() - bookedAt.current > 120) {
+        rafAlive.current = false;
+        cancelAnimationFrame(raf.current);
+        raf.current = 0;
+        setDiag((d) => (d.startsWith('reloj') ? d : 'reloj propio · el navegador no entrega fotogramas'));
+      }
+      if (!needsDraw.current) return;
+      needsDraw.current = false;
+      drawRef.current();
+    }, 16);
+    return () => window.clearInterval(id);
+  }, []);
+
   useEffect(() => () => { if (raf.current) cancelAnimationFrame(raf.current); }, []);
 
   // ---- pointer -------------------------------------------------------------
@@ -242,6 +368,7 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
   }, [world.width, world.height, noise, neighbourMean]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    pointerCount.current++;
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     const p = toCell(e.clientX, e.clientY);
     if (!p) return;
@@ -329,6 +456,7 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
     if (!host) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      wheelCount.current++;
       const r = host.getBoundingClientRect();
       const px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
       const v = viewRect();
@@ -344,16 +472,10 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
     return () => host.removeEventListener('wheel', onWheel);
   }, [viewRect, world.width, world.height, request]);
 
-  if (failed) {
-    return (
-      <div className="absolute inset-0 grid place-items-center text-center text-xs text-text-muted p-6">
-        <div>
-          <p className="mb-1">El modo esculpir necesita WebGL 2.</p>
-          <p className="opacity-60">{failed}</p>
-        </div>
-      </div>
-    );
-  }
+  // Deliberately NO early return for a WebGL failure any more. Returning a
+  // message instead of the view removed the canvas from the DOM, which meant the
+  // 2D fallback had nothing to draw into — a safety net that unhooks itself the
+  // moment it is needed. The notice goes over the working view instead.
 
   return (
     <div
@@ -372,9 +494,16 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
       }}
     >
       <canvas ref={canvasRef} className="block" style={{ width: '100%', height: '100%' }} />
+      {soft && (
+        <div className="absolute left-2 top-2 max-w-sm px-2 py-1 rounded bg-black/60 text-[10px] text-amber-200/90 pointer-events-none leading-snug">
+          Modo compatible: esta máquina no ha entregado ningún fotograma por WebGL, así que el
+          relieve se dibuja por CPU. Se esculpe igual, sólo va algo más lento.
+          {failed ? ` (${failed})` : ''}
+        </div>
+      )}
       <div className="absolute left-2 bottom-2 flex gap-2 pointer-events-none">
         <span className="px-2 py-0.5 rounded bg-black/45 text-[10px] text-white/80 tabular-nums">
-          {fps} fps
+          {fps ? `${fps} ms/fotograma` : '—'}
         </span>
         <span className="px-2 py-0.5 rounded bg-black/45 text-[10px] text-white/70">
           esculpir · rueda para zoom · Mayús o botón central para mover

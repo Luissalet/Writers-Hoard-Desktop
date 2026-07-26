@@ -4,10 +4,11 @@ import type { HumanGeography, Settlement } from '../core/settlements';
 import { renderCartoCanvas, pickSettlement } from '../cartography/texture';
 import type { CartoLayers, CartoView } from '../cartography/render';
 import type { CartoTheme } from '../cartography/theme';
-import type { Pt, WorldEdit } from '../core/edits';
+import { editKey, type EditTarget, type Pt, type WorldEdit } from '../core/edits';
 import type { PaintTool } from './PaintPanel';
 import { CartoBaseGL } from '../cartography/glbase';
 import { computeFields, getTintFieldFor } from '../cartography/render';
+import { drawAnnotations, type CartoAnnotations } from '../cartography/annotations';
 
 /**
  * Pan/zoom viewer for the hand-drawn cartographic map.
@@ -39,6 +40,24 @@ interface CartoMapProps {
   title?: string;
   subtitle?: string;
   onPickSettlement?: (s: Settlement) => void;
+  /** Double-click anywhere: open the regional sheet centred on that ground. */
+  onOpenRegion?: (x: number, y: number) => void;
+  /**
+   * A plain click, in world coordinates, when the caller wants to inspect the
+   * ground rather than open a town. Takes priority over `onPickSettlement`, so
+   * the index can pick a sea or a mountain range and not only a dot.
+   */
+  onInspect?: (x: number, y: number) => void;
+  /**
+   * Annotations drawn on the ink layer above the map: a planned route, the
+   * ancient coastline, the journey's two ends.
+   *
+   * They live on the ink canvas rather than in the cartographic render because
+   * they change for reasons the map does not — dragging a sea-level slider must
+   * not cost a full re-render of the sheet — and because they are the reader's
+   * marks on the map, not part of it.
+   */
+  annotations?: CartoAnnotations;
   onViewChange?: (view: CartoView) => void;
   /** Active brush. When its mode is 'off' the map behaves as a plain viewer. */
   paint?: PaintTool;
@@ -48,11 +67,17 @@ interface CartoMapProps {
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 22;
-/** Delay before the reduced-resolution pass. Short: it is cheap, and with the
- *  base pass on the GPU it is cheaper than it was when these numbers were set. */
-const QUICK_MS = 70;
+/**
+ * Half a second of stillness before anything re-renders.
+ *
+ * Short delays meant a wheel gesture kicked off a render between every click of
+ * the wheel, and each one blocked the main thread mid-gesture: the stutter was
+ * not the render being slow, it was the render happening AT ALL while the reader
+ * was still moving. Nothing redraws until the view has been still for this long.
+ */
+const QUICK_MS = 500;
 /** Delay before the full-resolution pass. Longer: only when really idle. */
-const FULL_MS = 300;
+const FULL_MS = 620;
 /** Resolution factor for the quick pass. */
 const QUICK_SCALE = 0.58;
 
@@ -60,7 +85,7 @@ interface LiveView { zoom: number; cu: number; cv: number }
 
 export default function CartoMap({
   world, theme, geography, layers, density, reliefAmount, title, subtitle,
-  onPickSettlement, onViewChange, paint, onEdit,
+  onPickSettlement, onOpenRegion, onInspect, onViewChange, paint, onEdit, annotations,
 }: CartoMapProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -74,6 +99,7 @@ export default function CartoMap({
   // What the last finished render covered, for the interim transform.
   const base = useRef<{ canvas: HTMLCanvasElement; view: CartoView; full: boolean } | null>(null);
   const rafRef = useRef(0);
+  const interimFallback = useRef(0);
   const quickTimer = useRef(0);
   const fullTimer = useRef(0);
   const rendering = useRef(false);
@@ -84,6 +110,16 @@ export default function CartoMap({
   const glCanvas = useRef<HTMLCanvasElement | null>(null);
   const glFailed = useRef(false);
   const drag = useRef<{ x: number; y: number; cu: number; cv: number; moved: boolean } | null>(null);
+  /**
+   * A render of the WHOLE WORLD, kept as the source for every interim frame.
+   *
+   * This is the reader's design and it is the right one. Blitting the last
+   * viewport render cannot cover area that render never saw, so zooming out
+   * always exposed bare paper at the edges — and no amount of tuning fixes that,
+   * because the pixels do not exist. A whole-world bitmap covers every possible
+   * view by construction: there is no such thing as an uncovered edge.
+   */
+  const globalMap = useRef<{ canvas: HTMLCanvasElement; rev: number; theme: string } | null>(null);
 
   // Props the render needs, read through a ref so the event handlers never have
   // to be rebuilt when a prop changes.
@@ -91,6 +127,10 @@ export default function CartoMap({
   propsRef.current = { world, theme, geography, layers, density, reliefAmount, title, subtitle };
   const paintRef = useRef<{ paint?: PaintTool; onEdit?: (e: WorldEdit) => void }>({ paint, onEdit });
   paintRef.current = { paint, onEdit };
+  const annRef = useRef<CartoAnnotations | undefined>(annotations);
+  annRef.current = annotations;
+  /** Alt at the moment the stroke started — the road tool's erase modifier. */
+  const altRef = useRef(false);
 
   // The stroke in progress, in WORLD cell coordinates. Storing screen points
   // instead would make a stroke drift the moment the view moved under it.
@@ -123,40 +163,70 @@ export default function CartoMap({
 
   /** Blit the last finished bitmap at the live view. Cheap enough for 60 fps. */
   const paintInterim = useCallback(() => {
-    const b = base.current;
     const canvas = canvasRef.current;
-    if (!b || !canvas) return;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const v = viewFor(live.current, size.w, size.h);
-    const k = b.view.w / v.w;
-    let dx = b.view.x - v.x;
-    const W = world.width;
-    while (dx > W / 2) dx -= W;
-    while (dx < -W / 2) dx += W;
-    const sx = (dx / v.w) * canvas.width;
-    const sy = ((b.view.y - v.y) / v.h) * canvas.height;
-    // Smoothed, not nearest-neighbour.
-    //
-    // The original reasoning — "this frame is transient, save the milliseconds" —
-    // was measuring the wrong thing. The reader does not experience the frame
-    // budget, they experience the picture, and a nearest-neighbour upscale of a
-    // stretched map is a mosaic of blocks: it reads as the app breaking rather
-    // than as the map catching up. A smoothed blit reads as a soft zoom, which is
-    // what every slippy map on earth shows between tiles.
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'low';
-    ctx.fillStyle = theme.paper.base;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(b.canvas, sx, sy, canvas.width * k, canvas.height * k);
-  }, [viewFor, size.w, size.h, world.width, theme.paper.base]);
 
+    // Source of truth for a gesture frame: the whole-world bitmap. Every view is
+    // a sub-rectangle of it, so every frame is fully covered — the beige edges
+    // are not tuned away, they are made impossible.
+    const gm = globalMap.current;
+    if (gm) {
+      const kx = gm.canvas.width / world.width;
+      const ky = gm.canvas.height / world.height;
+      const sw = v.w * kx, sh = v.h * ky;
+      let sx = v.x * kx;
+      // Draw the seam twice so a view straddling it has no gap either.
+      ctx.fillStyle = theme.ocean.deep;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (const shift of [-gm.canvas.width, 0, gm.canvas.width]) {
+        ctx.drawImage(gm.canvas, sx + shift, v.y * ky, sw, sh, 0, 0, canvas.width, canvas.height);
+        if (shift === 0 && sx >= 0 && sx + sw <= gm.canvas.width) break;
+      }
+      void sx;
+    } else {
+      const b = base.current;
+      if (!b) return;
+      const k = b.view.w / v.w;
+      let dx = b.view.x - v.x;
+      const W = world.width;
+      while (dx > W / 2) dx -= W;
+      while (dx < -W / 2) dx += W;
+      ctx.fillStyle = theme.paper.base;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(b.canvas, (dx / v.w) * canvas.width, ((b.view.y - v.y) / v.h) * canvas.height,
+        canvas.width * k, canvas.height * k);
+    }
+  }, [viewFor, size.w, size.h, world.width, world.height, theme.paper.base, theme.ocean.deep]);
+
+  /**
+   * Book an interim blit, with a timer behind it.
+   *
+   * `if (rafRef.current) return` on its own is a latch, not a guard: one booked
+   * frame that never arrives and the blit is off for the life of the component.
+   * That is not hypothetical — the sculpt view was found frozen at exactly one
+   * frame for precisely this reason, because a window whose only content is a
+   * static canvas can stop being composited and stop getting animation frames
+   * altogether. The timer is the floor.
+   */
   const requestInterim = useCallback(() => {
     if (rafRef.current) return;
-    rafRef.current = requestAnimationFrame(() => {
+    const booked = performance.now();
+    const fire = () => {
+      if (!rafRef.current) return;
       rafRef.current = 0;
+      window.clearTimeout(interimFallback.current);
       paintInterim();
-    });
+    };
+    rafRef.current = requestAnimationFrame(fire);
+    window.clearTimeout(interimFallback.current);
+    interimFallback.current = window.setTimeout(() => {
+      if (rafRef.current && performance.now() - booked > 90) fire();
+    }, 100);
   }, [paintInterim]);
 
   /** Full pipeline render at a given resolution factor. Synchronous. */
@@ -189,6 +259,26 @@ export default function CartoMap({
           drawBase,
         });
         base.current = { canvas: off, view: v, full };
+        // Refresh the whole-world bitmap when it is missing or out of date. Done
+        // here, on the settle, so it never competes with the gesture.
+        const gm = globalMap.current;
+        const rev = p.world.revision ?? 0;
+        if (full && (!gm || gm.rev !== rev || gm.theme !== p.theme.id)) {
+          const gw = 2048, gh = 1024;
+          const wholeView = { x: 0, y: 0, w: p.world.width, h: p.world.height };
+          const whole = renderCartoCanvas(p.world, {
+            theme: p.theme,
+            width: gw, height: gh,
+            view: wholeView,
+            layers: { ...p.layers, frame: false, compass: false, scaleBar: false },
+            density: p.density,
+            reliefAmount: p.reliefAmount,
+            geography: p.geography,
+            typeScale: 1,
+            drawBase,
+          });
+          globalMap.current = { canvas: whole, rev, theme: p.theme.id };
+        }
         const canvas = canvasRef.current;
         if (canvas) {
           canvas.width = w;
@@ -223,8 +313,6 @@ export default function CartoMap({
       ink.height = Math.max(1, Math.round(size.h));
     }
     ctx.clearRect(0, 0, ink.width, ink.height);
-    const p = paintRef.current.paint;
-    if (!p || p.mode === 'off') return;
     const v = viewFor(live.current, size.w, size.h);
     const k = size.w / v.w;
     const sx = (wx: number) => {
@@ -235,12 +323,40 @@ export default function CartoMap({
     };
     const sy = (wy: number) => (wy - v.y) * k;
 
+    drawAnnotations(ctx, annRef.current, world, sx, sy, k);
+
+    const p = paintRef.current.paint;
+    if (!p || p.mode === 'off') return;
+
+    // Point tools get a crosshair, not a brush ring: showing a nine-cell disc
+    // for "rename the thing under the cursor" tells the reader the wrong thing
+    // about what the click is going to do.
+    const pointTool = p.mode === 'rename' || p.mode === 'remove';
+    if (pointTool) {
+      const c0 = cursor.current;
+      if (c0) {
+        ctx.strokeStyle = p.mode === 'remove' ? 'rgba(255,140,140,0.95)' : 'rgba(255,215,120,0.95)';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(c0.x, c0.y, 9, 0, Math.PI * 2);
+        ctx.moveTo(c0.x - 14, c0.y); ctx.lineTo(c0.x - 3, c0.y);
+        ctx.moveTo(c0.x + 3, c0.y); ctx.lineTo(c0.x + 14, c0.y);
+        ctx.moveTo(c0.x, c0.y - 14); ctx.lineTo(c0.x, c0.y - 3);
+        ctx.moveTo(c0.x, c0.y + 3); ctx.lineTo(c0.x, c0.y + 14);
+        ctx.stroke();
+      }
+      return;
+    }
+
     const pts = stroke.current;
-    const rPx = Math.max(2, (p.mode === 'river' ? p.riverWidth : p.radius) * k);
+    const rPx = p.mode === 'road'
+      ? Math.max(2, k * 1.6)
+      : Math.max(2, (p.mode === 'river' ? p.riverWidth : p.radius) * k);
     if (pts && pts.length) {
       ctx.strokeStyle = p.mode === 'erase' ? 'rgba(255,120,120,0.5)'
-        : p.mode === 'land' && p.landOp === 'sea' ? 'rgba(90,150,220,0.5)'
-          : 'rgba(255,215,120,0.5)';
+        : p.mode === 'road' ? 'rgba(180,130,70,0.85)'
+          : p.mode === 'land' && p.landOp === 'sea' ? 'rgba(90,150,220,0.5)'
+            : 'rgba(255,215,120,0.5)';
       ctx.lineWidth = rPx * 2;
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
@@ -288,8 +404,13 @@ export default function CartoMap({
     setZoomLabel(live.current.zoom);
     requestInterim();
     scheduleRender();
+    paintInk();
     onViewChange?.(viewFor(live.current, size.w, size.h));
-  }, [requestInterim, scheduleRender, onViewChange, viewFor, size.w, size.h]);
+  }, [requestInterim, scheduleRender, paintInk, onViewChange, viewFor, size.w, size.h]);
+
+  // Annotations are cheap and change often (a slider drag), so they repaint on
+  // their own rather than waiting for the map's debounced render.
+  useEffect(() => { paintInk(); }, [annotations, paintInk, size.w, size.h]);
 
   // Re-render from scratch when anything other than the view changes.
   //
@@ -427,11 +548,86 @@ export default function CartoMap({
         if (text) onEdit({ kind: 'label', x: at.x, y: at.y, text, style: p.labelStyle });
         break;
       }
+      case 'road': {
+        if (altRef.current) {
+          onEdit({ kind: 'eraseRoads', x: pts[0].x, y: pts[0].y, radius: Math.max(2, p.radius) });
+        } else if (pts.length >= 2) {
+          onEdit({ kind: 'road', pts, major: p.roadMajor });
+        }
+        break;
+      }
+      case 'rename':
+      case 'remove': {
+        const at = pts[pts.length - 1];
+        const target = pickGenerated(at.x, at.y);
+        if (!target) return;
+        if (p.mode === 'remove') {
+          onEdit({ kind: 'remove', target: target.target, key: target.key });
+        } else {
+          // A prompt, deliberately. An inline editor on the canvas would need a
+          // whole text-input overlay that follows the map through pan and zoom,
+          // and the reader is renaming one thing, not typing a paragraph.
+          const next = window.prompt(`Nuevo nombre para «${target.name}»`, target.name);
+          if (next && next.trim() && next.trim() !== target.name) {
+            onEdit({ kind: 'rename', target: target.target, key: target.key, name: next.trim() });
+          }
+        }
+        break;
+      }
       default: break;
     }
   }, []);
 
+  /**
+   * What generated object is under this point, and its stable key.
+   *
+   * Ordered smallest-target-first: a settlement sits inside a realm and often
+   * inside a named plain as well, and the reader who clicked on a dot meant the
+   * dot. Areas are only offered when nothing pointlike is close.
+   */
+  const pickGenerated = useCallback((wx: number, wy: number): {
+    target: EditTarget; key: string; name: string;
+  } | null => {
+    const geo = propsRef.current.geography;
+    const world = propsRef.current.world;
+    if (!geo) return null;
+    const v = viewFor(live.current, size.w, size.h);
+    // Tolerance in world cells for a ~16 px reach, so the hit area is the same
+    // size on screen at every zoom.
+    const tol = Math.max(2, (16 / Math.max(1, size.w)) * v.w);
+    const dist = (ax: number, ay: number) => {
+      let dx = Math.abs(ax - wx);
+      if (dx > world.width / 2) dx = world.width - dx;
+      return Math.hypot(dx, ay - wy);
+    };
+
+    let best: { target: EditTarget; key: string; name: string; d: number } | null = null;
+    const offer = (target: EditTarget, key: string, name: string, d: number, reach: number) => {
+      if (d > reach) return;
+      if (!best || d < best.d) best = { target, key, name, d };
+    };
+    for (const st of geo.settlements) {
+      offer('settlement', editKey('settlement', st.x, st.y), st.name, dist(st.x, st.y), tol);
+    }
+    for (const ru of geo.ruins) {
+      offer('ruin', editKey('ruin', ru.x, ru.y), ru.name, dist(ru.x, ru.y), tol);
+    }
+    if (best) return best;
+    for (const f of geo.features) {
+      offer('feature', editKey('feature', f.x, f.y, `${f.kind}:`), f.name,
+        dist(f.x, f.y), Math.max(tol, f.extent));
+    }
+    if (best) return best;
+    const ix = (((Math.round(wx) % world.width) + world.width) % world.width);
+    const iy = Math.min(world.height - 1, Math.max(0, Math.round(wy)));
+    const realmId = geo.realmOf[iy * world.width + ix];
+    const realm = geo.realms.find((q) => q.id === realmId);
+    if (realm) return { target: 'realm', key: editKey('realm', 0, 0, `${realm.id}:`), name: realm.name };
+    return null;
+  }, [viewFor, size.w, size.h]);
+
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    altRef.current = e.altKey;
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     if (painting(e)) {
       const w = toWorld(e.clientX, e.clientY);
@@ -501,17 +697,23 @@ export default function CartoMap({
     const d = drag.current;
     drag.current = null;
     const geo = propsRef.current.geography;
-    if (!d || d.moved || !geo || !onPickSettlement) return;
+    if (!d || d.moved || !geo) return;
     const host = hostRef.current;
     if (!host) return;
     const rect = host.getBoundingClientRect();
     const v = viewFor(live.current, size.w, size.h);
-    const u = (v.x + ((e.clientX - rect.left) / rect.width) * v.w) / world.width;
-    const vv = (v.y + ((e.clientY - rect.top) / rect.height) * v.h) / world.height;
+    const wx = v.x + ((e.clientX - rect.left) / rect.width) * v.w;
+    const wy = v.y + ((e.clientY - rect.top) / rect.height) * v.h;
+    if (onInspect) {
+      onInspect(((wx % world.width) + world.width) % world.width,
+        Math.min(world.height - 1, Math.max(0, wy)));
+      return;
+    }
+    if (!onPickSettlement) return;
     const tol = (18 / rect.width) * v.w;
-    const s = pickSettlement(world, geo, ((u % 1) + 1) % 1, vv, Math.max(6, tol));
+    const s = pickSettlement(world, geo, ((wx / world.width) % 1 + 1) % 1, wy / world.height, Math.max(6, tol));
     if (s) onPickSettlement(s);
-  }, [onPickSettlement, viewFor, size.w, size.h, world, paintInk, commitStroke]);
+  }, [onPickSettlement, onInspect, viewFor, size.w, size.h, world, paintInk, commitStroke]);
 
   const setZoom = useCallback((z: number) => {
     live.current.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
@@ -519,6 +721,21 @@ export default function CartoMap({
   }, [viewChanged]);
 
   const brushing = !!paint && paint.mode !== 'off' && !!onEdit;
+
+  // Double-click drops a league below the world map. Deliberately not a mode or
+  // a tool: descending into the country you are looking at should cost one
+  // gesture, the same way a settlement's plan costs one click.
+  const onDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (brushing || !onOpenRegion) return;
+    const host = hostRef.current;
+    if (!host) return;
+    const rect = host.getBoundingClientRect();
+    const v = viewFor(live.current, size.w, size.h);
+    const x = v.x + ((e.clientX - rect.left) / rect.width) * v.w;
+    const y = v.y + ((e.clientY - rect.top) / rect.height) * v.h;
+    onOpenRegion(((x % world.width) + world.width) % world.width,
+      Math.min(world.height - 1, Math.max(0, y)));
+  }, [brushing, onOpenRegion, viewFor, size.w, size.h, world.width, world.height]);
 
   return (
     <div
@@ -529,10 +746,18 @@ export default function CartoMap({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onDoubleClick={onDoubleClick}
       onPointerLeave={() => { cursor.current = null; paintInk(); }}
       onPointerCancel={() => { drag.current = null; stroke.current = null; paintInk(); }}
     >
       <canvas ref={canvasRef} className="block" />
+      {/* Fixed frame. The border belongs to the sheet the reader is holding, not
+          to the render underneath it, so it must not move, scale or disappear
+          while the map is catching up. */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        border: `2px solid ${theme.furniture.frame}`,
+        boxShadow: `inset 0 0 0 4px ${theme.furniture.frameFill}, inset 0 0 0 6px ${theme.furniture.frame}`,
+      }} />
       <canvas
         ref={inkRef}
         className="absolute left-0 top-0 pointer-events-none"

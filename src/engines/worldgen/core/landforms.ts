@@ -551,9 +551,11 @@ export interface LandformBudget {
 export function findLandforms(world: WorldData, budget: LandformBudget = {}): Landform[] {
   const c = makeCtx(world);
   const area = c.N / (1024 * 512);
+  const filters = world.params.filters;
+  const allowed = (k: LandformKind) => !filters || filters.landforms[k] !== false;
   const n = (base: number, override?: number) =>
     override ?? Math.max(3, Math.round(base * Math.sqrt(area)));
-  return [
+  const all: Landform[] = [
     ...findCapes(c, n(18, budget.cape)),
     ...findBays(c, n(18, budget.bay)),
     ...findPinches(c, 'strait', n(9, budget.strait)),
@@ -563,4 +565,5 @@ export function findLandforms(world: WorldData, budget: LandformBudget = {}): La
     ...findPasses(c, n(14, budget.pass)),
     ...findValleys(c, n(14, budget.valley)),
   ];
+  return all.filter((l) => allowed(l.kind));
 }

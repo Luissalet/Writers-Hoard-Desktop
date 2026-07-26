@@ -45,6 +45,15 @@ export interface WorldParams {
   riverDensity: number;
   /** Detect + mark landmarks (volcanoes, caves, waterfalls, gorges, springs). */
   landmarks: boolean;
+  /**
+   * What this world is allowed to contain: disabled biomes, ruin kinds, ruin
+   * sites, landforms, and how strange the ecology may get.
+   *
+   * Part of the PARAMS rather than a separate setting, because a world is stored
+   * as seed + params + edits — anything that changes what regenerating produces
+   * has to live here or the world stops reproducing itself.
+   */
+  filters?: import('./generation').GenerationFilters;
 }
 
 export const DEFAULT_PARAMS: WorldParams = {
@@ -119,9 +128,46 @@ export const Biome = {
   Badlands: 30,
   /** Gallery forest along a river in dry country. */
   RiparianForest: 31,
+
+  // ---- second wave: the country that makes a world feel visited -----------
+  /** Dissolved limestone: towers, sinkholes, caves. Wet ground on soluble rock. */
+  Karst: 32,
+  /** Bamboo: the monsoon margin, growing where forest is cut and comes back fast. */
+  Bamboo: 33,
+  /** Fog desert: no rain, but a cold current fogs the coast and things live on it. */
+  FogDesert: 34,
+  /** Thorn scrub: hot, seasonally dry, everything is armed. */
+  ThornScrub: 35,
+  /** Moor: cool wet upland, heather and bog cotton over acid ground. */
+  Moor: 36,
+  /** Puna: high, cold and dry — the altiplano above the treeline in the tropics. */
+  Puna: 37,
+  /** Volcanic badland: young lava, nothing has had time to grow. */
+  Volcanic: 38,
+  /** Ash plain: what is downwind of the volcanic badland. */
+  AshPlain: 39,
+
+  // ---- the strange ones, off unless the reader asks for them --------------
+  /** Petrified forest: standing stone trunks in arid ground. */
+  PetrifiedForest: 40,
+  /** Fungal forest: no canopy, no leaves, and it does not need the sun. */
+  FungalForest: 41,
+  /** Crystal flats: an evaporite basin that grew wrong. */
+  CrystalFlats: 42,
+  /** Glowing marsh: wetland with its own light. */
+  GlowMarsh: 43,
 } as const;
 export type BiomeId = (typeof Biome)[keyof typeof Biome];
-export const BIOME_COUNT = 32;
+export const BIOME_COUNT = 44;
+
+/**
+ * Which biomes are FANTASTICAL rather than merely unusual.
+ *
+ * Kept as data rather than as a comment because the generator has to be able to
+ * answer "is this world allowed to be strange" without anyone having to remember
+ * which ids are which.
+ */
+export const EXOTIC_BIOMES: number[] = [40, 41, 42, 43];
 
 export type LandmarkType =
   | 'volcano'

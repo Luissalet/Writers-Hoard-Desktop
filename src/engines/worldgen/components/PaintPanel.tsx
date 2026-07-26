@@ -19,7 +19,13 @@ function swatch(b: BiomeId): string {
  * lie about what the next stroke will do.
  */
 
-export type PaintMode = 'off' | 'terrain' | 'land' | 'biome' | 'river' | 'marker' | 'label' | 'erase';
+export type PaintMode =
+  | 'off' | 'terrain' | 'land' | 'biome' | 'river' | 'marker' | 'label' | 'erase'
+  // The three that edit what the GENERATOR made rather than the raster. They
+  // work by position-derived key, so a renamed city keeps its new name through
+  // a full regeneration — which is the whole reason they are edits and not a
+  // separate layer of overrides.
+  | 'rename' | 'remove' | 'road';
 
 export interface PaintTool {
   mode: PaintMode;
@@ -37,6 +43,8 @@ export interface PaintTool {
   rank: SettlementRank;
   labelStyle: 'region' | 'water' | 'range' | 'settlement' | 'note';
   labelText: string;
+  /** Road tool: a trade artery or a local track. */
+  roadMajor: boolean;
 }
 
 export const DEFAULT_PAINT_TOOL: PaintTool = {
@@ -51,6 +59,7 @@ export const DEFAULT_PAINT_TOOL: PaintTool = {
   marker: 'settlement',
   ruin: 'tower',
   rank: 'town',
+  roadMajor: false,
   labelStyle: 'region',
   labelText: '',
 };
@@ -64,6 +73,9 @@ const MODES: { id: PaintMode; label: string; hint: string }[] = [
   { id: 'marker', label: 'Marca', hint: 'Colocar una ciudad o una ruina' },
   { id: 'label', label: 'Rótulo', hint: 'Escribir un nombre en el mapa' },
   { id: 'erase', label: 'Borrar', hint: 'Quitar marcas y rótulos de una zona' },
+  { id: 'rename', label: 'Renombrar', hint: 'Pincha una ciudad, ruina, accidente o reino y escribe su nombre' },
+  { id: 'remove', label: 'Quitar', hint: 'Pincha algo que el generador puso y desaparece del mundo' },
+  { id: 'road', label: 'Camino', hint: 'Arrastra para trazar un camino; con Alt borra los que cruces' },
 ];
 
 const TERRAIN_OPS: { id: TerrainOp; label: string }[] = [
@@ -265,6 +277,29 @@ export default function PaintPanel({
           format={(v) => `${v.toFixed(1)} celdas`}
           onChange={(v) => set('riverWidth', v)}
         />
+      )}
+
+      {tool.mode === 'road' && (
+        <div className="flex flex-col gap-2">
+          <Row label="Clase">
+            <div className="flex gap-1">
+              <Chip on={!tool.roadMajor} onClick={() => set('roadMajor', false)}>Camino</Chip>
+              <Chip on={tool.roadMajor} onClick={() => set('roadMajor', true)}>Calzada real</Chip>
+            </div>
+          </Row>
+          <p className="text-[10px] text-white/40 leading-snug">
+            El trazo se guarda como una edición, así que sobrevive a regenerar el mundo.
+            Con Alt pulsado, en lugar de dibujar borra los caminos que cruces.
+          </p>
+        </div>
+      )}
+
+      {(tool.mode === 'rename' || tool.mode === 'remove') && (
+        <p className="text-[10px] text-white/40 leading-snug">
+          Funciona sobre lo que generó el mundo: ciudades, ruinas, mares, sierras, bosques y
+          reinos. Se identifica por dónde está, no por su posición en una lista, de modo que
+          el cambio sigue ahí después de regenerar.
+        </p>
       )}
 
       {(tool.mode === 'terrain' || tool.mode === 'land' || tool.mode === 'biome' || tool.mode === 'erase') && (

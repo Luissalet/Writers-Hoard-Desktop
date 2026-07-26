@@ -95,7 +95,30 @@ export type WorldEdit =
   }
   /** Remove painted markers and labels within a radius. Terrain and biome
    *  paints are undone by dropping their edit, not by erasing over them. */
-  | { kind: 'eraseMarkers'; x: number; y: number; radius: number };
+  | { kind: 'eraseMarkers'; x: number; y: number; radius: number }
+  /**
+   * Rename something the GENERATOR produced.
+   *
+   * Identified by a position-derived key rather than by array index: a world is
+   * regenerated from its seed every time it is opened, and while the same seed
+   * always puts the same city in the same place, nothing guarantees it keeps the
+   * same index once a filter or a parameter changes. A rename that survives only
+   * until the reader adjusts a slider is not a rename.
+   */
+  | { kind: 'rename'; target: EditTarget; key: string; name: string }
+  /** Delete something the generator produced: a town, a ruin, a road, a name. */
+  | { kind: 'remove'; target: EditTarget; key: string }
+  /** A road drawn by hand between two places. */
+  | { kind: 'road'; pts: Pt[]; major: boolean }
+  /** Erase generated roads passing within a radius. */
+  | { kind: 'eraseRoads'; x: number; y: number; radius: number };
+
+export type EditTarget = 'settlement' | 'ruin' | 'realm' | 'feature' | 'road';
+
+/** Stable identity for a generated object, derived from where it is. */
+export function editKey(target: EditTarget, x: number, y: number, extra = ''): string {
+  return `${target}:${extra}${Math.round(x)},${Math.round(y)}`;
+}
 
 export interface PaintedMarker {
   marker: MarkerKind;
@@ -124,6 +147,14 @@ export interface AppliedEdits {
   labels: PaintedLabel[];
   /** Rivers drawn by hand, in the same shape the renderer already expects. */
   rivers: { cells: Uint32Array; flow: number }[];
+  /** Generated-object key → the name the reader gave it. */
+  renames: Record<string, string>;
+  /** Keys of generated objects the reader deleted. */
+  removed: Set<string>;
+  /** Roads drawn by hand. */
+  roads: { cells: number[]; major: boolean }[];
+  /** Circles inside which generated roads are erased. */
+  roadErasers: { x: number; y: number; radius: number }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +299,10 @@ function forEachMasked(
  */
 export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   const W = world.width, H = world.height, N = W * H;
-  const out: AppliedEdits = { terrainChanged: false, markers: [], labels: [], rivers: [] };
+  const out: AppliedEdits = {
+    terrainChanged: false, markers: [], labels: [], rivers: [],
+    renames: {}, removed: new Set(), roads: [], roadErasers: [],
+  };
   if (!edits.length) return out;
   // Any consumer that caches something derived from this world keys on the
   // revision, so bumping it here is what makes a stroke actually appear.
@@ -437,6 +471,28 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       });
     } else if (e.kind === 'label') {
       out.labels.push({ x: e.x, y: e.y, text: e.text, style: e.style, size: e.size, angle: e.angle });
+    } else if (e.kind === 'rename') {
+      out.renames[e.key] = e.name;
+    } else if (e.kind === 'remove') {
+      out.removed.add(e.key);
+    } else if (e.kind === 'road' && e.pts.length >= 2) {
+      // Rasterised to cells so it draws through exactly the same road layer the
+      // generated ones use — a hand-drawn road must not be distinguishable.
+      const cells: number[] = [];
+      for (let k = 1; k < e.pts.length; k++) {
+        const a = e.pts[k - 1], b = e.pts[k];
+        const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y)));
+        for (let t = 0; t <= steps; t++) {
+          const f = t / steps;
+          const x = ((Math.round(a.x + (b.x - a.x) * f) % W) + W) % W;
+          const y = Math.min(H - 1, Math.max(0, Math.round(a.y + (b.y - a.y) * f)));
+          const i = y * W + x;
+          if (cells[cells.length - 1] !== i) cells.push(i);
+        }
+      }
+      if (cells.length >= 2) out.roads.push({ cells, major: e.major });
+    } else if (e.kind === 'eraseRoads') {
+      out.roadErasers.push({ x: e.x, y: e.y, radius: e.radius });
     }
   }
   // Erasers apply to everything painted before them, in order.

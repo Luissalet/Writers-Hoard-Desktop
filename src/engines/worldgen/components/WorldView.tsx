@@ -25,14 +25,21 @@ import WaypointsPanel from './WaypointsPanel';
 import type { Shape3D, SkinMode } from './Terrain3D';
 import CartoMap from './CartoMap';
 import CityPlanView from './CityPlanView';
+import RegionSheetView from './RegionSheetView';
+import JourneyPanel from './JourneyPanel';
 import PaintPanel, { DEFAULT_PAINT_TOOL, type PaintTool } from './PaintPanel';
+import FiltersPanel from './FiltersPanel';
 import SculptView from './SculptView';
 import { PaintSession } from '../core/paintSession';
+import { paleoMap } from '../core/paleo';
 import type { WorldEdit } from '../core/edits';
 import { THEMES, themeById } from '../cartography/theme';
 import { getGeography, geographyIsStale, rebuildGeography, renderCartoCanvas } from '../cartography/texture';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import type { CartoLayers } from '../cartography/render';
+import type { CartoAnnotations } from '../cartography/annotations';
+import type { PaleoState } from '../core/paleo';
+import type { Route as TravelRoute } from '../core/travel';
 
 const Terrain3D = lazy(() => import('./Terrain3D'));
 
@@ -66,6 +73,7 @@ export default function WorldView({
   const [themeId, setThemeId] = useState<string>('wonder');
   const [skin3D, setSkin3D] = useState<SkinMode>('carta');
   const [cityFor, setCityFor] = useState<Settlement | null>(null);
+  const [regionAt, setRegionAt] = useState<{ x: number; y: number } | null>(null);
   const [cartoLayers, setCartoLayers] = useState<Partial<CartoLayers>>({
     relief: true, forests: true, labels: true, settlements: true,
     roads: true, borders: false, frame: true, compass: true, scaleBar: true,
@@ -78,7 +86,15 @@ export default function WorldView({
   const [showLandmarks, setShowLandmarks] = useState(true);
   const [showWaypoints, setShowWaypoints] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
-  const [panelTab, setPanelTab] = useState<'params' | 'waypoints' | 'paint'>('params');
+  const [panelTab, setPanelTab] = useState<'params' | 'waypoints' | 'paint' | 'world' | 'journey'>('params');
+  // The journey: two ends, the route between them, and the world at another
+  // sea level. All of it lives here rather than in the panel because the map
+  // draws it and the panel only chooses it.
+  const [journeyFrom, setJourneyFrom] = useState<Settlement | null>(null);
+  const [journeyTo, setJourneyTo] = useState<Settlement | null>(null);
+  const [journeyPick, setJourneyPick] = useState<'from' | 'to' | null>(null);
+  const [journeyRoute, setJourneyRoute] = useState<{ route: TravelRoute | null; color: string }>({ route: null, color: '#a3261e' });
+  const [paleoState, setPaleoState] = useState<PaleoState | null>(null);
   const [placing, setPlacing] = useState(false);
   const [selectedWaypointId, setSelectedWaypointId] = useState<string | null>(null);
   const [flyTarget, setFlyTarget] = useState<{ u: number; v: number; token: number } | null>(null);
@@ -140,6 +156,19 @@ export default function WorldView({
   // background; the map itself is never unmounted for it any more.
   const [geoBusy, setGeoBusy] = useState(false);
   const needsGeo = view === 'carta' || (view === '3d' && skin3D === 'carta');
+
+  const annotations: CartoAnnotations | undefined = useMemo(() => {
+    const pins: NonNullable<CartoAnnotations['pins']> = [];
+    if (journeyFrom) pins.push({ x: journeyFrom.x, y: journeyFrom.y, label: journeyFrom.name, kind: 'from' });
+    if (journeyTo) pins.push({ x: journeyTo.x, y: journeyTo.y, label: journeyTo.name, kind: 'to' });
+    const r = journeyRoute.route;
+    if (!pins.length && !r && !paleoState) return undefined;
+    return {
+      pins,
+      route: r && r.cells.length > 1 ? { cells: r.cells, color: journeyRoute.color } : undefined,
+      paleo: paleoState ? paleoMap(data ?? ({} as WorldData), paleoState) : undefined,
+    };
+  }, [journeyFrom, journeyTo, journeyRoute, paleoState, data]);
   useEffect(() => {
     setGeography(null);
   }, [data]);
@@ -539,7 +568,13 @@ export default function WorldView({
                 reliefAmount={reliefAmount}
                 title={world.title}
                 subtitle={t('worldgen.export.atlasSuffix')}
-                onPickSettlement={tool.mode === 'off' ? setCityFor : undefined}
+                onPickSettlement={tool.mode === 'off' ? ((s: Settlement) => {
+                  if (journeyPick === 'from') { setJourneyFrom(s); setJourneyPick('to'); }
+                  else if (journeyPick === 'to') { setJourneyTo(s); setJourneyPick(null); }
+                  else setCityFor(s);
+                }) : undefined}
+                annotations={annotations}
+                onOpenRegion={tool.mode === 'off' ? ((x, y) => setRegionAt({ x, y })) : undefined}
                 paint={tool}
                 onEdit={applyEdit}
               />
@@ -653,9 +688,39 @@ export default function WorldView({
             <PanelTab active={panelTab === 'params'} onClick={() => setPanelTab('params')} label={t('worldgen.params.title')} />
             <PanelTab active={panelTab === 'waypoints'} onClick={() => setPanelTab('waypoints')} label={`${t('worldgen.waypoints.title')}${waypoints.length ? ` (${waypoints.length})` : ''}`} />
             <PanelTab active={panelTab === 'paint'} onClick={() => { setPanelTab('paint'); setView('sculpt'); }} label={`Pincel${paintRev ? ` (${paintRev})` : ''}`} />
+            <PanelTab active={panelTab === 'world'} onClick={() => setPanelTab('world')} label="Mundo" />
+            <PanelTab active={panelTab === 'journey'} onClick={() => { setPanelTab('journey'); setView('carta'); }} label="Viaje" />
           </div>
           <div className="flex-1 overflow-y-auto p-3">
-            {panelTab === 'paint' ? (
+            {panelTab === 'journey' ? (
+              data && geography ? (
+                <JourneyPanel
+                  world={data}
+                  geography={geography}
+                  from={journeyFrom}
+                  to={journeyTo}
+                  picking={journeyPick}
+                  onPick={setJourneyPick}
+                  onSwap={() => { setJourneyFrom(journeyTo); setJourneyTo(journeyFrom); }}
+                  onClear={() => { setJourneyFrom(null); setJourneyTo(null); setJourneyPick(null); }}
+                  onRoute={(route, color) => setJourneyRoute({ route, color })}
+                  paleo={paleoState}
+                  onPaleo={setPaleoState}
+                />
+              ) : (
+                <p className="text-[11px] text-white/45">
+                  Abre la carta para medir distancias: hacen falta las calzadas y las ciudades.
+                </p>
+              )
+            ) : panelTab === 'world' ? (
+              <FiltersPanel
+                params={params}
+                onChange={setParams}
+                onGenerate={handleGenerate}
+                generating={gen.running}
+                hasWorld={!!data}
+              />
+            ) : panelTab === 'paint' ? (
               <PaintPanel
                 tool={tool}
                 onChange={setTool}
@@ -726,11 +791,23 @@ export default function WorldView({
             {geography.settlements.length} asentamientos · {geography.realms.length} reinos ·
             {' '}{geography.ruins.length} ruinas ·
             {' '}{tool.mode === 'off'
-              ? 'pincha una ciudad para ver su plano'
+              ? 'pincha una ciudad para ver su plano · doble clic para bajar a la comarca'
               : 'arrastra para pintar; Espacio para mover'}
           </span>
         )}
       </div>
+
+      {/* ---- Regional sheet: the scale between the world and the town ---- */}
+      {data && geography && regionAt && (
+        <RegionSheetView
+          world={data}
+          geography={geography}
+          theme={theme}
+          at={regionAt}
+          onClose={() => setRegionAt(null)}
+          onPickSettlement={setCityFor}
+        />
+      )}
 
       {/* ---- City plan ---- */}
       {data && cityFor && (
