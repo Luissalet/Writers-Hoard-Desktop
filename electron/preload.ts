@@ -65,6 +65,22 @@ interface CapturePageResult {
   error?: string;
 }
 
+/** What the main window is currently looking at — drives the capture target. */
+interface QuickNoteContext {
+  /** Active project id, or null when the user isn't inside a project. */
+  projectId: string | null;
+  projectTitle: string | null;
+  locale: string;
+}
+
+/** A note relayed from the floating capture window into the main renderer. */
+interface QuickNotePayload {
+  text: string;
+  kind: 'note' | 'quote' | 'idea' | 'word';
+  /** null → the project-less inbox. */
+  projectId: string | null;
+}
+
 const api = {
   /** Always true when running inside the desktop shell. */
   isDesktop: true as const,
@@ -130,6 +146,44 @@ const api = {
     /** Render a styled HTML script to PDF and prompt the user to save it. */
     scriptToPdf: (html: string, suggestedName: string): Promise<SaveResult> =>
       ipcRenderer.invoke('export:scriptToPdf', html, suggestedName),
+  },
+
+  // Quick note capture. Two consumers share this namespace:
+  //   • the main window — reports what project it's on, listens for captures
+  //   • the floating capture window (quick-note.html) — reads the target,
+  //     submits, closes itself
+  // The floating window never touches Dexie: it hands the text to the main
+  // process, which relays it to the main renderer. One writer, one database
+  // connection, no cross-window refresh problem.
+  quickNote: {
+    /** Main window → main process: what the user is currently looking at. */
+    setContext: (ctx: QuickNoteContext): void => {
+      ipcRenderer.send('quick-note:set-context', ctx);
+    },
+    /** Floating window → main process: the cached context (target + locale). */
+    getContext: (): Promise<QuickNoteContext> => ipcRenderer.invoke('quick-note:get-context'),
+    /** Floating window → main process: save this note. */
+    submit: (payload: QuickNotePayload): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('quick-note:submit', payload),
+    /** Floating window → main process: dismiss without saving. */
+    close: (): void => {
+      ipcRenderer.send('quick-note:close');
+    },
+    /** Main window: a note arrived from the floating window. */
+    onCapture: (callback: (payload: QuickNotePayload) => void): (() => void) => {
+      const listener = (_e: unknown, payload: QuickNotePayload) => callback(payload);
+      ipcRenderer.on('quick-note:add', listener);
+      return () => ipcRenderer.removeListener('quick-note:add', listener);
+    },
+    /**
+     * Main window: the global shortcut fired while the app was focused, so
+     * the in-app composer should open instead of the floating window.
+     */
+    onOpenInline: (callback: () => void): (() => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('quick-note:open-inline', listener);
+      return () => ipcRenderer.removeListener('quick-note:open-inline', listener);
+    },
   },
 
   updates: {

@@ -11,9 +11,12 @@ import type {
   MapPin,
   ImageCollection,
   InspirationImage,
-  ExternalLink,
   Writing,
 } from '../types';
+import {
+  legacyLinkToSnapshot,
+  type LegacyExternalLink,
+} from '@/engines/scrapper/legacyLinks';
 
 // ===== Projects =====
 
@@ -329,23 +332,6 @@ export async function deleteInspirationImage(id: string): Promise<void> {
   await db.inspirationImages.delete(id);
 }
 
-// ===== External Links =====
-export async function getExternalLinks(projectId: string): Promise<ExternalLink[]> {
-  return db.externalLinks.where('projectId').equals(projectId).toArray();
-}
-
-export async function createExternalLink(link: ExternalLink): Promise<string> {
-  return db.externalLinks.add(link);
-}
-
-export async function updateExternalLink(id: string, changes: Partial<ExternalLink>): Promise<void> {
-  await db.externalLinks.update(id, { ...changes, updatedAt: Date.now() });
-}
-
-export async function deleteExternalLink(id: string): Promise<void> {
-  await db.externalLinks.delete(id);
-}
-
 // ===== Settings =====
 export async function getSetting(key: string): Promise<string | undefined> {
   const setting = await db.settings.where('key').equals(key).first();
@@ -372,7 +358,7 @@ export async function getAllSettings(): Promise<Record<string, string>> {
 
 // ===== Export / Import =====
 export async function exportProjectData(projectId: string) {
-  const [project, entries, writings, timelines, events, boards, nodes, edges, maps, pins, collections, images, links] = await Promise.all([
+  const [project, entries, writings, timelines, events, boards, nodes, edges, maps, pins, collections, images] = await Promise.all([
     getProject(projectId),
     getCodexEntries(projectId),
     getWritings(projectId),
@@ -385,7 +371,6 @@ export async function exportProjectData(projectId: string) {
     db.mapPins.where('projectId').equals(projectId).toArray(),
     getImageCollections(projectId),
     getInspirationImages(projectId),
-    getExternalLinks(projectId),
   ]);
 
   const boardIds = new Set(boards.map(b => b.id));
@@ -404,12 +389,18 @@ export async function exportProjectData(projectId: string) {
     mapPins: pins,
     imageCollections: collections,
     inspirationImages: images,
-    externalLinks: links,
     exportedAt: Date.now(),
   };
 }
 
-export async function importProjectData(data: Awaited<ReturnType<typeof exportProjectData>>): Promise<string> {
+/**
+ * Legacy JSON import. `externalLinks` no longer exists as a table, but old
+ * export files still carry it — those rows are converted into link-only
+ * Scrapper snapshots on the way in (see engines/scrapper/legacyLinks.ts).
+ */
+export async function importProjectData(
+  data: Awaited<ReturnType<typeof exportProjectData>> & { externalLinks?: LegacyExternalLink[] },
+): Promise<string> {
   const idMap = new Map<string, string>();
   const remap = (oldId: string, prefix: string): string => {
     if (!idMap.has(oldId)) {
@@ -423,7 +414,7 @@ export async function importProjectData(data: Awaited<ReturnType<typeof exportPr
   await db.transaction('rw', [
     db.projects, db.codexEntries, db.writings, db.timelines, db.timelineEvents,
     db.yarnBoards, db.yarnNodes, db.yarnEdges, db.worldMaps, db.mapPins,
-    db.imageCollections, db.inspirationImages, db.externalLinks,
+    db.imageCollections, db.inspirationImages, db.snapshots,
   ], async () => {
     // Project
     await db.projects.add({
@@ -521,9 +512,10 @@ export async function importProjectData(data: Awaited<ReturnType<typeof exportPr
       });
     }
 
-    // External links
+    // External links (retired engine) → link-only Scrapper snapshots
     for (const l of data.externalLinks || []) {
-      await db.externalLinks.add({ ...l, id: remap(l.id, 'link'), projectId: newProjectId });
+      const snap = legacyLinkToSnapshot(l);
+      await db.snapshots.add({ ...snap, id: remap(l.id, 'snap'), projectId: newProjectId });
     }
   });
 
@@ -532,7 +524,7 @@ export async function importProjectData(data: Awaited<ReturnType<typeof exportPr
 
 // ===== Full Database Export / Import (all projects) =====
 export async function exportFullDatabase() {
-  const [projects, codexEntries, writings, timelines, timelineEvents, yarnBoards, yarnNodes, yarnEdges, worldMaps, mapPins, imageCollections, inspirationImages, externalLinks, tags, settings] = await Promise.all([
+  const [projects, codexEntries, writings, timelines, timelineEvents, yarnBoards, yarnNodes, yarnEdges, worldMaps, mapPins, imageCollections, inspirationImages, tags, settings] = await Promise.all([
     db.projects.toArray(),
     db.codexEntries.toArray(),
     db.writings.toArray(),
@@ -545,7 +537,6 @@ export async function exportFullDatabase() {
     db.mapPins.toArray(),
     db.imageCollections.toArray(),
     db.inspirationImages.toArray(),
-    db.externalLinks.toArray(),
     db.tags.toArray(),
     db.settings.toArray(),
   ]);
@@ -565,14 +556,16 @@ export async function exportFullDatabase() {
     mapPins,
     imageCollections,
     inspirationImages,
-    externalLinks,
     tags,
     settings,
     exportedAt: Date.now(),
   };
 }
 
-export async function importFullDatabase(data: Awaited<ReturnType<typeof exportFullDatabase>>): Promise<void> {
+/** As `importProjectData`: legacy `externalLinks` arrive as snapshots. */
+export async function importFullDatabase(
+  data: Awaited<ReturnType<typeof exportFullDatabase>> & { externalLinks?: LegacyExternalLink[] },
+): Promise<void> {
   // Clear ALL existing data (every table, not just the legacy 15 — otherwise
   // engine-table rows from the previous database survive the restore as
   // orphans), then import everything the legacy JSON contains with original
@@ -593,7 +586,9 @@ export async function importFullDatabase(data: Awaited<ReturnType<typeof exportF
     if (data.mapPins?.length) await db.mapPins.bulkAdd(data.mapPins);
     if (data.imageCollections?.length) await db.imageCollections.bulkAdd(data.imageCollections);
     if (data.inspirationImages?.length) await db.inspirationImages.bulkAdd(data.inspirationImages);
-    if (data.externalLinks?.length) await db.externalLinks.bulkAdd(data.externalLinks);
+    if (data.externalLinks?.length) {
+      await db.snapshots.bulkPut(data.externalLinks.map(legacyLinkToSnapshot));
+    }
     if (data.tags?.length) await db.tags.bulkAdd(data.tags);
     if (data.settings?.length) await db.settings.bulkAdd(data.settings);
   });

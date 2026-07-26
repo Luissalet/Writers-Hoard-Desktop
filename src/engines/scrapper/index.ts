@@ -5,9 +5,10 @@
 import { Globe } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
-import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
+import { registerBackupStrategy, makeSimpleBackupStrategy, readBackupJson } from '@/engines/_shared';
 import { db } from '@/db';
 import ScrapperEngine from './components/ScrapperEngine';
+import { legacyLinksToSnapshots } from './legacyLinks';
 
 const scrapperEngine: EngineDefinition = {
   id: 'scrapper',
@@ -52,9 +53,22 @@ registerEntityResolver({
   },
 });
 
-registerBackupStrategy(makeSimpleBackupStrategy({
+// Snapshots dump as plain JSON (local media/archive files live outside the DB
+// and are deliberately not zipped). The one wrinkle is inbound: backups made
+// before the Links engine was retired carry a `links/links.json` folder, and
+// those rows now belong here as link-only snapshots.
+const snapshotBackup = makeSimpleBackupStrategy({
   engineId: 'scrapper',
   tables: ['snapshots'],
-}));
+});
+
+registerBackupStrategy({
+  ...snapshotBackup,
+  async importProject(ctx) {
+    await snapshotBackup.importProject(ctx);
+    const legacy = await readBackupJson<unknown[]>(ctx.zip, `${ctx.projectDir}/links/links.json`);
+    if (legacy?.length) await db.snapshots.bulkPut(legacyLinksToSnapshots(legacy));
+  },
+});
 
 export { scrapperEngine };

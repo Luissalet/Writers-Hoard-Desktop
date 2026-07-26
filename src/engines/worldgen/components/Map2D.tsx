@@ -13,9 +13,10 @@ import type { WorldData, ViewMode, Landmark } from '../core/types';
 import { renderBase, renderRivers } from '../core/render';
 import { PROJECTIONS, reprojectRgba, type Projection } from '../core/projections';
 import { commitPaintStroke, isWaypointTool, negativeOf, pickGeneratedAt } from '../core/paintCommit';
-import type { Pt, WorldEdit } from '../core/edits';
+import type { Pt, Stroke, WorldEdit } from '../core/edits';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import type { WorldWaypoint } from '../types';
+import { tipOf, tipOutline } from '../sculpt/ops';
 import type { PaintTool } from './PaintPanel';
 
 export const BIOME_KEYS = [
@@ -84,7 +85,9 @@ export default function Map2D({
 
   /** Cells the pointer has crossed this stroke, and where the ring is drawn. */
   const stroke = useRef<Pt[] | null>(null);
-  const brushAt = useRef<{ x: number; y: number } | null>(null);
+  /** Where the ring is drawn (screen) and what cell it is over (world), because
+   *  a ragged rim is a function of the ground it sits on. */
+  const brushAt = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
   /** Ctrl at the moment the gesture started: the negative of whatever is out. */
   const negRef = useRef(false);
   const spaceRef = useRef(false);
@@ -284,23 +287,33 @@ export default function Map2D({
     const bt = brushRef.current.tool;
     if (at && bt && brushRef.current.brushing) {
       const pxPerCell = (PW * scale) / W;
+      const tip = tipOf(bt as unknown as Stroke);
+      // The ring is the shape of the HEAD. `tipOutline` solves the rim in the
+      // same metric the brush culls with, so the outline and the paint are one
+      // figure — a circle drawn over a square brush is just a wrong answer.
+      const ring = (rCells: number) => {
+        const pts2 = tipOutline(tip, Math.max(0.6, rCells), at.cx, at.cy, 96);
+        ctx.beginPath();
+        for (let k = 0; k < pts2.length; k++) {
+          const px = at.x + (pts2[k].x - at.cx) * pxPerCell;
+          const py = at.y + (pts2[k].y - at.cy) * pxPerCell;
+          if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      };
       const rOuter = Math.max(3, bt.radius * pxPerCell);
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = 2.6;
       ctx.strokeStyle = 'rgba(10,12,18,0.75)';
-      ctx.beginPath();
-      ctx.arc(at.x, at.y, rOuter + 1, 0, Math.PI * 2);
-      ctx.stroke();
+      ring(bt.radius);
+      ctx.lineWidth = 1.6;
       ctx.strokeStyle = 'rgba(255,255,255,0.92)';
-      ctx.beginPath();
-      ctx.arc(at.x, at.y, rOuter, 0, Math.PI * 2);
-      ctx.stroke();
-      const rInner = rOuter * (1 - Math.min(0.98, bt.softness));
-      if (rInner > 2) {
+      ring(bt.radius);
+      const soft = 1 - Math.min(0.98, bt.softness);
+      if (rOuter * soft > 2) {
         ctx.strokeStyle = 'rgba(255,220,140,0.75)';
         ctx.setLineDash([3, 3]);
-        ctx.beginPath();
-        ctx.arc(at.x, at.y, rInner, 0, Math.PI * 2);
-        ctx.stroke();
+        ring(bt.radius * soft);
         ctx.setLineDash([]);
       }
     }
@@ -469,7 +482,7 @@ export default function Map2D({
       const m = screenToMap(sx, sy);
       if (!m) return;
       stroke.current = [{ x: m.u * W, y: m.v * H }];
-      brushAt.current = { x: sx, y: sy };
+      brushAt.current = { x: sx, y: sy, cx: m.u * W, cy: m.v * H };
       scheduleDraw();
       return;
     }
@@ -486,7 +499,8 @@ export default function Map2D({
     // The ring follows the pointer whenever a brush is out, button down or not:
     // without it the reader cannot tell how big the next stroke is.
     if (brushing) {
-      brushAt.current = { x: sx, y: sy };
+      const mp = screenToMap(sx, sy);
+      brushAt.current = { x: sx, y: sy, cx: (mp?.u ?? 0) * W, cy: (mp?.v ?? 0) * H };
       const pts = stroke.current;
       if (pts) {
         const m = screenToMap(sx, sy);

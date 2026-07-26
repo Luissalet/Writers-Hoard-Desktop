@@ -129,6 +129,10 @@ uniform vec2  uBrush;        // in cells
 uniform float uBrushR;       // in cells
 uniform float uBrushOn;
 uniform float uBrushInner;   // 0–1 of the radius, the hard core
+uniform int   uTip;          // 0 round · 1 square · 2 ragged · 3 ridge
+uniform float uTipAngle;     // radians
+uniform float uTipJitter;
+uniform float uTipAspect;
 uniform float uContour;      // km between contour lines, 0 = none
 uniform float uSea;
 uniform float uClay;         // 0 = the world's colours, 1 = clay
@@ -232,6 +236,46 @@ float sunShadow(vec2 uv, float e) {
     shade = max(shade, clamp((terrY - rayY) * 3.0 / max(0.02, march * uSizeX), 0.0, 1.0));
   }
   return 1.0 - shade * uShadow;
+}
+
+// The value noise the ragged head is cut with. Bit for bit the CPU's lattice()
+// in sculpt/ops.ts — which is only possible because that one now uses a real
+// 32-bit multiply. Sampled at the CELL, like the CPU, so the wobble sits still
+// while the pointer moves over it.
+float tipLattice(ivec2 c) {
+  uint h = uint(c.x) * 374761393u + uint(c.y) * 668265263u;
+  h = (h ^ (h >> 13u)) * 1274126177u;
+  return float(h ^ (h >> 16u)) / 4294967296.0;
+}
+
+float tipNoise(vec2 p) {
+  ivec2 i = ivec2(floor(p));
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = tipLattice(i);
+  float b = tipLattice(i + ivec2(1, 0));
+  float c = tipLattice(i + ivec2(0, 1));
+  float dd = tipLattice(i + ivec2(1, 1));
+  return mix(mix(a, b, f.x), mix(c, dd, f.x), f.y);
+}
+
+/** Distance in the head's own metric: === r is the rim. */
+float tipDist(vec2 d, vec2 cell, float r) {
+  float ca = cos(uTipAngle), sa = sin(uTipAngle);
+  if (uTip == 1) {
+    vec2 q = vec2(d.x * ca + d.y * sa, -d.x * sa + d.y * ca);
+    return max(abs(q.x), abs(q.y));
+  }
+  if (uTip == 3) {
+    vec2 q = vec2((d.x * ca + d.y * sa) / max(1.0, uTipAspect), -d.x * sa + d.y * ca);
+    return length(q);
+  }
+  if (uTip == 2) {
+    float freq = 1.0 / max(2.5, r * 0.9);
+    vec2 g = floor(cell + 0.5);
+    return length(d) + (tipNoise(g * freq) - 0.5) * r * uTipJitter * 0.9;
+  }
+  return length(d);
 }
 
 void main() {
@@ -384,11 +428,16 @@ void main() {
   // Two rings, not one: the outer is where the brush stops, the inner is where it
   // stops being at full strength. Softness is otherwise a number you set and then
   // discover the effect of, which is how you end up re-doing a coastline.
+  //
+  // And the ring is the shape of the HEAD, not a circle. tipDist() below is the
+  // same metric stampDisc() culls with in sculpt/ops.ts — including the noise
+  // on the ragged rim, cell for cell — so the outline you aim with and the paint
+  // you get are the same figure, not two drawings of the same intention.
   if (uBrushOn > 0.5) {
     vec2 cell = vUV * uGrid;
     vec2 d = cell - uBrush;
     d.x -= uGrid.x * floor(d.x / uGrid.x + 0.5);      // the seam
-    float dist = length(d);
+    float dist = tipDist(d, cell, uBrushR);
     float thick = max(uBrushR * 0.035, 0.5);
     float ring = 1.0 - smoothstep(thick, thick * 2.4, abs(dist - uBrushR));
     col = mix(col, vec3(1.0), ring * 0.9);
@@ -500,6 +549,10 @@ export class SculptSurface {
         uBrushR: { value: 8 },
         uBrushOn: { value: 0 },
         uBrushInner: { value: 0.45 },
+        uTip: { value: 0 },
+        uTipAngle: { value: 0 },
+        uTipJitter: { value: 0.5 },
+        uTipAspect: { value: 2.6 },
         uContour: { value: 0.25 },
         uSea: { value: 0 },
         uClay: { value: 0 },
@@ -535,11 +588,19 @@ export class SculptSurface {
    * Cells, not uv: the ring has to be a circle on the ground and stay one when
    * the grid is stretched over a window, and a radius in uv is neither.
    */
-  setBrush(cellX: number, cellY: number, radiusCells: number, softness: number, on: boolean): void {
+  setBrush(
+    cellX: number, cellY: number, radiusCells: number, softness: number, on: boolean,
+    tip?: { kind: string; angle: number; jitter: number; aspect: number },
+  ): void {
     (this.material.uniforms.uBrush.value as THREE.Vector2).set(cellX, cellY);
     this.material.uniforms.uBrushR.value = Math.max(0.6, radiusCells);
     this.material.uniforms.uBrushInner.value = Math.min(1, Math.max(0, 1 - softness));
     this.material.uniforms.uBrushOn.value = on ? 1 : 0;
+    const KIND: Record<string, number> = { round: 0, square: 1, ragged: 2, ridge: 3 };
+    this.material.uniforms.uTip.value = tip ? (KIND[tip.kind] ?? 0) : 0;
+    this.material.uniforms.uTipAngle.value = tip?.angle ?? 0;
+    this.material.uniforms.uTipJitter.value = tip?.jitter ?? 0.5;
+    this.material.uniforms.uTipAspect.value = tip?.aspect ?? 2.6;
   }
 
   /** Clay or the world's own colours, and how hard the creases read. */

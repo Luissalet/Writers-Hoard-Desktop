@@ -14,7 +14,17 @@
 // electron/build.mjs, so `__dirname` and `require` are available at runtime
 // even though the project's package.json declares `"type": "module"`.
 
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu, protocol, net } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  shell,
+  Menu,
+  protocol,
+  net,
+  globalShortcut,
+} from 'electron';
 import path from 'node:path';
 import os from 'node:os';
 import { promises as fs } from 'node:fs';
@@ -274,7 +284,112 @@ async function createWindow(): Promise<void> {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    // The hidden quick-capture window still counts as an open window, so
+    // leaving it alive would keep the app running after its last real window
+    // closed (`window-all-closed` never fires).
+    if (quickNoteWindow && !quickNoteWindow.isDestroyed()) quickNoteWindow.destroy();
   });
+}
+
+// ---------------------------------------------------------------------------
+// Quick note capture
+// ---------------------------------------------------------------------------
+//
+// Ctrl+Shift+N anywhere in Windows. Two behaviours, one shortcut:
+//   • app focused  → the main renderer opens its in-app composer (it already
+//     knows the project you're on and can show a real toast).
+//   • app in the background → a small frameless window appears on top of
+//     whatever you were doing; type, Enter, gone.
+//
+// The floating window deliberately does NOT open the database. It relays the
+// text to the main process, which hands it to the main renderer — one Dexie
+// writer, so no second connection and no stale-list problem in the open app.
+
+interface QuickNoteContext {
+  projectId: string | null;
+  projectTitle: string | null;
+  locale: string;
+}
+
+interface QuickNotePayload {
+  text: string;
+  kind: 'note' | 'quote' | 'idea' | 'word';
+  projectId: string | null;
+}
+
+const QUICK_NOTE_ACCELERATOR = 'CommandOrControl+Shift+N';
+
+let quickNoteWindow: BrowserWindow | null = null;
+let quickNoteContext: QuickNoteContext = { projectId: null, projectTitle: null, locale: 'es' };
+
+async function getQuickNoteWindow(): Promise<BrowserWindow> {
+  if (quickNoteWindow && !quickNoteWindow.isDestroyed()) return quickNoteWindow;
+
+  const win = new BrowserWindow({
+    width: 560,
+    height: 268,
+    show: false,
+    frame: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    backgroundColor: '#131317',
+    title: 'Quick note',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: true,
+    },
+  });
+  win.setMenuBarVisibility(false);
+
+  // Clicking away dismisses it — a capture box that lingers is clutter.
+  // Kept open in dev so DevTools interaction doesn't kill it mid-debug.
+  win.on('blur', () => {
+    if (!isDev && !win.isDestroyed()) win.hide();
+  });
+  win.on('closed', () => {
+    quickNoteWindow = null;
+  });
+
+  if (isDev) await win.loadURL(`${RENDERER_DEV_URL}/quick-note.html`);
+  else await win.loadFile(path.join(__dirname, '..', 'dist', 'quick-note.html'));
+
+  quickNoteWindow = win;
+  return win;
+}
+
+async function showQuickNote(): Promise<void> {
+  const win = await getQuickNoteWindow();
+  win.center();
+  win.show();
+  win.focus();
+}
+
+function handleQuickNoteShortcut(): void {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) {
+    mainWindow.webContents.send('quick-note:open-inline');
+    return;
+  }
+  if (quickNoteWindow && !quickNoteWindow.isDestroyed() && quickNoteWindow.isVisible()) {
+    quickNoteWindow.hide();
+    return;
+  }
+  void showQuickNote();
+}
+
+function registerQuickNoteShortcut(): void {
+  const ok = globalShortcut.register(QUICK_NOTE_ACCELERATOR, handleQuickNoteShortcut);
+  if (!ok) {
+    // Another app owns the combo. Not fatal: the in-app shortcut still works
+    // while Writers Hoard has focus.
+    console.warn(`[quick-note] could not register ${QUICK_NOTE_ACCELERATOR}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -660,6 +775,33 @@ function registerIpc(): void {
   ipcMain.handle('ig:status', () => igStatus());
   ipcMain.handle('ig:logout', () => igLogout());
 
+  // --- Quick note capture -------------------------------------------------
+  ipcMain.on('quick-note:set-context', (_e, ctx: Partial<QuickNoteContext>) => {
+    quickNoteContext = {
+      projectId: typeof ctx?.projectId === 'string' ? ctx.projectId : null,
+      projectTitle: typeof ctx?.projectTitle === 'string' ? ctx.projectTitle : null,
+      locale: typeof ctx?.locale === 'string' ? ctx.locale : 'es',
+    };
+  });
+
+  ipcMain.handle('quick-note:get-context', (): QuickNoteContext => quickNoteContext);
+
+  ipcMain.handle('quick-note:submit', (_e, payload: QuickNotePayload): { ok: boolean } => {
+    const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
+    if (!text) return { ok: false };
+    if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+    mainWindow.webContents.send('quick-note:add', {
+      text,
+      kind: payload?.kind ?? 'note',
+      projectId: typeof payload?.projectId === 'string' ? payload.projectId : null,
+    });
+    return { ok: true };
+  });
+
+  ipcMain.on('quick-note:close', () => {
+    if (quickNoteWindow && !quickNoteWindow.isDestroyed()) quickNoteWindow.hide();
+  });
+
   ipcMain.handle('updates:check', () => checkForUpdates(true));
   ipcMain.handle('updates:quitAndInstall', () => {
     autoUpdater.quitAndInstall();
@@ -717,6 +859,7 @@ if (!gotLock) {
     }
 
     void createWindow();
+    registerQuickNoteShortcut();
     initAutoUpdates();
 
     app.on('activate', () => {
@@ -730,6 +873,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
   stopMediaServer();
   abortAllDownloads();
 });
