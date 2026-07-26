@@ -141,7 +141,6 @@ export default function WorldView({
   const [journeyVia, setJourneyVia] = useState<Settlement[]>([]);
   const [journeyRoute, setJourneyRoute] = useState<{ route: TravelRoute | null; color: string }>({ route: null, color: '#a3261e' });
   const [paleoState, setPaleoState] = useState<PaleoState | null>(null);
-  const [placing, setPlacing] = useState(false);
   const [selectedWaypointId, setSelectedWaypointId] = useState<string | null>(null);
   const [flyTarget, setFlyTarget] = useState<{ u: number; v: number; token: number } | null>(null);
   /** First end of a road being laid, waiting for its second click. */
@@ -240,6 +239,8 @@ export default function WorldView({
    */
   const paintable = view !== 'carta' && panelTab === 'paint';
   const brush = paintable ? tool : DEFAULT_PAINT_TOOL;
+  /** The Punto tool, set to Chincheta, and actually live. */
+  const pinning = paintable && tool.mode === 'point' && tool.point === 'waypoint';
   /** True while the reader is holding a brush: nothing expensive may run. */
   const brushIsOut = brush.mode !== 'off';
   const brushingRef = useRef(brushIsOut);
@@ -537,6 +538,14 @@ export default function WorldView({
     generate(params);
   }, [params, onSaveParams, generate]);
 
+  /**
+   * Drop a pin.
+   *
+   * Reached from the Punto tool with Chincheta selected, in 2D or in 3D. It
+   * deliberately does NOT jump back to the pin list: the reader who chose the
+   * pin tool is usually placing several, and being thrown out of the brush box
+   * after each one was the old placing-mode behaviour that this replaces.
+   */
   const handlePlace = useCallback(async (u: number, v: number) => {
     const wp: WorldWaypoint = {
       id: generateId('wpt'),
@@ -551,9 +560,12 @@ export default function WorldView({
     };
     await addWaypoint(wp);
     setSelectedWaypointId(wp.id);
-    setPlacing(false);
-    setPanelTab('waypoints');
   }, [projectId, world.id, waypoints.length, addWaypoint, t]);
+
+  const dropWaypoint = useCallback(async (id: string) => {
+    await removeWaypoint(id);
+    setSelectedWaypointId((cur) => (cur === id ? null : cur));
+  }, [removeWaypoint]);
 
   const flyTo = useCallback((u: number, v: number) => {
     setFlyTarget({ u, v, token: Date.now() });
@@ -827,8 +839,8 @@ export default function WorldView({
               showGrid={showGrid}
               waypoints={waypoints}
               selectedWaypointId={selectedWaypointId}
-              placing={placing}
-              onPlace={handlePlace}
+              onPlaceWaypoint={handlePlace}
+              onRemoveWaypoint={dropWaypoint}
               onSelectWaypoint={setSelectedWaypointId}
               geography={geography}
               showSettlements={showSettlements}
@@ -889,6 +901,8 @@ export default function WorldView({
                   setSelectedWaypointId(id);
                   setPanelTab('waypoints');
                 }}
+                onPlaceWaypoint={handlePlace}
+                onRemoveWaypoint={dropWaypoint}
                 onOpenRegion={(x, y) => setRegionAt({ x, y })}
               />
             </Suspense>
@@ -907,13 +921,6 @@ export default function WorldView({
                 className="w-28 accent-[#c4973b]"
                 title={t('worldgen.threeD.exaggeration')}
               />
-            </div>
-          )}
-
-          {/* Placing hint */}
-          {placing && view === 'map' && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 text-xs px-3 py-1.5 rounded-full bg-accent-gold/90 text-deep font-medium shadow-lg">
-              {t('worldgen.waypoints.placingHint')}
             </div>
           )}
 
@@ -1062,14 +1069,16 @@ export default function WorldView({
                 onSelect={setSelectedWaypointId}
                 selected={selectedWaypoint}
                 onEdit={editWaypoint}
-                onDelete={async (id) => {
-                  await removeWaypoint(id);
-                  if (selectedWaypointId === id) setSelectedWaypointId(null);
-                }}
-                placing={placing}
+                onDelete={dropWaypoint}
+                placing={pinning}
                 onTogglePlacing={() => {
-                  setPlacing(!placing);
-                  setView('map');
+                  // "Añadir chincheta" is no longer a mode of its own: it picks
+                  // the Punto tool with Chincheta, which is the same gesture
+                  // that places a town or a name, and works in 2D and in 3D.
+                  if (pinning) { setTool((p) => ({ ...p, mode: 'off' })); return; }
+                  setTool((p) => ({ ...p, mode: 'point', point: 'waypoint' }));
+                  if (view === 'carta') setView('3d');
+                  setPanelTab('paint');
                 }}
                 onFlyTo={(wp) => flyTo(wp.u, wp.v)}
                 disabled={!data}

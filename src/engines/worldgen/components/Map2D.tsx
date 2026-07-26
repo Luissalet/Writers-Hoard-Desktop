@@ -12,7 +12,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import type { WorldData, ViewMode, Landmark } from '../core/types';
 import { renderBase, renderRivers } from '../core/render';
 import { PROJECTIONS, reprojectRgba, type Projection } from '../core/projections';
-import { commitPaintStroke, negativeOf, pickGeneratedAt } from '../core/paintCommit';
+import { commitPaintStroke, isWaypointTool, negativeOf, pickGeneratedAt } from '../core/paintCommit';
 import type { Pt, WorldEdit } from '../core/edits';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import type { WorldWaypoint } from '../types';
@@ -34,8 +34,10 @@ interface Map2DProps {
   showGrid: boolean;
   waypoints: WorldWaypoint[];
   selectedWaypointId: string | null;
-  placing: boolean;
-  onPlace: (u: number, v: number) => void;
+  /** Placing a pin is the Punto tool with Chincheta selected, not a mode of
+   *  its own. Both take normalized coordinates, which is how a pin is stored. */
+  onPlaceWaypoint?: (u: number, v: number) => void;
+  onRemoveWaypoint?: (id: string) => void;
   onSelectWaypoint: (id: string | null) => void;
   /**
    * Everything below turns this from a picture of the world into one of the two
@@ -69,7 +71,7 @@ function makeCanvas(px: Uint8ClampedArray<ArrayBuffer>, w: number, h: number): H
 
 export default function Map2D({
   world, viewMode, projection, showRivers, showLandmarks, showWaypoints, showGrid,
-  waypoints, selectedWaypointId, placing, onPlace, onSelectWaypoint,
+  waypoints, selectedWaypointId, onPlaceWaypoint, onRemoveWaypoint, onSelectWaypoint,
   geography, showSettlements, tool, onEdit, onPickSettlement, onOpenRegion, revision = 0,
 }: Map2DProps) {
   const { t } = useTranslation();
@@ -471,7 +473,7 @@ export default function Map2D({
       scheduleDraw();
       return;
     }
-    if (!placing) e.currentTarget.style.cursor = 'grabbing';
+    if (!brushing) e.currentTarget.style.cursor = 'grabbing';
     dragRef.current = { x: sx, y: sy, ox: view.ox, oy: view.oy, moved: false };
   };
 
@@ -548,6 +550,21 @@ export default function Map2D({
     stroke.current = null;
     if (pts) {
       const { tool: bt, onEdit: commit, geography: geo } = brushRef.current;
+      if (bt && isWaypointTool(bt)) {
+        // A pin does not go into the edit list — see `isWaypointTool`.
+        if (negRef.current) {
+          const hit = waypointAt(sx, sy);
+          if (hit) onRemoveWaypoint?.(hit.id);
+        } else {
+          const at = pts[pts.length - 1];
+          onPlaceWaypoint?.(
+            (((at.x / W) % 1) + 1) % 1,
+            Math.min(1, Math.max(0, at.y / H)),
+          );
+        }
+        scheduleDraw();
+        return;
+      }
       if (bt && commit) {
         const view = viewRef.current;
         const cellsPerPx = view ? W / Math.max(1, PW * view.scale) : 1;
@@ -568,11 +585,6 @@ export default function Map2D({
     dragRef.current = null;
     if (!drag || drag.moved) return;
     // It was a click.
-    if (placing) {
-      const m = screenToMap(sx, sy);
-      if (m) onPlace(m.u, m.v);
-      return;
-    }
     const wp = waypointAt(sx, sy);
     if (wp) { onSelectWaypoint(wp.id); return; }
     // A town under the pointer opens its plan — the same gesture as on the
@@ -596,7 +608,7 @@ export default function Map2D({
       <canvas
         ref={canvasRef}
         className="block"
-        style={{ cursor: placing || brushing ? 'crosshair' : 'grab', touchAction: 'none' }}
+        style={{ cursor: brushing ? 'crosshair' : 'grab', touchAction: 'none' }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -607,7 +619,7 @@ export default function Map2D({
         }}
         onDoubleClick={handleDoubleClick}
       />
-      {hover && !placing && !brushing && (
+      {hover && !brushing && (
         <div
           className="absolute z-10 pointer-events-none px-2 py-1 rounded-md bg-surface/95 border border-border text-[11px] text-text-primary whitespace-nowrap shadow-lg"
           style={{ left: hover.x, top: hover.y }}
