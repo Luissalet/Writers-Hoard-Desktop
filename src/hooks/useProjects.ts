@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import type { Project } from '@/types';
 import * as ops from '@/db/operations';
 
@@ -8,6 +8,12 @@ import * as ops from '@/db/operations';
 //    unmount modals) every time a project is renamed or recolored.
 //  - A monotonic sequence token discards stale fetch results.
 //  - A mounted ref prevents setState after unmount.
+//
+// And one thing that is NOT that contract: both hooks also re-read whenever any
+// project row is written, from anywhere. Several components hold their own copy
+// of the same project (the sidebar and the project page, for two), and without
+// this a save in one of them left the others showing the row as it was until
+// they happened to remount. See `notifyProjectsChanged` in db/operations.
 
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -38,9 +44,10 @@ export function useProjects() {
     }
   }, []);
 
+  const version = useSyncExternalStore(ops.subscribeProjects, ops.getProjectsVersion);
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, [refresh, version]);
 
   const addProject = useCallback(async (project: Project) => {
     await ops.createProject(project);
@@ -95,9 +102,10 @@ export function useProject(id: string | undefined) {
     }
   }, [id]);
 
+  const version = useSyncExternalStore(ops.subscribeProjects, ops.getProjectsVersion);
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, [refresh, version]);
 
   return { project, loading, refresh };
 }

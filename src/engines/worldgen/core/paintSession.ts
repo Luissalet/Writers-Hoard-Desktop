@@ -33,8 +33,17 @@ interface Snapshot {
 
 export class PaintSession {
   private pristine: Snapshot;
-  private undone: WorldEdit[] = [];
+  private undone: WorldEdit[][] = [];
   edits: WorldEdit[] = [];
+  /**
+   * How many edits each undo step covers.
+   *
+   * One brush stroke is one step even when symmetry makes it four edits, because
+   * a reader who pressed the button once expects one Ctrl+Z to take it back.
+   * Sizes, not identifiers: the list itself stays plain JSON with nothing extra
+   * in it, so a saved world is exactly what it was.
+   */
+  private groups: number[] = [];
 
   private world: WorldData;
 
@@ -49,6 +58,7 @@ export class PaintSession {
     };
     if (edits.length) {
       this.edits = edits.slice();
+      this.groups = edits.map(() => 1);
       this.replay();
     }
   }
@@ -63,35 +73,58 @@ export class PaintSession {
 
   /** Add one edit and bring the world up to date. */
   push(edit: WorldEdit): void {
-    this.edits.push(edit);
+    this.pushMany([edit]);
+  }
+
+  /**
+   * Add several edits as one step.
+   *
+   * A symmetric brush stroke is genuinely several edits — one per mirror — and
+   * pushing them one at a time would replay the whole list once per arm and, worse,
+   * leave undo unpicking a single gesture in pieces.
+   */
+  pushMany(edits: WorldEdit[]): void {
+    if (!edits.length) return;
+    this.edits.push(...edits);
+    this.groups.push(edits.length);
     this.undone.length = 0;
     this.replay();
   }
 
   undo(): void {
-    const e = this.edits.pop();
-    if (!e) return;
-    this.undone.push(e);
+    const n = this.groups.pop() ?? (this.edits.length ? 1 : 0);
+    if (!n) return;
+    const group = this.edits.splice(this.edits.length - n, n);
+    if (!group.length) return;
+    this.undone.push(group);
     this.replay();
   }
 
   redo(): void {
-    const e = this.undone.pop();
-    if (!e) return;
-    this.edits.push(e);
+    const group = this.undone.pop();
+    if (!group) return;
+    this.edits.push(...group);
+    this.groups.push(group.length);
     this.replay();
   }
 
   /** Throw everything away and go back to the generated world. */
   clear(): void {
     this.edits.length = 0;
+    this.groups.length = 0;
     this.undone.length = 0;
     this.replay();
   }
 
-  /** Replace the whole list, e.g. when loading a saved world. */
+  /**
+   * Replace the whole list, e.g. when loading a saved world.
+   *
+   * Grouping is not stored — it is a fact about the session, not about the world —
+   * so a reopened world undoes one edit at a time.
+   */
   load(json: string): void {
     this.edits = deserializeEdits(json);
+    this.groups = this.edits.map(() => 1);
     this.undone.length = 0;
     this.replay();
   }

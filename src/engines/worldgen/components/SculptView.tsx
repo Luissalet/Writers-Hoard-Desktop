@@ -3,11 +3,11 @@ import type { WorldData } from '../core/types';
 import { BIOME_COUNT } from '../core/types';
 import { BIOME_COLORS } from '../core/render';
 import { SculptGL, type ViewRect } from '../sculpt/gl';
-import { LiveStroke, landRule, terrainRule } from '../sculpt/brush';
+import { SculptGesture } from '../sculpt/ops';
 import { drawSculptFallback } from '../sculpt/fallback';
-import { SphereNoise } from '../core/noise';
-import type { Pt, WorldEdit } from '../core/edits';
+import type { LandOp, Pt, TerrainOp, WorldEdit } from '../core/edits';
 import type { PaintTool } from './PaintPanel';
+import { commitPaintStroke } from '../core/paintCommit';
 
 /**
  * The editing view.
@@ -68,7 +68,7 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
   // Live view state lives in refs: a pan must not re-render React.
   const view = useRef({ zoom: 1, cu: 0.5, cv: 0.5 });
   const drag = useRef<{ x: number; y: number; cu: number; cv: number } | null>(null);
-  const stroke = useRef<LiveStroke | null>(null);
+  const stroke = useRef<SculptGesture | null>(null);
   const cursor = useRef<Pt | null>(null);
   const raf = useRef(0);
   /** Declared above the draw so the diagnostic can report which clock is running. */
@@ -91,6 +91,9 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
   // Filled in below; the layout effect above needs to call it before it exists.
   const requestRef = useRef<() => void>(() => {});
   const frames = useRef<{ n: number; t: number }>({ n: 0, t: 0 });
+  /** What the last draw cost and when it finished — the pump paces itself by it. */
+  const cost = useRef(16);
+  const lastDraw = useRef(0);
   const toolRef = useRef(tool);
   toolRef.current = tool;
 
@@ -102,13 +105,6 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
     }
     return out;
   }, []);
-
-  // Noise for the coastline brush and the roughen op. Seeded from the world so a
-  // live stroke and the committed edit produce the same shape.
-  const noise = useMemo(() => ({
-    coast: new SphereNoise(world.params.seed, 'paint-coast'),
-    rough: new SphereNoise(world.params.seed, 'paint-rough'),
-  }), [world.params.seed]);
 
   useLayoutEffect(() => {
     const host = hostRef.current;
@@ -246,6 +242,8 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
     f.n++;
     if (f.t) setFps(Math.round(now - f.t));
     f.t = now;
+    cost.current = Math.max(1, now - (lastDraw.current || now));
+    lastDraw.current = now;
   }, [viewRect]);
 
   // The scheduled frame must call the LATEST draw, not the one that was current
@@ -298,15 +296,21 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
 
   useEffect(() => {
     const id = window.setInterval(() => {
-      // A frame booked and not delivered inside a tenth of a second is not a
-      // slow frame, it is a frame that is not coming.
-      if (raf.current && performance.now() - bookedAt.current > 120) {
+      const now = performance.now();
+      // A booked frame that has not arrived is only evidence of a dead clock if
+      // the main thread was free to deliver it. The compatibility renderer can
+      // legitimately spend eighty milliseconds on a frame, and a flat deadline
+      // would call that a broken clock and then hammer the fallback path at 60 Hz.
+      if (raf.current && now - bookedAt.current > Math.max(320, cost.current * 4)) {
         rafAlive.current = false;
         cancelAnimationFrame(raf.current);
         raf.current = 0;
         setDiag((d) => (d.startsWith('reloj') ? d : 'reloj propio · el navegador no entrega fotogramas'));
       }
       if (!needsDraw.current) return;
+      // Leave the compositor as much time as the draw took, or the picture never
+      // reaches the screen however many times it is drawn.
+      if (!rafAlive.current && now - lastDraw.current < Math.max(16, cost.current)) return;
       needsDraw.current = false;
       drawRef.current();
     }, 16);
@@ -327,45 +331,29 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
     };
   }, [viewRect]);
 
-  const neighbourMean = useCallback((i: number) => {
-    const W = world.width, H = world.height;
-    const x = i % W, y = (i / W) | 0;
-    let sum = 0, n = 0;
-    for (let dy = -1; dy <= 1; dy++) {
-      const yy = y + dy;
-      if (yy < 0 || yy >= H) continue;
-      for (let dx = -1; dx <= 1; dx++) {
-        sum += world.elevation[yy * W + ((x + dx + W) % W)];
-        n++;
-      }
-    }
-    return n ? sum / n : world.elevation[i];
-  }, [world]);
-
+  /**
+   * Start a stroke.
+   *
+   * The same `SculptGesture` the 3D view uses, which is the same code `applyEdits`
+   * runs on replay. There used to be a second implementation of every brush living
+   * in sculpt/brush.ts for this view alone; it had drifted — its `flatten`
+   * smoothed a 3×3 neighbourhood while the saved edit levelled the whole brush —
+   * and a fallback view that paints something other than what it saves is worse
+   * than no fallback at all.
+   */
   const startStroke = useCallback(() => {
     const t = toolRef.current;
     if (t.mode !== 'terrain' && t.mode !== 'land') return false;
-    stroke.current = new LiveStroke(world.width, world.height, world.elevation, {
-      radius: t.radius, strength: t.strength, softness: t.softness,
-    });
+    stroke.current = new SculptGesture(
+      world.elevation, world.width, world.height, world.params.seed,
+      {
+        kind: t.mode,
+        op: t.mode === 'land' ? t.landOp : t.terrainOp,
+        radius: t.radius, strength: t.strength, softness: t.softness,
+      },
+    );
     return true;
   }, [world]);
-
-  const strokeRule = useCallback(() => {
-    const t = toolRef.current;
-    const W = world.width, H = world.height;
-    const uv = (i: number) => ({ u: ((i % W) + 0.5) / W, v: (((i / W) | 0) + 0.5) / H });
-    if (t.mode === 'land') {
-      return landRule(t.landOp, t.strength, (i) => {
-        const { u, v } = uv(i);
-        return 0.72 + 0.62 * noise.coast.fbm(u, v, 34, 4);
-      });
-    }
-    return terrainRule(t.terrainOp, t.strength, neighbourMean, (i) => {
-      const { u, v } = uv(i);
-      return noise.rough.fbm(u, v, 90, 3);
-    });
-  }, [world.width, world.height, noise, neighbourMean]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     pointerCount.current++;
@@ -375,16 +363,15 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
     const t = toolRef.current;
     const wantsPaint = e.button === 0 && !e.shiftKey && t.mode !== 'off';
     if (wantsPaint && startStroke()) {
-      const rule = strokeRule();
-      const step = stroke.current!.extend(p, rule);
-      glRef.current?.uploadRect(world.elevation, null, step.x0, step.y0, step.x1 - step.x0 + 1, step.y1 - step.y0 + 1);
+      const d = stroke.current!.extend(p);
+      glRef.current?.uploadRect(world.elevation, null, d.x0, d.y0, d.x1 - d.x0 + 1, d.y1 - d.y0 + 1);
       cursor.current = p;
       request();
       return;
     }
-    if (wantsPaint && (t.mode === 'marker' || t.mode === 'label' || t.mode === 'erase' || t.mode === 'biome' || t.mode === 'river')) return;
+    if (wantsPaint && (t.mode === 'point' || t.mode === 'road' || t.mode === 'biome' || t.mode === 'river')) return;
     drag.current = { x: e.clientX, y: e.clientY, cu: view.current.cu, cv: view.current.cv };
-  }, [toCell, startStroke, strokeRule, world.elevation, request]);
+  }, [toCell, startStroke, world.elevation, request]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const p = toCell(e.clientX, e.clientY);
@@ -399,11 +386,10 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
     }
     const st = stroke.current;
     if (st && p) {
-      const rule = strokeRule();
-      const step = st.extend(p, rule);
-      // Only the rectangle this move dirtied goes to the GPU. That is the whole
-      // difference between sculpting and waiting.
-      glRef.current?.uploadRect(world.elevation, null, step.x0, step.y0, step.x1 - step.x0 + 1, step.y1 - step.y0 + 1);
+      const d = st.extend(p);
+      // Only the rectangle the stroke has dirtied goes to the GPU. That is the
+      // whole difference between sculpting and waiting.
+      glRef.current?.uploadRect(world.elevation, null, d.x0, d.y0, d.x1 - d.x0 + 1, d.y1 - d.y0 + 1);
       request();
       return;
     }
@@ -415,28 +401,21 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
       view.current.cv = Math.min(1, Math.max(0, d.cv - ((e.clientY - d.y) / host.clientHeight) * (v.h / world.height)));
     }
     request();
-  }, [toCell, strokeRule, world, viewRect, request, onHover]);
+  }, [toCell, world, viewRect, request, onHover]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     const st = stroke.current;
     stroke.current = null;
     drag.current = null;
     if (!st) {
-      // A click with a marker/label/erase tool: one edit, no live preview needed.
+      // A click with a tool that stamps rather than strokes. One edit, no live
+      // preview needed — and it goes through the same commit every other view
+      // uses, so this fallback cannot drift away from them.
       const p = toCell(e.clientX, e.clientY);
       const t = toolRef.current;
       if (!p) return;
-      if (t.mode === 'marker') {
-        onEdit(t.marker === 'ruin'
-          ? { kind: 'marker', marker: 'ruin', x: p.x, y: p.y, ruin: t.ruin }
-          : { kind: 'marker', marker: 'settlement', x: p.x, y: p.y, rank: t.rank });
-      } else if (t.mode === 'label' && t.labelText.trim()) {
-        onEdit({ kind: 'label', x: p.x, y: p.y, text: t.labelText.trim(), style: t.labelStyle });
-      } else if (t.mode === 'erase') {
-        onEdit({ kind: 'eraseMarkers', x: p.x, y: p.y, radius: t.radius });
-      } else if (t.mode === 'biome') {
-        onEdit({ kind: 'biome', biome: t.biome, stroke: { pts: [p], radius: t.radius, strength: t.strength, softness: t.softness } });
-      }
+      const edit = commitPaintStroke(t, [p], { negative: e.ctrlKey || e.metaKey });
+      if (edit) onEdit(edit);
       return;
     }
     // Roll the preview back and hand the stroke to the session, which replays it
@@ -444,10 +423,11 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
     // rolling back anyway means that if they ever stop agreeing, the authoritative
     // one wins and the drift cannot accumulate.
     st.rollback();
-    const t = toolRef.current;
-    const strokeSpec = { pts: st.pts, radius: t.radius, strength: t.strength, softness: t.softness };
-    if (t.mode === 'terrain') onEdit({ kind: 'terrain', op: t.terrainOp, stroke: strokeSpec });
-    else if (t.mode === 'land') onEdit({ kind: 'land', op: t.landOp, stroke: strokeSpec });
+    for (const e of st.edits()) {
+      onEdit(e.kind === 'land'
+        ? { kind: 'land', op: e.op as LandOp, stroke: e.stroke }
+        : { kind: 'terrain', op: e.op as TerrainOp, stroke: e.stroke });
+    }
   }, [toCell, onEdit]);
 
   // Wheel zoom, bound natively so preventDefault works.

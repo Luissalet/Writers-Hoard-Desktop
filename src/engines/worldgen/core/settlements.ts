@@ -263,9 +263,46 @@ class Heap {
 // Main
 // ---------------------------------------------------------------------------
 
+/**
+ * How much of the human world to work out.
+ *
+ * Measured on a 2048 × 1024 grid, by timing the real calls:
+ *
+ *   cultures, languages, coasts, siting, realms     1 158 ms
+ *   + the road network (A* between 162 towns)       7 888 ms
+ *   + landforms, named geography, ruins             8 818 ms
+ *   ────────────────────────────────────────────── 17 864 ms
+ *
+ * The 3D world and the satellite map want dots you can click and a name to put
+ * beside each one. They draw no roads, no named capes and no ruins. The carta,
+ * the index and the journey panel want all of it.
+ *
+ * Splitting that turns opening a world into a second and a bit instead of
+ * eighteen, and leaves the expensive pass exactly where it always was: paid
+ * once, when the reader asks for the sheet that draws it.
+ *
+ * NOTE FOR WHOEVER PROFILES THIS NEXT: the first attempt put timing marks at the
+ * section comments and mis-attributed the cost by one phase, which sent an hour
+ * of work at the wrong function. Time the CALLS.
+ */
+export type GeoDepth = 'places' | 'full';
+
+/**
+ * @param corrections Apply the reader's renames and deletions at the end.
+ *
+ * The cache in `cartography/texture.ts` asks for `false`, and there is one
+ * reason: it keeps a BASE and patches it cheaply after every stroke, and a base
+ * that already has the corrections baked in cannot be patched back out of them.
+ * Undoing a rename left the new name on the map, because the only copy of the
+ * generated name had been overwritten before the patch ever ran. With the base
+ * kept free of them, `patchGeography` is the single place corrections are
+ * applied and it can therefore also apply NONE of them.
+ */
 export function buildHumanGeography(
   world: WorldData,
   params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS,
+  depth: GeoDepth = 'full',
+  corrections = true,
 ): HumanGeography {
   const { width: W, height: H, elevation, biome, temperature, precipitation, flow, lake } = world;
   const seed = world.params.seed;
@@ -506,19 +543,25 @@ export function buildHumanGeography(
   for (const s of settlements) s.realm = realmOf[s.y * W + s.x];
 
   // ---- roads --------------------------------------------------------------
-  const roads = buildRoads(world, settlements, coastal);
+  // A* between every pair of towns worth joining: eight seconds, and nothing
+  // outside the carta and the journey panel draws or walks them.
+  const roads = depth === 'full' ? buildRoads(world, settlements, coastal) : [];
 
   // ---- named geography ----------------------------------------------------
   // Landforms are found once and used twice: the label layer names them, and the
   // ruin generator treats passes, straits and capes as sites worth having held.
-  const landforms = findLandforms(world);
-  const features = nameGeography(world, coin, cultureAt, landforms);
+  const landforms = depth === 'full' ? findLandforms(world) : [];
+  const features = depth === 'full' ? nameGeography(world, coin, cultureAt, landforms) : [];
 
   // ---- ruins --------------------------------------------------------------
-  const ruins = generateRuins(world, settlements, landforms, (kind, x, y) => {
-    const et = coin(cultureAt(x, y), `ruin:${kind}:${x},${y}`, RUIN_BIAS[kind]);
-    return `${ruinPrefix(kind, x, y)} ${et.text}`;
-  }, { density: world.params.filters?.ruinDensity ?? 1, filters: world.params.filters });
+  // Generated ruins are part of the expensive half; ruins the reader PLACED are
+  // theirs and appear at either depth, which is the loop just below.
+  const ruins: Ruin[] = depth === 'full'
+    ? generateRuins(world, settlements, landforms, (kind, x, y) => {
+      const et = coin(cultureAt(x, y), `ruin:${kind}:${x},${y}`, RUIN_BIAS[kind]);
+      return `${ruinPrefix(kind, x, y)} ${et.text}`;
+    }, { density: world.params.filters?.ruinDensity ?? 1, filters: world.params.filters })
+    : [];
 
   for (const m of world.painted?.markers ?? []) {
     if (m.marker !== 'ruin') continue;
@@ -544,7 +587,7 @@ export function buildHumanGeography(
   // the same seed always puts the same city in the same place, but nothing
   // guarantees it keeps the same array slot once a parameter moves, and a rename
   // that survives only until a slider is touched is not a rename.
-  const painted2 = world.painted;
+  const painted2 = corrections ? world.painted : undefined;
   if (painted2 && (Object.keys(painted2.renames).length || painted2.removed.size)) {
     const ren = painted2.renames, gone = painted2.removed;
     const keep = <T extends { x: number; y: number; name: string }>(list: T[], target: 'settlement' | 'ruin') =>

@@ -94,6 +94,7 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
             projectId={projectId}
             world={activeWorld}
             onSaveParams={(params) => editWorld(activeWorld.id, { params })}
+            onSaveEdits={(edits) => editWorld(activeWorld.id, { edits })}
             onThumbnail={(thumbnail) => editWorld(activeWorld.id, { thumbnail })}
             focusWaypoint={focusWaypoint && focusWaypoint.id ? focusWaypoint : null}
           />
