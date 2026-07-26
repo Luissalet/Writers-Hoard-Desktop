@@ -247,22 +247,10 @@ export interface AppSettings {
   value: string;
 }
 
-// External Links
-export type ExternalLinkType = 'google-doc' | 'word-file' | 'youtube' | 'instagram' | 'pinterest' | 'spotify' | 'other';
-
-export interface ExternalLink {
-  id: string;
-  projectId: string;
-  type: ExternalLinkType;
-  url: string;
-  title: string;
-  thumbnail?: string;
-  notes: string;
-  tags: string[];
-  category?: string;
-  createdAt: number;
-  updatedAt: number;
-}
+// External Links — retired in DB v21. The Links engine duplicated Scrapper
+// (url + title + notes + tags, no archive), so every row was migrated into a
+// link-only snapshot. The legacy row shape now lives beside its converter in
+// `engines/scrapper/legacyLinks.ts`, which is the only code that still needs it.
 
 // Tag
 export interface Tag {

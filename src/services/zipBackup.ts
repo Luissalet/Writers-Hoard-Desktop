@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { db } from '@/db/index';
 import { getAllBackupStrategies } from '@/engines/_shared/backupRegistry';
+import { GLOBAL_NOTES_SCOPE } from '@/engines/notes/types';
 // Engine barrel import guarantees every engine has registered its backup
 // strategy before export/import run. Without this import the registry would
 // be empty when backup is triggered from a screen that hasn't touched engines.
@@ -88,6 +89,15 @@ export async function exportFullZip(): Promise<void> {
   // --- Global settings & tags ---
   zip.file('settings.json', JSON.stringify(settings, null, 2));
   zip.file('tags.json', JSON.stringify(tags, null, 2));
+
+  // --- Inbox notes ---
+  // Quick captures made outside any project belong to no project folder, so
+  // the per-engine strategy (which is project-scoped) can never see them.
+  // Without this they would be the one thing a "full backup" silently lost.
+  const inboxNotes = await db.table('notes').where('projectId').equals(GLOBAL_NOTES_SCOPE).toArray();
+  if (inboxNotes.length) {
+    zip.file('notes-inbox.json', JSON.stringify(inboxNotes, null, 2));
+  }
 
   // --- Per-project folders ---
   for (const project of projects) {
@@ -238,6 +248,10 @@ export async function importFullZip(file: File): Promise<void> {
 
   const tags = await readJson<unknown[]>(zip, 'tags.json');
   if (tags?.length) await db.tags.bulkAdd(tags as never[]);
+
+  // Inbox notes (project-less quick captures). Absent in pre-v21 backups.
+  const inboxNotes = await readJson<unknown[]>(zip, 'notes-inbox.json');
+  if (inboxNotes?.length) await db.table('notes').bulkAdd(inboxNotes as never[]);
 
   // Find all project directories
   const projectDirs = new Set<string>();

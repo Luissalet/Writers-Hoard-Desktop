@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Locked to local content: this window loads no remote anything. The
+         inline-script and localhost-ws allowances exist only so the Vite dev
+         server's React preamble and HMR socket don't spam the console during
+         `npm run dev:desktop`; the built page has neither. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:5174 ws://localhost:5174; img-src 'self' data:"
+    />
+    <title>Quick note</title>
+    <style>
+      /* Standalone on purpose: this window must paint instantly and never
+         depend on the app bundle (React, Tailwind, fonts, Dexie). */
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: #131317;
+        color: #ece7de;
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        font-size: 14px;
+        border: 1px solid #2c2c34;
+        border-radius: 12px;
+        overflow: hidden;
+        user-select: none;
+      }
+      #app { display: flex; flex-direction: column; height: 100%; padding: 12px 14px 10px; gap: 8px; }
+      .row { display: flex; align-items: center; gap: 6px; }
+      .drag { -webkit-app-region: drag; flex: 1; height: 18px; }
+      .brand { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #7a7686; }
+      .chip {
+        -webkit-app-region: no-drag;
+        border: 1px solid #2c2c34; background: transparent; color: #a19caf;
+        border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+        font-family: inherit;
+      }
+      .chip:hover { color: #ece7de; background: #1c1c22; }
+      .chip[data-active='true'] { color: #131317; font-weight: 600; border-color: transparent; }
+      textarea {
+        -webkit-app-region: no-drag;
+        flex: 1; resize: none; width: 100%;
+        background: #1c1c22; color: #ece7de;
+        border: 1px solid #2c2c34; border-radius: 8px;
+        padding: 9px 11px; font-family: inherit; font-size: 14px; line-height: 1.45;
+        outline: none; user-select: text;
+      }
+      textarea:focus { border-color: #e8c577; }
+      textarea::placeholder { color: #63606e; }
+      .footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .hint { font-size: 11px; color: #63606e; }
+      .target {
+        -webkit-app-region: no-drag;
+        display: inline-flex; align-items: center; gap: 6px;
+        border: 1px solid #2c2c34; background: transparent; color: #a19caf;
+        border-radius: 999px; padding: 3px 10px; font-size: 11px; cursor: pointer;
+        max-width: 260px; font-family: inherit;
+      }
+      .target:hover { color: #ece7de; background: #1c1c22; }
+      .target span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .saved { color: #4a9e6d; font-size: 12px; }
+      .error { color: #c4463a; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/quick-note/main.ts"></script>
+  </body>
+</html>

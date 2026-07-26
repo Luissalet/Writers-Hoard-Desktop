@@ -7,11 +7,11 @@ import {
 import type { WorldData } from '../core/types';
 import { BIOME_COUNT } from '../core/types';
 import { BIOME_COLORS, renderComposite } from '../core/render';
-import { SculptGesture } from '../sculpt/ops';
+import { SculptGesture, tipOf } from '../sculpt/ops';
 import {
   SculptSurface, pickCell, visibleWindow, SIZE_X, R_GLOBE, type SculptShape,
 } from '../sculpt/scene3d';
-import type { Pt, TerrainOp, WorldEdit } from '../core/edits';
+import type { Pt, Stroke, TerrainOp, WorldEdit } from '../core/edits';
 import {
   commitPaintStroke, isSculptMode, isWaypointTool, negativeOf, pickGeneratedAt,
 } from '../core/paintCommit';
@@ -879,7 +879,7 @@ export default function World3D({
     cursor.current = p;
     const t = toolRef.current;
     if (p) {
-      st.surface.setBrush(p.x, p.y, t.radius, t.softness, true);
+      st.surface.setBrush(p.x, p.y, t.radius, t.softness, true, tipOf(t as unknown as Stroke));
       setReadout(describe(world, p));
     } else {
       st.surface.setBrush(0, 0, 1, t.softness, false);

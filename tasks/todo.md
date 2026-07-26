@@ -1,3 +1,19 @@
+# Project exploration and knowledge refresh — 2026-07-27
+
+- [ ] Inventory the repository, instructions, and accumulated lessons.
+- [ ] Map runtime entry points, routing, layout, and engine architecture.
+- [ ] Map domain entities, Dexie schema, state, services, and cross-engine flows.
+- [ ] Map Electron IPC, media integration, build, packaging, and release workflow.
+- [ ] Assess verification coverage, active worktree state, and high-risk areas.
+- [ ] Persist a current project knowledge map for future tasks.
+- [ ] Cross-check the map against the current source and document the review.
+
+## Review
+
+Pending exploration.
+
+---
+
 # Scrapper (Recortes) — descargar el vídeo a local y reproducirlo en el recorte
 
 **Date:** 2026-06-24 · Target: **Writers hoard desktop** (Electron, repo primario)
