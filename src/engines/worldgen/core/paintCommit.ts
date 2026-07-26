@@ -265,6 +265,24 @@ export function pickGeneratedAt(
 }
 
 /**
+ * Is this gesture a pin?
+ *
+ * The pin is the one point that is not part of the world. A town, a ruin and a
+ * name on the map are all the reader's edits to a place that will be
+ * regenerated from the seed; a pin is a note the reader stuck to the glass, with
+ * a colour and a description, and it lives in its own table so that a deep link
+ * to it keeps working and so that regenerating the world does not touch it.
+ *
+ * It is still the same TOOL — Luis asked for that: "los rótulos, waypoints, etc.
+ * deberían ser variantes de tipo de punto". So the gesture is shared and only
+ * the destination differs, and the view is the only thing that can know that,
+ * because the edit list is exactly what a pin must stay out of.
+ */
+export function isWaypointTool(p: { mode: string; point: PointKind }): boolean {
+  return p.mode === 'point' && p.point === 'waypoint';
+}
+
+/**
  * Does this brush move ground?
  *
  * The distinction matters to every 3D view: a terrain or coast stroke is
