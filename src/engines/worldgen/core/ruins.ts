@@ -26,6 +26,7 @@ import { blur, distanceTo } from './fields';
 import { Biome } from './types';
 import { createRng, type Rng } from './rng';
 import type { Gloss } from './language';
+import { DEFAULT_FILTERS, ruinKindAllowed, ruinSiteAllowed, type GenerationFilters } from './generation';
 
 /** How a ruin has weathered. Purely descriptive — it is what the map says. */
 export type RuinCondition = 'overgrown' | 'buried' | 'flooded' | 'burnt' | 'standing' | 'drowned';
@@ -52,6 +53,8 @@ export interface Ruin {
 export interface RuinParams {
   /** Multiplier on the count derived from land area. */
   density: number;
+  /** What the world is allowed to contain. */
+  filters?: GenerationFilters;
 }
 
 export const DEFAULT_RUIN_PARAMS: RuinParams = { density: 1 };
@@ -121,6 +124,7 @@ export function generateRuins(
   const { width: W, height: H, elevation, biome, lake, flow, boundary, landmarks } = world;
   const N = W * H;
   const rng = createRng(world.params.seed, 'ruins');
+  const filters = params.filters ?? world.params.filters ?? DEFAULT_FILTERS;
 
   const seaMask = new Uint8Array(N);
   const landMask = new Uint8Array(N);
@@ -299,11 +303,14 @@ export function generateRuins(
     }
     const unused = Math.min(1, near / Math.max(6, W / 78));
     return { ...cd, score: cd.quality * (0.15 + unused * 0.85) };
-  }).filter((s) => s.score > 0.32);
+  }).filter((s) => s.score > 0.32 && ruinSiteAllowed(s.site, filters));
 
   scored.sort((a, b) => b.score - a.score);
 
-  const target = Math.max(6, Math.round((landCount / 5200) * params.density));
+  // A floor of six was right for "the world should not feel empty" and wrong for
+  // "the reader asked for none": density 0 has to mean zero, or the switch lies.
+  const target = params.density <= 0 ? 0 : Math.max(6, Math.round((landCount / 5200) * params.density));
+  if (target === 0) return [];
   const sep = Math.max(8, W / 105);
 
   // Take the best of each site type in turn instead of the best overall.
@@ -345,7 +352,10 @@ export function generateRuins(
       if (dx * dx + dy * dy < sep2) { ok = false; break; }
     }
     if (!ok) continue;
-    const pool = KIND_BY_SITE[s.site];
+    const pool = KIND_BY_SITE[s.site].filter((k) => ruinKindAllowed(k, filters));
+    // A site whose every structure kind is switched off simply has no ruin —
+    // rather than falling back to one the reader explicitly forbade.
+    if (!pool.length) continue;
     const kind = pool[Math.floor(rng() * pool.length) % pool.length];
     out.push({
       id: out.length,

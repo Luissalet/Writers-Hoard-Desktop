@@ -11,14 +11,17 @@
 // distinct shape ONCE into an atlas, then issue a single instanced draw for all
 // three thousand placements.
 //
-// STATUS: the module works — 2723 symbols in one instanced draw — but it is NOT
-// wired into the app yet, deliberately. Its size and mip calibration against the
-// canvas2D symbols is not right (peaks come out too heavy, and a mipmapped atlas
-// goes soft at map zooms), and the only GPU available here is a software
-// rasteriser, so the speed claim cannot be verified either. Shipping it on by
-// default would trade a measured 190 ms for an unmeasured saving and a visibly
-// worse map. It goes in switched off, with the harness that exercises it, and
-// gets turned on when it has been calibrated against real hardware.
+// STATUS: the geometry is now CALIBRATED. `harness/symbol-calib.ts` renders each
+// symbol both ways and compares ink coverage, width and height; the `INK` table
+// below is the result, and with it every symbol matches the canvas2D one to
+// within a few per cent. That closes the half of the objection that could be
+// settled here.
+//
+// It is still OFF BY DEFAULT, for the half that cannot: the only GPU in this
+// container is a software rasteriser, so the speed claim — the entire reason for
+// the layer — remains unverified on real hardware. It is exposed as a switch in
+// the carta toolbar so it can be turned on and compared directly against the
+// canvas2D path, which is the only measurement that would actually settle it.
 //
 // This costs continuous variation — a symbol becomes one of N pre-rendered
 // variants instead of a fresh random shape — and that is the right trade here,
@@ -119,33 +122,7 @@ export function buildSymbolAtlas(
           // Without this the natural width of a wide mountain (up to 2.5× the
           // cell) was simply clipped, and every range came out as a row of
           // squashed tents.
-          switch (kind) {
-            case 'mountain':
-            case 'hill': {
-              const isHill = kind === 'hill';
-              const ratio = isHill ? 1.7 + rng() * 0.8 : 2.3 + rng() * 2.2;
-              const natW = h * ratio * 0.55;
-              ctx.scale((cell * 0.98) / natW, (cell * 0.9) / h);
-              drawMountain(ctx, rng, theme, {
-                w: h * ratio * 0.55,
-                h,
-                snow: s / (SNOW_LEVELS - 1),
-                // The atlas cannot know the terrain colour under each future
-                // placement, so the silhouette is filled with the theme's land
-                // tone. The base pass already put the biome wash underneath.
-                fill: theme.land.base,
-              }, isHill);
-              break;
-            }
-            // The rest are authored by height with a natural width near their
-            // height, so a plain fit is enough.
-            case 'conifer': ctx.scale(1.25, 1.05); drawConifer(ctx, rng, theme, h); break;
-            case 'broadleaf': ctx.scale(1.15, 1.05); drawBroadleaf(ctx, rng, theme, h); break;
-            case 'palm': ctx.scale(1.05, 1.02); drawPalm(ctx, rng, theme, h); break;
-            case 'cactus': ctx.scale(1.6, 1.05); drawCactus(ctx, rng, theme, h); break;
-            case 'dune': drawDune(ctx, rng, theme, h * 0.9); break;
-            case 'marsh': drawMarsh(ctx, rng, theme, h * 0.9); break;
-          }
+          drawAtlasCell(ctx, kind, rng, theme, cell, h, s / Math.max(1, SNOW_LEVELS - 1));
         } finally {
           done();
         }
@@ -201,6 +178,115 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLSh
     throw new Error(`symbol shader: ${log}`);
   }
   return sh;
+}
+
+/**
+ * The per-kind drawing step, exported so it can be MEASURED.
+ *
+ * It used to be an inline switch inside the atlas builder, and that is how the
+ * first calibration pass went wrong: the harness could not call the builder —
+ * it needs a DOM canvas — so it re-implemented what it believed the builder did,
+ * measured its own re-implementation, and produced a correction table for a
+ * function that does not exist. Two of the eight numbers were wrong because the
+ * model was wrong, not because the atlas was.
+ *
+ * A measurement is only worth what the thing it measured is. Pulling this out
+ * means the calibration harness and the atlas call the same code.
+ */
+export function drawAtlasCell(
+  ctx: Ctx,
+  kind: SymbolKind,
+  rng: () => number,
+  theme: CartoTheme,
+  cell: number,
+  h: number,
+  snow: number,
+): void {
+  switch (kind) {
+    case 'mountain':
+    case 'hill': {
+      const isHill = kind === 'hill';
+      const ratio = isHill ? 1.7 + rng() * 0.8 : 2.3 + rng() * 2.2;
+      const natW = h * ratio * 0.55;
+      // Each variant is drawn to FILL its cell in both axes. The instance then
+      // stretches that cell to the width and height the placement asked for,
+      // which restores the per-symbol proportions — and is why a twenty-four-cell
+      // atlas still produces peaks of every width.
+      ctx.scale((cell * 0.98) / natW, (cell * 0.9) / h);
+      drawMountain(ctx, rng, theme, {
+        w: natW,
+        h,
+        snow,
+        // The atlas cannot know the terrain colour under each future placement,
+        // so the silhouette is filled with the theme's land tone. The base pass
+        // already put the biome wash underneath.
+        fill: theme.land.base,
+      }, isHill);
+      break;
+    }
+    // The rest are authored by height with a natural width near their height,
+    // so a plain fit is enough — except the two made of strokes, which are drawn
+    // without distortion because scaling a stroke scales its weight.
+    case 'conifer': ctx.scale(1.25, 1.05); drawConifer(ctx, rng, theme, h); break;
+    case 'broadleaf': ctx.scale(1.15, 1.05); drawBroadleaf(ctx, rng, theme, h); break;
+    case 'palm': ctx.scale(1.05, 1.02); drawPalm(ctx, rng, theme, h); break;
+    case 'cactus': ctx.scale(1.6, 1.05); drawCactus(ctx, rng, theme, h); break;
+    case 'dune': drawDune(ctx, rng, theme, h * 0.9); break;
+    case 'marsh': drawMarsh(ctx, rng, theme, h * 0.9); break;
+  }
+}
+
+/**
+ * How much bigger the atlas cell has to be drawn than the symbol's nominal size,
+ * so the INK ends up the same as the canvas2D symbol's.
+ *
+ * Measured, not guessed. Every variant is stretched to fill its cell, so drawing
+ * the cell at the nominal height would give ink exactly that tall — but the
+ * direct symbols do not respect their nominal height either: a mountain's ink is
+ * 1.14 times its `h` and a dune's is 0.26. `harness/symbol-calib.ts` renders both
+ * and reports the ratios; these are those ratios.
+ *
+ * Before this table the atlas produced everything 15 % too tall and everything
+ * except mountains 44 % too wide, which is precisely the "peaks come out too
+ * heavy" that kept the layer switched off — except that it was not the peaks,
+ * and it was not weight, it was every symbol and it was scale.
+ */
+const INK: Record<SymbolKind, { w: number; h: number; uniform?: boolean }> = {
+  mountain: { w: 2.01, h: 1.15 },
+  hill: { w: 1.20, h: 1.13 },
+  conifer: { w: 1.04, h: 1.22 },
+  broadleaf: { w: 1.10, h: 1.23 },
+  palm: { w: 1.22, h: 1.25 },
+  cactus: { w: 0.80, h: 1.21 },
+  // Drawn at UNIFORM scale, in a square cell, because they are made of strokes
+  // rather than of filled shapes. A dune is two thin curves and is four times
+  // wider than tall; stretching its cell to that aspect stretches the STROKE
+  // WIDTH with it, and the measurement caught it — the ink came out 2.7 times
+  // heavier than the direct symbol while the box matched perfectly. A filled
+  // outline does not care about anisotropic scale; a stroke does.
+  dune: { w: 1.44, h: 0.41, uniform: true },
+  marsh: { w: 1.43, h: 1.15, uniform: true },
+};
+
+/**
+ * Turn a nominal placement into the cell rectangle that reproduces the direct
+ * symbol's ink. `w` is honoured as an explicit width when the caller sets one
+ * (mountains vary in span); otherwise it comes from the measured aspect.
+ */
+export function inkRect(s: SymbolInstance): { w: number; h: number } {
+  const k = INK[s.kind];
+  if (k.uniform) {
+    // A square cell drawn at a square size: both the atlas draw and the instance
+    // draw stay uniform, so the ink keeps both its aspect and its stroke weight.
+    const side = s.h * Math.max(k.w, k.h);
+    return { w: side, h: side };
+  }
+  return { w: s.w > 0 ? s.w : s.h * k.w, h: s.h * k.h };
+}
+
+/** True when this kind must be drawn into its atlas cell without distortion. */
+export function isUniformKind(kind: SymbolKind): boolean {
+  return INK[kind].uniform === true;
 }
 
 /** One placement, in output pixels, ready for the instance buffer. */
@@ -319,7 +405,8 @@ export class SymbolGL {
     for (let i = 0; i < instances.length; i++) {
       const s = instances[i];
       const o = i * 6;
-      d[o] = s.x; d[o + 1] = s.y; d[o + 2] = s.w; d[o + 3] = s.h;
+      const r = inkRect(s);
+      d[o] = s.x; d[o + 1] = s.y; d[o + 2] = r.w; d[o + 3] = r.h;
       d[o + 4] = this.cellFor(s);
       d[o + 5] = s.alpha;
     }

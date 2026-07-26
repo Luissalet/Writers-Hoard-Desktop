@@ -148,6 +148,13 @@ export function generateWorld(rawParams: WorldParams, onProgress?: ProgressFn): 
     flow: hydro.flowMap,
     relief: bioRelief,
     seaDist: bioSeaDist,
+    // Substrate and ocean inputs: without these the volcanic, ash and fog-desert
+    // rules can never fire, and the biomes that depend on them are dead code that
+    // looks alive. Passing them is the difference between having twelve new
+    // biomes and having eight.
+    sst: sstInland,
+    boundary: plates.convergence,
+    filters: params.filters,
   });
   report('biomes', 1);
 
