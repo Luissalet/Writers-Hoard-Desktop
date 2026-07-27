@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import type { WorldData } from '../core/types';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import {
@@ -78,12 +78,10 @@ export default function JourneyPanel({
   );
 
   // The map's copy of the route is a side effect of this panel's state, so it is
-  // published in an effect. `onRoute` is read through a ref so that a parent
-  // which rebuilds the callback every render — the normal case — does not turn
-  // this into an infinite loop.
-  const routeCb = useRef(onRoute);
-  routeCb.current = onRoute;
-  useEffect(() => { routeCb.current(route, MODE_COLOR[mode]); }, [route, mode]);
+  // published in an effect. An effect event always sees the latest parent
+  // callback without making its identity a reason to publish the route again.
+  const publishRoute = useEffectEvent(onRoute);
+  useEffect(() => { publishRoute(route, MODE_COLOR[mode]); }, [route, mode]);
 
   return (
     <div className="flex flex-col gap-3 text-[11px] text-white/80">

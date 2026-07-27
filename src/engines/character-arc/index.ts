@@ -1,9 +1,10 @@
+import { lazy } from 'react';
 import { TrendingUp } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
-import CharacterArcEngine from './components/CharacterArcEngine';
+const CharacterArcEngine = lazy(() => import('./components/CharacterArcEngine'));
 
 const characterArcEngine: EngineDefinition = {
   id: 'character-arc',
@@ -31,6 +32,7 @@ registerEntityResolver({
         id: arc.id,
         type: 'character-arc',
         engineId: 'character-arc',
+        projectId: arc.projectId,
         title: arc.title,
         subtitle: arc.characterName,
         color: arc.color,
@@ -43,6 +45,7 @@ registerEntityResolver({
       id: beat.id,
       type: 'arc-beat',
       engineId: 'character-arc',
+      projectId: beat.projectId,
       title: beat.title,
       subtitle: arc?.title,
     };
@@ -56,6 +59,7 @@ registerEntityResolver({
         id: a.id,
         type: 'character-arc' as const,
         engineId: 'character-arc',
+        projectId: a.projectId,
         title: a.title,
         subtitle: a.characterName,
       })),
@@ -63,6 +67,7 @@ registerEntityResolver({
         id: b.id,
         type: 'arc-beat' as const,
         engineId: 'character-arc',
+        projectId: b.projectId,
         title: b.title,
       })),
     ];

@@ -20,6 +20,7 @@ import type { WorldData } from '../core/types';
 import { Cover, type RegionParams, type RegionPlace, type RegionStream, type RegionTrack, type TrackKind } from './types';
 import type { RegionGeometry, TerrainFields } from './terrain';
 import type { SiteFields } from './places';
+import { materializeRegionPlace } from './identity';
 
 /** How hard the ground is to make a way over, per unit distance. */
 const COVER_COST: Partial<Record<number, number>> = {
@@ -265,7 +266,7 @@ export function buildTracks(
   }
 
   // ---- bridges and fords ---------------------------------------------------
-  addCrossings(tracks, streams, places, g, t);
+  addCrossings(tracks, streams, places, g, t, world.width);
   void site;
   void params;
   return tracks;
@@ -385,7 +386,7 @@ function exitsOf(pts: { x: number; y: number }[], W: number, H: number): ('n' | 
  */
 function addCrossings(
   tracks: RegionTrack[], streams: RegionStream[], places: RegionPlace[],
-  g: RegionGeometry, t: TerrainFields,
+  g: RegionGeometry, t: TerrainFields, worldWidth: number,
 ): void {
   const W = g.width, H = g.height;
   const cellKm = g.metresPerCell / 1000;
@@ -457,13 +458,13 @@ function addCrossings(
             const flow = t.flow[yi * W + xi];
             const major = tr.kind === 'road';
             const bridge = seg.s.areaKm2 > 140 || (major && seg.s.areaKm2 > 60) || flow > 0.8;
-            places.push({
+            places.push(materializeRegionPlace({
               id: id++,
               kind: bridge ? 'bridge' : 'ford',
               x: hit.x, y: hit.y,
               name: `${bridge ? 'Puente' : 'Vado'} de ${nearestName(places, hit.x, hit.y)}`,
               importance: bridge ? 0.22 : 0.12,
-            });
+            }, g, worldWidth));
           }
         }
       }

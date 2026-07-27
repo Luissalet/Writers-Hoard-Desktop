@@ -9,7 +9,11 @@ import { generateId } from '@/utils/idGenerator';
 import { DEFAULT_PARAMS } from '../core/types';
 import { worldWaypointOps } from '../operations';
 import { useGeneratedWorlds } from '../hooks';
-import WorldView, { type WaypointFocus } from './WorldView';
+import WorldView, {
+  type RegionFocus,
+  type SpatialFocus,
+  type WaypointFocus,
+} from './WorldView';
 
 export default function WorldgenEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
@@ -22,6 +26,8 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
   } = useGeneratedWorlds(projectId);
   const [activeWorldId, setActiveWorldId] = useState<string>('');
   const [focusWaypoint, setFocusWaypoint] = useState<WaypointFocus | null>(null);
+  const [focusSpatial, setFocusSpatial] = useState<SpatialFocus | null>(null);
+  const [focusRegion, setFocusRegion] = useState<RegionFocus | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
   useAutoSelect(worlds, activeWorldId, setActiveWorldId);
@@ -60,6 +66,37 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
     };
   }, [searchParams, setSearchParams]);
 
+  useEffect(() => {
+    const placeId = searchParams.get('place');
+    if (!placeId) return;
+    const split = placeId.indexOf('::');
+    if (split < 1) return;
+    const timer = window.setTimeout(() => {
+      setActiveWorldId(placeId.slice(0, split));
+      setFocusSpatial({ id: placeId.slice(split + 2), token: Date.now() });
+      const next = new URLSearchParams(searchParams);
+      next.delete('place');
+      setSearchParams(next, { replace: true });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const regionId = searchParams.get('region');
+    if (!regionId) return;
+    const owner = worlds.find((candidate) =>
+      candidate.regions?.some((region) => region.id === regionId));
+    if (!owner) return;
+    const timer = window.setTimeout(() => {
+      setActiveWorldId(owner.id);
+      setFocusRegion({ id: regionId, token: Date.now() });
+      const next = new URLSearchParams(searchParams);
+      next.delete('region');
+      setSearchParams(next, { replace: true });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [searchParams, setSearchParams, worlds]);
+
   if (loading && worlds.length === 0) return <EngineSpinner />;
 
   const activeWorld = worlds.find((w) => w.id === activeWorldId);
@@ -86,7 +123,7 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-testid="worldgen-engine">
       {activeWorld && (
         <>
           <WorldView
@@ -95,8 +132,11 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
             world={activeWorld}
             onSaveParams={(params) => editWorld(activeWorld.id, { params })}
             onSaveEdits={(edits) => editWorld(activeWorld.id, { edits })}
+            onSaveRegions={(regions) => editWorld(activeWorld.id, { regions })}
             onThumbnail={(thumbnail) => editWorld(activeWorld.id, { thumbnail })}
             focusWaypoint={focusWaypoint && focusWaypoint.id ? focusWaypoint : null}
+            focusSpatial={focusSpatial}
+            focusRegion={focusRegion}
           />
           <div className="pt-2 border-t border-border">
             <AnnotationSurface

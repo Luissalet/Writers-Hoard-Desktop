@@ -1,3 +1,4 @@
+import { lazy } from 'react';
 import { PenLine } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
@@ -14,7 +15,7 @@ import {
 } from '@/engines/_shared';
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
-import WritingsEngine from './WritingsEngine';
+const WritingsEngine = lazy(() => import('./WritingsEngine'));
 
 const writingsEngine: EngineDefinition = {
   id: 'writings',
@@ -41,6 +42,7 @@ registerEntityResolver({
       id: writing.id,
       type: entityType,
       engineId: 'writings',
+      projectId: writing.projectId,
       title: writing.title,
       subtitle: writing.status,
     };
@@ -52,6 +54,7 @@ registerEntityResolver({
       id: w.id,
       type: 'writing',
       engineId: 'writings',
+      projectId: w.projectId,
       title: w.title,
       subtitle: w.status,
     }));

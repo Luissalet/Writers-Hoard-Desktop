@@ -1,3 +1,4 @@
+import { lazy } from 'react';
 import { Image } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
@@ -9,7 +10,7 @@ import {
   readBackupJson,
 } from '@/engines/_shared';
 import { db } from '@/db';
-import GalleryEngine from './GalleryEngine';
+const GalleryEngine = lazy(() => import('./GalleryEngine'));
 
 const galleryEngine: EngineDefinition = {
   id: 'gallery',
@@ -30,12 +31,24 @@ registerEntityResolver({
   engineId: 'gallery',
   entityTypes: ['gallery', 'image'],
   resolveEntity: async (entityId: string, entityType: string) => {
+    if (entityType === 'gallery') {
+      const collection = await db.imageCollections.get(entityId);
+      if (!collection) return null;
+      return {
+        id: collection.id,
+        type: entityType,
+        engineId: 'gallery',
+        projectId: collection.projectId,
+        title: collection.title,
+      };
+    }
     const image = await db.inspirationImages.get(entityId);
     if (!image) return null;
     return {
       id: image.id,
       type: entityType,
       engineId: 'gallery',
+      projectId: image.projectId,
       title: image.notes || 'Image',
       thumbnail: image.thumbnailData ?? image.imageData,
     };
@@ -47,6 +60,7 @@ registerEntityResolver({
       id: i.id,
       type: 'image',
       engineId: 'gallery',
+      projectId: i.projectId,
       title: i.notes || 'Image',
       thumbnail: i.thumbnailData ?? i.imageData,
     }));
@@ -75,14 +89,14 @@ registerBackupStrategy({
       .where('projectId')
       .equals(projectId)
       .toArray();
-    if (images.length === 0) return;
 
-    if (collections.length > 0) {
-      zip.file(
-        `${projectDir}/gallery/collections.json`,
-        JSON.stringify(collections, null, 2),
-      );
-    }
+    zip.file(
+      `${projectDir}/gallery/collections.json`,
+      JSON.stringify(collections, null, 2),
+    );
+    // Empty collections are still user data. Persist them above even when the
+    // project currently contains no images.
+    if (images.length === 0) return;
 
     // Shared image-externalization routine for each folder
     const exportImage = (
@@ -121,6 +135,45 @@ registerBackupStrategy({
       zip.file(`${folder}/images.json`, JSON.stringify(metas, null, 2));
     }
   },
+  async preflightImport({ zip, projectDir }) {
+    const galleryFolder = `${projectDir}/gallery/`;
+    const collectionsPath = `${galleryFolder}collections.json`;
+    const collections = await readBackupJson<unknown>(zip, collectionsPath);
+    if (collections !== null && !Array.isArray(collections)) {
+      throw new Error(`Expected "${collectionsPath}" to contain a JSON array.`);
+    }
+
+    const imageJsonPaths: string[] = [];
+    zip.forEach((path) => {
+      if (path.startsWith(galleryFolder) && path.endsWith('/images.json')) {
+        imageJsonPaths.push(path);
+      }
+    });
+    for (const path of imageJsonPaths) {
+      const images = await readBackupJson<unknown>(zip, path);
+      if (!Array.isArray(images)) {
+        throw new Error(`Expected "${path}" to contain a JSON array.`);
+      }
+      const folder = path.slice(0, -'/images.json'.length);
+      for (const image of images) {
+        if (!image || typeof image !== 'object') {
+          throw new Error(`Expected "${path}" to contain image objects.`);
+        }
+        const record = image as Record<string, unknown>;
+        for (const field of ['imageData', 'thumbnailData'] as const) {
+          const value = record[field];
+          if (
+            typeof value === 'string' &&
+            value &&
+            !value.startsWith('data:') &&
+            !zip.file(`${folder}/${value}`)
+          ) {
+            throw new Error(`Missing gallery asset "${folder}/${value}".`);
+          }
+        }
+      }
+    }
+  },
   async importProject({ zip, projectDir }) {
     const galleryFolder = `${projectDir}/gallery/`;
 
@@ -151,16 +204,28 @@ registerBackupStrategy({
           typeof imgMeta.imageData === 'string' &&
           !imgMeta.imageData.startsWith('data:')
         ) {
-          imgMeta.imageData =
-            (await internalizeImage(zip, imgFolder, imgMeta.imageData)) || '';
+          const imageData = await internalizeImage(zip, imgFolder, imgMeta.imageData);
+          if (!imageData) {
+            throw new Error(`Missing gallery asset "${imgFolder}/${imgMeta.imageData}".`);
+          }
+          imgMeta.imageData = imageData;
         }
         if (
           imgMeta.thumbnailData &&
           typeof imgMeta.thumbnailData === 'string' &&
           !imgMeta.thumbnailData.startsWith('data:')
         ) {
-          imgMeta.thumbnailData =
-            (await internalizeImage(zip, imgFolder, imgMeta.thumbnailData)) || undefined;
+          const thumbnailData = await internalizeImage(
+            zip,
+            imgFolder,
+            imgMeta.thumbnailData,
+          );
+          if (!thumbnailData) {
+            throw new Error(
+              `Missing gallery asset "${imgFolder}/${imgMeta.thumbnailData}".`,
+            );
+          }
+          imgMeta.thumbnailData = thumbnailData;
         }
         await db.inspirationImages.add(imgMeta as never);
       }

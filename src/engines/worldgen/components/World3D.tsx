@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
@@ -18,9 +18,15 @@ import {
 import type { HumanGeography, Settlement } from '../core/settlements';
 import { getCartoTexture } from '../cartography/texture';
 import type { CartoTheme } from '../cartography/theme';
-import type { WorldWaypoint } from '../types';
+import type { WorldViewport, WorldWaypoint } from '../types';
 import { CURVES, TIPS, type PaintTool } from './PaintPanel';
 import SculptView from './SculptView';
+import {
+  resolveWorldLandmarks,
+  type WorldSpatialEntity,
+} from '../core/spatialEntities';
+import { semanticZoomProfile } from '../core/semanticZoom';
+import type { RegionData } from '../region/types';
 
 /**
  * The world, in three dimensions. The main view.
@@ -65,6 +71,14 @@ interface World3DProps {
   waypoints: WorldWaypoint[];
   showWaypoints: boolean;
   showSettlements: boolean;
+  showLandmarks: boolean;
+  selectedSpatialKey?: string | null;
+  onSelectSpatialEntity?: (entity: WorldSpatialEntity | null) => void;
+  /** Extra close-range entities supplied by the regional LOD controller. */
+  regionalEntities?: WorldSpatialEntity[];
+  regionDetail?: RegionData | null;
+  viewport?: WorldViewport;
+  onViewportChange?: (viewport: WorldViewport) => void;
   skin: Skin3D;
   shape: Shape3D;
   onShape: (s: Shape3D) => void;
@@ -87,7 +101,7 @@ interface World3DProps {
 }
 
 /** Mesh density presets, in vertices across the visible square. */
-const MESH_STEPS = [384, 640, 1024, 1536];
+const MESH_STEPS = [384, 640, 896, 1152];
 
 /** Which brush Ctrl turns each one into. */
 const INVERSE: Partial<Record<TerrainOp, TerrainOp>> = {
@@ -132,12 +146,13 @@ const RANK_ORDER: Record<string, number> = { capital: 0, city: 1, town: 2, villa
 interface ScreenMark {
   x: number;
   y: number;
-  kind: 'settlement' | 'waypoint';
+  kind: 'settlement' | 'waypoint' | 'spatial';
   rank: number;
   label: string;
   color: string;
   settlement?: Settlement;
   waypointId?: string;
+  spatial?: WorldSpatialEntity;
   /** Where the name ended up, filled in by the draw. A name is a far bigger
    *  target than a four-pixel dot, and the reader is aiming at the place. */
   hit?: { x0: number; y0: number; x1: number; y1: number };
@@ -145,6 +160,9 @@ interface ScreenMark {
 
 export default function World3D({
   world, geography, theme, waypoints, showWaypoints, showSettlements,
+  showLandmarks, selectedSpatialKey, onSelectSpatialEntity, regionalEntities = [],
+  regionDetail,
+  viewport, onViewportChange,
   skin, shape, onShape, exaggeration, tool, onTool, onEdit, onEdits, revision,
   flyTarget, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint,
   onOpenRegion,
@@ -152,6 +170,7 @@ export default function World3D({
   const hostRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const [mesh, setMesh] = useState(1);
+  const [quality, setQuality] = useState<'auto' | 'low' | 'high'>('auto');
   const [cavity, setCavity] = useState(0.5);
   const [headlight, setHeadlight] = useState(false);
   const [shadow, setShadow] = useState(0.55);
@@ -169,6 +188,16 @@ export default function World3D({
   const [detail, setDetail] = useState('');
   /** What the modifier keys are doing to the brush right now. */
   const [modifier, setModifier] = useState<'' | 'smooth' | 'invert'>('');
+  const landmarks = useMemo(
+    () => resolveWorldLandmarks(world),
+    // Edits mutate the same cached object and revision is the React signal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [world, revision],
+  );
+  const spatialEntities = useMemo(
+    () => [...landmarks, ...regionalEntities],
+    [landmarks, regionalEntities],
+  );
 
   const R = useRef<{
     renderer: THREE.WebGLRenderer;
@@ -185,11 +214,16 @@ export default function World3D({
     rafAlive: boolean;
     booked: number;
     cost: number;
+    frameAvg: number;
+    qualityFrames: number;
+    pixelRatio: number;
+    hudAt: number;
     lastDraw: number;
     uploadedRev: number;
     skinnedRev: number;
     skinnedKey: string;
     poseKey: string;
+    viewportKey: string;
     marks: ScreenMark[];
     fly: { active: boolean; t: number; fromT: THREE.Vector3; toT: THREE.Vector3; fromC: THREE.Vector3; toC: THREE.Vector3 };
   } | null>(null);
@@ -202,14 +236,50 @@ export default function World3D({
   const altRef = useRef(false);
   const shapeRef = useRef(shape);
   shapeRef.current = shape;
+  const qualityRef = useRef(quality);
+  qualityRef.current = quality;
+  const meshRef = useRef(mesh);
+  meshRef.current = mesh;
+  const viewportRef = useRef(viewport);
+  viewportRef.current = viewport;
   const toolRef = useRef(tool);
   toolRef.current = tool;
   const mirrorRef = useRef({ x: mirrorX, y: mirrorY });
   mirrorRef.current = { x: mirrorX, y: mirrorY };
   const keys = useRef({ shift: false, ctrl: false });
   const over = useRef(false);
-  const propsRef = useRef({ geography, waypoints, showWaypoints, showSettlements, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint, onOpenRegion });
-  propsRef.current = { geography, waypoints, showWaypoints, showSettlements, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint, onOpenRegion };
+  const propsRef = useRef({
+    geography,
+    waypoints,
+    showWaypoints,
+    showSettlements,
+    showLandmarks,
+    spatialEntities,
+    selectedSpatialKey,
+    onSelectSpatialEntity,
+    onViewportChange,
+    onPickSettlement,
+    onPickWaypoint,
+    onPlaceWaypoint,
+    onRemoveWaypoint,
+    onOpenRegion,
+  });
+  propsRef.current = {
+    geography,
+    waypoints,
+    showWaypoints,
+    showSettlements,
+    showLandmarks,
+    spatialEntities,
+    selectedSpatialKey,
+    onSelectSpatialEntity,
+    onViewportChange,
+    onPickSettlement,
+    onPickWaypoint,
+    onPlaceWaypoint,
+    onRemoveWaypoint,
+    onOpenRegion,
+  };
 
   /** Every brush takes the left button; only two of them move ground. */
   const brushing = tool.mode !== 'off';
@@ -230,7 +300,8 @@ export default function World3D({
       setFailed(e instanceof Error ? e.message : String(e));
       return;
     }
-    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    const initialPixelRatio = Math.min(1.5, window.devicePixelRatio || 1);
+    renderer.setPixelRatio(initialPixelRatio);
     renderer.setSize(Math.max(2, host.clientWidth), Math.max(2, host.clientHeight));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.domElement.style.display = 'block';
@@ -297,8 +368,9 @@ export default function World3D({
     const st = {
       renderer, scene, camera, controls, surface, sea, seaGlobe,
       albedo: null as THREE.CanvasTexture | null,
-      raf: 0, timer: 0, need: true, rafAlive: true, booked: 0, cost: 16, lastDraw: 0,
-      uploadedRev: revision, skinnedRev: -1, skinnedKey: '', poseKey: '',
+      raf: 0, timer: 0, need: true, rafAlive: true, booked: 0, cost: 16,
+      frameAvg: 16, qualityFrames: 0, pixelRatio: initialPixelRatio, hudAt: 0, lastDraw: 0,
+      uploadedRev: revision, skinnedRev: -1, skinnedKey: '', poseKey: '', viewportKey: '',
       marks: [] as ScreenMark[],
       fly: {
         active: false, t: 0,
@@ -374,7 +446,14 @@ export default function World3D({
     const st = R.current;
     const host = hostRef.current;
     if (!st || !host) return [];
-    const { geography: geo, waypoints: wps, showWaypoints: sw, showSettlements: ss } = propsRef.current;
+    const {
+      geography: geo,
+      waypoints: wps,
+      showWaypoints: sw,
+      showSettlements: ss,
+      showLandmarks: sl,
+      spatialEntities: entities,
+    } = propsRef.current;
     const w = host.clientWidth, h = host.clientHeight;
     const out: ScreenMark[] = [];
     const p = new THREE.Vector3();
@@ -398,7 +477,8 @@ export default function World3D({
       // is worth drawing: every village at full zoom is a grey smear, and only
       // the capitals at close range is a map with nothing on it.
       const win = st.surface.uvWindow.size;
-      const maxRank = win > 0.55 ? 1 : win > 0.22 ? 2 : 3;
+      const profile = semanticZoomProfile(win * 40075);
+      const maxRank = profile.settlementRank;
       const ranked = geo.settlements
         .filter((s) => (RANK_ORDER[s.rank] ?? 3) <= maxRank)
         .sort((a, b) => (RANK_ORDER[a.rank] ?? 3) - (RANK_ORDER[b.rank] ?? 3))
@@ -410,6 +490,28 @@ export default function World3D({
           x: at.x, y: at.y, kind: 'settlement',
           rank: RANK_ORDER[s.rank] ?? 3,
           label: s.name, color: '#f2e3c4', settlement: s,
+        });
+      }
+    }
+    if (sl) {
+      const profile = semanticZoomProfile(st.surface.uvWindow.size * 40075);
+      const ranked = entities
+        .filter((entity) => !entity.hidden)
+        .filter((entity) => entity.source !== 'regional' || profile.showRegionalTerrain)
+        .filter((entity) => profile.showMinorLandmarks || entity.importance >= 0.26)
+        .sort((a, b) => b.importance - a.importance)
+        .slice(0, profile.labelBudget);
+      for (const entity of ranked) {
+        const at = place(entity.x, entity.y);
+        if (!at) continue;
+        out.push({
+          x: at.x,
+          y: at.y,
+          kind: 'spatial',
+          rank: entity.source === 'regional' ? 3 : 2,
+          label: entity.name,
+          color: entity.style.color ?? '#e4a853',
+          spatial: entity,
         });
       }
     }
@@ -478,6 +580,65 @@ export default function World3D({
         const pw = ctx.measureText(m.label).width;
         fits(m.x - pw / 2, m.y - 30, m.x + pw / 2, m.y - 16);
         label(ctx, m.label, m.x, m.y - 22, 11, m.color);
+        continue;
+      }
+      if (m.kind === 'spatial' && m.spatial) {
+        const entity = m.spatial;
+        const selected = entity.key === propsRef.current.selectedSpatialKey;
+        const symbolScale = Math.min(2.4, Math.max(0.65, entity.style.size ?? 1));
+        ctx.save();
+        ctx.translate(m.x, m.y);
+        ctx.scale(symbolScale, symbolScale);
+        ctx.beginPath();
+        if ((entity.style.icon ?? entity.type) === 'volcano') {
+          ctx.moveTo(0, -6);
+          ctx.lineTo(5.5, 4);
+          ctx.lineTo(-5.5, 4);
+          ctx.closePath();
+        } else if ((entity.style.icon ?? entity.type) === 'cave') {
+          ctx.arc(0, 2, 5, Math.PI, 0);
+          ctx.closePath();
+        } else {
+          ctx.moveTo(0, -5);
+          ctx.lineTo(5, 0);
+          ctx.lineTo(0, 5);
+          ctx.lineTo(-5, 0);
+          ctx.closePath();
+        }
+        ctx.fillStyle = entity.style.color ?? (
+          entity.type === 'volcano' ? '#a94b3f' : '#e4a853'
+        );
+        ctx.fill();
+        ctx.lineWidth = 1.4;
+        ctx.strokeStyle = selected ? '#fff1bd' : 'rgba(6,8,13,0.92)';
+        ctx.stroke();
+        ctx.restore();
+        if (selected) {
+          ctx.beginPath();
+          ctx.arc(m.x, m.y, 9 * symbolScale, 0, Math.PI * 2);
+          ctx.strokeStyle = '#f5c66a';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+        const alwaysLabel = entity.style.labelVisible
+          || selected
+          || entity.source !== 'regional'
+          || R.current!.surface.uvWindow.size < 0.035;
+        m.hit = {
+          x0: m.x - 10 * symbolScale,
+          y0: m.y - 10 * symbolScale,
+          x1: m.x + 10 * symbolScale,
+          y1: m.y + 10 * symbolScale,
+        };
+        if (alwaysLabel) {
+          ctx.font = '600 11px "Source Sans 3", system-ui, sans-serif';
+          const tw = ctx.measureText(m.label).width;
+          const lx = m.x + 8 * symbolScale;
+          if (fits(lx - 2, m.y - 8, lx + tw + 2, m.y + 8)) {
+            label(ctx, m.label, lx, m.y, 11, entity.style.color ?? '#f6efe0');
+            m.hit = { x0: m.x - 8, y0: m.y - 10, x1: lx + tw + 3, y1: m.y + 10 };
+          }
+        }
         continue;
       }
       const big = m.rank <= 1;
@@ -552,13 +713,25 @@ export default function World3D({
       + `${st.controls.target.x.toFixed(2)},${st.controls.target.y.toFixed(2)},${st.controls.target.z.toFixed(2)}`;
     if (key !== st.poseKey) {
       st.poseKey = key;
-      st.surface.setWindow(visibleWindow(c, shapeRef.current, world.width, world.height));
+      const nextWindow = visibleWindow(c, shapeRef.current, world.width, world.height);
+      st.surface.setWindow(nextWindow);
       st.surface.setCamera(c.position);
       const cpq = st.surface.cellsPerQuad(MESH_STEPS[mesh]);
       const km = Math.round((40075 / world.width) * cpq);
-      setDetail(cpq < 1
-        ? `${(1 / cpq).toFixed(1)} triángulos por celda`
-        : `${cpq.toFixed(1)} celdas por triángulo · ~${km} km`);
+      if (t0 - st.hudAt > 220) {
+        setDetail(cpq < 1
+          ? `${(1 / cpq).toFixed(1)} triángulos por celda`
+          : `${cpq.toFixed(1)} celdas por triángulo · ~${km} km`);
+      }
+      const viewportKey = `${nextWindow.u.toFixed(5)}:${nextWindow.v.toFixed(5)}:${nextWindow.size.toFixed(5)}`;
+      if (viewportKey !== st.viewportKey) {
+        st.viewportKey = viewportKey;
+        propsRef.current.onViewportChange?.({
+          u: ((nextWindow.u % 1) + 1) % 1,
+          v: nextWindow.v,
+          spanKm: Math.max(3, nextWindow.size * 40075),
+        });
+      }
     }
 
     st.renderer.render(st.scene, st.camera);
@@ -567,8 +740,33 @@ export default function World3D({
 
     const cost = performance.now() - t0;
     st.cost = cost;
+    st.frameAvg = st.frameAvg * 0.9 + cost * 0.1;
+    st.qualityFrames += 1;
     st.lastDraw = performance.now();
-    setMs(Math.round(cost));
+    if (t0 - st.hudAt > 220) {
+      st.hudAt = t0;
+      setMs(Math.round(st.frameAvg));
+    }
+    if (qualityRef.current === 'auto' && st.qualityFrames >= 24) {
+      const maxDpr = Math.min(2, window.devicePixelRatio || 1);
+      if (st.frameAvg > 30) {
+        if (st.pixelRatio > 0.85) {
+          st.pixelRatio = Math.max(0.85, st.pixelRatio - 0.15);
+          st.renderer.setPixelRatio(st.pixelRatio);
+        } else if (meshRef.current > 0) {
+          setMesh((value) => Math.max(0, value - 1));
+        }
+        st.qualityFrames = 0;
+      } else if (st.frameAvg < 17 && st.qualityFrames >= 110) {
+        if (meshRef.current < 2) {
+          setMesh((value) => Math.min(2, value + 1));
+        } else if (st.pixelRatio < maxDpr) {
+          st.pixelRatio = Math.min(maxDpr, st.pixelRatio + 0.15);
+          st.renderer.setPixelRatio(st.pixelRatio);
+        }
+        st.qualityFrames = 0;
+      }
+    }
     // Damping is a per-FRAME decay, so it silently assumes sixty of them a
     // second. Below a usable frame rate the camera goes where it is put.
     st.controls.enableDamping = cost < 40;
@@ -636,6 +834,30 @@ export default function World3D({
       // Panning a globe about a fixed centre does nothing useful, so the right
       // button turns it instead of pretending.
       st.controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
+    }
+    const initialViewport = viewportRef.current;
+    if (initialViewport && initialViewport.spanKm < 36000) {
+      const focus = new THREE.Vector3();
+      scenePos(
+        initialViewport.u * world.width,
+        initialViewport.v * world.height,
+        focus,
+      );
+      const fraction = Math.min(1, Math.max(0.004, initialViewport.spanKm / 40075));
+      if (shape === 'plane') {
+        const distance = Math.max(2.5, SIZE_X * fraction * 1.25);
+        st.controls.target.copy(focus);
+        st.camera.position.copy(focus).add(new THREE.Vector3(
+          0,
+          distance * 0.72,
+          distance * 0.62,
+        ));
+      } else {
+        st.controls.target.set(0, 0, 0);
+        st.camera.position.copy(focus).normalize().multiplyScalar(
+          R_GLOBE * (1.02 + Math.max(0.06, fraction * 2.4)),
+        );
+      }
     }
     st.fly.active = false;
     st.controls.update();
@@ -723,6 +945,28 @@ export default function World3D({
   useEffect(() => {
     const st = R.current;
     if (!st) return;
+    const nativeDpr = Math.min(2, window.devicePixelRatio || 1);
+    if (quality === 'low') {
+      st.pixelRatio = Math.min(1, nativeDpr);
+      st.renderer.setPixelRatio(st.pixelRatio);
+      setMesh(0);
+    } else if (quality === 'high') {
+      st.pixelRatio = nativeDpr;
+      st.renderer.setPixelRatio(st.pixelRatio);
+      setMesh(2);
+    } else {
+      st.pixelRatio = Math.min(1.5, nativeDpr);
+      st.renderer.setPixelRatio(st.pixelRatio);
+      setMesh(1);
+      st.frameAvg = 16;
+      st.qualityFrames = 0;
+    }
+    request();
+  }, [quality, ready, request]);
+
+  useEffect(() => {
+    const st = R.current;
+    if (!st) return;
     if (st.uploadedRev !== revision) {
       st.surface.uploadAll(world.elevation, world.biome);
       st.uploadedRev = revision;
@@ -730,9 +974,40 @@ export default function World3D({
     request();
   }, [revision, world, ready, request]);
 
+  useEffect(() => {
+    const st = R.current;
+    if (!st) return;
+    if (!regionDetail) {
+      st.surface.setDetailPatch(null);
+      request();
+      return;
+    }
+    st.surface.setDetailPatch({
+      elevation: regionDetail.elevation,
+      width: regionDetail.width,
+      height: regionDetail.height,
+      u: regionDetail.originX / world.width,
+      v: regionDetail.originY / world.height,
+      uSize: (regionDetail.worldPerCellX * regionDetail.width) / world.width,
+      vSize: (regionDetail.worldPerCellY * regionDetail.height) / world.height,
+    });
+    request();
+  }, [regionDetail, ready, request, world.height, world.width]);
+
   // Markers move when the gazetteer or the pins do, with no camera movement to
   // trigger a frame.
-  useEffect(() => { request(); }, [geography, waypoints, showWaypoints, showSettlements, request]);
+  useEffect(() => {
+    request();
+  }, [
+    geography,
+    waypoints,
+    showWaypoints,
+    showSettlements,
+    showLandmarks,
+    spatialEntities,
+    selectedSpatialKey,
+    request,
+  ]);
 
   // ---- fly to a point ------------------------------------------------------
   useEffect(() => {
@@ -962,6 +1237,10 @@ export default function World3D({
       propsRef.current.onPickWaypoint?.(mark.waypointId);
       return;
     }
+    if (mark?.kind === 'spatial' && mark.spatial) {
+      propsRef.current.onSelectSpatialEntity?.(mark.spatial);
+      return;
+    }
     if (mark?.settlement) {
       propsRef.current.onPickSettlement?.(mark.settlement);
       return;
@@ -970,13 +1249,17 @@ export default function World3D({
     // place, not at the four pixels that represent it.
     const geo = propsRef.current.geography;
     const pick = propsRef.current.onPickSettlement;
-    if (!geo || !pick) return;
+    if (!geo || !pick) {
+      propsRef.current.onSelectSpatialEntity?.(null);
+      return;
+    }
     const cell = cellUnder(e.clientX, e.clientY);
     if (!cell) return;
     const st2 = R.current;
     const tol = Math.max(4, (st2 ? st2.surface.uvWindow.size : 1) * world.width * 0.018);
     const s = pickSettlementNear(geo, world.width, cell.x, cell.y, tol);
     if (s) pick(s);
+    else propsRef.current.onSelectSpatialEntity?.(null);
   }, [onEdit, onEdits, world, markUnder, cellUnder, request]);
 
   const cancel = useCallback(() => {
@@ -1175,18 +1458,24 @@ export default function World3D({
             <Slider label="Curvas de nivel" value={contour} min={0} max={1} step={0.05}
               onChange={setContour} format={(v) => (v < 0.03 ? 'no' : `${Math.round(v * 1000)} m`)} />
             <label className="flex items-center justify-between">
-              Malla
+              Calidad
               <span className="flex gap-1">
-                {MESH_STEPS.map((n, i) => (
-                  <button key={n} onClick={() => setMesh(i)}
-                    className={`px-1.5 py-0.5 rounded tabular-nums ${mesh === i ? 'bg-amber-400/40 text-white' : 'text-white/70 hover:bg-white/15'}`}>
-                    {n}
+                {([
+                  ['low', 'Eco'],
+                  ['auto', 'Auto'],
+                  ['high', 'Alta'],
+                ] as const).map(([id, labelText]) => (
+                  <button key={id} onClick={() => setQuality(id)}
+                    className={`px-1.5 py-0.5 rounded ${quality === id ? 'bg-amber-400/40 text-white' : 'text-white/70 hover:bg-white/15'}`}>
+                    {labelText}
                   </button>
                 ))}
               </span>
             </label>
             <Toggle on={headlight} onClick={() => setHeadlight((v) => !v)} label="Luz frontal" icon={Sun} />
-            <p className="text-white/60 leading-snug pt-0.5">{detail}</p>
+            <p className="text-white/60 leading-snug pt-0.5">
+              {quality === 'auto' ? `Auto · ${ms} ms · ` : ''}{detail}
+            </p>
           </div>
         )}
       </div>

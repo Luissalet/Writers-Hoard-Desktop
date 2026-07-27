@@ -302,7 +302,8 @@ function drawSettlementMark(ctx: Ctx, s: Settlement, theme: CartoTheme, r: numbe
       const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
       const rad = i % 2 ? r * 0.32 : r * 0.72;
       const px = Math.cos(a) * rad, py = Math.sin(a) * rad - h - r * 0.95;
-      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      if (i > 0) ctx.lineTo(px, py);
+      else ctx.moveTo(px, py);
     }
     ctx.closePath();
     ctx.fill();

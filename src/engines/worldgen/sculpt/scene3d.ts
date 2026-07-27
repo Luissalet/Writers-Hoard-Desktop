@@ -45,7 +45,7 @@ const HEIGHT_FN = /* glsl */`
 // anyway yields an incomplete texture that samples as zero — which shows up as
 // a flat grey world and took an afternoon to find the first time. Doing the
 // interpolation by hand costs four fetches and cannot fail.
-float heightAt(vec2 uv) {
+float baseHeightAt(vec2 uv) {
   vec2 t = uv * uGrid - 0.5;
   vec2 f = fract(t);
   ivec2 i = ivec2(floor(t));
@@ -60,6 +60,38 @@ float heightAt(vec2 uv) {
   float h01 = texelFetch(uHeight, ivec2(ax, by), 0).r;
   float h11 = texelFetch(uHeight, ivec2(bx, by), 0).r;
   return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+}
+
+float detailHeightAt(vec2 localUV) {
+  vec2 t = localUV * uDetailGrid - 0.5;
+  vec2 f = fract(t);
+  ivec2 i = ivec2(floor(t));
+  ivec2 hi = ivec2(uDetailGrid) - ivec2(1);
+  ivec2 a = clamp(i, ivec2(0), hi);
+  ivec2 b = clamp(i + ivec2(1), ivec2(0), hi);
+  float h00 = texelFetch(uDetailHeight, ivec2(a.x, a.y), 0).r;
+  float h10 = texelFetch(uDetailHeight, ivec2(b.x, a.y), 0).r;
+  float h01 = texelFetch(uDetailHeight, ivec2(a.x, b.y), 0).r;
+  float h11 = texelFetch(uDetailHeight, ivec2(b.x, b.y), 0).r;
+  return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+}
+
+float heightAt(vec2 uv) {
+  float base = baseHeightAt(uv);
+  if (uDetailOn < 0.5) return base;
+  float wrappedX = uv.x - uDetailOrigin.x;
+  wrappedX -= round(wrappedX);
+  vec2 localUV = vec2(
+    wrappedX / max(1e-7, uDetailSize.x),
+    (uv.y - uDetailOrigin.y) / max(1e-7, uDetailSize.y)
+  );
+  if (localUV.x < 0.0 || localUV.x > 1.0 || localUV.y < 0.0 || localUV.y > 1.0) {
+    return base;
+  }
+  // Blend across a small gutter so a newly arrived patch cannot make a seam.
+  vec2 edgeCells = min(localUV * uDetailGrid, (1.0 - localUV) * uDetailGrid);
+  float blend = smoothstep(0.0, 3.0, min(edgeCells.x, edgeCells.y));
+  return mix(base, detailHeightAt(localUV), blend);
 }
 
 /** Where a world uv sits in the scene, on whichever shape is showing. */
@@ -80,7 +112,12 @@ precision highp float;
 precision highp sampler2D;
 
 uniform sampler2D uHeight;
+uniform sampler2D uDetailHeight;
 uniform vec2  uGrid;         // world grid size in cells
+uniform vec2  uDetailGrid;
+uniform vec2  uDetailOrigin;
+uniform vec2  uDetailSize;
+uniform float uDetailOn;
 uniform float uYMul;         // km → scene units
 uniform float uShape;        // 0 = plane, 1 = globe
 uniform float uRadius;
@@ -112,10 +149,15 @@ precision highp float;
 precision highp sampler2D;
 
 uniform sampler2D uHeight;
+uniform sampler2D uDetailHeight;
 uniform sampler2D uBiome;
 uniform sampler2D uAlbedo;   // the finished map raster, when a skin is showing
 uniform vec3  uPalette[48];
 uniform vec2  uGrid;
+uniform vec2  uDetailGrid;
+uniform vec2  uDetailOrigin;
+uniform vec2  uDetailSize;
+uniform float uDetailOn;
 uniform float uYMul;
 uniform float uShape;
 uniform float uRadius;
@@ -477,6 +519,18 @@ export interface UVWindow { u: number; v: number; size: number }
 
 export const FULL_WINDOW: UVWindow = { u: 0.5, v: 0.5, size: 1 };
 
+/** A deterministic high-resolution height patch covering part of the world. */
+export interface TerrainDetailPatch {
+  elevation: Float32Array;
+  width: number;
+  height: number;
+  /** Normalized top-left world coordinate. `u` may cross the wrap seam. */
+  u: number;
+  v: number;
+  uSize: number;
+  vSize: number;
+}
+
 /**
  * The sculptable surface: one mesh, one material, two textures.
  *
@@ -489,6 +543,7 @@ export class SculptSurface {
   readonly material: THREE.ShaderMaterial;
   private heightTex: THREE.DataTexture;
   private biomeTex: THREE.DataTexture;
+  private detailHeightTex: THREE.DataTexture;
   /** A 1×1 stand-in so the albedo sampler is always bound to something. */
   private blankTex: THREE.DataTexture;
   private albedoTex: THREE.Texture | null = null;
@@ -521,6 +576,13 @@ export class SculptSurface {
     this.biomeTex.wrapS = THREE.RepeatWrapping;
     this.biomeTex.needsUpdate = true;
 
+    this.detailHeightTex = new THREE.DataTexture(
+      new Float32Array([0]), 1, 1, THREE.RedFormat, THREE.FloatType,
+    );
+    this.detailHeightTex.magFilter = THREE.NearestFilter;
+    this.detailHeightTex.minFilter = THREE.NearestFilter;
+    this.detailHeightTex.needsUpdate = true;
+
     const pal: THREE.Vector3[] = [];
     for (let i = 0; i < 48; i++) {
       const c = opts.palette[i] ?? [0.5, 0.5, 0.5];
@@ -532,10 +594,15 @@ export class SculptSurface {
       glslVersion: THREE.GLSL3,
       uniforms: {
         uHeight: { value: this.heightTex },
+        uDetailHeight: { value: this.detailHeightTex },
         uBiome: { value: this.biomeTex },
         uAlbedo: { value: this.blankTex },
         uPalette: { value: pal },
         uGrid: { value: new THREE.Vector2(this.W, this.H) },
+        uDetailGrid: { value: new THREE.Vector2(1, 1) },
+        uDetailOrigin: { value: new THREE.Vector2(0, 0) },
+        uDetailSize: { value: new THREE.Vector2(1, 1) },
+        uDetailOn: { value: 0 },
         uYMul: { value: elevKmToY(30, this.W) },
         uShape: { value: 0 },
         uRadius: { value: R_GLOBE },
@@ -690,6 +757,40 @@ export class SculptSurface {
   }
 
   /**
+   * Supply the same close-range elevation field used by the regional map.
+   *
+   * Replacing the patch is a texture upload; geometry remains pooled and the
+   * shader blends across the patch gutter to avoid visible tile seams.
+   */
+  setDetailPatch(patch: TerrainDetailPatch | null): void {
+    this.detailHeightTex.dispose();
+    if (!patch) {
+      this.detailHeightTex = new THREE.DataTexture(
+        new Float32Array([0]), 1, 1, THREE.RedFormat, THREE.FloatType,
+      );
+      this.detailHeightTex.needsUpdate = true;
+      this.material.uniforms.uDetailHeight.value = this.detailHeightTex;
+      this.material.uniforms.uDetailOn.value = 0;
+      return;
+    }
+    this.detailHeightTex = new THREE.DataTexture(
+      patch.elevation,
+      patch.width,
+      patch.height,
+      THREE.RedFormat,
+      THREE.FloatType,
+    );
+    this.detailHeightTex.magFilter = THREE.NearestFilter;
+    this.detailHeightTex.minFilter = THREE.NearestFilter;
+    this.detailHeightTex.needsUpdate = true;
+    this.material.uniforms.uDetailHeight.value = this.detailHeightTex;
+    (this.material.uniforms.uDetailGrid.value as THREE.Vector2).set(patch.width, patch.height);
+    (this.material.uniforms.uDetailOrigin.value as THREE.Vector2).set(patch.u, patch.v);
+    (this.material.uniforms.uDetailSize.value as THREE.Vector2).set(patch.uSize, patch.vSize);
+    this.material.uniforms.uDetailOn.value = 1;
+  }
+
+  /**
    * Replace a rectangle.
    *
    * three.js has no partial-upload path on DataTexture, so this copies the rows
@@ -725,6 +826,7 @@ export class SculptSurface {
     this.material.dispose();
     this.heightTex.dispose();
     this.biomeTex.dispose();
+    this.detailHeightTex.dispose();
     this.blankTex.dispose();
   }
 }

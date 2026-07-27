@@ -1,0 +1,183 @@
+const { app, BrowserWindow } = require('electron');
+const esbuild = require('esbuild');
+const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+
+// Keep rendering deterministic in CI while still exercising the real WebGL
+// shader pipeline used by Worldgen's 3D regional-detail overlay.
+app.commandLine.appendSwitch('use-angle', 'swiftshader');
+app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+
+const temporaryDirectory = fsSync.mkdtempSync(path.join(os.tmpdir(), 'writers-hoard-critical-'));
+const isolatedUserData = path.join(temporaryDirectory, 'user-data');
+fsSync.mkdirSync(isolatedUserData, { recursive: true });
+// Must happen before app ready: no test may ever open the user's real profile.
+app.setPath('userData', isolatedUserData);
+
+async function main() {
+  const buildHarness = async (name, entry) => {
+    const bundlePath = path.join(temporaryDirectory, `${name}.js`);
+    const htmlPath = path.join(temporaryDirectory, `${name}.html`);
+    await esbuild.build({
+      entryPoints: [path.resolve(__dirname, '..', 'tests', entry)],
+      outfile: bundlePath,
+      bundle: true,
+      platform: 'browser',
+      format: 'iife',
+      target: 'chrome130',
+      jsx: 'automatic',
+      sourcemap: 'inline',
+      alias: {
+        '@': path.resolve(__dirname, '..', 'src'),
+      },
+      define: {
+        'process.env.NODE_ENV': '"test"',
+        'import.meta.env': '{"DEV":false,"BASE_URL":"/"}',
+        'import.meta.url': '"file:///writers-hoard-startup.js"',
+      },
+      plugins: name === 'startup'
+        ? [{
+            name: 'ignore-renderer-css',
+            setup(build) {
+              build.onLoad({ filter: /\.css$/ }, () => ({ contents: '', loader: 'css' }));
+            },
+          }]
+        : [],
+      logLevel: 'warning',
+    });
+    await fs.writeFile(
+      htmlPath,
+      `<!doctype html><html><head><meta charset="utf-8"><title>${name}</title></head>` +
+        `<body><div id="root"></div><script src="./${name}.js"></script></body></html>`,
+      'utf8',
+    );
+    return htmlPath;
+  };
+  const [criticalHtmlPath, startupHtmlPath] = await Promise.all([
+    buildHarness('critical', 'critical.browser.ts'),
+    buildHarness('startup', 'startup.browser.ts'),
+  ]);
+
+  const testWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  const runHarness = async (htmlPath, resultExpression, label, timeoutMs) => {
+    const url = pathToFileURL(htmlPath).toString() +
+      (label === 'Full renderer startup' ? '#/' : '');
+    await testWindow.loadURL(url);
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const result = await testWindow.webContents.executeJavaScript(
+        `${resultExpression} ?? null`,
+      );
+      if (result) {
+        if (!result.ok) throw new Error(result.error || `${label} failed`);
+        for (const test of result.tests) console.log(`PASS ${test}`);
+        return result.tests.length;
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    throw new Error(`${label} timed out`);
+  };
+
+  try {
+    const criticalCount = await runHarness(
+      criticalHtmlPath,
+      'window.__criticalResult',
+      'Critical data tests',
+      45_000,
+    );
+    const startupCount = await runHarness(
+      startupHtmlPath,
+      'window.__startupResult',
+      'Full renderer startup',
+      30_000,
+    );
+    const { createServer } = await import('vite');
+    const projectRoot = path.resolve(__dirname, '..');
+    const devServer = await createServer({
+      root: projectRoot,
+      configFile: path.join(projectRoot, 'vite.config.ts'),
+      logLevel: 'error',
+      server: {
+        host: '127.0.0.1',
+        port: 0,
+        strictPort: true,
+      },
+    });
+    let devStartupCount = 0;
+    try {
+      await devServer.listen();
+      const devUrl = devServer.resolvedUrls?.local[0];
+      if (!devUrl) throw new Error('Vite did not expose a local development URL.');
+      const rendererErrors = [];
+      const onConsoleMessage = (_event, level, message, line, sourceId) => {
+        if (level >= 3) rendererErrors.push(`${sourceId}:${line} ${message}`);
+      };
+      const onRendererGone = (_event, details) => {
+        rendererErrors.push(`Renderer process exited: ${details.reason} (${details.exitCode})`);
+      };
+      testWindow.webContents.on('console-message', onConsoleMessage);
+      testWindow.webContents.on('render-process-gone', onRendererGone);
+      try {
+        await testWindow.loadURL(`${devUrl}#/`);
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline) {
+          if (rendererErrors.length) throw new Error(rendererErrors.join('\n'));
+          const mounted = await testWindow.webContents.executeJavaScript(`
+            (() => {
+              const root = document.getElementById('root');
+              return Boolean(
+                root &&
+                root.childElementCount > 0 &&
+                (root.textContent?.trim().length ?? 0) > 10
+              );
+            })()
+          `);
+          if (mounted) {
+            await new Promise(resolve => setTimeout(resolve, 250));
+            if (rendererErrors.length) throw new Error(rendererErrors.join('\n'));
+            console.log('PASS Vite development renderer startup');
+            devStartupCount = 1;
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        if (!devStartupCount) {
+          throw new Error('Vite development renderer did not mount visible application UI.');
+        }
+      } finally {
+        testWindow.webContents.removeListener('console-message', onConsoleMessage);
+        testWindow.webContents.removeListener('render-process-gone', onRendererGone);
+      }
+    } finally {
+      await devServer.close();
+    }
+    console.log(
+      `Critical browser tests passed: ${criticalCount + startupCount + devStartupCount}`,
+    );
+  } finally {
+    if (!testWindow.isDestroyed()) testWindow.destroy();
+  }
+}
+
+app.whenReady()
+  .then(main)
+  .then(() => app.exit(0))
+  .catch(error => {
+    console.error(error);
+    app.exit(1);
+  })
+  .finally(async () => {
+    if (temporaryDirectory) {
+      await fs.rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
+    }
+  });

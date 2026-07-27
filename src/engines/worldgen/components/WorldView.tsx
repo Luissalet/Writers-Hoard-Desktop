@@ -11,7 +11,12 @@ import { toast } from '@/components/common/toast';
 import { EngineSpinner } from '@/engines/_shared';
 import { generateId } from '@/utils/idGenerator';
 import { worldMapOps, mapPinOps } from '@/engines/maps/operations';
-import type { GeneratedWorld, WorldWaypoint } from '../types';
+import type {
+  GeneratedWorld,
+  SavedWorldRegion,
+  WorldViewport,
+  WorldWaypoint,
+} from '../types';
 import { WAYPOINT_COLORS } from '../types';
 import type { ViewMode, WorldData, WorldParams } from '../core/types';
 import { normalizeParams } from '../core/types';
@@ -30,6 +35,8 @@ import JourneyPanel from './JourneyPanel';
 import AtlasPanel from './AtlasPanel';
 import PaintPanel, { DEFAULT_PAINT_TOOL, type PaintTool } from './PaintPanel';
 import FiltersPanel from './FiltersPanel';
+import SavedRegionsPanel from './SavedRegionsPanel';
+import SpatialEntityInspector from './SpatialEntityInspector';
 import { PaintSession } from '../core/paintSession';
 import { deserializeEdits, editKey, targetFromKey } from '../core/edits';
 import { planRoute } from '../core/travel';
@@ -44,6 +51,15 @@ import type { CartoAnnotations } from '../cartography/annotations';
 import type { PaleoState } from '../core/paleo';
 import { buildAtlas, buildIndex, linkWeights, placeAt, type ManuscriptLink } from '../core/atlas';
 import type { Route as TravelRoute } from '../core/travel';
+import {
+  resolveWorldLandmarks,
+  resolveWorldSpatialEntity,
+  type WorldSpatialEntity,
+  type WorldSpatialStyleOverride,
+} from '../core/spatialEntities';
+import { regionKindVisible, semanticZoomProfile } from '../core/semanticZoom';
+import { requestRegion } from '../region/client';
+import type { RegionData } from '../region/types';
 
 // three.js and the surface shader are the heaviest thing in the engine, so they
 // still arrive on demand — but this IS the opening view now, so the chunk is
@@ -61,6 +77,16 @@ const SKINS_3D: { id: Skin3D; label: string; title: string }[] = [
 export interface WaypointFocus {
   id: string;
   /** Monotonic token so the same waypoint can be re-focused later. */
+  token: number;
+}
+
+export interface SpatialFocus {
+  id: string;
+  token: number;
+}
+
+export interface RegionFocus {
+  id: string;
   token: number;
 }
 
@@ -88,8 +114,12 @@ interface WorldViewProps {
    * of what a world is.
    */
   onSaveEdits: (edits: string) => Promise<void> | void;
+  /** Persist lightweight named regional views; generated regional pixels stay derived. */
+  onSaveRegions: (regions: SavedWorldRegion[]) => Promise<void> | void;
   onThumbnail: (thumbnail: string) => Promise<void> | void;
   focusWaypoint: WaypointFocus | null;
+  focusSpatial?: SpatialFocus | null;
+  focusRegion?: RegionFocus | null;
 }
 
 export default function WorldView({
@@ -99,8 +129,11 @@ export default function WorldView({
   onOpenManuscriptLink,
   onSaveParams,
   onSaveEdits,
+  onSaveRegions,
   onThumbnail,
   focusWaypoint,
+  focusSpatial,
+  focusRegion,
 }: WorldViewProps) {
   const { t } = useTranslation();
   const [params, setParams] = useState<WorldParams>(() => normalizeParams(world.params));
@@ -116,7 +149,13 @@ export default function WorldView({
   const [themeId, setThemeId] = useState<string>('wonder');
   const [skin3D, setSkin3D] = useState<Skin3D>('satelite');
   const [cityFor, setCityFor] = useState<Settlement | null>(null);
-  const [regionAt, setRegionAt] = useState<{ x: number; y: number } | null>(null);
+  const [regionAt, setRegionAt] = useState<{ x: number; y: number; savedId?: string } | null>(null);
+  const [savedRegions, setSavedRegions] = useState<SavedWorldRegion[]>(() => world.regions ?? []);
+  const [viewport, setViewport] = useState<WorldViewport>({
+    u: 0.5,
+    v: 0.5,
+    spanKm: 40075,
+  });
   const [cartoLayers, setCartoLayers] = useState<Partial<CartoLayers>>({
     relief: true, forests: true, labels: true, settlements: true,
     roads: true, borders: false, frame: true, compass: true, scaleBar: true,
@@ -130,8 +169,11 @@ export default function WorldView({
   const [showWaypoints, setShowWaypoints] = useState(true);
   const [showSettlements, setShowSettlements] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
-  const [panelTab, setPanelTab] = useState<'params' | 'waypoints' | 'paint' | 'world' | 'journey' | 'atlas'>('params');
+  const [panelTab, setPanelTab] = useState<
+    'params' | 'waypoints' | 'paint' | 'world' | 'journey' | 'atlas' | 'regions' | 'places'
+  >('params');
   const [atlasKey, setAtlasKey] = useState<string | null>(null);
+  const [selectedSpatialKey, setSelectedSpatialKey] = useState<string | null>(null);
   // The journey: two ends, the route between them, and the world at another
   // sea level. All of it lives here rather than in the panel because the map
   // draws it and the panel only chooses it.
@@ -153,6 +195,9 @@ export default function WorldView({
   const [tool, setTool] = useState<PaintTool>(DEFAULT_PAINT_TOOL);
   // Same reason: a stroke bumps this, and the geography effect has to notice.
   const [paintRev, setPaintRev] = useState(0);
+  const [regionDetail, setRegionDetail] = useState<RegionData | null>(null);
+  const [regionDetailBusy, setRegionDetailBusy] = useState(false);
+  const [regionDetailStage, setRegionDetailStage] = useState('');
 
   const thumbRef = useRef<string | undefined>(world.thumbnail);
 
@@ -171,6 +216,60 @@ export default function WorldView({
   }, [onThumbnail]);
 
   const { world: data, gen, generate, cancel, restorePristine } = useWorldGeneration(world.id, handleDone);
+  const globalSpatialEntities = useMemo(
+    () => {
+      void paintRev;
+      return data ? resolveWorldLandmarks(data, { includeHidden: true }) : [];
+    },
+    // Edits mutate the cached world in place; paintRev is its React revision.
+    [data, paintRev],
+  );
+
+  const persistRegions = useCallback((next: SavedWorldRegion[]) => {
+    setSavedRegions(next);
+    void onSaveRegions(next);
+  }, [onSaveRegions]);
+
+  const saveRegion = useCallback((value: SavedWorldRegion) => {
+    const existing = savedRegions.some((region) => region.id === value.id);
+    persistRegions(existing
+      ? savedRegions.map((region) => (region.id === value.id ? value : region))
+      : [...savedRegions, value]);
+  }, [persistRegions, savedRegions]);
+
+  const openSavedRegion = useCallback((region: SavedWorldRegion) => {
+    const width = data?.width ?? world.params.width;
+    const height = data?.height ?? Math.max(1, Math.round(world.params.width / 2));
+    setRegionAt({ x: region.x, y: region.y, savedId: region.id });
+    setViewport({
+      u: ((region.x / Math.max(1, width)) % 1 + 1) % 1,
+      v: Math.min(1, Math.max(0, region.y / Math.max(1, height))),
+      spanKm: region.spanKm,
+    });
+  }, [data, world.params.width]);
+
+  const saveCurrentRegion = useCallback(() => {
+    const now = Date.now();
+    const region: SavedWorldRegion = {
+      id: generateId('region'),
+      title: `Comarca ${savedRegions.length + 1}`,
+      x: viewport.u * (data?.width ?? world.params.width),
+      y: viewport.v * (data?.height ?? Math.max(1, Math.round(world.params.width / 2))),
+      spanKm: Math.min(400, Math.max(30, viewport.spanKm)),
+      params: {
+        res: 640,
+        aspect: 1.55,
+        detail: 0.85,
+        settled: 0.62,
+        habitation: 1,
+        streamDensity: 0.72,
+      },
+      createdAt: now,
+      updatedAt: now,
+    };
+    saveRegion(region);
+    openSavedRegion(region);
+  }, [data, openSavedRegion, saveRegion, savedRegions.length, viewport, world.params.width]);
 
   // First open (or cache miss): generate from stored params automatically.
   // Deliberately re-runnable — StrictMode's mount→unmount→mount cycle
@@ -194,6 +293,8 @@ export default function WorldView({
   // Deep-linked waypoint focus — applied as a render-phase state adjustment
   // (React's documented pattern) once the waypoint list contains the target.
   const [consumedFocusToken, setConsumedFocusToken] = useState(0);
+  const [consumedSpatialToken, setConsumedSpatialToken] = useState(0);
+  const [consumedRegionToken, setConsumedRegionToken] = useState(0);
   if (focusWaypoint && focusWaypoint.token !== consumedFocusToken
       && waypoints.some((w) => w.id === focusWaypoint.id)) {
     setConsumedFocusToken(focusWaypoint.token);
@@ -205,6 +306,125 @@ export default function WorldView({
   // render would freeze the toolbar mid-click, so it is kicked off in an effect
   // the first time a view that needs it is opened, and cached on the world.
   const [geography, setGeography] = useState<HumanGeography | null>(null);
+  const semanticProfile = useMemo(
+    () => semanticZoomProfile(viewport.spanKm),
+    [viewport.spanKm],
+  );
+
+  // Close-range geography follows the shared viewport in both 2D and 3D.
+  // Requests are debounced, cancellable, worker-backed, and leave the previous
+  // patch visible until the replacement arrives.
+  useEffect(() => {
+    if (!data || !geography || view === 'carta' || !semanticProfile.showRegionalTerrain
+        || viewport.spanKm > 700) {
+      setRegionDetail(null);
+      setRegionDetailBusy(false);
+      return;
+    }
+    const controller = new AbortController();
+    let handle: ReturnType<typeof requestRegion> | null = null;
+    const timer = window.setTimeout(() => {
+      setRegionDetailBusy(true);
+      const spanKm = Math.min(400, Math.max(30, viewport.spanKm * 1.28));
+      handle = requestRegion(
+        data,
+        geography,
+        {
+          cx: viewport.u * data.width,
+          cy: viewport.v * data.height,
+          spanKm,
+        },
+        {
+          signal: controller.signal,
+          params: {
+            res: semanticProfile.regionalResolution,
+            aspect: 1.55,
+          },
+          onProgress: (stage) => setRegionDetailStage(stage),
+        },
+      );
+      handle.promise.then((region) => {
+        if (!controller.signal.aborted) setRegionDetail(region);
+      }).catch((error: unknown) => {
+        if (error instanceof Error && error.name === 'AbortError') return;
+        console.warn('[worldgen] regional LOD failed', error);
+      }).finally(() => {
+        if (!controller.signal.aborted) setRegionDetailBusy(false);
+      });
+    }, 220);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+      handle?.cancel();
+    };
+  }, [
+    data,
+    geography,
+    semanticProfile.regionalResolution,
+    semanticProfile.showRegionalTerrain,
+    view,
+    viewport.spanKm,
+    viewport.u,
+    viewport.v,
+  ]);
+
+  const regionalSpatialEntities = useMemo(() => {
+    void paintRev;
+    if (!data || !regionDetail) return [];
+    return regionDetail.places
+      .filter((place) => regionKindVisible(place.kind, semanticProfile.tier))
+      .map((place) => resolveWorldSpatialEntity({
+        key: place.sourceKey,
+        kind: 'region',
+        type: place.landmark ?? place.kind,
+        name: place.name,
+        x: place.worldX,
+        y: place.worldY,
+        extent: 0.4,
+        importance: place.importance * 0.7,
+        source: 'regional',
+        style: {
+          icon: place.landmark ?? place.kind,
+          size: place.importance > 0.7 ? 1.15 : 0.9,
+        },
+      }, data.painted));
+  }, [data, paintRev, regionDetail, semanticProfile.tier]);
+
+  const spatialEntities = useMemo(
+    () => [...globalSpatialEntities, ...regionalSpatialEntities],
+    [globalSpatialEntities, regionalSpatialEntities],
+  );
+  const selectedSpatialEntity = useMemo(
+    () => spatialEntities.find((entity) => entity.key === selectedSpatialKey) ?? null,
+    [selectedSpatialKey, spatialEntities],
+  );
+
+  if (focusSpatial && focusSpatial.token !== consumedSpatialToken) {
+    const entity = spatialEntities.find((candidate) => candidate.key === focusSpatial.id);
+    if (entity && data) {
+      setConsumedSpatialToken(focusSpatial.token);
+      setSelectedSpatialKey(entity.key);
+      setPanelTab('places');
+      setView('3d');
+      setFlyTarget({
+        u: entity.x / data.width,
+        v: entity.y / data.height,
+        token: focusSpatial.token,
+      });
+    }
+  }
+  if (focusRegion && focusRegion.token !== consumedRegionToken) {
+    const region = savedRegions.find((candidate) => candidate.id === focusRegion.id);
+    if (region && data) {
+      setConsumedRegionToken(focusRegion.token);
+      setRegionAt({ x: region.x, y: region.y, savedId: region.id });
+      setViewport({
+        u: ((region.x / data.width) % 1 + 1) % 1,
+        v: Math.min(1, Math.max(0, region.y / data.height)),
+        spanKm: region.spanKm,
+      });
+    }
+  }
   // Kept for the badge the Carta view shows while a full rebuild runs in the
   // background; the map itself is never unmounted for it any more.
   const [geoBusy, setGeoBusy] = useState(false);
@@ -640,28 +860,59 @@ export default function WorldView({
     setExportOpen(false);
     const canvas = compositeToCanvas(data, 'atlas', true, 1600);
     const bg = canvas.toDataURL('image/jpeg', 0.86);
-    const mapId = generateId('map');
-    await worldMapOps.create({
-      id: mapId,
-      projectId,
-      title: `${world.title} — ${t('worldgen.export.atlasSuffix')}`,
-      backgroundImage: bg,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    for (const wp of waypoints) {
-      await mapPinOps.create({
-        id: generateId('pin'),
+    const existingMap = (await worldMapOps.getAll(projectId))
+      .find((map) => map.sourceWorldId === world.id);
+    const mapId = existingMap?.id ?? generateId('map');
+    const now = Date.now();
+    if (existingMap) {
+      await worldMapOps.update(mapId, {
+        title: `${world.title} — ${t('worldgen.export.atlasSuffix')}`,
+        backgroundImage: bg,
+        source: 'worldgen',
+        sourceWorldId: world.id,
+        sourceRevision: data.revision ?? 0,
+      });
+    } else {
+      await worldMapOps.create({
+        id: mapId,
         projectId,
-        mapId,
-        name: wp.name,
-        icon: 'custom',
-        position: { x: wp.u * 100, y: wp.v * 100 },
-        description: wp.description,
+        title: `${world.title} — ${t('worldgen.export.atlasSuffix')}`,
+        backgroundImage: bg,
+        source: 'worldgen',
+        sourceWorldId: world.id,
+        sourceRevision: data.revision ?? 0,
+        createdAt: now,
+        updatedAt: now,
       });
     }
-    toast.success(t('worldgen.export.sentToMaps'));
-  }, [data, projectId, world.title, waypoints, t]);
+    const currentPins = await mapPinOps.getAll(mapId);
+    const waypointIds = new Set(waypoints.map((waypoint) => waypoint.id));
+    await Promise.all(currentPins
+      .filter((pin) => pin.sourceWaypointId && !waypointIds.has(pin.sourceWaypointId))
+      .map((pin) => mapPinOps.delete(pin.id)));
+    for (const wp of waypoints) {
+      const existingPin = currentPins.find((pin) => pin.sourceWaypointId === wp.id);
+      if (existingPin) {
+        await mapPinOps.update(existingPin.id, {
+          name: wp.name,
+          position: { x: wp.u * 100, y: wp.v * 100 },
+          description: wp.description,
+        });
+      } else {
+        await mapPinOps.create({
+          id: generateId('pin'),
+          projectId,
+          mapId,
+          name: wp.name,
+          icon: 'custom',
+          position: { x: wp.u * 100, y: wp.v * 100 },
+          description: wp.description,
+          sourceWaypointId: wp.id,
+        });
+      }
+    }
+    toast.success(existingMap ? 'Mapa vinculado actualizado' : t('worldgen.export.sentToMaps'));
+  }, [data, projectId, world.id, world.title, waypoints, t]);
 
   // 'loading' is not a pipeline stage — it is the snapshot coming back off the
   // disk — so it does not go looking for a translation of a stage name.
@@ -674,7 +925,7 @@ export default function WorldView({
   );
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" data-testid="worldgen-view">
       {/* ---- Toolbar ---- */}
       <div className="flex items-center gap-2 flex-wrap">
         {/* View switch. The order is the order of importance. */}
@@ -839,15 +1090,24 @@ export default function WorldView({
               showGrid={showGrid}
               waypoints={waypoints}
               selectedWaypointId={selectedWaypointId}
+              selectedSpatialKey={selectedSpatialKey}
+              regionalEntities={regionalSpatialEntities}
+              regionDetail={regionDetail}
               onPlaceWaypoint={handlePlace}
               onRemoveWaypoint={dropWaypoint}
               onSelectWaypoint={setSelectedWaypointId}
+              onSelectSpatialEntity={(entity: WorldSpatialEntity | null) => {
+                setSelectedSpatialKey(entity?.key ?? null);
+                if (entity) setPanelTab('places');
+              }}
               geography={geography}
               showSettlements={showSettlements}
               tool={paintable ? tool : undefined}
               onEdit={paintable ? applyEdit : undefined}
               onPickSettlement={pickSettlement}
               onOpenRegion={(x, y) => setRegionAt({ x, y })}
+              viewport={viewport}
+              onViewportChange={setViewport}
               revision={paintRev}
             />
           )}
@@ -886,6 +1146,16 @@ export default function WorldView({
                 waypoints={waypoints}
                 showWaypoints={showWaypoints}
                 showSettlements={showSettlements}
+                showLandmarks={showLandmarks}
+                selectedSpatialKey={selectedSpatialKey}
+                regionalEntities={regionalSpatialEntities}
+                regionDetail={regionDetail}
+                onSelectSpatialEntity={(entity) => {
+                  setSelectedSpatialKey(entity?.key ?? null);
+                  if (entity) setPanelTab('places');
+                }}
+                viewport={viewport}
+                onViewportChange={setViewport}
                 skin={skin3D}
                 shape={shape3D}
                 onShape={setShape3D}
@@ -921,6 +1191,13 @@ export default function WorldView({
                 className="w-28 accent-[#c4973b]"
                 title={t('worldgen.threeD.exaggeration')}
               />
+            </div>
+          )}
+
+          {data && view !== 'carta' && regionDetailBusy && (
+            <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-md border border-white/15 bg-[#0b0e14]/88 px-2 py-1 text-[10px] text-white/75 shadow-lg backdrop-blur-sm">
+              <Loader2 size={11} className="animate-spin text-accent-gold" />
+              detalle regional · {regionDetailStage || 'preparando'}
             </div>
           )}
 
@@ -970,10 +1247,8 @@ export default function WorldView({
 
         {/* ---- Side panel ---- */}
         <aside className="w-[21rem] shrink-0 flex flex-col rounded-xl border border-border bg-surface/50 overflow-hidden">
-          {/* Six tabs do not fit across a 336 px panel, and squeezing them was
-              why the labels were unreadable. Two rows of three, each with room
-              for its own word. */}
-          <div className="grid grid-cols-3 border-b border-border">
+          {/* Two compact rows keep every world workflow one click away. */}
+          <div className="grid grid-cols-4 border-b border-border">
             <PanelTab active={panelTab === 'params'} onClick={() => setPanelTab('params')} label={t('worldgen.params.title')} />
             <PanelTab active={panelTab === 'world'} onClick={() => setPanelTab('world')} label="Mundo" />
             <PanelTab
@@ -984,9 +1259,91 @@ export default function WorldView({
             <PanelTab active={panelTab === 'waypoints'} onClick={() => setPanelTab('waypoints')} label={`${t('worldgen.waypoints.title')}${waypoints.length ? ` (${waypoints.length})` : ''}`} />
             <PanelTab active={panelTab === 'journey'} onClick={() => { setPanelTab('journey'); setView('carta'); }} label="Viaje" />
             <PanelTab active={panelTab === 'atlas'} onClick={() => { setPanelTab('atlas'); setView('carta'); }} label="Índice" />
+            <PanelTab
+              active={panelTab === 'regions'}
+              onClick={() => setPanelTab('regions')}
+              label={`Comarcas${savedRegions.length ? ` (${savedRegions.length})` : ''}`}
+            />
+            <PanelTab active={panelTab === 'places'} onClick={() => setPanelTab('places')} label="Lugar" />
           </div>
           <div className="flex-1 overflow-y-auto p-3">
-            {panelTab === 'atlas' ? (
+            {panelTab === 'regions' ? (
+              <SavedRegionsPanel
+                regions={savedRegions}
+                onOpen={openSavedRegion}
+                onCreateHere={saveCurrentRegion}
+                onRename={(id, title) => {
+                  const now = Date.now();
+                  persistRegions(savedRegions.map((region) => (
+                    region.id === id ? { ...region, title, updatedAt: now } : region
+                  )));
+                }}
+                onDelete={(id) => {
+                  persistRegions(savedRegions.filter((region) => region.id !== id));
+                  setRegionAt((current) => (current?.savedId === id ? null : current));
+                }}
+              />
+            ) : panelTab === 'places' ? (
+              selectedSpatialEntity && data ? (
+                <SpatialEntityInspector
+                  projectId={projectId}
+                  worldId={world.id}
+                  entity={selectedSpatialEntity}
+                  onRename={(name) => renameByKey(selectedSpatialEntity.key, name)}
+                  onRemove={() => removeByKey(selectedSpatialEntity.key)}
+                  onRestore={() => {
+                    const target = targetFromKey(selectedSpatialEntity.key);
+                    if (target) applyEdit({
+                      kind: 'restore',
+                      target,
+                      key: selectedSpatialEntity.key,
+                    });
+                  }}
+                  onMove={(x, y) => {
+                    const target = targetFromKey(selectedSpatialEntity.key);
+                    if (target) applyEdit({
+                      kind: 'move',
+                      target,
+                      key: selectedSpatialEntity.key,
+                      x,
+                      y,
+                    });
+                  }}
+                  onStyle={(style: WorldSpatialStyleOverride) => {
+                    const target = targetFromKey(selectedSpatialEntity.key);
+                    if (target) applyEdit({
+                      kind: 'style',
+                      target,
+                      key: selectedSpatialEntity.key,
+                      style,
+                    });
+                  }}
+                  onOpenRegion={() => setRegionAt({
+                    x: selectedSpatialEntity.x,
+                    y: selectedSpatialEntity.y,
+                  })}
+                  onReveal2D={() => {
+                    setViewport({
+                      u: selectedSpatialEntity.x / data.width,
+                      v: selectedSpatialEntity.y / data.height,
+                      spanKm: Math.min(400, viewport.spanKm),
+                    });
+                    setView('map');
+                  }}
+                  onReveal3D={() => {
+                    setView('3d');
+                    flyTo(
+                      selectedSpatialEntity.x / data.width,
+                      selectedSpatialEntity.y / data.height,
+                    );
+                  }}
+                />
+              ) : (
+                <p className="text-[11px] text-text-muted">
+                  Selecciona una ciudad, un volcán, una cueva o un lugar regional para editarlo.
+                </p>
+              )
+            ) : panelTab === 'atlas' ? (
               data && geography ? (
                 <AtlasPanel
                   world={data}
@@ -1125,6 +1482,19 @@ export default function WorldView({
           geography={geography}
           theme={theme}
           at={regionAt}
+          saved={regionAt.savedId
+            ? savedRegions.find((region) => region.id === regionAt.savedId)
+            : undefined}
+          revision={paintRev}
+          selectedSpatialKey={selectedSpatialKey}
+          onSelectSpatialEntity={(entity) => {
+            setSelectedSpatialKey(entity?.key ?? null);
+          }}
+          onEditEntity={applyEdit}
+          onSaveRegion={(region) => {
+            saveRegion(region);
+            setRegionAt({ x: region.x, y: region.y, savedId: region.id });
+          }}
           onClose={() => setRegionAt(null)}
           onPickSettlement={setCityFor}
         />

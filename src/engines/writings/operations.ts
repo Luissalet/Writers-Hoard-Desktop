@@ -22,5 +22,8 @@ export async function updateWriting(id: string, changes: Partial<Writing>): Prom
 }
 
 export async function deleteWriting(id: string): Promise<void> {
-  await db.writings.delete(id);
+  await db.transaction('rw', [db.writings, db.writingSnapshots], async () => {
+    await db.writingSnapshots.where('writingId').equals(id).delete();
+    await db.writings.delete(id);
+  });
 }

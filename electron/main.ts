@@ -83,8 +83,65 @@ const MEDIA_CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
 };
 
+const MEDIA_LIBRARY_CONFIG = () => path.join(app.getPath('userData'), 'media-library.json');
+let mediaLibraryOverride: string | null = null;
+
 function scrapperMediaDir(): string {
-  return path.join(app.getPath('userData'), 'scrapper-media');
+  return mediaLibraryOverride ?? path.join(app.getPath('userData'), 'scrapper-media');
+}
+
+async function loadMediaLibraryLocation(): Promise<void> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(MEDIA_LIBRARY_CONFIG(), 'utf8')) as {
+      root?: unknown;
+    };
+    if (typeof parsed.root !== 'string' || !path.isAbsolute(parsed.root)) return;
+    await fs.mkdir(parsed.root, { recursive: true });
+    mediaLibraryOverride = path.resolve(parsed.root);
+  } catch {
+    mediaLibraryOverride = null;
+  }
+}
+
+async function persistMediaLibraryLocation(root: string): Promise<void> {
+  const target = MEDIA_LIBRARY_CONFIG();
+  const temporary = `${target}.tmp`;
+  await fs.writeFile(temporary, JSON.stringify({ root }, null, 2), 'utf8');
+  await fs.rename(temporary, target);
+}
+
+async function listManagedFiles(projectId?: string): Promise<Array<{
+  relPath: string;
+  sizeBytes: number;
+  modifiedAt: number;
+}>> {
+  const root = scrapperMediaDir();
+  const start = projectId ? resolveLibraryPath(projectId) : root;
+  if (!start || (projectId && !SAFE_SEGMENT.test(projectId))) return [];
+  const rows: Array<{ relPath: string; sizeBytes: number; modifiedAt: number }> = [];
+  const walk = async (dir: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const absolute = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(absolute);
+      } else if (entry.isFile()) {
+        const stat = await fs.stat(absolute);
+        rows.push({
+          relPath: path.relative(root, absolute).split(path.sep).join('/'),
+          sizeBytes: stat.size,
+          modifiedAt: stat.mtimeMs,
+        });
+      }
+    }
+  };
+  await walk(start);
+  return rows.sort((a, b) => a.relPath.localeCompare(b.relPath));
 }
 
 /**
@@ -710,6 +767,43 @@ function registerIpc(): void {
     await fs.rm(abs, { recursive: true, force: true });
   });
 
+  ipcMain.handle('media:listLibraryFiles', async (_e, projectId?: string) => {
+    return {
+      root: scrapperMediaDir(),
+      files: await listManagedFiles(projectId),
+    };
+  });
+
+  ipcMain.handle('media:relocateLibrary', async () => {
+    if (!mainWindow) return { ok: false, error: 'Main window unavailable' };
+    const selection = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose a folder for Writers Hoard managed assets',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (selection.canceled || !selection.filePaths[0]) return { ok: false, canceled: true };
+    const source = path.resolve(scrapperMediaDir());
+    const destination = path.resolve(selection.filePaths[0], 'WritersHoardAssets');
+    if (destination === source) return { ok: true, root: source, previousRoot: source };
+    if (destination.startsWith(source + path.sep) || source.startsWith(destination + path.sep)) {
+      return { ok: false, error: 'Choose a folder outside the current managed asset folder.' };
+    }
+    try {
+      await fs.mkdir(source, { recursive: true });
+      await fs.mkdir(destination, { recursive: true });
+      await fs.cp(source, destination, { recursive: true, force: true });
+      await persistMediaLibraryLocation(destination);
+      mediaLibraryOverride = destination;
+      return {
+        ok: true,
+        root: destination,
+        previousRoot: source,
+        copiedFiles: (await listManagedFiles()).length,
+      };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   // Scrapper: archive a plain web page — PDF print, full-page screenshot and
   // the rendered HTML, all written into the managed media library.
   ipcMain.handle(
@@ -785,6 +879,9 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('quick-note:get-context', (): QuickNoteContext => quickNoteContext);
+  ipcMain.handle('quick-note:open', async (): Promise<void> => {
+    await showQuickNote();
+  });
 
   ipcMain.handle('quick-note:submit', (_e, payload: QuickNotePayload): { ok: boolean } => {
     const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
@@ -825,6 +922,7 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    await loadMediaLibraryLocation();
     registerIpc();
     buildMenu();
 

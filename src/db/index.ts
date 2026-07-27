@@ -32,6 +32,12 @@ import type { Annotation, AnnotationReference } from '@/engines/annotations/type
 import type { WritingSnapshot } from '@/engines/writings/snapshotTypes';
 import type { GeneratedWorld, WorldSnapshot, WorldWaypoint } from '@/engines/worldgen/types';
 import type { Note } from '@/engines/notes/types';
+import type {
+  Citation,
+  ConversionReceipt,
+  EntityLink,
+  PublishingProfile,
+} from '@/types/projectTools';
 import { legacyLinksToSnapshots } from '@/engines/scrapper/legacyLinks';
 
 export class WritersHoardDB extends Dexie {
@@ -81,6 +87,10 @@ export class WritersHoardDB extends Dexie {
   worldWaypoints!: Table<WorldWaypoint>;
   worldSnapshots!: Table<WorldSnapshot>;
   notes!: Table<Note>;
+  entityLinks!: Table<EntityLink>;
+  citations!: Table<Citation>;
+  publishingProfiles!: Table<PublishingProfile>;
+  conversionReceipts!: Table<ConversionReceipt>;
 
   constructor() {
     super('WritersHoardDB');
@@ -694,6 +704,16 @@ export class WritersHoardDB extends Dexie {
     // version's upgrader, so v21 still sees the table it needs to read.
     this.version(22).stores({
       externalLinks: null,
+    });
+
+    // v23: cross-engine project tools. These tables are intentionally
+    // project-scoped so deletion and transactional restore cover them through
+    // the same generic lifecycle as engine-owned data.
+    this.version(23).stores({
+      entityLinks: 'id, projectId, sourceEntityId, targetEntityId, relation, createdAt',
+      citations: 'id, projectId, *writingIds, snapshotId, updatedAt',
+      publishingProfiles: 'id, projectId, format, updatedAt',
+      conversionReceipts: 'id, projectId, sourceEntityId, targetEntityId, createdAt',
     });
   }
 }

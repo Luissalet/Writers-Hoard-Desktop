@@ -1,5 +1,22 @@
 # Lessons Learned
 
+## 22. Desktop launchers must consume Vite's resolved URL
+**Date:** 2026-07-27
+**Context:** The engine `lazy` import ordering bug was fixed and the current Vite
+renderer served the corrected module, but the user still saw the exact old
+exception. A stale server had occupied port 5174, so Vite correctly started the
+new renderer on 5175 while the Electron command independently waited for and
+loaded hard-coded port 5174. Electron therefore opened the stale application.
+**Rule:** Never coordinate Vite and Electron through a guessed fixed port or a
+bare TCP readiness check. Start Vite from the desktop launcher, read
+`server.resolvedUrls`, pass that exact URL through `ELECTRON_RENDERER_URL`, and
+own both lifecycles in the same process so closing the app also closes Vite.
+
+## 21. A successful build is not an application-startup test
+**Date:** 2026-07-27
+**Context:** The release gate passed typechecks, lint, conformance, data-level Electron tests, and production bundling, but the actual app opened to a black screen. A bulk lazy-loading edit had placed `import { lazy } from 'react'` after its first use in every engine index. TypeScript and Rollup accepted the modules, while Vite's development transform exposed a temporal-dead-zone `ReferenceError` before React mounted.
+**Rule:** After changing module initialization, registration side effects, routing, or lazy imports, launch the complete renderer entry and assert that the root UI mounts without `pageerror` or console errors. Keep imports before executable module code even where ESM grammar technically permits later declarations. Data-level tests and successful bundling do not replace an application-startup smoke test.
+
 ## 20. Choose the platform from the integration target, not the tool at hand
 **Date:** 2026-07-24
 **Context:** The world generator almost started as a Unity (C#) project — an empty Unity template already existed for it. The stated end goal was "plug it into Writers Hoard", which is Electron + React + TS; a Unity build can never embed there cleanly (separate process or 30-80MB WebGL iframe, no shared Dexie/UI, two languages forever). Building the engine as pure TS in a Web Worker hit the perf bar comfortably (1024×512 planet with ~30 erosion iterations ≈ 3s).
@@ -101,3 +118,13 @@
 **Date:** 2026-04-19
 **Context:** `WritingsView.tsx` had a `STATUS_CONFIG` with both `label` (English) and `labelEs` (Spanish) properties — but every render path read `labelEs`. The English half was dead code. Worse, the Spanish locale file (`es.ts`) had ZERO `writings.*` keys despite the engine being live for months — every `t('writings.*')` call I added would have rendered raw keys in Spanish until I backfilled all 32 entries.
 **Rule:** When wiring `t()` into a previously-hardcoded component, immediately diff `Object.keys(en) ⊖ Object.keys(es)` for the affected namespace and backfill missing translations in the same edit. Long-term: build a CI/dev-only script that diffs locale key sets globally and warns on drift. Never trust that "the type field has both" implies "both render paths exist."
+
+## 18. Startup smoke tests must navigate the changed lazy route with realistic persistence
+**Date:** 2026-07-27
+**Context:** The generic renderer startup test passed while opening Worldgen in the real project redirected silently to Project Cockpit. The test proved only that the application root mounted; it never waited for persisted project preferences and navigated the actual lazy Worldgen route.
+**Rule:** After changing an engine root or its navigation contract, add a route-level smoke test that seeds a realistic project/world, opens `/project/:id/<engine>`, waits through async project hydration and lazy import, and asserts the engine remains active. A root-mount assertion is not evidence that a specific engine route works.
+
+## 19. A shader compile test is not a 3D interaction test
+**Date:** 2026-07-27
+**Context:** The regional-detail shader compiled and rendered once in the critical suite, yet repeated close-range wheel zoom in the real World3D view blocked the main thread and left the viewport black.
+**Rule:** Changes to interactive 3D LOD must be tested across camera-distance thresholds with repeated wheel/control updates. Assert finite camera/UV state, visible terrain, bounded geometry rebuilds, and recovery after detail changes; one successful static shader render does not cover the render-loop lifecycle.

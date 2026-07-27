@@ -9,15 +9,22 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
-import type { WorldData, ViewMode, Landmark } from '../core/types';
-import { renderBase, renderRivers } from '../core/render';
+import type { LandmarkType, WorldData, ViewMode } from '../core/types';
+import { BIOME_COLORS, renderBase, renderRivers } from '../core/render';
 import { PROJECTIONS, reprojectRgba, type Projection } from '../core/projections';
 import { commitPaintStroke, isWaypointTool, negativeOf, pickGeneratedAt } from '../core/paintCommit';
 import type { Pt, Stroke, WorldEdit } from '../core/edits';
 import type { HumanGeography, Settlement } from '../core/settlements';
-import type { WorldWaypoint } from '../types';
+import type { WorldViewport, WorldWaypoint } from '../types';
 import { tipOf, tipOutline } from '../sculpt/ops';
 import type { PaintTool } from './PaintPanel';
+import {
+  resolveWorldLandmarks,
+  type WorldSpatialEntity,
+} from '../core/spatialEntities';
+import { declutterLabels, semanticZoomProfile } from '../core/semanticZoom';
+import type { RegionData } from '../region/types';
+import { regionVisibleRect } from '../region/coordinates';
 
 export const BIOME_KEYS = [
   'ocean', 'lake', 'iceCap', 'tundra', 'boreal', 'tempForest', 'tempRain',
@@ -35,11 +42,15 @@ interface Map2DProps {
   showGrid: boolean;
   waypoints: WorldWaypoint[];
   selectedWaypointId: string | null;
+  selectedSpatialKey?: string | null;
+  regionalEntities?: WorldSpatialEntity[];
+  regionDetail?: RegionData | null;
   /** Placing a pin is the Punto tool with Chincheta selected, not a mode of
    *  its own. Both take normalized coordinates, which is how a pin is stored. */
   onPlaceWaypoint?: (u: number, v: number) => void;
   onRemoveWaypoint?: (id: string) => void;
   onSelectWaypoint: (id: string | null) => void;
+  onSelectSpatialEntity?: (entity: WorldSpatialEntity | null) => void;
   /**
    * Everything below turns this from a picture of the world into one of the two
    * places it can be edited. The satellite map is the flat, undistorted view —
@@ -53,6 +64,9 @@ interface Map2DProps {
   onEdit?: (edit: WorldEdit) => void;
   onPickSettlement?: (s: Settlement) => void;
   onOpenRegion?: (x: number, y: number) => void;
+  /** Shared camera state, used when switching between 2D, 3D, and regions. */
+  viewport?: WorldViewport;
+  onViewportChange?: (viewport: WorldViewport) => void;
   /** Bumped when an edit changed the world under us, so the raster is rebuilt. */
   revision?: number;
 }
@@ -73,12 +87,16 @@ function makeCanvas(px: Uint8ClampedArray<ArrayBuffer>, w: number, h: number): H
 export default function Map2D({
   world, viewMode, projection, showRivers, showLandmarks, showWaypoints, showGrid,
   waypoints, selectedWaypointId, onPlaceWaypoint, onRemoveWaypoint, onSelectWaypoint,
-  geography, showSettlements, tool, onEdit, onPickSettlement, onOpenRegion, revision = 0,
+  selectedSpatialKey, regionalEntities = [], regionDetail, onSelectSpatialEntity,
+  geography, showSettlements, tool, onEdit, onPickSettlement, onOpenRegion,
+  viewport, onViewportChange, revision = 0,
 }: Map2DProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewRef = useRef<ViewState | null>(null);
+  const viewportRef = useRef(viewport);
+  viewportRef.current = viewport;
   const dragRef = useRef<{ x: number; y: number; ox: number; oy: number; moved: boolean } | null>(null);
   const rafRef = useRef(0);
   const [hover, setHover] = useState<{ x: number; y: number; text: string } | null>(null);
@@ -98,6 +116,16 @@ export default function Map2D({
   const W = world.width, H = world.height;
   const spec = PROJECTIONS[projection];
   const wraps = spec.wraps;
+  const landmarks = useMemo(
+    () => resolveWorldLandmarks(world),
+    // The edit pipeline mutates the same world object and bumps revision.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [world, revision],
+  );
+  const visibleSpatialEntities = useMemo(
+    () => [...landmarks, ...regionalEntities.filter((entity) => !entity.hidden)],
+    [landmarks, regionalEntities],
+  );
 
   // ---- layers -------------------------------------------------------------
   // `revision` is in the dependency list on purpose: painting MUTATES the world
@@ -126,7 +154,31 @@ export default function Map2D({
     return makeCanvas(px, w, h);
   }, [riverPixels, projection, W, H]);
 
+  const regionalCanvas = useMemo(
+    () => regionDetail ? makeRegionalTerrainCanvas(regionDetail) : null,
+    [regionDetail],
+  );
+
   const PW = baseCanvas.width, PH = baseCanvas.height;
+
+  const reportViewport = useCallback(() => {
+    const view = viewRef.current;
+    const canvas = canvasRef.current;
+    if (!view || !canvas || !onViewportChange) return;
+    const rect = canvas.getBoundingClientRect();
+    const mapW = PW * view.scale;
+    const mapH = PH * view.scale;
+    let X = (rect.width * 0.5 - view.ox) / mapW;
+    if (wraps) X = ((X % 1) + 1) % 1;
+    const Y = (rect.height * 0.5 - view.oy) / mapH;
+    const uv = spec.inverse(X, Math.min(1, Math.max(0, Y)));
+    if (!uv) return;
+    onViewportChange({
+      u: ((uv[0] % 1) + 1) % 1,
+      v: Math.min(1, Math.max(0, uv[1])),
+      spanKm: Math.min(40075, Math.max(3, 40075 * rect.width / Math.max(1, mapW))),
+    });
+  }, [PH, PW, onViewportChange, spec, wraps]);
 
   // ---- drawing --------------------------------------------------------------
   const draw = () => {
@@ -142,6 +194,34 @@ export default function Map2D({
 
     const { scale } = view;
     const mapW = PW * scale, mapH = PH * scale;
+    const semantic = semanticZoomProfile(40075 * cw / Math.max(1, mapW));
+    const mapLabels: Array<{
+      value: { text: string; color: string; size: number; weight: number };
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      priority: number;
+    }> = [];
+    const queueLabel = (
+      text: string,
+      x: number,
+      y: number,
+      color: string,
+      size: number,
+      weight: number,
+      priority: number,
+    ) => {
+      ctx.font = `${weight} ${size}px "Source Sans 3", sans-serif`;
+      mapLabels.push({
+        value: { text, color, size, weight },
+        x,
+        y,
+        width: ctx.measureText(text).width,
+        height: size * 1.4,
+        priority,
+      });
+    };
 
     // Copies for wrap-around; single sheet otherwise.
     let firstOx = view.ox;
@@ -174,6 +254,41 @@ export default function Map2D({
       for (let ox = firstOx; ox <= lastOx; ox += mapW) copies.push(ox);
     } else {
       copies.push(view.ox);
+    }
+
+    // High-resolution regional terrain is composited over the stable world
+    // raster only once semantic zoom reaches the corresponding scale.
+    if (regionalCanvas && regionDetail && semantic.showRegionalTerrain) {
+      const visible = regionVisibleRect(regionDetail);
+      const worldX0 = regionDetail.originX + visible.x * regionDetail.worldPerCellX;
+      const worldY0 = regionDetail.originY + visible.y * regionDetail.worldPerCellY;
+      const worldX1 = worldX0 + visible.width * regionDetail.worldPerCellX;
+      const worldY1 = worldY0 + visible.height * regionDetail.worldPerCellY;
+      const u0 = ((worldX0 / W) % 1 + 1) % 1;
+      const u1 = ((worldX1 / W) % 1 + 1) % 1;
+      const v0 = Math.min(1, Math.max(0, worldY0 / H));
+      const v1 = Math.min(1, Math.max(0, worldY1 / H));
+      ctx.save();
+      ctx.globalAlpha = semantic.tier === 'local' ? 0.96 : 0.82;
+      for (const copyOx of copies) {
+        const [x0, y0] = toScreen(u0, v0, copyOx);
+        const [projectedX1, bottom] = toScreen(u1, v1, copyOx);
+        let x1 = projectedX1;
+        if (wraps) {
+          while (x1 - x0 > mapW / 2) x1 -= mapW;
+          while (x1 - x0 < -mapW / 2) x1 += mapW;
+        }
+        const left = Math.min(x0, x1);
+        const top = Math.min(y0, bottom);
+        const width = Math.abs(x1 - x0);
+        const height = Math.abs(bottom - y0);
+        if (width > 1 && height > 1
+            && left < cw + 20 && left + width > -20
+            && top < ch + 20 && top + height > -20) {
+          ctx.drawImage(regionalCanvas, left, top, width, height);
+        }
+      }
+      ctx.restore();
     }
 
     // Graticule — sampled polylines so curved projections curve.
@@ -210,10 +325,56 @@ export default function Map2D({
     // Landmarks
     if (showLandmarks) {
       for (const copyOx of copies) {
-        for (const lm of world.landmarks) {
+        for (const lm of landmarks) {
+          if (!semantic.showMinorLandmarks && lm.importance < 0.26) continue;
           const [sx, sy] = toScreen((lm.x + 0.5) / W, (lm.y + 0.5) / H, copyOx);
           if (sx < -20 || sx > cw + 20 || sy < -20 || sy > ch + 20) continue;
-          drawLandmark(ctx, lm, sx, sy);
+          drawLandmark(ctx, lm, sx, sy, lm.key === selectedSpatialKey);
+          if ((lm.style.labelVisible ?? false)
+              || lm.key === selectedSpatialKey
+              || semantic.tier === 'local') {
+            queueLabel(
+              lm.name,
+              sx + 8,
+              sy,
+              lm.style.color ?? '#f6efe0',
+              10,
+              600,
+              65 + lm.importance * 20,
+            );
+          }
+        }
+      }
+    }
+
+    if (regionalEntities.length && semantic.showRegionalTerrain) {
+      ctx.font = '600 10px "Source Sans 3", sans-serif';
+      for (const copyOx of copies) {
+        for (const entity of regionalEntities) {
+          if (entity.hidden) continue;
+          const natural = entity.type === 'volcano' || entity.type === 'cave'
+            || entity.type === 'waterfall' || entity.type === 'gorge'
+            || entity.type === 'hotspring' || entity.kind === 'landmark';
+          if ((natural && !showLandmarks) || (!natural && !showSettlements)) continue;
+          const [sx, sy] = toScreen(
+            ((entity.x / W) % 1 + 1) % 1,
+            Math.min(1, Math.max(0, entity.y / H)),
+            copyOx,
+          );
+          if (sx < -30 || sx > cw + 30 || sy < -20 || sy > ch + 20) continue;
+          drawRegionalEntity(ctx, entity, sx, sy, entity.key === selectedSpatialKey);
+          if (semantic.tier === 'local' || entity.importance > 0.55
+              || entity.style.labelVisible || entity.key === selectedSpatialKey) {
+            queueLabel(
+              entity.name,
+              sx + 7,
+              sy,
+              entity.style.color ?? '#f6efe0',
+              10,
+              600,
+              30 + entity.importance * 30,
+            );
+          }
         }
       }
     }
@@ -223,7 +384,7 @@ export default function Map2D({
     if (showSettlements && geography) {
       // Only as much of the gazetteer as the zoom can carry: every village at
       // full extent is a grey smear along every coast.
-      const maxRank = scale < 1.4 ? 1 : scale < 4 ? 2 : 3;
+      const maxRank = semantic.settlementRank;
       const order: Record<string, number> = { capital: 0, city: 1, town: 2, village: 3 };
       ctx.font = '600 11px "Source Sans 3", sans-serif';
       ctx.textBaseline = 'middle';
@@ -241,13 +402,19 @@ export default function Map2D({
           ctx.lineWidth = 1.5;
           ctx.strokeStyle = 'rgba(6,8,13,0.92)';
           ctx.stroke();
-          if (rank <= 1 || scale > 6) {
-            ctx.lineWidth = 3;
-            ctx.lineJoin = 'round';
-            ctx.strokeStyle = 'rgba(6,8,13,0.85)';
-            ctx.strokeText(s.name, sx + r + 5, sy);
-            ctx.fillStyle = '#f6efe0';
-            ctx.fillText(s.name, sx + r + 5, sy);
+          if (rank === 0
+              || (rank <= 1 && semantic.tier !== 'planetary')
+              || (rank <= 2 && (semantic.tier === 'regional' || semantic.tier === 'local'))
+              || semantic.tier === 'local') {
+            queueLabel(
+              s.name,
+              sx + r + 5,
+              sy,
+              '#f6efe0',
+              rank <= 1 ? 11 : 10,
+              rank <= 1 ? 600 : 500,
+              100 - rank * 15,
+            );
           }
         }
       }
@@ -278,6 +445,17 @@ export default function Map2D({
           ctx.fillText(label, sx + 13, sy + 4);
         }
       }
+    }
+
+    for (const candidate of declutterLabels(mapLabels, semantic.labelBudget, 3)) {
+      const item = candidate.value;
+      ctx.font = `${item.weight} ${item.size}px "Source Sans 3", sans-serif`;
+      ctx.lineWidth = 3;
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(6,8,13,0.88)';
+      ctx.strokeText(item.text, candidate.x, candidate.y);
+      ctx.fillStyle = item.color;
+      ctx.fillText(item.text, candidate.x, candidate.y);
     }
 
     // The brush ring, last, over everything. Two circles: where the stroke
@@ -344,12 +522,19 @@ export default function Map2D({
       canvas.style.width = `${rect.width}px`;
       canvas.style.height = `${rect.height}px`;
       if (!viewRef.current) {
-        const scale = Math.min(rect.width / PW, rect.height / PH) * 0.98;
+        const fitScale = Math.min(rect.width / PW, rect.height / PH) * 0.98;
+        const initialViewport = viewportRef.current;
+        const requestedScale = initialViewport
+          ? (40075 / Math.max(3, initialViewport.spanKm)) * (rect.width / PW)
+          : fitScale;
+        const scale = Math.max(fitScale * 0.5, Math.min(28, requestedScale));
+        const [focusX, focusY] = spec.forward(initialViewport?.u ?? 0.5, initialViewport?.v ?? 0.5);
         viewRef.current = {
           scale,
-          ox: (rect.width - PW * scale) / 2,
-          oy: (rect.height - PH * scale) / 2,
+          ox: rect.width * 0.5 - focusX * PW * scale,
+          oy: rect.height * 0.5 - focusY * PH * scale,
         };
+        clampView(viewRef.current, rect.width, rect.height, PW, PH, wraps);
       }
       scheduleDraw();
     };
@@ -361,7 +546,7 @@ export default function Map2D({
       ro.disconnect();
       cancelAnimationFrame(rafRef.current);
     };
-  }, [PW, PH, projection, scheduleDraw]);
+  }, [PW, PH, projection, scheduleDraw, spec, wraps]);
 
   // Redraw on layer/props changes (also keeps drawRef current).
   useEffect(() => {
@@ -388,10 +573,11 @@ export default function Map2D({
       view.scale = newScale;
       clampView(view, rect.width, rect.height, PW, PH, wraps);
       scheduleDraw();
+      reportViewport();
     };
     canvas.addEventListener('wheel', onWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', onWheel);
-  }, [PW, PH, wraps, scheduleDraw]);
+  }, [PW, PH, wraps, scheduleDraw, reportViewport]);
 
   // ---- helpers -------------------------------------------------------------------
   const screenToMap = (sx: number, sy: number): { u: number; v: number } | null => {
@@ -428,6 +614,29 @@ export default function Map2D({
       if (Math.hypot(sx - wx, sy - wy) < 9) return wp;
     }
     return null;
+  };
+
+  const landmarkAt = (sx: number, sy: number): WorldSpatialEntity | null => {
+    const view = viewRef.current;
+    if (!view || !showLandmarks) return null;
+    const mapW = PW * view.scale, mapH = PH * view.scale;
+    let best: { entity: WorldSpatialEntity; distance: number } | null = null;
+    for (const entity of visibleSpatialEntities) {
+      if (entity.source === 'regional' && !regionDetail) continue;
+      const [X, Y] = spec.forward((entity.x + 0.5) / W, (entity.y + 0.5) / H);
+      const py = view.oy + Y * mapH;
+      let px = view.ox + X * mapW;
+      if (wraps) {
+        const dxRaw = (((sx - px) % mapW) + mapW) % mapW;
+        px = sx - (dxRaw > mapW / 2 ? dxRaw - mapW : dxRaw);
+      }
+      const distance = Math.hypot(sx - px, sy - py);
+      const reach = 9 * Math.max(0.75, entity.style.size ?? 1);
+      if (distance <= reach && (!best || distance < best.distance)) {
+        best = { entity, distance };
+      }
+    }
+    return best?.entity ?? null;
   };
 
   // Space suspends the brush for as long as it is held, the way every paint
@@ -534,6 +743,16 @@ export default function Map2D({
     // Hover inspector
     const m = screenToMap(sx, sy);
     if (!m) { setHover(null); return; }
+    const hoveredLandmark = landmarkAt(sx, sy);
+    if (hoveredLandmark) {
+      const left = Math.min(sx + 12, rect.width - 210);
+      setHover({
+        x: left,
+        y: sy + 14,
+        text: `${hoveredLandmark.name} · ${hoveredLandmark.type}`,
+      });
+      return;
+    }
     const cx = Math.min(W - 1, Math.floor(m.u * W));
     const cy = Math.min(H - 1, Math.floor(m.v * H));
     const i = cy * W + cx;
@@ -597,10 +816,20 @@ export default function Map2D({
 
     const drag = dragRef.current;
     dragRef.current = null;
-    if (!drag || drag.moved) return;
+    if (!drag) return;
+    if (drag.moved) {
+      reportViewport();
+      return;
+    }
     // It was a click.
     const wp = waypointAt(sx, sy);
     if (wp) { onSelectWaypoint(wp.id); return; }
+    const landmark = landmarkAt(sx, sy);
+    if (landmark) {
+      onSelectWaypoint(null);
+      onSelectSpatialEntity?.(landmark);
+      return;
+    }
     // A town under the pointer opens its plan — the same gesture as on the
     // carta and in 3D, because it is the same question being asked.
     if (onPickSettlement) {
@@ -608,6 +837,7 @@ export default function Map2D({
       if (s) { onPickSettlement(s); return; }
     }
     onSelectWaypoint(null);
+    onSelectSpatialEntity?.(null);
   };
 
   const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -669,7 +899,83 @@ function clampView(view: ViewState, cw: number, ch: number, PW: number, PH: numb
   }
 }
 
-function drawLandmark(ctx: CanvasRenderingContext2D, lm: Landmark, x: number, y: number): void {
+function makeRegionalTerrainCanvas(region: RegionData): HTMLCanvasElement {
+  const visible = regionVisibleRect(region);
+  const width = Math.max(1, Math.round(visible.width));
+  const height = Math.max(1, Math.round(visible.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    const sy = Math.min(region.height - 1, region.margin + y);
+    for (let x = 0; x < width; x++) {
+      const sx = Math.min(region.width - 1, region.margin + x);
+      const source = sy * region.width + sx;
+      const output = (y * width + x) * 4;
+      let color = BIOME_COLORS[region.biome[source]] ?? [116, 120, 105];
+      if (region.water[source] === 1) color = [48, 90, 126];
+      else if (region.water[source] === 2) color = [67, 112, 142];
+      const left = region.elevation[sy * region.width + Math.max(0, sx - 1)];
+      const up = region.elevation[Math.max(0, sy - 1) * region.width + sx];
+      const here = region.elevation[source];
+      const shade = Math.min(1.24, Math.max(0.68, 0.98 + (left + up - here * 2) * 18));
+      rgba[output] = Math.round(color[0] * shade);
+      rgba[output + 1] = Math.round(color[1] * shade);
+      rgba[output + 2] = Math.round(color[2] * shade);
+      rgba[output + 3] = 255;
+    }
+  }
+  canvas.getContext('2d')!.putImageData(new ImageData(rgba, width, height), 0, 0);
+  return canvas;
+}
+
+function drawRegionalEntity(
+  ctx: CanvasRenderingContext2D,
+  entity: WorldSpatialEntity,
+  x: number,
+  y: number,
+  selected: boolean,
+): void {
+  const natural = ['volcano', 'cave', 'waterfall', 'gorge', 'hotspring'].includes(entity.type);
+  if (natural) {
+    drawLandmark(ctx, entity, x, y, selected);
+    return;
+  }
+  const size = Math.min(2, Math.max(0.7, entity.style.size ?? 1));
+  const important = entity.type === 'town' || entity.type === 'village'
+    || entity.type === 'abbey' || entity.type === 'tower';
+  ctx.beginPath();
+  if (important) {
+    ctx.rect(x - 3 * size, y - 3 * size, 6 * size, 6 * size);
+  } else {
+    ctx.arc(x, y, 2.5 * size, 0, Math.PI * 2);
+  }
+  ctx.fillStyle = entity.style.color ?? (important ? '#f0dfbc' : '#c8b78e');
+  ctx.fill();
+  ctx.lineWidth = selected ? 2 : 1;
+  ctx.strokeStyle = selected ? '#f5c66a' : 'rgba(6,8,13,0.9)';
+  ctx.stroke();
+}
+
+function drawLandmark(
+  ctx: CanvasRenderingContext2D,
+  entity: WorldSpatialEntity,
+  x: number,
+  y: number,
+  selected: boolean,
+): void {
+  const scale = Math.min(2.4, Math.max(0.65, entity.style.size ?? 1));
+  const screenX = x;
+  const screenY = y;
+  const lm = {
+    type: (entity.style.icon ?? entity.type) as LandmarkType,
+  };
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  x = 0;
+  y = 0;
   ctx.lineWidth = 1.2;
   switch (lm.type) {
     case 'volcano': {
@@ -741,5 +1047,20 @@ function drawLandmark(ctx: CanvasRenderingContext2D, lm: Landmark, x: number, y:
       }
       break;
     }
+  }
+  ctx.restore();
+  if (entity.style.color) {
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, 7 * scale, 0, Math.PI * 2);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = entity.style.color;
+    ctx.stroke();
+  }
+  if (selected) {
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, 9 * scale, 0, Math.PI * 2);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#f5c66a';
+    ctx.stroke();
   }
 }

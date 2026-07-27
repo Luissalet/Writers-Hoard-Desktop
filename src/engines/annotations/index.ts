@@ -1,3 +1,5 @@
+import { lazy } from 'react';
+
 // ============================================
 // Annotations engine — registration
 // ============================================
@@ -10,8 +12,9 @@
 import { MessageSquare } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine } from '@/engines/_registry';
-import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
-import AnnotationsEngine from './components/AnnotationsEngine';
+import { registerBackupStrategy, readBackupJson } from '@/engines/_shared';
+import { db } from '@/db';
+const AnnotationsEngine = lazy(() => import('./components/AnnotationsEngine'));
 import AnnotationsSidebarBadge from './components/AnnotationsSidebarBadge';
 
 const annotationsEngine: EngineDefinition = {
@@ -32,11 +35,64 @@ const annotationsEngine: EngineDefinition = {
 
 registerEngine(annotationsEngine);
 
-registerBackupStrategy(
-  makeSimpleBackupStrategy({
-    engineId: 'annotations',
-    tables: ['annotations', 'annotationReferences'],
-  }),
-);
+const ANNOTATION_TABLES = ['annotations', 'annotationReferences'] as const;
+
+async function readAnnotationRows(
+  zip: Parameters<typeof readBackupJson>[0],
+  path: string,
+): Promise<unknown[] | null> {
+  const rows = await readBackupJson<unknown>(zip, path);
+  if (rows !== null && !Array.isArray(rows)) {
+    throw new Error(`Expected "${path}" to contain a JSON array.`);
+  }
+  return rows;
+}
+
+// References are child-only rows keyed by annotationId. Resolve the owning
+// annotations first so a project backup never includes another project's
+// backlinks and never drops its own.
+registerBackupStrategy({
+  engineId: 'annotations',
+  tables: [...ANNOTATION_TABLES],
+  async exportProject({ zip, projectId, projectDir }) {
+    const annotations = await db.annotations
+      .where('projectId')
+      .equals(projectId)
+      .toArray();
+    const annotationIds = annotations.map((annotation) => annotation.id);
+    const references = annotationIds.length
+      ? await db.annotationReferences
+          .where('annotationId')
+          .anyOf(annotationIds)
+          .toArray()
+      : [];
+    const folder = `${projectDir}/annotations`;
+    zip.file(`${folder}/annotations.json`, JSON.stringify(annotations, null, 2));
+    zip.file(
+      `${folder}/annotationReferences.json`,
+      JSON.stringify(references, null, 2),
+    );
+  },
+  async preflightImport({ zip, projectDir }) {
+    for (const table of ANNOTATION_TABLES) {
+      await readAnnotationRows(zip, `${projectDir}/annotations/${table}.json`);
+    }
+  },
+  async importProject({ zip, projectDir }) {
+    const folder = `${projectDir}/annotations`;
+    const annotations = await readAnnotationRows(
+      zip,
+      `${folder}/annotations.json`,
+    );
+    const references = await readAnnotationRows(
+      zip,
+      `${folder}/annotationReferences.json`,
+    );
+    if (annotations?.length) await db.annotations.bulkAdd(annotations as never[]);
+    if (references?.length) {
+      await db.annotationReferences.bulkAdd(references as never[]);
+    }
+  },
+});
 
 export { annotationsEngine };

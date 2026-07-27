@@ -120,6 +120,18 @@ const api = {
     /** Delete a downloaded media file by its relative library path. */
     deleteLibraryFile: (relPath: string): Promise<void> =>
       ipcRenderer.invoke('media:deleteLibraryFile', relPath),
+    listLibraryFiles: (projectId?: string): Promise<{
+      root: string;
+      files: Array<{ relPath: string; sizeBytes: number; modifiedAt: number }>;
+    }> => ipcRenderer.invoke('media:listLibraryFiles', projectId),
+    relocateLibrary: (): Promise<{
+      ok: boolean;
+      canceled?: boolean;
+      root?: string;
+      previousRoot?: string;
+      copiedFiles?: number;
+      error?: string;
+    }> => ipcRenderer.invoke('media:relocateLibrary'),
   },
 
   // Plain web pages: archive as PDF + full-page screenshot + rendered HTML.
@@ -162,6 +174,7 @@ const api = {
     },
     /** Floating window → main process: the cached context (target + locale). */
     getContext: (): Promise<QuickNoteContext> => ipcRenderer.invoke('quick-note:get-context'),
+    open: (): Promise<void> => ipcRenderer.invoke('quick-note:open'),
     /** Floating window → main process: save this note. */
     submit: (payload: QuickNotePayload): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke('quick-note:submit', payload),

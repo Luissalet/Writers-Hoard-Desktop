@@ -1,3 +1,5 @@
+import { lazy } from 'react';
+
 // ============================================
 // Storyboard Engine — Registration
 // ============================================
@@ -7,7 +9,7 @@ import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, readBackupJson } from '@/engines/_shared';
 import { db } from '@/db';
-import StoryboardEngine from './StoryboardEngine';
+const StoryboardEngine = lazy(() => import('./StoryboardEngine'));
 
 const storyboardEngine: EngineDefinition = {
   id: 'storyboard',
@@ -18,7 +20,7 @@ const storyboardEngine: EngineDefinition = {
   tables: {
     storyboards: 'id, projectId',
     storyboardPanels: 'id, storyboardId, projectId, order',
-    storyboardConnectors: 'id, storyboardId, fromPanelId, toPanelId',
+    storyboardConnectors: 'id, storyboardId, sourceId, targetId',
   },
   component: StoryboardEngine,
 };
@@ -29,12 +31,27 @@ registerEntityResolver({
   engineId: 'storyboard',
   entityTypes: ['storyboard', 'panel'],
   resolveEntity: async (entityId: string, entityType: string) => {
+    if (entityType === 'panel') {
+      const panel = await db.storyboardPanels.get(entityId);
+      if (!panel) return null;
+      const board = await db.storyboards.get(panel.storyboardId);
+      return {
+        id: panel.id,
+        type: 'panel',
+        engineId: 'storyboard',
+        projectId: panel.projectId,
+        title: panel.subtitle || `Panel ${panel.order + 1}`,
+        subtitle: board?.title,
+        thumbnail: panel.imageData,
+      };
+    }
     const board = await db.storyboards.get(entityId);
     if (!board) return null;
     return {
       id: board.id,
       type: entityType,
       engineId: 'storyboard',
+      projectId: board.projectId,
       title: board.title,
     };
   },
@@ -45,6 +62,7 @@ registerEntityResolver({
       id: b.id,
       type: 'storyboard',
       engineId: 'storyboard',
+      projectId: b.projectId,
       title: b.title,
     }));
   },

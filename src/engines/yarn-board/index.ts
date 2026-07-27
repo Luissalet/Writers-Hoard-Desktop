@@ -1,3 +1,4 @@
+import { lazy } from 'react';
 import { Network } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
@@ -15,7 +16,7 @@ import {
 } from '@/engines/_shared';
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
-import YarnBoardEngine from './YarnBoardEngine';
+const YarnBoardEngine = lazy(() => import('./YarnBoardEngine'));
 
 const yarnBoardEngine: EngineDefinition = {
   id: 'yarn-board',
@@ -37,12 +38,24 @@ registerEntityResolver({
   engineId: 'yarn-board',
   entityTypes: ['yarn-board', 'yarn-node'],
   resolveEntity: async (entityId: string, entityType: string) => {
+    if (entityType === 'yarn-board') {
+      const board = await db.yarnBoards.get(entityId);
+      if (!board) return null;
+      return {
+        id: board.id,
+        type: 'yarn-board',
+        engineId: 'yarn-board',
+        projectId: board.projectId,
+        title: board.title,
+      };
+    }
     const node = await db.yarnNodes.get(entityId);
     if (!node) return null;
     return {
       id: node.id,
-      type: entityType,
+      type: 'yarn-node',
       engineId: 'yarn-board',
+      projectId: node.projectId,
       title: node.title,
       subtitle: node.type,
       thumbnail: node.image,
@@ -51,16 +64,29 @@ registerEntityResolver({
   },
   searchEntities: async (query: string) => {
     const q = query.toLowerCase();
-    const rows = await db.yarnNodes.filter(n => n.title.toLowerCase().includes(q)).toArray();
-    return rows.map(n => ({
-      id: n.id,
-      type: 'yarn-node',
-      engineId: 'yarn-board',
-      title: n.title,
-      subtitle: n.type,
-      thumbnail: n.image,
-      color: n.color,
-    }));
+    const [boards, nodes] = await Promise.all([
+      db.yarnBoards.filter((board) => board.title.toLowerCase().includes(q)).toArray(),
+      db.yarnNodes.filter((node) => node.title.toLowerCase().includes(q)).toArray(),
+    ]);
+    return [
+      ...boards.map((board) => ({
+        id: board.id,
+        type: 'yarn-board',
+        engineId: 'yarn-board',
+        projectId: board.projectId,
+        title: board.title,
+      })),
+      ...nodes.map((node) => ({
+        id: node.id,
+        type: 'yarn-node',
+        engineId: 'yarn-board',
+        projectId: node.projectId,
+        title: node.title,
+        subtitle: node.type,
+        thumbnail: node.image,
+        color: node.color,
+      })),
+    ];
   },
 });
 
@@ -69,7 +95,9 @@ registerAnchorAdapter({
   supportsTextRange: false,
   async getEntityTitle(entityId: string) {
     const node = await db.yarnNodes.get(entityId);
-    return node?.title ?? null;
+    if (node) return node.title;
+    const board = await db.yarnBoards.get(entityId);
+    return board?.title ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.yarnBoard'),
   navigateToEntity(entityId: string) {

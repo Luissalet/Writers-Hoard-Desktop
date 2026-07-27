@@ -25,6 +25,9 @@ import '@/engines/seeds';
 import '@/engines/pov-audit';
 import '@/engines/annotations';
 import '@/engines/worldgen';
+import '@/services/projectToolsBackup';
+import { registerFallbackAnchorAdapters } from '@/engines/_shared/anchoring/registerFallbackAdapters';
+registerFallbackAnchorAdapters();
 
 // Dev-mode guardrail: warn if any engine's tables slipped through the backup net.
 import { assertBackupCoverage } from '@/engines/_shared/assertBackupCoverage';

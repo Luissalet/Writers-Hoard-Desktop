@@ -1,9 +1,10 @@
+import { lazy } from 'react';
 import { BookOpen } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
-import DiaryEngine from './components/DiaryEngine';
+const DiaryEngine = lazy(() => import('./components/DiaryEngine'));
 
 const diaryEngine: EngineDefinition = {
   id: 'diary',
@@ -29,6 +30,7 @@ registerEntityResolver({
       id: entry.id,
       type: entityType,
       engineId: 'diary',
+      projectId: entry.projectId,
       title: entry.entryDate,
     };
   },
@@ -39,6 +41,7 @@ registerEntityResolver({
       id: d.id,
       type: 'diary-entry',
       engineId: 'diary',
+      projectId: d.projectId,
       title: d.entryDate,
     }));
   },

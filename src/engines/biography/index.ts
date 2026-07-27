@@ -1,9 +1,10 @@
+import { lazy } from 'react';
 import { BookUser } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
-import BiographyEngine from './components/BiographyEngine';
+const BiographyEngine = lazy(() => import('./components/BiographyEngine'));
 
 const biographyEngine: EngineDefinition = {
   id: 'biography',
@@ -24,12 +25,26 @@ registerEntityResolver({
   engineId: 'biography',
   entityTypes: ['biography', 'biography-fact'],
   resolveEntity: async (entityId: string, entityType: string) => {
+    if (entityType === 'biography-fact') {
+      const fact = await db.biographyFacts.get(entityId);
+      if (!fact) return null;
+      const biography = await db.biographies.get(fact.biographyId);
+      return {
+        id: fact.id,
+        type: 'biography-fact',
+        engineId: 'biography',
+        projectId: fact.projectId,
+        title: fact.title,
+        subtitle: biography?.subjectName,
+      };
+    }
     const bio = await db.biographies.get(entityId);
     if (!bio) return null;
     return {
       id: bio.id,
-      type: entityType,
+      type: 'biography',
       engineId: 'biography',
+      projectId: bio.projectId,
       title: bio.subjectName,
       thumbnail: bio.subjectPhoto,
     };
@@ -41,6 +56,7 @@ registerEntityResolver({
       id: b.id,
       type: 'biography',
       engineId: 'biography',
+      projectId: b.projectId,
       title: b.subjectName,
       thumbnail: b.subjectPhoto,
     }));

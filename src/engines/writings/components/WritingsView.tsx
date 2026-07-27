@@ -19,6 +19,8 @@ import {
   Check,
   BookDown,
   History,
+  LoaderCircle,
+  CircleAlert,
 } from 'lucide-react';
 import type { Writing, WritingStatus } from '@/types';
 import { generateId } from '@/utils/idGenerator';
@@ -42,6 +44,11 @@ import { ConfirmDialog } from '@/engines/_shared';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import type { AnnotationAnchor } from '@/engines/annotations/types';
 import GettingStartedChecklist from '@/components/project/GettingStartedChecklist';
+import {
+  clearWritingRecoveryDraft,
+  readWritingRecoveryDraft,
+  writeWritingRecoveryDraft,
+} from '../recoveryJournal';
 
 const STATUS_CONFIG: Record<WritingStatus, { icon: typeof Lightbulb; color: string; bg: string }> = {
   idea: { icon: Lightbulb, color: '#d4a843', bg: 'rgba(212, 168, 67, 0.12)' },
@@ -51,16 +58,32 @@ const STATUS_CONFIG: Record<WritingStatus, { icon: typeof Lightbulb; color: stri
 
 /** Debounce for the editor autosave (ms). */
 const AUTOSAVE_MS = 1200;
+/** Throttled journal writes protect active typing without blocking every keypress. */
+const RECOVERY_JOURNAL_MS = 250;
 /** Cap per-flush "active seconds" so idle pauses don't inflate session time. */
 const MAX_FLUSH_SECONDS = 120;
+
+type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
+
+interface EditorSession {
+  openId: string | null;
+  content: string;
+  title: string;
+  savedContent: string;
+  savedTitle: string;
+  savedWordCount: number;
+  lastFlushAt: number;
+  savePromise: Promise<boolean> | null;
+  journalTimer: number | null;
+}
 
 interface WritingsViewProps {
   projectId: string;
   writings: Writing[];
-  onAdd: (writing: Writing) => void;
-  onEdit: (id: string, changes: Partial<Writing>) => void;
-  onDelete: (id: string) => void;
-  onRefresh?: () => void;
+  onAdd: (writing: Writing) => Promise<void>;
+  onEdit: (id: string, changes: Partial<Writing>) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  onRefresh?: () => Promise<void>;
 }
 
 export default function WritingsView({ projectId, writings, onAdd, onEdit, onDelete, onRefresh }: WritingsViewProps) {
@@ -75,7 +98,9 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
   const [pendingAnchor, setPendingAnchor] = useState<AnnotationAnchor | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
-  const [saveState, setSaveState] = useState<'saved' | 'dirty'>('saved');
+  const [saveState, setSaveState] = useState<SaveState>('saved');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [recoveredDraft, setRecoveredDraft] = useState(false);
   const [showCompile, setShowCompile] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -92,12 +117,12 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
   // ---------------------------------------------------------------------
   // Autosave core.
   //
-  // Everything the flush needs lives in a ref so the unmount cleanup and
-  // window-level handlers never see stale closures. `flushSave` is
-  // synchronous from the caller's perspective (persistence is fire-and-
-  // forget through `onEdit`), so it's safe in unmount and beforeunload.
+  // Everything the flush needs lives in a ref so unmount/window handlers never
+  // see stale closures. One promise owns the session's save loop: writes are
+  // serialized, edits made during a write are coalesced into the next write,
+  // and the persisted baseline moves only after Dexie confirms success.
   // ---------------------------------------------------------------------
-  const editorRef = useRef({
+  const editorRef = useRef<EditorSession>({
     openId: null as string | null,
     content: '',
     title: '',
@@ -105,34 +130,110 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
     savedTitle: '',
     savedWordCount: 0,
     lastFlushAt: 0,
+    savePromise: null,
+    journalTimer: null,
   });
+  const mountedRef = useRef(true);
 
   const onEditRef = useRef(onEdit);
   onEditRef.current = onEdit;
 
-  const flushSave = useCallback(() => {
-    const s = editorRef.current;
-    if (!s.openId) return;
-    if (s.content === s.savedContent && s.title === s.savedTitle) return;
-    const wc = countWords(s.content);
-    onEditRef.current(s.openId, {
-      content: s.content,
-      title: s.title,
-      wordCount: wc,
-    });
-    // Feed real typing into writing-stats (goals/streaks). Fire-and-forget.
-    const now = Date.now();
-    const seconds = s.lastFlushAt ? Math.min(MAX_FLUSH_SECONDS, (now - s.lastFlushAt) / 1000) : 0;
-    const wordsDelta = wc - s.savedWordCount;
-    if (wordsDelta > 0 || seconds > 0) {
-      void recordEditorActivity(projectId, wordsDelta, seconds);
-    }
-    s.savedContent = s.content;
-    s.savedTitle = s.title;
-    s.savedWordCount = wc;
-    s.lastFlushAt = now;
-    setSaveState('saved');
+  const persistRecoveryDraft = useCallback((session: EditorSession) => {
+    if (!session.openId) return;
+    writeWritingRecoveryDraft(
+      projectId,
+      session.openId,
+      session.title,
+      session.content,
+      session.savedTitle,
+      session.savedContent,
+    );
   }, [projectId]);
+
+  const flushSave = useCallback((): Promise<boolean> => {
+    const session = editorRef.current;
+    if (!session.openId) return Promise.resolve(true);
+    if (session.savePromise) return session.savePromise;
+    if (
+      session.content === session.savedContent &&
+      session.title === session.savedTitle
+    ) {
+      return Promise.resolve(true);
+    }
+
+    const saveLoop = async (): Promise<boolean> => {
+      while (
+        session.openId &&
+        (session.content !== session.savedContent ||
+          session.title !== session.savedTitle)
+      ) {
+        const writingId = session.openId;
+        const content = session.content;
+        const title = session.title;
+        const wordCount = countWords(content);
+        const previousWordCount = session.savedWordCount;
+        const now = Date.now();
+        const seconds = session.lastFlushAt
+          ? Math.min(MAX_FLUSH_SECONDS, (now - session.lastFlushAt) / 1000)
+          : 0;
+
+        // Synchronous fallback before crossing the async persistence boundary.
+        if (session.journalTimer !== null) {
+          window.clearTimeout(session.journalTimer);
+          session.journalTimer = null;
+        }
+        persistRecoveryDraft(session);
+        if (mountedRef.current && editorRef.current === session) {
+          setSaveError(null);
+          setSaveState('saving');
+        }
+
+        try {
+          await onEditRef.current(writingId, { content, title, wordCount });
+        } catch (err) {
+          persistRecoveryDraft(session);
+          if (mountedRef.current && editorRef.current === session) {
+            setSaveError(err instanceof Error ? err.message : String(err));
+            setSaveState('error');
+          }
+          return false;
+        }
+
+        // Only a confirmed write advances the persisted baseline.
+        session.savedContent = content;
+        session.savedTitle = title;
+        session.savedWordCount = wordCount;
+        session.lastFlushAt = now;
+
+        const wordsDelta = wordCount - previousWordCount;
+        if (wordsDelta > 0 || seconds > 0) {
+          void recordEditorActivity(projectId, wordsDelta, seconds);
+        }
+
+        const hasNewerChanges =
+          session.content !== session.savedContent ||
+          session.title !== session.savedTitle;
+        if (hasNewerChanges) {
+          persistRecoveryDraft(session);
+          if (mountedRef.current && editorRef.current === session) {
+            setSaveState('dirty');
+          }
+        } else {
+          clearWritingRecoveryDraft(projectId, writingId);
+          if (mountedRef.current && editorRef.current === session) {
+            setRecoveredDraft(false);
+            setSaveState('saved');
+          }
+        }
+      }
+      return true;
+    };
+
+    session.savePromise = saveLoop().finally(() => {
+      session.savePromise = null;
+    });
+    return session.savePromise;
+  }, [persistRecoveryDraft, projectId]);
 
   // Keep the ref in sync with typed state + debounce the flush.
   useEffect(() => {
@@ -141,14 +242,52 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
     s.content = editedContent;
     s.title = editedTitle;
     const dirty = editedContent !== s.savedContent || editedTitle !== s.savedTitle;
-    if (!dirty) return;
+    if (!dirty) {
+      if (!s.savePromise) {
+        if (s.journalTimer !== null) {
+          window.clearTimeout(s.journalTimer);
+          s.journalTimer = null;
+        }
+        if (s.openId) clearWritingRecoveryDraft(projectId, s.openId);
+        setRecoveredDraft(false);
+        setSaveState('saved');
+      }
+      return;
+    }
+    setSaveError(null);
     setSaveState('dirty');
-    const timer = window.setTimeout(flushSave, AUTOSAVE_MS);
-    return () => window.clearTimeout(timer);
-  }, [editedContent, editedTitle, flushSave]);
+    if (s.journalTimer === null) {
+      s.journalTimer = window.setTimeout(() => {
+        s.journalTimer = null;
+        persistRecoveryDraft(s);
+      }, RECOVERY_JOURNAL_MS);
+    }
+    const autosaveTimer = window.setTimeout(() => {
+      void flushSave();
+    }, AUTOSAVE_MS);
+    return () => window.clearTimeout(autosaveTimer);
+  }, [editedContent, editedTitle, flushSave, persistRecoveryDraft, projectId]);
 
-  // Flush on unmount (sidebar navigation, global-search jumps, etc.).
-  useEffect(() => () => flushSave(), [flushSave]);
+  // Flush on unmount (sidebar navigation, global-search jumps, etc.). The
+  // journal is synchronous; the DB flush is best-effort once React is leaving.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const s = editorRef.current;
+      if (s.journalTimer !== null) {
+        window.clearTimeout(s.journalTimer);
+        s.journalTimer = null;
+      }
+      if (
+        s.openId &&
+        (s.content !== s.savedContent || s.title !== s.savedTitle)
+      ) {
+        persistRecoveryDraft(s);
+        void flushSave();
+      }
+    };
+  }, [flushSave, persistRecoveryDraft]);
 
   // Flush + warn on window close while dirty.
   useEffect(() => {
@@ -157,12 +296,14 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
       if (!s.openId) return;
       const dirty = s.content !== s.savedContent || s.title !== s.savedTitle;
       if (!dirty) return;
-      flushSave();
+      persistRecoveryDraft(s);
+      void flushSave();
       e.preventDefault();
+      e.returnValue = '';
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
-  }, [flushSave]);
+  }, [flushSave, persistRecoveryDraft]);
 
   // Ctrl/Cmd+S saves immediately; Escape exits focus mode.
   useEffect(() => {
@@ -170,7 +311,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        flushSave();
+        void flushSave();
       } else if (e.key === 'Escape') {
         setFocusMode(false);
       }
@@ -196,32 +337,40 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
   }), [writings]);
 
   const handleOpenWriting = useCallback((writing: Writing) => {
+    const recovery = readWritingRecoveryDraft(writing);
+    const content = recovery?.content ?? writing.content;
+    const title = recovery?.title ?? writing.title;
     setOpenWriting(writing);
-    setEditedContent(writing.content);
-    setEditedTitle(writing.title);
-    setSaveState('saved');
+    setEditedContent(content);
+    setEditedTitle(title);
+    setSaveError(null);
+    setRecoveredDraft(Boolean(recovery));
+    setSaveState(recovery ? 'dirty' : 'saved');
     editorRef.current = {
       openId: writing.id,
-      content: writing.content,
-      title: writing.title,
+      content,
+      title,
       savedContent: writing.content,
       savedTitle: writing.title,
       savedWordCount: writing.wordCount || countWords(writing.content),
       lastFlushAt: Date.now(),
+      savePromise: null,
+      journalTimer: null,
     };
     // Version history: one automatic restore point per editing session,
     // capturing the document as it was BEFORE this session's changes.
     if (!writing.isGoogleDoc) void takeSnapshot(writing, 'auto');
   }, []);
 
-  const handleCloseWriting = useCallback(() => {
-    flushSave();
+  const handleCloseWriting = useCallback(async () => {
+    const saved = await flushSave();
+    if (!saved) return;
     editorRef.current.openId = null;
     setOpenWriting(null);
     setFocusMode(false);
   }, [flushSave]);
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!newTitle.trim()) return;
     const writing: Writing = {
       id: generateId('wrt'),
@@ -236,7 +385,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    onAdd(writing);
+    await onAdd(writing);
     setNewTitle('');
     setNewStatus('draft');
     setNewSynopsis('');
@@ -248,14 +397,14 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
     handleOpenWriting(writing);
   };
 
-  const handleSaveContent = () => {
-    flushSave();
-    if (!openWriting) return;
+  const handleSaveContent = async () => {
+    const saved = await flushSave();
+    if (!saved || !openWriting) return;
     setOpenWriting({ ...openWriting, content: editedContent, title: editedTitle, wordCount: countWords(editedContent) });
   };
 
   const handleStatusChange = (writingId: string, newSt: WritingStatus) => {
-    onEdit(writingId, { status: newSt });
+    void onEdit(writingId, { status: newSt });
     if (openWriting?.id === writingId) {
       setOpenWriting({ ...openWriting, status: newSt });
     }
@@ -264,7 +413,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
   const handleDuplicate = (writing: Writing, targetStatus: WritingStatus) => {
     // eslint-disable-next-line react-hooks/purity -- click handler: runs at event time, not during render
     const now = Date.now();
-    onAdd({
+    void onAdd({
       ...writing,
       id: generateId('wrt'),
       status: targetStatus,
@@ -293,7 +442,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
 
   const handleSynopsisUpdate = (synopsis: string) => {
     if (!openWriting) return;
-    onEdit(openWriting.id, { synopsis });
+    void onEdit(openWriting.id, { synopsis });
     setOpenWriting({ ...openWriting, synopsis });
   };
 
@@ -312,7 +461,9 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
           editorRef.current.openId = null; // don't autosave a deleted doc
           setOpenWriting(null);
         }
-        onDelete(id);
+        void onDelete(id)
+          .then(() => clearWritingRecoveryDraft(projectId, id))
+          .catch((err) => console.error('[writings] failed to delete writing', err));
       }}
       onCancel={() => setPendingDeleteId(null)}
     />
@@ -421,12 +572,35 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
           {/* Autosave indicator */}
           <span
             className={`flex items-center gap-1 text-xs transition ${
-              saveState === 'saved' ? 'text-text-dim' : 'text-accent-amber'
+              saveState === 'saved'
+                ? 'text-text-dim'
+                : saveState === 'error'
+                  ? 'text-danger'
+                  : saveState === 'saving'
+                    ? 'text-blue-400'
+                    : 'text-accent-amber'
             }`}
-            title={t('writings.autosaveHint')}
+            title={saveError ?? t('writings.autosaveHint')}
+            aria-live="polite"
           >
-            {saveState === 'saved' ? <Check size={12} /> : <PenLine size={12} />}
-            {saveState === 'saved' ? t('writings.savedIndicator') : t('writings.unsavedIndicator')}
+            {saveState === 'saved' ? (
+              <Check size={12} />
+            ) : saveState === 'saving' ? (
+              <LoaderCircle size={12} className="animate-spin" />
+            ) : saveState === 'error' ? (
+              <CircleAlert size={12} />
+            ) : (
+              <PenLine size={12} />
+            )}
+            {saveState === 'saved'
+              ? t('writings.savedIndicator')
+              : saveState === 'saving'
+                ? t('common.saving')
+                : saveState === 'error'
+                  ? t('writings.saveErrorIndicator')
+                  : recoveredDraft
+                    ? t('writings.recoveredIndicator')
+                    : t('writings.unsavedIndicator')}
           </span>
 
           <div className="flex-1" />
@@ -457,7 +631,11 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
 
           {/* Version history */}
           <button
-            onClick={() => setShowHistory(true)}
+            onClick={() => {
+              void flushSave().then((saved) => {
+                if (saved) setShowHistory(true);
+              });
+            }}
             className="p-1.5 rounded-lg transition border text-text-muted border-border hover:text-text-primary hover:bg-elevated"
             title={t('writings.history.title')}
           >
@@ -478,11 +656,12 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
           </button>
 
           <button
-            onClick={handleSaveContent}
-            className="px-4 py-1.5 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
+            onClick={() => void handleSaveContent()}
+            disabled={saveState === 'saving'}
+            className="px-4 py-1.5 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition disabled:opacity-60"
             title="Ctrl+S"
           >
-            {t('writings.save')}
+            {saveState === 'saving' ? t('common.saving') : t('writings.save')}
           </button>
         </div>
 
@@ -569,6 +748,9 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
               savedTitle: title,
               savedWordCount: wordCount,
             };
+            clearWritingRecoveryDraft(projectId, openWriting.id);
+            setRecoveredDraft(false);
+            setSaveError(null);
             setSaveState('saved');
             setShowHistory(false);
           }}
@@ -837,7 +1019,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
               placeholder={t('writings.titlePlaceholder')}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition font-serif text-lg"
               autoFocus
-              onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate(); }}
             />
           </div>
 
@@ -893,7 +1075,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
 
           <div className="flex gap-3 pt-2">
             <button
-              onClick={handleCreate}
+              onClick={() => void handleCreate()}
               className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition"
             >
               {t('common.create')}
@@ -915,7 +1097,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
         projectId={projectId}
         existingWritings={writings}
         onImported={() => {
-          onRefresh?.();
+          void onRefresh?.();
         }}
       />
 

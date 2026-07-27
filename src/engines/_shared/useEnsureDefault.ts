@@ -30,5 +30,5 @@ export function useEnsureDefault<T extends { id: string }>(options: EnsureDefaul
 
     const item = createDefault();
     addItem(item).then(() => onCreated(item.id));
-  }, [loading, items.length]);
+  }, [loading, items.length, createDefault, addItem, onCreated]);
 }

@@ -338,7 +338,7 @@ function renderGlaciers(world: WorldData, px: Uint8ClampedArray): void {
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
       const isSea = elevation[i] <= 0;
-      let base: [number, number, number] = isSea ? sea : rock;
+      const base: [number, number, number] = isSea ? sea : rock;
       let r = base[0], g = base[1], b = base[2];
       if (!isSea) {
         const sh = hillshade(world, i, x, y);

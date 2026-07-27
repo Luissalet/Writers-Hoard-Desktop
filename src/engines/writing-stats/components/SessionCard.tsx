@@ -1,5 +1,6 @@
 import { Clock, FileText } from 'lucide-react';
 import type { WritingSession } from '../types';
+import { toLocalDateKey } from '../date';
 
 interface SessionCardProps {
   session: WritingSession;
@@ -21,7 +22,7 @@ const TYPE_LABELS: Record<WritingSession['type'], string> = {
 
 export default function SessionCard({ session }: SessionCardProps) {
   const date = new Date(session.date + 'T00:00:00');
-  const today = new Date().toISOString().split('T')[0];
+  const today = toLocalDateKey();
   const isToday = session.date === today;
 
   const dateLabel = isToday

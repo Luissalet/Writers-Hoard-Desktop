@@ -76,17 +76,23 @@ const es = {
   // ── Project Detail ──
   'project.notFound': 'Proyecto no encontrado',
   'project.export': 'Exportar',
+  'project.exporting': 'Exportando...',
   'project.exportProject': 'Exportar proyecto',
   'project.exportDone': 'Proyecto exportado como ZIP',
   'project.exportError': 'Error al exportar el proyecto.',
   'project.manageEngines': 'Gestionar motores',
   'project.noEngines': 'No hay motores activados',
+  'project.engineError.title': 'No se pudo abrir este motor',
+  'project.engineError.message': 'Los datos del proyecto están a salvo. Reintenta el motor o vuelve al resumen.',
+  'project.engineError.retry': 'Reintentar motor',
+  'project.engineError.details': 'Detalles técnicos',
 
   // ── Sidebar ──
   'sidebar.brand': "Writer's Hoard",
   'sidebar.home': 'Inicio',
   'sidebar.mediaDownloader': 'Descargar medios',
   'sidebar.project': 'Proyecto',
+  'sidebar.overview': 'Resumen',
   'sidebar.writings': 'Escritos',
   'sidebar.codex': 'Códex',
   'sidebar.timeline': 'Línea temporal',
@@ -94,6 +100,10 @@ const es = {
   'sidebar.yarnBoard': 'Tablero de hilos',
   'sidebar.gallery': 'Galería',
   'sidebar.notes': 'Notas',
+
+  'gallery.assetPicker.title': 'Elegir de la galería',
+  'gallery.assetPicker.empty': 'Añade primero imágenes a la galería de este proyecto.',
+  'gallery.assetPicker.image': 'Imagen de galería',
 
   // ── TopBar ──
   'topbar.settings': 'Ajustes',
@@ -685,6 +695,8 @@ const es = {
   'writings.history.reason.manual': 'manual',
   'writings.history.reason.pre-restore': 'antes de restaurar',
   'writings.savedIndicator': 'Guardado',
+  'writings.recoveredIndicator': 'Cambios sin guardar recuperados...',
+  'writings.saveErrorIndicator': 'Error al guardar - reintentar',
   'writings.unsavedIndicator': 'Cambios sin guardar…',
   'writings.autosaveHint': 'Se guarda solo mientras escribes. Ctrl+S guarda al instante.',
   'writings.focusMode': 'Modo concentración (ocultar paneles)',

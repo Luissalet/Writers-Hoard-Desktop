@@ -1,9 +1,12 @@
-import { useEffect } from 'react';
+import { Suspense, useEffect, useMemo } from 'react';
+import { Settings2 } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useProject } from '@/hooks/useProjects';
-import { getEnginesByIds } from '@/engines';
+import { getEngine, getEnginesByIds } from '@/engines';
 import TopBar from '@/components/layout/TopBar';
 import EngineManager from '@/components/project/EngineManager';
+import EngineErrorBoundary from '@/components/common/EngineErrorBoundary';
+import ProjectCockpit from '@/components/project/ProjectCockpit';
 import { updateProject } from '@/db/operations';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useAppStore } from '@/stores/appStore';
@@ -16,30 +19,49 @@ export default function ProjectDetail() {
   const { showEngineManager, setShowEngineManager } = useAppStore();
 
   // Get enabled engines from project — deduplicate to heal any corrupt data
-  const rawOrder = project?.engineOrder || project?.enabledEngines || [];
-  const rawEnabled = project?.enabledEngines || [];
-  const engineIds = [...new Set(rawOrder)];
-  const engines = getEnginesByIds(engineIds);
+  const rawOrder = useMemo(
+    () => project?.engineOrder || project?.enabledEngines || [],
+    [project],
+  );
+  const rawEnabled = useMemo(
+    () => project?.enabledEngines || [],
+    [project],
+  );
+  const engineIds = useMemo(() => {
+    const enabled = [...new Set(rawEnabled)].filter(engineId => Boolean(getEngine(engineId)));
+    const enabledSet = new Set(enabled);
+    const ordered = [...new Set(rawOrder)].filter(engineId => enabledSet.has(engineId));
+    const orderedSet = new Set(ordered);
+    return [...ordered, ...enabled.filter(engineId => !orderedSet.has(engineId))];
+  }, [rawEnabled, rawOrder]);
+  const engines = useMemo(() => getEnginesByIds(engineIds), [engineIds]);
 
   // Auto-heal: if duplicates detected in DB, clean them up silently
   useEffect(() => {
     if (!project || !id) return;
-    const hasDuplicateOrder = rawOrder.length !== new Set(rawOrder).size;
-    const hasDuplicateEnabled = rawEnabled.length !== new Set(rawEnabled).size;
-    if (hasDuplicateOrder || hasDuplicateEnabled) {
+    const normalizedEnabled = [...new Set(rawEnabled)].filter(engineId => Boolean(getEngine(engineId)));
+    const needsRepair =
+      JSON.stringify(rawEnabled) !== JSON.stringify(normalizedEnabled) ||
+      JSON.stringify(rawOrder) !== JSON.stringify(engineIds);
+    if (needsRepair) {
       updateProject(id, {
-        enabledEngines: [...new Set(rawEnabled)],
-        engineOrder: [...new Set(rawOrder)],
-      }).then(() => refresh());
+        enabledEngines: normalizedEnabled,
+        engineOrder: engineIds,
+      }).then(() => refresh()).catch(error => {
+        console.error('Failed to repair project engine preferences', error);
+      });
     }
-  }, [project, id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [engineIds, id, project, rawEnabled, rawOrder, refresh]);
 
-  // Redirect to first engine if no tab in URL
+  // Never validate a deep engine route against the hook's pre-hydration empty
+  // arrays. Doing so turns every cold `/project/:id/:engine` load into a silent
+  // redirect to Overview before IndexedDB has returned the project.
   useEffect(() => {
-    if (id && engines.length > 0 && !tab) {
-      navigate(`/project/${id}/${engines[0].id}`, { replace: true });
+    if (loading || !project || !id) return;
+    if (!tab || (tab !== 'overview' && !engineIds.includes(tab))) {
+      navigate(`/project/${id}/overview`, { replace: true });
     }
-  }, [id, engines, tab, navigate]);
+  }, [id, engineIds, loading, project, tab, navigate]);
 
   // Active engine is fully URL-driven
   const activeEngine = engines.find((e) => e.id === tab);
@@ -70,11 +92,42 @@ export default function ProjectDetail() {
       <div className="flex-1 overflow-hidden flex flex-col">
         {/* Engine content — no more tab bar */}
         <div className="flex-1 overflow-y-auto p-6">
-          {activeEngine ? (
-            <activeEngine.component projectId={id!} />
+          {tab === 'overview' ? (
+            <ProjectCockpit
+              projectId={id!}
+              onManageEngines={() => setShowEngineManager(true)}
+            />
+          ) : activeEngine ? (
+            <EngineErrorBoundary
+              resetKey={`${id}:${activeEngine.id}`}
+              title={t('project.engineError.title')}
+              message={t('project.engineError.message')}
+              retryLabel={t('project.engineError.retry')}
+              detailsLabel={t('project.engineError.details')}
+            >
+              <Suspense
+                fallback={(
+                  <div className="flex min-h-[22rem] items-center justify-center">
+                    <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-gold border-t-transparent" />
+                  </div>
+                )}
+              >
+                <activeEngine.component projectId={id!} />
+              </Suspense>
+            </EngineErrorBoundary>
           ) : (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-text-muted">{t('project.noEngines')}</p>
+            <div className="flex h-full items-center justify-center">
+              <div className="max-w-sm text-center">
+                <p className="text-text-muted">{t('project.noEngines')}</p>
+                <button
+                  type="button"
+                  onClick={() => setShowEngineManager(true)}
+                  className="mx-auto mt-4 flex items-center gap-2 rounded-lg bg-accent-gold px-4 py-2 text-sm font-medium text-background transition hover:brightness-110"
+                >
+                  <Settings2 size={16} />
+                  {t('project.manageEngines')}
+                </button>
+              </div>
             </div>
           )}
         </div>

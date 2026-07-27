@@ -244,7 +244,7 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
     f.t = now;
     cost.current = Math.max(1, now - (lastDraw.current || now));
     lastDraw.current = now;
-  }, [viewRect]);
+  }, [palette, viewRect, world]);
 
   // The scheduled frame must call the LATEST draw, not the one that was current
   // when the frame was booked.
@@ -275,13 +275,12 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
    * is wanted, rAF is tried because when it works it is the right clock, and a
    * permanent timer draws whatever rAF did not. If a booked frame is overdue,
    * rAF is declared dead and never used again.
-   */
+  */
   const needsDraw = useRef(false);
-  const rafAlive = rafAliveRef;
   const bookedAt = useRef(0);
   const request = useCallback(() => {
     needsDraw.current = true;
-    if (!rafAlive.current || raf.current) return;
+    if (!rafAliveRef.current || raf.current) return;
     bookedAt.current = performance.now();
     raf.current = requestAnimationFrame(() => {
       raf.current = 0;
@@ -302,7 +301,7 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
       // legitimately spend eighty milliseconds on a frame, and a flat deadline
       // would call that a broken clock and then hammer the fallback path at 60 Hz.
       if (raf.current && now - bookedAt.current > Math.max(320, cost.current * 4)) {
-        rafAlive.current = false;
+        rafAliveRef.current = false;
         cancelAnimationFrame(raf.current);
         raf.current = 0;
         setDiag((d) => (d.startsWith('reloj') ? d : 'reloj propio · el navegador no entrega fotogramas'));
@@ -310,7 +309,7 @@ export default function SculptView({ world, tool, onEdit, revision, onHover }: S
       if (!needsDraw.current) return;
       // Leave the compositor as much time as the draw took, or the picture never
       // reaches the screen however many times it is drawn.
-      if (!rafAlive.current && now - lastDraw.current < Math.max(16, cost.current)) return;
+      if (!rafAliveRef.current && now - lastDraw.current < Math.max(16, cost.current)) return;
       needsDraw.current = false;
       drawRef.current();
     }, 16);
