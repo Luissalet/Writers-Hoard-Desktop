@@ -1,7 +1,7 @@
 # Writers Hoard project knowledge
 
-Last verified: 2026-07-27 against the current working tree, including uncommitted
-Notes/quick-note and Links-to-Scrapper migration work.
+Last verified: 2026-07-27 against the current uncommitted working tree after the
+stability, cross-engine workflow, and product-capability implementation.
 
 Use this as the current-state companion to `tasks/lessons.md`. The older
 `tasks/architecture-unified-app.md` is a design/migration plan; many of its
@@ -51,12 +51,14 @@ Current routes:
 | `/` | Project dashboard, import/export, project creation |
 | `/notes` | Project-less quick-capture inbox |
 | `/media-downloader` | Desktop-only standalone downloader |
-| `/project/:id` | Redirects to the project's first enabled engine |
-| `/project/:id/:tab` | Renders the selected engine |
+| `/project/:id` | Redirects to the Project Overview cockpit |
+| `/project/:id/overview` | Project Cockpit, health, intelligence, and cross-engine tools |
+| `/project/:id/:tab` | Lazily renders a valid enabled engine |
 
-`ProjectDetail` is intentionally thin. It reads the project's ordered engine
-IDs, resolves them through the registry, and renders the selected engine root
-with only `projectId`.
+`ProjectDetail` repairs duplicate/stale engine ordering, heals missing or
+disabled tabs back to Overview only after the project has hydrated, supports a
+zero-engine management state, and wraps lazy engine roots in Suspense plus an
+engine-local error boundary.
 
 ## Source map
 
@@ -68,7 +70,7 @@ with only `projectId`.
 | `src/components/` | Application shell and general UI primitives |
 | `src/pages/` | Global pages and dynamic project composition |
 | `src/stores/` | Thin Zustand layer for UI/integration state |
-| `src/services/` | Backup, AI, Google, writing activity, media/capture bridges |
+| `src/services/` | Backup, AI, search, project intelligence/tools, Google, writing activity, media/capture bridges |
 | `electron/` | Native shell, IPC, updater, media/archive infrastructure |
 | `harness/` | Ad-hoc worldgen checks, renderers, profilers, and browser drivers |
 | `docs/worldgen/` | Worldgen research and visual references |
@@ -130,7 +132,7 @@ copies of the same project.
 | `codex` | core | Characters, locations, items, factions, concepts | `codexEntries` |
 | `timeline` | core | Multi-lane events, ranges, event links | `timelines`, `timelineEvents`, `timelineConnections` |
 | `yarn-board` | core | Freeform node/edge concept maps | `yarnBoards`, `yarnNodes`, `yarnEdges` |
-| `maps` | core | Uploaded world maps and pins | `worldMaps`, `mapPins` |
+| `maps` | core | Uploaded maps plus synchronized Worldgen-backed maps and editable pins | `worldMaps`, `mapPins` |
 | `gallery` | core | Image collections and linked inspiration | `imageCollections`, `inspirationImages` |
 | `notes` | core | Short notes, quotes, ideas, and global inbox capture | `notes` |
 | `writing-stats` | core | Sessions, goals, sprints, progress, streaks | `writingSessions`, `writingGoals` |
@@ -138,7 +140,7 @@ copies of the same project.
 | `brainstorm` | creative | Mixed freeform boards with entity references | `brainstormBoards`, `brainstormItems`, `brainstormConnections` |
 | `dialog-scene` | creative | Scenes, formatted dialog/action blocks, cast | `scenes`, `dialogBlocks`, `sceneCasts` |
 | `diary` | creative | Timestamped entries, moods, and tags | `diaryEntries` |
-| `worldgen` | creative | Deterministic worlds, maps, 3D, cartography, editing | `generatedWorlds`, `worldWaypoints` |
+| `worldgen` | creative | Deterministic multiscale worlds, semantic 2D/3D maps, saved regions, cartography, and spatial editing | `generatedWorlds`, `worldWaypoints` |
 | `annotations` | planning | Margin notes, references, backlinks, reanchoring | `annotations`, `annotationReferences` |
 | `character-arc` | planning | Character journey templates and beats | `characterArcs`, `arcBeats` |
 | `outline` | planning | Hierarchical beats and plot templates | `outlines`, `outlineBeats` |
@@ -151,7 +153,7 @@ copies of the same project.
 
 ## Persistence and domain invariants
 
-`WritersHoardDB` currently reaches schema version 22 and exposes 46 typed table
+`WritersHoardDB` currently reaches schema version 23 and exposes 50 typed table
 properties. Engine table declarations are descriptive and support backup
 coverage checks; they do **not** generate the Dexie schema. A persisted engine
 still needs a central, versioned change in `src/db/index.ts`.
@@ -172,6 +174,12 @@ Important rules:
 - Worldgen source-of-truth is `(seed/params + ordered edits)`. The compressed
   `worldSnapshots` table is a replaceable cache and is intentionally excluded
   from backups.
+- Worldgen landmarks and regional places use deterministic source keys. Rename,
+  move, style, hide, and restore operations remain sparse edits so regenerated
+  terrain and resolution changes do not orphan user-authored changes.
+- Saved Worldgen regions are lightweight viewport definitions on the generated
+  world. Regional terrain is derived in a cancellable worker and held in an LRU
+  cache rather than persisted as authoritative data.
 
 Recent schema direction:
 
@@ -180,6 +188,8 @@ Recent schema direction:
 - v21 added Notes, migrated legacy Links into link-only Scrapper snapshots, and
   removed `links` from project engine lists.
 - v22 dropped the retired `externalLinks` store.
+- v23 added project-scoped `entityLinks`, `citations`, `publishingProfiles`, and
+  `conversionReceipts`.
 
 ## Cross-engine infrastructure
 
@@ -191,23 +201,30 @@ Engine `index.ts` files can register three independent capabilities:
 
 Current coverage:
 
-- 20 of 22 engines register entity resolvers. Annotations and the tableless POV
-  audit do not.
-- Six engines register anchor adapters: Writings, Codex, Yarn Board, Maps,
-  Seeds, and Worldgen.
-- Every persisted engine has some backup registration, but registration by
-  table name is not proof that the strategy can round-trip its relationships.
+- Searchable entities carry their owning `projectId`; title search can be
+  project-scoped or global without guessing ownership from the current route.
+- Rich anchor adapters remain for engines with native selection semantics.
+  Every other searchable engine receives a navigation-safe fallback adapter.
+- Persisted engine strategies pass static schema/ownership conformance and the
+  critical browser suite round-trips parent/child and empty-parent cases.
+- Project-tool tables use a project-scoped backup strategy registered at engine
+  bootstrap.
 
-Global search combines registered title resolvers with full-content scans of
-Writings, Codex, Diary, and Dialog bodies.
+Global full-content search uses one invalidation-aware in-memory index instead
+of rescanning tables per keypress. It indexes Writings, Codex, Diary, Dialog,
+and Scrapper research text, while registered resolvers cover entity titles.
 
 ## Important workflows
 
 ### Writing
 
-Writings store TipTap HTML and autosave after a 1.2-second debounce. A session
-snapshot is created when editing begins; manual and pre-restore snapshots make
-restoration reversible. Positive word/time deltas feed Writing Stats.
+Writings store TipTap HTML and autosave after a 1.2-second debounce. Saves are
+serialized and awaited; edits arriving during a save are coalesced into the next
+write. Dirty/saving/saved/error UI reflects confirmed persistence, and a
+localStorage recovery journal survives a failed/unload-time IndexedDB write.
+A session snapshot is created when editing begins; manual and pre-restore
+snapshots make restoration reversible. Positive word/time deltas feed Writing
+Stats using local calendar-day keys.
 
 ### Scrapper
 
@@ -220,12 +237,50 @@ pipelines:
 
 Downloads/captures are serialized, cancellable, and aborted on application
 quit. Relative paths and lifecycle/error state are written back to the snapshot.
+Interrupted states are reconciled on the next startup. Asset Vault can audit
+managed files, clear missing references, and relocate the managed library while
+retaining the old directory as a safety copy.
 
 ### Quick notes
 
 The floating quick-note window never opens Dexie. It submits through IPC, the
 main process relays to the already-mounted main renderer, and `QuickNoteHost`
 performs the only database write. This avoids multi-window refresh conflicts.
+The Project Cockpit can explicitly open this capture surface or read clipboard
+text after a user click.
+
+### Worldgen
+
+The world viewport is shared across 2D, 3D, and regional sheets. Semantic zoom
+uses planetary, continental, regional, and local tiers with hysteresis,
+deterministic label decluttering, and tier-specific feature budgets. Close
+views request regional worker tiles; the 2D renderer composites their terrain
+and places, while the 3D surface blends their elevation through a detail
+texture. Three-dimensional display quality adapts DPR and mesh density against
+a rolling frame budget.
+
+Landmarks and regional places resolve through one spatial-entity model and one
+inspector. Selection, renaming, movement, symbol/style edits, label visibility,
+hide/restore, exact reveal, and cross-engine links therefore remain consistent
+between renderers. Worldgen-backed Maps rows retain source provenance and
+synchronize source waypoints; uploaded maps remain standalone.
+
+### Project Cockpit and cross-engine tools
+
+Overview is a reactive Dexie read model covering recent work, health issues,
+repair actions, aggregated entities/backlinks, the editable
+Outline Beat ↔ Scene ↔ Writing narrative spine, story metrics, and asset
+inventory. Its tool views add:
+
+- Notes/Diary/Scrapper promotion to Writings with typed provenance receipts and
+  transactional undo;
+- project recipes and custom templates;
+- citations, bibliography formatting/export, and research coverage;
+- publishing profiles for manuscript, screenplay, research, biography, and
+  video outputs;
+- explicitly opt-in grounded AI. Both the feature and remote requests default
+  off; only selected indexed excerpts are sent and answers are instructed to
+  cite their source IDs.
 
 ### World generation
 
@@ -247,59 +302,35 @@ against a pristine generated copy.
   media, page capture, Instagram login, export, quick notes, and updates.
 - Browser windows use context isolation, sandboxing, and no Node integration.
 - Managed paths are traversal-checked before disk access.
+- The media-library relocation IPC chooses its destination in the main process,
+  writes its location atomically, and never accepts an arbitrary renderer path.
 - Google Identity/Drive/Docs are called directly from the renderer.
 - AI uses an OpenAI-compatible endpoint, defaulting to
   `http://localhost:8317`.
 - Google OAuth tokens remain in memory; locale and AI configuration persist in
   Dexie settings.
 
-## Current risks and future inspection priorities
+## Current guardrails and residual risks
 
-These are findings from the exploration, not fixes made by this task.
-
-1. **ZIP backup can silently omit data.**
-   - Timeline registers only `timelineConnections`; `timelines` and
-     `timelineEvents` still assume a removed legacy export path.
-   - The generic backup strategy assumes every listed table has a `projectId`
-     index. `brainstormConnections` and `annotationReferences` do not.
-   - Per-engine backup/import failures are logged and ignored, while the outer
-     UI can still report success. Full restore clears registered tables first.
-   - Scrapper backs up path metadata, not the external media/archive files.
-   - Empty gallery collections are not exported.
-   - There is no automated backup round-trip test.
-
-2. **Last-write durability deserves a focused review.**
-   Writing autosave marks its baseline/UI saved before the asynchronous write
-   is known to have completed, including unmount/beforeunload paths.
-
-3. **Soft-reference and cascade behavior is uneven.**
-   Engine-level writing deletion can leave version snapshots, Yarn node deletion
-   can leave incident edges, and project deletion leaves derived world snapshot
-   cache rows. Most cross-engine references are not repaired when targets die.
-
-4. **Global search results lack project ownership.**
-   Title resolvers search across all projects but `EntityPreview` has no
-   `projectId`. Anchor navigation infers the current project from
-   `window.location.pathname`, which is unreliable from the dashboard, another
-   project, and Electron's hash-based routes.
-
-5. **Writing Stats uses UTC day boundaries.**
-   `toISOString()` can assign late-night activity to a different perceived day
-   in Europe/Madrid.
-
-6. **Quality gates are incomplete.**
-   There is no test runner, test script, coverage threshold, or backup
-   round-trip suite. The 52-file `harness/` collection is useful but ad hoc,
-   partially Linux-specific, and not wired to CI.
-
-7. **Release CI does not run all available static checks.**
-   Neither Pages nor desktop release CI runs lint or Electron typechecking.
-   Electron main/preload are bundled by esbuild, which does not typecheck.
-
-8. **Binary and documentation reproducibility can drift.**
-   yt-dlp and gallery-dl are downloaded from mutable `latest` URLs without
-   pinned versions/checksums. `.env.example` still names Vite port 5173 while
-   the project uses 5174, and README/build comments underdescribe gallery-dl.
+- ZIP restore preflights before mutation, imports inside a Dexie transaction,
+  and fails closed with structured engine/path diagnostics. Scrapper backups
+  deliberately preserve metadata but reset unavailable external-file states;
+  the native files themselves are not embedded in ZIP archives.
+- Parent deletion owns high-risk children/caches (writing snapshots, Yarn
+  edges, world caches), and Project Health can detect/repair other stale soft
+  references. Dexie still has no foreign keys, so new relationships require a
+  deliberate lifecycle audit.
+- `verify:quick` enforces renderer/Electron types, a zero-fingerprint shipping
+  lint baseline, engine/schema/backup/locale conformance, and pinned binary
+  metadata. `verify:release` additionally runs isolated Electron/IndexedDB
+  critical tests, complete bundled/Vite renderer startup smoke tests,
+  production builds, and renderer bundle budgets.
+- Engine roots are split, including large Worldgen and editor paths. The shared
+  renderer entry remains sizeable (about 1.49 MB minified in this verification)
+  and is protected by a 1.6 MB ratchet rather than considered fully optimized.
+- The recovery journal is intentionally best-effort and remains subject to
+  browser localStorage quota. Writing analytics never turn a successful
+  document save into a failure.
 
 ## Efficient extension checklist
 
@@ -315,20 +346,22 @@ When adding or changing an engine:
    every child table that lacks `projectId`.
 8. Audit single-entity deletion, whole-project deletion, and external files.
 9. Preserve the guarded initial-load/background-refresh hook contract.
-10. Verify renderer TypeScript, Electron TypeScript, lint, and the relevant
-    manual/harness workflow. For persistence work, manually round-trip a ZIP
-    until an automated suite exists.
+10. Run `verify:quick`; for persistence, lifecycle, route, or backup changes,
+    extend and run `test:critical`. Run `verify:release` before packaging.
 
 ## Verification commands
 
 ```powershell
-npx tsc -b --noEmit
-npm run typecheck:electron
-npm run lint
+npm run verify:quick
+npm run test:critical
+npm run verify:release
 ```
 
-For desktop behavior, use `npm run dev:desktop`. Changes under `electron/`
-require restarting the Electron process; refreshing the renderer is not enough.
+For desktop behavior, use `npm run dev:desktop`. The coordinated launcher starts
+Vite, reads its resolved local URL, passes that exact URL to Electron, and owns
+both lifecycles. Port fallback is therefore safe even when another local Vite
+instance is already listening. Changes under `electron/` require restarting the
+Electron process; refreshing the renderer is not enough.
 
 Always inspect `git status` first. The repository often contains deliberate
 uncommitted work, staged alternatives, and archived experiments that must not be

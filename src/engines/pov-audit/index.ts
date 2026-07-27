@@ -1,3 +1,5 @@
+import { lazy } from 'react';
+
 // ============================================
 // POV / Scene Audit — engine registration
 // ============================================
@@ -9,7 +11,7 @@
 import { Eye } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine } from '@/engines/_registry';
-import PovAuditEngine from './components/PovAuditEngine';
+const PovAuditEngine = lazy(() => import('./components/PovAuditEngine'));
 
 const povAuditEngine: EngineDefinition = {
   id: 'pov-audit',

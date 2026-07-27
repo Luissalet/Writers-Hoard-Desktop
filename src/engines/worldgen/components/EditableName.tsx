@@ -22,16 +22,13 @@ export default function EditableName({ value, onRename, className, placeholder }
   className?: string;
   placeholder?: string;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
+  const [edit, setEdit] = useState<{ source: string; draft: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // A rename elsewhere, or a different place selected, must not leave a stale
-  // draft sitting in the box.
-  useEffect(() => {
-    setDraft(value);
-    setEditing(false);
-  }, [value]);
+  // A rename elsewhere, or a different place selected, makes the edit stale
+  // immediately without needing an effect to mirror the prop into state.
+  const editing = edit?.source === value;
+  const draft = editing ? edit.draft : value;
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
@@ -39,8 +36,8 @@ export default function EditableName({ value, onRename, className, placeholder }
 
   const commit = () => {
     const next = draft.trim();
-    setEditing(false);
-    if (!next || next === value) { setDraft(value); return; }
+    setEdit(null);
+    if (!next || next === value) return;
     onRename?.(next);
   };
 
@@ -51,7 +48,7 @@ export default function EditableName({ value, onRename, className, placeholder }
   if (!editing) {
     return (
       <button
-        onClick={() => setEditing(true)}
+        onClick={() => setEdit({ source: value, draft: value })}
         title="Cambiar el nombre"
         className={`group inline-flex items-center gap-1.5 min-w-0 text-left ${className ?? ''}`}
       >
@@ -67,14 +64,14 @@ export default function EditableName({ value, onRename, className, placeholder }
         ref={inputRef}
         value={draft}
         autoFocus
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => setEdit({ source: value, draft: e.target.value })}
         onKeyDown={(e) => {
           // Stop here: the map underneath binds single letters to tools and
           // Ctrl+Z to the world's undo, and neither should fire while somebody
           // is typing a name.
           e.stopPropagation();
           if (e.key === 'Enter') commit();
-          if (e.key === 'Escape') { setDraft(value); setEditing(false); }
+          if (e.key === 'Escape') setEdit(null);
         }}
         onBlur={commit}
         className={`min-w-0 flex-1 bg-black/40 border border-accent-gold/50 rounded px-1.5 py-0.5 outline-none ${className ?? ''}`}
@@ -84,7 +81,7 @@ export default function EditableName({ value, onRename, className, placeholder }
       </button>
       <button
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => { setDraft(value); setEditing(false); }}
+        onClick={() => setEdit(null)}
         title="Cancelar"
         className="shrink-0 text-text-dim hover:text-text-muted"
       >

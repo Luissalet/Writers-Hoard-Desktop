@@ -47,6 +47,24 @@ export function entityTypeToEngineId(entityType: string): string | undefined {
   return typeToEngineMap.get(entityType);
 }
 
+export function getAllEntityResolvers(): EntityResolverConfig[] {
+  return [...resolverRegistry.values()];
+}
+
+/** Resolve an id when the caller knows the engine but not its entity subtype. */
+export async function resolveEntityInEngine(
+  engineId: string,
+  entityId: string,
+): Promise<EntityPreview | null> {
+  const config = resolverRegistry.get(engineId);
+  if (!config) return null;
+  for (const entityType of config.entityTypes) {
+    const preview = await config.resolveEntity(entityId, entityType);
+    if (preview) return preview;
+  }
+  return null;
+}
+
 /**
  * Resolve a single entity by ID and type to a preview card.
  * Returns null if the entity type is not registered or the entity doesn't exist.
@@ -69,6 +87,7 @@ export async function resolveEntity(
 export async function searchEntities(
   query: string,
   engineIds?: string[],
+  projectId?: string,
 ): Promise<EntityPreview[]> {
   if (!query.trim()) return [];
   const engines = engineIds ?? [...resolverRegistry.keys()];
@@ -78,5 +97,8 @@ export async function searchEntities(
       .filter(Boolean)
       .map(config => config!.searchEntities(query))
   );
-  return results.flat();
+  const flattened = results.flat();
+  return projectId
+    ? flattened.filter(result => result.projectId === projectId)
+    : flattened;
 }

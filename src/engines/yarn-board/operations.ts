@@ -43,7 +43,11 @@ export async function updateYarnNode(id: string, changes: Partial<YarnNode>): Pr
 }
 
 export async function deleteYarnNode(id: string): Promise<void> {
-  await db.yarnNodes.delete(id);
+  await db.transaction('rw', [db.yarnNodes, db.yarnEdges], async () => {
+    await db.yarnEdges.where('sourceId').equals(id).delete();
+    await db.yarnEdges.where('targetId').equals(id).delete();
+    await db.yarnNodes.delete(id);
+  });
 }
 
 // ===== Yarn Edges =====

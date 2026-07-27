@@ -6,9 +6,18 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores([
+    'dist',
+    'dist-electron',
+    'release',
+    'node_modules',
+    'resources/bin',
+    '_stage',
+    '_to_delete',
+    'harness',
+  ]),
   {
-    files: ['**/*.{ts,tsx}'],
+    files: ['src/**/*.{ts,tsx}'],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,
@@ -43,6 +52,17 @@ export default defineConfig([
             'Native prompt() is unreliable across the tab lifecycle. Use a React-owned input modal.',
         },
       ],
+    },
+  },
+  {
+    files: ['electron/**/*.ts', 'electron/**/*.mjs', 'scripts/**/*.mjs', 'vite.config.ts', 'eslint.config.js'],
+    extends: [
+      js.configs.recommended,
+      tseslint.configs.recommended,
+    ],
+    languageOptions: {
+      ecmaVersion: 2022,
+      globals: globals.node,
     },
   },
 ])

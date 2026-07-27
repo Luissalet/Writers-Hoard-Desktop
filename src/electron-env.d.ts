@@ -94,6 +94,18 @@ export interface ElectronAPI {
     }) => Promise<DownloadToLibraryResult>;
     cancelDownload: (snapshotId: string) => Promise<void>;
     deleteLibraryFile: (relPath: string) => Promise<void>;
+    listLibraryFiles: (projectId?: string) => Promise<{
+      root: string;
+      files: Array<{ relPath: string; sizeBytes: number; modifiedAt: number }>;
+    }>;
+    relocateLibrary: () => Promise<{
+      ok: boolean;
+      canceled?: boolean;
+      root?: string;
+      previousRoot?: string;
+      copiedFiles?: number;
+      error?: string;
+    }>;
   };
   capture: {
     page: (args: {
@@ -114,6 +126,7 @@ export interface ElectronAPI {
   quickNote: {
     setContext: (ctx: QuickNoteContext) => void;
     getContext: () => Promise<QuickNoteContext>;
+    open: () => Promise<void>;
     submit: (payload: QuickNotePayload) => Promise<{ ok: boolean }>;
     close: () => void;
     onCapture: (callback: (payload: QuickNotePayload) => void) => () => void;

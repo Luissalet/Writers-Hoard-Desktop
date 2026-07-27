@@ -10,7 +10,14 @@ export { default as EngineSpinner } from './components/EngineSpinner';
 export { default as NewItemForm } from './components/NewItemForm';
 export { default as CollectionDashboard } from './components/CollectionDashboard';
 export { default as ConfirmDialog } from './components/ConfirmDialog';
-export { registerEntityResolver, resolveEntity, searchEntities, entityTypeToEngineId } from './entityResolverRegistry';
+export {
+  registerEntityResolver,
+  resolveEntity,
+  resolveEntityInEngine,
+  searchEntities,
+  entityTypeToEngineId,
+  getAllEntityResolvers,
+} from './entityResolverRegistry';
 export {
   registerBackupStrategy,
   getAllBackupStrategies,

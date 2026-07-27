@@ -1,11 +1,27 @@
 import { useState, useRef, useCallback } from 'react';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
-import { Plus, Upload, Trash2, MapPin as MapPinIcon, Mountain, Trees, Castle, Anchor, Landmark, Church } from 'lucide-react';
-import type { MapPin } from '@/types';
+import {
+  Plus,
+  Upload,
+  Trash2,
+  MapPin as MapPinIcon,
+  Mountain,
+  Trees,
+  Castle,
+  Anchor,
+  Landmark,
+  Church,
+  Images,
+  Link2,
+  Move,
+} from 'lucide-react';
+import type { CodexEntry, MapPin } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
 import { useTranslation } from '@/i18n/useTranslation';
+import GalleryAssetPicker from '@/components/gallery/GalleryAssetPicker';
+import { ConfirmDialog } from '@/engines/_shared';
 
 const PIN_ICONS: Record<string, { icon: typeof MapPinIcon; color: string }> = {
   city: { icon: MapPinIcon, color: '#c4973b' },
@@ -25,12 +41,45 @@ interface MapViewProps {
   mapId: string;
   backgroundImage?: string;
   pins: MapPin[];
+  codexEntries?: CodexEntry[];
   onUploadBackground: (imageData: string) => void;
-  onAddPin: (pin: MapPin) => void;
-  onDeletePin: (id: string) => void;
+  onAddPin: (pin: MapPin) => void | Promise<void>;
+  onEditPin: (id: string, changes: Partial<MapPin>) => void | Promise<void>;
+  onDeletePin: (id: string) => void | Promise<void>;
 }
 
-export default function MapView({ projectId, mapId, backgroundImage, pins, onUploadBackground, onAddPin, onDeletePin }: MapViewProps) {
+interface PinDraft {
+  name: string;
+  description: string;
+  icon: MapPin['icon'];
+  color?: string;
+  linkedEntryId?: string;
+}
+
+interface PinDragState {
+  id: string;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  moved: boolean;
+  position: MapPin['position'];
+}
+
+function clampPercentage(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+export default function MapView({
+  projectId,
+  mapId,
+  backgroundImage,
+  pins,
+  codexEntries = [],
+  onUploadBackground,
+  onAddPin,
+  onEditPin,
+  onDeletePin,
+}: MapViewProps) {
   const { t } = useTranslation();
   const [placingPin, setPlacingPin] = useState(false);
   const [pinType, setPinType] = useState<MapPin['icon']>('city');
@@ -39,8 +88,44 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
   const [pinName, setPinName] = useState('');
   const [pinDescription, setPinDescription] = useState('');
   const [hoveredPin, setHoveredPin] = useState<string | null>(null);
+  const [showGallery, setShowGallery] = useState(false);
+  const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
+  const [pinDraft, setPinDraft] = useState<PinDraft | null>(null);
+  const [pendingDeletePin, setPendingDeletePin] = useState<MapPin | null>(null);
+  const [dragState, setDragState] = useState<PinDragState | null>(null);
+  const [savingPin, setSavingPin] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const selectedPin = pins.find((pin) => pin.id === selectedPinId) ?? null;
+  const linkedEntry = selectedPin?.linkedEntryId
+    ? codexEntries.find((entry) => entry.id === selectedPin.linkedEntryId)
+    : null;
+  const sortedCodexEntries = [...codexEntries].sort((a, b) => {
+    if (a.type === 'location' && b.type !== 'location') return -1;
+    if (a.type !== 'location' && b.type === 'location') return 1;
+    return a.title.localeCompare(b.title);
+  });
+
+  const selectPin = (pin: MapPin) => {
+    setSelectedPinId(pin.id);
+    setPinDraft({
+      name: pin.name,
+      description: pin.description ?? '',
+      icon: pin.icon,
+      color: pin.color,
+      linkedEntryId: pin.linkedEntryId,
+    });
+  };
+
+  const getMapPosition = (clientX: number, clientY: number): MapPin['position'] | null => {
+    const rect = mapRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) return null;
+    return {
+      x: clampPercentage(((clientX - rect.left) / rect.width) * 100),
+      y: clampPercentage(((clientY - rect.top) / rect.height) * 100),
+    };
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -79,6 +164,81 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
     setPlacingPin(false);
   };
 
+  const handleSavePinEdits = async () => {
+    if (!selectedPin || !pinDraft?.name.trim()) return;
+    setSavingPin(true);
+    try {
+      await onEditPin(selectedPin.id, {
+        name: pinDraft.name.trim(),
+        description: pinDraft.description.trim(),
+        icon: pinDraft.icon,
+        color: pinDraft.color,
+        linkedEntryId: pinDraft.linkedEntryId || undefined,
+      });
+    } finally {
+      setSavingPin(false);
+    }
+  };
+
+  const handlePinPointerDown = (e: React.PointerEvent<HTMLDivElement>, pin: MapPin) => {
+    e.stopPropagation();
+    selectPin(pin);
+    if (placingPin || e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDragState({
+      id: pin.id,
+      pointerId: e.pointerId,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      moved: false,
+      position: pin.position,
+    });
+  };
+
+  const handlePinPointerMove = (e: React.PointerEvent<HTMLDivElement>, pinId: string) => {
+    if (!dragState || dragState.id !== pinId || dragState.pointerId !== e.pointerId) return;
+    e.stopPropagation();
+    const position = getMapPosition(e.clientX, e.clientY);
+    if (!position) return;
+    const moved =
+      dragState.moved ||
+      Math.hypot(e.clientX - dragState.startClientX, e.clientY - dragState.startClientY) >= 3;
+    setDragState({ ...dragState, moved, position });
+  };
+
+  const finishPinDrag = async (e: React.PointerEvent<HTMLDivElement>, pinId: string) => {
+    if (!dragState || dragState.id !== pinId || dragState.pointerId !== e.pointerId) return;
+    e.stopPropagation();
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    const position = getMapPosition(e.clientX, e.clientY) ?? dragState.position;
+    const moved =
+      dragState.moved ||
+      Math.hypot(e.clientX - dragState.startClientX, e.clientY - dragState.startClientY) >= 3;
+    if (moved) {
+      try {
+        await onEditPin(pinId, { position });
+      } finally {
+        setDragState(null);
+      }
+      return;
+    }
+    setDragState(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!pendingDeletePin) return;
+    const id = pendingDeletePin.id;
+    await onDeletePin(id);
+    if (selectedPinId === id) {
+      setSelectedPinId(null);
+      setPinDraft(null);
+    }
+    setPendingDeletePin(null);
+  };
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
@@ -90,6 +250,14 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
         >
           <Upload size={16} />
           {backgroundImage ? t('maps.changeMap') : t('maps.uploadMapImage')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowGallery(true)}
+          className="flex items-center gap-1.5 px-4 py-2 bg-elevated border border-border rounded-lg text-sm text-text-muted hover:text-text-primary transition"
+        >
+          <Images size={16} />
+          {t('sidebar.gallery')}
         </button>
 
         {backgroundImage && (
@@ -142,7 +310,7 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
             initialScale={1}
             minScale={0.3}
             maxScale={5}
-            panning={{ disabled: placingPin }}
+            panning={{ disabled: placingPin || dragState !== null }}
           >
             <TransformComponent wrapperStyle={{ width: '100%', height: '500px' }}>
               <div ref={mapRef} className="relative inline-block" onClick={handleMapClick}>
@@ -152,18 +320,34 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
                 {pins.map(pin => {
                   const config = PIN_ICONS[pin.icon] || PIN_ICONS.custom;
                   const Icon = config.icon;
+                  const isSelected = selectedPinId === pin.id;
+                  const position = dragState?.id === pin.id ? dragState.position : pin.position;
                   return (
                     <div
                       key={pin.id}
                       className="absolute group"
-                      style={{ left: `${pin.position.x}%`, top: `${pin.position.y}%`, transform: 'translate(-50%, -100%)' }}
+                      style={{
+                        left: `${position.x}%`,
+                        top: `${position.y}%`,
+                        transform: 'translate(-50%, -100%)',
+                        touchAction: 'none',
+                      }}
                       onMouseEnter={() => setHoveredPin(pin.id)}
                       onMouseLeave={() => setHoveredPin(null)}
+                      onPointerDown={(e) => handlePinPointerDown(e, pin)}
+                      onPointerMove={(e) => handlePinPointerMove(e, pin.id)}
+                      onPointerUp={(e) => void finishPinDrag(e, pin.id)}
+                      onPointerCancel={() => setDragState(null)}
+                      onClick={(e) => e.stopPropagation()}
                     >
                       <div className="relative">
                         <div
-                          className="w-8 h-8 rounded-full flex items-center justify-center shadow-lg cursor-pointer border-2 border-white/20 transition-transform hover:scale-125"
-                          style={{ backgroundColor: config.color }}
+                          className={`w-8 h-8 rounded-full flex items-center justify-center shadow-lg cursor-move border-2 transition-transform hover:scale-125 ${
+                            isSelected
+                              ? 'border-white ring-2 ring-accent-gold ring-offset-2 ring-offset-deep'
+                              : 'border-white/20'
+                          }`}
+                          style={{ backgroundColor: pin.color ?? config.color }}
                         >
                           <Icon size={16} className="text-white" />
                         </div>
@@ -173,12 +357,12 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-surface border border-border rounded-lg px-3 py-2 shadow-xl whitespace-nowrap z-10 min-w-[120px]">
                             <h4 className="font-serif font-bold text-accent-gold text-sm">{pin.name}</h4>
                             {pin.description && <p className="text-xs text-text-muted mt-0.5">{pin.description}</p>}
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onDeletePin(pin.id); }}
-                              className="mt-1 text-xs text-danger hover:underline flex items-center gap-1"
-                            >
-                              <Trash2 size={10} /> {t('common.remove')}
-                            </button>
+                            {linkedEntry && isSelected && (
+                              <p className="text-[10px] text-text-dim mt-1 flex items-center gap-1">
+                                <Link2 size={10} />
+                                {linkedEntry.title}
+                              </p>
+                            )}
                           </div>
                         )}
                       </div>
@@ -193,26 +377,164 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
 
       {/* Pin sidebar */}
       {pins.length > 0 && (
-        <div className="bg-surface border border-border rounded-xl p-4">
-          <h4 className="font-serif font-bold text-accent-gold text-sm mb-3">{t('maps.markers')} ({pins.length})</h4>
-          <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
-            {pins.map(pin => {
-              const config = PIN_ICONS[pin.icon] || PIN_ICONS.custom;
-              const Icon = config.icon;
-              return (
-                <div key={pin.id} className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-elevated transition group">
-                  <Icon size={14} style={{ color: config.color }} />
-                  <span className="text-sm text-text-primary flex-1">{pin.name}</span>
-                  <button
-                    onClick={() => onDeletePin(pin.id)}
-                    className="p-1 opacity-0 group-hover:opacity-100 hover:bg-danger/20 rounded transition"
+        <div className={`grid gap-4 ${selectedPin && pinDraft ? 'lg:grid-cols-[minmax(220px,0.8fr)_minmax(320px,1.2fr)]' : ''}`}>
+          <div className="bg-surface border border-border rounded-xl p-4 min-w-0">
+            <h4 className="font-serif font-bold text-accent-gold text-sm mb-3">
+              {t('maps.markers')} ({pins.length})
+            </h4>
+            <div className="space-y-1.5 max-h-[280px] overflow-y-auto">
+              {pins.map(pin => {
+                const config = PIN_ICONS[pin.icon] || PIN_ICONS.custom;
+                const Icon = config.icon;
+                const isSelected = selectedPinId === pin.id;
+                return (
+                  <div
+                    key={pin.id}
+                    className={`flex items-center gap-1 rounded transition group ${
+                      isSelected ? 'bg-accent-gold/10 ring-1 ring-accent-gold/30' : 'hover:bg-elevated'
+                    }`}
                   >
-                    <Trash2 size={12} className="text-danger" />
-                  </button>
-                </div>
-              );
-            })}
+                    <button
+                      type="button"
+                      onClick={() => selectPin(pin)}
+                      className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left"
+                    >
+                      <Icon size={14} style={{ color: pin.color ?? config.color }} />
+                      <span className="text-sm text-text-primary flex-1 truncate">{pin.name}</span>
+                      <Move size={12} className="text-text-dim opacity-0 group-hover:opacity-100" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingDeletePin(pin)}
+                      className="p-1.5 mr-1 opacity-0 group-hover:opacity-100 hover:bg-danger/20 rounded transition"
+                      title={t('common.delete')}
+                    >
+                      <Trash2 size={12} className="text-danger" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
+
+          {selectedPin && pinDraft && (
+            <div className="bg-surface border border-border rounded-xl p-4 min-w-0">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h4 className="font-serif font-bold text-accent-gold text-sm truncate">
+                  {t('common.edit')}: {selectedPin.name}
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPinId(null);
+                    setPinDraft(null);
+                  }}
+                  className="text-xs text-text-muted hover:text-text-primary transition"
+                >
+                  {t('common.close')}
+                </button>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="block text-xs text-text-muted mb-1.5">{t('common.name')}</label>
+                  <input
+                    value={pinDraft.name}
+                    onChange={(e) => setPinDraft({ ...pinDraft, name: e.target.value })}
+                    className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-muted mb-1.5">{t('gallery.linkEntries')}</label>
+                  <select
+                    value={pinDraft.linkedEntryId ?? ''}
+                    onChange={(e) => setPinDraft({ ...pinDraft, linkedEntryId: e.target.value || undefined })}
+                    className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition"
+                  >
+                    <option value="">—</option>
+                    {sortedCodexEntries.map((entry) => (
+                      <option key={entry.id} value={entry.id}>
+                        {entry.title} · {entry.type}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <label className="block text-xs text-text-muted mb-1.5">{t('common.description')}</label>
+                <textarea
+                  value={pinDraft.description}
+                  onChange={(e) => setPinDraft({ ...pinDraft, description: e.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition resize-none"
+                />
+              </div>
+
+              <div className="mt-4">
+                <label className="block text-xs text-text-muted mb-2">{t('common.changeIcon')}</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(PIN_ICONS).map(([key, config]) => {
+                    const Icon = config.icon;
+                    const isActive = pinDraft.icon === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setPinDraft({ ...pinDraft, icon: key as MapPin['icon'] })}
+                        className={`p-2 rounded-lg border transition ${
+                          isActive
+                            ? 'bg-accent-gold/10 border-accent-gold'
+                            : 'bg-elevated border-border hover:border-text-dim'
+                        }`}
+                        title={key}
+                        aria-label={key}
+                      >
+                        <Icon size={16} style={{ color: pinDraft.color ?? config.color }} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="block text-xs text-text-muted mb-1.5">{t('common.changeColor')}</label>
+                  <input
+                    type="color"
+                    value={pinDraft.color ?? PIN_ICONS[pinDraft.icon].color}
+                    onChange={(e) => setPinDraft({ ...pinDraft, color: e.target.value })}
+                    className="block h-9 w-14 cursor-pointer rounded border border-border bg-elevated p-1"
+                  />
+                </div>
+                {pinDraft.color && (
+                  <button
+                    type="button"
+                    onClick={() => setPinDraft({ ...pinDraft, color: undefined })}
+                    className="mb-0.5 px-3 py-2 text-xs text-text-muted hover:text-text-primary transition"
+                  >
+                    {t('common.resetDefault')}
+                  </button>
+                )}
+                <div className="flex-1" />
+                <button
+                  type="button"
+                  onClick={() => setPendingDeletePin(selectedPin)}
+                  className="px-3 py-2 text-sm text-danger hover:bg-danger/10 rounded-lg transition"
+                >
+                  {t('common.delete')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSavePinEdits()}
+                  disabled={savingPin || !pinDraft.name.trim()}
+                  className="px-4 py-2 bg-accent-gold text-deep text-sm font-semibold rounded-lg hover:bg-accent-amber transition disabled:opacity-50"
+                >
+                  {savingPin ? t('common.saving') : t('common.save')}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -249,6 +571,19 @@ export default function MapView({ projectId, mapId, backgroundImage, pins, onUpl
           </div>
         </div>
       </Modal>
+      <GalleryAssetPicker
+        projectId={projectId}
+        open={showGallery}
+        onClose={() => setShowGallery(false)}
+        onSelect={selection => onUploadBackground(selection.imageData)}
+      />
+      <ConfirmDialog
+        open={pendingDeletePin !== null}
+        destructive
+        message={pendingDeletePin ? `${t('common.delete')} "${pendingDeletePin.name}"?` : ''}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setPendingDeletePin(null)}
+      />
     </div>
   );
 }

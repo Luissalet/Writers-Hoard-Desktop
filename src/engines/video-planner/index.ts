@@ -1,9 +1,10 @@
+import { lazy } from 'react';
 import { Video } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
-import VideoPlannerEngine from './components/VideoPlannerEngine';
+const VideoPlannerEngine = lazy(() => import('./components/VideoPlannerEngine'));
 
 const videoPlannerEngine: EngineDefinition = {
   id: 'video-planner',
@@ -24,12 +25,27 @@ registerEntityResolver({
   engineId: 'video-planner',
   entityTypes: ['video-planner', 'video-segment'],
   resolveEntity: async (entityId: string, entityType: string) => {
+    if (entityType === 'video-segment') {
+      const segment = await db.videoSegments.get(entityId);
+      if (!segment) return null;
+      const plan = await db.videoPlans.get(segment.videoPlanId);
+      return {
+        id: segment.id,
+        type: 'video-segment',
+        engineId: 'video-planner',
+        projectId: segment.projectId,
+        title: segment.title,
+        subtitle: plan?.title,
+        thumbnail: segment.visualImageData,
+      };
+    }
     const plan = await db.videoPlans.get(entityId);
     if (!plan) return null;
     return {
       id: plan.id,
       type: entityType,
       engineId: 'video-planner',
+      projectId: plan.projectId,
       title: plan.title,
     };
   },
@@ -40,6 +56,7 @@ registerEntityResolver({
       id: v.id,
       type: 'video-planner',
       engineId: 'video-planner',
+      projectId: v.projectId,
       title: v.title,
     }));
   },

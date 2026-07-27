@@ -1,288 +1,676 @@
+import Dexie from 'dexie';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { db } from '@/db/index';
-import { getAllBackupStrategies } from '@/engines/_shared/backupRegistry';
+import {
+  getAllBackupStrategies,
+  type BackupStrategy,
+} from '@/engines/_shared/backupRegistry';
 import { GLOBAL_NOTES_SCOPE } from '@/engines/notes/types';
-// Engine barrel import guarantees every engine has registered its backup
-// strategy before export/import run. Without this import the registry would
-// be empty when backup is triggered from a screen that hasn't touched engines.
+// Engine initialization is part of the backup contract: every strategy must
+// be registered before an archive is inspected, exported, or restored.
 import '@/engines';
 
-// ============================================
-// Structured ZIP Backup — Export & Import
-// ============================================
-//
-// The top-level of this file only handles project metadata (projects,
-// tags, settings) and dispatches to per-engine BackupStrategy modules for
-// everything else. The old hardcoded legacy block for codex / writings /
-// yarn-board / maps / gallery / links was migrated to modular strategies
-// on 2026-04-23 — each engine now owns its own backup logic in its
-// `index.ts`. See `src/engines/_shared/backupRegistry.ts`.
+const BACKUP_VERSION = 3;
+const MIN_SUPPORTED_BACKUP_VERSION = 1;
 
-// Helpers: base64 data URL → binary
-function dataUrlToBlob(dataUrl: string): { blob: Uint8Array; ext: string; mime: string } {
+export type BackupPhase = 'export' | 'preflight' | 'import';
+
+export interface BackupFailure {
+  phase: BackupPhase;
+  message: string;
+  engineId?: string;
+  projectId?: string;
+  projectDir?: string;
+  path?: string;
+}
+
+/**
+ * Public, structured failure surfaced by every ZIP backup operation.
+ * Callers can keep showing a generic toast today and render the individual
+ * failures later without parsing console strings.
+ */
+export class BackupOperationError extends Error {
+  readonly phase: BackupPhase;
+  readonly failures: BackupFailure[];
+
+  constructor(phase: BackupPhase, failures: BackupFailure[]) {
+    super(
+      failures.length === 1
+        ? failures[0].message
+        : `${failures.length} backup ${phase} failures`,
+    );
+    this.name = 'BackupOperationError';
+    this.phase = phase;
+    this.failures = failures;
+  }
+}
+
+/** Turn structured backup failures into concise, user-visible diagnostics. */
+export function describeBackupError(error: unknown, fallback: string): string {
+  if (!(error instanceof BackupOperationError)) return fallback;
+  const details = error.failures
+    .slice(0, 3)
+    .map(row => `${row.engineId ? `${row.engineId}: ` : ''}${row.message}`)
+    .join(' · ');
+  const remaining = error.failures.length - 3;
+  return `${fallback} (${error.phase})${details ? `: ${details}` : ''}${
+    remaining > 0 ? ` · +${remaining} more` : ''
+  }`;
+}
+
+interface BackupManifest {
+  app: 'WritersHoard';
+  version: number;
+  exportedAt: string;
+  projectCount: number;
+  singleProject?: boolean;
+  externalAssets?: {
+    scrapper: {
+      included: false;
+      restorePolicy: 'reset-unavailable';
+    };
+  };
+}
+
+interface ProjectRecord {
+  id: string;
+  title: string;
+  coverImage?: string;
+}
+
+interface PreparedProject {
+  projectId: string;
+  projectDir: string;
+  project: ProjectRecord;
+}
+
+interface PreflightResult {
+  manifest: BackupManifest;
+  projects: PreparedProject[];
+  json: Map<string, unknown>;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function failure(
+  phase: BackupPhase,
+  error: unknown,
+  details: Omit<BackupFailure, 'phase' | 'message'> = {},
+): BackupFailure {
+  return { phase, message: messageOf(error), ...details };
+}
+
+function wrapFailure(
+  phase: BackupPhase,
+  error: unknown,
+  details: Omit<BackupFailure, 'phase' | 'message'> = {},
+): BackupOperationError {
+  return error instanceof BackupOperationError
+    ? error
+    : new BackupOperationError(phase, [failure(phase, error, details)]);
+}
+
+function dataUrlToBlob(dataUrl: string): { blob: Uint8Array; ext: string } {
   const match = dataUrl.match(/^data:(image\/(\w+));base64,(.+)$/);
-  if (!match) return { blob: new Uint8Array(), ext: 'bin', mime: 'application/octet-stream' };
-  const mime = match[1];
+  if (!match) return { blob: new Uint8Array(), ext: 'bin' };
   let ext = match[2];
   if (ext === 'jpeg') ext = 'jpg';
   const binary = atob(match[3]);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return { blob: bytes, ext, mime };
+  return { blob: bytes, ext };
 }
 
-// Sanitize filename
 function sanitize(name: string): string {
   return name.replace(/[<>:"/\\|?*]+/g, '_').replace(/\s+/g, ' ').trim() || 'untitled';
 }
 
-// ============================================
-// EXPORT
-// ============================================
+function manifestFor(projectCount: number, singleProject = false): BackupManifest {
+  return {
+    app: 'WritersHoard',
+    version: BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    projectCount,
+    ...(singleProject ? { singleProject: true } : {}),
+    externalAssets: {
+      scrapper: {
+        included: false,
+        restorePolicy: 'reset-unavailable',
+      },
+    },
+  };
+}
 
-/** Serialize one project (metadata + every engine's data) into the zip. */
-async function writeProjectToZip(zip: JSZip, project: { id: string; title: string; coverImage?: string }): Promise<void> {
-  const projName = sanitize(project.title);
-  const projDir = `projects/${projName}__${project.id}`;
+function projectDirectories(zip: JSZip): string[] {
+  const dirs = new Set<string>();
+  zip.forEach((path) => {
+    const match = path.match(/^projects\/([^/]+)\//);
+    if (match) dirs.add(`projects/${match[1]}`);
+  });
+  return [...dirs].sort();
+}
 
-  // Project metadata (with cover-image externalization)
-  const projMeta = { ...project };
-  if (projMeta.coverImage) {
-    const { blob, ext } = dataUrlToBlob(projMeta.coverImage);
-    zip.file(`${projDir}/cover.${ext}`, blob);
-    (projMeta as Record<string, unknown>).coverImage = `cover.${ext}`;
-  }
-  zip.file(`${projDir}/project.json`, JSON.stringify(projMeta, null, 2));
+async function readImageAsDataUrl(
+  zip: JSZip,
+  basePath: string,
+  relativePath: string,
+): Promise<string | undefined> {
+  if (!relativePath || relativePath.startsWith('data:')) return relativePath || undefined;
+  const fullPath = `${basePath}/${relativePath}`;
+  const file = zip.file(fullPath);
+  if (!file) return undefined;
+  const ext = relativePath.split('.').pop()?.toLowerCase() || 'png';
+  const mimeMap: Record<string, string> = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    svg: 'image/svg+xml',
+  };
+  const base64 = await file.async('base64');
+  return `data:${mimeMap[ext] || 'image/png'};base64,${base64}`;
+}
 
-  // ---- Engine-registered backup strategies ----
-  // Every engine — codex, writings, timeline, yarn-board, maps, gallery,
-  // links, diary, biography, dialog-scene, brainstorm, outline,
-  // writing-stats, storyboard, video-planner, scrapper, character-arc,
-  // relationships, seeds, annotations, etc. — writes its own data here.
+async function exportStrategies(
+  zip: JSZip,
+  project: ProjectRecord,
+  projectDir: string,
+  failures: BackupFailure[],
+): Promise<void> {
   for (const strategy of getAllBackupStrategies()) {
     try {
-      await strategy.exportProject({ zip, projectId: project.id, projectDir: projDir });
-    } catch (err) {
-      console.error(`Backup export failed for engine "${strategy.engineId}":`, err);
+      await strategy.exportProject({
+        zip,
+        projectId: project.id,
+        projectDir,
+      });
+    } catch (error) {
+      failures.push(
+        failure('export', error, {
+          engineId: strategy.engineId,
+          projectId: project.id,
+          projectDir,
+        }),
+      );
     }
   }
+}
+
+async function writeProjectToZip(
+  zip: JSZip,
+  project: ProjectRecord,
+  failures: BackupFailure[],
+): Promise<void> {
+  const projectDir = `projects/${sanitize(project.title)}__${project.id}`;
+  const metadata: ProjectRecord = { ...project };
+  if (metadata.coverImage) {
+    const { blob, ext } = dataUrlToBlob(metadata.coverImage);
+    if (blob.byteLength === 0) {
+      failures.push(
+        failure('export', 'Project cover is not a valid image data URL.', {
+          projectId: project.id,
+          projectDir,
+          path: `${projectDir}/cover.${ext}`,
+        }),
+      );
+    } else {
+      zip.file(`${projectDir}/cover.${ext}`, blob);
+      metadata.coverImage = `cover.${ext}`;
+    }
+  }
+  zip.file(`${projectDir}/project.json`, JSON.stringify(metadata, null, 2));
+  await exportStrategies(zip, project, projectDir, failures);
 }
 
 export async function exportFullZip(): Promise<void> {
   const zip = new JSZip();
+  const failures: BackupFailure[] = [];
+  try {
+    const [projects, tags, settings] = await Promise.all([
+      db.projects.toArray(),
+      db.tags.toArray(),
+      db.settings.toArray(),
+    ]);
 
-  const [projects, tags, settings] = await Promise.all([
-    db.projects.toArray(),
-    db.tags.toArray(),
-    db.settings.toArray(),
-  ]);
+    zip.file('manifest.json', JSON.stringify(manifestFor(projects.length), null, 2));
+    zip.file('settings.json', JSON.stringify(settings, null, 2));
+    zip.file('tags.json', JSON.stringify(tags, null, 2));
 
-  // --- manifest.json (top level) ---
-  zip.file('manifest.json', JSON.stringify({
-    app: 'WritersHoard',
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    projectCount: projects.length,
-  }, null, 2));
-
-  // --- Global settings & tags ---
-  zip.file('settings.json', JSON.stringify(settings, null, 2));
-  zip.file('tags.json', JSON.stringify(tags, null, 2));
-
-  // --- Inbox notes ---
-  // Quick captures made outside any project belong to no project folder, so
-  // the per-engine strategy (which is project-scoped) can never see them.
-  // Without this they would be the one thing a "full backup" silently lost.
-  const inboxNotes = await db.table('notes').where('projectId').equals(GLOBAL_NOTES_SCOPE).toArray();
-  if (inboxNotes.length) {
+    const inboxNotes = await db
+      .table('notes')
+      .where('projectId')
+      .equals(GLOBAL_NOTES_SCOPE)
+      .toArray();
     zip.file('notes-inbox.json', JSON.stringify(inboxNotes, null, 2));
-  }
 
-  // --- Per-project folders ---
-  for (const project of projects) {
-    await writeProjectToZip(zip, project);
-  }
-
-  // Generate and download
-  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-  const date = new Date().toISOString().slice(0, 10);
-  saveAs(blob, `writers-hoard-backup-${date}.zip`);
-}
-
-/**
- * Export a SINGLE project as a ZIP (same structure as the full backup, one
- * project folder). Replaces the legacy 13-table JSON export, which silently
- * dropped every engine table added since the original schema.
- */
-export async function exportProjectZip(projectId: string): Promise<void> {
-  const project = await db.projects.get(projectId);
-  if (!project) throw new Error('Project not found');
-
-  const zip = new JSZip();
-  zip.file('manifest.json', JSON.stringify({
-    app: 'WritersHoard',
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    projectCount: 1,
-    singleProject: true,
-  }, null, 2));
-
-  await writeProjectToZip(zip, project);
-
-  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-  saveAs(blob, `${sanitize(project.title)}-project.zip`);
-}
-
-
-// ============================================
-// IMPORT
-// ============================================
-
-// Read a file from zip, return parsed JSON or null
-async function readJson<T>(zip: JSZip, path: string): Promise<T | null> {
-  const file = zip.file(path);
-  if (!file) return null;
-  const text = await file.async('text');
-  return JSON.parse(text) as T;
-}
-
-// Read an image file from zip, return base64 data URL
-async function readImageAsDataUrl(zip: JSZip, basePath: string, relativePath: string): Promise<string | undefined> {
-  if (!relativePath || relativePath.startsWith('data:')) return relativePath || undefined;
-  const fullPath = basePath ? `${basePath}/${relativePath}` : relativePath;
-  const file = zip.file(fullPath);
-  if (!file) return undefined;
-
-  const ext = relativePath.split('.').pop()?.toLowerCase() || 'png';
-  const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
-  const mime = mimeMap[ext] || 'image/png';
-
-  const base64 = await file.async('base64');
-  return `data:${mime};base64,${base64}`;
-}
-
-/**
- * Import a project ZIP WITHOUT wiping the database (merge/restore semantics,
- * unlike `importFullZip` which is a full-database replace).
- *
- * If a project in the zip already exists locally (same id), it is restored
- * in place: the local copy is deleted first (thorough cascade), then the
- * backup's rows are inserted with their original IDs — cross-references
- * survive intact. Brand-new projects are simply added.
- *
- * Returns the ids of the imported projects.
- */
-export async function importProjectZip(file: File): Promise<string[]> {
-  const zip = await JSZip.loadAsync(file);
-
-  const manifest = await readJson<{ app: string; version: number }>(zip, 'manifest.json');
-  if (!manifest || manifest.app !== 'WritersHoard') {
-    throw new Error('Invalid backup file: not a Writer\'s Hoard backup');
-  }
-
-  const projectDirs = new Set<string>();
-  zip.forEach((path) => {
-    const match = path.match(/^projects\/([^/]+)\//);
-    if (match) projectDirs.add(`projects/${match[1]}`);
-  });
-  if (projectDirs.size === 0) throw new Error('Backup contains no projects');
-
-  const { deleteProject } = await import('@/db/operations');
-  const importedIds: string[] = [];
-
-  for (const projDir of projectDirs) {
-    const projData = await readJson<Record<string, unknown>>(zip, `${projDir}/project.json`);
-    if (!projData?.id) continue;
-    const projectId = projData.id as string;
-
-    // Restore-in-place: clear any existing copy of this project first.
-    const existing = await db.projects.get(projectId);
-    if (existing) await deleteProject(projectId);
-
-    if (projData.coverImage && typeof projData.coverImage === 'string' && !projData.coverImage.startsWith('data:')) {
-      projData.coverImage = await readImageAsDataUrl(zip, projDir, projData.coverImage as string) || undefined;
+    for (const project of projects) {
+      await writeProjectToZip(zip, project as ProjectRecord, failures);
     }
-    await db.projects.add(projData as never);
+    if (failures.length) throw new BackupOperationError('export', failures);
 
+    const blob = await zip.generateAsync({
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+    });
+    saveAs(blob, `writers-hoard-backup-${new Date().toISOString().slice(0, 10)}.zip`);
+  } catch (error) {
+    throw wrapFailure('export', error);
+  }
+}
+
+export async function exportProjectZip(projectId: string): Promise<void> {
+  const zip = new JSZip();
+  const failures: BackupFailure[] = [];
+  try {
+    const project = await db.projects.get(projectId);
+    if (!project) throw new Error('Project not found');
+    zip.file('manifest.json', JSON.stringify(manifestFor(1, true), null, 2));
+    await writeProjectToZip(zip, project as ProjectRecord, failures);
+    if (failures.length) throw new BackupOperationError('export', failures);
+
+    const blob = await zip.generateAsync({
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+    });
+    saveAs(blob, `${sanitize(project.title)}-project.zip`);
+  } catch (error) {
+    throw wrapFailure('export', error, { projectId });
+  }
+}
+
+function expectArray(
+  json: Map<string, unknown>,
+  path: string,
+  failures: BackupFailure[],
+  required = false,
+): unknown[] {
+  const value = json.get(path);
+  if (value === undefined) {
+    if (required) {
+      failures.push(
+        failure('preflight', `Backup is missing required file "${path}".`, { path }),
+      );
+    }
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    failures.push(
+      failure('preflight', `Expected "${path}" to contain a JSON array.`, { path }),
+    );
+    return [];
+  }
+  return value;
+}
+
+async function parseAllJson(
+  zip: JSZip,
+  failures: BackupFailure[],
+): Promise<Map<string, unknown>> {
+  const parsed = new Map<string, unknown>();
+  const paths = Object.keys(zip.files)
+    .filter((path) => !zip.files[path].dir && path.toLowerCase().endsWith('.json'))
+    .sort();
+  for (const path of paths) {
+    try {
+      parsed.set(path, JSON.parse(await zip.files[path].async('text')));
+    } catch (error) {
+      failures.push(failure('preflight', error, { path }));
+    }
+  }
+  return parsed;
+}
+
+function validateManifest(
+  value: unknown,
+  mode: 'project' | 'full',
+  failures: BackupFailure[],
+): BackupManifest | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    failures.push(failure('preflight', 'Missing or invalid manifest.json.', {
+      path: 'manifest.json',
+    }));
+    return null;
+  }
+  const manifest = value as Partial<BackupManifest>;
+  if (manifest.app !== 'WritersHoard') {
+    failures.push(failure('preflight', 'Archive is not a Writers Hoard backup.', {
+      path: 'manifest.json',
+    }));
+  }
+  if (
+    !Number.isInteger(manifest.version) ||
+    manifest.version! < MIN_SUPPORTED_BACKUP_VERSION ||
+    manifest.version! > BACKUP_VERSION
+  ) {
+    failures.push(
+      failure(
+        'preflight',
+        `Unsupported backup version "${String(manifest.version)}". ` +
+          `Supported versions are ${MIN_SUPPORTED_BACKUP_VERSION}-${BACKUP_VERSION}.`,
+        { path: 'manifest.json' },
+      ),
+    );
+  }
+  if (!Number.isInteger(manifest.projectCount) || manifest.projectCount! < 0) {
+    failures.push(
+      failure(
+        'preflight',
+        'Backup projectCount must be a non-negative integer.',
+        { path: 'manifest.json' },
+      ),
+    );
+  }
+  if (
+    manifest.version === BACKUP_VERSION &&
+    (manifest.externalAssets?.scrapper?.included !== false ||
+      manifest.externalAssets.scrapper.restorePolicy !== 'reset-unavailable')
+  ) {
+    failures.push(
+      failure(
+        'preflight',
+        'Backup does not declare the supported Scrapper external-asset restore policy.',
+        { path: 'manifest.json' },
+      ),
+    );
+  }
+  if (mode === 'full' && manifest.singleProject) {
+    failures.push(
+      failure(
+        'preflight',
+        'A single-project archive cannot replace the entire database. Use project import instead.',
+        { path: 'manifest.json' },
+      ),
+    );
+  }
+  return manifest as BackupManifest;
+}
+
+async function runStrategyPreflight(
+  zip: JSZip,
+  projects: PreparedProject[],
+  failures: BackupFailure[],
+): Promise<void> {
+  for (const project of projects) {
     for (const strategy of getAllBackupStrategies()) {
+      if (!strategy.preflightImport) continue;
       try {
-        await strategy.importProject({ zip, projectId, projectDir: projDir });
-      } catch (err) {
-        console.error(`Backup import failed for engine "${strategy.engineId}":`, err);
+        await strategy.preflightImport({
+          zip,
+          projectId: project.projectId,
+          projectDir: project.projectDir,
+        });
+      } catch (error) {
+        failures.push(
+          failure('preflight', error, {
+            engineId: strategy.engineId,
+            projectId: project.projectId,
+            projectDir: project.projectDir,
+          }),
+        );
       }
     }
-    importedIds.push(projectId);
+  }
+}
+
+async function preflightArchive(
+  zip: JSZip,
+  mode: 'project' | 'full',
+): Promise<PreflightResult> {
+  const failures: BackupFailure[] = [];
+  const json = await parseAllJson(zip, failures);
+  const manifest = validateManifest(json.get('manifest.json'), mode, failures);
+  const dirs = projectDirectories(zip);
+  if (mode === 'project' && dirs.length === 0) {
+    failures.push(failure('preflight', 'Backup contains no projects.'));
+  }
+  if (
+    manifest &&
+    Number.isInteger(manifest.projectCount) &&
+    manifest.projectCount !== dirs.length
+  ) {
+    failures.push(
+      failure(
+        'preflight',
+        `Manifest declares ${manifest.projectCount} project(s), but the archive contains ${dirs.length}.`,
+        { path: 'manifest.json' },
+      ),
+    );
   }
 
-  return importedIds;
+  if (mode === 'full') {
+    expectArray(json, 'settings.json', failures, true);
+    expectArray(json, 'tags.json', failures, true);
+    expectArray(
+      json,
+      'notes-inbox.json',
+      failures,
+      manifest?.version === BACKUP_VERSION,
+    );
+  }
+
+  const projects: PreparedProject[] = [];
+  const projectIds = new Set<string>();
+  for (const projectDir of dirs) {
+    const path = `${projectDir}/project.json`;
+    const raw = json.get(path);
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      failures.push(failure('preflight', `Missing or invalid "${path}".`, { path }));
+      continue;
+    }
+    const project = { ...(raw as ProjectRecord) };
+    if (typeof project.id !== 'string' || !project.id.trim()) {
+      failures.push(failure('preflight', `Project in "${path}" has no valid id.`, { path }));
+      continue;
+    }
+    if (typeof project.title !== 'string') {
+      failures.push(
+        failure('preflight', `Project "${project.id}" has no valid title.`, {
+          projectId: project.id,
+          projectDir,
+          path,
+        }),
+      );
+      continue;
+    }
+    if (projectIds.has(project.id)) {
+      failures.push(
+        failure('preflight', `Duplicate project id "${project.id}" in archive.`, {
+          projectId: project.id,
+          projectDir,
+          path,
+        }),
+      );
+      continue;
+    }
+    projectIds.add(project.id);
+
+    if (project.coverImage !== undefined && typeof project.coverImage !== 'string') {
+      failures.push(
+        failure('preflight', `Project "${project.id}" has an invalid cover image.`, {
+          projectId: project.id,
+          projectDir,
+          path,
+        }),
+      );
+    } else if (project.coverImage && !project.coverImage.startsWith('data:')) {
+      const cover = await readImageAsDataUrl(zip, projectDir, project.coverImage);
+      if (!cover) {
+        failures.push(
+          failure(
+            'preflight',
+            `Missing project cover "${projectDir}/${project.coverImage}".`,
+            {
+              projectId: project.id,
+              projectDir,
+              path: `${projectDir}/${project.coverImage}`,
+            },
+          ),
+        );
+      } else {
+        project.coverImage = cover;
+      }
+    }
+    projects.push({ projectId: project.id, projectDir, project });
+  }
+
+  await runStrategyPreflight(zip, projects, failures);
+  if (failures.length || !manifest) {
+    throw new BackupOperationError('preflight', failures);
+  }
+  return { manifest, projects, json };
+}
+
+async function loadAndPreflight(
+  file: File,
+  mode: 'project' | 'full',
+): Promise<{ zip: JSZip; prepared: PreflightResult }> {
+  try {
+    const zip = await JSZip.loadAsync(file);
+    return { zip, prepared: await preflightArchive(zip, mode) };
+  } catch (error) {
+    throw wrapFailure('preflight', error, { path: file.name });
+  }
+}
+
+async function importStrategy(
+  strategy: BackupStrategy,
+  zip: JSZip,
+  project: PreparedProject,
+): Promise<void> {
+  try {
+    // Strategy implementations read JSZip data as well as writing Dexie.
+    // waitFor keeps the surrounding restore transaction alive across those
+    // non-IndexedDB promises, so any later failure rolls every table back.
+    await Dexie.waitFor(
+      strategy.importProject({
+        zip,
+        projectId: project.projectId,
+        projectDir: project.projectDir,
+      }),
+    );
+  } catch (error) {
+    throw new BackupOperationError('import', [
+      failure('import', error, {
+        engineId: strategy.engineId,
+        projectId: project.projectId,
+        projectDir: project.projectDir,
+      }),
+    ]);
+  }
+}
+
+async function importProjectStrategies(
+  zip: JSZip,
+  project: PreparedProject,
+): Promise<void> {
+  for (const strategy of getAllBackupStrategies()) {
+    await importStrategy(strategy, zip, project);
+  }
+}
+
+/**
+ * Delete one project's rows inside the caller's transaction. This mirrors the
+ * generic project deletion path while also clearing world snapshots, whose
+ * table is intentionally keyed only by worldId.
+ */
+async function clearProjectForRestore(projectId: string): Promise<void> {
+  const projectScoped = db.tables.filter(
+    (table) => table.name !== 'projects' && 'projectId' in table.schema.idxByName,
+  );
+  const [
+    yarnBoardIds,
+    sceneIds,
+    storyboardIds,
+    brainstormBoardIds,
+    annotationIds,
+    worldIds,
+  ] = await Promise.all([
+    db.yarnBoards.where('projectId').equals(projectId).primaryKeys(),
+    db.scenes.where('projectId').equals(projectId).primaryKeys(),
+    db.storyboards.where('projectId').equals(projectId).primaryKeys(),
+    db.brainstormBoards.where('projectId').equals(projectId).primaryKeys(),
+    db.annotations.where('projectId').equals(projectId).primaryKeys(),
+    db.generatedWorlds.where('projectId').equals(projectId).primaryKeys(),
+  ]);
+
+  if (yarnBoardIds.length) {
+    await db.yarnEdges.where('boardId').anyOf(yarnBoardIds as string[]).delete();
+  }
+  if (sceneIds.length) {
+    await db.sceneCasts.where('sceneId').anyOf(sceneIds as string[]).delete();
+  }
+  if (storyboardIds.length) {
+    await db.storyboardConnectors
+      .where('storyboardId')
+      .anyOf(storyboardIds as string[])
+      .delete();
+  }
+  if (brainstormBoardIds.length) {
+    await db.brainstormConnections
+      .where('boardId')
+      .anyOf(brainstormBoardIds as string[])
+      .delete();
+  }
+  if (annotationIds.length) {
+    await db.annotationReferences
+      .where('annotationId')
+      .anyOf(annotationIds as string[])
+      .delete();
+  }
+  if (worldIds.length) {
+    await db.worldSnapshots.bulkDelete(worldIds as string[]);
+  }
+  for (const table of projectScoped) {
+    await table.where('projectId').equals(projectId).delete();
+  }
+  await db.projects.delete(projectId);
+}
+
+export async function importProjectZip(file: File): Promise<string[]> {
+  const { zip, prepared } = await loadAndPreflight(file, 'project');
+  try {
+    await db.transaction('rw', db.tables, async () => {
+      for (const project of prepared.projects) {
+        if (await db.projects.get(project.projectId)) {
+          await clearProjectForRestore(project.projectId);
+        }
+        await db.projects.add(project.project as never);
+        await importProjectStrategies(zip, project);
+      }
+    });
+    return prepared.projects.map((project) => project.projectId);
+  } catch (error) {
+    throw wrapFailure('import', error);
+  }
 }
 
 export async function importFullZip(file: File): Promise<void> {
-  const zip = await JSZip.loadAsync(file);
+  const { zip, prepared } = await loadAndPreflight(file, 'full');
+  const settings = expectArray(prepared.json, 'settings.json', []);
+  const tags = expectArray(prepared.json, 'tags.json', []);
+  const inboxNotes = expectArray(prepared.json, 'notes-inbox.json', []);
 
-  // Check manifest
-  const manifest = await readJson<{ app: string; version: number }>(zip, 'manifest.json');
-  if (!manifest || manifest.app !== 'WritersHoard') {
-    throw new Error('Invalid backup file: not a Writer\'s Hoard backup');
-  }
+  try {
+    await db.transaction('rw', db.tables, async () => {
+      // Clear and restore are one transaction. If any strategy fails, Dexie
+      // rolls the entire database back to its pre-import state.
+      await Promise.all(db.tables.map((table) => table.clear()));
+      if (settings.length) await db.settings.bulkAdd(settings as never[]);
+      if (tags.length) await db.tags.bulkAdd(tags as never[]);
+      if (inboxNotes.length) await db.table('notes').bulkAdd(inboxNotes as never[]);
 
-  // Clear every table that any BackupStrategy is going to write into, plus
-  // the top-level tables this file still owns (projects, tags, settings).
-  // Engines added after the original format are covered by strategyTables
-  // below. Filter against `db.tables` so older DBs (pre-schema-bump) don't
-  // blow up on unknown table names.
-  const topLevelTables = ['projects', 'tags', 'settings'];
-  const strategyTables = getAllBackupStrategies().flatMap(s => s.tables);
-  const knownTables = new Set(db.tables.map(t => t.name));
-  const allTables = Array.from(new Set([...topLevelTables, ...strategyTables]))
-    .filter(t => knownTables.has(t));
-
-  await db.transaction('rw', allTables.map(t => db.table(t)), async () => {
-    await Promise.all(allTables.map(t => db.table(t).clear()));
-  });
-
-  // Import global data
-  const settings = await readJson<unknown[]>(zip, 'settings.json');
-  if (settings?.length) await db.settings.bulkAdd(settings as never[]);
-
-  const tags = await readJson<unknown[]>(zip, 'tags.json');
-  if (tags?.length) await db.tags.bulkAdd(tags as never[]);
-
-  // Inbox notes (project-less quick captures). Absent in pre-v21 backups.
-  const inboxNotes = await readJson<unknown[]>(zip, 'notes-inbox.json');
-  if (inboxNotes?.length) await db.table('notes').bulkAdd(inboxNotes as never[]);
-
-  // Find all project directories
-  const projectDirs = new Set<string>();
-  zip.forEach((path) => {
-    const match = path.match(/^projects\/([^/]+)\//);
-    if (match) projectDirs.add(`projects/${match[1]}`);
-  });
-
-  for (const projDir of projectDirs) {
-    // --- Project ---
-    const projData = await readJson<Record<string, unknown>>(zip, `${projDir}/project.json`);
-    if (!projData) continue;
-
-    // Restore cover image
-    if (projData.coverImage && typeof projData.coverImage === 'string' && !projData.coverImage.startsWith('data:')) {
-      projData.coverImage = await readImageAsDataUrl(zip, projDir, projData.coverImage as string) || undefined;
-    }
-    await db.projects.add(projData as never);
-
-    // --- Engine-registered backup strategies ---
-    // Invoke every strategy for this project. Strategies no-op silently if
-    // their folder is missing (backward compatible with older backups).
-    const projectIdForStrategies = (projData.id as string) || '';
-    if (projectIdForStrategies) {
-      for (const strategy of getAllBackupStrategies()) {
-        try {
-          await strategy.importProject({ zip, projectId: projectIdForStrategies, projectDir: projDir });
-        } catch (err) {
-          console.error(`Backup import failed for engine "${strategy.engineId}":`, err);
-        }
+      for (const project of prepared.projects) {
+        await db.projects.add(project.project as never);
+        await importProjectStrategies(zip, project);
       }
-    }
+    });
+  } catch (error) {
+    throw wrapFailure('import', error);
   }
 }

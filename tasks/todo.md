@@ -1,16 +1,179 @@
-# Project exploration and knowledge refresh — 2026-07-27
+# Black-screen startup regression — 2026-07-27
 
-- [ ] Inventory the repository, instructions, and accumulated lessons.
-- [ ] Map runtime entry points, routing, layout, and engine architecture.
-- [ ] Map domain entities, Dexie schema, state, services, and cross-engine flows.
-- [ ] Map Electron IPC, media integration, build, packaging, and release workflow.
-- [ ] Assess verification coverage, active worktree state, and high-risk areas.
-- [ ] Persist a current project knowledge map for future tasks.
-- [ ] Cross-check the map against the current source and document the review.
+## Follow-up: stale Vite instance / port drift
+
+- [x] Identify the process and source actually served after the error persisted.
+- [x] Confirm Vite had moved from configured port `5174` to `5175`.
+- [x] Replace the fixed-port Electron wait/load sequence with one coordinated launcher.
+- [x] Verify `dev:desktop` uses Vite's resolved URL and mounts the current renderer.
+- [x] Run release verification and refresh project knowledge.
+
+### Finding
+
+The source fix was present both on disk and in the renderer served at `5175`.
+The old launcher nevertheless waited for and loaded hard-coded port `5174`.
+When an older Vite process occupied `5174`, the new server automatically moved
+to `5175` while Electron connected to the older renderer, preserving the exact
+pre-fix `lazy` initialization error.
+
+### Review
+
+Fixed at the launcher boundary. With ports `5174` and `5175` deliberately
+occupied, `dev:desktop` selected `5176`; Electron established its renderer
+connection to `5176`, and that server exposed the corrected engine module.
+Closing the Electron process also closed the coordinated Vite instance. The
+release gate passes all types, lint, conformance, six critical browser/startup
+scenarios, production builds, and bundle budgets. The external project-graph
+files configured by the update skill are absent in this desktop environment,
+so `docs/PROJECT_KNOWLEDGE.md` remains the durable updated graph.
+
+---
+
+- [x] Capture the renderer exception and identify the module initialization fault.
+- [x] Move every React `lazy` import before its first use.
+- [x] Add a complete renderer-startup smoke test with page/console error capture.
+- [x] Run quick/release verification and a real development-mode startup check.
+- [x] Refresh project knowledge and confirm no commit or push was created.
 
 ## Review
 
-Pending exploration.
+Fixed. The DevTools Autofill protocol warnings were unrelated; all 22 engine
+indexes used `lazy` before the corresponding React import. Imports now precede
+execution, conformance rejects that ordering error, and the isolated Electron
+suite mounts both the complete bundled renderer and the actual Vite development
+renderer. `npm run verify:release` passes all six browser scenarios plus types,
+lint, conformance, production builds, and bundle budgets.
+
+---
+
+# Full stability, UX, engine, and feature roadmap — implementation
+
+**Started:** 2026-07-27
+**Constraint:** leave every change uncommitted and unpushed for user review.
+
+## Phase 1 — Trust and data safety
+
+- [x] Make every engine backup strategy complete, including child-only tables.
+- [x] Make ZIP export/import fail closed with structured completeness reports.
+- [x] Preflight archives before mutation and make restore atomic or rollback-safe.
+- [x] Add Scrapper external-asset inventory, missing-file reconciliation, and explicit backup semantics.
+- [x] Repair Writings autosave with a serialized awaited save queue and recovery journal.
+- [x] Add ownership-aware deletion coverage for child rows, caches, and native assets.
+- [x] Reconcile interrupted media/page-capture jobs at startup.
+- [x] Use local calendar dates for Writing Stats.
+- [x] Make entity identity and deep navigation project-aware.
+- [x] Add storage/load errors and retry states to shared hooks.
+- [x] Add automated backup, migration, autosave, cascade, and navigation tests.
+- [x] Add reliable quick/release verification commands and CI gates.
+- [x] Pin downloaded helper binaries and document supported packaging targets.
+
+## Phase 2 — Consistent experience and performance
+
+- [x] Heal invalid/disabled engine routes and zero-engine states.
+- [x] Standardize engine dashboards, modals, keyboard behavior, and error/loading UI.
+- [x] Add Project Health diagnostics and repair actions.
+- [x] Add a Project Cockpit for recent work, inbox, goals, failures, and unresolved items.
+- [x] Centralize one-time initialization and reactive data invalidation.
+- [x] Lazy-load engine UI and add practical bundle/performance budgets.
+- [x] Replace full-table global search scans with a project-aware search index.
+- [x] Add visible backup, save, storage, and native-job progress/status.
+
+## Phase 3 — Cross-engine workflows and engine upgrades
+
+- [x] Build a canonical project-aware Entity Hub with backlinks and delete impact.
+- [x] Build the Outline Beat ↔ Scene ↔ Writing narrative spine.
+- [x] Canonicalize Codex/Relationships and generic entity references.
+- [x] Expand annotation adapters/surfaces across linkable engines.
+- [x] Expose dormant Seed, Arc, Map, Gallery, Biography, and Video links.
+- [x] Add Notes/Diary promotion and research-to-draft actions.
+- [x] Make Gallery the shared asset source for visual engines.
+- [x] Add typed cross-engine converters with preview, provenance, and undo.
+- [x] Add engine conformance checks for schema, locale, backup, resolver, and lifecycle coverage.
+
+## Phase 4 — New product capabilities
+
+- [x] Add Story Intelligence analytical views.
+- [x] Add reusable project templates and recipes.
+- [x] Add research citations and bibliography export.
+- [x] Expand publishing profiles for manuscript, screenplay, research, biography, and video.
+- [x] Add a managed external asset vault with relocation and repair.
+- [x] Add project-grounded AI with citations and privacy controls.
+- [x] Add secure browser/OS capture integrations.
+
+## Final verification and handoff
+
+- [x] Run renderer and Electron typechecks.
+- [x] Run shipping-code lint and automated tests.
+- [x] Run production renderer/Electron builds and critical desktop smoke flows.
+- [x] Update this review and `docs/PROJECT_KNOWLEDGE.md`; the configured external graph files were unavailable, so the repository knowledge document is the durable fallback.
+- [x] Confirm no commit or push was created.
+
+## Review
+
+Implemented and release-verified.
+
+- Trust: complete parent-aware backup strategies, read-only archive preflight,
+  structured failures, transactional restore rollback, explicit Scrapper
+  external-asset semantics, serialized autosave with a recovery journal, and
+  ownership-aware deletion/reconciliation.
+- Experience: project-aware navigation, route healing, per-engine failure
+  boundaries, shared hook retry states, storage persistence feedback, lazy
+  engine chunks, an invalidation-aware search index, and a Project Cockpit with
+  health checks and safe repairs.
+- Workflows: canonical project entity links/backlinks, editable
+  Outline-to-Scene-to-Writing spine, fallback anchors for searchable engines,
+  Gallery asset reuse, promotion/conversion provenance with undo, citations,
+  templates, publishing profiles, asset relocation/audit, and opt-in grounded
+  AI with source IDs and privacy controls.
+- Quality: helper binaries are version/checksum pinned, the shipping-lint
+  baseline is empty, conformance covers 22 engines and paired locales, CI runs
+  the critical Electron tests, and renderer bundle limits are enforced.
+- Verification: `npm run verify:release` passed, including renderer/Electron
+  typechecks, zero-fingerprint shipping lint, engine conformance, six isolated
+  Chromium/IndexedDB and renderer-startup scenarios, production renderer/Electron builds,
+  and the post-build bundle budget.
+
+---
+
+# Project exploration and knowledge refresh — 2026-07-27
+
+- [x] Inventory the repository, instructions, and accumulated lessons.
+- [x] Map runtime entry points, routing, layout, and engine architecture.
+- [x] Map domain entities, Dexie schema, state, services, and cross-engine flows.
+- [x] Map Electron IPC, media integration, build, packaging, and release workflow.
+- [x] Assess verification coverage, active worktree state, and high-risk areas.
+- [x] Persist a current project knowledge map for future tasks.
+- [x] Cross-check the map against the current source and document the review.
+
+## Review
+
+- Added `docs/PROJECT_KNOWLEDGE.md`, a current-state map of the runtime,
+  routes, source layout, 22-engine catalog, Dexie v22/46-table persistence
+  layer, shared registries, major workflows, Electron boundary, extension
+  checklist, and verification commands.
+- The map is explicitly based on the current dirty worktree, including the
+  in-progress Notes/quick-note and Links-to-Scrapper migration. No existing
+  source change was overwritten or reformatted.
+- Highest-priority finding: structured ZIP backup is not a reliable full
+  round-trip. Timeline still assumes a removed legacy path; some generic
+  strategies list child tables without `projectId`; per-engine errors continue
+  silently; Scrapper disk assets are not included. No behavior was changed in
+  this exploration task.
+- Other recorded priorities: writing last-save durability, uneven cascades and
+  soft-reference cleanup, project-less/wrong-project global navigation, UTC
+  writing-stat day boundaries, missing automated tests, incomplete CI gates,
+  and unpinned external binaries.
+- Static cross-check: 22 registered engines, 46 typed Dexie tables, 20 engine
+  entity resolvers, six actual engine anchor adapters, and 21 engines with
+  backup registration; every engine appears in the catalog.
+- Verification: renderer TypeScript passed (`tsc -b --noEmit`); Electron
+  TypeScript passed (`tsc -p electron/tsconfig.json`). Repository-wide ESLint
+  ran and reported 40 errors / 11 warnings, including active Worldgen code and
+  archived `_stage`, `_to_delete`, and harness files. These are pre-existing
+  code/tooling findings; this task changed only Markdown.
+- The project-graph skill's configured `/sessions/.../.auto-memory` files are
+  not present in this desktop workspace. The durable in-repository knowledge
+  document is the safe fallback for future tasks.
 
 ---
 
@@ -204,3 +367,111 @@ Incluye: render-adjust pattern en ColorPicker/IconPicker/GlobalSearch/ScriptAuto
 - `@`-menciones en Tiptap hacia codex (extensión Mention).
 
 **▶️ Prueba manual sugerida:** `npm run dev:desktop` → (1) borrar un proyecto de prueba (confirma + toast, sin huérfanos); (2) escribir en un writing, navegar fuera sin guardar y volver (texto intacto), Ctrl+S, historial→restaurar; (3) Compilar→PDF; (4) Recortes→Fountain en un proyecto con escenas; (5) Cmd+K buscando una frase escrita dentro de un capítulo. 🚫 **Sin commit** (no-autocommit) — todo queda para revisión.
+
+---
+
+# Worldgen multiscale world — full implementation
+
+**Started:** 2026-07-27
+**Constraint:** preserve the current dirty worktree and leave all changes uncommitted/unpushed.
+
+## Specification
+
+- A generated spatial feature keeps one deterministic identity across the world,
+  regional sheet, 2D map, 3D map, Atlas, reloads, and render resolutions.
+- Generated terrain and regional tiles remain derived/cacheable. Persistence
+  stores only saved region definitions and compact user overrides.
+- Rename, hide/remove, restore, move, and symbol/style changes resolve through
+  one shared entity model before any renderer sees a feature.
+- 2D and 3D use the same selection contract and inspector; renderer-specific
+  copies of editing logic are not allowed.
+- Dynamic resolution is split into screen DPR, mesh density, and semantic data
+  detail. Increasing the base world grid is not the close-range LOD strategy.
+- Regional generation is cancellable and runs outside the renderer thread
+  before it is driven automatically by viewport changes.
+- Existing serialized worlds and edits remain readable.
+
+## Phase 1 — Spatial identity and editing
+
+- [x] Add first-class landmark and regional-place edit targets with backward-compatible serialization.
+- [x] Add deterministic spatial keys and one resolved spatial-entity model.
+- [x] Apply landmark overrides consistently in Atlas, 2D, 3D, and regional views.
+- [x] Add shared selection/inspector UI with rename, symbol/style, move, hide, restore, and linking entry point.
+- [x] Add generated-landmark hit testing and placement tools in 2D.
+- [x] Render and select the same landmarks in 3D.
+
+## Phase 2 — Saved regions and regional generation
+
+- [x] Add lightweight saved-region definitions to world persistence.
+- [x] Make regional sheets renameable, bookmarkable, searchable, and reopenable.
+- [x] Give regional places resolution-independent source keys.
+- [x] Fix margin-aware regional pointer conversion.
+- [x] Add selection/editing for regional places.
+- [x] Move regional generation to a cancellable worker with an LRU cache.
+
+## Phase 3 — Multiscale rendering
+
+- [x] Introduce a parent-owned world viewport shared by 2D, 3D, and regional sheets.
+- [x] Add semantic zoom tiers and progressive regional overlays to 2D.
+- [x] Feed close-range regional elevation/surface data into 3D.
+- [x] Add adaptive DPR/mesh quality with frame-budget hysteresis.
+- [x] Preserve focus and selected spatial entity when switching views.
+
+## Phase 4 — Cross-engine place foundation
+
+- [x] Expose Worldgen spatial entities through project-aware entity resolution.
+- [x] Add exact reveal actions for 2D, 3D, and regional sheets.
+- [x] Let the Maps engine consume live Worldgen-backed maps/places without breaking uploaded maps.
+- [x] Add reusable entity-link affordances for Codex, scenes, writings, and timeline consumers.
+
+## Verification and review
+
+- [x] Add regression tests for landmark edit persistence and regional identity.
+- [x] Add cancellation/cache tests for regional generation.
+- [x] Run renderer and Electron typechecks.
+- [x] Run shipping lint, conformance, and critical tests.
+- [x] Run production builds and the real renderer-startup smoke test.
+- [x] Review the complete diff for accidental overlap with pre-existing work.
+- [x] Refresh the project knowledge graph and document results here.
+- [x] Confirm no commit or push was created.
+
+## Review
+
+- Google Maps-style semantic zoom now moves through planetary, continental,
+  regional, and local tiers with hysteresis, feature visibility rules, label
+  budgets, deterministic decluttering, and progressive regional overlays.
+- Global landmarks and generated regional places share deterministic identities
+  and sparse overrides for rename, move, symbol/style, label visibility, hide,
+  and restore across Atlas, 2D, 3D, and regional sheets.
+- Saved regions persist as lightweight bookmarks; regional data is generated in
+  a cancellable worker, cached with an LRU, and blended into 2D and 3D without
+  blocking or replacing the last usable view.
+- Worldgen locations resolve through project search/navigation, link to Codex,
+  scenes, writings, and timeline events, and synchronize into provenance-aware
+  Maps records without changing uploaded maps.
+- Release verification passed after implementation: renderer/Electron
+  typechecks, shipping lint, 22-engine conformance, 11 critical browser/WebGL
+  tests, production renderer/Electron builds, and bundle budgets.
+- Manual validation exposed and fixed a cold-route race: `ProjectDetail`
+  previously rejected `/worldgen` while the project hook still held its initial
+  empty engine list, silently replacing the route with `/overview`. The startup
+  harness now seeds a persisted project/world and asserts the real lazy
+  Worldgen route remains mounted after asynchronous hydration.
+- The configured session-memory graph path was unavailable on this Windows
+  host, so the repository's current-state architecture companion
+  `docs/PROJECT_KNOWLEDGE.md` was refreshed with the same Worldgen and Maps
+  invariants.
+- The worktree was reviewed with `git diff --check`; all work remains uncommitted
+  and unpushed for user review.
+
+---
+
+# Worldgen close-zoom 3D blackout
+
+**Started:** 2026-07-27
+
+- [ ] Reproduce and profile the close-zoom transition in the real World3D path.
+- [ ] Fix camera/LOD/detail synchronization so close zoom cannot render black.
+- [ ] Bound expensive work triggered by wheel and regional-detail updates.
+- [ ] Add a regression test for close camera distances and repeated zoom events.
+- [ ] Run the full release gate and document the verified result.

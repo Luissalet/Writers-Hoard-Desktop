@@ -76,17 +76,23 @@ const en = {
   // ── Project Detail ──
   'project.notFound': 'Project not found',
   'project.export': 'Export',
+  'project.exporting': 'Exporting...',
   'project.exportProject': 'Export project',
   'project.exportDone': 'Project exported as ZIP',
   'project.exportError': 'Error exporting project.',
   'project.manageEngines': 'Manage engines',
   'project.noEngines': 'No engines enabled',
+  'project.engineError.title': 'This engine could not be opened',
+  'project.engineError.message': 'Your project data is safe. Retry the engine or return to the overview.',
+  'project.engineError.retry': 'Retry engine',
+  'project.engineError.details': 'Technical details',
 
   // ── Sidebar ──
   'sidebar.brand': "Writer's Hoard",
   'sidebar.home': 'Home',
   'sidebar.mediaDownloader': 'Media Downloader',
   'sidebar.project': 'Project',
+  'sidebar.overview': 'Overview',
   'sidebar.writings': 'Writings',
   'sidebar.codex': 'Codex',
   'sidebar.timeline': 'Timeline',
@@ -94,6 +100,10 @@ const en = {
   'sidebar.yarnBoard': 'Yarn Board',
   'sidebar.gallery': 'Gallery',
   'sidebar.notes': 'Notes',
+
+  'gallery.assetPicker.title': 'Choose from Gallery',
+  'gallery.assetPicker.empty': "Add images to this project's Gallery first.",
+  'gallery.assetPicker.image': 'Gallery image',
 
   // ── TopBar ──
   'topbar.settings': 'Settings',
@@ -883,6 +893,8 @@ const en = {
   'writings.history.reason.manual': 'manual',
   'writings.history.reason.pre-restore': 'before restore',
   'writings.savedIndicator': 'Saved',
+  'writings.recoveredIndicator': 'Recovered unsaved changes...',
+  'writings.saveErrorIndicator': 'Save failed - retry',
   'writings.unsavedIndicator': 'Unsaved changes…',
   'writings.autosaveHint': 'Autosaves as you type. Ctrl+S saves immediately.',
   'writings.focusMode': 'Focus mode (hide panels)',

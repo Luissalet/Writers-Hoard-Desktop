@@ -177,7 +177,7 @@ export default function CartoMap({
       const kx = gm.canvas.width / world.width;
       const ky = gm.canvas.height / world.height;
       const sw = v.w * kx, sh = v.h * ky;
-      let sx = v.x * kx;
+      const sx = v.x * kx;
       // Draw the seam twice so a view straddling it has no gap either.
       ctx.fillStyle = theme.ocean.deep;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -185,7 +185,6 @@ export default function CartoMap({
         ctx.drawImage(gm.canvas, sx + shift, v.y * ky, sw, sh, 0, 0, canvas.width, canvas.height);
         if (shift === 0 && sx >= 0 && sx + sw <= gm.canvas.width) break;
       }
-      void sx;
     } else {
       const b = base.current;
       if (!b) return;
@@ -226,6 +225,33 @@ export default function CartoMap({
       if (rafRef.current && performance.now() - booked > 90) fire();
     }, 100);
   }, [paintInterim]);
+
+  /** The GPU base, or null to let the renderer use its CPU path. */
+  const drawBase = useCallback((w: number, h: number, v: CartoView): CanvasImageSource | null => {
+    if (glFailed.current) return null;
+    const p = propsRef.current;
+    const L = { ...p.layers };
+    try {
+      if (!glBase.current) {
+        if (!glCanvas.current) glCanvas.current = document.createElement('canvas');
+        glBase.current = new CartoBaseGL(glCanvas.current, p.world);
+      }
+      const gl = glBase.current;
+      gl.sync(p.world, computeFields(p.world), getTintFieldFor(p.world, p.theme));
+      gl.draw(v, w, h, {
+        theme: p.theme,
+        shading: L.shading !== false,
+        biomeTint: L.biomeTint !== false,
+        coastRings: L.coastRings !== false,
+      }, 0);
+      return gl.canvas as HTMLCanvasElement;
+    } catch {
+      // One failure is enough: fall back for good rather than throwing per frame.
+      glFailed.current = true;
+      glBase.current = null;
+      return null;
+    }
+  }, []);
 
   /** Full pipeline render at a given resolution factor. Synchronous. */
   const render = useCallback((factor: number, full: boolean) => {
@@ -294,7 +320,7 @@ export default function CartoMap({
         setBusy(false);
       }
     });
-  }, [size.w, size.h, viewFor]);
+  }, [size.w, size.h, viewFor, drawBase]);
 
   // ---- the ink layer -------------------------------------------------------
   // A separate transparent canvas above the map: the reader's own marks — a
@@ -372,33 +398,6 @@ export default function CartoMap({
     glBase.current = null;
     glFailed.current = false;
   }, [world]);
-
-  /** The GPU base, or null to let the renderer use its CPU path. */
-  const drawBase = useCallback((w: number, h: number, v: CartoView): CanvasImageSource | null => {
-    if (glFailed.current) return null;
-    const p = propsRef.current;
-    const L = { ...p.layers };
-    try {
-      if (!glBase.current) {
-        if (!glCanvas.current) glCanvas.current = document.createElement('canvas');
-        glBase.current = new CartoBaseGL(glCanvas.current, p.world);
-      }
-      const gl = glBase.current;
-      gl.sync(p.world, computeFields(p.world), getTintFieldFor(p.world, p.theme));
-      gl.draw(v, w, h, {
-        theme: p.theme,
-        shading: L.shading !== false,
-        biomeTint: L.biomeTint !== false,
-        coastRings: L.coastRings !== false,
-      }, 0);
-      return gl.canvas as HTMLCanvasElement;
-    } catch {
-      // One failure is enough: fall back for good rather than throwing per frame.
-      glFailed.current = true;
-      glBase.current = null;
-      return null;
-    }
-  }, []);
 
   // ---- interaction ---------------------------------------------------------
   // Wheel is bound natively because React's onWheel is passive: preventDefault

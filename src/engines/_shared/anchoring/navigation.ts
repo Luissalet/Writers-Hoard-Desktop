@@ -38,6 +38,10 @@ export function navigateTo(path: string): void {
  */
 export function getCurrentProjectIdFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
-  const m = window.location.pathname.match(/\/project\/([^/?#]+)/);
-  return m ? m[1] : null;
+  const hashRoute = window.location.hash.startsWith('#')
+    ? window.location.hash.slice(1)
+    : '';
+  const route = hashRoute || window.location.pathname;
+  const match = route.match(/\/project\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
 }

@@ -116,24 +116,26 @@ export function useWorldGeneration(
     const hit = cache.get(worldId);
     setWorld(hit ? hit.data : null);
     setGen(IDLE);
-    runRef.current++;
   }
 
   // Kill any in-flight worker when the world changes or on unmount.
+  const invalidateRun = useCallback(() => {
+    runRef.current++;
+  }, []);
   useEffect(() => {
     return () => {
       workerRef.current?.terminate();
       workerRef.current = null;
-      runRef.current++;
+      invalidateRun();
     };
-  }, [worldId]);
+  }, [worldId, invalidateRun]);
 
   const cancel = useCallback(() => {
     workerRef.current?.terminate();
     workerRef.current = null;
-    runRef.current++;
+    invalidateRun();
     setGen(IDLE);
-  }, []);
+  }, [invalidateRun]);
 
   const restorePristine = useCallback((w: WorldData) => {
     const entry = cache.get(worldId);

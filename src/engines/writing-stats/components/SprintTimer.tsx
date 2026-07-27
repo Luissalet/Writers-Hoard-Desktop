@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, RotateCcw, Check } from 'lucide-react';
 import type { WritingSession } from '../types';
+import { toLocalDateKey } from '../date';
 import { generateId } from '@/utils/idGenerator';
 import { toast } from '@/components/common/toast';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -70,7 +71,7 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
       return;
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = toLocalDateKey();
     const session: WritingSession = {
       id: generateId('session'),
       projectId,

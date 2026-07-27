@@ -1,3 +1,4 @@
+import { lazy } from 'react';
 import { Map } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
@@ -15,7 +16,7 @@ import {
 } from '@/engines/_shared';
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
-import MapsEngine from './MapsEngine';
+const MapsEngine = lazy(() => import('./MapsEngine'));
 
 const mapsEngine: EngineDefinition = {
   id: 'maps',
@@ -36,12 +37,25 @@ registerEntityResolver({
   engineId: 'maps',
   entityTypes: ['maps', 'map-pin'],
   resolveEntity: async (entityId: string, entityType: string) => {
+    if (entityType === 'maps') {
+      const map = await db.worldMaps.get(entityId);
+      if (!map) return null;
+      return {
+        id: map.id,
+        type: 'maps',
+        engineId: 'maps',
+        projectId: map.projectId,
+        title: map.title,
+        thumbnail: map.backgroundImage,
+      };
+    }
     const pin = await db.mapPins.get(entityId);
     if (!pin) return null;
     return {
       id: pin.id,
       type: entityType,
       engineId: 'maps',
+      projectId: pin.projectId,
       title: pin.name,
       subtitle: pin.description,
     };
@@ -53,6 +67,7 @@ registerEntityResolver({
       id: p.id,
       type: 'map-pin',
       engineId: 'maps',
+      projectId: p.projectId,
       title: p.name,
       subtitle: p.description,
     }));
@@ -67,8 +82,8 @@ registerAnchorAdapter({
     return pin?.name ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.maps'),
-  navigateToEntity(entityId: string) {
-    const pid = getCurrentProjectIdFromUrl();
+  navigateToEntity(entityId: string, projectId?: string) {
+    const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
     navigateTo(`/project/${pid}/maps?pin=${encodeURIComponent(entityId)}`);
   },

@@ -18,6 +18,11 @@
 // must stay usable, and testable, with no manuscript at all.
 
 import { editKey, type EditTarget } from './edits';
+import {
+  resolveWorldLandmarks,
+  resolveWorldSpatialEntity,
+  type WorldSpatialEntity,
+} from './spatialEntities';
 import type { HumanGeography } from './settlements';
 import type { WorldData } from './types';
 
@@ -26,23 +31,7 @@ export type AtlasPlaceKind =
   /** Something that only exists on a regional sheet: a hamlet, a mill, a fall. */
   | 'region';
 
-export interface AtlasPlace {
-  /** Stable across regeneration. The link table's foreign key. */
-  key: string;
-  kind: AtlasPlaceKind;
-  /** Sub-kind: 'capital', 'sea', 'range', 'volcano'… for the icon and the wording. */
-  type: string;
-  name: string;
-  /** World cell coordinates. */
-  x: number;
-  y: number;
-  /** Rough extent in cells — how close a click has to be. */
-  extent: number;
-  /** Ranking for label priority and for breaking ties on a click. */
-  importance: number;
-  /** Realm this sits in, when it sits in one. */
-  realmKey?: string;
-}
+export type AtlasPlace = WorldSpatialEntity;
 
 /** What the manuscript hangs on a place. The host application supplies these. */
 export interface ManuscriptLink {
@@ -97,10 +86,12 @@ export interface Atlas {
  */
 export function buildAtlas(world: WorldData, geo: HumanGeography): Atlas {
   const places: AtlasPlace[] = [];
-  const add = (p: AtlasPlace) => places.push(p);
+  const add = (p: AtlasPlace) => {
+    if (!p.hidden) places.push(p);
+  };
 
   for (const s of geo.settlements) {
-    add({
+    add(resolveWorldSpatialEntity({
       key: editKey('settlement', s.x, s.y),
       kind: 'settlement',
       type: s.rank,
@@ -109,44 +100,47 @@ export function buildAtlas(world: WorldData, geo: HumanGeography): Atlas {
       extent: s.rank === 'capital' ? 4 : s.rank === 'city' ? 3 : 2,
       importance: s.rank === 'capital' ? 1 : s.rank === 'city' ? 0.8 : s.rank === 'town' ? 0.55 : 0.32,
       realmKey: s.realm >= 0 ? editKey('realm', 0, 0, `${s.realm}:`) : undefined,
-    });
+      source: s.painted ? 'painted' : 'generated',
+    }, world.painted));
   }
   for (const r of geo.ruins) {
-    add({
+    add(resolveWorldSpatialEntity({
       key: editKey('ruin', r.x, r.y),
       kind: 'ruin', type: r.kind, name: r.name,
       x: r.x, y: r.y, extent: 2, importance: r.importance * 0.6,
-    });
+      source: r.painted ? 'painted' : 'generated',
+    }, world.painted));
   }
   for (const f of geo.features) {
-    add({
+    add(resolveWorldSpatialEntity({
       key: editKey('feature', f.x, f.y, `${f.kind}:`),
       kind: 'feature', type: f.kind, name: f.name,
       x: f.x, y: f.y,
       extent: Math.max(2, f.extent),
       importance: f.importance * 0.7,
-    });
+    }, world.painted));
   }
   for (const r of geo.realms) {
     const cap = geo.settlements.find((s) => s.id === r.capital);
-    add({
+    add(resolveWorldSpatialEntity({
       key: editKey('realm', 0, 0, `${r.id}:`),
       kind: 'realm', type: 'realm', name: r.name,
       x: cap?.x ?? 0, y: cap?.y ?? 0,
       extent: Math.max(6, Math.sqrt(r.cellCount)),
       importance: 0.9,
-    });
+    }, world.painted));
   }
-  for (const l of world.landmarks) {
-    add({
-      key: editKey('feature', l.x, l.y, `${l.type}:`),
-      kind: 'landmark', type: l.type, name: '',
-      x: l.x, y: l.y, extent: 2, importance: l.strength * 0.4,
-    });
-  }
+  for (const landmark of resolveWorldLandmarks(world)) add(landmark);
 
   const byKey = new Map<string, AtlasPlace>();
-  for (const p of places) byKey.set(p.key, p);
+  for (const p of places) {
+    byKey.set(p.key, p);
+    // Keep old manuscript links and old edit-generated navigation working after
+    // landmarks graduate from the overloaded `feature:` target.
+    for (const legacyKey of p.legacyKeys) {
+      if (!byKey.has(legacyKey)) byKey.set(legacyKey, p);
+    }
+  }
   return { places, byKey };
 }
 
@@ -176,7 +170,16 @@ export function withRegionPlaces(
   atlas: Atlas,
   region: {
     originX: number; originY: number; worldPerCellX: number; worldPerCellY: number;
-    places: { kind: string; x: number; y: number; name: string; importance: number }[];
+    places: {
+      kind: string;
+      x: number;
+      y: number;
+      name: string;
+      importance: number;
+      sourceKey?: string;
+      worldX?: number;
+      worldY?: number;
+    }[];
   },
 ): Atlas {
   const KEEP = new Set(['village', 'hamlet', 'abbey', 'mill', 'tower', 'inn', 'mine', 'quarry', 'landmark', 'farm']);
@@ -184,16 +187,21 @@ export function withRegionPlaces(
   const byKey = new Map(atlas.byKey);
   for (const p of region.places) {
     if (!KEEP.has(p.kind) || !p.name) continue;
-    const wx = region.originX + p.x * region.worldPerCellX;
-    const wy = region.originY + p.y * region.worldPerCellY;
-    const key = regionPlaceKey(wx, wy, p.name);
+    const wx = p.worldX ?? region.originX + p.x * region.worldPerCellX;
+    const wy = p.worldY ?? region.originY + p.y * region.worldPerCellY;
+    const legacyKey = regionPlaceKey(wx, wy, p.name);
+    const key = p.sourceKey ?? legacyKey;
     if (byKey.has(key)) continue;
-    const place: AtlasPlace = {
+    const place = resolveWorldSpatialEntity({
       key, kind: 'region', type: p.kind, name: p.name,
       x: wx, y: wy, extent: 0.4, importance: p.importance * 0.5,
-    };
+      source: 'regional',
+    });
     places.push(place);
     byKey.set(key, place);
+    // Existing manuscript links created before stable regional source keys
+    // continue to resolve while new links use the resolution-independent key.
+    if (legacyKey !== key) byKey.set(legacyKey, place);
   }
   return { places, byKey };
 }

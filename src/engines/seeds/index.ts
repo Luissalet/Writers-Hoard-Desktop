@@ -1,3 +1,4 @@
+import { lazy } from 'react';
 import { Sprout } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
@@ -9,7 +10,7 @@ import {
 } from '@/engines/_shared/anchoring';
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
-import SeedsEngine from './components/SeedsEngine';
+const SeedsEngine = lazy(() => import('./components/SeedsEngine'));
 
 const seedsEngine: EngineDefinition = {
   id: 'seeds',
@@ -37,6 +38,7 @@ registerEntityResolver({
         id: seed.id,
         type: 'seed',
         engineId: 'seeds',
+        projectId: seed.projectId,
         title: seed.title,
         color: seed.color,
       };
@@ -48,6 +50,7 @@ registerEntityResolver({
       id: payoff.id,
       type: 'payoff',
       engineId: 'seeds',
+      projectId: payoff.projectId,
       title: payoff.title,
       subtitle: seed?.title,
     };
@@ -57,8 +60,8 @@ registerEntityResolver({
     const seeds = await db.seeds.filter(s => s.title.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)).toArray();
     const payoffs = await db.payoffs.filter(p => p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)).toArray();
     return [
-      ...seeds.map(s => ({ id: s.id, type: 'seed' as const, engineId: 'seeds', title: s.title })),
-      ...payoffs.map(p => ({ id: p.id, type: 'payoff' as const, engineId: 'seeds', title: p.title })),
+      ...seeds.map(s => ({ id: s.id, type: 'seed' as const, engineId: 'seeds', projectId: s.projectId, title: s.title })),
+      ...payoffs.map(p => ({ id: p.id, type: 'payoff' as const, engineId: 'seeds', projectId: p.projectId, title: p.title })),
     ];
   },
 });
@@ -84,8 +87,8 @@ registerAnchorAdapter({
     return payoff?.title ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.seeds'),
-  navigateToEntity(entityId: string) {
-    const pid = getCurrentProjectIdFromUrl();
+  navigateToEntity(entityId: string, projectId?: string) {
+    const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
     navigateTo(`/project/${pid}/seeds?seed=${encodeURIComponent(entityId)}`);
   },

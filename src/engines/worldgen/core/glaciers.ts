@@ -226,7 +226,7 @@ export function applyGlaciers(
 
 /** Separable box blur, wrapping in x and clamping in y. */
 function boxBlur(src: Float32Array, W: number, H: number, radius: number, passes: number): Float32Array {
-  let a = Float32Array.from(src);
+  const a = Float32Array.from(src);
   const b = new Float32Array(W * H);
   const R = Math.max(1, radius);
   const inv = 1 / (2 * R + 1);

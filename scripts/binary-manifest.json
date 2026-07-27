@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "binaries": {
+    "yt-dlp": {
+      "repository": "yt-dlp/yt-dlp",
+      "version": "2026.06.09",
+      "envPrefix": "WH_YTDLP",
+      "assets": {
+        "win32": "yt-dlp.exe",
+        "darwin": "yt-dlp_macos",
+        "linux": "yt-dlp_linux"
+      },
+      "localNames": {
+        "win32": "yt-dlp.exe",
+        "darwin": "yt-dlp",
+        "linux": "yt-dlp"
+      },
+      "sha256": {
+        "win32": "3a48cb955d55c8821b60ccbdbbc6f61bc958f2f3d3b7ad5eaf3d83a543293a27",
+        "darwin": "b82c3626952e6c14eaf654cc565866775ffd0b9ffb7021628ac59b42c2f4f244",
+        "linux": "bf8aac79b72287a6d2043074415132558b43743a8f9461a22b0141e90f16ce66"
+      }
+    },
+    "gallery-dl": {
+      "repository": "gdl-org/builds",
+      "version": "2026.07.25",
+      "envPrefix": "WH_GALLERYDL",
+      "assets": {
+        "win32": "gallery-dl_windows.exe",
+        "darwin": "gallery-dl_macos",
+        "linux": "gallery-dl_linux"
+      },
+      "localNames": {
+        "win32": "gallery-dl.exe",
+        "darwin": "gallery-dl",
+        "linux": "gallery-dl"
+      },
+      "sha256": {
+        "win32": "8cb3ce49e4b580a78d30c8a2c3ce00ba2484c0a3555bbf99eabac66c58707c7d",
+        "darwin": "29fa9cfb6fad844a2aff75be1d18a56ec8140f7d6c087c819c1a52fd7cdb1c22",
+        "linux": "d606ce5610787e76eb581764c89a01feddfc1e660d42bfb88f6180e18f3fa232"
+      }
+    }
+  }
+}

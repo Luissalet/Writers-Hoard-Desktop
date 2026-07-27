@@ -110,6 +110,12 @@ export interface BackupStrategy {
   exportProject: (ctx: ExportContext) => Promise<void>;
   /** Called per project during import. */
   importProject: (ctx: ImportContext) => Promise<void>;
+  /**
+   * Optional read-only validation run before a destructive restore starts.
+   * It must not write to Dexie. Import still runs inside a transaction, but
+   * preflight produces a useful error before any clearing work is attempted.
+   */
+  preflightImport?: (ctx: ImportContext) => Promise<void>;
 }
 
 const STRATEGIES = new Map<string, BackupStrategy>();
@@ -192,19 +198,42 @@ export function makeSimpleBackupStrategy(opts: {
   const folder = opts.folder ?? opts.engineId;
   const fk = opts.projectIdField ?? 'projectId';
 
+  const assertProjectScopeIndex = (tableName: string): void => {
+    const table = db.table(tableName);
+    const hasIndex = table.schema.primKey.name === fk || Boolean(table.schema.idxByName[fk]);
+    if (!hasIndex) {
+      throw new Error(
+        `Backup strategy "${opts.engineId}" cannot scope table "${tableName}" by "${fk}". ` +
+        'Use a custom parent-aware strategy for child-only tables.',
+      );
+    }
+  };
+
   return {
     engineId: opts.engineId,
     tables: opts.tables,
     async exportProject({ zip, projectId, projectDir }) {
       for (const tableName of opts.tables) {
+        assertProjectScopeIndex(tableName);
         const rows = await db.table(tableName)
           .where(fk).equals(projectId).toArray();
         if (rows.length === 0) continue;
         zip.file(`${projectDir}/${folder}/${tableName}.json`, JSON.stringify(rows, null, 2));
       }
     },
+    async preflightImport({ zip, projectDir }) {
+      for (const tableName of opts.tables) {
+        assertProjectScopeIndex(tableName);
+        const path = `${projectDir}/${folder}/${tableName}.json`;
+        const rows = await readJson<unknown>(zip, path);
+        if (rows !== null && !Array.isArray(rows)) {
+          throw new Error(`Expected "${path}" to contain a JSON array.`);
+        }
+      }
+    },
     async importProject({ zip, projectDir }) {
       for (const tableName of opts.tables) {
+        assertProjectScopeIndex(tableName);
         const rows = await readJson<unknown[]>(
           zip,
           `${projectDir}/${folder}/${tableName}.json`,

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Layers, X } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import { useGlobalSearch, type SearchResult } from '@/hooks/useGlobalSearch';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -11,7 +11,8 @@ import { getAnchorAdapter } from '@/engines/_shared/anchoring';
 export default function GlobalSearch() {
   const { t } = useTranslation();
   const { searchOpen, setSearchOpen } = useAppStore();
-  const { search } = useGlobalSearch();
+  const { id: projectId } = useParams<{ id?: string }>();
+  const { search } = useGlobalSearch(projectId);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -70,7 +71,7 @@ export default function GlobalSearch() {
       // Prefer the engine's own navigator (anchor-adapter has route knowledge).
       const adapter = getAnchorAdapter(result.engineId);
       if (adapter) {
-        adapter.navigateToEntity(result.id);
+        adapter.navigateToEntity(result.id, result.projectId);
       } else if (result.projectId) {
         // No adapter (diary, timeline, dialog-scene…) — land on the engine's
         // tab in the owning project instead of going nowhere.

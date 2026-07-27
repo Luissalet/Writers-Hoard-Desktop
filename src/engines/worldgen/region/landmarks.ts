@@ -19,6 +19,12 @@ import type { HumanGeography } from '../core/settlements';
 import type { WorldData } from '../core/types';
 import { Cover, LANDMARK_ES, type RegionLandmarkKind, type RegionPlace, type RegionStream } from './types';
 import type { RegionGeometry, TerrainFields } from './terrain';
+import {
+  materializeRegionPlace,
+  regionalCoordinateSourceKey,
+  worldLandmarkSourceKey,
+} from './identity';
+import { regionCellToWorld } from './coordinates';
 
 const WORLD_KIND: Record<string, RegionLandmarkKind> = {
   volcano: 'volcano', cave: 'cave', waterfall: 'waterfall',
@@ -40,8 +46,8 @@ export function buildLandmarks(
   const fam: LanguageFamily = geo.languages;
   const WW = world.width;
 
-  const name = (kind: RegionLandmarkKind, x: number, y: number): string => {
-    const key = `lm:${kind}:${Math.round(g.originX / g.worldPerCellX) + Math.round(x)}:${Math.round(g.originY / g.worldPerCellY) + Math.round(y)}`;
+  const name = (kind: RegionLandmarkKind, sourceKey: string): string => {
+    const key = `lm:${sourceKey}`;
     const heads = kind === 'waterfall' ? ['water', 'river', 'white'] as const
       : kind === 'spring' ? ['spring', 'water', 'holy'] as const
         : kind === 'gorge' ? ['rock', 'cliff', 'dark'] as const
@@ -63,10 +69,32 @@ export function buildLandmarks(
     taken.push({ x, y, k });
     return true;
   };
-  const push = (kind: RegionLandmarkKind, x: number, y: number, importance: number, minKm: number) => {
+  const push = (
+    kind: RegionLandmarkKind,
+    x: number,
+    y: number,
+    importance: number,
+    minKm: number,
+    explicitSourceKey?: string,
+  ) => {
     if (x < 1 || x >= W - 1 || y < 1 || y >= H - 1) return;
     if (!free(x, y, kind, minKm)) return;
-    out.push({ id: nextId(), kind: 'landmark', landmark: kind, x, y, name: name(kind, x, y), importance });
+    const worldPoint = regionCellToWorld(g, { x, y }, WW);
+    const sourceKey = explicitSourceKey ?? regionalCoordinateSourceKey(
+      kind,
+      worldPoint.x,
+      worldPoint.y,
+      WW,
+    );
+    out.push(materializeRegionPlace({
+      id: nextId(),
+      kind: 'landmark',
+      landmark: kind,
+      x,
+      y,
+      name: name(kind, sourceKey),
+      importance,
+    }, g, WW, sourceKey));
   };
 
   // ---- the world's own landmarks, brought down ------------------------------
@@ -84,7 +112,14 @@ export function buildLandmarks(
     // The world put it in a 20 km cell; put it on the most plausible spot inside
     // that cell rather than at the cell's corner, or a volcano ends up in a bog.
     const spot = refine(k, p.x, p.y, Math.max(3, 8 / cellKm), g, t, cover);
-    push(k, spot.x, spot.y, 0.45 + l.strength * 0.4, 6);
+    push(
+      k,
+      spot.x,
+      spot.y,
+      0.45 + l.strength * 0.4,
+      6,
+      worldLandmarkSourceKey(l.type, l.x, l.y),
+    );
   }
 
   // ---- waterfalls: where a stream loses height fast ------------------------

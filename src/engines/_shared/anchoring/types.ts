@@ -33,7 +33,7 @@ export interface AnchorAdapter {
    * Imperatively navigate to the target entity. Implementations typically
    * call into the app router via a thin helper.
    */
-  navigateToEntity: (entityId: string) => void;
+  navigateToEntity: (entityId: string, projectId?: string) => void;
   /**
    * Optional: render a one-field "create new …" form so the user can spawn
    * a fresh entity from inside a reference note. Returns the new entity's

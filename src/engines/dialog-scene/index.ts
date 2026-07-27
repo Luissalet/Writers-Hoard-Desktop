@@ -1,9 +1,10 @@
+import { lazy } from 'react';
 import { MessageSquare } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, readBackupJson } from '@/engines/_shared';
 import { db } from '@/db';
-import DialogSceneEngine from './components/DialogSceneEngine';
+const DialogSceneEngine = lazy(() => import('./components/DialogSceneEngine'));
 
 const dialogSceneEngine: EngineDefinition = {
   id: 'dialog-scene',
@@ -25,12 +26,26 @@ registerEntityResolver({
   engineId: 'dialog-scene',
   entityTypes: ['dialog-scene', 'scene', 'dialog-block'],
   resolveEntity: async (entityId: string, entityType: string) => {
+    if (entityType === 'dialog-block') {
+      const block = await db.dialogBlocks.get(entityId);
+      if (!block) return null;
+      const scene = await db.scenes.get(block.sceneId);
+      return {
+        id: block.id,
+        type: 'dialog-block',
+        engineId: 'dialog-scene',
+        projectId: block.projectId,
+        title: block.characterName || block.type,
+        subtitle: scene?.title,
+      };
+    }
     const scene = await db.scenes.get(entityId);
     if (!scene) return null;
     return {
       id: scene.id,
       type: entityType,
       engineId: 'dialog-scene',
+      projectId: scene.projectId,
       title: scene.title,
       subtitle: scene.setting,
     };
@@ -42,6 +57,7 @@ registerEntityResolver({
       id: s.id,
       type: 'scene',
       engineId: 'dialog-scene',
+      projectId: s.projectId,
       title: s.title,
       subtitle: s.setting,
     }));

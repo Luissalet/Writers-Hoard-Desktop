@@ -116,10 +116,18 @@ export type PlaceKind =
 
 export interface RegionPlace {
   id: number;
+  /**
+   * Stable identity of the generated source object. User edits are stored
+   * against this key; the derived place itself is always regenerated.
+   */
+  sourceKey: string;
   kind: PlaceKind;
   /** Sheet cell coordinates. */
   x: number;
   y: number;
+  /** Canonical world-cell coordinates (x wraps to the world's 0..width range). */
+  worldX: number;
+  worldY: number;
   name: string;
   /** 0–1, drives symbol size and label priority. */
   importance: number;

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -8,6 +9,7 @@ import {
   Settings2,
   Download,
   StickyNote,
+  LayoutDashboard,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -35,10 +37,12 @@ export default function Sidebar() {
   const isNotesInbox = location.pathname === '/notes';
   const desktop = isDesktop();
   const inboxCount = useInboxNoteCount();
-  const activeTab = tab || (engines.length > 0 ? engines[0].id : '');
+  const activeTab = tab || 'overview';
+  const [exporting, setExporting] = useState(false);
 
   const handleExport = async () => {
-    if (!projectId) return;
+    if (!projectId || exporting) return;
+    setExporting(true);
     try {
       // ZIP export covers EVERY engine's tables via the backup registry —
       // the old JSON export silently dropped everything added after the
@@ -51,8 +55,13 @@ export default function Sidebar() {
       toast.success(t('project.exportDone'));
     } catch (error) {
       console.error('Export failed:', error);
-      const { toast } = await import('@/components/common/toast');
-      toast.error(t('project.exportError'));
+      const [{ describeBackupError }, { toast }] = await Promise.all([
+        import('@/services/zipBackup'),
+        import('@/components/common/toast'),
+      ]);
+      toast.error(describeBackupError(error, t('project.exportError')), 10000);
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -135,7 +144,7 @@ export default function Sidebar() {
         )}
 
         {/* Dynamic engine list — only when inside a project */}
-        {projectId && engines.length > 0 && (
+        {projectId && (
           <>
             <div className="pt-3 pb-1 px-3">
               {sidebarOpen && (
@@ -145,6 +154,17 @@ export default function Sidebar() {
               )}
               {!sidebarOpen && <div className="border-t border-border" />}
             </div>
+            <button
+              onClick={() => navigate(`/project/${projectId}/overview`)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
+                activeTab === 'overview'
+                  ? 'bg-accent-gold/15 text-accent-gold font-semibold'
+                  : 'text-text-muted hover:text-text-primary hover:bg-elevated'
+              }`}
+            >
+              <LayoutDashboard size={18} className="flex-shrink-0" />
+              {sidebarOpen && <span className="whitespace-nowrap">{t('sidebar.overview')}</span>}
+            </button>
             {engines.map((engine) => {
               const Icon = engine.icon;
               const isActive = activeTab === engine.id;
@@ -186,11 +206,16 @@ export default function Sidebar() {
           </button>
           <button
             onClick={handleExport}
+            disabled={exporting}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-text-primary hover:bg-elevated transition"
             title={t('project.exportProject')}
           >
             <Download size={18} className="flex-shrink-0" />
-            {sidebarOpen && <span className="whitespace-nowrap">{t('project.export')}</span>}
+            {sidebarOpen && (
+              <span className="whitespace-nowrap">
+                {exporting ? t('project.exporting') : t('project.export')}
+              </span>
+            )}
           </button>
         </div>
       )}

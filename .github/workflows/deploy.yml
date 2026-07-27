@@ -42,13 +42,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck
-        run: npx tsc -b --noEmit
+      - name: Verify renderer, Electron, lint, and engine conformance
+        run: npm run verify:quick
+
+      - name: Run critical IndexedDB and backup tests
+        run: xvfb-run -a npm run test:critical
 
       - name: Build
         env:
           VITE_BASE_URL: /${{ github.event.repository.name }}/
         run: npm run build
+
+      - name: Enforce renderer bundle budgets
+        run: npm run bundle:budget
 
       - name: Report bundle size
         run: |

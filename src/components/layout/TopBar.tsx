@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Search, Settings } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
-import { useAiStore } from '@/stores/aiStore';
-import { useLocaleStore } from '@/stores/localeStore';
 import { useTranslation } from '@/i18n/useTranslation';
 import SettingsModal from '@/components/settings/SettingsModal';
+import StorageStatus from '@/components/common/StorageStatus';
 
 interface TopBarProps {
   title?: string;
@@ -14,14 +13,7 @@ interface TopBarProps {
 export default function TopBar({ title, subtitle }: TopBarProps) {
   const { t } = useTranslation();
   const { setSearchOpen } = useAppStore();
-  const { loadSettings } = useAiStore();
-  const { loadLocale } = useLocaleStore();
   const [showSettings, setShowSettings] = useState(false);
-
-  useEffect(() => {
-    loadSettings();
-    loadLocale();
-  }, [loadSettings, loadLocale]);
 
   return (
     <>
@@ -35,6 +27,7 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <StorageStatus />
           <button
             onClick={() => setShowSettings(true)}
             className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-elevated transition"

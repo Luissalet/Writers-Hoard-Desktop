@@ -16,7 +16,7 @@ import {
   type Pt, type Stroke, type TerrainOp, type WorldEdit,
 } from './edits';
 import type { HumanGeography, SettlementRank } from './settlements';
-import type { BiomeId, RuinKind, WorldData } from './types';
+import type { BiomeId, LandmarkType, RuinKind, WorldData } from './types';
 
 /**
  * Everything the commit needs to know about the brush.
@@ -65,7 +65,13 @@ export interface PaintSpec {
  * is the reader's own annotation and lives in its own table.
  */
 export type PointKind =
-  | 'capital' | 'city' | 'town' | 'village' | 'ruin' | 'label' | 'waypoint';
+  | 'capital' | 'city' | 'town' | 'village' | 'ruin'
+  | LandmarkType
+  | 'label' | 'waypoint';
+
+const LANDMARK_POINTS = new Set<PointKind>([
+  'volcano', 'cave', 'waterfall', 'gorge', 'hotspring',
+]);
 
 const RANK_OF: Partial<Record<PointKind, SettlementRank>> = {
   capital: 'capital', city: 'city', town: 'town', village: 'village',
@@ -195,6 +201,15 @@ export function commitPaintStroke(
       }
       if (p.point === 'ruin') {
         return { kind: 'marker', marker: 'ruin', x: at.x, y: at.y, ruin: p.ruin };
+      }
+      if (LANDMARK_POINTS.has(p.point)) {
+        return {
+          kind: 'marker',
+          marker: 'landmark',
+          x: at.x,
+          y: at.y,
+          landmark: p.point as LandmarkType,
+        };
       }
       // 'waypoint' never reaches here: the view places it in its own table.
       const rank = RANK_OF[p.point];
