@@ -256,8 +256,12 @@ uses planetary, continental, regional, and local tiers with hysteresis,
 deterministic label decluttering, and tier-specific feature budgets. Close
 views request regional worker tiles; the 2D renderer composites their terrain
 and places, while the 3D surface blends their elevation through a detail
-texture. Three-dimensional display quality adapts DPR and mesh density against
-a rolling frame budget.
+texture. The 3D CPU height sampler mirrors that shader blend so camera
+clearance, picking, and projected marks use the same regional relief. Camera
+positions are clamped outside the displaced plane or globe, viewport reports
+are throttled before regional requests, and WebGL context loss falls back to
+the 2D sculptor. Automatic display quality adapts DPR against a rolling frame
+budget while mesh density changes only through stable quality presets.
 
 Landmarks and regional places resolve through one spatial-entity model and one
 inspector. Selection, renaming, movement, symbol/style edits, label visibility,

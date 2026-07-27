@@ -9,7 +9,13 @@ import { BIOME_COUNT } from '../core/types';
 import { BIOME_COLORS, renderComposite } from '../core/render';
 import { SculptGesture, tipOf } from '../sculpt/ops';
 import {
-  SculptSurface, pickCell, visibleWindow, SIZE_X, R_GLOBE, type SculptShape,
+  clampCameraToSurface,
+  SculptSurface,
+  pickCell,
+  visibleWindow,
+  SIZE_X,
+  R_GLOBE,
+  type SculptShape,
 } from '../sculpt/scene3d';
 import type { Pt, Stroke, TerrainOp, WorldEdit } from '../core/edits';
 import {
@@ -101,7 +107,8 @@ interface World3DProps {
 }
 
 /** Mesh density presets, in vertices across the visible square. */
-const MESH_STEPS = [384, 640, 896, 1152];
+const MESH_STEPS = [256, 384, 512];
+const VIEWPORT_REPORT_MS = 180;
 
 /** Which brush Ctrl turns each one into. */
 const INVERSE: Partial<Record<TerrainOp, TerrainOp>> = {
@@ -224,6 +231,9 @@ export default function World3D({
     skinnedKey: string;
     poseKey: string;
     viewportKey: string;
+    viewportAt: number;
+    viewportTimer: number;
+    pendingViewport: WorldViewport | null;
     marks: ScreenMark[];
     fly: { active: boolean; t: number; fromT: THREE.Vector3; toT: THREE.Vector3; fromC: THREE.Vector3; toC: THREE.Vector3 };
   } | null>(null);
@@ -238,8 +248,6 @@ export default function World3D({
   shapeRef.current = shape;
   const qualityRef = useRef(quality);
   qualityRef.current = quality;
-  const meshRef = useRef(mesh);
-  meshRef.current = mesh;
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
   const toolRef = useRef(tool);
@@ -307,13 +315,18 @@ export default function World3D({
     renderer.domElement.style.display = 'block';
     renderer.domElement.style.touchAction = 'none';
     host.appendChild(renderer.domElement);
+    const onContextLost = (event: Event) => {
+      event.preventDefault();
+      setFailed('El contexto WebGL se perdió; se activó el editor 2D de respaldo.');
+    };
+    renderer.domElement.addEventListener('webglcontextlost', onContextLost);
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0e1116);
 
     // A narrow field of view: perspective distorts the very thing you are
     // judging — whether a slope is steeper than the one beside it.
-    const camera = new THREE.PerspectiveCamera(32, 1, 0.05, 6000);
+    const camera = new THREE.PerspectiveCamera(32, 1, 0.02, 6000);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.09;
@@ -328,7 +341,10 @@ export default function World3D({
     // OrbitControls asks nobody: the camera moved and the picture did not, so
     // zooming looked frozen until the reader happened to move the mouse as well.
     // Marking the frame dirty is enough — the rescue clock picks it up next tick.
-    controls.addEventListener('change', () => { if (R.current) R.current.need = true; });
+    controls.addEventListener('change', () => {
+      if (!R.current) return;
+      R.current.need = true;
+    });
 
     const palette: [number, number, number][] = [];
     for (let i = 0; i < BIOME_COUNT; i++) {
@@ -371,6 +387,7 @@ export default function World3D({
       raf: 0, timer: 0, need: true, rafAlive: true, booked: 0, cost: 16,
       frameAvg: 16, qualityFrames: 0, pixelRatio: initialPixelRatio, hudAt: 0, lastDraw: 0,
       uploadedRev: revision, skinnedRev: -1, skinnedKey: '', poseKey: '', viewportKey: '',
+      viewportAt: 0, viewportTimer: 0, pendingViewport: null,
       marks: [] as ScreenMark[],
       fly: {
         active: false, t: 0,
@@ -396,6 +413,7 @@ export default function World3D({
     return () => {
       ro.disconnect();
       window.clearInterval(st.timer);
+      window.clearTimeout(st.viewportTimer);
       if (st.raf) cancelAnimationFrame(st.raf);
       controls.dispose();
       surface.dispose();
@@ -403,6 +421,7 @@ export default function World3D({
       seaMat.dispose();
       sea.geometry.dispose();
       seaGlobe.geometry.dispose();
+      renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
       renderer.dispose();
       if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
       R.current = null;
@@ -431,6 +450,57 @@ export default function World3D({
     const r = R_GLOBE + e * yMul * 0.55;
     return out.set(r * Math.cos(lat) * Math.cos(lon), r * Math.sin(lat), r * Math.cos(lat) * Math.sin(lon));
   }, [world.width, world.height, sizeZ]);
+
+  const stabilizeCamera = useCallback((): boolean => {
+    const st = R.current;
+    if (!st) return false;
+    const clearance = Math.max(st.camera.near * 4, 0.12);
+    if (shapeRef.current === 'plane') {
+      const targetU = st.controls.target.x / SIZE_X + 0.5;
+      const targetV = st.controls.target.z / sizeZ + 0.5;
+      const targetGround = Math.max(
+        0,
+        st.surface.heightAtUV(targetU, targetV) * st.surface.yMul,
+      );
+      let changed = false;
+      const targetShift = targetGround - st.controls.target.y;
+      if (Math.abs(targetShift) > 1e-4) {
+        st.controls.target.y += targetShift;
+        st.camera.position.y += targetShift;
+        changed = true;
+      }
+      const cameraU = st.camera.position.x / SIZE_X + 0.5;
+      const cameraV = st.camera.position.z / sizeZ + 0.5;
+      return clampCameraToSurface(
+        st.camera.position,
+        'plane',
+        st.surface.heightAtUV(cameraU, cameraV),
+        st.surface.yMul,
+        clearance,
+      ) || changed;
+    }
+
+    const radius = st.camera.position.length();
+    if (radius < 1e-7) {
+      return clampCameraToSurface(
+        st.camera.position,
+        'globe',
+        0,
+        st.surface.yMul,
+        clearance,
+      );
+    }
+    const latitude = Math.asin(Math.min(1, Math.max(-1, st.camera.position.y / radius)));
+    const u = Math.atan2(st.camera.position.z, st.camera.position.x) / (Math.PI * 2) + 0.5;
+    const v = 0.5 - latitude / Math.PI;
+    return clampCameraToSurface(
+      st.camera.position,
+      'globe',
+      st.surface.heightAtUV(u, v),
+      st.surface.yMul,
+      clearance,
+    );
+  }, [sizeZ]);
 
   /**
    * The dots and their labels, projected for this frame.
@@ -482,7 +552,7 @@ export default function World3D({
       const ranked = geo.settlements
         .filter((s) => (RANK_ORDER[s.rank] ?? 3) <= maxRank)
         .sort((a, b) => (RANK_ORDER[a.rank] ?? 3) - (RANK_ORDER[b.rank] ?? 3))
-        .slice(0, 160);
+        .slice(0, Math.min(96, profile.labelBudget));
       for (const s of ranked) {
         const at = place(s.x, s.y);
         if (!at) continue;
@@ -500,7 +570,7 @@ export default function World3D({
         .filter((entity) => entity.source !== 'regional' || profile.showRegionalTerrain)
         .filter((entity) => profile.showMinorLandmarks || entity.importance >= 0.26)
         .sort((a, b) => b.importance - a.importance)
-        .slice(0, profile.labelBudget);
+        .slice(0, Math.min(120, profile.labelBudget));
       for (const entity of ranked) {
         const at = place(entity.x, entity.y);
         if (!at) continue;
@@ -669,6 +739,29 @@ export default function World3D({
     }
   }, []);
 
+  const flushViewport = useCallback(() => {
+    const st = R.current;
+    if (!st || !st.pendingViewport) return;
+    const next = st.pendingViewport;
+    st.pendingViewport = null;
+    st.viewportAt = performance.now();
+    st.viewportTimer = 0;
+    propsRef.current.onViewportChange?.(next);
+  }, []);
+
+  const queueViewport = useCallback((next: WorldViewport) => {
+    const st = R.current;
+    if (!st) return;
+    st.pendingViewport = next;
+    const wait = VIEWPORT_REPORT_MS - (performance.now() - st.viewportAt);
+    if (wait <= 0) {
+      if (st.viewportTimer) window.clearTimeout(st.viewportTimer);
+      flushViewport();
+    } else if (!st.viewportTimer) {
+      st.viewportTimer = window.setTimeout(flushViewport, wait);
+    }
+  }, [flushViewport]);
+
   // ---- the frame pump ------------------------------------------------------
   //
   // A window whose only content is a static canvas can stop being composited,
@@ -704,6 +797,7 @@ export default function World3D({
       st.need = true;
     }
     const moving = st.controls.update();
+    if (stabilizeCamera()) st.need = true;
 
     // The UV window: the grid is stretched over what the camera can see, so the
     // triangles are spent where the reader is looking instead of on the far side
@@ -726,7 +820,7 @@ export default function World3D({
       const viewportKey = `${nextWindow.u.toFixed(5)}:${nextWindow.v.toFixed(5)}:${nextWindow.size.toFixed(5)}`;
       if (viewportKey !== st.viewportKey) {
         st.viewportKey = viewportKey;
-        propsRef.current.onViewportChange?.({
+        queueViewport({
           u: ((nextWindow.u % 1) + 1) % 1,
           v: nextWindow.v,
           spanKm: Math.max(3, nextWindow.size * 40075),
@@ -753,14 +847,10 @@ export default function World3D({
         if (st.pixelRatio > 0.85) {
           st.pixelRatio = Math.max(0.85, st.pixelRatio - 0.15);
           st.renderer.setPixelRatio(st.pixelRatio);
-        } else if (meshRef.current > 0) {
-          setMesh((value) => Math.max(0, value - 1));
         }
         st.qualityFrames = 0;
       } else if (st.frameAvg < 17 && st.qualityFrames >= 110) {
-        if (meshRef.current < 2) {
-          setMesh((value) => Math.min(2, value + 1));
-        } else if (st.pixelRatio < maxDpr) {
+        if (st.pixelRatio < maxDpr) {
           st.pixelRatio = Math.min(maxDpr, st.pixelRatio + 0.15);
           st.renderer.setPixelRatio(st.pixelRatio);
         }
@@ -771,7 +861,15 @@ export default function World3D({
     // second. Below a usable frame rate the camera goes where it is put.
     st.controls.enableDamping = cost < 40;
     if (moving) st.need = true;
-  }, [world.width, world.height, mesh, projectMarks, drawOverlay]);
+  }, [
+    world.width,
+    world.height,
+    mesh,
+    projectMarks,
+    drawOverlay,
+    queueViewport,
+    stabilizeCamera,
+  ]);
   drawRef.current = draw;
 
   useEffect(() => {
@@ -820,7 +918,7 @@ export default function World3D({
       st.camera.position.set(0, Math.sin(a) * d, Math.cos(a) * d);
       st.controls.minDistance = 0.6;
       st.controls.maxDistance = d * 2.2;
-      st.controls.maxPolarAngle = Math.PI * 0.499;
+      st.controls.maxPolarAngle = (85 * Math.PI) / 180;
       st.controls.enablePan = true;
       st.controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
     } else {
@@ -861,10 +959,11 @@ export default function World3D({
     }
     st.fly.active = false;
     st.controls.update();
+    stabilizeCamera();
     st.poseKey = '';
     request();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shape, ready, world.height, world.width, request]);
+  }, [shape, ready, world.height, world.width, request, stabilizeCamera]);
 
   // ---- the skin ------------------------------------------------------------
   //
@@ -931,8 +1030,24 @@ export default function World3D({
     st.surface.setSun(sunAz, 38);
     st.surface.setMirror(mirrorX, mirrorY);
     st.surface.setDetail(detailAmt);
+    stabilizeCamera();
+    st.poseKey = '';
     request();
-  }, [exaggeration, skin, cavity, headlight, shadow, contour, sunAz, mirrorX, mirrorY, detailAmt, ready, request]);
+  }, [
+    exaggeration,
+    skin,
+    cavity,
+    headlight,
+    shadow,
+    contour,
+    sunAz,
+    mirrorX,
+    mirrorY,
+    detailAmt,
+    ready,
+    request,
+    stabilizeCamera,
+  ]);
 
   useEffect(() => {
     const st = R.current;
@@ -979,6 +1094,8 @@ export default function World3D({
     if (!st) return;
     if (!regionDetail) {
       st.surface.setDetailPatch(null);
+      stabilizeCamera();
+      st.poseKey = '';
       request();
       return;
     }
@@ -991,8 +1108,10 @@ export default function World3D({
       uSize: (regionDetail.worldPerCellX * regionDetail.width) / world.width,
       vSize: (regionDetail.worldPerCellY * regionDetail.height) / world.height,
     });
+    stabilizeCamera();
+    st.poseKey = '';
     request();
-  }, [regionDetail, ready, request, world.height, world.width]);
+  }, [regionDetail, ready, request, stabilizeCamera, world.height, world.width]);
 
   // Markers move when the gazetteer or the pins do, with no camera movement to
   // trigger a frame.
@@ -1382,6 +1501,20 @@ export default function World3D({
       window.removeEventListener('blur', blur);
     };
   }, [onTool, onShape, scenePos, request]);
+
+  useEffect(() => {
+    if (!failed) return;
+    const st = R.current;
+    if (!st) return;
+    st.need = false;
+    st.pendingViewport = null;
+    if (st.timer) window.clearInterval(st.timer);
+    if (st.raf) cancelAnimationFrame(st.raf);
+    if (st.viewportTimer) window.clearTimeout(st.viewportTimer);
+    st.timer = 0;
+    st.raf = 0;
+    st.viewportTimer = 0;
+  }, [failed]);
 
   if (failed) {
     // Not a dead end: the 2D heightmap view is a complete sculpting tool and it

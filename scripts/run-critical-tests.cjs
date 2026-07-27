@@ -154,6 +154,50 @@ async function main() {
         if (!devStartupCount) {
           throw new Error('Vite development renderer did not mount visible application UI.');
         }
+        const regionalWorker = await testWindow.webContents.executeJavaScript(`
+          (() => new Promise((resolve) => {
+            const worker = new Worker(
+              new URL('/src/engines/worldgen/region.worker.ts', location.origin),
+              { type: 'module' },
+            );
+            const timer = setTimeout(() => {
+              worker.terminate();
+              resolve({ ok: false, error: 'Regional worker startup timed out.' });
+            }, 8000);
+            worker.onmessage = (event) => {
+              if (event.data?.type !== 'configured') return;
+              clearTimeout(timer);
+              worker.terminate();
+              resolve({ ok: true });
+            };
+            worker.onerror = (event) => {
+              clearTimeout(timer);
+              worker.terminate();
+              resolve({ ok: false, error: event.message || 'Regional worker failed.' });
+            };
+            worker.postMessage({
+              type: 'configure',
+              contextId: 'critical-regional-worker',
+              world: { params: { seed: 'critical-regional-worker' } },
+              geography: {
+                settlements: [],
+                roads: [],
+                realms: [],
+                realmOf: new Int32Array(0),
+                features: [],
+                ruins: [],
+                landforms: [],
+                languageOf: {},
+                languageCount: 2,
+              },
+            });
+          }))()
+        `);
+        if (!regionalWorker.ok) {
+          throw new Error(regionalWorker.error || 'Regional worker startup failed.');
+        }
+        console.log('PASS Vite regional worker startup');
+        devStartupCount += 1;
       } finally {
         testWindow.webContents.removeListener('console-message', onConsoleMessage);
         testWindow.webContents.removeListener('render-process-gone', onRendererGone);
