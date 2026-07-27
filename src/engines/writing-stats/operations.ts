@@ -1,6 +1,7 @@
 import { makeTableOps } from '@/engines/_shared';
 import { db } from '@/db';
 import type { WritingSession, WritingGoal } from './types';
+import { toLocalDateKey } from './date';
 
 // ============================================================================
 // WritingSession operations
@@ -32,7 +33,7 @@ export async function getSessionsByDateRange(
 }
 
 export async function getTodaySessions(projectId: string): Promise<WritingSession[]> {
-  const today = new Date().toISOString().split('T')[0];
+  const today = toLocalDateKey();
   return db
     .table('writingSessions')
     .where('projectId')

@@ -177,12 +177,30 @@ export type WorldEdit =
   | { kind: 'rename'; target: EditTarget; key: string; name: string }
   /** Delete something the generator produced: a town, a ruin, a road, a name. */
   | { kind: 'remove'; target: EditTarget; key: string }
+  /**
+   * Reveal a previously removed generated object. Kept as an ordered edit so a
+   * later remove can hide it again and undo remains a simple list operation.
+   */
+  | { kind: 'restore'; target: EditTarget; key: string }
+  /**
+   * Move a generated object without changing its deterministic identity.
+   * Coordinates belong to the override, never to the key.
+   */
+  | { kind: 'move'; target: EditTarget; key: string; x: number; y: number }
+  /** Change only presentation; semantic `type` remains generator-owned. */
+  | {
+    kind: 'style';
+    target: EditTarget;
+    key: string;
+    style: import('./spatialEntities').WorldSpatialStyleOverride;
+  }
   /** A road drawn by hand between two places. */
   | { kind: 'road'; pts: Pt[]; major: boolean }
   /** Erase generated roads passing within a radius. */
   | { kind: 'eraseRoads'; x: number; y: number; radius: number };
 
-export type EditTarget = 'settlement' | 'ruin' | 'realm' | 'feature' | 'road';
+export type EditTarget =
+  | 'settlement' | 'ruin' | 'realm' | 'feature' | 'landmark' | 'region' | 'road';
 
 /**
  * Identity for a generated river: the cell it ends at.
@@ -200,7 +218,9 @@ export function editKey(target: EditTarget, x: number, y: number, extra = ''): s
   return `${target}:${extra}${Math.round(x)},${Math.round(y)}`;
 }
 
-const TARGETS: EditTarget[] = ['settlement', 'ruin', 'realm', 'feature', 'road'];
+const TARGETS: EditTarget[] = [
+  'settlement', 'ruin', 'realm', 'feature', 'landmark', 'region', 'road',
+];
 
 /**
  * Read the target back out of a key.
@@ -212,6 +232,24 @@ const TARGETS: EditTarget[] = ['settlement', 'ruin', 'realm', 'feature', 'road']
 export function targetFromKey(key: string): EditTarget | null {
   const head = key.slice(0, key.indexOf(':'));
   return (TARGETS as string[]).includes(head) ? head as EditTarget : null;
+}
+
+/**
+ * Equivalent persisted keys for an edit action.
+ *
+ * Only landmarks have a historical alias. A legacy `feature:` REMOVE still
+ * hides a landmark because the resolver reads it; a new landmark RESTORE clears
+ * both spellings so old worlds can genuinely reveal the object again.
+ */
+export function compatibleEditKeys(target: EditTarget, key: string): string[] {
+  if (target !== 'landmark') return [key];
+  if (key.startsWith('landmark:')) {
+    return [key, `feature:${key.slice('landmark:'.length)}`];
+  }
+  if (key.startsWith('feature:')) {
+    return [key, `landmark:${key.slice('feature:'.length)}`];
+  }
+  return [key];
 }
 
 export interface PaintedMarker {
@@ -245,6 +283,10 @@ export interface AppliedEdits {
   renames: Record<string, string>;
   /** Keys of generated objects the reader deleted. */
   removed: Set<string>;
+  /** Generated-object key → its reader-chosen world-cell coordinates. */
+  moves: Record<string, Pt>;
+  /** Generated-object key → sparse presentation overrides. */
+  styles: Record<string, import('./spatialEntities').WorldSpatialStyleOverride>;
   /** Roads drawn by hand. */
   roads: { cells: number[]; major: boolean }[];
   /** Circles inside which generated roads are erased. */
@@ -378,7 +420,8 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   const W = world.width, H = world.height, N = W * H;
   const out: AppliedEdits = {
     terrainChanged: false, markers: [], labels: [], rivers: [],
-    renames: {}, removed: new Set(), roads: [], roadErasers: [],
+    renames: {}, removed: new Set(), moves: {}, styles: {},
+    roads: [], roadErasers: [],
   };
   if (!edits.length) return out;
   // Any consumer that caches something derived from this world keys on the
@@ -538,6 +581,12 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       out.renames[e.key] = e.name;
     } else if (e.kind === 'remove') {
       out.removed.add(e.key);
+    } else if (e.kind === 'restore') {
+      for (const key of compatibleEditKeys(e.target, e.key)) out.removed.delete(key);
+    } else if (e.kind === 'move') {
+      out.moves[e.key] = { x: e.x, y: e.y };
+    } else if (e.kind === 'style') {
+      out.styles[e.key] = { ...out.styles[e.key], ...e.style };
     } else if (e.kind === 'road' && e.pts.length >= 2) {
       // Rasterised to cells so it draws through exactly the same road layer the
       // generated ones use — a hand-drawn road must not be distinguishable.

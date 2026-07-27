@@ -1,3 +1,4 @@
+import { lazy } from 'react';
 import { Mountain } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
@@ -9,7 +10,8 @@ import {
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
-import WorldgenEngine from './components/WorldgenEngine';
+import { deserializeEdits } from './core/edits';
+const WorldgenEngine = lazy(() => import('./components/WorldgenEngine'));
 
 const worldgenEngine: EngineDefinition = {
   id: 'worldgen',
@@ -29,7 +31,7 @@ registerEngine(worldgenEngine);
 // Waypoints (and worlds) are findable in global search / linkable elsewhere.
 registerEntityResolver({
   engineId: 'worldgen',
-  entityTypes: ['generated-world', 'world-waypoint'],
+  entityTypes: ['generated-world', 'world-waypoint', 'world-region', 'world-spatial'],
   resolveEntity: async (entityId: string, entityType: string) => {
     if (entityType === 'generated-world') {
       const world = await db.generatedWorlds.get(entityId);
@@ -38,8 +40,46 @@ registerEntityResolver({
         id: world.id,
         type: entityType,
         engineId: 'worldgen',
+        projectId: world.projectId,
         title: world.title,
         subtitle: world.params.seed,
+      };
+    }
+    if (entityType === 'world-region') {
+      const worlds = await db.generatedWorlds.toArray();
+      for (const world of worlds) {
+        const region = world.regions?.find((candidate) => candidate.id === entityId);
+        if (!region) continue;
+        return {
+          id: region.id,
+          type: entityType,
+          engineId: 'worldgen',
+          projectId: world.projectId,
+          title: region.title,
+          subtitle: `${region.spanKm} km · ${world.title}`,
+        };
+      }
+      return null;
+    }
+    if (entityType === 'world-spatial') {
+      const split = entityId.indexOf('::');
+      if (split < 1) return null;
+      const worldId = entityId.slice(0, split);
+      const key = entityId.slice(split + 2);
+      const world = await db.generatedWorlds.get(worldId);
+      if (!world) return null;
+      const edits = deserializeEdits(world.edits ?? '[]');
+      const renamed = edits
+        .filter((edit) => edit.kind === 'rename' && edit.key === key)
+        .at(-1);
+      const fallback = key.split(':')[1]?.replace(/[-_]/g, ' ') || 'Lugar';
+      return {
+        id: entityId,
+        type: entityType,
+        engineId: 'worldgen',
+        projectId: world.projectId,
+        title: renamed?.kind === 'rename' ? renamed.name : fallback,
+        subtitle: world.title,
       };
     }
     const wp = await db.worldWaypoints.get(entityId);
@@ -48,6 +88,7 @@ registerEntityResolver({
       id: wp.id,
       type: 'world-waypoint',
       engineId: 'worldgen',
+      projectId: wp.projectId,
       title: wp.name,
       subtitle: wp.description,
       color: wp.color,
@@ -59,11 +100,32 @@ registerEntityResolver({
       db.generatedWorlds.filter((w) => w.title.toLowerCase().includes(q)).toArray(),
       db.worldWaypoints.filter((p) => p.name.toLowerCase().includes(q)).toArray(),
     ]);
+    const regions = worlds.flatMap((world) => (world.regions ?? [])
+      .filter((region) => region.title.toLowerCase().includes(q))
+      .map((region) => ({
+        id: region.id,
+        type: 'world-region',
+        engineId: 'worldgen',
+        projectId: world.projectId,
+        title: region.title,
+        subtitle: `${region.spanKm} km · ${world.title}`,
+      })));
+    const places = worlds.flatMap((world) => deserializeEdits(world.edits ?? '[]')
+      .filter((edit) => edit.kind === 'rename' && edit.name.toLowerCase().includes(q))
+      .map((edit) => ({
+        id: `${world.id}::${edit.kind === 'rename' ? edit.key : ''}`,
+        type: 'world-spatial',
+        engineId: 'worldgen',
+        projectId: world.projectId,
+        title: edit.kind === 'rename' ? edit.name : '',
+        subtitle: world.title,
+      })));
     return [
       ...worlds.map((w) => ({
         id: w.id,
         type: 'generated-world',
         engineId: 'worldgen',
+        projectId: w.projectId,
         title: w.title,
         subtitle: w.params.seed,
       })),
@@ -71,10 +133,13 @@ registerEntityResolver({
         id: p.id,
         type: 'world-waypoint',
         engineId: 'worldgen',
+        projectId: p.projectId,
         title: p.name,
         subtitle: p.description,
         color: p.color,
       })),
+      ...regions,
+      ...places,
     ];
   },
 });
@@ -83,16 +148,34 @@ registerAnchorAdapter({
   engineId: 'worldgen',
   supportsTextRange: false,
   async getEntityTitle(entityId: string) {
+    if (entityId.includes('::')) {
+      const split = entityId.indexOf('::');
+      const world = await db.generatedWorlds.get(entityId.slice(0, split));
+      const key = entityId.slice(split + 2);
+      const renamed = deserializeEdits(world?.edits ?? '[]')
+        .filter((edit) => edit.kind === 'rename' && edit.key === key)
+        .at(-1);
+      return renamed?.kind === 'rename' ? renamed.name : key.split(':')[1] ?? 'Lugar';
+    }
     const world = await db.generatedWorlds.get(entityId);
     if (world) return world.title;
     const wp = await db.worldWaypoints.get(entityId);
-    return wp?.name ?? null;
+    if (wp) return wp.name;
+    const worlds = await db.generatedWorlds.toArray();
+    return worlds.flatMap((candidate) => candidate.regions ?? [])
+      .find((region) => region.id === entityId)?.title ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.worldgen'),
-  navigateToEntity(entityId: string) {
-    const pid = getCurrentProjectIdFromUrl();
+  navigateToEntity(entityId: string, projectId?: string) {
+    const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
-    navigateTo(`/project/${pid}/worldgen?waypoint=${encodeURIComponent(entityId)}`);
+    if (entityId.includes('::')) {
+      navigateTo(`/project/${pid}/worldgen?place=${encodeURIComponent(entityId)}`);
+    } else if (entityId.startsWith('region')) {
+      navigateTo(`/project/${pid}/worldgen?region=${encodeURIComponent(entityId)}`);
+    } else {
+      navigateTo(`/project/${pid}/worldgen?waypoint=${encodeURIComponent(entityId)}`);
+    }
   },
 });
 

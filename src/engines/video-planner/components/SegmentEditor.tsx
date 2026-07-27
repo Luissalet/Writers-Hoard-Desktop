@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react';
-import { X, Upload } from 'lucide-react';
+import { Images, X, Upload } from 'lucide-react';
 import type { VideoSegment, VisualType } from '../types';
 import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import { useTranslation } from '@/i18n/useTranslation';
+import GalleryAssetPicker from '@/components/gallery/GalleryAssetPicker';
 
 interface SegmentEditorProps {
   segment: VideoSegment;
@@ -35,6 +36,7 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
   const [tags, setTags] = useState(segment.tags.join(', '));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const [showGallery, setShowGallery] = useState(false);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -204,6 +206,14 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
                 </div>
               )}
             </div>
+            <button
+              type="button"
+              onClick={() => setShowGallery(true)}
+              className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-neutral-300 transition hover:border-accent-gold"
+            >
+              <Images size={15} />
+              Choose from Gallery
+            </button>
           </div>
 
           {/* Audio Notes */}
@@ -257,6 +267,15 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
           </button>
         </div>
       </div>
+      <GalleryAssetPicker
+        projectId={segment.projectId}
+        open={showGallery}
+        onClose={() => setShowGallery(false)}
+        onSelect={selection => {
+          setVisualImageData(selection.imageData);
+          setVisualImageDataOriginal(selection.imageDataOriginal);
+        }}
+      />
       <ImagePreviewCrop
         imageSrc={pendingImage}
         onConfirm={(cropped, original) => {

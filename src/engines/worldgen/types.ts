@@ -6,6 +6,38 @@
 // cached in memory. This keeps Dexie light and makes backups tiny.
 
 import type { WorldParams } from './core/types';
+import type { RegionParams } from './region/types';
+
+/**
+ * A bookmarked regional view.
+ *
+ * The expensive regional arrays remain deterministic derived data.  Saving a
+ * region stores only enough information to reproduce the same sheet and the
+ * reader-facing title, keeping worlds and backups small.
+ */
+export interface SavedWorldRegion {
+  id: string;
+  title: string;
+  /** Centre in world-cell coordinates. */
+  x: number;
+  y: number;
+  spanKm: number;
+  params: RegionParams;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** View shared by the 2D, 3D, and regional renderers. */
+export interface WorldViewport {
+  /** Normalized longitude, wrapping in [0, 1). */
+  u: number;
+  /** Normalized latitude position, clamped to [0, 1]. */
+  v: number;
+  /** Approximate horizontal ground span in kilometres. */
+  spanKm: number;
+  /** Optional camera bearing used by the 3D view. */
+  bearing?: number;
+}
 
 export interface GeneratedWorld {
   id: string;
@@ -26,6 +58,8 @@ export interface GeneratedWorld {
    * session, and it travels in the backup with the rest of the row.
    */
   edits?: string;
+  /** Named/bookmarked regional views. Generated pixels are never persisted. */
+  regions?: SavedWorldRegion[];
   /** Small JPEG data URL preview for dashboards / future use. */
   thumbnail?: string;
   createdAt: number;

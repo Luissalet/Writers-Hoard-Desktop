@@ -7,7 +7,12 @@ import EmptyState from '@/components/common/EmptyState';
 import TopBar from '@/components/layout/TopBar';
 import CreateProjectModal from '@/components/dashboard/CreateProjectModal';
 import { importProjectData, importFullDatabase } from '@/db/operations';
-import { exportFullZip, importFullZip, importProjectZip } from '@/services/zipBackup';
+import {
+  describeBackupError,
+  exportFullZip,
+  importFullZip,
+  importProjectZip,
+} from '@/services/zipBackup';
 import { cleanupProjectMedia } from '@/services/scrapperMedia';
 import { toast } from '@/components/common/toast';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -54,7 +59,7 @@ export default function Dashboard() {
       }
     } catch (err) {
       console.error('Import failed:', err);
-      toast.error(t('dashboard.import.error'));
+      toast.error(describeBackupError(err, t('dashboard.import.error')), 10000);
     } finally {
       setImporting(false);
       if (importRef.current) importRef.current.value = '';
@@ -68,7 +73,7 @@ export default function Dashboard() {
       toast.success(t('dashboard.fullExport.success'));
     } catch (err) {
       console.error('Full export failed:', err);
-      toast.error(t('dashboard.export.error'));
+      toast.error(describeBackupError(err, t('dashboard.export.error')), 10000);
     } finally {
       setExporting(false);
     }
@@ -120,7 +125,7 @@ export default function Dashboard() {
       }
     } catch (err) {
       console.error('Full import failed:', err);
-      toast.error(t('dashboard.import.fullError'));
+      toast.error(describeBackupError(err, t('dashboard.import.fullError')), 10000);
     } finally {
       setImporting(false);
       if (fullImportRef.current) fullImportRef.current.value = '';

@@ -81,7 +81,7 @@ export function distanceTo(mask: Uint8Array, W: number, H: number, wrapX = true)
 
 /** Separable box blur repeated `passes` times ≈ Gaussian. Wraps in x. */
 export function blur(src: Float32Array, W: number, H: number, radius: number, passes = 2): Float32Array {
-  let a = Float32Array.from(src);
+  const a = Float32Array.from(src);
   let b = new Float32Array(W * H);
   const R = Math.max(1, Math.round(radius));
   const inv = 1 / (2 * R + 1);
@@ -124,4 +124,3 @@ export function localRelief(elevation: Float32Array, W: number, H: number, radiu
   for (let i = 0; i < W * H; i++) out[i] = elevation[i] - base[i];
   return out;
 }
-

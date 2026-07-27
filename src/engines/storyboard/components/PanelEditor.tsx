@@ -3,12 +3,13 @@
 // ============================================
 
 import { useState } from 'react';
-import { Upload } from 'lucide-react';
+import { Images, Upload } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import Modal from '@/components/common/Modal';
 import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import type { StoryboardPanel } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
+import GalleryAssetPicker from '@/components/gallery/GalleryAssetPicker';
 
 interface PanelEditorProps {
   panel: StoryboardPanel | null;
@@ -25,6 +26,7 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
   const [previewImage, setPreviewImage] = useState<string | undefined>(panel?.imageData);
   const [previewOriginal, setPreviewOriginal] = useState<string | undefined>(panel?.imageDataOriginal || panel?.imageData);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const [showGallery, setShowGallery] = useState(false);
 
   const onDrop = (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -105,6 +107,14 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
               </div>
             )}
           </div>
+          <button
+            type="button"
+            onClick={() => setShowGallery(true)}
+            className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-muted transition hover:border-accent-gold hover:text-text-primary"
+          >
+            <Images size={15} />
+            Choose from Gallery
+          </button>
         </div>
 
         {/* Subtitle */}
@@ -179,6 +189,21 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
         </div>
       </div>
     </Modal>
+      <GalleryAssetPicker
+        projectId={panel.projectId}
+        open={showGallery}
+        onClose={() => setShowGallery(false)}
+        onSelect={selection => {
+          setPreviewImage(selection.imageData);
+          setPreviewOriginal(selection.imageDataOriginal);
+          setFormData(prev => ({
+            ...prev,
+            imageData: selection.imageData,
+            imageDataOriginal: selection.imageDataOriginal,
+            imageRef: selection.id,
+          }));
+        }}
+      />
       <ImagePreviewCrop
         imageSrc={pendingImage}
         onConfirm={(cropped, original) => {

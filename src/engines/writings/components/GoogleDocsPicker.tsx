@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Search, Cloud, Check, Loader2, FileText, AlertCircle } from 'lucide-react';
 import Modal from '@/components/common/Modal';
 import { useGoogleStore } from '@/stores/googleStore';
@@ -39,14 +39,7 @@ export default function GoogleDocsPicker({
       .map((w) => w.googleDocId!)
   );
 
-  // Load docs when authenticated
-  useEffect(() => {
-    if (open && isAuthenticated && accessToken) {
-      loadDocs();
-    }
-  }, [open, isAuthenticated, accessToken]);
-
-  const loadDocs = async (query?: string) => {
+  const loadDocs = useCallback(async (query?: string) => {
     if (!accessToken) return;
     setLoading(true);
     setError(null);
@@ -58,7 +51,14 @@ export default function GoogleDocsPicker({
     } finally {
       setLoading(false);
     }
-  };
+  }, [accessToken]);
+
+  // Load docs when authenticated
+  useEffect(() => {
+    if (open && isAuthenticated && accessToken) {
+      void loadDocs();
+    }
+  }, [open, isAuthenticated, accessToken, loadDocs]);
 
   const handleSearch = () => {
     loadDocs(searchQuery || undefined);

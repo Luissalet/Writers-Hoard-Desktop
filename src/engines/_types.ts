@@ -94,6 +94,8 @@ export interface EntityPreview {
   id: string;
   type: string;
   engineId: string;
+  /** Owning project. Required so cross-engine search never guesses from the current URL. */
+  projectId: string;
   title: string;
   subtitle?: string;
   thumbnail?: string;

@@ -37,6 +37,7 @@ export interface ReadOnlyHookResult<T> {
   loading: boolean;
   /** `true` during any non-initial refresh. */
   refetching: boolean;
+  error: Error | null;
   refresh: () => Promise<void>;
 }
 
@@ -65,6 +66,7 @@ export function makeReadOnlyHook<T, Deps = void>(
     const [items, setItems] = useState<T[]>([]);
     const [loading, setLoading] = useState<boolean>(false);
     const [refetching, setRefetching] = useState<boolean>(false);
+    const [error, setError] = useState<Error | null>(null);
 
     const loadedKeyRef = useRef<string | null>(null);
     const seqRef = useRef(0);
@@ -81,6 +83,7 @@ export function makeReadOnlyHook<T, Deps = void>(
         setItems([]);
         setLoading(false);
         setRefetching(false);
+        setError(null);
         loadedKeyRef.current = null;
         return;
       }
@@ -91,14 +94,17 @@ export function makeReadOnlyHook<T, Deps = void>(
       const isInitial = loadedKeyRef.current !== scopeId;
       if (isInitial) setLoading(true);
       else setRefetching(true);
+      setError(null);
       try {
         const rows = await fetchFn(scopeId, deps as Deps);
         if (seq !== seqRef.current || !mountedRef.current) return; // superseded
         setItems(rows);
+        setError(null);
         loadedKeyRef.current = scopeId;
       } catch (err) {
         if (seq === seqRef.current && mountedRef.current) {
           console.error('[makeReadOnlyHook] fetch failed', err);
+          setError(err instanceof Error ? err : new Error(String(err)));
         }
       } finally {
         if (seq === seqRef.current && mountedRef.current) {
@@ -113,6 +119,6 @@ export function makeReadOnlyHook<T, Deps = void>(
       refresh();
     }, [refresh]);
 
-    return { items, loading, refetching, refresh };
+    return { items, loading, refetching, error, refresh };
   };
 }

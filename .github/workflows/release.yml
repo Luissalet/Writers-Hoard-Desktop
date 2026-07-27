@@ -26,10 +26,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Fetch yt-dlp binary
+      - name: Fetch media binaries
         run: npm run fetch:bin
+        env:
+          # Optional controlled overrides; the committed manifest is already
+          # version- and checksum-pinned for every supported platform.
+          WH_YTDLP_VERSION: ${{ vars.WH_YTDLP_VERSION }}
+          WH_YTDLP_SHA256: ${{ vars.WH_YTDLP_SHA256 }}
+          WH_GALLERYDL_VERSION: ${{ vars.WH_GALLERYDL_VERSION }}
+          WH_GALLERYDL_SHA256: ${{ vars.WH_GALLERYDL_SHA256 }}
 
-      - name: Build and publish installer
+      - name: Verify, build, and publish installer
         run: npm run dist:publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -24,6 +24,8 @@ export interface EntityHookResult<T> {
   loading: boolean;
   /** `true` during any refresh that is NOT the initial load. Purely optional UI. */
   refetching: boolean;
+  /** Last load or mutation failure. Cleared by the next successful refresh. */
+  error: Error | null;
   addItem: (item: T) => Promise<void>;
   editItem: (id: string, changes: Partial<T>) => Promise<void>;
   removeItem: (id: string) => Promise<void>;
@@ -58,6 +60,7 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
     const [items, setItems] = useState<T[]>([]);
     const [loading, setLoading] = useState(true);
     const [refetching, setRefetching] = useState(false);
+    const [error, setError] = useState<Error | null>(null);
 
     // Scope for which we have completed a successful load. When it differs from
     // the current scopeId, the next fetch is treated as an initial load.
@@ -76,6 +79,7 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
         setItems([]);
         setLoading(false);
         setRefetching(false);
+        setError(null);
         loadedScopeRef.current = null;
         return;
       }
@@ -83,14 +87,17 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
       const isInitialForScope = loadedScopeRef.current !== scopeId;
       if (isInitialForScope) setLoading(true);
       else setRefetching(true);
+      setError(null);
       try {
         const data = await fetchFn(scopeId);
         if (seq !== seqRef.current || !mountedRef.current) return; // superseded
         setItems(data);
+        setError(null);
         loadedScopeRef.current = scopeId;
       } catch (err) {
         if (seq === seqRef.current && mountedRef.current) {
           console.error('[makeEntityHook] fetch failed', err);
+          setError(err instanceof Error ? err : new Error(String(err)));
         }
       } finally {
         if (seq === seqRef.current && mountedRef.current) {
@@ -106,24 +113,39 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
 
     const addItem = useCallback(
       async (item: T) => {
-        await createFn(item);
-        await refresh();
+        try {
+          await createFn(item);
+          await refresh();
+        } catch (reason) {
+          setError(reason instanceof Error ? reason : new Error(String(reason)));
+          throw reason;
+        }
       },
       [refresh],
     );
 
     const editItem = useCallback(
       async (id: string, changes: Partial<T>) => {
-        await updateFn(id, changes);
-        await refresh();
+        try {
+          await updateFn(id, changes);
+          await refresh();
+        } catch (reason) {
+          setError(reason instanceof Error ? reason : new Error(String(reason)));
+          throw reason;
+        }
       },
       [refresh],
     );
 
     const removeItem = useCallback(
       async (id: string) => {
-        await deleteFn(id);
-        await refresh();
+        try {
+          await deleteFn(id);
+          await refresh();
+        } catch (reason) {
+          setError(reason instanceof Error ? reason : new Error(String(reason)));
+          throw reason;
+        }
       },
       [refresh],
     );
@@ -131,8 +153,13 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
     const reorder = useCallback(
       async (orderedIds: string[]) => {
         if (!reorderFn) return;
-        await reorderFn(scopeId, orderedIds);
-        await refresh();
+        try {
+          await reorderFn(scopeId, orderedIds);
+          await refresh();
+        } catch (reason) {
+          setError(reason instanceof Error ? reason : new Error(String(reason)));
+          throw reason;
+        }
       },
       [scopeId, refresh],
     );
@@ -141,6 +168,7 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
       items,
       loading,
       refetching,
+      error,
       addItem,
       editItem,
       removeItem,

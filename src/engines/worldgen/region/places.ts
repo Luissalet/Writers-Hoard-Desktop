@@ -23,6 +23,14 @@ import type { HumanGeography, Settlement } from '../core/settlements';
 import type { WorldData } from '../core/types';
 import { Cover, type RegionParams, type RegionPlace, type RegionStream } from './types';
 import { patchBilinear, type RegionGeometry, type TerrainFields, type WorldPatch } from './terrain';
+import {
+  childRegionSourceKey,
+  habitationSourceKey,
+  materializeRegionPlace,
+  regionalSourceKeyAt,
+  worldRuinSourceKey,
+  worldSettlementSourceKey,
+} from './identity';
 
 /** 32-bit mix of two lattice indices — stable, cheap, no allocation. */
 function hash2(a: number, b: number, salt: number): number {
@@ -248,7 +256,7 @@ export function buildHabitation(
     const p = toSheet(s.x, s.y);
     if (p.x < -8 || p.x > W + 8 || p.y < -8 || p.y > H + 8) continue;
     townCulture.push(s);
-    places.push({
+    places.push(materializeRegionPlace({
       id: id++,
       kind: 'town',
       x: p.x, y: p.y,
@@ -257,15 +265,15 @@ export function buildHabitation(
       worldId: s.id,
       households: Math.round(s.population / 4.5),
       culture: s.culture,
-    });
+    }, g, WW, worldSettlementSourceKey(s.x, s.y)));
   }
   for (const r of geo.ruins) {
     const p = toSheet(r.x, r.y);
     if (p.x < 0 || p.x > W || p.y < 0 || p.y > H) continue;
-    places.push({
+    places.push(materializeRegionPlace({
       id: id++, kind: 'ruin', x: p.x, y: p.y, name: r.name,
       importance: r.importance, ruinKind: r.kind,
-    });
+    }, g, WW, worldRuinSourceKey(r.x, r.y)));
   }
 
   const cultureAt = (x: number, y: number): Settlement | undefined => {
@@ -389,7 +397,7 @@ export function buildHabitation(
     const households = kind === 'village' ? 18 + Math.floor(hash2(c.a, c.b, 7) * 40)
       : kind === 'hamlet' ? 4 + Math.floor(hash2(c.a, c.b, 7) * 11)
         : 1 + Math.floor(hash2(c.a, c.b, 7) * 3);
-    places.push({
+    places.push(materializeRegionPlace({
       id: id++,
       kind,
       x: c.x, y: c.y,
@@ -397,7 +405,7 @@ export function buildHabitation(
       importance: kind === 'village' ? 0.34 : kind === 'hamlet' ? 0.2 : 0.1,
       households,
       culture: near?.culture,
-    });
+    }, g, WW, habitationSourceKey(c.a, c.b)));
   }
 
   // ---- water mills ---------------------------------------------------------
@@ -431,11 +439,11 @@ export function buildHabitation(
       if (milled.has(host.id)) continue;
       if (places.some((o) => o.kind === 'mill' && Math.hypot(o.x - p.x, o.y - p.y) * cellKm < 3.5)) continue;
       milled.add(host.id);
-      places.push({
+      places.push(materializeRegionPlace({
         id: id++, kind: 'mill', x: p.x, y: p.y,
         name: `Molino de ${stripArticle(host.name)}`,
         importance: 0.14,
-      });
+      }, g, WW, childRegionSourceKey(host.sourceKey, 'mill')));
     }
   }
 
@@ -487,13 +495,15 @@ function addAbbey(
     const i = scored[k].i;
     const x = (i % W) + 0.5, y = ((i / W) | 0) + 0.5;
     if (places.some((p) => Math.hypot(p.x - x, p.y - y) * cellKm < 4)) continue;
-    const coined = coinName(fam.living[0], fam.proto, `abbey:${Math.round(x)}:${Math.round(y)}`,
+    const sourceKey = regionalSourceKeyAt('abbey', g, { x, y }, world.width);
+    const nameRng = createRng(world.params.seed, sourceKey);
+    const coined = coinName(fam.living[0], fam.proto, sourceKey,
       world.params.seed, { heads: ['holy', 'god', 'stone', 'water'], modifiers: ['white', 'old', 'quiet', 'green'] });
-    places.push({
+    places.push(materializeRegionPlace({
       id: nextId(), kind: 'abbey', x, y,
-      name: `${rng() < 0.5 ? 'Abadía' : 'Monasterio'} de ${coined.text}`,
+      name: `${nameRng() < 0.5 ? 'Abadía' : 'Monasterio'} de ${coined.text}`,
       importance: 0.4,
-    });
+    }, g, world.width, sourceKey));
     placed++;
   }
 }
@@ -533,14 +543,15 @@ function addTowers(
     const i = scored[k].i;
     const x = (i % W) + 0.5, y = ((i / W) | 0) + 0.5;
     if (places.some((p) => Math.hypot(p.x - x, p.y - y) * cellKm < 5)) continue;
-    const rng = createRng(world.params.seed, `tower:${Math.round(x)}:${Math.round(y)}`);
+    const sourceKey = regionalSourceKeyAt('tower', g, { x, y }, world.width);
+    const rng = createRng(world.params.seed, sourceKey);
     const forms = ['Atalaya de {n}', 'Torre de {n}', 'Vigía de {n}', 'Torre del {n}'];
     const stems = ['Levante', 'Poniente', 'Cierzo', 'Ábrego', 'Solano', 'Mediodía', 'Norte'];
-    places.push({
+    places.push(materializeRegionPlace({
       id: nextId(), kind: 'tower', x, y,
       name: forms[Math.floor(rng() * forms.length)].replace('{n}', stems[Math.floor(rng() * stems.length)]),
       importance: 0.24,
-    });
+    }, g, world.width, sourceKey));
     placed++;
   }
 }
@@ -568,13 +579,15 @@ function addWorkings(
     const { i, mine } = scored[k];
     const x = (i % W) + 0.5, y = ((i / W) | 0) + 0.5;
     if (places.some((p) => Math.hypot(p.x - x, p.y - y) * cellKm < 4)) continue;
-    const rng = createRng(world.params.seed, `work:${Math.round(x)}:${Math.round(y)}`);
+    const kind = mine ? 'mine' : 'quarry';
+    const sourceKey = regionalSourceKeyAt(kind, g, { x, y }, world.width);
+    const rng = createRng(world.params.seed, sourceKey);
     const stems = ['la Peña', 'los Riscos', 'la Sierra', 'la Umbría', 'la Solana', 'el Tajo'];
-    places.push({
-      id: nextId(), kind: mine ? 'mine' : 'quarry', x, y,
+    places.push(materializeRegionPlace({
+      id: nextId(), kind, x, y,
       name: `${mine ? 'Mina' : 'Cantera'} de ${stems[Math.floor(rng() * stems.length)]}`,
       importance: 0.16,
-    });
+    }, g, world.width, sourceKey));
     placed++;
   }
 }
@@ -599,14 +612,15 @@ function addInns(
     const i = scored[k].i;
     const x = (i % W) + 0.5, y = ((i / W) | 0) + 0.5;
     if (places.some((p) => Math.hypot(p.x - x, p.y - y) * cellKm < 7)) continue;
-    const rng = createRng(world.params.seed, `inn:${Math.round(x)}:${Math.round(y)}`);
+    const sourceKey = regionalSourceKeyAt('inn', g, { x, y }, world.width);
+    const rng = createRng(world.params.seed, sourceKey);
     const names = ['Venta del Camino', 'Posada del Cuervo', 'Venta Vieja', 'Mesón del Puerto',
       'Venta de la Sierra', 'Posada del Vado', 'Venta del Lobo'];
-    places.push({
+    places.push(materializeRegionPlace({
       id: nextId(), kind: 'inn', x, y,
       name: names[Math.floor(rng() * names.length)],
       importance: 0.15,
-    });
+    }, g, world.width, sourceKey));
     placed++;
   }
 }

@@ -85,6 +85,7 @@ export interface PaintTool {
   point: PointKind;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- Shared by the paint canvas and panel as one tool contract.
 export const DEFAULT_PAINT_TOOL: PaintTool = {
   mode: 'off',
   terrainOp: 'raise',
@@ -151,6 +152,11 @@ const POINTS: { id: PointKind; label: string; hint: string }[] = [
   { id: 'town', label: 'Villa', hint: 'Una villa' },
   { id: 'village', label: 'Aldea', hint: 'Una aldea' },
   { id: 'ruin', label: 'Ruina', hint: 'Algo abandonado' },
+  { id: 'volcano', label: 'Volcán', hint: 'Un volcán o monte de fuego' },
+  { id: 'cave', label: 'Cueva', hint: 'Una cueva o sima' },
+  { id: 'waterfall', label: 'Cascada', hint: 'Una cascada' },
+  { id: 'gorge', label: 'Garganta', hint: 'Un desfiladero o garganta' },
+  { id: 'hotspring', label: 'Termas', hint: 'Un manantial termal' },
   { id: 'label', label: 'Rótulo', hint: 'Un nombre escrito sobre el mapa' },
   { id: 'waypoint', label: 'Chincheta', hint: 'Una marca tuya, con color y nota, que no forma parte del mundo' },
 ];
@@ -175,6 +181,7 @@ const TERRAIN_OPS: { id: TerrainOp; label: string }[] = [
  * same scale as one another, which is also the honest thing: a ridge really does
  * reach further than a disc of the same size.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- The 2D and 3D paint panels intentionally share these JSX previews.
 export const TIPS: { id: BrushTip; label: string; hint: string; draw: React.ReactNode }[] = [
   {
     id: 'round', label: 'Redonda', hint: 'El disco de siempre. Colinas, manchas, casi todo',
@@ -194,6 +201,7 @@ export const TIPS: { id: BrushTip; label: string; hint: string; draw: React.Reac
   },
 ];
 
+// eslint-disable-next-line react-refresh/only-export-components -- The 2D and 3D paint panels intentionally share one falloff vocabulary.
 export const CURVES: { id: Falloff; label: string; hint: string }[] = [
   { id: 'smooth', label: 'Suave', hint: 'Se apaga poco a poco. Colinas' },
   { id: 'sharp', label: 'Aguda', hint: 'Cae deprisa desde el centro. Picos y crestas' },

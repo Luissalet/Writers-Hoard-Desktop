@@ -1,9 +1,10 @@
+import { lazy } from 'react';
 import { BarChart3 } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
-import WritingStatsEngine from './components/WritingStatsEngine';
+const WritingStatsEngine = lazy(() => import('./components/WritingStatsEngine'));
 
 const writingStatsEngine: EngineDefinition = {
   id: 'writing-stats',
@@ -30,6 +31,7 @@ registerEntityResolver({
       id: session.id,
       type: entityType,
       engineId: 'writing-stats',
+      projectId: session.projectId,
       title: `${session.date}: ${session.wordCount} words`,
     };
   },
@@ -47,6 +49,7 @@ registerEntityResolver({
       id: s.id,
       type: 'writing-session',
       engineId: 'writing-stats',
+      projectId: s.projectId,
       title: `${s.date}: ${s.wordCount} words`,
     }));
   },

@@ -1,3 +1,4 @@
+import { lazy } from 'react';
 import { BookOpen } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
@@ -16,7 +17,7 @@ import {
 } from '@/engines/_shared';
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
-import CodexEngine from './CodexEngine';
+const CodexEngine = lazy(() => import('./CodexEngine'));
 
 const codexEngine: EngineDefinition = {
   id: 'codex',
@@ -42,6 +43,7 @@ registerEntityResolver({
       id: entry.id,
       type: entityType,
       engineId: 'codex',
+      projectId: entry.projectId,
       title: entry.title,
       subtitle: entry.type,
       thumbnail: entry.avatar,
@@ -54,6 +56,7 @@ registerEntityResolver({
       id: e.id,
       type: e.type,
       engineId: 'codex',
+      projectId: e.projectId,
       title: e.title,
       subtitle: e.type,
       thumbnail: e.avatar,
@@ -74,8 +77,8 @@ registerAnchorAdapter({
     return entry?.title ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.codex'),
-  navigateToEntity(entityId: string) {
-    const pid = getCurrentProjectIdFromUrl();
+  navigateToEntity(entityId: string, projectId?: string) {
+    const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
     navigateTo(`/project/${pid}/codex?entry=${encodeURIComponent(entityId)}`);
   },

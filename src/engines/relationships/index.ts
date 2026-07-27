@@ -1,9 +1,10 @@
+import { lazy } from 'react';
 import { Network } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
-import RelationshipsEngine from './components/RelationshipsEngine';
+const RelationshipsEngine = lazy(() => import('./components/RelationshipsEngine'));
 import { RELATIONSHIP_KIND_CONFIG } from './types';
 
 const relationshipsEngine: EngineDefinition = {
@@ -31,6 +32,7 @@ registerEntityResolver({
       id: rel.id,
       type: 'relationship',
       engineId: 'relationships',
+      projectId: rel.projectId,
       title: rel.label || `${rel.entityAName} ${cfg?.emoji ?? ''} ${rel.entityBName}`,
       subtitle: cfg?.label,
       color: rel.color ?? cfg?.color,
@@ -41,12 +43,13 @@ registerEntityResolver({
     const rows = await db.relationships.filter(r =>
       r.entityAName.toLowerCase().includes(q) ||
       r.entityBName.toLowerCase().includes(q) ||
-      r.label.toLowerCase().includes(q)
+      (r.label ?? '').toLowerCase().includes(q)
     ).toArray();
     return rows.map(r => ({
       id: r.id,
       type: 'relationship',
       engineId: 'relationships',
+      projectId: r.projectId,
       title: r.label || `${r.entityAName} ↔ ${r.entityBName}`,
     }));
   },

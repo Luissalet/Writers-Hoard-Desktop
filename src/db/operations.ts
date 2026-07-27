@@ -80,7 +80,8 @@ export async function updateProject(id: string, changes: Partial<Project>): Prom
  * automatically, so engines added in the future are covered without touching
  * this function. Child tables that have no `projectId` index (they hang off a
  * parent: yarnEdges, sceneCasts, storyboardConnectors, brainstormConnections,
- * annotationReferences) are resolved through their parents first.
+ * annotationReferences, worldSnapshots) are resolved through their parents
+ * first.
  *
  * Previously this only covered the 13 original tables and silently orphaned
  * ~25 engine tables' rows — which then leaked into global search and
@@ -93,13 +94,14 @@ export async function deleteProject(id: string): Promise<void> {
 
   await db.transaction('rw', db.tables, async () => {
     // --- children without a projectId index: resolve via parent ids ---
-    const [boardIds, sceneIds, storyboardIds, brainstormBoardIds, annotationIds] =
+    const [boardIds, sceneIds, storyboardIds, brainstormBoardIds, annotationIds, worldIds] =
       await Promise.all([
         db.yarnBoards.where('projectId').equals(id).primaryKeys(),
         db.scenes.where('projectId').equals(id).primaryKeys(),
         db.storyboards.where('projectId').equals(id).primaryKeys(),
         db.brainstormBoards.where('projectId').equals(id).primaryKeys(),
         db.annotations.where('projectId').equals(id).primaryKeys(),
+        db.generatedWorlds.where('projectId').equals(id).primaryKeys(),
       ]);
 
     if (boardIds.length) await db.yarnEdges.where('boardId').anyOf(boardIds as string[]).delete();
@@ -112,6 +114,9 @@ export async function deleteProject(id: string): Promise<void> {
     }
     if (annotationIds.length) {
       await db.annotationReferences.where('annotationId').anyOf(annotationIds as string[]).delete();
+    }
+    if (worldIds.length) {
+      await db.worldSnapshots.bulkDelete(worldIds as string[]);
     }
 
     // --- every project-scoped table, current and future ---
@@ -243,7 +248,11 @@ export async function updateYarnNode(id: string, changes: Partial<YarnNode>): Pr
 }
 
 export async function deleteYarnNode(id: string): Promise<void> {
-  await db.yarnNodes.delete(id);
+  await db.transaction('rw', [db.yarnNodes, db.yarnEdges], async () => {
+    await db.yarnEdges.where('sourceId').equals(id).delete();
+    await db.yarnEdges.where('targetId').equals(id).delete();
+    await db.yarnNodes.delete(id);
+  });
 }
 
 export async function getYarnEdges(boardId: string): Promise<YarnEdge[]> {

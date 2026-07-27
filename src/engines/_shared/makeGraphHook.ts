@@ -26,6 +26,7 @@ export interface GraphHookResult<N, E> {
   loading: boolean;
   /** `true` during any non-initial refresh. */
   refetching: boolean;
+  error: Error | null;
   addNode: (node: N) => Promise<void>;
   updateNode: (id: string, changes: Partial<N>) => Promise<void>;
   removeNode: (id: string) => Promise<void>;
@@ -70,6 +71,7 @@ export function makeGraphHook<N, E>(
     const [edges, setEdges] = useState<E[]>([]);
     const [loading, setLoading] = useState(true);
     const [refetching, setRefetching] = useState(false);
+    const [error, setError] = useState<Error | null>(null);
 
     const loadedScopeRef = useRef<string | null>(null);
     const seqRef = useRef(0);
@@ -90,6 +92,7 @@ export function makeGraphHook<N, E>(
         setEdges([]);
         setLoading(false);
         setRefetching(false);
+        setError(null);
         loadedScopeRef.current = null;
         return;
       }
@@ -97,6 +100,7 @@ export function makeGraphHook<N, E>(
       const isInitialForScope = loadedScopeRef.current !== scopeId;
       if (isInitialForScope) setLoading(true);
       else setRefetching(true);
+      setError(null);
       try {
         const [nodesData, edgesData] = await Promise.all([
           fetchNodesFn(scopeId),
@@ -105,10 +109,12 @@ export function makeGraphHook<N, E>(
         if (seq !== seqRef.current || !mountedRef.current) return; // superseded
         setNodes(nodesData);
         setEdges(edgesData);
+        setError(null);
         loadedScopeRef.current = scopeId;
       } catch (err) {
         if (seq === seqRef.current && mountedRef.current) {
           console.error('[makeGraphHook] fetch failed', err);
+          setError(err instanceof Error ? err : new Error(String(err)));
         }
       } finally {
         if (seq === seqRef.current && mountedRef.current) {
@@ -123,54 +129,59 @@ export function makeGraphHook<N, E>(
       refresh();
     }, [refresh]);
 
+    const runMutation = useCallback(async (operation: () => Promise<unknown>) => {
+      setError(null);
+      try {
+        await operation();
+        await refresh();
+      } catch (reason) {
+        setError(reason instanceof Error ? reason : new Error(String(reason)));
+        throw reason;
+      }
+    }, [refresh]);
+
     // --- Node operations ---
     const addNode = useCallback(
       async (node: N) => {
-        await createNodeFn(node);
-        await refresh();
+        await runMutation(() => createNodeFn(node));
       },
-      [refresh],
+      [runMutation],
     );
 
     const updateNode = useCallback(
       async (id: string, changes: Partial<N>) => {
-        await updateNodeFn(id, changes);
-        await refresh();
+        await runMutation(() => updateNodeFn(id, changes));
       },
-      [refresh],
+      [runMutation],
     );
 
     const removeNode = useCallback(
       async (id: string) => {
-        await deleteNodeFn(id);
-        await refresh();
+        await runMutation(() => deleteNodeFn(id));
       },
-      [refresh],
+      [runMutation],
     );
 
     // --- Edge operations ---
     const addEdge = useCallback(
       async (edge: E) => {
-        await createEdgeFn(edge);
-        await refresh();
+        await runMutation(() => createEdgeFn(edge));
       },
-      [refresh],
+      [runMutation],
     );
 
     const updateEdge = useCallback(
       async (id: string, changes: Partial<E>) => {
-        await updateEdgeFn(id, changes);
-        await refresh();
+        await runMutation(() => updateEdgeFn(id, changes));
       },
-      [refresh],
+      [runMutation],
     );
 
     const removeEdge = useCallback(
       async (id: string) => {
-        await deleteEdgeFn(id);
-        await refresh();
+        await runMutation(() => deleteEdgeFn(id));
       },
-      [refresh],
+      [runMutation],
     );
 
     return {
@@ -178,6 +189,7 @@ export function makeGraphHook<N, E>(
       edges,
       loading,
       refetching,
+      error,
       addNode,
       updateNode,
       removeNode,

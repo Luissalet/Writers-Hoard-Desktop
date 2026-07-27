@@ -156,6 +156,10 @@ export interface WorldMap {
   projectId: string;
   title: string;
   backgroundImage?: string; // base64
+  /** Uploaded/Gallery maps remain standalone; Worldgen maps retain provenance. */
+  source?: 'uploaded' | 'gallery' | 'worldgen';
+  sourceWorldId?: string;
+  sourceRevision?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -166,8 +170,11 @@ export interface MapPin {
   mapId: string;
   name: string;
   icon: 'city' | 'mountain' | 'forest' | 'castle' | 'port' | 'ruins' | 'temple' | 'village' | 'cave' | 'custom';
+  color?: string;
   position: { x: number; y: number };
   linkedEntryId?: string;
+  /** Present when this pin mirrors a Worldgen waypoint. */
+  sourceWaypointId?: string;
   description?: string;
 }
 

@@ -4,37 +4,23 @@
 //
 //   npm run fetch:bin
 //
-// Binaries are gitignored (resources/bin) and packaged by electron-builder via
-// `extraResources`. ffmpeg is provided separately by the ffmpeg-static npm dep.
-//   • yt-dlp     → downloads videos (YouTube, Instagram reels, X, …)
-//   • gallery-dl → downloads photos / carousels (needs the user's browser cookies)
-//
-// Re-run anytime to refresh both tools to their latest release.
+// Defaults live in binary-manifest.json. A release can override each mutable
+// version/checksum with WH_YTDLP_VERSION / WH_YTDLP_SHA256 and
+// WH_GALLERYDL_VERSION / WH_GALLERYDL_SHA256.
 
-import { createWriteStream } from 'node:fs';
-import { mkdir, chmod, stat } from 'node:fs/promises';
-import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { chmod, mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
 import https from 'node:https';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.join(__dirname, '..', 'resources', 'bin');
-
-const BINARIES = [
-  {
-    repo: 'yt-dlp/yt-dlp',
-    asset: { win32: 'yt-dlp.exe', darwin: 'yt-dlp_macos', linux: 'yt-dlp_linux' },
-    local: { win32: 'yt-dlp.exe', darwin: 'yt-dlp', linux: 'yt-dlp' },
-  },
-  {
-    // gallery-dl dev moved to Codeberg; standalone executables are published
-    // by CI in the gdl-org/builds repo (mikf/gallery-dl releases have no assets).
-    repo: 'gdl-org/builds',
-    asset: { win32: 'gallery-dl_windows.exe', darwin: 'gallery-dl_macos', linux: 'gallery-dl_linux' },
-    local: { win32: 'gallery-dl.exe', darwin: 'gallery-dl', linux: 'gallery-dl' },
-  },
-];
-
+const manifest = JSON.parse(
+  await readFile(path.join(__dirname, 'binary-manifest.json'), 'utf8'),
+);
+const BINARIES = Object.entries(manifest.binaries);
 const platform = process.platform;
 
 function download(fromUrl, toPath, redirects = 0) {
@@ -61,22 +47,70 @@ function download(fromUrl, toPath, redirects = 0) {
   });
 }
 
+function sha256(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256');
+    const file = createReadStream(filePath);
+    file.on('error', reject);
+    file.on('data', (chunk) => hash.update(chunk));
+    file.on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
 await mkdir(OUT_DIR, { recursive: true });
 
-for (const bin of BINARIES) {
-  const asset = bin.asset[platform];
-  const localName = bin.local[platform];
-  if (!asset) {
-    console.error(`Unsupported platform for ${bin.repo}: ${platform}`);
-    process.exit(1);
+for (const [id, bin] of BINARIES) {
+  const asset = bin.assets[platform];
+  const localName = bin.localNames[platform];
+  if (!asset || !localName) {
+    throw new Error(`Unsupported platform for ${bin.repository}: ${platform}`);
   }
-  const url = `https://github.com/${bin.repo}/releases/latest/download/${asset}`;
+
+  const version = process.env[`${bin.envPrefix}_VERSION`] || bin.version;
+  const expectedSha = (
+    process.env[`${bin.envPrefix}_SHA256`] ||
+    bin.sha256?.[platform] ||
+    ''
+  ).toLowerCase();
+  if (expectedSha && !/^[a-f0-9]{64}$/.test(expectedSha)) {
+    throw new Error(`${bin.envPrefix}_SHA256 must be a 64-character hexadecimal SHA-256.`);
+  }
+
+  const releasePath =
+    version === 'latest'
+      ? 'releases/latest/download'
+      : `releases/download/${encodeURIComponent(version)}`;
+  const url = `https://github.com/${bin.repository}/${releasePath}/${asset}`;
   const outPath = path.join(OUT_DIR, localName);
-  console.log(`Downloading ${asset} → ${outPath} …`);
-  await download(url, outPath);
+  const tempPath = `${outPath}.download`;
+
+  console.log(`Downloading ${asset} -> ${outPath} ...`);
+  await rm(tempPath, { force: true });
+  try {
+    await download(url, tempPath);
+    const actualSha = await sha256(tempPath);
+    if (expectedSha && actualSha !== expectedSha) {
+      throw new Error(
+        `${id} SHA-256 mismatch: expected ${expectedSha}, downloaded ${actualSha}.`,
+      );
+    }
+    if (!expectedSha) {
+      console.warn(
+        `WARNING: ${id} is not checksum-pinned (downloaded SHA-256 ${actualSha}). ` +
+          `Set ${bin.envPrefix}_SHA256 or update scripts/binary-manifest.json ` +
+          'before a reproducible release.',
+      );
+    }
+    await rm(outPath, { force: true });
+    await rename(tempPath, outPath);
+  } catch (error) {
+    await rm(tempPath, { force: true });
+    throw error;
+  }
+
   if (platform !== 'win32') await chmod(outPath, 0o755);
   const { size } = await stat(outPath);
-  console.log(`Done. ${localName} (${(size / 1e6).toFixed(1)} MB)`);
+  console.log(`Done. ${localName} (${(size / 1e6).toFixed(1)} MB, ${version})`);
 }
 
 console.log('All binaries ready in resources/bin.');

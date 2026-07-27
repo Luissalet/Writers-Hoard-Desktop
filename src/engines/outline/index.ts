@@ -1,9 +1,10 @@
+import { lazy } from 'react';
 import { ListTree } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
 import { db } from '@/db';
-import OutlineEngine from './components/OutlineEngine';
+const OutlineEngine = lazy(() => import('./components/OutlineEngine'));
 
 const outlineEngine: EngineDefinition = {
   id: 'outline',
@@ -31,6 +32,7 @@ registerEntityResolver({
         id: outline.id,
         type: 'outline',
         engineId: 'outline',
+        projectId: outline.projectId,
         title: outline.title,
       };
     } else {
@@ -41,8 +43,9 @@ registerEntityResolver({
         id: beat.id,
         type: 'outline-beat',
         engineId: 'outline',
+        projectId: beat.projectId,
         title: beat.title,
-        parentTitle: outline?.title,
+        subtitle: outline?.title,
       };
     }
   },
@@ -56,12 +59,14 @@ registerEntityResolver({
         id: o.id,
         type: 'outline' as const,
         engineId: 'outline',
+        projectId: o.projectId,
         title: o.title,
       })),
       ...beats.map((b) => ({
         id: b.id,
         type: 'outline-beat' as const,
         engineId: 'outline',
+        projectId: b.projectId,
         title: b.title,
       })),
     ];

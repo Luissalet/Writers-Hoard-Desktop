@@ -9,15 +9,23 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview",
+    "typecheck:renderer": "tsc -b --noEmit",
     "typecheck:electron": "tsc -p electron/tsconfig.json",
+    "lint": "npm run lint:shipping",
+    "lint:shipping": "node scripts/check-lint.mjs",
+    "lint:baseline:prune": "node scripts/check-lint.mjs --prune",
+    "conformance": "node scripts/check-conformance.mjs",
+    "bundle:budget": "node scripts/check-bundle-budget.mjs",
+    "test:critical": "electron scripts/run-critical-tests.cjs",
+    "verify:quick": "npm run typecheck:renderer && npm run typecheck:electron && npm run lint:shipping && npm run conformance",
+    "verify:release": "npm run verify:quick && npm run test:critical && npm run build:desktop && npm run bundle:budget",
+    "preview": "vite preview",
     "fetch:bin": "node scripts/fetch-ytdlp.mjs",
     "electron:build": "node electron/build.mjs",
-    "dev:desktop": "concurrently -k -n vite,electron -c blue,magenta \"vite --host 127.0.0.1\" \"wait-on tcp:127.0.0.1:5174 && npm run electron:build && cross-env NODE_ENV=development ELECTRON_RENDERER_URL=http://127.0.0.1:5174 electron .\"",
+    "dev:desktop": "node scripts/dev-desktop.mjs",
     "build:desktop": "cross-env VITE_BASE_URL=./ npm run build && npm run electron:build",
-    "dist": "npm run build:desktop && electron-builder",
-    "dist:publish": "npm run build:desktop && electron-builder --publish always"
+    "dist": "npm run verify:release && electron-builder",
+    "dist:publish": "npm run verify:release && electron-builder --publish always"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

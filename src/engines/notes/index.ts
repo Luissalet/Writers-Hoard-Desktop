@@ -1,3 +1,5 @@
+import { lazy } from 'react';
+
 // ============================================
 // Notes Engine — Registration
 // ============================================
@@ -9,7 +11,7 @@ import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_sha
 import { registerAnchorAdapter, navigateTo } from '@/engines/_shared/anchoring';
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
-import NotesEngine from './components/NotesEngine';
+const NotesEngine = lazy(() => import('./components/NotesEngine'));
 import { GLOBAL_NOTES_SCOPE, noteTitle, NOTE_KIND_META } from './types';
 import type { Note } from './types';
 
@@ -37,6 +39,7 @@ registerEntityResolver({
       id: note.id,
       type: entityType,
       engineId: 'notes',
+      projectId: note.projectId,
       title: noteTitle(note),
       subtitle: note.source,
       color: note.color ?? NOTE_KIND_META[note.kind].color,
@@ -56,6 +59,7 @@ registerEntityResolver({
       id: n.id,
       type: 'note',
       engineId: 'notes',
+      projectId: n.projectId,
       title: noteTitle(n),
       subtitle: n.source,
       color: n.color ?? NOTE_KIND_META[n.kind].color,
