@@ -325,7 +325,10 @@ export default function WorldView({
     let handle: ReturnType<typeof requestRegion> | null = null;
     const timer = window.setTimeout(() => {
       setRegionDetailBusy(true);
-      const spanKm = Math.min(400, Math.max(30, viewport.spanKm * 1.28));
+      // Ask for a padded patch only after the camera settles. The extra gutter
+      // lets several small wheel/pan updates reuse the same cached lattice
+      // instead of terminating and cloning a worker context for every pose.
+      const spanKm = Math.min(400, Math.max(30, viewport.spanKm * 1.7));
       handle = requestRegion(
         data,
         geography,
@@ -351,7 +354,7 @@ export default function WorldView({
       }).finally(() => {
         if (!controller.signal.aborted) setRegionDetailBusy(false);
       });
-    }, 220);
+    }, 400);
     return () => {
       window.clearTimeout(timer);
       controller.abort();

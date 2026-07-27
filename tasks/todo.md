@@ -470,8 +470,30 @@ Incluye: render-adjust pattern en ColorPicker/IconPicker/GlobalSearch/ScriptAuto
 
 **Started:** 2026-07-27
 
-- [ ] Reproduce and profile the close-zoom transition in the real World3D path.
-- [ ] Fix camera/LOD/detail synchronization so close zoom cannot render black.
-- [ ] Bound expensive work triggered by wheel and regional-detail updates.
-- [ ] Add a regression test for close camera distances and repeated zoom events.
-- [ ] Run the full release gate and document the verified result.
+- [x] Reproduce and profile the close-zoom transition in the real World3D path.
+- [x] Fix camera/LOD/detail synchronization so close zoom cannot render black.
+- [x] Bound expensive work triggered by wheel and regional-detail updates.
+- [x] Add a regression test for close camera distances and repeated zoom events.
+- [x] Run the full release gate and document the verified result.
+
+## Review
+
+- The blackout was a CPU/GPU terrain mismatch: regional elevation displaced
+  vertices in the shader, but camera clearance still sampled only base terrain.
+  The shared CPU sampler now reproduces the regional blend and keeps plane and
+  globe cameras outside the rendered surface.
+- Close interaction keeps one stable mesh preset, bounds automatic adaptation
+  to DPR, caps projected labels, throttles viewport propagation, and waits for a
+  settled, padded viewport before requesting regional detail.
+- WebGL context loss stops the 3D frame pump and presents the functional 2D
+  sculptor instead of leaving a black viewport.
+- The regression suite now traverses 32 decreasing camera distances, verifies
+  finite UV windows and terrain clearance, checks seam-wrapped detail, prevents
+  redundant geometry rebuilds, reads back visible WebGL pixels, and starts the
+  real Vite regional worker.
+- `npm run verify:release` passes: renderer and Electron typechecks, shipping
+  lint, 22-engine conformance, 12 critical browser/WebGL tests, production
+  renderer/Electron builds, and bundle budgets.
+- The configured session-memory graph directory is unavailable on this host;
+  `docs/PROJECT_KNOWLEDGE.md` was updated as the repository architecture
+  companion. No commit or push was created.

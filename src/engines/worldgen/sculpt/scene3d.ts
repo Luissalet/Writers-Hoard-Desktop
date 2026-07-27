@@ -32,10 +32,85 @@ export type SculptShape = 'plane' | 'globe';
 export const SIZE_X = 240;
 export const R_GLOBE = SIZE_X / (2 * Math.PI);
 const Y_PER_KM = 0.24;
-const GLOBE_RELIEF = 0.55;
+export const GLOBE_RELIEF = 0.55;
+export const MIN_UV_WINDOW = 0.0005;
 
 export function elevKmToY(exaggeration: number, worldWidth: number): number {
   return Y_PER_KM * exaggeration * (SIZE_X / worldWidth);
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+function bilinearWrapped(
+  values: Float32Array,
+  width: number,
+  height: number,
+  u: number,
+  v: number,
+): number {
+  const tx = u * width - 0.5;
+  const ty = v * height - 0.5;
+  const x0 = Math.floor(tx);
+  const y0 = Math.floor(ty);
+  const fx = tx - x0;
+  const fy = ty - y0;
+  const ax = ((x0 % width) + width) % width;
+  const bx = (((x0 + 1) % width) + width) % width;
+  const ay = Math.min(height - 1, Math.max(0, y0));
+  const by = Math.min(height - 1, Math.max(0, y0 + 1));
+  const a = values[ay * width + ax] * (1 - fx) + values[ay * width + bx] * fx;
+  const b = values[by * width + ax] * (1 - fx) + values[by * width + bx] * fx;
+  return a * (1 - fy) + b * fy;
+}
+
+function bilinearClamped(
+  values: Float32Array,
+  width: number,
+  height: number,
+  u: number,
+  v: number,
+): number {
+  const tx = u * width - 0.5;
+  const ty = v * height - 0.5;
+  const x0 = Math.floor(tx);
+  const y0 = Math.floor(ty);
+  const fx = tx - x0;
+  const fy = ty - y0;
+  const ax = Math.min(width - 1, Math.max(0, x0));
+  const bx = Math.min(width - 1, Math.max(0, x0 + 1));
+  const ay = Math.min(height - 1, Math.max(0, y0));
+  const by = Math.min(height - 1, Math.max(0, y0 + 1));
+  const a = values[ay * width + ax] * (1 - fx) + values[ay * width + bx] * fx;
+  const b = values[by * width + ax] * (1 - fx) + values[by * width + bx] * fx;
+  return a * (1 - fy) + b * fy;
+}
+
+/** Keep a close camera outside the same displaced surface the shader draws. */
+export function clampCameraToSurface(
+  position: THREE.Vector3,
+  shape: SculptShape,
+  elevationKm: number,
+  yMul: number,
+  clearance: number,
+): boolean {
+  const safeClearance = Math.max(0.001, clearance);
+  if (shape === 'plane') {
+    const minimumY = Math.max(0, elevationKm * yMul) + safeClearance;
+    if (position.y >= minimumY) return false;
+    position.y = minimumY;
+    return true;
+  }
+  const minimumRadius = R_GLOBE
+    + Math.max(0, elevationKm * yMul * GLOBE_RELIEF)
+    + safeClearance;
+  const radius = position.length();
+  if (radius >= minimumRadius) return false;
+  if (radius < 1e-7) position.set(0, minimumRadius, 0);
+  else position.multiplyScalar(minimumRadius / radius);
+  return true;
 }
 
 const HEIGHT_FN = /* glsl */`
@@ -544,17 +619,20 @@ export class SculptSurface {
   private heightTex: THREE.DataTexture;
   private biomeTex: THREE.DataTexture;
   private detailHeightTex: THREE.DataTexture;
+  private detailPatch: TerrainDetailPatch | null = null;
   /** A 1×1 stand-in so the albedo sampler is always bound to something. */
   private blankTex: THREE.DataTexture;
   private albedoTex: THREE.Texture | null = null;
   private W: number;
   private H: number;
   private heights: Float32Array;
+  private meshResolution: number;
   private window: UVWindow = { ...FULL_WINDOW };
 
   constructor(opts: SurfaceOptions) {
     this.W = opts.worldWidth;
     this.H = opts.worldHeight;
+    this.meshResolution = Math.max(16, Math.round(opts.mesh));
     this.heights = new Float32Array(this.W * this.H);
 
     this.blankTex = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1);
@@ -637,7 +715,7 @@ export class SculptSurface {
       side: THREE.DoubleSide,
     });
 
-    this.mesh = new THREE.Mesh(buildGrid(opts.mesh), this.material);
+    this.mesh = new THREE.Mesh(buildGrid(this.meshResolution), this.material);
     this.mesh.frustumCulled = false;
   }
 
@@ -726,7 +804,7 @@ export class SculptSurface {
 
   /** Stretch the grid over this square of the world. */
   setWindow(w: UVWindow): void {
-    const size = Math.min(1, Math.max(0.004, w.size));
+    const size = Math.min(1, Math.max(MIN_UV_WINDOW, w.size));
     // v is clamped so the grid never runs off the poles; u wraps and does not care.
     const v = size >= 1 ? 0.5 : Math.min(1 - size / 2, Math.max(size / 2, w.v));
     this.window = { u: w.u, v, size };
@@ -736,8 +814,11 @@ export class SculptSurface {
 
   /** Swap the grid for a denser or coarser one. Textures are untouched. */
   setMesh(n: number): void {
+    const next = Math.max(16, Math.round(n));
+    if (next === this.meshResolution) return;
     const old = this.mesh.geometry;
-    this.mesh.geometry = buildGrid(n);
+    this.mesh.geometry = buildGrid(next);
+    this.meshResolution = next;
     old.dispose();
   }
 
@@ -764,6 +845,7 @@ export class SculptSurface {
    */
   setDetailPatch(patch: TerrainDetailPatch | null): void {
     this.detailHeightTex.dispose();
+    this.detailPatch = patch;
     if (!patch) {
       this.detailHeightTex = new THREE.DataTexture(
         new Float32Array([0]), 1, 1, THREE.RedFormat, THREE.FloatType,
@@ -816,9 +898,35 @@ export class SculptSurface {
 
   /** Height in km at a world cell, from the copy the GPU is reading. */
   heightAtCell(x: number, y: number): number {
-    const xx = ((Math.floor(x) % this.W) + this.W) % this.W;
-    const yy = Math.min(this.H - 1, Math.max(0, Math.floor(y)));
-    return this.heights[yy * this.W + xx];
+    return this.heightAtUV(x / this.W, y / this.H);
+  }
+
+  /**
+   * Height in km at normalized world coordinates, matching `heightAt()` in the
+   * vertex shader. Camera collision, labels and picking must see the same
+   * regional relief as the GPU or a close camera can enter a peak that the CPU
+   * believes does not exist.
+   */
+  heightAtUV(u: number, v: number): number {
+    const base = bilinearWrapped(this.heights, this.W, this.H, u, v);
+    const patch = this.detailPatch;
+    if (!patch) return base;
+    let wrappedX = u - patch.u;
+    wrappedX -= Math.round(wrappedX);
+    const localU = wrappedX / Math.max(1e-7, patch.uSize);
+    const localV = (v - patch.v) / Math.max(1e-7, patch.vSize);
+    if (localU < 0 || localU > 1 || localV < 0 || localV > 1) return base;
+    const detail = bilinearClamped(
+      patch.elevation,
+      patch.width,
+      patch.height,
+      localU,
+      localV,
+    );
+    const edgeX = Math.min(localU * patch.width, (1 - localU) * patch.width);
+    const edgeY = Math.min(localV * patch.height, (1 - localV) * patch.height);
+    const blend = smoothstep(0, 3, Math.min(edgeX, edgeY));
+    return base + (detail - base) * blend;
   }
 
   dispose(): void {
@@ -945,7 +1053,11 @@ export function visibleWindow(
   const v0 = Math.min(...vs), v1 = Math.max(...vs);
   const size = Math.max(u1 - u0, v1 - v0) * pad;
   if (!Number.isFinite(size) || size >= 1) return { ...FULL_WINDOW };
-  return { u: (u0 + u1) / 2, v: (v0 + v1) / 2, size: Math.max(0.004, size) };
+  return {
+    u: (u0 + u1) / 2,
+    v: (v0 + v1) / 2,
+    size: Math.max(MIN_UV_WINDOW, size),
+  };
 }
 
 // ---------------------------------------------------------------------------
