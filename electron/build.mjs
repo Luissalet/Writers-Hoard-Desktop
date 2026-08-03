@@ -23,6 +23,21 @@ const common = {
 await Promise.all([
   build({ ...common, entryPoints: ['electron/main.ts'], outfile: 'dist-electron/main.cjs' }),
   build({ ...common, entryPoints: ['electron/preload.ts'], outfile: 'dist-electron/preload.cjs' }),
+  // La Forja: the worldgen engine bundled for dedicated OS processes.
+  // @napi-rs/canvas stays external (a native .node resolved from
+  // node_modules and asar-unpacked in packaged builds).
+  build({
+    ...common,
+    external: [...common.external, '@napi-rs/canvas'],
+    entryPoints: ['src/engines/worldgen/forge/regionForge.ts'],
+    outfile: 'dist-electron/forge/regionForge.cjs',
+  }),
+  build({
+    ...common,
+    external: [...common.external, '@napi-rs/canvas'],
+    entryPoints: ['src/engines/worldgen/forge/worldgenForge.ts'],
+    outfile: 'dist-electron/forge/worldgenForge.cjs',
+  }),
 ]);
 
-console.log('[electron] bundled main.cjs + preload.cjs → dist-electron/');
+console.log('[electron] bundled main.cjs + preload.cjs + forge/*.cjs → dist-electron/');

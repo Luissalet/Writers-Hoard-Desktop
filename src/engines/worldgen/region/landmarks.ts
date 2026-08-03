@@ -13,7 +13,6 @@
 // This is the payoff of inventing the relief rather than merely upscaling it.
 // A generator that smoothed the world map would have nothing to find.
 
-import { createRng } from '../core/rng';
 import { coinName, type LanguageFamily } from '../core/language';
 import type { HumanGeography } from '../core/settlements';
 import type { WorldData } from '../core/types';
@@ -252,7 +251,6 @@ export function buildLandmarks(
   // ---- named lakes ---------------------------------------------------------
   const lakeSeen = new Uint8Array(W * H);
   const stack = new Int32Array(W * H);
-  const rng = createRng(world.params.seed, `region-lakes:${Math.round(g.originX)}`);
   for (let s0 = 0; s0 < W * H; s0++) {
     if (t.water[s0] !== 2 || lakeSeen[s0]) continue;
     let sp = 0, cn = 0, sx = 0, sy = 0;
@@ -274,7 +272,6 @@ export function buildLandmarks(
     if (areaKm2 < 3.5) continue;
     push('lake', sx / cn, sy / cn, Math.min(0.7, 0.3 + areaKm2 / 60), 3);
   }
-  void rng;
 
   return out;
 }

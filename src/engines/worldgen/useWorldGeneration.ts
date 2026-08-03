@@ -23,6 +23,7 @@
 // permanently and replay the saved list on top of itself.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { forgeAvailable, forgeDegraded, spawnForgeWorker } from './forge/bridge';
 import type { WorldData, WorldParams } from './core/types';
 import { unpackWorld } from './core/types';
 import { loadSnapshot, saveSnapshot } from './snapshots';
@@ -149,7 +150,14 @@ export function useWorldGeneration(
 
   const forge = useCallback((params: WorldParams, key: string, run: number) => {
     workerRef.current?.terminate();
-    const worker = new Worker(new URL('./worldgen.worker.ts', import.meta.url), { type: 'module' });
+    // World generation leaves the renderer entirely when the Forge is up: a
+    // dedicated OS process does the heavy months, and this window only
+    // receives the finished world. Web Worker fallback everywhere else —
+    // including the degraded mode the bridge declares when a forge child
+    // dies without ever answering (see FORGE_FIRST_REPLY_MS).
+    const worker = forgeAvailable() && !forgeDegraded()
+      ? spawnForgeWorker('worldgen') as unknown as Worker
+      : new Worker(new URL('./worldgen.worker.ts', import.meta.url), { type: 'module' });
     workerRef.current = worker;
     setGen({ running: true, stage: 'plates', progress: 0, error: null });
 

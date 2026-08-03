@@ -39,7 +39,7 @@ const DRY = new Set<number>([
 ]);
 
 /** What a biome looks like on the ground when no one has touched it. */
-function naturalOf(b: number): CoverId {
+export function naturalOf(b: number): CoverId {
   switch (b) {
     case Biome.Ocean: return Cover.Sea;
     case Biome.Lake: return Cover.Lake;

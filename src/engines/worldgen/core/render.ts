@@ -135,40 +135,67 @@ export function renderBase(world: WorldData, mode: ViewMode, options?: RenderOpt
   return px;
 }
 
+/** Unshaded atlas colour of ONE cell — the single source both the whole-world
+ *  raster and the live dirty-cell updater draw from. */
+export function atlasCellColor(world: WorldData, i: number): [number, number, number] {
+  const { elevation, biome, temperature } = world;
+  const e = elevation[i];
+  if (e <= 0) return oceanColor(-e);
+  const bio = biome[i];
+  let [r, g, b] = BIOME_COLORS[bio] ?? BIOME_COLORS[Biome.Grassland];
+  if (bio !== Biome.Lake && bio !== Biome.SaltFlat) {
+    // Hypsometric lightening toward pale rock with altitude.
+    const t = Math.min(1, Math.pow(Math.max(0, e) / 4.2, 1.25)) * 0.62;
+    r += (HIGHLAND[0] - r) * t;
+    g += (HIGHLAND[1] - g) * t;
+    b += (HIGHLAND[2] - b) * t;
+    // Snow above the local snowline — gradual, only on real highlands.
+    const snowT = Math.min(1, Math.max(0, (-temperature[i] - 6) / 9 + Math.max(0, e - 3.1) * 0.3));
+    if (snowT > 0 && e > 1.9) {
+      const sT = snowT * snowT * (3 - 2 * snowT);
+      r += (SNOW[0] - r) * sT;
+      g += (SNOW[1] - g) * sT;
+      b += (SNOW[2] - b) * sT;
+    }
+  }
+  return [r, g, b];
+}
+
 function renderAtlas(world: WorldData, px: Uint8ClampedArray, shade: boolean): void {
-  const { width: W, height: H, elevation, biome, temperature } = world;
+  const { width: W, height: H, elevation, biome } = world;
   for (let y = 0; y < H; y++) {
     const yW = y * W;
     for (let x = 0; x < W; x++) {
       const i = yW + x;
-      const e = elevation[i];
-      if (e <= 0) {
-        const [r, g, b] = oceanColor(-e);
-        // Gentle sea-floor relief so oceans aren't flat posters.
-        const sh = shade ? 0.92 + 0.08 * hillshade(world, i, x, y) : 1;
-        put(px, i, r * sh, g * sh, b * sh);
-        continue;
-      }
-      const bio = biome[i];
-      let [r, g, b] = BIOME_COLORS[bio] ?? BIOME_COLORS[Biome.Grassland];
-
-      if (bio !== Biome.Lake && bio !== Biome.SaltFlat) {
-        // Hypsometric lightening toward pale rock with altitude.
-        const t = Math.min(1, Math.pow(Math.max(0, e) / 4.2, 1.25)) * 0.62;
-        r += (HIGHLAND[0] - r) * t;
-        g += (HIGHLAND[1] - g) * t;
-        b += (HIGHLAND[2] - b) * t;
-        // Snow above the local snowline — gradual, only on real highlands.
-        const snowT = Math.min(1, Math.max(0, (-temperature[i] - 6) / 9 + Math.max(0, e - 3.1) * 0.3));
-        if (snowT > 0 && e > 1.9) {
-          const sT = snowT * snowT * (3 - 2 * snowT);
-          r += (SNOW[0] - r) * sT;
-          g += (SNOW[1] - g) * sT;
-          b += (SNOW[2] - b) * sT;
-        }
-      }
-      const sh = !shade || bio === Biome.Lake ? 1 : hillshade(world, i, x, y);
+      const [r, g, b] = atlasCellColor(world, i);
+      const sh = !shade ? 1
+        : elevation[i] <= 0 ? 0.92 + 0.08 * hillshade(world, i, x, y)
+          : biome[i] === Biome.Lake ? 1 : hillshade(world, i, x, y);
       put(px, i, r * sh, g * sh, b * sh);
+    }
+  }
+}
+
+/**
+ * Refresh the unshaded atlas colours of a dirty rectangle IN PLACE (x wraps,
+ * y clamps). This is what makes live sculpting affordable on the satellite:
+ * a brush move dirties a few hundred cells, not a million.
+ */
+export function updateAtlasCells(
+  world: WorldData,
+  unshaded: Uint8ClampedArray,
+  x0: number, y0: number, x1: number, y1: number,
+): void {
+  const { width: W, height: H } = world;
+  const ya = Math.max(0, Math.floor(y0)), yb = Math.min(H - 1, Math.ceil(y1));
+  const xa = Math.floor(x0), xb = Math.ceil(x1);
+  for (let y = ya; y <= yb; y++) {
+    for (let x = xa; x <= xb; x++) {
+      const xi = ((x % W) + W) % W;
+      const i = y * W + xi;
+      const [r, g, b] = atlasCellColor(world, i);
+      const o = i * 4;
+      unshaded[o] = r; unshaded[o + 1] = g; unshaded[o + 2] = b; unshaded[o + 3] = 255;
     }
   }
 }
@@ -371,6 +398,108 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 }
 
 /** Transparent layer with rivers stamped as flow-scaled strokes. */
+/**
+ * The satellite window: one output pixel per SCREEN pixel, sampled bilinearly
+ * from the world fields, with the hillshade computed per pixel from the
+ * interpolated surface. This is what replaces "magnify the 1-px-per-cell
+ * raster 8×" past the zoom where that reads as mush: the coastline lands at
+ * sub-cell precision, relief shading stays crisp at any magnification, and
+ * the palette is EXACTLY the atlas palette because the colours come from the
+ * unshaded atlas raster itself.
+ *
+ * `unshaded` is `renderBase(world, 'atlas', { shade: false })`, cached by the
+ * caller per revision. Land pixels blend the colours of their LAND corners
+ * only (weights renormalised), so ocean blue never bleeds uphill; water
+ * pixels take the depth ramp directly. A pixel whose nearest corner is a
+ * lake keeps the lake's flat shading, like the cell version.
+ */
+export function renderAtlasWindow(
+  world: WorldData,
+  unshaded: Uint8ClampedArray,
+  out: Uint8ClampedArray,
+  outW: number,
+  outH: number,
+  view: { x: number; y: number; w: number; h: number },
+): void {
+  const { width: W, height: H, elevation, biome } = world;
+  const sx = view.w / outW, sy = view.h / outH;
+  const wrapC = (x: number) => ((x % W) + W) % W;
+  const clampR = (y: number) => Math.min(H - 1, Math.max(0, y));
+
+  /** Bilinear elevation at world-cell coordinates (centre convention). */
+  const eAt = (gx: number, gy: number): number => {
+    const fx = gx - 0.5, fy = gy - 0.5;
+    const x0 = Math.floor(fx), y0 = Math.floor(fy);
+    const tx = fx - x0, ty = fy - y0;
+    const xa = wrapC(x0), xb = wrapC(x0 + 1);
+    const ya = clampR(y0), yb = clampR(y0 + 1);
+    const e00 = elevation[ya * W + xa], e10 = elevation[ya * W + xb];
+    const e01 = elevation[yb * W + xa], e11 = elevation[yb * W + xb];
+    return (e00 * (1 - tx) + e10 * tx) * (1 - ty) + (e01 * (1 - tx) + e11 * tx) * ty;
+  };
+
+  const Z = 11, lx = -0.55, ly = -0.55, lz = 0.63; // mirror hillshade()
+
+  for (let py = 0; py < outH; py++) {
+    const gy = view.y + (py + 0.5) * sy;
+    for (let px = 0; px < outW; px++) {
+      const gx = view.x + (px + 0.5) * sx;
+      const o = (py * outW + px) * 4;
+
+      const e = eAt(gx, gy);
+      // Per-pixel shade from the interpolated surface, same physical scale as
+      // the cell version (centred difference over two cells).
+      const dzdx = (eAt(gx + 1, gy) - eAt(gx - 1, gy)) * 0.5 * Z;
+      const dzdy = (eAt(gx, gy + 1) - eAt(gx, gy - 1)) * 0.5 * Z;
+      const len = Math.sqrt(dzdx * dzdx + dzdy * dzdy + 1);
+      const dot = (-dzdx * lx + -dzdy * ly + lz) / len;
+      const shade = 0.62 + 0.55 * Math.max(0, dot);
+
+      if (e <= 0) {
+        const [r, g, b] = oceanColor(-e);
+        const sh = 0.92 + 0.08 * shade;
+        out[o] = r * sh; out[o + 1] = g * sh; out[o + 2] = b * sh; out[o + 3] = 255;
+        continue;
+      }
+
+      // Corner cells around the sample, for colour blending.
+      const fx = gx - 0.5, fy = gy - 0.5;
+      const x0 = Math.floor(fx), y0 = Math.floor(fy);
+      const tx = fx - x0, ty = fy - y0;
+      const xa = wrapC(x0), xb = wrapC(x0 + 1);
+      const ya = clampR(y0), yb = clampR(y0 + 1);
+      const idx = [ya * W + xa, ya * W + xb, yb * W + xa, yb * W + xb];
+      const wgt = [(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty];
+
+      let r = 0, g = 0, b = 0, wsum = 0;
+      for (let k = 0; k < 4; k++) {
+        const i = idx[k];
+        if (elevation[i] <= 0) continue; // sea colour never bleeds uphill
+        const q = i * 4;
+        r += unshaded[q] * wgt[k];
+        g += unshaded[q + 1] * wgt[k];
+        b += unshaded[q + 2] * wgt[k];
+        wsum += wgt[k];
+      }
+      if (wsum <= 0) {
+        // Land by interpolation, water at every corner: a hairline case at
+        // concave coves — take the nearest corner's colour as the cell
+        // version would have shown there.
+        const near = idx[wgt.indexOf(Math.max(...wgt))] * 4;
+        r = unshaded[near]; g = unshaded[near + 1]; b = unshaded[near + 2];
+        wsum = 1;
+      }
+      // Lakes shade flat, exactly like the cell version.
+      const nearest = idx[wgt.indexOf(Math.max(...wgt))];
+      const sh = biome[nearest] === Biome.Lake ? 1 : shade;
+      out[o] = (r / wsum) * sh;
+      out[o + 1] = (g / wsum) * sh;
+      out[o + 2] = (b / wsum) * sh;
+      out[o + 3] = 255;
+    }
+  }
+}
+
 export function renderRivers(world: WorldData): Uint8ClampedArray<ArrayBuffer> {
   const { width: W, height: H } = world;
   const px = new Uint8ClampedArray(W * H * 4);

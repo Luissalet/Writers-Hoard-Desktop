@@ -7,6 +7,8 @@
 
 import type { WorldData } from '../core/types';
 import { buildHumanGeography, DEFAULT_HUMAN_PARAMS, type GeoDepth, type HumanGeography, type HumanGeographyParams, type Settlement } from '../core/settlements';
+import { BIOME_COLORS } from '../core/render';
+import type { RegionData } from '../region/types';
 import { renderCartography, type CartoLayers, type CartoView } from './render';
 import type { CartoTheme } from './theme';
 import type { Ctx } from './symbols';
@@ -317,4 +319,38 @@ export function cityParamsFor(world: WorldData, s: Settlement): {
     culture: s.culture,
     population: s.population,
   };
+}
+
+/**
+ * The regional patch as a colour raster over its FULL grid — margin included,
+ * because the 3D drape addresses the same uv space the height patch does, and
+ * a cropped canvas would land the colours a gutter's width off the relief.
+ * Biome tint, water, and a one-cell slope shade; deliberately the same palette
+ * the 2D overlay draws, so the two views agree about what the ground is.
+ */
+export function regionAlbedoCanvas(region: RegionData): HTMLCanvasElement {
+  const w = region.width, h = region.height;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const rgba = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      let color = BIOME_COLORS[region.biome[i]] ?? [116, 120, 105];
+      if (region.water[i] === 1) color = [48, 90, 126];
+      else if (region.water[i] === 2) color = [67, 112, 142];
+      const left = region.elevation[y * w + Math.max(0, x - 1)];
+      const up = region.elevation[Math.max(0, y - 1) * w + x];
+      const here = region.elevation[i];
+      const shade = Math.min(1.24, Math.max(0.68, 0.98 + (left + up - here * 2) * 18));
+      const o = i * 4;
+      rgba[o] = Math.round(color[0] * shade);
+      rgba[o + 1] = Math.round(color[1] * shade);
+      rgba[o + 2] = Math.round(color[2] * shade);
+      rgba[o + 3] = 255;
+    }
+  }
+  canvas.getContext('2d')!.putImageData(new ImageData(rgba, w, h), 0, 0);
+  return canvas;
 }

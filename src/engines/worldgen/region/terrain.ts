@@ -13,6 +13,7 @@
 // not move, it just gets re-sampled.
 
 import { SphereNoise } from '../core/noise';
+import { riverKey } from '../core/edits';
 import { resample } from '../cartography/contours';
 import type { WorldData } from '../core/types';
 import type { RegionParams, RegionStream, RegionWindow } from './types';
@@ -537,6 +538,16 @@ export function carveWorldRivers(
   const out: CarvedRiver[] = [];
   const margin = 6;
 
+  // The reader's hand-drawn rivers are rivers, not scars: they carve the same
+  // channel, inject the same discharge and carry a trunk identity, exactly like
+  // the generated ones — and a generated river the reader deleted stays
+  // deleted here, the same rule both 2D renderers already keep.
+  const gone = world.painted?.removed ?? new Set<string>();
+  const rivers: { cells: ArrayLike<number>; flow: number }[] = [
+    ...world.rivers.filter((r) => !gone.has(riverKey(r.cells))),
+    ...(world.painted?.rivers ?? []),
+  ];
+
   const toSheet = (wx: number, wy: number) => {
     // Choose the wrapped longitude nearest the window so a sheet straddling the
     // antimeridian does not get a river drawn across the whole page.
@@ -571,8 +582,8 @@ export function carveWorldRivers(
     return true;
   };
 
-  for (let ri = 0; ri < world.rivers.length; ri++) {
-    const r = world.rivers[ri];
+  for (let ri = 0; ri < rivers.length; ri++) {
+    const r = rivers[ri];
     const raw: { x: number; y: number }[] = [];
     for (let k = 0; k < r.cells.length; k++) {
       const c = r.cells[k];

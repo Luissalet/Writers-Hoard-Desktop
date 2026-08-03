@@ -18,7 +18,7 @@ import { createRng } from '../core/rng';
 import type { HumanGeography, NamedFeature, Settlement } from '../core/settlements';
 import type { CartoTheme } from './theme';
 import type { Ctx } from './symbols';
-import { chaikin, resample, simplify, type Pt } from './contours';
+import { chaikin, polylineVisible, resample, simplify, type Pt } from './contours';
 import type { CartoView } from './render';
 
 interface Rect { x: number; y: number; w: number; h: number }
@@ -166,6 +166,10 @@ function toScreenPath(
     prev = x;
     raw.push({ x, y });
   }
+  // Off-view paths return empty: every caller already treats a short path as
+  // "nothing to draw", and a tile shouldn't smooth/stroke the whole world's
+  // roads to show the three that cross it.
+  if (!polylineVisible(raw, view, W, Math.max(2, 10 / scale))) return [];
   let mean = 0;
   for (const p of raw) mean += p.x;
   mean /= raw.length;
@@ -215,12 +219,23 @@ export function drawBorders(ctx: Ctx, world: WorldData, geo: HumanGeography, opt
   const pr = project(opts.view, scale, W);
   ctx.save();
 
+  // Both passes scan ONLY the cells the view can show (plus one cell of
+  // slack). The old full-grid scans cost O(W·H) per render — millions of
+  // realm lookups so a 256-px tile could tint its sixty-four cells.
+  const vx0 = Math.floor(opts.view.x) - 1;
+  const vx1 = Math.ceil(opts.view.x + opts.view.w) + 1;
+  const vy0 = Math.max(0, Math.floor(opts.view.y) - 1);
+  const vy1 = Math.min(H - 1, Math.ceil(opts.view.y + opts.view.h) + 1);
+
   // Translucent fill per realm, painted cell-wise at low resolution: the point
-  // is a tint, so a chunky raster is cheaper and reads identically.
+  // is a tint, so a chunky raster is cheaper and reads identically. The step
+  // lattice stays anchored at cell 0, so every window tints the same cells
+  // and adjacent tiles agree at their join.
   const step = Math.max(1, Math.round(1 / Math.max(0.15, scale)));
   ctx.globalAlpha = theme.borders.fillAlpha;
-  for (let y = 0; y < H; y += step) {
-    for (let x = 0; x < W; x += step) {
+  for (let y = Math.ceil(vy0 / step) * step; y <= vy1; y += step) {
+    for (let gx = Math.ceil(vx0 / step) * step; gx <= vx1; gx += step) {
+      const x = ((gx % W) + W) % W;
       const id = geo.realmOf[y * W + x];
       if (id < 0) continue;
       const sx = pr.x(x), sy = pr.y(y);
@@ -234,8 +249,9 @@ export function drawBorders(ctx: Ctx, world: WorldData, geo: HumanGeography, opt
   ctx.globalAlpha = theme.borders.alpha;
   ctx.lineWidth = theme.borders.width * Math.max(0.7, Math.min(2, scale));
   ctx.setLineDash(theme.borders.dash.map((d) => d * Math.max(0.8, Math.min(1.6, scale))));
-  for (let y = 0; y < H - 1; y++) {
-    for (let x = 0; x < W; x++) {
+  for (let y = vy0; y <= Math.min(H - 2, vy1); y++) {
+    for (let gx = vx0; gx <= vx1; gx++) {
+      const x = ((gx % W) + W) % W;
       const i = y * W + x;
       const a = geo.realmOf[i];
       const r = geo.realmOf[y * W + ((x + 1) % W)];

@@ -448,8 +448,7 @@ export function buildHabitation(
   }
 
   // ---- the singular buildings ---------------------------------------------
-  const rng = createRng(world.params.seed, `region:${Math.round(g.originX)}:${Math.round(g.originY)}`);
-  addAbbey(places, () => id++, g, t, cover, f, geo, world, rng);
+  addAbbey(places, () => id++, g, t, cover, f, geo, world);
   addTowers(places, () => id++, g, t, f, world);
   addWorkings(places, () => id++, g, t, cover, f, world);
   addInns(places, () => id++, g, f, world);
@@ -472,22 +471,34 @@ function farmName(stem: string, seed: string, key: string): string {
 /** An abbey wants good land, water, and to be a decent walk from the town. */
 function addAbbey(
   places: RegionPlace[], nextId: () => number, g: RegionGeometry, t: TerrainFields,
-  cover: Uint8Array, f: SiteFields, geo: HumanGeography, world: WorldData, rng: () => number,
+  cover: Uint8Array, f: SiteFields, geo: HumanGeography, world: WorldData,
 ): void {
   const W = g.width, H = g.height;
   const cellKm = g.metresPerCell / 1000;
   const areaKm2 = W * H * cellKm * cellKm;
   const want = Math.max(0, Math.round(areaKm2 / 4200));
   if (want === 0) return;
+  const WW = world.width;
   const scored: { i: number; s: number }[] = [];
-  for (let i = 0; i < W * H; i += 3) {
+  for (let i = 0; i < W * H; i++) {
     if (t.water[i] !== 0 || t.slope[i] > 0.2) continue;
     const soil = SOIL[cover[i]] ?? 0;
     if (soil < 0.5) continue;
+    // Everything about a candidate is a function of the GROUND, never of the
+    // window. The old loop strode `i += 3` through sheet indices — two panned
+    // grids sampled disjoint candidate sets and agreed on nothing — and broke
+    // ties with an origin-seeded RNG stream on top. Now the one-in-three
+    // decimation and the tie-break both hash the world position (1/256-cell
+    // lattice, wrapped), so every window elects abbeys from the same ballot.
+    const wx = g.originX + ((i % W) + 0.5) * g.worldPerCellX;
+    const wy = g.originY + (((i / W) | 0) + 0.5) * g.worldPerCellY;
+    const qa = Math.round((((wx % WW) + WW) % WW) * 256);
+    const qb = Math.round(wy * 256);
+    if (hash2(qa, qb, 4) >= 1 / 3) continue;
     const dTown = f.toTown[i] * cellKm;
     const dStream = f.toStream[i] * cellKm;
     if (dStream > 1.1 || dTown < 3.5 || dTown > 22) continue;
-    scored.push({ i, s: soil * 1.2 + (1 - Math.abs(dTown - 8) / 12) + rng() * 0.35 });
+    scored.push({ i, s: soil * 1.2 + (1 - Math.abs(dTown - 8) / 12) + hash2(qa, qb, 5) * 0.35 });
   }
   scored.sort((a, b) => b.s - a.s);
   const fam = geo.languages;

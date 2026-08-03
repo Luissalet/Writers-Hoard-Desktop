@@ -22,6 +22,24 @@ function hexToRgb(c: string): [number, number, number] {
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
+/** Position-keyed white noise in [-1, 1): the same virtual-sheet pixel gets
+ *  the same tooth in every tile that renders it. */
+function makeAnchoredGrain(seed: string, ax: number, ay: number): (x: number, y: number) => number {
+  let salt = 2166136261 >>> 0;
+  for (let i = 0; i < seed.length; i++) {
+    salt ^= seed.charCodeAt(i);
+    salt = Math.imul(salt, 16777619);
+  }
+  const ox = ax | 0, oy = ay | 0;
+  return (x: number, y: number): number => {
+    let h = (Math.imul(ox + x, 0x9e3779b1) ^ Math.imul(oy + y, 0x85ebca77) ^ salt) >>> 0;
+    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+    h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
+    h ^= h >>> 15;
+    return ((h >>> 0) / 4294967296) * 2 - 1;
+  };
+}
+
 export interface PaperOptions {
   width: number;
   height: number;
@@ -29,6 +47,16 @@ export interface PaperOptions {
   theme: CartoTheme;
   /** Scale factor: effects are authored for a ~1200px sheet. */
   scale?: number;
+  /**
+   * Where this render sits inside a VIRTUAL sheet of `extentX × extentY`
+   * output pixels. Display tiles pass their pixel origin and the full level
+   * extent, so the blotches and stains continue across tile joins instead of
+   * each tile drawing its own private sheet — that mismatch was the visible
+   * tonal seam. Anchored renders also skip the vignette: the burn belongs to
+   * the edge of a PAGE, and a tile is not a page. Absent = classic behaviour,
+   * byte-identical, which keeps every export exactly as it was.
+   */
+  anchor?: { x: number; y: number; extentX: number; extentY: number };
   /**
    * Resolution divisor for the TONE layers. The blotch/stain/fibre/vignette
    * fields are all smooth, so computing them on a reduced lattice and
@@ -47,8 +75,8 @@ export interface PaperOptions {
  * regenerates it only when the seed, theme or size changes).
  */
 export function renderPaper(opts: PaperOptions): Uint8ClampedArray {
-  const { width: W, height: H, theme } = opts;
-  const s = opts.scale ?? Math.max(W, H) / 1200;
+  const { width: W, height: H, theme, anchor } = opts;
+  const s = opts.scale ?? Math.max(anchor ? anchor.extentX : W, anchor ? anchor.extentY : H) / 1200;
   const px = new Uint8ClampedArray(W * H * 4);
 
   const nBlotch = new SphereNoise(opts.seed, 'paper-blotch');
@@ -72,19 +100,35 @@ export function renderPaper(opts: PaperOptions): Uint8ClampedArray {
     hash ^= hash << 13; hash ^= hash >>> 17; hash ^= hash << 5;
     return ((hash >>> 0) / 4294967296) * 2 - 1;
   };
+  // Anchored renders key the tooth by VIRTUAL-SHEET pixel instead: a stream's
+  // value depends on how many pixels came before it, so two tiles of the same
+  // sheet would disagree everywhere. (The classic path keeps the stream so
+  // existing exports stay byte-identical.)
+  const grainAt = anchor ? makeAnchoredGrain(opts.seed, anchor.x, anchor.y) : null;
 
   // ---- pass 1: the smooth tone layers, on a reduced lattice ---------------
+  // Anchored renders align the lattice to VIRTUAL-SHEET multiples of `step`
+  // (phase shift), so every tile of a level interpolates between the same
+  // sample points — a lattice phased per-tile disagrees with its neighbour by
+  // an interpolation residue everywhere. phase = 0 when unanchored: the
+  // classic arithmetic is untouched.
   const step = Math.max(1, Math.round(opts.toneStep ?? 3));
-  const LW = Math.ceil(W / step) + 1;
-  const LH = Math.ceil(H / step) + 1;
+  const phaseX = anchor ? anchor.x - Math.floor(anchor.x / step) * step : 0;
+  const phaseY = anchor ? anchor.y - Math.floor(anchor.y / step) * step : 0;
+  const LW = Math.ceil((W + phaseX) / step) + 1;
+  const LH = Math.ceil((H + phaseY) / step) + 1;
   const lr = new Float32Array(LW * LH);
   const lg = new Float32Array(LW * LH);
   const lb = new Float32Array(LW * LH);
 
   for (let ly = 0; ly < LH; ly++) {
-    const v = Math.min(1, (ly * step) / H);
+    const v = anchor
+      ? Math.min(1, (anchor.y - phaseY + ly * step) / anchor.extentY)
+      : Math.min(1, (ly * step) / H);
     for (let lx = 0; lx < LW; lx++) {
-      const u = Math.min(1, (lx * step) / W);
+      const u = anchor
+        ? (anchor.x - phaseX + lx * step) / anchor.extentX
+        : Math.min(1, (lx * step) / W);
 
       const blotch = nBlotch.fbm(u, v, 2.4, 4, 2.05, 0.58) * 0.5 + 0.5;
       const m1 = nStain.fbm(u, v, 7.5, 5, 2.1, 0.5) * 0.5 + 0.5;
@@ -106,7 +150,7 @@ export function renderPaper(opts: PaperOptions): Uint8ClampedArray {
         r += (stainC[0] - r) * t; g += (stainC[1] - g) * t; b += (stainC[2] - b) * t;
       }
 
-      if (vAmt > 0) {
+      if (vAmt > 0 && !anchor) {
         const ex = u * (1 - u), ey = v * (1 - v);
         let d = Math.min(1, ex * ey * 16);
         d += (nEdgeLo.sample(u, v, 5) * 0.5) * 0.3 + (nEdgeHi.sample(u, v, 22) * 0.5) * 0.09;
@@ -123,18 +167,18 @@ export function renderPaper(opts: PaperOptions): Uint8ClampedArray {
   // ---- pass 2: bilinear upsample + full-resolution tooth ------------------
   const inv = 1 / step;
   for (let y = 0; y < H; y++) {
-    const fy = y * inv;
+    const fy = (y + phaseY) * inv;
     const y0 = fy | 0;
     const ty = fy - y0;
     const row0 = y0 * LW, row1 = Math.min(LH - 1, y0 + 1) * LW;
     for (let x = 0; x < W; x++) {
-      const fx = x * inv;
+      const fx = (x + phaseX) * inv;
       const x0 = fx | 0;
       const tx = fx - x0;
       const x1 = Math.min(LW - 1, x0 + 1);
       const a = row0 + x0, b2 = row0 + x1, c = row1 + x0, d2 = row1 + x1;
       const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
-      const n = rand() * 6.5 * gAmt;
+      const n = (grainAt ? grainAt(x, y) : rand()) * 6.5 * gAmt;
       const i = (y * W + x) * 4;
       px[i] = lr[a] * w00 + lr[b2] * w10 + lr[c] * w01 + lr[d2] * w11 + n;
       px[i + 1] = lg[a] * w00 + lg[b2] * w10 + lg[c] * w01 + lg[d2] * w11 + n;

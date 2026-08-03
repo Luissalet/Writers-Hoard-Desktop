@@ -355,7 +355,7 @@ function touchedRect(edits: WorldEdit[], W: number, H: number, pad: number) {
  * same quantity the eye reads as steepness, and cheap enough to evaluate per
  * cell without anybody noticing.
  */
-function filterFor(
+export function filterFor(
   f: PaintFilter, elev: Float32Array, W: number, H: number,
 ): (i: number) => boolean {
   const needSlope = f.minSlope !== undefined || f.maxSlope !== undefined;
@@ -637,10 +637,16 @@ export function editCostClass(edits: WorldEdit[]): 'local' | 'global' {
     : 'local';
 }
 
-/** Compact JSON for storage alongside the seed and parameters. Coordinates are
- *  rounded: sub-cell precision in a saved stroke is noise. */
+/** Compact JSON for storage alongside the seed and parameters.
+ *
+ *  Coordinates are rounded to 1/256 of a world cell (~76 m). It used to be a
+ *  quarter cell — "sub-cell precision is noise" was true when the world grid
+ *  was the only canvas — but the canonical tiles rasterise the same list at
+ *  ~150 m per cell, where a quarter-cell round-off is five kilometres of slop.
+ *  Legacy points already sit on the quarter grid, so the finer rounding is the
+ *  identity on every stroke saved before this change. */
 export function serializeEdits(edits: WorldEdit[]): string {
-  const round = (p: Pt) => ({ x: Math.round(p.x * 4) / 4, y: Math.round(p.y * 4) / 4 });
+  const round = (p: Pt) => ({ x: Math.round(p.x * 256) / 256, y: Math.round(p.y * 256) / 256 });
   return JSON.stringify(edits.map((e) => {
     if ('stroke' in e) return { ...e, stroke: { ...e.stroke, pts: e.stroke.pts.map(round) } };
     if (e.kind === 'river') return { ...e, pts: e.pts.map(round) };

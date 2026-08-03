@@ -17,7 +17,7 @@ import { riverKey } from '../core/edits';
 import { Biome, type WorldData } from '../core/types';
 import { createRng, type Rng } from '../core/rng';
 import { blur, distanceTo, labelLandmasses, localRelief, ridgeMask, scatterByScore, traceRidgeChains } from './fields';
-import { chaikin, marchingSquares, resample, simplify, wobble, type Contour, type Pt } from './contours';
+import { chaikin, marchingSquares, polylineVisible, resample, simplify, wobble, type Contour, type Pt } from './contours';
 import { renderPaper } from './paper';
 import { drawBroadleaf, drawCactus, drawConifer, drawDune, drawMarsh, drawMountain, drawPalm, type Ctx } from './symbols';
 import type { CartoTheme } from './theme';
@@ -83,6 +83,12 @@ export interface CartoOptions {
   reliefAmount?: number;
   /** Extra seed salt so a redraw can be reshuffled deliberately. */
   seed?: string;
+  /**
+   * Display tiles pass their pixel origin inside the level's virtual sheet so
+   * the paper tone continues across joins. Absent (every classic render and
+   * every export) the paper behaves exactly as it always has.
+   */
+  paperAnchor?: { x: number; y: number; extentX: number; extentY: number };
   /** Human geography (settlements, roads, realms, named features). Omit to
    *  render an uninhabited world. */
   geography?: HumanGeography;
@@ -223,15 +229,19 @@ interface PaperEntry { key: string; px: Uint8ClampedArray }
 const PAPER_LRU: PaperEntry[] = [];
 const PAPER_LRU_MAX = 3;
 
-function getPaper(seed: string, theme: CartoTheme, W: number, H: number): Uint8ClampedArray {
-  const key = `${seed}|${theme.id}|${W}x${H}`;
+function getPaper(
+  seed: string, theme: CartoTheme, W: number, H: number,
+  anchor?: { x: number; y: number; extentX: number; extentY: number },
+): Uint8ClampedArray {
+  const key = `${seed}|${theme.id}|${W}x${H}`
+    + (anchor ? `|@${anchor.x},${anchor.y}/${anchor.extentX}x${anchor.extentY}` : '');
   const hit = PAPER_LRU.findIndex((e) => e.key === key);
   if (hit >= 0) {
     const [entry] = PAPER_LRU.splice(hit, 1);
     PAPER_LRU.unshift(entry);
     return entry.px;
   }
-  const px = renderPaper({ width: W, height: H, seed, theme });
+  const px = renderPaper({ width: W, height: H, seed, theme, anchor });
   PAPER_LRU.unshift({ key, px });
   if (PAPER_LRU.length > PAPER_LRU_MAX) PAPER_LRU.length = PAPER_LRU_MAX;
   return px;
@@ -350,15 +360,21 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
   ctx.lineCap = 'round';
 
   // ---- stage 2: ink -------------------------------------------------------
-  const rng = createRng(seed, 'ink');
+  // Stochastic ink (coast/lake wobble) is keyed by WORLD position, never by a
+  // sequential stream: a stream's state depends on everything drawn before it,
+  // so two tiles that admit different contour sets would displace the SAME
+  // coast differently and the join would show it. Position-keyed noise also
+  // makes ink culling safe — skipping an off-view contour can't shift anyone
+  // else's wobble.
+  const inkNoise = makeInkNoise(seed, view, scale, world.width);
 
   // Coastline. Extract in world space so the seam and sub-cell accuracy are
   // both handled, then project.
-  const coast = extractCoastlines(world, view);
-  drawCoastlines(ctx, coast, theme, rng, scale, world.width, view, toScreenX, toScreenY);
+  const coast = extractCoastlines(world, view, scale);
+  drawCoastlines(ctx, coast, theme, inkNoise, scale, world.width, view, toScreenX, toScreenY);
 
   if (L.rivers) drawRivers(ctx, world, theme, view, scale, toScreenX, toScreenY);
-  drawLakes(ctx, world, theme, view, rng, scale, toScreenX, toScreenY);
+  drawLakes(ctx, world, theme, view, inkNoise, scale, toScreenX, toScreenY);
 
   let symbolCount = 0;
   const emit = opts.emitSymbol;
@@ -417,7 +433,7 @@ function renderBaseRaster(
   const OW = opts.width, OH = opts.height;
   const { width: W, height: H, elevation, temperature, lake } = world;
 
-  const paper = getPaper(`${world.params.seed}::paper`, theme, OW, OH);
+  const paper = getPaper(`${world.params.seed}::paper`, theme, OW, OH, opts.paperAnchor);
 
   const out = new Uint8ClampedArray(OW * OH * 4);
   const shallow = hexToRgb(theme.ocean.shallow);
@@ -590,22 +606,42 @@ function allLakeShores(world: WorldData): Contour[] {
   return hit;
 }
 
-function extractCoastlines(world: WorldData, view: CartoView): Contour[] {
+/**
+ * Position-keyed ink noise in [0,1). Screen points are unprojected back to
+ * world cells (the view transform is affine), wrapped, and quantized to 1/64
+ * cell before hashing — so the SAME piece of ground hashes the same in every
+ * tile of a level, and near enough across levels for crossfades to look calm.
+ * Draw order is irrelevant by construction.
+ */
+function makeInkNoise(
+  seed: string,
+  view: CartoView,
+  scale: number,
+  W: number,
+): (x: number, y: number) => number {
+  let salt = 2166136261 >>> 0;
+  for (let i = 0; i < seed.length; i++) {
+    salt ^= seed.charCodeAt(i);
+    salt = Math.imul(salt, 16777619);
+  }
+  return (sx: number, sy: number): number => {
+    const wx = view.x + sx / scale;
+    const wy = view.y + sy / scale;
+    const qx = Math.round((((wx % W) + W) % W) * 64) | 0;
+    const qy = Math.round(wy * 64) | 0;
+    let h = (Math.imul(qx, 0x9e3779b1) ^ Math.imul(qy, 0x85ebca77) ^ salt) >>> 0;
+    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+    h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
+    h ^= h >>> 15;
+    return (h >>> 0) / 4294967296;
+  };
+}
+
+function extractCoastlines(world: WorldData, view: CartoView, scale: number): Contour[] {
   const contours = allCoastlines(world);
-  const pad = Math.max(8, view.w * 0.04);
-  return contours.filter((c) => {
-    if (c.pts.length < 6) return false;
-    // Cheap reject of contours entirely outside the view (accounting for wrap).
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const p of c.pts) {
-      if (p.x < minX) minX = p.x;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.y > maxY) maxY = p.y;
-    }
-    if (maxY < view.y - pad || minY > view.y + view.h + pad) return false;
-    return true;
-  });
+  // Wobble/chaikin reach a few output px past the raw bbox; pad in cells.
+  const pad = Math.max(2, 8 / scale);
+  return contours.filter((c) => c.pts.length >= 6 && polylineVisible(c.pts, view, world.width, pad));
 }
 
 function projectContour(
@@ -630,7 +666,7 @@ function drawCoastlines(
   ctx: Ctx,
   contours: Contour[],
   theme: CartoTheme,
-  rng: Rng,
+  noise: (x: number, y: number) => number,
   scale: number,
   W: number,
   view: CartoView,
@@ -644,7 +680,7 @@ function drawCoastlines(
     pts = simplify(pts, 0.35);
     if (pts.length < 4) continue;
     pts = chaikin(pts, c.closed, 2);
-    if (theme.coastline.wobble > 0) pts = wobble(pts, theme.coastline.wobble, rng, c.closed);
+    if (theme.coastline.wobble > 0) pts = wobble(pts, theme.coastline.wobble, noise, c.closed);
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
@@ -694,6 +730,10 @@ function drawRivers(
       prevX = x;
       raw.push({ x, y });
     }
+    // A tile shows a handful of rivers; the world holds hundreds. Skip the
+    // simplify/smooth/stroke work for any river whose track can't touch the
+    // view (same wrap placement as the draw below, so nothing visible drops).
+    if (!polylineVisible(raw, view, W, Math.max(2, 8 / scale))) continue;
     // Choose the wrap offset closest to the view.
     const cx = view.x + view.w / 2;
     let mean = 0;
@@ -731,7 +771,7 @@ function drawLakes(
   world: WorldData,
   theme: CartoTheme,
   view: CartoView,
-  rng: Rng,
+  noise: (x: number, y: number) => number,
   scale: number,
   toX: (x: number) => number,
   toY: (y: number) => number,
@@ -742,8 +782,10 @@ function drawLakes(
   ctx.strokeStyle = theme.lakes.stroke;
   ctx.lineWidth = theme.lakes.width * Math.max(0.7, Math.min(2, scale));
   const cx = view.x + view.w / 2;
+  const pad = Math.max(2, 8 / scale);
   for (const c of contours) {
     if (c.pts.length < 5) continue;
+    if (!polylineVisible(c.pts, view, W, pad)) continue;
     let mean = 0;
     for (const p of c.pts) mean += p.x;
     mean /= c.pts.length;
@@ -753,7 +795,7 @@ function drawLakes(
     let pts = c.pts.map((p) => ({ x: toX(p.x + shift), y: toY(p.y) }));
     pts = chaikin(simplify(pts, 0.3), c.closed, 2);
     if (pts.length < 4) continue;
-    pts = wobble(pts, 0.3, rng, c.closed);
+    pts = wobble(pts, 0.3, noise, c.closed);
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
@@ -956,7 +998,10 @@ function drawRelief(
 
   const mSize = symbolSize(theme.mountains.size, scale);
   const hSize = symbolSize(theme.hills.size, scale);
-  const pad = (mSize / scale) * 2.2;
+  // Pad covers the TALLEST possible glyph (score and jitter maxed), so a
+  // mountain whose feet sit just past an edge still pokes its peak into the
+  // view instead of popping: h <= mSize*1.75*(1+sizeJitter) ~= 2.45*mSize.
+  const pad = (mSize / scale) * 2.6;
   const cx = view.x + view.w / 2;
 
   // Clip to the viewport HERE, not during placement: the layout must not depend
@@ -1071,7 +1116,9 @@ function drawForests(
   );
 
   const tSize = theme.forest.size * Math.max(0.5, Math.min(1.8, 0.5 + 0.5 * scale));
-  const pad = (tSize / scale) * 2.2;
+  // Same rule as relief: cover the LARGEST stamp (dune kind scales 1.7×), so
+  // nothing pops at a view or tile edge.
+  const pad = (tSize / scale) * 2.6;
   const cx = view.x + view.w / 2;
 
   const visible: { x: number; wx: number; y: number }[] = [];

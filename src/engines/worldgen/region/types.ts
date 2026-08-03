@@ -180,6 +180,13 @@ export type TrackKind = 'road' | 'lane' | 'path';
 export interface RegionTrack {
   kind: TrackKind;
   pts: { x: number; y: number }[];
+  /**
+   * Arc length (sheet cells) from the source polyline's start to this run's
+   * first point. Set by the exact-window composer when it clips a track, so a
+   * dashed way keeps its dash PHASE across display-tile joins — a dash
+   * pattern that restarts at every window cut zebra-stripes the seam.
+   */
+  dashPhase?: number;
   /** Ends that leave the sheet, for the "continues to…" marginal note. */
   exits: ('n' | 's' | 'e' | 'w')[];
   name?: string;

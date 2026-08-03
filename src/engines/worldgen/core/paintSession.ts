@@ -47,6 +47,16 @@ export class PaintSession {
 
   private world: WorldData;
 
+  /**
+   * The elevation as generated, before any edit. The canonical tiles amplify
+   * THIS and re-run the edit list at their own resolution; handing them the
+   * edited field instead would apply every stroke twice. Read-only by
+   * convention — it is the same buffer replay() restores from.
+   */
+  get pristineElevation(): Float32Array {
+    return this.pristine.elevation;
+  }
+
   // Explicit field, not a constructor parameter property: the project builds
   // with `erasableSyntaxOnly`.
   constructor(world: WorldData, edits: WorldEdit[] = []) {

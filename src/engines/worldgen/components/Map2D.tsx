@@ -10,10 +10,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { LandmarkType, WorldData, ViewMode } from '../core/types';
-import { BIOME_COLORS, renderBase, renderRivers } from '../core/render';
+import { BIOME_COLORS, renderAtlasWindow, renderBase, renderRivers, updateAtlasCells } from '../core/render';
+import { SculptGesture } from '../sculpt/ops';
 import { PROJECTIONS, reprojectRgba, type Projection } from '../core/projections';
-import { commitPaintStroke, isWaypointTool, negativeOf, pickGeneratedAt } from '../core/paintCommit';
+import { commitPaintStroke, isWaypointTool, negativeOf, pickGeneratedAt, restriction } from '../core/paintCommit';
 import type { Pt, Stroke, WorldEdit } from '../core/edits';
+import { filterFor } from '../core/edits';
+import { strokeMask } from '../sculpt/ops';
+import { Biome } from '../core/types';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import type { WorldViewport, WorldWaypoint } from '../types';
 import { tipOf, tipOutline } from '../sculpt/ops';
@@ -25,6 +29,7 @@ import {
 import { declutterLabels, semanticZoomProfile } from '../core/semanticZoom';
 import type { RegionData } from '../region/types';
 import { regionVisibleRect } from '../region/coordinates';
+import { EARTH_KM, MIN_SPAN_KM, clampViewport, flightAt, FLIGHT_MS, type FlyTarget } from '../core/camera';
 
 export const BIOME_KEYS = [
   'ocean', 'lake', 'iceCap', 'tundra', 'boreal', 'tempForest', 'tempRain',
@@ -63,10 +68,13 @@ interface Map2DProps {
   tool?: PaintTool;
   onEdit?: (edit: WorldEdit) => void;
   onPickSettlement?: (s: Settlement) => void;
-  onOpenRegion?: (x: number, y: number) => void;
+  /** Double-click: descend a league toward that ground (the parent flies). */
+  onZoomTo?: (x: number, y: number) => void;
   /** Shared camera state, used when switching between 2D, 3D, and regions. */
   viewport?: WorldViewport;
   onViewportChange?: (viewport: WorldViewport) => void;
+  /** One-shot animated flight request (double-click, "volar aquí"). */
+  flyTarget?: FlyTarget | null;
   /** Bumped when an edit changed the world under us, so the raster is rebuilt. */
   revision?: number;
 }
@@ -88,8 +96,8 @@ export default function Map2D({
   world, viewMode, projection, showRivers, showLandmarks, showWaypoints, showGrid,
   waypoints, selectedWaypointId, onPlaceWaypoint, onRemoveWaypoint, onSelectWaypoint,
   selectedSpatialKey, regionalEntities = [], regionDetail, onSelectSpatialEntity,
-  geography, showSettlements, tool, onEdit, onPickSettlement, onOpenRegion,
-  viewport, onViewportChange, revision = 0,
+  geography, showSettlements, tool, onEdit, onPickSettlement, onZoomTo,
+  viewport, onViewportChange, flyTarget, revision = 0,
 }: Map2DProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -103,6 +111,23 @@ export default function Map2D({
 
   /** Cells the pointer has crossed this stroke, and where the ring is drawn. */
   const stroke = useRef<Pt[] | null>(null);
+  /**
+   * Live terrain/land sculpting on the satellite: the SAME SculptGesture the
+   * 3D view and the sculptor run — the world deforms under the brush, the
+   * dirty window re-renders per move, and on release the gesture ROLLS BACK
+   * and its edits replay through the session (rollback-then-commit, so the
+   * authoritative replay can never drift from the preview).
+   */
+  const liveSculpt = useRef<SculptGesture | null>(null);
+  /**
+   * Live BIOME painting on the satellite. No gesture class here: each move
+   * restores the touched cells and re-stamps the whole stroke — the stamp is
+   * the SAME mask/dither/guard `applyEdits` runs on replay (kept in lockstep
+   * below), so preview and commit agree cell for cell. The eraser stays on
+   * the polyline preview: taking paint off needs the pre-overlay biome, and
+   * only the session knows that.
+   */
+  const liveBiome = useRef<{ saved: Map<number, number> } | null>(null);
   /** Where the ring is drawn (screen) and what cell it is over (world), because
    *  a ragged rim is a function of the ground it sits on. */
   const brushAt = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
@@ -141,6 +166,129 @@ export default function Map2D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [world, revision],
   );
+  /** Palette source for the satellite WINDOW renderer (per-pixel shading needs
+   *  the colours unshaded). Only the atlas mode pays for it. */
+  const unshadedAtlas = useMemo(
+    () => (viewMode === 'atlas' && projection === 'equirect'
+      ? renderBase(world, 'atlas', { shade: false }) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [world, viewMode, projection, revision],
+  );
+  /**
+   * The settled satellite window: one canvas rendered at SCREEN resolution for
+   * the current view, per-pixel shaded, sub-cell coastline. During a gesture it
+   * blits shifted/scaled like every settled layer; 170 ms of stillness renders
+   * a fresh one. This is what replaces "magnify 1 px per cell by 28×".
+   */
+  const sharpSat = useRef<{
+    canvas: HTMLCanvasElement; vx: number; vy: number; vw: number; vh: number; key: string;
+  } | null>(null);
+  const sharpTimer = useRef(0);
+
+  /** Refresh the palette AND the sharp window over a freshly sculpted rect —
+   *  the whole cost of a live brush move, a few hundred cells' worth. */
+  const patchLive = useCallback((d: { x0: number; y0: number; x1: number; y1: number }) => {
+    if (!unshadedAtlas || d.x1 < d.x0 || d.y1 < d.y0) return;
+    updateAtlasCells(world, unshadedAtlas, d.x0 - 1, d.y0 - 1, d.x1 + 1, d.y1 + 1);
+    const sh = sharpSat.current;
+    if (sh && sh.key === `${world.params.seed}:${revision}`) {
+      const ppcX = sh.canvas.width / sh.vw, ppcY = sh.canvas.height / sh.vh;
+      // Half-open pixel rect covering the dirty cells plus a blending skirt.
+      const x0 = Math.max(sh.vx, d.x0 - 2), x1 = Math.min(sh.vx + sh.vw, d.x1 + 2);
+      const y0 = Math.max(sh.vy, d.y0 - 2), y1 = Math.min(sh.vy + sh.vh, d.y1 + 2);
+      if (x1 > x0 && y1 > y0) {
+        const px0 = Math.max(0, Math.floor((x0 - sh.vx) * ppcX));
+        const py0 = Math.max(0, Math.floor((y0 - sh.vy) * ppcY));
+        const px1 = Math.min(sh.canvas.width, Math.ceil((x1 - sh.vx) * ppcX));
+        const py1 = Math.min(sh.canvas.height, Math.ceil((y1 - sh.vy) * ppcY));
+        const OW = px1 - px0, OH = py1 - py0;
+        if (OW > 0 && OH > 0) {
+          const buf = new Uint8ClampedArray(OW * OH * 4);
+          // The subwindow sits on the SAME sample lattice as the full window
+          // (origin at an integer pixel offset), so the patch is seamless.
+          renderAtlasWindow(world, unshadedAtlas, buf, OW, OH, {
+            x: sh.vx + px0 / ppcX, y: sh.vy + py0 / ppcY, w: OW / ppcX, h: OH / ppcY,
+          });
+          const tctx = sh.canvas.getContext('2d');
+          if (tctx) {
+            const img = tctx.createImageData(OW, OH);
+            img.data.set(buf);
+            tctx.putImageData(img, px0, py0);
+          }
+        }
+      }
+    }
+    scheduleDraw();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [world, revision, unshadedAtlas]);
+
+  /** Restore-then-restamp the in-flight biome stroke. KEEP THE STAMP IN
+   *  LOCKSTEP with applyEdits' biome overlay (core/edits.ts §3): same dither
+   *  hash, same threshold, same sea guard — that agreement is the contract
+   *  that lets the release replay authoritatively. */
+  const applyLiveBiome = useCallback(() => {
+    const lb = liveBiome.current;
+    const pts = stroke.current;
+    const { tool: bt } = brushRef.current;
+    if (!lb || !pts || !bt || bt.mode !== 'biome') return;
+    const { elevation, biome } = world;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [i, v] of lb.saved) {
+      biome[i] = v;
+      const x = i % W, y = (i / W) | 0;
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+    const st: Stroke = {
+      pts, radius: bt.radius, strength: bt.strength, softness: bt.softness,
+      curve: bt.curve, tip: bt.tip, angle: bt.angle, jitter: bt.jitter,
+      aspect: bt.aspect, taper: bt.taper,
+    };
+    const mask = strokeMask(st, W, H);
+    if (mask) {
+      const only = restriction(bt.only);
+      const allow = only ? filterFor(only, elevation, W, H) : null;
+      mask.each((i, c) => {
+        if (allow && !allow(i)) return;
+        const hsh = Math.sin(i * 45.164 + 11.71) * 27183.13;
+        const jitter = (hsh - Math.floor(hsh)) * 0.45;
+        if (c * st.strength <= 0.35 + jitter * 0.4) return;
+        if (elevation[i] <= 0 && bt.biome !== Biome.Ocean && bt.biome !== Biome.Lake) return;
+        if (!lb.saved.has(i)) lb.saved.set(i, biome[i]);
+        biome[i] = bt.biome;
+        const x = i % W, y = (i / W) | 0;
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+      });
+    }
+    if (x1 >= x0) patchLive({ x0, y0, x1, y1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [world, patchLive]);
+
+  /** Live paths only arm when they can actually SHOW their work: a fresh
+   *  sharp window at satellite depth. Anywhere else the classic preview and
+   *  commit-on-release remain exactly as they were. */
+  const sharpReady = useCallback((): boolean => {
+    const sh = sharpSat.current;
+    const v = viewRef.current;
+    return !!sh && !!v && v.scale >= 2.5 && sh.key === `${world.params.seed}:${revision}`;
+  }, [world, revision]);
+
+  /** Roll a live biome stroke back to the pre-stroke ground. */
+  const rollbackLiveBiome = useCallback(() => {
+    const lb = liveBiome.current;
+    if (!lb) return;
+    liveBiome.current = null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [i, v] of lb.saved) {
+      world.biome[i] = v;
+      const x = i % W, y = (i / W) | 0;
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+    if (x1 >= x0) patchLive({ x0, y0, x1, y1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [world, patchLive]);
 
   const baseCanvas = useMemo(() => {
     if (projection === 'equirect') return makeCanvas(basePixels, W, H);
@@ -161,10 +309,10 @@ export default function Map2D({
 
   const PW = baseCanvas.width, PH = baseCanvas.height;
 
-  const reportViewport = useCallback(() => {
+  const computeViewport = useCallback((): WorldViewport | null => {
     const view = viewRef.current;
     const canvas = canvasRef.current;
-    if (!view || !canvas || !onViewportChange) return;
+    if (!view || !canvas) return null;
     const rect = canvas.getBoundingClientRect();
     const mapW = PW * view.scale;
     const mapH = PH * view.scale;
@@ -172,13 +320,19 @@ export default function Map2D({
     if (wraps) X = ((X % 1) + 1) % 1;
     const Y = (rect.height * 0.5 - view.oy) / mapH;
     const uv = spec.inverse(X, Math.min(1, Math.max(0, Y)));
-    if (!uv) return;
-    onViewportChange({
+    if (!uv) return null;
+    return {
       u: ((uv[0] % 1) + 1) % 1,
       v: Math.min(1, Math.max(0, uv[1])),
-      spanKm: Math.min(40075, Math.max(3, 40075 * rect.width / Math.max(1, mapW))),
-    });
-  }, [PH, PW, onViewportChange, spec, wraps]);
+      spanKm: Math.min(EARTH_KM, Math.max(MIN_SPAN_KM, EARTH_KM * rect.width / Math.max(1, mapW))),
+    };
+  }, [PH, PW, spec, wraps]);
+
+  const reportViewport = useCallback(() => {
+    if (!onViewportChange) return;
+    const vp = computeViewport();
+    if (vp) onViewportChange(vp);
+  }, [computeViewport, onViewportChange]);
 
   // ---- drawing --------------------------------------------------------------
   const draw = () => {
@@ -232,15 +386,73 @@ export default function Map2D({
       lastOx = cw;
     }
 
-    ctx.imageSmoothingEnabled = scale < 3;
+    // The satellite mode goes through the WINDOW renderer past this scale —
+    // under it, everything stays smoothed (crisp cell blocks remain the
+    // deliberate look of the analytic modes only).
+    const sharpEligible = viewMode === 'atlas' && projection === 'equirect'
+      && scale >= 2.5 && !!unshadedAtlas;
+    ctx.imageSmoothingEnabled = scale < 3 || sharpEligible;
     ctx.imageSmoothingQuality = 'high';
 
     for (let ox = firstOx; ox <= lastOx; ox += mapW) {
       ctx.drawImage(baseCanvas, ox, view.oy, mapW, mapH);
+      if (sharpEligible && sharpSat.current && sharpSat.current.key === `${world.params.seed}:${revision}`) {
+        const sh = sharpSat.current;
+        ctx.drawImage(sh.canvas, ox + sh.vx * scale, view.oy + sh.vy * scale, sh.vw * scale, sh.vh * scale);
+      }
       if (showRivers && viewMode !== 'plates' && viewMode !== 'flow') {
         ctx.drawImage(riverCanvas, ox, view.oy, mapW, mapH);
       }
       if (!wraps) break;
+    }
+
+    // Book a fresh window once the view rests. Booked from draw() so any
+    // gesture reschedules it; rendered synchronously after 170 ms of quiet,
+    // which is the same "still, then real" contract the other views keep.
+    if (sharpEligible) {
+      const want = {
+        x: -view.ox / scale, y: -view.oy / scale, w: cw / scale, h: ch / scale,
+      };
+      const cur = sharpSat.current;
+      const key = `${world.params.seed}:${revision}`;
+      const stale = !cur || cur.key !== key
+        || Math.abs(cur.vx - want.x) > 1e-6 || Math.abs(cur.vy - want.y) > 1e-6
+        || Math.abs(cur.vw - want.w) > 1e-6;
+      if (stale) {
+        window.clearTimeout(sharpTimer.current);
+        sharpTimer.current = window.setTimeout(() => {
+          const v2 = viewRef.current;
+          const c2 = canvasRef.current;
+          if (!v2 || !c2 || !unshadedAtlas) return;
+          const dpr2 = Math.min(window.devicePixelRatio || 1, 2);
+          const cw2 = c2.width / dpr2, ch2 = c2.height / dpr2;
+          // Screen-resolution budget: css pixels, capped so a huge monitor
+          // still settles in ~one carto-quick-pass worth of time.
+          const budget = 900_000;
+          const pxCount = cw2 * ch2;
+          const f = pxCount > budget ? Math.sqrt(budget / pxCount) : 1;
+          const OW = Math.max(64, Math.round(cw2 * f));
+          const OH = Math.max(64, Math.round(ch2 * f));
+          const rect = {
+            x: -v2.ox / v2.scale, y: -v2.oy / v2.scale,
+            w: cw2 / v2.scale, h: ch2 / v2.scale,
+          };
+          const buf = new Uint8ClampedArray(OW * OH * 4);
+          renderAtlasWindow(world, unshadedAtlas, buf, OW, OH, rect);
+          let target = sharpSat.current?.canvas;
+          if (!target) target = document.createElement('canvas');
+          if (target.width !== OW || target.height !== OH) {
+            target.width = OW; target.height = OH;
+          }
+          const tctx = target.getContext('2d');
+          if (!tctx) return;
+          const img = tctx.createImageData(OW, OH);
+          img.data.set(buf);
+          tctx.putImageData(img, 0, 0);
+          sharpSat.current = { canvas: target, ...{ vx: rect.x, vy: rect.y, vw: rect.w, vh: rect.h }, key };
+          scheduleDraw();
+        }, 170);
+      }
     }
 
     // Screen position for a map point in a given copy.
@@ -458,6 +670,63 @@ export default function Map2D({
       ctx.fillText(item.text, candidate.x, candidate.y);
     }
 
+    // The stroke IN FLIGHT, before the ring. Nothing painted until release was
+    // the single most-hated thing about these brushes: the committed result
+    // costs half a second of derivation, but showing WHERE the paint will land
+    // costs one translucent polyline. Round caps and joins make a stroked path
+    // exactly the coverage of a round head; other heads read close enough for
+    // a preview, and the cursor outline already tells the truth about the rim.
+    {
+      const pts0 = stroke.current;
+      const bt0 = brushRef.current.tool;
+      const anchor = brushAt.current;
+      // When the ground itself is deforming live (satellite sculpt), the tint
+      // trail would just smear over real terrain — the cursor ring suffices.
+      if (pts0 && pts0.length > 0 && bt0 && anchor && !liveSculpt.current) {
+        const pxPerCell = (PW * scale) / W;
+        const tint = bt0.mode === 'biome'
+          ? `rgba(${(BIOME_COLORS[bt0.biome] ?? [120, 160, 90]).join(',')},0.5)`
+          : bt0.mode === 'river'
+            ? 'rgba(64,124,196,0.55)'
+            : bt0.mode === 'land'
+              ? (bt0.landOp === 'sea' ? 'rgba(38,74,128,0.45)' : 'rgba(196,176,128,0.5)')
+              : bt0.mode === 'terrain'
+                ? (bt0.terrainOp === 'lower' ? 'rgba(30,34,44,0.4)' : 'rgba(255,255,255,0.35)')
+                : null;
+        if (tint) {
+          // Screen position through the RING'S anchor, so the preview stays on
+          // the copy of the world the pointer is actually over when the map
+          // wraps — the same trick the cursor outline uses.
+          const px = (p: Pt) => {
+            let dx = p.x - anchor.cx;
+            while (dx > W / 2) dx -= W;
+            while (dx < -W / 2) dx += W;
+            return anchor.x + dx * pxPerCell;
+          };
+          const py = (p: Pt) => anchor.y + (p.y - anchor.cy) * pxPerCell;
+          const wCells = bt0.mode === 'river' ? Math.max(0.8, bt0.riverWidth) : bt0.radius * 2;
+          ctx.save();
+          ctx.beginPath();
+          for (let k = 0; k < pts0.length; k++) {
+            if (k === 0) ctx.moveTo(px(pts0[k]), py(pts0[k])); else ctx.lineTo(px(pts0[k]), py(pts0[k]));
+          }
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = Math.max(2, wCells * pxPerCell);
+          ctx.strokeStyle = tint;
+          ctx.stroke();
+          if (pts0.length === 1) {
+            // A press with no movement yet: a dot, not an invisible zero-length line.
+            ctx.beginPath();
+            ctx.fillStyle = tint;
+            ctx.arc(px(pts0[0]), py(pts0[0]), Math.max(1.5, (wCells / 2) * pxPerCell), 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+      }
+    }
+
     // The brush ring, last, over everything. Two circles: where the stroke
     // stops, and where it stops being at full strength — softness is otherwise a
     // number you set and then discover the effect of.
@@ -525,7 +794,7 @@ export default function Map2D({
         const fitScale = Math.min(rect.width / PW, rect.height / PH) * 0.98;
         const initialViewport = viewportRef.current;
         const requestedScale = initialViewport
-          ? (40075 / Math.max(3, initialViewport.spanKm)) * (rect.width / PW)
+          ? (EARTH_KM / Math.max(MIN_SPAN_KM, initialViewport.spanKm)) * (rect.width / PW)
           : fitScale;
         const scale = Math.max(fitScale * 0.5, Math.min(28, requestedScale));
         const [focusX, focusY] = spec.forward(initialViewport?.u ?? 0.5, initialViewport?.v ?? 0.5);
@@ -545,6 +814,7 @@ export default function Map2D({
     return () => {
       ro.disconnect();
       cancelAnimationFrame(rafRef.current);
+      window.clearTimeout(sharpTimer.current);
     };
   }, [PW, PH, projection, scheduleDraw, spec, wraps]);
 
@@ -554,12 +824,60 @@ export default function Map2D({
     scheduleDraw();
   });
 
+  // ---- flights ----------------------------------------------------------------
+  // A one-shot animated approach (double-click, "volar aquí"): the same
+  // interpolation every view uses, applied to this view's private camera.
+  const flightRaf = useRef(0);
+  const cancelFlight = useCallback(() => {
+    if (flightRaf.current) { cancelAnimationFrame(flightRaf.current); flightRaf.current = 0; }
+  }, []);
+
+  const applyViewport = useCallback((vp: WorldViewport) => {
+    const view = viewRef.current;
+    const canvas = canvasRef.current;
+    if (!view || !canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const fitScale = Math.min(rect.width / PW, rect.height / PH) * 0.98;
+    const scale = Math.max(fitScale * 0.5, Math.min(28,
+      (EARTH_KM / Math.max(MIN_SPAN_KM, vp.spanKm)) * (rect.width / PW)));
+    const [fx, fy] = spec.forward(vp.u, vp.v);
+    view.scale = scale;
+    view.ox = rect.width * 0.5 - fx * PW * scale;
+    view.oy = rect.height * 0.5 - fy * PH * scale;
+    clampView(view, rect.width, rect.height, PW, PH, wraps);
+    scheduleDraw();
+  }, [PW, PH, spec, wraps, scheduleDraw]);
+
+  useEffect(() => {
+    if (!flyTarget) return;
+    const from = computeViewport();
+    if (!from) return;
+    cancelFlight();
+    const to = clampViewport({ u: flyTarget.u, v: flyTarget.v, spanKm: flyTarget.spanKm ?? from.spanKm });
+    const t0 = performance.now();
+    const step = () => {
+      const t = Math.min(1, (performance.now() - t0) / FLIGHT_MS);
+      applyViewport(flightAt(from, to, t));
+      if (t < 1) {
+        flightRaf.current = requestAnimationFrame(step);
+      } else {
+        flightRaf.current = 0;
+        reportViewport();
+      }
+    };
+    flightRaf.current = requestAnimationFrame(step);
+    return cancelFlight;
+    // The token IS the request; everything else is read fresh when it fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flyTarget?.token]);
+
   // Wheel zoom — non-passive listener so preventDefault works.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      cancelFlight();
       const view = viewRef.current;
       if (!view) return;
       const rect = canvas.getBoundingClientRect();
@@ -577,7 +895,7 @@ export default function Map2D({
     };
     canvas.addEventListener('wheel', onWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', onWheel);
-  }, [PW, PH, wraps, scheduleDraw, reportViewport]);
+  }, [PW, PH, wraps, scheduleDraw, reportViewport, cancelFlight]);
 
   // ---- helpers -------------------------------------------------------------------
   const screenToMap = (sx: number, sy: number): { u: number; v: number } | null => {
@@ -682,6 +1000,7 @@ export default function Map2D({
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const view = viewRef.current;
     if (!view) return;
+    cancelFlight();
     (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
     negRef.current = e.ctrlKey || e.metaKey;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -690,8 +1009,29 @@ export default function Map2D({
     if (brushing && e.button === 0 && !spaceRef.current && !e.shiftKey) {
       const m = screenToMap(sx, sy);
       if (!m) return;
-      stroke.current = [{ x: m.u * W, y: m.v * H }];
-      brushAt.current = { x: sx, y: sy, cx: m.u * W, cy: m.v * H };
+      const p0 = { x: m.u * W, y: m.v * H };
+      stroke.current = [p0];
+      brushAt.current = { x: sx, y: sy, cx: p0.x, cy: p0.y };
+      const { tool: bt } = brushRef.current;
+      if (bt && bt.mode === 'biome' && !negRef.current
+        && viewMode === 'atlas' && projection === 'equirect' && unshadedAtlas && sharpReady()) {
+        liveBiome.current = { saved: new Map() };
+        applyLiveBiome();
+      }
+      if (bt && (bt.mode === 'terrain' || bt.mode === 'land')
+        && viewMode === 'atlas' && projection === 'equirect' && unshadedAtlas && sharpReady()) {
+        // Sculpt LIVE: the ground moves under the brush. Negative resolves at
+        // the START here — the gesture must deform in the direction the
+        // release will commit.
+        const spec = negRef.current ? negativeOf(bt) : bt;
+        const g = new SculptGesture(world.elevation, W, H, world.params.seed, {
+          kind: spec.mode as 'terrain' | 'land',
+          op: spec.mode === 'land' ? spec.landOp : spec.terrainOp,
+          radius: spec.radius, strength: spec.strength, softness: spec.softness,
+        });
+        liveSculpt.current = g;
+        patchLive(g.extend(p0));
+      }
       scheduleDraw();
       return;
     }
@@ -718,7 +1058,12 @@ export default function Map2D({
           const last = pts[pts.length - 1];
           // One point per half-cell keeps the serialized edit small enough to
           // store a hundred strokes.
-          if (Math.hypot(p.x - last.x, p.y - last.y) > 0.5) pts.push(p);
+          if (Math.hypot(p.x - last.x, p.y - last.y) > 0.5) {
+            pts.push(p);
+            const g = liveSculpt.current;
+            if (g) patchLive(g.extend(p));
+            else if (liveBiome.current) applyLiveBiome();
+          }
         }
       }
       setHover(null);
@@ -798,6 +1143,24 @@ export default function Map2D({
         scheduleDraw();
         return;
       }
+      // A live biome stroke rolls back FIRST; the ordinary commit below then
+      // replays it through the session — the stamp above guarantees the replay
+      // lands on the same cells the reader just watched fill in.
+      rollbackLiveBiome();
+      const g = liveSculpt.current;
+      if (g && commit) {
+        // Roll the live deformation back and hand the stroke to the session,
+        // exactly like the sculptor and the 3D brush: preview and replay agree
+        // cell for cell, and rolling back anyway means the authoritative one
+        // wins if they ever stop agreeing.
+        liveSculpt.current = null;
+        const total = g.dirty;
+        g.rollback();
+        patchLive(total);
+        for (const ed of g.edits()) commit(ed as WorldEdit);
+        scheduleDraw();
+        return;
+      }
       if (bt && commit) {
         const view = viewRef.current;
         const cellsPerPx = view ? W / Math.max(1, PW * view.scale) : 1;
@@ -841,10 +1204,10 @@ export default function Map2D({
   };
 
   const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (brushing || !onOpenRegion) return;
+    if (brushing || !onZoomTo) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const m = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
-    if (m) onOpenRegion(m.u * W, m.v * H);
+    if (m) onZoomTo(m.u * W, m.v * H);
   };
 
   return (
@@ -856,7 +1219,17 @@ export default function Map2D({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerCancel={() => { stroke.current = null; brushAt.current = null; scheduleDraw(); }}
+        onPointerCancel={() => {
+          rollbackLiveBiome();
+          const g = liveSculpt.current;
+          if (g) {
+            liveSculpt.current = null;
+            const total = g.dirty;
+            g.rollback();
+            patchLive(total);
+          }
+          stroke.current = null; brushAt.current = null; scheduleDraw();
+        }}
         onPointerLeave={() => {
           setHover(null);
           if (brushAt.current) { brushAt.current = null; scheduleDraw(); }

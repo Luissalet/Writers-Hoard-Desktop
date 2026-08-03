@@ -136,7 +136,7 @@ function head(p: PaintSpec): Partial<Stroke> {
 }
 
 /** The filter, or nothing at all if it does not actually rule anything out. */
-function restriction(f: PaintFilter | undefined): PaintFilter | undefined {
+export function restriction(f: PaintFilter | undefined): PaintFilter | undefined {
   if (!f) return undefined;
   const only: PaintFilter = {};
   if (f.where) only.where = f.where;
