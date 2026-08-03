@@ -1,70 +1,31 @@
-import { clearRegionCache, generateRegion } from './region/generate';
-import { regionTransferables, type RegionWorkerReply, type RegionWorkerRequest } from './region/workerProtocol';
-import { buildLanguageFamily } from './core/language';
-import type { HumanGeography } from './core/settlements';
-import type { WorldData } from './core/types';
+// ============================================
+// Regional worker — WEB entry
+// ============================================
+// The browser home of the regional core: a Web Worker inside the renderer
+// process. Kept as the universal fallback (plain browsers, harnesses, and
+// any desktop where the Forge is unavailable). All logic lives in
+// region/workerCore.ts; this file only supplies the host: postMessage and
+// OffscreenCanvas.
 
-const cancelled = new Set<string>();
-let context: { id: string; world: WorldData; geography: HumanGeography } | null = null;
+import { createRegionWorkerCore, type RegionWorkerHost } from './region/workerCore';
+import type { RegionWorkerReply, RegionWorkerRequest } from './region/workerProtocol';
 
 const ctx = self as unknown as {
   postMessage(message: RegionWorkerReply, transfer?: Transferable[]): void;
   onmessage: ((event: MessageEvent<RegionWorkerRequest>) => void) | null;
 };
 
-ctx.onmessage = (event) => {
-  const message = event.data;
-  if (message.type === 'configure') {
-    const { languageCount, ...geography } = message.geography;
-    context = {
-      id: message.contextId,
-      world: message.world,
-      geography: {
-        ...geography,
-        languages: buildLanguageFamily(message.world.params.seed, languageCount),
-      },
-    };
-    ctx.postMessage({ type: 'configured', contextId: message.contextId });
-    return;
-  }
-  if (message.type === 'cancel') {
-    cancelled.add(message.requestId);
-    ctx.postMessage({ type: 'cancelled', requestId: message.requestId });
-    return;
-  }
-
-  const { requestId } = message;
-  if (!context || context.id !== message.contextId) {
-    ctx.postMessage({ type: 'error', requestId, message: 'Regional worker context is not configured.' });
-    return;
-  }
-  if (cancelled.delete(requestId)) {
-    ctx.postMessage({ type: 'cancelled', requestId });
-    return;
-  }
-
-  try {
-    const region = generateRegion(context.world, context.geography, message.window, {
-      params: message.params,
-      onProgress: (stage, overall) => {
-        if (!cancelled.has(requestId)) {
-          ctx.postMessage({ type: 'progress', requestId, stage, overall });
-        }
-      },
-    });
-    if (cancelled.delete(requestId)) {
-      ctx.postMessage({ type: 'cancelled', requestId });
-      return;
-    }
-    // The renderer owns the bounded cache. Clear the worker's reference before
-    // transferring buffers so a detached cached result can never be reused.
-    clearRegionCache(context.world);
-    ctx.postMessage({ type: 'done', requestId, region }, regionTransferables(region));
-  } catch (error) {
-    ctx.postMessage({
-      type: 'error',
-      requestId,
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
+const host: RegionWorkerHost = {
+  post: (message, transfer) => ctx.postMessage(message, transfer),
+  renderTile: (px, draw) => {
+    const surface = new OffscreenCanvas(px, px);
+    const c2d = surface.getContext('2d');
+    if (!c2d) throw new Error('OffscreenCanvas 2D context unavailable.');
+    draw(c2d as unknown as CanvasRenderingContext2D);
+    const bitmap = surface.transferToImageBitmap();
+    return { bitmap, transfer: [bitmap] };
+  },
 };
+
+const handle = createRegionWorkerCore(host);
+ctx.onmessage = (event) => handle(event.data);

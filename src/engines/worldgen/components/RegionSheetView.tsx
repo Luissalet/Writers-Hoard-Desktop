@@ -5,6 +5,7 @@ import {
   EyeOff,
   Loader2,
   Minus,
+  Plane,
   Plus,
   RotateCcw,
   Sliders,
@@ -51,6 +52,8 @@ interface RegionSheetViewProps {
   onEditEntity?: (edit: WorldEdit) => void;
   onSaveRegion?: (region: SavedWorldRegion) => void;
   onClose: () => void;
+  /** Close the sheet and fly the shared camera to this window (world cells + span). */
+  onFlyHere?: (x: number, y: number, spanKm: number) => void;
   onPickSettlement?: (settlement: Settlement) => void;
 }
 
@@ -98,6 +101,7 @@ export default function RegionSheetView({
   onEditEntity,
   onSaveRegion,
   onClose,
+  onFlyHere,
   onPickSettlement,
 }: RegionSheetViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -372,6 +376,16 @@ export default function RegionSheetView({
             <Plus size={13} />
           </button>
         </div>
+        {onFlyHere && (
+          <button
+            type="button"
+            onClick={() => onFlyHere(centre.x, centre.y, SPANS[spanIdx])}
+            className="rounded bg-white/8 p-1.5 hover:bg-white/15"
+            title="Volar aquí en el mapa"
+          >
+            <Plane size={14} />
+          </button>
+        )}
         <button
           type="button"
           onClick={save}

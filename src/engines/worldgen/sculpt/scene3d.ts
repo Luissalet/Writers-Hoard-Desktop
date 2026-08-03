@@ -151,9 +151,9 @@ float detailHeightAt(vec2 localUV) {
   return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
 }
 
-float heightAt(vec2 uv) {
+float heightAtDisp(vec2 uv, float disp) {
   float base = baseHeightAt(uv);
-  if (uDetailOn < 0.5) return base;
+  if (uDetailOn < 0.5 || disp <= 0.001) return base;
   float wrappedX = uv.x - uDetailOrigin.x;
   wrappedX -= round(wrappedX);
   vec2 localUV = vec2(
@@ -166,7 +166,11 @@ float heightAt(vec2 uv) {
   // Blend across a small gutter so a newly arrived patch cannot make a seam.
   vec2 edgeCells = min(localUV * uDetailGrid, (1.0 - localUV) * uDetailGrid);
   float blend = smoothstep(0.0, 3.0, min(edgeCells.x, edgeCells.y));
-  return mix(base, detailHeightAt(localUV), blend);
+  return mix(base, detailHeightAt(localUV), blend * disp);
+}
+
+float heightAt(vec2 uv) {
+  return heightAtDisp(uv, 1.0);
 }
 
 /** Where a world uv sits in the scene, on whichever shape is showing. */
@@ -193,6 +197,7 @@ uniform vec2  uDetailGrid;
 uniform vec2  uDetailOrigin;
 uniform vec2  uDetailSize;
 uniform float uDetailOn;
+uniform float uDetailDisp;
 uniform float uYMul;         // km → scene units
 uniform float uShape;        // 0 = plane, 1 = globe
 uniform float uRadius;
@@ -211,7 +216,11 @@ ${HEIGHT_FN}
 void main() {
   vec2 w = uUVMin + uv * uUVSize;
   vUV = w;
-  float e = heightAt(w);
+  // Displacement is BAND-LIMITED to what this mesh can carry (uDetailDisp is
+  // computed CPU-side from canon cells per vertex). Point-sampling a ~150 m
+  // field with vertices 30 cells apart aliased into a spike field; the
+  // fragment's canon-resolution normals draw the ridges the mesh cannot.
+  float e = heightAtDisp(w, uDetailDisp);
   vElev = e;
   vec3 p = placeAt(w, e);
   vWorld = p;
@@ -233,6 +242,10 @@ uniform vec2  uDetailGrid;
 uniform vec2  uDetailOrigin;
 uniform vec2  uDetailSize;
 uniform float uDetailOn;
+/** The canonical patch's own colours, for the close range. The world raster
+ *  magnified a hundredfold is a blur; this is drawn from the patch's cover. */
+uniform sampler2D uDetailAlbedo;
+uniform float uDetailAlbedoOn;
 uniform float uYMul;
 uniform float uShape;
 uniform float uRadius;
@@ -400,6 +413,34 @@ void main() {
   bool underwater = e <= uSea;
   vec2 texel = 1.0 / uGrid;
 
+  // THE LIGHTING RESOLUTION FOLLOWS THE DATA. These central differences used
+  // to step ±1 WORLD cell always — ±20 km — even inside the canonical detail
+  // patch, so every ridge the patch carried was displaced into the silhouette
+  // and then lit as if it were not there. That gap is exactly what the old
+  // screen-space noise was papered over. Inside the patch (past its blend
+  // gutter, and only at ranges where a ~150 m step is resolvable) the taps
+  // narrow to the patch's own cell.
+  float inD = 0.0;
+  vec2 dlp = vec2(0.0);
+  vec3 dpx = dFdx(vWorld), dpy = dFdy(vWorld);
+  if (uDetailOn > 0.5) {
+    float wx0 = vUV.x - uDetailOrigin.x;
+    wx0 -= round(wx0);
+    dlp = vec2(wx0 / max(1e-7, uDetailSize.x),
+               (vUV.y - uDetailOrigin.y) / max(1e-7, uDetailSize.y));
+    if (dlp.x > 0.0 && dlp.x < 1.0 && dlp.y > 0.0 && dlp.y < 1.0) {
+      vec2 ec = min(dlp * uDetailGrid, (1.0 - dlp) * uDetailGrid);
+      // Gated PER PIXEL, not per frame: an oblique close view spans half a
+      // continent in its frustum, but the ground under this pixel is what
+      // decides whether a 150 m lighting step is resolvable here.
+      float pxUnits = max(1e-7, (length(dpx) + length(dpy)) * 0.5);
+      float canonUnits = (uDetailSize.x / uDetailGrid.x) * uSizeX;
+      float resolvable = 1.0 - smoothstep(2.0 * canonUnits, 8.0 * canonUnits, pxUnits);
+      inD = smoothstep(3.0, 6.0, min(ec.x, ec.y)) * resolvable;
+    }
+    texel = mix(texel, uDetailSize / uDetailGrid, inD);
+  }
+
   // ---- form first ---------------------------------------------------------
   // The normal comes from the HEIGHT FIELD, not from a vertex attribute.
   //
@@ -434,7 +475,7 @@ void main() {
   // negative on a ridge. It is the single cheapest thing that makes a sculpt
   // read as a solid object rather than as a shaded picture of one — every
   // sculpting program has it and it is why their clay looks like clay.
-  float lap = (hxp + hxm + hyp + hym) * 0.25 - e;
+  float lap = (hxp + hxm + hyp + hym) * 0.25 - heightAt(vUV);
   float cav = clamp(lap * uYMul / max(1e-5, uSizeX * texel.x) * 6.0, -1.0, 1.0);
 
   // ---- invented relief, only once you are close ---------------------------
@@ -447,13 +488,15 @@ void main() {
   // finite-difference gradient would cost, and correct on the globe as well as
   // on the plane because it never mentions uv at all.
   float micro = 0.0;
+  float microGate = 1.0;
   // The fade range is measured, not guessed. At a uv window of 0.34 the grid is
   // already down to about one world cell per triangle — a close view by any
   // reasonable definition — and the first version faded the detail fully OUT by
   // then, so the thing existed and was never once visible. It ramps in from half
   // the world in view and is at full strength by a tenth of it.
-  float dAmt = uDetail * (1.0 - smoothstep(0.06, 0.70, uUVSize.x));
-  vec3 dpx = dFdx(vWorld), dpy = dFdy(vWorld);
+  // In from a regional window (~2400 km), full below ~320 km — the old ramp
+  // held it at full strength across half the planet, which read as film grain.
+  float dAmt = uDetail * (1.0 - smoothstep(0.008, 0.06, uUVSize.x));
   if (dAmt > 0.004) {
     // THE FREQUENCY FOLLOWS THE PIXEL, not the world.
     //
@@ -479,6 +522,21 @@ void main() {
     // fall as the frequency rises or the ground turns to gravel the moment you
     // lean in. Water gets a fraction of it: a swell, not a scree slope.
     float amp = (underwater ? 0.16 : 1.0) * dAmt * 0.34 / max(1e-4, f);
+    // THE GROUND DECIDES. Un-gated noise was the whole complaint: a salt flat,
+    // a floodplain and a cordillera all got the same crinkle. The amplitude now
+    // follows the same law the regional amplifier uses — local slope plus a
+    // share of height above the sea — so plains stay plains. And where the
+    // canonical patch is bound, invention is allowed only BELOW the data's own
+    // resolution: wavelengths the patch already carries are its to draw.
+    float slopeS = uYMul * length(vec2(hx / (uSizeX * texel.x * 2.0),
+                                       hy / (uSizeZ * texel.y * 2.0)));
+    float relief = clamp(slopeS * 1.2 + max(0.0, e) * 0.35, 0.0, 1.6) / 1.6;
+    microGate = 0.12 + 0.88 * relief;
+    if (inD > 0.5) {
+      float canonUnits = (uDetailSize.x / uDetailGrid.x) * uSizeX;
+      microGate *= 1.0 - smoothstep(0.5 * canonUnits, 1.5 * canonUnits, 1.0 / f);
+    }
+    amp *= microGate;
     vec3 r1 = cross(dpy, n), r2 = cross(n, dpx);
     float det = dot(dpx, r1);
     if (abs(det) > 1e-9) {
@@ -508,6 +566,11 @@ void main() {
     int b = int(texture(uBiome, vec2(fract(vUV.x), clamp(vUV.y, 0.0005, 0.9995))).r * 255.0 + 0.5);
     col = uPalette[clamp(b, 0, 47)];
   }
+  // Close range: the canonical patch's own colours take over from whichever
+  // skin is showing (except clay — clay is deliberately colourless).
+  if (uDetailAlbedoOn > 0.5 && inD > 0.0 && uClay < 0.5) {
+    col = mix(col, texture(uDetailAlbedo, dlp).rgb, inD);
+  }
 
   // ---- light --------------------------------------------------------------
   vec3 L = mix(normalize(uSun), normalize(uCam - vWorld), uHeadlight);
@@ -522,7 +585,7 @@ void main() {
 
   // The colour break-up that goes with the invented relief. Without it a slope
   // reads as one flat wash lit two ways, which is a plastic model of a hill.
-  col *= 1.0 + micro * 0.55 * dAmt;
+  col *= 1.0 + micro * 0.55 * dAmt * microGate;
 
   // A drawn map is a picture with its own light already in it, and a satellite
   // raster is close to albedo. So the skins take a flatter, mostly ambient lamp
@@ -620,6 +683,9 @@ export class SculptSurface {
   private biomeTex: THREE.DataTexture;
   private detailHeightTex: THREE.DataTexture;
   private detailPatch: TerrainDetailPatch | null = null;
+  private detailAlbedoTex: THREE.CanvasTexture | null = null;
+  /** How much of the detail patch the MESH may carry (0–1); see updateDetailDisp. */
+  private detailDisp = 1;
   /** A 1×1 stand-in so the albedo sampler is always bound to something. */
   private blankTex: THREE.DataTexture;
   private albedoTex: THREE.Texture | null = null;
@@ -681,6 +747,9 @@ export class SculptSurface {
         uDetailOrigin: { value: new THREE.Vector2(0, 0) },
         uDetailSize: { value: new THREE.Vector2(1, 1) },
         uDetailOn: { value: 0 },
+        uDetailDisp: { value: 1 },
+        uDetailAlbedo: { value: this.blankTex },
+        uDetailAlbedoOn: { value: 0 },
         uYMul: { value: elevKmToY(30, this.W) },
         uShape: { value: 0 },
         uRadius: { value: R_GLOBE },
@@ -810,6 +879,7 @@ export class SculptSurface {
     this.window = { u: w.u, v, size };
     (this.material.uniforms.uUVMin.value as THREE.Vector2).set(w.u - size / 2, v - size / 2);
     (this.material.uniforms.uUVSize.value as THREE.Vector2).set(size, size);
+    this.updateDetailDisp();
   }
 
   /** Swap the grid for a denser or coarser one. Textures are untouched. */
@@ -820,6 +890,7 @@ export class SculptSurface {
     this.mesh.geometry = buildGrid(next);
     this.meshResolution = next;
     old.dispose();
+    this.updateDetailDisp();
   }
 
   get uvWindow(): UVWindow { return this.window; }
@@ -843,6 +914,56 @@ export class SculptSurface {
    * Replacing the patch is a texture upload; geometry remains pooled and the
    * shader blends across the patch gutter to avoid visible tile seams.
    */
+  /**
+   * The close-range skin: a canvas of the canonical patch's cover and water,
+   * draped only inside the patch (and only when it is bound). Null restores
+   * the plain skins.
+   */
+  setDetailAlbedo(source: HTMLCanvasElement | null): void {
+    this.detailAlbedoTex?.dispose();
+    this.detailAlbedoTex = null;
+    if (!source) {
+      this.material.uniforms.uDetailAlbedo.value = this.blankTex;
+      this.material.uniforms.uDetailAlbedoOn.value = 0;
+      return;
+    }
+    const tex = new THREE.CanvasTexture(source);
+    tex.flipY = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.needsUpdate = true;
+    this.detailAlbedoTex = tex;
+    this.material.uniforms.uDetailAlbedo.value = tex;
+    this.material.uniforms.uDetailAlbedoOn.value = 1;
+  }
+
+  /**
+   * Band-limit the patch DISPLACEMENT to the mesh's sampling rate.
+   *
+   * A 384-vertex window across thousands of canon cells point-samples the
+   * ~150 m field once every dozens of cells, and pointwise sampling of a field
+   * with real relief at that scale is a spike storm, not terrain. Fade the
+   * geometric displacement out as cells-per-vertex grows; the fragment shader
+   * keeps lighting the full-resolution field wherever a pixel can resolve it,
+   * so the ridges stay VISIBLE — they just stop pretending to be geometry the
+   * mesh cannot express.
+   */
+  private updateDetailDisp(): void {
+    const p = this.detailPatch;
+    let disp = 1;
+    if (p) {
+      const canonUv = p.uSize / Math.max(1, p.width);
+      const perVertex = (this.window.size / Math.max(16, this.meshResolution)) / Math.max(1e-9, canonUv);
+      const t = Math.min(1, Math.max(0, (perVertex - 2) / 4));
+      disp = 1 - t * t * (3 - 2 * t);
+    }
+    this.detailDisp = disp;
+    this.material.uniforms.uDetailDisp.value = disp;
+  }
+
   setDetailPatch(patch: TerrainDetailPatch | null): void {
     this.detailHeightTex.dispose();
     this.detailPatch = patch;
@@ -853,6 +974,7 @@ export class SculptSurface {
       this.detailHeightTex.needsUpdate = true;
       this.material.uniforms.uDetailHeight.value = this.detailHeightTex;
       this.material.uniforms.uDetailOn.value = 0;
+      this.updateDetailDisp();
       return;
     }
     this.detailHeightTex = new THREE.DataTexture(
@@ -870,6 +992,7 @@ export class SculptSurface {
     (this.material.uniforms.uDetailOrigin.value as THREE.Vector2).set(patch.u, patch.v);
     (this.material.uniforms.uDetailSize.value as THREE.Vector2).set(patch.uSize, patch.vSize);
     this.material.uniforms.uDetailOn.value = 1;
+    this.updateDetailDisp();
   }
 
   /**
@@ -926,10 +1049,11 @@ export class SculptSurface {
     const edgeX = Math.min(localU * patch.width, (1 - localU) * patch.width);
     const edgeY = Math.min(localV * patch.height, (1 - localV) * patch.height);
     const blend = smoothstep(0, 3, Math.min(edgeX, edgeY));
-    return base + (detail - base) * blend;
+    return base + (detail - base) * blend * this.detailDisp;
   }
 
   dispose(): void {
+    this.detailAlbedoTex?.dispose();
     this.mesh.geometry.dispose();
     this.material.dispose();
     this.heightTex.dispose();

@@ -22,7 +22,7 @@ import {
   commitPaintStroke, isSculptMode, isWaypointTool, negativeOf, pickGeneratedAt,
 } from '../core/paintCommit';
 import type { HumanGeography, Settlement } from '../core/settlements';
-import { getCartoTexture } from '../cartography/texture';
+import { getCartoTexture, regionAlbedoCanvas } from '../cartography/texture';
 import type { CartoTheme } from '../cartography/theme';
 import type { WorldViewport, WorldWaypoint } from '../types';
 import { CURVES, TIPS, type PaintTool } from './PaintPanel';
@@ -32,6 +32,7 @@ import {
   type WorldSpatialEntity,
 } from '../core/spatialEntities';
 import { semanticZoomProfile } from '../core/semanticZoom';
+import { EARTH_KM, MIN_SPAN_KM, type FlyTarget } from '../core/camera';
 import type { RegionData } from '../region/types';
 
 /**
@@ -96,14 +97,15 @@ interface World3DProps {
   /** Several edits as ONE undo step — a symmetric stroke is four of them. */
   onEdits?: (edits: WorldEdit[]) => void;
   revision: number;
-  flyTarget: { u: number; v: number; token: number } | null;
+  flyTarget: FlyTarget | null;
   onPickSettlement?: (s: Settlement) => void;
   onPickWaypoint?: (id: string) => void;
   /** The Punto tool with Chincheta selected. Normalized, which is how a pin is
    *  stored, and deliberately NOT an edit — see `isWaypointTool`. */
   onPlaceWaypoint?: (u: number, v: number) => void;
   onRemoveWaypoint?: (id: string) => void;
-  onOpenRegion?: (x: number, y: number) => void;
+  /** Double-click: descend a league toward that ground (the parent flies). */
+  onZoomTo?: (x: number, y: number) => void;
 }
 
 /** Mesh density presets, in vertices across the visible square. */
@@ -172,7 +174,7 @@ export default function World3D({
   viewport, onViewportChange,
   skin, shape, onShape, exaggeration, tool, onTool, onEdit, onEdits, revision,
   flyTarget, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint,
-  onOpenRegion,
+  onZoomTo,
 }: World3DProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -270,7 +272,7 @@ export default function World3D({
     onPickWaypoint,
     onPlaceWaypoint,
     onRemoveWaypoint,
-    onOpenRegion,
+    onZoomTo,
   });
   propsRef.current = {
     geography,
@@ -286,7 +288,7 @@ export default function World3D({
     onPickWaypoint,
     onPlaceWaypoint,
     onRemoveWaypoint,
-    onOpenRegion,
+    onZoomTo,
   };
 
   /** Every brush takes the left button; only two of them move ground. */
@@ -737,7 +739,59 @@ export default function World3D({
         m.hit = { x0: lx - 3, y0: m.y - size, x1: lx + tw + 3, y1: m.y + size };
       }
     }
-  }, []);
+
+    // The stroke IN FLIGHT for the brushes that are not sculpts. The sculpt
+    // pair previews itself by actually moving the ground; biome and river had
+    // NOTHING between button-down and the committed result. One translucent
+    // polyline, projected the same way the marks were, closes that gap.
+    const st = R.current;
+    const tr = trail.current;
+    const bt = toolRef.current;
+    if (st && tr && tr.length > 0 && (bt.mode === 'biome' || bt.mode === 'river')) {
+      const pv = new THREE.Vector3();
+      const camDir = new THREE.Vector3();
+      const place2 = (cx: number, cy: number): { x: number; y: number } | null => {
+        scenePos(cx, cy, pv);
+        if (shapeRef.current === 'globe') {
+          camDir.copy(st.camera.position).sub(pv);
+          if (pv.dot(camDir) <= 0) return null;
+        }
+        pv.project(st.camera);
+        if (pv.z > 1) return null;
+        return { x: (pv.x * 0.5 + 0.5) * w, y: (-pv.y * 0.5 + 0.5) * h };
+      };
+      const a0 = place2(tr[0].x, tr[0].y);
+      const a1 = place2(tr[0].x + 1, tr[0].y);
+      const pxPerCell = a0 && a1 ? Math.max(0.5, Math.hypot(a1.x - a0.x, a1.y - a0.y)) : 4;
+      const tint = bt.mode === 'biome'
+        ? `rgba(${(BIOME_COLORS[bt.biome] ?? [120, 160, 90]).join(',')},0.5)`
+        : 'rgba(64,124,196,0.55)';
+      const wCells = bt.mode === 'river' ? Math.max(0.8, bt.riverWidth) : bt.radius * 2;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = tint;
+      ctx.fillStyle = tint;
+      ctx.lineWidth = Math.max(2, wCells * pxPerCell);
+      ctx.beginPath();
+      let started = false;
+      for (const q of tr) {
+        const s2 = place2(q.x, q.y);
+        if (!s2) { started = false; continue; }
+        if (!started) { ctx.moveTo(s2.x, s2.y); started = true; } else ctx.lineTo(s2.x, s2.y);
+      }
+      ctx.stroke();
+      if (tr.length === 1) {
+        const s2 = place2(tr[0].x, tr[0].y);
+        if (s2) {
+          ctx.beginPath();
+          ctx.arc(s2.x, s2.y, Math.max(1.5, (wCells / 2) * pxPerCell), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+  }, [scenePos]);
 
   const flushViewport = useCallback(() => {
     const st = R.current;
@@ -823,7 +877,7 @@ export default function World3D({
         queueViewport({
           u: ((nextWindow.u % 1) + 1) % 1,
           v: nextWindow.v,
-          spanKm: Math.max(3, nextWindow.size * 40075),
+          spanKm: Math.max(MIN_SPAN_KM, nextWindow.size * EARTH_KM),
         });
       }
     }
@@ -1094,6 +1148,7 @@ export default function World3D({
     if (!st) return;
     if (!regionDetail) {
       st.surface.setDetailPatch(null);
+      st.surface.setDetailAlbedo(null);
       stabilizeCamera();
       st.poseKey = '';
       request();
@@ -1108,6 +1163,7 @@ export default function World3D({
       uSize: (regionDetail.worldPerCellX * regionDetail.width) / world.width,
       vSize: (regionDetail.worldPerCellY * regionDetail.height) / world.height,
     });
+    st.surface.setDetailAlbedo(regionAlbedoCanvas(regionDetail));
     stabilizeCamera();
     st.poseKey = '';
     request();
@@ -1136,14 +1192,28 @@ export default function World3D({
     scenePos(flyTarget.u * world.width, flyTarget.v * world.height, target);
     st.fly.fromT.copy(st.controls.target);
     st.fly.fromC.copy(st.camera.position);
+    // When the request names a span, come close enough that the visible ground
+    // is roughly that wide — the shared-camera meaning of "zoom to". Without
+    // one, keep the historical framing distances.
+    const halfV = Math.tan((st.camera.fov * Math.PI) / 360);
+    const aspect = Math.max(0.5, st.camera.aspect || 1.7);
+    const distFor = (spanKm: number) => {
+      const ground = (Math.max(MIN_SPAN_KM, spanKm) / EARTH_KM) * SIZE_X;
+      return ground / (2 * halfV * aspect);
+    };
     if (shapeRef.current === 'globe') {
       // A globe turns about its own centre; framing means looking at the point
       // from outside it, not moving the centre off the origin.
       st.fly.toT.set(0, 0, 0);
-      st.fly.toC.copy(target).normalize().multiplyScalar(R_GLOBE * 2.0);
+      const r = flyTarget.spanKm
+        ? Math.min(R_GLOBE * 2.0, R_GLOBE * 1.02 + distFor(flyTarget.spanKm))
+        : R_GLOBE * 2.0;
+      st.fly.toC.copy(target).normalize().multiplyScalar(r);
     } else {
       st.fly.toT.copy(target);
-      const d = Math.max(6, sizeZ * 0.16);
+      const d = flyTarget.spanKm
+        ? Math.max(st.controls.minDistance * 1.1, Math.min(sizeZ * 0.16, distFor(flyTarget.spanKm) / 0.95))
+        : Math.max(6, sizeZ * 0.16);
       st.fly.toC.copy(target).add(new THREE.Vector3(0, d * 0.72, d * 0.62));
     }
     st.fly.t = 0;
@@ -1394,7 +1464,7 @@ export default function World3D({
 
   const onDoubleClick = useCallback((e: React.MouseEvent) => {
     if (brushingRef.current) return;
-    const open = propsRef.current.onOpenRegion;
+    const open = propsRef.current.onZoomTo;
     if (!open) return;
     const p = cellUnder(e.clientX, e.clientY);
     if (p) open(p.x, p.y);

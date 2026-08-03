@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WorldData } from '../core/types';
+import type { WorldViewport } from '../types';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import { renderCartoCanvas, pickSettlement } from '../cartography/texture';
 import type { CartoLayers, CartoView } from '../cartography/render';
@@ -7,6 +8,16 @@ import type { CartoTheme } from '../cartography/theme';
 import { CartoBaseGL } from '../cartography/glbase';
 import { computeFields, getTintFieldFor } from '../cartography/render';
 import { drawAnnotations, type CartoAnnotations } from '../cartography/annotations';
+import { drawOverlay } from '../cartography/overlay';
+import {
+  cartaViewToViewport, viewportToCartaCamera, clampViewport, sameViewport,
+  flightAt, FLIGHT_MS, type FlyTarget,
+} from '../core/camera';
+import { DisplayTileStore } from '../cartography/tileStore';
+import { levelFor, MAX_TILE_Z, MAX_WORLD_TILE_Z, TILE_PX } from '../cartography/tiles';
+import { DEEP_TILE_Z, type TilePlace } from '../region/deepTile';
+import { regionClient } from '../region/client';
+import { declutterLabels } from '../core/semanticZoom';
 
 /**
  * Pan/zoom viewer for the hand-drawn cartographic map.
@@ -32,14 +43,32 @@ interface CartoMapProps {
   world: WorldData;
   theme: CartoTheme;
   geography?: HumanGeography;
+  /**
+   * The PRISTINE world + serialized strokes, for the deep tile levels
+   * (z ≥ DEEP_TILE_Z): canon generation re-applies the strokes at 152 m
+   * resolution, so handing it the already-edited raster would apply them
+   * twice. Absent → the camera stops at the world raster's honest depth.
+   */
+  canonWorld?: WorldData;
+  canonEdits?: string;
   layers: Partial<CartoLayers>;
   density: number;
   reliefAmount: number;
   title?: string;
   subtitle?: string;
   onPickSettlement?: (s: Settlement) => void;
-  /** Double-click anywhere: open the regional sheet centred on that ground. */
-  onOpenRegion?: (x: number, y: number) => void;
+  /** Double-click anywhere: descend a league toward that ground. The parent
+   *  owns the flight — same gesture, same meaning, in every view. */
+  onZoomTo?: (x: number, y: number) => void;
+  /**
+   * The shared camera. When present the carta LOOKS WHERE THE OTHER VIEWS LOOK:
+   * it adopts the viewport on mount and whenever the parent moves it, and
+   * reports its own gestures back, so switching views never loses the place.
+   */
+  viewport?: WorldViewport;
+  onViewportChange?: (viewport: WorldViewport) => void;
+  /** One-shot animated flight request (double-click, "volar aquí"). */
+  flyTarget?: FlyTarget | null;
   /**
    * A plain click, in world coordinates, when the caller wants to inspect the
    * ground rather than open a town. Takes priority over `onPickSettlement`, so
@@ -74,7 +103,8 @@ interface CartoMapProps {
  */
 
 const MIN_ZOOM = 1;
-const MAX_ZOOM = 22;
+/** Zoom cap when only the world raster backs the tiles (the classic depth). */
+const MAX_ZOOM_WORLD = 22;
 /**
  * Half a second of stillness before anything re-renders.
  *
@@ -93,7 +123,8 @@ interface LiveView { zoom: number; cu: number; cv: number }
 
 export default function CartoMap({
   world, theme, geography, layers, density, reliefAmount, title, subtitle,
-  onPickSettlement, onOpenRegion, onInspect, onViewChange, annotations,
+  onPickSettlement, onZoomTo, onInspect, onViewChange, annotations,
+  viewport, onViewportChange, flyTarget, canonWorld, canonEdits,
 }: CartoMapProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -111,6 +142,16 @@ export default function CartoMap({
   const quickTimer = useRef(0);
   const fullTimer = useRef(0);
   const rendering = useRef(false);
+  /**
+   * A render requested while another is still executing. Without this stash the
+   * full-resolution pass died silently almost every gesture: it fires 120 ms
+   * after the quick pass, the quick pass is still inside its rAF, the guard
+   * returned — and nothing ever rescheduled, so the sheet sat at 0.58× until the
+   * next prop change. Last writer wins; a new gesture clears it (scheduleRender)
+   * because its own fresh timers supersede anything stale.
+   */
+  const pendingRender = useRef<{ factor: number; full: boolean } | null>(null);
+  const renderRef = useRef<((factor: number, full: boolean) => void) | null>(null);
   // The GPU base pass. Created lazily, kept for the life of the world, and simply
   // absent when WebGL2 is unavailable — in which case the renderer falls back to
   // its CPU pixel loop and nothing else changes.
@@ -118,6 +159,15 @@ export default function CartoMap({
   const glCanvas = useRef<HTMLCanvasElement | null>(null);
   const glFailed = useRef(false);
   const drag = useRef<{ x: number; y: number; cu: number; cv: number; moved: boolean } | null>(null);
+  /** The viewport this component last told the parent about — incoming props
+   *  that merely echo it must not snap the camera mid-gesture. */
+  const lastReported = useRef<WorldViewport | null>(null);
+  /** Trailing debounce for those reports. React stays OUT of the gesture loop
+   *  (see the design notes at the top of this file): the parent hears about the
+   *  camera once per settled moment, not once per wheel tick. */
+  const reportTimer = useRef(0);
+  /** An in-progress double-click / fly-here animation. */
+  const flight = useRef<number>(0);
   /**
    * A render of the WHOLE WORLD, kept as the source for every interim frame.
    *
@@ -128,13 +178,42 @@ export default function CartoMap({
    * view by construction: there is no such thing as an uncovered edge.
    */
   const globalMap = useRef<{ canvas: HTMLCanvasElement; rev: number; theme: string } | null>(null);
+  /**
+   * The slippy layer: sharp ground tiles composed OVER the whole-world blit
+   * during gestures. The blit guarantees coverage (its whole design point);
+   * the tiles replace its cell-sized pixels with real drawn map wherever one
+   * is resident, an ancestor's quarter where not — so a gesture degrades to
+   * blurry-then-sharp instead of to mush. Labels and furniture stay out of
+   * tiles; they return with the settled render, exactly like every slippy map
+   * the reader has ever used.
+   */
+  const tileStore = useRef<DisplayTileStore | null>(null);
+  const requestInterimRef = useRef<() => void>(() => undefined);
+  /** Named places delivered by DEEP tiles, keyed by tile id. Names never bake
+   *  into tiles; the lettering pass draws these live like everything else. */
+  const deepPlaces = useRef<Map<string, TilePlace[]>>(new Map());
+  const lastTileGeneration = useRef('');
 
   // Props the render needs, read through a ref so the event handlers never have
   // to be rebuilt when a prop changes.
-  const propsRef = useRef({ world, theme, geography, layers, density, reliefAmount, title, subtitle });
-  propsRef.current = { world, theme, geography, layers, density, reliefAmount, title, subtitle };
+  const propsRef = useRef({ world, theme, geography, layers, density, reliefAmount, title, subtitle, canonWorld, canonEdits });
+  propsRef.current = { world, theme, geography, layers, density, reliefAmount, title, subtitle, canonWorld, canonEdits };
   const annRef = useRef<CartoAnnotations | undefined>(annotations);
   annRef.current = annotations;
+
+  /**
+   * Deepest useful zoom for THIS canvas: the tile ladder's honest top —
+   * z12 (4 px per canon cell, ~38 m/px) with a canon source behind the deep
+   * levels, z9 without — translated back into camera zoom. The camera stops
+   * where the data stops; there is no zoom level that shows magnified mush.
+   */
+  const maxZoomFor = useCallback((cssH: number): number => {
+    const p = propsRef.current;
+    const zTop = p.canonWorld && p.geography ? MAX_TILE_Z : MAX_WORLD_TILE_Z;
+    const pxCell = (TILE_PX * Math.pow(2, zTop)) / world.width;
+    return Math.max(MAX_ZOOM_WORLD,
+      Math.min(4000, ((pxCell * world.height) / Math.max(120, cssH)) * 1.1));
+  }, [world.width, world.height]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -159,6 +238,102 @@ export default function CartoMap({
 
   // ---- painting ------------------------------------------------------------
 
+  /**
+   * Lettering and settlement marks are SCREEN entities — type keeps one size on
+   * your screen whatever the ground scale, and a mark baked into a bitmap
+   * stretches the moment that bitmap is blitted at any other zoom. So NOTHING
+   * in this component bakes them: not the tiles, not the whole-world blit, not
+   * the settled sheet. This one function draws them, through the SAME
+   * `drawOverlay` the exports use, on every frame that reaches the screen —
+   * gesture and settle alike. One source of words; nothing to double.
+   */
+  /** Regional place names harvested from DEEP tiles, lettered live under the
+   *  same law as everything else: type belongs to the screen. */
+  const drawDeepNames = useCallback((
+    ctx: CanvasRenderingContext2D,
+    v: CartoView,
+    outW: number,
+    outH: number,
+    typeScale: number,
+    z: number,
+  ) => {
+    const p = propsRef.current;
+    const scale = outW / v.w;
+    const W = p.world.width;
+    const cx = v.x + v.w / 2;
+    const prefix = `${z}/`;
+    interface Deco { pl: TilePlace; sx: number; sy: number; size: number; font: string }
+    const cands: { value: Deco; x: number; y: number; width: number; height: number; priority: number }[] = [];
+    for (const [key, list] of deepPlaces.current) {
+      if (!key.startsWith(prefix)) continue;
+      for (const pl of list) {
+        let x = pl.worldX;
+        while (x < cx - W / 2) x += W;
+        while (x > cx + W / 2) x -= W;
+        const sx = (x - v.x) * scale;
+        const sy = (pl.worldY - v.y) * scale;
+        if (sx < -60 || sy < -30 || sx > outW + 60 || sy > outH + 30) continue;
+        const town = pl.kind === 'town';
+        const village = pl.kind === 'village';
+        const size = (town ? 12.5 : village ? 11 : 9.5) * typeScale;
+        const font = `${town || village ? '' : 'italic '}${town ? 600 : village ? 500 : 400} ${size}px ${p.theme.type.body}`;
+        ctx.font = font;
+        const tw = ctx.measureText(pl.name).width;
+        const ly = sy + size * 1.15; // beneath its buildings
+        cands.push({
+          value: { pl, sx, sy: ly, size, font },
+          x: sx - tw / 2, y: ly, width: tw, height: size * 1.2,
+          priority: (town ? 3 : village ? 2 : pl.kind === 'abbey' ? 1.5 : 1) + pl.importance,
+        });
+      }
+    }
+    if (!cands.length) return;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    for (const c of declutterLabels(cands, 64, 3)) {
+      const d = c.value;
+      ctx.font = d.font;
+      ctx.strokeStyle = p.theme.type.halo;
+      ctx.lineWidth = p.theme.type.haloWidth * Math.max(0.6, d.size / 14);
+      ctx.strokeText(d.pl.name, d.sx, d.sy);
+      ctx.fillStyle = p.theme.type.color;
+      ctx.fillText(d.pl.name, d.sx, d.sy);
+    }
+    ctx.restore();
+  }, []);
+
+  const drawLettering = useCallback((
+    ctx: CanvasRenderingContext2D,
+    v: CartoView,
+    outW: number,
+    outH: number,
+    typeScale: number,
+  ) => {
+    const p = propsRef.current;
+    const geo = p.geography;
+    const wantMarks = p.layers.settlements !== false;
+    const wantNames = p.layers.labels !== false;
+    if (!geo || (!wantMarks && !wantNames)) return;
+    const z = levelFor(p.world, outW / v.w, p.canonWorld ? MAX_TILE_Z : MAX_WORLD_TILE_Z);
+    const deep = z >= DEEP_TILE_Z && !!p.canonWorld;
+    drawOverlay(ctx, p.world, geo, {
+      theme: p.theme,
+      view: v,
+      scale: outW / v.w,
+      width: outW,
+      height: outH,
+      worldWidth: p.world.width,
+      // Deep ground carries real BUILDINGS: the world-level rank marks would
+      // double-mark every town, so they stand down and the buildings' own
+      // names take over.
+      layers: { roads: false, borders: false, settlements: wantMarks && !deep, labels: wantNames },
+      typeScale,
+    });
+    if (deep && wantNames) drawDeepNames(ctx, v, outW, outH, typeScale, z);
+  }, [drawDeepNames]);
+
   /** Blit the last finished bitmap at the live view. Cheap enough for 60 fps. */
   const paintInterim = useCallback(() => {
     const canvas = canvasRef.current;
@@ -172,6 +347,7 @@ export default function CartoMap({
     // Source of truth for a gesture frame: the whole-world bitmap. Every view is
     // a sub-rectangle of it, so every frame is fully covered — the beige edges
     // are not tuned away, they are made impossible.
+    const p = propsRef.current;
     const gm = globalMap.current;
     if (gm) {
       const kx = gm.canvas.width / world.width;
@@ -198,7 +374,30 @@ export default function CartoMap({
       ctx.drawImage(b.canvas, (dx / v.w) * canvas.width, ((b.view.y - v.y) / v.h) * canvas.height,
         canvas.width * k, canvas.height * k);
     }
-  }, [viewFor, size.w, size.h, world.width, world.height, theme.paper.base, theme.ocean.deep]);
+
+    // The sharp layer. Resident tiles draw over the blit; missing ones fall
+    // back to an ancestor's scaled quarter inside the store; truly uncovered
+    // ground keeps the blit underneath. Requests go out for the current level
+    // only — arrivals repaint this same frame path via onArrive.
+    const store = tileStore.current;
+    if (store) {
+      const generation = `${p.world.params.seed}:${p.world.revision ?? 0}:${p.theme.id}:${p.density}:${p.reliefAmount}`
+        + `:${JSON.stringify(p.layers)}`;
+      if (generation !== lastTileGeneration.current) {
+        lastTileGeneration.current = generation;
+        deepPlaces.current.clear();
+      }
+      store.setGeneration(generation);
+      const z = levelFor(p.world, canvas.width / v.w, p.canonWorld ? MAX_TILE_Z : MAX_WORLD_TILE_Z);
+      store.want(p.world, z, v);
+      store.draw(ctx, p.world, z, v, { x: 0, y: 0, w: canvas.width, h: canvas.height });
+    }
+
+    // Lettering rides every frame (see drawLettering) — the blit and the tiles
+    // underneath carry no type at all.
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    drawLettering(ctx, v, canvas.width, canvas.height, dpr > 1 ? 1 : 0.92);
+  }, [viewFor, size.w, size.h, world.width, world.height, theme.paper.base, theme.ocean.deep, drawLettering]);
 
   /**
    * Book an interim blit, with a timer behind it.
@@ -225,6 +424,7 @@ export default function CartoMap({
       if (rafRef.current && performance.now() - booked > 90) fire();
     }, 100);
   }, [paintInterim]);
+  requestInterimRef.current = requestInterim;
 
   /** The GPU base, or null to let the renderer use its CPU path. */
   const drawBase = useCallback((w: number, h: number, v: CartoView): CanvasImageSource | null => {
@@ -255,7 +455,8 @@ export default function CartoMap({
 
   /** Full pipeline render at a given resolution factor. Synchronous. */
   const render = useCallback((factor: number, full: boolean) => {
-    if (size.w < 8 || size.h < 8 || rendering.current) return;
+    if (size.w < 8 || size.h < 8) return;
+    if (rendering.current) { pendingRender.current = { factor, full }; return; }
     const p = propsRef.current;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const w = Math.max(8, Math.round(size.w * dpr * factor));
@@ -268,18 +469,22 @@ export default function CartoMap({
     // before the main thread blocks.
     requestAnimationFrame(() => {
       try {
+        const typeScale = factor < 1 ? 1 / factor * 0.72 : dpr > 1 ? 1 : 0.92;
+        // Lettering is NOT baked (see drawLettering): this canvas doubles as
+        // the gesture blit source, and baked type stretches under any other
+        // zoom — the classic doubled-name artifact.
         const off = renderCartoCanvas(p.world, {
           theme: p.theme,
           width: w,
           height: h,
           view: v,
-          layers: p.layers,
+          layers: { ...p.layers, labels: false, settlements: false },
           density: p.density,
           reliefAmount: p.reliefAmount,
           title: p.title,
           subtitle: p.subtitle,
           geography: p.geography,
-          typeScale: factor < 1 ? 1 / factor * 0.72 : dpr > 1 ? 1 : 0.92,
+          typeScale,
           drawBase,
         });
         base.current = { canvas: off, view: v, full };
@@ -294,7 +499,12 @@ export default function CartoMap({
             theme: p.theme,
             width: gw, height: gh,
             view: wholeView,
-            layers: { ...p.layers, frame: false, compass: false, scaleBar: false },
+            // No furniture and no type: this bitmap exists to be magnified
+            // arbitrarily under gestures, and only the GROUND survives that.
+            layers: {
+              ...p.layers, frame: false, compass: false, scaleBar: false,
+              labels: false, settlements: false,
+            },
             density: p.density,
             reliefAmount: p.reliefAmount,
             geography: p.geography,
@@ -313,14 +523,25 @@ export default function CartoMap({
           if (ctx) {
             ctx.imageSmoothingEnabled = true;
             ctx.drawImage(off, 0, 0);
+            // Words on top, live — the settle draws the same lettering the
+            // gesture frames do, so nothing jumps at the handover.
+            drawLettering(ctx, v, w, h, typeScale);
           }
         }
       } finally {
         rendering.current = false;
         setBusy(false);
+        // Run whatever was requested while this pass was on the main thread —
+        // in the common case, the full-resolution settle that used to be lost.
+        const p = pendingRender.current;
+        if (p && canvasRef.current) {
+          pendingRender.current = null;
+          renderRef.current?.(p.factor, p.full);
+        }
       }
     });
-  }, [size.w, size.h, viewFor, drawBase]);
+  }, [size.w, size.h, viewFor, drawBase, drawLettering]);
+  renderRef.current = render;
 
   // ---- the ink layer -------------------------------------------------------
   // A separate transparent canvas above the map: the reader's own marks — a
@@ -354,6 +575,7 @@ export default function CartoMap({
   const scheduleRender = useCallback(() => {
     window.clearTimeout(quickTimer.current);
     window.clearTimeout(fullTimer.current);
+    pendingRender.current = null;
     quickTimer.current = window.setTimeout(() => render(QUICK_SCALE, false), QUICK_MS);
     fullTimer.current = window.setTimeout(() => render(1, true), FULL_MS);
   }, [render]);
@@ -364,8 +586,64 @@ export default function CartoMap({
     requestInterim();
     scheduleRender();
     paintInk();
-    onViewChange?.(viewFor(live.current, size.w, size.h));
-  }, [requestInterim, scheduleRender, paintInk, onViewChange, viewFor, size.w, size.h]);
+    const v = viewFor(live.current, size.w, size.h);
+    if (onViewportChange) {
+      window.clearTimeout(reportTimer.current);
+      reportTimer.current = window.setTimeout(() => {
+        const vp = cartaViewToViewport(viewFor(live.current, size.w, size.h), world);
+        lastReported.current = vp;
+        onViewportChange(vp);
+      }, 180);
+    }
+    onViewChange?.(v);
+  }, [requestInterim, scheduleRender, paintInk, onViewportChange, onViewChange, viewFor, size.w, size.h, world]);
+
+  const cancelFlight = useCallback(() => {
+    if (flight.current) { cancelAnimationFrame(flight.current); flight.current = 0; }
+  }, []);
+
+  // Adopt the shared camera: on mount, and whenever the parent moves it for a
+  // reason of its own (a reveal, a bookmark, another view's gesture). Echoes of
+  // our own reports are ignored, or every wheel tick would fight its round-trip.
+  useEffect(() => {
+    if (!viewport || size.w < 8 || size.h < 8) return;
+    if (sameViewport(viewport, lastReported.current)) return;
+    cancelFlight();
+    window.clearTimeout(reportTimer.current);
+    live.current = viewportToCartaCamera(viewport, world, size.w, size.h, MIN_ZOOM, maxZoomFor(size.h));
+    lastReported.current = viewport; // adopting is not a gesture; do not report it back
+    setZoomLabel(live.current.zoom);
+    requestInterim();
+    scheduleRender();
+    paintInk();
+  }, [viewport, size.w, size.h, world, cancelFlight, requestInterim, scheduleRender, paintInk, maxZoomFor]);
+
+  // A one-shot flight: interim blits per frame (exactly what a gesture paints),
+  // one real render at the destination.
+  useEffect(() => {
+    if (!flyTarget || size.w < 8 || size.h < 8) return;
+    cancelFlight();
+    const from = cartaViewToViewport(viewFor(live.current, size.w, size.h), world);
+    const to = clampViewport({ u: flyTarget.u, v: flyTarget.v, spanKm: flyTarget.spanKm ?? from.spanKm });
+    const t0 = performance.now();
+    const step = () => {
+      const t = Math.min(1, (performance.now() - t0) / FLIGHT_MS);
+      live.current = viewportToCartaCamera(
+        flightAt(from, to, t), world, size.w, size.h, MIN_ZOOM, maxZoomFor(size.h));
+      if (t < 1) {
+        requestInterim();
+        paintInk();
+        flight.current = requestAnimationFrame(step);
+      } else {
+        flight.current = 0;
+        viewChanged();
+      }
+    };
+    flight.current = requestAnimationFrame(step);
+    return cancelFlight;
+    // The token IS the request; everything else is read fresh when it fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flyTarget?.token]);
 
   // Annotations are cheap and change often (a slider drag), so they repaint on
   // their own rather than waiting for the map's debounced render.
@@ -387,9 +665,54 @@ export default function CartoMap({
   useEffect(() => () => {
     window.clearTimeout(quickTimer.current);
     window.clearTimeout(fullTimer.current);
+    window.clearTimeout(reportTimer.current);
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     glBase.current?.dispose();
     glBase.current = null;
+  }, []);
+
+  // The tile store lives exactly as long as the component. Cache-guarded and
+  // re-runnable (StrictMode mounts twice); the renderer reads props through
+  // the ref so a theme or layer flip never rebuilds the store — it just
+  // changes the generation string and the store empties itself.
+  useEffect(() => {
+    const store = new DisplayTileStore(
+      (key) => {
+        const q = propsRef.current;
+        if (!q.geography) return Promise.resolve(null);
+        // Deep levels render the canon countryside from the PRISTINE world
+        // (strokes re-applied at canon resolution inside the worker); the
+        // carta levels read the edited raster as always. Two worlds, two
+        // worker sessions — the pool holds both.
+        const deep = key.z >= DEEP_TILE_Z && q.canonWorld;
+        return regionClient.requestTile(deep ? q.canonWorld! : q.world, q.geography, key, {
+          themeId: q.theme.id,
+          layers: q.layers as Record<string, boolean>,
+          density: q.density,
+          reliefAmount: q.reliefAmount,
+          edits: deep ? q.canonEdits : undefined,
+        }).promise.then((res) => {
+          if (!res) return null;
+          if (res.places?.length) {
+            const map = deepPlaces.current;
+            map.set(`${key.z}/${key.tx}/${key.ty}`, res.places);
+            // Bounded: drop the oldest entries rather than growing forever.
+            while (map.size > 256) {
+              const first = map.keys().next().value;
+              if (first === undefined) break;
+              map.delete(first);
+            }
+          }
+          return res.bitmap;
+        });
+      },
+      () => requestInterimRef.current(),
+    );
+    tileStore.current = store;
+    return () => {
+      tileStore.current = null;
+      store.dispose();
+    };
   }, []);
 
   // A new world means new field textures.
@@ -407,6 +730,7 @@ export default function CartoMap({
     if (!host) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      cancelFlight();
       const rect = host.getBoundingClientRect();
       const px = (e.clientX - rect.left) / rect.width;
       const py = (e.clientY - rect.top) / rect.height;
@@ -414,7 +738,7 @@ export default function CartoMap({
       // World point under the cursor, held fixed across the zoom.
       const wu = (v.x + px * v.w) / world.width;
       const wv = (v.y + py * v.h) / world.height;
-      const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, live.current.zoom * Math.pow(1.0022, -e.deltaY)));
+      const next = Math.min(maxZoomFor(size.h), Math.max(MIN_ZOOM, live.current.zoom * Math.pow(1.0022, -e.deltaY)));
       live.current.zoom = next;
       const nv = viewFor(live.current, size.w, size.h);
       live.current.cu = wu + (0.5 - px) * (nv.w / world.width);
@@ -423,7 +747,7 @@ export default function CartoMap({
     };
     host.addEventListener('wheel', onWheel, { passive: false });
     return () => host.removeEventListener('wheel', onWheel);
-  }, [viewFor, size.w, size.h, world.width, world.height, viewChanged]);
+  }, [viewFor, size.w, size.h, world.width, world.height, viewChanged, cancelFlight, maxZoomFor]);
 
   // Undo and redo belong to the world, not to a view, and the pointer is always
   // over the map — so the shortcut has to work from here even though nothing on
@@ -440,12 +764,13 @@ export default function CartoMap({
   }, []);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    cancelFlight();
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     drag.current = {
       x: e.clientX, y: e.clientY,
       cu: live.current.cu, cv: live.current.cv, moved: false,
     };
-  }, []);
+  }, [cancelFlight]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const host = hostRef.current;
@@ -485,24 +810,24 @@ export default function CartoMap({
   }, [onPickSettlement, onInspect, viewFor, size.w, size.h, world]);
 
   const setZoom = useCallback((z: number) => {
-    live.current.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
+    live.current.zoom = Math.min(maxZoomFor(size.h), Math.max(MIN_ZOOM, z));
     viewChanged();
-  }, [viewChanged]);
+  }, [viewChanged, maxZoomFor, size.h]);
 
-  // Double-click drops a league below the world map. Deliberately not a mode or
-  // a tool: descending into the country you are looking at should cost one
-  // gesture, the same way a settlement's plan costs one click.
+  // Double-click descends toward the ground under the cursor. Deliberately not
+  // a mode or a tool: going down a league should cost one gesture — and it is
+  // the SAME gesture with the same meaning in the satellite and 3D views.
   const onDoubleClick = useCallback((e: React.MouseEvent) => {
-    if (!onOpenRegion) return;
+    if (!onZoomTo) return;
     const host = hostRef.current;
     if (!host) return;
     const rect = host.getBoundingClientRect();
     const v = viewFor(live.current, size.w, size.h);
     const x = v.x + ((e.clientX - rect.left) / rect.width) * v.w;
     const y = v.y + ((e.clientY - rect.top) / rect.height) * v.h;
-    onOpenRegion(((x % world.width) + world.width) % world.width,
+    onZoomTo(((x % world.width) + world.width) % world.width,
       Math.min(world.height - 1, Math.max(0, y)));
-  }, [onOpenRegion, viewFor, size.w, size.h, world.width, world.height]);
+  }, [onZoomTo, viewFor, size.w, size.h, world.width, world.height]);
 
   return (
     <div

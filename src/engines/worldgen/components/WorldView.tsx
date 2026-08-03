@@ -19,6 +19,9 @@ import type {
 } from '../types';
 import { WAYPOINT_COLORS } from '../types';
 import type { ViewMode, WorldData, WorldParams } from '../core/types';
+import {
+  DOUBLE_CLICK_FLOOR_KM, DOUBLE_CLICK_ZOOM, clampSpanKm, type FlyTarget,
+} from '../core/camera';
 import { normalizeParams } from '../core/types';
 import { renderComposite } from '../core/render';
 import { PROJECTION_IDS, reprojectRgba, type Projection } from '../core/projections';
@@ -58,7 +61,8 @@ import {
   type WorldSpatialStyleOverride,
 } from '../core/spatialEntities';
 import { regionKindVisible, semanticZoomProfile } from '../core/semanticZoom';
-import { requestRegion } from '../region/client';
+import { regionClient, requestRegion } from '../region/client';
+import { requestCanonComposite, CANON_LOD_MAX_KM } from '../region/tileClient';
 import type { RegionData } from '../region/types';
 
 // three.js and the surface shader are the heaviest thing in the engine, so they
@@ -184,7 +188,7 @@ export default function WorldView({
   const [journeyRoute, setJourneyRoute] = useState<{ route: TravelRoute | null; color: string }>({ route: null, color: '#a3261e' });
   const [paleoState, setPaleoState] = useState<PaleoState | null>(null);
   const [selectedWaypointId, setSelectedWaypointId] = useState<string | null>(null);
-  const [flyTarget, setFlyTarget] = useState<{ u: number; v: number; token: number } | null>(null);
+  const [flyTarget, setFlyTarget] = useState<FlyTarget | null>(null);
   /** First end of a road being laid, waiting for its second click. */
   const [roadFrom, setRoadFrom] = useState<Settlement | null>(null);
   const [exaggeration, setExaggeration] = useState(30);
@@ -311,6 +315,52 @@ export default function WorldView({
     [viewport.spanKm],
   );
 
+  /**
+   * The paint session. DECLARED HERE, well above the painting section that
+   * fills it, because the canon-source memo right below reads it DURING
+   * RENDER — and a `const` binding referenced before its declaration line is
+   * a TDZ ReferenceError at mount, which took the whole engine down once.
+   * Order matters for anything a memo factory or a dependency array touches.
+   */
+  const session = useRef<PaintSession | null>(null);
+  /** Which world object the current session was built over. The memo below
+   *  must NEVER pair a fresh world with a stale session's pristine snapshot —
+   *  regeneration changes `data` a render before the session effect catches
+   *  up, and shipping that half-and-half world to the canon workers draws
+   *  somebody else's strokes on the new country. */
+  const sessionWorld = useRef<WorldData | null>(null);
+  /** The seed the stored strokes belong to. */
+  const editsSeed = useRef<string>(world.params.seed);
+  /** Armed by Regenerar; consumed by the session effect when new data lands. */
+  const cleanSlate = useRef(false);
+
+  // A new world object (regenerate, load, restore) makes every cached canon
+  // tile and idle worker of the previous one dead weight — free it eagerly.
+  // At 1024-width a full canon cache is ~hundreds of MB; waiting for
+  // count-based eviction to reach it was a slow leak with a fast ending.
+  useEffect(() => {
+    regionClient.newEpoch();
+  }, [data]);
+
+  /**
+   * The world the CANONICAL tiles amplify: pristine elevation + the edit list,
+   * so every stroke is re-applied at tile resolution instead of arriving as a
+   * baked-in world-grid smudge (and never twice — see region/canonEdits.ts).
+   * `painted` rides along: hand rivers/roads/markers reach the tiles as
+   * first-class vectors. New object per stroke on purpose — every canon cache
+   * keys on world identity, and a stroke really is a different country.
+   */
+  const canonSource = useMemo(() => {
+    void paintRev;
+    if (!data) return null;
+    const s = sessionWorld.current === data ? session.current : null;
+    if (!s || !s.edits.length) return { world: data, edits: undefined };
+    return {
+      world: { ...data, elevation: s.pristineElevation },
+      edits: s.serialize(),
+    };
+  }, [data, paintRev]);
+
   // Close-range geography follows the shared viewport in both 2D and 3D.
   // Requests are debounced, cancellable, worker-backed, and leave the previous
   // patch visible until the replacement arrives.
@@ -322,30 +372,48 @@ export default function WorldView({
       return;
     }
     const controller = new AbortController();
-    let handle: ReturnType<typeof requestRegion> | null = null;
+    let handle: { promise: Promise<RegionData>; cancel: () => void } | null = null;
     const timer = window.setTimeout(() => {
       setRegionDetailBusy(true);
       // Ask for a padded patch only after the camera settles. The extra gutter
       // lets several small wheel/pan updates reuse the same cached lattice
       // instead of terminating and cloning a worker context for every pose.
       const spanKm = Math.min(400, Math.max(30, viewport.spanKm * 1.7));
-      handle = requestRegion(
-        data,
-        geography,
-        {
-          cx: viewport.u * data.width,
-          cy: viewport.v * data.height,
-          spanKm,
-        },
-        {
-          signal: controller.signal,
-          params: {
-            res: semanticProfile.regionalResolution,
-            aspect: 1.55,
+      // Close windows come from the CANONICAL tiles — one countryside per
+      // ground, shared with everything else that looks at it. Wider regional
+      // windows keep the freeform sheet until the display pyramid (P4) takes
+      // them over: at those spans the ~150 m canon is oversampled anyway, and
+      // a cold multi-tile fill would cost more than it shows.
+      if (spanKm <= CANON_LOD_MAX_KM && canonSource) {
+        handle = requestCanonComposite(
+          canonSource.world,
+          geography,
+          { u: viewport.u, v: viewport.v, spanKm, aspect: 1.55 },
+          {
+            signal: controller.signal,
+            edits: canonSource.edits,
+            onProgress: (stage) => setRegionDetailStage(stage),
           },
-          onProgress: (stage) => setRegionDetailStage(stage),
-        },
-      );
+        );
+      } else {
+        handle = requestRegion(
+          data,
+          geography,
+          {
+            cx: viewport.u * data.width,
+            cy: viewport.v * data.height,
+            spanKm,
+          },
+          {
+            signal: controller.signal,
+            params: {
+              res: semanticProfile.regionalResolution,
+              aspect: 1.55,
+            },
+            onProgress: (stage) => setRegionDetailStage(stage),
+          },
+        );
+      }
       handle.promise.then((region) => {
         if (!controller.signal.aborted) setRegionDetail(region);
       }).catch((error: unknown) => {
@@ -363,6 +431,7 @@ export default function WorldView({
   }, [
     data,
     geography,
+    canonSource,
     semanticProfile.regionalResolution,
     semanticProfile.showRegionalTerrain,
     view,
@@ -561,7 +630,7 @@ export default function WorldView({
   }, [paintable]);
 
   const [painting, setPainting] = useState(false);
-  const session = useRef<PaintSession | null>(null);
+  // (the session ref itself is declared up by the canon-source memo — see there)
   /**
    * The stored strokes, read ONCE.
    *
@@ -571,11 +640,23 @@ export default function WorldView({
    */
   const savedEdits = useRef<string | undefined>(world.edits);
   useEffect(() => {
-    if (!data) { session.current = null; return; }
+    if (!data) { session.current = null; sessionWorld.current = null; return; }
     // The cached world object carries whatever the last session painted on it,
     // so it is put back the way the generator left it before the list is
     // replayed — otherwise the strokes apply on top of themselves.
     restorePristine(data);
+    // Strokes follow a WORLD, not a slot. Re-forging with the same seed is a
+    // parameter tweak — the coastline you painted is still your coastline, so
+    // the list replays (the original design). A NEW SEED is a new planet: a
+    // ridge drawn for a continent that no longer exists is debris, so the
+    // list — strokes, renames, all of it — stays with the old seed and the
+    // stored row is emptied.
+    if (cleanSlate.current || data.params.seed !== editsSeed.current) {
+      cleanSlate.current = false;
+      editsSeed.current = data.params.seed;
+      savedEdits.current = undefined;
+      saveEditsRef.current?.('[]');
+    }
     const stored = savedEdits.current;
     let initial: WorldEdit[] = [];
     if (stored) {
@@ -586,6 +667,7 @@ export default function WorldView({
       }
     }
     session.current = new PaintSession(data, initial);
+    sessionWorld.current = data;
     setPaintRev(initial.length);
   }, [data, restorePristine]);
 
@@ -757,6 +839,13 @@ export default function WorldView({
   const theme = useMemo(() => themeById(themeId), [themeId]);
 
   const handleGenerate = useCallback(() => {
+    // REGENERAR means a fresh world, full stop. The strokes belonged to the
+    // ground the reader was looking at; carrying them onto new ground made
+    // the button feel haunted (reported twice). Same seed or new seed, the
+    // slate cleans at the reader's explicit action — but it is CONSUMED only
+    // when the new world actually arrives, so a failed generation cannot eat
+    // the strokes of the world still on screen.
+    cleanSlate.current = true;
     onSaveParams(params);
     generate(params);
   }, [params, onSaveParams, generate]);
@@ -790,10 +879,33 @@ export default function WorldView({
     setSelectedWaypointId((cur) => (cur === id ? null : cur));
   }, [removeWaypoint]);
 
-  const flyTo = useCallback((u: number, v: number) => {
-    setFlyTarget({ u, v, token: Date.now() });
-    setView('3d');
+  /** Point the shared camera somewhere, animated, without changing view. */
+  const flyCamera = useCallback((u: number, v: number, spanKm?: number) => {
+    setFlyTarget({ u, v, spanKm, token: Date.now() });
   }, []);
+
+  const flyTo = useCallback((u: number, v: number) => {
+    flyCamera(u, v);
+    setView('3d');
+  }, [flyCamera]);
+
+  // Read through a ref so `zoomToPoint` keeps ONE identity: it is a prop of all
+  // three views, and a new identity per camera report would re-render them all
+  // once per gesture settle for nothing.
+  const viewportRef = useRef(viewport);
+  viewportRef.current = viewport;
+
+  /** The double-click contract, identical in every view: descend one league
+   *  toward the ground under the cursor. The regional sheet is no longer on
+   *  this gesture — it is an EXPORT you ask for, not a place you fall into. */
+  const zoomToPoint = useCallback((x: number, y: number) => {
+    if (!data) return;
+    flyCamera(
+      ((x / data.width) % 1 + 1) % 1,
+      Math.min(1, Math.max(0, y / data.height)),
+      Math.max(DOUBLE_CLICK_FLOOR_KM, clampSpanKm(viewportRef.current.spanKm) / DOUBLE_CLICK_ZOOM),
+    );
+  }, [data, flyCamera]);
 
   // ---- Exports -----------------------------------------------------------
   const exportPng = useCallback(() => {
@@ -1108,9 +1220,10 @@ export default function WorldView({
               tool={paintable ? tool : undefined}
               onEdit={paintable ? applyEdit : undefined}
               onPickSettlement={pickSettlement}
-              onOpenRegion={(x, y) => setRegionAt({ x, y })}
+              onZoomTo={zoomToPoint}
               viewport={viewport}
               onViewportChange={setViewport}
+              flyTarget={flyTarget}
               revision={paintRev}
             />
           )}
@@ -1120,6 +1233,8 @@ export default function WorldView({
                 world={data}
                 theme={theme}
                 geography={geography}
+                canonWorld={canonSource?.world}
+                canonEdits={canonSource?.edits}
                 layers={cartoLayers}
                 density={1}
                 reliefAmount={reliefAmount}
@@ -1127,7 +1242,10 @@ export default function WorldView({
                 subtitle={t('worldgen.export.atlasSuffix')}
                 onPickSettlement={pickSettlement}
                 annotations={annotations}
-                onOpenRegion={(x, y) => setRegionAt({ x, y })}
+                onZoomTo={zoomToPoint}
+                viewport={viewport}
+                onViewportChange={setViewport}
+                flyTarget={flyTarget}
                 onInspect={panelTab === 'atlas' && data && geography
                   ? ((x, y) => {
                     // Anything with a name, not only the dots: a click on the
@@ -1176,7 +1294,7 @@ export default function WorldView({
                 }}
                 onPlaceWaypoint={handlePlace}
                 onRemoveWaypoint={dropWaypoint}
-                onOpenRegion={(x, y) => setRegionAt({ x, y })}
+                onZoomTo={zoomToPoint}
               />
             </Suspense>
           )}
@@ -1499,6 +1617,16 @@ export default function WorldView({
             setRegionAt({ x: region.x, y: region.y, savedId: region.id });
           }}
           onClose={() => setRegionAt(null)}
+          onFlyHere={(x, y, spanKm) => {
+            setRegionAt(null);
+            if (data) {
+              flyCamera(
+                ((x / data.width) % 1 + 1) % 1,
+                Math.min(1, Math.max(0, y / data.height)),
+                spanKm,
+              );
+            }
+          }}
           onPickSettlement={setCityFor}
         />
       )}

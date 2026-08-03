@@ -24,6 +24,7 @@ import {
   protocol,
   net,
   globalShortcut,
+  utilityProcess,
 } from 'electron';
 import path from 'node:path';
 import os from 'node:os';
@@ -333,7 +334,12 @@ async function createWindow(): Promise<void> {
 
   if (isDev) {
     void mainWindow.loadURL(RENDERER_DEV_URL);
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    // DevTools ya NO se abre solo. Con las herramientas abiertas, la consola
+    // y la línea de tiempo RETIENEN todo lo que se registra — y en este motor
+    // los mensajes llevan mundos y regiones de cientos de megabytes. Sumado a
+    // la instrumentación del build de desarrollo de React (ver index.html),
+    // "regenerar" con DevTools delante era una sentencia de muerte por RAM.
+    // Ctrl+Shift+I lo abre cuando de verdad toque depurar.
   } else {
     // Renderer uses HashRouter in Electron, so a plain file load is enough.
     void mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
@@ -910,6 +916,134 @@ function registerIpc(): void {
 // ---------------------------------------------------------------------------
 
 // Single-instance lock: focus the existing window instead of spawning a second.
+// ---------------------------------------------------------------------------
+// The ceiling is THE MACHINE, not a constant
+// ---------------------------------------------------------------------------
+// Chromium ships with a V8 heap cap sized for web pages (~4 GB). This app
+// scales it to the hardware it is running on: a quarter of physical RAM for
+// the window's process, and each Forge process below gets three quarters.
+// Memory is only committed as allocated — an idle session costs what it
+// always cost. The engine keeps bounded caches regardless, because a leak is
+// a leak at any ceiling; the ceilings just stop being the story.
+const TOTAL_RAM_MB = Math.floor(os.totalmem() / (1024 * 1024));
+app.commandLine.appendSwitch(
+  'js-flags',
+  `--max-old-space-size=${Math.max(4096, Math.floor(TOTAL_RAM_MB / 4))}`,
+);
+
+// ---------------------------------------------------------------------------
+// La Forja — worldgen compute in dedicated OS processes
+// ---------------------------------------------------------------------------
+// The renderer asks for a worker; it gets a MessagePort into a fresh
+// utilityProcess running the worldgen core with @napi-rs/canvas for tiles.
+// Each process owns its memory (scaled to the machine), crashes alone, and
+// is reaped here when the app quits or the port closes.
+const forgeChildren = new Set<Electron.UtilityProcess>();
+
+function forgeEntry(kind: string): string {
+  return path.join(
+    __dirname,
+    'forge',
+    kind === 'worldgen' ? 'worldgenForge.cjs' : 'regionForge.cjs',
+  );
+}
+
+ipcMain.on('forge:spawn', (event, payload: { kind?: string } | undefined) => {
+  const port = event.ports[0];
+  if (!port) return;
+  const kind = payload?.kind === 'worldgen' ? 'worldgen' : 'region';
+  try {
+    const child = utilityProcess.fork(forgeEntry(kind), [], {
+      serviceName: `worldgen-forge-${kind}`,
+      env: {
+        ...process.env,
+        // Three quarters of the machine, per process. This is the point.
+        NODE_OPTIONS: `--max-old-space-size=${Math.max(8192, Math.floor(TOTAL_RAM_MB * 0.75))}`,
+      },
+    });
+    forgeChildren.add(child);
+    child.once('exit', () => forgeChildren.delete(child));
+    child.postMessage({ type: 'attach' }, [port]);
+  } catch {
+    // No forge (missing bundle, packaging issue): close the port so the
+    // renderer's shim goes quiet and its fallback stays in charge.
+    port.close();
+  }
+});
+
+ipcMain.on('forge:memory', (event) => {
+  event.returnValue = os.totalmem();
+});
+
+app.on('will-quit', () => {
+  for (const child of [...forgeChildren]) {
+    try { child.kill(); } catch { /* already gone */ }
+  }
+  forgeChildren.clear();
+});
+
+// ---------------------------------------------------------------------------
+// Crash forensics
+// ---------------------------------------------------------------------------
+// "Render process gone" in DevTools hides the one fact that matters: WHY.
+// Electron knows — reason ('oom' | 'crashed' | 'launch-failed'…), exit code,
+// and per-process memory at the time. This keeps a rolling two minutes of
+// app metrics and dumps trajectory + verdict to a log the moment ANY process
+// dies, so the next black screen arrives with a cause of death attached.
+const FORENSICS_LOG = () => path.join(app.getPath('userData'), 'logs', 'crash-forensics.log');
+const metricsRing: string[] = [];
+
+function metricsSnapshot(): string {
+  try {
+    const rows = app.getAppMetrics().map((m) => {
+      const mem = m.memory;
+      const mb = mem ? Math.round((mem.workingSetSize ?? 0) / 1024) : -1;
+      return `${m.type}${m.serviceName ? `(${m.serviceName})` : ''}#${m.pid}=${mb}MB`;
+    });
+    return `${new Date().toISOString()} ${rows.join(' | ')}`;
+  } catch (err) {
+    return `${new Date().toISOString()} metrics-failed: ${String(err)}`;
+  }
+}
+
+async function forensicDump(headline: string): Promise<void> {
+  try {
+    const dir = path.dirname(FORENSICS_LOG());
+    await fs.mkdir(dir, { recursive: true });
+    const body = [
+      '='.repeat(72),
+      `${new Date().toISOString()}  ${headline}`,
+      'Memory trajectory (oldest first):',
+      ...metricsRing,
+      metricsSnapshot(),
+      '',
+    ].join('\n');
+    await fs.appendFile(FORENSICS_LOG(), body, 'utf8');
+  } catch {
+    // Forensics must never hurt the patient.
+  }
+}
+
+setInterval(() => {
+  metricsRing.push(metricsSnapshot());
+  while (metricsRing.length > 8) metricsRing.shift();
+}, 15_000);
+
+app.on('render-process-gone', (_event, webContents, details) => {
+  void forensicDump(
+    `RENDER PROCESS GONE reason=${details.reason} exitCode=${details.exitCode} url=${webContents.getURL()}`,
+  );
+});
+
+app.on('child-process-gone', (_event, details) => {
+  // Expected exits (clean forge shutdowns) are logged one line, loudly only
+  // when something actually went wrong.
+  if (details.reason === 'clean-exit') return;
+  void forensicDump(
+    `CHILD PROCESS GONE type=${details.type} name=${details.name ?? ''} reason=${details.reason} exitCode=${details.exitCode}`,
+  );
+});
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();

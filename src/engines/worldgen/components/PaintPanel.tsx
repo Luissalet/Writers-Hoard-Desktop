@@ -460,10 +460,18 @@ export default function PaintPanel({
           <Slider
             label="Tamaño"
             value={tool.radius}
-            min={1}
+            min={0.125}
             max={60}
-            step={1}
-            format={(v) => (cellKm ? `${v} celdas · ${Math.round(v * cellKm)} km` : `${v} celdas`)}
+            step={0.125}
+            format={(v) => {
+              // Below one cell the brush is a REGIONAL tool: the world grid
+              // barely feels it, the canonical tiles rasterise it at ~150 m.
+              if (!cellKm) return v >= 1 ? `${v} celdas` : `${v.toFixed(3)} celdas`;
+              const km = v * cellKm;
+              return v >= 1
+                ? `${Math.round(v)} celdas · ${Math.round(km)} km`
+                : `sub-celda · ${km < 10 ? km.toFixed(1) : Math.round(km)} km`;
+            }}
             onChange={(v) => set('radius', v)}
           />
           <Slider
