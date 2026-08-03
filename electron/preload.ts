@@ -214,3 +214,22 @@ const api = {
 contextBridge.exposeInMainWorld('electronAPI', api);
 
 export type ElectronAPI = typeof api;
+
+// ---------------------------------------------------------------------------
+// La Forja — hand the renderer a direct line to worldgen OS processes
+// ---------------------------------------------------------------------------
+// MessagePorts cannot cross the contextBridge, so the handshake is: renderer
+// calls spawn(kind, token) → this preload makes a channel, ships one end to
+// the main process (which forks the utilityProcess and wires it), and posts
+// the other end into the page via window.postMessage — the one lane that
+// carries transferables into an isolated world. The renderer's shim matches
+// the token and speaks plain Worker from there.
+contextBridge.exposeInMainWorld('whForge', {
+  available: true,
+  memoryBytes: ipcRenderer.sendSync('forge:memory') as number,
+  spawn(kind: 'region' | 'worldgen', token: string): void {
+    const channel = new MessageChannel();
+    ipcRenderer.postMessage('forge:spawn', { kind }, [channel.port2]);
+    window.postMessage({ __forgePort: token }, '*', [channel.port1]);
+  },
+});

@@ -16,6 +16,30 @@
         }
       })();
     </script>
+    <!--
+      Desactiva la pista de rendimiento del build de DESARROLLO de react-dom.
+
+      react-dom 19.2 (solo dev) registra cada commit en la Performance
+      Timeline y, si las props de un componente cambiaron de identidad, hace
+      un DIFF RECURSIVO de las props antiguas contra las nuevas con
+      `for (var key in object)`. Nuestros componentes reciben el MUNDO como
+      prop: trece arrays tipados con 4,7 millones de índices cada uno. Al
+      regenerar (mundo viejo vs mundo nuevo, ambos objetos) ese diff recorre
+      millones de claves, asigna gigabytes y congela el hilo principal hasta
+      que el renderer muere por OOM — con 128 GB de RAM libres, porque el
+      límite es interno del proceso. Verificado con muestras de pila:
+      logComponentRender → addObjectDiffToProperties → addValueToProperties.
+
+      react-dom activa todo eso solo si `console.timeStamp` y
+      `performance.measure` existen (supportsUserTiming). Retirar
+      console.timeStamp ANTES de que react-dom se evalúe lo apaga entero.
+      Este script corre antes que cualquier módulo por orden del parser.
+      En producción react-dom no incluye ese código y console.timeStamp no
+      lo usa nadie más, así que aquí no se pierde nada.
+    -->
+    <script>
+      try { console.timeStamp = undefined; } catch (e) { /* sin drama */ }
+    </script>
   </head>
   <body>
     <div id="root"></div>

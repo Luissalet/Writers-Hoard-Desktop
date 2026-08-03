@@ -82,19 +82,36 @@ export function marchingSquares(
   return stitch(segs, W, wrapX);
 }
 
-/** Join a segment soup into polylines by snapping shared endpoints. */
+/**
+ * Join a segment soup into polylines by snapping shared endpoints.
+ *
+ * The walk is BIDIRECTIONAL: forward along segment direction from the seed,
+ * then backward from the chain head, so every maximal chain is recovered
+ * WHOLE no matter which of its segments the outer loop happened to reach
+ * first. The old forward-only walk split chains at the (scan-order-dependent)
+ * seed — harmless in a single image, but two windows over the same ground
+ * split the same chain at different places, and the smoother anchors its
+ * endpoints: one window drew a cusp where the other drew a curve. Segment
+ * direction is globally consistent (the marching-squares tables orient land
+ * to one side), so the recovered chain runs the same way in every window.
+ */
 function stitch(segs: number[], W: number, wrapX: boolean): Contour[] {
   const Q = 1000; // quantisation for endpoint identity
   const key = (x: number, y: number) => `${Math.round(x * Q)},${Math.round(y * Q)}`;
   const wrapKey = (x: number, y: number) => (wrapX ? key(((x % W) + W) % W, y) : key(x, y));
 
   const starts = new Map<string, number[]>();
+  const ends = new Map<string, number[]>();
   const used = new Uint8Array(segs.length / 4);
   for (let s = 0; s < segs.length; s += 4) {
-    const k = wrapKey(segs[s], segs[s + 1]);
-    let arr = starts.get(k);
-    if (!arr) starts.set(k, (arr = []));
+    const ks = wrapKey(segs[s], segs[s + 1]);
+    let arr = starts.get(ks);
+    if (!arr) starts.set(ks, (arr = []));
     arr.push(s);
+    const ke = wrapKey(segs[s + 2], segs[s + 3]);
+    let brr = ends.get(ke);
+    if (!brr) ends.set(ke, (brr = []));
+    brr.push(s);
   }
 
   const out: Contour[] = [];
@@ -102,7 +119,7 @@ function stitch(segs: number[], W: number, wrapX: boolean): Contour[] {
     if (used[s0 / 4]) continue;
     used[s0 / 4] = 1;
     const pts: Pt[] = [{ x: segs[s0], y: segs[s0 + 1] }, { x: segs[s0 + 2], y: segs[s0 + 3] }];
-    // Walk forward.
+    // Walk forward from the tail.
     for (;;) {
       const tail = pts[pts.length - 1];
       const cands = starts.get(wrapKey(tail.x, tail.y));
@@ -120,6 +137,29 @@ function stitch(segs: number[], W: number, wrapX: boolean): Contour[] {
       }
       pts.push({ x: nx, y: ny });
       if (Math.abs(nx - pts[0].x) < 1e-6 && Math.abs(ny - pts[0].y) < 1e-6) break;
+    }
+    const closedAfterForward =
+      pts.length > 3 &&
+      Math.abs(pts[pts.length - 1].x - pts[0].x) < 1e-6 &&
+      Math.abs(pts[pts.length - 1].y - pts[0].y) < 1e-6;
+    // Walk backward from the head (only open chains can grow upstream).
+    if (!closedAfterForward) {
+      for (;;) {
+        const head = pts[0];
+        const cands = ends.get(wrapKey(head.x, head.y));
+        let found = -1;
+        if (cands) for (const c of cands) if (!used[c / 4]) { found = c; break; }
+        if (found < 0) break;
+        used[found / 4] = 1;
+        let sx = segs[found];
+        const sy = segs[found + 1];
+        if (wrapX) {
+          const qx = segs[found + 2];
+          const shift = head.x - qx;
+          if (Math.abs(shift) > 1) sx += shift;
+        }
+        pts.unshift({ x: sx, y: sy });
+      }
     }
     const closed =
       pts.length > 3 &&
@@ -219,12 +259,50 @@ export function resample(pts: Pt[], spacing: number, closed = false): Pt[] {
  * noise, so the line keeps its shape but loses its machine precision. Amplitude
  * must stay well under the local sampling distance or the curve self-crosses.
  */
-export function wobble(pts: Pt[], amplitude: number, rand: () => number, closed = false): Pt[] {
+/**
+ * True when a world-space polyline could touch a view rect once it is placed
+ * by the mean-shift wrap rule every projector in this package uses (choose the
+ * whole-path shift that puts its mean x nearest the view centre). Cull tests
+ * MUST share that placement rule with the draw path, or they would drop ink
+ * the draw would have put on screen.
+ */
+export function polylineVisible(
+  pts: Pt[],
+  view: { x: number; y: number; w: number; h: number },
+  W: number,
+  pad: number,
+): boolean {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, mean = 0;
+  for (const p of pts) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+    mean += p.x;
+  }
+  mean /= pts.length;
+  if (maxY < view.y - pad || minY > view.y + view.h + pad) return false;
+  const cx = view.x + view.w / 2;
+  let shift = 0;
+  while (mean + shift < cx - W / 2) shift += W;
+  while (mean + shift > cx + W / 2) shift -= W;
+  return maxX + shift >= view.x - pad && minX + shift <= view.x + view.w + pad;
+}
+
+export function wobble(
+  pts: Pt[],
+  amplitude: number,
+  noise: (x: number, y: number) => number,
+  closed = false,
+): Pt[] {
   const n = pts.length;
   if (n < 3 || amplitude <= 0) return pts;
-  // Smoothed 1-D noise along the parameter.
+  // Smoothed 1-D noise along the parameter. The noise is keyed by POSITION,
+  // not by draw order: any renderer that reaches the same piece of coast —
+  // whichever tile it is in, whatever else it drew first — displaces it the
+  // same way. Sequential RNG here is what made tile rows disagree.
   const raw = new Float64Array(n);
-  for (let i = 0; i < n; i++) raw[i] = rand() * 2 - 1;
+  for (let i = 0; i < n; i++) raw[i] = noise(pts[i].x, pts[i].y) * 2 - 1;
   const smooth = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     let s = 0;

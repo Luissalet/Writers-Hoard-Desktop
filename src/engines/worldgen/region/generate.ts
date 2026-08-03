@@ -24,11 +24,27 @@ import {
   extractPatch, kmPerWorldCell, regionGeometry, visibleRect, type RegionGeometry,
 } from './terrain';
 import { DEFAULT_REGION_PARAMS, type RegionData, type RegionParams, type RegionWindow } from './types';
+import { canonParams, tileGeometry, tileKey, tileWindow, type TileId } from './tiles';
+import { applyCanonElevationEdits, applyCanonCoverEdits } from './canonEdits';
+import type { WorldEdit } from '../core/edits';
 
 export interface RegionBuildOptions {
   params?: Partial<RegionParams>;
   /** Stage callback for the progress bar. */
   onProgress?: (stage: string, t: number) => void;
+  /**
+   * Use THIS grid instead of deriving one from the window. The canon tiles
+   * pass their world-aligned geometry through here, so the whole pipeline —
+   * amplifier, erosion, hydrology, cover, habitation, tracks, fields — serves
+   * both the freeform export sheet and the canonical layer without a fork.
+   */
+  geometry?: RegionGeometry;
+  /**
+   * The world's edit list, to be applied at THIS resolution. Requires the
+   * caller to ship a world whose ELEVATION is the pristine snapshot — see
+   * canonEdits.ts for why re-rasterising over the edited world is wrong.
+   */
+  edits?: WorldEdit[];
 }
 
 /**
@@ -65,7 +81,7 @@ export function generateRegion(
   const p = opts.onProgress ?? (() => {});
 
   p('relieve', 0);
-  const g = regionGeometry(world, win, params);
+  const g = opts.geometry ?? regionGeometry(world, win, params);
 
   const rev = world.revision ?? 0;
   let cache = CACHE.get(world);
@@ -80,6 +96,7 @@ export function generateRegion(
   }
   const patch = extractPatch(world, g);
   const elevation = buildElevation(world, g, patch, params);
+  if (opts.edits?.length) applyCanonElevationEdits(elevation, g, world, opts.edits);
 
   p('agua', 0.22);
   // Carve first, erode second: the world's rivers are a boundary condition, and
@@ -95,6 +112,9 @@ export function generateRegion(
 
   p('vegetación', 0.45);
   const natural = buildNaturalCover(world, g, patch, t, params);
+  if (opts.edits?.length) {
+    applyCanonCoverEdits(natural.biome, natural.cover, t.elevation, g, world, opts.edits);
+  }
 
   p('poblamiento', 0.6);
   const hab = buildHabitation(world, geo, g, patch, t, natural.cover, streams, params);
@@ -155,6 +175,38 @@ export function generateRegion(
     if (drop) cache.map.delete(drop);
   }
   return out;
+}
+
+/**
+ * One canonical tile of countryside.
+ *
+ * Same pipeline as the freeform sheet, but the grid comes from the tile id and
+ * from nothing else — no span, no resolution, no snapping, no free variables.
+ * Two requests for the same id are byte-identical (also cached, keyed by the
+ * geometry like any other sheet), and neighbouring tiles agree on their shared
+ * apron because every synthesized detail is sampled in world coordinates on
+ * world-aligned lattices.
+ *
+ * Content knobs (detail, settled, habitation, streamDensity) still apply — a
+ * reader's world has ONE canon per choice of knobs, and the cache key carries
+ * them the same way it always has.
+ */
+export function generateCanonTile(
+  world: WorldData,
+  geo: HumanGeography,
+  id: TileId,
+  opts: Omit<RegionBuildOptions, 'geometry'> = {},
+): RegionData {
+  return generateRegion(world, geo, tileWindow(world, id), {
+    ...opts,
+    params: canonParams(world, opts.params),
+    geometry: tileGeometry(world, id),
+  });
+}
+
+/** Stable identity of a canon tile's cached RegionData. */
+export function canonTileKey(id: TileId): string {
+  return tileKey(id);
 }
 
 /**

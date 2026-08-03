@@ -197,10 +197,15 @@ class CompactBrush implements Brush {
   private m: Float32Array;
   private W: number;
   private H: number;
+  private wrapX: boolean;
   empty: boolean;
 
-  constructor(m: Float32Array, x0: number, y0: number, w: number, h: number, W: number, H: number) {
+  constructor(
+    m: Float32Array, x0: number, y0: number, w: number, h: number, W: number, H: number,
+    wrapX = true,
+  ) {
     this.m = m; this.x0 = x0; this.y0 = y0; this.w = w; this.h = h; this.W = W; this.H = H;
+    this.wrapX = wrapX;
     let any = false;
     for (let k = 0; k < m.length; k++) if (m[k] > 0.002) { any = true; break; }
     this.empty = !any;
@@ -209,6 +214,10 @@ class CompactBrush implements Brush {
   cover(i: number): number {
     const W = this.W;
     const x = i % W, y = (i / W) | 0;
+    if (!this.wrapX) {
+      if (x < this.x0 || x >= this.x0 + this.w || y < this.y0 || y >= this.y0 + this.h) return 0;
+      return this.m[(y - this.y0) * this.w + (x - this.x0)];
+    }
     for (let ux = x; ux < this.x0 + this.w; ux += W) {
       if (ux >= this.x0 && y >= this.y0 && y < this.y0 + this.h) {
         return this.m[(y - this.y0) * this.w + (ux - this.x0)];
@@ -230,7 +239,12 @@ class CompactBrush implements Brush {
       for (let gx = 0; gx < this.w; gx++) {
         const c = this.m[gy * this.w + gx];
         if (c <= 0.002) continue;
-        const wx = (((this.x0 + gx) % W) + W) % W;
+        const raw = this.x0 + gx;
+        // A world grid wraps east-west; a regional sheet does NOT. Wrapping a
+        // sheet-edge stroke would paint phantom cells on the far side of the
+        // page — the canonical tiles pass wrapX=false for exactly that reason.
+        if (!this.wrapX && (raw < 0 || raw >= W)) continue;
+        const wx = (((raw % W) + W) % W);
         fn(wy * W + wx, c, wx, wy);
       }
     }
@@ -245,7 +259,7 @@ class CompactBrush implements Brush {
  * the paint darker wherever the pointer happened to move slowly, and every
  * hand-rolled paint tool has that bug once.
  */
-export function strokeMask(stroke: Stroke, W: number, H: number): Brush | null {
+export function strokeMask(stroke: Stroke, W: number, H: number, wrapX = true): Brush | null {
   const r = Math.max(0.5, stroke.radius);
   const soft = Math.min(1, Math.max(0, stroke.softness ?? 0.6));
   const curve = stroke.curve ?? 'smooth';
@@ -297,7 +311,7 @@ export function strokeMask(stroke: Stroke, W: number, H: number): Brush | null {
       walked += seg[k];
     }
   }
-  return new CompactBrush(mask, x0, y0, w, h, W, H);
+  return new CompactBrush(mask, x0, y0, w, h, W, H, wrapX);
 }
 
 /**
@@ -307,11 +321,13 @@ export function strokeMask(stroke: Stroke, W: number, H: number): Brush | null {
  * handle you grip once, and sweeping it would smear the terrain along the drag
  * instead of carrying it.
  */
-export function maskForOp(op: TerrainOp, stroke: Stroke, W: number, H: number): Brush | null {
+export function maskForOp(
+  op: TerrainOp, stroke: Stroke, W: number, H: number, wrapX = true,
+): Brush | null {
   if (op === 'grab' && stroke.pts.length > 1) {
-    return strokeMask({ ...stroke, pts: stroke.pts.slice(0, 1) }, W, H);
+    return strokeMask({ ...stroke, pts: stroke.pts.slice(0, 1) }, W, H, wrapX);
   }
-  return strokeMask(stroke, W, H);
+  return strokeMask(stroke, W, H, wrapX);
 }
 
 /**
@@ -354,7 +370,7 @@ function arcLengths(pts: { x: number; y: number }[]): { seg: number[]; total: nu
 }
 
 /** How far past its radius a head reaches, as a multiple of it. */
-function tipReach(tip: TipSpec): number {
+export function tipReach(tip: TipSpec): number {
   switch (tip.kind) {
     case 'ridge': return tip.aspect;
     case 'square': return 1.45;

@@ -36,6 +36,63 @@ export interface RegionRenderOptions {
   density?: number;
   title?: string;
   subtitle?: string;
+  /**
+   * Deep display tiles set this so every stochastic choice — tree positions
+   * and shapes, furrow counts, building scatter — is keyed to the GLOBAL canon
+   * lattice instead of drawn from a stream seeded by this window's origin.
+   * Two tiles that show the same hillside then ink it identically, which is
+   * the whole difference between a map and a patchwork. Absent (every pliego
+   * and export): the classic stream, byte-identical output.
+   */
+  tileInk?: TileInk;
+  /** Level-anchored paper for tiles (see cartography/paper.ts). */
+  paperAnchor?: { x: number; y: number; extentX: number; extentY: number };
+}
+
+export interface TileInk {
+  /** World-scoped ink seed — the SAME string for every tile of a world. */
+  seed: string;
+  /** Global canon cell of grid (0,0) — including the margin, x pre-wrap. */
+  gx0: number;
+  gy0: number;
+  /** Canon cells around the world; x hashes wrap here so the seam agrees. */
+  wrapX: number;
+  /**
+   * Contour interval in metres, FIXED by the caller per zoom level. The
+   * pliego picks its interval from its own relief like a real map series —
+   * but tiles have no frame, and neighbouring tiles picking different
+   * intervals would end every contour mid-air at the join.
+   */
+  contourIntervalM: number;
+}
+
+/** Position-keyed uniform draws in [0,1): slot k at global lattice cell. */
+function makeCellHash(ink: TileInk): (x: number, y: number, k: number) => number {
+  let salt = 2166136261 >>> 0;
+  for (let i = 0; i < ink.seed.length; i++) {
+    salt ^= ink.seed.charCodeAt(i);
+    salt = Math.imul(salt, 16777619);
+  }
+  return (x: number, y: number, k: number): number => {
+    const gx = (((ink.gx0 + x) % ink.wrapX) + ink.wrapX) % ink.wrapX;
+    const gy = ink.gy0 + y;
+    let h = (Math.imul(gx | 0, 0x9e3779b1) ^ Math.imul(gy | 0, 0x85ebca77)
+      ^ Math.imul(k | 0, 0xc2b2ae3d) ^ salt) >>> 0;
+    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+    h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
+    h ^= h >>> 15;
+    return (h >>> 0) / 4294967296;
+  };
+}
+
+/** A tiny xorshift stream seeded from two hash draws — gives a symbol its own
+ *  private shape stream that no other symbol's presence can shift. */
+function prngFrom(a: number, b: number): Rng {
+  let st = ((a * 4294967296) ^ ((b * 4294967296) << 13)) >>> 0 || 0x9e3779b9;
+  return () => {
+    st ^= st << 13; st ^= st >>> 17; st ^= st << 5;
+    return (st >>> 0) / 4294967296;
+  };
 }
 
 export interface RegionLayers {
@@ -112,7 +169,8 @@ export function renderRegion(r: RegionData, ctx: Ctx, opts: RegionRenderOptions)
   const RW = r.width - m * 2, RH = r.height - m * 2;
   const sx = W / RW, sy = H / RH;
   const s = Math.min(sx, sy);
-  const seed = `${r.originX.toFixed(2)}:${r.originY.toFixed(2)}`;
+  const ink = opts.tileInk;
+  const seed = ink ? ink.seed : `${r.originX.toFixed(2)}:${r.originY.toFixed(2)}`;
   const rng = createRng(seed, 'region-render');
   const density = opts.density ?? 1;
   const typeScale = opts.typeScale ?? 1;
@@ -127,7 +185,11 @@ export function renderRegion(r: RegionData, ctx: Ctx, opts: RegionRenderOptions)
 
   // ---- paper ---------------------------------------------------------------
   if (L.paper) {
-    const buf = renderPaper({ width: W, height: H, seed, theme, scale: Math.max(W, H) / 1200 });
+    const buf = renderPaper({
+      width: W, height: H, seed, theme,
+      scale: Math.max(W, H) / 1200,
+      anchor: opts.paperAnchor,
+    });
     const img = ctx.createImageData(W, H);
     img.data.set(buf);
     ctx.putImageData(img, 0, 0);
@@ -140,16 +202,16 @@ export function renderRegion(r: RegionData, ctx: Ctx, opts: RegionRenderOptions)
   if (L.cover) paintGround(r, ctx, theme, W, H, L.shading);
 
   // ---- contours ------------------------------------------------------------
-  if (L.contours) drawContours(r, ctx, theme, px, py, s, W, H);
+  if (L.contours) drawContours(r, ctx, theme, px, py, s, W, H, ink?.contourIntervalM, L.labels, !!ink);
 
   // ---- coastline -----------------------------------------------------------
-  drawWaterEdges(r, ctx, theme, px, py, s);
+  drawWaterEdges(r, ctx, theme, px, py, s, !!ink);
 
   // ---- vegetation and surface symbols --------------------------------------
-  if (L.woods) drawVegetation(r, ctx, theme, px, py, s, rng, density);
+  if (L.woods) drawVegetation(r, ctx, theme, px, py, s, rng, density, ink);
 
   // ---- the division of the ground ------------------------------------------
-  if (L.fields) drawEnclosures(r, ctx, theme, px, py, s, rng);
+  if (L.fields) drawEnclosures(r, ctx, theme, px, py, s, rng, ink);
 
   // ---- water ---------------------------------------------------------------
   if (L.water) drawStreams(r, ctx, theme, px, py, s);
@@ -158,7 +220,7 @@ export function renderRegion(r: RegionData, ctx: Ctx, opts: RegionRenderOptions)
   if (L.tracks) drawTracks(r, ctx, theme, px, py, s);
 
   // ---- buildings -----------------------------------------------------------
-  if (L.places) drawPlaces(r, ctx, theme, px, py, s, rng);
+  if (L.places) drawPlaces(r, ctx, theme, px, py, s, rng, ink);
 
   // ---- type ----------------------------------------------------------------
   if (L.labels) drawLabels(r, ctx, theme, px, py, s, W, H, typeScale);
@@ -167,7 +229,9 @@ export function renderRegion(r: RegionData, ctx: Ctx, opts: RegionRenderOptions)
   if (L.legend !== false) drawLegend(r, ctx, theme, W, H);
   if (L.frame) drawSheetFrame(ctx, theme, W, H);
   if (L.scaleBar) drawSheetScale(r, ctx, theme, W, H);
-  drawSheetTitle(r, ctx, theme, W, H, typeScale, opts.title, opts.subtitle);
+  // The cartouche is furniture: it belongs to a PAGE, so it rides the frame
+  // flag. A display tile is not a page and must never carry it.
+  if (L.frame) drawSheetTitle(r, ctx, theme, W, H, typeScale, opts.title, opts.subtitle);
 
   ctx.restore();
 }
@@ -287,9 +351,9 @@ function contourInterval(r: RegionData): number {
 function drawContours(
   r: RegionData, ctx: Ctx, theme: CartoTheme,
   px: (x: number) => number, py: (y: number) => number, s: number,
-  W0: number, H0: number,
+  W0: number, H0: number, fixedIntervalM?: number, withNumbers = true, tiled = false,
 ): void {
-  const interval = contourInterval(r);
+  const interval = fixedIntervalM ?? contourInterval(r);
   if (interval <= 0) return;
   // Contour the LAND only: an isoline that runs out into the sea and back is a
   // bathymetric line pretending to be a hill.
@@ -322,7 +386,12 @@ function drawContours(
     ctx.globalAlpha = bold ? 0.62 : 0.36;
     ctx.lineWidth = Math.max(0.5, s * (bold ? 0.36 : 0.2));
     for (const c of marchingSquares(field, r.width, r.height, level, false)) {
-      if (c.pts.length < 6) continue;
+      // The short-chain cull suppresses one-cell speckle rings. On a TILE the
+      // rule may only judge whole rings: an open fragment is short because the
+      // WINDOW cut it, and culling it here deletes ink the neighbouring tile
+      // draws — the seam then shows half a hillside's contour. Closed rings
+      // are whole in every window that contains them, so that cull stays.
+      if (tiled ? (c.closed && c.pts.length < 6) : c.pts.length < 6) continue;
       const pts = smoothContour(c.pts, c.closed, 2);
       ctx.beginPath();
       ctx.moveTo(px(pts[0].x), py(pts[0].y));
@@ -330,7 +399,7 @@ function drawContours(
       if (c.closed) ctx.closePath();
       ctx.stroke();
 
-      if (!bold || pts.length < 40) continue;
+      if (!withNumbers || !bold || pts.length < 40) continue;
       // Walk the line and drop a number every so often, on the straightest bit
       // available — a number on a hairpin is unreadable at any size.
       let run = 0;
@@ -384,7 +453,7 @@ function drawContours(
 
 function drawWaterEdges(
   r: RegionData, ctx: Ctx, theme: CartoTheme,
-  px: (x: number) => number, py: (y: number) => number, s: number,
+  px: (x: number) => number, py: (y: number) => number, s: number, tiled = false,
 ): void {
   const mask = new Float32Array(r.water.length);
   for (let i = 0; i < mask.length; i++) mask[i] = r.water[i] === 1 ? 1 : 0;
@@ -403,7 +472,9 @@ function drawWaterEdges(
         ctx.globalAlpha = cfg.alpha * Math.pow(cfg.falloff, k - 1) * 0.8;
         ctx.lineWidth = Math.max(1, s * cfg.spacing * 0.34 * k);
         for (const c of cs) {
-          if (c.pts.length < 5) continue;
+          // Tile rule: only whole rings may be culled as speckle — an open
+          // fragment is short because the window cut it (see drawContours).
+          if (tiled ? (c.closed && c.pts.length < 5) : c.pts.length < 5) continue;
           const pts = smoothContour(c.pts, c.closed, 2);
           ctx.beginPath();
           ctx.moveTo(px(pts[0].x), py(pts[0].y));
@@ -418,7 +489,7 @@ function drawWaterEdges(
     ctx.lineWidth = width;
     ctx.globalAlpha = 1;
     for (const c of cs) {
-      if (c.pts.length < 5) continue;
+      if (tiled ? (c.closed && c.pts.length < 5) : c.pts.length < 5) continue;
       const pts = smoothContour(c.pts, c.closed, 2);
       ctx.beginPath();
       ctx.moveTo(px(pts[0].x), py(pts[0].y));
@@ -456,7 +527,7 @@ const PALM_BIOMES = new Set<number>([
 function drawVegetation(
   r: RegionData, ctx: Ctx, theme: CartoTheme,
   px: (x: number) => number, py: (y: number) => number, s: number,
-  rng: Rng, density: number,
+  rng: Rng, density: number, ink?: TileInk,
 ): void {
   const RW = r.width, RH = r.height;
   // One symbol per ~3.4 sheet cells, so a wood reads as a canopy rather than as
@@ -464,10 +535,63 @@ function drawVegetation(
   const step = Math.max(2, Math.round(3.4 / Math.max(0.35, density)));
   const size = Math.max(2.2, s * 2.6);
 
-  type Sym = { x: number; y: number; kind: number; h: number };
+  type Sym = { x: number; y: number; kind: number; h: number; rng?: Rng };
   const syms: Sym[] = [];
 
   const m = r.margin;
+  if (ink) {
+    // Tile mode: the lattice lives on GLOBAL multiples of `step` and every
+    // draw is a position hash — the neighbouring tile computes this exact
+    // forest, tree for tree, shape for shape. The whole grid is walked
+    // (margin included): a canopy centred in the margin still leans its crown
+    // across the tile edge, and the canvas clip ends it exactly where the
+    // neighbour's copy continues it. Each symbol gets a PRIVATE shape stream
+    // (prngFrom) so no symbol's presence can shift another's silhouette.
+    const cell = makeCellHash(ink);
+    const startX = ((-ink.gx0 % step) + step) % step;
+    const startY = ((-ink.gy0 % step) + step) % step;
+    for (let y = startY; y < RH - 1; y += step) {
+      for (let x = startX; x < RW - 1; x += step) {
+        const jx = x + (cell(x, y, 0) - 0.5) * step * 1.35;
+        const jy = y + (cell(x, y, 1) - 0.5) * step * 1.35;
+        const xi = Math.min(RW - 1, Math.max(0, Math.round(jx)));
+        const yi = Math.min(RH - 1, Math.max(0, Math.round(jy)));
+        const i = yi * RW + xi;
+        const c = r.cover[i];
+        if (c === Cover.Sea || c === Cover.Lake) continue;
+        const b = r.biome[i];
+        const gate = cell(x, y, 2);
+        const mk = () => prngFrom(cell(x, y, 6), cell(x, y, 7));
+
+        if (c === Cover.Wood || c === Cover.Coppice) {
+          if (c === Cover.Coppice && gate < 0.45) continue;
+          const thin = r.elevation[i] > 1.1 ? 0.45 : r.elevation[i] > 0.7 ? 0.72 : 0.92;
+          if (cell(x, y, 3) > thin) continue;
+          const conif = CONIFER_BIOMES.has(b) ? 0.86
+            : Math.min(0.8, Math.max(0, (r.elevation[i] - 0.45) * 1.5));
+          const kind = PALM_BIOMES.has(b) ? 2 : cell(x, y, 4) < conif ? 1 : 0;
+          syms.push({
+            x: jx, y: jy, kind,
+            h: size * (c === Cover.Coppice ? 0.7 : 1) * (0.66 + cell(x, y, 5) * 0.78),
+            rng: mk(),
+          });
+        } else if (c === Cover.Marsh && gate < 0.55) {
+          syms.push({ x: jx, y: jy, kind: 3, h: size * 0.8, rng: mk() });
+        } else if (c === Cover.Dune) {
+          syms.push({ x: jx, y: jy, kind: 4, h: size * 1.5, rng: mk() });
+        } else if (c === Cover.Waste && gate < 0.12) {
+          syms.push({ x: jx, y: jy, kind: 5, h: size * 0.8, rng: mk() });
+        } else if (c === Cover.Orchard) {
+          syms.push({ x: jx, y: jy, kind: 0, h: size * 0.6, rng: mk() });
+        } else if ((c === Cover.Scrub || c === Cover.Heath) && gate < 0.2) {
+          syms.push({ x: jx, y: jy, kind: 6, h: size * 0.5, rng: mk() });
+        }
+      }
+    }
+  } else {
+  // Classic sheet: the original stream, draw for draw — every existing pliego
+  // renders byte-identically. Keep this loop in visual lockstep with the tile
+  // branch above when the vocabulary changes.
   for (let y = Math.max(1, m - step); y < r.height - m + step && y < RH - 1; y += step) {
     for (let x = Math.max(1, m - step); x < r.width - m + step && x < RW - 1; x += step) {
       const jx = x + (rng() - 0.5) * step * 1.35;
@@ -510,6 +634,7 @@ function drawVegetation(
       }
     }
   }
+  }
 
   // Painter's order, or the shadows stack wrong and a wood looks flat.
   syms.sort((a, b) => a.y - b.y);
@@ -517,13 +642,14 @@ function drawVegetation(
   for (const sym of syms) {
     ctx.save();
     ctx.translate(px(sym.x), py(sym.y));
+    const sr = sym.rng ?? rng;
     switch (sym.kind) {
-      case 0: drawBroadleaf(ctx, rng, theme, sym.h); break;
-      case 1: drawConifer(ctx, rng, theme, sym.h); break;
-      case 2: drawPalm(ctx, rng, theme, sym.h); break;
-      case 3: drawMarsh(ctx, rng, theme, sym.h); break;
-      case 4: drawDune(ctx, rng, theme, sym.h); break;
-      case 5: drawCactus(ctx, rng, theme, sym.h); break;
+      case 0: drawBroadleaf(ctx, sr, theme, sym.h); break;
+      case 1: drawConifer(ctx, sr, theme, sym.h); break;
+      case 2: drawPalm(ctx, sr, theme, sym.h); break;
+      case 3: drawMarsh(ctx, sr, theme, sym.h); break;
+      case 4: drawDune(ctx, sr, theme, sym.h); break;
+      case 5: drawCactus(ctx, sr, theme, sym.h); break;
       default: {
         // Scrub: two short strokes, the standard "rough grazing" mark.
         ctx.strokeStyle = theme.forest.ink;
@@ -549,7 +675,9 @@ function drawVegetation(
 function drawEnclosures(
   r: RegionData, ctx: Ctx, theme: CartoTheme,
   px: (x: number) => number, py: (y: number) => number, s: number, rng: Rng,
+  ink?: TileInk,
 ): void {
+  const cell = ink ? makeCellHash(ink) : null;
   ctx.save();
   ctx.setLineDash([]);
 
@@ -605,7 +733,18 @@ function drawEnclosures(
       const ax = p[1].x - p[0].x, ay = p[1].y - p[0].y;
       const bx = p[3].x - p[0].x, by = p[3].y - p[0].y;
       const along = Math.hypot(ax, ay) > Math.hypot(bx, by);
-      const n = 3 + Math.floor(rng() * 3);
+      // Tile mode: the furrow count comes from the parcel's own ground (its
+      // centroid on the global lattice), not from a stream another window
+      // would have advanced differently.
+      let furrowDraw: number;
+      if (cell) {
+        let fcx = 0, fcy = 0;
+        for (const q of p) { fcx += q.x; fcy += q.y; }
+        furrowDraw = cell(Math.round(fcx / p.length), Math.round(fcy / p.length), 11);
+      } else {
+        furrowDraw = rng();
+      }
+      const n = 3 + Math.floor(furrowDraw * 3);
       ctx.globalAlpha = 0.3;
       ctx.lineWidth = lw * 0.7;
       for (let k = 1; k < n; k++) {
@@ -716,11 +855,16 @@ function drawTracks(
     } else {
       trace();
       ctx.setLineDash([s * 1.4, s * 1.1]);
+      // Composed windows carry the arc length walked before this run began;
+      // anchoring the dash odometer there keeps the pattern continuous across
+      // display-tile joins. Whole sheets carry no phase (0 — unchanged).
+      ctx.lineDashOffset = -((t.dashPhase ?? 0) * s);
       ctx.strokeStyle = theme.roads.minor;
       ctx.lineWidth = Math.max(0.45, s * 0.24);
       ctx.globalAlpha = 0.7;
       ctx.stroke();
       ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
     }
     ctx.globalAlpha = 1;
   }
@@ -734,6 +878,7 @@ function drawTracks(
 function drawPlaces(
   r: RegionData, ctx: Ctx, theme: CartoTheme,
   px: (x: number) => number, py: (y: number) => number, s: number, rng: Rng,
+  tink?: TileInk,
 ): void {
   ctx.save();
   const ink = theme.settlement.ink;
@@ -743,6 +888,11 @@ function drawPlaces(
   const sorted = [...r.places].sort((a, b) => a.y - b.y);
   for (const p of sorted) {
     const x = px(p.x), y = py(p.y);
+    // Tile mode: every place scatters its buildings from a stream seeded by
+    // its own stable identity, so a hamlet keeps its exact yard layout in
+    // every window that shows it — including the one where it straddles a
+    // tile edge and two renders each draw half.
+    const pr = tink ? createRng(tink.seed, `place:${p.sourceKey}`) : rng;
     ctx.save();
     ctx.translate(x, y);
     ctx.strokeStyle = ink;
@@ -764,14 +914,14 @@ function drawPlaces(
         ctx.stroke();
         const n = 5 + Math.floor(p.importance * 9);
         for (let k = 0; k < n; k++) {
-          const a = rng() * Math.PI * 2, d = Math.sqrt(rng()) * rad * 0.8;
+          const a = pr() * Math.PI * 2, d = Math.sqrt(pr()) * rad * 0.8;
           block(ctx, Math.cos(a) * d, Math.sin(a) * d, u * 0.8, ink, fill);
         }
         break;
       }
       case 'village': {
         for (let k = 0; k < 5; k++) {
-          const a = (k / 5) * Math.PI * 2 + rng(), d = u * (0.5 + rng() * 1.1);
+          const a = (k / 5) * Math.PI * 2 + pr(), d = u * (0.5 + pr() * 1.1);
           block(ctx, Math.cos(a) * d, Math.sin(a) * d, u * 0.72, ink, fill);
         }
         church(ctx, 0, 0, u * 1.05, ink, fill);
@@ -779,7 +929,7 @@ function drawPlaces(
       }
       case 'hamlet': {
         for (let k = 0; k < 3; k++) {
-          const a = (k / 3) * Math.PI * 2 + rng(), d = u * 0.75;
+          const a = (k / 3) * Math.PI * 2 + pr(), d = u * 0.75;
           block(ctx, Math.cos(a) * d, Math.sin(a) * d, u * 0.62, ink, fill);
         }
         break;

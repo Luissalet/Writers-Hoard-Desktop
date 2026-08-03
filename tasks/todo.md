@@ -497,3 +497,166 @@ Incluye: render-adjust pattern en ColorPicker/IconPicker/GlobalSearch/ScriptAuto
 - The configured session-memory graph directory is unavailable on this host;
   `docs/PROJECT_KNOWLEDGE.md` was updated as the repository architecture
   companion. No commit or push was created.
+
+# Worldgen: one world, one camera, one zoom — Google-Maps rework
+
+**Started:** 2026-08-01 · **Approval:** full P4 + "magnum opus" mandate
+**Constraint:** working tree only (no commits/pushes on this machine); every
+increment individually verified in the container gate (tsc app + eslint 0
+warnings) plus numeric harnesses and eyeballed PNGs before delivery.
+
+## P0 — ride-alongs
+
+- [x] CartoMap dropped-settle fix (pending-render ref, rAF finally re-run).
+- [x] Baseline harness: PNGs + timings for carta/satellite/region/3D (A/B reference).
+
+## P1 — one camera + navigation
+
+- [x] `core/camera.ts`: single EARTH_KM=40075 (view-side only; region noise keeps
+      its frozen 40030.17), viewport⇄carta conversions, clamps, `flightAt`
+      (log-span, parabolic bow, seam short-way), `doubleClickTarget`.
+- [x] Carta adopts the shared `WorldViewport` (adopt/report, 180 ms debounce,
+      echo-break epsilon); wheel/pointerdown cancel flights.
+- [x] Double-click = animated zoom-to-point in all three views.
+- [x] Region modal off the navigation path: sheet = export/bookmark, "volar aquí".
+
+## P2 — scale-canonical region engine
+
+- [x] `region/tiles.ts`: canon pinned to the world grid (128@2048 ≈ 152.7 m/cell),
+      supertile 4×4 world cells (~78 km), 640² grid (512² interior + 64 apron),
+      exact origins, x-wrap.
+- [x] Origin-seeded RNGs dead (abbey → wrapped 1/256-lattice hash — also fixed a
+      latent `i += 3` stride bug; render RNG → tile id).
+- [x] `region/tileClient.ts`: nearest-first cover, ≤1024² composites, interior-only
+      cell-exact copy, stream/track remap, dedup.
+- [x] Verified: byte-equal regen per id, overlap equality across request shapes,
+      A/B canon-vs-today PNGs, ms/MB recorded.
+
+## P3 — resolution-independent edits + live painting
+
+- [x] Serialization 1/256 cell (identity on legacy quarter-grid points; corpus
+      replay byte-identical at L0).
+- [x] Canon edit replay: worker gets PRISTINE elevation + edit list, re-applies
+      sculpt ops at canon res (`region/canonEdits.ts`) — no double application.
+- [x] Live stroke preview in 2D (all tools) and 3D trail preview; sub-cell radii
+      legal (km-labelled slider, min 0.125 cell).
+- [x] Painted rivers carved at canon; biome cover overlay honours eraser contract.
+
+## P4 — display-tile pyramid (slice 1 + tramo 2 in progress)
+
+- [x] `cartography/tiles.ts` + `tileStore.ts`: 256 px tiles z2–z8, worker-rendered
+      (OffscreenCanvas), parent-fallback compositor in CartoMap gestures —
+      blurry-then-sharp, never blocking. Labels/furniture stay screen-space.
+- [x] World-anchored paper grain: `PaperOptions.anchor` samples the level's
+      virtual whole-sheet coordinates; vignette skipped for tiles. Tonal step
+      across joins measured Δ mean luminance **0.00** (was a visible band).
+- [x] Position-keyed ink: wobble noise hashed from WORLD position (coast +
+      lakes), paper tooth hashed from virtual-sheet pixel, tone lattice
+      phase-aligned to the level. New harness assert: a tile is pixel-equal to
+      its half of a monolithic render — 0.005/0.012 mean |Δ| (residue is
+      Skia clip-AA on edge-crossing glyphs, documented; every LOGIC leak
+      measures 0.000 exactly).
+- [x] Culling: coast X+Y, lakes, river bbox, road bbox, windowed borders
+      (O(view) instead of O(grid)) — borders+roads tile cost 34→17 ms.
+      Relief/forest cull pads now cover the tallest glyph (edge-pop fix).
+- [x] DEEP ZOOM GROUNDWORK (the renderer side): the pliego renderer now inks
+      identically in any window over the same ground — vegetation on a global
+      hash lattice (position + private per-symbol shape streams), furrows by
+      parcel centroid, buildings by place identity, fixed contour interval
+      per level, dash phase carried through window cuts, window-cut chains
+      exempt from speckle culls, cartouche off tiles, paper level-anchored.
+      Plus `region/composeWindow.ts`: exact canon-lattice window composer
+      (with fields/hedges/dykes; streams/ways smoothed once in cell space
+      before clipping). Root-cause bonus: chain stitching in contours.ts was
+      forward-only and split chains at scan-order seeds — now bidirectional,
+      which also removes latent split-kinks from every pliego/carta line.
+      Measured: two overlapping windows, shared ground mean |Δ| **0.001**
+      (was 2.262), one hot pixel; 2×2 mosaic seam == off-seam; 120-195 ms
+      per 256px tile with canon warm; pliego A/B clean (line realization
+      only). Harness: harness-p4/deep-tiles.ts.
+- [x] Deep zoom WIRED (region/deepTile.ts + worker branch + CartoMap):
+      z10-z12 tiles draw the canon countryside pliego-style — canon supertile
+      LRU (cap 3) per worker session, exact-window compose, strokes re-applied
+      at canon over the PRISTINE world (CartoMap gets canonWorld/canonEdits
+      from WorldView's canonSource; carta levels keep the edited raster).
+      MAX_TILE_Z=12 (~38 m/px), contour ladder 100/50/25 m per level, camera
+      cap derived from the ladder (z12 with canon behind it, z9 without —
+      the camera stops where the data stops). Verified on the SHIPPING
+      renderDeepTile: adjacent z11 tiles join, cache reuse, 220-250 ms warm;
+      window-identity 0.001 remains the hard proof. Style handover at z9/z10
+      = the existing parent-fallback fade (carta blurs up, sheet sharpens in).
+- [x] Deep zoom polish: regional place NAMES ride the tile replies (interior-
+      only, no dedup needed) and are lettered live under their buildings
+      (declutter budget 64, town/village/rest type ramp); world settlement
+      MARKS stand down at deep z. Verified end-to-end in deep-tiles §4
+      ("Majada de Iesgiring" reported with world coords).
+- [x] Pool session AFFINITY: a busy session matching the requested world is
+      waited for, never duplicated (a z10 burst used to clone a second 80 MB
+      world and regenerate the same canon ground twice); two different worlds
+      still coexist under the cap. pool-test: 1 spawn per 14-burst, warm
+      reuse on return.
+- [x] SATELLITE WINDOW (Map2D atlas): past 2.5× the settled view renders one
+      pixel per screen pixel — bilinear fields, per-pixel hillshade, sub-cell
+      coastline, land colours never bleed ocean blue. Kills the 28× nearest-
+      neighbour cliff on the primary painting surface. Identity at 1:1 vs the
+      cell raster: mean |Δ| 0.07. (satwin-test + satwin-live in Chromium.)
+- [x] LIVE TERRAIN SCULPT on the satellite: terrain/land strokes run the same
+      SculptGesture as 3D/sculptor — ground deforms under the brush per move
+      (palette dirty-rect + sharp-window subrect on the same sample lattice),
+      rollback-then-commit on release. Chromium: corridor Δ20.4 mid-drag,
+      exactly one edit.
+- [x] LIVE BIOME PAINT on the satellite: restore-then-restamp per move with
+      EXACTLY applyEdits' overlay rules (filterFor/restriction shared);
+      biome-parity.ts proves live≡replay cell-exact (0/2239). Rollback
+      residue 0.00 in Chromium. Eraser keeps the polyline preview (only the
+      session knows the pre-overlay biome). Live paths arm only when a fresh
+      sharp window can show them — everywhere else the classic preview stays.
+- [ ] Sub-canon stream meanders (L2+ amplification, future).
+- [ ] Placement budget caps per tile (only if profiling asks).
+- [x] LIVE LETTERING: labels + settlement marks are screen entities drawn on
+      EVERY frame (gesture and settle) through one `drawLettering` path — the
+      tiles, the whole-world blit and the settled sheet no longer bake type,
+      so names move with the ground, never pop on settle, never double under
+      a zoomed blit, and marks stop stretching under ancestor fallback.
+      Browser-verified (labels-live.mjs): mid-gesture ink density ≥ settled;
+      overlay costs 3.2 ms/frame (assert < 8). Explicit quarter-octave bucket
+      cache + `nextSemanticTier` hysteresis: deferred until a profile shows
+      the per-frame solve mattering (it re-solves stably today).
+- [x] Satellite sharpness for Map2D — via the settled WINDOW render (above),
+      no tile pyramid needed for the 2D after all.
+- [ ] Delete `glsymbols.ts` (zero importers).
+
+## P5 — 3D real close-up
+
+- [x] Root cause of the "noise": vertex aliasing (mesh point-sampling the 150 m
+      canon field) — band-limited via `uDetailDisp`; per-pixel resolvability gate
+      picks the lighting texel; micro detail relief-gated and deferred below
+      canon; canon albedo (`regionAlbedoCanvas`) gutter-blended at close range.
+- [ ] Perf gate ON THIS MACHINE: wheel-descent + orbit sweep, p95 ≤ 33 ms
+      sustained, no frame > 120 ms. Fallback ladder ends at raising
+      `MIN_SPAN_KM` in `core/camera.ts` (the agreed "scrap" outcome).
+
+## Hotfixes (user-reported, fixed + regression-guarded)
+
+- [x] TDZ mount crash ("Cannot access 'session' before initialization"): ref
+      moved above the memo; permanent WorldView mount smoke added (the gap was
+      harnesses never mounted WorldView itself).
+- [x] "Render process gone" after regenerate: unbounded worker spawn (~80 MB
+      world clone each) → hard session cap 2 + FIFO waiters + idle eviction;
+      burst of 14 → peak 2.
+- [x] Strokes surviving regenerate: same seed keeps strokes (parameter tweaks),
+      NEW seed clears the edit list and persists `[]`.
+- [x] Frankenworld one-frame mismatch: sessionWorld ref gate in canonSource.
+- [x] Pool "reuse inefficiency" was a test artifact: harness fake geography
+      lacked `languages.living`, so every spawn threw and nulls passed a lax
+      assert. Fake fixed, assert hardened; pool proven (2 spawns / 14 requests).
+
+## Pending decisions / on-device work
+
+- [ ] `npm run verify:release` + 32-distance 3D regression suite on this machine.
+- [ ] 2D-view convergence (Luis deciding): recommendation = keep 2D for now
+      (distortion-free brush, projections, WebGL fallback); converge later via
+      ortho top-down mode in World3D.
+- Minor: 2D live terrain sculpt via windowed renderBaseRect; live biome channel
+  via SculptSurface.patch; canon biome overlay ignores slope filter
+  (documented); painted river names only when matching a named world river.
