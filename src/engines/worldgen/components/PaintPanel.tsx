@@ -252,6 +252,16 @@ interface PaintPanelProps {
   busy?: boolean;
 }
 
+/** The brush's reach on the ground, in kilometres. The floor is about one
+ *  canon cell — finer than that the canon cannot draw it either. */
+const BRUSH_MIN_KM = 0.15;
+const BRUSH_MAX_KM = 2500;
+const kmToPos = (km: number): number => Math.round(1000
+  * Math.min(1, Math.max(0, (Math.log(Math.max(BRUSH_MIN_KM, km)) - Math.log(BRUSH_MIN_KM))
+    / (Math.log(BRUSH_MAX_KM) - Math.log(BRUSH_MIN_KM)))));
+const posToKm = (pos: number): number =>
+  Math.exp(Math.log(BRUSH_MIN_KM) + (pos / 1000) * (Math.log(BRUSH_MAX_KM) - Math.log(BRUSH_MIN_KM)));
+
 export default function PaintPanel({
   tool, onChange, strokeCount, canUndo, canRedo, onUndo, onRedo, onClear, onExport,
   cellKm, busy,
@@ -457,23 +467,55 @@ export default function PaintPanel({
 
       {isBrush && (
         <div className="flex flex-col gap-2">
-          <Slider
-            label="Tamaño"
-            value={tool.radius}
-            min={0.125}
-            max={60}
-            step={0.125}
-            format={(v) => {
-              // Below one cell the brush is a REGIONAL tool: the world grid
-              // barely feels it, the canonical tiles rasterise it at ~150 m.
-              if (!cellKm) return v >= 1 ? `${v} celdas` : `${v.toFixed(3)} celdas`;
-              const km = v * cellKm;
-              return v >= 1
-                ? `${Math.round(v)} celdas · ${Math.round(km)} km`
-                : `sub-celda · ${km < 10 ? km.toFixed(1) : Math.round(km)} km`;
-            }}
-            onChange={(v) => set('radius', v)}
-          />
+          {/*
+            THE BRUSH IS A DISTANCE ON THE GROUND, not a count of world cells.
+            It used to run 0,125–60 cells, which on a 1024-wide world means a
+            floor of five kilometres — and the 2D now draws down to 0,6 m per
+            pixel, where a five-kilometre brush is eight screens wide. Cells are
+            an implementation detail of the world raster; what the reader is
+            choosing is how much ground the brush covers, so that is what the
+            control says. Logarithmic, because the useful range runs from a
+            hamlet's fields to a continent.
+
+            Below one world cell the stroke barely marks the world raster and
+            the CANON re-rasterises it properly at ~153 m — which is why a
+            sub-cell brush is a real tool and not a rounding error.
+          */}
+          {cellKm ? (
+            <label className="flex flex-col gap-0.5">
+              <span className="flex justify-between text-[10px] text-white/45">
+                <span>Tamaño</span>
+                <span className="tabular-nums text-white/65">
+                  {(() => {
+                    const km = tool.radius * cellKm;
+                    if (km < 1) return `${Math.round(km * 1000)} m`;
+                    if (km < 10) return `${km.toFixed(1)} km`;
+                    return `${Math.round(km)} km`;
+                  })()}
+                  {tool.radius < 1 && <span className="text-white/35"> · sub-celda</span>}
+                </span>
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={1000}
+                step={1}
+                value={kmToPos(tool.radius * cellKm)}
+                onChange={(e) => set('radius', posToKm(Number(e.target.value)) / cellKm)}
+                className="w-full accent-amber-400"
+              />
+            </label>
+          ) : (
+            <Slider
+              label="Tamaño"
+              value={tool.radius}
+              min={0.02}
+              max={60}
+              step={0.02}
+              format={(v) => (v >= 1 ? `${Math.round(v)} celdas` : `${v.toFixed(3)} celdas`)}
+              onChange={(v) => set('radius', v)}
+            />
+          )}
           <Slider
             label="Fuerza"
             value={tool.strength}

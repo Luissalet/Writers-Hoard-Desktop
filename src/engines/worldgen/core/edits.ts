@@ -187,6 +187,16 @@ export type WorldEdit =
    * Coordinates belong to the override, never to the key.
    */
   | { kind: 'move'; target: EditTarget; key: string; x: number; y: number }
+  /**
+   * How many people live here.
+   *
+   * A settlement's population is generated from its rank and its ground, and
+   * the reader may disagree — a town can be the capital of the story without
+   * being the capital of the map. Stored like a rename: against the thing's
+   * key, replayed on every rebuild, so it survives a stroke, a reopen and a
+   * regeneration of the world from its seed.
+   */
+  | { kind: 'populate'; target: EditTarget; key: string; population: number }
   /** Change only presentation; semantic `type` remains generator-owned. */
   | {
     kind: 'style';
@@ -281,6 +291,8 @@ export interface AppliedEdits {
   rivers: { cells: Uint32Array; flow: number }[];
   /** Generated-object key → the name the reader gave it. */
   renames: Record<string, string>;
+  /** Reader-set populations, by the same key as `renames`. */
+  populations: Record<string, number>;
   /** Keys of generated objects the reader deleted. */
   removed: Set<string>;
   /** Generated-object key → its reader-chosen world-cell coordinates. */
@@ -420,7 +432,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   const W = world.width, H = world.height, N = W * H;
   const out: AppliedEdits = {
     terrainChanged: false, markers: [], labels: [], rivers: [],
-    renames: {}, removed: new Set(), moves: {}, styles: {},
+    renames: {}, populations: {}, removed: new Set(), moves: {}, styles: {},
     roads: [], roadErasers: [],
   };
   if (!edits.length) return out;
@@ -579,6 +591,8 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       out.labels.push({ x: e.x, y: e.y, text: e.text, style: e.style, size: e.size, angle: e.angle });
     } else if (e.kind === 'rename') {
       out.renames[e.key] = e.name;
+    } else if (e.kind === 'populate') {
+      out.populations[e.key] = Math.max(0, Math.round(e.population));
     } else if (e.kind === 'remove') {
       out.removed.add(e.key);
     } else if (e.kind === 'restore') {

@@ -11,6 +11,7 @@
 // Pure data + injected 2D context: the worker feeds an OffscreenCanvas, the
 // harness feeds @napi-rs — the SHIPPING path is the TESTED path.
 
+import { scaleBytes, scaleCount } from '@/utils/capacity';
 import type { WorldData } from '../core/types';
 import type { WorldEdit } from '../core/edits';
 import type { HumanGeography } from '../core/settlements';
@@ -78,8 +79,8 @@ export interface CanonCache {
   order: string[];
   bytes: number;
 }
-export const CANON_CACHE_CAP = 4;
-export const CANON_CACHE_BYTES = 96 * 1024 * 1024;
+export const CANON_CACHE_CAP = scaleCount(4);
+export const CANON_CACHE_BYTES = scaleBytes(96 * 1024 * 1024);
 
 function canonBytes(r: RegionData): number {
   return r.elevation.byteLength + r.water.byteLength + r.flow.byteLength

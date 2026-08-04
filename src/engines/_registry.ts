@@ -72,7 +72,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     description: 'Fiction writers: novels, short stories, sagas',
     icon: PenLine,
     color: '#c4973b',
-    defaultEngines: ['writings', 'codex', 'timeline', 'yarn-board', 'maps', 'gallery', 'outline'],
+    defaultEngines: ['writings', 'codex', 'timeline', 'board', 'maps', 'gallery', 'outline'],
     suggestedEngines: ['worldgen', 'storyboard', 'notes', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit'],
   },
   {
@@ -81,7 +81,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     description: 'Real or fictional biographies',
     icon: BookUser,
     color: '#4a7ec4',
-    defaultEngines: ['biography', 'timeline', 'codex', 'gallery', 'scrapper', 'yarn-board'],
+    defaultEngines: ['biography', 'timeline', 'codex', 'gallery', 'scrapper', 'board'],
     suggestedEngines: ['writings', 'notes', 'diary', 'outline', 'writing-stats', 'relationships'],
   },
   {
@@ -90,7 +90,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     description: 'Investigative journalism, research',
     icon: Globe,
     color: '#c4463a',
-    defaultEngines: ['scrapper', 'timeline', 'yarn-board', 'codex', 'gallery', 'notes'],
+    defaultEngines: ['scrapper', 'timeline', 'board', 'codex', 'gallery', 'notes'],
     suggestedEngines: ['writings', 'biography', 'writing-stats', 'relationships'],
   },
   {
@@ -99,7 +99,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     description: 'Theater, screenwriting, dialog-heavy work',
     icon: MessageSquare,
     color: '#7c5cbf',
-    defaultEngines: ['dialog-scene', 'codex', 'timeline', 'storyboard', 'yarn-board', 'outline'],
+    defaultEngines: ['dialog-scene', 'codex', 'timeline', 'storyboard', 'board', 'outline'],
     suggestedEngines: ['gallery', 'writings', 'notes', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit'],
   },
   {
@@ -109,7 +109,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: Video,
     color: '#4a9e6d',
     defaultEngines: ['video-planner', 'storyboard', 'gallery', 'scrapper', 'timeline'],
-    suggestedEngines: ['yarn-board', 'notes', 'dialog-scene', 'outline', 'writing-stats'],
+    suggestedEngines: ['board', 'notes', 'dialog-scene', 'outline', 'writing-stats'],
   },
   {
     id: 'custom',

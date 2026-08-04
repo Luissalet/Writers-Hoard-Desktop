@@ -920,15 +920,15 @@ function registerIpc(): void {
 // The ceiling is THE MACHINE, not a constant
 // ---------------------------------------------------------------------------
 // Chromium ships with a V8 heap cap sized for web pages (~4 GB). This app
-// scales it to the hardware it is running on: a quarter of physical RAM for
-// the window's process, and each Forge process below gets three quarters.
+// scales it to the hardware it is running on: half of physical RAM for the
+// window's process, and each Forge process below gets three quarters.
 // Memory is only committed as allocated — an idle session costs what it
 // always cost. The engine keeps bounded caches regardless, because a leak is
 // a leak at any ceiling; the ceilings just stop being the story.
 const TOTAL_RAM_MB = Math.floor(os.totalmem() / (1024 * 1024));
 app.commandLine.appendSwitch(
   'js-flags',
-  `--max-old-space-size=${Math.max(4096, Math.floor(TOTAL_RAM_MB / 4))}`,
+  `--max-old-space-size=${Math.max(4096, Math.floor(TOTAL_RAM_MB / 2))}`,
 );
 
 // ---------------------------------------------------------------------------
@@ -959,6 +959,9 @@ ipcMain.on('forge:spawn', (event, payload: { kind?: string } | undefined) => {
         ...process.env,
         // Three quarters of the machine, per process. This is the point.
         NODE_OPTIONS: `--max-old-space-size=${Math.max(8192, Math.floor(TOTAL_RAM_MB * 0.75))}`,
+        // The forge has no preload bridge, so hand it the real figure: its
+        // caches size themselves from this instead of guessing a baseline.
+        WH_TOTAL_RAM_BYTES: String(os.totalmem()),
       },
     });
     forgeChildren.add(child);

@@ -1,3 +1,4 @@
+import { scaleBytes, scaleCount, workerSlots } from '@/utils/capacity';
 import type { HumanGeography } from '../core/settlements';
 import type { TilePlace } from './deepTile';
 import { forgeAvailable, forgeDegraded, spawnForgeWorker } from '../forge/bridge';
@@ -328,6 +329,57 @@ export class RegionWorkerClient {
    * right order of importance for something a gesture repaints per frame
    * from whatever is already resident.
    */
+  /**
+   * Read the canon under one world point, from what is already resident.
+   *
+   * Never generates: the reply is null when this session has not built the
+   * canon tile there yet. That is what makes it safe to call from a hover.
+   */
+  requestProbe(
+    world: WorldData,
+    geography: HumanGeography,
+    wx: number,
+    wy: number,
+    opts: { workerFactory?: RegionWorkerFactory } = {},
+  ): Promise<import('./workerProtocol').RegionProbe | null> {
+    const requestId = `probe-${this.nextRequestId++}`;
+    const factory = opts.workerFactory === undefined ? defaultWorkerFactory : opts.workerFactory;
+    if (!factory) return Promise.resolve(null);
+    // Reuse a session that is ALREADY configured for this world and idle. A
+    // probe must never queue behind a tile, never spin one up, and never make
+    // the reader wait: if there is nothing free, there is no answer.
+    let session: WorkerSession | null = null;
+    for (const candidate of this.sessions) {
+      if (candidate.world === world && candidate.geography === geography
+        && !candidate.activeRequestId) {
+        session = candidate;
+        break;
+      }
+    }
+    if (!session) return Promise.resolve(null);
+    const live = session;
+    return new Promise((resolve) => {
+      const prev = live.worker.onmessage;
+      const cleanup = () => {
+        clearTimeout(timer);
+        live.worker.onmessage = prev;
+      };
+      const timer = setTimeout(() => { cleanup(); resolve(null); }, 400);
+      live.worker.onmessage = (event: MessageEvent) => {
+        const reply = event.data as RegionWorkerReply;
+        if (reply && reply.type === 'probed' && reply.requestId === requestId) {
+          cleanup();
+          resolve(reply.probe);
+          return;
+        }
+        if (prev) (prev as (e: MessageEvent) => void)(event);
+      };
+      live.worker.postMessage({
+        type: 'probe', requestId, contextId: live.contextId, wx, wy,
+      });
+    });
+  }
+
   requestTile(
     world: WorldData,
     geography: HumanGeography,
@@ -339,6 +391,8 @@ export class RegionWorkerClient {
       reliefAmount: number;
       /** Serialized strokes, required for DEEP tiles over a pristine world. */
       edits?: string;
+      /** Paper or ground. Absent = paper, so old callers are unchanged. */
+      ink?: 'carta' | 'satellite';
       workerFactory?: RegionWorkerFactory;
     },
   ): { promise: Promise<RenderedTile | null>; cancel: () => void } {
@@ -448,6 +502,7 @@ export class RegionWorkerClient {
           density: opts.density,
           reliefAmount: opts.reliefAmount,
           edits: opts.edits,
+          ink: opts.ink,
         });
       } catch {
         if (!settled) {
@@ -675,10 +730,13 @@ export class RegionWorkerClient {
 // an 80 MB clone INSIDE the renderer (two was already brave); a Forge session
 // is its own OS process, so four of them generating canon ground in parallel
 // cost this window nothing but ports.
+// Sized from the hardware, not from a constant. A Forge session is its own OS
+// process, so the pool tracks the core count directly; a web-worker session
+// lives inside the renderer, so that path stays at half the cores.
 export const regionClient = new RegionWorkerClient(
-  16,
-  forgeAvailable() ? 4 : 2,
-  256 * 1024 * 1024,
+  scaleCount(16),
+  forgeAvailable() ? workerSlots() : Math.max(2, Math.floor(workerSlots() / 2)),
+  scaleBytes(256 * 1024 * 1024),
 );
 
 export function requestRegion(

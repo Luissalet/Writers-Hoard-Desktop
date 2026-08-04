@@ -66,7 +66,7 @@ export function useGlobalSearch(projectId?: string) {
       ranked.push({ type: 'entity', ...hit });
     }
 
-    return ranked.slice(0, 20);
+    return ranked;
   }, [projectId]);
 
   return { search };

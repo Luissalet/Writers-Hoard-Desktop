@@ -4,9 +4,6 @@ import type {
   CodexEntry,
   Timeline,
   TimelineEvent,
-  YarnBoard,
-  YarnNode,
-  YarnEdge,
   WorldMap,
   MapPin,
   ImageCollection,
@@ -17,6 +14,7 @@ import {
   legacyLinkToSnapshot,
   type LegacyExternalLink,
 } from '@/engines/scrapper/legacyLinks';
+import type { BoardEndpoint } from '@/engines/board/types';
 
 // ===== Projects =====
 
@@ -79,9 +77,8 @@ export async function updateProject(id: string, changes: Partial<Project>): Prom
  * Generic by design: any table with a `projectId` index is wiped
  * automatically, so engines added in the future are covered without touching
  * this function. Child tables that have no `projectId` index (they hang off a
- * parent: yarnEdges, sceneCasts, storyboardConnectors, brainstormConnections,
- * annotationReferences, worldSnapshots) are resolved through their parents
- * first.
+ * parent: sceneCasts, storyboardConnectors, annotationReferences,
+ * worldSnapshots) are resolved through their parents first.
  *
  * Previously this only covered the 13 original tables and silently orphaned
  * ~25 engine tables' rows — which then leaked into global search and
@@ -94,23 +91,16 @@ export async function deleteProject(id: string): Promise<void> {
 
   await db.transaction('rw', db.tables, async () => {
     // --- children without a projectId index: resolve via parent ids ---
-    const [boardIds, sceneIds, storyboardIds, brainstormBoardIds, annotationIds, worldIds] =
-      await Promise.all([
-        db.yarnBoards.where('projectId').equals(id).primaryKeys(),
-        db.scenes.where('projectId').equals(id).primaryKeys(),
-        db.storyboards.where('projectId').equals(id).primaryKeys(),
-        db.brainstormBoards.where('projectId').equals(id).primaryKeys(),
-        db.annotations.where('projectId').equals(id).primaryKeys(),
-        db.generatedWorlds.where('projectId').equals(id).primaryKeys(),
-      ]);
+    const [sceneIds, storyboardIds, annotationIds, worldIds] = await Promise.all([
+      db.scenes.where('projectId').equals(id).primaryKeys(),
+      db.storyboards.where('projectId').equals(id).primaryKeys(),
+      db.annotations.where('projectId').equals(id).primaryKeys(),
+      db.generatedWorlds.where('projectId').equals(id).primaryKeys(),
+    ]);
 
-    if (boardIds.length) await db.yarnEdges.where('boardId').anyOf(boardIds as string[]).delete();
     if (sceneIds.length) await db.sceneCasts.where('sceneId').anyOf(sceneIds as string[]).delete();
     if (storyboardIds.length) {
       await db.storyboardConnectors.where('storyboardId').anyOf(storyboardIds as string[]).delete();
-    }
-    if (brainstormBoardIds.length) {
-      await db.brainstormConnections.where('boardId').anyOf(brainstormBoardIds as string[]).delete();
     }
     if (annotationIds.length) {
       await db.annotationReferences.where('annotationId').anyOf(annotationIds as string[]).delete();
@@ -217,60 +207,6 @@ export async function deleteTimelineEvent(id: string): Promise<void> {
   await db.timelineEvents.delete(id);
 }
 
-// ===== Yarn Boards =====
-export async function getYarnBoards(projectId: string): Promise<YarnBoard[]> {
-  return db.yarnBoards.where('projectId').equals(projectId).toArray();
-}
-
-export async function createYarnBoard(board: YarnBoard): Promise<string> {
-  return db.yarnBoards.add(board);
-}
-
-export async function deleteYarnBoard(id: string): Promise<void> {
-  await db.transaction('rw', [db.yarnBoards, db.yarnNodes, db.yarnEdges], async () => {
-    await db.yarnBoards.delete(id);
-    await db.yarnNodes.where('boardId').equals(id).delete();
-    await db.yarnEdges.where('boardId').equals(id).delete();
-  });
-}
-
-// ===== Yarn Nodes & Edges =====
-export async function getYarnNodes(boardId: string): Promise<YarnNode[]> {
-  return db.yarnNodes.where('boardId').equals(boardId).toArray();
-}
-
-export async function createYarnNode(node: YarnNode): Promise<string> {
-  return db.yarnNodes.add(node);
-}
-
-export async function updateYarnNode(id: string, changes: Partial<YarnNode>): Promise<void> {
-  await db.yarnNodes.update(id, changes);
-}
-
-export async function deleteYarnNode(id: string): Promise<void> {
-  await db.transaction('rw', [db.yarnNodes, db.yarnEdges], async () => {
-    await db.yarnEdges.where('sourceId').equals(id).delete();
-    await db.yarnEdges.where('targetId').equals(id).delete();
-    await db.yarnNodes.delete(id);
-  });
-}
-
-export async function getYarnEdges(boardId: string): Promise<YarnEdge[]> {
-  return db.yarnEdges.where('boardId').equals(boardId).toArray();
-}
-
-export async function createYarnEdge(edge: YarnEdge): Promise<string> {
-  return db.yarnEdges.add(edge);
-}
-
-export async function updateYarnEdge(id: string, changes: Partial<YarnEdge>): Promise<void> {
-  await db.yarnEdges.update(id, changes);
-}
-
-export async function deleteYarnEdge(id: string): Promise<void> {
-  await db.yarnEdges.delete(id);
-}
-
 // ===== World Maps =====
 export async function getWorldMaps(projectId: string): Promise<WorldMap[]> {
   return db.worldMaps.where('projectId').equals(projectId).toArray();
@@ -367,23 +303,22 @@ export async function getAllSettings(): Promise<Record<string, string>> {
 
 // ===== Export / Import =====
 export async function exportProjectData(projectId: string) {
-  const [project, entries, writings, timelines, events, boards, nodes, edges, maps, pins, collections, images] = await Promise.all([
+  const [project, entries, writings, timelines, events, boards, nodes, edges, layers, views, maps, pins, collections, images] = await Promise.all([
     getProject(projectId),
     getCodexEntries(projectId),
     getWritings(projectId),
     getTimelines(projectId),
     db.timelineEvents.where('projectId').equals(projectId).toArray(),
-    getYarnBoards(projectId),
-    db.yarnNodes.where('projectId').equals(projectId).toArray(),
-    db.yarnEdges.toArray(), // Filter client-side
+    db.boards.where('projectId').equals(projectId).toArray(),
+    db.boardNodes.where('projectId').equals(projectId).toArray(),
+    db.boardEdges.where('projectId').equals(projectId).toArray(),
+    db.boardLayers.where('projectId').equals(projectId).toArray(),
+    db.boardViews.where('projectId').equals(projectId).toArray(),
     getWorldMaps(projectId),
     db.mapPins.where('projectId').equals(projectId).toArray(),
     getImageCollections(projectId),
     getInspirationImages(projectId),
   ]);
-
-  const boardIds = new Set(boards.map(b => b.id));
-  const filteredEdges = edges.filter(e => boardIds.has(e.boardId));
 
   return {
     project,
@@ -391,9 +326,11 @@ export async function exportProjectData(projectId: string) {
     writings,
     timelines,
     timelineEvents: events,
-    yarnBoards: boards,
-    yarnNodes: nodes,
-    yarnEdges: filteredEdges,
+    boards,
+    boardNodes: nodes,
+    boardEdges: edges,
+    boardLayers: layers,
+    boardViews: views,
     worldMaps: maps,
     mapPins: pins,
     imageCollections: collections,
@@ -422,7 +359,8 @@ export async function importProjectData(
 
   await db.transaction('rw', [
     db.projects, db.codexEntries, db.writings, db.timelines, db.timelineEvents,
-    db.yarnBoards, db.yarnNodes, db.yarnEdges, db.worldMaps, db.mapPins,
+    db.boards, db.boardNodes, db.boardEdges, db.boardLayers, db.boardViews,
+    db.worldMaps, db.mapPins,
     db.imageCollections, db.inspirationImages, db.snapshots,
   ], async () => {
     // Project
@@ -458,29 +396,65 @@ export async function importProjectData(
       });
     }
 
-    // Yarn boards
-    for (const b of data.yarnBoards || []) {
-      await db.yarnBoards.add({ ...b, id: remap(b.id, 'board'), projectId: newProjectId });
+    // Boards
+    for (const b of data.boards || []) {
+      await db.boards.add({ ...b, id: remap(b.id, 'board'), projectId: newProjectId });
     }
 
-    // Yarn nodes
-    for (const n of data.yarnNodes || []) {
-      await db.yarnNodes.add({
-        ...n,
-        id: remap(n.id, 'ynode'),
+    for (const layer of data.boardLayers || []) {
+      await db.boardLayers.add({
+        ...layer,
+        id: remap(layer.id, 'blayer'),
         projectId: newProjectId,
-        boardId: remap(n.boardId, 'board'),
+        boardId: remap(layer.boardId, 'board'),
       });
     }
 
-    // Yarn edges
-    for (const e of data.yarnEdges || []) {
-      await db.yarnEdges.add({
+    for (const n of data.boardNodes || []) {
+      await db.boardNodes.add({
+        ...n,
+        id: remap(n.id, 'bnode'),
+        projectId: newProjectId,
+        boardId: remap(n.boardId, 'board'),
+        layerId: n.layerId ? remap(n.layerId, 'blayer') : undefined,
+      });
+    }
+
+    // Relations carry endpoint lists, and an endpoint may be another
+    // relation — so both id spaces have to be remapped, not just the two
+    // denormalised index fields.
+    const remapEndpoint = (endpoint: BoardEndpoint): BoardEndpoint => ({
+      on: endpoint.on,
+      id: remap(endpoint.id, endpoint.on === 'node' ? 'bnode' : 'bedge'),
+    });
+    for (const e of data.boardEdges || []) {
+      const sources = (e.sources || []).map(remapEndpoint);
+      const targets = (e.targets || []).map(remapEndpoint);
+      await db.boardEdges.add({
         ...e,
-        id: remap(e.id, 'edge'),
+        id: remap(e.id, 'bedge'),
+        projectId: newProjectId,
         boardId: remap(e.boardId, 'board'),
-        sourceId: remap(e.sourceId, 'ynode'),
-        targetId: remap(e.targetId, 'ynode'),
+        sources,
+        targets,
+        sourceId: sources[0]?.id ?? '',
+        targetId: targets[0]?.id ?? '',
+        layerId: e.layerId ? remap(e.layerId, 'blayer') : undefined,
+      });
+    }
+
+    for (const view of data.boardViews || []) {
+      await db.boardViews.add({
+        ...view,
+        id: remap(view.id, 'bview'),
+        projectId: newProjectId,
+        boardId: remap(view.boardId, 'board'),
+        layerIds: (view.layerIds || []).map((id) => remap(id, 'blayer')),
+        positions: view.positions
+          ? Object.fromEntries(
+              Object.entries(view.positions).map(([id, position]) => [remap(id, 'bnode'), position]),
+            )
+          : undefined,
       });
     }
 
@@ -533,15 +507,17 @@ export async function importProjectData(
 
 // ===== Full Database Export / Import (all projects) =====
 export async function exportFullDatabase() {
-  const [projects, codexEntries, writings, timelines, timelineEvents, yarnBoards, yarnNodes, yarnEdges, worldMaps, mapPins, imageCollections, inspirationImages, tags, settings] = await Promise.all([
+  const [projects, codexEntries, writings, timelines, timelineEvents, boards, boardNodes, boardEdges, boardLayers, boardViews, worldMaps, mapPins, imageCollections, inspirationImages, tags, settings] = await Promise.all([
     db.projects.toArray(),
     db.codexEntries.toArray(),
     db.writings.toArray(),
     db.timelines.toArray(),
     db.timelineEvents.toArray(),
-    db.yarnBoards.toArray(),
-    db.yarnNodes.toArray(),
-    db.yarnEdges.toArray(),
+    db.boards.toArray(),
+    db.boardNodes.toArray(),
+    db.boardEdges.toArray(),
+    db.boardLayers.toArray(),
+    db.boardViews.toArray(),
     db.worldMaps.toArray(),
     db.mapPins.toArray(),
     db.imageCollections.toArray(),
@@ -558,9 +534,11 @@ export async function exportFullDatabase() {
     writings,
     timelines,
     timelineEvents,
-    yarnBoards,
-    yarnNodes,
-    yarnEdges,
+    boards,
+    boardNodes,
+    boardEdges,
+    boardLayers,
+    boardViews,
     worldMaps,
     mapPins,
     imageCollections,
@@ -588,9 +566,11 @@ export async function importFullDatabase(
     if (data.writings?.length) await db.writings.bulkAdd(data.writings);
     if (data.timelines?.length) await db.timelines.bulkAdd(data.timelines);
     if (data.timelineEvents?.length) await db.timelineEvents.bulkAdd(data.timelineEvents);
-    if (data.yarnBoards?.length) await db.yarnBoards.bulkAdd(data.yarnBoards);
-    if (data.yarnNodes?.length) await db.yarnNodes.bulkAdd(data.yarnNodes);
-    if (data.yarnEdges?.length) await db.yarnEdges.bulkAdd(data.yarnEdges);
+    if (data.boards?.length) await db.boards.bulkAdd(data.boards);
+    if (data.boardNodes?.length) await db.boardNodes.bulkAdd(data.boardNodes);
+    if (data.boardEdges?.length) await db.boardEdges.bulkAdd(data.boardEdges);
+    if (data.boardLayers?.length) await db.boardLayers.bulkAdd(data.boardLayers);
+    if (data.boardViews?.length) await db.boardViews.bulkAdd(data.boardViews);
     if (data.worldMaps?.length) await db.worldMaps.bulkAdd(data.worldMaps);
     if (data.mapPins?.length) await db.mapPins.bulkAdd(data.mapPins);
     if (data.imageCollections?.length) await db.imageCollections.bulkAdd(data.imageCollections);

@@ -61,8 +61,8 @@ export const BUILT_IN_RECIPES: ProjectRecipe[] = [
     name: 'Research dossier',
     description: 'Capture sources, map facts, annotate evidence, and draft findings.',
     mode: 'reporter',
-    enabledEngines: ['scrapper', 'notes', 'codex', 'timeline', 'biography', 'relationships', 'yarn-board', 'writings', 'annotations'],
-    engineOrder: ['scrapper', 'notes', 'codex', 'timeline', 'biography', 'relationships', 'yarn-board', 'writings', 'annotations'],
+    enabledEngines: ['scrapper', 'notes', 'codex', 'timeline', 'biography', 'relationships', 'board', 'writings', 'annotations'],
+    engineOrder: ['scrapper', 'notes', 'codex', 'timeline', 'biography', 'relationships', 'board', 'writings', 'annotations'],
   },
   {
     id: 'recipe-screen',

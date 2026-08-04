@@ -12,6 +12,7 @@
 // is the same contract the world itself keeps — seed + params + edits — applied
 // one scale down.
 
+import { scaleCount } from '@/utils/capacity';
 import type { HumanGeography } from '../core/settlements';
 import type { WorldData } from '../core/types';
 import { buildNaturalCover, applyHabitation } from './cover';
@@ -21,6 +22,7 @@ import { buildFields } from './fields';
 import { buildLandmarks } from './landmarks';
 import {
   buildElevation, buildHydrology, carveWorldRivers, erodeSheet, extractStreams,
+  patchBilinear, type WorldPatch,
   extractPatch, kmPerWorldCell, regionGeometry, visibleRect, type RegionGeometry,
 } from './terrain';
 import { DEFAULT_REGION_PARAMS, type RegionData, type RegionParams, type RegionWindow } from './types';
@@ -59,7 +61,7 @@ export interface RegionBuildOptions {
  */
 interface RegionCache { rev: number; order: string[]; map: Map<string, RegionData> }
 const CACHE = new WeakMap<WorldData, RegionCache>();
-const CACHE_LIMIT = 8;
+const CACHE_LIMIT = scaleCount(8);
 
 function cacheKey(g: RegionGeometry, params: RegionParams): string {
   return `${g.originX.toFixed(6)}:${g.originY.toFixed(6)}:${g.worldPerCellX.toFixed(9)}`
@@ -103,6 +105,7 @@ export function generateRegion(
   // running the incision over them deepens their valleys rather than inventing
   // rival ones beside them.
   const rivers = carveWorldRivers(world, g, elevation);
+  anchorCoastline(world, g, patch, elevation);
   erodeSheet(elevation, g.width, g.height, g.metresPerCell, 3, 0.0055 * params.detail);
 
   p('cauces', 0.42);
@@ -292,4 +295,58 @@ function sheetTitle(
   const subtitle = `${Math.round(win.spanKm)} × ${Math.round(spanY)} km · ${Math.round(g.metresPerCell)} m por celda · ≈ 1:${scale.toLocaleString('es-ES')}`;
   void params;
   return { title, subtitle };
+}
+
+/**
+ * Keep the sheet's shoreline where the world put it.
+ *
+ * The amplifier invents ±60 m of relief, which near sea level is enough to
+ * decide sea or land on its own — and it did. Measured on a coastal tile: the
+ * canon disagreed with the world about water on 24 % of the ground. Every one
+ * of those disagreements sat within 50 m of sea level, so none of them was
+ * absurd; but a wide estuary that the whole-world map draws, and that the
+ * reader has been looking at, must not evaporate when they zoom into it. That
+ * discontinuity is what makes regional detail read as a different planet.
+ *
+ * The rule is the same one the shallow tiles keep: the world decides sea or
+ * land, the amplification decides exactly where the line runs. "Exactly where"
+ * is bounded — the shoreline may wander within about half a world cell of the
+ * world's own zero contour, measured through the local gradient (|h| / |∇h| is
+ * the distance to the contour, in cells). Beyond that band the sign is pinned,
+ * by the smallest correction that pins it, so relief everywhere else is
+ * untouched and no flat pan appears at the boundary.
+ *
+ * Inland this does nothing at all: a tile a thousand metres up has no cell
+ * within half a cell of the coast. Measured: 0,0 % change on inland tiles.
+ */
+function anchorCoastline(
+  world: WorldData, g: RegionGeometry, patch: WorldPatch, elevation: Float32Array,
+): void {
+  const W = g.width, H = g.height;
+  /** How far the shoreline may wander from the world's contour, in world cells. */
+  const BAND = 0.5;
+  for (let y = 0; y < H; y++) {
+    const wy = g.originY + (y + 0.5) * g.worldPerCellY;
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      const e = elevation[i];
+      const wx = g.originX + (x + 0.5) * g.worldPerCellX;
+      const h = patchBilinear(patch, patch.elev, wx, wy);
+      // Same sign: nothing to decide.
+      if ((h > 0) === (e > 0)) continue;
+      // Distance to the world's own coastline, in world cells. A flat shelf has
+      // a tiny gradient and therefore a huge band, which is right: there the
+      // world genuinely does not know, and the amplifier should be free.
+      const gx = (patchBilinear(patch, patch.elev, wx + 0.5, wy)
+        - patchBilinear(patch, patch.elev, wx - 0.5, wy));
+      const gy = (patchBilinear(patch, patch.elev, wx, wy + 0.5)
+        - patchBilinear(patch, patch.elev, wx, wy - 0.5));
+      const grad = Math.hypot(gx, gy);
+      if (grad < 1e-6) continue;
+      if (Math.abs(h) / grad <= BAND) continue; // inside the band: let it wander
+      // Outside it: pin the sign with the smallest possible nudge.
+      elevation[i] = h > 0 ? 0.0006 : -0.0006;
+    }
+  }
+  void world;
 }

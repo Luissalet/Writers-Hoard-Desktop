@@ -55,8 +55,14 @@ function bilinearWrapped(
   const ty = v * height - 0.5;
   const x0 = Math.floor(tx);
   const y0 = Math.floor(ty);
-  const fx = tx - x0;
-  const fy = ty - y0;
+  // Los mismos pesos suavizados que usa `baseHeightAt` en el shader. Si la
+  // CPU y la GPU reconstruyeran el terreno de forma distinta, la cámara se
+  // apoyaría en un suelo que no es el que se ve, y el ratón señalaría un
+  // punto que no es donde está — sub-celda, pero real. Una superficie, una
+  // fórmula, los dos lados.
+  const sx = tx - x0, sy = ty - y0;
+  const fx = sx * sx * (3 - 2 * sx);
+  const fy = sy * sy * (3 - 2 * sy);
   const ax = ((x0 % width) + width) % width;
   const bx = (((x0 + 1) % width) + width) % width;
   const ay = Math.min(height - 1, Math.max(0, y0));
@@ -123,6 +129,27 @@ const HEIGHT_FN = /* glsl */`
 float baseHeightAt(vec2 uv) {
   vec2 t = uv * uGrid - 0.5;
   vec2 f = fract(t);
+  // Pesos SUAVIZADOS, no lineales. Y es la diferencia entre un mundo que
+  // parece hecho de cubos y uno que no.
+  //
+  // La interpolación bilineal pura da una superficie continua pero con
+  // DERIVADA a saltos: dentro de cada celda el gradiente es constante, y
+  // cambia de golpe al cruzar al vecino. Como la normal de esta superficie
+  // sale de diferencias centradas sobre ese campo, la iluminación queda
+  // constante por celda — y lo que se ve son facetas cuadradas de veinte
+  // kilómetros, que es exactamente lo que Luis llamó "vergonzosamente
+  // pixelado". No era falta de malla ni de textura: era el filtro de
+  // reconstrucción.
+  //
+  // Con f = f*f*(3-2f) los pesos llegan a los bordes de celda con derivada
+  // nula, el gradiente cruza de forma continua y las facetas desaparecen.
+  // El valor EN el centro de cada celda no se toca (f=0 y f=1 siguen dando
+  // 0 y 1), así que el terreno sigue pasando por los datos del generador y
+  // heightAtCell sigue devolviendo lo mismo: cambia cómo se rellena entre
+  // celdas, no lo que hay en ellas.
+  // (Sin comillas invertidas en este comentario: vive dentro de un template
+  //  literal de JavaScript y una sola cerraría el shader entero.)
+  f = f * f * (3.0 - 2.0 * f);
   ivec2 i = ivec2(floor(t));
   int gw = int(uGrid.x);
   int gh = int(uGrid.y);
@@ -136,6 +163,56 @@ float baseHeightAt(vec2 uv) {
   float h11 = texelFetch(uHeight, ivec2(bx, by), 0).r;
   return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
 }
+
+/** Value noise on a 2D lattice, cheap and continuous. */
+float ampHash(vec2 p) {
+  vec3 q = fract(vec3(p.xyx) * 0.1031);
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+float ampNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(ampHash(i), ampHash(i + vec2(1.0, 0.0)), f.x),
+             mix(ampHash(i + vec2(0.0, 1.0)), ampHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
+/**
+ * RELIEVE POR DEBAJO DE LA CELDA DEL MUNDO.
+ *
+ * El campo de alturas tiene una muestra cada veinte kilómetros. Entre dos
+ * muestras no hay NADA, y por muy fina que sea la malla lo único que puede
+ * hacer es interpolar: acercarse no revela ladera, revela la misma rampa vista
+ * más de cerca. Eso es lo que quedaba de "vergonzosamente pixelado" después de
+ * arreglar el filtro de reconstrucción — ya no había facetas, pero tampoco
+ * había montaña.
+ *
+ * Aquí se inventa, como lo inventa el canon para el 2D: fractal, sumado al
+ * campo real, con la amplitud gobernada por lo escarpado que YA es el sitio
+ * (una llanura sigue llana, una cordillera gana espolones y vaguadas) y
+ * apagado en el mar. Y limitado en banda por el tamaño de la ventana: a vista
+ * de planeta la malla no puede llevar una onda de tres kilómetros, así que no
+ * se dibuja — se pediría un pico por vértice y saldría un campo de púas.
+ *
+ * No es el canon: es del mismo carácter, no del mismo ruido. Esta vista dibuja
+ * la topografía a grandes rasgos; el terreno exacto a 153 m lo dibuja el 2D.
+ */
+float subCellRelief(vec2 uv, float base) {
+  if (uAmpDetail <= 0.0 || base <= 0.0) return 0.0;
+  float band = 1.0 - smoothstep(0.06, 0.34, uUVSize.x);
+  if (band <= 0.0) return 0.0;
+  vec2 d = 1.0 / uGrid;
+  float hx = baseHeightAt(uv + vec2(d.x, 0.0)) - baseHeightAt(uv - vec2(d.x, 0.0));
+  float hy = baseHeightAt(uv + vec2(0.0, d.y)) - baseHeightAt(uv - vec2(0.0, d.y));
+  float rough = min(1.0, length(vec2(hx, hy)) * 1.6);
+  float land = smoothstep(0.0, 0.04, base);
+  float amp = uAmpDetail * (0.10 + 0.90 * rough) * land * band;
+  vec2 q = uv * uGrid;
+  float n = ampNoise(q * 5.0) * 0.55 + ampNoise(q * 11.3) * 0.30 + ampNoise(q * 23.7) * 0.15;
+  return (n * 2.0 - 1.0) * amp;
+}
+
+float heightAtDisp(vec2 uv, float disp);
 
 float detailHeightAt(vec2 localUV) {
   vec2 t = localUV * uDetailGrid - 0.5;
@@ -151,7 +228,7 @@ float detailHeightAt(vec2 localUV) {
   return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
 }
 
-float heightAtDisp(vec2 uv, float disp) {
+float heightAtDispRaw(vec2 uv, float disp) {
   float base = baseHeightAt(uv);
   if (uDetailOn < 0.5 || disp <= 0.001) return base;
   float wrappedX = uv.x - uDetailOrigin.x;
@@ -171,6 +248,14 @@ float heightAtDisp(vec2 uv, float disp) {
 
 float heightAt(vec2 uv) {
   return heightAtDisp(uv, 1.0);
+}
+
+/** The height the whole scene agrees on: the generator's field plus whatever
+ *  sub-cell relief this window can carry. Vertices and normals both come
+ *  through here, so the lighting cannot disagree with the shape. */
+float heightAtDisp(vec2 uv, float disp) {
+  float base = heightAtDispRaw(uv, disp);
+  return base + subCellRelief(uv, base);
 }
 
 /** Where a world uv sits in the scene, on whichever shape is showing. */
@@ -206,6 +291,7 @@ uniform float uSizeZ;
 uniform float uGlobeRelief;
 uniform vec2  uUVMin;        // the window of the world this grid covers
 uniform vec2  uUVSize;
+uniform float uAmpDetail;    // km of invented sub-cell relief, at full roughness
 
 out vec2 vUV;
 out float vElev;
@@ -254,6 +340,7 @@ uniform float uSizeZ;
 uniform float uGlobeRelief;
 uniform vec2  uUVMin;
 uniform vec2  uUVSize;
+uniform float uAmpDetail;    // km of invented sub-cell relief, at full roughness
 uniform vec3  uSun;
 uniform vec2  uBrush;        // in cells
 uniform float uBrushR;       // in cells
@@ -265,8 +352,36 @@ uniform float uTipJitter;
 uniform float uTipAspect;
 uniform float uContour;      // km between contour lines, 0 = none
 uniform float uSea;
+uniform float uSmoothSea;  // 1 = el mar se colorea desde la altura, no del raster
 uniform float uClay;         // 0 = the world's colours, 1 = clay
 uniform float uAlbedoOn;     // 1 = take the colour from uAlbedo
+// The window of the WORLD the albedo covers. (0,0)–(1,1) is the whole planet,
+// which is what a single world-wide raster is. A raster rendered for the
+// camera's own window sets these instead, and then a texel is a screen pixel
+// rather than twenty kilometres of ground.
+uniform vec2  uAlbedoMin;
+uniform vec2  uAlbedoSize;
+// ---------------------------------------------------------------------------
+// LA SEGUNDA PIEL: la ventana de la cámara, encima de la del mundo entero.
+// ---------------------------------------------------------------------------
+// uAlbedo es un ráster de TODO el planeta, así que un téxel son veinte
+// kilómetros de suelo pase lo que pase. Acercarse no revela nada: revela el
+// mismo téxel más grande. Eso es el "pixelado" de los biomas y los ríos.
+//
+// Aquí entra una segunda textura que cubre SÓLO lo que la cámara está mirando,
+// dibujada por la misma pirámide de teselas que el 2D. La de mundo entero se
+// queda debajo, intacta: es el respaldo que siempre está y siempre es correcto
+// —el otro lado del globo, el primer fotograma, el instante después de mover—
+// y la de la ventana se funde encima con un borde suave, así que una ventana
+// que llega tarde o se queda corta no puede producir un corte, sólo menos
+// nitidez en el borde. Ese fundido es la diferencia entre esto y sustituir
+// uAlbedo por la ventana, que es lo que se intentó antes: allí, en cuanto la
+// malla se salía de la ventana, el muestreo se pegaba al borde y embarraba.
+uniform sampler2D uZoom;
+uniform float uZoomOn;
+uniform vec2  uZoomMin;      // esquina noroeste de la ventana, en uv de mundo
+uniform vec2  uZoomSize;     // su extensión, en las mismas unidades
+uniform float uZoomFade;     // ancho del borde suave, en fracción de la ventana
 uniform float uFlatLight;    // 1 = the skin already carries its own shading
 uniform float uDetail;       // 0–1 how much invented close-range relief
 uniform float uCavity;       // strength of the crease darkening
@@ -477,6 +592,14 @@ void main() {
   // sculpting program has it and it is why their clay looks like clay.
   float lap = (hxp + hxm + hyp + hym) * 0.25 - heightAt(vUV);
   float cav = clamp(lap * uYMul / max(1e-5, uSizeX * texel.x) * 6.0, -1.0, 1.0);
+  // BAJO EL AGUA, NADA DE CAVIDAD. La normal ya se endereza con la profundidad
+  // (ver más arriba: el fondo oceánico tiene CUATRO VECES el desnivel por celda
+  // que la tierra firme), pero la cavidad seguía leyendo ese mismo ruido y
+  // pintándolo como oscurecimiento por celda. Eso es el mosaico de cuadrados
+  // azules que se veía en toda la plataforma: no era la textura ni la malla,
+  // era el realce de hondonadas aplicado a una batimetría de veinte kilómetros
+  // por muestra. La misma rampa de profundidad que endereza la normal lo apaga.
+  if (underwater) cav *= 1.0 - smoothstep(0.0, 0.08, uSea - e) * 0.97;
 
   // ---- invented relief, only once you are close ---------------------------
   //
@@ -545,13 +668,95 @@ void main() {
     }
   }
 
+  // ---- el fondo del mar se hunde en el agua -------------------------------
+  //
+  // Medido sobre el mundo por defecto: el suelo oceánico tiene CUATRO VECES
+  // el desnivel por celda que la tierra firme (mediana 1,04e-2 km frente a
+  // 2,77e-3). Iluminado a plena luz y visto a través de un agua medio
+  // transparente, ese ruido a escala de celda es lo que salía como un mar de
+  // cuadrados — y era, con diferencia, lo más feo de la vista 3D. La tierra,
+  // con datos cinco veces más suaves, siempre se vio bien.
+  //
+  // Así que la normal se endereza con la PROFUNDIDAD. En la plataforma
+  // continental el relieve se sigue leyendo, que es donde de verdad importa
+  // (un banco, una fosa junto a la costa); hacia el mar abierto la superficie
+  // se aplana hasta quedar lisa, exactamente como el agua real esconde su
+  // fondo. No se toca ni un dato: sólo se deja de fingir que se ve el abismo.
+  // (La normal de reposo NO puede llamarse "flat": es palabra reservada de
+  //  GLSL —el cualificador de interpolación— y el shader entero deja de
+  //  compilar. Cuando eso pasa, la malla del terreno no dibuja y lo único que
+  //  queda en pantalla es el plano del mar: un mundo liso y azul.)
+  if (underwater) {
+    // Se aplana DESDE EL PRIMER METRO, no a partir de los quinientos.
+    //
+    // El primer intento desvanecia el relieve submarino entre 20 y 550 m, y
+    // no valio de nada: medido con la sonda de camara, las manchas cuadradas
+    // vivian en la PLATAFORMA —agua de menos de trescientos metros, que en
+    // este mundo ocupa media pantalla— y alli el desvanecido apenas actuaba.
+    // Con el umbral a ochenta metros el fondo queda liso en cuanto deja de
+    // ser playa, y lo que cuenta la profundidad pasa a ser el color, que ya
+    // sube despacio. Lo que se pierde: el sombreado de un banco de arena, que
+    // a esta escala nadie estaba leyendo. Lo que se gana: un mar que parece
+    // agua en vez de una plancha de azulejos.
+    float depth = smoothstep(0.0, 0.08, uSea - e);
+    vec3 stillNormal = uShape < 0.5 ? vec3(0.0, 1.0, 0.0) : normalize(vWorld);
+    n = normalize(mix(n, stillNormal, depth * 0.97));
+  }
+
   // ---- colour -------------------------------------------------------------
   vec3 col;
-  if (uAlbedoOn > 0.5) {
+  if (uAlbedoOn > 0.5 && underwater && uSmoothSea > 0.5) {
+    // EL MAR SE PINTA DESDE LA ALTURA, no desde el raster.
+    //
+    // El raster del atlas lleva un texel por celda de mundo, y colorea el
+    // oceano por franjas de profundidad. Magnificado, esas franjas salen como
+    // escalones cuadrados de veinte kilometros pegados a cada costa — el
+    // ultimo resto visible del "pixelado", una vez arreglada la luz. Aqui hay
+    // algo mejor a mano: el campo de alturas ya se reconstruye suave, asi que
+    // la misma rampa de profundidad calculada por pixel sale continua por
+    // construccion, sin escalon posible.
+    //
+    // Sólo para la piel de satelite (uSmoothSea): el mar de pergamino de la
+    // carta es un dibujo y se respeta tal cual viene.
+    // LA RAMPA ARRANCA PLANA, y ese es todo el truco.
+    //
+    // La curva de antes, pow(d, 0.45), sube a plomo nada mas pasar la orilla:
+    // cuarenta metros de profundidad ya movian el color un cinco por ciento.
+    // Como el fondo cambia una decena de metros de una celda a la vecina, esa
+    // pendiente convertia el ruido batimetrico en moteado — y a tres pixeles
+    // por celda, que es lo que da un encuadre de cinco mil kilometros, el
+    // moteado se lee como cuadros.
+    //
+    // d*d*(3-2d) tiene DERIVADA CERO en el cero: en el bajio el color casi no
+    // se mueve por mucho que el fondo tiemble, y la profundidad se nota donde
+    // de verdad hay diferencia que contar, mar adentro. Mismo dato, misma
+    // paleta; lo unico que cambia es que el color deja de amplificar ruido.
+    //
+    // LOS COLORES SON LOS DE OCEAN_STOPS (core/render.ts), no unos parecidos.
+    // Desde que la piel de cerca también pinta el agua, el mismo mar se colorea
+    // por dos caminos —esta rampa fuera del bloque, la tesela dentro— y dos
+    // azules distintos ponen un halo enorme y difuso alrededor del bloque. La
+    // curva sigue siendo la de aquí, que es la que no amplifica el ruido del
+    // fondo; lo que se toma prestado son los extremos.
+    float d = clamp((uSea - e) / 3.4, 0.0, 1.0);
+    float t = d * d * (3.0 - 2.0 * d);
+    col = mix(vec3(0.290, 0.565, 0.678), vec3(0.063, 0.169, 0.259), t);
+    // La orla del bajio, ancha y suave por la misma razon.
+    col = mix(col, vec3(0.42, 0.66, 0.75), smoothstep(0.30, 0.0, uSea - e) * 0.35);
+  } else if (uAlbedoOn > 0.5) {
     // A finished map — the satellite raster or the drawn carta — laid over the
     // relief. Its own coastlines, rivers and ice are already in it, so none of
     // the elevation-driven colouring below applies.
-    col = texture(uAlbedo, vec2(fract(vUV.x), clamp(vUV.y, 0.0005, 0.9995))).rgb;
+    vec2 aw = vec2(fract(vUV.x), clamp(vUV.y, 0.0005, 0.9995));
+    // Take the wrapped branch nearest the window, or a texture covering a strip
+    // across the seam samples a world away on one side of it.
+    if (uAlbedoSize.x < 0.999) {
+      float ax = aw.x;
+      if (ax - uAlbedoMin.x > 0.5) ax -= 1.0;
+      if (ax - uAlbedoMin.x < -0.5) ax += 1.0;
+      aw.x = ax;
+    }
+    col = texture(uAlbedo, clamp((aw - uAlbedoMin) / uAlbedoSize, 0.0005, 0.9995)).rgb;
   } else if (uClay > 0.5) {
     // Clay: one material, no map. When you are shaping a coastline the biome
     // colours are noise — they tell you what grows there, and you are not asking
@@ -570,6 +775,30 @@ void main() {
   // skin is showing (except clay — clay is deliberately colourless).
   if (uDetailAlbedoOn > 0.5 && inD > 0.0 && uClay < 0.5) {
     col = mix(col, texture(uDetailAlbedo, dlp).rgb, inD);
+  }
+
+  // La ventana de la cámara, encima de la piel de mundo entero.
+  //
+  // TAMBIÉN SOBRE EL AGUA. La primera versión se saltaba el mar: la rampa de
+  // profundidad del shader es continua por construcción y la costa de la tesela
+  // sale de una bilineal recta, así que cruzan el cero en sitios ligeramente
+  // distintos y dejarlas discutir pone una orla de un píxel en cada orilla. Ese
+  // razonamiento era correcto y la conclusión estaba mal: la orla mide un píxel
+  // y el mar sin piel de cerca mide media pantalla. La tesela pinta el océano
+  // por píxel desde el mismo campo interpolado, con su costa sub-celda, y eso
+  // es mejor en todos los sitios donde se nota.
+  if (uZoomOn > 0.5 && uClay < 0.5) {
+    // La rama envuelta más cercana a la ventana. Sin esto, una ventana que
+    // cruza el antimeridiano lee el otro extremo del mundo en media pantalla.
+    float zx = vUV.x - uZoomMin.x;
+    zx -= round(zx);
+    vec2 zl = vec2(zx / max(1e-7, uZoomSize.x),
+                   (vUV.y - uZoomMin.y) / max(1e-7, uZoomSize.y));
+    if (zl.x > 0.0 && zl.x < 1.0 && zl.y > 0.0 && zl.y < 1.0) {
+      float edge = min(min(zl.x, 1.0 - zl.x), min(zl.y, 1.0 - zl.y));
+      float f = smoothstep(0.0, max(1e-4, uZoomFade), edge);
+      col = mix(col, texture(uZoom, zl).rgb, f);
+    }
   }
 
   // ---- light --------------------------------------------------------------
@@ -656,6 +885,10 @@ export interface SurfaceOptions {
 export interface UVWindow { u: number; v: number; size: number }
 
 export const FULL_WINDOW: UVWindow = { u: 0.5, v: 0.5, size: 1 };
+
+/** Un trozo de mundo con los dos lados por separado: lo que la cámara ENCUADRA,
+ *  que no tiene por qué ser cuadrado en uv. Ver `focusWindow`. */
+export interface FocusRect { u: number; v: number; uSize: number; vSize: number }
 
 /** A deterministic high-resolution height patch covering part of the world. */
 export interface TerrainDetailPatch {
@@ -758,6 +991,16 @@ export class SculptSurface {
         uGlobeRelief: { value: GLOBE_RELIEF },
         uUVMin: { value: new THREE.Vector2(0, 0) },
         uUVSize: { value: new THREE.Vector2(1, 1) },
+        // APAGADO POR DEFECTO, y a propósito.
+        //
+        // Inventar relieve entre las muestras del mundo funciona —el banco mide
+        // que cambia el 16 % de los píxeles con terreno— pero lo que produce de
+        // cerca es GRANO: una manta de bultos que no es ladera. Y el primer
+        // plano no es de esta vista: es del 2D, que tiene canon de verdad a
+        // 153 m. La maquinaria se queda porque está escrita, medida y probada,
+        // y porque el editor de esculpido puede quererla; la vista del mundo la
+        // deja en cero.
+        uAmpDetail: { value: 0 },
         uSun: { value: new THREE.Vector3(-0.55, 0.72, 0.42) },
         uBrush: { value: new THREE.Vector2(0, 0) },
         uBrushR: { value: 8 },
@@ -769,8 +1012,16 @@ export class SculptSurface {
         uTipAspect: { value: 2.6 },
         uContour: { value: 0.25 },
         uSea: { value: 0 },
+        uSmoothSea: { value: 0 },
         uClay: { value: 0 },
         uAlbedoOn: { value: 0 },
+        uAlbedoMin: { value: new THREE.Vector2(0, 0) },
+        uAlbedoSize: { value: new THREE.Vector2(1, 1) },
+        uZoom: { value: this.blankTex },
+        uZoomOn: { value: 0 },
+        uZoomMin: { value: new THREE.Vector2(0, 0) },
+        uZoomSize: { value: new THREE.Vector2(1, 1) },
+        uZoomFade: { value: 0.06 },
         uFlatLight: { value: 0 },
         uDetail: { value: 0.6 },
         uCavity: { value: 0.55 },
@@ -837,17 +1088,83 @@ export class SculptSurface {
    * The texture is owned by the caller: this class binds and unbinds it, and
    * never disposes it, because the same raster is shared with the 2D views.
    */
-  setAlbedo(tex: THREE.Texture | null, flatLight = true): void {
+  /**
+   * @param smoothSea Colorear el mar desde el campo de alturas en vez de leerlo
+   *   del raster. Para la piel de satelite es una mejora pura (adios escalones
+   *   de veinte kilometros en la plataforma); para la carta dibujada seria un
+   *   destrozo, porque alli el mar es un dibujo con su propia trama.
+   */
+  setAlbedo(tex: THREE.Texture | null, flatLight = true, smoothSea = false): void {
     this.albedoTex = tex;
     this.material.uniforms.uAlbedo.value = tex ?? this.blankTex;
     this.material.uniforms.uAlbedoOn.value = tex ? 1 : 0;
     this.material.uniforms.uFlatLight.value = tex && flatLight ? 1 : 0;
+    this.material.uniforms.uSmoothSea.value = tex && smoothSea ? 1 : 0;
     this.material.needsUpdate = true;
   }
 
   get hasAlbedo(): boolean { return !!this.albedoTex; }
 
   /** How much invented relief the close-up gets. 0 turns it off entirely. */
+  /** Kilometres of invented sub-cell relief where the ground is most broken.
+   *  Zero returns the surface to pure interpolation of the generator's field. */
+  setSubCellRelief(km: number): void {
+    this.material.uniforms.uAmpDetail.value = Math.max(0, km);
+  }
+
+  /**
+   * Which square of the world the albedo raster covers.
+   *
+   * A single world-wide texture is 2048 texels across whatever the camera is
+   * looking at — at a hundred and fifty kilometres of framing that is eight
+   * texels on screen, which is what "los biomas y los ríos se ven
+   * pixeladísimos" actually was. It was never the mesh. Point this at the
+   * camera's own window and hand it a raster rendered for that window, and the
+   * paint gets the same resolution as the shape.
+   */
+  setAlbedoWindow(minU: number, minV: number, size: number, sizeV = size): void {
+    (this.material.uniforms.uAlbedoMin.value as THREE.Vector2).set(minU, minV);
+    (this.material.uniforms.uAlbedoSize.value as THREE.Vector2).set(sizeV === 0 ? 1 : size, sizeV);
+  }
+
+  /**
+   * La piel de cerca: un ráster que cubre SÓLO esta ventana del mundo, fundido
+   * encima de la piel de mundo entero.
+   *
+   * `window` va en uv de mundo, la misma coordenada que `setWindow` y que
+   * `vUV`: `u` puede salirse de [0,1) si la ventana cruza la costura, y el
+   * shader coge la rama envuelta más cercana. La textura es del que llama —
+   * esta clase la ata y la suelta, nunca la destruye.
+   *
+   * EL BORDE SE FUNDE, no se corta. `fade` es la fracción de la ventana que
+   * ocupa la transición en cada lado; con eso, una ventana que la cámara ya ha
+   * dejado atrás se degrada a la piel de siempre en vez de dibujar un canto.
+   * Es lo que permite recomponerla al posarse y no cada fotograma.
+   */
+  setZoomSkin(
+    tex: THREE.Texture | null,
+    window?: { u: number; v: number; uSize: number; vSize: number },
+    fade = 0.06,
+  ): void {
+    this.material.uniforms.uZoom.value = tex ?? this.blankTex;
+    // Una ventana de más de media anchura de mundo no se puede resolver por la
+    // rama envuelta más cercana (round() la manda al lado que no es), y de todas
+    // formas a esa escala el ráster de mundo entero YA es más fino que la
+    // pantalla: no hay nada que ganar.
+    const usable = !!tex && !!window && window.uSize > 1e-6 && window.uSize <= 0.5
+      && window.vSize > 1e-6;
+    this.material.uniforms.uZoomOn.value = usable ? 1 : 0;
+    if (usable && window) {
+      (this.material.uniforms.uZoomMin.value as THREE.Vector2).set(window.u, window.v);
+      (this.material.uniforms.uZoomSize.value as THREE.Vector2).set(window.uSize, window.vSize);
+      this.material.uniforms.uZoomFade.value = Math.min(0.45, Math.max(0.002, fade));
+    }
+  }
+
+  get hasZoomSkin(): boolean {
+    return this.material.uniforms.uZoomOn.value > 0.5;
+  }
+
   setDetail(amount: number): void {
     this.material.uniforms.uDetail.value = Math.min(1, Math.max(0, amount));
   }
@@ -872,7 +1189,11 @@ export class SculptSurface {
   }
 
   /** Stretch the grid over this square of the world. */
-  setWindow(w: UVWindow): void {
+  /** Returns the window the mesh ACTUALLY got, which is not always the one
+   *  asked for: v is clamped off the poles and the size has a floor. Anything
+   *  that has to line up with the mesh — an albedo rendered for the same
+   *  rectangle, say — must use this and not the request. */
+  setWindow(w: UVWindow): UVWindow {
     const size = Math.min(1, Math.max(MIN_UV_WINDOW, w.size));
     // v is clamped so the grid never runs off the poles; u wraps and does not care.
     const v = size >= 1 ? 0.5 : Math.min(1 - size / 2, Math.max(size / 2, w.v));
@@ -880,6 +1201,7 @@ export class SculptSurface {
     (this.material.uniforms.uUVMin.value as THREE.Vector2).set(w.u - size / 2, v - size / 2);
     (this.material.uniforms.uUVSize.value as THREE.Vector2).set(size, size);
     this.updateDetailDisp();
+    return { u: w.u, v, size };
   }
 
   /** Swap the grid for a denser or coarser one. Textures are untouched. */
@@ -1181,6 +1503,104 @@ export function visibleWindow(
     u: (u0 + u1) / 2,
     v: (v0 + v1) / 2,
     size: Math.max(MIN_UV_WINDOW, size),
+  };
+}
+
+/**
+ * DÓNDE ESTÁ MIRANDO, que no es lo mismo que qué alcanza a ver.
+ *
+ * `visibleWindow` devuelve la caja que ENVUELVE todo lo visible, y para eso
+ * está: la malla tiene que llegar hasta el horizonte o el mundo se acaba en un
+ * borde recto. Pero una cámara inclinada a setecientos kilómetros de altura
+ * mete el horizonte en el encuadre, y esa caja mide trece mil kilómetros de
+ * lado aunque lo que el lector está mirando midan mil doscientos. Medido: 0,32
+ * de mundo frente a 0,03.
+ *
+ * Una textura que cubra la caja entera reparte sus píxeles entre el suelo que
+ * se está mirando y el horizonte, y el suelo se lleva la peor parte. Ésta
+ * devuelve el ENCUADRE: el trozo de mundo que cabe en la pantalla a la
+ * distancia a la que está el objetivo de la órbita, centrado donde apunta.
+ * Nunca más grande que lo visible — al mirar de plano las dos coinciden y el
+ * mínimo no hace nada.
+ *
+ * Lo que queda fuera no se queda sin pintura: lo cubre la piel de mundo entero,
+ * que es exactamente lo que un horizonte necesita.
+ */
+export function focusWindow(
+  camera: THREE.PerspectiveCamera,
+  target: THREE.Vector3,
+  shape: SculptShape,
+  worldWidth: number,
+  worldHeight: number,
+  bound: UVWindow,
+  slack = 1.15,
+): FocusRect {
+  const sizeZ = SIZE_X * (worldHeight / worldWidth);
+  const halfFov = Math.tan((camera.fov * Math.PI) / 360);
+  let u: number;
+  let v: number;
+  let dist: number;
+  // Inclinación de la vista sobre el suelo, y hacia dónde mira en planta.
+  let sinTilt = 1;
+  let headX = 0;
+  let headZ = 1;
+  if (shape === 'plane') {
+    dist = Math.max(1e-4, camera.position.distanceTo(target));
+    u = target.x / SIZE_X + 0.5;
+    v = target.z / sizeZ + 0.5;
+    const dx = target.x - camera.position.x;
+    const dy = target.y - camera.position.y;
+    const dz = target.z - camera.position.z;
+    const len = Math.max(1e-6, Math.hypot(dx, dy, dz));
+    sinTilt = Math.min(1, Math.abs(dy) / len);
+    const flat = Math.hypot(dx, dz);
+    if (flat > 1e-6) { headX = dx / flat; headZ = dz / flat; }
+  } else {
+    // En el globo el objetivo de la órbita es el centro del planeta, así que
+    // el punto que se está mirando es el SUBPUNTO de la cámara y la vista cae a
+    // plomo sobre él: no hay inclinación que corregir. La distancia que encuadra
+    // es la que hay hasta la superficie, no hasta el centro.
+    const p = camera.position;
+    const r = Math.max(1e-4, p.length());
+    dist = Math.max(1e-4, r - R_GLOBE);
+    u = Math.atan2(p.z, p.x) / (Math.PI * 2) + 0.5;
+    v = 0.5 - Math.asin(Math.min(1, Math.max(-1, p.y / r))) / Math.PI;
+  }
+
+  // RECTÁNGULO, NO CUADRADO. Un cuadrado en uv es un 2:1 en el suelo, porque v
+  // recorre la mitad de mundo que u; y la pantalla es 1,5:1. Con un cuadrado,
+  // dos quintas partes de los téxeles caen fuera de la pantalla — se pagan y no
+  // se ven. Los dos lados por separado son medio nivel de pirámide gratis.
+  //
+  // Y LA INCLINACIÓN CUENTA. `dist·tan(fov/2)` es el medio alto del tronco de
+  // visión MEDIDO PERPENDICULAR A LA MIRADA. Sobre el suelo, una cámara
+  // inclinada estira esa medida por 1/sen(inclinación): a cuarenta y cinco
+  // grados, un cuarenta por ciento más de suelo a lo largo de la vista. Sin
+  // esta corrección, la parte de abajo de la pantalla —la más cercana, la que
+  // más se mira— se sale del bloque y vuelve a la piel de mundo entero. Eso es
+  // «hay partes pixeladas en la esquina inferior derecha». Se topa en el doble:
+  // por debajo de treinta grados la vista es un horizonte y ninguna textura de
+  // un puñado de megapíxeles lo cubre con nitidez.
+  const across = dist * halfFov * (camera.aspect || 1);
+  const along = dist * halfFov * Math.min(2, 1 / Math.max(0.5, sinTilt));
+  const hx = Math.abs(headX);
+  const hz = Math.abs(headZ);
+  const extX = along * hx + across * hz;
+  const extZ = along * hz + across * hx;
+  const uSize = Math.min(bound.size, ((2 * extX) / SIZE_X) * slack);
+  const vSize = Math.min(bound.size, ((2 * extZ) / sizeZ) * slack);
+  if (!Number.isFinite(uSize) || !Number.isFinite(vSize) || uSize <= 0 || vSize <= 0) {
+    return { u: bound.u, v: bound.v, uSize: bound.size, vSize: bound.size };
+  }
+  // La rama envuelta más cercana a lo visible, para que el bloque de teselas y
+  // la caja de la malla hablen de la misma vuelta al mundo.
+  let du = u - bound.u;
+  du -= Math.round(du);
+  return {
+    u: bound.u + du,
+    v: Math.min(1 - vSize / 2, Math.max(vSize / 2, v)),
+    uSize: Math.max(MIN_UV_WINDOW, uSize),
+    vSize: Math.max(MIN_UV_WINDOW, vSize),
   };
 }
 

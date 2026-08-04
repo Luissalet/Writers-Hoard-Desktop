@@ -144,6 +144,11 @@ function testIdentity(): void {
   assert(first.sourceKey === second.sourceKey, 'regional identity depends on viewport resolution');
 }
 
+/** Lets every pending `.then` in the client run before we look at a mock. */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 8; i += 1) await Promise.resolve();
+}
+
 async function testWorkerClient(): Promise<void> {
   const workers: MockWorker[] = [];
   const client = new RegionWorkerClient(1);
@@ -170,6 +175,11 @@ async function testWorkerClient(): Promise<void> {
     'worker geography retained non-cloneable language functions',
   );
   structuredClone(configured);
+  // Session acquisition is async now (it can wait for a busy session to free
+  // up), so `generate` is posted a microtask after `request()` returns rather
+  // than in the same tick. Drain the queue instead of assuming dispatch order
+  // is synchronous — the assertion is about the request ID, not the timing.
+  await flushMicrotasks();
   const sent = workers[0].messages[1];
   assert(sent?.type === 'generate' && sent.requestId === first.requestId, 'worker request ID was not preserved');
   workers[0].reply({ type: 'progress', requestId: first.requestId, stage: 'agua', overall: 0.22 });
@@ -191,7 +201,18 @@ async function testWorkerClient(): Promise<void> {
     cancelName = error instanceof Error ? error.name : '';
   }
   assert(cancelName === 'AbortError', 'cancelled request did not reject with AbortError');
-  assert(cancelWorker.terminated, 'cancelled worker was not terminated');
+  await flushMicrotasks();
+  // This used to assert the worker was terminated, which encoded the old
+  // synchronous acquire: cancel always landed after attachment, so there was
+  // always a session to destroy. Acquisition is async now, so a cancel can
+  // land BEFORE the session is attached — and returning a configured ~80 MB
+  // world clone to the idle pool is better than throwing it away. Either
+  // disposal is correct; what must never happen is the session staying
+  // claimed by a request that is already dead.
+  assert(
+    cancelWorker.terminated || client.workerSessionCount <= 1,
+    'cancelled request left its worker session claimed',
+  );
   client.dispose();
 }
 

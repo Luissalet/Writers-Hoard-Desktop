@@ -6,7 +6,7 @@
 import '@/engines/codex';
 import '@/engines/writings';
 import '@/engines/timeline';
-import '@/engines/yarn-board';
+import '@/engines/board';
 import '@/engines/maps';
 import '@/engines/gallery';
 import '@/engines/storyboard';
@@ -18,7 +18,6 @@ import '@/engines/diary';
 import '@/engines/notes';
 import '@/engines/outline';
 import '@/engines/writing-stats';
-import '@/engines/brainstorm';
 import '@/engines/character-arc';
 import '@/engines/relationships';
 import '@/engines/seeds';

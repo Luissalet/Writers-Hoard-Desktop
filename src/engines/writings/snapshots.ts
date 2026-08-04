@@ -8,7 +8,7 @@
 //     Skipped if identical to the latest snapshot.
 //   • MANUAL from the history panel ("Save version now").
 //   • PRE-RESTORE before restoring an old version, so restores are undoable.
-//   • Pruned to the newest MAX_SNAPSHOTS per writing.
+//   • Never pruned. Every restore point the author made is kept.
 
 import { db } from '@/db/index';
 import { generateId } from '@/utils/idGenerator';
@@ -16,7 +16,12 @@ import { countWords } from '@/utils/text';
 import type { Writing } from '@/types';
 import type { SnapshotReason, WritingSnapshot } from './snapshotTypes';
 
-const MAX_SNAPSHOTS = 25;
+/**
+ * No cap. Version history is the author's own work, and a local-first app on
+ * the author's own disk has no business deciding that the 26th restore point
+ * is the one that stops mattering. A snapshot is a few kB of HTML; a thousand
+ * of them cost less than one of the reference photos on a board.
+ */
 
 export async function listSnapshots(writingId: string): Promise<WritingSnapshot[]> {
   const rows = await db.writingSnapshots.where('writingId').equals(writingId).toArray();
@@ -25,13 +30,6 @@ export async function listSnapshots(writingId: string): Promise<WritingSnapshot[
 
 async function latestSnapshot(writingId: string): Promise<WritingSnapshot | undefined> {
   return (await listSnapshots(writingId))[0];
-}
-
-async function prune(writingId: string): Promise<void> {
-  const rows = await listSnapshots(writingId);
-  if (rows.length <= MAX_SNAPSHOTS) return;
-  const excess = rows.slice(MAX_SNAPSHOTS).map((s) => s.id);
-  await db.writingSnapshots.bulkDelete(excess);
 }
 
 /**
@@ -59,7 +57,6 @@ export async function takeSnapshot(
       createdAt: Date.now(),
     };
     await db.writingSnapshots.add(snapshot);
-    await prune(writing.id);
   } catch (err) {
     console.error('[snapshots] failed to snapshot writing', err);
   }

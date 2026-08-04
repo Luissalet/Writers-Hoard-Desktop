@@ -129,10 +129,9 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     relationships,
     annotations,
     annotationReferences,
-    yarnBoards,
-    yarnNodes,
+    boards,
+    boardNodes,
     storyboards,
-    brainstormBoards,
     imageCollections,
     inspirationImages,
     maps,
@@ -159,10 +158,9 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     db.relationships.where('projectId').equals(projectId).toArray(),
     db.annotations.where('projectId').equals(projectId).toArray(),
     db.annotationReferences.toArray(),
-    db.yarnBoards.where('projectId').equals(projectId).toArray(),
-    db.yarnNodes.where('projectId').equals(projectId).toArray(),
+    db.boards.where('projectId').equals(projectId).toArray(),
+    db.boardNodes.where('projectId').equals(projectId).toArray(),
     db.storyboards.where('projectId').equals(projectId).toArray(),
-    db.brainstormBoards.where('projectId').equals(projectId).toArray(),
     db.imageCollections.where('projectId').equals(projectId).toArray(),
     db.inspirationImages.where('projectId').equals(projectId).toArray(),
     db.worldMaps.where('projectId').equals(projectId).toArray(),
@@ -178,56 +176,52 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
   const sceneBlocks = dialogBlocks.filter(row => sceneIds.has(row.sceneId));
   const outlineById = new Map(outlines.map(row => [row.id, row]));
   const seedPayoffIds = new Set(payoffs.map(row => row.seedId));
-  const boardIds = new Set(yarnBoards.map(row => row.id));
+  const boardIds = new Set(boards.map(row => row.id));
   const storyboardIds = new Set(storyboards.map(row => row.id));
-  const brainstormBoardIds = new Set(brainstormBoards.map(row => row.id));
   const annotationIds = new Set(annotations.map(row => row.id));
   const collectionIds = new Set(imageCollections.map(row => row.id));
   const mapIds = new Set(maps.map(row => row.id));
 
   const [
     writingSnapshots,
-    yarnEdges,
+    boardEdges,
     storyboardConnectors,
-    brainstormConnections,
     worldSnapshots,
     allSceneIds,
     allAnnotationIds,
     allWorldIds,
   ] = await Promise.all([
     db.writingSnapshots.where('projectId').equals(projectId).toArray(),
-    boardIds.size ? db.yarnEdges.where('boardId').anyOf([...boardIds]).toArray() : [],
+    boardIds.size ? db.boardEdges.where('boardId').anyOf([...boardIds]).toArray() : [],
     storyboardIds.size
       ? db.storyboardConnectors.where('storyboardId').anyOf([...storyboardIds]).toArray()
-      : [],
-    brainstormBoardIds.size
-      ? db.brainstormConnections.where('boardId').anyOf([...brainstormBoardIds]).toArray()
       : [],
     db.worldSnapshots.toArray(),
     db.scenes.toCollection().primaryKeys(),
     db.annotations.toCollection().primaryKeys(),
     db.generatedWorlds.toCollection().primaryKeys(),
   ]);
-  const yarnNodeIds = new Set(yarnNodes.map(row => row.id));
+  const boardNodeIds = new Set(boardNodes.map(row => row.id));
+  const boardEdgeIds = new Set(boardEdges.map(row => row.id));
   const panelIds = new Set(
     (await db.storyboardPanels.where('projectId').equals(projectId).toArray()).map(row => row.id),
-  );
-  const brainstormItemIds = new Set(
-    (await db.brainstormItems.where('projectId').equals(projectId).toArray()).map(row => row.id),
   );
   const existingSceneIds = new Set(allSceneIds);
   const existingAnnotationIds = new Set(allAnnotationIds);
   const existingWorldIds = new Set(allWorldIds);
 
   const orphanWritingSnapshots = writingSnapshots.filter(row => !writingIds.has(row.writingId));
-  const orphanYarnEdges = yarnEdges.filter(
-    row => !yarnNodeIds.has(row.sourceId) || !yarnNodeIds.has(row.targetId),
+  // A board relation may have many endpoints and may hang off another
+  // relation, so "broken" means any endpoint whose target no longer exists.
+  const orphanBoardEdges = boardEdges.filter(row =>
+    row.sources.length === 0 ||
+    row.targets.length === 0 ||
+    [...row.sources, ...row.targets].some(endpoint =>
+      endpoint.on === 'edge' ? !boardEdgeIds.has(endpoint.id) : !boardNodeIds.has(endpoint.id),
+    ),
   );
   const orphanStoryboardConnectors = storyboardConnectors.filter(
     row => !panelIds.has(row.sourceId) || !panelIds.has(row.targetId),
-  );
-  const orphanBrainstormConnections = brainstormConnections.filter(
-    row => !brainstormItemIds.has(row.sourceId) || !brainstormItemIds.has(row.targetId),
   );
   const orphanSceneCasts = sceneCasts.filter(row => !existingSceneIds.has(row.sceneId));
   const orphanAnnotationReferences = annotationReferences.filter(
@@ -252,9 +246,8 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
 
   const health = [
     issue('orphan-writing-snapshots', 'error', 'integrity', 'Orphan writing history', 'Snapshots point to deleted writings.', orphanWritingSnapshots.length, true),
-    issue('orphan-yarn-edges', 'error', 'integrity', 'Broken Yarn connections', 'Connections point to missing nodes.', orphanYarnEdges.length, true),
+    issue('orphan-board-edges', 'error', 'integrity', 'Broken board relations', 'Relations point to missing nodes or relations.', orphanBoardEdges.length, true),
     issue('orphan-storyboard-connectors', 'error', 'integrity', 'Broken storyboard connectors', 'Connectors point to missing panels.', orphanStoryboardConnectors.length, true),
-    issue('orphan-brainstorm-connections', 'error', 'integrity', 'Broken brainstorm connections', 'Connections point to missing items.', orphanBrainstormConnections.length, true),
     issue('orphan-scene-casts', 'error', 'integrity', 'Orphan scene casts', 'Cast rows point to deleted scenes.', orphanSceneCasts.length, true),
     issue('orphan-annotation-references', 'error', 'integrity', 'Orphan annotation references', 'References point to deleted annotations.', orphanAnnotationReferences.length, true),
     issue('orphan-world-snapshots', 'warning', 'storage', 'Stale world caches', 'Regenerable caches remain after their worlds were deleted.', orphanWorldSnapshots.length, true),
@@ -297,8 +290,8 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
   for (const annotation of annotations) {
     addBacklink(annotation.sourceEngineId, annotation.sourceEntityId);
   }
-  for (const node of yarnNodes) {
-    if (node.linkedEntryId) addBacklink('codex', node.linkedEntryId);
+  for (const node of boardNodes) {
+    if (node.ref) addBacklink(node.ref.engineId, node.ref.entityId);
   }
   for (const image of inspirationImages) {
     for (const entryId of image.linkedEntryIds ?? []) addBacklink('codex', entryId);
@@ -557,11 +550,22 @@ export async function repairProjectHealthIssue(projectId: string, issueId: strin
       await db.writingSnapshots.bulkDelete(rows.filter(row => !writingIds.has(row.writingId)).map(row => row.id));
       break;
     }
-    case 'orphan-yarn-edges': {
-      const boards = await db.yarnBoards.where('projectId').equals(projectId).primaryKeys();
-      const nodes = new Set(await db.yarnNodes.where('projectId').equals(projectId).primaryKeys());
-      const rows = boards.length ? await db.yarnEdges.where('boardId').anyOf(boards).toArray() : [];
-      await db.yarnEdges.bulkDelete(rows.filter(row => !nodes.has(row.sourceId) || !nodes.has(row.targetId)).map(row => row.id));
+    case 'orphan-board-edges': {
+      const nodes = new Set(await db.boardNodes.where('projectId').equals(projectId).primaryKeys());
+      const rows = await db.boardEdges.where('projectId').equals(projectId).toArray();
+      const edgeIds = new Set(rows.map(row => row.id));
+      await db.boardEdges.bulkDelete(
+        rows
+          .filter(
+            row =>
+              row.sources.length === 0 ||
+              row.targets.length === 0 ||
+              [...row.sources, ...row.targets].some(endpoint =>
+                endpoint.on === 'edge' ? !edgeIds.has(endpoint.id) : !nodes.has(endpoint.id),
+              ),
+          )
+          .map(row => row.id),
+      );
       break;
     }
     case 'orphan-storyboard-connectors': {
@@ -569,13 +573,6 @@ export async function repairProjectHealthIssue(projectId: string, issueId: strin
       const panels = new Set(await db.storyboardPanels.where('projectId').equals(projectId).primaryKeys());
       const rows = boards.length ? await db.storyboardConnectors.where('storyboardId').anyOf(boards).toArray() : [];
       await db.storyboardConnectors.bulkDelete(rows.filter(row => !panels.has(row.sourceId) || !panels.has(row.targetId)).map(row => row.id));
-      break;
-    }
-    case 'orphan-brainstorm-connections': {
-      const boards = await db.brainstormBoards.where('projectId').equals(projectId).primaryKeys();
-      const items = new Set(await db.brainstormItems.where('projectId').equals(projectId).primaryKeys());
-      const rows = boards.length ? await db.brainstormConnections.where('boardId').anyOf(boards).toArray() : [];
-      await db.brainstormConnections.bulkDelete(rows.filter(row => !items.has(row.sourceId) || !items.has(row.targetId)).map(row => row.id));
       break;
     }
     case 'orphan-scene-casts': {

@@ -2,15 +2,14 @@ import JSZip from 'jszip';
 import { db } from '@/db';
 import '@/engines/timeline';
 import '@/engines/gallery';
-import '@/engines/brainstorm';
+import '@/engines/board';
 import '@/engines/annotations';
 import '@/engines/scrapper';
 import '@/engines/writings';
-import '@/engines/yarn-board';
 import '@/services/projectToolsBackup';
 import { getAllBackupStrategies } from '@/engines/_shared/backupRegistry';
 import { deleteWriting } from '@/engines/writings/operations';
-import { deleteYarnNode } from '@/engines/yarn-board/operations';
+import { deleteBoardNode } from '@/engines/board/operations';
 import {
   clearWritingRecoveryDraft,
   readWritingRecoveryDraft,
@@ -42,11 +41,22 @@ function assert(condition: unknown, message: string): asserts condition {
 async function testMigration(): Promise<void> {
   await db.delete();
   await db.open();
-  assert(db.verno === 23, `expected schema v23, received v${db.verno}`);
-  for (const table of ['entityLinks', 'citations', 'publishingProfiles', 'conversionReceipts']) {
+  assert(db.verno === 24, `expected schema v24, received v${db.verno}`);
+  for (const table of [
+    'entityLinks', 'citations', 'publishingProfiles', 'conversionReceipts',
+    'boards', 'boardNodes', 'boardEdges', 'boardLayers', 'boardViews',
+  ]) {
     assert(db.tables.some(row => row.name === table), `missing migrated table ${table}`);
   }
-  passed.push('Dexie migration v23');
+  // The two engines `board` replaced must be gone, not merely unused: a
+  // leftover store is a leftover code path waiting to be revived by accident.
+  for (const retired of [
+    'yarnBoards', 'yarnNodes', 'yarnEdges',
+    'brainstormBoards', 'brainstormItems', 'brainstormConnections',
+  ]) {
+    assert(!db.tables.some(row => row.name === retired), `retired table ${retired} still exists`);
+  }
+  passed.push('Dexie migration v24');
 }
 
 async function seedBackupFixture(projectId: string): Promise<string[]> {
@@ -63,15 +73,42 @@ async function seedBackupFixture(projectId: string): Promise<string[]> {
     style: 'dashed', createdAt: now,
   });
   await db.imageCollections.add({ id: 'collection-empty', projectId, title: 'Empty survives', createdAt: now });
-  await db.brainstormBoards.add({ id: 'brain-1', projectId, title: 'Board', createdAt: now, updatedAt: now });
-  await db.brainstormItems.bulkAdd([
-    { id: 'brain-item-1', projectId, boardId: 'brain-1', type: 'text', content: 'A', position: { x: 0, y: 0 }, color: '#fff', createdAt: now, updatedAt: now },
-    { id: 'brain-item-2', projectId, boardId: 'brain-1', type: 'text', content: 'B', position: { x: 1, y: 1 }, color: '#fff', createdAt: now, updatedAt: now },
-  ] as never[]);
-  await db.brainstormConnections.add({
-    id: 'brain-link-1', boardId: 'brain-1', sourceId: 'brain-item-1',
-    targetId: 'brain-item-2', style: 'solid', color: '#fff',
-  } as never);
+  await db.boards.add({ id: 'board-1', projectId, title: 'Board', surface: 'cork', createdAt: now, updatedAt: now });
+  await db.boardNodes.bulkAdd([
+    { id: 'board-node-1', projectId, boardId: 'board-1', kind: 'card', title: 'A', content: '', color: '#fff', position: { x: 0, y: 0 }, size: { width: 200, height: 120 }, zIndex: 0, tags: [], createdAt: now, updatedAt: now },
+    { id: 'board-node-2', projectId, boardId: 'board-1', kind: 'card', title: 'B', content: '', color: '#fff', position: { x: 1, y: 1 }, size: { width: 200, height: 120 }, zIndex: 0, tags: [], createdAt: now, updatedAt: now },
+    { id: 'board-node-3', projectId, boardId: 'board-1', kind: 'card', title: 'C', content: '', color: '#fff', position: { x: 2, y: 2 }, size: { width: 200, height: 120 }, zIndex: 0, tags: [], createdAt: now, updatedAt: now },
+  ]);
+  // A hyper-edge plus a relation anchored on that relation: the two shapes
+  // React Flow cannot express, and the two the backup must round-trip.
+  await db.boardEdges.bulkAdd([
+    {
+      id: 'board-edge-1', projectId, boardId: 'board-1',
+      sourceId: 'board-node-1', targetId: 'board-node-3',
+      sources: [{ id: 'board-node-1', on: 'node' }, { id: 'board-node-2', on: 'node' }],
+      targets: [{ id: 'board-node-3', on: 'node' }],
+      kind: 'causes', color: '#fff', style: 'solid', width: 0, direction: 'forward',
+      curvature: 'curved', weight: 1, certainty: 1, tags: [], createdAt: now, updatedAt: now,
+    },
+    {
+      id: 'board-edge-2', projectId, boardId: 'board-1',
+      sourceId: 'board-node-3', targetId: 'board-edge-1',
+      sources: [{ id: 'board-node-3', on: 'node' }],
+      targets: [{ id: 'board-edge-1', on: 'edge' }],
+      kind: 'mystery', color: '#fff', style: 'dashed', width: 0, direction: 'forward',
+      curvature: 'curved', weight: 1, certainty: 0.5, tags: [], createdAt: now, updatedAt: now,
+    },
+  ]);
+  await db.boardLayers.add({
+    id: 'board-layer-1', projectId, boardId: 'board-1', name: 'Act I',
+    color: '#fff', visible: true, locked: false, opacity: 1, order: 0,
+    createdAt: now, updatedAt: now,
+  });
+  await db.boardViews.add({
+    id: 'board-view-1', projectId, boardId: 'board-1', name: 'Suspects',
+    query: 'role:character', layerIds: ['board-layer-1'], mode: 'highlight',
+    order: 0, createdAt: now, updatedAt: now,
+  });
   await db.annotations.add({
     id: 'annotation-1', projectId, sourceEngineId: 'writings',
     sourceEntityId: 'writing-anchor', anchor: { type: 'entity' }, noteType: 'reference',
@@ -91,7 +128,7 @@ async function seedBackupFixture(projectId: string): Promise<string[]> {
     id: 'citation-1', projectId, title: 'Source', authors: ['Writer'],
     accessedAt: '2026-07-27', writingIds: [], tags: [], createdAt: now, updatedAt: now,
   });
-  return ['timeline', 'gallery', 'brainstorm', 'annotations', 'scrapper', 'project-tools'];
+  return ['timeline', 'gallery', 'board', 'annotations', 'scrapper', 'project-tools'];
 }
 
 async function testBackupRoundTrip(): Promise<void> {
@@ -116,7 +153,12 @@ async function testBackupRoundTrip(): Promise<void> {
   assert(await db.timelineEvents.get('event-1'), 'timeline event did not round-trip');
   assert(await db.timelineConnections.get('timeline-link-1'), 'timeline connection did not round-trip');
   assert(await db.imageCollections.get('collection-empty'), 'empty Gallery collection did not round-trip');
-  assert(await db.brainstormConnections.get('brain-link-1'), 'child-only brainstorm connection did not round-trip');
+  const hyperEdge = await db.boardEdges.get('board-edge-1');
+  assert(hyperEdge?.sources.length === 2, 'board hyper-edge did not round-trip with both sources');
+  const metaEdge = await db.boardEdges.get('board-edge-2');
+  assert(metaEdge?.targets[0]?.on === 'edge', 'board edge-to-edge anchor did not round-trip');
+  assert(await db.boardLayers.get('board-layer-1'), 'board layer did not round-trip');
+  assert(await db.boardViews.get('board-view-1'), 'board view did not round-trip');
   assert(await db.annotationReferences.get('annotation-ref-1'), 'child-only annotation reference did not round-trip');
   const snapshot = await db.snapshots.get('snapshot-1');
   assert(snapshot && !snapshot.localMediaPath && snapshot.downloadState !== 'done', 'Scrapper restored unavailable external media as available');
@@ -139,18 +181,47 @@ async function testCascades(): Promise<void> {
   await deleteWriting('writing-delete');
   assert(!(await db.writingSnapshots.get('writing-snapshot-delete')), 'writing snapshot cascade failed');
 
-  await db.yarnBoards.add({ id: 'yarn-delete', projectId: 'critical-project', title: 'Yarn', createdAt: now, updatedAt: now });
-  await db.yarnNodes.bulkAdd([
-    { id: 'node-delete', projectId: 'critical-project', boardId: 'yarn-delete', type: 'text', title: 'A', content: '', color: '#fff', position: { x: 0, y: 0 } },
-    { id: 'node-keep', projectId: 'critical-project', boardId: 'yarn-delete', type: 'text', title: 'B', content: '', color: '#fff', position: { x: 1, y: 1 } },
-  ]);
-  await db.yarnEdges.add({
-    id: 'edge-delete', boardId: 'yarn-delete', sourceId: 'node-delete',
-    targetId: 'node-keep', color: '#fff', style: 'solid',
+  // Deleting one node must take the relation it was part of *and* the
+  // relation anchored on that relation — the transitive case neither legacy
+  // engine could even represent.
+  await db.boards.add({ id: 'board-delete', projectId: 'critical-project', title: 'Board', surface: 'cork', createdAt: now, updatedAt: now });
+  const stub = (id: string, x: number) => ({
+    id, projectId: 'critical-project', boardId: 'board-delete', kind: 'card' as const,
+    title: id, content: '', color: '#fff', position: { x, y: 0 },
+    size: { width: 200, height: 120 }, zIndex: 0, tags: [], createdAt: now, updatedAt: now,
   });
-  await deleteYarnNode('node-delete');
-  assert(!(await db.yarnEdges.get('edge-delete')), 'Yarn incident-edge cascade failed');
-  passed.push('writing and Yarn cascades');
+  await db.boardNodes.bulkAdd([stub('node-delete', 0), stub('node-keep', 1), stub('node-third', 2)]);
+  await db.boardEdges.bulkAdd([
+    {
+      id: 'edge-delete', projectId: 'critical-project', boardId: 'board-delete',
+      sourceId: 'node-delete', targetId: 'node-keep',
+      sources: [{ id: 'node-delete', on: 'node' }], targets: [{ id: 'node-keep', on: 'node' }],
+      kind: 'related', color: '#fff', style: 'solid', width: 0, direction: 'none',
+      curvature: 'curved', weight: 1, certainty: 1, tags: [], createdAt: now, updatedAt: now,
+    },
+    {
+      id: 'edge-meta', projectId: 'critical-project', boardId: 'board-delete',
+      sourceId: 'node-third', targetId: 'edge-delete',
+      sources: [{ id: 'node-third', on: 'node' }], targets: [{ id: 'edge-delete', on: 'edge' }],
+      kind: 'mystery', color: '#fff', style: 'solid', width: 0, direction: 'forward',
+      curvature: 'curved', weight: 1, certainty: 1, tags: [], createdAt: now, updatedAt: now,
+    },
+    {
+      id: 'edge-hyper', projectId: 'critical-project', boardId: 'board-delete',
+      sourceId: 'node-delete', targetId: 'node-third',
+      sources: [{ id: 'node-delete', on: 'node' }, { id: 'node-keep', on: 'node' }],
+      targets: [{ id: 'node-third', on: 'node' }],
+      kind: 'causes', color: '#fff', style: 'solid', width: 0, direction: 'forward',
+      curvature: 'curved', weight: 1, certainty: 1, tags: [], createdAt: now, updatedAt: now,
+    },
+  ]);
+  await deleteBoardNode('node-delete');
+  assert(!(await db.boardEdges.get('edge-delete')), 'board incident-relation cascade failed');
+  assert(!(await db.boardEdges.get('edge-meta')), 'board relation-on-relation cascade failed');
+  const survivor = await db.boardEdges.get('edge-hyper');
+  assert(survivor?.sources.length === 1, 'board hyper-edge kept a deleted endpoint');
+  assert(survivor?.sourceId === 'node-keep', 'board hyper-edge did not renormalise its index field');
+  passed.push('writing and board cascades');
 }
 
 function testRecoveryAndNavigation(): void {
