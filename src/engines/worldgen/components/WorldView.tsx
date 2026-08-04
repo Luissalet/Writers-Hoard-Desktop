@@ -164,7 +164,28 @@ export default function WorldView({
     relief: true, forests: true, labels: true, settlements: true,
     roads: true, borders: false, frame: true, compass: true, scaleBar: true,
   });
+  /**
+   * Relief symbol density: what the reader drags, and what the Carta is
+   * actually rebuilt from.
+   *
+   * They have to be two values. `reliefAmount` is a raw dependency of
+   * CartoMap's from-scratch effect, which clears the settle timers and renders
+   * the whole sheet SYNCHRONOUSLY at full resolution — and it is also part of
+   * the tile-store generation key, so every intermediate step wipes and
+   * re-rasterises every resident tile. Dragging 0,3 → 2,0 at a step of 0,1 is
+   * eighteen full renders and eighteen store wipes, which is precisely the
+   * "recalcularse a lo loco" the reader reported. The dragged value moves the
+   * handle; the settled one, 240 ms after the hand stops, moves the map.
+   */
   const [reliefAmount, setReliefAmount] = useState(1);
+  const [reliefSettled, setReliefSettled] = useState(1);
+  const reliefTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(reliefTimer.current), []);
+  const bumpRelief = useCallback((v: number) => {
+    setReliefAmount(v);
+    window.clearTimeout(reliefTimer.current);
+    reliefTimer.current = window.setTimeout(() => setReliefSettled(v), 240);
+  }, []);
   const [viewMode, setViewMode] = useState<ViewMode>('atlas');
   const [projection, setProjection] = useState<Projection>('equirect');
   const [shape3D, setShape3D] = useState<Shape3D>('plane');
@@ -361,11 +382,28 @@ export default function WorldView({
     };
   }, [data, paintRev]);
 
-  // Close-range geography follows the shared viewport in both 2D and 3D.
-  // Requests are debounced, cancellable, worker-backed, and leave the previous
-  // patch visible until the replacement arrives.
+  // Close-range geography follows the shared viewport. Requests are debounced,
+  // cancellable, worker-backed, and leave the previous patch visible until the
+  // replacement arrives.
+  //
+  // LA COMARCA ES DEL MAPA 2D. Y DE NADIE MÁS.
+  //
+  // Cada vista tiene un oficio y sólo uno:
+  //   · 3D    — la topografía a grandes rasgos. Cordilleras, cuencas, costas.
+  //   · 2D    — el Google Maps: caminos, ciudades, cuevas, el detalle fino.
+  //   · Carta — una lámina bonita para exportar.
+  //
+  // Antes el 3D también pedía comarca, y de ahí salía el bloqueo que Luis
+  // diagnosticó: la cámara arrancaba cerca, se generaba el terreno regional,
+  // y al alejarse cada reposo de cámara pedía OTRA comarca más ancha — entre
+  // 170 y 400 km ni siquiera por la vía canónica cacheada, sino por el
+  // generador libre, que rehace erosión e hidrología enteras. Cada resultado
+  // subía una DataTexture flotante nueva a la GPU y tiraba la anterior. El
+  // 3D no se quedaba "petado" por dibujar: se quedaba petado por estar
+  // generando comarcas sin parar para enseñarlas a cuarenta kilómetros por
+  // píxel, donde no se distingue ninguna.
   useEffect(() => {
-    if (!data || !geography || view === 'carta' || !semanticProfile.showRegionalTerrain
+    if (!data || !geography || view !== 'map' || !semanticProfile.showRegionalTerrain
         || viewport.spanKm > 700) {
       setRegionDetail(null);
       setRegionDetailBusy(false);
@@ -936,7 +974,7 @@ export default function WorldView({
       width: 4096,
       height: 2048,
       layers: cartoLayers,
-      reliefAmount,
+      reliefAmount: reliefSettled,
       geography: geography ?? undefined,
       title: world.title,
       subtitle: t('worldgen.export.atlasSuffix'),
@@ -945,7 +983,7 @@ export default function WorldView({
     canvas.toBlob((blob) => {
       if (blob) saveAs(blob, `${safeName(world.title)}-carta.png`);
     }, 'image/png');
-  }, [data, theme, cartoLayers, reliefAmount, geography, world.title, t]);
+  }, [data, theme, cartoLayers, reliefSettled, geography, world.title, t]);
 
   const exportHeightmap = useCallback(() => {
     if (!data) return;
@@ -1103,9 +1141,10 @@ export default function WorldView({
               <input
                 type="range" min={0.3} max={2} step={0.1}
                 value={reliefAmount}
-                onChange={(e) => setReliefAmount(Number(e.target.value))}
+                onChange={(e) => bumpRelief(Number(e.target.value))}
                 className="w-20 accent-accent-gold"
               />
+              {reliefAmount !== reliefSettled && <span className="text-accent-gold">·</span>}
             </label>
           </>
         )}
@@ -1208,6 +1247,8 @@ export default function WorldView({
               selectedSpatialKey={selectedSpatialKey}
               regionalEntities={regionalSpatialEntities}
               regionDetail={regionDetail}
+              canonWorld={canonSource?.world}
+              canonEdits={canonSource?.edits}
               onPlaceWaypoint={handlePlace}
               onRemoveWaypoint={dropWaypoint}
               onSelectWaypoint={setSelectedWaypointId}
@@ -1237,7 +1278,7 @@ export default function WorldView({
                 canonEdits={canonSource?.edits}
                 layers={cartoLayers}
                 density={1}
-                reliefAmount={reliefAmount}
+                reliefAmount={reliefSettled}
                 title={world.title}
                 subtitle={t('worldgen.export.atlasSuffix')}
                 onPickSettlement={pickSettlement}
@@ -1270,7 +1311,6 @@ export default function WorldView({
                 showLandmarks={showLandmarks}
                 selectedSpatialKey={selectedSpatialKey}
                 regionalEntities={regionalSpatialEntities}
-                regionDetail={regionDetail}
                 onSelectSpatialEntity={(entity) => {
                   setSelectedSpatialKey(entity?.key ?? null);
                   if (entity) setPanelTab('places');
@@ -1315,7 +1355,7 @@ export default function WorldView({
             </div>
           )}
 
-          {data && view !== 'carta' && regionDetailBusy && (
+          {data && view === 'map' && regionDetailBusy && (
             <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-md border border-white/15 bg-[#0b0e14]/88 px-2 py-1 text-[10px] text-white/75 shadow-lg backdrop-blur-sm">
               <Loader2 size={11} className="animate-spin text-accent-gold" />
               detalle regional · {regionDetailStage || 'preparando'}
@@ -1634,11 +1674,27 @@ export default function WorldView({
       {/* ---- City plan ---- */}
       {data && cityFor && (
         <CityPlanView
+          // Keyed on the town: opening a different one starts from ITS numbers
+          // rather than inheriting the last one's unsaved population.
+          key={cityFor.id}
           world={data}
           settlement={cityFor}
           theme={theme}
           onClose={() => setCityFor(null)}
           onDelete={() => removeByKey(editKey('settlement', cityFor.x, cityFor.y))}
+          onPopulation={(population) => {
+            applyEdit({
+              kind: 'populate',
+              target: 'settlement',
+              key: editKey('settlement', cityFor.x, cityFor.y),
+              population,
+            });
+            // Same reason as the rename below: the open modal holds the
+            // settlement it was handed, and the rebuilt geography returns new
+            // objects, so the number in front of the reader is updated here
+            // rather than waiting for the round trip.
+            setCityFor((c) => (c ? { ...c, population } : c));
+          }}
           onRename={(name) => {
             renameByKey(editKey('settlement', cityFor.x, cityFor.y), name);
             // The open modal holds the settlement it was given, and the patched

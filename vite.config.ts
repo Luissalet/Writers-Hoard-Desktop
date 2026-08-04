@@ -12,6 +12,9 @@ export default defineConfig({
     },
   },
   build: {
+    // Desktop app: the bundle is read off local disk, not downloaded. The
+    // "chunk is larger than 500 kB" nag is advice for websites.
+    chunkSizeWarningLimit: Number.POSITIVE_INFINITY,
     rollupOptions: {
       input: {
         // The app itself…

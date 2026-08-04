@@ -11,6 +11,7 @@ import { SculptGesture, tipOf } from '../sculpt/ops';
 import {
   clampCameraToSurface,
   SculptSurface,
+  focusWindow,
   pickCell,
   visibleWindow,
   SIZE_X,
@@ -22,8 +23,16 @@ import {
   commitPaintStroke, isSculptMode, isWaypointTool, negativeOf, pickGeneratedAt,
 } from '../core/paintCommit';
 import type { HumanGeography, Settlement } from '../core/settlements';
-import { getCartoTexture, regionAlbedoCanvas } from '../cartography/texture';
+import { getCartoTexture } from '../cartography/texture';
 import type { CartoTheme } from '../cartography/theme';
+import { DisplayTileStore } from '../cartography/tileStore';
+import type { TileKey } from '../cartography/tiles';
+import {
+  planZoomSkin, samePlan, zoomSkinCovers, MAX_ZOOM_SKIN_SPAN,
+  type SkinWindow, type ZoomSkinPlan,
+} from '../cartography/zoomSkin';
+import { regionClient } from '../region/client';
+import { SAT_DEEP_Z } from '../region/satelliteTile';
 import type { WorldViewport, WorldWaypoint } from '../types';
 import { CURVES, TIPS, type PaintTool } from './PaintPanel';
 import SculptView from './SculptView';
@@ -33,7 +42,6 @@ import {
 } from '../core/spatialEntities';
 import { semanticZoomProfile } from '../core/semanticZoom';
 import { EARTH_KM, MIN_SPAN_KM, type FlyTarget } from '../core/camera';
-import type { RegionData } from '../region/types';
 
 /**
  * The world, in three dimensions. The main view.
@@ -83,7 +91,9 @@ interface World3DProps {
   onSelectSpatialEntity?: (entity: WorldSpatialEntity | null) => void;
   /** Extra close-range entities supplied by the regional LOD controller. */
   regionalEntities?: WorldSpatialEntity[];
-  regionDetail?: RegionData | null;
+  // NO HAY `regionDetail` AQUÍ, y es deliberado. La comarca de ~150 m es del
+  // mapa 2D; esta vista dibuja la topografía a grandes rasgos y nada más.
+  // Ver el comentario largo en WorldView, sobre el efecto que la pide.
   viewport?: WorldViewport;
   onViewportChange?: (viewport: WorldViewport) => void;
   skin: Skin3D;
@@ -108,9 +118,118 @@ interface World3DProps {
   onZoomTo?: (x: number, y: number) => void;
 }
 
-/** Mesh density presets, in vertices across the visible square. */
-const MESH_STEPS = [256, 384, 512];
+/**
+ * Densidad de malla, en vértices a lo ancho del cuadrado visible.
+ *
+ * Eran 256/384/512, y a vista de mundo entero sobre una rejilla de 2048 eso
+ * son CINCO CELDAS POR TRIÁNGULO: cuatro de cada cinco cordilleras que el
+ * generador calculó no llegaban a existir como geometría. Eso es lo que se
+ * ve como «vergonzosamente pixelado», y no era una limitación del motor sino
+ * un presupuesto que se gastaba en otra parte — en el parche regional que
+ * esta vista ya no monta.
+ *
+ * La rejilla es estática y el desplazamiento va en el vertex shader, así que
+ * subirla no cuesta CPU por frame: cuesta memoria de vídeo una vez. A 1536
+ * son 2,36 M de vértices (~47 MB entre posiciones, uv e índices de 32 bits),
+ * calderilla para cualquier tarjeta de este siglo, y deja el mundo entero a
+ * ~1,3 celdas por triángulo — por debajo de una celda, que es el punto donde
+ * la geometría ya no puede perder nada de lo que el generador calculó.
+ */
+// De vuelta a lo que había.
+//
+// La subí a 2048 para que la malla pudiera llevar el relieve inventado. Ese
+// relieve está apagado, así que lo único que compraba la densidad extra era
+// muestrear MÁS FINO un campo que no tiene más que dar — y los ríos del mundo
+// están tallados con un cauce de una celda de ancho, así que una malla más
+// fina que la celda convierte esa muesca en una hilera de hoyuelos: las
+// cuentas oscuras que se ven siguiendo los valles.
+const MESH_STEPS = [512, 1024, 1536];
+
+/*
+ * La piel del 3D es UNA textura del mundo entero, y a mil doscientos kilómetros
+ * de encuadre eso son veinte kilómetros de suelo por téxel: es la queja de Luis
+ * («los biomas y los ríos se ven pixeladísimos sobre la topología») y sigue sin
+ * resolver. Intenté renderizar la pintura para la ventana de la cámara y el
+ * agua pintada dejó de caer sobre el cauce excavado en el terreno, de una forma
+ * que no supe encontrar razonando y que no puedo mirar desde donde trabajo.
+ * Quitado del todo antes que dejado a medias. Ver tasks/todo-2d-satelite.md.
+ */
 const VIEWPORT_REPORT_MS = 180;
+
+/**
+ * Hasta dónde deja acercarse esta vista, en kilómetros de suelo a lo ancho.
+ *
+ * Una celda de mundo son ~19,5 km, así que esto es el punto donde una celda
+ * mide una decena de píxeles en pantalla. Más abajo no queda NADA que
+ * enseñar: sólo un téxel magnificado, y todo rasgo del tamaño de una celda
+ * —el ruido natural del fondo marino, el borde de un bioma— se lee como un
+ * cuadrado. Ese vacío es justamente lo que el parche regional venía a tapar,
+ * y ahora vive donde le corresponde, en el 2D. Así que el 3D se planta aquí,
+ * con honradez, y el que quiera bajar más pasa al mapa.
+ *
+ * A 1200 km caben los Alpes cuatro veces: es un encuadre de cordillera, que
+ * es exactamente lo que esta vista existe para enseñar.
+ */
+// 1200 km, y se queda ahí.
+//
+// Bajé esto a 150 pensando que el relieve inventado daba algo que enseñar de
+// cerca. Daba ruido: una manta de bultos verdes que no es ladera, es grano —
+// y Luis ya había puesto la regla, que el primer plano es del 2D y de nadie
+// más. Además este suelo es lo que impide que la vista abra con el morro
+// metido en la hierba cuando la cámara compartida trae un encuadre de treinta
+// kilómetros (ver la adopción del viewport más abajo): al bajarlo, regenerar
+// un mapa dejaba la cámara pegada a la superficie.
+//
+// Esta vista es la topografía a grandes rasgos. Mil doscientos kilómetros de
+// encuadre es exactamente eso.
+const MIN_3D_SPAN_KM = 150;
+
+/**
+ * Y UN SUELO DISTINTO PARA EL ENCUADRE HEREDADO.
+ *
+ * Son dos cosas que antes eran un solo número, y por eso bajarlo se había
+ * revertido. Una es hasta dónde puede acercarse el lector con la rueda: eso es
+ * suyo, y ahora llega diez veces más cerca. La otra es a qué distancia ABRE la
+ * vista cuando adopta el encuadre compartido — y si vienes del 2D mirando una
+ * calle, abrir ahí te pone el morro en la hierba de un terreno que sólo tiene
+ * una muestra cada veinte kilómetros. Acercarse a mirar es una decisión; que te
+ * dejen caer ahí, no.
+ */
+const ADOPT_MIN_SPAN_KM = 1200;
+
+/**
+ * LO MÁS HONDO QUE ESTA VISTA LE PIDE A LA PIRÁMIDE.
+ *
+ * z8 es el último nivel que sale del ráster del MUNDO amplificado por píxel.
+ * A partir de z9 la tesela se dibuja sobre el canon de 153 m, y eso significa
+ * generar superteselas de 156 km de suelo — segundos de trabajo, disparados
+ * desde una rueda del ratón. Esta vista no genera nada: pide lo que el 2D ya
+ * sabe dibujar barato y para en el borde.
+ *
+ * No es una limitación sentida: con el suelo de encuadre en 1200 km, un bloque
+ * de z8 sobre esa ventana da ~600 m por píxel, que es lo que mide un píxel de
+ * pantalla ahí. Más resolución de textura no se vería. Si algún día el suelo
+ * de encuadre baja, este techo es lo primero que hay que subir — y entonces
+ * habrá que decidir qué hacer con la generación de canon, no antes.
+ */
+const ZOOM_SKIN_MAX_Z = SAT_DEEP_Z - 1;
+
+/** Cuánto tiene que estarse quieta la cámara antes de recomponer la piel de
+ *  cerca. Por debajo de esto se recompone durante el gesto y se nota. */
+const ZOOM_SKIN_SETTLE_MS = 150;
+
+/** Cuánto espera el afinado antes de intentar el nivel siguiente, y con qué
+ *  presupuesto. Un nivel más son cuatro veces las teselas, así que este techo
+ *  —y no el de la primera pasada— es el que decide cuánto trabajo puede pedir
+ *  la vista de una sola parada de cámara. */
+const ZOOM_SKIN_REFINE_MS = 400;
+const ZOOM_SKIN_REFINE_TILES = 160;
+const ZOOM_SKIN_REFINE_PX = 4096;
+
+/** El fundido del borde, en fracción de la imagen compuesta. NO es el mismo
+ *  número que decide cuándo rehacerla: ver `zoomSkinCovers`, que explica por
+ *  qué confundirlos rehace el bloque en cada gesto. */
+const ZOOM_SKIN_FADE = 0.05;
 
 /** Which brush Ctrl turns each one into. */
 const INVERSE: Partial<Record<TerrainOp, TerrainOp>> = {
@@ -170,7 +289,6 @@ interface ScreenMark {
 export default function World3D({
   world, geography, theme, waypoints, showWaypoints, showSettlements,
   showLandmarks, selectedSpatialKey, onSelectSpatialEntity, regionalEntities = [],
-  regionDetail,
   viewport, onViewportChange,
   skin, shape, onShape, exaggeration, tool, onTool, onEdit, onEdits, revision,
   flyTarget, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint,
@@ -195,6 +313,12 @@ export default function World3D({
   const [readout, setReadout] = useState('');
   const [hovering, setHovering] = useState<string | null>(null);
   const [detail, setDetail] = useState('');
+  /** Qué está pintando el suelo: el ráster de mundo entero, o la pirámide de
+   *  teselas sobre la ventana de la cámara y a cuántos metros por píxel. Va en
+   *  el HUD porque «se ve borroso» y «todavía no ha llegado» se parecen mucho
+   *  desde fuera, y porque es el número que decide si merece la pena acercarse
+   *  más. */
+  const [skinInfo, setSkinInfo] = useState('');
   /** What the modifier keys are doing to the brush right now. */
   const [modifier, setModifier] = useState<'' | 'smooth' | 'invert'>('');
   const landmarks = useMemo(
@@ -231,6 +355,36 @@ export default function World3D({
     uploadedRev: number;
     skinnedRev: number;
     skinnedKey: string;
+    /** El lienzo de la piel de mundo entero. La piel de cerca se rellena
+     *  PRIMERO con este trozo ampliado y luego se le pegan las teselas
+     *  encima, así que su peor caso es la imagen de siempre y nunca un
+     *  agujero negro esperando a que llegue una tesela. */
+    albedoCanvas: HTMLCanvasElement | null;
+    /** La piel de cerca: qué bloque de teselas cubre, para qué mundo, y en qué
+     *  lienzo. `zoomWant` es la última ventana que la malla pidió, que se
+     *  compara con el plan para decidir si hay que rehacerlo. */
+    zoomPlan: ZoomSkinPlan | null;
+    zoomGen: string;
+    zoomCanvas: HTMLCanvasElement | null;
+    zoomTex: THREE.CanvasTexture | null;
+    zoomTimer: number;
+    zoomArriveTimer: number;
+    zoomRefineTimer: number;
+    zoomWant: SkinWindow | null;
+    zoomStore: DisplayTileStore;
+    zoomInputs: {
+      world: WorldData;
+      geography: HumanGeography | null;
+      skin: Skin3D;
+      theme: CartoTheme;
+      revision: number;
+    };
+    onZoomArrive: () => void;
+    composeZoom: (plan: ZoomSkinPlan) => void;
+    /** The world this camera was last framed for. A different one is a
+     *  different planet, and its framing has to start over. */
+    posedWorld: WorldData | null;
+    unshadedAtlas: Uint8ClampedArray | null;
     poseKey: string;
     viewportKey: string;
     viewportAt: number;
@@ -328,7 +482,16 @@ export default function World3D({
 
     // A narrow field of view: perspective distorts the very thing you are
     // judging — whether a slope is steeper than the one beside it.
-    const camera = new THREE.PerspectiveCamera(32, 1, 0.02, 6000);
+    //
+    // El near arranca en 0,25 y no en 0,02. El buffer de profundidad reparte
+    // su precisión por el COCIENTE far/near, no por la diferencia: 0,02 a
+    // 6000 son trescientos mil a uno, y con eso la plataforma continental
+    // —que está a un pelo del nivel del mar— y el plano de agua caen en el
+    // mismo valor de profundidad y parpadean uno contra otro. Eso es el
+    // z-fighting del agua. A 0,25 el cociente baja a veinticuatro mil a uno,
+    // doce veces más precisión, y además el `draw` reajusta ambos planos a la
+    // distancia real de la cámara en cada frame (ver más abajo).
+    const camera = new THREE.PerspectiveCamera(32, 1, 0.25, 6000);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.09;
@@ -369,9 +532,24 @@ export default function World3D({
 
     // The sea is a real surface, not a colour below zero: you need to see the
     // land go under it while you are pushing it down.
+    //
+    // `polygonOffset` negativo empuja el agua un pelín hacia la cámara en el
+    // buffer de profundidad. No la mueve ni un milímetro en el espacio de la
+    // escena — sólo rompe el empate cuando el fondo marino está a la misma
+    // profundidad que la superficie, que es exactamente el caso de una
+    // plataforma continental a menos veinte metros. Sin esto, y aunque el
+    // near ya dé doce veces más precisión, sobre esas llanuras sumergidas
+    // enormes el empate vuelve: el agua debe ganar SIEMPRE ahí, y el sesgo
+    // constante lo garantiza sin depender de cuánta precisión sobre.
     const seaMat = new THREE.MeshBasicMaterial({
       color: 0x3f6f96, transparent: true, opacity: 0.5, depthWrite: false,
       side: THREE.DoubleSide,
+      // Sólo sesgo CONSTANTE, con el factor a cero. El factor multiplica la
+      // PENDIENTE de profundidad del polígono, y este polígono es un plano de
+      // doscientos cuarenta unidades visto casi de canto: su pendiente es
+      // enorme, y un factor negativo lo adelantaría tanto que ahogaría
+      // montañas que están legítimamente por encima del mar.
+      polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -4,
     });
     const sizeZ = SIZE_X * (world.height / world.width);
     const sea = new THREE.Mesh(new THREE.PlaneGeometry(SIZE_X, sizeZ), seaMat);
@@ -383,12 +561,49 @@ export default function World3D({
     seaGlobe.renderOrder = 1;
     scene.add(seaGlobe);
 
+    // El almacén de teselas: mismo tipo, mismo protocolo y mismo worker que usa
+    // el 2D. Nace aquí para que su vida sea la de la escena.
+    const zoomStore = new DisplayTileStore(
+      (key: TileKey) => {
+        const q = R.current?.zoomInputs;
+        if (!q || !q.geography || q.skin === 'arcilla') return Promise.resolve(null);
+        const carta = q.skin === 'dibujado';
+        return regionClient.requestTile(q.world, q.geography, key, {
+          ink: carta ? 'carta' : 'satellite',
+          themeId: carta ? q.theme.id : 'satellite',
+          layers: { rivers: true, roads: true, fields: true },
+          density: 1,
+          reliefAmount: 1,
+        }).promise.then((res) => res?.bitmap ?? null).catch(() => null);
+      },
+      () => R.current?.onZoomArrive(),
+      // LA RESERVA TIENE QUE PASAR DEL BLOQUE MÁS GRANDE POSIBLE. Si no, el
+      // afinado desaloja teselas que todavía necesita y se queda pidiendo las
+      // mismas para siempre. El techo del afinado son 160; esto le deja sitio
+      // a ése y a los dos niveles anteriores, que es lo que hace que volver
+      // sobre tus pasos sea instantáneo.
+      400,
+    );
+
     const st = {
       renderer, scene, camera, controls, surface, sea, seaGlobe,
       albedo: null as THREE.CanvasTexture | null,
       raf: 0, timer: 0, need: true, rafAlive: true, booked: 0, cost: 16,
       frameAvg: 16, qualityFrames: 0, pixelRatio: initialPixelRatio, hudAt: 0, lastDraw: 0,
       uploadedRev: revision, skinnedRev: -1, skinnedKey: '', poseKey: '', viewportKey: '',
+      albedoCanvas: null as HTMLCanvasElement | null,
+      zoomPlan: null as ZoomSkinPlan | null,
+      zoomGen: '', zoomCanvas: null as HTMLCanvasElement | null,
+      zoomTex: null as THREE.CanvasTexture | null, zoomTimer: 0, zoomArriveTimer: 0, zoomRefineTimer: 0,
+      zoomWant: null as SkinWindow | null,
+      zoomStore,
+      zoomInputs: {
+        world, geography: geography ?? null, skin, theme, revision,
+      },
+      onZoomArrive: () => undefined,
+      composeZoom: (() => undefined) as (plan: ZoomSkinPlan) => void,
+      unshadedAtlas: null,
+      posedWorld: null as WorldData | null,
       viewportAt: 0, viewportTimer: 0, pendingViewport: null,
       marks: [] as ScreenMark[],
       fly: {
@@ -416,10 +631,15 @@ export default function World3D({
       ro.disconnect();
       window.clearInterval(st.timer);
       window.clearTimeout(st.viewportTimer);
+      window.clearTimeout(st.zoomTimer);
+      window.clearTimeout(st.zoomArriveTimer);
+      window.clearTimeout(st.zoomRefineTimer);
       if (st.raf) cancelAnimationFrame(st.raf);
       controls.dispose();
       surface.dispose();
+      zoomStore.dispose();
       st.albedo?.dispose();
+      st.zoomTex?.dispose();
       seaMat.dispose();
       sea.geometry.dispose();
       seaGlobe.geometry.dispose();
@@ -456,7 +676,11 @@ export default function World3D({
   const stabilizeCamera = useCallback((): boolean => {
     const st = R.current;
     if (!st) return false;
-    const clearance = Math.max(st.camera.near * 4, 0.12);
+    // Separación mínima sobre el suelo. Eran veinte kilómetros, que con el
+    // suelo de acercamiento en mil doscientos no se notaba nunca; con el suelo
+    // en ciento cincuenta es lo que impide rasar el terreno. Ahora son unos
+    // seis, y por debajo manda el plano cercano de la cámara.
+    const clearance = Math.max(st.camera.near * 4, 0.035);
     if (shapeRef.current === 'plane') {
       const targetU = st.controls.target.x / SIZE_X + 0.5;
       const targetV = st.controls.target.z / sizeZ + 0.5;
@@ -836,6 +1060,247 @@ export default function World3D({
     });
   }, []);
 
+  // ---- la piel de cerca ------------------------------------------------------
+  //
+  // LA PIEL DE ARRIBA ES UNA SOLA IMAGEN DEL MUNDO ENTERO. Da igual lo buena
+  // que sea: tiene un téxel por celda, o sea veinte kilómetros de suelo, y
+  // acercarse no revela nada porque no hay nada más dentro. Eso es lo que se ve
+  // como biomas y ríos pixelados en cuanto la cámara baja.
+  //
+  // Debajo de esta línea el 3D deja de tener una textura y pasa a tener la
+  // MISMA PIRÁMIDE DE TESELAS QUE EL 2D. Mismo worker, misma caché, misma
+  // tinta: lo que el lector acaba de mirar en el mapa plano ya está caliente
+  // cuando lo mira en relieve, y una ventana de mil doscientos kilómetros pasa
+  // de 2048 píxeles para todo el planeta a 2048 píxeles para lo que se está
+  // mirando — unos seiscientos metros por píxel, que es exactamente lo que mide
+  // un píxel de pantalla ahí.
+  //
+  // Tres decisiones sostienen esto, y las tres vienen de haberlo roto antes:
+  //
+  //   · LA DE MUNDO ENTERO NO SE QUITA. Se queda debajo, y la de cerca se funde
+  //     encima con un borde suave. Sustituirla es lo que se intentó la vez que
+  //     no salió: en cuanto la malla se sale de la ventana el muestreo se pega
+  //     al borde y embarra medio planeta. Así, el peor caso es la imagen de
+  //     siempre.
+  //   · EL BLOQUE VA SNAPEADO A LA REJILLA DE TESELAS (`planZoomSkin`). La
+  //     imagen no cubre "la ventana": cubre un número entero de teselas enteras
+  //     que la contienen. Así cada tesela cae en un píxel entero y a su tamaño,
+  //     el mosaico no se remuestrea nunca, y el cuadrado de mundo que representa
+  //     es un borde de tesela, que `tileView` ya define exacto. No queda ningún
+  //     origen fraccionario en toda la cadena.
+  //   · LA VENTANA QUE MANDA ES LA QUE `setWindow` DEVUELVE, no la que se le
+  //     pide: recorta v fuera de los polos y pone suelo al tamaño. Alinear
+  //     contra la petición es un desfase que sólo se nota de cerca.
+  //
+  // Medido en `harness/zoom-align.tsx`: el desfase entre esta pintura y la de
+  // mundo entero es de 0,003–0,013 celdas de mundo en plano, globo, junto al
+  // polo y cruzando la costura — o sea cero, hasta donde llega la medida.
+  // Lo que la pirámide necesita saber de las props vive en el estado del
+  // renderizador, no en un cierre: el almacén de teselas nace con la escena y
+  // muere con ella, y las peticiones que salgan de él tienen que ver el mundo
+  // de AHORA, no el del fotograma en que se creó.
+  useEffect(() => {
+    const st = R.current;
+    if (!st) return;
+    st.zoomInputs = { world, geography: geography ?? null, skin, theme, revision };
+  }, [world, geography, skin, theme, revision, ready]);
+
+  const composeZoomSkin = useCallback((plan: ZoomSkinPlan) => {
+    const st = R.current;
+    if (!st) return;
+    const w = st.zoomInputs.world;
+    let canvas = st.zoomCanvas;
+    if (!canvas || canvas.width !== plan.width || canvas.height !== plan.height) {
+      canvas = document.createElement('canvas');
+      canvas.width = plan.width;
+      canvas.height = plan.height;
+      st.zoomCanvas = canvas;
+      st.zoomTex?.dispose();
+      st.zoomTex = null;
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // 1. EL SUELO: la piel de mundo entero, ampliada a este trozo. Es la imagen
+    //    de hoy, y es lo que garantiza que ninguna tesela que tarde deje un
+    //    agujero negro sobre el relieve. Por trozos, porque la ventana puede
+    //    cruzar la costura y el lienzo de origen no se envuelve solo.
+    const base = st.albedoCanvas;
+    if (base) {
+      const kx = base.width / w.width;
+      const ky = base.height / w.height;
+      let x = plan.view.x;
+      const end = plan.view.x + plan.view.w;
+      while (x < end - 1e-6) {
+        const wrapped = ((x % w.width) + w.width) % w.width;
+        const run = Math.min(end - x, w.width - wrapped);
+        ctx.drawImage(
+          base,
+          wrapped * kx, plan.view.y * ky, run * kx, plan.view.h * ky,
+          ((x - plan.view.x) / plan.view.w) * plan.width, 0,
+          (run / plan.view.w) * plan.width, plan.height,
+        );
+        x += run;
+      }
+    }
+
+    // 2. LAS TESELAS ENCIMA: exactas donde las hay, el cuarto de un ancestro
+    //    escalado donde todavía no. Nunca bloquea, nunca deja hueco.
+    const got = st.zoomStore.draw(
+      ctx, w, plan.z, plan.view, { x: 0, y: 0, w: plan.width, h: plan.height },
+    );
+    st.zoomStore.want(w, plan.z, plan.view);
+
+    let tex = st.zoomTex;
+    if (!tex) {
+      tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      // v = 0 es la fila norte, igual que en la piel de mundo entero.
+      tex.flipY = false;
+      // La ventana NO se envuelve: el shader ya la recorta y no muestrea fuera.
+      tex.wrapS = THREE.ClampToEdgeWrapping;
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.generateMipmaps = true;
+      tex.anisotropy = Math.min(8, st.renderer.capabilities.getMaxAnisotropy());
+      st.zoomTex = tex;
+    } else {
+      tex.needsUpdate = true;
+    }
+    st.zoomPlan = plan;
+    st.surface.setZoomSkin(tex, plan.window, ZOOM_SKIN_FADE);
+    const mPerPx = (plan.view.w * (40075 / w.width) * 1000) / plan.width;
+    const done = got.exact >= got.needed;
+    setSkinInfo(`suelo z${plan.z} · ${plan.nx}×${plan.ny} teselas · `
+      + (mPerPx >= 1000 ? `${(mPerPx / 1000).toFixed(1)} km/px` : `${Math.round(mPerPx)} m/px`)
+      + (done ? '' : ` · ${got.exact}/${got.needed}`));
+    request();
+
+    // AFINADO ENCADENADO. Cuando el bloque está entero, se intenta el nivel
+    // siguiente sobre el mismo encuadre: la imagen se va poniendo nítida
+    // mientras la miras, como cualquier mapa deslizante, en vez de quedarse en
+    // el nivel más hondo que cupo de una sentada. Sólo cuando ya no falta
+    // ninguna tesela, para que refinar nunca compita con terminar lo que hay.
+    if (done && plan.z < ZOOM_SKIN_MAX_Z && !st.zoomRefineTimer) {
+      st.zoomRefineTimer = window.setTimeout(() => {
+        st.zoomRefineTimer = 0;
+        const want = st.zoomWant;
+        const cur = st.zoomPlan;
+        if (!want || !cur || cur.z !== plan.z) return;
+        const deeper = planZoomSkin(st.zoomInputs.world, want, {
+          maxZ: cur.z + 1,
+          // Un nivel más hondo son cuatro veces las teselas: el presupuesto del
+          // afinado es más ancho que el de la primera pasada a propósito, y es
+          // el que pone el techo de verdad.
+          maxTiles: ZOOM_SKIN_REFINE_TILES,
+          maxPx: ZOOM_SKIN_REFINE_PX,
+          // Margen mínimo: si la cámara se mueve, la siguiente posada replanea
+          // desde cero de todas formas, y aquí cada punto de margen cuesta una
+          // fila entera de teselas.
+          margin: 0.03,
+        });
+        // Por `st`, no por el nombre: llamarse a sí misma desde dentro de su
+        // propio `useCallback` es una referencia al binding que se está
+        // definiendo, y el linter de hooks tiene razón en no quererla.
+        if (deeper && deeper.z > cur.z) st.composeZoom(deeper);
+      }, ZOOM_SKIN_REFINE_MS);
+    }
+  }, [request]);
+
+  /**
+   * Decide si la piel de cerca sigue valiendo, y si no, la rehace cuando la
+   * cámara se pare.
+   *
+   * Se llama desde el propio bucle de dibujo con la ventana que la malla
+   * ACABA de recibir, así que las dos no pueden desincronizarse. Rehacerla
+   * cuesta pegar teselas ya hechas — milisegundos — pero la cámara se mueve
+   * sesenta veces por segundo y el gesto es lo único que no puede esperar, así
+   * que se hace al posarse y no antes.
+   */
+  const scheduleZoomSkin = useCallback((mesh: SkinWindow) => {
+    const st = R.current;
+    if (!st) return;
+    const q = st.zoomInputs;
+    const off = () => {
+      window.clearTimeout(st.zoomTimer);
+      window.clearTimeout(st.zoomRefineTimer);
+      st.zoomTimer = 0;
+      st.zoomRefineTimer = 0;
+      if (st.zoomPlan || st.surface.hasZoomSkin) {
+        st.zoomPlan = null;
+        st.surface.setZoomSkin(null);
+        setSkinInfo('');
+        request();
+      }
+    };
+    // A vista de planeta la piel de mundo entero YA es más fina que la
+    // pantalla: pedir teselas ahí es gastar por nada.
+    if (!q.geography || q.skin === 'arcilla' || !(mesh.uSize <= MAX_ZOOM_SKIN_SPAN)) {
+      off();
+      return;
+    }
+    const gen = `${q.world.params.seed}:${q.revision}:${q.skin}:${q.theme.id}`;
+    if (gen !== st.zoomGen) {
+      st.zoomGen = gen;
+      st.zoomStore.setGeneration(gen);   // una pincelada es otro país
+      st.zoomPlan = null;
+      st.surface.setZoomSkin(null);
+    }
+    st.zoomWant = mesh;
+    if (st.zoomPlan && zoomSkinCovers(st.zoomPlan, mesh)) return;
+    window.clearTimeout(st.zoomTimer);
+    window.clearTimeout(st.zoomRefineTimer);
+    st.zoomRefineTimer = 0;
+    st.zoomTimer = window.setTimeout(() => {
+      st.zoomTimer = 0;
+      const want = st.zoomWant;
+      if (!want) return;
+      const plan = planZoomSkin(st.zoomInputs.world, want, { maxZ: ZOOM_SKIN_MAX_Z });
+      if (!plan) { off(); return; }
+      // Rehacer el bloque que ya está puesto no cambia un píxel, y con la
+      // prueba de tamaño de `zoomSkinCovers` eso pasaría en cada posada.
+      if (samePlan(plan, st.zoomPlan)) return;
+      composeZoomSkin(plan);
+    }, ZOOM_SKIN_SETTLE_MS);
+  }, [composeZoomSkin, request]);
+
+  // Las teselas llegan en ráfagas; recomponer es pegar imágenes ya hechas, así
+  // que se agrupan en un fotograma y ya está.
+  useEffect(() => {
+    const st = R.current;
+    if (!st) return;
+    st.composeZoom = composeZoomSkin;
+    st.onZoomArrive = () => {
+      if (!st.zoomPlan || st.zoomArriveTimer) return;
+      // EL RITMO DEPENDE DEL TAMAÑO DEL LIENZO. Recomponer sube la textura
+      // entera a la tarjeta: a 45 ms sobre un bloque afinado de once megapíxeles
+      // eso son cuarenta megas cada dos fotogramas, que es más tráfico del que
+      // cuesta dibujar la escena. Un bloque pequeño se refresca casi al vuelo;
+      // uno grande, unas cuantas veces mientras se llena.
+      const px = (st.zoomCanvas?.width ?? 0) * (st.zoomCanvas?.height ?? 0);
+      st.zoomArriveTimer = window.setTimeout(() => {
+        st.zoomArriveTimer = 0;
+        if (st.zoomPlan) composeZoomSkin(st.zoomPlan);
+      }, Math.min(1200, 60 + px / 12000));
+    };
+  }, [composeZoomSkin, ready]);
+
+  // Una pincelada, otra piel o un mundo nuevo invalidan lo compuesto sin que la
+  // cámara se mueva, así que el bucle de dibujo no se entera solo.
+  useEffect(() => {
+    const st = R.current;
+    if (!st) return;
+    st.zoomPlan = null;
+    st.surface.setZoomSkin(null);
+    scheduleZoomSkin(focusWindow(
+      st.camera, st.controls.target, shapeRef.current,
+      world.width, world.height, st.surface.uvWindow,
+    ));
+  }, [world, revision, skin, theme, geography, ready, scheduleZoomSkin]);
+
   const draw = useCallback(() => {
     const st = R.current;
     if (!st) return;
@@ -853,6 +1318,27 @@ export default function World3D({
     const moving = st.controls.update();
     if (stabilizeCamera()) st.need = true;
 
+    // ---- profundidad, ajustada a lo que se está mirando ---------------------
+    // Un near y un far fijos tienen que cubrir a la vez el planeta entero y una
+    // sierra vista desde encima, y el buffer de profundidad no da para las dos
+    // cosas. Aquí se recalculan cada frame a partir de la distancia real al
+    // objetivo: el near a una centésima de esa distancia (bastante margen para
+    // que nada se recorte por delante) y el far justo lo que hace falta para
+    // que el mundo quepa. El cociente se queda en el orden de mil a uno pase lo
+    // que pase, y a esa precisión el agua y la plataforma continental dejan de
+    // discutir a cualquier altura.
+    {
+      const dist = st.camera.position.distanceTo(st.controls.target);
+      const near = Math.max(0.05, Math.min(dist * 0.01, 2));
+      const far = Math.max(dist * 4 + SIZE_X * 1.5, SIZE_X * 3);
+      if (Math.abs(st.camera.near - near) > near * 0.05
+        || Math.abs(st.camera.far - far) > far * 0.05) {
+        st.camera.near = near;
+        st.camera.far = far;
+        st.camera.updateProjectionMatrix();
+      }
+    }
+
     // The UV window: the grid is stretched over what the camera can see, so the
     // triangles are spent where the reader is looking instead of on the far side
     // of the world. Recomputed only when the camera actually moved.
@@ -862,7 +1348,17 @@ export default function World3D({
     if (key !== st.poseKey) {
       st.poseKey = key;
       const nextWindow = visibleWindow(c, shapeRef.current, world.width, world.height);
-      st.surface.setWindow(nextWindow);
+      // LA VENTANA QUE MANDA ES LA QUE DEVUELVE, no la que se pide: recorta v
+      // fuera de los polos y pone suelo al tamaño. Todo lo que tenga que caer
+      // sobre la malla —la piel de cerca, la primera— tiene que usar el retorno.
+      const meshWindow = st.surface.setWindow(nextWindow);
+      // La malla se estira sobre TODO lo visible; la piel de cerca cubre lo que
+      // se está MIRANDO. No son lo mismo en cuanto la cámara se inclina, y
+      // repartir dos mil píxeles de textura entre el suelo y el horizonte es
+      // dárselos al horizonte. Ver `focusWindow`.
+      scheduleZoomSkin(
+        focusWindow(c, st.controls.target, shapeRef.current, world.width, world.height, meshWindow),
+      );
       st.surface.setCamera(c.position);
       const cpq = st.surface.cellsPerQuad(MESH_STEPS[mesh]);
       const km = Math.round((40075 / world.width) * cpq);
@@ -922,6 +1418,7 @@ export default function World3D({
     projectMarks,
     drawOverlay,
     queueViewport,
+    scheduleZoomSkin,
     stabilizeCamera,
   ]);
   drawRef.current = draw;
@@ -970,7 +1467,10 @@ export default function World3D({
       const d = Math.max(dV, dH) * 1.06;
       st.controls.target.set(0, 0, 0);
       st.camera.position.set(0, Math.sin(a) * d, Math.cos(a) * d);
-      st.controls.minDistance = 0.6;
+      // El suelo de acercamiento, traducido de kilómetros a distancia de
+      // cámara con la misma trigonometría que usa `distFor` para volar.
+      st.controls.minDistance = (MIN_3D_SPAN_KM / EARTH_KM) * SIZE_X
+        / (2 * Math.tan(halfV) * Math.max(0.5, st.camera.aspect || 1.7));
       st.controls.maxDistance = d * 2.2;
       st.controls.maxPolarAngle = (85 * Math.PI) / 180;
       st.controls.enablePan = true;
@@ -987,7 +1487,15 @@ export default function World3D({
       // button turns it instead of pretending.
       st.controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
     }
-    const initialViewport = viewportRef.current;
+    // A REGENERATED WORLD GETS A FRESH CAMERA.
+    //
+    // The shared viewport is the whole point of "one world, one camera" — but
+    // it describes a planet that no longer exists the moment the reader presses
+    // Generar. Adopting it there is how you get a brand new world opened with
+    // the lens against the ground.
+    const freshWorld = st.posedWorld !== world;
+    st.posedWorld = world;
+    const initialViewport = freshWorld ? null : viewportRef.current;
     if (initialViewport && initialViewport.spanKm < 36000) {
       const focus = new THREE.Vector3();
       scenePos(
@@ -995,7 +1503,16 @@ export default function World3D({
         initialViewport.v * world.height,
         focus,
       );
-      const fraction = Math.min(1, Math.max(0.004, initialViewport.spanKm / 40075));
+      // La cámara compartida trae el encuadre de donde venga el lector, y si
+      // venía del 2D a treinta kilómetros esta vista abría con el morro
+      // metido en un téxel: ahí no hay datos, sólo magnificación — y era el
+      // primer eslabón del atasco que Luis describió (arrancas cerca, se pide
+      // comarca, te alejas y ya no levanta cabeza). El encuadre se respeta,
+      // pero nunca por debajo del suelo honrado de esta vista.
+      const fraction = Math.min(1, Math.max(
+        ADOPT_MIN_SPAN_KM / EARTH_KM,
+        initialViewport.spanKm / EARTH_KM,
+      ));
       if (shape === 'plane') {
         const distance = Math.max(2.5, SIZE_X * fraction * 1.25);
         st.controls.target.copy(focus);
@@ -1038,6 +1555,7 @@ export default function World3D({
       st.surface.setShading(true, cavity, headlight, shadow);
       st.albedo?.dispose();
       st.albedo = null;
+      st.albedoCanvas = null;
       request();
       return;
     }
@@ -1068,7 +1586,10 @@ export default function World3D({
     tex.anisotropy = Math.min(8, st.renderer.capabilities.getMaxAnisotropy());
     st.albedo?.dispose();
     st.albedo = tex;
-    st.surface.setAlbedo(tex, true);
+    st.albedoCanvas = canvas;
+    // La piel de satélite deja que el shader pinte el mar; la carta dibujada
+    // conserva el suyo, que es parte del dibujo.
+    st.surface.setAlbedo(tex, true, skin !== 'dibujado');
     st.surface.setShading(false, cavity, headlight, shadow);
     request();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1143,31 +1664,17 @@ export default function World3D({
     request();
   }, [revision, world, ready, request]);
 
+  // El parche canónico de cerca queda DESARMADO en esta vista, una vez y para
+  // siempre. `SculptSurface` conserva la capacidad (la usa el editor de
+  // esculpido), pero aquí `uDetailOn` vale cero desde el primer frame: nada
+  // que subir, nada que tirar, y el fragment shader se salta las ramas caras
+  // del parche en cada píxel de cada frame.
   useEffect(() => {
     const st = R.current;
     if (!st) return;
-    if (!regionDetail) {
-      st.surface.setDetailPatch(null);
-      st.surface.setDetailAlbedo(null);
-      stabilizeCamera();
-      st.poseKey = '';
-      request();
-      return;
-    }
-    st.surface.setDetailPatch({
-      elevation: regionDetail.elevation,
-      width: regionDetail.width,
-      height: regionDetail.height,
-      u: regionDetail.originX / world.width,
-      v: regionDetail.originY / world.height,
-      uSize: (regionDetail.worldPerCellX * regionDetail.width) / world.width,
-      vSize: (regionDetail.worldPerCellY * regionDetail.height) / world.height,
-    });
-    st.surface.setDetailAlbedo(regionAlbedoCanvas(regionDetail));
-    stabilizeCamera();
-    st.poseKey = '';
-    request();
-  }, [regionDetail, ready, request, stabilizeCamera, world.height, world.width]);
+    st.surface.setDetailPatch(null);
+    st.surface.setDetailAlbedo(null);
+  }, [ready]);
 
   // Markers move when the gazetteer or the pins do, with no camera movement to
   // trigger a frame.
@@ -1678,6 +2185,7 @@ export default function World3D({
             <Toggle on={headlight} onClick={() => setHeadlight((v) => !v)} label="Luz frontal" icon={Sun} />
             <p className="text-white/60 leading-snug pt-0.5">
               {quality === 'auto' ? `Auto · ${ms} ms · ` : ''}{detail}
+              {skinInfo ? <><br />{skinInfo}</> : null}
             </p>
           </div>
         )}

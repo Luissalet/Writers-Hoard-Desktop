@@ -5,9 +5,6 @@ import type {
   Timeline,
   TimelineEvent,
   TimelineConnection,
-  YarnBoard,
-  YarnNode,
-  YarnEdge,
   WorldMap,
   MapPin,
   ImageCollection,
@@ -24,7 +21,6 @@ import type { Biography, BiographyFact } from '@/engines/biography/types';
 import type { DiaryEntry } from '@/engines/diary/types';
 import type { Outline, OutlineBeat } from '@/engines/outline/types';
 import type { WritingSession, WritingGoal } from '@/engines/writing-stats/types';
-import type { BrainstormBoard, BrainstormItem, BrainstormConnection } from '@/engines/brainstorm/types';
 import type { CharacterArc, ArcBeat } from '@/engines/character-arc/types';
 import type { Relationship } from '@/engines/relationships/types';
 import type { Seed, Payoff } from '@/engines/seeds/types';
@@ -32,6 +28,7 @@ import type { Annotation, AnnotationReference } from '@/engines/annotations/type
 import type { WritingSnapshot } from '@/engines/writings/snapshotTypes';
 import type { GeneratedWorld, WorldSnapshot, WorldWaypoint } from '@/engines/worldgen/types';
 import type { Note } from '@/engines/notes/types';
+import type { Board, BoardEdge, BoardLayer, BoardNode, BoardView } from '@/engines/board/types';
 import type {
   Citation,
   ConversionReceipt,
@@ -47,9 +44,11 @@ export class WritersHoardDB extends Dexie {
   timelines!: Table<Timeline>;
   timelineEvents!: Table<TimelineEvent>;
   timelineConnections!: Table<TimelineConnection>;
-  yarnBoards!: Table<YarnBoard>;
-  yarnNodes!: Table<YarnNode>;
-  yarnEdges!: Table<YarnEdge>;
+  boards!: Table<Board>;
+  boardNodes!: Table<BoardNode>;
+  boardEdges!: Table<BoardEdge>;
+  boardLayers!: Table<BoardLayer>;
+  boardViews!: Table<BoardView>;
   worldMaps!: Table<WorldMap>;
   mapPins!: Table<MapPin>;
   imageCollections!: Table<ImageCollection>;
@@ -72,9 +71,6 @@ export class WritersHoardDB extends Dexie {
   outlineBeats!: Table<OutlineBeat>;
   writingSessions!: Table<WritingSession>;
   writingGoals!: Table<WritingGoal>;
-  brainstormBoards!: Table<BrainstormBoard>;
-  brainstormItems!: Table<BrainstormItem>;
-  brainstormConnections!: Table<BrainstormConnection>;
   characterArcs!: Table<CharacterArc>;
   arcBeats!: Table<ArcBeat>;
   relationships!: Table<Relationship>;
@@ -714,6 +710,52 @@ export class WritersHoardDB extends Dexie {
       citations: 'id, projectId, *writingIds, snapshotId, updatedAt',
       publishingProfiles: 'id, projectId, format, updatedAt',
       conversionReceipts: 'id, projectId, sourceEntityId, targetEntityId, createdAt',
+    });
+
+    // v24: `yarn-board` and `brainstorm` were the same engine wearing two
+    // costumes — an infinite canvas with cards and connecting lines. They are
+    // replaced by `board`, which keeps the canvas and makes the connections a
+    // real graph: typed relations, many-to-many links, links between links,
+    // layers, saved views. Nothing modelled the old tables that the new ones
+    // cannot express, so they are dropped rather than migrated.
+    this.version(24).stores({
+      boards: 'id, projectId',
+      boardNodes: 'id, projectId, boardId, kind, *tags',
+      boardEdges: 'id, projectId, boardId, sourceId, targetId, kind',
+      boardLayers: 'id, projectId, boardId, order',
+      boardViews: 'id, projectId, boardId, order',
+      yarnBoards: null,
+      yarnNodes: null,
+      yarnEdges: null,
+      brainstormBoards: null,
+      brainstormItems: null,
+      brainstormConnections: null,
+    }).upgrade(async (tx) => {
+      // Keep every project's tab list pointing at something that exists.
+      await tx.table('projects').toCollection().modify((project: {
+        enabledEngines?: string[];
+        engineOrder?: string[];
+      }) => {
+        const swap = (list: string[] | undefined): string[] | undefined => {
+          if (!list) return list;
+          const mapped = list.map((id) =>
+            id === 'yarn-board' || id === 'brainstorm' ? 'board' : id,
+          );
+          return mapped.filter((id, index) => mapped.indexOf(id) === index);
+        };
+        project.enabledEngines = swap(project.enabledEngines);
+        project.engineOrder = swap(project.engineOrder);
+      });
+
+      // Margin notes anchored on the retired engines follow them across.
+      for (const [table, field] of [
+        ['annotations', 'sourceEngineId'],
+        ['annotationReferences', 'targetEngineId'],
+      ] as const) {
+        await tx.table(table).toCollection().modify((row: Record<string, unknown>) => {
+          if (row[field] === 'yarn-board' || row[field] === 'brainstorm') row[field] = 'board';
+        });
+      }
     });
   }
 }

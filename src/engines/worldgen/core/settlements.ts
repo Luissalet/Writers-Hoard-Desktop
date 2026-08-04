@@ -588,13 +588,18 @@ export function buildHumanGeography(
   // guarantees it keeps the same array slot once a parameter moves, and a rename
   // that survives only until a slider is touched is not a rename.
   const painted2 = corrections ? world.painted : undefined;
-  if (painted2 && (Object.keys(painted2.renames).length || painted2.removed.size)) {
+  const pops = world.painted?.populations ?? {};
+  if (painted2 && (Object.keys(painted2.renames).length || painted2.removed.size
+    || Object.keys(pops).length)) {
     const ren = painted2.renames, gone = painted2.removed;
     const keep = <T extends { x: number; y: number; name: string }>(list: T[], target: 'settlement' | 'ruin') =>
       list.filter((o) => !gone.has(editKey(target, o.x, o.y)))
         .map((o) => {
-          const n = ren[editKey(target, o.x, o.y)];
-          return n ? { ...o, name: n } : o;
+          const k = editKey(target, o.x, o.y);
+          const n = ren[k];
+          const pop = target === 'settlement' ? pops[k] : undefined;
+          if (!n && pop === undefined) return o;
+          return { ...o, ...(n ? { name: n } : {}), ...(pop === undefined ? {} : { population: pop }) };
         });
     const keptS = keep(settlements, 'settlement');
     settlements.length = 0;

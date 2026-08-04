@@ -27,6 +27,12 @@ import {
   type WorldSpatialEntity,
 } from '../core/spatialEntities';
 import { declutterLabels, semanticZoomProfile } from '../core/semanticZoom';
+import { DisplayTileStore } from '../cartography/tileStore';
+import { levelFor, tileId, TILE_PX, type TileKey } from '../cartography/tiles';
+import { MAX_SAT_TILE_Z, SAT_DEEP_Z } from '../region/satelliteTile';
+import { regionClient } from '../region/client';
+import type { TilePlace } from '../region/deepTile';
+import { COVER_LABEL_ES } from '../region/types';
 import type { RegionData } from '../region/types';
 import { regionVisibleRect } from '../region/coordinates';
 import { EARTH_KM, MIN_SPAN_KM, clampViewport, flightAt, FLIGHT_MS, type FlyTarget } from '../core/camera';
@@ -77,6 +83,16 @@ interface Map2DProps {
   flyTarget?: FlyTarget | null;
   /** Bumped when an edit changed the world under us, so the raster is rebuilt. */
   revision?: number;
+  /**
+   * The PRISTINE world plus its serialized strokes.
+   *
+   * Deep tiles regenerate the canon countryside at 153 m and re-apply the
+   * strokes at that resolution; handing them the already-edited world would
+   * bake every stroke twice, once as a world-grid smudge and once properly.
+   * Absent, the pyramid stops at the levels the world raster can serve.
+   */
+  canonWorld?: WorldData;
+  canonEdits?: string;
 }
 
 interface ViewState {
@@ -97,7 +113,7 @@ export default function Map2D({
   waypoints, selectedWaypointId, onPlaceWaypoint, onRemoveWaypoint, onSelectWaypoint,
   selectedSpatialKey, regionalEntities = [], regionDetail, onSelectSpatialEntity,
   geography, showSettlements, tool, onEdit, onPickSettlement, onZoomTo,
-  viewport, onViewportChange, flyTarget, revision = 0,
+  viewport, onViewportChange, flyTarget, revision = 0, canonWorld, canonEdits,
 }: Map2DProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -184,6 +200,96 @@ export default function Map2D({
     canvas: HTMLCanvasElement; vx: number; vy: number; vw: number; vh: number; key: string;
   } | null>(null);
   const sharpTimer = useRef(0);
+
+  // ---- the satellite pyramid ------------------------------------------------
+  // The 2D stops being a magnified picture of the world raster here. Tiles come
+  // from the same worker (or Forge process) the Carta and the regional sheets
+  // use: above the hand-over level they are the world amplified per pixel,
+  // below it they are the canon countryside inked as ground. Everything the
+  // gesture needs — ancestor fall-back, LRU, in-flight dedup — lives in
+  // DisplayTileStore, which the Carta has been using since the pyramid was
+  // built. This view simply asks it for a different paint.
+  const tileProps = useRef({ world, geography, canonWorld, canonEdits, showRivers });
+  tileProps.current = { world, geography, canonWorld, canonEdits, showRivers };
+  const deepPlaces = useRef(new Map<string, TilePlace[]>());
+  const requestDrawRef = useRef<() => void>(() => undefined);
+  const tileStore = useMemo(() => new DisplayTileStore(
+    (key: TileKey) => {
+      const q = tileProps.current;
+      if (!q.geography) return Promise.resolve(null);
+      const deep = key.z >= SAT_DEEP_Z && !!q.canonWorld;
+      return regionClient.requestTile(
+        deep ? q.canonWorld! : q.world,
+        q.geography,
+        key,
+        {
+          ink: 'satellite',
+          themeId: 'satellite',
+          layers: { rivers: q.showRivers, roads: true, fields: true },
+          density: 1,
+          reliefAmount: 1,
+          edits: deep ? q.canonEdits : undefined,
+        },
+      ).promise.then((res) => {
+        if (!res) return null;
+        if (res.places?.length) {
+          const places = deepPlaces.current;
+          places.set(tileId(key), res.places);
+          if (places.size > 256) {
+            const oldest = places.keys().next().value;
+            if (oldest !== undefined) places.delete(oldest);
+          }
+        }
+        return res.bitmap;
+      }).catch(() => null);
+    },
+    () => requestDrawRef.current(),
+  ), []);
+  useEffect(() => () => tileStore.dispose(), [tileStore]);
+  const tileGeneration = useRef('');
+  /** Level the pyramid is drawing at, for the parts of the UI outside draw(). */
+  const tileLevel = useRef(-1);
+
+  /**
+   * The canon under the cursor.
+   *
+   * The hover readout has always answered from the WORLD cell, which is twenty
+   * to forty kilometres of ground averaged into one number — a fair answer when
+   * that was all the view could show, and a useless one now that the same
+   * screen draws a hedge. At canon depth the reading comes from the 153 m
+   * ground instead: the real height here, what is growing on it, how steep it
+   * is, whether it is wet.
+   *
+   * The probe never GENERATES. If the canon under the cursor is not resident it
+   * says nothing and the world reading stands — which costs nothing and cannot
+   * turn a hover into a nine-second stall.
+   */
+  const probe = useRef<{
+    key: string;
+    data: import('../region/workerProtocol').RegionProbe | null;
+  } | null>(null);
+  const probeTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(probeTimer.current), []);
+
+  /**
+   * The deepest this camera may go, in screen pixels per world cell.
+   *
+   * Not a constant. The old `Math.min(28, …)` pinned the view at roughly a
+   * kilometre of ground per screen — twenty-eight screen pixels for one
+   * twenty-kilometre cell, which is the porridge this whole change exists to
+   * remove. The honest ceiling is whatever the deepest AVAILABLE tile level
+   * carries: with the canon behind it that is z18, one canon cell per 256-pixel
+   * tile, about 0,6 m per pixel. Half a level of slack on top so the last level
+   * can be magnified a little rather than stopping dead.
+   */
+  const maxScaleRef = useRef(28);
+  const maxScale = useMemo(() => {
+    const zTop = canonWorld && geography ? MAX_SAT_TILE_Z : 12;
+    const usable = viewMode === 'atlas' && projection === 'equirect' && !!geography;
+    if (!usable) return 28;
+    return (TILE_PX * Math.pow(2, zTop) / world.width) * 1.4;
+  }, [canonWorld, geography, viewMode, projection, world.width]);
+  maxScaleRef.current = maxScale;
 
   /** Refresh the palette AND the sharp window over a freshly sculpted rect —
    *  the whole cost of a live brush move, a few hundred cells' worth. */
@@ -403,7 +509,48 @@ export default function Map2D({
       if (showRivers && viewMode !== 'plates' && viewMode !== 'flow') {
         ctx.drawImage(riverCanvas, ox, view.oy, mapW, mapH);
       }
+
       if (!wraps) break;
+    }
+
+    // ---- the satellite pyramid ---------------------------------------------
+    // Drawn OVER the world raster, never instead of it. The raster is the
+    // fallback that is always there and always current — including mid-stroke,
+    // when the brush has changed the ground under the reader's hand and no
+    // tile can know it yet — and the pyramid covers it wherever a tile, or an
+    // ancestor's quarter, is resident. Blurry then sharp, never blank.
+    const tilesEligible = viewMode === 'atlas' && projection === 'equirect'
+      && !!geography && !stroke.current;
+    let tileZ = -1;
+    if (!tilesEligible) tileLevel.current = -1;
+    if (tilesEligible) {
+      // A painted stroke is a different country: bumping the generation empties
+      // the store rather than showing tiles of the world as it was.
+      const gen = `${world.params.seed}:${revision}:${showRivers ? 1 : 0}:${canonWorld ? 1 : 0}`;
+      if (gen !== tileGeneration.current) {
+        tileGeneration.current = gen;
+        deepPlaces.current.clear();
+      }
+      tileStore.setGeneration(gen);
+      tileZ = levelFor(world, scale, canonWorld ? MAX_SAT_TILE_Z : 12);
+      const tv = { x: -view.ox / scale, y: -view.oy / scale, w: cw / scale, h: ch / scale };
+      tileLevel.current = tileZ;
+      tileStore.want(world, tileZ, tv);
+      const got = tileStore.draw(ctx, world, tileZ, tv, { x: 0, y: 0, w: cw, h: ch });
+      // Say so when the ground under the reader is still an ancestor's blur.
+      // A stroke empties the store — the canon has to be rebuilt with it — and
+      // without a word of warning that reads as "the paint did nothing".
+      if (got.exact < got.needed) {
+        const msg = `terreno · ${got.exact}/${got.needed}`;
+        ctx.font = '500 11px "Source Sans 3", sans-serif';
+        const tw = ctx.measureText(msg).width;
+        ctx.fillStyle = 'rgba(7,7,13,0.62)';
+        ctx.beginPath();
+        ctx.roundRect(10, ch - 26, tw + 16, 18, 5);
+        ctx.fill();
+        ctx.fillStyle = '#d8d2c6';
+        ctx.fillText(msg, 18, ch - 13);
+      }
     }
 
     // Book a fresh window once the view rests. Booked from draw() so any
@@ -468,9 +615,14 @@ export default function Map2D({
       copies.push(view.ox);
     }
 
-    // High-resolution regional terrain is composited over the stable world
-    // raster only once semantic zoom reaches the corresponding scale.
-    if (regionalCanvas && regionDetail && semantic.showRegionalTerrain) {
+    // The regional composite: a single 1024-cell window over the ground the
+    // reader is looking at, painted over the world raster once semantic zoom
+    // reaches its scale. It predates the pyramid and is now the LOWER of the
+    // two — so where tiles are drawing it must stay out of the way, or it
+    // would paint a coarse wash straight over the sharp ground at exactly the
+    // zoom levels this change exists to fix. Its places still feed the
+    // regional entity overlay, which is why it is still requested.
+    if (regionalCanvas && regionDetail && semantic.showRegionalTerrain && !tilesEligible) {
       const visible = regionVisibleRect(regionDetail);
       const worldX0 = regionDetail.originX + visible.x * regionDetail.worldPerCellX;
       const worldY0 = regionDetail.originY + visible.y * regionDetail.worldPerCellY;
@@ -626,6 +778,33 @@ export default function Map2D({
               rank <= 1 ? 11 : 10,
               rank <= 1 ? 600 : 500,
               100 - rank * 15,
+            );
+          }
+        }
+      }
+    }
+
+    // Names the deep tiles found. Hamlets, farms, mills and named crags exist
+    // only in the canon, so nothing above knows about them; they are lettered
+    // live here, like every other label, because a name baked into a tile is
+    // pinned to the wrong pixels the moment the view moves.
+    if (tilesEligible && tileZ >= SAT_DEEP_Z) {
+      const prefix = `${tileZ}/`;
+      for (const [id, places] of deepPlaces.current) {
+        if (!id.startsWith(prefix)) continue;
+        for (const p of places) {
+          for (const copyOx of copies) {
+            const [sx, sy] = toScreen(p.worldX / W, p.worldY / H, copyOx);
+            if (sx < -80 || sx > cw + 80 || sy < -30 || sy > ch + 30) continue;
+            const big = p.kind === 'town' || p.kind === 'village';
+            ctx.beginPath();
+            ctx.arc(sx, sy, big ? 3 : 2, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(20,18,14,0.75)';
+            ctx.fill();
+            queueLabel(
+              p.name, sx + 5, sy, '#f2ecdd',
+              big ? 11 : 9.5, big ? 600 : 500,
+              40 + p.importance * 30,
             );
           }
         }
@@ -796,7 +975,7 @@ export default function Map2D({
         const requestedScale = initialViewport
           ? (EARTH_KM / Math.max(MIN_SPAN_KM, initialViewport.spanKm)) * (rect.width / PW)
           : fitScale;
-        const scale = Math.max(fitScale * 0.5, Math.min(28, requestedScale));
+        const scale = Math.max(fitScale * 0.5, Math.min(maxScaleRef.current, requestedScale));
         const [focusX, focusY] = spec.forward(initialViewport?.u ?? 0.5, initialViewport?.v ?? 0.5);
         viewRef.current = {
           scale,
@@ -821,6 +1000,10 @@ export default function Map2D({
   // Redraw on layer/props changes (also keeps drawRef current).
   useEffect(() => {
     drawRef.current = draw;
+    // The store calls this when a tile lands, so the interim gets one more
+    // blit with the new tile in it. Through a ref, or the closure the store
+    // was built with goes stale on the first re-render.
+    requestDrawRef.current = scheduleDraw;
     scheduleDraw();
   });
 
@@ -838,7 +1021,7 @@ export default function Map2D({
     if (!view || !canvas) return;
     const rect = canvas.getBoundingClientRect();
     const fitScale = Math.min(rect.width / PW, rect.height / PH) * 0.98;
-    const scale = Math.max(fitScale * 0.5, Math.min(28,
+    const scale = Math.max(fitScale * 0.5, Math.min(maxScale,
       (EARTH_KM / Math.max(MIN_SPAN_KM, vp.spanKm)) * (rect.width / PW)));
     const [fx, fy] = spec.forward(vp.u, vp.v);
     view.scale = scale;
@@ -846,7 +1029,7 @@ export default function Map2D({
     view.oy = rect.height * 0.5 - fy * PH * scale;
     clampView(view, rect.width, rect.height, PW, PH, wraps);
     scheduleDraw();
-  }, [PW, PH, spec, wraps, scheduleDraw]);
+  }, [PW, PH, spec, wraps, scheduleDraw, maxScale]);
 
   useEffect(() => {
     if (!flyTarget) return;
@@ -884,7 +1067,7 @@ export default function Map2D({
       const mx = e.clientX - rect.left, my = e.clientY - rect.top;
       const factor = Math.exp(-e.deltaY * 0.0016);
       const minScale = Math.min(rect.width / PW, rect.height / PH) * 0.5;
-      const newScale = Math.max(minScale, Math.min(28, view.scale * factor));
+      const newScale = Math.max(minScale, Math.min(maxScale, view.scale * factor));
       const k = newScale / view.scale;
       view.ox = mx - (mx - view.ox) * k;
       view.oy = my - (my - view.oy) * k;
@@ -895,7 +1078,7 @@ export default function Map2D({
     };
     canvas.addEventListener('wheel', onWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', onWheel);
-  }, [PW, PH, wraps, scheduleDraw, reportViewport, cancelFlight]);
+  }, [PW, PH, wraps, scheduleDraw, reportViewport, cancelFlight, maxScale]);
 
   // ---- helpers -------------------------------------------------------------------
   const screenToMap = (sx: number, sy: number): { u: number; v: number } | null => {
@@ -1103,14 +1286,46 @@ export default function Map2D({
     const i = cy * W + cx;
     const e2 = world.elevation[i];
     const biomeKey = BIOME_KEYS[world.biome[i]] ?? 'ocean';
-    const parts = [
-      t(`worldgen.biome.${biomeKey}`),
-      e2 > 0
-        ? `${Math.round(e2 * 1000)} m`
-        : `−${Math.round(-e2 * 1000)} m`,
-      `${Math.round(world.temperature[i])}°C`,
-      `${Math.round(world.precipitation[i])} mm`,
-    ];
+
+    // Ask the canon, if the canon is what is on screen. One reading per cell of
+    // ground, so a moving cursor asks a few times a second and not a few
+    // hundred; the answer arrives for the NEXT frame of hovering, which at this
+    // range is a few pixels away and reads as instant.
+    const deep = tileLevel.current >= SAT_DEEP_Z && !!geography;
+    const probeKey = deep
+      ? `${Math.round(m.u * W * 128)}:${Math.round(m.v * H * 128)}`
+      : '';
+    if (deep && probe.current?.key !== probeKey) {
+      window.clearTimeout(probeTimer.current);
+      const wx = m.u * W, wy = m.v * H;
+      probeTimer.current = window.setTimeout(() => {
+        const q = tileProps.current;
+        if (!q.geography) return;
+        regionClient
+          .requestProbe(q.canonWorld ?? q.world, q.geography, wx, wy)
+          .then((data) => { probe.current = { key: probeKey, data }; })
+          .catch(() => { probe.current = { key: probeKey, data: null }; });
+      }, 70);
+    }
+    const canon = deep && probe.current?.key === probeKey ? probe.current.data : null;
+
+    const parts = canon
+      ? [
+        canon.water === 1 ? 'mar' : canon.water === 2 ? 'lago'
+          : (COVER_LABEL_ES[canon.cover] ?? t(`worldgen.biome.${biomeKey}`)),
+        `${Math.round(canon.elevationM)} m`,
+        `${Math.round(canon.slope * 100)} % pdte.`,
+        canon.wet > 0.6 ? 'encharcado' : canon.wet > 0.35 ? 'húmedo' : 'seco',
+        `${Math.round(canon.metresPerCell)} m/celda`,
+      ]
+      : [
+        t(`worldgen.biome.${biomeKey}`),
+        e2 > 0
+          ? `${Math.round(e2 * 1000)} m`
+          : `−${Math.round(-e2 * 1000)} m`,
+        `${Math.round(world.temperature[i])}°C`,
+        `${Math.round(world.precipitation[i])} mm`,
+      ];
     // Clamp here (event handler) so render never touches the container ref.
     const left = Math.min(sx + 12, rect.width - 210);
     setHover({ x: left, y: sy + 14, text: parts.join(' · ') });

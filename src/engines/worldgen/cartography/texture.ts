@@ -122,11 +122,15 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
   // back when the full rebuild landed.
   const ren = world.painted?.renames ?? {};
   const gone = world.painted?.removed ?? new Set<string>();
+  const pops = world.painted?.populations ?? {};
   const fix = <T extends { x: number; y: number; name: string }>(list: T[], target: 'settlement' | 'ruin'): T[] =>
     list.filter((o) => !gone.has(`${target}:${Math.round(o.x)},${Math.round(o.y)}`))
       .map((o) => {
-        const n = ren[`${target}:${Math.round(o.x)},${Math.round(o.y)}`];
-        return n ? { ...o, name: n } : o;
+        const k = `${target}:${Math.round(o.x)},${Math.round(o.y)}`;
+        const n = ren[k];
+        const pop = target === 'settlement' ? pops[k] : undefined;
+        if (!n && pop === undefined) return o;
+        return { ...o, ...(n ? { name: n } : {}), ...(pop === undefined ? {} : { population: pop }) };
       });
   const settlements = fix(base.settlements.filter((s) => !drowned(s.x, s.y)), 'settlement');
   const ruins = fix(base.ruins.filter((r) => !drowned(r.x, r.y)), 'ruin');
@@ -301,12 +305,94 @@ export function pickSettlement(
 }
 
 /** City parameters derived from a settlement's place in the world. */
+/**
+ * WHICH WAY EVERYTHING IS.
+ *
+ * The plan generator used to be told only THAT a town had a river and a coast,
+ * never where they were, so it picked a random bearing for each — which is why
+ * no town was ever shaped by its own ground, and why a plan could not be laid
+ * on the map without its water pointing somewhere the map disagrees with.
+ *
+ * These come straight off the world: the direction to open sea, the local
+ * heading of the river that passes through, and which way the ground rises.
+ * All in world-raster axes (y increases south), which is the same frame the
+ * plan uses, so a plan built from them is already oriented.
+ */
+function cityBearings(world: WorldData, s: Settlement): {
+  coastDir: { x: number; y: number } | null;
+  riverDir: { x: number; y: number } | null;
+  slopeDir: { x: number; y: number } | null;
+  slopeAmount: number;
+} {
+  const W = world.width, H = world.height;
+  const at = (x: number, y: number) =>
+    Math.min(H - 1, Math.max(0, y)) * W + (((x % W) + W) % W);
+  const sx = Math.round(s.x), sy = Math.round(s.y);
+
+  // The sea: the nearest ocean cell within a few cells, by squared distance.
+  let coastDir: { x: number; y: number } | null = null;
+  if (s.port) {
+    let best = Infinity;
+    for (let dy = -4; dy <= 4; dy++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        if (!dx && !dy) continue;
+        if (world.elevation[at(sx + dx, sy + dy)] > 0) continue;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < best) { best = d2; coastDir = { x: dx, y: dy }; }
+      }
+    }
+  }
+
+  // The river: whichever world river passes closest, and the heading of the
+  // run that passes. Two cells apart along the polyline is enough of a chord
+  // to be a heading and short enough to still be local.
+  let riverDir: { x: number; y: number } | null = null;
+  if (s.river) {
+    let best = Infinity;
+    for (const r of world.rivers) {
+      for (let k = 0; k < r.cells.length; k++) {
+        const c = r.cells[k];
+        let dx = (c % W) - sx;
+        if (dx > W / 2) dx -= W;
+        if (dx < -W / 2) dx += W;
+        const dy = ((c / W) | 0) - sy;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= best || d2 > 25) continue;
+        const a = r.cells[Math.max(0, k - 2)], b = r.cells[Math.min(r.cells.length - 1, k + 2)];
+        let tx = (b % W) - (a % W);
+        if (tx > W / 2) tx -= W;
+        if (tx < -W / 2) tx += W;
+        const ty = ((b / W) | 0) - ((a / W) | 0);
+        if (!tx && !ty) continue;
+        best = d2;
+        riverDir = { x: tx, y: ty };
+      }
+    }
+  }
+
+  // The rising ground, and how hard it rises. Scaled against 300 m of relief
+  // over one world cell, which is a decidedly steep place to build.
+  const gx = world.elevation[at(sx + 1, sy)] - world.elevation[at(sx - 1, sy)];
+  const gy = world.elevation[at(sx, sy + 1)] - world.elevation[at(sx, sy - 1)];
+  const mag = Math.hypot(gx, gy);
+  const slopeDir = mag > 1e-6 ? { x: gx / mag, y: gy / mag } : null;
+  const slopeAmount = Math.min(1, mag / 0.3);
+
+  return { coastDir, riverDir, slopeDir, slopeAmount };
+}
+
 export function cityParamsFor(world: WorldData, s: Settlement): {
   seed: string; name: string; size: number; walls: boolean; citadel: boolean;
   river: boolean; coast: boolean; farms: boolean; culture: Settlement['culture'];
   population: number;
+  coastDir: { x: number; y: number } | null;
+  riverDir: { x: number; y: number } | null;
+  slopeDir: { x: number; y: number } | null;
+  slopeAmount: number;
+  irregularity: number;
 } {
   const size = s.rank === 'capital' ? 34 : s.rank === 'city' ? 22 : s.rank === 'town' ? 13 : 7;
+  const bearings = cityBearings(world, s);
   return {
     seed: `${world.params.seed}::city::${s.id}`,
     name: s.name,
@@ -318,6 +404,10 @@ export function cityParamsFor(world: WorldData, s: Settlement): {
     farms: true,
     culture: s.culture,
     population: s.population,
+    ...bearings,
+    // A little per-town variation in how lobed it is: a planned bastide and a
+    // village that grew where the tracks crossed are not the same shape.
+    irregularity: 0.38 + ((s.id * 2654435761) % 1000) / 1000 * 0.34,
   };
 }
 

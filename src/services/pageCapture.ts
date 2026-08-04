@@ -20,11 +20,9 @@ export function canCapturePage(source: SnapshotSource): boolean {
   return source === 'url';
 }
 
-/**
- * Extracted text is stored in IndexedDB (it powers the snapshot search box),
- * so cap it — a 2 MB wall of text would bloat every query for no benefit.
- */
-const MAX_TEXT_CHARS = 120_000;
+// Extracted text is stored in IndexedDB whole. It used to be truncated at
+// 120k characters to keep queries cheap, which silently lost the tail of any
+// long-form piece — the exact thing worth archiving.
 
 /** Rabbitholer's threshold: below this, Readability clearly missed the article. */
 const MIN_READABLE_CHARS = 200;
@@ -48,11 +46,11 @@ export function extractReadableText(html: string, fallback?: string): string {
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const article = new Readability(doc, { charThreshold: 20, keepClasses: false }).parse();
     const text = article?.textContent ? tidy(article.textContent) : '';
-    if (text.length >= MIN_READABLE_CHARS) return text.slice(0, MAX_TEXT_CHARS);
+    if (text.length >= MIN_READABLE_CHARS) return text;
   } catch {
     /* malformed markup — fall through to the heuristic text */
   }
-  return (fallback ? tidy(fallback) : '').slice(0, MAX_TEXT_CHARS);
+  return fallback ? tidy(fallback) : '';
 }
 
 /** Cancel an in-flight page capture (destroys its hidden browser window). */
