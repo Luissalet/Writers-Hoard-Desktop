@@ -8,7 +8,11 @@
 // resolved at runtime from node_modules (electron-updater/ffmpeg-static are
 // production deps; ffmpeg-static is also asar-unpacked for execution).
 
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const common = {
   bundle: true,
@@ -18,6 +22,9 @@ const common = {
   sourcemap: true,
   logLevel: 'info',
   external: ['electron', 'electron-updater', 'ffmpeg-static'],
+  // The forge bundles renderer-side worldgen modules, which import shared code
+  // through the same `@/` alias Vite and the test harness use.
+  alias: { '@': path.join(ROOT, 'src') },
 };
 
 await Promise.all([

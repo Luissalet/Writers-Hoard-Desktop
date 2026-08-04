@@ -198,3 +198,53 @@ body {
 .animate-pulse-gold {
   animation: pulse-gold 3s ease-in-out infinite;
 }
+
+/* Board connectors.
+   React Flow's default handle is a 6px dot that only lights up while you are
+   already dragging — which makes starting a thread a hunt. These are visible
+   at rest, obvious on hover, and carry an invisible halo so the grab does not
+   demand pixel accuracy. */
+.board-handle {
+  width: 11px !important;
+  height: 11px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: var(--color-accent-gold) !important;
+  box-shadow: 0 0 0 2px rgba(7, 7, 13, 0.7);
+  opacity: 0.35;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+/* The halo is the real hit target: 22px of slack around an 11px dot. */
+.board-handle::after {
+  content: '';
+  position: absolute;
+  inset: -11px;
+  border-radius: 999px;
+}
+
+.react-flow__node:hover .board-handle,
+.react-flow__node.selected .board-handle {
+  opacity: 1;
+}
+
+.board-handle:hover,
+.board-handle.connectingfrom,
+.board-handle.connectingto {
+  opacity: 1;
+  transform: scale(1.45);
+  background: var(--color-accent-amber) !important;
+}
+
+/* While a thread is in flight every card shows where it can land. */
+.react-flow__pane.connecting ~ * .board-handle,
+.react-flow.connecting .board-handle {
+  opacity: 0.9;
+}
+
+/* Nudge each connector clear of the resize outline that shares its edge, so
+   pressing a side dot always starts a thread and never a resize. */
+.react-flow__handle-top.board-handle { top: -7px; }
+.react-flow__handle-bottom.board-handle { bottom: -7px; }
+.react-flow__handle-left.board-handle { left: -7px; }
+.react-flow__handle-right.board-handle { right: -7px; }

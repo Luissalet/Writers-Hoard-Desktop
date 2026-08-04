@@ -583,25 +583,13 @@ async function clearProjectForRestore(projectId: string): Promise<void> {
   const projectScoped = db.tables.filter(
     (table) => table.name !== 'projects' && 'projectId' in table.schema.idxByName,
   );
-  const [
-    yarnBoardIds,
-    sceneIds,
-    storyboardIds,
-    brainstormBoardIds,
-    annotationIds,
-    worldIds,
-  ] = await Promise.all([
-    db.yarnBoards.where('projectId').equals(projectId).primaryKeys(),
+  const [sceneIds, storyboardIds, annotationIds, worldIds] = await Promise.all([
     db.scenes.where('projectId').equals(projectId).primaryKeys(),
     db.storyboards.where('projectId').equals(projectId).primaryKeys(),
-    db.brainstormBoards.where('projectId').equals(projectId).primaryKeys(),
     db.annotations.where('projectId').equals(projectId).primaryKeys(),
     db.generatedWorlds.where('projectId').equals(projectId).primaryKeys(),
   ]);
 
-  if (yarnBoardIds.length) {
-    await db.yarnEdges.where('boardId').anyOf(yarnBoardIds as string[]).delete();
-  }
   if (sceneIds.length) {
     await db.sceneCasts.where('sceneId').anyOf(sceneIds as string[]).delete();
   }
@@ -609,12 +597,6 @@ async function clearProjectForRestore(projectId: string): Promise<void> {
     await db.storyboardConnectors
       .where('storyboardId')
       .anyOf(storyboardIds as string[])
-      .delete();
-  }
-  if (brainstormBoardIds.length) {
-    await db.brainstormConnections
-      .where('boardId')
-      .anyOf(brainstormBoardIds as string[])
       .delete();
   }
   if (annotationIds.length) {

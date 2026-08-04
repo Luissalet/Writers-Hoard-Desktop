@@ -112,6 +112,28 @@ export interface CityParams {
   /** Ring of farmland outside the walls. */
   farms: boolean;
   population?: number;
+
+  /**
+   * WHERE THINGS ACTUALLY ARE.
+   *
+   * `river` and `coast` were booleans, and the generator picked a random
+   * bearing for each. That is why no town was ever shaped by its own
+   * geography: the plan knew it had a river but not which way it ran, so the
+   * outline could not follow it, and the plan could not be laid on the map
+   * without the water in it pointing somewhere the map disagrees with.
+   *
+   * These are unit vectors in plan space, y DOWN, matching the world raster's
+   * axes, so a plan built with them lands on the map already oriented.
+   */
+  /** Direction from the town out to open sea. Absent = not a port. */
+  coastDir?: V | null;
+  /** Direction the river runs (either sense; the axis is what matters). */
+  riverDir?: V | null;
+  /** Direction of the rising ground, and how strongly it rises (0–1). */
+  slopeDir?: V | null;
+  slopeAmount?: number;
+  /** 0 = a perfect disc, 1 = wildly lobed. Real towns sit near 0,5. */
+  irregularity?: number;
 }
 
 export const DEFAULT_CITY: CityParams = {
@@ -122,6 +144,7 @@ export const DEFAULT_CITY: CityParams = {
   river: false,
   coast: false,
   farms: true,
+  irregularity: 0.55,
 };
 
 // ---------------------------------------------------------------------------
@@ -511,8 +534,125 @@ export function generateCity(params: CityParams): CityPlan {
   const bounds: Poly = [
     { x: -span, y: -span }, { x: span, y: -span }, { x: span, y: span }, { x: -span, y: span },
   ];
-  // Relax only the inner sites: the outskirts should stay irregular.
-  for (let k = 0; k < 2; k++) sites = relax(sites, bounds, (i) => i < nInner * 2);
+
+  // ---- how far the town reaches, in each direction ------------------------
+  //
+  // WHY EVERY TOWN USED TO BE A DISC. `spiralSites` emits points at a radius
+  // that grows monotonically with the index, so the array IS a sort by
+  // distance from the middle — and membership was `i < nInner`, i.e. "the
+  // nInner points nearest the centre". The union of the Voronoi cells of the
+  // N nearest points of a radially uniform spiral is a circle. Lloyd
+  // relaxation evened it further and `smoothPoly(…, 0.32)` rounded off what
+  // was left. Nothing anywhere ever asked which way anything was.
+  //
+  // Membership is now a RACE against a growth field: a site belongs if it is
+  // near the centre RELATIVE TO how far the town grows that way. Towns grow
+  // along their river and along their shore, they do not grow into the water,
+  // they climb a hillside reluctantly, and they are lobed rather than round
+  // because land is. That is the whole difference between a plan and a token.
+  const R0 = 10 + nInner * 2.5; // the nominal radius the spiral would have given
+  const irregularity = Math.max(0, Math.min(1, p.irregularity ?? 0.55));
+
+  const norm = (v: V): V => {
+    const m = Math.hypot(v.x, v.y) || 1;
+    return { x: v.x / m, y: v.y / m };
+  };
+  const pickDir = (given: V | null | undefined, fallbackAngle: number): V =>
+    given && (given.x || given.y) ? norm(given) : { x: Math.cos(fallbackAngle), y: Math.sin(fallbackAngle) };
+
+  // The sea: a half-plane. Everything on the far side of it is water, and the
+  // town simply cannot grow there.
+  // Angular lobes: three harmonics, so the outline has a big asymmetry, a
+  // couple of bays and a fringe — and no axis of symmetry at all. Declared
+  // before the water because the WATERLINE has to be placed at the reach the
+  // town actually has in that direction: pinned at a flat 0,62·R0 it landed
+  // beyond a shrunken lobe, leaving a strip of empty land between the town and
+  // its own sea — no waterfront, no quay, no clipped wall, a "port" that never
+  // touches the water.
+  const lobes = [1, 2, 3].map((w, k) => ({
+    w, phase: rng() * Math.PI * 2, amp: [0.5, 0.32, 0.18][k],
+  }));
+  const lobeAt = (theta: number): number => {
+    let g = 1;
+    for (const l of lobes) g += irregularity * l.amp * Math.cos(l.w * theta + l.phase);
+    return Math.max(0.22, g);
+  };
+
+  const coastAxis = p.coast
+    ? (() => {
+      const n = pickDir(p.coastDir, rng() * Math.PI * 2);
+      const theta = Math.atan2(n.y, n.x);
+      // 0,72 of the reach: the sea bites into the plan rather than grazing it.
+      return { n, d: R0 * lobeAt(theta) * 0.72 };
+    })()
+    : null;
+  // The river: an axis with an off-centre channel, so it never runs through
+  // the market square (the two definitions collided for years — see below).
+  const riverAxis = p.river
+    ? (() => {
+      const dir = pickDir(
+        p.riverDir,
+        coastAxis ? Math.atan2(coastAxis.n.y, coastAxis.n.x) + (rng() - 0.5) * 0.7 : rng() * Math.PI,
+      );
+      const perp = { x: -dir.y, y: dir.x };
+      const off = (rng() < 0.5 ? -1 : 1) * R0 * (0.22 + rng() * 0.3);
+      return { dir, perp, off };
+    })()
+    : null;
+  const slopeDir = p.slopeDir && (p.slopeDir.x || p.slopeDir.y) ? norm(p.slopeDir) : null;
+  const slopeAmount = Math.max(0, Math.min(1, p.slopeAmount ?? 0));
+
+  /** How far the town reaches towards `v`, as a multiple of R0. */
+  const growth = (v: V): number => {
+    const r = Math.hypot(v.x, v.y);
+    if (r < 1e-6) return 1;
+    const u = { x: v.x / r, y: v.y / r };
+    let g = lobeAt(Math.atan2(u.y, u.x));
+
+    if (coastAxis) {
+      // Beyond the waterline there is no town, at any price.
+      if (v.x * coastAxis.n.x + v.y * coastAxis.n.y > coastAxis.d) return 0;
+      // Along the shore, though, a port sprawls: quays, yards, warehouses.
+      const across = Math.abs(u.x * coastAxis.n.x + u.y * coastAxis.n.y);
+      g *= 1 + 0.28 * (1 - across);
+    }
+    if (riverAxis) {
+      // Along the water is the cheap direction — that is where the wharves,
+      // the mills and the road out both ways already are.
+      const along = Math.abs(u.x * riverAxis.dir.x + u.y * riverAxis.dir.y);
+      g *= 0.80 + 0.48 * along;
+      // The far bank is a bridge away, so it gets a quarter, not a half.
+      const side = v.x * riverAxis.perp.x + v.y * riverAxis.perp.y;
+      if (Math.sign(side - riverAxis.off) !== Math.sign(-riverAxis.off)) g *= 0.55;
+    }
+    if (slopeDir) {
+      // Uphill is dear: carts, wells and drains all argue against it.
+      const up = u.x * slopeDir.x + u.y * slopeDir.y;
+      g *= 1 - slopeAmount * 0.5 * Math.max(0, up);
+    }
+    return Math.max(0.22, g);
+  };
+
+  // The race. Site 0 sits on the origin and always wins it.
+  const ranked = sites
+    .map((v, i) => {
+      const g = growth(v);
+      return { i, cost: g <= 0 ? Infinity : Math.hypot(v.x, v.y) / (R0 * g) };
+    })
+    .sort((a, b) => a.cost - b.cost);
+  const chosen = new Set<number>();
+  for (const { i, cost } of ranked) {
+    if (chosen.size >= nInner) break;
+    if (!Number.isFinite(cost)) break; // everything left is in the water
+    chosen.add(i);
+  }
+  // A town squeezed hard by its water can run out of dry ground; it is still a
+  // town, just a smaller one, and forcing it into the sea would be worse.
+
+  // Relax the CHOSEN sites, not the first nInner·2 by index: with a lobed town
+  // those are no longer the same set, and relaxing by index would even out
+  // ground the town never took while leaving its own middle ragged.
+  for (let k = 0; k < 2; k++) sites = relax(sites, bounds, (i) => chosen.has(i));
 
   const cells = voronoi(sites, bounds);
   const patches: Patch[] = [];
@@ -522,8 +662,8 @@ export function generateCity(params: CityParams): CityPlan {
     shapes.push(cells[i]);
     patches.push({
       shape: cells[i],
-      withinCity: i < nInner,
-      withinWalls: p.walls && i < nInner,
+      withinCity: chosen.has(i),
+      withinWalls: p.walls && chosen.has(i),
       ward: 'outskirts',
       buildings: [],
       courts: [],
@@ -542,42 +682,31 @@ export function generateCity(params: CityParams): CityPlan {
     : 40;
 
   // ---- coast and river ----------------------------------------------------
-  let coast: CityPlan['coast'] = null;
-  if (p.coast) {
-    const a = rng() * Math.PI * 2;
-    const n = { x: Math.cos(a), y: Math.sin(a) };
-    // 0.82 left the shore grazing the town: no wall reached it, so no quay, no
-    // piers and no clipped wall ever appeared on a "coastal" plan. The sea has to
-    // bite into the plan for the town to be a port.
-    coast = { p: { x: center.x + n.x * radius * 0.6, y: center.y + n.y * radius * 0.6 }, n };
-  }
+  // Both were decided BEFORE the outline, because the outline grew around
+  // them. What is left here is only to express them as geometry, at the radius
+  // the town actually reached.
+  const coast: CityPlan['coast'] = coastAxis
+    ? { p: { x: coastAxis.n.x * coastAxis.d, y: coastAxis.n.y * coastAxis.d }, n: coastAxis.n }
+    : null;
+
   let river: V[] | null = null;
-  if (p.river) {
-    // On a coastal town the river runs to the sea rather than across it, so its
-    // heading is taken from the shore normal and the polyline is cut at the
-    // waterline.
-    const a = coast ? Math.atan2(coast.n.y, coast.n.x) + (rng() - 0.5) * 0.7 : rng() * Math.PI;
-    const dir = { x: Math.cos(a), y: Math.sin(a) };
-    const perp = { x: -dir.y, y: dir.x };
-    const L = radius * 2.6;
-    // Offset the channel off-centre. Running it exactly through the middle put
-    // the river through the market square of every river town ever generated,
-    // because the market is chosen as the most central district — the two
-    // definitions collided and nobody noticed until a reader saw twenty maps.
-    const off = (rng() < 0.5 ? -1 : 1) * radius * (0.22 + rng() * 0.3);
+  if (riverAxis) {
+    const { dir, perp, off } = riverAxis;
+    const L = radius * 2.8;
     const pts: V[] = [];
     for (let t = -1; t <= 1.0001; t += 0.1) {
       const wobbleAmt = off + Math.sin(t * 5 + rng() * 0.4) * radius * 0.12;
       pts.push({
-        x: center.x + dir.x * L * t * 0.5 + perp.x * wobbleAmt,
-        y: center.y + dir.y * L * t * 0.5 + perp.y * wobbleAmt,
+        x: dir.x * L * t * 0.5 + perp.x * wobbleAmt,
+        y: dir.y * L * t * 0.5 + perp.y * wobbleAmt,
       });
     }
     river = pts;
     if (coast) {
-      const wet = (v: V) => (v.x - coast!.p.x) * coast!.n.x + (v.y - coast!.p.y) * coast!.n.y > 0;
-      // Keep the run from the inland end up to the first wet vertex, plus one
-      // so the channel visibly meets the water.
+      // A river runs TO the sea, not across it: cut the channel at the
+      // waterline, keeping the inland run plus one vertex so it visibly meets
+      // the water.
+      const wet = (v: V) => (v.x - coast.p.x) * coast.n.x + (v.y - coast.p.y) * coast.n.y > 0;
       const startsWet = wet(pts[0]);
       const ordered = startsWet ? [...pts].reverse() : pts;
       const cutAt = ordered.findIndex(wet);
@@ -711,10 +840,34 @@ export function generateCity(params: CityParams): CityPlan {
     for (const q of ranked.slice(quota)) q.ward = 'craftsmen';
   }
   // A town of any size has one cathedral, even if the bag never dealt one.
+  //
+  // And this branch is the ONLY one that ever fires for cathedrals: 'cathedral'
+  // is not in WARD_WEIGHTS, so `pickWard` cannot deal it, so the quota ranker
+  // above — which does weight centrality — never sees a cathedral bucket. It
+  // used to pick purely by area, and the largest block in one of these plans is
+  // systematically at the RIM: Lloyd relaxation evens out the middle and leaves
+  // the outer cells big. That is why every cathedral ended up against the wall.
+  //
+  // A cathedral is the second most central thing in a medieval town after the
+  // market, and it usually stands ON the market square or one block off it. So:
+  // score by centrality first, size second, and give a real bonus for touching
+  // the market place.
   if (!inner.some((q) => q.ward === 'cathedral') && wardQuota('cathedral', inner.length) > 0) {
-    const pick = inner
-      .filter((q) => q.ward === 'craftsmen' && dryEnough(q))
-      .sort((a, b) => area(b.shape) - area(a.shape))[0];
+    const marketVerts = new Set(
+      (market?.shape ?? []).map((v) => `${v.x.toFixed(3)},${v.y.toFixed(3)}`),
+    );
+    const candidates = inner.filter((q) => q.ward === 'craftsmen' && dryEnough(q));
+    let pick: Patch | null = null;
+    let best = -Infinity;
+    for (const q of candidates) {
+      const d = dist(centroid(q.shape), center) / Math.max(1, radius);
+      const onSquare = q.shape.some((v) => marketVerts.has(`${v.x.toFixed(3)},${v.y.toFixed(3)}`));
+      // Centrality dominates; area only breaks ties between equally central
+      // blocks, so it can no longer drag the church out to the ramparts.
+      const score = (1 / (1 + 3 * d)) * Math.pow(Math.max(1, area(q.shape)), 0.25)
+        * (onSquare ? 1.6 : 1);
+      if (score > best) { best = score; pick = q; }
+    }
     if (pick) pick.ward = 'cathedral';
   }
   // Outer ring: farms if requested, otherwise ragged outskirts.

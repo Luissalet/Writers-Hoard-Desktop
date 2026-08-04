@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Dices, Download, Trash2, X } from 'lucide-react';
+import { Check, Dices, Download, Trash2, X } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import type { WorldData } from '../core/types';
 import type { Settlement } from '../core/settlements';
@@ -29,9 +29,56 @@ interface CityPlanViewProps {
   onRename?: (name: string) => void;
   /** Delete this town from the world. The modal closes itself afterwards. */
   onDelete?: () => void;
+  /** Persist a new population. Absent means the reader may look but not set. */
+  onPopulation?: (population: number) => void;
 }
 
-export default function CityPlanView({ world, settlement, theme, onClose, onRename, onDelete }: CityPlanViewProps) {
+/**
+ * How many people the reader may claim live here.
+ *
+ * The old control was a "Tamaño" slider running 5–44 in block counts, which is
+ * a number about the drawing rather than about the place, and its ceiling was
+ * arbitrary. A settlement has a POPULATION; the plan's size follows from it.
+ */
+const POP_MIN = 50;
+const POP_MAX = 1_000_000;
+
+/** Blocks the generator will draw. Measured: 220 blocks ≈ 2 s and ~60 000
+ *  buildings, which is where a plan stops being readable anyway. */
+const SIZE_MAX = 220;
+const SIZE_MIN = 5;
+
+/**
+ * Population → plan size, anchored on what this settlement already is.
+ *
+ * Anchored, not absolute: at the generated population this returns exactly the
+ * generated size, so a town nobody has edited draws precisely the plan it drew
+ * before. The exponent is below one because bigger towns are DENSER — doubling
+ * the people does not double the ground — which is why a city of a million is
+ * a few hundred blocks and not three thousand.
+ */
+function sizeForPopulation(population: number, baseSize: number, basePopulation: number): number {
+  const ratio = population / Math.max(1, basePopulation);
+  return Math.max(SIZE_MIN, Math.min(SIZE_MAX, Math.round(baseSize * Math.pow(ratio, 0.58))));
+}
+
+/** The slider runs in log space: a hamlet and a metropolis both need half the
+ *  travel, or everything under ten thousand lives in the first three pixels. */
+function popToSlider(pop: number): number {
+  const t = (Math.log(pop) - Math.log(POP_MIN)) / (Math.log(POP_MAX) - Math.log(POP_MIN));
+  return Math.round(Math.min(1, Math.max(0, t)) * 1000);
+}
+function sliderToPop(v: number): number {
+  const pop = Math.exp(Math.log(POP_MIN) + (v / 1000) * (Math.log(POP_MAX) - Math.log(POP_MIN)));
+  // Round to something a person would say: 2 significant figures low down,
+  // 3 higher up. Nobody founds a town of 4 137 people.
+  const mag = Math.pow(10, Math.max(0, Math.floor(Math.log10(pop)) - 2));
+  return Math.max(POP_MIN, Math.round(pop / mag) * mag);
+}
+
+export default function CityPlanView({
+  world, settlement, theme, onClose, onRename, onDelete, onPopulation,
+}: CityPlanViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -40,11 +87,43 @@ export default function CityPlanView({ world, settlement, theme, onClose, onRena
 
   const base = useMemo(() => cityParamsFor(world, settlement), [world, settlement]);
 
+  // Two populations on purpose. `pop` is what the reader sees and drags — it
+  // updates on every pixel of slider. `settled` is what the PLAN is built from,
+  // and it only catches up once the hand stops, because a plan of two hundred
+  // blocks costs the better part of two seconds and regenerating it per frame
+  // would make the slider feel broken.
+  const [pop, setPop] = useState(settlement.population);
+  const [settled, setSettled] = useState(settlement.population);
+  const settleTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(settleTimer.current), []);
+
+  /** Move the number now, rebuild the plan when the hand stops. */
+  const bumpPop = useCallback((v: number) => {
+    const n = Math.max(POP_MIN, Math.min(POP_MAX, Math.round(v)));
+    setPop(n);
+    setOverrides((o) => ({ ...o, size: undefined }));
+    window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(() => setSettled(n), 260);
+  }, []);
+
+  const planSize = useMemo(
+    () => overrides.size ?? sizeForPopulation(settled, base.size, base.population),
+    [overrides.size, settled, base.size, base.population],
+  );
+
   const plan: CityPlan = useMemo(() => generateCity({
     ...base,
     ...overrides,
+    size: planSize,
+    population: settled,
     seed: variant === 0 ? base.seed : `${base.seed}::v${variant}`,
-  }), [base, overrides, variant]);
+  }), [base, overrides, planSize, settled, variant]);
+
+  const dirty = pop !== settlement.population;
+  const save = useCallback(() => {
+    if (!onPopulation || !dirty) return;
+    onPopulation(pop);
+  }, [onPopulation, dirty, pop]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -102,8 +181,10 @@ export default function CityPlanView({ world, settlement, theme, onClose, onRena
               className="text-sm text-text-primary"
             />
             <div className="text-[11px] text-text-muted">
-              {plan.population.toLocaleString('es-ES')} hab · {buildings.toLocaleString('es-ES')} edificios
+              {pop.toLocaleString('es-ES')} hab · {plan.patches.length.toLocaleString('es-ES')} manzanas
+              {' · '}{buildings.toLocaleString('es-ES')} edificios
               {plan.wall ? ` · ${plan.gates.length} puertas, ${plan.towers.length} torres` : ' · sin murallas'}
+              {pop !== settled && ' · redibujando…'}
             </div>
           </div>
 
@@ -115,14 +196,39 @@ export default function CityPlanView({ world, settlement, theme, onClose, onRena
           <Toggle label="Costa" on={overrides.coast ?? base.coast} onClick={() => setOverrides((o) => ({ ...o, coast: !(o.coast ?? base.coast) }))} />
 
           <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
-            Tamaño
+            Habitantes
             <input
-              type="range" min={5} max={44} step={1}
-              value={overrides.size ?? base.size}
-              onChange={(e) => setOverrides((o) => ({ ...o, size: Number(e.target.value) }))}
-              className="w-24 accent-accent-gold"
+              type="range" min={0} max={1000} step={1}
+              value={popToSlider(pop)}
+              onChange={(e) => bumpPop(sliderToPop(Number(e.target.value)))}
+              className="w-28 accent-accent-gold"
+              title="El plano crece con la población; por encima de unas 220 manzanas deja de crecer para seguir siendo legible"
+            />
+            <input
+              type="number" min={POP_MIN} max={POP_MAX} step={50}
+              value={pop}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v)) bumpPop(v);
+              }}
+              className="w-20 px-1 py-0.5 rounded border border-border bg-elevated text-[11px] text-text-primary"
             />
           </label>
+
+          {onPopulation && (
+            <button
+              onClick={save}
+              disabled={!dirty}
+              title={dirty ? 'Guardar la población en el mundo' : 'Sin cambios que guardar'}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition ${
+                dirty
+                  ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold hover:bg-accent-gold/25'
+                  : 'border-border bg-elevated text-text-muted opacity-50 cursor-default'
+              }`}
+            >
+              <Check size={12} /> Guardar
+            </button>
+          )}
 
           {onDelete && (
             <IconBtn

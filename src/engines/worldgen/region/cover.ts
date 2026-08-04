@@ -172,8 +172,23 @@ export function buildNaturalCover(
       // Two scales, because one is not enough: the big warp interlocks the
       // biome blocks, and the small one fringes the join so it does not read as
       // a single confident line drawn by something that knows where the grid is.
-      const wu = warpBigU.at(x, y) * 0.58 + warpSmU.at(x, y) * 0.13;
-      const wv = warpBigV.at(x, y) * 0.58 + warpSmV.at(x, y) * 0.13;
+      // HOW FAR the boundary may move, and why it is not far.
+      //
+      // The warp used to reach 0,71 world cells — some twenty-eight kilometres.
+      // That does interlock the blocks beautifully, and it also means the
+      // ground under the reader reports a different biome from the one the
+      // whole-world map is showing them. Measured on three tiles: the canon
+      // disagreed with the world about the biome on 33–42 % of the land, and
+      // ONE HUNDRED PER CENT of that disagreement sat against a world biome
+      // boundary. So none of it was the sheet knowing better; all of it was the
+      // sheet moving the line.
+      //
+      // A third of a cell still breaks the lattice — at 153 m per canon cell an
+      // interlock of twelve kilometres is eighty cells of organic boundary, and
+      // the satellite ink dissolves what is left at pixel scale. What it no
+      // longer does is relocate a rainforest.
+      const wu = warpBigU.at(x, y) * 0.20 + warpSmU.at(x, y) * 0.11;
+      const wv = warpBigV.at(x, y) * 0.20 + warpSmV.at(x, y) * 0.11;
       let b = patchNearest(patch, patch.biome, wx + wu, wy + wv);
       const elev = t.elevation[i];
       const worldElev = patchBilinear(patch, patch.elev, wx, wy);

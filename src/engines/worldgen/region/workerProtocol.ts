@@ -45,6 +45,41 @@ export interface RegionGenerateWorkerRequest {
   edits?: string;
 }
 
+/**
+ * Read the canon under one point.
+ *
+ * Deliberately incapable of generating anything: it answers only from canon
+ * tiles this session has ALREADY built, and says so when it cannot. A hover
+ * readout that could trigger a nine-second supertile build would make the
+ * cursor a trap; this way it is free, and by the time the reader is looking at
+ * canon ground the canon under the cursor is by definition resident.
+ */
+export interface RegionProbeWorkerRequest {
+  type: 'probe';
+  requestId: string;
+  contextId: string;
+  /** World cell coordinates (x wraps). */
+  wx: number;
+  wy: number;
+}
+
+export interface RegionProbe {
+  /** Metres above sea level, at ~153 m resolution. */
+  elevationM: number;
+  /** 0 land · 1 sea · 2 lake. */
+  water: number;
+  /** Regional ground cover id (see region/types Cover). */
+  cover: number;
+  /** World biome id, after the sheet's own correction. */
+  biome: number;
+  /** Metres per metre. */
+  slope: number;
+  /** 0–1 topographic wetness. */
+  wet: number;
+  /** Ground resolution this reading came from. */
+  metresPerCell: number;
+}
+
 export interface RegionCancelWorkerRequest {
   type: 'cancel';
   requestId: string;
@@ -58,6 +93,16 @@ export interface RegionCancelWorkerRequest {
  */
 export interface RegionRenderTileWorkerRequest {
   type: 'renderTile';
+  /**
+   * Which vocabulary to ink this tile in.
+   *
+   * `carta` is the paper sheet the Carta view reads. `satellite` is the ground
+   * seen from above, which is what the 2D view edits on. Same worker, same
+   * cloned world, same canon cache — a satellite tile and a carta tile over the
+   * same hillside share the expensive part and differ only in the paint.
+   * Absent means `carta`, so every existing caller keeps its behaviour.
+   */
+  ink?: 'carta' | 'satellite';
   requestId: string;
   contextId: string;
   z: number;
@@ -77,6 +122,7 @@ export type RegionWorkerRequest =
   | RegionConfigureWorkerRequest
   | RegionGenerateWorkerRequest
   | RegionRenderTileWorkerRequest
+  | RegionProbeWorkerRequest
   | RegionCancelWorkerRequest;
 
 export type RegionWorkerReply =
@@ -95,6 +141,7 @@ export type RegionWorkerReply =
     height?: number;
     places?: TilePlace[];
   }
+  | { type: 'probed'; requestId: string; probe: RegionProbe | null }
   | { type: 'cancelled'; requestId: string }
   | { type: 'error'; requestId: string; message: string };
 

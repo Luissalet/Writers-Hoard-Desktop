@@ -98,58 +98,6 @@ export interface TimelineConnection {
   createdAt: number;
 }
 
-// Yarn Board
-export interface YarnBoard {
-  id: string;
-  projectId: string;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export type YarnNodeType =
-  | 'character' | 'event' | 'concept' | 'note'         // semantic (original)
-  | 'postit' | 'image' | 'text' | 'group' | 'shape';   // generic canvas primitives
-
-export interface YarnNode {
-  id: string;
-  projectId: string;
-  boardId: string;
-  type: YarnNodeType;
-  title: string;
-  content: string;
-  image?: string;                          // base64 — cropped for display
-  imageOriginal?: string;                  // base64 — original uncropped source
-  color: string;
-  position: { x: number; y: number };
-  width?: number;                          // resizable nodes (group, image, text)
-  height?: number;
-  linkedEntryId?: string;                  // codex cross-ref
-  // Group node: child node IDs positioned inside this group
-  childNodeIds?: string[];
-  // Shape node specifics
-  shape?: 'rectangle' | 'circle' | 'diamond' | 'pill';
-  // Text node: rich HTML content (TipTap)
-  richContent?: string;
-  // Post-it: just uses title + color (compact sticky)
-  // Image node: uses image + optional title caption
-  zIndex?: number;                         // layering order
-}
-
-export type YarnEdgeDirection = 'none' | 'forward' | 'backward' | 'both';
-
-export interface YarnEdge {
-  id: string;
-  boardId: string;
-  sourceId: string;
-  targetId: string;
-  color: string;
-  style: 'solid' | 'dashed' | 'dotted';
-  label?: string;
-  direction?: YarnEdgeDirection;           // arrow direction (default: 'none' = no arrows)
-  curvature?: 'straight' | 'curved' | 'step'; // path type
-}
-
 // Maps
 export interface WorldMap {
   id: string;

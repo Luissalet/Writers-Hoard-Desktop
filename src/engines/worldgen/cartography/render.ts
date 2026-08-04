@@ -13,6 +13,7 @@
 // low minutes, and it is the only way to get the coast rings to respect real
 // geodesic distance instead of a blurred alpha mask.
 
+import { scaleCount } from '@/utils/capacity';
 import { riverKey } from '../core/edits';
 import { Biome, type WorldData } from '../core/types';
 import { createRng, type Rng } from '../core/rng';
@@ -227,7 +228,7 @@ function getTintField(world: WorldData, theme: CartoTheme): TintField {
  */
 interface PaperEntry { key: string; px: Uint8ClampedArray }
 const PAPER_LRU: PaperEntry[] = [];
-const PAPER_LRU_MAX = 3;
+const PAPER_LRU_MAX = scaleCount(3);
 
 function getPaper(
   seed: string, theme: CartoTheme, W: number, H: number,
@@ -261,7 +262,7 @@ function getPaper(
 export interface SymbolPlacement { x: number; y: number; score: number; isHill: boolean }
 interface PlacementEntry { key: string; items: SymbolPlacement[] }
 const PLACE_CACHE = new WeakMap<WorldData, { rev: number; list: PlacementEntry[] }>();
-const PLACE_MAX = 8;
+const PLACE_MAX = scaleCount(8);
 
 /** Quarter-octave zoom buckets: panning never changes the bucket, and zooming
  *  reuses a placement across a 19% span of scale. Symbol SIZE still tracks the
