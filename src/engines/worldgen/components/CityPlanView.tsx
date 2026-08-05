@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Dices, Download, Trash2, X } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import type { WorldData } from '../core/types';
-import type { Settlement } from '../core/settlements';
-import { generateCity, type CityParams, type CityPlan } from '../city/generate';
+import type { HumanGeography, Settlement } from '../core/settlements';
+import { generateCity, type CityParams, type CityPlan, type WardType } from '../city/generate';
 import { renderCity } from '../city/render';
 import { cityParamsFor } from '../cartography/texture';
+import { METRES_PER_CITY_UNIT } from '../region/townPlan';
 import type { CartoTheme } from '../cartography/theme';
 import type { Ctx } from '../cartography/symbols';
 import EditableName from './EditableName';
@@ -21,6 +22,16 @@ import { useTranslation } from '@/i18n/useTranslation';
 interface CityPlanViewProps {
   world: WorldData;
   settlement: Settlement;
+  /**
+   * La geografía humana del mundo, si quien abre la ficha la tiene a mano.
+   *
+   * De ella salen los CAMINOS que llegan al pueblo, que es lo que decide dónde
+   * están las puertas. Es opcional porque `cityParamsFor` sabe mirar la caché
+   * del módulo cuando no llega —en el hilo principal siempre está caliente— y
+   * porque construirla cuesta cuatro segundos: un plano sin rumbos de camino es
+   * una degradación, un modal que se cuelga cuatro segundos al abrirse no.
+   */
+  geography?: HumanGeography;
   theme: CartoTheme;
   onClose: () => void;
   /**
@@ -78,16 +89,50 @@ function sliderToPop(v: number): number {
 }
 
 export default function CityPlanView({
-  world, settlement, theme, onClose, onRename, onDelete, onPopulation,
+  world, settlement, geography, theme, onClose, onRename, onDelete, onPopulation,
 }: CityPlanViewProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [variant, setVariant] = useState(0);
   const [overrides, setOverrides] = useState<Partial<CityParams>>({});
+  /**
+   * SEGÚN EL ATLAS, O A SU AIRE.
+   *
+   * Encendido —y lo está de salida— el plano se construye con lo que el mundo
+   * sabe del sitio: las puertas caen en los caminos que llegan de verdad, el
+   * mar tiene la forma que tiene y el río va por donde va. Apagado, el
+   * generador vuelve a inventárselos, que es lo que hace falta para mirar un
+   * pueblo suelto sin que el atlas le imponga nada.
+   *
+   * Encendido NO toca `base`: se pasa el mismo objeto, así que un plano que
+   * nadie ha tocado sigue siendo byte a byte el de siempre.
+   */
+  const [fromAtlas, setFromAtlas] = useState(true);
 
-  const base = useMemo(() => cityParamsFor(world, settlement), [world, settlement]);
+  const base = useMemo(
+    () => cityParamsFor(world, settlement, geography),
+    [world, settlement, geography],
+  );
+  const grounded = useMemo(
+    () => (fromAtlas ? base : { ...base, roadBearings: [], shoreLine: null, riverCourse: null }),
+    [base, fromAtlas],
+  );
+
+  /** Lo que el mundo ha aportado, para que el lector pueda verlo y no adivinarlo. */
+  const atlasSummary = useMemo(() => {
+    const bits: string[] = [];
+    const roads = base.roadBearings?.length ?? 0;
+    if (roads) bits.push(t('worldgen.cityPlan.atlasRoads').replace('{n}', String(roads)));
+    if (base.shoreLine?.length) bits.push(t('worldgen.cityPlan.atlasShore'));
+    if (base.riverCourse) {
+      // El ancho se guarda en unidades de plano; el lector piensa en metros.
+      bits.push(t('worldgen.cityPlan.atlasRiver')
+        .replace('{n}', String(Math.round(base.riverCourse.width * METRES_PER_CITY_UNIT))));
+    }
+    return bits.length ? bits.join(', ') : t('worldgen.cityPlan.atlasNothing');
+  }, [base, t]);
 
   // Two populations on purpose. `pop` is what the reader sees and drags — it
   // updates on every pixel of slider. `settled` is what the PLAN is built from,
@@ -114,12 +159,12 @@ export default function CityPlanView({
   );
 
   const plan: CityPlan = useMemo(() => generateCity({
-    ...base,
+    ...grounded,
     ...overrides,
     size: planSize,
     population: settled,
     seed: variant === 0 ? base.seed : `${base.seed}::v${variant}`,
-  }), [base, overrides, planSize, settled, variant]);
+  }), [grounded, base.seed, overrides, planSize, settled, variant]);
 
   const dirty = pop !== settlement.population;
   const save = useCallback(() => {
@@ -136,6 +181,27 @@ export default function CityPlanView({
     return () => ro.disconnect();
   }, []);
 
+  /**
+   * Los textos del plano, en el idioma del lector.
+   *
+   * `city/render.ts` es motor puro: corre en los bancos y podría correr en un
+   * worker, así que no tiene acceso a `useTranslation`. La tabla `WARD_LABEL`
+   * que llevaba dentro imprimía español a fuego sobre una ventana que el resto
+   * de la aplicación ya tenía traducida — y el subtítulo, con su
+   * `toLocaleString('es-ES')`, lo mismo.
+   */
+  const labelFor = useCallback(
+    (ward: WardType) => t(`worldgen.cityPlan.ward.${ward}`),
+    [t],
+  );
+  const subtitle = useMemo(
+    () => (plan
+      ? t(plan.wall ? 'worldgen.cityPlan.subtitleWalled' : 'worldgen.cityPlan.subtitleOpen')
+        .replace('{n}', plan.population.toLocaleString(locale === 'en' ? 'en-GB' : 'es-ES'))
+      : ''),
+    [plan, t, locale],
+  );
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || size.w < 8 || size.h < 8) return;
@@ -147,9 +213,9 @@ export default function CityPlanView({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     renderCity(plan, ctx as unknown as Ctx, {
-      theme, width: canvas.width, height: canvas.height,
+      theme, width: canvas.width, height: canvas.height, labelFor, subtitle,
     });
-  }, [plan, theme, size.w, size.h]);
+  }, [plan, theme, size.w, size.h, labelFor, subtitle]);
 
   const exportPng = useCallback(() => {
     const out = document.createElement('canvas');
@@ -157,11 +223,15 @@ export default function CityPlanView({
     out.height = 2200;
     const ctx = out.getContext('2d');
     if (!ctx) return;
-    renderCity(plan, ctx as unknown as Ctx, { theme, width: out.width, height: out.height });
+    // Con los mismos textos que la pantalla: el PNG que se guarda es lo que se
+    // está mirando, no una segunda versión en otro idioma.
+    renderCity(plan, ctx as unknown as Ctx, {
+      theme, width: out.width, height: out.height, labelFor, subtitle,
+    });
     out.toBlob((blob) => {
       if (blob) saveAs(blob, `${plan.name.replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase()}-plano.png`);
     }, 'image/png');
-  }, [plan, theme]);
+  }, [plan, theme, labelFor, subtitle]);
 
   const buildings = useMemo(
     () => plan.patches.reduce((n, p) => n + p.buildings.length, 0),
@@ -193,10 +263,20 @@ export default function CityPlanView({
                 : ` · ${t('worldgen.cityPlan.noWalls')}`}
               {pop !== settled && ` · ${t('worldgen.cityPlan.redrawing')}`}
             </div>
+            {/* Lo que el mundo pone de su parte, dicho en voz baja debajo. */}
+            <div className={`text-[11px] ${fromAtlas ? 'text-accent-gold/70' : 'text-text-muted line-through'}`}>
+              {atlasSummary}
+            </div>
           </div>
 
           <div className="flex-1" />
 
+          <Toggle
+            label={t('worldgen.cityPlan.fromAtlas')}
+            title={t('worldgen.cityPlan.fromAtlasHint')}
+            on={fromAtlas}
+            onClick={() => setFromAtlas((v) => !v)}
+          />
           <Toggle label={t('worldgen.cityPlan.toggleWalls')} on={overrides.walls ?? base.walls} onClick={() => setOverrides((o) => ({ ...o, walls: !(o.walls ?? base.walls) }))} />
           <Toggle label={t('worldgen.cityPlan.toggleCitadel')} on={overrides.citadel ?? base.citadel} onClick={() => setOverrides((o) => ({ ...o, citadel: !(o.citadel ?? base.citadel) }))} />
           <Toggle label={t('worldgen.cityPlan.toggleRiver')} on={overrides.river ?? base.river} onClick={() => setOverrides((o) => ({ ...o, river: !(o.river ?? base.river) }))} />
@@ -259,10 +339,13 @@ export default function CityPlanView({
   );
 }
 
-function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
+function Toggle({ label, on, onClick, title }: {
+  label: string; on: boolean; onClick: () => void; title?: string;
+}) {
   return (
     <button
       onClick={onClick}
+      title={title}
       className={`px-2 py-1 rounded text-[11px] border transition ${
         on
           ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold'

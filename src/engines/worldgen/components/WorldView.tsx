@@ -1625,6 +1625,12 @@ export default function WorldView({
               canonEdits={canonSource?.edits}
               onPlaceWaypoint={handlePlace}
               onRemoveWaypoint={dropWaypoint}
+              // Una chincheta arrastrada. Va a su tabla y no a la lista de
+              // ediciones — ver `isWaypointTool` — así que se guarda como
+              // cualquier otro cambio de la chincheta, con su fecha.
+              onMoveWaypoint={(id, u, v) => {
+                void editWaypoint(id, { u, v, updatedAt: Date.now() });
+              }}
               onSelectWaypoint={setSelectedWaypointId}
               onSelectSpatialEntity={(entity: WorldSpatialEntity | null) => {
                 setSelectedSpatialKey(entity?.key ?? null);
@@ -1649,6 +1655,19 @@ export default function WorldView({
               flyTarget={flyTarget}
               revision={paintRev}
               exportRef={mapExportRef}
+              // Las comarcas guardadas, dibujadas sobre el suelo: hasta ahora
+              // vivían sólo en su panel, así que el lector guardaba un valle y
+              // al volver al mapa no sabía dónde lo tenía.
+              savedRegions={savedRegions}
+              activeRegionId={regionAt?.savedId ?? null}
+              onOpenSavedRegion={(id) => {
+                const region = savedRegions.find((candidate) => candidate.id === id);
+                if (region) openSavedRegion(region);
+              }}
+              // El Índice y el Viaje ya no obligan a la Carta: la ruta, las dos
+              // puntas del viaje y los sitios que nombra el manuscrito se
+              // dibujan aquí también.
+              annotations={annotations}
             />
           )}
           {data && view === 'carta' && (
@@ -1804,8 +1823,19 @@ export default function WorldView({
               label={`${t('worldgen.paint.title')}${strokeCount ? ` (${strokeCount})` : ''}`}
             />
             <PanelTab active={panelTab === 'waypoints'} onClick={() => setPanelTab('waypoints')} label={`${t('worldgen.waypoints.title')}${waypoints.length ? ` (${waypoints.length})` : ''}`} />
-            <PanelTab active={panelTab === 'journey'} onClick={() => { setPanelTab('journey'); setView('carta'); }} label={t('worldgen.journey.title')} />
-            <PanelTab active={panelTab === 'atlas'} onClick={() => { setPanelTab('atlas'); setView('carta'); }} label={t('worldgen.panel.atlas')} />
+            {/*
+              El Viaje y el Índice YA NO OBLIGAN A LA CARTA.
+              Las dos pestañas hacían `setView('carta')` porque `annotations`
+              sólo llegaba allí: planear una ruta echaba al lector de la vista
+              satélite — con su pincel, su pirámide y sus nombres — a la lámina
+              dibujada, y volver era cosa suya. El 2D dibuja ahora las
+              chinchetas y la ruta, y sus poblaciones ya respondían al selector
+              de viaje (`onPickSettlement`), así que sólo hay que sacar al
+              lector de donde de verdad no se ve nada: el globo. Si ya está en
+              un mapa plano, se queda donde estaba.
+            */}
+            <PanelTab active={panelTab === 'journey'} onClick={() => { setPanelTab('journey'); if (view === '3d') setView('map'); }} label={t('worldgen.journey.title')} />
+            <PanelTab active={panelTab === 'atlas'} onClick={() => { setPanelTab('atlas'); if (view === '3d') setView('map'); }} label={t('worldgen.panel.atlas')} />
             <PanelTab
               active={panelTab === 'regions'}
               onClick={() => setPanelTab('regions')}
@@ -1904,8 +1934,12 @@ export default function WorldView({
                   onOpenLink={onOpenManuscriptLink}
                 />
               ) : (
+                // «Abre la carta» dejó de ser verdad: abrir el Índice ya pide
+                // la geografía completa por sí solo (ver `needsFullGeo`) y el
+                // 2D dibuja lo que el Índice señala. Lo único que falta aquí es
+                // ESPERAR, así que eso es lo que dice.
                 <p className="text-[11px] text-white/45">
-                  {t('worldgen.panel.atlasNeedsCarta')}
+                  {t('worldgen.panel.atlasBuilding')}
                 </p>
               )
             ) : panelTab === 'journey' ? (
@@ -1927,7 +1961,7 @@ export default function WorldView({
                 />
               ) : (
                 <p className="text-[11px] text-white/45">
-                  {t('worldgen.panel.journeyNeedsCarta')}
+                  {t('worldgen.panel.journeyBuilding')}
                 </p>
               )
             ) : panelTab === 'world' ? (
