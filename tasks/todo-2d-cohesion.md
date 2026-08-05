@@ -258,3 +258,95 @@ dibujo tipo GIMP (rectas, curvas).
 
 ## NADIE HA EJECUTADO NADA DE ESTO EN LA APLICACIÓN
 Tres bancos en verde y los tres cerrojos del proyecto pasando no son un arranque.
+
+---
+
+# PASADA 5 — 2026-08-05 · ciudades, carta dibujada y los pendientes del 2D
+
+## CIUDADES (tandas 0, A, B, C, D + un solo dibujante + banco)
+
+**Jerarquía nueva**: distrito → manzana → parcela → casa. La celda de Voronoi se
+parte en manzanas con callejones que van de calle a calle, y cada manzana se
+construye por su perímetro: parcelas de frente estrecho, casa delante, corral
+detrás, con un paso de carro que atraviesa la hilera. Medidas en metros: un
+artesano tiene 5,5–8,3 m de fachada; un patricio 11–18; un arrabal 3,6–5,4 con
+medianeras pegadas. Mediana de casa 68 m², dentro de la horquilla 40–120.
+
+**Plazas** como objeto: empedrado, monumento (pozo, cruz, picota, fuente),
+soportales y manzanas que le dan fachada. Secundarias: atrio, plaza del puerto,
+ensanche de puerta, plazuela de cruce. Un pueblo de 18 distritos saca 4.
+
+**Puertas donde llega el camino**: `roadBearings` del atlas coloca la puerta en
+el vértice de muralla que mejor case (3° y 2° de error medidos), y el camino
+sale por su rumbo en vez de pasearse. 0 de 38 caminos huérfanos.
+
+**Muralla como fábrica**: grosor, adarve, dos caras, almenas, torres elegidas por
+esquina (24 → 14 en el mismo pueblo), casas-puerta orientadas, barbacana, foso.
+
+**Agua con forma**: litoral real del mundo (marching squares sobre la isolínea
+cero, 73/73 puertos), dársena con dos puntas, río trazando el cauce de verdad
+con anchura sacada del caudal (59–109 m medidos).
+
+**Nombres propios** acuñados en la lengua de la cultura del sitio: 13 distritos
+nombrados en un pueblo de 18, ~37 en una metrópoli.
+
+**Edificios con oficio**: 14 tipos, tejados a dos aguas con caballete orientado
+a su calle, tonos por material (teja, paja, plomo, sillería, tabla).
+
+**Un solo dibujante**: `drawCityBody` con niveles de detalle; `townPlan.ts` pasó
+de 233 a 169 líneas y ya dibuja patios, plazas y muralla sobre el satélite.
+
+**Fallo grave encontrado y corregido**: el arco de muralla en la costa tomaba el
+PRIMER tramo seco, no el más largo — 2 de 14 semillas costeras salían sin
+muralla, sin puertas y sin caminos.
+
+## CARTA DIBUJADA (objetivo Wonderdraft / CC3)
+
+Tipografía con serifa de verdad (las dos familias caían en DejaVu Sans);
+símbolos de relieve con perspectiva aérea, inclinación al valle, solape y
+degradado hacia el papel; sombreado en dos escalas con smoothstep; hachurado de
+pendiente; rótulos que siguen la costa y la sierra con espaciado que se abre;
+isóbata de plataforma, punteado de mar abierto, orilla de lago con peso; orla
+ajedrezada, cartela biselada, rosa de los vientos. La pasada de rótulos bajó de
+27,2 a 14,1 ms por fotograma.
+
+## LOS PENDIENTES DEL 2D
+
+Arrastrar para mover objetos (ciudades, ruinas, accidentes, chinchetas, con
+fantasma y línea al origen, Esc cancela); tecla Inicio, pila de vistas con
+Retroceso y localizador; comarcas guardadas dibujadas sobre el mapa; el anillo
+del pincel mentía media celda (medido: centroide desviado +0,500,+0,500);
+Índice y Viaje ya no fuerzan la Carta; el `kind` en crudo del globo emergente
+pasa por catálogo.
+
+## SIGUE ABIERTO — MEDIDO, NO ADIVINADO
+
+`harness/city-quality.ts` (nuevo, 32 comprobaciones) deja 6 en rojo:
+
+1. **Sólo el 60,0 % de las casas tiene salida rodada** (era 50,8 %; el
+   retranqueo al trazado y el paso de carro lo subieron 9 puntos). El reparto
+   delata dónde: arrabal 38 %, artesanos 51 %, plaza 100 %. Ensanchar los
+   callejones NO movió el número, así que la hipótesis del ancho es falsa y hace
+   falta una investigación dedicada, no otro parche a ojo.
+2. **40 de 42 avenidas se estrangulan** por debajo del ancho de un carro en
+   algún punto, con mediana sana de 9,2 m.
+3. **5 de 38 puertas no se alcanzan en carro desde el mercado.**
+4. Dos vértices de calle dentro del mar y dos puertas al agua (0,5 m de tierra;
+   14,9 m al eje de un río de 38 m).
+5. `plan.piers` mide 4×14 unidades: se lee como una astilla a escala de lámina.
+6. El agua del plano y la del ráster satélite discrepan ~100 m y se cruzan en el
+   muelle; por eso `townPlan.ts` pasa `water: false`.
+
+Y de las notas de los agentes, sin tocar todavía:
+- `moves` no lo honran `buildHumanGeography` ni `patchGeography`: un pueblo
+  movido en el 2D sigue en su sitio en la Carta, el 3D y el atlas
+- los rótulos pintados no tienen identidad, así que no se pueden arrastrar
+- borrar un pueblo pintado a mano no surte efecto en la vía barata
+- `cityParamsFor` necesita la geografía en `townPlan.ts:53` o las teselas salen
+  con 0 rumbos de camino
+- `pickGeneratedAt` usa la longitud del cauce de un río como radio de alcance
+- `eraseRivers` sigue barriendo ~235 km
+
+## NADIE HA EJECUTADO LA PASADA 5 EN LA APLICACIÓN
+tsc, eslint y conformance en verde (1731 claves), y los bancos de ciudad, carta
+y fronteras pasando. Eso no es un arranque.

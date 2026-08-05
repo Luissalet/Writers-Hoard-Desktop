@@ -1,4 +1,312 @@
 [
-{"key":"worldgen.paint.labelNeedsText","es":"Escribe el texto del rótulo antes de colocarlo en el mapa","en":"Type the label's text before placing it on the map"},
-{"key":"worldgen.map.brushSizeHint","es":"Ctrl+rueda cambia el tamaño","en":"Ctrl+wheel changes the size"}
+{
+"key": "worldgen.cityPlan.square.market",
+"es": "Plaza del mercado",
+"en": "Market square"
+},
+{
+"key": "worldgen.cityPlan.square.church",
+"es": "Atrio de la iglesia",
+"en": "Church square"
+},
+{
+"key": "worldgen.cityPlan.square.gate",
+"es": "Ensanche de la puerta",
+"en": "Gate square"
+},
+{
+"key": "worldgen.cityPlan.square.harbour",
+"es": "Plaza del puerto",
+"en": "Harbour square"
+},
+{
+"key": "worldgen.cityPlan.square.lesser",
+"es": "Plazuela",
+"en": "Small square"
+},
+{
+"key": "worldgen.cityPlan.building.house",
+"es": "Casa",
+"en": "House"
+},
+{
+"key": "worldgen.cityPlan.building.shed",
+"es": "Cobertizo",
+"en": "Shed"
+},
+{
+"key": "worldgen.cityPlan.building.hall",
+"es": "Ayuntamiento",
+"en": "Town hall"
+},
+{
+"key": "worldgen.cityPlan.building.inn",
+"es": "Posada",
+"en": "Inn"
+},
+{
+"key": "worldgen.cityPlan.building.guild",
+"es": "Casa del gremio",
+"en": "Guildhall"
+},
+{
+"key": "worldgen.cityPlan.building.forge",
+"es": "Fragua",
+"en": "Forge"
+},
+{
+"key": "worldgen.cityPlan.building.mill",
+"es": "Molino",
+"en": "Mill"
+},
+{
+"key": "worldgen.cityPlan.building.warehouse",
+"es": "Almacén",
+"en": "Warehouse"
+},
+{
+"key": "worldgen.cityPlan.building.church",
+"es": "Iglesia",
+"en": "Church"
+},
+{
+"key": "worldgen.cityPlan.building.chapel",
+"es": "Capilla",
+"en": "Chapel"
+},
+{
+"key": "worldgen.cityPlan.building.keep",
+"es": "Torre del homenaje",
+"en": "Keep"
+},
+{
+"key": "worldgen.cityPlan.building.tower",
+"es": "Torre",
+"en": "Tower"
+},
+{
+"key": "worldgen.cityPlan.building.barracks",
+"es": "Cuartel",
+"en": "Barracks"
+},
+{
+"key": "worldgen.cityPlan.building.farm",
+"es": "Granja",
+"en": "Farm"
+},
+{
+"key": "worldgen.cityPlan.fort.tower.round",
+"es": "Cubo redondo",
+"en": "Round tower"
+},
+{
+"key": "worldgen.cityPlan.fort.tower.square",
+"es": "Torre cuadrada",
+"en": "Square tower"
+},
+{
+"key": "worldgen.cityPlan.fort.tower.bastion",
+"es": "Baluarte",
+"en": "Bastion"
+},
+{
+"key": "worldgen.cityPlan.fort.gatehouse",
+"es": "Casa-puerta",
+"en": "Gatehouse"
+},
+{
+"key": "worldgen.cityPlan.fort.barbican",
+"es": "Barbacana",
+"en": "Barbican"
+},
+{
+"key": "worldgen.cityPlan.fort.moat",
+"es": "Foso",
+"en": "Moat"
+},
+{
+"key": "worldgen.cityPlan.water.shore",
+"es": "Litoral",
+"en": "Shore"
+},
+{
+"key": "worldgen.cityPlan.water.sea",
+"es": "Mar",
+"en": "Sea"
+},
+{
+"key": "worldgen.cityPlan.water.river",
+"es": "Río",
+"en": "River"
+},
+{
+"key": "worldgen.cityPlan.district.named",
+"es": "Barrio de {n}",
+"en": "{n} quarter"
+},
+{
+"key": "worldgen.cityPlan.fromAtlas",
+"es": "Según el atlas",
+"en": "From the atlas"
+},
+{
+"key": "worldgen.cityPlan.fromAtlasHint",
+"es": "Las puertas caen en los caminos que llegan de verdad, y el mar y el río son los del mundo. Apagado, el plano se los inventa.",
+"en": "Gates fall on the roads that really arrive, and the sea and the river are the world's own. Off, the plan invents them."
+},
+{
+"key": "worldgen.cityPlan.atlasRoads",
+"es": "{n} caminos",
+"en": "{n} roads"
+},
+{
+"key": "worldgen.cityPlan.atlasShore",
+"es": "litoral",
+"en": "shoreline"
+},
+{
+"key": "worldgen.cityPlan.atlasRiver",
+"es": "río de {n} m",
+"en": "{n} m river"
+},
+{
+"key": "worldgen.cityPlan.atlasNothing",
+"es": "el mundo no dice nada de este sitio",
+"en": "the world says nothing about this place"
+},
+{
+"key": "worldgen.feature.kind.continent",
+"es": "continente",
+"en": "continent"
+},
+{
+"key": "worldgen.feature.kind.ocean",
+"es": "océano",
+"en": "ocean"
+},
+{
+"key": "worldgen.feature.kind.sea",
+"es": "mar",
+"en": "sea"
+},
+{
+"key": "worldgen.feature.kind.bay",
+"es": "bahía",
+"en": "bay"
+},
+{
+"key": "worldgen.feature.kind.strait",
+"es": "estrecho",
+"en": "strait"
+},
+{
+"key": "worldgen.feature.kind.isle",
+"es": "isla",
+"en": "isle"
+},
+{
+"key": "worldgen.feature.kind.range",
+"es": "cordillera",
+"en": "mountain range"
+},
+{
+"key": "worldgen.feature.kind.peak",
+"es": "cumbre",
+"en": "peak"
+},
+{
+"key": "worldgen.feature.kind.forest",
+"es": "bosque",
+"en": "forest"
+},
+{
+"key": "worldgen.feature.kind.desert",
+"es": "desierto",
+"en": "desert"
+},
+{
+"key": "worldgen.feature.kind.river",
+"es": "río",
+"en": "river"
+},
+{
+"key": "worldgen.feature.kind.lake",
+"es": "lago",
+"en": "lake"
+},
+{
+"key": "worldgen.feature.kind.marsh",
+"es": "marisma",
+"en": "marsh"
+},
+{
+"key": "worldgen.feature.kind.cape",
+"es": "cabo",
+"en": "cape"
+},
+{
+"key": "worldgen.feature.kind.valley",
+"es": "valle",
+"en": "valley"
+},
+{
+"key": "worldgen.feature.kind.plain",
+"es": "llanura",
+"en": "plain"
+},
+{
+"key": "worldgen.map.panHint",
+"es": "Arrastra el suelo para mover el mapa · rueda para acercarte · doble clic baja una legua",
+"en": "Drag the ground to pan · wheel to zoom · double-click descends a league"
+},
+{
+"key": "worldgen.map.moveHint",
+"es": "arrastra un pueblo, una ruina o un nombre para cambiarlo de sitio (Esc lo deja donde estaba)",
+"en": "drag a town, a ruin or a name to move it (Esc leaves it where it was)"
+},
+{
+"key": "worldgen.map.cameraHint",
+"es": "Inicio enseña el mundo entero · Retroceso vuelve a la vista anterior",
+"en": "Home shows the whole world · Backspace returns to the previous view"
+},
+{
+"key": "worldgen.map.savedRegion",
+"es": "comarca guardada · pincha el nombre para abrirla",
+"en": "saved region · click the name to open it"
+},
+{
+"key": "worldgen.panel.atlasBuilding",
+"es": "Trazando la geografía humana. En cuanto esté, el índice se llena solo.",
+"en": "Working out the human geography. The index fills itself as soon as it lands."
+},
+{
+"key": "worldgen.panel.journeyBuilding",
+"es": "Trazando calzadas y ciudades. En cuanto estén, se pueden medir distancias.",
+"en": "Working out roads and towns. Distances can be measured as soon as they land."
+},
+{
+"key": "carto.compass.n",
+"es": "N",
+"en": "N"
+},
+{
+"key": "carto.compass.e",
+"es": "E",
+"en": "E"
+},
+{
+"key": "carto.compass.s",
+"es": "S",
+"en": "S"
+},
+{
+"key": "carto.compass.w",
+"es": "O",
+"en": "W"
+},
+{
+"key": "carto.scale.km",
+"es": "km",
+"en": "km"
+}
 ]

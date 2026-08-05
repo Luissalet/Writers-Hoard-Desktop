@@ -31,15 +31,38 @@ export const LIGHT_FROM_LEFT = true;
 
 interface P { x: number; y: number }
 
+/** Parse `#rrggbb` or `rgb(r,g,b)`. Both appear because `shiftColor` emits the
+ *  second form and its output feeds straight back into `mixColor`. */
+function parseColor(c: string): [number, number, number] {
+  if (c.charCodeAt(0) === 35) {
+    const h = c.slice(1);
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  const m = c.match(/-?\d+(\.\d+)?/g);
+  return m ? [Number(m[0]), Number(m[1]), Number(m[2])] : [0, 0, 0];
+}
+
 /** Lighten (positive) or darken (negative) a hex colour. Per-instance colour
  *  jitter is what stops a forest reading as one repeated stamp. */
 function shiftColor(hex: string, amount: number): string {
-  const h = hex.replace('#', '');
-  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  const [r, g, b] = parseColor(hex);
   const k = amount >= 0 ? amount : 0;
   const d = amount < 0 ? 1 + amount : 1;
   const f = (c: number) => Math.round(Math.min(255, Math.max(0, c * d + (255 - c) * k)));
   return `rgb(${f(r)},${f(g)},${f(b)})`;
+}
+
+/**
+ * Interpolación hacia otro color. Es el motor de la PERSPECTIVA AÉREA: un
+ * símbolo tapado por otro se lava hacia el papel en vez de dibujarse con la
+ * misma tinta que el de delante. Sin esto una sierra de cuarenta cumbres es una
+ * fila de tiendas de campaña recortadas; con esto tiene fondo.
+ */
+export function mixColor(from: string, to: string, t: number): string {
+  if (t <= 0.001) return from;
+  const a = parseColor(from), b = parseColor(to);
+  const k = Math.min(1, t);
+  return `rgb(${Math.round(a[0] + (b[0] - a[0]) * k)},${Math.round(a[1] + (b[1] - a[1]) * k)},${Math.round(a[2] + (b[2] - a[2]) * k)})`;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +183,22 @@ export interface MountainSpec {
   /** Colour to fill the silhouette with — sample the map under the base so
    *  the symbol sits in the terrain instead of on top of it. */
   fill: string;
+  /**
+   * −1…+1: inclinación de la cumbre HACIA la dirección de la cresta. Un símbolo
+   * que no sabe por dónde corre su sierra se dibuja siempre simétrico, y una
+   * cadena de simétricos es una retícula. Con esto la cumbre se desplaza cuesta
+   * arriba y la arista cae cuesta abajo, que es como se dibuja a mano.
+   */
+  lean?: number;
+  /**
+   * 0 = en primer término, 1 = totalmente detrás. Lava el símbolo hacia el
+   * papel y adelgaza su línea (perspectiva aérea).
+   */
+  depth?: number;
+  /** −1…+1: desvío de tono de esta instancia, en fracción de `toneJitter`. */
+  tone?: number;
+  /** Tono del papel hacia el que lavar la profundidad. */
+  paper?: string;
 }
 
 interface MountainGeom {
@@ -171,11 +210,15 @@ interface MountainGeom {
 }
 
 /** Build the geometry once so hit-testing, occlusion and drawing agree. */
-function buildMountain(rng: Rng, w: number, h: number, hill: boolean): MountainGeom {
+function buildMountain(rng: Rng, w: number, h: number, hill: boolean, lean = 0): MountainGeom {
   const halfW = w / 2;
-  // Baselines commonly slant down to the right on hand-drawn maps.
-  const slant = (rng() - 0.35) * h * 0.1;
-  const peakX = (rng() - 0.5) * w * 0.22;
+  // Baselines commonly slant down to the right on hand-drawn maps; una cresta
+  // que sube hacia la derecha inclina también la base hacia ese lado.
+  const slant = (rng() - 0.35) * h * 0.1 - lean * h * 0.07;
+  // La cumbre se corre HACIA la cresta: ±22 % por azar, ±26 % más por la
+  // orientación. Es el único parámetro que hace que dos vecinas de la misma
+  // sierra no sean la misma silueta desplazada.
+  const peakX = (rng() - 0.5) * w * 0.22 + lean * w * 0.26;
   const flatTop = !hill && rng() < 0.05;
 
   const left: P = { x: -halfW, y: 0 };
@@ -202,10 +245,31 @@ function buildMountain(rng: Rng, w: number, h: number, hill: boolean): MountainG
     topline.push({ x: peakX - fw, y: -h }); bulges.push(sideBulge);
     topline.push({ x: peakX + fw, y: -h * (0.99 + rng() * 0.02) }); bulges.push(0);
   } else if (hill) {
-    // Rounded crown rather than a point.
+    // Rounded crown rather than a point. Casi la mitad llevan una segunda
+    // giba más baja: una loma de una sola joroba, repetida cien veces, es la
+    // firma inconfundible de un sello — y las lomas son el símbolo MÁS repetido
+    // del pliego, así que es donde más se nota.
+    const twin = rng() < 0.46;
+    const side = rng() < 0.5 ? -1 : 1;
+    if (twin) {
+      const bx = peakX + side * w * (0.24 + rng() * 0.12);
+      const bh = h * (0.5 + rng() * 0.22);
+      if (side < 0) {
+        topline.push({ x: bx - w * 0.09, y: -bh }); bulges.push(sideBulge);
+        topline.push({ x: bx + w * 0.09, y: -bh * (0.95 + rng() * 0.08) }); bulges.push(-0.2);
+        topline.push({ x: (bx + peakX) / 2, y: -h * (0.6 + rng() * 0.1) }); bulges.push(0.1);
+      }
+    }
     const fw = w * (0.1 + rng() * 0.1);
     topline.push({ x: peakX - fw, y: -h * (0.94 + rng() * 0.05) }); bulges.push(sideBulge);
     topline.push({ x: peakX + fw, y: -h * (0.94 + rng() * 0.05) }); bulges.push(-0.16);
+    if (twin && side > 0) {
+      const bx = peakX + side * w * (0.24 + rng() * 0.12);
+      const bh = h * (0.5 + rng() * 0.22);
+      topline.push({ x: (bx + peakX) / 2, y: -h * (0.6 + rng() * 0.1) }); bulges.push(0.1);
+      topline.push({ x: bx - w * 0.09, y: -bh }); bulges.push(0.12);
+      topline.push({ x: bx + w * 0.09, y: -bh * (0.95 + rng() * 0.08) }); bulges.push(-0.2);
+    }
   } else {
     topline.push({ x: peakX, y: -h }); bulges.push(sideBulge);
   }
@@ -271,11 +335,51 @@ function buildMountain(rng: Rng, w: number, h: number, hill: boolean): MountainG
 export function drawMountain(ctx: Ctx, rng: Rng, theme: CartoTheme, spec: MountainSpec, hill = false): void {
   const style = hill ? theme.hills : theme.mountains;
   const { w, h } = spec;
-  const g = buildMountain(rng, w, h, hill);
+  const g = buildMountain(rng, w, h, hill, spec.lean ?? 0);
+
+  // ---- tinta de ESTA instancia -------------------------------------------
+  // Dos correcciones sobre el estilo del tema, ambas por instancia:
+  //   tono   — ±toneJitter, para que la sierra no sea un sello repetido
+  //   fondo  — lavado hacia el papel proporcional a `depth` (perspectiva aérea)
+  const paper = spec.paper ?? theme.paper.base;
+  const back = Math.min(1, Math.max(0, spec.depth ?? 0)) * (theme.mountains.aerial ?? 0);
+  const jt = (spec.tone ?? 0) * style.toneJitter;
+  const ink = mixColor(shiftColor(style.ink, jt * 0.5), paper, back * 0.72);
+  const lightC = mixColor(shiftColor(style.light, jt), paper, back * 0.8);
+  const shadowC = mixColor(shiftColor(style.shadow, jt * 0.8), paper, back * 0.8);
+  const hatchC = mixColor(theme.mountains.hatch, paper, back * 0.75);
 
   // Line width barely scales with the symbol: small symbols need proportionally
-  // fatter ink or they read as grey smudges.
-  const lw = style.lineWidth * (0.55 + 0.45 * Math.min(1.6, h / style.size));
+  // fatter ink or they read as grey smudges. Lo de detrás además adelgaza: la
+  // línea pesada delante y la ligera detrás es la mitad del efecto de sierra.
+  //
+  // Crece con la RAÍZ del tamaño, no linealmente ni a tope fijo: con el tope de
+  // 1.6× anterior un pico de 60 px (zoom 24×) se dibujaba con 1.33 px de contorno
+  // y se leía como un recorte de papel; con la raíz sube a ~2.0 px y vuelve a
+  // tener peso, sin engordar el símbolo de 10 px de la vista de mundo.
+  const lw = style.lineWidth * (0.6 + 0.55 * Math.min(3.2, Math.sqrt(h / style.size))) * (1 - back * 0.34);
+
+  // 0. FALDA DE DERRUBIOS — un par de trazos de talud al pie, por fuera de la
+  //    silueta, que atan el símbolo al suelo. Sin ella la montaña flota.
+  const scree = hill ? 0 : theme.mountains.scree;
+  if (scree > 0.001 && h > 5) {
+    ctx.save();
+    ctx.strokeStyle = shadowC;
+    ctx.globalAlpha = 0.5 * (1 - back * 0.6);
+    ctx.lineWidth = lw * 0.5;
+    ctx.lineCap = 'round';
+    const n = 2 + Math.floor(rng() * 2);
+    for (let i = 0; i < n; i++) {
+      const side = rng() < 0.5 ? -1 : 1;
+      const x0 = side * w * (0.1 + rng() * 0.3);
+      const drop = h * scree * (0.6 + rng() * 0.8);
+      ctx.beginPath();
+      ctx.moveTo(x0, -h * 0.04);
+      ctx.quadraticCurveTo(x0 + side * w * 0.1, drop * 0.5, x0 + side * w * (0.16 + rng() * 0.14), drop);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   // 1. MASK — opaque silhouette plus a short apron so the ridgeline of the
   //    mountain behind cannot peek out beneath this one.
@@ -296,7 +400,7 @@ export function drawMountain(ctx: Ctx, rng: Rng, theme: CartoTheme, spec: Mounta
   tracePath(ctx, g.topline, g.bulges, false);
   ctx.lineTo(last.x, last.y);
   ctx.closePath();
-  ctx.fillStyle = style.light;
+  ctx.fillStyle = lightC;
   ctx.globalAlpha = 0.85;
   ctx.fill();
   ctx.globalAlpha = 1;
@@ -314,8 +418,8 @@ export function drawMountain(ctx: Ctx, rng: Rng, theme: CartoTheme, spec: Mounta
     ctx.moveTo(poly[0].x, poly[0].y);
     for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
     ctx.closePath();
-    ctx.fillStyle = style.shadow;
-    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = shadowC;
+    ctx.globalAlpha = 0.66;
     ctx.fill();
     ctx.globalAlpha = 1;
     // Hatching runs perpendicular to the topline.
@@ -325,15 +429,22 @@ export function drawMountain(ctx: Ctx, rng: Rng, theme: CartoTheme, spec: Mounta
     ctx.moveTo(poly[0].x, poly[0].y);
     for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
     ctx.closePath();
-    hatch(ctx, topAngle + Math.PI / 2, Math.max(1.6, h * 0.14), lw * 0.55,
-      theme.mountains.hatch, theme.mountains.hatchAlpha * 0.7, h * 1.4, rng);
+    hatch(ctx, topAngle + Math.PI / 2, Math.max(1.5, h * 0.105), lw * 0.5,
+      hatchC, theme.mountains.hatchAlpha * (1 - back * 0.5), h * 1.4, rng);
     ctx.restore();
   } else if (hill) {
-    // Hills get a single curved shadow line instead of a hatched facet.
+    // Hills get curved shadow lines instead of a hatched facet: dos o tres,
+    // escalonadas, porque una sola raya idéntica en cada loma vuelve a delatar
+    // el sello que las gibas acaban de disimular.
     const base = g.topline[g.topline.length - 1];
-    handStroke(ctx, [{ x: base.x - w * 0.34, y: base.y - h * 0.06 }, { x: base.x - w * 0.02, y: base.y }], rng, {
-      width: lw * 0.9, color: style.shadow, bulge: -0.22, alpha: 0.85,
-    });
+    const n = 1 + (h > 6 ? Math.floor(rng() * 2) + 1 : 0);
+    for (let i = 0; i < n; i++) {
+      const k = 1 - i * (0.24 + rng() * 0.1);
+      handStroke(ctx, [
+        { x: base.x - w * 0.34 * k, y: base.y - h * (0.06 + i * 0.12) },
+        { x: base.x - w * 0.02 * k, y: base.y - h * i * 0.09 },
+      ], rng, { width: lw * (0.9 - i * 0.2), color: shadowC, bulge: -0.22, alpha: 0.85 - i * 0.2 });
+    }
   }
 
   // 3. SNOW — triggered by absolute height, clipped to the silhouette.
@@ -356,7 +467,7 @@ export function drawMountain(ctx: Ctx, rng: Rng, theme: CartoTheme, spec: Mounta
       ctx.lineTo(-w + 2 * w * t, snowY + (rng() - 0.5) * h * 0.12);
     }
     ctx.closePath();
-    ctx.fillStyle = theme.mountains.snow;
+    ctx.fillStyle = mixColor(theme.mountains.snow, paper, back * 0.6);
     ctx.globalAlpha = 0.88;
     ctx.fill();
     ctx.restore();
@@ -364,13 +475,44 @@ export function drawMountain(ctx: Ctx, rng: Rng, theme: CartoTheme, spec: Mounta
   }
 
   // 4. OUTLINE — last, so it sits over the shading and the snow.
-  handStroke(ctx, g.topline, rng, { width: lw, color: style.ink, bulge: g.bulges, jitter: hill ? 0 : h * 0.012 });
+  handStroke(ctx, g.topline, rng, { width: lw, color: ink, bulge: g.bulges, jitter: hill ? 0 : h * 0.012 });
   if (g.ridge.length > 1) {
-    handStroke(ctx, g.ridge, rng, { width: lw * 0.85, color: style.ink, taper: 0.45 });
+    handStroke(ctx, g.ridge, rng, { width: lw * 0.85, color: ink, taper: 0.45 });
   }
   for (const s of g.secondary) {
-    handStroke(ctx, s, rng, { width: lw * 0.6, color: style.ink, alpha: 0.8, taper: 0.5 });
+    handStroke(ctx, s, rng, { width: lw * 0.6, color: ink, alpha: 0.8, taper: 0.5 });
   }
+}
+
+/**
+ * Casquete / banquisa: la placa de hielo se dibuja con grietas, no con relleno.
+ * Una lengua recta con dos ramas cortas, que es como un atlas marca un glaciar
+ * sin recurrir a otro color plano que el ojo ya no distingue del papel nevado.
+ */
+export function drawIce(ctx: Ctx, rng: Rng, theme: CartoTheme, w: number): void {
+  ctx.save();
+  ctx.strokeStyle = theme.ice.color;
+  ctx.globalAlpha = theme.ice.alpha;
+  ctx.lineWidth = Math.max(0.5, theme.ice.width * (0.7 + w * 0.045));
+  ctx.lineCap = 'round';
+  const ang = (rng() - 0.5) * 0.7;
+  const len = w * (0.7 + rng() * 0.5);
+  const dx = Math.cos(ang) * len, dy = Math.sin(ang) * len * 0.45;
+  ctx.beginPath();
+  ctx.moveTo(-dx / 2, -dy / 2);
+  ctx.quadraticCurveTo((rng() - 0.5) * w * 0.3, (rng() - 0.5) * w * 0.2, dx / 2, dy / 2);
+  ctx.stroke();
+  const branches = 1 + Math.floor(rng() * 2);
+  for (let i = 0; i < branches; i++) {
+    const t = 0.25 + rng() * 0.5;
+    const bx = -dx / 2 + dx * t, by = -dy / 2 + dy * t;
+    const side = rng() < 0.5 ? -1 : 1;
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx + side * w * (0.12 + rng() * 0.16), by + side * w * (0.14 + rng() * 0.16));
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
@@ -399,18 +541,40 @@ function cloudPath(ctx: Ctx, cx: number, cy: number, rx: number, ry: number, bum
   ctx.closePath();
 }
 
-/** Broadleaf: trunk first (the canopy hides its top), then a fluffy crown. */
-export function drawBroadleaf(ctx: Ctx, rng: Rng, theme: CartoTheme, h: number): void {
+/**
+ * Sombra al pie: una elipse baja y translúcida bajo el tronco. Cuesta un fill
+ * por árbol y es lo que impide que una masa forestal se lea como pegatinas
+ * sobre el papel — con ella los árboles pisan el suelo que ya está pintado.
+ */
+function footShadow(ctx: Ctx, theme: CartoTheme, h: number, alpha: number): void {
+  if (alpha <= 0.01) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = theme.forest.shadow;
+  ctx.beginPath();
+  ctx.ellipse(h * 0.08, 0, h * 0.3, h * 0.1, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** Broadleaf: trunk first (the canopy hides its top), then a fluffy crown.
+ *  `depth` 0…1 lava el árbol hacia el papel: una masa forestal con todos los
+ *  ejemplares al mismo tono es una trama, no un bosque. */
+export function drawBroadleaf(ctx: Ctx, rng: Rng, theme: CartoTheme, h: number, depth = 0): void {
   const st = theme.forest;
+  const back = Math.min(1, Math.max(0, depth)) * st.aerial;
+  const paper = theme.paper.base;
+  const ink = mixColor(st.ink, paper, back * 0.7);
   const r = h * 0.4;
   const trunkH = h * (0.2 + rng() * 0.08);
+  footShadow(ctx, theme, h, 0.2 * (1 - back));
   ctx.beginPath();
   ctx.moveTo(-h * 0.055, 0);
   ctx.lineTo(-h * 0.022, -trunkH - r * 0.6);
   ctx.lineTo(h * 0.022, -trunkH - r * 0.6);
   ctx.lineTo(h * 0.055, 0);
   ctx.closePath();
-  ctx.fillStyle = st.ink;
+  ctx.fillStyle = ink;
   ctx.globalAlpha = 0.9;
   ctx.fill();
   ctx.globalAlpha = 1;
@@ -418,10 +582,10 @@ export function drawBroadleaf(ctx: Ctx, rng: Rng, theme: CartoTheme, h: number):
   const cy = -trunkH - r;
   ctx.beginPath();
   cloudPath(ctx, 0, cy, r * 1.06, r * (0.88 + rng() * 0.16), 7 + Math.floor(rng() * 3), rng);
-  ctx.fillStyle = shiftColor(st.broadleaf, (rng() - 0.5) * 0.22);
+  ctx.fillStyle = mixColor(shiftColor(st.broadleaf, (rng() - 0.5) * 2 * st.toneJitter), paper, back * 0.8);
   ctx.fill();
-  ctx.lineWidth = st.lineWidth * (0.7 + 0.5 * Math.min(1.4, h / st.size));
-  ctx.strokeStyle = st.ink;
+  ctx.lineWidth = st.lineWidth * (0.7 + 0.5 * Math.min(1.4, h / st.size)) * (1 - back * 0.3);
+  ctx.strokeStyle = ink;
   ctx.stroke();
 
   // Shaded lower-right lobe, a single crescent rather than real hatching.
@@ -431,7 +595,7 @@ export function drawBroadleaf(ctx: Ctx, rng: Rng, theme: CartoTheme, h: number):
   ctx.clip();
   ctx.beginPath();
   ctx.ellipse(r * 0.42, cy + r * 0.3, r * 0.85, r * 0.75, 0, 0, Math.PI * 2);
-  ctx.fillStyle = st.shadow;
+  ctx.fillStyle = mixColor(st.shadow, paper, back * 0.8);
   ctx.globalAlpha = 0.4;
   ctx.fill();
   ctx.restore();
@@ -439,20 +603,29 @@ export function drawBroadleaf(ctx: Ctx, rng: Rng, theme: CartoTheme, h: number):
 }
 
 /** Conifer: a tapered stack of branch scallops, wider toward the base. */
-export function drawConifer(ctx: Ctx, rng: Rng, theme: CartoTheme, h: number): void {
+export function drawConifer(ctx: Ctx, rng: Rng, theme: CartoTheme, h: number, depth = 0): void {
   const st = theme.forest;
-  const halfW = h * (0.2 + rng() * 0.07);
+  const back = Math.min(1, Math.max(0, depth)) * st.aerial;
+  const paper = theme.paper.base;
+  const ink = mixColor(st.ink, paper, back * 0.7);
+  // 0.27–0.36 de media anchura, no 0.20–0.27: a la anchura vieja, un pino de
+  // 9 px (la vista de mundo) degeneraba en un palito con dos púas y la masa de
+  // coníferas se leía como una lluvia de tildes sobre el papel.
+  const halfW = h * (0.27 + rng() * 0.09);
   const trunkH = h * 0.14;
+  footShadow(ctx, theme, h, 0.18 * (1 - back));
   ctx.beginPath();
   ctx.moveTo(-h * 0.035, 0);
   ctx.lineTo(-h * 0.018, -trunkH * 1.6);
   ctx.lineTo(h * 0.018, -trunkH * 1.6);
   ctx.lineTo(h * 0.035, 0);
   ctx.closePath();
-  ctx.fillStyle = st.ink;
+  ctx.fillStyle = ink;
   ctx.fill();
 
-  const tiers = 3 + Math.floor(rng() * 2);
+  // Menos pisos cuando el símbolo es pequeño: cuatro escalones en 9 px caen por
+  // debajo del píxel y el contorno se convierte en ruido.
+  const tiers = h < 11 ? 3 : 3 + Math.floor(rng() * 2);
   const top = -h;
   const bottom = -trunkH;
   const lean = (rng() - 0.5) * h * 0.06;
@@ -481,10 +654,10 @@ export function drawConifer(ctx: Ctx, rng: Rng, theme: CartoTheme, h: number): v
     ctx.quadraticCurveTo(lean + spread * 0.55, (y + nextY) / 2, lean * (1 - (i - 1) / tiers), nextY);
   }
   ctx.closePath();
-  ctx.fillStyle = shiftColor(st.conifer, (rng() - 0.5) * 0.22);
+  ctx.fillStyle = mixColor(shiftColor(st.conifer, (rng() - 0.5) * 2 * st.toneJitter), paper, back * 0.8);
   ctx.fill();
-  ctx.lineWidth = st.lineWidth * (0.7 + 0.5 * Math.min(1.4, h / st.size));
-  ctx.strokeStyle = st.ink;
+  ctx.lineWidth = st.lineWidth * (0.7 + 0.5 * Math.min(1.4, h / st.size)) * (1 - back * 0.3);
+  ctx.strokeStyle = ink;
   ctx.lineJoin = 'round';
   ctx.stroke();
 }
@@ -546,23 +719,47 @@ export function drawCactus(ctx: Ctx, rng: Rng, theme: CartoTheme, h: number): vo
   }
 }
 
-/** Sand dune: a crescent ridge with a trailing lee line. */
+/**
+ * Sand dune: a crescent ridge with a trailing lee line.
+ *
+ * BAJA y LARGA, no un arco de medio punto: a la altura anterior (0.26–0.38 w)
+ * el símbolo salía como un aro de croquet y un erg entero se leía como una
+ * hilera de aros idénticos. Una duna real es una cresta tendida — 0.11–0.20 w
+ * de flecha sobre una base de anchura completa — y su asimetría (barlovento
+ * largo, sotavento corto) es lo que da la variación sin tocar nada más.
+ */
 export function drawDune(ctx: Ctx, rng: Rng, theme: CartoTheme, w: number): void {
+  ctx.save();
   ctx.strokeStyle = theme.dunes.color;
   ctx.globalAlpha = theme.dunes.alpha;
-  ctx.lineWidth = theme.dunes.width;
+  ctx.lineWidth = Math.max(0.6, theme.dunes.width * (0.75 + w * 0.03));
   ctx.lineCap = 'round';
+  // Barlovento hacia un lado u otro: la cresta se corre del centro.
+  const side = rng() < 0.5 ? -1 : 1;
+  const crest = side * w * (0.08 + rng() * 0.16);
+  const rise = w * (0.11 + rng() * 0.09);
   ctx.beginPath();
   ctx.moveTo(-w / 2, 0);
-  ctx.quadraticCurveTo(0, -w * (0.26 + rng() * 0.12), w / 2, 0);
+  ctx.quadraticCurveTo(crest - w * 0.16, -rise, crest, -rise);
+  ctx.quadraticCurveTo(crest + w * 0.12, -rise * 0.92, w / 2, 0);
   ctx.stroke();
-  if (rng() < 0.7) {
+  // Cuernos: las puntas del creciente, que es lo que hace barján a una duna.
+  ctx.globalAlpha = theme.dunes.alpha * 0.7;
+  ctx.beginPath();
+  ctx.moveTo(-w / 2, 0);
+  ctx.quadraticCurveTo(-w * 0.3, w * 0.1, -w * (0.16 + rng() * 0.1), w * 0.14);
+  ctx.moveTo(w / 2, 0);
+  ctx.quadraticCurveTo(w * 0.3, w * 0.1, w * (0.16 + rng() * 0.1), w * 0.14);
+  ctx.stroke();
+  if (rng() < 0.55) {
+    // Una segunda cresta detrás, más floja: los ergs vienen en trenes.
+    ctx.globalAlpha = theme.dunes.alpha * 0.5;
     ctx.beginPath();
-    ctx.moveTo(-w * 0.3, w * 0.1);
-    ctx.quadraticCurveTo(0, -w * 0.08, w * 0.32, w * 0.09);
+    ctx.moveTo(-w * 0.34, -w * 0.2);
+    ctx.quadraticCurveTo(0, -w * (0.28 + rng() * 0.08), w * 0.36, -w * 0.19);
     ctx.stroke();
   }
-  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 /** Marsh: the standard cartographic tuft — stacked horizontal dashes. */
