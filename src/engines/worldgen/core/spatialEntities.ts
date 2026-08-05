@@ -188,5 +188,24 @@ export function resolveWorldLandmarks(
 ): WorldSpatialEntity[] {
   const entities = world.landmarks.map((landmark) =>
     resolveWorldLandmark(landmark, world.painted));
+  /**
+   * The ones the reader placed.
+   *
+   * The Punto tool offers volcano, cave, waterfall, gorge and hot spring, and
+   * `paintCommit` duly writes them into `painted.markers` — where, until this
+   * loop, NOTHING read them. Not the carta, not the 2D, not the 3D, not the
+   * index: a repository-wide search for `marker === 'landmark'` returned the
+   * write and no reads. Five tools that did nothing at all.
+   *
+   * They resolve through exactly the same path as a generated one, so a painted
+   * volcano can be renamed, moved, restyled and deleted like any other.
+   */
+  for (const m of world.painted?.markers ?? []) {
+    if (m.marker !== 'landmark' || !m.landmark) continue;
+    entities.push(resolveWorldLandmark(
+      { type: m.landmark, x: Math.round(m.x), y: Math.round(m.y), strength: 1 } as Landmark,
+      world.painted,
+    ));
+  }
   return options.includeHidden ? entities : entities.filter((entity) => !entity.hidden);
 }

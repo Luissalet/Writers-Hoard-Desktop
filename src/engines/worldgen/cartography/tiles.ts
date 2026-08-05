@@ -73,20 +73,42 @@ export function levelFor(world: { width: number }, pxPerCell: number, maxZ = MAX
   return Math.min(maxZ, Math.max(MIN_TILE_Z, Math.ceil(ideal - 1e-9)));
 }
 
+/**
+ * One occurrence of a tile in a view.
+ *
+ * The key is WRAPPED — it names the ground, so it is what the cache id, the
+ * request and the ancestor maths all use, and the same country is never
+ * fetched twice. `viewTx` is the column BEFORE wrapping: which copy of the
+ * world this occurrence sits in, which is what places it on screen.
+ *
+ * The two differ whenever the view is wider than the world — which is the
+ * DEFAULT fitted view, since `fit()` sizes the map to 98 % of the canvas. Then
+ * the leftmost and rightmost columns are the same ground seen twice, once at
+ * each edge. Returning only the wrapped index collapsed them: one placement
+ * for two on-screen positions (~14 px of coarse raster at each edge) and a
+ * "terreno · n/m" that counted the duplicate — 40 keys for 32 distinct tiles.
+ */
+export interface ViewTile extends TileKey {
+  viewTx: number;
+}
+
 /** Tiles whose ground intersects a view rect (x free, y clamped), row-major. */
 export function tilesInView(
   world: { width: number; height: number },
   z: number,
   view: CartoView,
-): TileKey[] {
+): ViewTile[] {
   const cells = world.width / tileCountX(z);
   const tx0 = Math.floor(view.x / cells);
   const tx1 = Math.floor((view.x + view.w - 1e-9) / cells);
   const ty0 = Math.max(0, Math.floor(view.y / cells));
   const ty1 = Math.min(tileCountY(z) - 1, Math.floor((view.y + view.h - 1e-9) / cells));
-  const out: TileKey[] = [];
+  const out: ViewTile[] = [];
   for (let ty = ty0; ty <= ty1; ty++) {
-    for (let tx = tx0; tx <= tx1; tx++) out.push({ z, tx: wrapTileX(z, tx), ty });
+    // Both indices, always: the wrapped one identifies the GROUND, the raw one
+    // identifies the PLACE ON SCREEN, and a view wider than the world needs the
+    // same ground drawn at both of its edges.
+    for (let tx = tx0; tx <= tx1; tx++) out.push({ z, tx: wrapTileX(z, tx), ty, viewTx: tx });
   }
   return out;
 }

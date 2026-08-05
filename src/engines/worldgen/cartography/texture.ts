@@ -6,7 +6,9 @@
 // panning, switching views and opening the 3D scene never pay for them twice.
 
 import type { WorldData } from '../core/types';
-import { buildHumanGeography, DEFAULT_HUMAN_PARAMS, type GeoDepth, type HumanGeography, type HumanGeographyParams, type Settlement } from '../core/settlements';
+import { applyPaintedRealms, buildHumanGeography, DEFAULT_HUMAN_PARAMS, type GeoDepth, type HumanGeography, type HumanGeographyParams, type Settlement
+} from '../core/settlements';
+import { compatibleEditKeys, realmEditKey } from '../core/edits';
 import { BIOME_COLORS } from '../core/render';
 import type { RegionData } from '../region/types';
 import { renderCartography, type CartoLayers, type CartoView } from './render';
@@ -103,10 +105,114 @@ export function geographyIsStale(world: WorldData, depth: GeoDepth = 'full'): bo
 }
 
 /**
+ * The painted frontier, and the `realmOf` it produced, kept from patch to patch.
+ *
+ * `realmBorders` and `realmTint` (cartography/realmOverlay) and `realmAnchors`
+ * (components/Map2D) all cache on the IDENTITY of `realmOf`, because that array
+ * is what changes when the political map changes. A patch that slices a fresh
+ * one every time therefore invalidates all three — and a patch runs after EVERY
+ * stroke, not only after a frontier one. So on a world carrying any realm paint
+ * at all, raising a ridge, dropping a marker or renaming a town was paying, on
+ * the first frame after the reader let go and inside a requestAnimationFrame
+ * callback: the slice (3,1 ms at 2048×1024), `applyPaintedRealms`' two passes
+ * (7,8 ms), the tint fill plus an 8 MB canvas (10,4 ms), the border scan (~60 ms
+ * at that size, see `realmOverlay`) and the two-pass anchor scan.
+ *
+ * The overlay's CONTENT is therefore the key, not its identity: `applyEdits`
+ * rebuilds `realmCells` from the whole edit list on every revision, so a terrain
+ * stroke hands us a brand-new Int16Array holding byte-identical frontiers.
+ * Comparing it word at a time is one pass over two bytes a cell — 1,4 ms at
+ * 2048×1024, against the ~80 ms above — and it is EXACT, where a hash could
+ * answer "unchanged" for a frontier that did move, which is the one failure this
+ * whole cheap path exists to prevent.
+ *
+ * Nothing extra is retained: at rest the entry holds the same overlay the world
+ * itself holds. And undo-then-redo is free in both directions — the undo hands
+ * back `base.realmOf`, whose layers are still cached from before the stroke, and
+ * the redo hands back this array, whose layers are still cached from during it.
+ */
+interface RealmPatch {
+  /** The overlay `realmOf` was derived from. */
+  overlay: Int16Array;
+  /** The base it was sliced from; a full rebuild brings a new one. */
+  base: Int32Array;
+  realmOf: Int32Array;
+  /**
+   * The per-realm cell counts as `applyPaintedRealms` left them. They have to
+   * be restored along with the array: `gazetteer` prints them as km² and
+   * `atlas` sizes a label from them, and the realm objects a patch hands out
+   * are fresh copies carrying the BASE's counts.
+   */
+  counts: Int32Array;
+}
+const REALM_PATCH = new WeakMap<WorldData, RealmPatch>();
+
+/** Word-at-a-time equality: two cells per comparison. */
+function sameOverlay(a: Int16Array, b: Int16Array): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  // Both overlays come straight from `new Int16Array(N)` and so start at byte
+  // zero; the guard is what makes a subarray fall through to the element loop
+  // instead of throwing on an unaligned Uint32Array view.
+  const aligned = ((a.byteOffset | b.byteOffset) & 3) === 0;
+  const words = aligned ? a.length >>> 1 : 0;
+  if (aligned) {
+    const A = new Uint32Array(a.buffer, a.byteOffset, words);
+    const B = new Uint32Array(b.buffer, b.byteOffset, words);
+    for (let i = 0; i < words; i++) if (A[i] !== B[i]) return false;
+  }
+  for (let i = words << 1; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/**
+ * `realmOf` for the patch: the base's own array unless the frontier moved.
+ *
+ * `realms` must already be the patch's private copies — this writes `cellCount`
+ * through them, and writing it through the base's Realm objects is how the
+ * per-realm areas came out as [616, 2386] instead of [1060, 1934] after an undo.
+ *
+ * What it deliberately does not watch is the ELEVATION. `applyPaintedRealms`
+ * refuses to claim open water, so a painted province the reader afterwards
+ * drowns keeps its flag here until the next full pass. That is precisely the
+ * staleness the base already carries about every cell the GENERATOR claimed — a
+ * patch never re-grows realms — so the map stays uniformly one rebuild behind
+ * about terrain instead of being half-updated, and that rebuild is scheduled the
+ * moment the brush leaves the reader's hand.
+ */
+function patchedRealmOf(
+  world: WorldData,
+  base: HumanGeography,
+  realms: { cellCount: number }[],
+): Int32Array {
+  const overlay = world.painted?.realmCells;
+  // A world nobody has painted pays one property read: no copy, no scan, and
+  // every layer keyed on this array stays warm.
+  if (!overlay) return base.realmOf;
+  const hit = REALM_PATCH.get(world);
+  if (hit && hit.base === base.realmOf && sameOverlay(hit.overlay, overlay)) {
+    const n = Math.min(realms.length, hit.counts.length);
+    for (let r = 0; r < n; r++) realms[r].cellCount = hit.counts[r];
+    return hit.realmOf;
+  }
+  const realmOf = base.realmOf.slice();
+  applyPaintedRealms(world, realmOf, realms);
+  const counts = new Int32Array(realms.length);
+  for (let r = 0; r < realms.length; r++) counts[r] = realms[r].cellCount;
+  REALM_PATCH.set(world, { overlay, base: base.realmOf, realmOf, counts });
+  return realmOf;
+}
+
+/**
  * Cheap update of a geography after an edit.
  *
  * Everything here is O(settlements + ruins), which on any world is a few hundred
- * items. Nothing that costs a pass over the grid is allowed in this function.
+ * items. Nothing that costs a pass over the grid is allowed in this function —
+ * except the one in `patchedRealmOf`, and only when the frontier actually moved.
+ *
+ * NOTHING the base owns is written to, ever. The base is the only copy of the
+ * world as the generator drew it, and it is what every undo is patched back out
+ * of: a patch that mutates it has destroyed the thing it would need to undo.
  */
 function patchGeography(world: WorldData, base: HumanGeography): HumanGeography {
   const W = world.width, H = world.height;
@@ -123,13 +229,24 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
   const ren = world.painted?.renames ?? {};
   const gone = world.painted?.removed ?? new Set<string>();
   const pops = world.painted?.populations ?? {};
+  /**
+   * ALWAYS a copy, even when there is nothing to override.
+   *
+   * Handing back `o` itself when a place had no rename and no population
+   * override was the cheap thing to do and it aliased the base: the realm write
+   * below then landed in `base.settlements[k].realm`, i.e. in the only record of
+   * the world as the generator drew it. Undo the last frontier edit and the town
+   * still flew the deleted overlay's flag in the hover readout, the gazetteer
+   * and the atlas — for ever, since the full rebuild that would have cleared it
+   * is itself suppressed while a brush is out. A few hundred spreads is nothing;
+   * this list is settlements plus ruins.
+   */
   const fix = <T extends { x: number; y: number; name: string }>(list: T[], target: 'settlement' | 'ruin'): T[] =>
     list.filter((o) => !gone.has(`${target}:${Math.round(o.x)},${Math.round(o.y)}`))
       .map((o) => {
         const k = `${target}:${Math.round(o.x)},${Math.round(o.y)}`;
         const n = ren[k];
         const pop = target === 'settlement' ? pops[k] : undefined;
-        if (!n && pop === undefined) return o;
         return { ...o, ...(n ? { name: n } : {}), ...(pop === undefined ? {} : { population: pop }) };
       });
   const settlements = fix(base.settlements.filter((s) => !drowned(s.x, s.y)), 'settlement');
@@ -175,20 +292,66 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
     }
   }
 
-  // Roads and realm borders are left exactly as they were: they are wrong in the
-  // painted area until the next full pass, and being wrong for a second beats
-  // being right four seconds after every stroke.
+  /**
+   * ROADS are left exactly as they were: they are wrong in the painted area
+   * until the next full pass, and being wrong for a second beats being right
+   * four seconds after every stroke.
+   *
+   * FRONTIERS are not, any more. They used to be, for the same reason - but a
+   * frontier now has a brush of its own, and "wrong until the next full pass"
+   * is a description of a tool that does nothing: the 2D draws its political
+   * wash and its border straight off this array, the full pass costs nineteen
+   * seconds, and it is suppressed for as long as a brush is in the reader's
+   * hand. So a painted overlay is laid on a COPY here, at one pass over the
+   * grid - a couple of milliseconds, and only for worlds anyone has painted.
+   *
+   * The array's identity is the signal: `realmBorders`, `realmTint` and
+   * `realmAnchors` all cache on it, so a fresh array means "re-derive the line,
+   * the wash and the lettering" and the same array means "nothing about the
+   * political map moved". Which is exactly why the copy is made only when the
+   * overlay genuinely changed — see `patchedRealmOf`.
+   */
   const features = base.features
     .filter((f) => !gone.has(`feature:${f.kind}:${Math.round(f.x)},${Math.round(f.y)}`))
     .map((f) => {
       const n = ren[`feature:${f.kind}:${Math.round(f.x)},${Math.round(f.y)}`];
       return n ? { ...f, name: n } : f;
     });
+  // Copies for the same reason `fix` copies: `patchedRealmOf` rewrites
+  // `cellCount` from the overlay, and through an alias that rewrite lands in the
+  // base's own Realm objects — which the gazetteer then prints as km² and the
+  // atlas uses as a label extent, both of them a stroke behind for ever.
   const realms = base.realms.map((r) => {
-    const n = ren[`realm:${r.id}`];
-    return n ? { ...r, name: n } : r;
+    // THROUGH `compatibleEditKeys`, like the full build. The Indice writes a
+    // realm's rename under `realm:<id>:0,0` (the shape `editKey` gives every
+    // other target) and this loop used to look for the bare `realm:<id>` — so
+    // the reader renamed a country, watched the panel update, switched to the
+    // map, and found the old name still lettered across it. Stored, counted in
+    // the badge, persisted for good, and read by nobody.
+    const n = compatibleEditKeys('realm', realmEditKey(r.id))
+      .map((k) => ren[k])
+      .find(Boolean);
+    return n ? { ...r, name: n } : { ...r };
   });
-  return { ...base, settlements, ruins, features, realms };
+  const realmOf = patchedRealmOf(world, base, realms);
+  /**
+   * And the towns go with the ground — UNCONDITIONALLY.
+   *
+   * A settlement whose province changed hands has to answer the hover readout,
+   * the realm name and the gazetteer with its new flag, or the map says one
+   * thing and the panel another. Inside the "is there an overlay" test it did
+   * that in one direction only: undo the last frontier edit, `realmCells` goes
+   * back to null, the write is skipped and the town keeps the flag the deleted
+   * overlay gave it. Assigning from `realmOf` every time is the same few hundred
+   * writes and it is correct in both directions, because `realmOf` is by then
+   * whatever the world actually says — painted or the generator's own.
+   *
+   * Through `at`, not a raw `y * W + x`: a marker dropped on the second copy of
+   * a wrapped map carries an x outside [0, W), which indexes off the end of the
+   * array and made the town stateless (-1) instead of wrapping to its own cell.
+   */
+  for (const s of settlements) s.realm = realmOf[at(s.x, s.y)] ?? -1;
+  return { ...base, settlements, ruins, features, realms, realmOf };
 }
 
 export interface CartoCanvasOptions {

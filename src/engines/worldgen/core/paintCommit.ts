@@ -88,6 +88,16 @@ export interface CommitContext {
   negative?: boolean;
   /** What generated object is under a point, for the negative of the point tool. */
   pickGenerated?: (x: number, y: number) => { target: EditTarget; key: string; name: string } | null;
+  /**
+   * SIXTEEN SCREEN PIXELS, expressed in world cells — the same number the view
+   * already works out for `pickGenerated`'s tolerance, and for the same reason:
+   * "close enough to what I clicked" is a distance on the glass, not on the
+   * grid, and only the view knows the exchange rate.
+   *
+   * Optional because a view without a camera (the sculptor) has no exchange
+   * rate to give; see `NEGATIVE_REACH_CELLS` for what happens then.
+   */
+  reachCells?: number;
 }
 
 /**
@@ -148,6 +158,67 @@ export function restriction(f: PaintFilter | undefined): PaintFilter | undefined
 }
 
 /**
+ * The CAP on how far a Punto or Camino erase reaches, in world cells.
+ *
+ * Deliberately not `p.radius`. The size slider is only rendered for the area
+ * brushes (terrain / costa / bioma), so in Punto and Camino mode the brush
+ * radius is a number the reader can neither see nor change — and it defaults to
+ * 9 cells. Ctrl+click with Camino therefore swept every road within nine cells,
+ * which on a 1024-wide world is ~350 km: the reader aimed at one road and lost
+ * the whole province's network, with no control anywhere on screen to explain it
+ * or turn it down.
+ *
+ * Two cells is ~78 km on that world — one cell of slack either side of the one
+ * the pointer landed on — and it is a CEILING, not a floor. At planetary zoom a
+ * cell is under a pixel, so sixteen pixels of aim error is a dozen cells and
+ * ~470 km of swept road: something has to hold the reach down, and two cells is
+ * still inside the spacing the generator leaves between towns, so the neighbour
+ * survives. At every other zoom the screen is the better judge — and as a FLOOR
+ * this number was the whole reach at every zoom, which is how the reader flies
+ * down to a hamlet, where the screen shows 600 m of ground, Ctrl+clicks to take
+ * back a label they just placed, and deletes a generated town sixty kilometres
+ * off the edge of the screen instead.
+ */
+const NEGATIVE_REACH_CELLS = 2;
+
+/**
+ * And the floor, which is the storage grid rather than a taste.
+ *
+ * `serializeEdits` rounds every stored point to 1/256 of a cell, so a mark can
+ * sit that far from where the reader put it once the world has been saved and
+ * reopened. A reach below that could miss a label the pointer is dead on.
+ */
+const REACH_FLOOR_CELLS = 1 / 256;
+
+/** The erase reach for this gesture: what the view measured, clamped. */
+function negativeReach(ctx: CommitContext): number {
+  const r = ctx.reachCells;
+  if (typeof r !== 'number' || !Number.isFinite(r)) return NEGATIVE_REACH_CELLS;
+  return Math.min(NEGATIVE_REACH_CELLS, Math.max(REACH_FLOOR_CELLS, r));
+}
+
+/**
+ * Why this gesture is about to do nothing, as a locale key — or null.
+ *
+ * A commit that returns null is dropped silently by every caller, which is
+ * exactly right for "the pointer did not move far enough to be a stroke" and
+ * exactly wrong for Rótulo with an empty text box: the reader picks Punto, picks
+ * Rótulo, clicks where the name should go, and the map swallows the click. And
+ * the next one, and every one after it, with nothing on screen to say why.
+ *
+ * The refusal lives here because the RULE is the commit's — an empty label is
+ * not an edit — while saying so is the view's, and a locale key is the whole of
+ * what has to cross between them.
+ */
+export function commitRefusal(p: PaintSpec, ctx: CommitContext = {}): string | null {
+  if (ctx.negative) return null;
+  if (p.mode === 'point' && p.point === 'label' && !p.labelText.trim()) {
+    return 'worldgen.paint.labelNeedsText';
+  }
+  return null;
+}
+
+/**
  * The whole gesture as one edit (or none).
  *
  * Returns the edit rather than calling a callback so the caller decides whether
@@ -193,10 +264,13 @@ export function commitPaintStroke(
         // position-keyed `remove` that survives a regeneration.
         const target = ctx.pickGenerated?.(at.x, at.y);
         if (target) return { kind: 'remove', target: target.target, key: target.key };
-        return { kind: 'eraseMarkers', x: at.x, y: at.y, radius: Math.max(3, p.radius * 0.5) };
+        return { kind: 'eraseMarkers', x: at.x, y: at.y, radius: negativeReach(ctx) };
       }
       if (p.point === 'label') {
         const text = p.labelText.trim();
+        // No text, no label — and `commitRefusal` above is how the view tells
+        // the reader that, because a click that vanishes is indistinguishable
+        // from a broken map.
         return text ? { kind: 'label', x: at.x, y: at.y, text, style: p.labelStyle } : null;
       }
       if (p.point === 'ruin') {
@@ -219,7 +293,7 @@ export function commitPaintStroke(
       // A road is two clicks and an A* between them; the view owns that gesture
       // and hands the routed cells here as points.
       if (ctx.negative) {
-        return { kind: 'eraseRoads', x: pts[0].x, y: pts[0].y, radius: Math.max(2, p.radius) };
+        return { kind: 'eraseRoads', x: pts[0].x, y: pts[0].y, radius: negativeReach(ctx) };
       }
       return pts.length >= 2 ? { kind: 'road', pts, major: p.roadMajor } : null;
     default:
@@ -236,6 +310,13 @@ export function commitPaintStroke(
  *
  * `tolerance` is in world cells and is the caller's job, because "close enough"
  * means sixteen screen pixels and only the view knows how many cells that is.
+ * It is taken AS GIVEN — the two-cell floor that used to sit here made this the
+ * other half of the delete-at-high-zoom failure `NEGATIVE_REACH_CELLS`
+ * describes: at a zoom where sixteen pixels is a fiftieth of a cell, a floor of
+ * two cells is a reach of seventy-eight kilometres, so a Ctrl+click aimed at a
+ * label the reader had just placed found a generated town far off the screen
+ * and deleted that instead. The only floor left is the storage grid, so a mark
+ * that has been saved and reloaded is still reachable where it is drawn.
  */
 export function pickGeneratedAt(
   world: WorldData,
@@ -245,7 +326,9 @@ export function pickGeneratedAt(
   tolerance: number,
 ): { target: EditTarget; key: string; name: string } | null {
   if (!geo) return null;
-  const tol = Math.max(2, tolerance);
+  const tol = Number.isFinite(tolerance)
+    ? Math.max(REACH_FLOOR_CELLS, tolerance)
+    : NEGATIVE_REACH_CELLS;
   const dist = (ax: number, ay: number): number => {
     let dx = Math.abs(ax - wx);
     if (dx > world.width / 2) dx = world.width - dx;
@@ -269,14 +352,19 @@ export function pickGeneratedAt(
     offer('feature', editKey('feature', f.x, f.y, `${f.kind}:`), f.name,
       dist(f.x, f.y), Math.max(tol, f.extent));
   }
-  if (best) return best;
-
-  const ix = (((Math.round(wx) % world.width) + world.width) % world.width);
-  const iy = Math.min(world.height - 1, Math.max(0, Math.round(wy)));
-  const realmId = geo.realmOf[iy * world.width + ix];
-  const realm = geo.realms.find((q) => q.id === realmId);
-  if (realm) return { target: 'realm', key: editKey('realm', 0, 0, `${realm.id}:`), name: realm.name };
-  return null;
+  // And nothing after this. The REALM under the pointer used to be offered here
+  // as a last resort, which meant that a Ctrl+click on empty ground — where
+  // there is always a country, that being what a country is — produced
+  // `{kind:'remove', target:'realm'}`: an undo step, a number on the badge and a
+  // line in the saved edit list for an edit that no consumer honours. Only realm
+  // RENAMES are read back.
+  //
+  // Honouring it instead would be worse. The realms are grown from the capitals
+  // every time the world is opened, so a deleted country would be back on the
+  // next rebuild; and "delete this country" is not a gesture anyone makes — what
+  // the reader means is that its ground belongs to someone else or to nobody,
+  // which is the frontier brush, with Ctrl, which they already have.
+  return best;
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   type AtlasPlace, type ManuscriptLink,
 } from '../core/atlas';
 import EditableName from './EditableName';
+import { useTranslation } from '@/i18n/useTranslation';
 
 /**
  * The map as an index of the manuscript.
@@ -49,14 +50,16 @@ interface AtlasPanelProps {
   onOpenLink?: (link: ManuscriptLink) => void;
 }
 
-const KIND_ES: Record<string, string> = {
-  settlement: 'población', ruin: 'ruina', realm: 'reino', feature: 'accidente',
-  landmark: 'hito', region: 'lugar de comarca',
+const KIND_KEY: Record<string, string> = {
+  settlement: 'worldgen.atlas.kind.settlement', ruin: 'worldgen.atlas.kind.ruin',
+  realm: 'worldgen.atlas.kind.realm', feature: 'worldgen.atlas.kind.feature',
+  landmark: 'worldgen.atlas.kind.landmark', region: 'worldgen.atlas.kind.region',
 };
 
 export default function AtlasPanel({
   world, geography, links, selectedKey, onSelect, onRename, onDelete, onFlyTo, onOpenLink,
 }: AtlasPanelProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
 
   const atlas = useMemo(() => buildAtlas(world, geography), [world, geography]);
@@ -96,7 +99,7 @@ export default function AtlasPanel({
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Buscar un lugar…"
+          placeholder={t('worldgen.atlas.searchPlaceholder')}
           className="flex-1 bg-transparent outline-none text-[11px] placeholder:text-white/25"
         />
       </label>
@@ -111,7 +114,7 @@ export default function AtlasPanel({
             >
               <span className="truncate">{p.name}</span>
               <span className="text-[9px] text-white/30 ml-2 shrink-0">
-                {KIND_ES[p.kind] ?? p.kind}
+                {KIND_KEY[p.kind] ? t(KIND_KEY[p.kind]) : p.kind}
                 {index.byPlace.has(p.key) ? ` · ${index.byPlace.get(p.key)!.length}` : ''}
               </span>
             </button>
@@ -128,14 +131,14 @@ export default function AtlasPanel({
               onRename={onRename ? ((name) => onRename(selected.key, name)) : undefined}
               className="text-[13px] text-white/90 min-w-0"
             />
-            <span className="text-[9px] text-white/35 shrink-0">{KIND_ES[selected.kind] ?? selected.kind}</span>
+            <span className="text-[9px] text-white/35 shrink-0">{KIND_KEY[selected.kind] ? t(KIND_KEY[selected.kind]) : selected.kind}</span>
           </div>
           {describePlace(selected, selectedLinks).map((line, i) => (
             <p key={i} className="text-[10px] text-white/60 leading-snug">{line}</p>
           ))}
           {selectedLinks.length === 0 && (
             <p className="text-[10px] text-white/35 leading-snug">
-              El manuscrito no dice nada de este lugar todavía.
+              {t('worldgen.atlas.noLinks')}
             </p>
           )}
           <div className="flex flex-col gap-0.5 mt-1">
@@ -158,34 +161,33 @@ export default function AtlasPanel({
               onClick={() => onFlyTo?.(selected.x, selected.y)}
               className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px]"
             >
-              Ir al lugar
+              {t('worldgen.atlas.goTo')}
             </button>
             {onDelete && (
               <button
                 onClick={() => { onDelete(selected.key); onSelect(null); }}
-                title="Quitarlo del mundo"
+                title={t('worldgen.atlas.removeTitle')}
                 className="px-2 py-1 rounded bg-white/10 hover:bg-red-500/25 hover:text-red-200 text-[10px]"
               >
-                Quitar
+                {t('worldgen.atlas.remove')}
               </button>
             )}
           </div>
         </div>
       ) : (
         <p className="text-[10px] text-white/40 leading-snug border-t border-white/10 pt-2">
-          Pincha un lugar de la carta para ver qué dice el manuscrito de él.
+          {t('worldgen.atlas.selectHint')}
         </p>
       )}
 
       {/* ---- where the book happens ---- */}
       <div className="border-t border-white/10 pt-2 flex flex-col gap-1">
         <div className="text-[10px] uppercase tracking-wider text-white/35">
-          Dónde ocurre el libro
+          {t('worldgen.atlas.whereBookHappens')}
         </div>
         {links.length === 0 ? (
           <p className="text-[10px] text-white/40 leading-snug">
-            Aún no hay nada enlazado. Cuando ancles escenas, personajes o sucesos a lugares,
-            aparecerán aquí y el mapa los señalará.
+            {t('worldgen.atlas.nothingLinked')}
           </p>
         ) : (
           <div className="flex flex-col gap-0.5 max-h-48 overflow-y-auto">
@@ -209,11 +211,10 @@ export default function AtlasPanel({
       {fixes.length > 0 && (
         <div className="border-t border-white/10 pt-2 flex flex-col gap-1">
           <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-amber-300/80">
-            <AlertTriangle size={11} /> {fixes.length} enlaces sin lugar
+            <AlertTriangle size={11} /> {t('worldgen.atlas.orphanCount').replace('{n}', String(fixes.length))}
           </div>
           <p className="text-[10px] text-white/40 leading-snug">
-            El lugar al que apuntaban ya no existe — normalmente porque cambiaste un parámetro
-            que rehace el poblamiento.
+            {t('worldgen.atlas.orphanNote')}
           </p>
           <div className="flex flex-col gap-0.5 max-h-40 overflow-y-auto">
             {fixes.map((f, i) => (
@@ -221,11 +222,13 @@ export default function AtlasPanel({
                 <span className="text-white/70">{f.link.title}</span>
                 {f.suggestion ? (
                   <span className="text-white/40">
-                    {' '}→ ¿{f.suggestion.name}?
-                    {f.by === 'name' ? ' (mismo nombre)' : ` (a ${Math.round(f.distanceCells)} celdas)`}
+                    {' '}→ {t('worldgen.atlas.suggestion').replace('{name}', f.suggestion.name)}
+                    {f.by === 'name'
+                      ? ` ${t('worldgen.atlas.sameName')}`
+                      : ` ${t('worldgen.atlas.cellsAway').replace('{n}', String(Math.round(f.distanceCells)))}`}
                   </span>
                 ) : (
-                  <span className="text-white/30"> · sin candidato</span>
+                  <span className="text-white/30"> · {t('worldgen.atlas.noCandidate')}</span>
                 )}
               </div>
             ))}

@@ -374,6 +374,35 @@ for (const binaryId of ['yt-dlp', 'gallery-dl']) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// worldgen: the 2D map must ask for the geography it draws
+// ---------------------------------------------------------------------------
+// This one is a scar. The road layer was written, measured against
+// `buildHumanGeography(..., 'full')` in a bench, and shipped — and drew nothing
+// at all, because `WorldView` asked for depth `'places'`, where `roads` is the
+// empty array. The renderer was right and the view starved it. Same for the
+// named seas, the ranges and the ruins. Verifying a renderer is not verifying
+// a view, and nothing about the failure was visible in either file alone.
+{
+  const worldView = read('src/engines/worldgen/components/WorldView.tsx');
+  const needsFull = worldView.match(/const needsFullGeo = ([^;]+);/s);
+  if (!needsFull) {
+    fail('worldgen: needsFullGeo not found in WorldView — the 2D geography depth guard cannot be checked.');
+  } else if (!needsFull[1].includes("view === 'map'")) {
+    fail(
+      'worldgen: the 2D map must be in needsFullGeo, or geography.roads/features/ruins '
+      + 'are empty arrays and the road, name and ruin layers silently draw nothing.',
+    );
+  }
+  const map2d = read('src/engines/worldgen/components/Map2D.tsx');
+  if (!map2d.includes('painted.current = hits')) {
+    fail(
+      'worldgen: Map2D must publish what it drew into `painted` — the hit-tests read that '
+      + 'list, and walking the model instead is how clicking open ocean opened a town.',
+    );
+  }
+}
+
 for (const message of warnings) console.warn(`WARN  ${message}`);
 for (const message of failures) console.error(`ERROR ${message}`);
 

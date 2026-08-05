@@ -6,6 +6,7 @@ import {
   type Route, type Season, type TravelMode,
 } from '../core/travel';
 import { paleoMap, describePaleo, seaLevelForIce, type PaleoMap, type PaleoState } from '../core/paleo';
+import { useTranslation } from '@/i18n/useTranslation';
 
 /**
  * Two questions the reader asks a map and no map generator answers.
@@ -48,6 +49,7 @@ export default function JourneyPanel({
   world, geography, from, to, picking, onPick, onSwap, onClear, onRoute,
   via, onClearVia, paleo, onPaleo,
 }: JourneyPanelProps) {
+  const { t } = useTranslation();
   const [mode, setMode] = useState<TravelMode>('foot');
   const [season, setSeason] = useState<Season>('summer');
   const [showAll, setShowAll] = useState(false);
@@ -87,13 +89,13 @@ export default function JourneyPanel({
     <div className="flex flex-col gap-3 text-[11px] text-white/80">
       {/* ---- the journey ---- */}
       <div className="flex flex-col gap-1.5">
-        <div className="text-[10px] uppercase tracking-wider text-white/35">Viaje</div>
+        <div className="text-[10px] uppercase tracking-wider text-white/35">{t('worldgen.journey.title')}</div>
         <EndButton
-          label="Desde" place={from} active={picking === 'from'}
+          label={t('worldgen.journey.from')} place={from} active={picking === 'from'}
           onClick={() => onPick(picking === 'from' ? null : 'from')}
         />
         <EndButton
-          label="Hasta" place={to} active={picking === 'to'}
+          label={t('worldgen.journey.to')} place={to} active={picking === 'to'}
           onClick={() => onPick(picking === 'to' ? null : 'to')}
         />
         <button
@@ -102,28 +104,28 @@ export default function JourneyPanel({
             picking === 'via' ? 'border-amber-400/70 bg-amber-400/10' : 'border-white/15 hover:border-white/35'
           }`}
         >
-          <span className="text-[9px] uppercase tracking-wider text-white/35">Pasando por</span>
+          <span className="text-[9px] uppercase tracking-wider text-white/35">{t('worldgen.journey.via')}</span>
           <span className="text-[11px] text-white/85 truncate ml-2">
-            {via.length ? via.map((v) => v.name).join(' · ') : 'directo'}
+            {via.length ? via.map((v) => v.name).join(' · ') : t('worldgen.journey.direct')}
           </span>
         </button>
         {picking && (
           <p className="text-[10px] text-amber-300/80">
-            Pincha una población en la carta.
+            {t('worldgen.journey.pickHint')}
           </p>
         )}
         <div className="flex gap-1">
           <button onClick={onSwap} disabled={!from || !to}
             className="flex-1 px-2 py-1 rounded bg-white/8 hover:bg-white/15 text-[10px] disabled:opacity-30">
-            Invertir
+            {t('worldgen.journey.swap')}
           </button>
           <button onClick={onClearVia} disabled={!via.length}
             className="flex-1 px-2 py-1 rounded bg-white/8 hover:bg-white/15 text-[10px] disabled:opacity-30">
-            Sin escalas
+            {t('worldgen.journey.clearVia')}
           </button>
           <button onClick={onClear} disabled={!from && !to}
             className="flex-1 px-2 py-1 rounded bg-white/8 hover:bg-white/15 text-[10px] disabled:opacity-30">
-            Borrar
+            {t('worldgen.journey.clear')}
           </button>
         </div>
       </div>
@@ -149,13 +151,13 @@ export default function JourneyPanel({
                 {describeDuration(route.hours, HPD[season])}
               </div>
               <div className="text-[10px] text-white/50">
-                {Math.round(route.km).toLocaleString('es-ES')} km por el camino ·
-                {' '}{Math.round(route.directKm).toLocaleString('es-ES')} km en línea recta ·
-                {' '}{Math.round(route.roadFraction * 100)} % por calzada
+                {t('worldgen.journey.byRoad').replace('{n}', Math.round(route.km).toLocaleString('es-ES'))} ·
+                {' '}{t('worldgen.journey.straightLine').replace('{n}', Math.round(route.directKm).toLocaleString('es-ES'))} ·
+                {' '}{t('worldgen.journey.roadShare').replace('{n}', String(Math.round(route.roadFraction * 100)))}
               </div>
               <div className="text-[10px] text-white/50">
-                {(route.km / (route.hours / HPD[season])).toFixed(0)} km por jornada
-                {route.crossings.length > 0 && ` · ${route.crossings.length} pasos de río`}
+                {t('worldgen.journey.perDay').replace('{n}', (route.km / (route.hours / HPD[season])).toFixed(0))}
+                {route.crossings.length > 0 && ` · ${t('worldgen.journey.riverCrossings').replace('{n}', String(route.crossings.length))}`}
               </div>
               <div className="flex flex-col gap-0.5 mt-1">
                 {route.legs.slice(0, 6).map((l, i) => (
@@ -167,11 +169,11 @@ export default function JourneyPanel({
               </div>
               <div className="text-[10px] text-white/45 leading-snug mt-1">
                 {Math.round(route.lowestM)} – {Math.round(route.highestM)} m ·
-                {' '}{(route.ascentM / 1000).toFixed(1)} km de subida acumulada
+                {' '}{t('worldgen.journey.ascent').replace('{n}', (route.ascentM / 1000).toFixed(1))}
               </div>
               {route.realms.length > 0 && (
                 <div className="text-[10px] text-white/45 leading-snug">
-                  {route.realms.length === 1 ? 'Todo el camino por ' : 'Atraviesa '}
+                  {route.realms.length === 1 ? t('worldgen.journey.allWithin') : t('worldgen.journey.crosses')}
                   {route.realms.join(' → ')}
                 </div>
               )}
@@ -181,8 +183,8 @@ export default function JourneyPanel({
                     onClick={() => setShowStages((v) => !v)}
                     className="text-left text-[10px] text-amber-300/80 hover:text-amber-300 mt-1"
                   >
-                    {route.stages.length} noches ·
-                    {' '}{route.stages.filter((x) => x.rough).length} al raso
+                    {t('worldgen.journey.nights').replace('{n}', String(route.stages.length))} ·
+                    {' '}{t('worldgen.journey.roughNights').replace('{n}', String(route.stages.filter((x) => x.rough).length))}
                     {showStages ? ' ▴' : ' ▾'}
                   </button>
                   {showStages && (
@@ -191,11 +193,13 @@ export default function JourneyPanel({
                         <div key={st.night} className="text-[10px] leading-snug">
                           <span className="text-white/35 tabular-nums">{st.night}.</span>{' '}
                           <span className={st.rough ? 'text-amber-200/70' : 'text-white/65'}>
-                            {st.rough ? 'al raso en ' : 'en '}{st.terrain}
+                            {st.rough ? t('worldgen.journey.roughIn') : t('worldgen.journey.stayIn')}{st.terrain}
                           </span>
                           {st.nearest && st.nearest.km < 60 && (
                             <span className="text-white/35">
-                              {' '}· {st.nearest.name} a {Math.round(st.nearest.km)} km
+                              {' '}· {t('worldgen.journey.nearest')
+                                .replace('{name}', st.nearest.name)
+                                .replace('{km}', String(Math.round(st.nearest.km)))}
                             </span>
                           )}
                         </div>
@@ -211,7 +215,7 @@ export default function JourneyPanel({
             onClick={() => setShowAll((v) => !v)}
             className="px-2 py-1 rounded bg-white/8 hover:bg-white/15 text-[10px]"
           >
-            {showAll ? 'Ocultar la tabla' : 'Comparar todos los medios y estaciones'}
+            {showAll ? t('worldgen.journey.hideTable') : t('worldgen.journey.compareAll')}
           </button>
 
           {table && (
@@ -247,28 +251,27 @@ export default function JourneyPanel({
       {/* ---- time depth ---- */}
       <div className="border-t border-white/10 pt-2 flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] uppercase tracking-wider text-white/35">Profundidad temporal</span>
+          <span className="text-[10px] uppercase tracking-wider text-white/35">{t('worldgen.journey.timeDepth')}</span>
           <button
             onClick={() => onPaleo(paleo ? null : { seaLevelM: -125, ice: 1 })}
             className={`px-2 py-0.5 rounded text-[9px] ${paleo ? 'bg-accent-gold/25 text-white/90' : 'bg-white/8 hover:bg-white/15'}`}
           >
-            {paleo ? 'activa' : 'apagada'}
+            {paleo ? t('worldgen.journey.paleoOn') : t('worldgen.journey.paleoOff')}
           </button>
         </div>
         <p className="text-[10px] text-white/40 leading-snug">
-          Geografía, no historia: el agua de un casquete sale del océano, así que
-          el nivel del mar y el hielo se mueven juntos.
+          {t('worldgen.journey.paleoNote')}
         </p>
         {paleo && (
           <>
             <Slider
-              label="Hielo"
+              label={t('worldgen.journey.ice')}
               value={paleo.ice} min={0} max={1} step={0.05}
-              format={(v) => (v <= 0 ? 'como hoy' : `${Math.round(v * 100)} % del máximo glacial`)}
+              format={(v) => (v <= 0 ? t('worldgen.journey.iceToday') : t('worldgen.journey.icePercent').replace('{n}', String(Math.round(v * 100))))}
               onChange={(v) => onPaleo({ ice: v, seaLevelM: seaLevelForIce(v) })}
             />
             <Slider
-              label="Nivel del mar"
+              label={t('worldgen.journey.seaLevel')}
               value={paleo.seaLevelM} min={-140} max={80} step={5}
               format={(v) => `${v >= 0 ? '+' : ''}${Math.round(v)} m`}
               onChange={(v) => onPaleo({ ...paleo, seaLevelM: v })}
@@ -276,11 +279,11 @@ export default function JourneyPanel({
             <div className="flex gap-1">
               <button onClick={() => onPaleo({ seaLevelM: -125, ice: 1 })}
                 className="flex-1 px-1.5 py-1 rounded bg-white/8 hover:bg-white/15 text-[9px]">
-                Máximo glacial
+                {t('worldgen.journey.glacialMax')}
               </button>
               <button onClick={() => onPaleo({ seaLevelM: 70, ice: 0 })}
                 className="flex-1 px-1.5 py-1 rounded bg-white/8 hover:bg-white/15 text-[9px]">
-                Sin hielo
+                {t('worldgen.journey.noIce')}
               </button>
             </div>
             {paleoResult && (
@@ -298,6 +301,7 @@ export default function JourneyPanel({
 function EndButton({ label, place, active, onClick }: {
   label: string; place: Settlement | null; active: boolean; onClick: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <button
       onClick={onClick}
@@ -307,7 +311,7 @@ function EndButton({ label, place, active, onClick }: {
     >
       <span className="text-[9px] uppercase tracking-wider text-white/35">{label}</span>
       <span className="text-[11px] text-white/85 truncate ml-2">
-        {place ? place.name : 'elegir…'}
+        {place ? place.name : t('worldgen.journey.choose')}
       </span>
     </button>
   );

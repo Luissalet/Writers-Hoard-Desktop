@@ -4,6 +4,10 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   Globe, Layers, Loader2, Sun, Sliders, FlipHorizontal, FlipVertical,
 } from 'lucide-react';
+// `translate` is the non-reactive twin of the hook's `t`: the render uses the
+// hook, and the callbacks and effects below use this one, so that a translation
+// never becomes a dependency of the draw loop or of the WebGL setup.
+import { useTranslation, t as translate } from '@/i18n/useTranslation';
 import type { WorldData } from '../core/types';
 import { BIOME_COUNT } from '../core/types';
 import { BIOME_COLORS, renderComposite } from '../core/render';
@@ -241,16 +245,16 @@ const INVERSE: Partial<Record<TerrainOp, TerrainOp>> = {
   gully: 'smooth',
 };
 
-const OP_LABEL: Record<TerrainOp, string> = {
-  raise: 'Levantar',
-  lower: 'Hundir',
-  smooth: 'Suavizar',
-  sharpen: 'Afilar',
-  flatten: 'Aplanar',
-  terrace: 'Escalonar',
-  roughen: 'Rugosear',
-  gully: 'Barrancos',
-  grab: 'Agarrar',
+const OP_KEY: Record<TerrainOp, string> = {
+  raise: 'worldgen.threeD.op.raise',
+  lower: 'worldgen.threeD.op.lower',
+  smooth: 'worldgen.threeD.op.smooth',
+  sharpen: 'worldgen.threeD.op.sharpen',
+  flatten: 'worldgen.threeD.op.flatten',
+  terrace: 'worldgen.threeD.op.terrace',
+  roughen: 'worldgen.threeD.op.roughen',
+  gully: 'worldgen.threeD.op.gully',
+  grab: 'worldgen.threeD.op.grab',
 };
 
 const OPS: TerrainOp[] = [
@@ -294,6 +298,7 @@ export default function World3D({
   flyTarget, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint,
   onZoomTo,
 }: World3DProps) {
+  const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const [mesh, setMesh] = useState(1);
@@ -473,7 +478,7 @@ export default function World3D({
     host.appendChild(renderer.domElement);
     const onContextLost = (event: Event) => {
       event.preventDefault();
-      setFailed('El contexto WebGL se perdió; se activó el editor 2D de respaldo.');
+      setFailed(translate('worldgen.threeD.contextLost'));
     };
     renderer.domElement.addEventListener('webglcontextlost', onContextLost);
 
@@ -568,13 +573,19 @@ export default function World3D({
         const q = R.current?.zoomInputs;
         if (!q || !q.geography || q.skin === 'arcilla') return Promise.resolve(null);
         const carta = q.skin === 'dibujado';
-        return regionClient.requestTile(q.world, q.geography, key, {
+        // Handed back whole, so the store can cancel a tile the camera has
+        // already turned away from instead of queueing behind it.
+        const req = regionClient.requestTile(q.world, q.geography, key, {
           ink: carta ? 'carta' : 'satellite',
           themeId: carta ? q.theme.id : 'satellite',
           layers: { rivers: true, roads: true, fields: true },
           density: 1,
           reliefAmount: 1,
-        }).promise.then((res) => res?.bitmap ?? null).catch(() => null);
+        });
+        return {
+          promise: req.promise.then((res) => res?.bitmap ?? null).catch(() => null),
+          cancel: req.cancel,
+        };
       },
       () => R.current?.onZoomArrive(),
       // LA RESERVA TIENE QUE PASAR DEL BLOQUE MÁS GRANDE POSIBLE. Si no, el
@@ -1174,7 +1185,10 @@ export default function World3D({
     st.surface.setZoomSkin(tex, plan.window, ZOOM_SKIN_FADE);
     const mPerPx = (plan.view.w * (40075 / w.width) * 1000) / plan.width;
     const done = got.exact >= got.needed;
-    setSkinInfo(`suelo z${plan.z} · ${plan.nx}×${plan.ny} teselas · `
+    setSkinInfo(translate('worldgen.threeD.skinInfo')
+      .replace('{z}', String(plan.z))
+      .replace('{nx}', String(plan.nx))
+      .replace('{ny}', String(plan.ny))
       + (mPerPx >= 1000 ? `${(mPerPx / 1000).toFixed(1)} km/px` : `${Math.round(mPerPx)} m/px`)
       + (done ? '' : ` · ${got.exact}/${got.needed}`));
     request();
@@ -1364,8 +1378,10 @@ export default function World3D({
       const km = Math.round((40075 / world.width) * cpq);
       if (t0 - st.hudAt > 220) {
         setDetail(cpq < 1
-          ? `${(1 / cpq).toFixed(1)} triángulos por celda`
-          : `${cpq.toFixed(1)} celdas por triángulo · ~${km} km`);
+          ? translate('worldgen.threeD.trianglesPerCell').replace('{n}', (1 / cpq).toFixed(1))
+          : translate('worldgen.threeD.cellsPerTriangle')
+            .replace('{n}', cpq.toFixed(1))
+            .replace('{km}', String(km)));
       }
       const viewportKey = `${nextWindow.u.toFixed(5)}:${nextWindow.v.toFixed(5)}:${nextWindow.size.toFixed(5)}`;
       if (viewportKey !== st.viewportKey) {
@@ -1841,19 +1857,19 @@ export default function World3D({
       setHovering(m ? m.label : null);
       if (!press.current) {
         const p = cellUnder(e.clientX, e.clientY);
-        setReadout(p ? describe(world, p) : '');
+        setReadout(p ? describe(world, p, translate) : '');
       }
       return;
     }
 
     const p = cellUnder(e.clientX, e.clientY);
     cursor.current = p;
-    const t = toolRef.current;
+    const brush = toolRef.current;
     if (p) {
-      st.surface.setBrush(p.x, p.y, t.radius, t.softness, true, tipOf(t as unknown as Stroke));
-      setReadout(describe(world, p));
+      st.surface.setBrush(p.x, p.y, brush.radius, brush.softness, true, tipOf(brush as unknown as Stroke));
+      setReadout(describe(world, p, translate));
     } else {
-      st.surface.setBrush(0, 0, 1, t.softness, false);
+      st.surface.setBrush(0, 0, 1, brush.softness, false);
       setReadout('');
     }
     const g = gesture.current;
@@ -1912,13 +1928,37 @@ export default function World3D({
       return;
     }
 
+    // The Camino tool is two clicks on two towns with an A* between them, and
+    // the routing lives in the parent. A click made a one-point trail,
+    // `commitPaintStroke` returns null for one point, and the guard below then
+    // swallowed the click before it could ever reach the town picker — so the
+    // advertised gesture did nothing at all in the two views that carry the
+    // brush. A drag still lays a road by hand.
+    if (tr && tr.length && toolRef.current.mode === 'road' && !altRef.current
+      && p && !p.moved && propsRef.current.onPickSettlement) {
+      const mark = markUnder(e.clientX, e.clientY);
+      const geo0 = propsRef.current.geography;
+      const tol = Math.max(4, (st ? st.surface.uvWindow.size : 1) * world.width * 0.018);
+      const s = mark?.settlement
+        ?? (geo0 ? pickSettlementNear(geo0, world.width, tr[0].x, tr[0].y, tol) : null);
+      if (s) {
+        propsRef.current.onPickSettlement(s);
+        request();
+        return;
+      }
+    }
+
     if (tr && tr.length) {
       const spec = altRef.current ? negativeOf(toolRef.current) : toolRef.current;
+      // Same rule as the 2D: what the view can see decides the reach, and
+      // `paintCommit` clamps it. The globe measures it from the window on the
+      // sphere rather than from a pixel scale, but it is the same quantity.
+      const reachCells = st ? st.surface.uvWindow.size * world.width * 0.02 : 8;
       const edit = commitPaintStroke(spec, tr, {
         negative: altRef.current,
+        reachCells,
         pickGenerated: (x, y) => pickGeneratedAt(
-          world, propsRef.current.geography, x, y,
-          Math.max(3, st ? st.surface.uvWindow.size * world.width * 0.02 : 8),
+          world, propsRef.current.geography, x, y, reachCells,
         ),
       });
       if (edit) onEdit(edit);
@@ -2100,19 +2140,18 @@ export default function World3D({
       <div className="absolute inset-0">
         <SculptView world={world} tool={tool} onEdit={onEdit} revision={revision} />
         <div className={`absolute left-2 top-2 max-w-sm px-2.5 py-1.5 ${HUD} ${HUD_TEXT} pointer-events-none`}>
-          Esta máquina no ha podido abrir un contexto 3D, así que se esculpe sobre el mapa de
-          alturas. Se pinta igual y las ediciones son las mismas. ({failed})
+          {t('worldgen.threeD.fallback')} ({failed})
         </div>
       </div>
     );
   }
 
-  const t = tool;
-  const activeOp = t.mode === 'terrain'
-    ? (modifier === 'invert' ? (INVERSE[t.terrainOp] ?? t.terrainOp) : t.terrainOp)
+  const brush = tool;
+  const activeOp = brush.mode === 'terrain'
+    ? (modifier === 'invert' ? (INVERSE[brush.terrainOp] ?? brush.terrainOp) : brush.terrainOp)
     : null;
-  const activeLand = t.mode === 'land'
-    ? (modifier === 'invert' ? (t.landOp === 'land' ? 'sea' : 'land') : t.landOp)
+  const activeLand = brush.mode === 'land'
+    ? (modifier === 'invert' ? (brush.landOp === 'land' ? 'sea' : 'land') : brush.landOp)
     : null;
 
   return (
@@ -2133,7 +2172,7 @@ export default function World3D({
           over.current = false;
           cursor.current = null;
           press.current = null;
-          R.current?.surface.setBrush(0, 0, 1, t.softness, false);
+          R.current?.surface.setBrush(0, 0, 1, brush.softness, false);
           setReadout('');
           setHovering(null);
           request();
@@ -2144,36 +2183,38 @@ export default function World3D({
       {/* shape, symmetry, look */}
       <div className="absolute right-2 top-2 flex flex-col gap-1.5 items-end">
         <div className={`flex gap-1 p-1 ${HUD}`}>
-          <Chip on={shape === 'plane'} onClick={() => onShape('plane')} icon={Layers} label="Plano" title="Plano (G)" />
-          <Chip on={shape === 'globe'} onClick={() => onShape('globe')} icon={Globe} label="Globo" title="Globo (G)" />
+          <Chip on={shape === 'plane'} onClick={() => onShape('plane')} icon={Layers}
+            label={t('worldgen.threeD.shape.plane')} title={`${t('worldgen.threeD.shape.plane')} (G)`} />
+          <Chip on={shape === 'globe'} onClick={() => onShape('globe')} icon={Globe}
+            label={t('worldgen.threeD.shape.globe')} title={`${t('worldgen.threeD.shape.globe')} (G)`} />
           <span className="w-px my-1 bg-white/20" />
-          <Chip on={mirrorX} onClick={() => setMirrorX((v) => !v)} icon={FlipHorizontal} title="Simetría este–oeste (X)" />
-          <Chip on={mirrorY} onClick={() => setMirrorY((v) => !v)} icon={FlipVertical} title="Simetría norte–sur (Y)" />
+          <Chip on={mirrorX} onClick={() => setMirrorX((v) => !v)} icon={FlipHorizontal} title={t('worldgen.threeD.symmetryX')} />
+          <Chip on={mirrorY} onClick={() => setMirrorY((v) => !v)} icon={FlipVertical} title={t('worldgen.threeD.symmetryY')} />
           <span className="w-px my-1 bg-white/20" />
-          <Chip on={panel} onClick={() => setPanel((v) => !v)} icon={Sliders} title="Aspecto" />
+          <Chip on={panel} onClick={() => setPanel((v) => !v)} icon={Sliders} title={t('worldgen.threeD.appearance')} />
         </div>
 
         {panel && (
           <div className={`w-64 p-2.5 flex flex-col gap-2 ${HUD} ${HUD_TEXT}`}>
-            <Slider label="Detalle de cerca" value={detailAmt} min={0} max={1} step={0.05}
-              onChange={setDetailAmt} format={(v) => (v < 0.03 ? 'no' : `${Math.round(v * 100)}%`)} />
-            <Slider label="Cavidad" value={cavity} min={0} max={1.4} step={0.05}
+            <Slider label={t('worldgen.threeD.closeDetail')} value={detailAmt} min={0} max={1} step={0.05}
+              onChange={setDetailAmt} format={(v) => (v < 0.03 ? t('worldgen.threeD.sliderOff') : `${Math.round(v * 100)}%`)} />
+            <Slider label={t('worldgen.threeD.cavity')} value={cavity} min={0} max={1.4} step={0.05}
               onChange={setCavity} format={(v) => v.toFixed(2)} />
-            <Slider label="Sombras" value={shadow} min={0} max={1} step={0.05}
+            <Slider label={t('worldgen.threeD.shadows')} value={shadow} min={0} max={1} step={0.05}
               onChange={setShadow}
-              format={(v) => (v < 0.03 ? 'no' : v.toFixed(2))}
+              format={(v) => (v < 0.03 ? t('worldgen.threeD.sliderOff') : v.toFixed(2))}
               disabled={shape === 'globe' || headlight} />
-            <Slider label="Sol" value={sunAz} min={0} max={360} step={5}
+            <Slider label={t('worldgen.threeD.sun')} value={sunAz} min={0} max={360} step={5}
               onChange={setSunAz} format={(v) => `${v}°`} disabled={headlight} />
-            <Slider label="Curvas de nivel" value={contour} min={0} max={1} step={0.05}
-              onChange={setContour} format={(v) => (v < 0.03 ? 'no' : `${Math.round(v * 1000)} m`)} />
+            <Slider label={t('worldgen.threeD.contours')} value={contour} min={0} max={1} step={0.05}
+              onChange={setContour} format={(v) => (v < 0.03 ? t('worldgen.threeD.sliderOff') : `${Math.round(v * 1000)} m`)} />
             <label className="flex items-center justify-between">
-              Calidad
+              {t('worldgen.threeD.quality')}
               <span className="flex gap-1">
                 {([
-                  ['low', 'Eco'],
-                  ['auto', 'Auto'],
-                  ['high', 'Alta'],
+                  ['low', t('worldgen.threeD.quality.low')],
+                  ['auto', t('worldgen.threeD.quality.auto')],
+                  ['high', t('worldgen.threeD.quality.high')],
                 ] as const).map(([id, labelText]) => (
                   <button key={id} onClick={() => setQuality(id)}
                     className={`px-1.5 py-0.5 rounded ${quality === id ? 'bg-amber-400/40 text-white' : 'text-white/70 hover:bg-white/15'}`}>
@@ -2182,9 +2223,9 @@ export default function World3D({
                 ))}
               </span>
             </label>
-            <Toggle on={headlight} onClick={() => setHeadlight((v) => !v)} label="Luz frontal" icon={Sun} />
+            <Toggle on={headlight} onClick={() => setHeadlight((v) => !v)} label={t('worldgen.threeD.headlight')} icon={Sun} />
             <p className="text-white/60 leading-snug pt-0.5">
-              {quality === 'auto' ? `Auto · ${ms} ms · ` : ''}{detail}
+              {quality === 'auto' ? `${t('worldgen.threeD.quality.auto')} · ${ms} ms · ` : ''}{detail}
               {skinInfo ? <><br />{skinInfo}</> : null}
             </p>
           </div>
@@ -2195,22 +2236,25 @@ export default function World3D({
       {sculpting && (
         <div className="absolute left-1/2 -translate-x-1/2 bottom-2 flex flex-col items-center gap-1">
           <div className={`flex gap-0.5 p-1 ${HUD}`}>
-            {t.mode === 'terrain'
+            {brush.mode === 'terrain'
               ? OPS.map((op) => (
                 <button
                   key={op}
                   onClick={() => onTool?.({ terrainOp: op })}
-                  title={OP_LABEL[op]}
+                  title={t(OP_KEY[op])}
                   className={`px-2 py-1 rounded text-[11px] transition ${
                     activeOp === op
                       ? (modifier ? 'bg-sky-400/45 text-white' : 'bg-amber-400/40 text-white')
                       : 'text-white/75 hover:text-white hover:bg-white/15'
                   }`}
                 >
-                  {OP_LABEL[op]}
+                  {t(OP_KEY[op])}
                 </button>
               ))
-              : ([['land', 'Tierra'], ['sea', 'Mar']] as const).map(([op, label]) => (
+              : ([
+                ['land', t('worldgen.threeD.land')],
+                ['sea', t('worldgen.threeD.sea')],
+              ] as const).map(([op, label]) => (
                 <button
                   key={op}
                   onClick={() => onTool?.({ landOp: op })}
@@ -2224,7 +2268,7 @@ export default function World3D({
                 </button>
               ))}
             {modifier === 'smooth' && (
-              <span className="px-2 py-1 rounded text-[11px] bg-sky-400/45 text-white">Suavizar</span>
+              <span className="px-2 py-1 rounded text-[11px] bg-sky-400/45 text-white">{t('worldgen.threeD.op.smooth')}</span>
             )}
           </div>
           {/* The head and its falloff, where the hand already is. Both write to
@@ -2232,21 +2276,25 @@ export default function World3D({
               seen twice and cannot drift apart. */}
           <div className={`flex items-center gap-0.5 p-0.5 ${HUD}`}>
             {TIPS.map((k) => (
-              <button key={k.id} onClick={() => onTool?.({ tip: k.id })} title={k.hint}
-                className={`p-1 rounded ${t.tip === k.id ? 'bg-white/25 text-white' : 'text-white/70 hover:text-white'}`}>
+              <button key={k.id} onClick={() => onTool?.({ tip: k.id })} title={t(k.hint)}
+                className={`p-1 rounded ${brush.tip === k.id ? 'bg-white/25 text-white' : 'text-white/70 hover:text-white'}`}>
                 <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="currentColor">{k.draw}</svg>
               </button>
             ))}
             <span className="w-px h-4 bg-white/20 mx-0.5" />
             {CURVES.map((c) => (
               <button key={c.id} onClick={() => onTool?.({ curve: c.id })}
-                title={`Caída ${c.label.toLowerCase()} — ${c.hint}`}
-                className={`px-1.5 py-0.5 rounded text-[10px] ${t.curve === c.id ? 'bg-white/25 text-white' : 'text-white/70 hover:text-white'}`}>
-                {c.label}
+                title={t('worldgen.threeD.falloff')
+                  .replace('{curve}', t(c.label).toLowerCase())
+                  .replace('{hint}', t(c.hint))}
+                className={`px-1.5 py-0.5 rounded text-[10px] ${brush.curve === c.id ? 'bg-white/25 text-white' : 'text-white/70 hover:text-white'}`}>
+                {t(c.label)}
               </button>
             ))}
             <span className="px-1.5 py-0.5 text-[10px] text-white/75 tabular-nums">
-              ⌀{t.radius.toFixed(0)} · fuerza {(t.strength * 100).toFixed(0)}%
+              {t('worldgen.threeD.brushReadout')
+                .replace('{radius}', brush.radius.toFixed(0))
+                .replace('{strength}', (brush.strength * 100).toFixed(0))}
             </span>
           </div>
         </div>
@@ -2254,7 +2302,7 @@ export default function World3D({
 
       {!ready && (
         <div className="absolute inset-0 grid place-items-center text-white/80 text-xs">
-          <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> levantando el terreno…</span>
+          <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> {t('worldgen.threeD.busy')}</span>
         </div>
       )}
 
@@ -2268,12 +2316,12 @@ export default function World3D({
           <span className={`px-2 py-1 ${HUD} ${HUD_TEXT} tabular-nums`}>{ms ? `${ms} ms` : '—'}</span>
           <span className={`px-2 py-1 ${HUD} ${HUD_TEXT}`}>
             {!brushing
-              ? 'arrastra para girar · rueda para acercar · clic en una ciudad abre su plano · doble clic baja a la comarca · F centra'
+              ? t('worldgen.threeD.hint.navigate')
               : sculpting
-                ? (modifier === 'smooth' ? 'Mayús: suavizar'
-                  : modifier === 'invert' ? 'Ctrl: al revés'
-                    : 'arrastra para esculpir · Mayús suaviza · Ctrl invierte · botón derecho mueve · Ctrl+rueda tamaño')
-                : 'arrastra para pintar · botón derecho mueve la cámara · Ctrl+rueda tamaño'}
+                ? (modifier === 'smooth' ? t('worldgen.threeD.hint.smoothModifier')
+                  : modifier === 'invert' ? t('worldgen.threeD.hint.invertModifier')
+                    : t('worldgen.threeD.hint.sculpt'))
+                : t('worldgen.threeD.hint.paint')}
           </span>
         </div>
       </div>
@@ -2294,15 +2342,18 @@ function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number
   ctx.fillText(text, x, y);
 }
 
-/** Height and position of a cell, in the words a reader uses. */
-function describe(world: WorldData, p: Pt): string {
+/** Height and position of a cell, in the words a reader uses.
+ *  `t` comes in from the caller: this lives outside the component, so the hook
+ *  is not in scope here. */
+function describe(world: WorldData, p: Pt, t: (key: string) => string): string {
   const xi = ((Math.round(p.x) % world.width) + world.width) % world.width;
   const yi = Math.min(world.height - 1, Math.max(0, Math.round(p.y)));
   const km = world.elevation[yi * world.width + xi];
   const lat = 90 - (yi / world.height) * 180;
   const lon = (xi / world.width) * 360 - 180;
-  return `${km >= 0 ? `${Math.round(km * 1000)} m` : `${Math.round(-km * 1000)} m bajo el mar`}`
-    + ` · ${Math.abs(lat).toFixed(1)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? 'E' : 'O'}`;
+  return `${km >= 0 ? `${Math.round(km * 1000)} m` : `${Math.round(-km * 1000)} m ${t('worldgen.threeD.belowSea')}`}`
+    + ` · ${Math.abs(lat).toFixed(1)}°${t(lat >= 0 ? 'worldgen.threeD.compass.n' : 'worldgen.threeD.compass.s')}`
+    + ` ${Math.abs(lon).toFixed(1)}°${t(lon >= 0 ? 'worldgen.threeD.compass.e' : 'worldgen.threeD.compass.w')}`;
 }
 
 /**
