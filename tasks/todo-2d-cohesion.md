@@ -319,9 +319,41 @@ del pincel mentía media celda (medido: centroide desviado +0,500,+0,500);
 Índice y Viaje ya no fuerzan la Carta; el `kind` en crudo del globo emergente
 pasa por catálogo.
 
+## RONDA DE CIERRE — 2026-08-05, tarde
+
+Dos de los seis rojos, cerrados, y con la causa encontrada instrumentando en vez
+de parcheando (lección #27 aplicada a sí misma):
+
+**La salida rodada: 60,0 % → 90,4 %.** La sonda midió el pueblo con el mismo
+dominio que el banco y encontró **242 bolsas de suelo selladas**, la mayor de
+3 600 m² — no eran corrales de casa sino interiores de manzana enteros, en
+barrios de artesanos, mercaderes y puerta. La causa: el paso de carro se abría
+en UNA sola tira, la más larga, así que el corral colgaba de un único frente, y
+si ese frente daba a un callejón cerrado la bolsa entera quedaba muerta. Un paso
+por cada frente — que además es lo normal en una manzana de perímetro — lo
+llevó a 93,3 % de suelo alcanzado y 90,4 % de casas con fachada.
+
+**Las avenidas estranguladas: 40 de 42 → ninguna.** La calzada se suaviza con dos
+pasadas de Chaikin y la curva recortada se mete por dentro de la manzana que
+bordeaba; ahí las casas se levantaban encima. Se tala el corredor al final, con
+DOS varas: por el centro al ancho completo (casa plantada en la calzada, se cae
+entera) y por la esquina sólo al ancho de rodada (un pico sobre el arcén es una
+fachada irregular, que es lo normal; un pico en la rodada es la calle cortada).
+Con una sola vara por esquina la avenida se iba a 27,8 m de mediana y se llevaba
+el 17 % del caserío. Con las dos: p05 9,2 m, mediana 14,0 m, −8 % de casas.
+
 ## SIGUE ABIERTO — MEDIDO, NO ADIVINADO
 
-`harness/city-quality.ts` (nuevo, 32 comprobaciones) deja 6 en rojo:
+`harness/city-quality.ts` (32 comprobaciones) deja **4 en rojo**:
+
+1. Fachada al 90,4 %, con el listón en 92 %. Peor ciudad 85,8 %.
+2. 3 de 38 puertas no se alcanzan en carro desde el mercado (eran 5).
+3. Dos vértices de calle dentro del mar (a 13,3 y 9,1 m de la orilla).
+4. Dos puertas al agua: 0,5 m de tierra hasta el mar en una, y 14,9 m al eje de
+   un río de 38,1 m en otra.
+
+Y lo que ya estaba (embarcaderos de astilla, el agua del plano contra la del
+ráster). Lo de más abajo es el estado anterior, que se deja por trazabilidad:
 
 1. **Sólo el 60,0 % de las casas tiene salida rodada** (era 50,8 %; el
    retranqueo al trazado y el paso de carro lo subieron 9 puntos). El reparto

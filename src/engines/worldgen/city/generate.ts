@@ -833,8 +833,34 @@ function burgageBlock(block: Poly, p: BurgageParams, rng: Rng): { houses: Buildi
    * hilera y mete el carro al corral. Uno por manzana, en una parcela sorteada
    * de la tira más larga, que es la que da a la mejor calle.
    */
-  const pendStrip = strips.length ? strips[strips.length - 1] : null;
-  const pendAt = pendStrip ? Math.floor(rng() * 8) : -1;
+  /**
+   * UN PASO POR CADA FRENTE, NO UNO POR MANZANA.
+   *
+   * Con un solo paso, en la tira más larga, el corral quedaba colgado de un
+   * único frente — y si esa tira daba a un callejón que a su vez estaba
+   * cerrado, la bolsa entera quedaba sellada. Medido con la sonda sobre un
+   * pueblo de tamaño 20: 192 bolsas de suelo sin salida, siete de ellas entre
+   * 1 400 y 3 600 m², y no eran corrales de casa sino interiores de manzana
+   * enteros, en barrios de artesanos, mercaderes y puerta.
+   *
+   * Un frente, un paso: es además lo normal en una manzana de perímetro, donde
+   * cada calle que la rodea tiene su propio portalón al patio.
+   */
+  const pendAt = Math.floor(rng() * 8);
+  /**
+   * Y ANCHO DE CARRO, NO DE PARCELA.
+   *
+   * Una parcela de artesano mide 5,5–8,3 m de frente; una de arrabal, 3,6. Con
+   * un solo lote saltado, el paso de un arrabal quedaba en 3,6 m y el de una
+   * hilera apretada por debajo — y por debajo de eso no entra el carro que el
+   * paso existe para meter. Medido con la sonda: 242 bolsas de suelo selladas
+   * en un pueblo de tamaño 20, la mayor de 3 600 m², o sea distritos enteros y
+   * no corrales sueltos.
+   *
+   * Así que el paso se mide en metros y se lleva por delante los lotes que
+   * haga falta.
+   */
+  const pendLots = Math.max(1, Math.ceil((4.5 * M) / Math.max(1e-3, p.frontage)));
   for (const strip of strips) {
     // LA FACHADA DE LA TIRA ES LA CALLE. Se calcula una vez por tira, no por
     // parcela: todas las casas de una hilera dan a la misma calle, y deducirlo
@@ -847,8 +873,13 @@ function burgageBlock(block: Poly, p: BurgageParams, rng: Rng): { houses: Buildi
     for (let li = 0; li < lots.length; li++) {
       const lot = lots[li];
       if (lot.length < 3) continue;
-      // El paso: esa parcela no se construye, y por ahí entra el carro.
-      if (strip === pendStrip && lots.length > 2 && li === pendAt % lots.length) continue;
+      // El paso: esas parcelas no se construyen, y por ahí entra el carro.
+      if (lots.length > pendLots) {
+        const from = pendAt % lots.length;
+        let skip = false;
+        for (let k = 0; k < pendLots; k++) if ((from + k) % lots.length === li) skip = true;
+        if (skip) continue;
+      }
       if (rng() < p.emptyProb) continue;
       // A house does not fill its lot to the millimetre; the eaves gap is what
       // stops a whole row from reading as one long shed.
@@ -2467,6 +2498,64 @@ export function generateCity(params: CityParams): CityPlan {
         }
       }
     }
+  }
+
+  /**
+   * LA CALZADA SE TALA SOLA.
+   *
+   * El retranqueo se decide sobre los LINDEROS del distrito, y la avenida es un
+   * trazado suavizado que no tiene por qué seguirlos: `smoothStreet` le pasa dos
+   * veces Chaikin, y una curva recortada se mete por dentro de la manzana que
+   * bordeaba. Ahí las casas se levantan encima de la calzada.
+   *
+   * Medido en `city-quality` sobre 12 ciudades: la mediana de ancho libre sobre
+   * una avenida es sana — 9,2 m — pero 40 de 42 se estrangulan en ALGÚN punto,
+   * una de ellas a 30 cm. No es una avenida estrecha: es una avenida cortada, y
+   * el lector la ve morir contra una fachada.
+   *
+   * Así que lo último que se hace es talar: cualquier casa que invada el ancho
+   * de la calzada se cae. Cuesta un puñado de casas por ciudad y garantiza que
+   * lo dibujado como calle se pueda recorrer.
+   */
+  {
+    const half = (w: number) => w * 0.5 + MAIN_STREET * 0.12;
+    const corredor: { path: V[]; r: number }[] = [
+      ...mainStreets.map((st) => ({ path: st, r: half(MAIN_STREET * 1.45) })),
+      ...streets.map((st) => ({ path: st, r: half(MAIN_STREET) })),
+    ];
+    let talados = 0;
+    for (const q of patches) {
+      const antes = q.buildings.length;
+      q.buildings = q.buildings.filter((b) => {
+        const c = centroid(b.shape);
+        for (const { path, r } of corredor) {
+          // La caja envolvente primero: son ~50 trazados de ~30 vértices contra
+          // ~2 000 casas, y sin este descarte son tres millones de raíces.
+          const alcance = r + 6;
+          if (!nearPath(path, c, alcance)) continue;
+          /**
+           * DOS VARAS, PORQUE SON DOS FALTAS DISTINTAS.
+           *
+           * Por el CENTRO al ancho completo: la casa está plantada en mitad de
+           * la calzada y se cae entera. Por la ESQUINA, sólo al ancho de rodada
+           * (55 %): un pico que asoma sobre el arcén es una fachada irregular,
+           * que es lo normal en una calle medieval, pero un pico metido en la
+           * rodada es la calle cortada.
+           *
+           * Medido: talando por cualquier esquina al ancho completo la avenida
+           * se iba a 27,8 m de mediana y se llevaba el 17 % del caserío — dejaba
+           * de estrangularse porque ya no había nada que la estrangulara. Sólo
+           * por el centro, la mediana queda en sus 9,2 m sanos pero 17 de 42
+           * siguen cortadas. Las dos varas juntas: mediana sana y la calle pasa.
+           */
+          if (nearPath(path, c, r)) return false;
+          for (const v of b.shape) if (nearPath(path, v, r * 0.55)) return false;
+        }
+        return true;
+      });
+      talados += antes - q.buildings.length;
+    }
+    void talados;
   }
 
   // ---- water clipping -----------------------------------------------------

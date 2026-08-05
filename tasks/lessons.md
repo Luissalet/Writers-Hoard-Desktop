@@ -253,3 +253,30 @@ programa.
 **Regla:** Al profundizar una vista, mírala AL LADO de las otras antes de darla
 por buena. La pregunta no es «¿está mejor que antes?» sino «¿sigue siendo el
 mismo mundo?».
+
+## #29 — Instrumenta el dominio, no la intuición
+**Fecha:** 2026-08-05
+**Contexto:** El banco decía que sólo el 60 % de las casas tenía salida rodada.
+Mi primera sonda inundó desde las puertas y dio 99,8 % alcanzado: parecía un
+fallo del banco. Lo era de la sonda — había inundado la CAJA ENTERA, campo
+incluido, donde todo está abierto por definición. Repetida con el mismo dominio
+que usa el banco (la unión de los distritos interiores), dio 64,5 % y, lo que
+resolvió el caso, **242 componentes conexas**: el suelo del pueblo estaba
+troceado en bolsas selladas, la mayor de 3 600 m².
+**Regla:** Cuando una medida tuya contradiga a la del banco, sospecha primero de
+la tuya, y compara el DOMINIO antes que el algoritmo. Y no midas sólo el
+porcentaje alcanzado: cuenta las componentes y mira las mayores. Un porcentaje
+te dice que algo falla; la lista de bolsas te dice qué es y dónde.
+
+## #30 — Un umbral por cada falta
+**Fecha:** 2026-08-05
+**Contexto:** Talar las casas que invaden una avenida con un solo criterio no
+tenía punto bueno. Por cualquier esquina al ancho completo: ninguna avenida
+estrangulada, pero mediana de 27,8 m y un 17 % del caserío por delante — la
+calle dejaba de cortarse porque ya no había nada que la cortara. Sólo por el
+centro: mediana sana de 9,2 m, pero 17 de 42 seguían cortadas. Eran dos faltas
+distintas metidas en la misma vara.
+**Regla:** Si un umbral no tiene punto bueno, probablemente estás midiendo dos
+cosas con él. Sepáralas y dale a cada una el suyo: una casa plantada en mitad de
+la calzada se cae entera; un pico que asoma sobre el arcén es una fachada
+irregular, que es lo normal en una calle medieval.
