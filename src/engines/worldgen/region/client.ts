@@ -358,14 +358,48 @@ export class RegionWorkerClient {
     }
     if (!session) return Promise.resolve(null);
     const live = session;
+    /**
+     * RESERVE THE SESSION. This used to borrow it without marking it busy.
+     *
+     * The sequence that wedged the whole pyramid: the probe swapped
+     * `worker.onmessage` for its own and left `activeRequestId` unset, so the
+     * session still looked idle; the very next frame's `want()` acquired it for
+     * a tile and overwrote `onmessage` with the tile's handler; the probe's
+     * reply was then dropped, its 400 ms timer fired, and its cleanup restored
+     * `prev` — which was `null` — DESTROYING the tile's handler. That tile
+     * promise never settled, so the store kept it in `inflight` for ever and the
+     * session's `activeRequestId` was never cleared. After `sessionLimit` such
+     * collisions every acquire waited on a notification that could not come and
+     * the map stopped loading tiles entirely, for the rest of the session.
+     *
+     * A probe is a few milliseconds of reading resident memory. Holding the
+     * session for its duration costs nothing and makes the race impossible.
+     */
+    live.activeRequestId = requestId;
     return new Promise((resolve) => {
       const prev = live.worker.onmessage;
+      let done = false;
       const cleanup = () => {
+        if (done) return;
+        done = true;
         clearTimeout(timer);
-        live.worker.onmessage = prev;
+        // Only take back what is still ours: if something else has since
+        // installed a handler, restoring `prev` would destroy it.
+        if (live.worker.onmessage === mine) live.worker.onmessage = prev;
+        if (live.activeRequestId === requestId) {
+          live.activeRequestId = undefined;
+          // AND WAKE THE QUEUE. Reserving the session without this was a second
+          // way to strand the pyramid: `acquireSessionWhenFree` parks on a busy
+          // match before it will spawn a second session, so a tile requested
+          // during a 400 ms probe waited in `waiters` for a notification that
+          // only some OTHER request could send. On a settled view there is no
+          // other request, and `DisplayTileStore` leaves the id in `inflight`
+          // for the whole generation — that square of map never comes back.
+          this.notifyFree();
+        }
       };
       const timer = setTimeout(() => { cleanup(); resolve(null); }, 400);
-      live.worker.onmessage = (event: MessageEvent) => {
+      const mine = (event: MessageEvent) => {
         const reply = event.data as RegionWorkerReply;
         if (reply && reply.type === 'probed' && reply.requestId === requestId) {
           cleanup();
@@ -374,6 +408,7 @@ export class RegionWorkerClient {
         }
         if (prev) (prev as (e: MessageEvent) => void)(event);
       };
+      live.worker.onmessage = mine;
       live.worker.postMessage({
         type: 'probe', requestId, contextId: live.contextId, wx, wy,
       });
@@ -399,6 +434,9 @@ export class RegionWorkerClient {
     const requestId = `tile-${this.nextRequestId++}`;
     let session: WorkerSession | null = null;
     let settled = false;
+    /** Cancelled AFTER a worker had already started drawing: the caller is
+     *  gone, but the reply still has to be collected. */
+    let abandoned = false;
     let rejectPromise: (reason: unknown) => void = () => undefined;
 
     const cleanup = (terminate: boolean) => {
@@ -417,15 +455,39 @@ export class RegionWorkerClient {
       }
       session = null;
     };
+    /**
+     * Give up on this tile.
+     *
+     * The display store cancels on every pan now — a one-second gesture crosses
+     * ~30 tiles — so what this costs matters as much as what it saves.
+     *
+     * NOT DISPATCHED YET is where the saving is: the request simply leaves the
+     * queue (`acquireSessionWhenFree` drops it at its next wake) and never
+     * becomes work at all. That is the ordinary case; the pool only ever has
+     * `sessionLimit` tiles actually in a worker.
+     *
+     * ALREADY IN A WORKER cannot be stopped: the worker's handler is
+     * synchronous, so the tile it is drawing runs to completion whatever we
+     * post — the cancel set is only read BEFORE a render begins. Terminating is
+     * the only real interruption, and it throws away the session's configured
+     * world and its canon supertile cache: seconds of CPU and tens of MB that
+     * the very next tile at this zoom needs. Paying that once per gesture would
+     * make the deep levels slower, which is the opposite of the point. So the
+     * request is ABANDONED instead — the caller's promise settles now, and the
+     * reply is still collected below, which releases the session and closes the
+     * pixels nobody will draw.
+     */
     const cancel = () => {
-      if (settled) return;
-      settled = true;
-      try {
-        session?.worker.postMessage({ type: 'cancel', requestId });
-      } finally {
-        cleanup(true);
+      if (settled || abandoned) return;
+      if (session) {
+        abandoned = true;
+        this.active.delete(requestId);
         rejectPromise(abortError());
+        return;
       }
+      settled = true;
+      cleanup(true);
+      rejectPromise(abortError());
     };
 
     const promise = new Promise<RenderedTile | null>((resolve, reject) => {
@@ -435,7 +497,7 @@ export class RegionWorkerClient {
         resolve(null);
         return;
       }
-      this.acquireSessionWhenFree(factory, world, geography, requestId).then((acquired) => {
+      this.acquireSessionWhenFree(factory, world, geography, requestId, () => settled).then((acquired) => {
         if (settled) {
           acquired.activeRequestId = undefined;
           acquired.lastUsed = Date.now();
@@ -456,6 +518,15 @@ export class RegionWorkerClient {
         if (reply.type === 'tile') {
           settled = true;
           cleanup(false);
+          if (abandoned) {
+            // The reader panned off this ground while the worker was drawing
+            // it. The session goes back to the pool intact — that is the whole
+            // reason the cancel was gentle — but the pixels must not: an
+            // ImageBitmap outlives the promise that carried it, so a gesture
+            // that abandoned thirty tiles would strand thirty of them.
+            reply.bitmap?.close();
+            return;
+          }
           if (reply.bitmap) {
             resolve({ bitmap: reply.bitmap, places: reply.places });
           } else if (reply.rgba && reply.width && reply.height) {
@@ -533,11 +604,13 @@ export class RegionWorkerClient {
     }
     for (const session of [...this.sessions]) {
       if (session.world !== world) continue;
-      if (session.activeRequestId) {
-        this.active.get(session.activeRequestId)?.cancel();
-      } else {
-        this.terminateSession(session);
-      }
+      // Settle the caller's promise, THEN take the session down — a region
+      // build's cancel already did (hence the membership check), but a TILE's
+      // is deliberately gentle: it abandons the reply and keeps the session so
+      // a pan does not throw away the canon cache. That is exactly the wrong
+      // trade when the world itself is the thing going away.
+      if (session.activeRequestId) this.active.get(session.activeRequestId)?.cancel();
+      if (this.sessions.has(session)) this.terminateSession(session);
     }
   }
 
@@ -584,7 +657,20 @@ export class RegionWorkerClient {
     world: WorldData,
     geography: HumanGeography,
     requestId: string,
+    /** True once the caller has given up. Checked after every wait, because
+     *  this queue is where a cancelled display tile actually lives: handing it
+     *  a session anyway — or, worse, SPAWNING one and cloning the world into it
+     *  — only to release it again is the entire cost the cancel exists to
+     *  avoid. Absent for callers that never cancel mid-queue. */
+    abandoned?: () => boolean,
   ): Promise<WorkerSession> {
+    /** Pass the wake-up on. `notifyFree` resolves exactly ONE waiter, so a
+     *  request that leaves the queue after being woken must hand its turn to
+     *  the next in line or the rest of the queue parks behind a ghost. */
+    const leave = (): never => {
+      this.notifyFree();
+      throw abortError();
+    };
     for (;;) {
       const revision = world.revision ?? 0;
       let busyMatch = false;
@@ -608,6 +694,7 @@ export class RegionWorkerClient {
         // burst used to do exactly that, and the duplicate then re-generated
         // the same canon ground its twin already held.
         await new Promise<void>((resolveWait) => this.waiters.push(resolveWait));
+        if (abandoned?.()) leave();
         continue;
       }
       if (this.sessions.size < this.sessionLimit) {
@@ -623,6 +710,7 @@ export class RegionWorkerClient {
         continue;
       }
       await new Promise<void>((resolveWait) => this.waiters.push(resolveWait));
+      if (abandoned?.()) leave();
     }
   }
 

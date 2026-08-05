@@ -2,9 +2,11 @@
 // Cartography — display tile store + compositor
 // ============================================
 // The renderer-side half of the slippy carta. Owns the cache of finished
-// tiles, the in-flight dedup, and ONE drawing routine that composes whatever
-// is resident RIGHT NOW: exact tiles where they exist, an ancestor's scaled
-// quarter where they do not, and nothing that ever blocks the gesture. The
+// tiles, the in-flight dedup — and its CANCELLATION, because a tile the reader
+// has panned off is not merely unwanted, it is work the pool would otherwise
+// do BEFORE the tile they stopped on — and ONE drawing routine that composes
+// whatever is resident RIGHT NOW: exact tiles where they exist, an ancestor's
+// scaled quarter where they do not, and nothing that ever blocks the gesture. The
 // component calls `draw` every interim frame and `want` when the view
 // settles; tiles arriving later fire `onArrive`, which the component uses to
 // repaint the interim once more. That loop IS the Google-Maps feel:
@@ -17,9 +19,26 @@ import {
 } from './tiles';
 
 export type TileBitmap = ImageBitmap | HTMLCanvasElement | OffscreenCanvas;
-export type TileRenderer = (key: TileKey) => Promise<TileBitmap | null>;
+/** A build in progress, and the handle that stops it. */
+export interface TileRequest {
+  promise: Promise<TileBitmap | null>;
+  cancel: () => void;
+}
+/**
+ * What the consumer hands back for one tile.
+ *
+ * Either shape: a bare promise (what this store was born with) or that promise
+ * WITH its cancel handle. The union is not indecision — it is what lets the
+ * store stop work it no longer wants without every caller having to change on
+ * the same day, and a loader that genuinely cannot be interrupted (a canvas
+ * drawn inline, a harness) has nothing to lie about.
+ */
+export type TileRenderer = (key: TileKey) => Promise<TileBitmap | null> | TileRequest;
 
 interface Entry { bmp: TileBitmap; at: number }
+/** One unfinished request. The OBJECT is the token: only the request that owns
+ *  an id may clear its marker (see `settled`). */
+interface Pending { cancel: () => void }
 
 const close = (b: TileBitmap) => {
   (b as ImageBitmap).close?.();
@@ -27,11 +46,19 @@ const close = (b: TileBitmap) => {
 
 export class DisplayTileStore {
   private tiles = new Map<string, Entry>();
-  private inflight = new Set<string>();
+  private inflight = new Map<string, Pending>();
   private stamp = 1;
   /** Everything cached is for THIS generation of the world/theme; bumping the
    *  generation empties the store (a painted stroke is a different country). */
   private generation = '';
+  /** Monotonic with `generation`, and bumped once more by `dispose`. A request
+   *  captures it when it starts and re-checks it when it lands, which the
+   *  generation STRING could not do: two generations can share a string (the
+   *  reader undoes a stroke), and a disposed store has no string of its own. */
+  private epoch = 0;
+  /** The component is gone. Nothing may enter the store after this: the maps
+   *  are cleared, so a bitmap arriving later would be one nobody ever closes. */
+  private disposed = false;
 
   // Explicit fields, not constructor parameter properties: the project builds
   // with `erasableSyntaxOnly`.
@@ -46,10 +73,24 @@ export class DisplayTileStore {
   }
 
   setGeneration(gen: string): void {
+    // Both consumers call this on EVERY frame, so clearing `lastAsk` before the
+    // early return cleared it every frame: by the time `want` compared its ask
+    // against it, it was always '' and the dedupe below could never fire. The
+    // carta has no drag guard of its own — it calls `setGeneration` and then
+    // `want` on every interim frame of a pan — so the whole `tilesInView` +
+    // sort + Set + id-join ran per frame for the length of the gesture, which is
+    // the cost the note on `lastAsk` says it prevents. It belongs INSIDE the
+    // change: a new generation is when the previous ask stops meaning anything.
     if (gen === this.generation) return;
+    this.lastAsk = '';
     this.generation = gen;
+    this.epoch++;
     for (const e of this.tiles.values()) close(e.bmp);
     this.tiles.clear();
+    // STOP the builds, do not merely forget them. Every one is seconds of a
+    // worker drawing a country that no longer exists — queued AHEAD of the
+    // tiles of the country the reader is looking at right now.
+    for (const p of this.inflight.values()) p.cancel();
     this.inflight.clear();
   }
 
@@ -61,33 +102,95 @@ export class DisplayTileStore {
   }
 
   /** Ask for every tile of the view at level z, nearest the centre first. */
+  /** The last set of tiles asked for, so an identical ask costs nothing. The
+   *  carta calls `want` once per interim FRAME of a gesture, and now that a
+   *  `want` cancels what fell out of the window, an unchanged repeat would
+   *  cancel-and-refetch the same tiles for the length of the pan. */
+  private lastAsk = '';
+
   want(world: { width: number; height: number }, z: number, view: CartoView): void {
     const keys = tilesInView(world, z, view);
     const cx = view.x + view.w / 2, cy = view.y + view.h / 2;
     const cells = world.width / tileCountX(z);
     keys.sort((a, b) => {
-      const da = ((a.tx + 0.5) * cells - cx) ** 2 + ((a.ty + 0.5) * cells - cy) ** 2;
-      const db = ((b.tx + 0.5) * cells - cx) ** 2 + ((b.ty + 0.5) * cells - cy) ** 2;
+      // Distance from the UNWRAPPED column. The wrapped one puts a tile a whole
+      // world away whenever the view straddles the seam, so "nearest first"
+      // asked for the far edge before the middle of the screen.
+      const da = ((a.viewTx + 0.5) * cells - cx) ** 2 + ((a.ty + 0.5) * cells - cy) ** 2;
+      const db = ((b.viewTx + 0.5) * cells - cx) ** 2 + ((b.ty + 0.5) * cells - cy) ** 2;
       return da - db;
     });
+    // Drop what the reader has moved OFF before asking for what they moved
+    // onto. A one-second pan at deep zoom crosses ~30 tiles, each a real canon
+    // build of seconds and tens of MB, and the pool serves them in order — so
+    // without this the tile under the reader's eyes when they stop waits behind
+    // every tile they merely flew over.
+    //
+    // ONLY AT THIS LEVEL, though. `inflight` is keyed across every level, and
+    // cancelling the others kills exactly the tiles `draw` falls back on: its
+    // "walk up, an ancestor's quarter, blurry beats blank" loop needs the
+    // parents. Wheeling from z9 to z14 cancelled z9…z13 on the way down, so the
+    // gesture ended on the bare 39 km raster instead of on a progressively
+    // sharper blur. Parents finish; only siblings the reader flew past go.
+    const wanted = new Set<string>();
+    for (const key of keys) wanted.add(tileId(key));
+    const ask = `${this.generation}|${z}|${[...wanted].join()}`;
+    if (ask === this.lastAsk) return;
+    this.lastAsk = ask;
+    const levelPrefix = `${z}/`;
+    for (const [id, pending] of this.inflight) {
+      if (wanted.has(id) || !id.startsWith(levelPrefix)) continue;
+      this.inflight.delete(id);
+      pending.cancel();
+    }
     for (const key of keys) this.fetch(key);
   }
 
   private fetch(key: TileKey): void {
     const id = tileId(key);
     if (this.tiles.has(id) || this.inflight.has(id)) return;
-    this.inflight.add(id);
-    const gen = this.generation;
-    this.renderer(key).then((bmp) => {
-      this.inflight.delete(id);
+    const epoch = this.epoch;
+    const handle = this.renderer(key);
+    // A loader that hands back a bare promise cannot be stopped; it still gets
+    // a marker, so the id is deduped now and re-askable when it lands.
+    const request: TileRequest = 'promise' in handle
+      ? handle
+      : { promise: handle, cancel: () => undefined };
+    const pending: Pending = { cancel: request.cancel };
+    this.inflight.set(id, pending);
+    request.promise.then((bmp) => {
+      this.settled(id, pending);
       if (!bmp) return;
-      if (gen !== this.generation) { close(bmp); return; } // stale country
+      // A stale country, or a store the component has already torn down:
+      // `dispose` empties the maps but cannot un-start the builds behind them,
+      // and a bitmap that lands afterwards is one nobody will ever close.
+      if (this.disposed || epoch !== this.epoch) { close(bmp); return; }
+      // Two builds of the same ground CAN both land — a cancel is best effort,
+      // and a loader is free not to honour it. Overwriting the entry leaked
+      // the bitmap it replaced.
+      const prior = this.tiles.get(id);
+      if (prior && prior.bmp !== bmp) close(prior.bmp);
       this.tiles.set(id, { bmp, at: this.stamp++ });
       this.evict();
       this.onArrive();
     }).catch(() => {
-      this.inflight.delete(id);
+      this.settled(id, pending);
     });
+  }
+
+  /**
+   * Clear the in-flight marker — but only if this request still OWNS it.
+   *
+   * Deleting blindly erases somebody else's marker, and the store then fetches
+   * that tile a THIRD time. Two ways it happens, both routine: `setGeneration`
+   * empties the map while old requests are still running, so a promise from
+   * the world-as-it-was lands and deletes the new generation's marker for the
+   * same id; and a cancelled request settles late (its rejection is a
+   * microtask, the pan that cancelled it is not), by which time `want` may
+   * have asked for that ground again.
+   */
+  private settled(id: string, pending: Pending): void {
+    if (this.inflight.get(id) === pending) this.inflight.delete(id);
   }
 
   private evict(): void {
@@ -118,16 +221,30 @@ export class DisplayTileStore {
   ): { needed: number; exact: number } {
     const pxPerCell = screen.w / view.w;
     const keys = tilesInView(world, z, view);
-    let exact = 0;
+    // Counted by GROUND, not by occurrence. A view wider than the world shows
+    // its two seam columns twice, and counting both told the reader they were
+    // waiting on 40 tiles when 32 was the whole of it.
+    const needed = new Set<string>();
+    const sharp = new Set<string>();
     const smoothing = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     for (const key of keys) {
+      const id = tileId(key);
+      needed.add(id);
       const cells = world.width / tileCountX(key.z);
-      // Screen placement of this tile: nearest wrapped branch to the view.
-      let gx = key.tx * cells;
-      while (gx - view.x > world.width / 2) gx -= world.width;
-      while (gx - view.x < -world.width / 2) gx += world.width;
+      // Screen placement of this OCCURRENCE, from the unwrapped column.
+      //
+      // This used to search for the wrapped branch nearest the centre of the
+      // view, because the wrapped index was all `tilesInView` returned and the
+      // branch had to be guessed back. The search finds exactly the value
+      // below while the view plus a tile still fits inside the world, and
+      // cannot find it once the view is wider — the DEFAULT fitted view, since
+      // `fit()` sizes the map to 98 % of the canvas — because there the same
+      // ground is on screen twice and half a world is the very tie it breaks:
+      // each edge column came out a full width away, drawn on top of its own
+      // twin, leaving ~14 px of coarse raster at the edge it had vacated.
+      const gx = key.viewTx * cells;
       const sx = screen.x + (gx - view.x) * pxPerCell;
       const sy = screen.y + (key.ty * cells - view.y) * pxPerCell;
       const sw = cells * pxPerCell;
@@ -135,7 +252,7 @@ export class DisplayTileStore {
       const own = this.get(key);
       if (own) {
         ctx.drawImage(own as CanvasImageSource, sx, sy, sw + 0.5, sw + 0.5);
-        exact++;
+        sharp.add(id);
         continue;
       }
       // Walk up: an ancestor's quarter, scaled. Blurry beats blank.
@@ -158,12 +275,19 @@ export class DisplayTileStore {
       void found;
     }
     ctx.imageSmoothingEnabled = smoothing;
-    return { needed: keys.length, exact };
+    return { needed: needed.size, exact: sharp.size };
   }
 
   dispose(): void {
+    this.lastAsk = '';
+    this.disposed = true;
+    this.epoch++;
     for (const e of this.tiles.values()) close(e.bmp);
     this.tiles.clear();
+    // The component is gone; nothing will ever draw these. Cancelling is the
+    // difference between a closed view releasing the pool and a closed view
+    // holding a worker busy for the next minute.
+    for (const p of this.inflight.values()) p.cancel();
     this.inflight.clear();
   }
 }

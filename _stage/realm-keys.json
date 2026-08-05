@@ -1,0 +1,4 @@
+[
+{"key":"worldgen.paint.labelNeedsText","es":"Escribe el texto del rótulo antes de colocarlo en el mapa","en":"Type the label's text before placing it on the map"},
+{"key":"worldgen.map.brushSizeHint","es":"Ctrl+rueda cambia el tamaño","en":"Ctrl+wheel changes the size"}
+]

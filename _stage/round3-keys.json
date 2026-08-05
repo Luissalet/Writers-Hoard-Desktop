@@ -1,0 +1,7 @@
+[
+ {"key":"worldgen.export.mapView","es":"Mapa como lo ves (PNG)","en":"Map as you see it (PNG)"},
+ {"key":"worldgen.export.mapView2x","es":"Mapa como lo ves — doble resolución (PNG)","en":"Map as you see it — double resolution (PNG)"},
+ {"key":"worldgen.export.failed","es":"No se pudo crear la imagen","en":"Could not create the image"},
+ {"key":"worldgen.status.exporting","es":"creando la imagen…","en":"creating the image…"},
+ {"key":"worldgen.map.brushWheelHint","es":"Ctrl+rueda cambia el tamaño · Alt toma el bioma","en":"Ctrl+wheel resizes · Alt picks the biome"}
+]

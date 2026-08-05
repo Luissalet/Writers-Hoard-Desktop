@@ -9,6 +9,7 @@ import { cityParamsFor } from '../cartography/texture';
 import type { CartoTheme } from '../cartography/theme';
 import type { Ctx } from '../cartography/symbols';
 import EditableName from './EditableName';
+import { useTranslation } from '@/i18n/useTranslation';
 
 /**
  * City plan panel. A settlement's plan is derived from its own id, so the same
@@ -79,6 +80,7 @@ function sliderToPop(v: number): number {
 export default function CityPlanView({
   world, settlement, theme, onClose, onRename, onDelete, onPopulation,
 }: CityPlanViewProps) {
+  const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -181,28 +183,33 @@ export default function CityPlanView({
               className="text-sm text-text-primary"
             />
             <div className="text-[11px] text-text-muted">
-              {pop.toLocaleString('es-ES')} hab · {plan.patches.length.toLocaleString('es-ES')} manzanas
-              {' · '}{buildings.toLocaleString('es-ES')} edificios
-              {plan.wall ? ` · ${plan.gates.length} puertas, ${plan.towers.length} torres` : ' · sin murallas'}
-              {pop !== settled && ' · redibujando…'}
+              {t('worldgen.cityPlan.inhabitants').replace('{n}', pop.toLocaleString('es-ES'))}
+              {' · '}{t('worldgen.cityPlan.blocks').replace('{n}', plan.patches.length.toLocaleString('es-ES'))}
+              {' · '}{t('worldgen.cityPlan.buildings').replace('{n}', buildings.toLocaleString('es-ES'))}
+              {plan.wall
+                ? ` · ${t('worldgen.cityPlan.wallStats')
+                  .replace('{gates}', String(plan.gates.length))
+                  .replace('{towers}', String(plan.towers.length))}`
+                : ` · ${t('worldgen.cityPlan.noWalls')}`}
+              {pop !== settled && ` · ${t('worldgen.cityPlan.redrawing')}`}
             </div>
           </div>
 
           <div className="flex-1" />
 
-          <Toggle label="Murallas" on={overrides.walls ?? base.walls} onClick={() => setOverrides((o) => ({ ...o, walls: !(o.walls ?? base.walls) }))} />
-          <Toggle label="Ciudadela" on={overrides.citadel ?? base.citadel} onClick={() => setOverrides((o) => ({ ...o, citadel: !(o.citadel ?? base.citadel) }))} />
-          <Toggle label="Río" on={overrides.river ?? base.river} onClick={() => setOverrides((o) => ({ ...o, river: !(o.river ?? base.river) }))} />
-          <Toggle label="Costa" on={overrides.coast ?? base.coast} onClick={() => setOverrides((o) => ({ ...o, coast: !(o.coast ?? base.coast) }))} />
+          <Toggle label={t('worldgen.cityPlan.toggleWalls')} on={overrides.walls ?? base.walls} onClick={() => setOverrides((o) => ({ ...o, walls: !(o.walls ?? base.walls) }))} />
+          <Toggle label={t('worldgen.cityPlan.toggleCitadel')} on={overrides.citadel ?? base.citadel} onClick={() => setOverrides((o) => ({ ...o, citadel: !(o.citadel ?? base.citadel) }))} />
+          <Toggle label={t('worldgen.cityPlan.toggleRiver')} on={overrides.river ?? base.river} onClick={() => setOverrides((o) => ({ ...o, river: !(o.river ?? base.river) }))} />
+          <Toggle label={t('worldgen.cityPlan.toggleCoast')} on={overrides.coast ?? base.coast} onClick={() => setOverrides((o) => ({ ...o, coast: !(o.coast ?? base.coast) }))} />
 
           <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
-            Habitantes
+            {t('worldgen.cityPlan.population')}
             <input
               type="range" min={0} max={1000} step={1}
               value={popToSlider(pop)}
               onChange={(e) => bumpPop(sliderToPop(Number(e.target.value)))}
               className="w-28 accent-accent-gold"
-              title="El plano crece con la población; por encima de unas 220 manzanas deja de crecer para seguir siendo legible"
+              title={t('worldgen.cityPlan.populationHint')}
             />
             <input
               type="number" min={POP_MIN} max={POP_MAX} step={50}
@@ -219,29 +226,29 @@ export default function CityPlanView({
             <button
               onClick={save}
               disabled={!dirty}
-              title={dirty ? 'Guardar la población en el mundo' : 'Sin cambios que guardar'}
+              title={dirty ? t('worldgen.cityPlan.saveTitle') : t('worldgen.cityPlan.noChanges')}
               className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition ${
                 dirty
                   ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold hover:bg-accent-gold/25'
                   : 'border-border bg-elevated text-text-muted opacity-50 cursor-default'
               }`}
             >
-              <Check size={12} /> Guardar
+              <Check size={12} /> {t('worldgen.cityPlan.save')}
             </button>
           )}
 
           {onDelete && (
             <IconBtn
-              title="Quitar esta población del mundo"
+              title={t('worldgen.cityPlan.deleteTitle')}
               onClick={() => { onDelete(); onClose(); }}
               danger
             >
               <Trash2 size={14} />
             </IconBtn>
           )}
-          <IconBtn title="Otra variante" onClick={() => setVariant((v) => v + 1)}><Dices size={14} /></IconBtn>
-          <IconBtn title="Exportar PNG" onClick={exportPng}><Download size={14} /></IconBtn>
-          <IconBtn title="Cerrar" onClick={onClose}><X size={14} /></IconBtn>
+          <IconBtn title={t('worldgen.cityPlan.variant')} onClick={() => setVariant((v) => v + 1)}><Dices size={14} /></IconBtn>
+          <IconBtn title={t('worldgen.cityPlan.exportPng')} onClick={exportPng}><Download size={14} /></IconBtn>
+          <IconBtn title={t('worldgen.cityPlan.close')} onClick={onClose}><X size={14} /></IconBtn>
         </div>
 
         <div ref={hostRef} className="flex-1 min-h-0 relative bg-deep">

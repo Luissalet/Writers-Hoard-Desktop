@@ -163,6 +163,37 @@ export type WorldEdit =
    * command.
    */
   | { kind: 'eraseBiome'; stroke: Stroke }
+  /**
+   * WHERE A COUNTRY REACHES.
+   *
+   * The generator grows realms by cost-based flood fill from the capitals, so
+   * their borders settle onto ridges and wastes the way real ones do — a good
+   * first draft and, for a novelist, only ever a first draft. The war that moved
+   * the frontier is not in the terrain.
+   *
+   * Three shapes, because redrawing a border is three different gestures:
+   *   · `realm`     a brush, for nudging a frontier a few leagues
+   *   · `realmFill` a bucket that stops at real edges, for "this whole peninsula"
+   *   · `realmArea` a polygon, for "these provinces, exactly here"
+   *
+   * `realm` is an INDEX into `geography.realms`, or −1 for unclaimed. The index
+   * is what `realmEditKey` already uses for renames, so the two agree; like a
+   * rename, a painted border follows the seed, and a world regenerated with
+   * different capitals can hand a province to a neighbour.
+   */
+  | { kind: 'realm'; realm: number; stroke: Stroke }
+  /**
+   * Bucket fill, stopped by the ground itself.
+   *
+   * `bounded` says what counts as an edge. `coast` is always an edge — a country
+   * does not flow across the sea — and the other two add the features a reader
+   * points at when they say "up to the river" or "the far side of the range".
+   */
+  | { kind: 'realmFill'; realm: number; x: number; y: number;
+      bounded: 'coast' | 'river' | 'ridge'; maxCells?: number }
+  /** A closed shape. `smooth` rounds the corners first, which is the difference
+   *  between the straight-edged and the curved lasso. */
+  | { kind: 'realmArea'; realm: number; pts: Pt[]; smooth: boolean }
   /** The negative of the river brush: unmake the watercourses it crosses. */
   | { kind: 'eraseRivers'; x: number; y: number; radius: number }
   /**
@@ -245,13 +276,40 @@ export function targetFromKey(key: string): EditTarget | null {
 }
 
 /**
+ * The one key a realm answers to.
+ *
+ * A country is the only generated thing with no position of its own — it is
+ * ground, not a point — so its key carries its INDEX and a placeholder 0,0.
+ * That spelling (`realm:3:0,0`) is what the Índice files a rename under and
+ * what the picker returns, and it lives in this function because the readers
+ * drifted from it once and nobody noticed: they looked up `realm:3`, matched
+ * nothing, and every rename of a country was stored, counted in the badge and
+ * persisted forever while the map, the hover readout and the country picker all
+ * went on showing the generated name.
+ */
+export function realmEditKey(id: number): string {
+  return editKey('realm', 0, 0, `${id}:`);
+}
+
+/**
  * Equivalent persisted keys for an edit action.
  *
- * Only landmarks have a historical alias. A legacy `feature:` REMOVE still
- * hides a landmark because the resolver reads it; a new landmark RESTORE clears
- * both spellings so old worlds can genuinely reveal the object again.
+ * Landmarks have a historical alias: a legacy `feature:` REMOVE still hides a
+ * landmark because the resolver reads it, and a new landmark RESTORE clears both
+ * spellings so old worlds can genuinely reveal the object again.
+ *
+ * Realms have the short `realm:<id>` the readers used to look for. No writer
+ * ever produced it, so in principle no saved world carries one — but the cost of
+ * accepting it is a string comparison, and a name the reader typed months ago is
+ * not something to break on a guess about what old builds shipped.
  */
 export function compatibleEditKeys(target: EditTarget, key: string): string[] {
+  if (target === 'realm') {
+    const id = Number(key.slice(key.indexOf(':') + 1).split(':')[0]);
+    if (!Number.isFinite(id)) return [key];
+    const all = [key, realmEditKey(id), `realm:${id}`];
+    return all.filter((k, i) => all.indexOf(k) === i);
+  }
   if (target !== 'landmark') return [key];
   if (key.startsWith('landmark:')) {
     return [key, `feature:${key.slice('landmark:'.length)}`];
@@ -303,6 +361,16 @@ export interface AppliedEdits {
   roads: { cells: number[]; major: boolean }[];
   /** Circles inside which generated roads are erased. */
   roadErasers: { x: number; y: number; radius: number }[];
+  /**
+   * Realm ownership the reader painted, or null if they never has.
+   *
+   * `-2` is UNTOUCHED, `-1` is explicitly unclaimed, `>= 0` is a realm index.
+   * Untouched needs its own value because "nobody owns this" is a thing a reader
+   * can legitimately paint, and it must not read the same as "I never said".
+   * Allocated lazily: two bytes a cell is 4 MB on a 2048 world, and most worlds
+   * never carry one.
+   */
+  realmCells: Int16Array | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -433,7 +501,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   const out: AppliedEdits = {
     terrainChanged: false, markers: [], labels: [], rivers: [],
     renames: {}, populations: {}, removed: new Set(), moves: {}, styles: {},
-    roads: [], roadErasers: [],
+    roads: [], roadErasers: [], realmCells: null,
   };
   if (!edits.length) return out;
   // Any consumer that caches something derived from this world keys on the
@@ -617,6 +685,39 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
         }
       }
       if (cells.length >= 2) out.roads.push({ cells, major: e.major });
+    } else if (e.kind === 'realm' || e.kind === 'realmFill' || e.kind === 'realmArea') {
+      // In LIST ORDER with each other, like the biome overlay: paint a province,
+      // hand a corner of it back, paint over it again. Ordering is the only thing
+      // that makes these strokes rather than commands.
+      if (!out.realmCells) { out.realmCells = new Int16Array(N); out.realmCells.fill(-2); }
+      const cells = out.realmCells;
+      const own = Math.max(-1, Math.min(32767, Math.round(e.realm)));
+      if (e.kind === 'realm') {
+        const m = strokeMask(e.stroke, W, H);
+        m?.each((i, c) => {
+          // COVERAGE decides, and the dither keeps the rim from reading as a
+          // stamp — the same dither the biome brush uses a few sections up. What
+          // is deliberately NOT in the test is `strength`, and that is where the
+          // frontier brush parts company with the biome one.
+          //
+          // "How strongly do you own this" is not a question a categorical field
+          // can answer: ground belongs to one country or to none. Multiplying
+          // coverage by strength did not paint a fainter border, it painted less
+          // of one — and since the threshold starts at 0.35, ANY strength at or
+          // below 0.35 painted nothing at all, at any coverage, while the slider
+          // this tool shows starts at 0.05. From 0.35 to about 0.53 it put down
+          // scattered specks. A slider that silently switches the tool off is
+          // worse than a slider that does nothing.
+          const hsh = Math.sin(i * 45.164 + 11.71) * 27183.13;
+          const jitter = (hsh - Math.floor(hsh)) * 0.45;
+          if (c <= 0.35 + jitter * 0.4) return;
+          cells[i] = own;
+        });
+      } else if (e.kind === 'realmFill') {
+        for (const i of realmFloodCells(world, e)) cells[i] = own;
+      } else {
+        for (const i of polygonCells(e.pts, e.smooth, W, H)) cells[i] = own;
+      }
     } else if (e.kind === 'eraseRoads') {
       out.roadErasers.push({ x: e.x, y: e.y, radius: e.radius });
     }
@@ -641,6 +742,170 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   return out;
 }
 
+/**
+ * Flood fill from a point, stopped by the ground.
+ *
+ * Four-connected over LAND only — the sea is always an edge, because a realm
+ * that leaks across an ocean is never what anyone meant. `river` also stops at
+ * any cell carrying real discharge, and `ridge` at any cell steep enough to be
+ * a watershed; both are the features a reader is pointing at when they say "up
+ * to the river" or "the other side of the mountains".
+ *
+ * Bounded by `maxCells` so a mis-aimed click on a continent is a mistake you
+ * undo, not a wait you sit through — and BREADTH-first so that what the bound
+ * cuts off is the far edge of the fill and not the middle of it.
+ */
+export function realmFloodCells(
+  world: WorldData,
+  e: { x: number; y: number; bounded: 'coast' | 'river' | 'ridge'; maxCells?: number },
+): number[] {
+  const W = world.width, H = world.height;
+  const { elevation, flow } = world;
+  const cap = Math.max(1, Math.min(W * H, e.maxCells ?? Math.round(W * H * 0.25)));
+  // FLOOR, like everything else that turns a world coordinate into a cell: cell
+  // k is the ground from k to k+1, its centre is at k+0.5, the hover readout
+  // floors `mp.u * W` and `polygonCells` scanlines against those same centres.
+  // Rounding made the bucket the one tool that disagreed with the grid it was
+  // painting on — a click at x = 5.5, the middle of cell 5 as drawn, started the
+  // flood in cell 6. At local zoom, where one cell is hundreds of pixels wide,
+  // that is the right-hand or lower half of EVERY click; on a coastal cell the
+  // neighbour it jumped to is the sea, the guard below fires, and the click did
+  // nothing at all while the readout under the cursor promised "gives A to B".
+  const sx = ((Math.floor(e.x) % W) + W) % W;
+  const sy = Math.min(H - 1, Math.max(0, Math.floor(e.y)));
+  const start = sy * W + sx;
+  if (elevation[start] <= 0) return [];
+
+  // A ridge is measured the way the eye reads steepness: the fall across one
+  // cell, from central differences, in kilometres of elevation units.
+  const steep = (i: number): number => {
+    const x = i % W, y = (i / W) | 0;
+    const l = elevation[y * W + ((x - 1 + W) % W)];
+    const r = elevation[y * W + ((x + 1) % W)];
+    const u = elevation[Math.max(0, y - 1) * W + x];
+    const d = elevation[Math.min(H - 1, y + 1) * W + x];
+    return Math.max(Math.abs(r - l), Math.abs(d - u)) * 0.5;
+  };
+  const blocked = (i: number): boolean => {
+    if (elevation[i] <= 0) return true;
+    if (e.bounded === 'river' && flow[i] > 0.45) return true;
+    if (e.bounded === 'ridge' && steep(i) > 0.28) return true;
+    return false;
+  };
+
+  // A QUEUE, not a stack: the cap has to cut the fill off at its far edge, not
+  // in the middle of it. Popping depth-first meant a capped fill was whatever
+  // tendril the last neighbour pushed happened to lead down. Measured at
+  // 512×256, capped at 1 200 cells on a 7 818-cell continent, the stack ran 92
+  // cells away from the click and left 75 % of the land within a 41-cell disc
+  // AROUND the click unclaimed: the reader points at a peninsula and gets a
+  // ragged snake with holes right next to the cursor. The queue reaches exactly
+  // 41 cells and leaves 36 % of that disc — which is all a 1 200-cell budget can
+  // pay for out of 1 881 cells of land. Whatever the cap, the cells come out in
+  // rings of growing distance, so the worst it can do is stop short: the compact
+  // neighbourhood of the click, which is recognisably the thing pointed at.
+  //
+  // The head index is not a micro-optimisation. `Array.shift()` is O(n) per pop,
+  // which would make a 20 000-cell bucket quadratic — precisely the wait the cap
+  // exists to prevent.
+  const seen = new Uint8Array(W * H);
+  const out: number[] = [];
+  const queue = [start];
+  let head = 0;
+  seen[start] = 1;
+  while (head < queue.length && out.length < cap) {
+    const i = queue[head++];
+    out.push(i);
+    const x = i % W, y = (i / W) | 0;
+    const around = [
+      y * W + ((x + 1) % W),
+      y * W + ((x - 1 + W) % W),
+      y > 0 ? (y - 1) * W + x : -1,
+      y < H - 1 ? (y + 1) * W + x : -1,
+    ];
+    for (const n of around) {
+      if (n < 0 || seen[n]) continue;
+      seen[n] = 1;
+      if (blocked(n)) continue;
+      queue.push(n);
+    }
+  }
+  return out;
+}
+
+/**
+ * Every cell inside a closed polygon, by scanline.
+ *
+ * `smooth` runs the ring through Chaikin first, which is the whole difference
+ * between the straight-edged lasso and the curved one — the same corner-cutting
+ * the coastlines use, so a hand-drawn frontier sits in the same visual language
+ * as the generated ones.
+ *
+ * The ring is un-wrapped as it is read, so a province drawn across the
+ * antimeridian is one shape rather than two touching the opposite edges.
+ *
+ * A cell is in when its CENTRE is in — cell k is the ground from k to k+1 and
+ * its centre sits at k+0.5, which is why the scanline samples at y+0.5 and why
+ * a crossing pair becomes `ceil(x0 − 0.5) … floor(x1 − 0.5)`. Same convention as
+ * flooring a world coordinate to a cell, which is what `realmFloodCells` and the
+ * hover readout do: the lasso and the bucket have to agree about which cell the
+ * pointer is in, or the two tools disagree about where a frontier was drawn.
+ */
+export function polygonCells(pts: Pt[], smooth: boolean, W: number, H: number): number[] {
+  if (pts.length < 3) return [];
+  const ring: Pt[] = [];
+  let prev = pts[0].x;
+  for (const p of pts) {
+    let x = p.x;
+    while (x - prev > W / 2) x -= W;
+    while (x - prev < -W / 2) x += W;
+    prev = x;
+    ring.push({ x, y: p.y });
+  }
+  const shape = smooth ? chaikinRing(ring, 2) : ring;
+
+  let y0 = Infinity, y1 = -Infinity;
+  for (const p of shape) { if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y; }
+  y0 = Math.max(0, Math.floor(y0));
+  y1 = Math.min(H - 1, Math.ceil(y1));
+  const out: number[] = [];
+  const xs: number[] = [];
+  for (let y = y0; y <= y1; y++) {
+    const cy = y + 0.5;
+    xs.length = 0;
+    for (let k = 0; k < shape.length; k++) {
+      const a = shape[k], b = shape[(k + 1) % shape.length];
+      if ((a.y <= cy && b.y > cy) || (b.y <= cy && a.y > cy)) {
+        xs.push(a.x + ((cy - a.y) / (b.y - a.y)) * (b.x - a.x));
+      }
+    }
+    if (xs.length < 2) continue;
+    xs.sort((m, n) => m - n);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      const from = Math.ceil(xs[k] - 0.5), to = Math.floor(xs[k + 1] - 0.5);
+      for (let gx = from; gx <= to; gx++) out.push(y * W + (((gx % W) + W) % W));
+    }
+  }
+  return out;
+}
+
+/** Corner cutting on a CLOSED ring — the open-path version lives in
+ *  `cartography/contours.ts` and would leave the last corner square. */
+function chaikinRing(pts: Pt[], iterations: number): Pt[] {
+  let cur = pts;
+  for (let it = 0; it < iterations; it++) {
+    if (cur.length < 3) return cur;
+    const next: Pt[] = [];
+    for (let i = 0; i < cur.length; i++) {
+      const a = cur[i], b = cur[(i + 1) % cur.length];
+      next.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 });
+      next.push({ x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 });
+    }
+    cur = next;
+  }
+  return cur;
+}
+
 /** Rough cost estimate, so the UI can warn before a stroke that will take a
  *  visible moment. Terrain edits pay for the distance transform and a full
  *  reclassification; everything else is local. */
@@ -658,12 +923,21 @@ export function editCostClass(edits: WorldEdit[]): 'local' | 'global' {
  *  was the only canvas — but the canonical tiles rasterise the same list at
  *  ~150 m per cell, where a quarter-cell round-off is five kilometres of slop.
  *  Legacy points already sit on the quarter grid, so the finer rounding is the
- *  identity on every stroke saved before this change. */
+ *  identity on every stroke saved before this change.
+ *
+ *  The lasso's corners go through the same round, and for the same reason every
+ *  other kind does: a corner that came off a pointer carries seventeen
+ *  significant digits, and a hand-drawn province is easily forty of them —
+ *  ~1.5 kB of JSON per shape, kept forever, for precision nothing can see.
+ *  Safe because the polygon is filled by testing cell CENTRES: a corner would
+ *  have to land within 1/512 of a cell of a crossing exactly on a centre to move
+ *  one cell of the border, and that cell is by definition on the edge the reader
+ *  drew freehand to ±half a cell. */
 export function serializeEdits(edits: WorldEdit[]): string {
   const round = (p: Pt) => ({ x: Math.round(p.x * 256) / 256, y: Math.round(p.y * 256) / 256 });
   return JSON.stringify(edits.map((e) => {
     if ('stroke' in e) return { ...e, stroke: { ...e.stroke, pts: e.stroke.pts.map(round) } };
-    if (e.kind === 'river') return { ...e, pts: e.pts.map(round) };
+    if (e.kind === 'river' || e.kind === 'realmArea') return { ...e, pts: e.pts.map(round) };
     return e;
   }));
 }
