@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BookmarkPlus, Map, Pencil, Search, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/engines/_shared';
 import type { SavedWorldRegion } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface SavedRegionsPanelProps {
   regions: SavedWorldRegion[];
@@ -18,6 +19,7 @@ export default function SavedRegionsPanel({
   onRename,
   onDelete,
 }: SavedRegionsPanelProps) {
+  const { t } = useTranslation();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -44,7 +46,7 @@ export default function SavedRegionsPanel({
         className="flex items-center justify-center gap-2 rounded-lg border border-accent-gold/35 bg-accent-gold/10 px-3 py-2 text-xs text-accent-gold hover:bg-accent-gold/15"
       >
         <BookmarkPlus size={14} />
-        Guardar la vista actual
+        {t('worldgen.regions.saveView')}
       </button>
 
       {regions.length > 0 && (
@@ -53,7 +55,7 @@ export default function SavedRegionsPanel({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar comarca…"
+            placeholder={t('worldgen.regions.searchPlaceholder')}
             className="min-w-0 flex-1 bg-transparent py-1.5 text-xs text-text-primary outline-none placeholder:text-text-muted"
           />
         </label>
@@ -61,7 +63,7 @@ export default function SavedRegionsPanel({
 
       {regions.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-text-muted">
-          Todavía no hay comarcas guardadas. Abre una hoja regional o guarda la vista actual.
+          {t('worldgen.regions.empty')}
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
@@ -99,7 +101,9 @@ export default function SavedRegionsPanel({
                         {region.title}
                       </span>
                       <span className="mt-0.5 block text-[10px] text-text-muted">
-                        {region.spanKm} km · {region.params.res} celdas
+                        {t('worldgen.regions.meta')
+                          .replace('{km}', String(region.spanKm))
+                          .replace('{cells}', String(region.params.res))}
                       </span>
                     </>
                   )}
@@ -108,7 +112,7 @@ export default function SavedRegionsPanel({
                   type="button"
                   onClick={() => beginRename(region)}
                   className="rounded p-1 text-text-muted opacity-60 hover:bg-surface hover:text-text-primary group-hover:opacity-100"
-                  title="Renombrar"
+                  title={t('worldgen.regions.rename')}
                 >
                   <Pencil size={12} />
                 </button>
@@ -116,7 +120,7 @@ export default function SavedRegionsPanel({
                   type="button"
                   onClick={() => setDeleteId(region.id)}
                   className="rounded p-1 text-text-muted opacity-60 hover:bg-danger/15 hover:text-danger group-hover:opacity-100"
-                  title="Eliminar"
+                  title={t('worldgen.regions.delete')}
                 >
                   <Trash2 size={12} />
                 </button>
@@ -128,7 +132,7 @@ export default function SavedRegionsPanel({
       <ConfirmDialog
         open={Boolean(deleting)}
         destructive
-        message={`¿Eliminar la comarca guardada “${deleting?.title ?? ''}”? Las ediciones de sus lugares no se perderán.`}
+        message={t('worldgen.regions.deleteConfirm').replace('{name}', deleting?.title ?? '')}
         onConfirm={() => {
           if (deleteId) onDelete(deleteId);
           setDeleteId(null);

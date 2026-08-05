@@ -128,3 +128,87 @@ own both lifecycles in the same process so closing the app also closes Vite.
 **Date:** 2026-07-27
 **Context:** The regional-detail shader compiled and rendered once in the critical suite, yet repeated close-range wheel zoom in the real World3D view blocked the main thread and left the viewport black.
 **Rule:** Changes to interactive 3D LOD must be tested across camera-distance thresholds with repeated wheel/control updates. Assert finite camera/UV state, visible terrain, bounded geometry rebuilds, and recovery after detail changes; one successful static shader render does not cover the render-loop lifecycle.
+
+## #21 — Medir el renderizador no es medir la vista
+
+2026-08-04. Entregué la capa de caminos del 2D con un banco que la medía contra
+`buildHumanGeography(world, params, 'full')` y daba 2,0-2,4 % de tinta en tres
+escalones de zoom. En la aplicación dibujaba NADA: `WorldView` pedía profundidad
+`'places'`, donde `roads` es `[]`. El renderizador era correcto y la vista lo
+estaba matando de hambre, y ninguno de los dos ficheros lo delataba por separado.
+
+**Regla**: un banco tiene que consumir sus entradas por el MISMO camino que la
+aplicación. Si la vista pide los datos a través de una caché, una profundidad o
+un selector, el banco pide por ahí también — o el banco mide otro programa.
+
+**Cómo aplicarlo**: antes de dar por buena una capa nueva, buscar quién le pasa
+los datos en la aplicación real y comprobar ESE valor. Cuando la comprobación no
+se pueda hacer en un banco (React, canvas), dejarla en `scripts/check-conformance.mjs`
+como invariante de código — que es donde está ahora la de esta cicatriz.
+
+## #22 — Revisa adversarialmente tu propio arreglo, no sólo el código que tocas
+
+2026-08-04, segunda pasada sobre el modo 2D. De los hallazgos graves, **ocho eran
+regresiones introducidas por la pasada anterior**, verificada en su momento con
+tsc, eslint, conformance y dos bancos en verde. Los bancos medían lo que yo había
+decidido medir.
+
+Los dos peores compartían forma: **un cambio correcto en su intención, aplicado un
+nivel demasiado arriba.** Saltarse el DIBUJO de la ciudad cuando las teselas ya la
+dibujan es correcto; saltarse el BLOQUE se llevó por delante los impactos y con
+ellos el plano de ciudad, el pincel Camino y el selector de viaje. Quitar la
+supresión de la pirámide durante un trazo es correcto; hacerlo sin mirar el ORDEN
+de dibujado dejó al pincel más ciego que antes — y escribí un comentario
+afirmando lo contrario, que es peor que no comentar.
+
+**Regla**: después de un cambio grande, una pasada adversarial sobre el propio
+cambio, mecanismo por mecanismo, antes de darlo por bueno. Y cuando un comentario
+afirme un orden o una invariante, comprobarla leyendo el código que la implementa,
+no la intención con la que se escribió.
+
+**Y sobre los bancos**: el banco de fronteras muestreaba cuatro spans y ninguno
+era la vista con la que el mapa ABRE. Justo ahí la capa costaba 15 ms por
+fotograma. Un banco que sólo prueba los casos que se te ocurrieron al escribirlo
+mide tu imaginación. Incluye siempre el estado inicial y el estado por defecto.
+
+## #23 — Un arreglo que no llega a la vía barata no llega a nadie
+**Fecha:** 2026-08-05
+**Contexto:** El pincel de fronteras estaba entero: vocabulario de edición,
+rasterizadores, cuatro gestos, panel, tinte, línea. Los bancos daban todo en
+verde porque llamaban a `buildHumanGeography` directamente. En la aplicación no
+pintaba nada. `patchGeography` — lo ÚNICO que corre tras soltar el pincel —
+devolvía `base.realmOf` intacto; la pasada completa que sí habría aplicado la
+capa cuesta 19 s y está deliberadamente suprimida mientras haya un pincel en la
+mano. La herramienta funcionaba en toda su longitud salvo en el último metro.
+**Regla:** Cuando una función tiene un camino caro y otro barato, el banco tiene
+que recorrer el BARATO, porque es el que corre de verdad. Escribe la prueba
+como la vive el lector: aplica la edición, sube la revisión, vuelve a pedir lo
+mismo, y comprueba que lo pedido cambió. Y comprueba también el DESHACER: una
+capa que llega pero no se puede levantar es peor que una que nunca llegó.
+
+## #24 — Fusionar segmentos cambia la pregunta que hace el recorte
+**Fecha:** 2026-08-05
+**Contexto:** `mergeRuns` fusionó 9 939 aristas de una celda en 5 781 tramos
+largos — mismo dibujo, una fracción de las llamadas. El recorte de
+`drawRealmBorders` seguía preguntando `ax < x0 || ax > x1`: correcto cuando cada
+entrada medía una celda, y exactamente al revés cuando mide veinte. Descartaba
+el tramo que ATRAVIESA la ventana, que es justo el que miras cuando te acercas a
+una frontera. Invisible a escala planetaria (todo cabe), total a 40 km (nada
+cabe). La tinta a 200 km pasó de 0,062 % a 0,344 % al arreglarlo.
+**Regla:** Cuando cambies la GRANULARIDAD de una estructura, repasa todo lo que
+la filtra. Contención y solape son la misma prueba mientras el elemento sea un
+punto, y dejan de serlo en cuanto tiene longitud. El banco que lo caza no mide
+"cuántos se dibujan" sino "¿se ve ESTE, el que cruza la vista?".
+
+## #25 — Una capa apagada por defecto es una herramienta que no existe
+**Fecha:** 2026-08-05
+**Contexto:** `cartoLayers.borders` arrancaba en `false`, y es la capa donde la
+herramienta de fronteras dibuja TODO: la línea y el tinte. El lector escogía
+Frontera, elegía país, arrastraba, veía la previsualización seguir al puntero —
+y lo confirmado caía en una capa oculta. Cada trazo funcionaba. No aparecía
+nada. El interruptor existía, dos botones más allá del retículo y con el mismo
+icono que él.
+**Regla:** Una herramienta enciende la capa en la que escribe. No hay lectura de
+"he cogido el pincel de fronteras" bajo la cual quiera las fronteras ocultas. Y
+dos interruptores contiguos no comparten icono: si dos cosas se dibujan con el
+mismo dibujo, para el lector son la misma cosa.

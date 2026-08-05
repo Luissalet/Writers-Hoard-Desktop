@@ -17,7 +17,7 @@
 // manuscript and hands links in. That boundary is deliberate — the world engine
 // must stay usable, and testable, with no manuscript at all.
 
-import { editKey, type EditTarget } from './edits';
+import { editKey, realmEditKey, type EditTarget } from './edits';
 import {
   resolveWorldLandmarks,
   resolveWorldSpatialEntity,
@@ -99,7 +99,7 @@ export function buildAtlas(world: WorldData, geo: HumanGeography): Atlas {
       x: s.x, y: s.y,
       extent: s.rank === 'capital' ? 4 : s.rank === 'city' ? 3 : 2,
       importance: s.rank === 'capital' ? 1 : s.rank === 'city' ? 0.8 : s.rank === 'town' ? 0.55 : 0.32,
-      realmKey: s.realm >= 0 ? editKey('realm', 0, 0, `${s.realm}:`) : undefined,
+      realmKey: s.realm >= 0 ? realmEditKey(s.realm) : undefined,
       source: s.painted ? 'painted' : 'generated',
     }, world.painted));
   }
@@ -123,7 +123,11 @@ export function buildAtlas(world: WorldData, geo: HumanGeography): Atlas {
   for (const r of geo.realms) {
     const cap = geo.settlements.find((s) => s.id === r.capital);
     add(resolveWorldSpatialEntity({
-      key: editKey('realm', 0, 0, `${r.id}:`),
+      // The key the rename is filed under, and the ONLY spelling: this panel is
+      // where a country gets renamed, and for the whole life of the frontier
+      // tool the two readers of that rename looked for `realm:<id>` instead —
+      // so the name changed here and nowhere else on the map.
+      key: realmEditKey(r.id),
       kind: 'realm', type: 'realm', name: r.name,
       x: cap?.x ?? 0, y: cap?.y ?? 0,
       extent: Math.max(6, Math.sqrt(r.cellCount)),

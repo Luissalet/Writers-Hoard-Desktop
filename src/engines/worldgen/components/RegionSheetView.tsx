@@ -38,6 +38,7 @@ import { kmPerWorldCell } from '../region/terrain';
 import type { CartoTheme } from '../cartography/theme';
 import type { Ctx } from '../cartography/symbols';
 import type { SavedWorldRegion } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface RegionSheetViewProps {
   world: WorldData;
@@ -104,6 +105,7 @@ export default function RegionSheetView({
   onFlyHere,
   onPickSettlement,
 }: RegionSheetViewProps) {
+  const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -112,7 +114,7 @@ export default function RegionSheetView({
   const [params, setParams] = useState<RegionParams>(saved?.params ?? DEFAULT_REGION_PARAMS);
   const [title, setTitle] = useState(saved?.title ?? '');
   const [showControls, setShowControls] = useState(false);
-  const [stage, setStage] = useState('relieve');
+  const [stage, setStage] = useState(() => t('worldgen.sheet.stageRelief'));
   const [region, setRegion] = useState<RegionData | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -325,7 +327,7 @@ export default function RegionSheetView({
     const now = Date.now();
     onSaveRegion({
       id: saved?.id ?? generateId('region'),
-      title: title.trim() || displayRegion?.title || 'Hoja regional',
+      title: title.trim() || displayRegion?.title || t('worldgen.sheet.defaultTitle'),
       x: centre.x,
       y: centre.y,
       spanKm: SPANS[spanIdx],
@@ -333,7 +335,7 @@ export default function RegionSheetView({
       createdAt: saved?.createdAt ?? now,
       updatedAt: now,
     });
-  }, [centre.x, centre.y, displayRegion?.title, onSaveRegion, regionParams, saved, spanIdx, title]);
+  }, [centre.x, centre.y, displayRegion?.title, onSaveRegion, regionParams, saved, spanIdx, title, t]);
 
   const set = (patch: Partial<RegionParams>) => setParams((current) => ({ ...current, ...patch }));
 
@@ -344,7 +346,7 @@ export default function RegionSheetView({
           value={title || region?.title || ''}
           onChange={(event) => setTitle(event.target.value)}
           className="min-w-0 max-w-72 rounded border border-transparent bg-transparent px-1 text-sm font-medium text-white/90 outline-none hover:border-white/15 focus:border-amber-400/50 focus:bg-black/30"
-          aria-label="Nombre de la comarca"
+          aria-label={t('worldgen.sheet.nameLabel')}
         />
         <span className="text-[11px] text-white/45">{displayRegion?.subtitle ?? ''}</span>
         {busy && (
@@ -359,7 +361,7 @@ export default function RegionSheetView({
             onClick={() => setSpanIdx((index) => Math.max(0, index - 1))}
             disabled={spanIdx === 0}
             className="rounded bg-white/8 p-1 hover:bg-white/15 disabled:opacity-30"
-            title="Acercar"
+            title={t('worldgen.sheet.zoomIn')}
           >
             <Minus size={13} />
           </button>
@@ -371,7 +373,7 @@ export default function RegionSheetView({
             onClick={() => setSpanIdx((index) => Math.min(SPANS.length - 1, index + 1))}
             disabled={spanIdx === SPANS.length - 1}
             className="rounded bg-white/8 p-1 hover:bg-white/15 disabled:opacity-30"
-            title="Alejar"
+            title={t('worldgen.sheet.zoomOut')}
           >
             <Plus size={13} />
           </button>
@@ -381,7 +383,7 @@ export default function RegionSheetView({
             type="button"
             onClick={() => onFlyHere(centre.x, centre.y, SPANS[spanIdx])}
             className="rounded bg-white/8 p-1.5 hover:bg-white/15"
-            title="Volar aquí en el mapa"
+            title={t('worldgen.sheet.flyHere')}
           >
             <Plane size={14} />
           </button>
@@ -390,7 +392,7 @@ export default function RegionSheetView({
           type="button"
           onClick={save}
           className="rounded bg-white/8 p-1.5 hover:bg-white/15"
-          title="Guardar comarca"
+          title={t('worldgen.sheet.saveRegion')}
         >
           <Bookmark size={14} />
         </button>
@@ -398,14 +400,14 @@ export default function RegionSheetView({
           type="button"
           onClick={() => setShowControls((value) => !value)}
           className={`rounded p-1.5 ${showControls ? 'bg-accent-gold/25' : 'bg-white/8 hover:bg-white/15'}`}
-          title="Ajustes de la hoja"
+          title={t('worldgen.sheet.settings')}
         >
           <Sliders size={14} />
         </button>
-        <button type="button" onClick={download} className="rounded bg-white/8 p-1.5 hover:bg-white/15" title="Descargar">
+        <button type="button" onClick={download} className="rounded bg-white/8 p-1.5 hover:bg-white/15" title={t('worldgen.sheet.download')}>
           <Download size={14} />
         </button>
-        <button type="button" onClick={onClose} className="rounded bg-white/8 p-1.5 hover:bg-white/15" title="Cerrar">
+        <button type="button" onClick={onClose} className="rounded bg-white/8 p-1.5 hover:bg-white/15" title={t('worldgen.sheet.close')}>
           <X size={14} />
         </button>
       </div>
@@ -428,11 +430,11 @@ export default function RegionSheetView({
           />
           {!displayRegion && (
             <div className="absolute inset-0 grid place-items-center text-xs text-white/60">
-              trazando la hoja…
+              {t('worldgen.sheet.drawing')}
             </div>
           )}
           <div className="pointer-events-none absolute bottom-3 left-3 text-[10px] text-white/55">
-            arrastra para recorrer · rueda para cambiar escala · selecciona un lugar · doble clic abre una villa
+            {t('worldgen.sheet.hint')}
           </div>
         </div>
 
@@ -448,27 +450,29 @@ export default function RegionSheetView({
             {showControls && (
               <>
                 <p className="text-[10px] leading-snug text-white/45">
-                  La hoja, el mapa 2D y el relieve 3D comparten la misma comarca derivada.
-                  Sólo se guardan el nombre, la ventana y tus correcciones.
+                  {t('worldgen.sheet.note')}
                 </p>
-                <Slider label="Detalle local" value={params.detail} min={0} max={1.4} step={0.05}
+                <Slider label={t('worldgen.sheet.detail')} value={params.detail} min={0} max={1.4} step={0.05}
                   format={(value) => `${Math.round(value * 100)} %`} onChange={(value) => set({ detail: value })} />
-                <Slider label="Tierra roturada" value={params.settled} min={0} max={1} step={0.05}
-                  format={(value) => (value <= 0 ? 'yerma' : `${Math.round(value * 100)} %`)}
+                <Slider label={t('worldgen.sheet.tilled')} value={params.settled} min={0} max={1} step={0.05}
+                  format={(value) => (value <= 0 ? t('worldgen.sheet.barren') : `${Math.round(value * 100)} %`)}
                   onChange={(value) => set({ settled: value })} />
-                <Slider label="Poblamiento" value={params.habitation} min={0.2} max={2.2} step={0.1}
+                <Slider label={t('worldgen.sheet.habitation')} value={params.habitation} min={0.2} max={2.2} step={0.1}
                   format={(value) => `×${value.toFixed(1)}`} onChange={(value) => set({ habitation: value })} />
-                <Slider label="Cursos de agua" value={params.streamDensity} min={0} max={1} step={0.05}
-                  format={(value) => (value < 0.3 ? 'sólo ríos' : value > 0.7 ? 'hasta arroyos' : 'normal')}
+                <Slider label={t('worldgen.sheet.waterways')} value={params.streamDensity} min={0} max={1} step={0.05}
+                  format={(value) => (value < 0.3
+                    ? t('worldgen.sheet.streamsRivers')
+                    : value > 0.7 ? t('worldgen.sheet.streamsBrooks') : t('worldgen.sheet.streamsNormal'))}
                   onChange={(value) => set({ streamDensity: value })} />
-                <Slider label="Resolución" value={params.res} min={384} max={1024} step={64}
-                  format={(value) => `${value} celdas`} onChange={(value) => set({ res: value })} />
+                <Slider label={t('worldgen.sheet.resolution')} value={params.res} min={384} max={1024} step={64}
+                  format={(value) => t('worldgen.sheet.cells').replace('{n}', String(value))} onChange={(value) => set({ res: value })} />
                 {displayRegion && (
                   <div className="border-t border-white/10 pt-2 text-[10px] leading-relaxed text-white/45">
-                    {displayRegion.places.filter((place) => place.kind === 'village').length} aldeas ·{' '}
-                    {displayRegion.places.filter((place) => place.kind === 'hamlet').length} caseríos ·{' '}
-                    {displayRegion.places.filter((place) => place.kind === 'farm').length} granjas<br />
-                    {displayRegion.streams.length} cursos · {displayRegion.tracks.length} caminos
+                    {t('worldgen.sheet.villages').replace('{n}', String(displayRegion.places.filter((place) => place.kind === 'village').length))} ·{' '}
+                    {t('worldgen.sheet.hamlets').replace('{n}', String(displayRegion.places.filter((place) => place.kind === 'hamlet').length))} ·{' '}
+                    {t('worldgen.sheet.farms').replace('{n}', String(displayRegion.places.filter((place) => place.kind === 'farm').length))}<br />
+                    {t('worldgen.sheet.streamCount').replace('{n}', String(displayRegion.streams.length))} ·{' '}
+                    {t('worldgen.sheet.trackCount').replace('{n}', String(displayRegion.tracks.length))}
                   </div>
                 )}
               </>
@@ -487,6 +491,7 @@ function RegionPlaceControls({
   entity: WorldSpatialEntity;
   onEdit: (edit: WorldEdit) => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState(entity.name);
   const target = targetFromKey(entity.key) ?? 'region';
   return (
@@ -509,7 +514,7 @@ function RegionPlaceControls({
         className="rounded border border-white/15 bg-black/35 px-2 py-1.5 text-xs text-white/90 outline-none focus:border-amber-400/60"
       />
       <label className="flex items-center justify-between text-[10px] text-white/55">
-        Mostrar nombre
+        {t('worldgen.sheet.showName')}
         <input
           type="checkbox"
           checked={entity.style.labelVisible ?? false}
@@ -528,7 +533,7 @@ function RegionPlaceControls({
           onClick={() => onEdit({ kind: 'restore', target, key: entity.key })}
           className="flex items-center justify-center gap-1.5 rounded border border-white/15 px-2 py-1.5 text-[11px] text-white/75 hover:bg-white/10"
         >
-          <RotateCcw size={12} /> Restaurar
+          <RotateCcw size={12} /> {t('worldgen.sheet.restore')}
         </button>
       ) : (
         <button
@@ -536,7 +541,7 @@ function RegionPlaceControls({
           onClick={() => onEdit({ kind: 'remove', target, key: entity.key })}
           className="flex items-center justify-center gap-1.5 rounded border border-red-400/25 bg-red-400/10 px-2 py-1.5 text-[11px] text-red-200 hover:bg-red-400/15"
         >
-          <EyeOff size={12} /> Ocultar
+          <EyeOff size={12} /> {t('worldgen.sheet.hide')}
         </button>
       )}
     </div>

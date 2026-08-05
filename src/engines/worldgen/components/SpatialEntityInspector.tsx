@@ -14,13 +14,14 @@ import type {
   WorldSpatialEntity,
   WorldSpatialStyleOverride,
 } from '../core/spatialEntities';
+import { useTranslation } from '@/i18n/useTranslation';
 
 const ICONS = [
-  ['volcano', 'Volcán'],
-  ['cave', 'Cueva'],
-  ['waterfall', 'Cascada'],
-  ['gorge', 'Garganta'],
-  ['hotspring', 'Termas'],
+  ['volcano', 'worldgen.place.icon.volcano'],
+  ['cave', 'worldgen.place.icon.cave'],
+  ['waterfall', 'worldgen.place.icon.waterfall'],
+  ['gorge', 'worldgen.place.icon.gorge'],
+  ['hotspring', 'worldgen.place.icon.hotspring'],
 ] as const;
 
 interface SpatialLinkTarget {
@@ -63,6 +64,7 @@ export default function SpatialEntityInspector({
   onReveal2D,
   onReveal3D,
 }: SpatialEntityInspectorProps) {
+  const { t } = useTranslation();
   const [previousKey, setPreviousKey] = useState(entity.key);
   const [name, setName] = useState(entity.name);
   const [x, setX] = useState(String(Math.round(entity.x * 100) / 100));
@@ -97,7 +99,7 @@ export default function SpatialEntityInspector({
         title: entry.title,
         engineId: 'codex' as const,
         entityType: 'codex-entry' as const,
-        group: 'Códice · localizaciones',
+        group: 'worldgen.place.group.codexLocations',
       })),
       ...scenes.map((scene) => ({
         key: `scene:${scene.id}`,
@@ -105,7 +107,7 @@ export default function SpatialEntityInspector({
         title: scene.sceneNumber ? `${scene.sceneNumber}. ${scene.title}` : scene.title,
         engineId: 'dialog-scene' as const,
         entityType: 'scene' as const,
-        group: 'Escenas',
+        group: 'worldgen.place.group.scenes',
       })),
       ...writings.map((writing) => ({
         key: `writing:${writing.id}`,
@@ -113,7 +115,7 @@ export default function SpatialEntityInspector({
         title: writing.title,
         engineId: 'writings' as const,
         entityType: 'writing' as const,
-        group: 'Escritos',
+        group: 'worldgen.place.group.writings',
       })),
       ...timelineEvents.map((timelineEvent) => ({
         key: `timeline-event:${timelineEvent.id}`,
@@ -121,7 +123,7 @@ export default function SpatialEntityInspector({
         title: timelineEvent.title,
         engineId: 'timeline' as const,
         entityType: 'timeline-event' as const,
-        group: 'Cronología',
+        group: 'worldgen.place.group.timeline',
       })),
     ];
     return {
@@ -199,13 +201,13 @@ export default function SpatialEntityInspector({
             if (event.key === 'Enter') event.currentTarget.blur();
           }}
           className="mt-1 w-full rounded-lg border border-border bg-deep px-2.5 py-2 text-sm font-medium text-text-primary outline-none focus:border-accent-gold/60"
-          aria-label="Nombre del lugar"
+          aria-label={t('worldgen.place.nameLabel')}
         />
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         <label className="text-[10px] text-text-muted">
-          X mundial
+          {t('worldgen.place.worldX')}
           <input
             type="number"
             value={x}
@@ -215,7 +217,7 @@ export default function SpatialEntityInspector({
           />
         </label>
         <label className="text-[10px] text-text-muted">
-          Y mundial
+          {t('worldgen.place.worldY')}
           <input
             type="number"
             value={y}
@@ -228,26 +230,26 @@ export default function SpatialEntityInspector({
 
       {entity.kind === 'landmark' && (
         <label className="text-[10px] text-text-muted">
-          Símbolo
+          {t('worldgen.place.symbol')}
           <select
             value={entity.style.icon ?? entity.type}
             onChange={(event) => onStyle({ icon: event.target.value })}
             className="mt-0.5 w-full rounded border border-border bg-deep px-2 py-1.5 text-xs text-text-primary"
           >
-            {ICONS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            {ICONS.map(([id, label]) => <option key={id} value={id}>{t(label)}</option>)}
           </select>
         </label>
       )}
 
       <label className="flex items-center gap-2 text-[10px] text-text-muted">
-        Color
+        {t('worldgen.place.color')}
         <input
           type="color"
           value={entity.style.color ?? '#e4a853'}
           onChange={(event) => onStyle({ color: event.target.value })}
           className="h-7 w-10 rounded border border-border bg-transparent"
         />
-        <span className="ml-auto">Tamaño</span>
+        <span className="ml-auto">{t('worldgen.place.size')}</span>
         <input
           type="range"
           min={0.65}
@@ -266,7 +268,7 @@ export default function SpatialEntityInspector({
           onChange={(event) => onStyle({ labelVisible: event.target.checked })}
           className="accent-amber-400"
         />
-        Mostrar siempre el nombre
+        {t('worldgen.place.alwaysShowName')}
       </label>
 
       <div className="grid grid-cols-3 gap-1.5">
@@ -289,7 +291,7 @@ export default function SpatialEntityInspector({
           onClick={onOpenRegion}
           className="flex items-center justify-center gap-1.5 rounded border border-border bg-elevated px-2 py-1.5 text-[11px] text-text-primary hover:border-accent-gold/40"
         >
-          <MapPinned size={12} /> Comarca
+          <MapPinned size={12} /> {t('worldgen.place.region')}
         </button>
         {entity.hidden ? (
           <button
@@ -297,7 +299,7 @@ export default function SpatialEntityInspector({
             onClick={onRestore}
             className="col-span-3 flex items-center justify-center gap-1.5 rounded border border-border bg-elevated px-2 py-1.5 text-[11px] text-text-primary hover:border-accent-gold/40"
           >
-            <RotateCcw size={12} /> Restaurar en el mapa
+            <RotateCcw size={12} /> {t('worldgen.place.restore')}
           </button>
         ) : (
           <button
@@ -305,14 +307,14 @@ export default function SpatialEntityInspector({
             onClick={onRemove}
             className="col-span-3 flex items-center justify-center gap-1.5 rounded border border-danger/30 bg-danger/10 px-2 py-1.5 text-[11px] text-danger hover:bg-danger/15"
           >
-            <EyeOff size={12} /> Ocultar
+            <EyeOff size={12} /> {t('worldgen.place.hide')}
           </button>
         )}
       </div>
 
       <div className="border-t border-border pt-2">
         <div className="mb-1.5 flex items-center gap-1 text-[10px] uppercase tracking-wide text-text-muted">
-          <Link2 size={11} /> Vinculaciones
+          <Link2 size={11} /> {t('worldgen.place.links')}
         </div>
         <select
           value=""
@@ -321,9 +323,9 @@ export default function SpatialEntityInspector({
           }}
           className="w-full rounded border border-border bg-deep px-2 py-1.5 text-xs text-text-primary"
         >
-          <option value="">Vincular con Códice, escena, escrito o evento…</option>
+          <option value="">{t('worldgen.place.linkPlaceholder')}</option>
           {Array.from(new Set(linkTargets.map((target) => target.group))).map((group) => (
-            <optgroup key={group} label={group}>
+            <optgroup key={group} label={t(group)}>
               {linkTargets
                 .filter((target) => target.group === group)
                 .filter((target) => !links.some((link) => (
@@ -350,7 +352,7 @@ export default function SpatialEntityInspector({
                 await refreshLinks();
               }}
               className="text-text-muted hover:text-danger"
-              title="Quitar vínculo"
+              title={t('worldgen.place.removeLink')}
             >
               ×
             </button>

@@ -3,12 +3,12 @@ import { randomSeed } from '../randomSeed';
 import {
   Map as MapIcon, Box, Dices, Download, Waves, Flame, MapPin, Globe,
   Loader2, X, ChevronDown, Send, Mountain, ScrollText, Trees, Route, Landmark,
-  Signpost, Compass,
+  Signpost, Compass, Flag,
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useTranslation } from '@/i18n/useTranslation';
 import { toast } from '@/components/common/toast';
-import { EngineSpinner } from '@/engines/_shared';
+import { ConfirmDialog, EngineSpinner } from '@/engines/_shared';
 import { generateId } from '@/utils/idGenerator';
 import { worldMapOps, mapPinOps } from '@/engines/maps/operations';
 import type {
@@ -20,7 +20,7 @@ import type {
 import { WAYPOINT_COLORS } from '../types';
 import type { ViewMode, WorldData, WorldParams } from '../core/types';
 import {
-  DOUBLE_CLICK_FLOOR_KM, DOUBLE_CLICK_ZOOM, clampSpanKm, type FlyTarget,
+  doubleClickSpanKm, type FlyTarget,
 } from '../core/camera';
 import { normalizeParams } from '../core/types';
 import { renderComposite } from '../core/render';
@@ -73,9 +73,9 @@ const World3D = lazy(() => import('./World3D'));
 const VIEW_MODES: ViewMode[] = ['atlas', 'elevation', 'temperature', 'precipitation', 'plates', 'flow'];
 const SHAPES_3D: Shape3D[] = ['plane', 'globe'];
 const SKINS_3D: { id: Skin3D; label: string; title: string }[] = [
-  { id: 'satelite', label: 'Satélite', title: 'El mundo visto desde arriba: biomas, ríos, hielo' },
-  { id: 'dibujado', label: 'Dibujado', title: 'La carta dibujada, drapeada sobre el relieve' },
-  { id: 'arcilla', label: 'Arcilla', title: 'Sin color: sólo la forma, para esculpir' },
+  { id: 'satelite', label: 'worldgen.view.skin.satellite', title: 'worldgen.view.skin.satellite.title' },
+  { id: 'dibujado', label: 'worldgen.view.skin.drawn', title: 'worldgen.view.skin.drawn.title' },
+  { id: 'arcilla', label: 'worldgen.view.skin.clay', title: 'worldgen.view.skin.clay.title' },
 ];
 
 export interface WaypointFocus {
@@ -150,6 +150,16 @@ export default function WorldView({
    * thing to work in, so it is last in the row and never the default.
    */
   const [view, setView] = useState<'3d' | 'map' | 'carta'>('3d');
+  /**
+   * The last view that could be painted on.
+   *
+   * The panel tabs that need the carta (Índice, Viaje) send you there, and the
+   * Pincel tab used to send you back to a hardcoded `'3d'` — so a reader working
+   * in the 2D who glanced at the index came back to the globe, every time. What
+   * "back" means is where you were, not a constant.
+   */
+  const lastPaintableView = useRef<'3d' | 'map'>('3d');
+  if (view !== 'carta') lastPaintableView.current = view;
   const [themeId, setThemeId] = useState<string>('wonder');
   const [skin3D, setSkin3D] = useState<Skin3D>('satelite');
   const [cityFor, setCityFor] = useState<Settlement | null>(null);
@@ -193,6 +203,10 @@ export default function WorldView({
   const [showLandmarks, setShowLandmarks] = useState(true);
   const [showWaypoints, setShowWaypoints] = useState(true);
   const [showSettlements, setShowSettlements] = useState(true);
+  /** Calzadas on the 2D map. On by default: the Camino brush lays roads
+   *  between the ones already there, and a layer you have to find a switch for
+   *  before you can see what you are drawing is not on by default at all. */
+  const [showRoads, setShowRoads] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
   const [panelTab, setPanelTab] = useState<
     'params' | 'waypoints' | 'paint' | 'world' | 'journey' | 'atlas' | 'regions' | 'places'
@@ -277,7 +291,7 @@ export default function WorldView({
     const now = Date.now();
     const region: SavedWorldRegion = {
       id: generateId('region'),
-      title: `Comarca ${savedRegions.length + 1}`,
+      title: t('worldgen.regions.defaultTitle').replace('{n}', String(savedRegions.length + 1)),
       x: viewport.u * (data?.width ?? world.params.width),
       y: viewport.v * (data?.height ?? Math.max(1, Math.round(world.params.width / 2))),
       spanKm: Math.min(400, Math.max(30, viewport.spanKm)),
@@ -294,7 +308,7 @@ export default function WorldView({
     };
     saveRegion(region);
     openSavedRegion(region);
-  }, [data, openSavedRegion, saveRegion, savedRegions.length, viewport, world.params.width]);
+  }, [data, openSavedRegion, saveRegion, savedRegions.length, viewport, world.params.width, t]);
 
   // First open (or cache miss): generate from stored params automatically.
   // Deliberately re-runnable — StrictMode's mount→unmount→mount cycle
@@ -371,15 +385,37 @@ export default function WorldView({
    * first-class vectors. New object per stroke on purpose — every canon cache
    * keys on world identity, and a stroke really is a different country.
    */
+  /**
+   * The canon the deep tiles are cut from — and its IDENTITY is a cache key.
+   *
+   * `Map2D` hashes this object to decide whether the whole satellite pyramid is
+   * still valid. It used to be rebuilt on every `paintRev`, which meant every
+   * edit: a rename, a population, a pin, a style. None of those can change a
+   * square metre of ground, and all of them closed every cached bitmap,
+   * cancelled every in-flight tile and re-queued a pyramid that would come back
+   * byte-identical — measured at street zoom, ~320 tiles thrown away and dozens
+   * of multi-second canon builds re-run, for renaming a town.
+   *
+   * So the memo is keyed on the SERIALISED EDIT LIST, and returns the previous
+   * object unchanged when that text has not moved. The edit list is the honest
+   * dependency: two worlds with the same seed and the same edits have the same
+   * ground, and that is the entire question a tile is asking.
+   */
+  const canonPrev = useRef<{ key: string; value: { world: WorldData; edits?: string } | null }>(
+    { key: '\u0000', value: null },
+  );
   const canonSource = useMemo(() => {
     void paintRev;
     if (!data) return null;
     const s = sessionWorld.current === data ? session.current : null;
-    if (!s || !s.edits.length) return { world: data, edits: undefined };
-    return {
-      world: { ...data, elevation: s.pristineElevation },
-      edits: s.serialize(),
-    };
+    const edits = s && s.edits.length ? s.serialize() : undefined;
+    const key = `${data.params.seed}:${data.width}:${edits ?? ''}`;
+    if (canonPrev.current.key === key && canonPrev.current.value) return canonPrev.current.value;
+    const value = edits
+      ? { world: { ...data, elevation: s!.pristineElevation }, edits }
+      : { world: data, edits: undefined };
+    canonPrev.current = { key, value };
+    return value;
   }, [data, paintRev]);
 
   // Close-range geography follows the shared viewport. Requests are debounced,
@@ -548,12 +584,24 @@ export default function WorldView({
    * because both walk every cell of the grid — and neither is on screen unless
    * the reader has asked for the sheet that draws them.
    *
-   * So the 3D world and the satellite map ask for `places`, and the carta, the
-   * index and the journey panel ask for `full`. See `GeoDepth` in settlements.
+   * That split was right when the 2D map was a picture. It is not any more: the
+   * map is one of the two places the world is EDITED, and the Camino brush lays
+   * roads between the roads that are already there. Asking for `places` meant
+   * `geography.roads` was the empty array, so the road layer drew nothing, and
+   * the named seas, the ranges and the ruins were invisible in the only view
+   * where you can point at them. So the map asks for `full` too — but in TWO
+   * PASSES (see the effect below), because eighteen seconds of empty map is not
+   * an improvement on no roads.
    */
-  const needsFullGeo = view === 'carta' || skin3D === 'dibujado'
+  const needsFullGeo = view === 'carta' || view === 'map' || skin3D === 'dibujado'
     || panelTab === 'atlas' || panelTab === 'journey';
-  const needsGeo = needsFullGeo || showSettlements;
+  /**
+   * The 2D and the 3D need the geography for their GROUND, not only for dots:
+   * the satellite tile fetcher bails without it (`Map2D` → `regionClient`), so
+   * turning the town dots off used to leave the map stuck on the 40 km raster
+   * with nothing on screen explaining why.
+   */
+  const needsGeo = needsFullGeo || showSettlements || view === '3d';
   const geoDepth: GeoDepth = needsFullGeo ? 'full' : 'places';
 
   /**
@@ -567,10 +615,33 @@ export default function WorldView({
    * down. `paintable` is the single source of truth for "can this view paint",
    * and the views are handed a brush only when it is true.
    */
-  const paintable = view !== 'carta' && panelTab === 'paint';
+  /**
+   * Can this view take a stroke.
+   *
+   * `panelTab === 'paint'` was in here, and it made the tool disappear the
+   * moment you looked at another panel — which is also what left the Chinchetas
+   * button saying "Cancelar" while clicking the map placed nothing, once
+   * `pinning` was fixed to be reachable. The rule the comment above describes is
+   * about the CARTA, which is a finished drawing; the panel is only where the
+   * tool is chosen, and the effect below already puts the brush down on the one
+   * surface that must not accept paint.
+   */
+  const paintable = view !== 'carta';
   const brush = paintable ? tool : DEFAULT_PAINT_TOOL;
   /** The Punto tool, set to Chincheta, and actually live. */
-  const pinning = paintable && tool.mode === 'point' && tool.point === 'waypoint';
+  /**
+   * A pin is being placed.
+   *
+   * NOT `paintable && …`: the only place that reads this is the Chinchetas
+   * panel, and `paintable` requires `panelTab === 'paint'`, so it was provably
+   * always false there. That made the button's "Cancelar" state unreachable and
+   * two catalogue strings unrenderable. What matters is whether the VIEW can
+   * take the gesture, not which panel is open.
+   */
+  const pinning = view !== 'carta' && tool.mode === 'point' && tool.point === 'waypoint';
+  /** Strokes on the world, for the tab badge. Read during render, so it follows
+   *  `paintRev` — which every edit, undo, redo and clear bumps. */
+  const strokeCount = session.current?.edits.length ?? 0;
   /** True while the reader is holding a brush: nothing expensive may run. */
   const brushIsOut = brush.mode !== 'off';
   const brushingRef = useRef(brushIsOut);
@@ -584,6 +655,9 @@ export default function WorldView({
   geoDepthRef.current = geoDepth;
   /** The world revision the cached geography was built at. */
   const geoRev = useRef(-1);
+  /** Which of the two geography passes has landed, so the second one knows to
+   *  run. Null means neither: a fresh world, or one whose ground just changed. */
+  const stagedDepth = useRef<GeoDepth | null>(null);
 
   // Places the manuscript talks about, as a heat overlay. Built here rather
   // than in the panel because the map draws it whether or not the panel is open
@@ -623,6 +697,7 @@ export default function WorldView({
   useEffect(() => {
     setGeography(null);
     geoRev.current = -1;
+    stagedDepth.current = null;
   }, [data]);
   /**
    * Bring the human geography up to date whenever a view that shows it opens.
@@ -639,7 +714,14 @@ export default function WorldView({
     // NOT WHILE A BRUSH IS OUT. Rebuilding costs one and a half seconds at
     // `places` and nineteen at `full`, and a reader mid-stroke wants neither —
     // the cheap patch in `afterEdit` keeps the dots honest until they stop.
-    if (brushingRef.current) return;
+    // NOT WHILE A BRUSH IS OUT — but only the expensive half.
+    //
+    // Bailing on both was a trap of its own: `setGeoBusy(true)` ran before the
+    // bail, so picking up a brush in the 1,2 s between the two passes stranded
+    // the badge at "trazando calzadas…" for as long as the tool was out, AND
+    // suppressed the very pass that produces the roads the Camino brush is
+    // supposed to lay a road between. The cheap pass is 400 ms; it can run.
+    const brushOut = brushingRef.current;
     const rev = data.revision ?? 0;
     // Two ways to be out of date, and they need different answers. A cheap patch
     // of the current revision is REPAIRED by a full pass; a missing or shallow
@@ -647,25 +729,92 @@ export default function WorldView({
     // back the same patch it already has and the roads would never catch up.
     const stale = geographyIsStale(data, geoDepth);
     if (geography && geoRev.current === rev && !stale) return;
+
+    /**
+     * TWO PASSES, because they are two different waits.
+     *
+     * `places` is 1,2 s and it is everything you can point at; `full` is another
+     * sixteen and it is the roads, the named seas and the ruins. Doing only the
+     * second means a quarter of a minute of empty map before the first dot; doing
+     * only the first is what left the 2D with no roads at all. So the cheap half
+     * paints immediately and the expensive half lands behind it with the badge
+     * up — and because the cache never downgrades, the second pass is paid once
+     * per world and every view after it is free.
+     */
+    const step: GeoDepth = geoDepth === 'full' && stagedDepth.current !== 'places'
+      && (!geography || geoRev.current !== rev)
+      ? 'places'
+      : geoDepth;
+    const more = step !== geoDepth;
+    /**
+     * The deep pass waits for the brush to go away. So does a REBUILD.
+     *
+     * "The cheap pass is 400 ms, it can run" was wrong in the one case that
+     * matters: `rebuildGeography` never downgrades, so once the deep pass has
+     * landed a request for `places` is served by a FULL rebuild — nineteen
+     * seconds, on pointerup, with the brush still in hand. Only the very first
+     * build (no geography at all yet) is genuinely cheap enough to run under a
+     * brush; everything else waits, which is what `brushIsOut` in the dependency
+     * list is for.
+     */
+    if (brushOut && geography) { setGeoBusy(false); return; }
     setGeoBusy(true);
-    const id = window.setTimeout(() => {
+    // The deep pass blocks the main thread, so it waits for an idle moment
+    // rather than landing on the frame that is still painting the first one.
+    const run = () => {
       try {
         geoRev.current = rev;
-        setGeography(stale ? rebuildGeography(data, geoDepth) : getGeography(data, geoDepth));
+        stagedDepth.current = step;
+        setGeography(geographyIsStale(data, step)
+          ? rebuildGeography(data, step)
+          : getGeography(data, step));
       } finally {
-        setGeoBusy(false);
+        setGeoBusy(more);
       }
-    }, 30);
-    return () => window.clearTimeout(id);
+    };
+    if (more) {
+      const t = window.setTimeout(run, 30);
+      return () => window.clearTimeout(t);
+    }
+    const idle = window.requestIdleCallback?.(run, { timeout: 1200 });
+    const t = idle === undefined ? window.setTimeout(run, 240) : 0;
+    return () => {
+      if (idle !== undefined) window.cancelIdleCallback?.(idle);
+      else window.clearTimeout(t);
+    };
   }, [needsGeo, geoDepth, brushIsOut, data, geography, paintRev]);
 
   // ---- painting ------------------------------------------------------------
   // A world is stored as seed + params + edit list, so the session holds the list
   // and a pristine snapshot; the world object itself is mutated in place and its
   // revision counter is what tells every cache and the map to redraw.
+  /**
+   * The carta puts the brush down. Glancing at another PANEL does not.
+   *
+   * This used to key on `paintable`, which includes `panelTab === 'paint'` — so
+   * opening Lugar to check a name disarmed the tool and threw away a half-laid
+   * road, with no warning going in and none coming back. The comment above says
+   * the rule is about the carta, which is a finished drawing; that is the rule
+   * this now enforces, and nothing else.
+   */
   useEffect(() => {
-    if (!paintable) setTool((t) => (t.mode === 'off' ? t : { ...t, mode: 'off' }));
-  }, [paintable]);
+    if (view === 'carta') setTool((t) => (t.mode === 'off' ? t : { ...t, mode: 'off' }));
+    /**
+     * FRONTERA IS A 2D GESTURE AND ONLY A 2D GESTURE.
+     *
+     * `paintable` is `view !== 'carta'`, so the globe was handed the frontier
+     * tool too — and `commitPaintStroke` has no case for it, so the globe drew
+     * a crosshair, drew a brush ring, tracked the drag, and swallowed the click.
+     * Zero edits, no message, a tool that looks armed and is not.
+     *
+     * The four sub-tools are all about a line seen from directly above, and
+     * three of them are multi-click gestures on a flat sheet; there is no
+     * version of the curved lasso that means anything on a sphere the reader is
+     * also rotating. So it goes down when the map does, the way it goes down for
+     * the carta.
+     */
+    if (view !== 'map') setTool((t) => (t.mode === 'frontera' ? { ...t, mode: 'off' } : t));
+  }, [view]);
 
   const [painting, setPainting] = useState(false);
   // (the session ref itself is declared up by the canon-source memo — see there)
@@ -820,7 +969,7 @@ export default function WorldView({
       // road laid by hand goes through the pass instead of over the mountain.
       const r = planRoute(data, geography, roadFrom, s, { mode: 'cart', season: 'summer' });
       if (r.impossible || r.cells.length < 2) {
-        toast.error('No hay ruta por tierra entre esas dos poblaciones');
+        toast.error(t('worldgen.status.noLandRoute'));
         return;
       }
       const W = data.width;
@@ -838,12 +987,98 @@ export default function WorldView({
       return;
     }
     setCityFor(s);
-  }, [brushIsOut, brush.mode, brush.roadMajor, roadFrom, data, geography, journeyPick, applyEdit]);
+  }, [brushIsOut, brush.mode, brush.roadMajor, roadFrom, data, geography, journeyPick, applyEdit, t]);
 
-  // Putting the tool away abandons a half-drawn road.
+  /**
+   * Putting the TOOL away abandons a half-drawn road. Changing panel does not.
+   *
+   * This keyed on `brush`, which is `DEFAULT_PAINT_TOOL` whenever the paint
+   * panel is closed — so opening any other tab for a second threw away the
+   * first end of a road you had already clicked. The tool is what the reader
+   * chose; the panel is only where they chose it.
+   */
   useEffect(() => {
-    if (!brushIsOut || brush.mode !== 'road') setRoadFrom(null);
-  }, [brushIsOut, brush.mode]);
+    if (tool.mode !== 'road') setRoadFrom(null);
+  }, [tool.mode]);
+
+  /**
+   * And leaving the journey panel abandons a half-picked journey.
+   *
+   * `roadFrom` had this and `journeyPick` did not, which made a stale "Desde"
+   * the worst kind of hidden mode: click "Desde", change tab without picking,
+   * and from then on EVERY click on a town in EVERY view silently set the
+   * journey's origin instead of opening the town — while the status line went
+   * on saying "pincha una ciudad para ver su plano". The only affordance lived
+   * inside the panel, so it vanished exactly when the mode became invisible.
+   */
+  useEffect(() => {
+    if (panelTab !== 'journey') setJourneyPick(null);
+  }, [panelTab]);
+
+  /**
+   * Regenerating leaves the selections pointing at a world that is gone.
+   *
+   * Only the geography and the paint session were reset on a new world. The
+   * journey's two ends, its route, the ancient sea level, the open city plan,
+   * the index selection and the region sheet all survived — so after Regenerar
+   * the panel still named two towns from the old planet and the carta still
+   * drew their pins, now possibly in open ocean.
+   */
+  useEffect(() => {
+    setJourneyFrom(null);
+    setJourneyTo(null);
+    setJourneyVia([]);
+    setJourneyRoute({ route: null, color: '#a3261e' });
+    setJourneyPick(null);
+    setPaleoState(null);
+    setAtlasKey(null);
+    setSelectedSpatialKey(null);
+    setCityFor(null);
+    setRegionAt(null);
+    // `roadFrom` was the one selection this list forgot. `tool.mode` survives a
+    // regeneration, so with Camino still out the first town of a half-laid road
+    // survived with it — a `Settlement` from a dead planet. The map drew the
+    // pending ring on whichever NEW town happened to share its id, the status
+    // line named a place that no longer existed, and the second click routed
+    // between a live town and a set of coordinates pointing into the old world.
+    setRoadFrom(null);
+  }, [data]);
+
+  /**
+   * THE FRONTIER TOOL TURNS ITS OWN LAYER ON.
+   *
+   * `borders` starts false, and it is the layer the whole tool draws into: the
+   * dashed line AND the political wash both hang off it. So the reader picked
+   * Frontera, chose a country, dragged across a province, saw the live preview
+   * follow the pointer — and the committed frontier landed on a hidden layer.
+   * Every stroke worked. Nothing appeared.
+   *
+   * Turning it on rather than merely warning about it, because there is no
+   * reading of "I have picked up the frontier brush" under which the reader
+   * wants frontiers hidden. It is not turned back OFF afterwards: they may well
+   * want to keep looking at what they drew, and silently undoing a toggle the
+   * reader can see is its own small betrayal.
+   */
+  useEffect(() => {
+    if (tool.mode !== 'frontera') return;
+    setCartoLayers((l) => (l.borders === true ? l : { ...l, borders: true }));
+  }, [tool.mode]);
+
+  /**
+   * A country index cannot outlive the roster it points into.
+   *
+   * `tool.realm` is an INDEX into `geography.realms` — that is what a stored
+   * `realm` edit means, and what `applyPaintedRealms` reads back. Regenerate
+   * with fewer capitals and the index can dangle: the panel showed a dash, no
+   * chip lit, and every stroke was thrown away by the `v >= limit` guard deep
+   * in the applier, with nothing anywhere to say why the brush had stopped
+   * working.
+   */
+  useEffect(() => {
+    const n = geography?.realms.length ?? 0;
+    if (!n || tool.realm < n) return;
+    setTool((p) => ({ ...p, realm: Math.max(0, n - 1) }));
+  }, [geography, tool.realm]);
 
   const undoEdit = useCallback(() => {
     const s = session.current;
@@ -876,7 +1111,7 @@ export default function WorldView({
 
   const theme = useMemo(() => themeById(themeId), [themeId]);
 
-  const handleGenerate = useCallback(() => {
+  const runGenerate = useCallback(() => {
     // REGENERAR means a fresh world, full stop. The strokes belonged to the
     // ground the reader was looking at; carrying them onto new ground made
     // the button feel haunted (reported twice). Same seed or new seed, the
@@ -887,6 +1122,22 @@ export default function WorldView({
     onSaveParams(params);
     generate(params);
   }, [params, onSaveParams, generate]);
+
+  /**
+   * And ASK first, if there is anything to lose.
+   *
+   * The button lives in two panels, one of which is where you go to switch
+   * fjords off. One click erased every stroke, hand-drawn road, hand-drawn
+   * river, rename and placed mark — hours of work — and PERSISTED the erasure,
+   * with no undo, because the session is rebuilt from an empty list. The
+   * confirmation copies the edit list to the clipboard on the way out, so even
+   * a confirmed regenerate is recoverable.
+   */
+  const [confirmRegen, setConfirmRegen] = useState(false);
+  const handleGenerate = useCallback(() => {
+    if ((session.current?.edits.length ?? 0) > 0) { setConfirmRegen(true); return; }
+    runGenerate();
+  }, [runGenerate]);
 
   /**
    * Drop a pin.
@@ -938,14 +1189,70 @@ export default function WorldView({
    *  this gesture — it is an EXPORT you ask for, not a place you fall into. */
   const zoomToPoint = useCallback((x: number, y: number) => {
     if (!data) return;
+    // Never outward. A floor higher than where the camera already is turns
+    // "closer" into "further", which is what a 24 km floor did to every
+    // double-click below 58 km of span. The invariant is measured in
+    // `harness/map2d-cohesion.ts`.
     flyCamera(
       ((x / data.width) % 1 + 1) % 1,
       Math.min(1, Math.max(0, y / data.height)),
-      Math.max(DOUBLE_CLICK_FLOOR_KM, clampSpanKm(viewportRef.current.spanKm) / DOUBLE_CLICK_ZOOM),
+      doubleClickSpanKm(viewportRef.current.spanKm),
     );
   }, [data, flyCamera]);
 
   // ---- Exports -----------------------------------------------------------
+  /**
+   * The 2D map's own exporter. `Map2D` fills it in while it is mounted.
+   *
+   * `exportPng` composites the WORLD GRID: the whole planet at one pixel per
+   * cell, with no towns, no roads, no borders, no names and no satellite
+   * ground. On the satellite view that is not the map the reader is looking
+   * at — a session spent siting towns and laying roads came out as a green
+   * rectangle. Only the map knows what the map drew, so the map renders it.
+   */
+  const mapExportRef = useRef<((scale: number) => Promise<Blob | null>) | null>(null);
+
+  /** An export is seconds of synchronous canvas work on the main thread. With
+   *  nothing on screen to say so, the tab just stops answering and the reader
+   *  clicks Exportar again — which is a second freeze on top of the first. */
+  const [exporting, setExporting] = useState(false);
+
+  /**
+   * Hand the frame back to the browser before starting the render.
+   *
+   * A `requestAnimationFrame` callback still runs BEFORE the paint, so
+   * resolving inside it would put the render in front of the paint and the
+   * busy state would never appear. The frame, then a task: that is a painted
+   * screen.
+   */
+  const yieldToPaint = () => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+  });
+
+  /** The satellite view as it stands, at `scale`× the pixels on screen. */
+  const exportMapView = useCallback(async (scale: number) => {
+    setExportOpen(false);
+    const render = mapExportRef.current;
+    // Only reachable if the map unmounted between opening the menu and
+    // clicking. Say so: a menu item that does nothing at all reads as a broken
+    // export, and the reader tries it again.
+    if (!render) { toast.error(t('worldgen.export.failed')); return; }
+    setExporting(true);
+    await yieldToPaint();
+    try {
+      const blob = await render(scale);
+      if (!blob) { toast.error(t('worldgen.export.failed')); return; }
+      saveAs(blob, `${safeName(world.title)}-mapa${scale > 1 ? `-${scale}x` : ''}.png`);
+    } catch {
+      // A tainted canvas (satellite tiles from another origin) throws out of
+      // `toBlob` instead of returning null. Silence there looks like a click
+      // that did nothing at all.
+      toast.error(t('worldgen.export.failed'));
+    } finally {
+      setExporting(false);
+    }
+  }, [world.title, t]);
+
   const exportPng = useCallback(() => {
     if (!data) return;
     // Export what's on screen: current view mode AND current projection.
@@ -966,23 +1273,36 @@ export default function WorldView({
     setExportOpen(false);
   }, [data, viewMode, showRivers, projection, world.title]);
 
-  const exportCarta = useCallback(() => {
+  const exportCarta = useCallback(async () => {
     if (!data) return;
+    // 4096×2048 of carta is a second or more of blocking canvas work, and it
+    // used to run straight inside the click handler: the menu stayed open over
+    // a tab that had stopped answering, with nothing anywhere on screen to say
+    // the export had started. Close the menu, raise the flag, let the browser
+    // paint it, and only then render.
     setExportOpen(false);
-    const canvas = renderCartoCanvas(data, {
-      theme,
-      width: 4096,
-      height: 2048,
-      layers: cartoLayers,
-      reliefAmount: reliefSettled,
-      geography: geography ?? undefined,
-      title: world.title,
-      subtitle: t('worldgen.export.atlasSuffix'),
-      typeScale: 1.5,
-    });
-    canvas.toBlob((blob) => {
-      if (blob) saveAs(blob, `${safeName(world.title)}-carta.png`);
-    }, 'image/png');
+    setExporting(true);
+    await yieldToPaint();
+    try {
+      const canvas = renderCartoCanvas(data, {
+        theme,
+        width: 4096,
+        height: 2048,
+        layers: cartoLayers,
+        reliefAmount: reliefSettled,
+        geography: geography ?? undefined,
+        title: world.title,
+        subtitle: t('worldgen.export.atlasSuffix'),
+        typeScale: 1.5,
+      });
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+      // A 4K canvas is where `toBlob` runs out of memory. Returning quietly
+      // left the reader waiting for a download that was never coming.
+      if (!blob) { toast.error(t('worldgen.export.failed')); return; }
+      saveAs(blob, `${safeName(world.title)}-carta.png`);
+    } finally {
+      setExporting(false);
+    }
   }, [data, theme, cartoLayers, reliefSettled, geography, world.title, t]);
 
   const exportHeightmap = useCallback(() => {
@@ -1064,17 +1384,30 @@ export default function WorldView({
         });
       }
     }
-    toast.success(existingMap ? 'Mapa vinculado actualizado' : t('worldgen.export.sentToMaps'));
+    toast.success(existingMap ? t('worldgen.export.mapUpdated') : t('worldgen.export.sentToMaps'));
   }, [data, projectId, world.id, world.title, waypoints, t]);
 
   // 'loading' is not a pipeline stage — it is the snapshot coming back off the
   // disk — so it does not go looking for a translation of a stage name.
   const stageLabel = !gen.running ? ''
-    : gen.stage === 'loading' ? 'recuperando el mundo guardado…'
+    : gen.stage === 'loading' ? t('worldgen.status.loadingWorld')
       : t(`worldgen.stage.${gen.stage}`);
   const selectedWaypoint = useMemo(
     () => waypoints.find((w) => w.id === selectedWaypointId) ?? null,
     [waypoints, selectedWaypointId],
+  );
+
+  /**
+   * The countries the frontier brush can hand ground to.
+   *
+   * `tool.realm` is the INDEX into this list, not `realm.id` — the same index
+   * `AppliedEdits.realmCells` stores and `settlements.ts` reads back, so the
+   * three agree by construction. Kept as its own memo so the panel does not
+   * re-render on every field of every realm, only when the roster changes.
+   */
+  const realmChoices = useMemo(
+    () => geography?.realms.map((r) => ({ id: r.id, name: r.name, hue: r.hue })),
+    [geography],
   );
 
   return (
@@ -1083,9 +1416,9 @@ export default function WorldView({
       <div className="flex items-center gap-2 flex-wrap">
         {/* View switch. The order is the order of importance. */}
         <div className="flex rounded-lg border border-border overflow-hidden">
-          <ToolbarTab active={view === '3d'} onClick={() => setView('3d')} icon={Box} label="Mundo 3D" disabled={!data} />
+          <ToolbarTab active={view === '3d'} onClick={() => setView('3d')} icon={Box} label={t('worldgen.view.world3d')} disabled={!data} />
           <ToolbarTab active={view === 'map'} onClick={() => setView('map')} icon={MapIcon} label={t('worldgen.view.map')} />
-          <ToolbarTab active={view === 'carta'} onClick={() => setView('carta')} icon={ScrollText} label="Carta" disabled={!data} />
+          <ToolbarTab active={view === 'carta'} onClick={() => setView('carta')} icon={ScrollText} label={t('worldgen.view.carta')} disabled={!data} />
         </div>
 
         {/* 2D view-mode + projection selects */}
@@ -1118,7 +1451,7 @@ export default function WorldView({
           <select
             value={themeId}
             onChange={(e) => setThemeId(e.target.value)}
-            title="Estilo cartográfico"
+            title={t('worldgen.view.cartoStyle')}
             className="bg-elevated border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-gold/60"
           >
             {THEMES.map((th) => (
@@ -1129,15 +1462,15 @@ export default function WorldView({
         {view === 'carta' && (
           <>
             <div className="flex items-center gap-1">
-              <OverlayToggle active={cartoLayers.forests !== false} onClick={() => setCartoLayers((l) => ({ ...l, forests: l.forests === false }))} icon={Trees} title="Bosques" />
-              <OverlayToggle active={cartoLayers.roads !== false} onClick={() => setCartoLayers((l) => ({ ...l, roads: l.roads === false }))} icon={Route} title="Caminos" />
-              <OverlayToggle active={cartoLayers.settlements !== false} onClick={() => setCartoLayers((l) => ({ ...l, settlements: l.settlements === false }))} icon={Landmark} title="Ciudades" />
-              <OverlayToggle active={cartoLayers.labels !== false} onClick={() => setCartoLayers((l) => ({ ...l, labels: l.labels === false }))} icon={Signpost} title="Nombres" />
-              <OverlayToggle active={cartoLayers.borders === true} onClick={() => setCartoLayers((l) => ({ ...l, borders: l.borders !== true }))} icon={Globe} title="Fronteras" />
-              <OverlayToggle active={cartoLayers.frame !== false} onClick={() => setCartoLayers((l) => ({ ...l, frame: l.frame === false, compass: l.frame === false, scaleBar: l.frame === false }))} icon={Compass} title="Marco y rosa de los vientos" />
+              <OverlayToggle active={cartoLayers.forests !== false} onClick={() => setCartoLayers((l) => ({ ...l, forests: l.forests === false }))} icon={Trees} title={t('worldgen.overlay.forests')} />
+              <OverlayToggle active={cartoLayers.roads !== false} onClick={() => setCartoLayers((l) => ({ ...l, roads: l.roads === false }))} icon={Route} title={t('worldgen.overlay.roads')} />
+              <OverlayToggle active={cartoLayers.settlements !== false} onClick={() => setCartoLayers((l) => ({ ...l, settlements: l.settlements === false }))} icon={Landmark} title={t('worldgen.overlay.settlements')} />
+              <OverlayToggle active={cartoLayers.labels !== false} onClick={() => setCartoLayers((l) => ({ ...l, labels: l.labels === false }))} icon={Signpost} title={t('worldgen.overlay.labels')} />
+              <OverlayToggle active={cartoLayers.borders === true} onClick={() => setCartoLayers((l) => ({ ...l, borders: l.borders !== true }))} icon={Flag} title={t('worldgen.overlay.borders')} />
+              <OverlayToggle active={cartoLayers.frame !== false} onClick={() => setCartoLayers((l) => ({ ...l, frame: l.frame === false, compass: l.frame === false, scaleBar: l.frame === false }))} icon={Compass} title={t('worldgen.overlay.frame')} />
             </div>
-            <label className="flex items-center gap-1.5 text-[11px] text-text-muted" title="Cuánta tierra recibe símbolos de relieve">
-              Relieve
+            <label className="flex items-center gap-1.5 text-[11px] text-text-muted" title={t('worldgen.view.reliefAmount')}>
+              {t('worldgen.paint.mode.terrain')}
               <input
                 type="range" min={0.3} max={2} step={0.1}
                 value={reliefAmount}
@@ -1156,14 +1489,14 @@ export default function WorldView({
               <button
                 key={s.id}
                 onClick={() => setSkin3D(s.id)}
-                title={s.title}
+                title={t(s.title)}
                 className={`px-3 py-1.5 text-xs transition ${
                   skin3D === s.id
                     ? 'bg-accent-gold/15 text-accent-gold'
                     : 'bg-elevated text-text-muted hover:text-text-primary'
                 }`}
               >
-                {s.label}
+                {t(s.label)}
               </button>
             ))}
           </div>
@@ -1198,7 +1531,37 @@ export default function WorldView({
               active={showSettlements}
               onClick={() => setShowSettlements(!showSettlements)}
               icon={Landmark}
-              title="Ciudades — pincha una para abrir su plano"
+              title={t('worldgen.overlay.settlementsHint')}
+            />
+          )}
+          {view === 'map' && (
+            <OverlayToggle
+              active={showRoads}
+              onClick={() => setShowRoads(!showRoads)}
+              icon={Route}
+              title={t('worldgen.overlay.roadsHint')}
+            />
+          )}
+          {/* Both switches drive the SAME state the Carta uses, so the two maps
+              can never disagree about where a frontier is or what a sea is called. */}
+          {view === 'map' && (
+            <OverlayToggle
+              active={cartoLayers.borders === true}
+              onClick={() => setCartoLayers((l) => ({ ...l, borders: l.borders !== true }))}
+              // A flag, not a globe. This button and the graticule two along
+              // both wore `Globe`, side by side in the same strip, for the two
+              // things on the map that are least alike: where countries end,
+              // and the lines of latitude. The frontier tool turns THIS one on.
+              icon={Flag}
+              title={t('worldgen.overlay.borders')}
+            />
+          )}
+          {view === 'map' && (
+            <OverlayToggle
+              active={cartoLayers.labels !== false}
+              onClick={() => setCartoLayers((l) => ({ ...l, labels: l.labels === false }))}
+              icon={Signpost}
+              title={t('worldgen.overlay.labelsHint')}
             />
           )}
           {view === 'map' && (
@@ -1212,7 +1575,7 @@ export default function WorldView({
         <div className="relative">
           <button
             onClick={() => setExportOpen(!exportOpen)}
-            disabled={!data}
+            disabled={!data || exporting}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-elevated border border-border rounded-lg text-text-primary hover:border-accent-gold/50 transition disabled:opacity-40"
           >
             <Download size={13} />
@@ -1221,8 +1584,19 @@ export default function WorldView({
           </button>
           {exportOpen && data && (
             <div className="absolute right-0 top-full mt-1 z-30 w-56 rounded-lg border border-border bg-elevated shadow-xl shadow-black/40 py-1">
-              <ExportItem icon={Download} label={t('worldgen.export.png')} onClick={exportPng} />
-              <ExportItem icon={ScrollText} label="Carta dibujada (4K)" onClick={exportCarta} />
+              {/* On the satellite view the map exports ITSELF: the world-grid
+                  composite below is the right picture of the globe and of the
+                  carta, and the wrong picture of the map on screen — it knows
+                  nothing about the zoom, the towns, the roads or the ground. */}
+              {view === 'map' ? (
+                <>
+                  <ExportItem icon={Download} label={t('worldgen.export.mapView')} onClick={() => void exportMapView(1)} />
+                  <ExportItem icon={Download} label={t('worldgen.export.mapView2x')} onClick={() => void exportMapView(2)} />
+                </>
+              ) : (
+                <ExportItem icon={Download} label={t('worldgen.export.png')} onClick={exportPng} />
+              )}
+              <ExportItem icon={ScrollText} label={t('worldgen.export.carta')} onClick={() => void exportCarta()} />
               <ExportItem icon={Mountain} label={t('worldgen.export.heightmap')} onClick={exportHeightmap} />
               <ExportItem icon={Send} label={t('worldgen.export.sendToMaps')} onClick={sendToMaps} />
             </div>
@@ -1257,7 +1631,15 @@ export default function WorldView({
                 if (entity) setPanelTab('places');
               }}
               geography={geography}
+              // Without this the two new gestures fall through: Ctrl+wheel
+              // zoomed the camera and Alt+click PAINTED instead of sampling,
+              // while the hint strip advertised both.
+              onTool={(patch) => setTool((prev) => ({ ...prev, ...patch }))}
               showSettlements={showSettlements}
+              showRoads={showRoads}
+              showBorders={cartoLayers.borders === true}
+              showFeatures={cartoLayers.labels !== false}
+              roadFrom={roadFrom}
               tool={paintable ? tool : undefined}
               onEdit={paintable ? applyEdit : undefined}
               onPickSettlement={pickSettlement}
@@ -1266,6 +1648,7 @@ export default function WorldView({
               onViewportChange={setViewport}
               flyTarget={flyTarget}
               revision={paintRev}
+              exportRef={mapExportRef}
             />
           )}
           {data && view === 'carta' && (
@@ -1358,7 +1741,7 @@ export default function WorldView({
           {data && view === 'map' && regionDetailBusy && (
             <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-md border border-white/15 bg-[#0b0e14]/88 px-2 py-1 text-[10px] text-white/75 shadow-lg backdrop-blur-sm">
               <Loader2 size={11} className="animate-spin text-accent-gold" />
-              detalle regional · {regionDetailStage || 'preparando'}
+              {t('worldgen.status.regionDetail')} · {regionDetailStage || t('worldgen.status.preparing')}
             </div>
           )}
 
@@ -1411,21 +1794,24 @@ export default function WorldView({
           {/* Two compact rows keep every world workflow one click away. */}
           <div className="grid grid-cols-4 border-b border-border">
             <PanelTab active={panelTab === 'params'} onClick={() => setPanelTab('params')} label={t('worldgen.params.title')} />
-            <PanelTab active={panelTab === 'world'} onClick={() => setPanelTab('world')} label="Mundo" />
+            <PanelTab active={panelTab === 'world'} onClick={() => setPanelTab('world')} label={t('worldgen.itemNoun')} />
             <PanelTab
               active={panelTab === 'paint'}
-              onClick={() => { setPanelTab('paint'); if (view === 'carta') setView('3d'); }}
-              label={`Pincel${paintRev ? ` (${paintRev})` : ''}`}
+              onClick={() => { setPanelTab('paint'); if (view === 'carta') setView(lastPaintableView.current); }}
+              // `paintRev` is a redraw token, not a count: undo, redo AND
+              // "limpiar" all bump it, so the badge climbed while the panel
+              // below it correctly said the strokes were gone.
+              label={`${t('worldgen.paint.title')}${strokeCount ? ` (${strokeCount})` : ''}`}
             />
             <PanelTab active={panelTab === 'waypoints'} onClick={() => setPanelTab('waypoints')} label={`${t('worldgen.waypoints.title')}${waypoints.length ? ` (${waypoints.length})` : ''}`} />
-            <PanelTab active={panelTab === 'journey'} onClick={() => { setPanelTab('journey'); setView('carta'); }} label="Viaje" />
-            <PanelTab active={panelTab === 'atlas'} onClick={() => { setPanelTab('atlas'); setView('carta'); }} label="Índice" />
+            <PanelTab active={panelTab === 'journey'} onClick={() => { setPanelTab('journey'); setView('carta'); }} label={t('worldgen.journey.title')} />
+            <PanelTab active={panelTab === 'atlas'} onClick={() => { setPanelTab('atlas'); setView('carta'); }} label={t('worldgen.panel.atlas')} />
             <PanelTab
               active={panelTab === 'regions'}
               onClick={() => setPanelTab('regions')}
-              label={`Comarcas${savedRegions.length ? ` (${savedRegions.length})` : ''}`}
+              label={`${t('worldgen.panel.regions')}${savedRegions.length ? ` (${savedRegions.length})` : ''}`}
             />
-            <PanelTab active={panelTab === 'places'} onClick={() => setPanelTab('places')} label="Lugar" />
+            <PanelTab active={panelTab === 'places'} onClick={() => setPanelTab('places')} label={t('worldgen.panel.place')} />
           </div>
           <div className="flex-1 overflow-y-auto p-3">
             {panelTab === 'regions' ? (
@@ -1501,7 +1887,7 @@ export default function WorldView({
                 />
               ) : (
                 <p className="text-[11px] text-text-muted">
-                  Selecciona una ciudad, un volcán, una cueva o un lugar regional para editarlo.
+                  {t('worldgen.panel.placeEmpty')}
                 </p>
               )
             ) : panelTab === 'atlas' ? (
@@ -1519,7 +1905,7 @@ export default function WorldView({
                 />
               ) : (
                 <p className="text-[11px] text-white/45">
-                  Abre la carta para usar el índice: hace falta la geografía humana.
+                  {t('worldgen.panel.atlasNeedsCarta')}
                 </p>
               )
             ) : panelTab === 'journey' ? (
@@ -1541,7 +1927,7 @@ export default function WorldView({
                 />
               ) : (
                 <p className="text-[11px] text-white/45">
-                  Abre la carta para medir distancias: hacen falta las calzadas y las ciudades.
+                  {t('worldgen.panel.journeyNeedsCarta')}
                 </p>
               )
             ) : panelTab === 'world' ? (
@@ -1566,9 +1952,10 @@ export default function WorldView({
                   const json = session.current?.serialize();
                   if (!json) return;
                   void navigator.clipboard?.writeText(json);
-                  toast.success('Ediciones copiadas al portapapeles');
+                  toast.success(t('worldgen.paint.editsCopied'));
                 }}
                 cellKm={Math.round(40075 / (data?.width ?? 1024))}
+                realms={realmChoices}
                 busy={painting}
               />
             ) : panelTab === 'params' ? (
@@ -1595,8 +1982,11 @@ export default function WorldView({
                   // that places a town or a name, and works in 2D and in 3D.
                   if (pinning) { setTool((p) => ({ ...p, mode: 'off' })); return; }
                   setTool((p) => ({ ...p, mode: 'point', point: 'waypoint' }));
-                  if (view === 'carta') setView('3d');
-                  setPanelTab('paint');
+                  if (view === 'carta') setView(lastPaintableView.current);
+                  // NOT `setPanelTab('paint')`: it threw the reader out of the
+                  // pin list they were reading in order to place a pin, and it
+                  // is what made `placing` provably always false — `pinning`
+                  // required `panelTab === 'paint'`, which this tab is not.
                 }}
                 onFlyTo={(wp) => flyTo(wp.u, wp.v)}
                 disabled={!data}
@@ -1619,22 +2009,58 @@ export default function WorldView({
               .replace('{landmarks}', String(data.landmarks.length))}
           </span>
         )}
-        {geoBusy && <span className="ml-3 text-accent-gold/80">recalculando calzadas y fronteras…</span>}
+        {geoBusy && (
+          <span className="ml-3 text-accent-gold/80">
+            {stagedDepth.current === 'places'
+              ? t('worldgen.status.tracingRoads')
+              : t('worldgen.status.recalculating')}
+          </span>
+        )}
+        {/* The only sign of life during an export: the render blocks the main
+            thread, so a spinner would not spin — a word that is on screen
+            before the render starts is what tells the reader the tab is alive. */}
+        {exporting && (
+          <span className="ml-3 text-accent-gold/80">{t('worldgen.status.exporting')}</span>
+        )}
         {brushIsOut && brush.mode === 'road' && (
           <span className="ml-3 text-accent-gold">
-            {roadFrom ? `Camino desde ${roadFrom.name} — pincha la otra punta` : 'Pincha la población de partida'}
+            {roadFrom
+              ? t('worldgen.status.roadFrom').replace('{name}', roadFrom.name)
+              : t('worldgen.status.roadStart')}
           </span>
         )}
         {geography && (
           <span className="ml-3">
-            {geography.settlements.length} asentamientos · {geography.realms.length} reinos ·
-            {' '}{geography.ruins.length} ruinas
+            {t('worldgen.status.geography')
+              .replace('{settlements}', String(geography.settlements.length))
+              .replace('{realms}', String(geography.realms.length))
+              .replace('{ruins}', String(geography.ruins.length))}
             {view !== 'carta' && brush.mode !== 'off'
-              ? ' · arrastra para pintar'
-              : ' · pincha una ciudad para ver su plano · doble clic para bajar a la comarca'}
+              ? ` · ${t('worldgen.status.dragToPaint')}`
+              : ` · ${t('worldgen.status.clickTown')}`}
           </span>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmRegen}
+        destructive
+        message={t('worldgen.status.regenConfirm').replace(
+          '{edits}',
+          t(strokeCount === 1 ? 'worldgen.paint.edits.one' : 'worldgen.paint.edits.many')
+            .replace('{n}', String(strokeCount)),
+        )}
+        onConfirm={() => {
+          setConfirmRegen(false);
+          const json = session.current?.serialize();
+          if (json) {
+            void navigator.clipboard?.writeText(json).catch(() => undefined);
+            toast.success(t('worldgen.paint.editsCopied'));
+          }
+          runGenerate();
+        }}
+        onCancel={() => setConfirmRegen(false)}
+      />
 
       {/* ---- Regional sheet: the scale between the world and the town ---- */}
       {data && geography && regionAt && (

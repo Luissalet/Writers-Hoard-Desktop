@@ -53,7 +53,20 @@ export function nextSemanticTier(
 }
 
 export function semanticZoomProfile(spanKm: number): SemanticZoomProfile {
-  const tier = semanticTier(spanKm);
+  return profileForTier(semanticTier(spanKm));
+}
+
+/**
+ * The contract for a tier that has already been decided.
+ *
+ * Split out so a view can hold its tier in a ref and advance it through
+ * `nextSemanticTier`, which is the whole point of that function and which,
+ * until this existed, nothing could actually do: every caller went straight
+ * from a raw span to a profile, so the 14 % dead band the hysteresis provides
+ * was dead code and labels strobed at 520, 2 600 and 11 000 km exactly as its
+ * own doc comment warned.
+ */
+export function profileForTier(tier: SemanticZoomTier): SemanticZoomProfile {
   if (tier === 'planetary') {
     return {
       tier,
@@ -98,7 +111,16 @@ export function semanticZoomProfile(spanKm: number): SemanticZoomProfile {
     showFields: true,
     settlementRank: 3,
     labelBudget: 240,
-    regionalResolution: spanKm < 120 ? 768 : 640,
+    // Fixed at the tier, not derived from the raw span: the resolution is a
+    // dependency of the regional-generation effect, and letting it flip inside a
+    // tier is a second, finer-grained flicker of the same kind the hysteresis
+    // exists to stop — one that costs a whole worker pass each time.
+    //
+    // 640 and not 768: the span band where this value is actually used is
+    // (100, 520] km — below 100 the canon composite takes over — and 640 is what
+    // that band had. Pinning it at 768 quietly put 1,44x the cells through
+    // erosion and hydrology on every settle in the range the reader lives in.
+    regionalResolution: 640,
   };
 }
 

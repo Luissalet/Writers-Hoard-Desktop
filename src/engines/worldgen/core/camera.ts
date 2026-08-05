@@ -18,17 +18,54 @@ import type { CartoView } from '../cartography/render';
 
 export const EARTH_KM = 40075;
 
-/** The camera's hard limits. The 3D perf gate may RAISE the floor later (the
- *  agreed fallback if close-range detail cannot hold the frame budget). */
-export const MIN_SPAN_KM = 3;
+/**
+ * The camera's hard limits.
+ *
+ * The floor was 3 km, chosen when three kilometres was as close as anything had
+ * to show. The satellite pyramid now bottoms out at z18 — one canon cell per
+ * 256-pixel tile, about 0,6 m per pixel — which on a thousand-pixel canvas is a
+ * span of roughly 0,43 km. Every path that REBUILDS a camera from a viewport
+ * (`fit`, `applyViewport`, every flight) clamps through this constant, so a
+ * floor of 3 made the three deepest levels of the pyramid unrepresentable: you
+ * could wheel down to them, but switching view, changing projection or starting
+ * any flight threw you back out to 3 km, and the shared viewport reported 3 km
+ * to everyone else while the screen showed hedgerows.
+ *
+ * A quarter of a kilometre clears the deepest level on any canvas anyone is
+ * likely to have. The 3D perf gate may still RAISE the effective floor (the
+ * agreed fallback if close-range detail cannot hold the frame budget); that is
+ * a decision for that view, not a limit on the contract.
+ */
+export const MIN_SPAN_KM = 0.25;
 export const MAX_SPAN_KM = EARTH_KM;
 
 /** One double-click divides the span by this. */
 export const DOUBLE_CLICK_ZOOM = 2.4;
-/** Ground a double-click flight should not zoom past, until the canon tiles
- *  give the close range something honest to show. */
-export const DOUBLE_CLICK_FLOOR_KM = 24;
+/**
+ * Ground a double-click flight should not zoom past.
+ *
+ * This was 24 km, with a comment saying it stood "until the canon tiles give
+ * the close range something honest to show". They do, and it stayed — so below
+ * about 58 km of span a double-click, whose entire contract is "go closer",
+ * flew the camera BACKWARDS. `zoomToPoint` also guards against that
+ * independently now, because a floor that can exceed the current span is a
+ * gesture that reverses, whatever the number happens to be.
+ */
+export const DOUBLE_CLICK_FLOOR_KM = 0.5;
 export const FLIGHT_MS = 520;
+
+/**
+ * Where a double-click should take the camera, from where it is.
+ *
+ * Lives here, and is a function rather than an expression at the call site, so
+ * that the one property it must have can be MEASURED: the result is never
+ * greater than the input. A gesture whose whole meaning is "closer" must not be
+ * able to move outward for any span, at any floor.
+ */
+export function doubleClickSpanKm(spanKm: number): number {
+  const now = clampSpanKm(spanKm);
+  return Math.min(now, Math.max(DOUBLE_CLICK_FLOOR_KM, now / DOUBLE_CLICK_ZOOM));
+}
 
 /**
  * A one-shot flight request. `token` makes each request distinct so a view can

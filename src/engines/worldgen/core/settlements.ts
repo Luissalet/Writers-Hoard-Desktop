@@ -20,7 +20,7 @@ import {
 } from './language';
 import { findLandforms, type Landform, type LandformKind } from './landforms';
 import { generateRuins, ruinPrefix, RUIN_BIAS, type Ruin } from './ruins';
-import { editKey } from './edits';
+import { compatibleEditKeys, editKey, realmEditKey } from './edits';
 
 export type SettlementRank = 'capital' | 'city' | 'town' | 'village';
 
@@ -298,6 +298,50 @@ export type GeoDepth = 'places' | 'full';
  * kept free of them, `patchGeography` is the single place corrections are
  * applied and it can therefore also apply NONE of them.
  */
+/**
+ * Lay the reader's painted frontiers over a realm map.
+ *
+ * Exported and shared because it runs in TWO places that must agree exactly:
+ * the full build in `buildHumanGeography`, and the cheap patch in
+ * `patchGeography` that is the only thing that runs after a stroke. When they
+ * drifted, the frontier brush drew nothing until a nineteen-second rebuild that
+ * itself waits for the brush to be put away - which, from the reader's chair,
+ * is a tool that does not work.
+ *
+ * Mutates `realmOf` in place and refreshes `cellCount`. Returns false and
+ * touches nothing when there is no overlay, so a world nobody has painted pays
+ * one property read.
+ *
+ * Two rules the generator's own flood fill also obeys, restated here because
+ * this runs after it: a realm never holds open water, and a realm index this
+ * world no longer has is ignored rather than trusted - an edit list outlives
+ * the world it was drawn on, and a saved stroke naming realm 11 must not
+ * corrupt a map that now has six.
+ */
+export function applyPaintedRealms(
+  world: WorldData,
+  realmOf: Int32Array,
+  realms: { cellCount: number }[],
+): boolean {
+  const painted = world.painted?.realmCells;
+  if (!painted) return false;
+  const N = world.width * world.height;
+  const limit = realms.length;
+  const { elevation } = world;
+  for (let i = 0; i < N; i++) {
+    const v = painted[i];
+    if (v === -2) continue;                       // untouched: the reader never said
+    if (v >= limit) continue;                     // a realm this world no longer has
+    realmOf[i] = elevation[i] > 0 ? v : -1;       // never claim open water
+  }
+  for (let r = 0; r < limit; r++) realms[r].cellCount = 0;
+  for (let i = 0; i < N; i++) {
+    const r = realmOf[i];
+    if (r >= 0 && r < limit) realms[r].cellCount++;
+  }
+  return true;
+}
+
 export function buildHumanGeography(
   world: WorldData,
   params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS,
@@ -540,6 +584,31 @@ export function buildHumanGeography(
     });
     return `${realmTitle[idx % realmTitle.length]} ${et.text}`;
   }, rng);
+  /**
+   * The reader's own frontiers, over the generator's.
+   *
+   * Applied HERE — after the flood fill and before settlements are assigned to
+   * realms, roads are routed and the country is named — so a province handed to
+   * a neighbour takes its towns with it, and everything downstream sees one
+   * consistent map rather than a drawing laid on top of a different one.
+   */
+  /**
+   * Only when corrections are wanted — which, from `texture.ts`, is NEVER.
+   *
+   * The base is deliberately built without the reader's corrections so that the
+   * patch can apply them and, crucially, apply NONE of them: that is what makes
+   * an undo instant. Baking the painted frontier in here would have meant that
+   * undoing a lasso left the ground in the hands it had been given until the
+   * next full pass — nineteen seconds, and suppressed for as long as a brush is
+   * out. The overlay is applied in `patchGeography` instead, which runs after
+   * every stroke and costs one grid pass.
+   *
+   * Kept behind the flag rather than deleted because a direct caller — the
+   * benches, the forge — asks for a finished map in one call and should get
+   * one.
+   */
+  if (corrections) applyPaintedRealms(world, realmOf, realms);
+
   for (const s of settlements) s.realm = realmOf[s.y * W + s.x];
 
   // ---- roads --------------------------------------------------------------
@@ -615,8 +684,15 @@ export function buildHumanGeography(
       if (ren[k]) features[i] = { ...f, name: ren[k] };
     }
     for (let i = 0; i < realms.length; i++) {
-      const k = `realm:${realms[i].id}`;
-      if (ren[k]) realms[i] = { ...realms[i], name: ren[k] };
+      // Through `realmEditKey`, because this loop spelled the key by hand as
+      // `realm:<id>` while the Índice was filing renames under
+      // `realm:<id>:0,0` — so a renamed country kept its generated name here,
+      // in the hover readout, on the map and in the frontier tool's picker,
+      // and the edit sat in the list being read by nothing. The alias list is
+      // what keeps a hand-edited or otherwise short-keyed save working.
+      for (const k of compatibleEditKeys('realm', realmEditKey(realms[i].id))) {
+        if (ren[k]) { realms[i] = { ...realms[i], name: ren[k] }; break; }
+      }
     }
   }
 

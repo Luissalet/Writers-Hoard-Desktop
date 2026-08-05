@@ -3,6 +3,7 @@ import { Biome, EXOTIC_BIOMES, type WorldParams } from '../core/types';
 import { BIOME_LABEL_ES, DEFAULT_FILTERS, type GenerationFilters } from '../core/generation';
 import { BIOME_COLORS } from '../core/render';
 import { RUIN_KIND_ES, RUIN_SITE_ES } from '../core/ruins';
+import { useTranslation } from '@/i18n/useTranslation';
 
 /**
  * What this world is allowed to contain.
@@ -29,32 +30,32 @@ const swatch = (b: number): string => {
 
 const GROUPS: { title: string; ids: number[] }[] = [
   {
-    title: 'Bosque',
+    title: 'worldgen.filters.group.forest',
     ids: [Biome.TemperateForest, Biome.BorealForest, Biome.TropicalForest, Biome.TropicalRainforest,
       Biome.TemperateRainforest, Biome.MonsoonForest, Biome.MontaneForest, Biome.CloudForest,
       Biome.RiparianForest, Biome.Bamboo, Biome.Karst],
   },
   {
-    title: 'Abierto',
+    title: 'worldgen.filters.group.open',
     ids: [Biome.Grassland, Biome.Savanna, Biome.Steppe, Biome.Shrubland, Biome.Chaparral,
       Biome.ThornScrub, Biome.Moor, Biome.Tundra, Biome.AlpineMeadow],
   },
   {
-    title: 'Árido',
+    title: 'worldgen.filters.group.arid',
     ids: [Biome.Desert, Biome.Erg, Biome.Reg, Biome.Badlands, Biome.ColdDesert, Biome.SaltFlat,
       Biome.FogDesert, Biome.Puna],
   },
   {
-    title: 'Agua y hielo',
+    title: 'worldgen.filters.group.waterIce',
     ids: [Biome.Marsh, Biome.PeatBog, Biome.SaltMarsh, Biome.Mangrove, Biome.Beach,
       Biome.Glacier, Biome.IceCap, Biome.Alpine],
   },
   {
-    title: 'Fuego y roca',
+    title: 'worldgen.filters.group.fireRock',
     ids: [Biome.Volcanic, Biome.AshPlain],
   },
   {
-    title: 'Extraños',
+    title: 'worldgen.filters.group.exotic',
     ids: EXOTIC_BIOMES,
   },
 ];
@@ -63,15 +64,17 @@ const RUIN_KINDS = ['city', 'fort', 'tower', 'temple', 'stones', 'bridge', 'mine
 const RUIN_SITES = ['harbour', 'pass', 'confluence', 'summit', 'island', 'oasis', 'ford',
   'mineral', 'holy', 'strait', 'cape'] as const;
 const LANDFORMS: { id: string; label: string }[] = [
-  { id: 'cape', label: 'Cabos' }, { id: 'bay', label: 'Bahías' }, { id: 'fjord', label: 'Fiordos' },
-  { id: 'strait', label: 'Estrechos' }, { id: 'isthmus', label: 'Istmos' },
-  { id: 'peninsula', label: 'Penínsulas' }, { id: 'delta', label: 'Deltas' },
-  { id: 'pass', label: 'Pasos' }, { id: 'valley', label: 'Valles' }, { id: 'gorge', label: 'Gargantas' },
+  { id: 'cape', label: 'worldgen.filters.landform.cape' }, { id: 'bay', label: 'worldgen.filters.landform.bay' },
+  { id: 'fjord', label: 'worldgen.filters.landform.fjord' },
+  { id: 'strait', label: 'worldgen.filters.landform.strait' }, { id: 'isthmus', label: 'worldgen.filters.landform.isthmus' },
+  { id: 'peninsula', label: 'worldgen.filters.landform.peninsula' }, { id: 'delta', label: 'worldgen.filters.landform.delta' },
+  { id: 'pass', label: 'worldgen.filters.landform.pass' }, { id: 'valley', label: 'worldgen.filters.landform.valley' },
+  { id: 'gorge', label: 'worldgen.filters.landform.gorge' },
 ];
 const LANDMARKS: { id: string; label: string }[] = [
-  { id: 'volcano', label: 'Volcanes' }, { id: 'cave', label: 'Cuevas' },
-  { id: 'waterfall', label: 'Cataratas' }, { id: 'gorge', label: 'Gargantas' },
-  { id: 'hotspring', label: 'Termas' },
+  { id: 'volcano', label: 'worldgen.filters.landmark.volcano' }, { id: 'cave', label: 'worldgen.filters.landmark.cave' },
+  { id: 'waterfall', label: 'worldgen.filters.landmark.waterfall' }, { id: 'gorge', label: 'worldgen.filters.landmark.gorge' },
+  { id: 'hotspring', label: 'worldgen.filters.landmark.hotspring' },
 ];
 
 /** How many switches in a map are off — the number the collapsed header shows. */
@@ -80,6 +83,7 @@ function offIn(map: Record<string | number, boolean>): number {
 }
 
 export default function FiltersPanel({ params, onChange, onGenerate, generating, hasWorld }: FiltersPanelProps) {
+  const { t } = useTranslation();
   const f: GenerationFilters = params.filters ?? DEFAULT_FILTERS;
   const [dirty, setDirty] = useState(false);
   const set = (next: Partial<GenerationFilters>) => {
@@ -105,21 +109,21 @@ export default function FiltersPanel({ params, onChange, onGenerate, generating,
        column shows five headings instead of two hundred switches. */
     <div className="flex flex-col gap-2 text-xs text-white/85">
       <p className="text-[11px] text-white/60 leading-relaxed">
-        Todo lo que apagues aquí <strong className="text-white/90">no existirá</strong> en el
-        mundo generado. El terreno no se queda vacío: pasa a ser lo que habría sido en un mundo
-        sin esa cosa — sin desiertos hay estepa, sin bosques hay pradera.
+        {t('worldgen.filters.introBefore')}{' '}
+        <strong className="text-white/90">{t('worldgen.filters.introStrong')}</strong>{' '}
+        {t('worldgen.filters.introAfter')}
       </p>
 
-      <Section title="Biomas" off={offBiomes}>
+      <Section title={t('worldgen.filters.biomes')} off={offBiomes}>
         <div className="flex flex-col gap-2">
           {GROUPS.map((g) => {
-            const exoticGroup = g.title === 'Extraños';
+            const exoticGroup = g.title === 'worldgen.filters.group.exotic';
             return (
               <div key={g.title}>
                 <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/60">{g.title}</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/60">{t(g.title)}</span>
                   {exoticGroup && f.exotic <= 0 && (
-                    <span className="text-[10px] text-amber-200">sube «rareza» para activarlos</span>
+                    <span className="text-[10px] text-amber-200">{t('worldgen.filters.exoticHint')}</span>
                   )}
                 </div>
                 <div className="flex flex-wrap gap-1">
@@ -152,18 +156,18 @@ export default function FiltersPanel({ params, onChange, onGenerate, generating,
       </Section>
 
       <Slider
-        label="Rareza"
-        hint="0 = ecología estrictamente plausible. Por encima, aparecen bosques fúngicos, llanos de cristal y compañía."
+        label={t('worldgen.filters.rarity')}
+        hint={t('worldgen.filters.rarityHint')}
         value={f.exotic}
         min={0} max={1} step={0.05}
-        format={(v) => (v <= 0 ? 'apagada' : `${Math.round(v * 100)} %`)}
+        format={(v) => (v <= 0 ? t('worldgen.filters.rarityOff') : `${Math.round(v * 100)} %`)}
         onChange={(v) => set({ exotic: v })}
       />
 
-      <Section title="Ruinas" off={offRuins}>
+      <Section title={t('worldgen.filters.ruins')} off={offRuins}>
         <div className="flex flex-col gap-2">
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-white/60 mb-1">Qué se conserva en pie</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-white/60 mb-1">{t('worldgen.filters.ruinKinds')}</div>
             <div className="flex flex-wrap gap-1">
               {RUIN_KINDS.map((k) => (
                 <Chip key={k} off={f.ruinKinds[k] === false} onClick={() => set({ ruinKinds: toggleIn(f.ruinKinds, k) })}>
@@ -173,7 +177,7 @@ export default function FiltersPanel({ params, onChange, onGenerate, generating,
             </div>
           </div>
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-white/60 mb-1">Por qué había algo ahí</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-white/60 mb-1">{t('worldgen.filters.ruinSites')}</div>
             <div className="flex flex-wrap gap-1">
               {RUIN_SITES.map((k) => (
                 <Chip key={k} off={f.ruinSites[k] === false} onClick={() => set({ ruinSites: toggleIn(f.ruinSites, k) })}>
@@ -183,30 +187,30 @@ export default function FiltersPanel({ params, onChange, onGenerate, generating,
             </div>
           </div>
           <Slider
-            label="Cuántas ruinas"
+            label={t('worldgen.filters.ruinDensity')}
             value={f.ruinDensity}
             min={0} max={3} step={0.1}
-            format={(v) => (v === 0 ? 'ninguna' : `×${v.toFixed(1)}`)}
+            format={(v) => (v === 0 ? t('worldgen.filters.ruinsNone') : `×${v.toFixed(1)}`)}
             onChange={(v) => set({ ruinDensity: v })}
           />
         </div>
       </Section>
 
-      <Section title="Accidentes con nombre" off={offLandforms}>
+      <Section title={t('worldgen.filters.landforms')} off={offLandforms}>
         <div className="flex flex-wrap gap-1">
           {LANDFORMS.map((l) => (
             <Chip key={l.id} off={f.landforms[l.id] === false} onClick={() => set({ landforms: toggleIn(f.landforms, l.id) })}>
-              {l.label}
+              {t(l.label)}
             </Chip>
           ))}
         </div>
       </Section>
 
-      <Section title="Hitos naturales" off={offLandmarks}>
+      <Section title={t('worldgen.filters.landmarks')} off={offLandmarks}>
         <div className="flex flex-wrap gap-1">
           {LANDMARKS.map((l) => (
             <Chip key={l.id} off={f.landmarks[l.id] === false} onClick={() => set({ landmarks: toggleIn(f.landmarks, l.id) })}>
-              {l.label}
+              {t(l.label)}
             </Chip>
           ))}
         </div>
@@ -218,21 +222,23 @@ export default function FiltersPanel({ params, onChange, onGenerate, generating,
           onClick={() => { onChange({ ...params, filters: { ...DEFAULT_FILTERS } }); setDirty(true); }}
           className="px-3 py-2 rounded bg-white/10 hover:bg-white/20 text-[11px] text-white"
         >
-          Restablecer
+          {t('worldgen.filters.reset')}
         </button>
         <button
           onClick={() => { onGenerate(); setDirty(false); }}
           disabled={generating}
           className="flex-1 px-3 py-2 rounded bg-amber-400 text-black font-semibold text-[11px] hover:bg-amber-300 disabled:opacity-40 transition"
         >
-          {generating ? 'Generando…' : hasWorld ? 'Regenerar el mundo' : 'Generar'}
+          {generating
+            ? t('worldgen.filters.generating')
+            : hasWorld ? t('worldgen.filters.regenerate') : t('worldgen.filters.generate')}
         </button>
       </div>
       {dirty && hasWorld && (
         // Said plainly, because the alternative is a reader who changes ten
         // switches, sees nothing happen, and concludes the panel is broken.
         <p className="text-[11px] text-amber-200 leading-snug">
-          Estos ajustes cambian cómo se genera el mundo, así que no se ven hasta que lo regeneras.
+          {t('worldgen.filters.dirtyNote')}
         </p>
       )}
     </div>
@@ -250,6 +256,7 @@ export default function FiltersPanel({ params, onChange, onGenerate, generating,
 function Section({ title, off = 0, children, defaultOpen = false }: {
   title: string; off?: number; children: React.ReactNode; defaultOpen?: boolean;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="rounded-lg border border-white/12 bg-white/[0.03] overflow-hidden">
@@ -267,7 +274,8 @@ function Section({ title, off = 0, children, defaultOpen = false }: {
         <span className="flex-1">{title}</span>
         {off > 0 && (
           <span className="px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-200 text-[10px] tabular-nums">
-            {off} apagado{off === 1 ? '' : 's'}
+            {(off === 1 ? t('worldgen.filters.offCount.one') : t('worldgen.filters.offCount.other'))
+              .replace('{n}', String(off))}
           </span>
         )}
       </button>

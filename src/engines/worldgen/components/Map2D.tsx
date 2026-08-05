@@ -9,16 +9,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
-import type { LandmarkType, WorldData, ViewMode } from '../core/types';
+import type { BiomeId, LandmarkType, WorldData, ViewMode } from '../core/types';
 import { BIOME_COLORS, renderAtlasWindow, renderBase, renderRivers, updateAtlasCells } from '../core/render';
 import { SculptGesture } from '../sculpt/ops';
-import { PROJECTIONS, reprojectRgba, type Projection } from '../core/projections';
-import { commitPaintStroke, isWaypointTool, negativeOf, pickGeneratedAt, restriction } from '../core/paintCommit';
+import {
+  PROJECTIONS, reprojectRgba, type Projection, type ProjectionSpec,
+} from '../core/projections';
+import {
+  commitPaintStroke, commitRefusal, isWaypointTool, negativeOf, pickGeneratedAt, restriction,
+  type PaintSpec,
+} from '../core/paintCommit';
 import type { Pt, Stroke, WorldEdit } from '../core/edits';
 import { filterFor } from '../core/edits';
 import { strokeMask } from '../sculpt/ops';
 import { Biome } from '../core/types';
-import type { HumanGeography, Settlement } from '../core/settlements';
+import type { HumanGeography, Road, Settlement } from '../core/settlements';
 import type { WorldViewport, WorldWaypoint } from '../types';
 import { tipOf, tipOutline } from '../sculpt/ops';
 import type { PaintTool } from './PaintPanel';
@@ -26,22 +31,43 @@ import {
   resolveWorldLandmarks,
   type WorldSpatialEntity,
 } from '../core/spatialEntities';
-import { declutterLabels, semanticZoomProfile } from '../core/semanticZoom';
+import { biomeName } from '../core/gazetteer';
+import {
+  declutterLabels, nextSemanticTier, profileForTier, semanticTier,
+  type SemanticZoomTier,
+} from '../core/semanticZoom';
 import { DisplayTileStore } from '../cartography/tileStore';
-import { levelFor, tileId, TILE_PX, type TileKey } from '../cartography/tiles';
-import { MAX_SAT_TILE_Z, SAT_DEEP_Z } from '../region/satelliteTile';
+import { levelFor, tileCountX, tileId, TILE_PX, type TileKey } from '../cartography/tiles';
+import { drawRoadNetwork, roadOverlayAlpha, unwrapRoad } from '../cartography/roadOverlay';
+import { drawRealmBorders, realmBorders, realmTint } from '../cartography/realmOverlay';
+import {
+  MAX_SAT_TILE_Z, SAT_DEEP_Z, satPxPerCanonCell, satelliteDeepSupported,
+} from '../region/satelliteTile';
 import { regionClient } from '../region/client';
 import type { TilePlace } from '../region/deepTile';
 import { COVER_LABEL_ES } from '../region/types';
 import type { RegionData } from '../region/types';
 import { regionVisibleRect } from '../region/coordinates';
-import { EARTH_KM, MIN_SPAN_KM, clampViewport, flightAt, FLIGHT_MS, type FlyTarget } from '../core/camera';
+import {
+  EARTH_KM, MIN_SPAN_KM, clampViewport, flightAt, FLIGHT_MS, sameViewport, type FlyTarget,
+} from '../core/camera';
 
 export const BIOME_KEYS = [
   'ocean', 'lake', 'iceCap', 'tundra', 'boreal', 'tempForest', 'tempRain',
   'grassland', 'shrubland', 'savanna', 'tropForest', 'tropRain', 'desert',
   'coldDesert', 'alpine', 'glacier', 'beach', 'saltFlat',
 ] as const;
+
+/**
+ * The ends of the brush-size track, in kilometres of ground.
+ *
+ * Copied from `PaintPanel`'s slider, which is where the same two numbers live
+ * (`BRUSH_MIN_KM` / `BRUSH_MAX_KM`) and which owns the tool this view is only
+ * borrowing. Keep them in step: a radius the wheel can reach and the slider
+ * cannot is a control that jumps the moment the reader touches it.
+ */
+const BRUSH_MIN_KM = 0.15;
+const BRUSH_MAX_KM = 2500;
 
 interface Map2DProps {
   world: WorldData;
@@ -71,6 +97,29 @@ interface Map2DProps {
    */
   geography?: HumanGeography | null;
   showSettlements?: boolean;
+  /**
+   * The road network, drawn as vectors over the ground.
+   *
+   * Not a decoration: the Camino brush lays roads BETWEEN the ones that are
+   * already there, and until this layer existed the 2D map was the only view
+   * that carried the brush and did not show its work.
+   */
+  showRoads?: boolean;
+  /** Realm boundaries. Same switch the Carta uses, so one map cannot claim a
+   *  frontier the other denies. */
+  showBorders?: boolean;
+  /**
+   * Named geography and ruins — the seas, ranges, plains and abandoned places
+   * the generator sited. The Carta has always drawn them; this view, where they
+   * can be renamed and deleted, never did.
+   */
+  showFeatures?: boolean;
+  /**
+   * The first town of a road being laid, waiting for its second click. Drawn
+   * as a ring so the gesture has a visible half-way state instead of only a
+   * line of text under the map.
+   */
+  roadFrom?: Settlement | null;
   tool?: PaintTool;
   onEdit?: (edit: WorldEdit) => void;
   onPickSettlement?: (s: Settlement) => void;
@@ -93,12 +142,499 @@ interface Map2DProps {
    */
   canonWorld?: WorldData;
   canonEdits?: string;
+  /** Set by the parent; this view assigns a renderer to it. `scale` multiplies
+   *  the on-screen resolution. Returns null if there is nothing to draw. */
+  exportRef?: { current: ((scale: number) => Promise<Blob | null>) | null };
+  /**
+   * Change the brush the panel owns. The wheel resizes it and Alt picks a
+   * biome up off the ground; without this the only way to set either is the
+   * panel, which is on the other side of the screen from the stroke.
+   */
+  onTool?: (patch: Partial<PaintTool>) => void;
 }
 
 interface ViewState {
   scale: number; // screen px per projected-map px
   ox: number;    // screen offset of map X=0
   oy: number;
+}
+
+/**
+ * One thing the last frame put on screen, and how close a pointer has to be.
+ *
+ * Screen pixels, one entry per east–west copy, so nothing downstream has to
+ * redo the wrap arithmetic the drawing already did.
+ */
+interface Hit {
+  /** `realmVertex` is the FIRST corner of a frontier being drawn — the handle a
+   *  click on closes the ring. It answers a click and nothing else, which is why
+   *  the other corners are drawn and not registered. */
+  kind: 'settlement' | 'entity' | 'waypoint' | 'place' | 'note' | 'realmVertex';
+  x: number;
+  y: number;
+  reach: number;
+  settlement?: Settlement;
+  entity?: WorldSpatialEntity;
+  waypointId?: string;
+  place?: TilePlace;
+  /** For `note`: what the readout says. Ruins, named geography and the reader's
+   *  own labels are drawn but have no first-class identity in this view yet, so
+   *  they answer the hover and nothing else. */
+  note?: string;
+  /** Ties are broken toward the more important thing, not the nearer one. */
+  bias?: number;
+}
+
+/**
+ * A number that identifies a WORLD OBJECT, not a seed.
+ *
+ * Every cache key in this view was `${seed}:${revision}`. Re-forging with the
+ * same seed — a parameter tweak, which is the normal way to iterate on a world
+ * — keeps the seed by design, and a world with no strokes has revision 0. So
+ * two different planets produced byte-identical keys: `setGeneration` was a
+ * no-op, the whole 320-tile pyramid of the OLD continents kept drawing, and the
+ * settled sharp window of the old terrain was blitted over the new base raster
+ * until the reader happened to pan.
+ */
+const WORLD_IDS = new WeakMap<object, number>();
+let nextWorldId = 1;
+function worldId(w: object): number {
+  let id = WORLD_IDS.get(w);
+  if (id === undefined) { id = nextWorldId++; WORLD_IDS.set(w, id); }
+  return id;
+}
+
+/** A cell a realm actually holds, and how much ground it holds in all. */
+interface RealmAnchor {
+  x: number;
+  y: number;
+  /** Cells claimed, which is what decides whether the name fits on screen. */
+  cells: number;
+}
+
+/**
+ * Where each realm's name goes, worked out ONCE per geography.
+ *
+ * Finding it costs two passes over the whole grid — two million lookups on a
+ * 2048-wide world — which is affordable once and ruinous on every frame of a
+ * pan. Keyed on `realmOf`, exactly like the border extraction in
+ * `cartography/realmOverlay`: that array is what changes when the political map
+ * changes, and a geography rebuilt after a stroke brings a new one.
+ */
+const REALM_ANCHORS = new WeakMap<Int32Array, Array<RealmAnchor | null>>();
+
+function realmAnchors(W: number, H: number, geo: HumanGeography): Array<RealmAnchor | null> {
+  const cached = REALM_ANCHORS.get(geo.realmOf);
+  if (cached) return cached;
+  const of = geo.realmOf;
+  const n = geo.realms.length;
+  // Longitude is averaged as an ANGLE. A realm that straddles the antimeridian
+  // has columns near 0 and near W, and the plain mean of those puts its capital
+  // on the far side of the planet.
+  const cosCol = new Float64Array(W), sinCol = new Float64Array(W);
+  for (let x = 0; x < W; x++) {
+    const a = (x / W) * Math.PI * 2;
+    cosCol[x] = Math.cos(a); sinCol[x] = Math.sin(a);
+  }
+  const cos = new Float64Array(n), sin = new Float64Array(n);
+  const sumY = new Float64Array(n), count = new Float64Array(n);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const r = of[y * W + x];
+      if (r < 0 || r >= n) continue;
+      cos[r] += cosCol[x]; sin[r] += sinCol[x];
+      sumY[r] += y; count[r]++;
+    }
+  }
+  const cx = new Float64Array(n), cy = new Float64Array(n);
+  for (let r = 0; r < n; r++) {
+    cx[r] = ((Math.atan2(sin[r], cos[r]) / (Math.PI * 2)) * W % W + W) % W;
+    cy[r] = count[r] ? sumY[r] / count[r] : 0;
+  }
+  // Second pass: the nearest cell the realm actually HOLDS. A centroid falls in
+  // open sea whenever the country curls round a bay and inside the neighbour
+  // whenever it is two halves either side of one — and a name lettered over
+  // someone else's ground is worse than no name at all.
+  const best = new Float64Array(n).fill(Infinity);
+  const out: Array<RealmAnchor | null> = new Array(n).fill(null);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const r = of[y * W + x];
+      if (r < 0 || r >= n) continue;
+      let dx = x - cx[r];
+      while (dx > W / 2) dx -= W;
+      while (dx < -W / 2) dx += W;
+      const dy = y - cy[r];
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= best[r]) continue;
+      best[r] = d2;
+      out[r] = { x, y, cells: 0 };
+    }
+  }
+  for (let r = 0; r < n; r++) {
+    const a = out[r];
+    if (a) a.cells = count[r];
+  }
+  REALM_ANCHORS.set(geo.realmOf, out);
+  return out;
+}
+
+/**
+ * How much ground ONE bucket click may claim, as a share of the whole grid.
+ *
+ * `realmFloodCells` defaults to a quarter of the planet, which is the cap that
+ * stops the flood running for ever rather than one that means anything
+ * politically. A click aimed at a peninsula that lands one cell inland instead
+ * runs down the whole continent, and the reader's only way back is an undo they
+ * have to notice they need — after the geography, the borders and the whole
+ * satellite pyramid have been rebuilt around it.
+ *
+ * THE SHARE IS OF THE WHOLE GRID, AND THE GRID IS MOSTLY SEA. That is what the
+ * old four per cent got wrong. `realmFloodCells` is four-connected over LAND —
+ * the sea is always an edge — so the thing being capped is a share of the land,
+ * and land is about 28 % of the cells. Four per cent of the grid is therefore
+ * only about a seventh of the world's land, and a single ordinary realm is
+ * routinely 5–6 % of the grid on its own. Measured at 512×256 (131 072 cells):
+ * the clicked landmass came to 7 818 cells and the cap to 5 243, so the bucket
+ * stopped two thirds of the way through a country the reader had aimed at
+ * squarely — and it stopped it in FLOOD ORDER, which is not a coastline but
+ * whatever tendril the frontier happened to be crawling down when the counter
+ * ran out. A truncated fill looks like a bug in the world, not like a refusal.
+ *
+ * Fifteen per cent of the grid is a little over half of all the land there is.
+ * No single country is that, not even a continent-spanning empire, so no honest
+ * fill is ever refused; and it is still comfortably under `realmFloodCells`'
+ * own quarter-of-the-planet default, so the guard this cap exists to be — the
+ * click that lands one cell the wrong side of a river and runs down the whole
+ * continent — still bites, and still bites before the geography, the borders
+ * and the satellite pyramid are rebuilt around a mistake.
+ *
+ * The floor keeps small test worlds usable, where a share of a tiny grid is a
+ * few hundred cells and would refuse an ordinary province.
+ */
+const REALM_FILL_SHARE = 0.15;
+const REALM_FILL_FLOOR_CELLS = 2000;
+
+/**
+ * The colour a country is aimed at in.
+ *
+ * The map's own political wash uses `hue` at 55 % / 58 % (see `realmTint`), so
+ * a preview drawn in the same hue lands the reader on the colour the ground
+ * will actually take — a preview in a generic "selection blue" would say
+ * nothing about WHICH country is being handed the ground, which is the only
+ * question this tool asks.
+ *
+ * 55 % / 58 %, EXACTLY the wash's numbers. This used to say 60 % / 62 %, which
+ * is a fourth spelling of one colour: the wash mixes 55 %/58 % (`realmTint`),
+ * the border line strokes 62 %/62 % (`drawRealmBorders`, deliberately brighter
+ * because a dashed hairline over photographic ground needs the lift), the
+ * PaintPanel swatch fills 55 %/58 % (`components/PaintPanel.tsx`, the realm
+ * row) and this preview sat between all three. The preview is the promise the
+ * reader is shown before the ground changes hands, so it is the one that has
+ * to match the GROUND — the swatch they picked from and the wash they will
+ * get — and not the line drawn around it.
+ */
+function realmColor(
+  geo: HumanGeography | null | undefined,
+  realm: number,
+  alpha: number,
+): string {
+  const hue = realm >= 0 ? geo?.realms[realm]?.hue : undefined;
+  // Unclaimed ground has no hue: the wash leaves it bare. So the negative of
+  // every frontier gesture draws in bone, which is the one colour no realm's
+  // deterministic hue can collide with.
+  return hue === undefined
+    ? `rgba(228,222,210,${alpha})`
+    : `hsl(${hue} 55% 58% / ${alpha})`;
+}
+
+/**
+ * Does this tool HAVE a size at all?
+ *
+ * The exact rule `PaintPanel` uses to decide whether to show the size track
+ * (its own `isBrush`), and it has to stay that rule: Ctrl+rueda is the same
+ * control as the slider, so a chord that moves a number the panel does not show
+ * is a chord with no visible effect — and, worse, one that eats the camera zoom
+ * to produce it. In Río, Punto and Camino mode it did exactly that: `tool.radius`
+ * changed, nothing on screen moved, and the wheel stopped zooming; the frontier
+ * bucket and the two lassos had the same problem, with the ring not even drawn.
+ *
+ * Río has a width and Punto has a marker, and neither is `radius` — so neither
+ * belongs here.
+ */
+function hasRadius(tool: PaintTool | null | undefined): boolean {
+  if (!tool) return false;
+  return tool.mode === 'terrain' || tool.mode === 'land' || tool.mode === 'biome'
+    || (tool.mode === 'frontera' && tool.realmTool === 'brush');
+}
+
+/**
+ * Corner cutting for the CURVED lasso's preview.
+ *
+ * A mirror of the `chaikinRing` that `polygonCells` runs, at the same two
+ * iterations, and it has to stay in lockstep with it: that helper is private to
+ * `core/edits.ts` and the open-path version in `cartography/contours` rounds a
+ * closed ring's last corner differently. The preview is the only promise the
+ * reader gets about where a frontier will land, so a preview cut tighter or
+ * looser than the commit hands a neighbour a strip of ground the reader watched
+ * themselves keep.
+ */
+function chaikinPreview(pts: Pt[]): Pt[] {
+  let cur = pts;
+  for (let it = 0; it < 2; it++) {
+    if (cur.length < 3) return cur;
+    const next: Pt[] = [];
+    for (let i = 0; i < cur.length; i++) {
+      const a = cur[i], b = cur[(i + 1) % cur.length];
+      next.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 });
+      next.push({ x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 });
+    }
+    cur = next;
+  }
+  return cur;
+}
+
+/**
+ * The stroke a brush gesture stores, trimmed the way every other brush's is.
+ *
+ * `paintCommit` decides which head fields a stored stroke may carry — only what
+ * differs from a plain disc, because a saved world IS its edit list and a field
+ * written today has to be read back the same way for as long as the world
+ * exists. That rule is private to `paintCommit` and this view may not add a
+ * `frontera` case to it, so the trimming is BORROWED through the terrain case
+ * rather than copied: a second copy here is exactly how a realm stroke would
+ * quietly start storing fields no other brush does, and replay as different
+ * ground on the next version of the program.
+ */
+function realmBrushStroke(spec: PaintSpec, pts: Pt[]): Stroke | null {
+  const shaped = commitPaintStroke({ ...spec, mode: 'terrain' }, pts);
+  return shaped?.kind === 'terrain' ? shaped.stroke : null;
+}
+
+/**
+ * The window of WORLD CELLS one east–west copy can show.
+ *
+ * `drawRealmBorders` culls in CELL space — it compares this rect against
+ * segment endpoints that are cell corners in [0, W] × [0, H] — and that is the
+ * whole reason the layer costs a couple of milliseconds instead of projecting
+ * ten thousand segments per copy per frame. So the rect it is handed has to be
+ * in cells, and the rect the camera knows about is in SCREEN PIXELS OF A
+ * PROJECTED SHEET, which is not the same thing and is not even the same shape.
+ *
+ * The old caller mixed the two: `y: -view.oy / scale, h: ch / scale`. `scale`
+ * is pixels per row of the PROJECTED sheet (PH rows), and the comparison is
+ * against world rows (H of them). Equirect gets away with it because PH === H
+ * there; nothing else does. Measured, camera resting on a real frontier at 6×
+ * zoom: 142 runs drawn in equirect, **0 in azimuthal** — where PH = W = 2H, so
+ * every window below the sheet's half-way row asks for cell rows that do not
+ * exist and the boundary vanishes at exactly the zoom the reader went there to
+ * see it — and 63 runs in mercator, all of them at the wrong latitude.
+ *
+ * Two regimes, because two are all there are:
+ *
+ *   Cylindrical (equirect, mercator). X is longitude alone and Y is latitude
+ *   alone, so the window is EXACT: u straight off X, v through the projection's
+ *   own inverse, which is monotone in Y on both. Mercator's latitude window is
+ *   then genuinely mercator's, not a linear guess at it.
+ *
+ *   Curved (robinson, mollweide, azimuthal). A screen rectangle is NOT a cell
+ *   rectangle here — a rect over the azimuthal disc is an annular wedge, and
+ *   the smallest cell rect containing it can be most of the world. So the
+ *   window is SAMPLED (a grid of inverse solves over the rect) and then widened,
+ *   which is a conservative over-estimate and is meant to be: culling too
+ *   little draws a few segments that were never visible, culling too much is
+ *   the missing-frontier bug above.
+ */
+function cellWindow(
+  spec: ProjectionSpec,
+  geom: { copyOx: number; oy: number; mapW: number; mapH: number; cw: number; ch: number },
+  W: number,
+  H: number,
+): { x: number; y: number; w: number; h: number } {
+  const { copyOx, oy, mapW, mapH, cw, ch } = geom;
+  // The canvas corners in the sheet's own normalized coordinates.
+  const X0 = -copyOx / mapW, X1 = (cw - copyOx) / mapW;
+  const Y0 = -oy / mapH, Y1 = (ch - oy) / mapH;
+
+  if (spec.wraps) {
+    const vAt = (Y: number): number => {
+      // Off the top or bottom of the sheet: the nearest pole, which is the
+      // right answer for a camera that has panned past the edge.
+      if (Y <= 0) return 0;
+      if (Y >= 1) return 1;
+      return Math.min(1, Math.max(0, spec.inverse(0.5, Y)?.[1] ?? (Y < 0.5 ? 0 : 1)));
+    };
+    const y0 = vAt(Y0) * H, y1 = vAt(Y1) * H;
+    return { x: X0 * W, y: y0, w: (X1 - X0) * W, h: y1 - y0 };
+  }
+
+  const STEPS = 9;
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (let j = 0; j <= STEPS; j++) {
+    const Y = Y0 + ((Y1 - Y0) * j) / STEPS;
+    for (let i = 0; i <= STEPS; i++) {
+      const uv = spec.inverse(X0 + ((X1 - X0) * i) / STEPS, Y);
+      if (!uv) continue;
+      if (uv[0] < u0) u0 = uv[0];
+      if (uv[0] > u1) u1 = uv[0];
+      if (uv[1] < v0) v0 = uv[1];
+      if (uv[1] > v1) v1 = uv[1];
+    }
+  }
+  // Every sample fell outside the projection's shape. That is a camera looking
+  // at the black margin, but a coarse grid can straddle a thin sliver of sheet
+  // without landing on it, so the honest answer is the whole world: a frame
+  // that projects everything is slow, a frame that culls everything is wrong.
+  if (u0 > u1) return { x: 0, y: 0, w: W, h: H };
+
+  // A quarter of the span plus four cells: the extremum can sit between two
+  // samples, and the grid is coarse on purpose (100 inverse solves a frame, not
+  // ten thousand). Cheap insurance against the only failure that matters.
+  const padU = (u1 - u0) * 0.25 + 4 / W;
+  const padV = (v1 - v0) * 0.25 + 4 / H;
+  /**
+   * A window WIDER THAN HALF THE WORLD does not get culled east–west at all.
+   *
+   * The azimuthal seam (u = 0) runs from the pole at the centre of the disc out
+   * to the rim, and a rect straddling it samples longitudes just under 1 and
+   * just over 0 — whose bounding box is [0.01, 0.99], which excludes precisely
+   * the ground on the seam. `drawRealmBorders` takes one non-wrapping interval
+   * and cannot be told "the two ends", so the answer is not to try: a straddle
+   * always shows up as a span past a half, and a window that really is more
+   * than half the world had almost nothing to gain from an east–west cull
+   * anyway. The latitude cull, which is the one that matters on a disc, stands.
+   *
+   * (The cylindrical branch above has no such problem: the copies ARE the wrap,
+   * and the copy one world over holds the window that contains the seam.)
+   */
+  /**
+   * …and neither does a window that TOUCHES the antimeridian.
+   *
+   * `realmBorders` emits the east–west wrap as a vertical edge at x = W — the
+   * boundary between the last column and the first is a real frontier, not a
+   * seam — so the ground at u = 0 is described by segments numbered W, at the
+   * far end of an interval that starts at 0. A window sitting on u = 0 would
+   * hold the horizontal edges and drop every vertical one, which reads as a
+   * frontier that goes dotted for one column at exactly the meridian the reader
+   * zoomed in on. One interval cannot hold both ends, so it holds everything.
+   */
+  const whole = u1 - u0 > 0.5 || u0 - padU <= 0;
+  return {
+    x: whole ? 0 : (u0 - padU) * W,
+    y: (v0 - padV) * H,
+    w: whole ? W : (u1 - u0 + 2 * padU) * W,
+    h: (v1 - v0 + 2 * padV) * H,
+  };
+}
+
+/** Settlement ranks, for the hover readout. */
+const RANK_ES: Record<string, string> = {
+  capital: 'worldgen.hover.rank.capital', city: 'worldgen.hover.rank.city',
+  town: 'worldgen.hover.rank.town', village: 'worldgen.hover.rank.village',
+};
+
+/** What the canon calls the things it sites, for the hover readout. */
+const PLACE_KIND_ES: Record<string, string> = {
+  town: 'worldgen.atlas.kind.settlement', village: 'worldgen.hover.rank.village',
+  hamlet: 'worldgen.hover.kind.hamlet', farm: 'worldgen.hover.kind.farm',
+  mill: 'worldgen.hover.kind.mill', abbey: 'worldgen.hover.kind.abbey',
+  tower: 'worldgen.hover.kind.tower', inn: 'worldgen.hover.kind.inn',
+  ruin: 'worldgen.atlas.kind.ruin', crag: 'worldgen.hover.kind.crag',
+  ford: 'worldgen.hover.kind.ford', bridge: 'worldgen.hover.kind.bridge',
+  quarry: 'worldgen.hover.kind.quarry', mine: 'worldgen.hover.kind.mine',
+  shrine: 'worldgen.hover.kind.shrine', dock: 'worldgen.hover.kind.dock',
+};
+
+/**
+ * Which of the canon's places answer to "Accidentes" rather than "Poblaciones".
+ *
+ * The deep tiles emit one flat list of names and the map has two switches for
+ * them. Named ground and abandoned ground go with the seas, ranges and ruins
+ * (`showFeatures`); everything else on the list — town, village, hamlet, farm,
+ * mill, abbey, tower, inn, mine, quarry — is somewhere people live or work and
+ * goes with the towns (`showSettlements`). Anything the canon starts emitting
+ * that is not in here therefore lands under "Poblaciones", which is the safe
+ * default: a new KIND of building is still a building.
+ */
+const DEEP_FEATURE_KINDS = new Set(['ruin', 'crag', 'landmark']);
+
+/**
+ * Where each road IS, in world cells, so a frame can reject one without
+ * building it.
+ *
+ * `drawRoadNetwork` derives every road's geometry from scratch on every call:
+ * `unwrapRoad` walks the cell list and allocates a `Pt` per cell, then
+ * `roadScreenPath` allocates a second array of the same length and calls
+ * `toScreen` for every vertex — and only THEN does its bounding box get to
+ * reject the road. Called once per east–west copy, that is the whole network
+ * built three times per frame before anything is culled: about 22 000 tuples
+ * and 60–80 000 short-lived objects on every frame of a pan, for ~91 roads of
+ * which, at any zoom worth panning at, a handful are on screen.
+ *
+ * The un-wrapping is COPY-INDEPENDENT — it is world-cell geometry, and the
+ * copies differ only in where that geometry lands on screen — so it has no
+ * business inside the copy loop, and being a pure function of the cell list it
+ * has no business inside the frame either. Extracted once per road array, kept
+ * on its identity, and reduced to the four numbers a cull actually needs: the
+ * bounding box is 2 % of the memory of the path and answers the same question.
+ *
+ * `w` is stored with it because the un-wrap is a function of the world width as
+ * well as the cells, and a cache that quietly answers for the wrong width would
+ * hide roads on a resized world rather than crash.
+ */
+const ROAD_BOXES = new WeakMap<readonly Road[], { w: number; box: Float64Array }>();
+
+function roadBoxes(roads: readonly Road[], W: number): Float64Array {
+  const hit = ROAD_BOXES.get(roads);
+  if (hit && hit.w === W) return hit.box;
+  const box = new Float64Array(roads.length * 4);
+  for (let i = 0; i < roads.length; i++) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    // The SAME un-wrap `drawRoadNetwork` runs, so the box is the box of the
+    // path that will actually be drawn — including the negative x of a road
+    // that crosses the antimeridian, which is the whole point of un-wrapping.
+    for (const p of unwrapRoad(roads[i].cells, W)) {
+      if (p.x < x0) x0 = p.x;
+      if (p.x > x1) x1 = p.x;
+      if (p.y < y0) y0 = p.y;
+      if (p.y > y1) y1 = p.y;
+    }
+    box[i * 4] = x0; box[i * 4 + 1] = y0;
+    box[i * 4 + 2] = x1; box[i * 4 + 3] = y1;
+  }
+  ROAD_BOXES.set(roads, { w: W, box });
+  return box;
+}
+
+/**
+ * The deepest level of the pyramid THIS WORLD can actually reach, or −1.
+ *
+ * `MAX_SAT_TILE_Z` is the floor of the scheme, not a promise every world can
+ * keep. A display tile may only be drawn from canon ground where the canon
+ * lattice divides the display grid exactly — `canonCellsPerTile` has to come
+ * out a whole number — and on a world whose width is not a power of two it
+ * stops doing so before the bottom:
+ *
+ *   3072 wide → `canonRefinement` 64 → width × refinement = 196 608 = 3 × 2¹⁶,
+ *   so `canonCellsPerTile` is 1,5 at z17 and 0,75 at z18. Neither is an
+ *   integer, `satelliteDeepSupported` is false for both, and z16 is the floor.
+ *   (1536 wide lands in the same place, for the same reason.)
+ *
+ * The camera used to ignore that: `maxScale` reached z18 on every world, so on
+ * a 3072 the reader could zoom two whole levels past anything the canon can
+ * draw. What they got there was the worker's fallback — fractal amplification
+ * of a 13 km world cell at about 1,2 m per pixel — which means no real
+ * coastline, no roofs, no tracks, and every deep place name gone, with nothing
+ * on screen to say the ground had stopped being real.
+ *
+ * The set of supported levels is contiguous (the divisibility only ever fails
+ * going deeper), so counting down from the floor finds the true bottom.
+ */
+function deepestSatelliteZ(world: WorldData): number {
+  for (let z = MAX_SAT_TILE_Z; z >= SAT_DEEP_Z; z--) {
+    if (satelliteDeepSupported(world, z)) return z;
+  }
+  return -1;
 }
 
 function makeCanvas(px: Uint8ClampedArray<ArrayBuffer>, w: number, h: number): HTMLCanvasElement {
@@ -108,25 +644,139 @@ function makeCanvas(px: Uint8ClampedArray<ArrayBuffer>, w: number, h: number): H
   return c;
 }
 
+/**
+ * The political wash, on the SHEET THE GROUND IS DRAWN ON.
+ *
+ * `realmTint` hands back a W×H equirect canvas — one pixel per world cell, the
+ * same lattice `realmOf` lives on. The base raster is not that: every
+ * projection but equirect goes through `reprojectRgba`, and `baseCanvas` is
+ * then a sheet of a different shape (PW×PH) that the camera draws into
+ * `[ox, oy, mapW, mapH]`. Blitting the flat tint into that same rectangle
+ * stretches a 2:1 rectangle over whatever shape the ground actually has:
+ *
+ *   · azimuthal — the ground is a polar disc, PW = PH = W, and the wash is a
+ *     2:1 rectangle laid across it. The two figures have nothing in common.
+ *   · mercator  — PH = 867 against H = 512 at W = 1024, so a country at 45°N
+ *     is washed about 8 % of the map height (roughly 1 500 km) north of the
+ *     ground it owns, and the reader is told a neighbour holds it.
+ *
+ * The border LINES never had this: they go through `toScreen`, which is the
+ * projection. So the map contradicted itself — a dashed frontier around one
+ * patch of ground and the colour of that country over a different one.
+ *
+ * So the wash is reprojected exactly the way the base is, through the same
+ * cached index map, and — because it is static per `realmOf` — the result is
+ * kept rather than rebuilt per frame. ONE slot: switching projection already
+ * rebuilds the base and the rivers the same way, and holding a 2–26 MB sheet
+ * per projection to save a few milliseconds on a switch nobody makes twice a
+ * second is the wrong trade.
+ */
+const TINT_SHEETS = new WeakMap<Int32Array, { key: string; canvas: HTMLCanvasElement | null }>();
+
+function projectedRealmTint(
+  world: { width: number; height: number },
+  geo: HumanGeography,
+  projection: Projection,
+): HTMLCanvasElement | null {
+  const flat = realmTint(world, geo);
+  // Equirect IS the tint's own lattice: the sheet and the wash are the same
+  // shape and the blit was always right there.
+  if (!flat || projection === 'equirect') return flat;
+  const W = world.width, H = world.height;
+  const key = `${projection}:${W}x${H}`;
+  const hit = TINT_SHEETS.get(geo.realmOf);
+  if (hit && hit.key === key) return hit.canvas;
+  const src = flat.getContext('2d')?.getImageData(0, 0, W, H);
+  let canvas: HTMLCanvasElement | null = null;
+  if (src) {
+    const { px, w, h } = reprojectRgba(src.data, W, H, projection);
+    canvas = makeCanvas(px, w, h);
+  }
+  TINT_SHEETS.set(geo.realmOf, { key, canvas });
+  return canvas;
+}
+
 export default function Map2D({
   world, viewMode, projection, showRivers, showLandmarks, showWaypoints, showGrid,
   waypoints, selectedWaypointId, onPlaceWaypoint, onRemoveWaypoint, onSelectWaypoint,
   selectedSpatialKey, regionalEntities = [], regionDetail, onSelectSpatialEntity,
-  geography, showSettlements, tool, onEdit, onPickSettlement, onZoomTo,
+  geography, showSettlements, showRoads = true, showBorders = false,
+  showFeatures = true, roadFrom = null,
+  tool, onEdit, onTool, onPickSettlement, onZoomTo,
   viewport, onViewportChange, flyTarget, revision = 0, canonWorld, canonEdits,
+  exportRef,
 }: Map2DProps) {
   const { t } = useTranslation();
+  /**
+   * Why the last gesture did nothing, in the hint bar, for a few seconds.
+   *
+   * The bar is already where this view explains itself, so a refusal belongs
+   * there rather than in a toast: the reader's eyes are on the map, the answer
+   * appears under the map, and it goes away on its own instead of needing to be
+   * dismissed. Cleared on a timer AND whenever the tool changes, because a
+   * complaint about the label box is nonsense once the reader has moved on.
+   */
+  const [refusal, setRefusal] = useState<string | null>(null);
+  useEffect(() => {
+    if (!refusal) return;
+    const id = window.setTimeout(() => setRefusal(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [refusal]);
+  useEffect(() => { setRefusal(null); }, [tool?.mode, tool?.point]);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewRef = useRef<ViewState | null>(null);
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
   const dragRef = useRef<{ x: number; y: number; ox: number; oy: number; moved: boolean } | null>(null);
+  /**
+   * THIS GESTURE IS THE CAMERA, decided once at pointerdown.
+   *
+   * Space, Shift and the middle button all mean "move the map, do not paint",
+   * and `handlePointerDown` has always armed `dragRef` for them. Nothing else
+   * knew: `handlePointerMove` opened with `if (brushing) { …ring…; return; }`
+   * and returned before the drag branch, so `drag.moved` was never set, the map
+   * never moved, and on release the `!drag.moved` path treated the whole thing
+   * as a CLICK — with Bioma out that opens a town's plan, with Camino out it
+   * silently sets the road's origin. The reader asked to pan and got an edit.
+   *
+   * Two locale strings promise this works — `worldgen.map.paintHint` ("Espacio
+   * para mover el mapa") and `worldgen.paint.dragHint.after` ("o usa el botón
+   * central para mover el mapa sin pintar") — so it is not a feature to add but
+   * a promise to keep.
+   *
+   * A ref rather than a modifier re-read per event, because the modifier can be
+   * let go mid-drag: the gesture is whatever it was when the button went down,
+   * the way every other gesture in this view resolves Ctrl at the press.
+   */
+  const panRef = useRef(false);
   const rafRef = useRef(0);
+  /**
+   * Non-zero while the export is rendering: the ratio `draw` must use in place
+   * of the screen's own device pixel ratio.
+   *
+   * The export enlarges the backing store and then draws ONE frame into it. If
+   * that frame kept measuring in `devicePixelRatio`, every layer would be laid
+   * out for a canvas half or a quarter the size it now is and the PNG would be
+   * the map in its top-left corner with black around it.
+   */
+  const exportScale = useRef(0);
   const [hover, setHover] = useState<{ x: number; y: number; text: string } | null>(null);
 
   /** Cells the pointer has crossed this stroke, and where the ring is drawn. */
   const stroke = useRef<Pt[] | null>(null);
+  /**
+   * The frontier being drawn by hand: the corners so far, and which way round.
+   *
+   * A REF, not state, for the same reason `stroke` is one: every click, every
+   * pointer move that swings the rubber band and every frame of the preview
+   * would otherwise re-render the whole view, and nothing outside `draw` reads
+   * it. `neg` is Ctrl AS IT WAS AT THE FIRST CORNER — a multi-click gesture has
+   * no single moment to read a modifier at, so it is read once, shown in the
+   * preview's colour for the rest of the shape, and honoured at the close;
+   * reading it again at the close would commit a country the reader never saw.
+   */
+  const realmPoly = useRef<{ pts: Pt[]; neg: boolean } | null>(null);
   /**
    * Live terrain/land sculpting on the satellite: the SAME SculptGesture the
    * 3D view and the sculptor run — the world deforms under the brush, the
@@ -149,10 +799,38 @@ export default function Map2D({
   const brushAt = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
   /** Ctrl at the moment the gesture started: the negative of whatever is out. */
   const negRef = useRef(false);
+  /** Where the brush gesture started, in screen pixels. A brush stroke has no
+   *  `dragRef` to ask, and the Camino tool needs to tell a click from a drag. */
+  const pressAt = useRef<{ x: number; y: number } | null>(null);
+  /**
+   * WHAT WAS ACTUALLY DRAWN, in screen pixels, as of the last frame.
+   *
+   * The hit-tests used to walk the MODEL while `draw` walked a filtered subset
+   * of it, and the two filters were never the same. Every disagreement was a
+   * bug in one direction or the other: a click on open ocean at world zoom
+   * opened the plan of a village too small to be drawn (the town search was a
+   * flat 14 px over all 160 settlements, which at full extent is 560 km of
+   * ground); pins you had switched off stayed clickable and deletable; the
+   * hamlets and mills the deep tiles name were drawn and completely inert; and
+   * regional entities were drawn at `x/W` but searched at `(x+0.5)/W`, half a
+   * cell — about 88 screen pixels at the only zoom where they exist — so they
+   * could never be hit at all.
+   *
+   * One list, filled by the layer that draws each thing, consumed by every
+   * pointer question. Dividing them again is how they drift again.
+   */
+  const painted = useRef<Hit[]>([]);
+  /** The tier the view is currently in, advanced with a dead band. Seeded from
+   *  the first camera it is given so the opening frame is not a transition. */
+  const tierRef = useRef<SemanticZoomTier>(semanticTier(viewport?.spanKm ?? 40075));
   const spaceRef = useRef(false);
   const brushing = !!tool && tool.mode !== 'off' && !!onEdit;
-  const brushRef = useRef({ tool, onEdit, geography, brushing });
-  brushRef.current = { tool, onEdit, geography, brushing };
+  // `onTool` rides along here rather than in the wheel effect's dependency
+  // list: the parent hands it down as a fresh closure every render, so a
+  // dependency would tear down and re-add the non-passive wheel listener on
+  // every keystroke anywhere in the panel.
+  const brushRef = useRef({ tool, onEdit, onTool, geography, brushing });
+  brushRef.current = { tool, onEdit, onTool, geography, brushing };
 
   const W = world.width, H = world.height;
   const spec = PROJECTIONS[projection];
@@ -163,10 +841,9 @@ export default function Map2D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [world, revision],
   );
-  const visibleSpatialEntities = useMemo(
-    () => [...landmarks, ...regionalEntities.filter((entity) => !entity.hidden)],
-    [landmarks, regionalEntities],
-  );
+  // (The union of landmarks and regional entities used to live here, for the
+  // hit-test to walk. It walks `painted` now — what the frame actually drew —
+  // so the two lists cannot fall out of step again.)
 
   // ---- layers -------------------------------------------------------------
   // `revision` is in the dependency list on purpose: painting MUTATES the world
@@ -218,7 +895,13 @@ export default function Map2D({
       const q = tileProps.current;
       if (!q.geography) return Promise.resolve(null);
       const deep = key.z >= SAT_DEEP_Z && !!q.canonWorld;
-      return regionClient.requestTile(
+      // The generation this request belongs to, captured NOW.
+      const bornAt = tileGeneration.current;
+      // The REQUEST, not just its promise. `DisplayTileStore` cancels tiles that
+      // leave the wanted set, and it can only do that if the loader hands the
+      // handle back — otherwise a one-second pan still queues every tile it
+      // crossed and the one the reader stopped on waits behind all of them.
+      const req = regionClient.requestTile(
         deep ? q.canonWorld! : q.world,
         q.geography,
         key,
@@ -230,18 +913,31 @@ export default function Map2D({
           reliefAmount: 1,
           edits: deep ? q.canonEdits : undefined,
         },
-      ).promise.then((res) => {
+      );
+      const promise = req.promise.then((res) => {
         if (!res) return null;
-        if (res.places?.length) {
+        // The store guards the BITMAP against a stale generation; nothing
+        // guarded the places, so a stroke's `clear()` was immediately undone by
+        // the pre-stroke requests landing, and hamlet names from the previous
+        // country were lettered over the new ground indefinitely.
+        if (res.places?.length && bornAt === tileGeneration.current) {
           const places = deepPlaces.current;
-          places.set(tileId(key), res.places);
-          if (places.size > 256) {
+          const id = tileId(key);
+          // LRU, and big enough to outlast the bitmap cache it shadows: a FIFO
+          // of 256 against a 320-tile LRU store meant names were evicted while
+          // their tile was still resident, and `fetch` returns early for a
+          // cached tile — so they never came back.
+          places.delete(id);
+          places.set(id, res.places);
+          while (places.size > 400) {
             const oldest = places.keys().next().value;
-            if (oldest !== undefined) places.delete(oldest);
+            if (oldest === undefined) break;
+            places.delete(oldest);
           }
         }
         return res.bitmap;
       }).catch(() => null);
+      return { promise, cancel: req.cancel };
     },
     () => requestDrawRef.current(),
   ), []);
@@ -249,6 +945,9 @@ export default function Map2D({
   const tileGeneration = useRef('');
   /** Level the pyramid is drawing at, for the parts of the UI outside draw(). */
   const tileLevel = useRef(-1);
+  /** The generation, level and (rounded) window the store was last asked to
+   *  BUILD for. See where it is used: asking is not free. */
+  const lastWant = useRef({ z: -1, key: '' });
 
   /**
    * The canon under the cursor.
@@ -278,17 +977,28 @@ export default function Map2D({
    * kilometre of ground per screen — twenty-eight screen pixels for one
    * twenty-kilometre cell, which is the porridge this whole change exists to
    * remove. The honest ceiling is whatever the deepest AVAILABLE tile level
-   * carries: with the canon behind it that is z18, one canon cell per 256-pixel
-   * tile, about 0,6 m per pixel. Half a level of slack on top so the last level
-   * can be magnified a little rather than stopping dead.
+   * carries: with the canon behind it that is z18 on a power-of-two world, one
+   * canon cell per 256-pixel tile, about 0,6 m per pixel. Half a level of slack
+   * on top so the last level can be magnified a little rather than stopping
+   * dead.
+   *
+   * AVAILABLE, not nominal — see `deepestSatelliteZ`. A 3072-wide world tops
+   * out at z16, and letting the camera reach z18 there bought two levels of
+   * fractal porridge dressed up as canon ground.
    */
+  const satTopZ = useMemo(
+    () => (canonWorld && geography ? deepestSatelliteZ(world) : -1),
+    [canonWorld, geography, world],
+  );
+  /** The floor to hand `levelFor`, in tile levels: the canon's own bottom where
+   *  there is a canon, the world raster's otherwise. */
+  const topZ = satTopZ >= SAT_DEEP_Z ? satTopZ : 12;
   const maxScaleRef = useRef(28);
   const maxScale = useMemo(() => {
-    const zTop = canonWorld && geography ? MAX_SAT_TILE_Z : 12;
     const usable = viewMode === 'atlas' && projection === 'equirect' && !!geography;
     if (!usable) return 28;
-    return (TILE_PX * Math.pow(2, zTop) / world.width) * 1.4;
-  }, [canonWorld, geography, viewMode, projection, world.width]);
+    return (TILE_PX * Math.pow(2, topZ) / world.width) * 1.4;
+  }, [topZ, geography, viewMode, projection, world.width]);
   maxScaleRef.current = maxScale;
 
   /** Refresh the palette AND the sharp window over a freshly sculpted rect —
@@ -297,7 +1007,7 @@ export default function Map2D({
     if (!unshadedAtlas || d.x1 < d.x0 || d.y1 < d.y0) return;
     updateAtlasCells(world, unshadedAtlas, d.x0 - 1, d.y0 - 1, d.x1 + 1, d.y1 + 1);
     const sh = sharpSat.current;
-    if (sh && sh.key === `${world.params.seed}:${revision}`) {
+    if (sh && sh.key === `${worldId(world)}:${revision}`) {
       const ppcX = sh.canvas.width / sh.vw, ppcY = sh.canvas.height / sh.vh;
       // Half-open pixel rect covering the dirty cells plus a blending skirt.
       const x0 = Math.max(sh.vx, d.x0 - 2), x1 = Math.min(sh.vx + sh.vw, d.x1 + 2);
@@ -377,11 +1087,48 @@ export default function Map2D({
   const sharpReady = useCallback((): boolean => {
     const sh = sharpSat.current;
     const v = viewRef.current;
-    return !!sh && !!v && v.scale >= 2.5 && sh.key === `${world.params.seed}:${revision}`;
+    return !!sh && !!v && v.scale >= 2.5 && sh.key === `${worldId(world)}:${revision}`;
   }, [world, revision]);
+
+  /**
+   * A live stroke belongs to ONE world object.
+   *
+   * `liveSculpt` and `liveBiome` mutate `world.elevation`/`world.biome` in
+   * place, and the only rollbacks were on pointerup and pointercancel. Two ways
+   * that lost: unmounting mid-stroke (switching view, or the world going null
+   * for a render) left the uncommitted deformation baked into the shared world,
+   * visible in the 3D and the carta until some other edit forced a replay; and a
+   * world SWAP mid-stroke made `rollbackLiveBiome` write the old world's saved
+   * biome values into the new world's array at the same flat indices, which is
+   * not a stale preview but corruption.
+   */
+  const liveWorld = useRef<WorldData | null>(null);
+  const abandonLive = useCallback(() => {
+    const g = liveSculpt.current;
+    const lb = liveBiome.current;
+    const owner = liveWorld.current;
+    liveSculpt.current = null;
+    liveBiome.current = null;
+    stroke.current = null;
+    liveWorld.current = null;
+    g?.rollback();
+    // The BIOME half too. Nulling `liveBiome` throws away the only record of the
+    // pre-stroke values — the first version of this did exactly that, so a world
+    // swap or an unmount mid-stroke left painted cells in `world.biome` that
+    // were in no edit list and undoable by nothing. Written back only into the
+    // world the stroke started on.
+    if (lb && owner) for (const [i, v] of lb.saved) owner.biome[i] = v;
+  }, []);
+  useEffect(() => {
+    // On unmount, and whenever the world underneath us is replaced.
+    if (liveWorld.current && liveWorld.current !== world) abandonLive();
+    return abandonLive;
+  }, [world, abandonLive]);
 
   /** Roll a live biome stroke back to the pre-stroke ground. */
   const rollbackLiveBiome = useCallback(() => {
+    // Never against a different world than the one the stroke started on.
+    if (liveWorld.current && liveWorld.current !== world) { liveBiome.current = null; return; }
     const lb = liveBiome.current;
     if (!lb) return;
     liveBiome.current = null;
@@ -434,10 +1181,13 @@ export default function Map2D({
     };
   }, [PH, PW, spec, wraps]);
 
+  /** The last camera this view told the parent about — so an echo of our own
+   *  report is not mistaken for someone else moving the camera. */
+  const lastReported = useRef<WorldViewport | null>(null);
   const reportViewport = useCallback(() => {
     if (!onViewportChange) return;
     const vp = computeViewport();
-    if (vp) onViewportChange(vp);
+    if (vp) { lastReported.current = vp; onViewportChange(vp); }
   }, [computeViewport, onViewportChange]);
 
   // ---- drawing --------------------------------------------------------------
@@ -446,15 +1196,43 @@ export default function Map2D({
     const view = viewRef.current;
     if (!canvas || !view) return;
     const ctx = canvas.getContext('2d')!;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // The export owns this ratio while it renders — see `exportScale`. Every
+    // other frame is a screen frame and uses the screen's.
+    const dpr = exportScale.current || Math.min(window.devicePixelRatio || 1, 2);
     const cw = canvas.width / dpr, ch = canvas.height / dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#07070d';
     ctx.fillRect(0, 0, cw, ch);
+    // Set ONCE, at the top, for the whole frame. It used to be set as a side
+    // effect inside the settlement block, so when towns were off (or on the
+    // first frame) every decluttered label rendered about half a line below the
+    // box the collision test had reserved for it.
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
 
     const { scale } = view;
     const mapW = PW * scale, mapH = PH * scale;
-    const semantic = semanticZoomProfile(40075 * cw / Math.max(1, mapW));
+    // Through the HYSTERESIS, not straight from the span. A camera resting near
+    // 520, 2 600 or 11 000 km used to flip tier on trackpad jitter, and each
+    // flip took a whole layer of names — and, worse, re-issued a full regional
+    // worker generation, because `regionalResolution` is a dependency of that
+    // effect. `nextSemanticTier` has provided a 14 % dead band since it was
+    // written and no caller had ever used it.
+    const spanKm = 40075 * cw / Math.max(1, mapW);
+    // To a FIXED POINT, not one step per frame. `nextSemanticTier` moves at most
+    // one position, and `applyViewport` schedules exactly one frame — so a jump
+    // from the fitted planetary view to a saved comarca rendered (and therefore
+    // hit-tested) two tiers stale, and the towns you had just flown to were
+    // neither drawn nor clickable until something else forced a redraw.
+    for (let guard = 0; guard < 4; guard++) {
+      const next = nextSemanticTier(tierRef.current, spanKm);
+      if (next === tierRef.current) break;
+      tierRef.current = next;
+    }
+    const semantic = profileForTier(tierRef.current);
+    // Filled as each layer draws; swapped in at the end so a half-built frame
+    // can never be what the pointer is tested against.
+    const hits: Hit[] = [];
     const mapLabels: Array<{
       value: { text: string; color: string; size: number; weight: number };
       x: number;
@@ -500,18 +1278,39 @@ export default function Map2D({
     ctx.imageSmoothingEnabled = scale < 3 || sharpEligible;
     ctx.imageSmoothingQuality = 'high';
 
+    /**
+     * The sharp window, blitted in every east–west copy.
+     *
+     * Pulled out because WHERE it goes depends on whether a live gesture is in
+     * flight. It is the only surface `patchLive` updates, so while the ground is
+     * deforming under the brush it has to go ON TOP of the pyramid; the rest of
+     * the time the pyramid is the sharper of the two and goes on top of it.
+     */
+    const live = !!liveSculpt.current || !!liveBiome.current;
+    const blitSharp = () => {
+      if (!sharpEligible || !sharpSat.current) return;
+      if (sharpSat.current.key !== `${worldId(world)}:${revision}`) return;
+      const sh = sharpSat.current;
+      for (let ox = firstOx; ox <= lastOx; ox += mapW) {
+        ctx.drawImage(sh.canvas, ox + sh.vx * scale, view.oy + sh.vy * scale, sh.vw * scale, sh.vh * scale);
+        if (!wraps) break;
+      }
+    };
+
     for (let ox = firstOx; ox <= lastOx; ox += mapW) {
       ctx.drawImage(baseCanvas, ox, view.oy, mapW, mapH);
-      if (sharpEligible && sharpSat.current && sharpSat.current.key === `${world.params.seed}:${revision}`) {
-        const sh = sharpSat.current;
-        ctx.drawImage(sh.canvas, ox + sh.vx * scale, view.oy + sh.vy * scale, sh.vw * scale, sh.vh * scale);
-      }
       if (showRivers && viewMode !== 'plates' && viewMode !== 'flow') {
         ctx.drawImage(riverCanvas, ox, view.oy, mapW, mapH);
       }
-
       if (!wraps) break;
     }
+    // `!tilesEligible` matters: the second call below lives INSIDE the pyramid
+    // block, which needs `geography` — and `geography` is null for the first
+    // second and a half of every world. Without this term, starting a stroke in
+    // that window left the reader painting against the 39 km raster with nothing
+    // but the ring, which is the failure the conditional order exists to prevent.
+    const pyramidHere = viewMode === 'atlas' && projection === 'equirect' && !!geography;
+    if (!live || !pyramidHere) blitSharp();
 
     // ---- the satellite pyramid ---------------------------------------------
     // Drawn OVER the world raster, never instead of it. The raster is the
@@ -519,29 +1318,88 @@ export default function Map2D({
     // when the brush has changed the ground under the reader's hand and no
     // tile can know it yet — and the pyramid covers it wherever a tile, or an
     // ancestor's quarter, is resident. Blurry then sharp, never blank.
-    const tilesEligible = viewMode === 'atlas' && projection === 'equirect'
-      && !!geography && !stroke.current;
+    // NOT `&& !stroke.current`. That term deleted the entire satellite pyramid
+    // for the duration of a gesture — so at the depth the satellite exists for,
+    // pressing the brush replaced photographic ground with a 20 km/cell wash
+    // and the reader painted blind until they let go.
+    //
+    // But simply removing it was WORSE, and the first draft of this comment was
+    // wrong about why: the pyramid draws AFTER the sharp window, so it covered
+    // the only surface the live brush updates and the reader saw nothing but the
+    // ring. The order is now conditional — see `blitSharp` above.
+    const tilesEligible = pyramidHere;
     let tileZ = -1;
     if (!tilesEligible) tileLevel.current = -1;
     if (tilesEligible) {
       // A painted stroke is a different country: bumping the generation empties
       // the store rather than showing tiles of the world as it was.
-      const gen = `${world.params.seed}:${revision}:${showRivers ? 1 : 0}:${canonWorld ? 1 : 0}`;
+      // Keyed on what the tiles actually INK, not on object identity. Keying on
+      // `worldId(geography)` looked right and was a disaster: the two-pass
+      // geography produces a new object per pass, so the deep half landing
+      // (seconds later, once per world) threw the entire pyramid away, closed
+      // every bitmap and re-configured the worker session — the reader watched
+      // the ground go blurry a second time for no change they could see. The
+      // counts move exactly when a road, a town or a ruin appears or goes.
+      const gen = `${worldId(world)}:${revision}`
+        + `:${geography ? `${geography.roads.length}/${geography.settlements.length}/${geography.ruins.length}` : '-'}`
+        + `:${showRivers ? 1 : 0}:${canonWorld ? worldId(canonWorld) : 0}`;
       if (gen !== tileGeneration.current) {
         tileGeneration.current = gen;
         deepPlaces.current.clear();
       }
       tileStore.setGeneration(gen);
-      tileZ = levelFor(world, scale, canonWorld ? MAX_SAT_TILE_Z : 12);
+      // `topZ`, not `MAX_SAT_TILE_Z`: the camera stops half a level past the
+      // deepest level this world supports, and `levelFor` rounds UP — so a bare
+      // `MAX_SAT_TILE_Z` here would still ask for the level above the floor at
+      // full zoom, which on a 3072-wide world is a level the canon cannot draw.
+      tileZ = levelFor(world, scale, topZ);
       const tv = { x: -view.ox / scale, y: -view.oy / scale, w: cw / scale, h: ch / scale };
       tileLevel.current = tileZ;
-      tileStore.want(world, tileZ, tv);
+      /**
+       * ASK for tiles only when the asking buys something.
+       *
+       * `want` QUEUES A BUILD for every tile of the window, and a pan crosses a
+       * new window on every frame — so a one-second drag queued hundreds of
+       * tiles of ground the reader had already scrolled past, and the tiles
+       * under the cursor when they let go arrived last, behind all of it.
+       *
+       * Still view: ask. Level changed: ask even mid-drag, because a wheel tick
+       * switches the whole pyramid and waiting for the hand to stop would leave
+       * the reader staring at an ancestor's blur. Same window as last time:
+       * there is nothing new to ask for. `draw` below still runs every frame —
+       * what IS resident keeps being composited, dragging or not.
+       */
+      // Keyed on TILE INDICES, not on world cells. `tv` is in cells and the
+      // camera now reaches ~92 000 px per cell, so at deep zoom a whole
+      // screenful is less than one cell: `Math.round(tv.w)` was 0 and a full
+      // screen-width pan left the key unchanged — the ground you panned onto was
+      // never requested at all, for ever, because the post-drag redraw found the
+      // same key. Tile indices move exactly when the wanted SET moves.
+      const cellsPerTile = W / tileCountX(tileZ);
+      const wantKey = `${gen}|${tileZ}|${Math.floor(tv.x / cellsPerTile)},${Math.floor(tv.y / cellsPerTile)}`
+        + `,${Math.ceil((tv.x + tv.w) / cellsPerTile)},${Math.ceil((tv.y + tv.h) / cellsPerTile)}`;
+      if ((!dragRef.current || tileZ !== lastWant.current.z) && wantKey !== lastWant.current.key) {
+        lastWant.current = { z: tileZ, key: wantKey };
+        tileStore.want(world, tileZ, tv);
+      }
       const got = tileStore.draw(ctx, world, tileZ, tv, { x: 0, y: 0, w: cw, h: ch });
+      // The live ground goes back on top: `patchLive` writes the deforming
+      // cells into the sharp window and nowhere else, so under the tiles it is
+      // invisible and the reader paints by ring alone.
+      if (live) blitSharp();
       // Say so when the ground under the reader is still an ancestor's blur.
       // A stroke empties the store — the canon has to be rebuilt with it — and
       // without a word of warning that reads as "the paint did nothing".
-      if (got.exact < got.needed) {
-        const msg = `terreno · ${got.exact}/${got.needed}`;
+      // Something is still missing. Drop the guard so the NEXT frame asks again:
+      // a tile that resolved null (worker error, or cancelled by a level flip)
+      // clears its in-flight marker and is simply never re-requested otherwise,
+      // and the reader is left looking at a blurry square on a still map.
+      if (got.exact < got.needed) lastWant.current = { z: -1, key: '' };
+      // ...but never bake the progress chip into an export.
+      if (got.exact < got.needed && !exportScale.current) {
+        const msg = t('worldgen.map.terrainTiles')
+          .replace('{exact}', String(got.exact))
+          .replace('{needed}', String(got.needed));
         ctx.font = '500 11px "Source Sans 3", sans-serif';
         const tw = ctx.measureText(msg).width;
         ctx.fillStyle = 'rgba(7,7,13,0.62)';
@@ -553,6 +1411,26 @@ export default function Map2D({
       }
     }
 
+    /**
+     * THE TILES ARE DRAWING THE INHABITED WORLD THEMSELVES.
+     *
+     * From the level where deep tiles are eligible they ink real buildings and
+     * re-emit the world's own towns as `deepPlaces`, so every layer above that
+     * draws a place has to stand down or the reader gets the same hamlet twice.
+     * The Carta has had exactly this rule since it existed — `settlements:
+     * wantMarks && !deep` in `CartoMap.drawLettering` — and it is the rule two
+     * separate layers here were missing.
+     *
+     * Declared HERE, where `tileZ` settles, rather than three screens down next
+     * to the settlement dots: it is a fact about the frame, and every consumer
+     * of it has to agree. `satelliteDeepSupported` is part of it because on a
+     * world whose canon lattice does not divide the display grid the pyramid
+     * never reaches canon ground, nothing is inked, and standing down would
+     * leave the map with no places at all.
+     */
+    const deepMarks = tilesEligible && tileZ >= SAT_DEEP_Z
+      && !!canonWorld && satelliteDeepSupported(world, tileZ);
+
     // Book a fresh window once the view rests. Booked from draw() so any
     // gesture reschedules it; rendered synchronously after 170 ms of quiet,
     // which is the same "still, then real" contract the other views keep.
@@ -561,10 +1439,14 @@ export default function Map2D({
         x: -view.ox / scale, y: -view.oy / scale, w: cw / scale, h: ch / scale,
       };
       const cur = sharpSat.current;
-      const key = `${world.params.seed}:${revision}`;
+      const key = `${worldId(world)}:${revision}`;
+      // `vh` too. Omitting it meant a HEIGHT-only resize — opening a side panel,
+      // dragging the window taller — left `x`, `y` and `w` bit-identical, so the
+      // window was judged fresh, the 170 ms settle never re-booked, and the strip
+      // of viewport that had just appeared kept the coarse raster permanently.
       const stale = !cur || cur.key !== key
         || Math.abs(cur.vx - want.x) > 1e-6 || Math.abs(cur.vy - want.y) > 1e-6
-        || Math.abs(cur.vw - want.w) > 1e-6;
+        || Math.abs(cur.vw - want.w) > 1e-6 || Math.abs(cur.vh - want.h) > 1e-6;
       if (stale) {
         window.clearTimeout(sharpTimer.current);
         sharpTimer.current = window.setTimeout(() => {
@@ -622,7 +1504,14 @@ export default function Map2D({
     // would paint a coarse wash straight over the sharp ground at exactly the
     // zoom levels this change exists to fix. Its places still feed the
     // regional entity overlay, which is why it is still requested.
-    if (regionalCanvas && regionDetail && semantic.showRegionalTerrain && !tilesEligible) {
+    // `viewMode === 'atlas'` is not optional: the composite's pixels are BIOME
+    // colours (`makeRegionalTerrainCanvas` reads `BIOME_COLORS`), and the only
+    // reason it ever drew in the elevation/temperature/precipitation/plates/flow
+    // modes is that `tilesEligible` is false in exactly those modes. So a green
+    // forest and a tan desert were being pasted over the middle of a temperature
+    // map, at alpha 0.82–0.96.
+    if (regionalCanvas && regionDetail && semantic.showRegionalTerrain
+      && !tilesEligible && viewMode === 'atlas' && projection === 'equirect') {
       const visible = regionVisibleRect(regionDetail);
       const worldX0 = regionDetail.originX + visible.x * regionDetail.worldPerCellX;
       const worldY0 = regionDetail.originY + visible.y * regionDetail.worldPerCellY;
@@ -656,33 +1545,209 @@ export default function Map2D({
     }
 
     // Graticule — sampled polylines so curved projections curve.
+    //
+    // The step follows the zoom. It was a hard 30° lattice, which meant that
+    // below about three thousand kilometres of span the "malla" switch was on
+    // and NOTHING was on screen: the nearest parallel and the nearest meridian
+    // were both off the edge.
     if (showGrid) {
+      const stepDeg = semantic.tier === 'planetary' ? 30
+        : semantic.tier === 'continental' ? 10
+          : semantic.tier === 'regional' ? 2 : 0.5;
       ctx.lineWidth = 1;
       for (const copyOx of copies) {
-        // Parallels every 30°.
-        for (let lat = -60; lat <= 60; lat += 30) {
-          ctx.strokeStyle = lat === 0 ? 'rgba(232,229,224,0.28)' : 'rgba(232,229,224,0.14)';
-          ctx.setLineDash(lat === 0 ? [] : [4, 4]);
-          ctx.beginPath();
+        for (let lat = -90 + stepDeg; lat <= 90 - stepDeg / 2; lat += stepDeg) {
           const v = 0.5 - lat / 180;
+          if (v < 0 || v > 1) continue;
+          // Cheap reject: a parallel entirely off the top or bottom costs
+          // nothing to skip and 120 forward projections to draw.
+          const [, probeY] = toScreen(0.5, v, copyOx);
+          if (probeY < -40 || probeY > ch + 40) continue;
+          const major = Math.abs(lat) < 1e-6;
+          ctx.strokeStyle = major ? 'rgba(232,229,224,0.28)' : 'rgba(232,229,224,0.14)';
+          ctx.setLineDash(major ? [] : [4, 4]);
+          ctx.beginPath();
           for (let k = 0; k <= 120; k++) {
             const [sx, sy] = toScreen(k / 120, v, copyOx);
             if (k === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
           }
           ctx.stroke();
         }
-        // Meridians every 30°.
         ctx.strokeStyle = 'rgba(232,229,224,0.14)';
         ctx.setLineDash([4, 4]);
-        for (let m = 0; m < 12; m++) {
+        for (let lon = -180; lon < 180; lon += stepDeg) {
+          const u = 0.5 + lon / 360;
+          const [probeX] = toScreen(u, 0.5, copyOx);
+          if (probeX < -40 || probeX > cw + 40) continue;
           ctx.beginPath();
           for (let k = 0; k <= 60; k++) {
-            const [sx, sy] = toScreen(m / 12, k / 60, copyOx);
+            const [sx, sy] = toScreen(u, k / 60, copyOx);
             if (k === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
           }
           ctx.stroke();
         }
         ctx.setLineDash([]);
+      }
+    }
+
+    // ---- realm boundaries ---------------------------------------------------
+    // Under the roads and everything else human: a frontier is a fact about the
+    // ground, and a road crosses it rather than the other way round.
+    // (This used to say "lines only, no political wash". It has drawn the wash
+    // since the frontier tool arrived — a hue with no name and no fill told the
+    // reader that ground was claimed and never by whom — and a comment denying
+    // the layer under it is worse than none.)
+    if (showBorders && geography && geography.realms.length) {
+      // The wash first, then the ink: a frontier is drawn ON the country, and
+      // the border must not be washed over by the colour it belongs to.
+      // REPROJECTED, into the same sheet the ground is drawn on — see
+      // `projectedRealmTint` for what the flat blit did to every projection but
+      // equirect, and why the border lines never showed it.
+      const tint = projectedRealmTint(world, geography, projection);
+      if (tint) {
+        ctx.save();
+        ctx.globalAlpha = 0.16;
+        ctx.imageSmoothingEnabled = true;
+        for (let ox = firstOx; ox <= lastOx; ox += mapW) {
+          ctx.drawImage(tint, ox, view.oy, mapW, mapH);
+          if (!wraps) break;
+        }
+        ctx.restore();
+      }
+      const segs = realmBorders(world, geography);
+      const pxPerCell = (PW * scale) / W;
+      for (const copyOx of copies) {
+        drawRealmBorders(ctx, segs, {
+          worldWidth: W,
+          worldHeight: H,
+          toScreen: (u, v) => toScreen(u, v, copyOx),
+          width: cw,
+          height: ch,
+          pxPerCell,
+          // THIS copy's window, in its own CELL coordinates — see `cellWindow`,
+          // which is where the projected-sheet rows this used to hand over (and
+          // the frontier that therefore vanished in azimuthal) are converted.
+          // One shared window meant the fitted view projected every segment
+          // three times over, so it stays per copy.
+          view: cellWindow(
+            spec,
+            { copyOx, oy: view.oy, mapW, mapH, cw, ch },
+            W,
+            H,
+          ),
+          // The projection is affine here, so the endpoints need no closure and
+          // no tuple per point. Only equirect: every other projection curves.
+          linear: projection === 'equirect'
+            ? { ox: copyOx, oy: view.oy, scale: pxPerCell }
+            : undefined,
+          alpha: 0.72,
+        });
+      }
+
+      // ---- and whose they are -----------------------------------------------
+      // Borders were drawn and no realm was ever named, so the political layer
+      // was a set of coloured lines around nothing: the reader could see that
+      // the world was divided and not into what. The anchor is cached on
+      // `realmOf` (see `realmAnchors`), so a pan costs one projection and one
+      // measurement per realm.
+      const anchors = realmAnchors(W, H, geography);
+      for (let r = 0; r < geography.realms.length; r++) {
+        const anchor = anchors[r];
+        const realm = geography.realms[r];
+        if (!anchor || !realm?.name) continue;
+        // How wide the country is on screen, as the side of a square of the
+        // same area. Under ~120 px the name comes out wider than the thing it
+        // names, which is the classic way a generated map lies about its own
+        // political geography.
+        const across = Math.sqrt(anchor.cells) * pxPerCell;
+        if (across < 120) continue;
+        const size = Math.max(10, Math.min(18, 9 + across / 90));
+        // Letter-spaced caps, the way an atlas letters a country — with REAL
+        // spaces, because `measureText` is what reserves the box the
+        // declutterer reasons about and canvas letter-spacing is not in it.
+        const text = [...realm.name.toUpperCase()].join(' ');
+        ctx.font = `600 ${size}px "Source Sans 3", sans-serif`;
+        const half = ctx.measureText(text).width / 2;
+        for (const copyOx of copies) {
+          const [sx, sy] = toScreen((anchor.x + 0.5) / W, (anchor.y + 0.5) / H, copyOx);
+          if (sx < -160 || sx > cw + 160 || sy < -30 || sy > ch + 30) continue;
+          queueLabel(
+            // Centred: `queueLabel` places from the LEFT edge, and a country
+            // name hung off its own centroid drifts into the neighbour.
+            text, sx - half, sy,
+            `hsl(${realm.hue} 55% 78%)`, size, 600,
+            // Above the towns, which top out at 100: with the political layer
+            // switched on, the country is the thing the reader switched it on
+            // to see. Below the seas, which only letter where they have room.
+            110,
+          );
+        }
+      }
+    }
+
+    // ---- the roads ----------------------------------------------------------
+    // Over the ground, under everything that is a mark rather than a place: a
+    // road runs THROUGH the country and the towns sit ON it, so a dot must
+    // never end up hidden under a calzada.
+    //
+    // The deep tiles ink their own draped tracks, but only from the level where
+    // a canon cell is 1,5 output pixels — z11 on a 2048 world. Above that this
+    // layer is the only road there is; from there it fades out so the two
+    // drawings of the same road cross over instead of blinking.
+    if (showRoads && geography && geography.roads.length) {
+      // `satelliteDeepSupported` matters: on a world whose canon lattice does
+      // not divide the display grid the pyramid never reaches canon ground, so
+      // nothing else would ever draw a road and fading out would leave the map
+      // with none at any zoom.
+      const inkedPx = tilesEligible && canonWorld && tileZ >= SAT_DEEP_Z
+        && satelliteDeepSupported(world, tileZ)
+        ? satPxPerCanonCell(world, tileZ) : 0;
+      const alpha = roadOverlayAlpha(inkedPx);
+      if (alpha > 0.01) {
+        const pxPerCell = (PW * scale) / W;
+        // Once per road array, ever — see `roadBoxes`. This is the un-wrap that
+        // used to run per copy, per frame, in front of the cull that needed it.
+        const boxes = roadBoxes(geography.roads, W);
+        // The same 24-pixel skirt `roadScreenPath` culls with, expressed in
+        // cells, plus one: the two tests have to agree, and this one has to be
+        // the more generous of them or it would reject roads the layer would
+        // have drawn.
+        const pad = 24 / pxPerCell + 1;
+        for (const copyOx of copies) {
+          const win = cellWindow(spec, { copyOx, oy: view.oy, mapW, mapH, cw, ch }, W, H);
+          const x0 = win.x - pad, x1 = win.x + win.w + pad;
+          const y0 = win.y - pad, y1 = win.y + win.h + pad;
+          /**
+           * THIS copy's roads, chosen in cell space before anything is built.
+           *
+           * Testing the road's own un-wrapped coordinates against this copy's
+           * own window is exactly right and needs no modulo. A copy draws cell
+           * x at `ox + x·pxPerCell`, and consecutive copies' windows are one
+           * world apart in exactly the same coordinates — so a road that
+           * `unwrapRoad` carried past the antimeridian (x ≥ W, or x < 0) falls
+           * inside the window of the neighbouring copy, which is the copy that
+           * puts it on screen. Every visible road is accepted by exactly the
+           * copy that draws it; fuzzed against the screen-space test the layer
+           * already does, over both cylindrical projections and five zooms,
+           * nothing that used to be drawn is rejected here.
+           */
+          const here: Road[] = [];
+          for (let i = 0; i < geography.roads.length; i++) {
+            if (boxes[i * 4 + 2] < x0 || boxes[i * 4] > x1) continue;
+            if (boxes[i * 4 + 3] < y0 || boxes[i * 4 + 1] > y1) continue;
+            here.push(geography.roads[i]);
+          }
+          if (!here.length) continue;
+          drawRoadNetwork(ctx, here, {
+            worldWidth: W,
+            worldHeight: H,
+            toScreen: (u, v) => toScreen(u, v, copyOx),
+            width: cw,
+            height: ch,
+            pxPerCell,
+            alpha,
+          });
+        }
       }
     }
 
@@ -693,6 +1758,10 @@ export default function Map2D({
           if (!semantic.showMinorLandmarks && lm.importance < 0.26) continue;
           const [sx, sy] = toScreen((lm.x + 0.5) / W, (lm.y + 0.5) / H, copyOx);
           if (sx < -20 || sx > cw + 20 || sy < -20 || sy > ch + 20) continue;
+          hits.push({
+            kind: 'entity', x: sx, y: sy, entity: lm,
+            reach: 9 * Math.max(0.75, lm.style.size ?? 1), bias: 0.9,
+          });
           drawLandmark(ctx, lm, sx, sy, lm.key === selectedSpatialKey);
           if ((lm.style.labelVisible ?? false)
               || lm.key === selectedSpatialKey
@@ -711,6 +1780,29 @@ export default function Map2D({
       }
     }
 
+    /**
+     * The regional sheet's own places — and NOT once the tiles have their own.
+     *
+     * The composite RASTER above already stands down for `tilesEligible`; its
+     * places did not, and drew straight through every level the deep tiles
+     * letter. Two failures, one on each side of the hand-over:
+     *
+     *   Below ~100 km both lists come from the same canon, so every hamlet got
+     *   two marks, two identical names into the declutterer (where they fight
+     *   each other for a box neither can win) and two `hits` entries with
+     *   different biases — so which of the two a click landed on depended on
+     *   the order the arrays happened to be in.
+     *
+     *   Between ~100 and ~700 km they do not even agree: the regional layer is
+     *   the freeform sheet and the tiles are the canon, so the reader sees two
+     *   different sets of places, with different names, over the same ground.
+     *   The canon exists to abolish exactly that disagreement.
+     *
+     * So the Carta's rule, `settlements: wantMarks && !deep`, applied here —
+     * to the INHABITED half only. Volcanoes, caves, waterfalls, gorges and hot
+     * springs are the landmark layer; the tiles do not re-emit those, and
+     * dropping them would take named geography off the map for nothing.
+     */
     if (regionalEntities.length && semantic.showRegionalTerrain) {
       ctx.font = '600 10px "Source Sans 3", sans-serif';
       for (const copyOx of copies) {
@@ -719,13 +1811,17 @@ export default function Map2D({
           const natural = entity.type === 'volcano' || entity.type === 'cave'
             || entity.type === 'waterfall' || entity.type === 'gorge'
             || entity.type === 'hotspring' || entity.kind === 'landmark';
-          if ((natural && !showLandmarks) || (!natural && !showSettlements)) continue;
+          if (natural ? !showLandmarks : (!showSettlements || deepMarks)) continue;
           const [sx, sy] = toScreen(
             ((entity.x / W) % 1 + 1) % 1,
             Math.min(1, Math.max(0, entity.y / H)),
             copyOx,
           );
           if (sx < -30 || sx > cw + 30 || sy < -20 || sy > ch + 20) continue;
+          hits.push({
+            kind: 'entity', x: sx, y: sy, entity,
+            reach: 9 * Math.max(0.75, entity.style.size ?? 1), bias: 0.85,
+          });
           drawRegionalEntity(ctx, entity, sx, sy, entity.key === selectedSpatialKey);
           if (semantic.tier === 'local' || entity.importance > 0.55
               || entity.style.labelVisible || entity.key === selectedSpatialKey) {
@@ -743,8 +1839,148 @@ export default function Map2D({
       }
     }
 
+    // ---- ruins --------------------------------------------------------------
+    // Before the towns, so a living place always wins the space fight: a ruin
+    // crowding out a city is the wrong way round. Below the regional tier they
+    // are clutter rather than information, which is the Carta's rule too.
+    if (showFeatures && geography && geography.ruins.length
+      && (semantic.tier === 'regional' || semantic.tier === 'local')) {
+      ctx.save();
+      ctx.globalAlpha = 0.82;
+      for (const copyOx of copies) {
+        for (const ru of geography.ruins) {
+          const [sx, sy] = toScreen((ru.x + 0.5) / W, (ru.y + 0.5) / H, copyOx);
+          if (sx < -20 || sx > cw + 20 || sy < -20 || sy > ch + 20) continue;
+          const r = ru.kind === 'city' ? 4.2 : ru.kind === 'fort' ? 3.8 : 3.2;
+          // A broken square: the universal "this was a building and is not any
+          // more", and legible at four pixels where a drawn ruin symbol is mud.
+          ctx.strokeStyle = 'rgba(226,214,190,0.85)';
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(sx - r, sy + r); ctx.lineTo(sx - r, sy - r); ctx.lineTo(sx, sy - r);
+          ctx.moveTo(sx + r, sy - r * 0.2); ctx.lineTo(sx + r, sy + r); ctx.lineTo(sx + r * 0.1, sy + r);
+          ctx.stroke();
+          hits.push({
+            kind: 'note', x: sx, y: sy, reach: r + 7, bias: 1.2,
+            note: `${ru.name} · ${t('worldgen.atlas.kind.ruin')}`,
+          });
+          if (semantic.tier === 'local') {
+            queueLabel(ru.name, sx + r + 4, sy, '#ddd2ba', 9.5, 500, 20 + ru.importance * 20);
+          }
+        }
+      }
+      ctx.restore();
+    }
+
+    // ---- named geography ----------------------------------------------------
+    // The seas, ranges, plains and capes the generator named. No mark, only
+    // type: a named sea IS its extent, and a dot in the middle of it would be a
+    // lie about where it is. Sized by importance, gated on the feature actually
+    // being big enough on screen to carry its own name — the classic way a
+    // generated map betrays itself is a continent label wider than its continent.
+    if (showFeatures && geography && geography.features.length) {
+      for (const copyOx of copies) {
+        for (const f of geography.features) {
+          if (f.kind === 'peak') continue;
+          /**
+           * Rivers ARE named here now.
+           *
+           * The river is the most-used label on a working map and the generator
+           * has named them since it existed; this block skipped them because a
+           * river wants its name set along its course, and that machinery lives
+           * in `cartography/overlay` — where it can afford a settled sheet and a
+           * path solve. A straight label at the anchor is not that drawing. It
+           * is the NAME, which nothing in this view showed at all: the reader
+           * could see the blue line and had to open the carta to learn what it
+           * was called.
+           *
+           * Only from the regional tier down. `x, y` is one point 55 % along the
+           * course, so at planetary zoom the name of every watercourse in the
+           * world would pile up on the coasts and fight the seas for the space.
+           */
+          const river = f.kind === 'river';
+          if (river && semantic.tier !== 'regional' && semantic.tier !== 'local') continue;
+          // The size gate is about AREA and a river has none — its `extent` is
+          // the length of its course, which would let a creek through and stop
+          // nothing.
+          if (!river && f.extent * ((PW * scale) / W) < 46) continue;
+          const [sx, sy] = toScreen((f.x + 0.5) / W, (f.y + 0.5) / H, copyOx);
+          if (sx < -80 || sx > cw + 80 || sy < -30 || sy > ch + 30) continue;
+          const water = river || f.kind === 'sea' || f.kind === 'bay' || f.kind === 'strait'
+            || f.kind === 'ocean' || f.kind === 'lake' || f.kind === 'marsh';
+          // Reach follows the FEATURE, not the type: a sea answers over the sea.
+          hits.push({
+            kind: 'note', x: sx, y: sy, bias: 1.6,
+            // Except a river, whose anchor is a point ON a line: sized from its
+            // course length it would answer the hover over a disc a hundred
+            // kilometres wide and shadow the ground on both banks.
+            reach: river ? 16 : Math.max(14, Math.min(140, f.extent * ((PW * scale) / W) * 0.45)),
+            // A generated river is named "Río X" — the kind is already in the
+            // name, so appending it reads as a stutter.
+            note: river ? f.name : `${f.name} · ${f.kind}`,
+          });
+          queueLabel(
+            f.name.toUpperCase(),
+            sx, sy,
+            water ? 'rgba(178,214,236,0.92)' : 'rgba(238,228,205,0.9)',
+            river
+              ? Math.max(9, Math.min(12, 8 + f.importance * 5))
+              : Math.max(9, Math.min(17, 10 + f.importance * 7)),
+            600,
+            // Above the towns: at the zoom where a sea has room for its name,
+            // the sea is what you are looking at. A river goes just over the
+            // towns too (they top out at 100) and under the realms and the
+            // seas, which name more ground than it does.
+            river ? 96 + f.importance * 12 : 120 + f.importance * 30,
+          );
+        }
+      }
+    }
+
+    // ---- the names the reader typed -----------------------------------------
+    // `painted.labels` had exactly one consumer in the whole tree — the Carta.
+    // The Rótulo tool is only usable in THIS view and in the 3D, so every label
+    // anyone has ever placed was invisible at the moment of placing it.
+    if (world.painted?.labels?.length) {
+      for (const copyOx of copies) {
+        for (const pl of world.painted.labels) {
+          const [sx, sy] = toScreen((pl.x + 0.5) / W, (pl.y + 0.5) / H, copyOx);
+          if (sx < -100 || sx > cw + 100 || sy < -30 || sy > ch + 30) continue;
+          hits.push({
+            kind: 'note', x: sx, y: sy, reach: 22, bias: 0.9,
+            note: `${pl.text} · ${t('worldgen.hover.yourLabel')}`,
+          });
+          queueLabel(
+            pl.style === 'region' || pl.style === 'range' ? pl.text.toUpperCase() : pl.text,
+            sx, sy,
+            pl.style === 'water' ? 'rgba(178,214,236,0.96)' : '#ffe9c2',
+            Math.max(9, Math.min(22, pl.size ?? 12)),
+            600,
+            // Highest band there is: the reader wrote it, so it outranks
+            // anything the generator came up with.
+            400,
+          );
+        }
+      }
+    }
+
     // Towns. Drawn before the waypoints so a pin the reader placed is never
     // hidden behind a dot the generator placed.
+    // At canon depth the tiles carry the real buildings AND re-emit the world's
+    // own towns as places, so drawing the rank dots too stamped a second, darker
+    // dot on every town and put two identical names into the declutterer to
+    // fight each other. The Carta solved this long ago with `settlements:
+    // wantMarks && !deep`; this is the same rule.
+    //
+    // But only the DOT. The first version of this skipped the whole block, and
+    // the block is where the hits are pushed — so below about 850 km of span
+    // (z9 on a 1400 px canvas) there were no settlement hits at all: clicking a
+    // town did not open its plan, the Camino brush was dead at exactly the zoom
+    // roads are drawn at, the journey picker was dead, and the pending-road ring
+    // had nothing to draw on. The town is still on screen at those levels, drawn
+    // by the tiles, so it must still be clickable.
+    // (`deepMarks` is decided up where `tileZ` settles — the regional-entity
+    // overlay needs the same answer and reads it long before this block.)
     if (showSettlements && geography) {
       // Only as much of the gazetteer as the zoom can carry: every village at
       // full extent is a grey smear along every coast.
@@ -755,13 +1991,35 @@ export default function Map2D({
       for (const copyOx of copies) {
         for (const s of geography.settlements) {
           const rank = order[s.rank] ?? 3;
-          if (rank > maxRank) continue;
+          // The town a road is being laid FROM always draws, whatever the zoom
+          // says about its rank: half a gesture with an invisible first end is
+          // the reader wondering whether the click registered at all.
+          const pending = roadFrom?.id === s.id;
+          if (rank > maxRank && !pending) continue;
           const [sx, sy] = toScreen((s.x + 0.5) / W, (s.y + 0.5) / H, copyOx);
           if (sx < -40 || sx > cw + 40 || sy < -20 || sy > ch + 20) continue;
           const r = rank === 0 ? 5 : rank === 1 ? 4 : rank === 2 ? 3 : 2.2;
+          // The reach is the DOT plus a finger's worth, not a flat 14 px over
+          // every town in the world — see the note on `painted`.
+          hits.push({
+            kind: 'settlement', x: sx, y: sy, settlement: s,
+            reach: r + 9, bias: [0.45, 0.65, 0.85, 1][rank] ?? 1,
+          });
+          if (pending) {
+            ctx.beginPath();
+            ctx.arc(sx, sy, r + 5, 0, Math.PI * 2);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = 'rgba(255,214,120,0.95)';
+            ctx.setLineDash([3, 3]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+          // From here down is the MARK. The tiles draw it themselves at canon
+          // depth; the hit and the pending ring above are ours at every level.
+          if (deepMarks) continue;
           ctx.beginPath();
           ctx.arc(sx, sy, r, 0, Math.PI * 2);
-          ctx.fillStyle = rank === 0 ? '#ffd479' : '#f4ead4';
+          ctx.fillStyle = pending ? '#ffd479' : rank === 0 ? '#ffd479' : '#f4ead4';
           ctx.fill();
           ctx.lineWidth = 1.5;
           ctx.strokeStyle = 'rgba(6,8,13,0.92)';
@@ -788,15 +2046,31 @@ export default function Map2D({
     // only in the canon, so nothing above knows about them; they are lettered
     // live here, like every other label, because a name baked into a tile is
     // pinned to the wrong pixels the moment the view moves.
-    if (tilesEligible && tileZ >= SAT_DEEP_Z) {
+    // THE LAYER SWITCHES REACH DOWN HERE TOO.
+    //
+    // This block was gated on the pyramid alone, so "Poblaciones" and
+    // "Accidentes" off left the deep tiles' names — and their hits — on the
+    // map: the reader turns the towns off to look at bare ground and every
+    // hamlet, farm and mill is still lettered across it. A switch that clears
+    // the world raster's marks and not the canon's is a switch that stopped
+    // working at exactly the zoom where there is most to clear.
+    //
+    // Split the way the two props are documented: `showFeatures` is named
+    // geography and abandoned places, `showSettlements` is where people live
+    // and work. Nothing here belongs to `showLandmarks` — the canon's own
+    // landmarks come up as `landmark`/`crag` and read as geography.
+    if (tilesEligible && tileZ >= SAT_DEEP_Z && (showSettlements || showFeatures)) {
       const prefix = `${tileZ}/`;
       for (const [id, places] of deepPlaces.current) {
         if (!id.startsWith(prefix)) continue;
         for (const p of places) {
+          const geographic = DEEP_FEATURE_KINDS.has(p.kind);
+          if (geographic ? !showFeatures : !showSettlements) continue;
           for (const copyOx of copies) {
             const [sx, sy] = toScreen(p.worldX / W, p.worldY / H, copyOx);
             if (sx < -80 || sx > cw + 80 || sy < -30 || sy > ch + 30) continue;
             const big = p.kind === 'town' || p.kind === 'village';
+            hits.push({ kind: 'place', x: sx, y: sy, place: p, reach: big ? 10 : 8, bias: 1.1 });
             ctx.beginPath();
             ctx.arc(sx, sy, big ? 3 : 2, 0, Math.PI * 2);
             ctx.fillStyle = 'rgba(20,18,14,0.75)';
@@ -819,6 +2093,8 @@ export default function Map2D({
           const [sx, sy] = toScreen(wp.u, wp.v, copyOx);
           if (sx < -60 || sx > cw + 60 || sy < -30 || sy > ch + 30) continue;
           const selected = wp.id === selectedWaypointId;
+          // A pin the reader put down outranks everything the generator placed.
+          hits.push({ kind: 'waypoint', x: sx, y: sy, waypointId: wp.id, reach: 11, bias: 0.35 });
           ctx.beginPath();
           ctx.arc(sx, sy, selected ? 6 : 4.5, 0, Math.PI * 2);
           ctx.fillStyle = wp.color;
@@ -826,14 +2102,16 @@ export default function Map2D({
           ctx.lineWidth = selected ? 2 : 1.25;
           ctx.strokeStyle = selected ? '#e8e5e0' : 'rgba(7,7,13,0.85)';
           ctx.stroke();
-          const label = wp.name;
-          const tw = ctx.measureText(label).width;
-          ctx.fillStyle = 'rgba(7, 7, 13, 0.72)';
-          ctx.beginPath();
-          ctx.roundRect(sx + 8, sy - 8, tw + 10, 16, 4);
-          ctx.fill();
-          ctx.fillStyle = selected ? '#e4a853' : '#e8e5e0';
-          ctx.fillText(label, sx + 13, sy + 4);
+          // Through the declutterer like every other name. Drawn directly, pin
+          // labels overlapped each other and everything else, and were not
+          // counted against the label budget — so a cluster of pins was a pile
+          // of unreadable pills on top of the map's own type.
+          queueLabel(
+            wp.name, sx + (selected ? 9 : 8), sy,
+            selected ? '#e4a853' : '#e8e5e0', 11, 600,
+            // Highest band: the reader put this here on purpose.
+            500,
+          );
         }
       }
     }
@@ -871,7 +2149,13 @@ export default function Map2D({
               ? (bt0.landOp === 'sea' ? 'rgba(38,74,128,0.45)' : 'rgba(196,176,128,0.5)')
               : bt0.mode === 'terrain'
                 ? (bt0.terrainOp === 'lower' ? 'rgba(30,34,44,0.4)' : 'rgba(255,255,255,0.35)')
-                : null;
+                // The frontier BRUSH only. The bucket and the two lassos are
+                // not strokes: a trail of colour under a click that floods, or
+                // under a click that only drops a corner, tells the reader the
+                // drag painted something when nothing was painted at all.
+                : bt0.mode === 'frontera' && bt0.realmTool === 'brush'
+                  ? realmColor(geography, negRef.current ? -1 : bt0.realm, 0.5)
+                  : null;
         if (tint) {
           // Screen position through the RING'S anchor, so the preview stays on
           // the copy of the world the pointer is actually over when the map
@@ -906,12 +2190,174 @@ export default function Map2D({
       }
     }
 
+    // ---- the frontier being drawn by hand ------------------------------------
+    // A shape that exists only as an edit the moment it closes is a shape drawn
+    // blind: the reader has to hold five clicks' worth of outline in their head
+    // and finds out where it really landed after the world has already changed
+    // under it. Corners as handles, edges as a line, the CLOSING edge included
+    // — the ring is what `polygonCells` fills, so hiding it would understate the
+    // claim by one whole side — and, for the curved lasso, the ROUNDED ring
+    // rather than the polygon, because the rounded ring is the ground that
+    // changes hands.
+    {
+      const open = realmPoly.current;
+      const bt1 = brushRef.current.tool;
+      if (open && open.pts.length && bt1 && bt1.mode === 'frontera') {
+        const pxPerCell = (PW * scale) / W;
+        const own = open.neg ? -1 : bt1.realm;
+        const ink = realmColor(geography, own, 0.95);
+        const wash = realmColor(geography, own, 0.22);
+        // Un-wrapped exactly the way `polygonCells` un-wraps it, so a province
+        // drawn across the antimeridian previews as one shape instead of two
+        // touching the opposite edges — and so the corner cutting below sees a
+        // continuous ring rather than a jump of one whole world width.
+        const ring: Pt[] = [];
+        let prevX = open.pts[0].x;
+        for (const p of open.pts) {
+          let x = p.x;
+          while (x - prevX > W / 2) x -= W;
+          while (x - prevX < -W / 2) x += W;
+          prevX = x;
+          ring.push({ x, y: p.y });
+        }
+        const shape = bt1.realmTool === 'curve' && ring.length >= 3
+          ? chaikinPreview(ring) : ring;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const p of shape) {
+          if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+        }
+        const ox0 = ring[0].x, oy0 = ring[0].y;
+        for (const copyOx of copies) {
+          const [ax, ay] = toScreen(
+            ((ox0 / W) % 1 + 1) % 1,
+            Math.min(1, Math.max(0, oy0 / H)),
+            copyOx,
+          );
+          // A copy the shape cannot reach costs nothing to skip and a full
+          // stroked path plus a handle per corner to draw.
+          if (ax + (maxX - ox0) * pxPerCell < -40 || ax + (minX - ox0) * pxPerCell > cw + 40
+            || ay + (maxY - oy0) * pxPerCell < -40 || ay + (minY - oy0) * pxPerCell > ch + 40) {
+            continue;
+          }
+          const px = (p: Pt) => ax + (p.x - ox0) * pxPerCell;
+          const py = (p: Pt) => ay + (p.y - oy0) * pxPerCell;
+          ctx.save();
+          ctx.beginPath();
+          for (let k = 0; k < shape.length; k++) {
+            if (k === 0) ctx.moveTo(px(shape[k]), py(shape[k]));
+            else ctx.lineTo(px(shape[k]), py(shape[k]));
+          }
+          if (shape.length >= 3) {
+            ctx.closePath();
+            ctx.fillStyle = wash;
+            ctx.fill();
+          }
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = 'rgba(8,10,16,0.7)';
+          ctx.stroke();
+          ctx.lineWidth = 1.6;
+          ctx.strokeStyle = ink;
+          ctx.stroke();
+          // The handles are the CORNERS the reader put down, never the smoothed
+          // samples: a handle on a Chaikin point is a handle on something nobody
+          // clicked and nothing can take back.
+          for (let k = 0; k < ring.length; k++) {
+            const hx = px(ring[k]), hy = py(ring[k]);
+            const first = k === 0;
+            ctx.beginPath();
+            ctx.arc(hx, hy, first ? 5.2 : 3.2, 0, Math.PI * 2);
+            ctx.fillStyle = first ? ink : 'rgba(10,12,18,0.85)';
+            ctx.fill();
+            ctx.lineWidth = first ? 2 : 1.4;
+            ctx.strokeStyle = first ? 'rgba(8,10,16,0.85)' : ink;
+            ctx.stroke();
+            // Through the registry like every other pointer question in this
+            // view — see the note on `painted`. Only once the ring is a shape:
+            // offering "close here" over two corners would answer a click with
+            // an edit `polygonCells` fills with nothing.
+            if (first && ring.length >= 3) {
+              hits.push({ kind: 'realmVertex', x: hx, y: hy, reach: 11, bias: 0.3 });
+            }
+          }
+          ctx.restore();
+        }
+        // The rubber band, ONCE and only in the copy the pointer is in: drawn
+        // per copy it would run to the same screen point from every one of them,
+        // which is a line to a cursor that is not there.
+        const at1 = brushAt.current;
+        if (at1) {
+          const tail = ring[ring.length - 1];
+          let dx = tail.x - at1.cx;
+          while (dx > W / 2) dx -= W;
+          while (dx < -W / 2) dx += W;
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(at1.x + dx * pxPerCell, at1.y + (tail.y - at1.cy) * pxPerCell);
+          ctx.lineTo(at1.x, at1.y);
+          ctx.setLineDash([5, 4]);
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = ink;
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
+
+    // The frame is complete: what it drew is now what the pointer answers to.
+    // LAST, after the frontier handles: the lasso's first corner is drawn over
+    // the labels and is the only thing in this frame that a click can close.
+    painted.current = hits;
+
+    // ---- scale bar ----------------------------------------------------------
+    // The 2D had no scale of any kind: nothing on screen said whether you were
+    // looking at five hundred kilometres of ground or five. The Carta has had a
+    // scale bar since it existed. A round number of ground units, drawn to the
+    // width they actually occupy.
+    {
+      const kmPerPx = spanKm / cw;
+      const want = kmPerPx * 150;                       // aim for ~150 px
+      const pow = Math.pow(10, Math.floor(Math.log10(Math.max(1e-6, want))));
+      const nice = [1, 2, 5, 10].find((f) => f * pow >= want) ?? 10;
+      const barKm = nice * pow;
+      const barPx = barKm / kmPerPx;
+      const label = barKm >= 1
+        ? t('worldgen.paint.units.km')
+          .replace('{n}', String(barKm >= 1000 ? Math.round(barKm) : barKm))
+        : t('worldgen.paint.units.m').replace('{n}', String(Math.round(barKm * 1000)));
+      const bx = 12, by = ch - 34;
+      ctx.save();
+      ctx.font = '600 10px "Source Sans 3", sans-serif';
+      ctx.textBaseline = 'alphabetic';
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = 'rgba(7,7,13,0.55)';
+      ctx.beginPath();
+      ctx.roundRect(bx - 5, by - 13, Math.max(barPx, tw) + 12, 24, 4);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(240,236,228,0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(bx, by - 4); ctx.lineTo(bx, by + 2); ctx.lineTo(bx + barPx, by + 2);
+      ctx.lineTo(bx + barPx, by - 4);
+      ctx.stroke();
+      ctx.fillStyle = '#f0ece4';
+      ctx.fillText(label, bx, by - 6);
+      ctx.restore();
+      ctx.textBaseline = 'middle';
+    }
+
     // The brush ring, last, over everything. Two circles: where the stroke
     // stops, and where it stops being at full strength — softness is otherwise a
     // number you set and then discover the effect of.
     const at = brushAt.current;
     const bt = brushRef.current.tool;
-    if (at && bt && brushRef.current.brushing) {
+    // ...except for the frontier bucket and the two lassos, which have no head
+    // at all: the ring would draw a radius that changes nothing, at full brush
+    // size, straight over the rubber band the shape is actually being aimed
+    // with — the one line on screen that does say where the next click lands.
+    const headed = !(bt && bt.mode === 'frontera' && bt.realmTool !== 'brush');
+    if (at && bt && brushRef.current.brushing && headed) {
       const pxPerCell = (PW * scale) / W;
       const tip = tipOf(bt as unknown as Stroke);
       // The ring is the shape of the HEAD. `tipOutline` solves the rim in the
@@ -997,15 +2443,87 @@ export default function Map2D({
     };
   }, [PW, PH, projection, scheduleDraw, spec, wraps]);
 
-  // Redraw on layer/props changes (also keeps drawRef current).
+  /**
+   * Keep the draw closure current — every render, with no redraw.
+   *
+   * This effect used to have no dependency array AND end in `scheduleDraw()`,
+   * so any state change repainted the whole canvas. The state that changes most
+   * is `hover`, which `handlePointerMove` sets to a FRESH OBJECT on every
+   * pointer event — so simply moving the mouse across the map, button up,
+   * repainted base + pyramid + borders + roads + every mark and label and the
+   * declutterer at pointer rate. Nothing in `draw` reads `hover`; the tooltip is
+   * a DOM node beside the canvas.
+   */
   useEffect(() => {
     drawRef.current = draw;
     // The store calls this when a tile lands, so the interim gets one more
     // blit with the new tile in it. Through a ref, or the closure the store
     // was built with goes stale on the first re-render.
     requestDrawRef.current = scheduleDraw;
-    scheduleDraw();
   });
+
+  // And redraw when something that is actually ON the canvas changes.
+  useEffect(() => {
+    scheduleDraw();
+  }, [
+    scheduleDraw, world, revision, viewMode, projection, geography,
+    showRivers, showLandmarks, showWaypoints, showGrid, showSettlements,
+    showRoads, showBorders, showFeatures, roadFrom, tool,
+    waypoints, selectedWaypointId, selectedSpatialKey, regionalEntities,
+    regionDetail, canonWorld, canonEdits, landmarks,
+  ]);
+
+  // ---- export -----------------------------------------------------------------
+  /**
+   * A PNG of THIS view, at a multiple of screen resolution.
+   *
+   * The export the parent already has re-renders the world RASTER — so the file
+   * it saves is framed to the whole planet and carries none of the pyramid, the
+   * borders, the roads, the names, the pins or the scale bar the reader is
+   * actually looking at. This draws the frame on screen, once, into a bigger
+   * backing store, and hands back exactly that.
+   */
+  useEffect(() => {
+    if (!exportRef) return;
+    exportRef.current = async (scale: number): Promise<Blob | null> => {
+      const canvas = canvasRef.current;
+      // No camera yet means no frame: the first `fit` has not run. And one
+      // export at a time — a second one starting inside the first would
+      // remember the ALREADY ENLARGED backing store as the size to restore, and
+      // the reader would be left looking at a canvas twice the size of its box.
+      if (!canvas || !viewRef.current || exportScale.current) return null;
+      // One to four. Under one the file would be coarser than the screen it is
+      // a picture of, and a 4K window past four is a canvas the browser
+      // silently refuses to allocate — every layer then draws into nothing and
+      // the export is a blank PNG.
+      const s = Math.min(4, Math.max(1, Number.isFinite(scale) ? scale : 1));
+      const rect = canvas.getBoundingClientRect();
+      // A view that is not on screen has no frame to hand back.
+      if (rect.width < 1 || rect.height < 1) return null;
+      const w0 = canvas.width, h0 = canvas.height;
+      canvas.width = Math.max(1, Math.round(rect.width * s));
+      canvas.height = Math.max(1, Math.round(rect.height * s));
+      exportScale.current = s;
+      try {
+        // SYNCHRONOUSLY. Through `scheduleDraw` the frame would land on the
+        // next animation frame, by which time the backing store is back to
+        // screen size and `toBlob` has already read an empty canvas.
+        drawRef.current?.();
+        return await new Promise<Blob | null>((resolve) => {
+          canvas.toBlob((blob) => resolve(blob), 'image/png');
+        });
+      } finally {
+        // However it ended. Leaving the store enlarged would leave the reader
+        // looking at a canvas drawn at the wrong ratio — the map in a corner —
+        // until something resized the container.
+        exportScale.current = 0;
+        canvas.width = w0;
+        canvas.height = h0;
+        drawRef.current?.();
+      }
+    };
+    return () => { exportRef.current = null; };
+  }, [exportRef]);
 
   // ---- flights ----------------------------------------------------------------
   // A one-shot animated approach (double-click, "volar aquí"): the same
@@ -1030,6 +2548,51 @@ export default function Map2D({
     clampView(view, rect.width, rect.height, PW, PH, wraps);
     scheduleDraw();
   }, [PW, PH, spec, wraps, scheduleDraw, maxScale]);
+
+  /**
+   * Somebody else moved the shared camera. Go there.
+   *
+   * `viewport` was read exactly once, inside `fit()`, and only when there was no
+   * view yet — so "Ver en 2D" from the place inspector and "abrir comarca
+   * guardada" did nothing at all whenever the reader was ALREADY in the 2D,
+   * which is the most likely place to press them. The carta has adopted the
+   * shared camera since it was written; this is the same effect, with the same
+   * echo guard so our own report does not bounce back and fight the wheel.
+   */
+  useEffect(() => {
+    if (!viewport || !viewRef.current) return;
+    if (sameViewport(viewport, lastReported.current)) return;
+    cancelFlight();
+    applyViewport(viewport);
+    // What we ACHIEVED, not what we were asked for. `applyViewport` clamps to
+    // `maxScale`, which is 28 px/cell while the geography is still building — so
+    // opening a saved comarca at 30 km in that window lands a thousand kilometres
+    // out, and recording the request would have left the parent driving
+    // everything from a span the map is not showing.
+    lastReported.current = computeViewport() ?? viewport;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewport]);
+
+  /**
+   * When the ceiling drops, bring the camera under it.
+   *
+   * Leaving the atlas mode or the equirect projection takes `maxScale` from
+   * ~45 875 px per cell to 28 — the pyramid and the sharp window are only
+   * defined there. The live `view.scale` was left where it was, so the picture
+   * became giant flat blocks and the NEXT wheel tick teleported the reader out
+   * to a thousand kilometres. Re-clamping makes the transition a zoom-out you
+   * can watch rather than an ambush on the next gesture.
+   */
+  useEffect(() => {
+    const view = viewRef.current;
+    const canvas = canvasRef.current;
+    if (!view || !canvas || view.scale <= maxScale) return;
+    const rect = canvas.getBoundingClientRect();
+    view.scale = maxScale;
+    clampView(view, rect.width, rect.height, PW, PH, wraps);
+    reportViewport();
+    scheduleDraw();
+  }, [maxScale, PW, PH, wraps, reportViewport, scheduleDraw]);
 
   useEffect(() => {
     if (!flyTarget) return;
@@ -1059,7 +2622,35 @@ export default function Map2D({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const onWheel = (e: WheelEvent) => {
+      // Either way: Ctrl+wheel over a canvas is the browser's page zoom, and
+      // the plain wheel is the page scrolling behind the map.
       e.preventDefault();
+      /**
+       * Ctrl/⌘ with a SIZED brush out sizes the BRUSH, not the camera.
+       *
+       * Same chord, same logarithmic step and same bounds as World3D, so a
+       * reader who learned the gesture on the globe does not fly out to a
+       * planetary view here when they meant to make the head bigger.
+       *
+       * `hasRadius`, not `painting`. Guarded on "a brush is out" alone, the
+       * chord swallowed the zoom in every mode that has no size to set — Río,
+       * Punto, Camino, and the frontier's bucket and two lassos — and spent it
+       * on a `tool.radius` those tools never read and the panel never shows. The
+       * reader got no bigger brush and no zoom either, which is the worst
+       * possible answer to a gesture: nothing happens and the thing that used to
+       * happen has stopped.
+       */
+      const { tool: bt, brushing: painting, onTool: setTool } = brushRef.current;
+      if ((e.ctrlKey || e.metaKey) && painting && bt && setTool && hasRadius(bt)) {
+        // Clamped in GROUND KILOMETRES, against the two ends of the panel's own
+        // size track — the radius is stored in world cells, which mean nothing
+        // to the reader and change meaning with the width of the world.
+        const kmPerCell = Math.max(1, Math.round(EARTH_KM / W));
+        const km = Math.min(BRUSH_MAX_KM, Math.max(BRUSH_MIN_KM,
+          bt.radius * kmPerCell * Math.pow(1.0022, -e.deltaY)));
+        setTool({ radius: km / kmPerCell });
+        return;
+      }
       cancelFlight();
       const view = viewRef.current;
       if (!view) return;
@@ -1078,7 +2669,9 @@ export default function Map2D({
     };
     canvas.addEventListener('wheel', onWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', onWheel);
-  }, [PW, PH, wraps, scheduleDraw, reportViewport, cancelFlight, maxScale]);
+    // `W` only moves when the world is a different size, which rebuilds every
+    // layer anyway; re-subscribing the listener then costs nothing.
+  }, [PW, PH, W, wraps, scheduleDraw, reportViewport, cancelFlight, maxScale]);
 
   // ---- helpers -------------------------------------------------------------------
   const screenToMap = (sx: number, sy: number): { u: number; v: number } | null => {
@@ -1100,45 +2693,108 @@ export default function Map2D({
   };
 
   const waypointAt = (sx: number, sy: number): WorldWaypoint | null => {
-    const view = viewRef.current;
-    if (!view) return null;
-    const mapW = PW * view.scale, mapH = PH * view.scale;
-    for (const wp of waypoints) {
-      const [X, Y] = spec.forward(wp.u, wp.v);
-      const wy = view.oy + Y * mapH;
-      let wx = view.ox + X * mapW;
-      if (wraps) {
-        const dxRaw = (((sx - wx) % mapW) + mapW) % mapW;
-        const dx = dxRaw > mapW / 2 ? dxRaw - mapW : dxRaw;
-        wx = sx - dx;
-      }
-      if (Math.hypot(sx - wx, sy - wy) < 9) return wp;
-    }
-    return null;
+    const id = hitAt(sx, sy, ['waypoint'])?.waypointId;
+    return id ? waypoints.find((wp) => wp.id === id) ?? null : null;
   };
 
-  const landmarkAt = (sx: number, sy: number): WorldSpatialEntity | null => {
-    const view = viewRef.current;
-    if (!view || !showLandmarks) return null;
-    const mapW = PW * view.scale, mapH = PH * view.scale;
-    let best: { entity: WorldSpatialEntity; distance: number } | null = null;
-    for (const entity of visibleSpatialEntities) {
-      if (entity.source === 'regional' && !regionDetail) continue;
-      const [X, Y] = spec.forward((entity.x + 0.5) / W, (entity.y + 0.5) / H);
-      const py = view.oy + Y * mapH;
-      let px = view.ox + X * mapW;
-      if (wraps) {
-        const dxRaw = (((sx - px) % mapW) + mapW) % mapW;
-        px = sx - (dxRaw > mapW / 2 ? dxRaw - mapW : dxRaw);
-      }
-      const distance = Math.hypot(sx - px, sy - py);
-      const reach = 9 * Math.max(0.75, entity.style.size ?? 1);
-      if (distance <= reach && (!best || distance < best.distance)) {
-        best = { entity, distance };
-      }
+  /**
+   * The nearest thing the last frame DREW, of the kinds asked for.
+   *
+   * Distance is scaled by the entry's bias so a capital beats the village next
+   * to it and a pin beats both — the same ordering the old searches had, now
+   * applied to one list instead of three that disagreed with the renderer.
+   */
+  const hitAt = (sx: number, sy: number, kinds: Hit['kind'][]): Hit | null => {
+    let best: Hit | null = null;
+    let bestScore = Infinity;
+    for (const h of painted.current) {
+      if (!kinds.includes(h.kind)) continue;
+      const dx = sx - h.x, dy = sy - h.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > h.reach * h.reach) continue;
+      // SQUARED, like the searches this replaced. Scoring linear distance by the
+      // same bias silently changes the winner: a capital at 10 px (bias 0,45)
+      // and a village at 5 px used to go to the village (45 vs 25) and with a
+      // linear score go to the capital (4,5 vs 5).
+      const score = d2 * (h.bias ?? 1);
+      if (score < bestScore) { bestScore = score; best = h; }
     }
-    return best?.entity ?? null;
+    return best;
   };
+
+  const landmarkAt = (sx: number, sy: number): WorldSpatialEntity | null =>
+    hitAt(sx, sy, ['entity'])?.entity ?? null;
+
+  /** A name the deep tiles found — a hamlet, a farm, a mill, a named crag. */
+  const deepPlaceAt = (sx: number, sy: number): TilePlace | null =>
+    hitAt(sx, sy, ['place'])?.place ?? null;
+
+  /** What a realm index is CALLED, with −1 spelled out. Unclaimed ground is a
+   *  real answer to "whose is this", not a blank. */
+  const realmLabel = (r: number): string =>
+    (r >= 0 && geography?.realms[r]?.name) || t('worldgen.hover.realm.unclaimed');
+
+  /**
+   * Close the ring and hand the ground over.
+   *
+   * Under three corners there is no shape at all — `polygonCells` returns
+   * nothing for one — so closing would spend an undo step on ground that never
+   * changed and leave the reader hunting for what it did. The corners STAY put
+   * in that case rather than being thrown away: a reader who pressed Intro one
+   * click early meant to finish, not to lose the shape they had drawn.
+   */
+  const closeRealmPoly = useCallback((): boolean => {
+    const open = realmPoly.current;
+    const { tool: bt, onEdit: commit } = brushRef.current;
+    if (!open || open.pts.length < 3 || !bt || bt.mode !== 'frontera' || !commit) return false;
+    realmPoly.current = null;
+    commit({
+      kind: 'realmArea',
+      realm: open.neg ? -1 : bt.realm,
+      pts: open.pts,
+      smooth: bt.realmTool === 'curve',
+    });
+    scheduleDraw();
+    return true;
+  }, [scheduleDraw]);
+
+  /** Throw the half-drawn shape away. Nothing is committed, so there is nothing
+   *  to undo — which is the whole point of having an Escape. */
+  const abandonRealmPoly = useCallback(() => {
+    if (!realmPoly.current) return;
+    realmPoly.current = null;
+    scheduleDraw();
+  }, [scheduleDraw]);
+
+  /** Take the last corner back. Emptying the run ends the gesture outright:
+   *  a live shape with no corners is a hidden mode with nothing on screen to
+   *  say the tool is still holding one. */
+  const dropRealmCorner = useCallback(() => {
+    const open = realmPoly.current;
+    if (!open) return;
+    open.pts.pop();
+    if (!open.pts.length) realmPoly.current = null;
+    scheduleDraw();
+  }, [scheduleDraw]);
+
+  /**
+   * Putting the tool away abandons a half-drawn frontier.
+   *
+   * The same rule `WorldView` keeps for `roadFrom`, mirrored here because the
+   * corners live here: a gesture that spans several clicks IS a hidden mode,
+   * and one that survives the tool being changed is the worst kind — the next
+   * Intro anywhere on the page would drop a province the reader had forgotten
+   * they were drawing. Swapping between the straight lasso and the curved one
+   * keeps the corners on purpose: it is the same run of clicks drawn two ways.
+   *
+   * `world` is in the list for the reason `abandonLive` exists: the corners are
+   * world cells, and a regenerated — or differently sized — world turns them
+   * into coordinates into ground that is gone.
+   */
+  const realmLasso = tool?.mode === 'frontera' ? tool.realmTool : null;
+  useEffect(() => {
+    if (realmLasso !== 'poly' && realmLasso !== 'curve') abandonRealmPoly();
+  }, [realmLasso, world, abandonRealmPoly]);
 
   // Space suspends the brush for as long as it is held, the way every paint
   // program does it, so the reader can reposition mid-drawing without changing
@@ -1146,38 +2802,68 @@ export default function Map2D({
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.code === 'Space') spaceRef.current = true;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent(e.shiftKey ? 'wg-redo' : 'wg-undo'));
+      // NOT while the reader is typing. This listener is on `window` and calls
+      // `preventDefault`, so Ctrl+Z in the Rótulo text box — or in any input on
+      // the page — silently reverted a brush stroke instead of the typing.
+      // World3D has always had this guard; the 2D did not.
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA'
+        || (e.target as HTMLElement | null)?.isContentEditable) return;
+      /**
+       * The frontier lasso, which is the one gesture here that spans clicks.
+       *
+       * A multi-click gesture needs a way OUT that is not "close it into the
+       * world and then undo": Intro finishes the ring, Retroceso takes the last
+       * corner back, Esc throws the whole thing away. Under the typing guard
+       * above on purpose — Retroceso in the Rótulo box has to delete a letter,
+       * not a corner — and before the undo chord, which stays reachable while a
+       * shape is open because it undoes the WORLD, not the gesture.
+       *
+       * Focused controls are excluded as well as text fields: `preventDefault`
+       * on Intro is what stops a button being pressed by keyboard, so without
+       * this a half-drawn frontier would quietly deaden every button on the
+       * page — and the reader would have no idea which of the two things they
+       * were doing had broken the other.
+       */
+      if (realmPoly.current && tag !== 'BUTTON' && tag !== 'SELECT' && tag !== 'A') {
+        if (e.key === 'Enter') { e.preventDefault(); closeRealmPoly(); return; }
+        if (e.key === 'Escape') { e.preventDefault(); abandonRealmPoly(); return; }
+        // `preventDefault` matters here: Retroceso outside a text field is the
+        // browser's own "go back", which would take the whole app off the map.
+        if (e.key === 'Backspace') { e.preventDefault(); dropRealmCorner(); return; }
+      }
+      if (e.ctrlKey || e.metaKey) {
+        // One keymap for both views. They disagreed: here Ctrl+Shift+Z redid,
+        // in the 3D the same chord UNDID (its test is `e.key === 'z' || 'Z'`),
+        // and Ctrl+Y redid there and did nothing here. The same chord destroying
+        // work in one view and restoring it in the other is not a preference.
+        const k = e.key.toLowerCase();
+        if (k === 'z') {
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent(e.shiftKey ? 'wg-redo' : 'wg-undo'));
+        } else if (k === 'y') {
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent('wg-redo'));
+        }
       }
     };
     const up = (e: KeyboardEvent) => { if (e.code === 'Space') spaceRef.current = false; };
+    // Alt-tabbing away while Space is held used to leave the brush suspended
+    // for ever, because the keyup never arrived.
+    const blur = () => { spaceRef.current = false; };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
-    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
-  }, []);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', blur);
+    };
+  }, [closeRealmPoly, abandonRealmPoly, dropRealmCorner]);
 
   /** The nearest town to a screen point, within a screen-sized reach. */
-  const settlementAt = (sx: number, sy: number): Settlement | null => {
-    const view = viewRef.current;
-    if (!view || !geography) return null;
-    const mapW = PW * view.scale, mapH = PH * view.scale;
-    let best: Settlement | null = null;
-    let bestD = 14 * 14;
-    const bias: Record<string, number> = { capital: 0.45, city: 0.65, town: 0.85, village: 1 };
-    for (const s of geography.settlements) {
-      const [X, Y] = spec.forward((s.x + 0.5) / W, (s.y + 0.5) / H);
-      const py = view.oy + Y * mapH;
-      let px = view.ox + X * mapW;
-      if (wraps) {
-        const dxRaw = (((sx - px) % mapW) + mapW) % mapW;
-        px = sx - (dxRaw > mapW / 2 ? dxRaw - mapW : dxRaw);
-      }
-      const d = ((sx - px) ** 2 + (sy - py) ** 2) * (bias[s.rank] ?? 1);
-      if (d < bestD) { bestD = d; best = s; }
-    }
-    return best;
-  };
+  const settlementAt = (sx: number, sy: number): Settlement | null =>
+    hitAt(sx, sy, ['settlement'])?.settlement ?? null;
 
   // ---- pointer events ----------------------------------------------------------
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -1186,14 +2872,73 @@ export default function Map2D({
     cancelFlight();
     (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
     negRef.current = e.ctrlKey || e.metaKey;
+    /**
+     * IS THIS GESTURE THE CAMERA? Decided once, here, with the modifiers.
+     *
+     * Espacio, Mayúsculas and any button that is not the left one all mean
+     * "move the map, do not paint" — that is the escape hatch the brush guard
+     * below has always tested for. Written down instead of re-derived because
+     * `handlePointerMove` and `handlePointerUp` both need the same answer, and
+     * both used to guess: the move handler returned early on `brushing` alone
+     * and the drag never happened, the up handler saw an unmoved drag and ran
+     * the CLICK path. See `panRef` for what that click did.
+     *
+     * Resolved at the press like `negRef`, and written on EVERY press so it can
+     * never be left over from the last one.
+     */
+    panRef.current = brushing && (spaceRef.current || e.shiftKey || e.button !== 0);
     const rect = e.currentTarget.getBoundingClientRect();
     const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
 
-    if (brushing && e.button === 0 && !spaceRef.current && !e.shiftKey) {
+    // Literally the same condition, from the other side: a brush is out and
+    // this press is not the camera's.
+    if (brushing && !panRef.current) {
       const m = screenToMap(sx, sy);
       if (!m) return;
+      /**
+       * Alt is the eyedropper: it READS the ground instead of painting it.
+       *
+       * The biome list is forty-four entries long and the one the reader wants
+       * is nearly always already on screen under the cursor. Without this,
+       * matching the ground next door means hovering it, reading the name off
+       * the tooltip, and then finding that name in the panel — and the tooltip
+       * gives a translated name, which is not what the list is keyed by.
+       */
+      const { tool: dropper, onTool: setTool } = brushRef.current;
+      if (e.altKey && dropper?.mode === 'biome' && setTool) {
+        const cx = Math.min(W - 1, Math.max(0, Math.floor(m.u * W)));
+        const cy = Math.min(H - 1, Math.max(0, Math.floor(m.v * H)));
+        setTool({ biome: world.biome[cy * W + cx] as BiomeId });
+        return;
+      }
+      /**
+       * The frontier lasso: A CLICK IS A CORNER, not a stroke.
+       *
+       * Handled before the stroke machinery and returning without touching it,
+       * so `handlePointerUp` finds neither a stroke nor a drag and does nothing
+       * at all. Letting a corner also open a stroke would put a one-point
+       * polyline into the generic commit on every click — and the tint trail,
+       * the live-world ownership and the release path all belong to a gesture
+       * this one is not.
+       */
+      const lasso = brushRef.current.tool;
+      if (lasso && lasso.mode === 'frontera'
+        && (lasso.realmTool === 'poly' || lasso.realmTool === 'curve')) {
+        const open = realmPoly.current;
+        // Closing on the first handle asks `painted` like every other pointer
+        // question in this view — no second hit test that can disagree with
+        // where the handle was actually drawn. See the note on `painted`.
+        if (open && hitAt(sx, sy, ['realmVertex'])) { closeRealmPoly(); return; }
+        const corner = { x: m.u * W, y: m.v * H };
+        if (open) open.pts.push(corner);
+        else realmPoly.current = { pts: [corner], neg: negRef.current };
+        scheduleDraw();
+        return;
+      }
       const p0 = { x: m.u * W, y: m.v * H };
       stroke.current = [p0];
+      liveWorld.current = world;
+      pressAt.current = { x: sx, y: sy };
       brushAt.current = { x: sx, y: sy, cx: p0.x, cy: p0.y };
       const { tool: bt } = brushRef.current;
       if (bt && bt.mode === 'biome' && !negRef.current
@@ -1207,10 +2952,20 @@ export default function Map2D({
         // the START here — the gesture must deform in the direction the
         // release will commit.
         const spec = negRef.current ? negativeOf(bt) : bt;
+        // THE WHOLE HEAD, not just its size.
+        //
+        // Leaving out curve/tip/angle/jitter/aspect/taper meant the live path
+        // built a plain round disc while the ring drew a ridge — and because
+        // `SculptGesture.edits()` copies the spec straight into the stored
+        // stroke, the SAVED edit was a disc too. So the same gesture made
+        // different ground depending on whether the reader happened to be
+        // zoomed in past 2,5 px per cell. World3D has always passed all of it.
         const g = new SculptGesture(world.elevation, W, H, world.params.seed, {
           kind: spec.mode as 'terrain' | 'land',
           op: spec.mode === 'land' ? spec.landOp : spec.terrainOp,
           radius: spec.radius, strength: spec.strength, softness: spec.softness,
+          curve: spec.curve, tip: spec.tip, angle: spec.angle,
+          jitter: spec.jitter, aspect: spec.aspect, taper: spec.taper,
         });
         liveSculpt.current = g;
         patchLive(g.extend(p0));
@@ -1218,7 +2973,10 @@ export default function Map2D({
       scheduleDraw();
       return;
     }
-    if (!brushing) e.currentTarget.style.cursor = 'grabbing';
+    // Everything below this line is the CAMERA, and the cursor says so: an open
+    // hand closing over the map, not the brush's crosshair, even where a brush
+    // is out and it was Espacio that got us here.
+    if (!brushing || panRef.current) e.currentTarget.style.cursor = 'grabbing';
     dragRef.current = { x: sx, y: sy, ox: view.ox, oy: view.oy, moved: false };
   };
 
@@ -1230,14 +2988,30 @@ export default function Map2D({
 
     // The ring follows the pointer whenever a brush is out, button down or not:
     // without it the reader cannot tell how big the next stroke is.
-    if (brushing) {
+    // `!panRef.current` is what makes Espacio, Mayúsculas and the middle button
+    // work at all: this branch returns, so without the term the drag below was
+    // unreachable while a brush was out and the promised pan was a click. See
+    // `panRef`.
+    if (brushing && !panRef.current) {
       const mp = screenToMap(sx, sy);
-      brushAt.current = { x: sx, y: sy, cx: (mp?.u ?? 0) * W, cy: (mp?.v ?? 0) * H };
-      const pts = stroke.current;
-      if (pts) {
-        const m = screenToMap(sx, sy);
-        if (m) {
-          const p = { x: m.u * W, y: m.v * H };
+      if (!mp) {
+        /**
+         * There is no cell under the pointer — the black margin a
+         * non-cylindrical projection leaves in the corners of the canvas.
+         *
+         * `(mp?.u ?? 0) * W` silently answered "world cell (0, 0)". The ring is
+         * solved against the ground it sits on, so its outline changed shape the
+         * moment the pointer crossed the edge; and every point of an in-flight
+         * stroke is drawn RELATIVE to this anchor, so the preview jumped
+         * thousands of pixels away from the hand drawing it. No cell, no anchor
+         * — the same answer `onPointerLeave` gives.
+         */
+        brushAt.current = null;
+      } else {
+        brushAt.current = { x: sx, y: sy, cx: mp.u * W, cy: mp.v * H };
+        const pts = stroke.current;
+        if (pts) {
+          const p = { x: mp.u * W, y: mp.v * H };
           const last = pts[pts.length - 1];
           // One point per half-cell keeps the serialized edit small enough to
           // store a hundred strokes.
@@ -1249,7 +3023,46 @@ export default function Map2D({
           }
         }
       }
-      setHover(null);
+      /**
+       * WHOSE GROUND IS THIS, and whose the next click makes it.
+       *
+       * The readout is suppressed under every other brush on purpose: a box
+       * under the cursor is in the way of the thing being painted. The frontier
+       * tool is the one that has to answer a question BEFORE the stroke — the
+       * political wash says a cell is claimed and nothing on screen says by
+       * whom, the tint is a hue rather than a name, and the reader is about to
+       * hand that ground to somebody. Ctrl is read live, so the negative names
+       * the country it is about to take the cell away from.
+       *
+       * Never mid-stroke: the answer is already changing under the hand and the
+       * box would sit on top of the paint. `setHover(null)` on a hover that is
+       * already null re-renders nothing, so the drag stays as cheap as it was.
+       */
+      const bt2 = brushRef.current.tool;
+      if (bt2 && bt2.mode === 'frontera' && mp && !stroke.current) {
+        const hx = Math.min(W - 1, Math.max(0, Math.floor(mp.u * W)));
+        const hy = Math.min(H - 1, Math.max(0, Math.floor(mp.v * H)));
+        const hi = hy * W + hx;
+        const to = (e.ctrlKey || e.metaKey) ? -1 : bt2.realm;
+        const from = geography ? geography.realmOf[hi] : -1;
+        setHover({
+          x: Math.min(sx + 14, rect.width - 260),
+          y: sy + 18,
+          // The sea is not a country's to give: the merge in `settlements.ts`
+          // writes −1 over open water whatever the stroke said, and
+          // `realmFloodCells` will not even start there. A readout promising a
+          // handover on water would be a promise nothing downstream keeps.
+          text: world.elevation[hi] <= 0
+            ? t('worldgen.hover.realm.sea')
+            : from === to
+              ? t('worldgen.hover.realm.keeps').replace('{name}', realmLabel(from))
+              : t('worldgen.hover.realm.gives')
+                .replace('{from}', realmLabel(from))
+                .replace('{to}', realmLabel(to)),
+        });
+      } else {
+        setHover(null);
+      }
       scheduleDraw();
       return;
     }
@@ -1271,6 +3084,20 @@ export default function Map2D({
     // Hover inspector
     const m = screenToMap(sx, sy);
     if (!m) { setHover(null); return; }
+    // The hamlets, farms, mills and named crags the deep tiles found. They are
+    // drawn with a dot and a name; until this line the pointer knew nothing
+    // about them and answered with the generic terrain reading instead.
+    const hoveredPlace = deepPlaceAt(sx, sy);
+    if (hoveredPlace) {
+      setHover({
+        x: Math.min(sx + 12, rect.width - 210),
+        y: sy + 14,
+        text: `${hoveredPlace.name} · ${PLACE_KIND_ES[hoveredPlace.kind]
+          ? t(PLACE_KIND_ES[hoveredPlace.kind])
+          : hoveredPlace.kind}`,
+      });
+      return;
+    }
     const hoveredLandmark = landmarkAt(sx, sy);
     if (hoveredLandmark) {
       const left = Math.min(sx + 12, rect.width - 210);
@@ -1281,19 +3108,78 @@ export default function Map2D({
       });
       return;
     }
+    /**
+     * The TOWN, not the soil under it.
+     *
+     * The hover chain went straight from landmarks to the terrain readout, so
+     * pointing at a capital answered "bosque templado · 340 m · 12 °C" — every
+     * fact about the place itself sits on the `Settlement` and needed a
+     * full-screen modal to see. Nothing in the 2D ever named a realm either,
+     * even with the borders switched on.
+     */
+    const hoveredTown = settlementAt(sx, sy);
+    if (hoveredTown && geography) {
+      const realm = hoveredTown.realm >= 0 ? geography.realms[hoveredTown.realm] : undefined;
+      const bits = [
+        hoveredTown.name,
+        RANK_ES[hoveredTown.rank] ? t(RANK_ES[hoveredTown.rank]) : hoveredTown.rank,
+      ];
+      if (hoveredTown.population) {
+        bits.push(t('worldgen.hover.inhabitants')
+          .replace('{n}', hoveredTown.population.toLocaleString('es')));
+      }
+      if (realm) bits.push(realm.name);
+      if (hoveredTown.port) bits.push(t('worldgen.hover.port'));
+      else if (hoveredTown.river) bits.push(t('worldgen.hover.onRiver'));
+      setHover({ x: Math.min(sx + 12, rect.width - 260), y: sy + 14, text: bits.join(' · ') });
+      return;
+    }
+    const hoveredNote = hitAt(sx, sy, ['note']);
+    if (hoveredNote?.note) {
+      setHover({ x: Math.min(sx + 12, rect.width - 240), y: sy + 14, text: hoveredNote.note });
+      return;
+    }
     const cx = Math.min(W - 1, Math.floor(m.u * W));
     const cy = Math.min(H - 1, Math.floor(m.v * H));
     const i = cy * W + cx;
     const e2 = world.elevation[i];
-    const biomeKey = BIOME_KEYS[world.biome[i]] ?? 'ocean';
+    /**
+     * What is growing here.
+     *
+     * `BIOME_KEYS` stops at 17 and `Biome` runs to 39 — mangrove, steppe, erg,
+     * salt marsh and every other id the ecology overhaul added. The old
+     * `?? 'ocean'` turned all of them into "Océano", which is a confident wrong
+     * answer over a swamp. `biomeName` knows every id, so it is the fallback
+     * until the catalogue carries them all.
+     */
+    const biomeId = world.biome[i];
+    const biomeKey = BIOME_KEYS[biomeId];
+    const biomeLabel = biomeKey ? t(`worldgen.biome.${biomeKey}`) : biomeName(biomeId);
 
     // Ask the canon, if the canon is what is on screen. One reading per cell of
     // ground, so a moving cursor asks a few times a second and not a few
     // hundred; the answer arrives for the NEXT frame of hovering, which at this
     // range is a few pixels away and reads as instant.
     const deep = tileLevel.current >= SAT_DEEP_Z && !!geography;
+    /**
+     * The GROUND and the WORLD, not the ground alone.
+     *
+     * Keyed on coordinates only, the cached reading outlived the thing it was a
+     * reading of. Paint a coast, raise a range, load another world — the cursor
+     * comes back to the same spot, the key matches, and the readout confidently
+     * reports the height, the cover and the wetness of ground that no longer
+     * exists. Nothing ever cleared it: `probe` is a ref, so it survives every
+     * re-render, and the only write is this cache-miss path.
+     *
+     * `tileGeneration` is the same string the pyramid throws its tiles away on
+     * — world identity, revision, the human counts and the canon — so the
+     * reading is invalidated by exactly the events that make it wrong, and by
+     * nothing else. A hover that has to ask again costs one worker round trip
+     * and 70 ms of settle; a hover that answers from the previous world costs
+     * the reader their trust in the readout.
+     */
     const probeKey = deep
-      ? `${Math.round(m.u * W * 128)}:${Math.round(m.v * H * 128)}`
+      ? `${tileGeneration.current}|${Math.round(m.u * W * 128)}:${Math.round(m.v * H * 128)}`
       : '';
     if (deep && probe.current?.key !== probeKey) {
       window.clearTimeout(probeTimer.current);
@@ -1311,15 +3197,27 @@ export default function Map2D({
 
     const parts = canon
       ? [
-        canon.water === 1 ? 'mar' : canon.water === 2 ? 'lago'
-          : (COVER_LABEL_ES[canon.cover] ?? t(`worldgen.biome.${biomeKey}`)),
+        canon.water === 1 ? t('worldgen.cover.0') : canon.water === 2 ? t('worldgen.cover.1')
+          // Through the catalogue. `COVER_LABEL_ES` is a Spanish-only table
+          // that SHADOWED the already-translated biome name whenever canon
+          // ground was resident — so the hover readout changed language as you
+          // zoomed in, which is a stranger bug than either half of it.
+          : (canon.cover in COVER_LABEL_ES ? t(`worldgen.cover.${canon.cover}`) : biomeLabel),
         `${Math.round(canon.elevationM)} m`,
-        `${Math.round(canon.slope * 100)} % pdte.`,
-        canon.wet > 0.6 ? 'encharcado' : canon.wet > 0.35 ? 'húmedo' : 'seco',
-        `${Math.round(canon.metresPerCell)} m/celda`,
+        t('worldgen.hover.slope').replace('{n}', String(Math.round(canon.slope * 100))),
+        canon.wet > 0.6
+          ? t('worldgen.hover.waterlogged')
+          : canon.wet > 0.35 ? t('worldgen.hover.damp') : t('worldgen.hover.dry'),
+        t('worldgen.paint.units.mPerCell')
+          .replace('{n}', String(Math.round(canon.metresPerCell))),
       ]
       : [
-        t(`worldgen.biome.${biomeKey}`),
+        biomeLabel,
+        // With borders on and no realm ever named, the political layer was a
+        // set of coloured lines around nothing. One lookup answers it.
+        ...(geography && geography.realmOf[i] >= 0
+          ? [geography.realms[geography.realmOf[i]]?.name ?? '']
+          : []),
         e2 > 0
           ? `${Math.round(e2 * 1000)} m`
           : `−${Math.round(-e2 * 1000)} m`,
@@ -1341,8 +3239,63 @@ export default function Map2D({
     // second.
     const pts = stroke.current;
     stroke.current = null;
+    // The gesture is over however it ends: the ownership ref must not outlive it,
+    // or a later world change would run `abandonLive` against a stroke that was
+    // committed properly minutes ago.
+    liveWorld.current = null;
+    const press = pressAt.current;
+    pressAt.current = null;
     if (pts) {
       const { tool: bt, onEdit: commit, geography: geo } = brushRef.current;
+      // The Camino tool is not a brush and never was: it is two clicks on two
+      // towns with an A* between them, and the routing lives in the parent.
+      // A click made a one-point stroke, `commitPaintStroke` returns null for
+      // one point, and the click therefore did NOTHING — while the status line
+      // went on asking for a town it was impossible to pick. Let a click that
+      // landed on a dot through to the picker; a drag still draws by hand.
+      if (bt && bt.mode === 'road' && !negRef.current && onPickSettlement
+        && (!press || Math.hypot(sx - press.x, sy - press.y) <= 4)) {
+        const s = settlementAt(sx, sy);
+        if (s) { onPickSettlement(s); scheduleDraw(); return; }
+      }
+      /**
+       * The frontier brush and bucket commit HERE, before the generic path.
+       *
+       * `commitPaintStroke` has no `frontera` case and is not this view's to
+       * change — one brush, three views, one translation. Reaching it would
+       * return null and the whole gesture would do nothing at all, silently:
+       * the same failure the Camino click above exists to prevent. So the
+       * short-circuit is the same shape as that one.
+       */
+      if (bt && bt.mode === 'frontera' && commit) {
+        // Ctrl is the universal negative and here it means UNCLAIMED — the one
+        // "realm" every other one shares a frontier with. Read from the press,
+        // like every other negative, so the stroke commits the direction the
+        // reader watched it draw in.
+        const own = negRef.current ? -1 : bt.realm;
+        if (bt.realmTool === 'brush') {
+          const st = realmBrushStroke(bt, pts);
+          if (st) commit({ kind: 'realm', realm: own, stroke: st });
+        } else if (bt.realmTool === 'fill'
+          // A bucket is a CLICK. Dragging away from the press is how the reader
+          // takes a mis-aimed one back before it costs them an undo — the same
+          // four-pixel test the Camino click uses to tell the two apart.
+          && (!press || Math.hypot(sx - press.x, sy - press.y) <= 4)) {
+          // From where the button went DOWN, not where it came up: a click that
+          // wobbled a cell still floods the ground the reader aimed at.
+          const at = pts[0];
+          commit({
+            kind: 'realmFill',
+            realm: own,
+            x: at.x,
+            y: at.y,
+            bounded: bt.realmBound,
+            maxCells: Math.max(REALM_FILL_FLOOR_CELLS, Math.round(W * H * REALM_FILL_SHARE)),
+          });
+        }
+        scheduleDraw();
+        return;
+      }
       if (bt && isWaypointTool(bt)) {
         // A pin does not go into the edit list — see `isWaypointTool`.
         if (negRef.current) {
@@ -1382,9 +3335,27 @@ export default function Map2D({
         // Terrain and coast invert the OPERATION, everything else inverts at
         // commit time — one rule, resolved in the one place that knows both.
         const spec = negRef.current ? negativeOf(bt) : bt;
+        // Sixteen pixels of aim error, in cells, UNFLOORED. `paintCommit`
+        // clamps it: `NEGATIVE_REACH_CELLS` is the ceiling for the zoomed-out
+        // case and a fraction of a cell the floor. The `Math.max(2, ...)` that
+        // used to be here re-imposed the floor from the outside, which is how
+        // Ctrl+clicking a label at street zoom deleted a generated town sixty
+        // kilometres off screen.
+        const reachCells = 16 * cellsPerPx;
+        const why = commitRefusal(spec, { negative: negRef.current });
+        if (why) {
+          // A commit that returns null is dropped in silence — right for "the
+          // pointer did not travel far enough", wrong for Rotulo with an empty
+          // box, where the reader clicks, and clicks again, and nothing on
+          // screen ever says why.
+          setRefusal(t(why));
+          scheduleDraw();
+          return;
+        }
         const edit = commitPaintStroke(spec, pts, {
           negative: negRef.current,
-          pickGenerated: (x, y) => pickGeneratedAt(world, geo, x, y, Math.max(2, 16 * cellsPerPx)),
+          reachCells,
+          pickGenerated: (x, y) => pickGeneratedAt(world, geo, x, y, reachCells),
         });
         if (edit) commit(edit);
       }
@@ -1394,11 +3365,32 @@ export default function Map2D({
 
     const drag = dragRef.current;
     dragRef.current = null;
+    // Read and cleared together: the gesture is over either way, and a `panRef`
+    // left standing would make the NEXT plain click a pan and swallow it.
+    const panned = panRef.current;
+    panRef.current = false;
     if (!drag) return;
     if (drag.moved) {
+      // One more frame, now that the drag is over. Every frame of the pan was
+      // drawn with `dragRef` set, so none of them asked the tile store to build
+      // the window the map has just landed on — and reporting the camera does
+      // not bring us a frame either, because the parent's echo is filtered out
+      // as our own. Without this the pyramid stays at whatever was resident
+      // when the hand went down.
+      scheduleDraw();
       reportViewport();
       return;
     }
+    // Only the left button selects. Without this the right button opened a
+    // town's plan UNDER the browser's own context menu — see `onContextMenu`.
+    if (e.button !== 0) return;
+    // A pan that happened not to move is still not a click. The reader held
+    // Espacio (or Mayúsculas) to reposition the map with a brush out and let go
+    // without shifting it three pixels; answering that with "open this town's
+    // plan", or with "the road starts here", is the second half of the bug
+    // `panRef` exists for — and the more annoying half, because the map looks
+    // exactly as it did and something else has changed.
+    if (panned) return;
     // It was a click.
     const wp = waypointAt(sx, sy);
     if (wp) { onSelectWaypoint(wp.id); return; }
@@ -1419,11 +3411,57 @@ export default function Map2D({
   };
 
   const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // Double-click closes a frontier, before the zoom this gesture means
+    // everywhere else — and it must, because the ring's last side is otherwise
+    // only reachable by hitting a five-pixel handle or by knowing about Intro.
+    const open = realmPoly.current;
+    if (open) {
+      // The second click of the double-click has ALREADY dropped a corner, on
+      // top of the one the first click dropped. Committed, that is a
+      // zero-length edge in the stored shape and a visible kink in the rounded
+      // one; the reader clicked twice in one place and meant "finish", once.
+      const n = open.pts.length;
+      if (n >= 2 && Math.hypot(open.pts[n - 1].x - open.pts[n - 2].x,
+        open.pts[n - 1].y - open.pts[n - 2].y) < 0.75) {
+        open.pts.pop();
+      }
+      if (closeRealmPoly()) return;
+    }
     if (brushing || !onZoomTo) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const m = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
     if (m) onZoomTo(m.u * W, m.v * H);
   };
+
+  /**
+   * The readout stays up while the FRONTIER tool is out.
+   *
+   * Every other brush hides it, and rightly: a box under the cursor is in the
+   * way of the thing being painted. This is the one tool whose whole question —
+   * whose ground is this, and whose will it be — has no other answer anywhere
+   * on screen. The political wash is a hue, and a hue is not a name.
+   */
+  const showReadout = !brushing || tool?.mode === 'frontera';
+
+  /**
+   * WHAT THE WHEEL AND ALT ACTUALLY DO, for the tool that is actually out.
+   *
+   * One string used to be appended to every brush's hint: "Ctrl+rueda cambia el
+   * tamaño · Alt toma el bioma". Both halves were promises the map only keeps
+   * in one mode. Alt is the eyedropper and is guarded on `dropper?.mode ===
+   * 'biome'`, so with Costa, Relieve, Río or Punto out, Alt+clic does not sample
+   * anything — it PAINTS, which is the opposite of what the reader was told, and
+   * it paints where they were only looking. And Ctrl+rueda has a size to change
+   * only where `hasRadius` says so.
+   *
+   * A hint that names a key that does something else is worse than no hint: the
+   * reader tries it once, the map changes under them, and now they distrust the
+   * whole line. So each mode gets the part that is true of it and nothing else,
+   * and Río and Punto — which have neither — get no tail at all.
+   */
+  const wheelHint = tool?.mode === 'biome'
+    ? t('worldgen.map.brushWheelHint')
+    : hasRadius(tool) ? t('worldgen.map.brushSizeHint') : '';
 
   return (
     <div ref={containerRef} className="absolute inset-0">
@@ -1443,15 +3481,22 @@ export default function Map2D({
             g.rollback();
             patchLive(total);
           }
-          stroke.current = null; brushAt.current = null; scheduleDraw();
+          // `dragRef` too: without it a cancelled PAN left the map following
+          // the pointer forever with no button held down. `panRef` goes with
+          // it — a stale one turns the next ordinary click into a pan that
+          // selects nothing.
+          stroke.current = null; brushAt.current = null; pressAt.current = null;
+          dragRef.current = null; panRef.current = false;
+          scheduleDraw();
         }}
         onPointerLeave={() => {
           setHover(null);
           if (brushAt.current) { brushAt.current = null; scheduleDraw(); }
         }}
         onDoubleClick={handleDoubleClick}
+        onContextMenu={(e) => e.preventDefault()}
       />
-      {hover && !brushing && (
+      {hover && showReadout && (
         <div
           className="absolute z-10 pointer-events-none px-2 py-1 rounded-md bg-surface/95 border border-border text-[11px] text-text-primary whitespace-nowrap shadow-lg"
           style={{ left: hover.x, top: hover.y }}
@@ -1460,9 +3505,25 @@ export default function Map2D({
         </div>
       )}
       <div className="absolute bottom-2 left-2 px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] leading-snug text-white shadow-lg shadow-black/50 backdrop-blur-sm pointer-events-none">
-        {brushing
-          ? 'arrastra para pintar · Espacio para mover el mapa · Ctrl+Z deshace'
-          : `${t('worldgen.mapHint')}${onPickSettlement ? ' · clic en una ciudad abre su plano · doble clic baja a la comarca' : ''}`}
+        {refusal
+          ? refusal
+          : brushing
+          ? (tool?.mode === 'road'
+            ? `${roadFrom
+              ? t('worldgen.map.roadFrom').replace('{name}', roadFrom.name)
+              : t('worldgen.map.roadStart')} · ${t('worldgen.map.roadHintTail')}`
+            // The lasso is the only gesture in this view that spans several
+            // clicks, and Intro / Retroceso / Esc are the only ways out of it.
+            // A key nothing on screen mentions is a key nobody presses — and a
+            // reader who cannot finish a shape cannot abandon one either.
+            : tool?.mode === 'frontera'
+              ? (tool.realmTool === 'brush'
+                ? t('worldgen.map.realmBrushHint')
+                : tool.realmTool === 'fill'
+                  ? t('worldgen.map.realmFillHint')
+                  : t('worldgen.map.realmPolyHint'))
+              : `${t('worldgen.map.paintHint')}${wheelHint ? ` · ${wheelHint}` : ''}`)
+          : `${t('worldgen.mapHint')}${onPickSettlement ? ` · ${t('worldgen.mapHint.town')}` : ''}`}
       </div>
     </div>
   );

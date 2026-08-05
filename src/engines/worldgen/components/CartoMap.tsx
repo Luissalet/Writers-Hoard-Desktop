@@ -685,13 +685,16 @@ export default function CartoMap({
         // carta levels read the edited raster as always. Two worlds, two
         // worker sessions — the pool holds both.
         const deep = key.z >= DEEP_TILE_Z && q.canonWorld;
-        return regionClient.requestTile(deep ? q.canonWorld! : q.world, q.geography, key, {
+        // Handed back whole, so the store can cancel a tile that has left the
+        // window rather than making the one you stopped on wait behind it.
+        const req = regionClient.requestTile(deep ? q.canonWorld! : q.world, q.geography, key, {
           themeId: q.theme.id,
           layers: q.layers as Record<string, boolean>,
           density: q.density,
           reliefAmount: q.reliefAmount,
           edits: deep ? q.canonEdits : undefined,
-        }).promise.then((res) => {
+        });
+        const promise = req.promise.then((res) => {
           if (!res) return null;
           if (res.places?.length) {
             const map = deepPlaces.current;
@@ -704,7 +707,8 @@ export default function CartoMap({
             }
           }
           return res.bitmap;
-        });
+        }).catch(() => null);
+        return { promise, cancel: req.cancel };
       },
       () => requestInterimRef.current(),
     );
