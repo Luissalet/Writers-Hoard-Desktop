@@ -267,6 +267,61 @@ export function shrinkEdges(poly: Poly, dists: number[]): Poly {
   return out.length >= 3 && area(out) > EPS ? out : [];
 }
 
+/**
+ * Cut a perimeter strip into individual plots along its length.
+ *
+ * This is the piece the plan was missing. A medieval block is not a shape that
+ * gets chopped until the pieces are house-sized — it is a row of BURGAGES: long
+ * thin lots, side by side, each with its narrow end on the street. That is why
+ * a real town reads as terraces along a frontage and this one read as a quilt.
+ *
+ * `strip` comes from `ring()`, so it already runs along one edge of the block
+ * and its long axis is that edge. Slicing it at a fixed frontage gives the row.
+ * The number of plots is rounded, not floored, so a strip always yields at
+ * least one and never leaves a half-plot of waste at the end.
+ *
+ * `gap` is the party-wall clearance. Zero is correct for a dense core — town
+ * houses shared walls — and a small positive number opens the row up.
+ */
+export function slicePlots(strip: Poly, frontage: number, gap = 0): Poly[] {
+  if (strip.length < 3 || frontage <= 0) return [];
+  const e = longestEdge(strip);
+  const a = strip[e], b = strip[(e + 1) % strip.length];
+  const d = norm(sub(b, a));
+  if (!isFinite(d.x) || !isFinite(d.y)) return [strip];
+  // Extent along the axis, measured on every vertex: the longest edge sets the
+  // direction, but a strip peeled off a convex cell is a trapezium and its
+  // corners can reach past that edge's ends.
+  let t0 = Infinity, t1 = -Infinity;
+  for (const v of strip) {
+    const t = (v.x - a.x) * d.x + (v.y - a.y) * d.y;
+    if (t < t0) t0 = t;
+    if (t > t1) t1 = t;
+  }
+  const span = t1 - t0;
+  const n = Math.max(1, Math.round(span / frontage));
+  if (n === 1) return [strip];
+
+  const out: Poly[] = [];
+  let rest = strip;
+  const perp = rot90(d);
+  for (let i = 1; i < n && rest.length >= 3; i++) {
+    const t = t0 + (span * i) / n;
+    const p1 = { x: a.x + d.x * t, y: a.y + d.y * t };
+    const p2 = { x: p1.x + perp.x, y: p1.y + perp.y };
+    const halves = cut(rest, p1, p2, gap);
+    if (halves.length < 2) break;
+    // Which half is behind the cut: the one whose centroid projects lower.
+    const c0 = centroid(halves[0]);
+    const proj = (v: V) => (v.x - a.x) * d.x + (v.y - a.y) * d.y;
+    const behind = proj(c0) < t ? 0 : 1;
+    out.push(halves[behind]);
+    rest = halves[1 - behind];
+  }
+  if (rest.length >= 3 && area(rest) > EPS) out.push(rest);
+  return out;
+}
+
 /** Regular n-gon, used for market wells and tower footprints. */
 export function circle(r: number, segments = 16, center: V = { x: 0, y: 0 }): Poly {
   const out: Poly = [];

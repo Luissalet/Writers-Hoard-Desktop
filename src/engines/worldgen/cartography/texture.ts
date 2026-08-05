@@ -5,12 +5,19 @@
 // size, and caches the human geography and the 3D map texture per world so
 // panning, switching views and opening the 3D scene never pay for them twice.
 
-import type { WorldData } from '../core/types';
+import { Biome, type WorldData } from '../core/types';
 import { applyPaintedRealms, buildHumanGeography, DEFAULT_HUMAN_PARAMS, type GeoDepth, type HumanGeography, type HumanGeographyParams, type Settlement
 } from '../core/settlements';
-import { compatibleEditKeys, realmEditKey } from '../core/edits';
+import { compatibleEditKeys, realmEditKey, riverKey } from '../core/edits';
 import { BIOME_COLORS } from '../core/render';
-import type { RegionData } from '../region/types';
+import type { CityParams } from '../city/generate';
+import type { V } from '../city/geometry';
+import { DEFAULT_REGION_PARAMS, type RegionData } from '../region/types';
+import {
+  buildElevation, extractPatch, kmPerWorldCell, smoothPolyline, type RegionGeometry,
+} from '../region/terrain';
+import { canonMetresPerCell, canonRefinement } from '../region/tiles';
+import { marchingSquares } from './contours';
 import { renderCartography, type CartoLayers, type CartoView } from './render';
 import type { CartoTheme } from './theme';
 import type { Ctx } from './symbols';
@@ -467,34 +474,537 @@ export function pickSettlement(
   return best;
 }
 
-/** City parameters derived from a settlement's place in the world. */
+// ===========================================================================
+// El puente entre el MUNDO y el plano de una ciudad
+// ===========================================================================
 /**
- * WHICH WAY EVERYTHING IS.
+ * LAS ESCALAS, QUE ES DE LO QUE VA TODO ESTE BLOQUE.
  *
- * The plan generator used to be told only THAT a town had a river and a coast,
- * never where they were, so it picked a random bearing for each — which is why
- * no town was ever shaped by its own ground, and why a plan could not be laid
- * on the map without its water pointing somewhere the map disagrees with.
+ *   · 1 unidad de ciudad = 4 m. Es la escala del propio generador (una calle
+ *     mayor son 2 unidades y las llama ~8 m) y la que usa `townPlan.ts` para
+ *     posar el plano en el suelo SIN ROTARLO — los ejes del plano son los del
+ *     ráster del mundo, x al este e y al sur, así que un rumbo medido aquí ya
+ *     está en el marco local de la ciudad y no hay giro que adivinar.
+ *   · 1 celda de mundo = 2π·6371 km / width. Medido en el mundo «monstruo» de
+ *     1024: 39,09 km, o sea **9 773 unidades de ciudad por celda**.
+ *   · 1 celda de canon ≈ 152,7 m = 38,2 unidades: el suelo que dibujan los
+ *     tiles satélite sobre los que se posa el plano.
+ *   · Un plano de capital mide 95 unidades de radio = 380 m = 2,5 celdas de
+ *     canon = **0,0097 celdas de mundo**.
  *
- * These come straight off the world: the direction to open sea, the local
- * heading of the river that passes through, and which way the ground rises.
- * All in world-raster axes (y increases south), which is the same frame the
- * plan uses, so a plan built from them is already oriented.
+ * Ese último número manda sobre todo lo demás. El pueblo entero cabe en la
+ * centésima parte de una celda del ráster, así que DENTRO del plano el ráster
+ * no tiene absolutamente nada que decir: su curva de nivel cero lo cruza como
+ * una recta, que es exactamente el semiplano infinito que había. Lo que sí se
+ * puede leer del mundo, y es lo que se lee aquí, es:
+ *   (a) los RUMBOS —caminos, río, mar—, que son exactos a cualquier escala;
+ *   (b) la FORMA de la costa, que hay que ir a buscar donde la costa está de
+ *       verdad (medido: entre 1,6 y 50 km del pueblo) y traerla comprimida;
+ *   (c) el RELIEVE a escala del plano, que hay que amplificar con la misma
+ *       retícula fina con la que se amplifica el suelo del tile.
  */
-function cityBearings(world: WorldData, s: Settlement): {
-  coastDir: { x: number; y: number } | null;
-  riverDir: { x: number; y: number } | null;
-  slopeDir: { x: number; y: number } | null;
-  slopeAmount: number;
-} {
-  const W = world.width, H = world.height;
-  const at = (x: number, y: number) =>
-    Math.min(H - 1, Math.max(0, y)) * W + (((x % W) + W) % W);
-  const sx = Math.round(s.x), sy = Math.round(s.y);
+const METRES_PER_CITY_UNIT = 4;
 
-  // The sea: the nearest ocean cell within a few cells, by squared distance.
-  let coastDir: { x: number; y: number } | null = null;
-  if (s.port) {
+/** Unidades de ciudad por celda de mundo. 9 773 en un mundo de 1024. */
+function unitsPerWorldCell(world: WorldData): number {
+  return (kmPerWorldCell(world) * 1000) / METRES_PER_CITY_UNIT;
+}
+
+/** El tamaño nominal del plano y su radio, que es la vara de medir de todo lo
+ *  que se entrega: el generador construye sobre `R0 = 10 + size·2,5`. */
+function planSizeFor(s: Settlement): number {
+  return s.rank === 'capital' ? 34 : s.rank === 'city' ? 22 : s.rank === 'town' ? 13 : 7;
+}
+
+function cellOf(world: WorldData, x: number, y: number): number {
+  const W = world.width, H = world.height;
+  return Math.min(H - 1, Math.max(0, Math.round(y))) * W + (((Math.round(x) % W) + W) % W);
+}
+
+/**
+ * EL BIOMA, POR LA ÚNICA PUERTA QUE HAY ABIERTA.
+ *
+ * `CityParams` no tiene campo de bioma, así que un pueblo del erg y un puerto
+ * báltico se dibujaban idénticos. Lo único del bioma que cabe hoy es `farms`,
+ * que estaba puesto a `true` a fuego: un anillo de campos de labor alrededor de
+ * una caravanera del desierto, de una aldea sobre el permafrost o de un pueblo
+ * minero en las badlands.
+ *
+ * Estos son los suelos en los que no se ara: roca, arena, sal, ceniza y suelo
+ * helado. La turbera y el manglar NO están —se drenaron y se diquearon, que es
+ * de donde salen los Países Bajos y los Fens—, y son los dos biomas donde más
+ * pueblos hay. Medido sobre el mundo «monstruo»: de sus 90 poblaciones, 8 están
+ * en tundra y 1 en llanura de cenizas, así que 9 pierden el anillo de granjas y
+ * 81 lo conservan.
+ */
+const BARREN_BIOMES = new Set<number>([
+  Biome.IceCap, Biome.Glacier, Biome.Alpine, Biome.Tundra, Biome.Desert,
+  Biome.SaltFlat, Biome.Erg, Biome.Reg, Biome.Badlands, Biome.Volcanic,
+  Biome.AshPlain, Biome.PetrifiedForest, Biome.CrystalFlats,
+]);
+
+// ---------------------------------------------------------------------------
+// 1. Los caminos que llegan de verdad
+// ---------------------------------------------------------------------------
+
+interface RoadArrival { bearing: number; major: boolean }
+
+/**
+ * UNA VEZ POR GEOGRAFÍA, NO UNA VEZ POR PUEBLO.
+ *
+ * `cityParamsFor` lo llama un memo de React y también, pueblo a pueblo,
+ * `townPlan.ts` mientras pinta una pantalla de tiles. Recorrer `geography.roads`
+ * entero en cada llamada es cuadrático en el número de caminos: medido, 7 197
+ * celdas de camino × 90 poblaciones son 648 000 pasos para averiguar algo que
+ * cabe en un índice de 90 entradas. El índice se construye UNA vez por objeto
+ * de geografía —O(celdas de camino), 0,2 ms— y cada pueblo lo consulta en O(1).
+ */
+const ROAD_ARRIVALS = new WeakMap<HumanGeography, Map<number, RoadArrival[]>>();
+
+function roadArrivals(world: WorldData, geo: HumanGeography): Map<number, RoadArrival[]> {
+  const hit = ROAD_ARRIVALS.get(geo);
+  if (hit) return hit;
+  const W = world.width;
+  const index = new Map<number, RoadArrival[]>();
+  const towns = new Set<number>();
+  for (const q of geo.settlements) towns.add(cellOf(world, q.x, q.y));
+
+  /**
+   * Tres celdas de mirada adelante, no una.
+   *
+   * El A* que traza los caminos es de 8 vecinos, así que el PRIMER paso fuera
+   * del pueblo sólo puede apuntar a uno de ocho rumbos: una puerta colocada con
+   * él queda cuantizada a 45° y no coincide con la carretera que el atlas
+   * dibuja curvada. Tres celdas (117 km) es el rumbo con el que la calzada se
+   * va de verdad, y sigue siendo local.
+   */
+  const LOOK = 3;
+  for (const r of geo.roads) {
+    const n = r.cells.length;
+    for (let k = 0; k < n; k++) {
+      const c = r.cells[k];
+      if (!towns.has(c)) continue;
+      const cx = c % W, cy = (c / W) | 0;
+      // Los dos sentidos: un camino que TERMINA aquí abre una puerta, uno que
+      // PASA abre dos, que es lo que hace de un cruce de caminos un pueblo.
+      for (const j of [k + Math.min(LOOK, n - 1 - k), k - Math.min(LOOK, k)]) {
+        if (j === k) continue;
+        const d = r.cells[j];
+        let dx = (d % W) - cx;
+        if (dx > W / 2) dx -= W;
+        if (dx < -W / 2) dx += W;
+        const dy = ((d / W) | 0) - cy;
+        if (!dx && !dy) continue;
+        const list = index.get(c);
+        const arrival = { bearing: Math.atan2(dy, dx), major: r.major };
+        if (list) list.push(arrival);
+        else index.set(c, [arrival]);
+      }
+    }
+  }
+  ROAD_ARRIVALS.set(geo, index);
+  return index;
+}
+
+/** Rumbos de salida, en radianes y hacia fuera, en el marco del plano. */
+function roadBearingsFor(world: WorldData, geo: HumanGeography, s: Settlement): number[] {
+  const list = roadArrivals(world, geo).get(cellOf(world, s.x, s.y));
+  if (!list?.length) return [];
+  // Los troncales primero: el generador sólo abre entre 2 y 6 puertas, y si ha
+  // de dejar una fuera que sea la vereda y no la calzada real.
+  const sorted = [...list].sort((a, b) => (a.major === b.major ? a.bearing - b.bearing : a.major ? -1 : 1));
+  const out: number[] = [];
+  for (const r of sorted) {
+    /**
+     * Dos caminos que salen a menos de 17° son UNA salida.
+     *
+     * No es un redondeo: el A* de `buildRoads` descuenta las celdas ya usadas
+     * («erosión de calzada») para que las rutas se fundan en vez de correr en
+     * paralelo, así que las cuatro calzadas troncales de Vaaspool salen las
+     * cuatro por la MISMA celda vecina y no se separan hasta bien lejos. En el
+     * mundo «monstruo»: 190 llegadas brutas sobre 79 pueblos → 100 rumbos
+     * distintos, 1,27 por pueblo. Un pueblo con dos puertas de camino está de
+     * verdad en un cruce; abrirle cuatro pegadas sería un boquete, no puertas.
+     */
+    const clash = out.some((b) => Math.abs(((r.bearing - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 0.30);
+    if (clash) continue;
+    out.push(r.bearing);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 2. Polilíneas: el tramo que pasa por delante del pueblo
+// ---------------------------------------------------------------------------
+
+/**
+ * El tramo de una polilínea que pasa más cerca del origen, remuestreado.
+ *
+ * Hace falta recortar POR LONGITUD DE ARCO y no filtrando vértices porque los
+ * vértices de estas líneas están lejísimos a escala del plano: un paso de río
+ * del mundo son 9 773 unidades y el plano mide 190. Filtrando vértices el
+ * resultado casi siempre es la lista vacía aunque el río cruce el pueblo por
+ * el medio.
+ */
+function runThroughOrigin(pts: { x: number; y: number }[], halfLen: number, step: number): V[] {
+  if (pts.length < 2 || halfLen <= 0) return [];
+  // Punto más próximo al origen SOBRE los segmentos, no sobre los vértices.
+  let bi = 0, bt = 0, bd = Infinity;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    if (len2 < 1e-9) continue;
+    const t = Math.max(0, Math.min(1, -(a.x * dx + a.y * dy) / len2));
+    const px = a.x + dx * t, py = a.y + dy * t;
+    const d = px * px + py * py;
+    if (d < bd) { bd = d; bi = i; bt = t; }
+  }
+  const at = (i: number, t: number) => ({
+    x: pts[i].x + (pts[i + 1].x - pts[i].x) * t,
+    y: pts[i].y + (pts[i + 1].y - pts[i].y) * t,
+  });
+  // Paseo por longitud de arco a ambos lados del punto más próximo.
+  const walk = (dir: 1 | -1): V[] => {
+    const out: V[] = [];
+    let i = bi, t = bt, travelled = 0, emitted = 0;
+    let cur = at(i, t);
+    for (let guard = 0; guard < 4096 && travelled < halfLen; guard++) {
+      const a = pts[i], b = pts[i + 1];
+      const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+      if (segLen < 1e-9) { i += dir; t = dir > 0 ? 0 : 1; if (i < 0 || i >= pts.length - 1) break; continue; }
+      const remain = (dir > 0 ? 1 - t : t) * segLen;
+      const want = Math.min(remain, halfLen - travelled);
+      const nt = t + dir * (want / segLen);
+      const next = at(i, nt);
+      travelled += want;
+      // Un punto cada `step` a lo largo de lo recorrido.
+      while (emitted + step <= travelled) {
+        emitted += step;
+        const f = (emitted - (travelled - want)) / (want || 1);
+        out.push({ x: cur.x + (next.x - cur.x) * f, y: cur.y + (next.y - cur.y) * f });
+      }
+      cur = next;
+      t = nt;
+      if (travelled >= halfLen) break;
+      i += dir;
+      if (i < 0 || i >= pts.length - 1) break;
+      t = dir > 0 ? 0 : 1;
+    }
+    return out;
+  };
+  const back = walk(-1).reverse();
+  const fwd = walk(1);
+  const mid = at(bi, bt);
+  const line = [...back, mid, ...fwd];
+  return line.length >= 2 ? line : [];
+}
+
+// ---------------------------------------------------------------------------
+// 3. El suelo del pueblo: costa, río y relieve a escala del plano
+// ---------------------------------------------------------------------------
+
+interface TownGround {
+  coastDir: V | null;
+  riverDir: V | null;
+  slopeDir: V | null;
+  slopeAmount: number;
+  shoreLine: V[] | null;
+  riverCourse: { line: V[]; width: number } | null;
+}
+
+interface GroundCache { rev: number; map: Map<string, TownGround> }
+const GROUND = new WeakMap<WorldData, GroundCache>();
+
+/** Índice celda → (río, vértice), para no recorrer los 102 ríos por pueblo. */
+const RIVER_AT = new WeakMap<WorldData, { rev: number; map: Map<number, [number, number][]> }>();
+
+function riverIndex(world: WorldData): Map<number, [number, number][]> {
+  const rev = world.revision ?? 0;
+  const hit = RIVER_AT.get(world);
+  if (hit && hit.rev === rev) return hit.map;
+  const map = new Map<number, [number, number][]>();
+  const all = riversOf(world);
+  for (let ri = 0; ri < all.length; ri++) {
+    const cells = all[ri].cells;
+    for (let k = 0; k < cells.length; k++) {
+      const c = cells[k];
+      const list = map.get(c);
+      if (list) list.push([ri, k]);
+      else map.set(c, [[ri, k]]);
+    }
+  }
+  RIVER_AT.set(world, { rev, map });
+  return map;
+}
+
+/** Los ríos que el mundo tiene AHORA: los generados que no se han borrado más
+ *  los que el lector ha dibujado. La misma lista que dibujan los dos mapas. */
+function riversOf(world: WorldData): { cells: ArrayLike<number>; flow: number }[] {
+  const gone = world.painted?.removed;
+  const generated = gone?.size
+    ? world.rivers.filter((r) => !gone.has(riverKey(r.cells)))
+    : world.rivers;
+  const painted = world.painted?.rivers;
+  return painted?.length ? [...generated, ...painted] : generated;
+}
+
+/**
+ * EL LITORAL DE VERDAD, TRAÍDO A LA ESCALA DEL PLANO.
+ *
+ * Medido en el mundo «monstruo»: de los 73 puertos, el mar más cercano está
+ * entre 1,6 km (Nut) y 50 km (Viisleu) del punto del pueblo, porque `port`
+ * significa «su celda de 39 km toca el océano» y dentro de esa celda el mundo
+ * no sabe dónde. En unidades de ciudad eso es entre 412 y 12 476, contra un
+ * plano de 95 de radio: una costa entregada a escala métrica cae SIEMPRE fuera
+ * de la lámina y el pueblo deja de ser un puerto.
+ *
+ * Así que se entrega una SEMEJANZA: la curva de nivel cero del mundo alrededor
+ * del pueblo, con su rumbo y su curvatura intactos, contraída por
+ * `k = min(1, 0,72·R0 / distancia)` hasta que el agua llega al borde del
+ * pueblo. La bahía sigue siendo una bahía y el cabo un cabo — que es lo único
+ * que el lector puede comprobar contra el atlas a esta escala — y un pueblo que
+ * SÍ está en la orilla (k = 1) recibe su costa sin tocar. Medido: k va de 1/6
+ * en Nut a 1/182 en Viisleu.
+ */
+function shoreFor(world: WorldData, s: Settlement, R0: number): { line: V[]; dir: V } | null {
+  const W = world.width, H = world.height;
+  const REACH = 4;   // celdas de mundo a cada lado: 156 km de vecindad
+  const SUB = 4;     // muestras por celda; la bilineal ya suaviza el contorno
+  const N = REACH * 2 * SUB + 1;
+  const field = new Float32Array(N * N);
+  const elev = world.elevation;
+  for (let j = 0; j < N; j++) {
+    const wy = s.y - REACH + j / SUB;
+    const y0 = Math.min(H - 2, Math.max(0, Math.floor(wy)));
+    const ty = Math.min(1, Math.max(0, wy - y0));
+    for (let i = 0; i < N; i++) {
+      const wx = s.x - REACH + i / SUB;
+      const x0 = Math.floor(wx);
+      const tx = wx - x0;
+      const xa = ((x0 % W) + W) % W, xb = ((x0 + 1) % W + W) % W;
+      const a = elev[y0 * W + xa], b = elev[y0 * W + xb];
+      const c = elev[(y0 + 1) * W + xa], d = elev[(y0 + 1) * W + xb];
+      field[j * N + i] = (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
+    }
+  }
+  const contours = marchingSquares(field, N, N, 0, false);
+  if (!contours.length) return null;
+
+  const units = unitsPerWorldCell(world);
+  // La rama que pasa más cerca, en unidades de ciudad y relativa al pueblo.
+  let best: V[] | null = null, bestD = Infinity;
+  for (const c of contours) {
+    if (c.pts.length < 2) continue;
+    const pts = c.pts.map((p) => ({
+      x: (p.x / SUB - REACH) * units,
+      y: (p.y / SUB - REACH) * units,
+    }));
+    for (const p of pts) {
+      const d = p.x * p.x + p.y * p.y;
+      if (d < bestD) { bestD = d; best = pts; }
+    }
+  }
+  if (!best) return null;
+  const dTrue = Math.sqrt(bestD);
+  if (!(dTrue > 0)) return null;
+  const k = Math.min(1, (R0 * 0.72) / dTrue);
+  const scaled = best.map((p) => ({ x: p.x * k, y: p.y * k }));
+  // Sólo el tramo de delante: una ría a dos radios de aquí no tiene por qué
+  // dar la vuelta al pueblo, y el generador reduce la lista entera con
+  // `Math.min(...projs)` — veinticinco puntos, no cuatrocientos.
+  const run = runThroughOrigin(scaled, R0 * 2.2, R0 / 6);
+  if (run.length < 2) return null;
+  let near = run[0], nd = Infinity;
+  for (const p of run) {
+    const d = p.x * p.x + p.y * p.y;
+    if (d < nd) { nd = d; near = p; }
+  }
+  const m = Math.hypot(near.x, near.y) || 1;
+  const dir = { x: near.x / m, y: near.y / m };
+  /**
+   * Y AHORA SE APOYA EL TRAMO EN LA LÍNEA DE AGUA.
+   *
+   * El generador resume el litoral en un semiplano tomando la PROYECCIÓN MÍNIMA
+   * de sus puntos sobre `coastDir`; en una ensenada que abraza al pueblo esa
+   * proyección la da un punto lateral y no el frente, así que el mar se le mete
+   * dentro. Se traslada el tramo a lo largo de su propia normal —traslación
+   * rígida: la bahía sigue siendo la misma bahía— hasta dejar su punto más
+   * adentrado a 0,90·R0.
+   *
+   * Ese 0,90 está medido sobre los 46 pueblos amurallados del mundo, no
+   * elegido: a 0,72·R0 seis se quedaban con muralla de cero vértices y cero
+   * puertas (el mar tapando el plano); a 0,90 son DOS —los mismos dos que ya
+   * fallaban sin litoral ninguno— y salen 117 puertas contra las 111 de antes.
+   * De 1,00·R0 en adelante el número no mejora y el agua deja de morder el
+   * pueblo. La cifra tendría que sobrar el día que el generador multiplique la
+   * `d` del litoral entregado por su propio `lobeAt(θ)`, como ya hace con la
+   * que se inventa — ver el informe.
+   */
+  let inland = Infinity;
+  for (const p of run) inland = Math.min(inland, p.x * dir.x + p.y * dir.y);
+  const shift = R0 * 0.90 - inland;
+  const line = run.map((p) => ({ x: p.x + dir.x * shift, y: p.y + dir.y * shift }));
+  return { line, dir };
+}
+
+/**
+ * EL RÍO DE VERDAD, EN SU SITIO Y CON SU ANCHO.
+ *
+ * El río del mundo pasa POR la celda del pueblo, así que aquí sí hay verdad
+ * métrica: su eje pasa por el plano donde el atlas dice, con el rumbo que el
+ * atlas dibuja. Lo que no hay es meandro — dos vértices consecutivos del cauce
+ * están a 9 773 unidades y el plano mide 190, o sea que el tramo visible es un
+ * segmento recto, y eso es exactamente lo que el mundo sabe. Inventarle una
+ * sinusoide (que es lo que había) no añade información: la cambia de sitio.
+ *
+ * El ANCHO sale del caudal local, con la misma ley que dibuja el río en el
+ * mapa (`drawWorldRivers`: 0,12 + 2,1·flujo km). A escala del plano esa ley da
+ * 429 m para el río de Vaaspool — 107 unidades contra un pueblo de 95 de
+ * radio, el río más ancho que el pueblo entero. Se conserva la ley y se aplica
+ * un único factor de plano (0,10) y un tope de 0,42·R0: entre 16 m para un
+ * arroyo y 222 m para el mayor río del mundo, que es el orden de un Sena en
+ * París.
+ */
+const PLAN_RIVER_SQUEEZE = 0.10;
+
+function riverFor(world: WorldData, s: Settlement, R0: number): { line: V[]; width: number; dir: V } | null {
+  const W = world.width;
+  const index = riverIndex(world);
+  const all = riversOf(world);
+  const sx = Math.round(s.x), sy = Math.round(s.y);
+  // La celda propia primero, luego dos anillos: un pueblo «de río» está sobre
+  // el cauce por construcción, pero uno pintado a mano puede no estarlo.
+  let found: [number, number] | null = null;
+  for (let ring = 0; ring <= 2 && !found; ring++) {
+    for (let dy = -ring; dy <= ring && !found; dy++) {
+      for (let dx = -ring; dx <= ring && !found; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+        const list = index.get(cellOf(world, sx + dx, sy + dy));
+        if (list?.length) found = list[0];
+      }
+    }
+  }
+  if (!found) return null;
+  const [ri, k] = found;
+  const river = all[ri];
+  const cells = river.cells;
+  const units = unitsPerWorldCell(world);
+  // Cuatro vértices a cada lado, suavizados con la misma Catmull-Rom que usa
+  // el canon al tallar los ríos del mundo en el pliego: la línea que se
+  // entrega es la línea que el tile dibuja debajo.
+  const seg: { x: number; y: number }[] = [];
+  for (let j = Math.max(0, k - 4); j <= Math.min(cells.length - 1, k + 4); j++) {
+    const c = cells[j];
+    let dx = (c % W) + 0.5 - s.x;
+    if (dx > W / 2) dx -= W;
+    if (dx < -W / 2) dx += W;
+    seg.push({ x: dx * units, y: (((c / W) | 0) + 0.5 - s.y) * units });
+  }
+  if (seg.length < 2) return null;
+  const line = runThroughOrigin(smoothPolyline(seg, 12), R0 * 2.8, R0 / 8);
+  if (line.length < 2) return null;
+
+  // Caudal LOCAL, no el de la desembocadura: un pueblo en la cabecera de un
+  // gran río no tiene un gran río, tiene el arroyo con el que empieza.
+  const local = world.flow[cellOf(world, s.x, s.y)];
+  const flow = Math.max(local, river.flow * 0.35);
+  const widthUnits = ((0.12 + 2.1 * flow) * 1000 / METRES_PER_CITY_UNIT) * PLAN_RIVER_SQUEEZE;
+  const a = line[0], b = line[line.length - 1];
+  const m = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  return {
+    line,
+    width: Math.max(R0 * 0.05, Math.min(R0 * 0.42, widthUnits)),
+    dir: { x: (b.x - a.x) / m, y: (b.y - a.y) / m },
+  };
+}
+
+/**
+ * EL RELIEVE QUE TIENE EL PUEBLO, NO EL QUE TIENE LA COMARCA.
+ *
+ * `slopeDir` era una diferencia central del ráster: el desnivel entre dos
+ * celdas separadas 78 km. Medido en los seis pueblos mayores, esa dirección se
+ * aparta entre 49° y 179° de la ladera que el pueblo tiene realmente debajo —
+ * mediana 92°, o sea perpendicular, que es lo mismo que no saberlo. Con eso la
+ * ciudadela se colocaba cuesta abajo tan a menudo como cuesta arriba.
+ *
+ * Aquí se amplifica el suelo con la MISMA retícula del canon (152,7 m/celda,
+ * `buildElevation` con `DEFAULT_REGION_PARAMS`, la retícula anclada al mundo),
+ * o sea el mismo relieve que sombrea el tile satélite sobre el que se dibuja
+ * el plano, y se ajusta un plano por mínimos cuadrados a las celdas que el
+ * pueblo pisa. Cuesta 0,84 ms por pueblo, 76 ms para los 90 del mundo, y se
+ * cachea por mundo y revisión.
+ */
+function reliefFor(world: WorldData, s: Settlement, R0: number): { dir: V | null; amount: number } {
+  const ref = canonRefinement(world);
+  const per = 1 / ref;
+  const N = 24; // 3,67 km: unas quince veces el radio de una capital
+  // Origen SNAPEADO a la retícula del canon, que es lo que hace que estas
+  // muestras sean los mismos puntos que el tile — ver `latticeOffset`.
+  const originX = Math.round(s.x * ref) / ref - (N / 2) * per;
+  const originY = Math.round(s.y * ref) / ref - (N / 2) * per;
+  const g: RegionGeometry = {
+    width: N, height: N, margin: 0,
+    metresPerCell: canonMetresPerCell(world),
+    originX, originY,
+    worldPerCellX: per, worldPerCellY: per,
+  };
+  let elev: Float32Array;
+  try {
+    elev = buildElevation(world, g, extractPatch(world, g), DEFAULT_REGION_PARAMS);
+  } catch {
+    return { dir: null, amount: 0 };
+  }
+  const cx = (s.x - originX) * ref - 0.5, cy = (s.y - originY) * ref - 0.5;
+  // El radio del pueblo en celdas de canon; nunca menos de 2 o el ajuste no
+  // tiene de dónde agarrarse (una aldea son 0,7 celdas).
+  const rCells = Math.max(2, Math.min(N / 2 - 2, (R0 * METRES_PER_CITY_UNIT) / g.metresPerCell));
+  let sxx = 0, syy = 0, sxy = 0, sxz = 0, syz = 0, n = 0;
+  const i0 = Math.max(0, Math.floor(cx - rCells)), i1 = Math.min(N - 1, Math.ceil(cx + rCells));
+  const j0 = Math.max(0, Math.floor(cy - rCells)), j1 = Math.min(N - 1, Math.ceil(cy + rCells));
+  for (let j = j0; j <= j1; j++) {
+    for (let i = i0; i <= i1; i++) {
+      const dx = i - cx, dy = j - cy;
+      if (dx * dx + dy * dy > rCells * rCells) continue;
+      const z = elev[j * N + i];
+      sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+      sxz += dx * z; syz += dy * z; n++;
+    }
+  }
+  const det = sxx * syy - sxy * sxy;
+  if (n < 4 || Math.abs(det) < 1e-9) return { dir: null, amount: 0 };
+  const a = (sxz * syy - syz * sxy) / det;
+  const b = (syz * sxx - sxz * sxy) / det;
+  const mag = Math.hypot(a, b);
+  if (!(mag > 1e-9)) return { dir: null, amount: 0 };
+  // `elev` está en km y el paso es una celda de canon: pendiente adimensional.
+  const grade = (mag * 1000) / g.metresPerCell;
+  // Un 9 % es un pueblo decididamente empinado. Medido, los seis mayores del
+  // mundo caen entre el 2 y el 4 %, que da 0,25–0,45 de fuerza.
+  return { dir: { x: a / mag, y: b / mag }, amount: Math.min(1, grade / 0.09) };
+}
+
+function townGround(world: WorldData, s: Settlement): TownGround {
+  const rev = world.revision ?? 0;
+  let cache = GROUND.get(world);
+  if (!cache || cache.rev !== rev) GROUND.set(world, (cache = { rev, map: new Map() }));
+  const key = `${s.id}:${s.x}:${s.y}:${s.rank}:${s.port ? 1 : 0}:${s.river ? 1 : 0}`;
+  const hit = cache.map.get(key);
+  if (hit) return hit;
+
+  const R0 = 10 + planSizeFor(s) * 2.5;
+  const shore = s.port ? shoreFor(world, s, R0) : null;
+  const river = s.river ? riverFor(world, s, R0) : null;
+  const relief = reliefFor(world, s, R0);
+
+  // El rumbo al mar cuando no ha salido contorno alguno: el barrido de celdas
+  // de siempre, para que un puerto raro no se quede sin dirección de agua.
+  let coastDir = shore?.dir ?? null;
+  if (s.port && !coastDir) {
+    const W = world.width, H = world.height;
+    const at = (x: number, y: number) => Math.min(H - 1, Math.max(0, y)) * W + (((x % W) + W) % W);
+    const sx = Math.round(s.x), sy = Math.round(s.y);
     let best = Infinity;
     for (let dy = -4; dy <= 4; dy++) {
       for (let dx = -4; dx <= 4; dx++) {
@@ -506,56 +1016,36 @@ function cityBearings(world: WorldData, s: Settlement): {
     }
   }
 
-  // The river: whichever world river passes closest, and the heading of the
-  // run that passes. Two cells apart along the polyline is enough of a chord
-  // to be a heading and short enough to still be local.
-  let riverDir: { x: number; y: number } | null = null;
-  if (s.river) {
-    let best = Infinity;
-    for (const r of world.rivers) {
-      for (let k = 0; k < r.cells.length; k++) {
-        const c = r.cells[k];
-        let dx = (c % W) - sx;
-        if (dx > W / 2) dx -= W;
-        if (dx < -W / 2) dx += W;
-        const dy = ((c / W) | 0) - sy;
-        const d2 = dx * dx + dy * dy;
-        if (d2 >= best || d2 > 25) continue;
-        const a = r.cells[Math.max(0, k - 2)], b = r.cells[Math.min(r.cells.length - 1, k + 2)];
-        let tx = (b % W) - (a % W);
-        if (tx > W / 2) tx -= W;
-        if (tx < -W / 2) tx += W;
-        const ty = ((b / W) | 0) - ((a / W) | 0);
-        if (!tx && !ty) continue;
-        best = d2;
-        riverDir = { x: tx, y: ty };
-      }
-    }
-  }
-
-  // The rising ground, and how hard it rises. Scaled against 300 m of relief
-  // over one world cell, which is a decidedly steep place to build.
-  const gx = world.elevation[at(sx + 1, sy)] - world.elevation[at(sx - 1, sy)];
-  const gy = world.elevation[at(sx, sy + 1)] - world.elevation[at(sx, sy - 1)];
-  const mag = Math.hypot(gx, gy);
-  const slopeDir = mag > 1e-6 ? { x: gx / mag, y: gy / mag } : null;
-  const slopeAmount = Math.min(1, mag / 0.3);
-
-  return { coastDir, riverDir, slopeDir, slopeAmount };
+  const ground: TownGround = {
+    coastDir,
+    riverDir: river?.dir ?? null,
+    slopeDir: relief.dir,
+    slopeAmount: relief.amount,
+    shoreLine: shore ? shore.line : null,
+    riverCourse: river ? { line: river.line, width: river.width } : null,
+  };
+  cache.map.set(key, ground);
+  return ground;
 }
 
-export function cityParamsFor(world: WorldData, s: Settlement): {
-  seed: string; name: string; size: number; walls: boolean; citadel: boolean;
-  river: boolean; coast: boolean; farms: boolean; culture: Settlement['culture'];
-  population: number;
-  coastDir: { x: number; y: number } | null;
-  riverDir: { x: number; y: number } | null;
-  slopeDir: { x: number; y: number } | null;
-  slopeAmount: number;
-  irregularity: number;
-} {
-  const size = s.rank === 'capital' ? 34 : s.rank === 'city' ? 22 : s.rank === 'town' ? 13 : 7;
-  const bearings = cityBearings(world, s);
+/**
+ * Todo lo que el mundo le dice a un plano de ciudad.
+ *
+ * `geo` es opcional a propósito y NO se construye si falta: `getGeography` es
+ * un pase de cuatro segundos en un mundo de 1024 y de diecinueve en uno de
+ * 2048, y esta función la llama un memo de React y el pintor de tiles. Si no
+ * llega una geografía se mira la caché de este módulo, y si tampoco hay nada
+ * el plano se queda sin rumbos de camino y el generador vuelve a sus puertas
+ * repartidas — que es una degradación, no una parada.
+ */
+export function cityParamsFor(
+  world: WorldData,
+  s: Settlement,
+  geo?: HumanGeography,
+): CityParams & { name: string; population: number } {
+  const size = planSizeFor(s);
+  const ground = townGround(world, s);
+  const known = geo ?? GEO_CACHE.get(world)?.geo;
   return {
     seed: `${world.params.seed}::city::${s.id}`,
     name: s.name,
@@ -564,10 +1054,16 @@ export function cityParamsFor(world: WorldData, s: Settlement): {
     citadel: s.rank === 'capital' || s.rank === 'city',
     river: s.river,
     coast: s.port,
-    farms: true,
+    farms: !BARREN_BIOMES.has(world.biome[cellOf(world, s.x, s.y)]),
     culture: s.culture,
     population: s.population,
-    ...bearings,
+    coastDir: ground.coastDir,
+    riverDir: ground.riverDir,
+    slopeDir: ground.slopeDir,
+    slopeAmount: ground.slopeAmount,
+    roadBearings: known ? roadBearingsFor(world, known, s) : [],
+    shoreLine: ground.shoreLine,
+    riverCourse: ground.riverCourse,
     // A little per-town variation in how lobed it is: a planned bastide and a
     // village that grew where the tracks crossed are not the same shape.
     irregularity: 0.38 + ((s.id * 2654435761) % 1000) / 1000 * 0.34,

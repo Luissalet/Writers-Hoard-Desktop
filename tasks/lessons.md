@@ -212,3 +212,44 @@ icono que él.
 "he cogido el pincel de fronteras" bajo la cual quiera las fronteras ocultas. Y
 dos interruptores contiguos no comparten icono: si dos cosas se dibujan con el
 mismo dibujo, para el lector son la misma cosa.
+
+## #26 — Un banco que sólo cuenta no encuentra nada
+**Fecha:** 2026-08-05
+**Contexto:** El generador de ciudades llevaba cinco bancos: milisegundos,
+recuentos de manzanas, edificios, puertas, torres, avenidas, puentes; la
+centralidad de la catedral; el alargamiento del contorno; determinismo. Todo
+verde siempre. El primer banco que midió CALIDAD del trazado — `city-quality` —
+encontró a la primera que la mitad de las casas de cada pueblo no tenía salida
+rodada, que 39 de 42 avenidas se estrangulaban por debajo del ancho de un carro
+y que 5 de 38 puertas eran inalcanzables desde el mercado. Y el barrio 'puerta',
+que no se asignó jamás en ningún pueblo, sobrevivió cuatro pasadas medidas
+porque ningún banco lo contaba.
+**Regla:** Contar cosas no es medirlas. Un banco tiene que preguntar lo que
+preguntaría el lector — ¿sale un carro de aquí?, ¿tiene esta casa puerta a
+algo?, ¿mide una casa lo que mide una casa? — y no cuántas hay. Si una
+comprobación no puede ponerse roja, no es una comprobación.
+
+## #27 — Cuando un banco te contradice, deja de parchear
+**Fecha:** 2026-08-05
+**Contexto:** El banco dijo que el 50,8 % de las casas tenía salida. Arreglé dos
+cosas reales — el retranqueo se medía a los vértices de la calle y no al trazado
+(por eso las avenidas se estrangulaban), y añadí el paso de carro que abre el
+corral — y subió a 60,2 %. Entonces ensanché los callejones, convencido de que
+el ancho era la causa: el número no se movió ni un punto. La hipótesis era
+falsa, y el siguiente parche habría sido a ciegas sobre una teoría ya refutada.
+**Regla:** Un arreglo que no mueve la medida es un arreglo que no entendía el
+problema. Deshaz la teoría antes que el código: anota el número, anota lo que
+probaste y por qué no era, y deja el hallazgo abierto. Un rojo honesto con su
+diagnóstico vale más que un verde conseguido bajando el listón.
+
+## #28 — La cohesión visual es parte del contrato
+**Fecha:** 2026-08-05
+**Contexto:** El plano de ciudad ganó tejados a dos aguas, materiales y distritos
+con nombre — un salto enorme de estructura. Y salió de terracota, sobre una
+lámina cuyo propio encabezado dice que existe «para que bajar del atlas a un
+pueblo sea un cambio de escala y no un cambio de medio». Cada mejora era
+correcta por separado; juntas convirtieron la ciudad en un mapa de otro
+programa.
+**Regla:** Al profundizar una vista, mírala AL LADO de las otras antes de darla
+por buena. La pregunta no es «¿está mejor que antes?» sino «¿sigue siendo el
+mismo mundo?».

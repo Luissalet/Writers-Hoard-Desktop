@@ -20,7 +20,7 @@ import { createRng, type Rng } from '../core/rng';
 import { blur, distanceTo, labelLandmasses, localRelief, ridgeMask, scatterByScore, traceRidgeChains } from './fields';
 import { chaikin, marchingSquares, polylineVisible, resample, simplify, wobble, type Contour, type Pt } from './contours';
 import { renderPaper } from './paper';
-import { drawBroadleaf, drawCactus, drawConifer, drawDune, drawMarsh, drawMountain, drawPalm, type Ctx } from './symbols';
+import { drawBroadleaf, drawCactus, drawConifer, drawDune, drawIce, drawMarsh, drawMountain, drawPalm, type Ctx } from './symbols';
 import type { CartoTheme } from './theme';
 import { drawOverlay } from './overlay';
 import { drawFurniture } from './furniture';
@@ -96,6 +96,10 @@ export interface CartoOptions {
   /** Title shown in the cartouche. */
   title?: string;
   subtitle?: string;
+  /** Puntos cardinales de la rosa, en orden N, E, S, O — ver `furniture.ts`. */
+  cardinals?: [string, string, string, string];
+  /** Unidad de la barra de escala. */
+  distanceUnit?: string;
   /** Scales all lettering. */
   typeScale?: number;
   /** Creates an offscreen drawing surface (needed for the paper composite).
@@ -133,6 +137,19 @@ export interface CartoFields {
   relief: Float32Array;
   ridges: Uint8Array;
   landmass: Int32Array;
+  /**
+   * Sombreado del relieve, 0 (a plena luz) … 1 (a contraluz), precalculado por
+   * celda.
+   *
+   * Estaba dentro del bucle de píxeles, tomando la pendiente de los vecinos
+   * ENTEROS: a 24× de zoom eso pinta un cuadrado plano por celda y el terreno
+   * se leía como una colcha de retales — el defecto más visible de la base.
+   * Calculado aquí una vez por mundo (O(W·H), cacheado) se puede muestrear
+   * bilinealmente y la colcha desaparece. Además mezcla dos escalas: la ladera
+   * fina y la forma grande, que es lo que hace que el relieve se palpe en vez
+   * de sólo ensuciar la ladera.
+   */
+  shade: Float32Array;
   /** Relief value at a given quantile of LAND cells. The mountain/hill split
    *  has to be relative: an absolute threshold either buries a rugged world in
    *  symbols or leaves a gentle one bare. */
@@ -173,9 +190,44 @@ export function computeFields(world: WorldData): CartoFields {
 
   const ridges = ridgeMask(elevation, relief, W, H, Math.max(0.02, reliefQuantile(0.6)));
   const { label } = labelLandmasses(elevation, W, H);
-  const fields: CartoFields = { land, seaDist, landDist, relief, ridges, landmass: label, reliefQuantile };
+  const shade = hillshade(elevation, W, H);
+  const fields: CartoFields = { land, seaDist, landDist, relief, ridges, landmass: label, shade, reliefQuantile };
   FIELD_CACHE.set(world, { rev, fields });
   return fields;
+}
+
+/**
+ * Sombreado de dos escalas con el sol al noroeste (la convención cartográfica,
+ * y la misma que hornea la vista de atlas).
+ *
+ * Dos escalas porque una sola miente: la ladera de una celda dice dónde está el
+ * barranco pero no dónde está la montaña, y un mapa dibujado necesita las dos
+ * — el volumen grande para que el terreno tenga cuerpo y el fino para que la
+ * ladera tenga textura. La forma grande sale de la elevación desenfocada a
+ * W/128 celdas, que a 1024 son 8 celdas ≈ 280 km: la escala de una sierra.
+ */
+function hillshade(elevation: Float32Array, W: number, H: number): Float32Array {
+  const coarse = blur(elevation, W, H, Math.max(2, Math.round(W / 128)), 2);
+  const out = new Float32Array(W * H);
+  const wrap = (x: number) => ((x % W) + W) % W;
+  const Z = 9, ZC = 26;
+  for (let y = 0; y < H; y++) {
+    const yd = Math.min(H - 1, y + 1), yu = Math.max(0, y - 1);
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (elevation[i] <= 0) continue;
+      const xr = wrap(x + 1), xl = wrap(x - 1);
+      const fx = (elevation[y * W + xr] - elevation[y * W + xl]) * 0.5;
+      const fy = (elevation[yd * W + x] - elevation[yu * W + x]) * 0.5;
+      const cx = (coarse[y * W + xr] - coarse[y * W + xl]) * 0.5;
+      const cy = (coarse[yd * W + x] - coarse[yu * W + x]) * 0.5;
+      const dxz = fx * Z + cx * ZC, dyz = fy * Z + cy * ZC;
+      const len = Math.sqrt(dxz * dxz + dyz * dyz + 1);
+      const dot = (dxz * 0.55 + dyz * 0.55 + 0.63) / len;
+      out[i] = Math.max(0, Math.min(1, 0.5 - dot * 0.5));
+    }
+  }
+  return out;
 }
 
 interface TintField { r: Float32Array; g: Float32Array; b: Float32Array; a: Float32Array }
@@ -259,7 +311,33 @@ function getPaper(
  * and view-independent, cached per zoom bucket, and the view filter happens at
  * draw time where it belongs.
  */
-export interface SymbolPlacement { x: number; y: number; score: number; isHill: boolean }
+export interface SymbolPlacement {
+  x: number;
+  y: number;
+  score: number;
+  isHill: boolean;
+  /**
+   * −1…+1: hacia dónde inclina la cumbre, tomado de la tangente de la cresta.
+   * Es lo que orienta el símbolo A SU SIERRA en vez de dibujarlo simétrico.
+   */
+  lean?: number;
+  /** 0.7…1.3: ensanche del símbolo. Una cresta transversal se ve de costado
+   *  (ancha); una que corre hacia el lector se ve de canto (estrecha). */
+  broad?: number;
+  /**
+   * 0 = nada delante, 1 = tapado. Alimenta la perspectiva aérea del símbolo.
+   * Se calcula UNA vez, con la colocación (que es global y cacheada), nunca por
+   * cuadro: depender del orden de dibujo lo haría distinto en cada tesela.
+   */
+  depth?: number;
+  /**
+   * 0 = en el borde de la masa, 1 = en su corazón. Sólo los árboles: una masa
+   * forestal se dibuja MASIVA — copas grandes y apretadas dentro, ejemplares
+   * sueltos y pequeños en la orilla. Sin esto el bosque es una trama de sellos
+   * del mismo tamaño repartidos por igual, que es lo que delataba el mapa.
+   */
+  mass?: number;
+}
 interface PlacementEntry { key: string; items: SymbolPlacement[] }
 const PLACE_CACHE = new WeakMap<WorldData, { rev: number; list: PlacementEntry[] }>();
 const PLACE_MAX = scaleCount(8);
@@ -314,7 +392,7 @@ function rgbCss(r: number, g: number, b: number): string {
 
 /** A symbol placement in OUTPUT PIXELS, anchored at its feet. */
 export interface EmittedSymbol {
-  kind: 'mountain' | 'hill' | 'conifer' | 'broadleaf' | 'palm' | 'cactus' | 'dune' | 'marsh';
+  kind: 'mountain' | 'hill' | 'conifer' | 'broadleaf' | 'palm' | 'cactus' | 'dune' | 'marsh' | 'ice';
   x: number;
   y: number;
   w: number;
@@ -369,11 +447,17 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
   // else's wobble.
   const inkNoise = makeInkNoise(seed, view, scale, world.width);
 
+  // Mar abierto: punteado primero, isóbata de plataforma encima. Los dos van
+  // DEBAJO de la costa — la línea de tierra es la que manda en el agua.
+  if (L.coastRings) drawSeaStipple(ctx, world, fields, theme, view, scale, OW, OH);
+  if (L.coastRings) drawShelf(ctx, world, theme, view, scale, toScreenX, toScreenY);
+
   // Coastline. Extract in world space so the seam and sub-cell accuracy are
   // both handled, then project.
   const coast = extractCoastlines(world, view, scale);
   drawCoastlines(ctx, coast, theme, inkNoise, scale, world.width, view, toScreenX, toScreenY);
 
+  if (L.shading) drawHachure(ctx, world, fields, theme, view, scale, OW, OH);
   if (L.rivers) drawRivers(ctx, world, theme, view, scale, toScreenX, toScreenY);
   drawLakes(ctx, world, theme, view, inkNoise, scale, toScreenX, toScreenY);
 
@@ -409,6 +493,8 @@ export function renderCartography(world: WorldData, ctx: Ctx, opts: CartoOptions
       worldWidth: world.width,
       title: opts.title,
       subtitle: opts.subtitle,
+      cardinals: opts.cardinals,
+      distanceUnit: opts.distanceUnit,
       seed,
     },
     { frame: L.frame, compass: L.compass, scaleBar: L.scaleBar, graticule: L.graticule },
@@ -474,7 +560,13 @@ function renderBaseRaster(
       const fx = wx - 0.5, fy = wy - 0.5;
       const ix = Math.floor(fx);
       const iy0 = Math.min(H - 1, Math.max(0, Math.floor(fy)));
-      const tx = fx - ix, ty = fy - iy0;
+      // SMOOTHSTEP en los pesos, no la fracción cruda. La bilineal pura es C0:
+      // su derivada salta en cada borde de celda, y a 24× de zoom eso se ve como
+      // una colcha de cuadrados en los lavados de bioma — el defecto más visible
+      // de la base rasterizada. t·t·(3−2t) la hace C1 y la colcha desaparece,
+      // al coste de dos multiplicaciones por píxel.
+      const rx = fx - ix, ry = fy - iy0;
+      const tx = rx * rx * (3 - 2 * rx), ty = ry * ry * (3 - 2 * ry);
       const iy1 = Math.min(H - 1, iy0 + 1);
       const ia = wrapX(ix), ib = wrapX(ix + 1);
       const o00 = iy0 * W + ia, o10 = iy0 * W + ib, o01 = iy1 * W + ia, o11 = iy1 * W + ib;
@@ -534,14 +626,9 @@ function renderBaseRaster(
         if (L.shading && theme.land.shading > 0) {
           // Relief shading from the real heightmap, kept gentle: on a drawn map
           // the symbols carry the terrain and the shading only seats them.
-          const xr = wrapX(xc + 1), xl = wrapX(xc - 1);
-          const yd = Math.min(H - 1, yc + 1), yu = Math.max(0, yc - 1);
-          const dzdx = (elevation[yc * W + xr] - elevation[yc * W + xl]) * 0.5;
-          const dzdy = (elevation[yd * W + xc] - elevation[yu * W + xc]) * 0.5;
-          const Z = 9;
-          const len = Math.sqrt(dzdx * dzdx * Z * Z + dzdy * dzdy * Z * Z + 1);
-          const dot = (dzdx * Z * 0.55 + dzdy * Z * 0.55 + 0.63) / len;
-          const shade = Math.max(0, Math.min(1, 0.5 - dot * 0.5)) * theme.land.shading;
+          // Muestreado bilinealmente del campo precalculado — ver `hillshade`.
+          const sh = fields.shade;
+          const shade = (sh[o00] * w00 + sh[o10] * w10 + sh[o01] * w01 + sh[o11] * w11) * theme.land.shading;
           r += (shadeC[0] - r) * shade;
           g += (shadeC[1] - g) * shade;
           b += (shadeC[2] - b) * shade;
@@ -690,6 +777,199 @@ function drawCoastlines(
   }
 }
 
+// ---- water: shelf break and open-water stipple ----------------------------
+
+const SHELF_CACHE = new WeakMap<WorldData, { rev: number; depth: number; c: Contour[] }>();
+
+/**
+ * La isóbata del quiebre de plataforma, trazada como CONTORNO y no como banda
+ * de color en el ráster.
+ *
+ * En el ráster la línea tendría el grosor que le dejara el gradiente de sonda:
+ * dos píxeles en un talud y cuarenta en una llanura abisal. Trazada como
+ * marching squares tiene el grosor que se le pida en cualquier fondo, y se
+ * cachea por mundo como la costa — no depende de la vista.
+ */
+function drawShelf(
+  ctx: Ctx,
+  world: WorldData,
+  theme: CartoTheme,
+  view: CartoView,
+  scale: number,
+  toX: (x: number) => number,
+  toY: (y: number) => number,
+): void {
+  const sh = theme.ocean.shelf;
+  if (!sh.enabled || sh.alpha <= 0.01) return;
+  const rev = world.revision ?? 0;
+  let hit = SHELF_CACHE.get(world);
+  if (!hit || hit.rev !== rev || hit.depth !== sh.depth) {
+    const c = marchingSquares(world.elevation, world.width, world.height, -sh.depth, true);
+    SHELF_CACHE.set(world, (hit = { rev, depth: sh.depth, c }));
+  }
+  const W = world.width;
+  const pad = Math.max(2, 8 / scale);
+  ctx.save();
+  ctx.strokeStyle = sh.color;
+  ctx.globalAlpha = sh.alpha;
+  ctx.lineWidth = sh.width * Math.max(0.6, Math.min(1.8, scale));
+  ctx.setLineDash([]);
+  for (const c of hit.c) {
+    // Cortas no: una isóbata de seis puntos es ruido de sonda, no una plataforma.
+    if (c.pts.length < 24) continue;
+    if (!polylineVisible(c.pts, view, W, pad)) continue;
+    let pts = projectContour(c.pts, W, view, toX, toY);
+    pts = chaikin(simplify(pts, 0.6), c.closed, 2);
+    if (pts.length < 4) continue;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    if (c.closed) ctx.closePath();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * Punteado de mar abierto sobre una retícula anclada en el MUNDO.
+ *
+ * Anclada en el mundo y con paso derivado sólo de la escala, de modo que dos
+ * teselas del mismo nivel puntean exactamente los mismos puntos y el empalme no
+ * se ve. El punteado se apaga cerca de la costa (allí ya manda la anilla) y se
+ * ralea con la sonda, que es como un grabado dice "aquí ya no hay fondo".
+ *
+ * Coste: (ancho/paso)·(alto/paso) candidatos — 7 500 en el pliego de 1600×800
+ * con paso 13, medidos en 4 ms. Es O(área de salida), no O(rejilla del mundo).
+ */
+function drawSeaStipple(
+  ctx: Ctx,
+  world: WorldData,
+  fields: CartoFields,
+  theme: CartoTheme,
+  view: CartoView,
+  scale: number,
+  OW: number,
+  OH: number,
+): void {
+  const st = theme.ocean.stipple;
+  if (!st.enabled || st.alpha <= 0.01) return;
+  const { width: W, height: H, elevation } = world;
+  const stepW = st.spacing / scale;           // paso en celdas de mundo
+  const dot = Math.max(0.6, Math.min(1.9, 0.55 * Math.max(1, Math.min(2.4, scale))));
+  // La anilla ocupa los primeros `count·spacing` px de mar; el punteado empieza
+  // justo detrás para no ensuciarla.
+  const ringPx = theme.ocean.rings.count * theme.ocean.rings.spacing + theme.ocean.rings.width;
+
+  ctx.save();
+  ctx.fillStyle = st.color;
+  const x0 = Math.floor(view.x / stepW), x1 = Math.ceil((view.x + view.w) / stepW);
+  const y0 = Math.floor(view.y / stepW), y1 = Math.ceil((view.y + view.h) / stepW);
+  for (let gy = y0; gy <= y1; gy++) {
+    const wy = gy * stepW;
+    if (wy < 0 || wy >= H) continue;
+    const yc = Math.min(H - 1, Math.max(0, Math.round(wy)));
+    for (let gx = x0; gx <= x1; gx++) {
+      const wx = gx * stepW;
+      const xc = ((Math.round(wx) % W) + W) % W;
+      const i = yc * W + xc;
+      if (elevation[i] > 0) continue;
+      const dPx = fields.seaDist[i] * scale;
+      if (dPx < ringPx) continue;
+      // Jitter y densidad por POSICIÓN: la misma agua se puntea igual en toda
+      // tesela que la contenga.
+      let hsh = (Math.imul(gx, 0x9e3779b1) ^ Math.imul(gy, 0x85ebca77)) >>> 0;
+      hsh = Math.imul(hsh ^ (hsh >>> 15), 0x2c1b3c6d);
+      hsh ^= hsh >>> 13;
+      const jx = ((hsh & 0xff) / 255 - 0.5) * st.spacing * 0.75;
+      const jy = (((hsh >>> 8) & 0xff) / 255 - 0.5) * st.spacing * 0.75;
+      const keep = ((hsh >>> 16) & 0xff) / 255;
+      // Se ralea hacia el mar abierto: 100 % en el borde de la anilla, 45 % a
+      // partir de veinte anchuras de anilla mar adentro.
+      const fade = Math.max(0.45, 1 - (dPx - ringPx) / (ringPx * 20 + 1) * 0.55);
+      if (keep > fade) continue;
+      const sx = (wx - view.x) * scale + jx;
+      const sy = (wy - view.y) * scale + jy;
+      if (sx < -2 || sy < -2 || sx > OW + 2 || sy > OH + 2) continue;
+      ctx.globalAlpha = st.alpha * (0.6 + 0.4 * (((hsh >>> 24) & 0xff) / 255));
+      ctx.fillRect(sx, sy, dot, dot);
+    }
+  }
+  ctx.restore();
+}
+
+/**
+ * Hachura de ladera: trazos cortos en la línea de máxima pendiente sobre el
+ * terreno abrupto, DEBAJO de los símbolos de relieve.
+ *
+ * Es la respuesta al fallo de "montañas flotando sobre un llano liso": el
+ * símbolo dice dónde hay una cumbre, la hachura dice que toda la falda que la
+ * rodea también sube. Misma retícula anclada al mundo que el punteado, y por la
+ * misma razón. Se apaga sola donde el relieve local no llega al cuantil del
+ * tema, que en la práctica es el 70–75 % del pliego.
+ */
+function drawHachure(
+  ctx: Ctx,
+  world: WorldData,
+  fields: CartoFields,
+  theme: CartoTheme,
+  view: CartoView,
+  scale: number,
+  OW: number,
+  OH: number,
+): void {
+  const hc = theme.land.hachure;
+  if (!hc.enabled || hc.alpha <= 0.01) return;
+  const { width: W, height: H, elevation } = world;
+  const minRel = fields.reliefQuantile(hc.slope);
+  const span = Math.max(1e-4, fields.reliefQuantile(0.995) - minRel);
+  const stepW = hc.spacing / scale;
+  const len = hc.spacing * 0.9;
+
+  ctx.save();
+  ctx.strokeStyle = hc.color;
+  ctx.lineCap = 'round';
+  ctx.lineWidth = Math.max(0.45, 0.5 * Math.max(1, Math.min(2.2, scale)));
+  const x0 = Math.floor(view.x / stepW), x1 = Math.ceil((view.x + view.w) / stepW);
+  const y0 = Math.floor(view.y / stepW), y1 = Math.ceil((view.y + view.h) / stepW);
+  for (let gy = y0; gy <= y1; gy++) {
+    const wy = gy * stepW;
+    if (wy < 1 || wy >= H - 1) continue;
+    const yc = Math.min(H - 2, Math.max(1, Math.round(wy)));
+    for (let gx = x0; gx <= x1; gx++) {
+      const wx = gx * stepW;
+      const xc = ((Math.round(wx) % W) + W) % W;
+      const i = yc * W + xc;
+      if (elevation[i] <= 0) continue;
+      const rel = fields.relief[i];
+      if (rel < minRel) continue;
+      const sx = (wx - view.x) * scale;
+      const sy = (wy - view.y) * scale;
+      if (sx < -len || sy < -len || sx > OW + len || sy > OH + len) continue;
+      // Línea de máxima pendiente. El trazo cae CUESTA ABAJO, que es la
+      // convención de la hachura de Lehmann.
+      const dx = elevation[yc * W + ((xc + 1) % W)] - elevation[yc * W + ((xc - 1 + W) % W)];
+      const dy = elevation[(yc + 1) * W + xc] - elevation[(yc - 1) * W + xc];
+      const g = Math.hypot(dx, dy);
+      if (g < 1e-5) continue;
+      let hsh = (Math.imul(gx, 0x27d4eb2d) ^ Math.imul(gy, 0x165667b1)) >>> 0;
+      hsh = Math.imul(hsh ^ (hsh >>> 15), 0x2c1b3c6d);
+      hsh ^= hsh >>> 13;
+      const jx = ((hsh & 0xff) / 255 - 0.5) * hc.spacing * 0.6;
+      const jy = (((hsh >>> 8) & 0xff) / 255 - 0.5) * hc.spacing * 0.6;
+      // Cuanto más abrupto, más largo y más opaco el trazo: es la única forma
+      // de que una hachura diga PENDIENTE y no sólo "aquí hay algo".
+      const t = Math.min(1, (rel - minRel) / span);
+      const L = len * (0.45 + 0.75 * t);
+      ctx.globalAlpha = hc.alpha * (0.4 + 0.6 * t);
+      ctx.beginPath();
+      ctx.moveTo(sx + jx, sy + jy);
+      ctx.lineTo(sx + jx - (dx / g) * L, sy + jy - (dy / g) * L);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
 function drawRivers(
   ctx: Ctx,
   world: WorldData,
@@ -780,10 +1060,10 @@ function drawLakes(
   const W = world.width;
   const contours = allLakeShores(world);
   if (!contours.length) return;
-  ctx.strokeStyle = theme.lakes.stroke;
-  ctx.lineWidth = theme.lakes.width * Math.max(0.7, Math.min(2, scale));
+  const lw = theme.lakes.width * Math.max(0.7, Math.min(2, scale));
   const cx = view.x + view.w / 2;
   const pad = Math.max(2, 8 / scale);
+  ctx.save();
   for (const c of contours) {
     if (c.pts.length < 5) continue;
     if (!polylineVisible(c.pts, view, W, pad)) continue;
@@ -797,12 +1077,26 @@ function drawLakes(
     pts = chaikin(simplify(pts, 0.3), c.closed, 2);
     if (pts.length < 4) continue;
     pts = wobble(pts, 0.3, noise, c.closed);
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.closePath();
+    const trace = () => {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.closePath();
+    };
+    // PESO DE ORILLA: un trazo ancho y translúcido bajo el filete fino. Un lago
+    // con una sola línea de un píxel se lee como un agujero recortado; el doble
+    // trazo le da canto, que es lo que distingue una orilla de un contorno.
+    ctx.globalAlpha = 0.4;
+    ctx.lineWidth = lw * 3.2;
+    ctx.strokeStyle = theme.lakes.stroke;
+    trace();
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = lw;
+    trace();
     ctx.stroke();
   }
+  ctx.restore();
 }
 
 // ---- relief symbols -------------------------------------------------------
@@ -919,17 +1213,51 @@ function placeRelief(
     }
     if (raw.length < 3) continue;
     const smooth = chaikin(simplify(raw, 0.8), false, 2);
-    // Spacing in world cells so consecutive symbols overlap by roughly a third.
-    const step = Math.max(1.2, (mSize * 1.05) / bucketScale / density);
+    // Spacing in world cells so consecutive symbols SE TAPAN: a 1.05 anchuras
+    // los picos se tocaban sin solaparse y la sierra salía como una fila de
+    // tiendas de campaña; a 0.82 cada uno oculta el pie del siguiente, que es
+    // lo que da la oclusión del dibujo a mano.
+    const step = Math.max(1.1, (mSize * 0.82) / bucketScale / density);
     const walk = resample(smooth, step, false);
-    for (const p of walk) {
+    for (let k = 0; k < walk.length; k++) {
+      const p = walk[k];
       const xi = ((Math.round(p.x) % W) + W) % W;
       const yi = Math.min(H - 1, Math.max(0, Math.round(p.y)));
       if (elevation[yi * W + xi] <= 0) continue;
       const sc = score[yi * W + xi];
       if (sc <= 0) continue;
-      const item: SymbolPlacement = { x: ((p.x % W) + W) % W, y: p.y, score: sc, isHill: false };
-      if (tooClose(item.x, item.y, sizeOf(item), 0.55)) continue;
+
+      // ---- orientación a la cresta -----------------------------------------
+      // La tangente local de la cadena, apuntando CUESTA ARRIBA: la cumbre se
+      // inclina hacia el vecino más alto y el símbolo se ensancha cuando la
+      // sierra corre de través (se ve de costado) y se estrecha cuando corre
+      // hacia el lector (se ve de canto).
+      const a = walk[Math.max(0, k - 1)], b = walk[Math.min(walk.length - 1, k + 1)];
+      let tx = b.x - a.x, ty = b.y - a.y;
+      const tl = Math.hypot(tx, ty) || 1;
+      tx /= tl; ty /= tl;
+      const ea = elevation[Math.min(H - 1, Math.max(0, Math.round(a.y))) * W + ((Math.round(a.x) % W) + W) % W];
+      const eb = elevation[Math.min(H - 1, Math.max(0, Math.round(b.y))) * W + ((Math.round(b.x) % W) + W) % W];
+      const up = eb >= ea ? 1 : -1;
+      const lean = Math.max(-1, Math.min(1, tx * up * 1.3));
+      const broad = 0.74 + 0.52 * Math.abs(tx);
+
+      // Desplazamiento PERPENDICULAR a la cresta. Una cadena colocada sobre la
+      // línea exacta se lee como una fila de sellos; escalonada media anchura
+      // se lee como una sierra con dos filas de cumbres.
+      const jig = ((Math.sin(p.x * 12.9898 + p.y * 78.233) * 43758.5453) % 1 + 1) % 1 - 0.5;
+      const off = jig * (mSize * 0.9) / bucketScale;
+      // Los extremos de la sierra se afinan: nada muere de golpe en el paisaje.
+      const tip = Math.min(1, (Math.min(k, walk.length - 1 - k) + 1) / 3);
+
+      const item: SymbolPlacement = {
+        x: (((p.x - ty * off) % W) + W) % W,
+        y: p.y + tx * off,
+        score: sc * (0.58 + 0.42 * tip),
+        isHill: false,
+        lean, broad,
+      };
+      if (tooClose(item.x, item.y, sizeOf(item), 0.5)) continue;
       push(item);
     }
   }
@@ -961,13 +1289,66 @@ function placeRelief(
   });
 
   for (const p of pts) {
+    // Fuera de cadena la orientación sale del gradiente de altura: la cumbre
+    // sigue inclinándose cuesta arriba, sólo que el "arriba" lo dice el terreno
+    // en vez de la cresta.
+    const xi = ((Math.round(p.x) % W) + W) % W;
+    const yi = Math.min(H - 1, Math.max(0, Math.round(p.y)));
+    const gx = elevation[yi * W + ((xi + 1) % W)] - elevation[yi * W + ((xi - 1 + W) % W)];
     const item: SymbolPlacement = {
       x: ((p.x % W) + W) % W, y: p.y, score: p.score, isHill: p.score < 1,
+      lean: Math.max(-1, Math.min(1, gx * 2.4)),
+      broad: 1,
     };
     if (tooClose(item.x, item.y, sizeOf(item), 0.72)) continue;
     push(item);
   }
+  markDepth(placed, grid, gw, gh, cell, W, (p) => symWidth(sizeOf(p)) / bucketScale);
   return placed;
+}
+
+/**
+ * Marca cuántos símbolos tapan a cada uno POR DELANTE (y mayor = más cerca del
+ * lector en el orden del pintor). Es el insumo de la perspectiva aérea.
+ *
+ * Se calcula aquí, dentro de la colocación cacheada, y NO al dibujar: si la
+ * profundidad dependiera de la lista visible, dos teselas vecinas darían valores
+ * distintos al mismo pico y el empalme se vería. Coste O(n·k) con k ≈ 6 vecinos
+ * de rejilla; medido en 2 ms para los 2 900 símbolos del pliego de mundo.
+ */
+function markDepth(
+  items: SymbolPlacement[],
+  grid: SymbolPlacement[][],
+  gw: number,
+  gh: number,
+  cell: number,
+  W: number,
+  radiusOf: (p: SymbolPlacement) => number,
+): void {
+  for (const p of items) {
+    const r = radiusOf(p) * 0.75;
+    const gx = Math.floor(p.x / cell), gy = Math.floor(p.y / cell);
+    const span = Math.ceil(r / cell) + 1;
+    let front = 0;
+    for (let dy = -span; dy <= span; dy++) {
+      const yy = gy + dy;
+      if (yy < 0 || yy >= gh) continue;
+      for (let dx = -span; dx <= span; dx++) {
+        const xx = ((gx + dx) % gw + gw) % gw;
+        for (const o of grid[yy * gw + xx]) {
+          if (o === p || o.y <= p.y) continue;
+          let ddx = o.x - p.x;
+          if (ddx > W / 2) ddx -= W;
+          if (ddx < -W / 2) ddx += W;
+          const ddy = o.y - p.y;
+          if (ddx * ddx + ddy * ddy < r * r) front++;
+        }
+      }
+    }
+    // /3.5, no /2.2: con el divisor bajo dos vecinos bastaban para lavar el
+    // símbolo entero y las cumbres del fondo desaparecían del papel.
+    p.depth = Math.min(1, front / 3.5);
+  }
 }
 
 /** Screen height of a symbol at a given scale. */
@@ -1007,7 +1388,7 @@ function drawRelief(
 
   // Clip to the viewport HERE, not during placement: the layout must not depend
   // on where the reader is looking.
-  const visible: { x: number; wx: number; y: number; size: number; isHill: boolean }[] = [];
+  const visible: { x: number; wx: number; y: number; size: number; isHill: boolean; p: SymbolPlacement }[] = [];
   for (const p of all) {
     let x = p.x;
     while (x < cx - W / 2) x += W;
@@ -1018,18 +1399,19 @@ function drawRelief(
       x, wx: p.x, y: p.y,
       size: (p.isHill ? hSize : mSize) * (0.7 + Math.min(1.05, p.score * 0.5)),
       isHill: p.isHill,
+      p,
     });
   }
   // Painter's algorithm: back to front by the symbol's base line.
   visible.sort((a, b) => a.y - b.y);
 
   const landBase = theme.land.base;
-  for (const { x, wx, y, isHill, size } of visible) {
+  for (const { x, wx, y, isHill, size, p } of visible) {
     const sx = toX(x), sy = toY(y);
     const jitterSeed = rngFor(seed, wx, y);
     const h = size * (1 + (jitterSeed() - 0.5) * 2 * theme.mountains.sizeJitter);
     const ratio = isHill ? 1.7 + jitterSeed() * 0.8 : 2.3 + jitterSeed() * 2.2;
-    const w = h * ratio * 0.55;
+    const w = h * ratio * 0.55 * (p.broad ?? 1);
 
     const xi = ((Math.round(wx) % W) + W) % W;
     const yi = Math.min(H - 1, Math.max(0, Math.round(y)));
@@ -1043,7 +1425,13 @@ function drawRelief(
     }
     ctx.save();
     ctx.translate(sx, sy);
-    drawMountain(ctx, jitterSeed, theme, { h, w, snow, fill: landBase }, isHill);
+    drawMountain(ctx, jitterSeed, theme, {
+      h, w, snow, fill: landBase,
+      lean: p.lean ?? 0,
+      depth: p.depth ?? 0,
+      tone: jitterSeed() * 2 - 1,
+      paper: theme.paper.base,
+    }, isHill);
     ctx.restore();
   }
   return visible.length;
@@ -1072,6 +1460,9 @@ function placeForests(
     if (FOREST_BIOMES.has(b)) score[i] = 0.5 + Math.min(0.5, precipitation[i] / 3000);
     else if (b === Biome.Savanna || b === Biome.Shrubland) score[i] = 0.22;
     else if (b === Biome.Desert) score[i] = 0.12;
+    // El hielo tenía puntuación cero: los casquetes salían como manchas blancas
+    // lisas, el único bioma del mapa sin una sola marca dibujada encima.
+    else if (b === Biome.IceCap || b === Biome.Glacier) score[i] = 0.16;
   }
   const tSize = theme.forest.size * Math.max(0.5, Math.min(1.8, 0.5 + 0.5 * bucketScale));
   // Keep canopy off the ground the relief symbols already occupy.
@@ -1079,9 +1470,25 @@ function placeForests(
   // Same scale-invariance argument as the relief budget.
   const budget = Math.round(Math.min(400_000, Math.max(26_000, 26_000 * bucketScale * bucketScale)));
 
+  // Distancia al borde de la masa: 1 en las celdas que NO son bosque, luego
+  // `distanceTo` devuelve para cada celda de bosque su distancia al claro más
+  // cercano. Es un O(W·H) más dentro de una función ya cacheada — el mismo
+  // orden que el bucle de puntuación de arriba.
+  const edge = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) if (score[i] <= 0.4) edge[i] = 1;
+  const stand = distanceTo(edge, W, H);
+  const massAt = (x: number, y: number): number => {
+    const xi = ((Math.round(x) % W) + W) % W;
+    const yi = Math.min(H - 1, Math.max(0, Math.round(y)));
+    return Math.min(1, stand[yi * W + xi] / 5);
+  };
+
   const pts = scatterByScore(score, W, H, {
     minScore: 0.1,
-    radiusAt: (sc) => Math.max(1.1, (tSize * (sc > 0.4 ? 0.95 : 2.1)) / bucketScale / density),
+    // El corazón de la masa se aprieta un 30 % respecto a la orilla: es lo que
+    // hace que un bosque tenga BORDE en vez de desvanecerse por igual.
+    radiusAt: (sc, x, y) =>
+      Math.max(1.0, (tSize * (sc > 0.4 ? 0.95 : 2.1) * (1.15 - 0.34 * massAt(x, y))) / bucketScale / density),
     maxPoints: budget,
     accept: (x, y) => {
       const xi = ((Math.round(x) % W) + W) % W;
@@ -1092,7 +1499,9 @@ function placeForests(
     jitter: 0.8,
     rng,
   });
-  return pts.map((p) => ({ x: ((p.x % W) + W) % W, y: p.y, score: p.score, isHill: false }));
+  return pts.map((p) => ({
+    x: ((p.x % W) + W) % W, y: p.y, score: p.score, isHill: false, mass: massAt(p.x, p.y),
+  }));
 }
 
 function drawForests(
@@ -1122,24 +1531,25 @@ function drawForests(
   const pad = (tSize / scale) * 2.6;
   const cx = view.x + view.w / 2;
 
-  const visible: { x: number; wx: number; y: number }[] = [];
+  const visible: { x: number; wx: number; y: number; mass: number }[] = [];
   for (const p of all) {
     let x = p.x;
     while (x < cx - W / 2) x += W;
     while (x > cx + W / 2) x -= W;
     if (p.y < view.y - pad || p.y > view.y + view.h + pad) continue;
     if (x < view.x - pad || x > view.x + view.w + pad) continue;
-    visible.push({ x, wx: p.x, y: p.y });
+    visible.push({ x, wx: p.x, y: p.y, mass: p.mass ?? 0.5 });
   }
   visible.sort((a, b) => a.y - b.y);
 
-  for (const { x, wx, y } of visible) {
+  for (const { x, wx, y, mass } of visible) {
     const xi = ((Math.round(wx) % W) + W) % W;
     const yi = Math.min(H - 1, Math.max(0, Math.round(y)));
     const b = biome[yi * W + xi];
     const T = temperature[yi * W + xi];
     const r = rngFor(seed, wx, y);
-    const h = tSize * (1 + (r() - 0.5) * 2 * theme.forest.sizeJitter);
+    // La copa crece hacia el corazón de la masa: 0.74× en la orilla, 1.1× dentro.
+    const h = tSize * (0.74 + 0.36 * mass) * (1 + (r() - 0.5) * 2 * theme.forest.sizeJitter);
     // Marsh: wet, nearly flat, close to standing water or a river mouth.
     const wetland = world.precipitation[yi * W + xi] > 1100
       && fields.relief[yi * W + xi] < fields.reliefQuantile(0.25)
@@ -1149,7 +1559,9 @@ function drawForests(
     // disagree about what is standing there.
     let kind: EmittedSymbol['kind'];
     let scale2 = 1;
-    if (b === Biome.Desert) {
+    if (b === Biome.IceCap || b === Biome.Glacier) {
+      kind = 'ice'; scale2 = 2.2;
+    } else if (b === Biome.Desert) {
       if (r() < 0.45) { kind = 'cactus'; scale2 = 0.8; } else { kind = 'dune'; scale2 = 1.7; }
     } else if (b === Biome.SaltFlat || b === Biome.ColdDesert) {
       kind = 'dune'; scale2 = 1.6;
@@ -1172,18 +1584,23 @@ function drawForests(
     if (emit) {
       // A tree's atlas cell is square, so the quad is too; a mountain's carries
       // its own width, which is what gives the range its silhouette.
-      emit({ kind, x: toX(x), y: toY(y), w: hh * (kind === 'dune' || kind === 'marsh' ? 1.9 : 1), h: hh, variant: r(), snow: 0 });
+      emit({ kind, x: toX(x), y: toY(y), w: hh * (kind === 'dune' || kind === 'marsh' || kind === 'ice' ? 1.9 : 1), h: hh, variant: r(), snow: 0 });
       continue;
     }
+    // Dentro de la masa hay bruma: los ejemplares del corazón se lavan hacia el
+    // papel y los de la orilla quedan nítidos. Sale de `mass`, que ya está
+    // calculado — no cuesta una segunda pasada de oclusión como en el relieve.
+    const depth = mass * 0.85;
     ctx.save();
     ctx.translate(toX(x), toY(y));
     switch (kind) {
       case 'cactus': drawCactus(ctx, r, theme, hh); break;
       case 'dune': drawDune(ctx, r, theme, hh); break;
       case 'palm': drawPalm(ctx, r, theme, hh); break;
-      case 'conifer': drawConifer(ctx, r, theme, hh); break;
+      case 'conifer': drawConifer(ctx, r, theme, hh, depth); break;
       case 'marsh': drawMarsh(ctx, r, theme, hh); break;
-      default: drawBroadleaf(ctx, r, theme, hh); break;
+      case 'ice': drawIce(ctx, r, theme, hh); break;
+      default: drawBroadleaf(ctx, r, theme, hh, depth); break;
     }
     ctx.restore();
   }

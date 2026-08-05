@@ -19,12 +19,13 @@ import {
   commitPaintStroke, commitRefusal, isWaypointTool, negativeOf, pickGeneratedAt, restriction,
   type PaintSpec,
 } from '../core/paintCommit';
-import type { Pt, Stroke, WorldEdit } from '../core/edits';
-import { filterFor } from '../core/edits';
+import type { EditTarget, Pt, Stroke, WorldEdit } from '../core/edits';
+import { editKey, filterFor } from '../core/edits';
 import { strokeMask } from '../sculpt/ops';
 import { Biome } from '../core/types';
 import type { HumanGeography, Road, Settlement } from '../core/settlements';
-import type { WorldViewport, WorldWaypoint } from '../types';
+import type { SavedWorldRegion, WorldViewport, WorldWaypoint } from '../types';
+import { drawAnnotations, type CartoAnnotations } from '../cartography/annotations';
 import { tipOf, tipOutline } from '../sculpt/ops';
 import type { PaintTool } from './PaintPanel';
 import {
@@ -49,7 +50,8 @@ import { COVER_LABEL_ES } from '../region/types';
 import type { RegionData } from '../region/types';
 import { regionVisibleRect } from '../region/coordinates';
 import {
-  EARTH_KM, MIN_SPAN_KM, clampViewport, flightAt, FLIGHT_MS, sameViewport, type FlyTarget,
+  EARTH_KM, MAX_SPAN_KM, MIN_SPAN_KM, clampViewport, flightAt, FLIGHT_MS, sameViewport,
+  type FlyTarget,
 } from '../core/camera';
 
 export const BIOME_KEYS = [
@@ -69,6 +71,35 @@ export const BIOME_KEYS = [
 const BRUSH_MIN_KM = 0.15;
 const BRUSH_MAX_KM = 2500;
 
+/**
+ * MEDIA CELDA AL SUR-ESTE: dónde cae de verdad la pincelada (B6).
+ *
+ * El puntero da una coordenada continua — `m.u * W` — y en este mundo la celda
+ * k es el suelo que va de k a k+1, con su centro en k+0,5. Así lo entienden
+ * `polygonCells` (muestrea en `y + 0,5`), `realmFloodCells` (trunca) y la
+ * lectura de terreno del sobrevuelo.
+ *
+ * `stampDisc`, que es quien decide qué celdas entinta una pincelada, NO: mide
+ * `dx = gx - cx` contra el ÍNDICE de la celda, como si el suelo de la celda k
+ * estuviera en el punto k. Con radio 1 y el puntero en 5,5 entinta las columnas
+ * 5 y 6 — suelo de 5 a 7, centrado en 6,0 — mientras el anillo se dibuja
+ * centrado en 5,5. Media celda de desfase, hacia el sur-este, en las dos
+ * direcciones a la vez.
+ *
+ * Medido sobre el mismo test de inclusión, con radios 1, 2, 4, 9 y 25: el
+ * centroide del SUELO entintado cae en (+0,500, +0,500) exactas respecto al
+ * punto para cualquier radio, y entre +0,30 y +0,52 para un punto cualquiera
+ * dentro de la celda (la diferencia es la cuantización del borde del disco).
+ *
+ * A escala planetaria media celda es medio píxel y no se ve. A 40 km de vano
+ * una celda son cientos de píxeles: el anillo dice una cosa y la tinta aparece
+ * visiblemente abajo y a la derecha, que es justo el zoom al que se pinta con
+ * cuidado. El anillo se corrige aquí porque el desfase está en `sculpt/ops.ts`
+ * y esa es la única implementación de la máscara: si se arreglara ahí — que es
+ * lo correcto — habría que poner esta constante a cero, y no cambiar nada más.
+ */
+const STAMP_OFFSET_CELLS = 0.5;
+
 interface Map2DProps {
   world: WorldData;
   viewMode: ViewMode;
@@ -86,6 +117,14 @@ interface Map2DProps {
    *  its own. Both take normalized coordinates, which is how a pin is stored. */
   onPlaceWaypoint?: (u: number, v: number) => void;
   onRemoveWaypoint?: (id: string) => void;
+  /**
+   * Una chincheta arrastrada a otro sitio.
+   *
+   * Separado de `onEdit` porque una chincheta no es una edición del mundo: no
+   * entra en la lista, no la deshace Ctrl+Z y sobrevive a regenerar. Ver
+   * `isWaypointTool`.
+   */
+  onMoveWaypoint?: (id: string, u: number, v: number) => void;
   onSelectWaypoint: (id: string | null) => void;
   onSelectSpatialEntity?: (entity: WorldSpatialEntity | null) => void;
   /**
@@ -151,6 +190,29 @@ interface Map2DProps {
    * panel, which is on the other side of the screen from the stroke.
    */
   onTool?: (patch: Partial<PaintTool>) => void;
+  /**
+   * LAS COMARCAS QUE EL LECTOR HA GUARDADO.
+   *
+   * Guardar una comarca la metía en un panel y en ningún sitio más: el lector
+   * archivaba «el Valle de Ivrén» y al volver al mapa no había manera de saber
+   * dónde estaba, ni de ver que las tres que tiene guardadas se solapan. Una
+   * comarca es un TROZO DE MUNDO, y un trozo de mundo se dibuja donde está.
+   */
+  savedRegions?: SavedWorldRegion[];
+  /** La que está abierta ahora mismo, si hay alguna: se dibuja encendida. */
+  activeRegionId?: string | null;
+  /** Un clic en el marco de una comarca la abre. */
+  onOpenSavedRegion?: (id: string) => void;
+  /**
+   * Las marcas del lector que NO son cartografía: la ruta planificada, las dos
+   * puntas de un viaje, los sitios de los que habla el manuscrito.
+   *
+   * Sólo llegaban a `CartoMap`, así que abrir el Índice o planear un Viaje
+   * echaba al lector del 2D a la lámina dibujada — y con él el pincel, la
+   * pirámide de satélite y todo lo que sólo existe aquí. Son puntos y una
+   * polilínea en celdas del mundo: esta vista sabe proyectar las dos cosas.
+   */
+  annotations?: CartoAnnotations;
 }
 
 interface ViewState {
@@ -181,8 +243,25 @@ interface Hit {
    *  own labels are drawn but have no first-class identity in this view yet, so
    *  they answer the hover and nothing else. */
   note?: string;
+  /** Para el marco de una comarca guardada: cuál, para poder abrirla. */
+  regionId?: string;
   /** Ties are broken toward the more important thing, not the nearer one. */
   bias?: number;
+  /**
+   * QUÉ SE PUEDE COGER Y ARRASTRAR, y bajo qué llave se guarda el traslado.
+   *
+   * La llave es siempre la de la posición GENERADA — es lo que
+   * `resolveWorldSpatialEntity` promete y lo que hace que un enlace del
+   * manuscrito y un renombrado posteriores sigan apuntando al mismo objeto
+   * después de moverlo. Por eso se deriva de `sourceX/sourceY`, nunca de dónde
+   * está el objeto ahora mismo: si la llave siguiera al objeto, el segundo
+   * arrastre escribiría un `move` distinto y el primero quedaría huérfano en la
+   * lista de ediciones para siempre.
+   *
+   * Las chinchetas no lo llevan: no son ediciones del mundo sino notas pegadas
+   * al cristal, viven en su propia tabla y se mueven por `onMoveWaypoint`.
+   */
+  mover?: { target: EditTarget; key: string; label: string };
 }
 
 /**
@@ -546,6 +625,37 @@ const PLACE_KIND_ES: Record<string, string> = {
 };
 
 /**
+ * Cómo se llama cada CLASE de accidente, para el sobrevuelo.
+ *
+ * `f.kind` es un identificador interno — 'strait', 'hotspring', 'marsh' — y el
+ * sobrevuelo lo imprimía tal cual detrás del nombre: «Mar de Vantis · sea».
+ * Media línea en inglés dentro de una lectura por lo demás traducida, en la
+ * única vista donde se pueden renombrar y borrar esos accidentes.
+ *
+ * Las cinco clases que también son hitos (volcán, cueva, cascada, garganta,
+ * termas) reutilizan las claves del inspector de lugares en vez de duplicarlas:
+ * son la misma palabra para el lector, y dos catálogos para una sola cosa es
+ * como se separan con el tiempo. `settlement`, `capital` y `realm` están en la
+ * tabla porque `FeatureKind` los admite, aunque el generador no los archive hoy
+ * como accidentes: una clase que falte aquí vuelve a imprimirse en crudo.
+ */
+const FEATURE_KIND_ES: Record<string, string> = {
+  continent: 'worldgen.feature.kind.continent', ocean: 'worldgen.feature.kind.ocean',
+  sea: 'worldgen.feature.kind.sea', bay: 'worldgen.feature.kind.bay',
+  strait: 'worldgen.feature.kind.strait', isle: 'worldgen.feature.kind.isle',
+  range: 'worldgen.feature.kind.range', peak: 'worldgen.feature.kind.peak',
+  forest: 'worldgen.feature.kind.forest', desert: 'worldgen.feature.kind.desert',
+  river: 'worldgen.feature.kind.river', lake: 'worldgen.feature.kind.lake',
+  marsh: 'worldgen.feature.kind.marsh', cape: 'worldgen.feature.kind.cape',
+  valley: 'worldgen.feature.kind.valley', plain: 'worldgen.feature.kind.plain',
+  volcano: 'worldgen.place.icon.volcano', cave: 'worldgen.place.icon.cave',
+  waterfall: 'worldgen.place.icon.waterfall', gorge: 'worldgen.place.icon.gorge',
+  hotspring: 'worldgen.place.icon.hotspring',
+  settlement: 'worldgen.atlas.kind.settlement', capital: 'worldgen.hover.rank.capital',
+  realm: 'worldgen.atlas.kind.realm',
+};
+
+/**
  * Which of the canon's places answer to "Accidentes" rather than "Poblaciones".
  *
  * The deep tiles emit one flat list of names and the map has two switches for
@@ -698,13 +808,14 @@ function projectedRealmTint(
 
 export default function Map2D({
   world, viewMode, projection, showRivers, showLandmarks, showWaypoints, showGrid,
-  waypoints, selectedWaypointId, onPlaceWaypoint, onRemoveWaypoint, onSelectWaypoint,
+  waypoints, selectedWaypointId, onPlaceWaypoint, onRemoveWaypoint, onMoveWaypoint,
+  onSelectWaypoint,
   selectedSpatialKey, regionalEntities = [], regionDetail, onSelectSpatialEntity,
   geography, showSettlements, showRoads = true, showBorders = false,
   showFeatures = true, roadFrom = null,
   tool, onEdit, onTool, onPickSettlement, onZoomTo,
   viewport, onViewportChange, flyTarget, revision = 0, canonWorld, canonEdits,
-  exportRef,
+  exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations,
 }: Map2DProps) {
   const { t } = useTranslation();
   /**
@@ -803,6 +914,39 @@ export default function Map2D({
    *  `dragRef` to ask, and the Camino tool needs to tell a click from a drag. */
   const pressAt = useRef<{ x: number; y: number } | null>(null);
   /**
+   * EL OBJETO QUE VA EN LA MANO, mientras dura el arrastre.
+   *
+   * `AppliedEdits.moves` existía en el vocabulario desde el principio y no había
+   * ningún gesto que lo produjera: el lector colocaba un pueblo y, para
+   * correrlo dos leguas, tenía que borrarlo y volver a ponerlo — perdiendo su
+   * nombre, sus habitantes y todo lo que el manuscrito colgara de su llave.
+   *
+   * `live` separa el clic del arrastre: hasta que el puntero no se ha ido a
+   * cuatro píxeles esto no es una mudanza, y soltar ahí sigue siendo el clic de
+   * siempre (abrir el plano de la ciudad, seleccionar el hito). Sin ese umbral,
+   * cada clic en un pueblo escribiría un `move` de cero leguas: un paso de
+   * deshacer y una línea en el fichero por no haber hecho nada.
+   *
+   * Un REF y no estado: se escribe en cada `pointermove` y sólo lo lee `draw`.
+   */
+  const moveRef = useRef<{
+    hit: Hit;
+    /** Dónde estaba DIBUJADO al cogerlo — el otro extremo de la línea, y el
+     *  origen del desfase: el objeto conserva su posición relativa bajo la
+     *  mano en vez de saltar al puntero en cuanto se pasa el umbral. */
+    fromX: number;
+    fromY: number;
+    /** Dónde apretó el lector, en pantalla. El umbral se mide contra esto y no
+     *  contra el objeto: el impacto llega a diez píxeles, así que apretar en el
+     *  borde de un pueblo ya habría contado como haberlo arrastrado. */
+    pressX: number;
+    pressY: number;
+    /** Dónde está el puntero ahora, en pantalla. */
+    x: number;
+    y: number;
+    live: boolean;
+  } | null>(null);
+  /**
    * WHAT WAS ACTUALLY DRAWN, in screen pixels, as of the last frame.
    *
    * The hit-tests used to walk the MODEL while `draw` walked a filtered subset
@@ -844,6 +988,16 @@ export default function Map2D({
   // (The union of landmarks and regional entities used to live here, for the
   // hit-test to walk. It walks `painted` now — what the frame actually drew —
   // so the two lists cannot fall out of step again.)
+
+  /**
+   * La clase de un accidente o de un hito, en el idioma del lector.
+   *
+   * Con reserva a la cadena cruda: una clase nueva en el generador saldría en
+   * inglés, que es feo, pero saldría — mejor que un hueco o una clave sin
+   * resolver donde el lector espera «bahía».
+   */
+  const kindLabel = (kind: string): string =>
+    (FEATURE_KIND_ES[kind] ? t(FEATURE_KIND_ES[kind]) : kind);
 
   // ---- layers -------------------------------------------------------------
   // `revision` is in the dependency list on purpose: painting MUTATES the world
@@ -1233,6 +1387,25 @@ export default function Map2D({
     // Filled as each layer draws; swapped in at the end so a half-built frame
     // can never be what the pointer is tested against.
     const hits: Hit[] = [];
+    /**
+     * LAS MUDANZAS DEL LECTOR, aplicadas aquí y no antes.
+     *
+     * `AppliedEdits.moves` sólo lo lee `resolveWorldSpatialEntity`, así que los
+     * hitos y los lugares de comarca llegan a esta vista YA movidos y no deben
+     * volver a corregirse. Las poblaciones, las ruinas y los accidentes no: se
+     * dibujan directamente desde `geography`, y ni `buildHumanGeography` ni el
+     * parche barato `patchGeography` miran `moves` — de modo que sin esto un
+     * arrastre se guardaría, se contaría en el badge del Pincel y NO MOVERÍA
+     * NADA. Un gesto que no llega a la pantalla es un gesto que no existe
+     * (lección #23).
+     *
+     * Corregirlo aquí deja el 2D — que es donde está el gesto — diciendo la
+     * verdad hoy; hasta que los dos constructores de geografía honren `moves`,
+     * la Carta y el globo seguirán dibujando la posición de origen. Está pedido
+     * en el informe.
+     */
+    const moves = world.painted?.moves;
+    const movedAt = (key: string): Pt | undefined => moves?.[key];
     const mapLabels: Array<{
       value: { text: string; color: string; size: number; weight: number };
       x: number;
@@ -1761,6 +1934,9 @@ export default function Map2D({
           hits.push({
             kind: 'entity', x: sx, y: sy, entity: lm,
             reach: 9 * Math.max(0.75, lm.style.size ?? 1), bias: 0.9,
+            // Ya viene movido — `resolveWorldLandmarks` aplica `moves` — así
+            // que aquí sólo hace falta la llave para escribir el siguiente.
+            mover: { target: 'landmark', key: lm.key, label: lm.name },
           });
           drawLandmark(ctx, lm, sx, sy, lm.key === selectedSpatialKey);
           if ((lm.style.labelVisible ?? false)
@@ -1821,6 +1997,8 @@ export default function Map2D({
           hits.push({
             kind: 'entity', x: sx, y: sy, entity,
             reach: 9 * Math.max(0.75, entity.style.size ?? 1), bias: 0.85,
+            // Resuelto contra `data.painted` en el padre, igual que los hitos.
+            mover: { target: entity.kind, key: entity.key, label: entity.name },
           });
           drawRegionalEntity(ctx, entity, sx, sy, entity.key === selectedSpatialKey);
           if (semantic.tier === 'local' || entity.importance > 0.55
@@ -1849,7 +2027,11 @@ export default function Map2D({
       ctx.globalAlpha = 0.82;
       for (const copyOx of copies) {
         for (const ru of geography.ruins) {
-          const [sx, sy] = toScreen((ru.x + 0.5) / W, (ru.y + 0.5) / H, copyOx);
+          const ruKey = editKey('ruin', ru.x, ru.y);
+          const ruAt = movedAt(ruKey);
+          const [sx, sy] = toScreen(
+            ((ruAt?.x ?? ru.x) + 0.5) / W, ((ruAt?.y ?? ru.y) + 0.5) / H, copyOx,
+          );
           if (sx < -20 || sx > cw + 20 || sy < -20 || sy > ch + 20) continue;
           const r = ru.kind === 'city' ? 4.2 : ru.kind === 'fort' ? 3.8 : 3.2;
           // A broken square: the universal "this was a building and is not any
@@ -1863,6 +2045,7 @@ export default function Map2D({
           hits.push({
             kind: 'note', x: sx, y: sy, reach: r + 7, bias: 1.2,
             note: `${ru.name} · ${t('worldgen.atlas.kind.ruin')}`,
+            mover: { target: 'ruin', key: ruKey, label: ru.name },
           });
           if (semantic.tier === 'local') {
             queueLabel(ru.name, sx + r + 4, sy, '#ddd2ba', 9.5, 500, 20 + ru.importance * 20);
@@ -1904,7 +2087,15 @@ export default function Map2D({
           // the length of its course, which would let a creek through and stop
           // nothing.
           if (!river && f.extent * ((PW * scale) / W) < 46) continue;
-          const [sx, sy] = toScreen((f.x + 0.5) / W, (f.y + 0.5) / H, copyOx);
+          // Un accidente NO es un punto: lo que se mueve es dónde va su NOMBRE.
+          // El mar sigue donde estaba; el rótulo se aparta de la costa que
+          // tapaba. Es el mismo `move` — la posición del accidente es su ancla
+          // de rótulo y nada más (ver `NamedFeature.x`).
+          const fKey = editKey('feature', f.x, f.y, `${f.kind}:`);
+          const fAt = movedAt(fKey);
+          const [sx, sy] = toScreen(
+            ((fAt?.x ?? f.x) + 0.5) / W, ((fAt?.y ?? f.y) + 0.5) / H, copyOx,
+          );
           if (sx < -80 || sx > cw + 80 || sy < -30 || sy > ch + 30) continue;
           const water = river || f.kind === 'sea' || f.kind === 'bay' || f.kind === 'strait'
             || f.kind === 'ocean' || f.kind === 'lake' || f.kind === 'marsh';
@@ -1917,7 +2108,8 @@ export default function Map2D({
             reach: river ? 16 : Math.max(14, Math.min(140, f.extent * ((PW * scale) / W) * 0.45)),
             // A generated river is named "Río X" — the kind is already in the
             // name, so appending it reads as a stutter.
-            note: river ? f.name : `${f.name} · ${f.kind}`,
+            note: river ? f.name : `${f.name} · ${kindLabel(f.kind)}`,
+            mover: { target: 'feature', key: fKey, label: f.name },
           });
           queueLabel(
             f.name.toUpperCase(),
@@ -1996,7 +2188,13 @@ export default function Map2D({
           // the reader wondering whether the click registered at all.
           const pending = roadFrom?.id === s.id;
           if (rank > maxRank && !pending) continue;
-          const [sx, sy] = toScreen((s.x + 0.5) / W, (s.y + 0.5) / H, copyOx);
+          // La llave sigue a la posición de ORIGEN aunque el dibujo siga a la
+          // mudanza: ver `Hit.mover`.
+          const sKey = editKey('settlement', s.x, s.y);
+          const sAt = movedAt(sKey);
+          const [sx, sy] = toScreen(
+            ((sAt?.x ?? s.x) + 0.5) / W, ((sAt?.y ?? s.y) + 0.5) / H, copyOx,
+          );
           if (sx < -40 || sx > cw + 40 || sy < -20 || sy > ch + 20) continue;
           const r = rank === 0 ? 5 : rank === 1 ? 4 : rank === 2 ? 3 : 2.2;
           // The reach is the DOT plus a finger's worth, not a flat 14 px over
@@ -2004,6 +2202,7 @@ export default function Map2D({
           hits.push({
             kind: 'settlement', x: sx, y: sy, settlement: s,
             reach: r + 9, bias: [0.45, 0.65, 0.85, 1][rank] ?? 1,
+            mover: { target: 'settlement', key: sKey, label: s.name },
           });
           if (pending) {
             ctx.beginPath();
@@ -2085,6 +2284,126 @@ export default function Map2D({
       }
     }
 
+    // ---- la ruta, el viaje y lo que nombra el manuscrito ---------------------
+    /**
+     * LAS MARCAS DEL LECTOR, aquí también, para que el Índice y el Viaje dejen
+     * de expulsarle a la Carta.
+     *
+     * `drawAnnotations` pide el mapa como dos funciones separadas — `sx(wx)` y
+     * `sy(wy)` — y eso sólo se puede cumplir en una proyección CILÍNDRICA, que
+     * son exactamente las que envuelven: en equirect `forward` es la identidad
+     * y en mercator la X depende sólo de la longitud. En las tres curvas
+     * (acimutal, Mollweide, Winkel) la horizontal de un punto depende también
+     * de su latitud, así que no hay ningún par de funciones de un argumento que
+     * las describa y esta capa no se puede dibujar ahí sin reescribirla. No se
+     * dibuja, y no se dibuja mal: el satélite, el pincel y la pirámide sólo
+     * existen en equirect, que es donde el lector está cuando planea un viaje.
+     *
+     * SIN EL PALEO, y eso es deliberado: es un barrido de la retícula entera —
+     * dos millones de celdas en un mundo de 2048 — y esta función corre en cada
+     * fotograma de un desplazamiento, no sobre una lámina asentada como la
+     * Carta. Es la misma trampa que costó 15 ms por fotograma a las fronteras.
+     * El nivel del mar antiguo sigue teniendo su vista y su interruptor.
+     */
+    if (annotations && wraps) {
+      const marks: CartoAnnotations = {
+        pins: annotations.pins,
+        route: annotations.route,
+        linked: annotations.linked,
+      };
+      if (marks.pins?.length || marks.route || marks.linked?.length) {
+        for (const copyOx of copies) {
+          // Un límite conocido: el salto de la costura se compara dentro de
+          // `drawAnnotations` contra `ctx.canvas.width`, que es el búfer y no
+          // los píxeles CSS en los que medimos aquí. Con dpr 2 el umbral queda
+          // al doble, así que una ruta que cruce el antimeridiano puede dibujar
+          // el tramo de vuelta en vez de levantar el lápiz. Una ruta planeada
+          // entre dos poblaciones casi nunca lo cruza; arreglarlo de verdad es
+          // un parámetro más en esa función, que no es de esta vista.
+          drawAnnotations(
+            ctx, marks, world,
+            (wx) => toScreen(wx / W, 0, copyOx)[0],
+            (wy) => toScreen(0, wy / H, copyOx)[1],
+            (PW * scale) / W,
+          );
+        }
+        // `drawAnnotations` deja la línea base en 'middle' y la fuente puesta;
+        // el resto del fotograma da por hecho lo primero (se fija una vez
+        // arriba) y vuelve a poner lo segundo por capa.
+        ctx.textBaseline = 'middle';
+      }
+    }
+
+    // ---- las comarcas guardadas ---------------------------------------------
+    /**
+     * Una comarca guardada es un SITIO, no una entrada de lista.
+     *
+     * Se dibuja el trozo de mundo que abarca — anchura `spanKm`, altura la que
+     * le da su propia relación de aspecto, la misma con la que se generó la
+     * hoja — y su nombre encima. Con eso, tres comarcas guardadas dejan de ser
+     * tres líneas iguales en un panel y pasan a ser tres recuadros que el
+     * lector reconoce de un vistazo, y que se ve si se solapan.
+     *
+     * El marco se mide en la métrica de la LÁMINA (píxeles por celda), no
+     * proyectando las cuatro esquinas: en equirect — que es donde vive el
+     * satélite y donde se guardan las comarcas — las dos cosas son idénticas, y
+     * en una proyección curva un recuadro de referencia con un pequeño error de
+     * forma sigue diciendo dónde está la comarca, que es lo que se le pide.
+     */
+    if (savedRegions.length) {
+      const ppcX = (PW * scale) / W;
+      const ppcY = (PH * scale) / H;
+      ctx.save();
+      ctx.font = '600 10px "Source Sans 3", sans-serif';
+      for (const copyOx of copies) {
+        for (const rg of savedRegions) {
+          const halfW = ((rg.spanKm / EARTH_KM) * W * ppcX) / 2;
+          const halfH = halfW / Math.max(0.25, rg.params?.aspect || 1.55) * (ppcY / ppcX);
+          const [rx, ry] = toScreen(
+            ((rg.x / W) % 1 + 1) % 1,
+            Math.min(1, Math.max(0, rg.y / H)),
+            copyOx,
+          );
+          if (rx + halfW < -30 || rx - halfW > cw + 30
+            || ry + halfH < -20 || ry - halfH > ch + 20) continue;
+          const active = rg.id === activeRegionId;
+          // Por debajo de seis píxeles el recuadro es un punto sucio: a escala
+          // planetaria una comarca de 200 km es medio píxel, y lo que el lector
+          // quiere ver ahí es DÓNDE la tiene guardada, no su forma exacta.
+          const tiny = halfW < 3 || halfH < 3;
+          ctx.setLineDash(active ? [] : [6, 4]);
+          ctx.lineWidth = active ? 2 : 1.4;
+          ctx.strokeStyle = active ? 'rgba(255,212,121,0.95)' : 'rgba(226,214,190,0.65)';
+          if (tiny) {
+            ctx.beginPath();
+            ctx.moveTo(rx, ry - 5); ctx.lineTo(rx + 5, ry);
+            ctx.lineTo(rx, ry + 5); ctx.lineTo(rx - 5, ry);
+            ctx.closePath();
+            ctx.stroke();
+          } else {
+            ctx.strokeRect(rx - halfW, ry - halfH, halfW * 2, halfH * 2);
+          }
+          ctx.setLineDash([]);
+          // El nombre va en el borde superior del marco, no en el centro: el
+          // centro de una comarca es justo donde está lo que se ha ido a mirar.
+          const labelY = tiny ? ry - 11 : ry - halfH - 7;
+          hits.push({
+            kind: 'note', x: rx, y: Math.max(6, labelY), reach: tiny ? 12 : 16, bias: 1.4,
+            note: `${rg.title} · ${t('worldgen.map.savedRegion')}`,
+            regionId: rg.id,
+          });
+          queueLabel(
+            rg.title, rx + 8, Math.max(6, labelY),
+            active ? '#ffd479' : 'rgba(236,226,206,0.9)', 10, 600,
+            // Justo por debajo de los rótulos que el lector ha escrito a mano:
+            // es suyo también, pero es un marco de trabajo, no parte del mapa.
+            360,
+          );
+        }
+      }
+      ctx.restore();
+    }
+
     // Waypoints
     if (showWaypoints) {
       ctx.font = '600 11px "Source Sans 3", sans-serif';
@@ -2160,13 +2479,18 @@ export default function Map2D({
           // Screen position through the RING'S anchor, so the preview stays on
           // the copy of the world the pointer is actually over when the map
           // wraps — the same trick the cursor outline uses.
+          // Con la misma media celda que el anillo: los dos previsualizan la
+          // MISMA máscara (`strokeMask`, incluido el río, que la usa para
+          // excavar el cauce), así que corregir uno y no el otro sería cambiar
+          // una mentira por dos que además se contradicen. Ver
+          // `STAMP_OFFSET_CELLS`.
           const px = (p: Pt) => {
-            let dx = p.x - anchor.cx;
+            let dx = p.x - anchor.cx + STAMP_OFFSET_CELLS;
             while (dx > W / 2) dx -= W;
             while (dx < -W / 2) dx += W;
             return anchor.x + dx * pxPerCell;
           };
-          const py = (p: Pt) => anchor.y + (p.y - anchor.cy) * pxPerCell;
+          const py = (p: Pt) => anchor.y + (p.y - anchor.cy + STAMP_OFFSET_CELLS) * pxPerCell;
           const wCells = bt0.mode === 'river' ? Math.max(0.8, bt0.riverWidth) : bt0.radius * 2;
           ctx.save();
           ctx.beginPath();
@@ -2347,6 +2671,114 @@ export default function Map2D({
       ctx.textBaseline = 'middle';
     }
 
+    // ---- el localizador ------------------------------------------------------
+    /**
+     * DÓNDE ESTÁ ESTO, en el mundo entero.
+     *
+     * Un recuadro de ciento y pico píxeles con la lámina del planeta y el marco
+     * de lo que se está mirando. Cuesta un `drawImage` de una imagen que ya está
+     * construida (`baseCanvas`, la misma que dibuja el fondo) y dos trazos: al
+     * lado de la pirámide de teselas, nada.
+     *
+     * Sólo cuando hay algo que localizar. Con el mundo entero en pantalla el
+     * recuadro repetiría el mapa a escala de sello y taparía una esquina de él
+     * para no decir nada; por debajo de la mitad de la anchura del mundo — un
+     * continente — es cuando el lector deja de saber dónde está.
+     *
+     * Nunca en una exportación: es un mando de la vista, como el chivato de las
+     * teselas, no parte del mapa.
+     */
+    {
+      const X0 = -view.ox / mapW, Y0 = -view.oy / mapH;
+      const fw = Math.min(1, cw / mapW), fh = Math.min(1, ch / mapH);
+      if (!exportScale.current && fw < 0.5) {
+        const iw = Math.max(76, Math.min(148, cw * 0.2));
+        const ih = iw * (PH / PW);
+        const ix = cw - iw - 10, iy = 10;
+        ctx.save();
+        ctx.fillStyle = 'rgba(7,7,13,0.72)';
+        ctx.beginPath();
+        ctx.roundRect(ix - 3, iy - 3, iw + 6, ih + 6, 4);
+        ctx.fill();
+        ctx.imageSmoothingEnabled = true;
+        ctx.globalAlpha = 0.92;
+        ctx.drawImage(baseCanvas, ix, iy, iw, ih);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = 'rgba(240,236,228,0.35)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(ix - 0.5, iy - 0.5, iw + 1, ih + 1);
+        // La ventana. En una proyección que envuelve, la fracción puede caer
+        // fuera de [0,1) y asomar por el otro lado del sello: se dibujan las dos
+        // mitades, que es lo que el lector ve en el mapa grande.
+        const rx = wraps ? ((X0 % 1) + 1) % 1 : Math.max(0, Math.min(1 - fw, X0));
+        const ry = Math.max(0, Math.min(1 - fh, Y0));
+        ctx.strokeStyle = '#ffd479';
+        ctx.lineWidth = 1.6;
+        const box = (fx: number, fwPart: number) => {
+          // Con un mínimo visible: a 400 m de vano la ventana es una millonésima
+          // del planeta, y un rectángulo de cero píxeles no marca nada.
+          const w = Math.max(3, fwPart * iw), h = Math.max(3, fh * ih);
+          ctx.strokeRect(ix + fx * iw, iy + ry * ih, Math.min(w, iw), Math.min(h, ih));
+        };
+        box(rx, fw);
+        if (wraps && rx + fw > 1) box(rx - 1, fw);
+        ctx.restore();
+      }
+    }
+
+    // ---- lo que va en la mano ------------------------------------------------
+    /**
+     * Un objeto cogido tiene que VERSE cogido.
+     *
+     * Tres cosas, y las tres hacen falta: el sitio del que sale (un aro fino,
+     * para poder volver), la línea que lo une a la mano (o el lector no sabe
+     * QUÉ está arrastrando cuando hay tres pueblos juntos) y el nombre en el
+     * destino, que es la promesa de lo que va a pasar al soltar. El original se
+     * sigue dibujando en su sitio a propósito: hasta que no se suelta, no se ha
+     * movido nada.
+     */
+    {
+      const held = moveRef.current;
+      if (held?.live) {
+        const tx = held.fromX + (held.x - held.pressX);
+        const ty = held.fromY + (held.y - held.pressY);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(held.fromX, held.fromY, 7, 0, Math.PI * 2);
+        ctx.lineWidth = 1.4;
+        ctx.strokeStyle = 'rgba(240,236,228,0.45)';
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(held.fromX, held.fromY);
+        ctx.lineTo(tx, ty);
+        ctx.setLineDash([5, 4]);
+        ctx.lineWidth = 1.6;
+        ctx.strokeStyle = 'rgba(255,214,120,0.85)';
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(tx, ty, 7.5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,214,120,0.22)';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ffd479';
+        ctx.stroke();
+        const name = held.hit.mover?.label
+          ?? waypoints.find((wp) => wp.id === held.hit.waypointId)?.name
+          ?? '';
+        if (name) {
+          ctx.font = '600 11px "Source Sans 3", sans-serif';
+          ctx.lineWidth = 3;
+          ctx.lineJoin = 'round';
+          ctx.strokeStyle = 'rgba(6,8,13,0.88)';
+          ctx.strokeText(name, tx + 11, ty);
+          ctx.fillStyle = '#ffe9c2';
+          ctx.fillText(name, tx + 11, ty);
+        }
+        ctx.restore();
+      }
+    }
+
     // The brush ring, last, over everything. Two circles: where the stroke
     // stops, and where it stops being at full strength — softness is otherwise a
     // number you set and then discover the effect of.
@@ -2367,8 +2799,11 @@ export default function Map2D({
         const pts2 = tipOutline(tip, Math.max(0.6, rCells), at.cx, at.cy, 96);
         ctx.beginPath();
         for (let k = 0; k < pts2.length; k++) {
-          const px = at.x + (pts2[k].x - at.cx) * pxPerCell;
-          const py = at.y + (pts2[k].y - at.cy) * pxPerCell;
+          // Desplazado media celda: ver `STAMP_OFFSET_CELLS`. El anillo tiene
+          // que rodear el suelo que la pincelada va a entintar, no el punto
+          // desde el que se calcula.
+          const px = at.x + (pts2[k].x - at.cx + STAMP_OFFSET_CELLS) * pxPerCell;
+          const py = at.y + (pts2[k].y - at.cy + STAMP_OFFSET_CELLS) * pxPerCell;
           if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
         ctx.closePath();
@@ -2471,6 +2906,9 @@ export default function Map2D({
     showRoads, showBorders, showFeatures, roadFrom, tool,
     waypoints, selectedWaypointId, selectedSpatialKey, regionalEntities,
     regionDetail, canonWorld, canonEdits, landmarks,
+    // Las capas nuevas: sin esto una comarca recién guardada no aparece hasta
+    // que algo mueva el mapa, y una ruta recién calculada tampoco.
+    savedRegions, activeRegionId, annotations,
   ]);
 
   // ---- export -----------------------------------------------------------------
@@ -2550,6 +2988,80 @@ export default function Map2D({
   }, [PW, PH, spec, wraps, scheduleDraw, maxScale]);
 
   /**
+   * Volar de donde estamos a donde se pide, con la interpolación compartida.
+   *
+   * Sacado del efecto de `flyTarget` para que la tecla Inicio y el paso atrás
+   * lleguen igual que un doble clic: en 520 ms, con el arco que se abre y se
+   * cierra que `flightAt` dibuja. Un salto seco a la vista planetaria pierde al
+   * lector exactamente igual que perderse — no sabe si ha subido, si ha saltado
+   * de continente o si el mapa se ha recargado.
+   */
+  const flyLocal = useCallback((target: WorldViewport) => {
+    const from = computeViewport();
+    if (!from) return;
+    cancelFlight();
+    const to = clampViewport(target);
+    const t0 = performance.now();
+    const step = () => {
+      const t = Math.min(1, (performance.now() - t0) / FLIGHT_MS);
+      applyViewport(flightAt(from, to, t));
+      if (t < 1) {
+        flightRaf.current = requestAnimationFrame(step);
+      } else {
+        flightRaf.current = 0;
+        reportViewport();
+      }
+    };
+    flightRaf.current = requestAnimationFrame(step);
+  }, [computeViewport, cancelFlight, applyViewport, reportViewport]);
+
+  /**
+   * DE DÓNDE VENÍAMOS. La pila de vistas.
+   *
+   * No había ninguna forma de volver. El lector baja a un caserío, pierde la
+   * costa de vista, y nada en la pantalla le devuelve a donde estaba: la rueda
+   * hacia atrás sube por donde ha bajado sólo si no ha desplazado el mapa, y en
+   * cuanto lo ha desplazado está buscando un continente a ciegas.
+   *
+   * Sólo los saltos entran en la pila. Desplazar y hacer rueda son continuos —
+   * el lector ve moverse el suelo y no se pierde — y meterlos aquí llenaría la
+   * pila de veinticuatro posiciones indistinguibles y haría inútil el paso
+   * atrás. Un salto es un vuelo (doble clic, «volar aquí»), abrir una comarca
+   * guardada, o esta misma tecla.
+   */
+  const camHistory = useRef<WorldViewport[]>([]);
+  const pushHistory = useCallback((vp: WorldViewport | null) => {
+    if (!vp) return;
+    const stack = camHistory.current;
+    // Sin repetir el sitio en el que ya estamos: dos «volar aquí» al mismo
+    // pueblo son un solo paso atrás, no dos que no van a ninguna parte.
+    if (stack.length && sameViewport(stack[stack.length - 1], vp)) return;
+    stack.push(vp);
+    if (stack.length > 24) stack.shift();
+  }, []);
+
+  /** Devolver al lector a la última vista de la que saltó. */
+  const goBack = useCallback(() => {
+    const prev = camHistory.current.pop();
+    if (prev) flyLocal(prev);
+  }, [flyLocal]);
+
+  /**
+   * El mundo entero, de una tecla.
+   *
+   * `MAX_SPAN_KM` es la circunferencia: `applyViewport` la convierte en la
+   * escala que mete la lámina entera en el lienzo y `clampView` la centra. Si
+   * ya estamos ahí no se hace nada — ni vuelo ni entrada en la pila — porque un
+   * paso atrás que devuelve al mismo sitio es un paso atrás gastado.
+   */
+  const flyHome = useCallback(() => {
+    const now = computeViewport();
+    if (!now || now.spanKm > MAX_SPAN_KM * 0.92) return;
+    pushHistory(now);
+    flyLocal({ u: 0.5, v: 0.5, spanKm: MAX_SPAN_KM });
+  }, [computeViewport, pushHistory, flyLocal]);
+
+  /**
    * Somebody else moved the shared camera. Go there.
    *
    * `viewport` was read exactly once, inside `fit()`, and only when there was no
@@ -2563,6 +3075,11 @@ export default function Map2D({
     if (!viewport || !viewRef.current) return;
     if (sameViewport(viewport, lastReported.current)) return;
     cancelFlight();
+    // Todo lo que llega hasta aquí es un SALTO de verdad: el eco de nuestro
+    // propio informe lo ha filtrado la línea de arriba, así que lo que queda es
+    // alguien de fuera moviendo la cámara — abrir una comarca guardada, «ver en
+    // 2D» desde el inspector. Justo de eso es de lo que hay que poder volver.
+    pushHistory(computeViewport());
     applyViewport(viewport);
     // What we ACHIEVED, not what we were asked for. `applyViewport` clamps to
     // `maxScale`, which is 28 px/cell while the geography is still building — so
@@ -2598,20 +3115,9 @@ export default function Map2D({
     if (!flyTarget) return;
     const from = computeViewport();
     if (!from) return;
-    cancelFlight();
-    const to = clampViewport({ u: flyTarget.u, v: flyTarget.v, spanKm: flyTarget.spanKm ?? from.spanKm });
-    const t0 = performance.now();
-    const step = () => {
-      const t = Math.min(1, (performance.now() - t0) / FLIGHT_MS);
-      applyViewport(flightAt(from, to, t));
-      if (t < 1) {
-        flightRaf.current = requestAnimationFrame(step);
-      } else {
-        flightRaf.current = 0;
-        reportViewport();
-      }
-    };
-    flightRaf.current = requestAnimationFrame(step);
+    // De aquí es de donde el lector querrá volver.
+    pushHistory(from);
+    flyLocal({ u: flyTarget.u, v: flyTarget.v, spanKm: flyTarget.spanKm ?? from.spanKm });
     return cancelFlight;
     // The token IS the request; everything else is read fresh when it fires.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2704,11 +3210,14 @@ export default function Map2D({
    * to it and a pin beats both — the same ordering the old searches had, now
    * applied to one list instead of three that disagreed with the renderer.
    */
-  const hitAt = (sx: number, sy: number, kinds: Hit['kind'][]): Hit | null => {
+  const hitAt = (
+    sx: number, sy: number, kinds: Hit['kind'][], want?: (h: Hit) => boolean,
+  ): Hit | null => {
     let best: Hit | null = null;
     let bestScore = Infinity;
     for (const h of painted.current) {
       if (!kinds.includes(h.kind)) continue;
+      if (want && !want(h)) continue;
       const dx = sx - h.x, dy = sy - h.y;
       const d2 = dx * dx + dy * dy;
       if (d2 > h.reach * h.reach) continue;
@@ -2724,6 +3233,115 @@ export default function Map2D({
 
   const landmarkAt = (sx: number, sy: number): WorldSpatialEntity | null =>
     hitAt(sx, sy, ['entity'])?.entity ?? null;
+
+  /**
+   * Lo que hay bajo el puntero Y SE PUEDE COGER.
+   *
+   * Pregunta al mismo registro que todo lo demás, con el filtro puesto: un
+   * rótulo pintado y una ruina responden los dos como `note`, y sólo la ruina
+   * tiene identidad que trasladar. Sin el filtro, el arrastre se quedaría
+   * enganchado al rótulo — que está más cerca — y no movería nada.
+   */
+  const movableAt = (sx: number, sy: number): Hit | null => {
+    // Sólo lo que el padre sabe guardar. Ofrecer el gesto — cursor de mover,
+    // fantasma siguiendo la mano — y tragárselo al soltar es peor que no
+    // ofrecerlo: el lector cree que ha movido el pueblo y no lo ha movido.
+    const kinds: Hit['kind'][] = [];
+    if (onEdit) kinds.push('settlement', 'entity', 'note');
+    if (onMoveWaypoint) kinds.push('waypoint');
+    if (!kinds.length) return null;
+    return hitAt(sx, sy, kinds, (h) => (h.kind === 'waypoint' ? !!h.waypointId : !!h.mover));
+  };
+
+  /**
+   * DÓNDE NACIÓ lo que hay en este punto, si es que alguien lo movió.
+   *
+   * `pickGeneratedAt` — que es quien contesta a un Ctrl+clic — mide contra
+   * `geo.settlements`, y esa lista no sabe nada de `moves`: guarda la posición
+   * de origen. Así que en cuanto el lector mueve un pueblo, el Ctrl+clic sobre
+   * el punto donde AHORA se dibuja no encuentra nada dentro de la tolerancia y
+   * el gesto se pierde en silencio — o, peor, alcanza al vecino. Una función
+   * que crea un objeto inalcanzable para el borrador no está terminada.
+   *
+   * Las coordenadas de origen están en la propia llave: `editKey` las escribió
+   * ahí («settlement:412,207»), que es justo lo que la hace estable. Así que se
+   * leen de vuelta y la pregunta se traslada al sitio en el que la lista sí
+   * responde. La tolerancia es la misma que va a usar el buscador, para que lo
+   * que este paso acepta sea exactamente lo que aquél puede encontrar.
+   */
+  const sourcePointFor = (x: number, y: number, tol: number): Pt => {
+    const mv = world.painted?.moves;
+    if (!mv) return { x, y };
+    let best: Pt | null = null;
+    let bestD = tol;
+    for (const key of Object.keys(mv)) {
+      const p = mv[key];
+      let dx = Math.abs(p.x - x);
+      if (dx > W / 2) dx = W - dx;
+      const d = Math.hypot(dx, p.y - y);
+      if (d > bestD) continue;
+      const tail = key.slice(key.lastIndexOf(':') + 1).split(',');
+      const sx = Number(tail[0]), sy = Number(tail[1]);
+      if (!Number.isFinite(sx) || !Number.isFinite(sy)) continue;
+      bestD = d;
+      best = { x: sx, y: sy };
+    }
+    return best ?? { x, y };
+  };
+
+  /** Dónde ha soltado el lector, en celdas del mundo — o null si ha soltado
+   *  fuera del suelo (el margen negro de una proyección curva). */
+  const dropPoint = (sx: number, sy: number): Pt | null => {
+    const m = screenToMap(sx, sy);
+    if (!m) return null;
+    return {
+      x: ((m.u * W) % W + W) % W,
+      y: Math.min(H - 1e-3, Math.max(0, m.v * H)),
+    };
+  };
+
+  /**
+   * Soltar el objeto donde está el puntero.
+   *
+   * Una chincheta va a su tabla; todo lo demás es un `move` en la lista de
+   * ediciones, que es lo que hace que sobreviva a cerrar el mundo y que Ctrl+Z
+   * lo levante. Devuelve si ha llegado a mover algo, para que el llamante sepa
+   * si tragarse el clic.
+   */
+  const dropMove = (sx: number, sy: number): boolean => {
+    const held = moveRef.current;
+    moveRef.current = null;
+    if (!held?.live) return false;
+    // Con el desfase del agarre, igual que el fantasma que el lector ha estado
+    // viendo: el objeto cae donde se veía caer, no donde está la punta del
+    // puntero. Ver `moveRef.fromX`.
+    const at = dropPoint(held.fromX + (sx - held.pressX), held.fromY + (sy - held.pressY));
+    if (!at) { scheduleDraw(); return true; }
+    if (held.hit.kind === 'waypoint' && held.hit.waypointId) {
+      onMoveWaypoint?.(held.hit.waypointId, at.x / W, at.y / H);
+    } else if (held.hit.mover) {
+      // `onEdit` y no `brushRef`: mover no es pintar, y el gesto existe con el
+      // pincel guardado. El padre lo tiene puesto siempre que la vista sea
+      // editable.
+      onEdit?.({
+        kind: 'move',
+        target: held.hit.mover.target,
+        key: held.hit.mover.key,
+        x: at.x,
+        y: at.y,
+      });
+    }
+    scheduleDraw();
+    return true;
+  };
+
+  /** Dejarlo donde estaba. Nada se ha confirmado todavía, así que no hay nada
+   *  que deshacer — que es para lo que sirve un Escape. */
+  const abandonMove = useCallback(() => {
+    if (!moveRef.current) return;
+    moveRef.current = null;
+    scheduleDraw();
+  }, [scheduleDraw]);
 
   /** A name the deep tiles found — a hamlet, a farm, a mill, a named crag. */
   const deepPlaceAt = (sx: number, sy: number): TilePlace | null =>
@@ -2825,12 +3443,43 @@ export default function Map2D({
        * page — and the reader would have no idea which of the two things they
        * were doing had broken the other.
        */
+      /**
+       * Esc suelta lo que va en la mano y lo deja donde estaba.
+       *
+       * Antes que el lazo porque las dos cosas no pueden estar vivas a la vez
+       * — el lazo es un pincel y con un pincel fuera no se coge nada — y
+       * porque una mudanza en curso es lo más inmediato que puede haber:
+       * mientras el pueblo sigue al puntero, Esc no puede significar otra cosa.
+       */
+      if (moveRef.current?.live && e.key === 'Escape') {
+        e.preventDefault();
+        abandonMove();
+        return;
+      }
       if (realmPoly.current && tag !== 'BUTTON' && tag !== 'SELECT' && tag !== 'A') {
         if (e.key === 'Enter') { e.preventDefault(); closeRealmPoly(); return; }
         if (e.key === 'Escape') { e.preventDefault(); abandonRealmPoly(); return; }
         // `preventDefault` matters here: Retroceso outside a text field is the
         // browser's own "go back", which would take the whole app off the map.
         if (e.key === 'Backspace') { e.preventDefault(); dropRealmCorner(); return; }
+      }
+      /**
+       * LAS DOS TECLAS DE LA CÁMARA: el mundo entero, y de dónde venía.
+       *
+       * Después del lazo a propósito: mientras hay una frontera a medio dibujar,
+       * Retroceso quita una esquina y no toca la cámara — la lectura es la misma
+       * en los dos casos («deshaz el último paso»), y la más cercana gana.
+       *
+       * `preventDefault` en Retroceso no es cosmético: fuera de un campo de
+       * texto es el «atrás» del navegador, que se llevaría la aplicación entera
+       * fuera del mapa. En Inicio evita que la página salte al principio cuando
+       * el mapa vive dentro de una columna con desplazamiento.
+       */
+      // Un desplegable abierto se queda con las dos: Inicio salta a su primera
+      // opción, y quitársela sería romper un control por ganar un atajo.
+      if (tag !== 'SELECT') {
+        if (e.key === 'Home') { e.preventDefault(); flyHome(); return; }
+        if (e.key === 'Backspace') { e.preventDefault(); goBack(); return; }
       }
       if (e.ctrlKey || e.metaKey) {
         // One keymap for both views. They disagreed: here Ctrl+Shift+Z redid,
@@ -2859,7 +3508,7 @@ export default function Map2D({
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', blur);
     };
-  }, [closeRealmPoly, abandonRealmPoly, dropRealmCorner]);
+  }, [closeRealmPoly, abandonRealmPoly, dropRealmCorner, abandonMove, flyHome, goBack]);
 
   /** The nearest town to a screen point, within a screen-sized reach. */
   const settlementAt = (sx: number, sy: number): Settlement | null =>
@@ -2973,6 +3622,34 @@ export default function Map2D({
       scheduleDraw();
       return;
     }
+    /**
+     * ¿HAY ALGO AQUÍ QUE COGER? Entonces el arrastre lo mueve a ÉL, no al mapa.
+     *
+     * Es la regla de cualquier editor de mapas y no hace falta ningún modo: el
+     * impacto es de diez píxeles, así que arrastrar sobre suelo vacío sigue
+     * siendo mover el mapa, que es el 99 % de los arrastres. Sólo con el botón
+     * izquierdo y sin pincel — con un pincel fuera el arrastre es la pincelada,
+     * y esa es la promesa que el lector ha hecho al coger la herramienta.
+     *
+     * `dragRef` se arma igual, y no sobra: hasta los cuatro píxeles el gesto
+     * todavía puede acabar siendo un clic, y el camino del clic sale de ahí.
+     * Lo que no puede es DESPLAZAR mientras se decide — ver el bloque de
+     * `moveRef` en `handlePointerMove`, que devuelve antes de llegar a él.
+     *
+     * Escrito en cada presión, con null incluido: un agarre heredado de un
+     * gesto anterior haría que el siguiente arrastre sobre suelo vacío se
+     * llevara un pueblo que el lector ni siquiera está tocando.
+     */
+    moveRef.current = null;
+    if (!brushing && e.button === 0) {
+      const grab = movableAt(sx, sy);
+      if (grab) {
+        moveRef.current = {
+          hit: grab, fromX: grab.x, fromY: grab.y,
+          pressX: sx, pressY: sy, x: sx, y: sy, live: false,
+        };
+      }
+    }
     // Everything below this line is the CAMERA, and the cursor says so: an open
     // hand closing over the map, not the brush's crosshair, even where a brush
     // is out and it was Espacio that got us here.
@@ -3068,6 +3745,38 @@ export default function Map2D({
     }
     if (brushAt.current) { brushAt.current = null; scheduleDraw(); }
 
+    /**
+     * Un objeto en la mano gana al mapa, y se queda con el gesto entero.
+     *
+     * Antes del bloque del arrastre de cámara y devolviendo: el mapa NO puede
+     * moverse a la vez que lo que hay encima de él, o el objeto llegaría a
+     * ordenadas que el lector no ha elegido. `dragRef` se anula al pasar el
+     * umbral, no al presionar, porque hasta entonces el gesto todavía puede
+     * resultar ser un clic.
+     */
+    const held = moveRef.current;
+    if (held) {
+      held.x = sx; held.y = sy;
+      if (!held.live && Math.abs(sx - held.pressX) + Math.abs(sy - held.pressY) > 4) {
+        held.live = true;
+        dragRef.current = null;
+        e.currentTarget.style.cursor = 'grabbing';
+        setHover(null);
+      }
+      if (held.live) scheduleDraw();
+      /**
+       * Y devuelve SIEMPRE, aunque todavía no sea una mudanza.
+       *
+       * El desplazamiento de la cámara se declara movido a los tres píxeles y
+       * la mudanza a los cuatro, así que dejar pasar el gesto mientras se
+       * decide desplazaba el mapa un píxel justo antes de coger el objeto: un
+       * tirón al empezar cada arrastre, y el fantasma dibujado un píxel al lado
+       * del pueblo, porque `fromX` se tomó antes del tirón. Un agarre pendiente
+       * que acaba sin pasar el umbral es un CLIC, y un clic tampoco desplaza.
+       */
+      return;
+    }
+
     const drag = dragRef.current;
     if (drag) {
       const dx = sx - drag.x, dy = sy - drag.y;
@@ -3081,6 +3790,18 @@ export default function Map2D({
       }
       return;
     }
+    /**
+     * El cursor dice qué se puede coger.
+     *
+     * Es lo único que anuncia el gesto sin gastar una línea de texto: la mano
+     * abierta sobre suelo vacío, la cruz de mover sobre un pueblo. Comparado
+     * antes de escribir porque esto corre en cada `pointermove` y una escritura
+     * en `style` por evento invalida el estilo del lienzo sesenta veces por
+     * segundo para dejarlo igual.
+     */
+    const wantCursor = movableAt(sx, sy) ? 'move' : 'grab';
+    if (e.currentTarget.style.cursor !== wantCursor) e.currentTarget.style.cursor = wantCursor;
+
     // Hover inspector
     const m = screenToMap(sx, sy);
     if (!m) { setHover(null); return; }
@@ -3104,7 +3825,10 @@ export default function Map2D({
       setHover({
         x: left,
         y: sy + 14,
-        text: `${hoveredLandmark.name} · ${hoveredLandmark.type}`,
+        // Por el catálogo, como el accidente de abajo: `type` es 'hotspring',
+        // no «Termas», y el sobrevuelo es lectura para el lector, no para
+        // nosotros.
+        text: `${hoveredLandmark.name} · ${kindLabel(hoveredLandmark.type)}`,
       });
       return;
     }
@@ -3234,6 +3958,12 @@ export default function Map2D({
     const rect = e.currentTarget.getBoundingClientRect();
     const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
 
+    // Soltar lo que iba en la mano, ANTES que nada: una mudanza se come el
+    // gesto entero, así que ni abre el plano del pueblo ni deselecciona nada.
+    // Si no llegó a ser mudanza, `dropMove` devuelve falso, limpia el agarre y
+    // el clic sigue su camino de siempre.
+    if (dropMove(sx, sy)) return;
+
     // A stroke becomes an edit on release, not per move: a terrain stroke costs
     // a few hundred milliseconds, which is fine once and unusable sixty times a
     // second.
@@ -3355,7 +4085,13 @@ export default function Map2D({
         const edit = commitPaintStroke(spec, pts, {
           negative: negRef.current,
           reachCells,
-          pickGenerated: (x, y) => pickGeneratedAt(world, geo, x, y, reachCells),
+          // Por la posición de ORIGEN de lo que se haya movido — ver
+          // `sourcePointFor`, sin la cual un pueblo arrastrado queda fuera del
+          // alcance del borrador para siempre.
+          pickGenerated: (x, y) => {
+            const at0 = sourcePointFor(x, y, reachCells);
+            return pickGeneratedAt(world, geo, at0.x, at0.y, reachCells);
+          },
         });
         if (edit) commit(edit);
       }
@@ -3394,6 +4130,13 @@ export default function Map2D({
     // It was a click.
     const wp = waypointAt(sx, sy);
     if (wp) { onSelectWaypoint(wp.id); return; }
+    // El nombre de una comarca guardada la abre — antes que el pueblo que
+    // pueda haber debajo, porque el rótulo está fuera del marco y sólo puede
+    // haberse pinchado a propósito.
+    if (onOpenSavedRegion) {
+      const rg = hitAt(sx, sy, ['note'], (h) => !!h.regionId);
+      if (rg?.regionId) { onOpenSavedRegion(rg.regionId); return; }
+    }
     const landmark = landmarkAt(sx, sy);
     if (landmark) {
       onSelectWaypoint(null);
@@ -3487,6 +4230,9 @@ export default function Map2D({
           // selects nothing.
           stroke.current = null; brushAt.current = null; pressAt.current = null;
           dragRef.current = null; panRef.current = false;
+          // Y lo que iba en la mano: un `pointercancel` con un pueblo cogido lo
+          // dejaba siguiendo al puntero para siempre, sin botón apretado.
+          moveRef.current = null;
           scheduleDraw();
         }}
         onPointerLeave={() => {
@@ -3523,7 +4269,25 @@ export default function Map2D({
                   ? t('worldgen.map.realmFillHint')
                   : t('worldgen.map.realmPolyHint'))
               : `${t('worldgen.map.paintHint')}${wheelHint ? ` · ${wheelHint}` : ''}`)
-          : `${t('worldgen.mapHint')}${onPickSettlement ? ` · ${t('worldgen.mapHint.town')}` : ''}`}
+          /**
+           * La vista sin pincel explica DOS cosas, en dos renglones.
+           *
+           * `worldgen.mapHint` abría con «Arrastra para mover», que desde que
+           * un pueblo se puede coger con la mano ya no dice cuál de las dos
+           * cosas hace un arrastre. Así que la línea de los gestos se escribe
+           * entera aquí, y las teclas de cámara — que no son gestos y nadie
+           * adivina — van debajo, más apagadas, donde no compiten con ellas.
+           */
+          : (
+            <>
+              <span className="block">
+                {t('worldgen.map.panHint')}
+                {onEdit ? ` · ${t('worldgen.map.moveHint')}` : ''}
+                {onPickSettlement ? ` · ${t('worldgen.mapHint.town')}` : ''}
+              </span>
+              <span className="block text-white/60">{t('worldgen.map.cameraHint')}</span>
+            </>
+          )}
       </div>
     </div>
   );

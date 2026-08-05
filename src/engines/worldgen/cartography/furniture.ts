@@ -22,6 +22,16 @@ export interface FurnitureOptions {
   worldWidth: number;
   title?: string;
   subtitle?: string;
+  /**
+   * Los cuatro puntos cardinales, en el orden N, E, S, O.
+   *
+   * Vienen por opciones como el título y por la misma razón: "N/E/S/O" es
+   * castellano, y un mapa en inglés pide "N/E/S/W". El literal de reserva sólo
+   * existe para que un llamante viejo no dibuje una rosa muda.
+   */
+  cardinals?: [string, string, string, string];
+  /** Unidad de la barra de escala (km, leguas, millas del reino…). */
+  distanceUnit?: string;
   seed: string;
 }
 
@@ -30,7 +40,10 @@ export interface FurnitureOptions {
  * each split into a lit and a shaded half so the star reads as an engraved
  * object rather than a flat icon.
  */
-export function drawCompass(ctx: Ctx, cx: number, cy: number, r: number, theme: CartoTheme, rng: Rng): void {
+export function drawCompass(
+  ctx: Ctx, cx: number, cy: number, r: number, theme: CartoTheme, rng: Rng,
+  cardinals: [string, string, string, string] = ['N', 'E', 'S', 'O'],
+): void {
   ctx.save();
   ctx.translate(cx, cy);
   const ink = theme.furniture.ink;
@@ -110,9 +123,9 @@ export function drawCompass(ctx: Ctx, cx: number, cy: number, r: number, theme: 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = `600 ${Math.max(6, r * 0.2)}px ${theme.type.display}`;
-  const labels: [string, number][] = [['N', -Math.PI / 2], ['E', 0], ['S', Math.PI / 2], ['O', Math.PI]];
-  for (const [ch, a] of labels) {
-    ctx.fillText(ch, Math.cos(a) * r * 1.16, Math.sin(a) * r * 1.16);
+  const angles = [-Math.PI / 2, 0, Math.PI / 2, Math.PI];
+  for (let i = 0; i < 4; i++) {
+    ctx.fillText(cardinals[i], Math.cos(angles[i]) * r * 1.16, Math.sin(angles[i]) * r * 1.16);
   }
   void rng;
   ctx.restore();
@@ -150,7 +163,7 @@ export function drawScaleBar(ctx: Ctx, x: number, y: number, opts: FurnitureOpti
   ctx.textAlign = 'left';
   ctx.fillText('0', 0, h + 3);
   ctx.textAlign = 'right';
-  ctx.fillText(`${nice >= 1 ? Math.round(nice) : nice} km`, barPx, h + 3);
+  ctx.fillText(`${nice >= 1 ? Math.round(nice) : nice} ${opts.distanceUnit ?? 'km'}`, barPx, h + 3);
   ctx.restore();
 }
 
@@ -186,16 +199,72 @@ export function drawGraticule(ctx: Ctx, opts: FurnitureOptions): void {
   ctx.restore();
 }
 
-/** Decorative double border with corner blocks. */
+/**
+ * Marco graduado: dos filetes y, entre ellos, la cenefa de damero de los atlas
+ * grabados.
+ *
+ * La cenefa no es adorno: es el borde GRADUADO, y es la señal más barata de que
+ * el papel es una hoja publicada y no una captura de pantalla. Los dientes se
+ * cuadran para que las cuatro esquinas caigan en cambio de color — un damero que
+ * llega a la esquina con dos blancos seguidos delata el rectángulo.
+ */
 export function drawFrame(ctx: Ctx, opts: FurnitureOptions): void {
   const { theme, width: W, height: H } = opts;
   const m = Math.max(9, Math.min(W, H) * 0.022);
   ctx.save();
+
+  // El MARGEN es opaco. Un damero calado sobre el mar deja ver el agua por los
+  // huecos y delata que el borde está pintado encima del mapa en vez de ser el
+  // canto de la hoja; con el margen relleno, el pliego tiene canto.
+  ctx.fillStyle = theme.furniture.frameFill;
+  ctx.beginPath();
+  ctx.rect(0, 0, W, H);
+  ctx.rect(m * 1.15, m * 1.15, W - m * 2.3, H - m * 2.3);
+  ctx.fill('evenodd');
+
   ctx.strokeStyle = theme.furniture.frame;
   ctx.lineWidth = Math.max(1.4, m * 0.16);
   ctx.strokeRect(m * 0.55, m * 0.55, W - m * 1.1, H - m * 1.1);
+
+  const teeth = theme.furniture.teeth;
+  const bandOuter = m * 0.66, bandInner = m * 1.06;
+  const band = bandInner - bandOuter;
+  if (teeth > 0 && band > 1.5) {
+    const x0 = bandOuter, y0 = bandOuter;
+    const x1 = W - bandOuter, y1 = H - bandOuter;
+    const innerW = x1 - x0 - band * 2, innerH = y1 - y0 - band * 2;
+    // Un paso común a los dos lados: si cada lado eligiera el suyo, la cenefa
+    // cambiaría de ritmo en cada esquina.
+    const nx = Math.max(2, Math.round((innerW / (innerW + innerH)) * teeth));
+    const ny = Math.max(2, Math.round((innerH / (innerW + innerH)) * teeth));
+    const sx = innerW / nx, sy = innerH / ny;
+    ctx.fillStyle = theme.furniture.frame;
+    const cell = (x: number, y: number, w: number, h: number, on: boolean) => {
+      if (!on) return;
+      ctx.fillRect(x, y, w, h);
+    };
+    for (let i = 0; i < nx; i++) {
+      const on = i % 2 === 0;
+      cell(x0 + band + i * sx, y0, sx, band, on);
+      cell(x0 + band + i * sx, y1 - band, sx, band, on);
+    }
+    for (let j = 0; j < ny; j++) {
+      const on = j % 2 === 0;
+      cell(x0, y0 + band + j * sy, band, sy, on);
+      cell(x1 - band, y0 + band + j * sy, band, sy, on);
+    }
+    // Las cuatro esquinas, siempre entintadas: cierran el damero.
+    for (const [cx, cy] of [[x0, y0], [x1 - band, y0], [x0, y1 - band], [x1 - band, y1 - band]]) {
+      ctx.fillRect(cx, cy, band, band);
+    }
+  }
+
   ctx.lineWidth = Math.max(0.7, m * 0.07);
   ctx.strokeRect(m * 1.15, m * 1.15, W - m * 2.3, H - m * 2.3);
+  // Un tercer filete fino por dentro: el aire entre reglas es lo que hace que un
+  // borde se lea como marco y no como recuadro de tabla.
+  ctx.lineWidth = Math.max(0.5, m * 0.045);
+  ctx.strokeRect(m * 1.55, m * 1.55, W - m * 3.1, H - m * 3.1);
 
   // Corner blocks tie the two rules together.
   ctx.fillStyle = theme.furniture.frame;
@@ -205,6 +274,18 @@ export function drawFrame(ctx: Ctx, opts: FurnitureOptions): void {
     ctx.translate(cx, cy);
     ctx.rotate(Math.PI / 4);
     ctx.fillRect(-c / 2, -c / 2, c, c);
+    if (theme.furniture.flourish) {
+      // Voluta: cuatro pétalos en las diagonales, del tamaño del bloque.
+      ctx.beginPath();
+      for (let k = 0; k < 4; k++) {
+        const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+        const px = Math.cos(a) * c * 0.92, py = Math.sin(a) * c * 0.92;
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(px * 0.5 - py * 0.42, py * 0.5 + px * 0.42, px, py);
+        ctx.quadraticCurveTo(px * 0.5 + py * 0.42, py * 0.5 - px * 0.42, 0, 0);
+      }
+      ctx.fill();
+    }
     ctx.restore();
   }
   ctx.restore();
@@ -223,29 +304,69 @@ export function drawCartouche(ctx: Ctx, x: number, y: number, opts: FurnitureOpt
   const subSize = size * 0.42;
   ctx.font = `italic 400 ${subSize}px ${theme.type.body}`;
   const sw = opts.subtitle ? ctx.measureText(opts.subtitle).width : 0;
-  const boxW = Math.max(tw, sw) + size * 1.9;
-  const boxH = size * (opts.subtitle ? 2.9 : 2.1);
+  const boxW = Math.max(tw, sw) + size * 2.4;
+  const boxH = size * (opts.subtitle ? 3.2 : 2.1);
 
   ctx.translate(x, y);
+  // Placa con las esquinas MATADAS, no redondeadas: un rectángulo de esquinas
+  // suaves se lee como un cuadro de diálogo; el bisel a 45° se lee como una
+  // cartela grabada, y cuesta lo mismo.
+  const bev = size * 0.5;
+  const plate = () => {
+    ctx.beginPath();
+    ctx.moveTo(-boxW / 2 + bev, -boxH / 2);
+    ctx.lineTo(boxW / 2 - bev, -boxH / 2);
+    ctx.lineTo(boxW / 2, -boxH / 2 + bev);
+    ctx.lineTo(boxW / 2, boxH / 2 - bev);
+    ctx.lineTo(boxW / 2 - bev, boxH / 2);
+    ctx.lineTo(-boxW / 2 + bev, boxH / 2);
+    ctx.lineTo(-boxW / 2, boxH / 2 - bev);
+    ctx.lineTo(-boxW / 2, -boxH / 2 + bev);
+    ctx.closePath();
+  };
   ctx.fillStyle = theme.furniture.frameFill;
-  ctx.globalAlpha = 0.9;
-  roundRect(ctx, -boxW / 2, -boxH / 2, boxW, boxH, size * 0.28);
+  ctx.globalAlpha = 0.94;
+  plate();
   ctx.fill();
   ctx.globalAlpha = 1;
   ctx.strokeStyle = theme.furniture.frame;
   ctx.lineWidth = Math.max(1.1, size * 0.07);
-  roundRect(ctx, -boxW / 2, -boxH / 2, boxW, boxH, size * 0.28);
+  plate();
   ctx.stroke();
   ctx.lineWidth = Math.max(0.6, size * 0.03);
-  roundRect(ctx, -boxW / 2 + size * 0.28, -boxH / 2 + size * 0.28, boxW - size * 0.56, boxH - size * 0.56, size * 0.18);
+  roundRect(ctx, -boxW / 2 + size * 0.3, -boxH / 2 + size * 0.3, boxW - size * 0.6, boxH - size * 0.6, size * 0.1);
   ctx.stroke();
+
+  // Filete con rombo entre el título y el subtítulo: el separador clásico de
+  // una portada de atlas, y lo que impide que las dos líneas se lean como un
+  // párrafo de dos renglones.
+  if (opts.subtitle) {
+    const ry = boxH * 0.06;
+    const half = boxW * 0.3;
+    ctx.strokeStyle = theme.furniture.accent;
+    ctx.lineWidth = Math.max(0.6, size * 0.035);
+    ctx.beginPath();
+    ctx.moveTo(-half, ry);
+    ctx.lineTo(-size * 0.34, ry);
+    ctx.moveTo(size * 0.34, ry);
+    ctx.lineTo(half, ry);
+    ctx.stroke();
+    ctx.fillStyle = theme.furniture.accent;
+    ctx.beginPath();
+    ctx.moveTo(0, ry - size * 0.16);
+    ctx.lineTo(size * 0.2, ry);
+    ctx.lineTo(0, ry + size * 0.16);
+    ctx.lineTo(-size * 0.2, ry);
+    ctx.closePath();
+    ctx.fill();
+  }
 
   ctx.fillStyle = theme.type.color;
   ctx.font = `600 ${size}px ${theme.type.display}`;
   const title = opts.title.toUpperCase();
   const tracking = size * 0.4;
   let cursor = -(ctx.measureText(title).width + tracking * (title.length - 1)) / 2;
-  const yText = opts.subtitle ? -boxH * 0.12 : 0;
+  const yText = opts.subtitle ? -boxH * 0.16 : 0;
   for (const ch of title) {
     const w = ctx.measureText(ch).width;
     ctx.fillText(ch, cursor + w / 2, yText);
@@ -253,7 +374,7 @@ export function drawCartouche(ctx: Ctx, x: number, y: number, opts: FurnitureOpt
   }
   if (opts.subtitle) {
     ctx.font = `italic 400 ${subSize}px ${theme.type.body}`;
-    ctx.fillText(opts.subtitle, 0, boxH * 0.26);
+    ctx.fillText(opts.subtitle, 0, boxH * 0.28);
   }
   ctx.restore();
 }
@@ -280,7 +401,7 @@ export function drawFurniture(
   const m = Math.max(9, Math.min(opts.width, opts.height) * 0.022);
   if (enabled.compass) {
     const r = Math.max(20, Math.min(opts.width, opts.height) * 0.055);
-    drawCompass(ctx, opts.width - m * 2.4 - r * 1.25, opts.height - m * 2.4 - r * 1.25, r, opts.theme, rng);
+    drawCompass(ctx, opts.width - m * 2.4 - r * 1.25, opts.height - m * 2.4 - r * 1.25, r, opts.theme, rng, opts.cardinals);
   }
   if (enabled.scaleBar) {
     drawScaleBar(ctx, m * 2.4, opts.height - m * 2.4 - Math.max(5, opts.height * 0.009) - 12, opts);

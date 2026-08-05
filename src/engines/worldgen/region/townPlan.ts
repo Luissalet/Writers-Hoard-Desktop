@@ -21,7 +21,8 @@
 import type { WorldData } from '../core/types';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import type { Ctx } from '../cartography/symbols';
-import { generateCity, type CityPlan, type Patch } from '../city/generate';
+import { generateCity, type CityPlan } from '../city/generate';
+import { cityInk, drawCityBody, lodFor } from '../city/render';
 import { cityParamsFor } from '../cartography/texture';
 
 /** Metres per city unit. The generator's own documented scale: a main street
@@ -65,37 +66,22 @@ export function planRadiusMetres(size: number): number {
   return (10 + Math.max(4, Math.round(size)) * 2.5) * 1.9 * METRES_PER_CITY_UNIT;
 }
 
-const WARD_FILL: Record<string, string> = {
-  market: 'rgba(214,205,182,0.95)',
-  cathedral: 'rgba(208,201,186,0.95)',
-  castle: 'rgba(176,168,152,0.95)',
-  park: 'rgba(112,140,88,0.9)',
-  patriciate: 'rgba(196,186,166,0.92)',
-  administration: 'rgba(194,185,168,0.92)',
-  military: 'rgba(184,174,158,0.92)',
-  slum: 'rgba(172,161,142,0.9)',
-  farm: 'rgba(178,166,124,0.45)',
-  outskirts: 'rgba(170,162,140,0.4)',
-};
-const WARD_DEFAULT = 'rgba(190,180,160,0.92)';
-
 /**
- * Roofs, in four tones.
+ * LA PALETA Y EL ORDEN DE DIBUJO SON LOS DEL MODAL.
  *
- * One flat brown turned every block into a solid mass of mud — which is what a
- * densely built town does become if every house is the same colour and there is
- * no ground showing between them. Real roofs vary: fired tile, weathered tile,
- * thatch, slate. The tone is picked from the building's own position so it
- * never changes between tiles or levels.
+ * Aquí vivían una tabla `WARD_FILL` propia y cuatro tonos de tejado propios, y
+ * la lámina del modal tenía los suyos. Dos paletas para el mismo pueblo
+ * significaban que al hacer zoom del mapa a la ficha el sitio CAMBIABA DE
+ * IDIOMA — y que arreglar el mercado en un sitio no lo arreglaba en el otro:
+ * de hecho este dibujante no pintaba `courts` en absoluto, así que a escala de
+ * mapa la plaza del mercado, el claustro y las cuñas del parque no existían.
+ *
+ * `cityInk()` sin tema devuelve la paleta canónica del pueblo — la misma que
+ * el modal tiñe con el suyo — y `drawCityBody` es literalmente el mismo
+ * dibujo. Lo único propio de este camino son las tres opciones de abajo, que
+ * dicen qué NO repetir porque el tile ya lo trae.
  */
-const ROOFS = ['#a4633f', '#8d5c42', '#b0764a', '#7d6a57'];
-
-function roofTone(x: number, y: number): string {
-  let h = (Math.imul(Math.round(x * 8) | 0, 0x9e3779b1)
-    ^ Math.imul(Math.round(y * 8) | 0, 0x85ebca77)) >>> 0;
-  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
-  return ROOFS[(h >>> 3) % ROOFS.length];
-}
+const INK = cityInk();
 
 /**
  * Draw every town whose plan reaches this tile.
@@ -138,94 +124,44 @@ export function drawTownPlans(
     ctx.save();
     ctx.translate(cx, cy);
     ctx.scale(unitPx, unitPx);
-    // Line widths are set in city units from here on, so they are ground
-    // widths and scale with the level exactly like everything else on the tile.
-    const hair = Math.max(0.35, 0.5 / unitPx);
 
-    const path = (poly: { x: number; y: number }[]) => {
-      ctx.beginPath();
-      ctx.moveTo(poly[0].x, poly[0].y);
-      for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
-      ctx.closePath();
-    };
+    /**
+     * EL MISMO CUADRO, MÁS SIMPLE.
+     *
+     * Los tres niveles de detalle de siempre — cada tejado por encima de 1,6 px
+     * por unidad, un lavado por manzana por encima de 0,5, nada por debajo —
+     * ahora los decide `lodFor`, que es la misma escala que usa el modal. Lo
+     * que cambia respecto a antes es QUÉ se simplifica: cada nivel es el dibujo
+     * de la lámina con cosas quitadas, no un dibujo distinto, así que la plaza,
+     * los patios, el parque y el agua ya salen aquí también.
+     *
+     * Las tres exclusiones son las capas que el tile satélite YA trae debajo y
+     * que repetir sólo emborrona:
+     *   - `fields`: el pase de tinta pinta setos y linderos sobre el mismo suelo.
+     *   - `roads`:  la red viaria del mundo entra por su propia capa, y el
+     *               camino del plano acaba en el mismo sitio con otro trazo.
+     *   - `water`:  el agua del plano es una LECTURA del mundo, no el mundo.
+     *               El semiplano de `plan.coast` mide radio·6 — a 5 m/px, casi
+     *               tres kilómetros de azul liso — y hasta el litoral modelado
+     *               de `plan.waters` sale de un rumbo, no del ráster: medido en
+     *               `sat-compare` a z17 (1,8 m/px) las dos orillas discrepan
+     *               casi cien metros y se cruzan en mitad del muelle, cada una
+     *               de su azul. Aquí el agua la manda el terreno; el plano
+     *               manda las casas.
+     * Y al revés: `groundFill` sí, porque aquí debajo hay terreno de verdad y
+     * sin suelo el pueblo se dibujaría sobre el bosque.
+     */
+    drawCityBody(ctx, plan, {
+      ink: INK,
+      unit: 1 / unitPx,
+      lod: lodFor(unitPx),
+      groundFill: true,
+      fields: false,
+      roads: false,
+      water: false,
+      blockEdges: true,
+    });
 
-    // 1. The ground each ward stands on, so the town reads as a shape before
-    //    any single building does.
-    for (const q of plan.patches as Patch[]) {
-      if (!q.withinCity && q.ward !== 'farm') continue;
-      if (q.shape.length < 3) continue;
-      path(q.shape);
-      ctx.fillStyle = WARD_FILL[q.ward] ?? WARD_DEFAULT;
-      ctx.fill();
-    }
-
-    // 2. Streets: the gaps between the blocks. Drawn as the block outlines in
-    //    the street colour, which is what a street IS at this scale.
-    ctx.strokeStyle = 'rgba(212,200,172,0.9)';
-    ctx.lineWidth = Math.max(hair, 1.6);
-    ctx.lineJoin = 'round';
-    for (const q of plan.patches as Patch[]) {
-      if (!q.withinCity || q.shape.length < 3) continue;
-      path(q.shape);
-      ctx.stroke();
-    }
-    for (const st of plan.mainStreets) {
-      if (st.length < 2) continue;
-      ctx.beginPath();
-      ctx.moveTo(st[0].x, st[0].y);
-      for (let i = 1; i < st.length; i++) ctx.lineTo(st[i].x, st[i].y);
-      ctx.lineWidth = 2.4;
-      ctx.stroke();
-    }
-
-    // 3. Roofs. Each in its own tone, so a block reads as a hundred houses
-    //    rather than as one brown polygon — and only once a house is big
-    //    enough to be a mark at all.
-    if (unitPx > 1.6) {
-      for (const q of plan.patches as Patch[]) {
-        if (!q.withinCity && q.ward !== 'farm') continue;
-        for (const b of q.buildings) {
-          if (b.length < 3) continue;
-          path(b);
-          ctx.fillStyle = roofTone(b[0].x, b[0].y);
-          ctx.fill();
-        }
-      }
-    } else if (unitPx > 0.5) {
-      // Too fine to draw one by one: a single wash per block at the density the
-      // buildings actually have, which is what the eye reads anyway.
-      for (const q of plan.patches as Patch[]) {
-        if (!q.withinCity || q.shape.length < 3 || !q.buildings.length) continue;
-        path(q.shape);
-        ctx.fillStyle = 'rgba(150,102,74,0.55)';
-        ctx.fill();
-      }
-    }
-
-    // 4. Wall, gates, towers — the thing that makes a town read as a town from
-    //    the air even when the streets are too fine to see.
-    if (plan.wall && plan.wall.length >= 3) {
-      ctx.beginPath();
-      ctx.moveTo(plan.wall[0].x, plan.wall[0].y);
-      for (let i = 1; i < plan.wall.length; i++) ctx.lineTo(plan.wall[i].x, plan.wall[i].y);
-      if (plan.wallClosed) ctx.closePath();
-      ctx.strokeStyle = 'rgba(74,66,56,0.95)';
-      ctx.lineWidth = 2.2;
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(74,66,56,0.95)';
-      for (const tw of plan.towers) {
-        ctx.beginPath();
-        ctx.arc(tw.x, tw.y, 1.9, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    // Bridges and quays last: they sit over the water the tile already drew.
-    ctx.fillStyle = 'rgba(150,138,118,0.95)';
-    for (const poly of [...plan.bridges, ...plan.quays, ...plan.piers]) {
-      if (poly.length < 3) continue;
-      path(poly);
-      ctx.fill();
-    }
     ctx.restore();
     drawn++;
   }
