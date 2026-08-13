@@ -53,9 +53,15 @@ registerEntityResolver({
       thumbnail: image.thumbnailData ?? image.imageData,
     };
   },
-  searchEntities: async (query: string) => {
+  // Scoped by the projectId index when we know it. Unscoped, this pulled EVERY
+  // image row in the database — full base64 payloads included — into memory on
+  // each keystroke of the global search box.
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = await db.inspirationImages.filter(i => (i.notes || '').toLowerCase().includes(q)).toArray();
+    const base = projectId
+      ? db.inspirationImages.where('projectId').equals(projectId)
+      : db.inspirationImages.toCollection();
+    const rows = await base.filter(i => (i.notes || '').toLowerCase().includes(q)).toArray();
     return rows.map(i => ({
       id: i.id,
       type: 'image',

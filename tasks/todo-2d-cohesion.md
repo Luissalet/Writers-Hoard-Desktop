@@ -382,3 +382,265 @@ Y de las notas de los agentes, sin tocar todavía:
 ## NADIE HA EJECUTADO LA PASADA 5 EN LA APLICACIÓN
 tsc, eslint y conformance en verde (1731 claves), y los bancos de ciudad, carta
 y fronteras pasando. Eso no es un arranque.
+
+---
+
+# PASADA 6 — 2026-08-10 · el 3D, tipo FlowScape
+
+La tercera pata del trípode del proyecto, que seguía intacta.
+
+## PRIMERO, EL INSTRUMENTO
+
+De los seis bancos 3D, **tres estaban muertos** (importaban un componente que ya
+no existe, o un `three.module.js` que no está) y **el único que monta el
+`World3D` real no compilaba**. Arreglado — y al arreglarlo apareció algo peor:
+montaba, no se quejaba y devolvía `ok: true` **sin dibujar nada**. El componente
+se coloca con clases de Tailwind (`absolute inset-0`) y la página del banco no
+lleva Tailwind, así que el contenedor medía cero, el lienzo nacía de 1100×8 y la
+captura era negra con una tira de terreno arriba. Seis utilidades de CSS
+declaradas a mano y el banco pasó a ver lo que ve el lector.
+
+## CIELO Y AIRE  (`sculpt/sky.ts`, 527 líneas)
+
+Antes: `scene.background = 0x0e1116`, un rectángulo gris. Sin niebla de ningún
+tipo. Ahora: triángulo a pantalla completa (no cúpula — el `far` se recalcula
+cada fotograma entre 720 y varios miles, y una cúpula de radio fijo o entra en
+el `near` o la corta el `far`), degradado que responde a la altura del sol con
+cinco claves resueltas en CPU, disco solar con aureola, dispersión cálida en el
+horizonte, ~8.800 estrellas de picado entero, y anillo atmosférico en el limbo
+del globo. `horizonColor()` es el gemelo exacto en CPU del shader.
+
+## AGUA  (`sculpt/water.ts`, 668 líneas)
+
+Antes: `MeshBasicMaterial` azul al 50 % — sin luz, literalmente, porque la escena
+no tiene ni una sola `THREE.Light` — que terminaba en el borde del mapa. Ahora:
+Fresnel sobre el reflejo del propio cielo, destello solar en dos lóbulos con
+compresión, oleaje de cinco octavas con derivada analítica y frecuencia atada al
+píxel, color por profundidad con la MISMA reconstrucción suavizada que usa el
+terreno (para que las dos orillas crucen el cero en el mismo sitio), espuma con
+ancho medido en pantalla, y el plano sigue a la cámara: el océano ya no se acaba.
+
+## LO QUE HIZO FALTA PARA QUE ESO SIGNIFICARA ALGO
+
+- **Niebla atmosférica en el terreno.** Sin ella, al atardecer el mar estaba
+  naranja hasta el horizonte y las islas lejanas seguían verde saturado. La
+  distancia de niebla es LA MISMA CUENTA que se hace el agua por dentro; si los
+  dos números se separan, la costa lejana se parte a lo largo de la orilla.
+- **Luz del sol con color e intensidad.** El terreno se iluminaba con constantes
+  y de noche salía a pleno mediodía. Hay control de hora del día.
+
+Coste medido: **+3,6 % sobre el terreno solo** (rasterizador por software; sólo
+la proporción es trasladable).
+
+## PASEO — LA CÁMARA A LA ALTURA DE LOS OJOS
+
+Sin un segundo sistema de cámara: se reaprovecha el orbitador poniéndole el
+punto de mira a un palmo delante, así que girar deja de rodear el paisaje y pasa
+a ser mirar alrededor. La rueda anda, con paso proporcional a la altura sobre el
+suelo. Se apaga solo al pasar a globo. `maxPolarAngle` se abre a 172°.
+
+## VEGETACIÓN  (`sculpt/scatter.ts`, ~1.360 líneas)
+
+Antes: cero instancias, cero billboards, cero puntos — los bosques eran un color
+en una textura. Ahora: siembra determinista por rejilla jitterada sobre la
+ventana visible, filtrada por bioma, pendiente, altura y límite del arbolado
+(que sale de `world.temperature`, ya ajustada por altitud). Cinco especies.
+
+- Tope 20.000 instancias × 12 triángulos = 240 k, menos que la malla del terreno
+  en su ajuste más bajo (524 k). Pico observado 10.940.
+- Siembra 2–10 ms, **4 de 200 fotogramas** en un paseo que gira un tercio de
+  vuelta y se aleja 4×. Media 0,15 ms/fotograma.
+- Dibujo ≈ 12 % del terreno. Una sola llamada opaca.
+- Tamaño pleno por debajo de 900 km; desaparece hacia 3.400. **Cero instancias a
+  encuadre de planeta**, donde el color del atlas ya lleva los bosques.
+- Determinismo comprobado: 0 píxeles distintos tras irse y volver.
+
+Y un **contador propio en el HUD** (`{n} plantas · {ms} ms de siembra`), porque
+sin él un fotograma que se va de 14 a 3.688 ms no se puede atribuir. Con él se
+atribuyó en un vistazo: cero instancias en esa pose, luego no era la vegetación
+— eran 41,3 triángulos por celda contra 4,0, o sea otra pose.
+
+## FALLOS ENCONTRADOS Y CORREGIDOS EN EL CABLEADO
+
+- `Cannot access 'scatter' before initialization`: sembraba antes de crear el
+  módulo. Lo cazó el banco del componente real en la primera pasada.
+- Tres declaraciones sin usar en `scatter.ts` que el `tsconfig` del proyecto
+  rechaza y mi comprobación en la nube no: el `tsconfig` de aquí es más estricto.
+
+## SIGUE ABIERTO EN EL 3D
+
+- `setSubCellRelief` sigue apagado (relieve inventado; en su día «daba ruido»).
+- `setDetailPatch`/`setDetailAlbedo` siguen llamándose una vez con `null`: un
+  tercio de los dos shaders está compilado y es inalcanzable.
+- `ZOOM_SKIN_MAX_Z = SAT_DEEP_Z − 1`. El propio comentario dice que, ahora que
+  el suelo de encuadre bajó a 150 km, éste es lo primero que hay que subir — y
+  que entonces hay que decidir qué hacer con la generación de canon.
+- El balanceo de la vegetación (`KIND_WIND`) está decidido y sin cablear: pide un
+  atributo más por instancia.
+- Sin nubes, sin sombras proyectadas por las plantas, sin estaciones.
+
+## NADIE HA EJECUTADO LA PASADA 6 EN LA APLICACIÓN
+tsc, eslint y conformance en verde (1.735 claves). Los bancos de cielo/agua,
+vegetación y el del componente real, dibujando. Eso no es un arranque.
+
+---
+
+# PASADA 7 — 2026-08-11 («super tanda»: pendiente entero + cohesión decidida)
+
+Luis contestó las dos decisiones abiertas: **cohesión** (5.1) y **el 3D
+consume** (5.2). Esta pasada ejecutó la lista completa de `PENDIENTE.md`
+(las cinco averías confirmadas, la deuda funcional, los rojos de ciudad) y las
+dos decisiones. Verificación: tsc -b, eslint --max-warnings=0, conformance
+(1.821 claves, es/en sin divergencia), city-quality **32/32 EN VERDE (primera
+vez)**, road-overlay intacto (misma tinta por nivel, costura 1,0 celdas),
+road-affine-bench (tinta idéntica byte a byte), consume-only-probe (declinar
+0,3 ms / generar 31,9 s / residente 3,0 s), views-smoke completo antes y
+después (el después, corriendo al escribir esto; el map2d rojo del antes era
+el defecto 1.2, ya guardado).
+
+## El reloj del 3D decía 13 ms en una máquina de 15 s (1.1)
+`draw()` cronometraba SU JavaScript; el fotograma real (rasterizado incluido)
+sólo se ve entre dos dibujos ENCADENADOS. Ahora `frameGapAvg` muestrea eso, y
+de él comen los tres mecanismos que antes hacían lo contrario de lo que debían:
+- el HUD dice el intervalo real (el banco lo enseña: «31641 ms» en SwiftShader);
+- el vigilante usa plazo `max(500, gap·4, cost·4)` Y cada disparo realimenta la
+  media (backoff geométrico: converge en 2-3 intentos en vez de matar el reloj
+  a los 500 ms — antes 1 cancelación medida en globo y `rafAlive` nunca volvía);
+- tras cada dibujo de rescate queda UN rAF canario armado: si el compositor lo
+  entrega, el reloj estaba vivo y `rafAlive` vuelve a `true` (antes era condena
+  perpetua: la vista dibujaba desde el setInterval de por vida);
+- la escalera de calidad decide con el número real (antes SUBÍA pixelRatio a
+  0,07 fps) y el amortiguado se apaga de verdad por debajo de fotograma útil.
+
+## Las otras cuatro averías de la lista
+- **1.2** los tres `getContext('2d')!` sin guarda de Map2D (:753, :1352, :4342)
+  ya no pueden comerse el fotograma: tesela en blanco o fotograma saltado, y
+  el bucle reintenta. Reproducción guardada: views-smoke world3d-globo map2d.
+- **1.3** la adopción del globo usa geometría de casquete: β = semiarco pedido,
+  d = R·(cos β + 1,1·sin β / sin(halfMin)). En β=90° da EXACTAMENTE el posado
+  por defecto (3,99·R), así que pulsar «Globo» con el encuadre por defecto ya
+  no recorta el planeta por los cuatro lados (antes: tope 3,42·R < encaje 3,63).
+- **1.4** `HumanGeography.depth` existe y la barra de estado no enseña ceros
+  falsos: a `places` dice asentamientos y reinos, sin «0 ruinas» inventado.
+- **1.5** `worldgen.cityPlan.atlasRoads.one/.many` («1 camino»).
+
+## La deuda funcional, saldada
+- `moves` lo honran `patchGeography` Y `buildHumanGeography` (pueblos, ruinas
+  y accidentes; la llave es el ORIGEN, el dibujo el destino; lo movido no se
+  ahoga por la costa de nadie). Los caminos siguen llegando al solar antiguo
+  hasta el pase completo — decisión documentada, apuntada en PENDIENTE.
+- Los rótulos pintados tienen identidad (`label:x,y`, EditTarget nuevo) y se
+  arrastran como todo lo demás; la mudanza se dibuja en el 2D y en la carta.
+- Borrar/renombrar/mover un pueblo PINTADO surte efecto en la vía barata (el
+  bucle de marcadores de `patchGeography` ignoraba gone/ren/pops/moves).
+- `pickGeneratedAt` ya no usa `extent` como radio: puntería (`tol`) para todo,
+  y `eraseMarkers` vuelve a ser alcanzable (antes un continente respondía a 32
+  celdas del clic).
+- `eraseRivers`: alcance de puntería + ancho/2 (antes ~235 km por defecto).
+- `cityParamsFor` recibe la geografía en `townPlan` (0 rumbos → puertas donde
+  no llega camino, y DOS planos distintos del mismo pueblo según la vista).
+
+## Caminos: vía afín + desenrollado memorizado
+La misma `linear` que fronteras (sólo equirect; toda otra proyección curva) y
+`unwrapRoad` memorizado por objeto camino. Medido en `road-affine-bench`:
+geometría 1,53 → 1,17 ms por copia y ~7.700 asignaciones de `Pt` menos por
+fotograma; el fotograma completo apenas se mueve (7,6 → 7,2 ms) porque el
+grueso es el TRAZADO de Skia — dejado por escrito para que nadie vuelva ahí a
+buscar milisegundos de stroke. Tinta comprobada idéntica byte a byte.
+
+## Ciudad: 32/32 en verde (primera vez)
+Las sondas nuevas hicieron el diagnóstico (lección #29: dominio e instrumento):
+- las tres puertas ciegas eran DOS enfermedades: dos puertas dibujadas sobre la
+  escotadura CÓNCAVA de la muralla (el suavizado corta la esquina y el punto
+  cae a 4-7 u del vértice soldado, sobre labranza: el disco de la puerta era
+  una isla de 315 celdas) — arreglo: una puerta exige suelo urbano detrás
+  (contains o ≤2,2 u de un distrito interior); y una puerta cuyo único camino
+  al mercado atravesaba el patio del castillo (peso infinito: «BFS puro llega,
+  BFS finito no») — arreglo: la ciudadela nunca se sienta sobre un vértice
+  ancla de puerta.
+- el patio de armas era la mayor bolsa sellada de todas las ciudades grandes
+  (5.000-11.800 m²; fachada castle 81 %): la crujía que mira al mercado se
+  parte en dos con hueco de carro (1,5 u) — la puerta del bailey, sin sorteo.
+- toda parcela entra en la red de calles (antes sólo el 35 % más lejano; las
+  bolsas de 300-7.100 m² eran interiores de distrito sin calle), y la que NO
+  puede enrutarse (su único paso cruza el MAR, peso infinito) se poda de la
+  ciudad ANTES de la muralla — era la cuña al otro lado de la desembocadura.
+- puertas con margen de agua (1,5 u de tierra al mar; fuera del semiancho del
+  cauce + 1 u) — antes «seca por signo» a 0,5 m del mar y a 14,9 m del eje de
+  un río de 38 m.
+- las calles se proyectan a tierra (0,6 u) tras el recorte del litoral: el
+  grafo se enruta sobre formas SIN recortar y dos vértices caían a 13,3 y
+  9,1 m mar adentro.
+- muelles con medidas de muelle (0,85-1,4 × MAIN_STREET × 0,07-0,14 · r, mismo
+  número de sorteos: el determinismo del contrato no se baraja).
+- **fachada 90,4 % → 92,4 %** (peor ciudad 85,8 → 89,6), todas las puertas en
+  carro desde el mercado (38/38), cero agua en calles/puertas/edificios,
+  determinismo 542 kB idénticos.
+
+## 5.1 Cohesión (decidida): el pueblo es un grabado de la plancha de la carta
+`cityInk(tema)` teñía sólo el soporte y dejaba tejados terracota sobre
+pergamino (lección #28). Ahora CON tema todo pasa por el tema: tejados y
+fábrica llevados a la familia sepia por LUMINANCIA (rampa tinta→papel, 28 % del
+matiz original superviviente — grabado coloreado a mano; una iglesia de plomo
+sigue más fría que una teja), lavados de barrio mezclados con el grano del
+papel, sombra = tinta del tema. SIN tema, la canónica a color intacta — es la
+del satélite, donde el suelo es fotográfico. Mirado en PNG con `wonder` y
+`antique` al lado de la carta: misma plancha. La hoja de comarca ya hablaba el
+tema (mismo ink/paper por diseño); el modal del pueblo era el desertor.
+
+## 5.2 El 3D consume (decidido): techo subido con contrato medido
+`ZOOM_SKIN_MAX_Z` deja de ser z8 fijo: sube hasta el fondo que la pirámide del
+mundo soporte, y CADA petición honda viaja con `consumeOnly` de punta a punta
+(workerProtocol → workerCore → client → tienda del 3D). El worker declina en
+0,3 ms una tesela cuyo canon no es residente (generarla habrían sido 31,9 s —
+eso costaba la rueda del ratón) y entinta en 3,0 s la que ya tiene canon
+(sonda `consume-only-probe`, las tres preguntas medidas). Frío = la piel de
+siempre (el mosaico rellena con los padres); caliente = nítido a canon justo
+donde el lector ya miró el 2D. La maquinaria de shaders (setDetailPatch,
+setSubCellRelief, setAlbedoWindow, KIND_WIND) SIGUE apagada a propósito:
+encenderla es un proyecto con pasada visual propia, no un cableado a ciegas.
+
+## Idioma: el motor ya no lleva tablas `_ES`
+`MODE_ES/SEASON_ES` → `MODE_KEY/SEASON_KEY` (travel), `LINK_KIND_ES/RELATION_ES`
+→ claves (atlas, con `describePlace(t)` de frase entera — lección #8),
+`RUIN_KIND_ES/RUIN_SITE_ES` → claves (ruins); el gazetteer conserva SU prosa
+castellana por diseño con tablas propias junto al resto de su prosa.
+`describeDuration(t)` con separador decimal del catálogo, forma corta por clave
+(la celda de la tabla hacía cirugía de cadenas en castellano). Catálogo de
+biomas COMPLETO: 44/44 en `core/biomeKeys.ts` (la tabla local de Map2D se quedó
+en 17 y el sobrevuelo caía al castellano del gazetteer en una UI inglesa;
+PaintPanel igual). 1.735 → **1.821 claves**, conformance verde.
+
+## Nota de infraestructura
+`world3d-zoom-run.mjs` no resolvía el alias `@/` (a diferencia de
+views-smoke-run): añadido el mismo resolutor. En este contenedor el banco no
+completa el paseo (31,6 s/fotograma), pero monta, dibuja, el HUD dice el
+intervalo real y no hay pageerrors — captura mirada.
+
+---
+
+# PASADA 8 — 2026-08-12 («repasito»: el PENDIENTE accionable entero)
+
+Detalle y números en `tasks/PENDIENTE.md` §6 (reescrito). Titulares:
+
+- **El canon PERSISTE** (Dexie `canonTiles` v25, formato `canonStore.ts`):
+  sembrar+entintar 9 s donde generar costaba 154–160 (banco, peor caso);
+  composite 18×; píxeles byte a byte entre sesiones (la generadora pinta ya
+  del canon cuantizado). Las dos vías (teselas y composite) emiten y
+  consumen; el 3D `consumeOnly` hereda el suelo en cualquier sesión.
+- **B6 en la raíz**: `stampDisc` mide centros; migración v1→v2 de las listas
+  guardadas (el suelo no se mueve — banco bit a bit); mundo↔canon alineados
+  (antes el mismo trazo caía media celda de mundo más allá en el canon).
+- **Caminos tras mudanza** (§3 de la 7): el router ve las posiciones mudadas
+  fuera del flag; y el colapso de cadenas de llaves en `applyEdits` (lección
+  #35) — carta/globo/atlas ya no divergen del 2D en la segunda mudanza.
+- **Localizador** (Ctrl+F, tres vistas, atlas + rótulos pintados, vuela sin
+  cambiar de vista) · **Inicio** en carta y globo · **comarcas guardadas**
+  con lavado + esquinas + cartela en el 2D Y en la Carta (`region-marks.png`
+  mirado).
+- Perfilado del §2b re-medido con el reloj correcto: el desglose de la 7
+  estaba desplazado una fase (marcas de progreso); el reparto real es
+  elevación 24 · erosión 22 · caminos 15 · hidrología 11 · vegetación 10 (%).
+- Bancos nuevos: canon-persist · canon-seed-flow · canon-composite-flow ·
+  stamp-convention · moved-roads · region-marks. El corredor del banco de
+  arranque ya no lleva la raíz de un contenedor muerto cableada.

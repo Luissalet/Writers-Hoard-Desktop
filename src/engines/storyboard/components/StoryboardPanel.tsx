@@ -3,13 +3,15 @@
 // ============================================
 
 import { useState, useRef } from 'react';
-import { Camera, Edit2, Trash2 } from 'lucide-react';
+import { Camera, Edit2, Trash2, Link2 } from 'lucide-react';
 import type { StoryboardPanel as StoryboardPanelType } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 
 interface StoryboardPanelProps {
   panel: StoryboardPanelType;
+  /** Title of the linked scene, when there is one. */
+  linkedSceneTitle?: string;
   aspectRatio?: 'square' | '16:9' | '4:3';
   isReordering?: boolean;
   onEdit: (panel: StoryboardPanelType) => void;
@@ -19,6 +21,7 @@ interface StoryboardPanelProps {
 
 export default function StoryboardPanel({
   panel,
+  linkedSceneTitle,
   aspectRatio = '16:9',
   isReordering = false,
   onEdit,
@@ -137,8 +140,20 @@ export default function StoryboardPanel({
             }}
             className="px-2 py-1 text-sm font-semibold text-text-primary cursor-text hover:text-accent-gold transition min-h-6 flex items-center"
           >
-            {panel.subtitle || <span className="text-text-muted italic">Add subtitle</span>}
+            {panel.subtitle || <span className="text-text-muted italic">{t('storyboard.panelSubtitle')}</span>}
           </p>
+        )}
+
+        {/* Linked-scene chip — the panel↔script bridge, now that
+            `linkedSceneId` finally has a way in and a way out. */}
+        {linkedSceneTitle && (
+          <div
+            className="mx-2 mb-2 flex items-center gap-1 rounded bg-accent-gold/10 px-2 py-0.5 text-[10px] text-accent-gold/90"
+            title={t('storyboard.panel.linkedTo').replace('{name}', linkedSceneTitle)}
+          >
+            <Link2 size={10} />
+            <span className="truncate">{linkedSceneTitle}</span>
+          </div>
         )}
       </div>
 

@@ -150,9 +150,9 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
                 ? 'bg-accent-gold/20 ring-1 ring-accent-gold'
                 : 'bg-elevated hover:bg-elevated/80'
             }`}
-            title={cfg.label}
+            title={t(cfg.labelKey)}
           >
-            {cfg.emoji} {cfg.label}
+            {cfg.emoji} {t(cfg.labelKey)}
           </button>
         ))}
       </div>

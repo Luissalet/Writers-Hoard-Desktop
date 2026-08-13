@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Biome, EXOTIC_BIOMES, type WorldParams } from '../core/types';
 import { BIOME_LABEL_ES, DEFAULT_FILTERS, type GenerationFilters } from '../core/generation';
 import { BIOME_COLORS } from '../core/render';
-import { RUIN_KIND_ES, RUIN_SITE_ES } from '../core/ruins';
+import { RUIN_KIND_KEY, RUIN_SITE_KEY } from '../core/ruins';
 import { useTranslation } from '@/i18n/useTranslation';
 
 /**
@@ -171,7 +171,7 @@ export default function FiltersPanel({ params, onChange, onGenerate, generating,
             <div className="flex flex-wrap gap-1">
               {RUIN_KINDS.map((k) => (
                 <Chip key={k} off={f.ruinKinds[k] === false} onClick={() => set({ ruinKinds: toggleIn(f.ruinKinds, k) })}>
-                  {RUIN_KIND_ES[k]}
+                  {t(RUIN_KIND_KEY[k])}
                 </Chip>
               ))}
             </div>
@@ -181,7 +181,7 @@ export default function FiltersPanel({ params, onChange, onGenerate, generating,
             <div className="flex flex-wrap gap-1">
               {RUIN_SITES.map((k) => (
                 <Chip key={k} off={f.ruinSites[k] === false} onClick={() => set({ ruinSites: toggleIn(f.ruinSites, k) })}>
-                  {RUIN_SITE_ES[k]}
+                  {t(RUIN_SITE_KEY[k])}
                 </Chip>
               ))}
             </div>

@@ -78,13 +78,21 @@ registerEntityResolver({
       color: node.color,
     };
   },
-  // Scoped by table index rather than a full scan of every project's rows —
-  // the old Yarn resolver filtered the entire table on every keystroke.
-  searchEntities: async (query: string) => {
+  // Genuinely scoped by the projectId index when the caller knows it. The
+  // comment used to claim this, but both queries were unconditional full-table
+  // scans — and boardNodes carries base64 images, so every keystroke of the
+  // global search deserialised every node picture in the database.
+  searchEntities: async (query: string, projectId?: string) => {
     const needle = query.toLowerCase();
+    const boardBase = projectId
+      ? db.boards.where('projectId').equals(projectId)
+      : db.boards.toCollection();
+    const nodeBase = projectId
+      ? db.boardNodes.where('projectId').equals(projectId)
+      : db.boardNodes.toCollection();
     const [boards, nodes] = await Promise.all([
-      db.boards.filter((board) => board.title.toLowerCase().includes(needle)).toArray(),
-      db.boardNodes
+      boardBase.filter((board) => board.title.toLowerCase().includes(needle)).toArray(),
+      nodeBase
         .filter(
           (node) =>
             node.title.toLowerCase().includes(needle) ||

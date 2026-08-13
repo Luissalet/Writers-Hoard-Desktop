@@ -4,6 +4,7 @@ import type { BiographyFact } from '../types';
 import { BIOGRAPHY_CATEGORIES } from '../types';
 import { stripHtml } from '@/utils/text';
 import { useTranslation } from '@/i18n/useTranslation';
+import { toast } from '@/components/common/toast';
 
 interface NarrativeViewProps {
   facts: BiographyFact[];
@@ -75,7 +76,12 @@ export default function NarrativeView({ facts, subjectName }: NarrativeViewProps
   }, [narrativeGroups, subjectName]);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(narrativeText);
+    // Was fire-and-forget with no await, no catch and no feedback: on a denied
+    // clipboard permission the button simply did nothing, silently.
+    navigator.clipboard
+      .writeText(narrativeText)
+      .then(() => toast.success(t('biography.narrative.copied')))
+      .catch(() => toast.error(t('biography.narrative.copyFailed')));
   };
 
   const handleDownload = () => {
@@ -98,7 +104,7 @@ export default function NarrativeView({ facts, subjectName }: NarrativeViewProps
           title={t('biography.copyToClipboard')}
         >
           <Copy size={14} />
-          Copy
+          {t('biography.narrative.copy')}
         </button>
         <button
           onClick={handleDownload}
@@ -106,7 +112,7 @@ export default function NarrativeView({ facts, subjectName }: NarrativeViewProps
           title={t('biography.downloadText')}
         >
           <Download size={14} />
-          Export
+          {t('biography.narrative.export')}
         </button>
       </div>
 
@@ -114,12 +120,12 @@ export default function NarrativeView({ facts, subjectName }: NarrativeViewProps
       <div className="bg-surface/50 border border-border rounded-xl p-6">
         {narrativeGroups.length === 0 ? (
           <p className="text-text-muted text-center py-8">
-            No facts to display. Add some facts to generate a narrative.
+            {t('biography.narrative.empty')}
           </p>
         ) : (
           <div className="prose prose-sm prose-invert max-w-none space-y-6">
             <h1 className="text-2xl font-serif font-bold text-text-primary">
-              Biography of {subjectName}
+              {t('biography.narrative.heading').replace('{name}', subjectName)}
             </h1>
 
             {narrativeGroups.map((group, groupIdx) => (
@@ -151,7 +157,7 @@ export default function NarrativeView({ facts, subjectName }: NarrativeViewProps
 
                         <div className="flex items-center gap-2 text-xs text-text-dim">
                           <span className={`inline-block w-2 h-2 rounded-full bg-gradient-to-r ${category.color}`} />
-                          {category.label}
+                          {t(category.labelKey)}
 
                           {fact.sources.length > 0 && (
                             <>

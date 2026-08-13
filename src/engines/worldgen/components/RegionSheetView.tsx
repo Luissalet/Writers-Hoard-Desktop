@@ -15,7 +15,7 @@ import { saveAs } from 'file-saver';
 import { generateId } from '@/utils/idGenerator';
 import type { WorldData } from '../core/types';
 import type { HumanGeography, Settlement } from '../core/settlements';
-import { targetFromKey, type WorldEdit } from '../core/edits';
+import { targetFromKey, type SitesPolicy, type WorldEdit } from '../core/edits';
 import {
   resolveWorldSpatialEntity,
   type WorldSpatialEntity,
@@ -56,6 +56,9 @@ interface RegionSheetViewProps {
   /** Close the sheet and fly the shared camera to this window (world cells + span). */
   onFlyHere?: (x: number, y: number, spanKm: number) => void;
   onPickSettlement?: (settlement: Settlement) => void;
+  /** La política de sembrado del mundo (tick + zonas), para que la hoja
+   *  obedezca al mismo grifo que el canon. Ausente: sin lugares — el defecto. */
+  sitesPolicy?: SitesPolicy;
 }
 
 const SPANS = [30, 45, 60, 90, 120, 160, 200, 280, 400];
@@ -103,7 +106,7 @@ export default function RegionSheetView({
   onSaveRegion,
   onClose,
   onFlyHere,
-  onPickSettlement,
+  onPickSettlement, sitesPolicy,
 }: RegionSheetViewProps) {
   const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
@@ -144,7 +147,9 @@ export default function RegionSheetView({
     const timer = window.setTimeout(() => {
       setBusy(true);
       handle = requestRegion(world, geography, win, {
-        params: regionParams,
+        params: { ...regionParams, sites: 'auto' },
+        // Explícita — este mundo viaja editado y no puede mandar `edits`.
+        sitesPolicy,
         signal: controller.signal,
         onProgress: (nextStage) => {
           if (!controller.signal.aborted) setStage(nextStage);
@@ -164,7 +169,7 @@ export default function RegionSheetView({
       controller.abort();
       handle?.cancel();
     };
-  }, [geography, regionParams, win, world]);
+  }, [geography, regionParams, win, world, sitesPolicy]);
 
   const entities = useMemo(
     () => region?.places.map((place) => placeEntity(place, world)) ?? [],

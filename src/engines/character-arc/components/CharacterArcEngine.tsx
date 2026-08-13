@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { TrendingUp, Plus, Trash2, ArrowLeft, ChevronDown, ChevronRight, Sparkles, GripVertical } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { EngineSpinner, ConfirmDialog } from '@/engines/_shared';
+import { EngineSpinner, ConfirmDialog, useDebouncedField } from '@/engines/_shared';
 import { useCharacterArcs, useArcBeats } from '../hooks';
 import type { CharacterArc, ArcBeat, ArcTemplateId, ArcBeatStage, ArcStatus } from '../types';
 import { ARC_TEMPLATES, ARC_STAGE_CONFIG, ARC_STATUS_CONFIG } from '../types';
@@ -124,7 +124,7 @@ function ArcCard({ arc, onOpen, onDelete }: { arc: CharacterArc; onOpen: () => v
             )}
           </div>
           <span className={`text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap ${status.color}`}>
-            {status.label}
+            {t(status.labelKey)}
           </span>
         </div>
         {arc.summary && <p className="text-xs text-text-dim line-clamp-2">{arc.summary}</p>}
@@ -170,7 +170,6 @@ function NewArcForm({
     const name = title.trim();
     if (!name) return;
     const character = characters.find((c) => c.id === characterId);
-    const template = ARC_TEMPLATES.find((t) => t.id === templateId);
     // eslint-disable-next-line react-hooks/purity -- submit handler: runs at event time, not during render
     const now = Date.now();
     const arc: CharacterArc = {
@@ -180,11 +179,17 @@ function NewArcForm({
       characterId,
       characterName: character?.title,
       templateId,
-      ghost: template?.prompts.ghost ?? '',
-      lie: template?.prompts.lie ?? '',
-      truth: template?.prompts.truth ?? '',
-      want: template?.prompts.want ?? '',
-      need: template?.prompts.need ?? '',
+      // Empty, NOT the template's prompts. Seeding these with
+      // `template.prompts.*` wrote the questions themselves into the arc
+      // ("What past event still haunts them?" as the ghost), so every new arc
+      // was born pre-filled with English placeholder text that lit up the
+      // Lie/Truth/Want/Need chips and got indexed by search. The prompts are
+      // now shown as `placeholder` in the editor, where they belong.
+      ghost: '',
+      lie: '',
+      truth: '',
+      want: '',
+      need: '',
       summary: '',
       status: 'planning',
       createdAt: now,
@@ -286,9 +291,17 @@ function ArcEditor({
   const [corePanelOpen, setCorePanelOpen] = useState(true);
   const [pendingDeleteArc, setPendingDeleteArc] = useState(false);
 
+  // The template's questions, shown as placeholders in the six core fields.
+  const corePrompts = ARC_TEMPLATES.find((tpl) => tpl.id === arc.templateId)?.prompts;
+
   const handleField = (key: keyof CharacterArc) => (value: string) => {
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<CharacterArc>);
   };
+
+  // Buffered. `characterArcs` sorts by `updatedAt desc`, so writing on every
+  // keystroke made the arc being renamed jump to the top of the list letter by
+  // letter — while the input, bound to the refreshed row, dropped characters.
+  const titleField = useDebouncedField(arc.title, handleField('title'));
 
   const handleAddBeat = async () => {
     const now = Date.now();
@@ -336,8 +349,9 @@ function ArcEditor({
           </button>
           <div className="flex-1 min-w-0 space-y-1">
             <input
-              value={arc.title}
-              onChange={(e) => handleField('title')(e.target.value)}
+              value={titleField.value}
+              onChange={(e) => titleField.onChange(e.target.value)}
+              onBlur={titleField.onBlur}
               placeholder={t('characterArc.arcTitlePlaceholder')}
               className="w-full bg-transparent text-lg font-serif font-semibold text-text-primary outline-none border-b border-transparent focus:border-accent-gold transition"
             />
@@ -352,8 +366,8 @@ function ArcEditor({
             onChange={(e) => handleField('status')(e.target.value)}
             className={`text-[11px] px-2 py-1 rounded-full cursor-pointer outline-none bg-elevated border border-border ${ARC_STATUS_CONFIG[arc.status].color}`}
           >
-            {(Object.entries(ARC_STATUS_CONFIG) as [ArcStatus, { label: string }][]).map(([k, v]) => (
-              <option key={k} value={k}>{v.label}</option>
+            {(Object.entries(ARC_STATUS_CONFIG) as [ArcStatus, { labelKey: string }][]).map(([k, v]) => (
+              <option key={k} value={k}>{t(v.labelKey)}</option>
             ))}
           </select>
           <button
@@ -382,11 +396,11 @@ function ArcEditor({
         </button>
         {corePanelOpen && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 p-4 pt-2">
-            <CoreField label={t('characterArc.core.ghost')} color="bg-gray-500/10 text-gray-300" value={arc.ghost} onChange={handleField('ghost')} />
-            <CoreField label={t('characterArc.core.lie')} color="bg-red-500/10 text-red-300" value={arc.lie} onChange={handleField('lie')} />
-            <CoreField label={t('characterArc.core.truth')} color="bg-green-500/10 text-green-300" value={arc.truth} onChange={handleField('truth')} />
-            <CoreField label={t('characterArc.core.want')} color="bg-amber-500/10 text-amber-300" value={arc.want} onChange={handleField('want')} />
-            <CoreField label={t('characterArc.core.need')} color="bg-blue-500/10 text-blue-300" value={arc.need} onChange={handleField('need')} />
+            <CoreField label={t('characterArc.core.ghost')} color="bg-gray-500/10 text-gray-300" value={arc.ghost} onChange={handleField('ghost')} placeholder={corePrompts?.ghost} />
+            <CoreField label={t('characterArc.core.lie')} color="bg-red-500/10 text-red-300" value={arc.lie} onChange={handleField('lie')} placeholder={corePrompts?.lie} />
+            <CoreField label={t('characterArc.core.truth')} color="bg-green-500/10 text-green-300" value={arc.truth} onChange={handleField('truth')} placeholder={corePrompts?.truth} />
+            <CoreField label={t('characterArc.core.want')} color="bg-amber-500/10 text-amber-300" value={arc.want} onChange={handleField('want')} placeholder={corePrompts?.want} />
+            <CoreField label={t('characterArc.core.need')} color="bg-blue-500/10 text-blue-300" value={arc.need} onChange={handleField('need')} placeholder={corePrompts?.need} />
             <CoreField label={t('characterArc.core.summary')} color="bg-accent-gold/10 text-accent-gold" value={arc.summary} onChange={handleField('summary')} rows={4} />
           </div>
         )}
@@ -416,7 +430,7 @@ function ArcEditor({
                 <div key={stage} className="border border-border rounded-lg bg-surface/30 overflow-hidden">
                   <div className="flex items-center gap-2 px-3 py-1.5 bg-elevated/50 border-b border-border">
                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cfg.color }} />
-                    <span className="text-xs font-semibold text-text-primary">{cfg.label}</span>
+                    <span className="text-xs font-semibold text-text-primary">{t(cfg.labelKey)}</span>
                     <span className="text-[10px] text-text-dim">({stageBeats.length})</span>
                   </div>
                   <div className="divide-y divide-border/50">
@@ -460,21 +474,30 @@ function CoreField({
   onChange,
   color,
   rows = 2,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   color: string;
   rows?: number;
+  /** The template's prompt — a hint, never persisted content. */
+  placeholder?: string;
 }) {
+  // Buffered: this used to write to Dexie and refresh the whole table on every
+  // keystroke, with the textarea bound to the refreshed row — so fast typing
+  // dropped characters and the caret jumped to the end.
+  const field = useDebouncedField(value, onChange);
   return (
     <label className="space-y-1">
       <span className={`inline-block text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded ${color}`}>
         {label}
       </span>
       <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value={field.value}
+        onChange={(e) => field.onChange(e.target.value)}
+        onBlur={field.onBlur}
+        placeholder={placeholder}
         rows={rows}
         className="w-full px-3 py-2 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition resize-none"
       />
@@ -503,6 +526,9 @@ function BeatRow({
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<ArcBeat>);
   };
 
+  const descriptionField = useDebouncedField(beat.description, handleField('description'));
+  const emotionField = useDebouncedField(beat.emotion ?? '', handleField('emotion'));
+
   return (
     <div className="px-3 py-2 group">
       <div className="flex items-start gap-2">
@@ -523,8 +549,8 @@ function BeatRow({
           onChange={(e) => handleField('stage')(e.target.value)}
           className="text-[10px] bg-elevated border border-border rounded px-1.5 py-0.5 text-text-primary outline-none focus:border-accent-gold cursor-pointer"
         >
-          {(Object.entries(ARC_STAGE_CONFIG) as [ArcBeatStage, { label: string }][]).map(([k, v]) => (
-            <option key={k} value={k}>{v.label}</option>
+          {(Object.entries(ARC_STAGE_CONFIG) as [ArcBeatStage, { labelKey: string }][]).map(([k, v]) => (
+            <option key={k} value={k}>{t(v.labelKey)}</option>
           ))}
         </select>
         <button
@@ -538,16 +564,18 @@ function BeatRow({
       {expanded && (
         <div className="ml-7 mt-2 space-y-2">
           <textarea
-            value={beat.description}
-            onChange={(e) => handleField('description')(e.target.value)}
+            value={descriptionField.value}
+            onChange={(e) => descriptionField.onChange(e.target.value)}
+            onBlur={descriptionField.onBlur}
             rows={3}
             placeholder={t('characterArc.beat.descriptionPlaceholder')}
             className="w-full px-2 py-1.5 text-xs bg-elevated border border-border rounded text-text-primary outline-none focus:border-accent-gold transition resize-none"
           />
           <div className="flex items-center gap-2">
             <input
-              value={beat.emotion ?? ''}
-              onChange={(e) => handleField('emotion')(e.target.value)}
+              value={emotionField.value}
+              onChange={(e) => emotionField.onChange(e.target.value)}
+              onBlur={emotionField.onBlur}
               placeholder={t('characterArc.beat.emotionPlaceholder')}
               className="flex-1 px-2 py-1 text-xs bg-elevated border border-border rounded text-text-primary outline-none focus:border-accent-gold transition"
             />

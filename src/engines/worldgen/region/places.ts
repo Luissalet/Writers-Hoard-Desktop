@@ -20,6 +20,7 @@
 import { createRng } from '../core/rng';
 import { coinName, settlementBias, type LanguageFamily } from '../core/language';
 import type { HumanGeography, Settlement } from '../core/settlements';
+import type { SitesPolicy } from '../core/edits';
 import type { WorldData } from '../core/types';
 import { Cover, type RegionParams, type RegionPlace, type RegionStream } from './types';
 import { patchBilinear, type RegionGeometry, type TerrainFields, type WorldPatch } from './terrain';
@@ -49,6 +50,66 @@ interface Candidate {
   a: number;
   b: number;
   score: number;
+}
+
+/**
+ * ¿Puede sembrarse un lugar en esta celda de la HOJA?
+ *
+ * La pregunta se contesta en coordenadas del MUNDO (las zonas son pinceladas
+ * guardadas en celdas del mundo, con envoltura en x), y la respuesta sigue la
+ * semántica de pintar: se parte del grifo global y la ÚLTIMA zona que pisa el
+ * punto decide. Sin política (bancos, llamantes de siempre): todo permitido.
+ */
+export function siteAllower(
+  policy: SitesPolicy | undefined,
+  g: RegionGeometry,
+  worldWidth: number,
+): (x: number, y: number) => boolean {
+  if (!policy) return () => true;
+  const zones = policy.zones;
+  if (!zones.length) {
+    const all = policy.everywhere;
+    return () => all;
+  }
+  const wrapNear = (x: number, ref: number): number => {
+    let v = x;
+    while (v - ref > worldWidth / 2) v -= worldWidth;
+    while (v - ref < -worldWidth / 2) v += worldWidth;
+    return v;
+  };
+  /** Distancia² del punto (px,py) al segmento a→b, con a/b ya desenvueltos. */
+  const segDist2 = (px: number, py: number, ax: number, ay: number, bx: number, by: number): number => {
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const u = len2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+    const qx = ax + u * dx, qy = ay + u * dy;
+    return (px - qx) * (px - qx) + (py - qy) * (py - qy);
+  };
+  const inZone = (z: SitesPolicy['zones'][number], wx: number, wy: number): boolean => {
+    const r2 = z.radius * z.radius;
+    let prevX = wrapNear(z.pts[0].x, wx);
+    let prevY = z.pts[0].y;
+    if (z.pts.length === 1) {
+      return (wx - prevX) * (wx - prevX) + (wy - prevY) * (wy - prevY) <= r2;
+    }
+    for (let k = 1; k < z.pts.length; k++) {
+      // Cada tramo se desenvuelve respecto al ANTERIOR, no respecto al punto:
+      // una pincelada que cruza el antimeridiano es una polilínea continua,
+      // no dos mitades pegadas a los bordes.
+      const x = wrapNear(z.pts[k].x, prevX);
+      const y = z.pts[k].y;
+      if (segDist2(wx, wy, prevX, prevY, x, y) <= r2) return true;
+      prevX = x; prevY = y;
+    }
+    return false;
+  };
+  return (x: number, y: number): boolean => {
+    const wx = ((g.originX + x * g.worldPerCellX) % worldWidth + worldWidth) % worldWidth;
+    const wy = g.originY + y * g.worldPerCellY;
+    let ok = policy.everywhere;
+    for (const z of zones) if (inZone(z, wx, wy)) ok = z.mode === 'add';
+    return ok;
+  };
 }
 
 /**
@@ -236,12 +297,22 @@ export function buildHabitation(
   cover: Uint8Array,
   streams: RegionStream[],
   params: RegionParams,
+  /** El permiso de sembrado (ver `RegionParams.sites`). Ausente = todo
+   *  permitido, el comportamiento de siempre para bancos y llamantes viejos. */
+  policy?: SitesPolicy,
 ): HabitationResult {
   const W = g.width, H = g.height;
   const f = buildSiteFields(world, geo, g, t, streams);
   const places: RegionPlace[] = [];
   let id = 0;
   const WW = world.width;
+  const allow = siteAllower(policy, g, WW);
+  // Con el grifo cerrado y ni una zona que pise la hoja, el sembrado entero es
+  // un no-op: ni candidatos, ni abadías, ni molinos — y `applyHabitation`,
+  // `buildTracks` y `buildFields` reciben una lista vacía y dibujan el país
+  // deshabitado (los caminos del MUNDO y sus pueblos no pasan por aquí).
+  const deadSheet = !!policy && !policy.everywhere
+    && !policy.zones.some((z) => z.mode === 'add');
 
   const toSheet = (wx: number, wy: number) => {
     let dx = wx - g.originX;
@@ -369,6 +440,10 @@ export function buildHabitation(
 
   for (const c of cands) {
     if (c.score < T_FARM) continue;
+    // El permiso ANTES que el máximo local: un vecino vetado no debe robar la
+    // plaza (su celda sigue contando para el máximo — el enrejado es del
+    // mundo — pero él no se siembra).
+    if (!allow(c.x, c.y)) continue;
     if (c.x < -2 || c.x > W + 2 || c.y < -2 || c.y > H + 2) continue;
     const kind = c.score >= T_VILLAGE && isLocalMax(c, 3) ? 'village'
       : c.score >= T_HAMLET && isLocalMax(c, 2) ? 'hamlet'
@@ -438,6 +513,9 @@ export function buildHabitation(
       // without it a stream past three hamlets grows nine of them.
       if (milled.has(host.id)) continue;
       if (places.some((o) => o.kind === 'mill' && Math.hypot(o.x - p.x, o.y - p.y) * cellKm < 3.5)) continue;
+      // El molino también pide permiso: su aldea puede estar dentro de la zona
+      // y el tramo de río útil, fuera de ella.
+      if (!allow(p.x, p.y)) continue;
       milled.add(host.id);
       places.push(materializeRegionPlace({
         id: id++, kind: 'mill', x: p.x, y: p.y,
@@ -448,10 +526,15 @@ export function buildHabitation(
   }
 
   // ---- the singular buildings ---------------------------------------------
-  addAbbey(places, () => id++, g, t, cover, f, geo, world);
-  addTowers(places, () => id++, g, t, f, world);
-  addWorkings(places, () => id++, g, t, cover, f, world);
-  addInns(places, () => id++, g, f, world);
+  // `deadSheet` se lo salta entero: con el grifo cerrado y ninguna zona `add`
+  // en la lista, puntuar candidatos de abadía es trabajo para una respuesta
+  // conocida.
+  if (!deadSheet) {
+    addAbbey(places, () => id++, g, t, cover, f, geo, world, allow);
+    addTowers(places, () => id++, g, t, f, world, allow);
+    addWorkings(places, () => id++, g, t, cover, f, world, allow);
+    addInns(places, () => id++, g, f, world, allow);
+  }
 
   return { places, fields: f };
 }
@@ -472,6 +555,7 @@ function farmName(stem: string, seed: string, key: string): string {
 function addAbbey(
   places: RegionPlace[], nextId: () => number, g: RegionGeometry, t: TerrainFields,
   cover: Uint8Array, f: SiteFields, geo: HumanGeography, world: WorldData,
+  allow: (x: number, y: number) => boolean,
 ): void {
   const W = g.width, H = g.height;
   const cellKm = g.metresPerCell / 1000;
@@ -505,6 +589,7 @@ function addAbbey(
   for (let k = 0, placed = 0; k < scored.length && placed < want; k++) {
     const i = scored[k].i;
     const x = (i % W) + 0.5, y = ((i / W) | 0) + 0.5;
+    if (!allow(x, y)) continue;
     if (places.some((p) => Math.hypot(p.x - x, p.y - y) * cellKm < 4)) continue;
     const sourceKey = regionalSourceKeyAt('abbey', g, { x, y }, world.width);
     const nameRng = createRng(world.params.seed, sourceKey);
@@ -523,6 +608,7 @@ function addAbbey(
 function addTowers(
   places: RegionPlace[], nextId: () => number, g: RegionGeometry, t: TerrainFields,
   f: SiteFields, world: WorldData,
+  allow: (x: number, y: number) => boolean,
 ): void {
   const W = g.width, H = g.height;
   const cellKm = g.metresPerCell / 1000;
@@ -553,6 +639,7 @@ function addTowers(
   for (let k = 0, placed = 0; k < scored.length && placed < want; k++) {
     const i = scored[k].i;
     const x = (i % W) + 0.5, y = ((i / W) | 0) + 0.5;
+    if (!allow(x, y)) continue;
     if (places.some((p) => Math.hypot(p.x - x, p.y - y) * cellKm < 5)) continue;
     const sourceKey = regionalSourceKeyAt('tower', g, { x, y }, world.width);
     const rng = createRng(world.params.seed, sourceKey);
@@ -571,6 +658,7 @@ function addTowers(
 function addWorkings(
   places: RegionPlace[], nextId: () => number, g: RegionGeometry, t: TerrainFields,
   cover: Uint8Array, f: SiteFields, world: WorldData,
+  allow: (x: number, y: number) => boolean,
 ): void {
   const W = g.width, H = g.height;
   const cellKm = g.metresPerCell / 1000;
@@ -589,6 +677,7 @@ function addWorkings(
   for (let k = 0, placed = 0; k < scored.length && placed < want; k++) {
     const { i, mine } = scored[k];
     const x = (i % W) + 0.5, y = ((i / W) | 0) + 0.5;
+    if (!allow(x, y)) continue;
     if (places.some((p) => Math.hypot(p.x - x, p.y - y) * cellKm < 4)) continue;
     const kind = mine ? 'mine' : 'quarry';
     const sourceKey = regionalSourceKeyAt(kind, g, { x, y }, world.width);
@@ -606,6 +695,7 @@ function addWorkings(
 /** An inn stands where a day's travel ends and there is nothing else. */
 function addInns(
   places: RegionPlace[], nextId: () => number, g: RegionGeometry, f: SiteFields, world: WorldData,
+  allow: (x: number, y: number) => boolean,
 ): void {
   const W = g.width, H = g.height;
   const cellKm = g.metresPerCell / 1000;
@@ -622,6 +712,7 @@ function addInns(
   for (let k = 0, placed = 0; k < scored.length && placed < want; k++) {
     const i = scored[k].i;
     const x = (i % W) + 0.5, y = ((i / W) | 0) + 0.5;
+    if (!allow(x, y)) continue;
     if (places.some((p) => Math.hypot(p.x - x, p.y - y) * cellKm < 7)) continue;
     const sourceKey = regionalSourceKeyAt('inn', g, { x, y }, world.width);
     const rng = createRng(world.params.seed, sourceKey);

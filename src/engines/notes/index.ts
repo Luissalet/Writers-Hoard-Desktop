@@ -45,10 +45,11 @@ registerEntityResolver({
       color: note.color ?? NOTE_KIND_META[note.kind].color,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = (await db
-      .table('notes')
+    const table = db.table('notes');
+    const base = projectId ? table.where('projectId').equals(projectId) : table.toCollection();
+    const rows = (await base
       .filter((n: Note) =>
         n.text.toLowerCase().includes(q) ||
         (n.source ?? '').toLowerCase().includes(q) ||

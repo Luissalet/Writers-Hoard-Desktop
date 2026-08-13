@@ -280,3 +280,156 @@ distintas metidas en la misma vara.
 cosas con él. Sepáralas y dale a cada una el suyo: una casa plantada en mitad de
 la calzada se cae entera; un pico que asoma sobre el arcén es una fachada
 irregular, que es lo normal en una calle medieval.
+
+## #31 — Un banco que monta no es un banco que dibuja
+**Fecha:** 2026-08-10
+**Contexto:** El único banco que monta el `World3D` real devolvía `ok: true`, sin
+errores, con dos lienzos y un HUD legible. No estaba dibujando nada: el
+componente se coloca con `absolute inset-0`, la página del banco no lleva
+Tailwind, el contenedor medía cero y el lienzo nacía de 1100×8. La captura era
+negra con una tira de terreno arriba y nadie la había mirado. Seis utilidades de
+CSS declaradas a mano lo arreglaron — y entonces el banco empezó a fallar sus
+propias comprobaciones, porque por fin las estaba midiendo.
+**Regla:** Para una vista, el criterio de un banco no es «monta sin excepciones»
+sino «dibuja algo, y el algo es el correcto». Mide el tamaño del lienzo, cuenta
+los píxeles que no son fondo, y MIRA la captura. Un banco visual que nadie mira
+es un banco que da verde por construcción.
+
+## #32 — Pon el contador antes de acusar
+**Fecha:** 2026-08-10
+**Contexto:** Al cablear la vegetación, el fotograma del banco pasó de 14 a
+3.688 ms. Toda la evidencia apuntaba a las plantas. En vez de optimizar, le puse
+al módulo su propio contador en el HUD — cuántas instancias y cuánto costó
+sembrarlas — y el contador dijo CERO instancias en esa pose: era una vista de
+océano. La diferencia real estaba dos números más allá, en «41,3 triángulos por
+celda» contra «4,0»: dos poses distintas, no comparables.
+**Regla:** Antes de optimizar lo que acabas de añadir, haz que lo nuevo declare
+su propio coste. Un número atribuible cuesta diez líneas y evita una tarde
+entera afinando algo que no era. Y de paso queda puesto para el día en que
+alguien diga que el 3D va lento.
+
+## #33 — El número que alimenta un mecanismo tiene que medir lo que el mecanismo gobierna
+**Fecha:** 2026-08-11
+**Contexto:** El 3D cronometraba el JavaScript de `draw()` (13-15 ms) y con ese
+número gobernaba tres cosas que dependen del FOTOGRAMA ENTREGADO (2-15 s en
+SwiftShader, rasterizado incluido): el vigilante mataba relojes sanos a los
+500 ms y no los resucitaba jamás, la escalera de calidad SUBÍA el pixelRatio en
+la máquina de 0,07 fps, y el amortiguado por fotograma no se apagaba nunca. Los
+tres mecanismos eran correctos; su dieta no.
+**Regla:** Antes de alimentar un mecanismo automático, pregunta qué gobierna y
+mide ESO: un plazo de entrega se alimenta de intervalos entre entregas, no del
+coste de encolar. Y un mecanismo que puede apagar algo necesita el camino de
+vuelta medido con la misma vara (aquí, el rAF canario que resucita el reloj).
+Corolario de #32: el número va al HUD — «31641 ms» en el banco fue la prueba de
+que por fin medía el mundo y no la intención.
+
+## #34 — Tres síntomas idénticos pueden ser dos enfermedades
+**Fecha:** 2026-08-11
+**Contexto:** Tres puertas «ciegas» idénticas en el banco de ciudad. La sonda
+de dominio (inundar desde los dos lados y buscar el tabique) dijo que dos eran
+discos de puerta FLOTANDO en labranza (el suavizado de la muralla corta la
+esquina cóncava y el punto dibujado cae a 4-7 u del vértice soldado) — y al
+arreglarlas apareció la tercera, distinta: grafo conexo con todo camino a peso
+infinito (la ciudadela sentada sobre el ancla de la puerta). El discriminador
+barato fue un BFS doble: puro (¿el grafo llega?) contra finito (¿llega sin
+pesos infinitos?). Uno separa topología de política de pesos en cuatro líneas.
+**Regla:** Cuando N fallos comparten síntoma, diagnostica CADA UNO hasta su
+tabique antes de escribir el arreglo del primero — y tras arreglar, vuelve a
+correr el banco esperando que el recuento CAMBIE de forma, no sólo de tamaño.
+Un arreglo que convierte «3 ciegas» en «1 ciega distinta» no falló: reveló.
+
+## #35 — Una corrección local sobre datos ya corregidos fabrica cadenas
+**Fecha:** 2026-08-12
+**Contexto:** El 2D corregía las mudanzas del lector al dibujar (`movedAt`)
+porque en su día los constructores de geografía no las miraban. La pasada 7
+les enseñó a mirarlas — y nadie retiró la corrección local. Resultado: la
+lista llegaba YA mudada, el hit del dibujo llevaba la llave del DESTINO, el
+segundo arrastre emitía `move` con esa llave, y el estado acumulaba cadenas
+`{origen→d1, d1→d2}` que sólo la vista con la doble corrección sabía seguir:
+carta, globo y atlas se quedaban en d1 desde la segunda mudanza de cualquier
+objeto. Tres vistas de acuerdo entre sí y una cuarta «más lista» que las
+demás es exactamente el aspecto que tiene este fallo.
+**Regla:** Cuando un constructor central aprende a aplicar una corrección,
+BUSCA y retira las compensaciones locales que nacieron de su ausencia — y si
+un identificador estable puede reconstruirse desde datos corregidos, colapsa
+la indirección donde se construye el estado (aquí `applyEdits`), no en cada
+consumidor. Un replay que colapsa además CURA los datos guardados con la
+forma vieja al primer uso.
+
+## #36 — Un vínculo por identidad de objeto muere con el primer derivado
+**Fecha:** 2026-08-12
+**Contexto:** El almacén de canon ligaba mundo→worldId con un WeakMap enseñado
+sobre el mundo EDITADO — pero las teselas hondas y el calentador viajan con el
+PRÍSTINO del `canonSource`, otro objeto derivado del mismo mundo. Para el
+almacén ese objeto no tenía vínculo: 41 `canonBuilt` a la basura, cada `load`
+null, y el multi-sesión degenerado en duplicación silenciosa. La captura que
+lo delató decía «guardadas 41 · sembradas 0» — trabajo pagado, memoria vacía.
+**Regla:** Si un dato debe sobrevivir a derivaciones del objeto que lo indexa
+(clones, prístinos, poses), no lo ligues SOLO por identidad: liga por
+contenido además (aquí `seed:W×H` como respaldo), o enseña el vínculo en el
+punto donde nace CADA derivado. Y pon en el HUD la palabra «ligado/SIN
+LIGAR»: un vínculo es invisible justo hasta que falta.
+
+## #37 — El vigilante nace con la petición, no con el trabajo
+**Fecha:** 2026-08-12
+**Contexto:** El plazo de cada tesela se armaba en el `post()` al worker. Todo
+lo anterior (adquirir sesión, sembrar canon desde Dexie) podía rechazar o
+colgarse — y entonces el vigilante nunca llegaba a existir: promesa colgada,
+sesión «ocupada» eterna, marcador del almacén de pantalla huérfano, y el mapa
+sin re-pedir un id que cree en vuelo. Pedidas 336 = entregadas 336 con 0/54
+clavado: el sistema no estaba atascado, estaba CONVENCIDO de que no faltaba
+nada.
+**Regla:** Toda promesa que un almacén marque como en-vuelo lleva su plazo
+armado desde el NACIMIENTO de la petición, cubriendo cada tramo previo al
+trabajo (colas, cargas, siembras); los tramos posteriores lo REARMAN si su
+silencio legítimo es más corto. Y ninguna fase auxiliar puede costar la
+petición: cuerpo bajo try y `.catch(→ seguir)` en la juntura.
+
+## #38 — La rama que ningún banco pisa está rota (y un null mudo lo esconde)
+**Fecha:** 2026-08-12
+**Contexto:** La vía rgba de la Forja (píxeles crudos cruzando la frontera de
+proceso, mapa de bits refabricado al llegar) no se ejercitaba en NINGÚN banco
+ni en el smoke: los Web Workers entregan `reply.bitmap` directo. En la máquina
+de Luis `createImageBitmap` rechazaba para CADA tesela y el `resolve(null)` de
+su rama de error no decía palabra: «✓ entregada» contado, pantalla borrosa,
+0/28 eterno. Tres capturas y un volcado de consola costó encontrarlo; el log
+lo desenmascaró por una sola huella (el mismo suelo re-naciendo 100 ms después
+de entregarse, con sus hermanas en vuelo). La cura ni siquiera necesitó saber
+POR QUÉ rechazaba: putImageData sobre lienzo no tiene rama de rechazo.
+**Regla:** Enumera las vías por las que un dato puede llegar (worker/proceso,
+bitmap/rgba) y exige un banco que pise CADA una — con los huesos reales del
+otro lado si hace falta calzarlos (aquí @napi-rs/canvas en node). Y jamás
+resuelvas null en silencio: cada rama de fallo cuenta (contador en HUD) y
+canta (traza con la causa y los números medidos). Si existe una vía sin rama
+de fallo posible (síncrona, sin GPU), prefiérela a la elegante que puede
+rechazar.
+
+## #39 — Dos guardas que se creen la una a la otra suman un agujero
+**Fecha:** 2026-08-12
+**Contexto:** Una tesela que se resolvía vacía (caducada, cancelada, worker
+caído) soltaba su marcador de en-vuelo y nada más. Map2D soltaba SU guarda
+(`lastWant`) «para que el siguiente fotograma re-pida», pero el almacén de
+pantalla tenía OTRA (`lastAsk` por nivel) que con la cámara quieta devolvía
+el mismo `ask` y cortaba el re-pedido antes de llegar a `fetch`. Cada guarda
+asumía que la otra re-pedía; ninguna lo hacía. El banco de retención lo midió
+sin ambigüedad: 60 nacimientos justos y un plan 0/60 durante cuatro minutos
+de reposo absoluto — el cuadrado borroso eterno sobre mapa quieto. Con la
+cámara EN MOVIMIENTO el mismo agujero se disfraza de lo contrario (tormenta
+de renacimientos), que es lo que enseñaba el volcado de Luis.
+**Regla:** Cada guarda de deduplicación debe LIMPIARSE en el mismo sitio donde
+muere aquello que deduplicaba: el asentamiento vacío de una promesa borra la
+memoria del nivel que la habría bloqueado. Nunca dos capas de dedupe sin un
+banco que pruebe que un hueco se re-pide con la vista clavada.
+
+## #40 — Un plazo que mide duración castiga al que trabaja
+**Fecha:** 2026-08-12
+**Contexto:** El plazo de una tesela (120 s totales) retiraba la sesión a
+media generación de canon cuando el suelo costaba más que el plazo — tirando
+minutos de trabajo Y la caché entera de la sesión — y la siguiente tesela
+arrancaba la MISMA generación desde cero en una sesión virgen: 163 caducadas
+y un plan clavado en el banco. Y las teselas EN COLA detrás de un pool sano
+caducaban igual, porque el fondo de una cola FIFO no oye nada en minutos.
+**Regla:** Un plazo sano mide SILENCIO, no duración: toda prueba de vida lo
+rearma — el `progress` por supertesela de la propia fragua, y el pulso del
+pool entero (`queuePulse`: cada sesión liberada y cada progreso rearman a
+TODOS los que esperan). Matar sólo lo que lleva 120 s sin dar señal alguna.

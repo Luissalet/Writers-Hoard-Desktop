@@ -61,24 +61,33 @@ export interface Payoff {
   updatedAt: number;
 }
 
-export const SEED_KIND_CONFIG: Record<SeedKind, { label: string; color: string; description: string }> = {
-  foreshadow: { label: 'Foreshadow', color: '#8b5cf6', description: 'A detail that hints at what is coming.' },
-  chekhov:    { label: "Chekhov's Gun", color: '#ef4444', description: 'A concrete object that must fire later.' },
-  setup:      { label: 'Setup',      color: '#3b82f6', description: 'Information the reader needs for a later beat.' },
-  callback:   { label: 'Callback',   color: '#10b981', description: 'Something to recognise later.' },
-  mystery:    { label: 'Mystery',    color: '#f59e0b', description: 'A question the reader carries forward.' },
+export const SEED_KIND_CONFIG: Record<SeedKind, { labelKey: string; color: string; description: string }> = {
+  foreshadow: { labelKey: 'seeds.kind.foreshadow', color: '#8b5cf6', description: 'A detail that hints at what is coming.' },
+  chekhov:    { labelKey: 'seeds.kind.chekhov', color: '#ef4444', description: 'A concrete object that must fire later.' },
+  setup:      { labelKey: 'seeds.kind.setup',      color: '#3b82f6', description: 'Information the reader needs for a later beat.' },
+  callback:   { labelKey: 'seeds.kind.callback',   color: '#10b981', description: 'Something to recognise later.' },
+  mystery:    { labelKey: 'seeds.kind.mystery',    color: '#f59e0b', description: 'A question the reader carries forward.' },
 };
 
-export const SEED_STATUS_CONFIG: Record<SeedStatus, { label: string; color: string }> = {
-  planted:  { label: 'Planted',  color: 'bg-blue-500/20 text-blue-400' },
-  paid:     { label: 'Paid off', color: 'bg-green-500/20 text-green-400' },
-  orphaned: { label: 'Orphan',   color: 'bg-amber-500/20 text-amber-400' },
-  cut:      { label: 'Cut',      color: 'bg-gray-500/20 text-gray-400' },
+export const SEED_STATUS_CONFIG: Record<SeedStatus, { labelKey: string; color: string }> = {
+  planted:  { labelKey: 'seeds.status.planted',  color: 'bg-blue-500/20 text-blue-400' },
+  paid:     { labelKey: 'seeds.status.paid', color: 'bg-green-500/20 text-green-400' },
+  orphaned: { labelKey: 'seeds.status.orphaned',   color: 'bg-amber-500/20 text-amber-400' },
+  cut:      { labelKey: 'seeds.status.cut',      color: 'bg-gray-500/20 text-gray-400' },
 };
 
 /** Auto-compute status from whether payoffs exist. */
+/**
+ * The status a seed actually has, derived from its payoffs.
+ *
+ * "Orphaned" used to be reachable only if the *stored* status already said so,
+ * which nothing ever set. Meanwhile the dashboard counted orphans as
+ * "no payoff and not cut", so a fresh project reported "Orphans: 3" while every
+ * card read "Planted" and the Orphan filter returned nothing. The two now agree
+ * on one definition: an un-cut seed with no payoff is orphaned.
+ */
 export function computeSeedStatus(seed: Seed, payoffs: Payoff[]): SeedStatus {
   if (seed.status === 'cut') return 'cut';
   if (payoffs.length > 0) return 'paid';
-  return seed.status === 'orphaned' ? 'orphaned' : 'planted';
+  return 'orphaned';
 }

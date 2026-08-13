@@ -71,7 +71,7 @@ export default function FactCard({ fact, onEdit, onDelete, isDragging }: FactCar
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <span className={`inline-flex items-center gap-0.5 px-2 py-1 rounded text-[10px] font-medium ${confidence.color}`}>
               {confidenceIcon}
-              {confidence.label}
+              {t(confidence.labelKey)}
             </span>
 
             {fact.sources.length > 0 && (
@@ -125,7 +125,7 @@ export default function FactCard({ fact, onEdit, onDelete, isDragging }: FactCar
           {/* Sources */}
           {fact.sources.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-text-muted mb-2">Sources:</p>
+              <p className="text-xs font-semibold text-text-muted mb-2">{t('biography.fact.sourcesLabel')}</p>
               <div className="space-y-1.5">
                 {fact.sources.map((source, idx) => (
                   <div key={idx} className="text-xs text-text-dim p-2 bg-surface/50 rounded border border-border/50">

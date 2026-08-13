@@ -77,7 +77,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
         {/* Header */}
         <div className="sticky top-0 bg-deep border-b border-border p-4 flex items-center justify-between">
           <h2 className="text-lg font-serif font-semibold text-text-primary">
-            {fact ? 'Edit Fact' : 'New Fact'}
+            {fact ? t('biography.fact.editTitle') : t('biography.fact.newTitle')}
           </h2>
           <button
             onClick={onClose}
@@ -91,7 +91,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
         <div className="p-6 space-y-5">
           {/* Title */}
           <div>
-            <label className="block text-xs font-semibold text-text-muted mb-2">Title *</label>
+            <label className="block text-xs font-semibold text-text-muted mb-2">{t('biography.fact.title')}</label>
             <input
               type="text"
               value={title}
@@ -103,7 +103,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
 
           {/* Content */}
           <div>
-            <label className="block text-xs font-semibold text-text-muted mb-2">Content *</label>
+            <label className="block text-xs font-semibold text-text-muted mb-2">{t('biography.fact.content')}</label>
             <TipTapEditor
               content={content}
               onChange={setContent}
@@ -114,7 +114,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
           {/* Date fields */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-text-muted mb-2">Date</label>
+              <label className="block text-xs font-semibold text-text-muted mb-2">{t('biography.fact.date')}</label>
               <input
                 type="text"
                 value={date}
@@ -124,7 +124,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-text-muted mb-2">End Date</label>
+              <label className="block text-xs font-semibold text-text-muted mb-2">{t('biography.fact.endDate')}</label>
               <input
                 type="text"
                 value={endDate}
@@ -137,9 +137,9 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
 
           {/* Category selector */}
           <div>
-            <label className="block text-xs font-semibold text-text-muted mb-2">Category</label>
+            <label className="block text-xs font-semibold text-text-muted mb-2">{t('biography.fact.category')}</label>
             <div className="grid grid-cols-3 gap-2">
-              {Object.entries(BIOGRAPHY_CATEGORIES).map(([key, { label, color }]) => (
+              {Object.entries(BIOGRAPHY_CATEGORIES).map(([key, { labelKey, color }]) => (
                 <button
                   key={key}
                   onClick={() => setCategory(key as BiographyCategory)}
@@ -149,7 +149,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
                       : 'bg-elevated border border-border text-text-muted hover:border-accent-gold/50'
                   }`}
                 >
-                  {label}
+                  {t(labelKey)}
                 </button>
               ))}
             </div>
@@ -157,9 +157,9 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
 
           {/* Confidence selector */}
           <div>
-            <label className="block text-xs font-semibold text-text-muted mb-2">Confidence Level</label>
+            <label className="block text-xs font-semibold text-text-muted mb-2">{t('biography.fact.confidence')}</label>
             <div className="grid grid-cols-4 gap-2">
-              {Object.entries(CONFIDENCE_LEVELS).map(([key, { label }]) => (
+              {Object.entries(CONFIDENCE_LEVELS).map(([key, { labelKey }]) => (
                 <button
                   key={key}
                   onClick={() => setConfidence(key as 'confirmed' | 'likely' | 'uncertain' | 'disputed')}
@@ -169,7 +169,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
                       : 'bg-elevated border border-border text-text-muted hover:border-accent-gold/50'
                   }`}
                 >
-                  {label}
+                  {t(labelKey)}
                 </button>
               ))}
             </div>
@@ -177,7 +177,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
 
           {/* Tags */}
           <div>
-            <label className="block text-xs font-semibold text-text-muted mb-2">Tags</label>
+            <label className="block text-xs font-semibold text-text-muted mb-2">{t('biography.fact.tags')}</label>
             <TagInput
               tags={tags}
               onChange={setTags}
@@ -187,7 +187,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
 
           {/* Sources */}
           <div>
-            <label className="block text-xs font-semibold text-text-muted mb-2">Sources</label>
+            <label className="block text-xs font-semibold text-text-muted mb-2">{t('biography.fact.sources')}</label>
 
             {sources.length > 0 && (
               <div className="space-y-2 mb-3">
@@ -195,10 +195,10 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
                   <div key={idx} className="p-3 bg-surface/50 rounded-lg border border-border/50 flex items-start justify-between gap-2">
                     <div className="flex-grow min-w-0">
                       <p className="text-xs font-semibold text-text-muted mb-1">
-                        {source.type === 'snapshot' && '📸 Snapshot'}
-                        {source.type === 'link' && '🔗 Link'}
-                        {source.type === 'manual' && '✏️ Manual'}
-                        {source.type === 'interview' && '🎤 Interview'}
+                        {source.type === 'snapshot' && `📸 ${t('biography.source.snapshot')}`}
+                        {source.type === 'link' && `🔗 ${t('biography.source.link')}`}
+                        {source.type === 'manual' && `✏️ ${t('biography.source.manual')}`}
+                        {source.type === 'interview' && `🎤 ${t('biography.source.interview')}`}
                       </p>
                       <p className="text-sm text-text-primary">{source.description}</p>
                       {source.url && (
@@ -264,7 +264,7 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
                 className="w-full py-1.5 px-2 bg-accent-gold/10 text-accent-gold rounded text-xs font-medium hover:bg-accent-gold/20 transition flex items-center justify-center gap-1"
               >
                 <Plus size={12} />
-                Add Source
+                {t('biography.fact.addSource')}
               </button>
             </div>
           </div>
@@ -276,13 +276,13 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
             onClick={onClose}
             className="px-4 py-2 text-sm text-text-muted hover:text-text-primary transition"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleSave}
             className="px-4 py-2 bg-accent-gold text-deep rounded-lg text-sm font-semibold hover:bg-accent-amber transition"
           >
-            Save Fact
+            {t('biography.fact.save')}
           </button>
         </div>
       </div>

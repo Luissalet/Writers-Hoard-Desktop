@@ -607,6 +607,7 @@ async function clearProjectForRestore(projectId: string): Promise<void> {
   }
   if (worldIds.length) {
     await db.worldSnapshots.bulkDelete(worldIds as string[]);
+    await db.canonTiles.where('worldId').anyOf(worldIds as string[]).delete();
   }
   for (const table of projectScoped) {
     await table.where('projectId').equals(projectId).delete();

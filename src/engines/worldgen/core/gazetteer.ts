@@ -18,7 +18,8 @@ import { createRng, rngInt } from './rng';
 import { cognates, etymology, GLOSS_ES, type Gloss, type Language } from './language';
 import type { HumanGeography, NamedFeature, Realm, Settlement } from './settlements';
 import { cultureName } from './naming';
-import { RUIN_SITE_ES, RUIN_KIND_ES, ruinCondition, type RuinSite } from './ruins';
+import type { RuinCondition, RuinSite } from './ruins';
+import type { RuinKind } from './types';
 
 export interface GazetteerOptions {
   title: string;
@@ -38,6 +39,44 @@ interface Ctx {
 }
 
 const nf = (n: number) => n.toLocaleString('es-ES');
+
+// ---------------------------------------------------------------------------
+// Prosa de ruinas — DE ESTE DOCUMENTO, no del motor.
+// ---------------------------------------------------------------------------
+// El gazetteer es castellano por diseño (como los nombres que acuña
+// `naming.ts`); estas tablas vivían en `core/ruins.ts` como `_ES` y eran las
+// últimas etiquetas a fuego del motor. La UI usa `RUIN_*_KEY` + t(); la prosa
+// de este pliego usa esto.
+
+const RUIN_KIND_PROSE: Record<RuinKind, string> = {
+  city: 'ciudad en ruinas', fort: 'fortaleza', tower: 'torre', temple: 'templo',
+  stones: 'círculo de piedras', bridge: 'puente', mine: 'mina', wall: 'muralla',
+};
+
+const RUIN_SITE_PROSE: Record<RuinSite, string> = {
+  harbour: 'puerto natural', pass: 'paso de montaña', confluence: 'confluencia de ríos',
+  summit: 'cumbre con vistas', island: 'isla apartada', oasis: 'oasis', ford: 'vado',
+  mineral: 'veta mineral', holy: 'lugar sagrado', strait: 'estrecho', cape: 'cabo',
+};
+
+const RUIN_CONDITION_PROSE: Record<RuinCondition, string> = {
+  overgrown: 'cubierto de vegetación', buried: 'sepultado por la arena', flooded: 'inundado',
+  burnt: 'calcinado', standing: 'aún en pie', drowned: 'bajo las aguas',
+};
+
+/** Femeninos: «una fortaleza cubierto de vegetación» es como la prosa generada
+ *  se delata, y el castellano hace barato el arreglo. */
+const RUIN_CONDITION_PROSE_F: Record<RuinCondition, string> = {
+  overgrown: 'cubierta de vegetación', buried: 'sepultada por la arena', flooded: 'inundada',
+  burnt: 'calcinada', standing: 'aún en pie', drowned: 'bajo las aguas',
+};
+
+const RUIN_FEMININE = new Set<RuinKind>(['city', 'fort', 'tower', 'mine', 'wall']);
+
+/** Condición concordada con el género del sustantivo de la ruina. */
+function ruinConditionProse(kind: RuinKind, condition: RuinCondition): string {
+  return (RUIN_FEMININE.has(kind) ? RUIN_CONDITION_PROSE_F : RUIN_CONDITION_PROSE)[condition];
+}
 
 function latitudeName(lat: number): string {
   const a = Math.abs(lat);
@@ -329,11 +368,11 @@ function ruinSection(c: Ctx): string {
   }
   const order = [...bySite.entries()].sort((a, b) => b[1].length - a[1].length);
   for (const [site, list] of order) {
-    lines.push(`### ${capitalizeFirst(RUIN_SITE_ES[site])}`, '');
+    lines.push(`### ${capitalizeFirst(RUIN_SITE_PROSE[site])}`, '');
     for (const r of list.sort((a, b) => b.importance - a.importance)) {
       const lat = (0.5 - r.y / c.H) * 180;
       lines.push(
-        `- **${r.name}** — ${RUIN_KIND_ES[r.kind]}, ${ruinCondition(r.kind, r.condition)}, `
+        `- **${r.name}** — ${RUIN_KIND_PROSE[r.kind]}, ${ruinConditionProse(r.kind, r.condition)}, `
         + `en ${latitudeName(lat)}${r.painted ? ' (puesta a mano)' : ''}.`,
       );
     }

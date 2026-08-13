@@ -100,8 +100,15 @@ export default function QuickNoteHost() {
         (e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n';
       if (!combo) return;
       e.preventDefault();
+      // Open only — never toggle. `Modal` unmounts its children on close, so
+      // hitting the capture shortcut again out of habit while the composer was
+      // already open threw away everything typed into it, with no warning and
+      // no undo.
       setToProject(true);
-      setOpen((v) => !v);
+      setOpen((v) => {
+        if (v) return v;
+        return true;
+      });
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);

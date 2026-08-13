@@ -290,7 +290,7 @@ export default function SceneEditor({
               onClick={() => setEditingSetting(true)}
               className="text-xs text-text-muted hover:text-text-primary transition mt-1"
             >
-              {scene.setting || 'Add setting...'}
+              {scene.setting || t('dialogScene.addSetting')}
             </button>
           )}
           {/* Linked beats indicator */}
@@ -312,7 +312,7 @@ export default function SceneEditor({
             onClick={onBack}
             className="px-3 py-1.5 text-sm bg-border/30 text-text-muted hover:text-text-primary rounded transition"
           >
-            Back
+            {t('dialogScene.back')}
           </button>
         </div>
       </div>
@@ -345,7 +345,7 @@ export default function SceneEditor({
             onClick={() => setEditingDesc(true)}
             className="text-xs text-text-dim hover:text-text-muted transition"
           >
-            Add scene description...
+            {t('dialogScene.addDescription')}
           </button>
         </div>
       )}
@@ -369,7 +369,7 @@ export default function SceneEditor({
                 onClick={() => setDualSelectMode(null)}
                 className="ml-auto px-2 py-0.5 bg-blue-500/20 rounded hover:bg-blue-500/30 transition"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
             </div>
           )}
@@ -379,7 +379,7 @@ export default function SceneEditor({
             {blocks.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-text-dim text-sm mb-3">
-                  No dialog yet. Add a character and click their name to start writing.
+                  {t('dialogScene.emptyBlocks')}
                 </p>
               </div>
             ) : (
@@ -436,7 +436,7 @@ export default function SceneEditor({
                                     ? 'bg-blue-500/10 text-blue-300 opacity-100 hover:bg-blue-500/20'
                                     : 'bg-border/50 text-text-dim hover:text-text-primary opacity-0 group-hover/block:opacity-100'
                               }`}
-                              title={dualSelectMode === block.id ? 'Selected — click another block' : dualSelectMode ? 'Pair with this block' : 'Start dual dialog pairing'}
+                              title={dualSelectMode === block.id ? t('dialogScene.dual.selected') : dualSelectMode ? t('dialogScene.dual.pairWith') : t('dialogScene.dual.start')}
                             >
                               ||
                             </button>
@@ -462,7 +462,7 @@ export default function SceneEditor({
                 {cast.length > 0 && (
                   <div>
                     <p className="text-xs text-text-muted mb-2 font-semibold">
-                      Quick Add Dialog:
+                      {t('dialogScene.quickAdd')}
                     </p>
                     <div className="flex flex-wrap gap-2 mb-3">
                       {cast.map((member) => (
@@ -487,38 +487,38 @@ export default function SceneEditor({
                 )}
                 <div>
                   <p className="text-xs text-text-muted mb-2 font-semibold">
-                    Elements:
+                    {t('dialogScene.elements')}
                   </p>
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     <button
                       onClick={() => handleAddBlockType('stage-direction')}
                       className="px-3 py-2 text-xs bg-elevated border border-border rounded hover:border-accent-gold/40 transition text-text-muted hover:text-text-primary text-left"
                     >
-                      + Stage Direction
+                      {t('dialogScene.add.stageDirection')}
                     </button>
                     <button
                       onClick={() => handleAddBlockType('action')}
                       className="px-3 py-2 text-xs bg-elevated border border-border rounded hover:border-accent-gold/40 transition text-text-muted hover:text-text-primary text-left"
                     >
-                      + Action
+                      {t('dialogScene.add.action')}
                     </button>
                     <button
                       onClick={() => handleAddBlockType('transition')}
                       className="px-3 py-2 text-xs bg-elevated border border-border rounded hover:border-accent-gold/40 transition text-text-muted hover:text-text-primary text-left"
                     >
-                      + Transition
+                      {t('dialogScene.add.transition')}
                     </button>
                     <button
                       onClick={() => handleAddBlockType('slug')}
                       className="px-3 py-2 text-xs bg-elevated border border-border rounded hover:border-accent-gold/40 transition text-text-muted hover:text-text-primary text-left"
                     >
-                      + Scene Heading
+                      {t('dialogScene.add.slug')}
                     </button>
                     <button
                       onClick={() => handleAddBlockType('note')}
                       className="px-3 py-2 text-xs bg-elevated border border-border rounded hover:border-accent-gold/40 transition text-text-muted hover:text-text-primary text-left"
                     >
-                      + Note
+                      {t('dialogScene.add.note')}
                     </button>
                   </div>
                 </div>
@@ -527,7 +527,7 @@ export default function SceneEditor({
                 {cast.length >= 2 && (
                   <div>
                     <p className="text-xs text-text-muted mb-2 font-semibold">
-                      Dual Dialogue (simultaneous):
+                      {t('dialogScene.dual.heading')}
                     </p>
                     <div className="flex flex-wrap gap-2 mb-3">
                       {cast.map((memberA, i) =>
@@ -594,7 +594,7 @@ export default function SceneEditor({
                   onClick={() => setShowAddMenu(false)}
                   className="w-full px-3 py-2 text-xs bg-border/20 border border-border rounded hover:bg-border/30 transition text-text-muted"
                 >
-                  Done
+                  {t('common.done')}
                 </button>
               </motion.div>
             ) : (
@@ -603,7 +603,7 @@ export default function SceneEditor({
                 className="flex items-center gap-2 px-4 py-2 text-sm text-accent-gold hover:text-accent-amber bg-accent-gold/10 hover:bg-accent-gold/20 rounded-lg transition"
               >
                 <Plus size={16} />
-                Add Block
+                {t('dialogScene.addBlock')}
               </button>
             )}
           </div>

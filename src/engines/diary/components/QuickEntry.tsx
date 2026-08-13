@@ -73,7 +73,7 @@ export default function QuickEntry({ onSubmit }: QuickEntryProps) {
                 ? 'bg-accent-gold/20 ring-1 ring-accent-gold'
                 : 'bg-elevated hover:bg-elevated/80'
             }`}
-            title={cfg.label}
+            title={t(cfg.labelKey)}
           >
             {cfg.emoji}
           </button>

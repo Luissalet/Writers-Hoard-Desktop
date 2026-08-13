@@ -249,7 +249,11 @@ function ReferenceBody(props: NoteCreatorProps) {
     setSearching(true);
     (async () => {
       try {
-        const items = await searchEntities(query, [pickedEngine]);
+        // Scoped to this project. Without it the reference picker listed
+        // entities from every project in the database, and picking one created
+        // a cross-project reference whose backlink then navigated to a dead
+        // URL (the fallback composes the path from the *current* project id).
+        const items = await searchEntities(query, [pickedEngine], props.projectId);
         if (!cancelled) setResults(items.slice(0, 10));
       } finally {
         if (!cancelled) setSearching(false);
@@ -258,7 +262,7 @@ function ReferenceBody(props: NoteCreatorProps) {
     return () => {
       cancelled = true;
     };
-  }, [pickedEngine, query]);
+  }, [pickedEngine, query, props.projectId]);
 
   async function attachReference(entityId: string) {
     if (saving) return;

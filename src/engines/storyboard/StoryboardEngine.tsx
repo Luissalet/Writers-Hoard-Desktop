@@ -12,6 +12,7 @@ import { useAutoSelect, useEnsureDefault, ConfirmDialog } from '@/engines/_share
 import { useStoryboards, useStoryboardPanels, useStoryboardConnectors } from './hooks';
 import { generateId } from '@/utils/idGenerator';
 import StoryboardView from './components/StoryboardView';
+import { useScenes } from '@/engines/dialog-scene/hooks';
 
 export default function StoryboardEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
@@ -23,6 +24,7 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
 
   const { items: panels, addItem: addPanel, editItem: updatePanel, removeItem: deletePanel, reorder: reorderPanels } = useStoryboardPanels(activeStoryboardId);
   const { items: connectors, addItem: addConnector, editItem: updateConnector, removeItem: deleteConnector } = useStoryboardConnectors(activeStoryboardId);
+  const { items: scenes } = useScenes(projectId);
 
   useAutoSelect(storyboards, activeStoryboardId, setActiveStoryboardId);
 
@@ -94,6 +96,7 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
           onUpdateConnector={updateConnector}
           onDeleteConnector={deleteConnector}
           onUpdateStoryboard={updateStoryboard}
+          scenes={scenes}
         />
       )}
 

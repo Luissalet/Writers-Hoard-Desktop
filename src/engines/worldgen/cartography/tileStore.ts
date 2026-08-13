@@ -82,7 +82,7 @@ export class DisplayTileStore {
     // the cost the note on `lastAsk` says it prevents. It belongs INSIDE the
     // change: a new generation is when the previous ask stops meaning anything.
     if (gen === this.generation) return;
-    this.lastAsk = '';
+    this.lastAsk.clear();
     this.generation = gen;
     this.epoch++;
     for (const e of this.tiles.values()) close(e.bmp);
@@ -105,8 +105,12 @@ export class DisplayTileStore {
   /** The last set of tiles asked for, so an identical ask costs nothing. The
    *  carta calls `want` once per interim FRAME of a gesture, and now that a
    *  `want` cancels what fell out of the window, an unchanged repeat would
-   *  cancel-and-refetch the same tiles for the length of the pan. */
-  private lastAsk = '';
+   *  cancel-and-refetch the same tiles for the length of the pan.
+   *  POR NIVEL desde que el 3D pide dos niveles por fotograma (el del plan y
+   *  el suelo somero de respaldo): con una sola cadena, cada llamada pisaba a
+   *  la otra y la dedupe no disparaba nunca — el coste por fotograma que esta
+   *  nota existe para impedir. */
+  private lastAsk = new Map<number, string>();
 
   want(world: { width: number; height: number }, z: number, view: CartoView): void {
     const keys = tilesInView(world, z, view);
@@ -135,8 +139,8 @@ export class DisplayTileStore {
     const wanted = new Set<string>();
     for (const key of keys) wanted.add(tileId(key));
     const ask = `${this.generation}|${z}|${[...wanted].join()}`;
-    if (ask === this.lastAsk) return;
-    this.lastAsk = ask;
+    if (ask === this.lastAsk.get(z)) return;
+    this.lastAsk.set(z, ask);
     const levelPrefix = `${z}/`;
     for (const [id, pending] of this.inflight) {
       if (wanted.has(id) || !id.startsWith(levelPrefix)) continue;
@@ -160,7 +164,21 @@ export class DisplayTileStore {
     this.inflight.set(id, pending);
     request.promise.then((bmp) => {
       this.settled(id, pending);
-      if (!bmp) return;
+      if (!bmp) {
+        // UN HUECO RE-PEDIBLE, TAMBIÉN CON LA CÁMARA QUIETA. Una tesela que
+        // se resuelve vacía (caducada, cancelada, worker caído, fabricación
+        // fallida) soltaba su marcador y nada más — y el `want` siguiente,
+        // con la vista clavada, devolvía el mismo `ask` y se iba por la
+        // guarda sin re-pedir nada: el cuadrado borroso eterno sobre mapa
+        // quieto que el banco de retención retrató (60 nacimientos justos y
+        // un plan 0/60 durante cuatro minutos de reposo). El comentario de
+        // Map2D («Drop the guard so the NEXT frame asks again») siempre
+        // contó con que este almacén re-pediría; borrar la memoria del nivel
+        // es lo que lo hace verdad. Cuesta re-recorrer un `want` — los
+        // residentes y los volando se saltan solos.
+        this.lastAsk.delete(key.z);
+        return;
+      }
       // A stale country, or a store the component has already torn down:
       // `dispose` empties the maps but cannot un-start the builds behind them,
       // and a bitmap that lands afterwards is one nobody will ever close.
@@ -175,6 +193,9 @@ export class DisplayTileStore {
       this.onArrive();
     }).catch(() => {
       this.settled(id, pending);
+      // El mismo hueco por la vía del rechazo (una cancelación que asienta
+      // tarde): re-pedible, no eterno.
+      this.lastAsk.delete(key.z);
     });
   }
 
@@ -279,7 +300,7 @@ export class DisplayTileStore {
   }
 
   dispose(): void {
-    this.lastAsk = '';
+    this.lastAsk.clear();
     this.disposed = true;
     this.epoch++;
     for (const e of this.tiles.values()) close(e.bmp);

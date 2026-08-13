@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { X, Link2, Unlink } from 'lucide-react';
 import type { OutlineBeat, BeatStatus } from '../types';
 import type { Scene } from '@/engines/dialog-scene/types';
+import type { Writing } from '@/types';
 import { useTranslation } from '@/i18n/useTranslation';
 
 interface BeatEditorProps {
@@ -10,6 +11,10 @@ interface BeatEditorProps {
   onClose: () => void;
   /** Available scenes for linking */
   scenes?: Scene[];
+  /** Every beat in this outline — needed to offer a parent. */
+  siblings?: OutlineBeat[];
+  /** Available writings for linking */
+  writings?: Writing[];
 }
 
 const PRESET_COLORS = [
@@ -18,7 +23,14 @@ const PRESET_COLORS = [
   '#4a9e6d', '#06b6d4', '#ec4899', '#a855f7',
 ];
 
-export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatEditorProps) {
+export default function BeatEditor({
+  beat,
+  onSave,
+  onClose,
+  scenes = [],
+  siblings = [],
+  writings = [],
+}: BeatEditorProps) {
   const { t } = useTranslation();
   const [title, setTitle] = useState(beat.title);
   const [description, setDescription] = useState(beat.description);
@@ -28,6 +40,28 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
   const [color, setColor] = useState(beat.color || '#c4973b');
   const [wordTarget, setWordTarget] = useState(beat.wordTarget || 0);
   const [linkedSceneId, setLinkedSceneId] = useState(beat.linkedSceneId || '');
+  const [linkedWritingId, setLinkedWritingId] = useState(beat.linkedWritingId || '');
+  const [parentId, setParentId] = useState(beat.parentId || '');
+
+  // Candidate parents: every other beat except this one and everything nested
+  // underneath it — otherwise the tree could be pointed at itself and
+  // `BeatList` would recurse forever.
+  const parentOptions = useMemo(() => {
+    const descendants = new Set<string>([beat.id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const candidate of siblings) {
+        if (candidate.parentId && descendants.has(candidate.parentId) && !descendants.has(candidate.id)) {
+          descendants.add(candidate.id);
+          grew = true;
+        }
+      }
+    }
+    return siblings
+      .filter((b) => !descendants.has(b.id))
+      .sort((a, b) => a.order - b.order);
+  }, [siblings, beat.id]);
 
   const handleSave = () => {
     onSave({
@@ -39,6 +73,8 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
       color,
       wordTarget: wordTarget || undefined,
       linkedSceneId: linkedSceneId || undefined,
+      linkedWritingId: linkedWritingId || undefined,
+      parentId: parentId || undefined,
       updatedAt: Date.now(),
     });
     onClose();
@@ -48,7 +84,7 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-elevated border border-border rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-text-primary">Edit Beat</h2>
+          <h2 className="text-lg font-semibold text-text-primary">{t('outline.beat.editTitle')}</h2>
           <button
             onClick={onClose}
             className="text-text-dim hover:text-text-primary transition"
@@ -61,7 +97,7 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
           {/* Title */}
           <div>
             <label className="block text-sm font-medium text-text-primary mb-1">
-              Title
+              {t('common.title')}
             </label>
             <input
               type="text"
@@ -75,7 +111,7 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
           {/* Description */}
           <div>
             <label className="block text-sm font-medium text-text-primary mb-1">
-              Description
+              {t('common.description')}
             </label>
             <textarea
               value={description}
@@ -90,33 +126,33 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">
-                Level
+                {t('outline.beat.level')}
               </label>
               <select
                 value={level}
                 onChange={(e) => setLevel(e.target.value as 'act' | 'chapter' | 'scene' | 'beat')}
                 className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-gold/50"
               >
-                <option value="act">Act</option>
-                <option value="chapter">Chapter</option>
-                <option value="scene">Scene</option>
-                <option value="beat">Beat</option>
+                <option value="act">{t('outline.level.act')}</option>
+                <option value="chapter">{t('outline.level.chapter')}</option>
+                <option value="scene">{t('outline.level.scene')}</option>
+                <option value="beat">{t('outline.level.beat')}</option>
               </select>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">
-                Status
+                {t('outline.beat.status')}
               </label>
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value as BeatStatus)}
                 className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-gold/50"
               >
-                <option value="empty">Empty</option>
-                <option value="outlined">Outlined</option>
-                <option value="drafted">Drafted</option>
-                <option value="done">Done</option>
+                <option value="empty">{t('outline.status.empty')}</option>
+                <option value="outlined">{t('outline.status.outlined')}</option>
+                <option value="drafted">{t('outline.status.drafted')}</option>
+                <option value="done">{t('outline.status.done')}</option>
               </select>
             </div>
           </div>
@@ -124,7 +160,7 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
           {/* Story Position */}
           <div>
             <label className="block text-sm font-medium text-text-primary mb-2">
-              Story Position: {storyPosition}%
+              {t('outline.beat.storyPosition').replace('{pct}', String(storyPosition))}
             </label>
             <input
               type="range"
@@ -139,7 +175,7 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
           {/* Word Target */}
           <div>
             <label className="block text-sm font-medium text-text-primary mb-1">
-              Word Count Target
+              {t('outline.beat.wordTarget')}
             </label>
             <input
               type="number"
@@ -154,7 +190,7 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
           {/* Color Picker */}
           <div>
             <label className="block text-sm font-medium text-text-primary mb-2">
-              Color
+              {t('outline.beat.color')}
             </label>
             <div className="flex flex-wrap gap-2">
               {PRESET_COLORS.map((c) => (
@@ -173,12 +209,67 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
             </div>
           </div>
 
+          {/* Parent beat — this is what makes the act → chapter → scene tree
+              in BeatList reachable at all; `parentId` had no UI, so every
+              beat was permanently top-level and the whole nesting layer was
+              dead code. */}
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-1">
+              {t('outline.beat.parent')}
+            </label>
+            <select
+              value={parentId}
+              onChange={(e) => setParentId(e.target.value)}
+              className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-gold/50 text-sm"
+            >
+              <option value="">{t('outline.beat.noParent')}</option>
+              {parentOptions.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.title}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Link to a writing */}
+          {writings.length > 0 && (
+            <div>
+              <label className="text-sm font-medium text-text-primary mb-1 flex items-center gap-1.5">
+                <Link2 size={14} className="text-accent-gold" />
+                {t('outline.beat.linkedWriting')}
+              </label>
+              <div className="flex items-center gap-2">
+                <select
+                  value={linkedWritingId}
+                  onChange={(e) => setLinkedWritingId(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-surface border border-border rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-gold/50 text-sm"
+                >
+                  <option value="">{t('outline.beat.noLinkedWriting')}</option>
+                  {writings.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.chapter ? `${w.chapter}. ` : ''}{w.title}
+                    </option>
+                  ))}
+                </select>
+                {linkedWritingId && (
+                  <button
+                    onClick={() => setLinkedWritingId('')}
+                    className="p-2 text-text-dim hover:text-danger rounded transition"
+                    title={t('outline.beat.unlinkWriting')}
+                  >
+                    <Unlink size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Link to Scene */}
           {scenes.length > 0 && (
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1 flex items-center gap-1.5">
                 <Link2 size={14} className="text-accent-gold" />
-                Linked Scene
+                {t('outline.beat.linkedScene')}
               </label>
               <div className="flex items-center gap-2">
                 <select
@@ -186,11 +277,11 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
                   onChange={(e) => setLinkedSceneId(e.target.value)}
                   className="flex-1 px-3 py-2 bg-surface border border-border rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-gold/50 text-sm"
                 >
-                  <option value="">No linked scene</option>
+                  <option value="">{t('outline.beat.noLinkedScene')}</option>
                   {scenes.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.sceneNumber ? `#${s.sceneNumber} ` : ''}{s.title}
-                      {s.isOmitted ? ' (omitted)' : ''}
+                      {s.isOmitted ? ` (${t('outline.beat.omitted')})` : ''}
                     </option>
                   ))}
                 </select>
@@ -205,7 +296,7 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
                 )}
               </div>
               <p className="text-xs text-text-dim mt-1">
-                Link this beat to a Dialog/Scene to track it bidirectionally.
+                {t('outline.beat.linkedSceneHint')}
               </p>
             </div>
           )}
@@ -216,13 +307,13 @@ export default function BeatEditor({ beat, onSave, onClose, scenes = [] }: BeatE
               onClick={onClose}
               className="px-4 py-2 rounded-lg border border-border bg-surface text-text-primary hover:bg-surface/80 transition"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               onClick={handleSave}
               className="px-4 py-2 rounded-lg bg-accent-gold/10 text-accent-gold hover:bg-accent-gold/20 transition font-medium"
             >
-              Save
+              {t('common.save')}
             </button>
           </div>
         </div>

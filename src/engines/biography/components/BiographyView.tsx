@@ -10,6 +10,7 @@ import NarrativeView from './NarrativeView';
 import { generateId } from '@/utils/idGenerator';
 import { ConfirmDialog } from '@/engines/_shared';
 import { useTranslation } from '@/i18n/useTranslation';
+import { useCodexEntries } from '@/engines/codex/hooks';
 
 interface BiographyViewProps {
   biography: Biography;
@@ -26,6 +27,12 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
   const [editingFact, setEditingFact] = useState<BiographyFact | undefined>();
   const [selectedCategory, setSelectedCategory] = useState<BiographyCategory | null>(null);
   const [pendingDeleteFactId, setPendingDeleteFactId] = useState<string | null>(null);
+
+  const { items: codexEntries } = useCodexEntries(biography.projectId);
+  const characters = useMemo(
+    () => codexEntries.filter((e) => e.type === 'character' || e.type === 'custom'),
+    [codexEntries],
+  );
 
   // Extract birth/death dates from facts
   const birthDate = useMemo(() => {
@@ -104,6 +111,28 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
             <h1 className="text-3xl font-serif font-bold text-text-primary mb-2">
               {biography.subjectName}
             </h1>
+            {/* Codex link. `Biography.subjectId` was declared in types.ts and
+                never written by anything, so a biography could not be tied to
+                the character it was about. */}
+            {characters.length > 0 && (
+              <select
+                value={biography.subjectId ?? ''}
+                onChange={(e) => {
+                  const id = e.target.value || undefined;
+                  const entry = characters.find((c) => c.id === id);
+                  onUpdate({
+                    subjectId: id,
+                    ...(entry ? { subjectName: entry.title } : {}),
+                  });
+                }}
+                className="mb-3 px-2 py-1 text-xs bg-surface border border-border rounded-lg text-text-muted outline-none focus:border-accent-gold transition cursor-pointer"
+              >
+                <option value="">{t('biography.subject.none')}</option>
+                {characters.map((c) => (
+                  <option key={c.id} value={c.id}>{c.title}</option>
+                ))}
+              </select>
+            )}
             {(birthDate || deathDate) && (
               <p className="text-lg text-text-muted mb-3">
                 {birthDate && <span>{birthDate}</span>}
@@ -112,7 +141,7 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
               </p>
             )}
             <p className="text-sm text-text-muted">
-              {facts.length} fact{facts.length !== 1 ? 's' : ''} collected
+              {t('biography.factsCollected').replace('{count}', String(facts.length))}
             </p>
           </div>
 
@@ -155,7 +184,7 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
                 : 'bg-surface text-text-muted hover:text-text-primary'
             }`}
           >
-            Cards
+            {t('biography.view.cards')}
           </button>
           <button
             onClick={() => setViewMode('narrative')}
@@ -165,7 +194,7 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
                 : 'bg-surface text-text-muted hover:text-text-primary'
             }`}
           >
-            Narrative
+            {t('biography.view.narrative')}
           </button>
         </div>
 
@@ -174,7 +203,7 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
           className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-gold text-deep rounded-lg text-sm font-semibold hover:bg-accent-amber transition"
         >
           <Plus size={16} />
-          New Fact
+          {t('biography.newFact')}
         </button>
       </div>
 
@@ -183,7 +212,7 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <Filter size={14} />
-            Filter by category
+            {t('biography.filterByCategory')}
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -194,9 +223,9 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
                   : 'bg-surface text-text-muted hover:text-text-primary'
               }`}
             >
-              All ({facts.length})
+              {t('biography.allFacts').replace('{count}', String(facts.length))}
             </button>
-            {Object.entries(BIOGRAPHY_CATEGORIES).map(([key, { label }]) => {
+            {Object.entries(BIOGRAPHY_CATEGORIES).map(([key, { labelKey }]) => {
               const count = facts.filter(f => f.category === key).length;
               if (count === 0) return null;
               return (
@@ -209,7 +238,7 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
                       : 'bg-surface text-text-muted hover:text-text-primary'
                   }`}
                 >
-                  {label} ({count})
+                  {t(labelKey)} ({count})
                 </button>
               );
             })}
@@ -254,16 +283,24 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
         <NarrativeView facts={facts} subjectName={biography.subjectName} />
       )}
 
-      {/* Editor modal */}
-      <FactEditor
-        fact={editingFact}
-        isOpen={isEditorOpen}
-        onClose={() => {
-          setIsEditorOpen(false);
-          setEditingFact(undefined);
-        }}
-        onSave={handleSaveFact}
-      />
+      {/* Editor modal.
+          Mounted conditionally and keyed by the fact being edited: FactEditor
+          seeds all of its state from `fact` in useState initialisers, which
+          only run on mount. Keeping it permanently mounted meant "edit" always
+          opened the form blank (it had first mounted with fact === undefined)
+          and saving was rejected. */}
+      {isEditorOpen && (
+        <FactEditor
+          key={editingFact?.id ?? '__new__'}
+          fact={editingFact}
+          isOpen={isEditorOpen}
+          onClose={() => {
+            setIsEditorOpen(false);
+            setEditingFact(undefined);
+          }}
+          onSave={handleSaveFact}
+        />
+      )}
 
       <ConfirmDialog
         open={pendingDeleteFactId !== null}

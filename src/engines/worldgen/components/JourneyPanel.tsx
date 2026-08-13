@@ -2,7 +2,7 @@ import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import type { WorldData } from '../core/types';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import {
-  planRoute, describeDuration, MODE_ES, SEASON_ES,
+  planRoute, describeDuration, MODE_KEY, SEASON_KEY,
   type Route, type Season, type TravelMode,
 } from '../core/travel';
 import { paleoMap, describePaleo, seaLevelForIce, type PaleoMap, type PaleoState } from '../core/paleo';
@@ -134,12 +134,12 @@ export default function JourneyPanel({
         <>
           <div className="flex flex-wrap gap-1">
             {MODES.map((m) => (
-              <Chip key={m} on={mode === m} onClick={() => setMode(m)}>{MODE_ES[m]}</Chip>
+              <Chip key={m} on={mode === m} onClick={() => setMode(m)}>{t(MODE_KEY[m])}</Chip>
             ))}
           </div>
           <div className="flex flex-wrap gap-1">
             {SEASONS.map((s) => (
-              <Chip key={s} on={season === s} onClick={() => setSeason(s)}>{SEASON_ES[s]}</Chip>
+              <Chip key={s} on={season === s} onClick={() => setSeason(s)}>{t(SEASON_KEY[s])}</Chip>
             ))}
           </div>
 
@@ -148,7 +148,7 @@ export default function JourneyPanel({
           ) : route ? (
             <div className="flex flex-col gap-1.5 border-t border-white/10 pt-2">
               <div className="text-lg text-white/90 leading-none">
-                {describeDuration(route.hours, HPD[season])}
+                {describeDuration(route.hours, HPD[season], t)}
               </div>
               <div className="text-[10px] text-white/50">
                 {t('worldgen.journey.byRoad').replace('{n}', Math.round(route.km).toLocaleString('es-ES'))} ·
@@ -225,18 +225,25 @@ export default function JourneyPanel({
                   <tr className="text-white/35">
                     <th className="text-left font-normal px-1"> </th>
                     {SEASONS.map((s) => (
-                      <th key={s} className="font-normal px-1">{SEASON_ES[s].slice(0, 4)}.</th>
+                      <th key={s} className="font-normal px-1">{t(`${SEASON_KEY[s]}.abbr`)}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {table.map((row) => (
                     <tr key={row.mode} className="border-t border-white/5">
-                      <td className="px-1 text-white/60 whitespace-nowrap">{MODE_ES[row.mode]}</td>
+                      <td className="px-1 text-white/60 whitespace-nowrap">{t(MODE_KEY[row.mode])}</td>
                       {row.seasons.map((r, i) => (
                         <td key={i} className="px-1 text-center text-white/75">
-                          {r.impossible ? '—' : describeDuration(r.hours, HPD[SEASONS[i]])
-                            .replace(' jornadas', 'j').replace(' jornada', 'j').replace(/ y \d+ h/, '')}
+                          {/* Forma compacta por clave («9j» / “9d”), no cirugía
+                              de cadenas sobre la frase larga: aquel
+                              .replace(' jornadas','j') sólo funcionaba en
+                              español. */}
+                          {r.impossible ? '—'
+                            : r.hours < HPD[SEASONS[i]]
+                              ? describeDuration(r.hours, HPD[SEASONS[i]], t)
+                              : t('worldgen.travel.dur.daysShort')
+                                .replace('{n}', String(Math.floor(r.hours / HPD[SEASONS[i]])))}
                         </td>
                       ))}
                     </tr>

@@ -3,6 +3,7 @@ import { Clock, ChevronDown } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { DialogBlock } from '../types';
 import { estimateSceneDuration, type ChronometryMode } from '../chronometry';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface ChronometryBadgeProps {
   blocks: DialogBlock[];
@@ -10,13 +11,15 @@ interface ChronometryBadgeProps {
   compact?: boolean;
 }
 
+/** i18n keys, resolved with `t()` at the render site. */
 const MODE_LABELS: Record<ChronometryMode, string> = {
-  page: 'Page Count',
-  character: 'Character Count',
-  custom: 'Custom WPM',
+  page: 'dialogScene.chrono.page',
+  character: 'dialogScene.chrono.character',
+  custom: 'dialogScene.chrono.custom',
 };
 
 export default function ChronometryBadge({ blocks, compact = false }: ChronometryBadgeProps) {
+  const { t } = useTranslation();
   const [mode, setMode] = useState<ChronometryMode>('page');
   const [customWpm, setCustomWpm] = useState(160);
   const [showDetail, setShowDetail] = useState(false);
@@ -78,7 +81,7 @@ export default function ChronometryBadge({ blocks, compact = false }: Chronometr
                       : 'border border-border text-text-muted hover:text-text-primary'
                   }`}
                 >
-                  {MODE_LABELS[m]}
+                  {t(MODE_LABELS[m])}
                 </button>
               ))}
             </div>
@@ -86,7 +89,7 @@ export default function ChronometryBadge({ blocks, compact = false }: Chronometr
             {/* Custom WPM input */}
             {mode === 'custom' && (
               <div className="mb-3">
-                <label className="text-[10px] text-text-dim">Words per minute:</label>
+                <label className="text-[10px] text-text-dim">{t('dialogScene.chrono.wpm')}</label>
                 <input
                   type="number"
                   value={customWpm}
@@ -101,26 +104,26 @@ export default function ChronometryBadge({ blocks, compact = false }: Chronometr
             {/* Breakdown */}
             <div className="space-y-1.5 border-t border-border/50 pt-2">
               <div className="flex justify-between text-xs">
-                <span className="text-text-dim">Dialog</span>
+                <span className="text-text-dim">{t('dialogScene.chrono.dialog')}</span>
                 <span className="text-text-muted">{Math.round(result.breakdown.dialogSeconds / 60 * 10) / 10}m</span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className="text-text-dim">Action</span>
+                <span className="text-text-dim">{t('dialogScene.chrono.action')}</span>
                 <span className="text-text-muted">{Math.round(result.breakdown.actionSeconds / 60 * 10) / 10}m</span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className="text-text-dim">Other</span>
+                <span className="text-text-dim">{t('dialogScene.chrono.other')}</span>
                 <span className="text-text-muted">{Math.round(result.breakdown.otherSeconds / 60 * 10) / 10}m</span>
               </div>
               <div className="flex justify-between text-xs font-medium border-t border-border/50 pt-1.5">
-                <span className="text-text-primary">Total</span>
+                <span className="text-text-primary">{t('dialogScene.chrono.total')}</span>
                 <span className="text-accent-gold">{result.formatted}</span>
               </div>
             </div>
 
             <p className="text-[9px] text-text-dim/60 mt-2 italic">
-              {mode === 'page' && 'Industry standard: ~1 minute per screenplay page (250 words)'}
-              {mode === 'character' && 'Dialog at 150 WPM spoken, action at 200 WPM read'}
+              {mode === 'page' && t('dialogScene.chrono.pageHint')}
+              {mode === 'character' && t('dialogScene.chrono.characterHint')}
               {mode === 'custom' && `Custom: ${customWpm} words per minute`}
             </p>
           </motion.div>

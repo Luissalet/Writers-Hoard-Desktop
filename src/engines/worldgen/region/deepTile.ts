@@ -19,6 +19,7 @@ import type { CartoTheme } from '../cartography/theme';
 import type { Ctx } from '../cartography/symbols';
 import type { RegionData } from './types';
 import { generateCanonTile, canonTileKey } from './generate';
+import { quantizeCanonTile } from './canonStore';
 import { canonRefinement, type TileId } from './tiles';
 import { canonWindowCover, composeCanonWindow, type CanonWindowSpec } from './composeWindow';
 import { renderRegion, type RegionLayers } from './render';
@@ -82,7 +83,7 @@ export interface CanonCache {
 export const CANON_CACHE_CAP = scaleCount(4);
 export const CANON_CACHE_BYTES = scaleBytes(96 * 1024 * 1024);
 
-function canonBytes(r: RegionData): number {
+export function canonBytes(r: RegionData): number {
   return r.elevation.byteLength + r.water.byteLength + r.flow.byteLength
     + r.slope.byteLength + r.wet.byteLength + r.biome.byteLength
     + r.cover.byteLength + 4096;
@@ -92,17 +93,97 @@ export function makeCanonCache(): CanonCache {
   return { map: new Map(), order: [], bytes: 0 };
 }
 
+export interface CanonCacheLimits {
+  cap: number;
+  bytes: number;
+}
+
+/**
+ * Install one supertile in the session cache under the shared LRU + byte
+ * budget. One implementation on purpose: the carta renderer, the satellite
+ * renderer and the persistence seeding (`seedCanon`) all admit ground through
+ * this door, so no path can grow its own eviction arithmetic.
+ */
+export function installCanon(
+  cache: CanonCache,
+  key: string,
+  data: RegionData,
+  limits: CanonCacheLimits = { cap: CANON_CACHE_CAP, bytes: CANON_CACHE_BYTES },
+): void {
+  const had = cache.map.get(key);
+  if (had) {
+    const at = cache.order.indexOf(key);
+    if (at >= 0) cache.order.splice(at, 1);
+    cache.bytes -= canonBytes(had);
+  }
+  cache.map.set(key, data);
+  cache.order.push(key);
+  cache.bytes += canonBytes(data);
+  while ((cache.order.length > limits.cap || cache.bytes > limits.bytes)
+    && cache.order.length > 1) {
+    const evict = cache.order.shift();
+    if (!evict) break;
+    const dead = cache.map.get(evict);
+    if (dead) cache.bytes -= canonBytes(dead);
+    cache.map.delete(evict);
+  }
+}
+
+/**
+ * Fetch-or-generate the canon supertiles under a tile spec, LRU-touched or
+ * freshly built. `built` collects what was GENERATED this call — the worker
+ * core persists exactly those, so neither renderer knows storage exists.
+ * With `quantize`, a fresh supertile is installed AS ITS STORED SELF
+ * (`quantizeCanonTile`), so the session that generates ground and the session
+ * that reloads it ink pixel-identical tiles.
+ */
+export function canonCoverFor(
+  world: WorldData,
+  geography: HumanGeography,
+  cache: CanonCache,
+  cover: TileId[],
+  edits: WorldEdit[] | undefined,
+  limits: CanonCacheLimits,
+  built?: { key: string; data: RegionData }[],
+  quantize?: boolean,
+): { id: TileId; data: RegionData }[] {
+  const placed: { id: TileId; data: RegionData }[] = [];
+  for (const id of cover) {
+    const k = canonTileKey(id);
+    let data = cache.map.get(k);
+    if (!data) {
+      data = generateCanonTile(world, geography, id, { edits });
+      if (quantize) data = quantizeCanonTile(data);
+      installCanon(cache, k, data, limits);
+      built?.push({ key: k, data });
+    } else {
+      // Touch for LRU.
+      const at = cache.order.indexOf(k);
+      if (at >= 0) cache.order.splice(at, 1);
+      cache.order.push(k);
+    }
+    placed.push({ id, data });
+  }
+  return placed;
+}
+
 export interface DeepTileOptions {
   theme: CartoTheme;
   /** Carta layer flags, translated to the pliego vocabulary here. */
   layers: Record<string, boolean | undefined>;
   density: number;
   edits?: WorldEdit[];
+  /** Install fresh supertiles as their stored (quantised) selves — set by the
+   *  worker core whenever the client persists canon. */
+  quantizeCanon?: boolean;
 }
 
 export interface DeepTileResult {
   /** Canon supertiles generated for this tile (0 = fully warm). */
   generated: number;
+  /** The freshly generated supertiles themselves, for the worker core to
+   *  persist. Empty when the ground was already resident. */
+  built: { key: string; data: RegionData }[];
   /** Named places whose ground lies INSIDE this tile (margin excluded, so a
    *  place reports from exactly one tile and the caller needs no dedup). */
   places: TilePlace[];
@@ -122,33 +203,9 @@ export function renderDeepTile(
 ): DeepTileResult {
   const spec = deepTileSpec(world, key);
   const cover = canonWindowCover(world, spec);
-  let generated = 0;
-  const placed: { id: TileId; data: RegionData }[] = [];
-  for (const id of cover) {
-    const k = canonTileKey(id);
-    let data = cache.map.get(k);
-    if (!data) {
-      data = generateCanonTile(world, geography, id, { edits: opts.edits });
-      generated++;
-      cache.map.set(k, data);
-      cache.order.push(k);
-      cache.bytes += canonBytes(data);
-      while ((cache.order.length > CANON_CACHE_CAP || cache.bytes > CANON_CACHE_BYTES)
-        && cache.order.length > 1) {
-        const evict = cache.order.shift();
-        if (!evict) break;
-        const dead = cache.map.get(evict);
-        if (dead) cache.bytes -= canonBytes(dead);
-        cache.map.delete(evict);
-      }
-    } else {
-      // Touch for LRU.
-      const at = cache.order.indexOf(k);
-      if (at >= 0) cache.order.splice(at, 1);
-      cache.order.push(k);
-    }
-    placed.push({ id, data });
-  }
+  const built: { key: string; data: RegionData }[] = [];
+  const placed = canonCoverFor(world, geography, cache, cover, opts.edits,
+    { cap: CANON_CACHE_CAP, bytes: CANON_CACHE_BYTES }, built, opts.quantizeCanon);
 
   const region = composeCanonWindow(world, placed, spec);
   const m = region.margin;
@@ -193,7 +250,7 @@ export function renderDeepTile(
       extentY: TILE_PX * tileCountY(key.z),
     },
   });
-  return { generated, places };
+  return { generated: built.length, built, places };
 }
 
 /** Guard used by the worker: deep rendering needs the canon lattice to divide

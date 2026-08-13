@@ -23,36 +23,49 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
   const [startWordCount, setStartWordCount] = useState('');
   const [endWordCount, setEndWordCount] = useState('');
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  /** Absolute wall-clock instant the sprint is due to end, while running. */
+  const deadlineRef = useRef<number | null>(null);
 
-  // Timer tick
+  // Timer tick.
+  //
+  // The remaining time is DERIVED from the real clock rather than counted down
+  // one setInterval tick at a time. Chromium (and therefore Electron) throttles
+  // timers in hidden or backgrounded windows to roughly one tick a minute, so
+  // the old counter meant a 25-minute sprint spent in another window logged
+  // itself as about two minutes of writing.
   useEffect(() => {
     if (!isRunning) return;
 
-    intervalRef.current = setInterval(() => {
-      setTimeRemaining((prev) => {
-        if (prev <= 1) {
-          setIsRunning(false);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    const tick = () => {
+      const deadline = deadlineRef.current;
+      if (deadline === null) return;
+      const remaining = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+      setTimeRemaining(remaining);
+      if (remaining === 0) setIsRunning(false);
+    };
+
+    tick();
+    intervalRef.current = setInterval(tick, 250);
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      intervalRef.current = null;
     };
   }, [isRunning]);
 
   const handleStart = useCallback(() => {
+    deadlineRef.current = Date.now() + timeRemaining * 1000;
     setIsRunning(true);
-  }, []);
+  }, [timeRemaining]);
 
   const handlePause = useCallback(() => {
     setIsRunning(false);
+    deadlineRef.current = null;
   }, []);
 
   const handleReset = useCallback(() => {
     setIsRunning(false);
+    deadlineRef.current = null;
     setTimeRemaining(duration);
     setStartWordCount('');
     setEndWordCount('');

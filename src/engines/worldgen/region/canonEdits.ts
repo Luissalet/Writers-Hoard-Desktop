@@ -23,6 +23,17 @@ import {
 import type { RegionGeometry } from './terrain';
 import { naturalOf } from './cover';
 
+/**
+ * Whether a stroke can touch this sheet at all — the persistence key uses it
+ * to decide which edits a supertile's identity depends on, and it MUST be the
+ * same answer the replay itself gives, so it simply asks the replay's own
+ * converter. A stroke that "touches" but paints nothing is a harmless extra
+ * invalidation; the reverse would be a stale supertile served as fresh.
+ */
+export function strokeTouchesSheet(stroke: Stroke, g: RegionGeometry, worldWidth: number): boolean {
+  return toSheetStroke(stroke, g, worldWidth) !== null;
+}
+
 /** A stroke re-expressed in sheet cells, or null when it cannot touch the grid. */
 function toSheetStroke(stroke: Stroke, g: RegionGeometry, worldWidth: number): Stroke | null {
   const per = g.worldPerCellX;

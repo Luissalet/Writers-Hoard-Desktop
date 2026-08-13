@@ -132,6 +132,11 @@ export function canonParams(world: WorldData, base?: Partial<RegionParams>): Reg
     ...base,
     res: tileInterior(world),
     aspect: 1,
+    // El canon SIEMPRE deriva su sembrado de las ediciones (`sites: 'auto'`):
+    // cerrado por defecto, el tick del menú lo abre entero, el pincel por
+    // zonas (Luis, 2026-08-12). Forzado tras `base` igual que `res`: es parte
+    // del contrato del canon, no una preferencia del llamante.
+    sites: 'auto',
   };
 }
 

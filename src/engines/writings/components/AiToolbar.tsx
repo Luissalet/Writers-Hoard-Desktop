@@ -270,7 +270,7 @@ ${extracted.citasRelevantes.length > 0
           {summaryLoading || (fetchingContent && !charsLoading)
             ? <Loader2 size={13} className="animate-spin" />
             : <Sparkles size={13} />}
-          {fetchingContent && !charsLoading ? 'Cargando doc...' : 'Generar Resumen'} {/* TODO: i18n */}
+          {fetchingContent && !charsLoading ? t('ai.loadingDoc') : t('ai.generateSummary')}
         </button>
 
         <button
@@ -281,7 +281,7 @@ ${extracted.citasRelevantes.length > 0
           {charsLoading || (fetchingContent && !summaryLoading)
             ? <Loader2 size={13} className="animate-spin" />
             : <Users size={13} />}
-          {fetchingContent && !summaryLoading ? 'Cargando doc...' : 'Extraer Personajes'} {/* TODO: i18n */}
+          {fetchingContent && !summaryLoading ? t('ai.loadingDoc') : t('ai.extractCharacters')}
         </button>
 
         {/* Fetched content indicator */}
@@ -314,7 +314,7 @@ ${extracted.citasRelevantes.length > 0
       </div>
 
       {/* Summary preview modal */}
-      <Modal open={!!summaryPreview} onClose={() => setSummaryPreview(null)} title="Resumen Generado">
+      <Modal open={!!summaryPreview} onClose={() => setSummaryPreview(null)} title={t('ai.summaryTitle')}>
         <div className="space-y-4">
           <div className="p-4 bg-elevated rounded-lg text-sm text-text-primary whitespace-pre-wrap leading-relaxed">
             {summaryPreview}
@@ -341,7 +341,7 @@ ${extracted.citasRelevantes.length > 0
       <Modal
         open={!!mergeConflicts}
         onClose={() => setMergeConflicts(null)}
-        title="Fusionar Personajes Existentes"
+        title={t('ai.mergeTitle')}
         wide
       >
         <div className="space-y-4">
@@ -400,7 +400,7 @@ ${extracted.citasRelevantes.length > 0
       <Modal
         open={!!extractedChars && !mergeConflicts}
         onClose={() => { setExtractedChars(null); setSelectedChars(new Set()); }}
-        title="Personajes Extraídos"
+        title={t('ai.extractedTitle')}
         wide
       >
         <div className="space-y-4">
@@ -464,7 +464,7 @@ ${extracted.citasRelevantes.length > 0
                     Importando...
                   </>
                 ) : (
-                  'Importar al Codex'
+                  t('ai.importToCodex')
                 )}
               </button>
             </div>

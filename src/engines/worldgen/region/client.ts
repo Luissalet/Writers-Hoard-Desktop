@@ -1,6 +1,10 @@
 import { scaleBytes, scaleCount, workerSlots } from '@/utils/capacity';
 import type { HumanGeography } from '../core/settlements';
-import type { TilePlace } from './deepTile';
+import { deepTileSpec, deepTileSupported, type TilePlace } from './deepTile';
+import { satelliteDeepSupported, satelliteTileSpec } from './satelliteTile';
+import { canonWindowCover } from './composeWindow';
+import { canonTileKey } from './generate';
+import { canonParams, tileGeometry, tileWindow, type TileId } from './tiles';
 import { forgeAvailable, forgeDegraded, spawnForgeWorker } from '../forge/bridge';
 import type { WorldData } from '../core/types';
 import { regionGeometry, type RegionGeometry } from './terrain';
@@ -11,10 +15,92 @@ import {
   type RegionWindow,
 } from './types';
 import {
+  hashEditsString,
   packRegionGeography,
   type RegionWorkerReply,
   type RegionWorkerRequest,
 } from './workerProtocol';
+
+/**
+ * The renderer's canon storage, injected rather than imported: this module is
+ * reachable from benches and from `core`-adjacent code that must never pull
+ * the database in (see `snapshots.ts`'s header for the rule). The app
+ * registers `canonSnapshots.ts` here once at engine load; nothing registered
+ * means canon stays session-local, exactly the pre-persistence behaviour.
+ */
+export interface CanonPersistence {
+  /** Stored bytes for one supertile under the CURRENT edit list, or null. */
+  load(world: WorldData, canonKey: string, editsJson: string): Promise<ArrayBuffer | null>;
+  /** Persist one freshly generated supertile, built at `editsJson`. */
+  save(world: WorldData, canonKey: string, editsJson: string, bytes: ArrayBuffer): void;
+}
+
+let canonPersistence: CanonPersistence | null = null;
+
+export function setCanonPersistence(persistence: CanonPersistence | null): void {
+  canonPersistence = persistence;
+}
+
+/**
+ * DEBUG (temporal, Luis 2026-08-12): contadores de sesión de la vía de
+ * teselas, para que los HUD del 2D y del 3D puedan decir POR QUÉ el suelo
+ * está borroso — «pedida y declinada», «entregada», «sembrada del almacén» y
+ * «error» se ven idénticas desde fuera y son cuatro historias distintas.
+ */
+/** TRAZA COMPLETA en consola (temporal, lo pidió Luis el 2026-08-12): cada
+ *  petición cuenta su vida entera — nace, sesión, siembra (con el porqué de
+ *  cada acierto o fallo), post, respuesta, caducidad. Apagar aquí. */
+export const DEBUG_TRACE = true;
+const TRACE_T0 = Date.now();
+export function traceTiles(...args: unknown[]): void {
+  if (!DEBUG_TRACE) return;
+  console.log(`[teselas +${((Date.now() - TRACE_T0) / 1000).toFixed(1)}s]`, ...args);
+}
+
+export const tileStats = {
+  asked: 0,
+  delivered: 0,
+  declined: 0,
+  errors: 0,
+  timeouts: 0,
+  canonBuilt: 0,
+  seeded: 0,
+  seedErrors: 0,
+  /** Entregadas cuyo mapa de bits no pudo fabricarse en el lado del lector
+   *  (vía rgba de la Forja). Si esto sube, el HUD y la traza dicen por qué. */
+  fabErrors: 0,
+};
+
+/** Cuándo se posteó cada petición viva, para que el HUD pueda decir la EDAD
+ *  de la más vieja — un «EN VUELO 1» de 40 s es una generación; de 5 min es
+ *  una sesión muerta que el vigilante está a punto de retirar. */
+const inFlightSince = new Map<string, number>();
+
+export function oldestInFlightMs(): number {
+  let oldest = 0;
+  const now = Date.now();
+  for (const t of inFlightSince.values()) oldest = Math.max(oldest, now - t);
+  return oldest;
+}
+
+/**
+ * EL VIGILANTE DE PETICIONES (el agujero que la captura de Luis retrató el
+ * 2026-08-12: EN VUELO 1 eterno, entregadas 0/35, forja «sí»). El puente de
+ * la Forja sólo vigila la PRIMERA respuesta de cada proceso: un hijo que
+ * muere DESPUÉS de haber contestado algo deja su petición en vuelo para
+ * siempre, la sesión «ocupada» eternamente, y el pool encolado detrás de un
+ * muerto sin que nada lo declare. Cada petición lleva ahora su propio plazo;
+ * al vencer, la sesión se TERMINA (el pool abre una fresca al siguiente uso)
+ * y la petición se resuelve como fallo re-pedible. El plazo de una tesela es
+ * total (no emite progreso); el de una sábana se rearma con cada `progress`,
+ * porque su silencio legítimo es corto aunque su total sea largo.
+ */
+export const requestDeadlines = {
+  /** Total de una tesela (no emite progreso). */
+  tileMs: 120_000,
+  /** Inactividad de una sábana (cada `progress` rearma). */
+  generateIdleMs: 180_000,
+};
 
 export interface RegionWorkerLike {
   onmessage: ((event: MessageEvent<RegionWorkerReply>) => void) | null;
@@ -27,9 +113,11 @@ export interface RegionWorkerLike {
 export type RegionWorkerFactory = () => RegionWorkerLike;
 
 /** A display tile from the worker: pixels plus, for DEEP tiles, the named
- *  places on its ground — the main thread letters those live. */
+ *  places on its ground — the main thread letters those live. Lienzo cuando
+ *  los píxeles vienen crudos de la Forja (ver la fabricación en requestTile);
+ *  todos los consumidores componen con drawImage, que acepta ambos. */
 export interface RenderedTile {
-  bitmap: ImageBitmap;
+  bitmap: ImageBitmap | OffscreenCanvas | HTMLCanvasElement;
   places?: TilePlace[];
 }
 
@@ -42,6 +130,13 @@ export interface RegionRequestOptions {
   /** Serialized edit list for canon replay-at-resolution. Part of the cache
    *  identity: the same ground with different strokes is different country. */
   edits?: string;
+  /** Canon-lattice identity (`c:tx:ty`) when this sheet IS a supertile — the
+   *  composite path sets it so the request can seed from storage, answer from
+   *  worker residency, and ship fresh builds back for persistence. */
+  canonKey?: string;
+  /** Política de sembrado explícita para hojas que no pueden mandar `edits`
+   *  (viajan con el mundo editado). Ver RegionBuildOptions.sitesPolicy. */
+  sitesPolicy?: import('../core/edits').SitesPolicy;
   /** Used by tests and constrained runtimes. Omit to use the Vite worker. */
   workerFactory?: RegionWorkerFactory;
 }
@@ -79,6 +174,10 @@ interface WorkerSession {
   revision: number;
   activeRequestId?: string;
   lastUsed: number;
+  /** Canon supertile keys this session has been seeded with (or has built) —
+   *  the "don't ask Dexie twice" ledger. Entries are struck when a
+   *  `consumeOnly` decline proves the worker evicted them. */
+  seeded: Set<string>;
 }
 
 // The Forge first: a dedicated OS process per session, outside the renderer's
@@ -122,7 +221,8 @@ function cacheGeometryKey(
   return `${world.params.seed}:${world.revision ?? 0}`
     + `:${geometry.originX.toFixed(6)}:${geometry.originY.toFixed(6)}`
     + `:${geometry.worldPerCellX.toFixed(9)}:${geometry.width}x${geometry.height}`
-    + `:${params.detail}:${params.settled}:${params.habitation}:${params.streamDensity}`;
+    + `:${params.detail}:${params.settled}:${params.habitation}:${params.streamDensity}`
+    + `:${params.sites ?? 'everywhere'}`;
 }
 
 /**
@@ -146,6 +246,19 @@ export class RegionWorkerClient {
    *  main thread, which is the classic silent "Render process gone". */
   private readonly cacheByteBudget: number;
   private cacheBytes = 0;
+  /** Bancos: fuerza (true/false) el multi-sesión por mundo; null = decide la
+   *  Forja (procesos propios sí, web workers dentro del renderer no). */
+  parallelWorldSessions: boolean | null = null;
+  /** Superteselas ya calentadas (clave canon + hash de ediciones), para que
+   *  cada gesto no relance el mismo calentamiento. Se vacía por época. */
+  private warmed = new Set<string>();
+  /** Calentamientos VIVOS, con su mando de cancelar: cuando el plan cambia,
+   *  los obsoletos se retiran — cuarenta warms de un paseo encolados delante
+   *  de las teselas de la pantalla eran siete minutos de cola (la captura de
+   *  Luis del «0/50 clavado», 2026-08-12). Un warm encolado se cancela
+   *  gratis; uno ya en sesión, en el peor caso, cuesta esa sesión — minutos
+   *  de cola contra segundos de reconfigurar, y gana retirarlo. */
+  private warming = new Map<string, () => void>();
   /** Bumped when the reader moves to a new world (regenerate, load). Entries
    *  and idle sessions from older epochs are purged eagerly instead of
    *  waiting for count-based eviction to reach them. */
@@ -169,6 +282,9 @@ export class RegionWorkerClient {
    */
   newEpoch(): void {
     this.epoch++;
+    this.warmed.clear();
+    for (const cancelWarm of this.warming.values()) cancelWarm();
+    this.warming.clear();
     for (const [key, entry] of this.cache) {
       if (entry.epoch !== this.epoch) {
         this.cacheBytes -= entry.bytes;
@@ -209,6 +325,7 @@ export class RegionWorkerClient {
 
     let session: WorkerSession | null = null;
     let settled = false;
+    let idleTimer = 0;
     let rejectPromise: (reason: unknown) => void = () => undefined;
     let abortListener: (() => void) | null = null;
 
@@ -216,6 +333,10 @@ export class RegionWorkerClient {
       if (abortListener) options.signal?.removeEventListener('abort', abortListener);
       abortListener = null;
       this.active.delete(requestId);
+      inFlightSince.delete(requestId);
+      // OJO: aquí `window` es la ventana REGIONAL (el parámetro); los relojes
+      // van por los globales pelados.
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = 0; }
       if (!session) return;
       if (terminateSession) {
         this.terminateSession(session);
@@ -275,13 +396,40 @@ export class RegionWorkerClient {
       }).catch((error: unknown) => fail(error));
 
       const attach = (live: WorkerSession) => {
+      /** El vigilante de INACTIVIDAD: una sábana legítima tarda minutos pero
+       *  habla (progress); un worker muerto calla. Cada señal lo rearma. */
+      const armIdle = () => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          if (settled) return;
+          tileStats.timeouts++;
+          traceTiles(requestId, 'CADUCADA (sábana muda; sesión retirada)');
+          fail(new Error('El worker regional dejó de responder; sesión retirada.'));
+        }, requestDeadlines.generateIdleMs) as unknown as number;
+      };
       live.worker.onmessage = (event) => {
         const reply = event.data;
+        // Una sábana que habla también es el pool trabajando: pulso para las
+        // teselas en cola (ver `pulseQueue`).
+        if (reply.type === 'progress' || reply.type === 'canonBuilt') { armIdle(); this.pulseQueue(); }
+        // A composite sheet that generated fresh canon ships it for storage
+        // ahead of `done` — same contract as the display tiles, same guard:
+        // ground the reader has painted past since the request is refused.
+        if (reply.type === 'canonBuilt') {
+          if (reply.requestId !== requestId) return;
+          const persistence = canonPersistence;
+          if (persistence && reply.editsHash === hashEditsString(options.edits ?? '')) {
+            live.seeded.add(reply.key);
+            persistence.save(world, reply.key, options.edits ?? '', reply.bytes);
+          }
+          return;
+        }
         if (reply.type === 'configured' || settled) return;
         if (reply.requestId !== requestId) return;
         if (reply.type === 'progress') {
           options.onProgress?.(reply.stage, reply.overall);
         } else if (reply.type === 'done') {
+          traceTiles(requestId, '✓ sábana lista');
           finish(reply.region);
         } else if (reply.type === 'cancelled') {
           cancel();
@@ -296,18 +444,51 @@ export class RegionWorkerClient {
       live.worker.onmessageerror = () => {
         fail(new Error('Regional worker returned an unreadable message.'));
       };
-      try {
-        live.worker.postMessage({
-          type: 'generate',
-          requestId,
-          contextId: live.contextId,
-          window,
-          params,
-          geometry: options.geometry,
-          edits: options.edits,
-        });
-      } catch (error) {
-        fail(error);
+      const post = () => {
+        if (settled) return;
+        try {
+          inFlightSince.set(requestId, Date.now());
+          traceTiles(requestId, options.canonKey
+            ? `sábana canónica ${options.canonKey} → worker`
+            : '→ worker (sábana libre)');
+          armIdle();
+          live.worker.postMessage({
+            type: 'generate',
+            requestId,
+            contextId: live.contextId,
+            window,
+            params,
+            geometry: options.geometry,
+            edits: options.edits,
+            sitesPolicy: options.sitesPolicy,
+            canonKey: options.canonKey,
+          });
+        } catch (error) {
+          fail(error);
+        }
+      };
+      // A canonical sheet checks storage first: seed the worker and it answers
+      // from residency instead of regenerating — the composite path was the
+      // one canon consumer the persistence didn't reach.
+      if (options.canonKey && canonPersistence && !live.seeded.has(options.canonKey)) {
+        const k = options.canonKey;
+        canonPersistence.load(world, k, options.edits ?? '')
+          .then((bytes) => {
+            live.seeded.add(k);
+            if (bytes && !settled) {
+              try {
+                live.worker.postMessage({
+                  type: 'seedCanon',
+                  contextId: live.contextId,
+                  tiles: [{ key: k, bytes }],
+                });
+              } catch { /* generate as before */ }
+            }
+          })
+          .catch(() => undefined)
+          .finally(post);
+      } else {
+        post();
       }
       };
     });
@@ -428,19 +609,28 @@ export class RegionWorkerClient {
       edits?: string;
       /** Paper or ground. Absent = paper, so old callers are unchanged. */
       ink?: 'carta' | 'satellite';
+      /** Sólo entintar si el canon ya es residente; ver workerProtocol. */
+      consumeOnly?: boolean;
       workerFactory?: RegionWorkerFactory;
     },
   ): { promise: Promise<RenderedTile | null>; cancel: () => void } {
     const requestId = `tile-${this.nextRequestId++}`;
     let session: WorkerSession | null = null;
     let settled = false;
+    let watchdog = 0;
     /** Cancelled AFTER a worker had already started drawing: the caller is
      *  gone, but the reply still has to be collected. */
     let abandoned = false;
     let rejectPromise: (reason: unknown) => void = () => undefined;
+    /** El rearme del plazo, visible fuera del ejecutor para que `cleanup`
+     *  pueda darlo de baja del pulso de la cola. */
+    let armDeadlineRef: () => void = () => undefined;
 
     const cleanup = (terminate: boolean) => {
       this.active.delete(requestId);
+      inFlightSince.delete(requestId);
+      this.queuePulse.delete(armDeadlineRef);
+      if (watchdog) { clearTimeout(watchdog); watchdog = 0; }
       if (!session) return;
       if (terminate) {
         this.terminateSession(session);
@@ -497,7 +687,41 @@ export class RegionWorkerClient {
         resolve(null);
         return;
       }
+      // El plazo nace CON la petición, no con el post: una cadena que se
+      // cuelga ANTES de postear (adquisición, siembra) dejaba el marcador del
+      // almacén de pantalla huérfano para siempre y el mapa no re-pedía — la
+      // 4.ª captura de Luis (pedidas quietas, EN VUELO 0, 0/54 eterno). El
+      // post lo rearma para el tramo de trabajo.
+      inFlightSince.set(requestId, Date.now());
+      const born = Date.now();
+      traceTiles(requestId, `nace z${tile.z}(${tile.tx},${tile.ty})`,
+        opts.ink ?? 'carta', opts.consumeOnly ? 'consume' : '');
+      /** El plazo mide SILENCIO: nace con la petición, se rearma en el post y
+       *  con cada `progress` de la fragua (una señal por supertesela). */
+      const armDeadline = () => {
+        if (watchdog) clearTimeout(watchdog);
+        watchdog = setTimeout(() => {
+          if (settled) return;
+          tileStats.timeouts++;
+          settled = true;
+          traceTiles(requestId, `CADUCADA a los ${((Date.now() - born) / 1000).toFixed(1)}s (sesión retirada)`);
+          cleanup(true);
+          resolve(null);
+        }, requestDeadlines.tileMs) as unknown as number;
+      };
+      armDeadlineRef = armDeadline;
+      armDeadline();
+      // EL PULSO DE LA COLA: mientras el pool entregue, ninguna tesela en
+      // espera debe caducar. `notifyFree` despierta a UN parado (FIFO), así
+      // que el del fondo de una cola larga no oye nada en minutos — 163 de
+      // las teselas del banco de retención caducaban EN LA COLA detrás de dos
+      // sesiones que fraguaban canon legítimamente (contenedor lento), y el
+      // plan entero renacía en tromba. Registrar el rearme en `queuePulse`
+      // deja el plazo midiendo lo único que debe matar: el SILENCIO del pool
+      // entero, no la longitud de la cola.
+      this.queuePulse.add(armDeadline);
       this.acquireSessionWhenFree(factory, world, geography, requestId, () => settled).then((acquired) => {
+        traceTiles(requestId, `sesión ${acquired.contextId} (cola ${Date.now() - born} ms)`);
         if (settled) {
           acquired.activeRequestId = undefined;
           acquired.lastUsed = Date.now();
@@ -511,11 +735,62 @@ export class RegionWorkerClient {
       });
 
       const attach = (live: WorkerSession) => {
+      /** The supertile keys under THIS tile, kept for the decline bookkeeping. */
+      let coverKeys: string[] | null = null;
       live.worker.onmessage = (event) => {
         const reply = event.data;
+        // Fresh canon rides ahead of the tile that grew it, and it is worth
+        // storing even when the reader has already panned away (abandoned):
+        // the 31 s were paid either way. The edits-hash guard refuses ground
+        // the reader has painted past since the request went out.
+        if (reply.type === 'canonBuilt') {
+          if (reply.requestId !== requestId) return;
+          tileStats.canonBuilt++;
+          const persistence = canonPersistence;
+          const fresh = reply.editsHash === hashEditsString(opts.edits ?? '');
+          traceTiles(requestId, `canon nuevo ${reply.key}`,
+            `${(reply.bytes.byteLength / 1e6).toFixed(1)}MB`,
+            persistence ? (fresh ? '→ almacén' : 'DESCARTADO (ediciones cambiaron)') : 'sin almacén');
+          if (persistence && fresh) {
+            live.seeded.add(reply.key);
+            persistence.save(world, reply.key, opts.edits ?? '', reply.bytes);
+          }
+          return;
+        }
         if (settled || reply.type === 'configured') return;
         if (reply.requestId !== requestId) return;
+        if (reply.type === 'progress') {
+          // La fragua canta una vez por supertesela (workerCore): cada señal
+          // rearma el plazo, que así mide SILENCIO y no duración total — una
+          // tesela cuyo suelo cueste tres minutos ya no caduca a los 120 s
+          // retirando la sesión a media generación (la espiral del banco de
+          // retención: 163 caducadas y un plan 0/60 eterno).
+          armDeadline();
+          // Y el pulso para TODA la cola: esta fragua demuestra que el pool
+          // trabaja, también para los que esperan sesión.
+          this.pulseQueue();
+          traceTiles(requestId, `fragua canon ${(reply.overall * 100).toFixed(0)}%`);
+          return;
+        }
         if (reply.type === 'tile') {
+          if (reply.declined) tileStats.declined++;
+          else tileStats.delivered++;
+          traceTiles(requestId, reply.declined ? 'DECLINADA (canon frío)' : '✓ entregada',
+            `${((Date.now() - born) / 1000).toFixed(1)}s`);
+          // A `consumeOnly` decline for ground the ledger says was seeded
+          // means the worker has since evicted it: strike those entries so
+          // the NEXT request re-seeds from storage instead of trusting a
+          // ledger that lies.
+          if (reply.declined && coverKeys) {
+            for (const k of coverKeys) live.seeded.delete(k);
+          }
+          // El bus de desalojos de la vía que GENERA: la misma tachadura que
+          // la declinación consumeOnly, pero contada por el worker — sin ella
+          // el libro daba por sembrado lo desalojado y el suelo se regeneraba
+          // en silencio en vez de re-sembrarse de Dexie.
+          if (reply.evictedCanon) {
+            for (const k of reply.evictedCanon) live.seeded.delete(k);
+          }
           settled = true;
           cleanup(false);
           if (abandoned) {
@@ -527,21 +802,61 @@ export class RegionWorkerClient {
             reply.bitmap?.close();
             return;
           }
-          if (reply.bitmap) {
+          if (reply.declined) {
+            // La declinación es una respuesta SANA del contrato consumeOnly
+            // (el 3D pide, el canon no está, el worker contesta en µs) — no
+            // una fabricación fallida. Contarla como FÁBRICA-ERR mandó a Luis
+            // a la consola a buscar un error que no existía: su HUD del
+            // 2026-08-12 decía «declinadas 475 · FÁBRICA-ERR 475» y las 475
+            // eran el 3D consumiendo suelo frío, tal y como está decidido.
+            resolve(null);
+          } else if (reply.bitmap) {
             resolve({ bitmap: reply.bitmap, places: reply.places });
           } else if (reply.rgba && reply.width && reply.height) {
-            // Forge tiles cross a process boundary as raw pixels; the bitmap
-            // is rebuilt here, off the worker's clock.
-            const img = new ImageData(
-              new Uint8ClampedArray(reply.rgba), reply.width, reply.height);
-            createImageBitmap(img).then(
-              (bitmap) => resolve({ bitmap, places: reply.places }),
-              () => resolve(null),
-            );
+            // Los píxeles de la Forja cruzan la frontera de proceso crudos y
+            // el mapa de bits se reconstruye aquí — EN LIENZO, no con
+            // `createImageBitmap`. En la máquina de Luis (2026-08-12) esa
+            // llamada RECHAZABA en silencio para cada tesela: el cliente
+            // cantaba «✓ entregada», la promesa se resolvía null y el plan se
+            // quedaba en 0/28 con el suelo borroso para siempre. Su log lo
+            // retrató sin ambigüedad: tile-821 entregada a los 0.1 s y el
+            // MISMO suelo re-nace 100 ms después como tile-850 mientras sus
+            // 27 hermanas seguían en vuelo — sólo un resolve(null) deja esa
+            // huella (un descarte por época las habría renacido a las 28, y
+            // una excepción habría dejado el marcador clavado sin re-pedido).
+            // putImageData es síncrono y no tiene rama de rechazo; todos los
+            // consumidores componen con drawImage, que acepta lienzos.
+            try {
+              const img = new ImageData(
+                new Uint8ClampedArray(reply.rgba), reply.width, reply.height);
+              const canvas = typeof OffscreenCanvas !== 'undefined'
+                ? new OffscreenCanvas(reply.width, reply.height)
+                : Object.assign(document.createElement('canvas'),
+                  { width: reply.width, height: reply.height });
+              const c2d = (canvas as OffscreenCanvas).getContext('2d');
+              if (!c2d) throw new Error('sin contexto 2d para la tesela');
+              c2d.putImageData(img, 0, 0);
+              resolve({ bitmap: canvas, places: reply.places });
+            } catch (error) {
+              // Que el fallo CANTE. El resolve(null) mudo que había aquí
+              // costó tres capturas y un volcado de consola encontrar.
+              tileStats.fabErrors++;
+              traceTiles(requestId, 'FABRICACIÓN falló:',
+                error instanceof Error ? error.message : String(error),
+                `rgba ${reply.rgba.byteLength} bytes,`,
+                `esperados ${reply.width * reply.height * 4}`);
+              resolve(null);
+            }
           } else {
+            tileStats.fabErrors++;
+            traceTiles(requestId, 'SIN PÍXELES en la respuesta (ni bitmap ni rgba/width/height)');
             resolve(null);
           }
         } else if (reply.type === 'error' || reply.type === 'cancelled') {
+          if (reply.type === 'error') {
+            tileStats.errors++;
+            traceTiles(requestId, 'ERROR del worker:', reply.message);
+          }
           settled = true;
           cleanup(reply.type === 'error');
           resolve(null);
@@ -560,28 +875,59 @@ export class RegionWorkerClient {
         cleanup(true);
         resolve(null);
       };
-      try {
-        live.worker.postMessage({
-          type: 'renderTile',
-          requestId,
-          contextId: live.contextId,
-          z: tile.z,
-          tx: tile.tx,
-          ty: tile.ty,
-          themeId: opts.themeId,
-          layers: opts.layers,
-          density: opts.density,
-          reliefAmount: opts.reliefAmount,
-          edits: opts.edits,
-          ink: opts.ink,
-        });
-      } catch {
-        if (!settled) {
-          settled = true;
-          cleanup(true);
-          resolve(null);
+      const post = () => {
+        try {
+          tileStats.asked++;
+          traceTiles(requestId, '→ worker');
+          // Rearme para el tramo de trabajo: la sesión que no conteste se
+          // retira, y la siguiente petición abre una fresca.
+          armDeadline();
+          live.worker.postMessage({
+            type: 'renderTile',
+            requestId,
+            contextId: live.contextId,
+            z: tile.z,
+            tx: tile.tx,
+            ty: tile.ty,
+            themeId: opts.themeId,
+            layers: opts.layers,
+            density: opts.density,
+            reliefAmount: opts.reliefAmount,
+            edits: opts.edits,
+            ink: opts.ink,
+            consumeOnly: opts.consumeOnly,
+          });
+        } catch {
+          if (!settled) {
+            settled = true;
+            cleanup(true);
+            resolve(null);
+          }
         }
-      }
+      };
+      // Seed the worker's canon from storage BEFORE the tile request: the
+      // worker processes messages in arrival order, so by the time the render
+      // runs the ground is resident — a ~300 ms decode standing in for the
+      // ~31.900 ms generation it replaces (PENDIENTE §2b.1). The seed never
+      // blocks the pixels: any failure just falls through to the old path.
+      this.seedCanonFor(live, world, tile, opts).then((keys) => {
+        coverKeys = keys;
+        if (settled) return;
+        if (abandoned) {
+          // Cancelled while seeding, before any work was posted: the worker
+          // owes no reply, so release the session here or it leaks. The seed
+          // itself stays — the next tile at this zoom is glad of it.
+          settled = true;
+          cleanup(false);
+          return;
+        }
+        post();
+      }).catch(() => {
+        // La siembra JAMÁS puede costar la tesela: aunque su cadena reviente,
+        // el post sale y el peor caso es regenerar como toda la vida.
+        tileStats.seedErrors++;
+        if (!settled && !abandoned) post();
+      });
       };
     });
     if (!settled) this.active.set(requestId, { cancel });
@@ -637,8 +983,23 @@ export class RegionWorkerClient {
    *  tile queued first stays first. */
   private waiters: Array<() => void> = [];
 
+  /** Rearmes de plazo de las teselas VIVAS (en cola o en vuelo): cada vez que
+   *  el pool suelta una sesión, todas reciben un pulso. Ver el comentario del
+   *  registro en `requestTile` — el plazo mata silencios, no colas largas. */
+  private queuePulse = new Set<() => void>();
+
   private notifyFree(): void {
     this.waiters.shift()?.();
+    this.pulseQueue();
+  }
+
+  /** El pool está VIVO: que ninguna petición en espera caduque. Lo dispara
+   *  cada sesión que se libera Y cada `progress` de una fragua — en suelo
+   *  frío la primera supertesela tarda minutos sin soltar sesión alguna, y
+   *  sin este segundo disparador la cola entera caducaba en silencio detrás
+   *  de un worker perfectamente sano (159 caducadas en el banco). */
+  pulseQueue(): void {
+    for (const pulse of this.queuePulse) pulse();
   }
 
   /**
@@ -689,10 +1050,24 @@ export class RegionWorkerClient {
         return candidate;
       }
       if (busyMatch) {
-        // A session for THIS world exists and is working. Wait for it rather
-        // than cloning another ~80 MB world into a second worker — a tile
-        // burst used to do exactly that, and the duplicate then re-generated
-        // the same canon ground its twin already held.
+        /**
+         * Una sesión de este mundo existe y está trabajando. ANTES se esperaba
+         * SIEMPRE («no clonar otro mundo de 80 MB a un segundo worker»), y eso
+         * convirtió el primer paseo por suelo nuevo en una fila india: una
+         * supertesela cada 30-60 s con quince cores mirando (la captura de
+         * Luis del 2026-08-12: EN VUELO 1, entregadas 0/35). Con la FORJA cada
+         * sesión es su propio proceso — el clon no le cuesta memoria al
+         * renderer — y el peligro de «dos gemelas generando el mismo canon»
+         * lo desactiva la persistencia: el calentador reparte UNA petición
+         * por supertesela y las demás sesiones se siembran de Dexie. Así que
+         * bajo Forja sana se abre otra sesión mientras quepa; con web workers
+         * (el mundo vive DENTRO del renderer) se espera como siempre.
+         */
+        const parallel = this.parallelWorldSessions
+          ?? (forgeAvailable() && !forgeDegraded());
+        if (parallel && this.sessions.size < this.sessionLimit) {
+          return this.spawnSession(factory, world, geography, requestId);
+        }
         await new Promise<void>((resolveWait) => this.waiters.push(resolveWait));
         if (abandoned?.()) leave();
         continue;
@@ -714,6 +1089,123 @@ export class RegionWorkerClient {
     }
   }
 
+  /**
+   * Load any stored canon under a DEEP tile and post it to the session ahead
+   * of the render. Returns the tile's supertile keys (for the decline
+   * bookkeeping) or null when the tile is shallow / persistence is absent.
+   * Never rejects: a storage error is a cache miss, not a broken tile.
+   */
+  private async seedCanonFor(
+    session: WorkerSession,
+    world: WorldData,
+    tile: { z: number; tx: number; ty: number },
+    opts: { edits?: string; ink?: 'carta' | 'satellite' },
+  ): Promise<string[] | null> {
+    const persistence = canonPersistence;
+    if (!persistence) return null;
+    // TODO el cuerpo bajo try: esta función corre POR DELANTE del post de la
+    // tesela, y un lanzamiento síncrono suyo (una spec rara, una cubierta que
+    // no cuadra) rechazaba la cadena entera — el post nunca corría, el
+    // vigilante (que se armaba EN el post) nunca vigilaba, y el marcador del
+    // almacén de pantalla quedaba huérfano para siempre: pedidas quietas,
+    // EN VUELO 0, y 0/54 clavado (la 4.ª captura de Luis, 2026-08-12). La
+    // siembra es una optimización; jamás puede costar la tesela.
+    try {
+      const satellite = opts.ink === 'satellite';
+      const deep = satellite
+        ? satelliteDeepSupported(world, tile.z)
+        : deepTileSupported(world, tile.z);
+      if (!deep) return null;
+      const spec = (satellite ? satelliteTileSpec : deepTileSpec)(world, tile);
+      const keys = canonWindowCover(world, spec).map(canonTileKey);
+      const missing = keys.filter((k) => !session.seeded.has(k));
+      if (!missing.length) return keys;
+      const t0 = Date.now();
+      const loaded = await Promise.all(missing.map(async (k) => ({
+        key: k,
+        bytes: await persistence.load(world, k, opts.edits ?? '').catch(() => null),
+      })));
+      traceTiles('siembra', missing.map((k, i) => `${k} ${loaded[i].bytes
+        ? `HIT ${(loaded[i].bytes!.byteLength / 1e6).toFixed(1)}MB` : 'miss'}`).join(' · '),
+      `${Date.now() - t0} ms`);
+      // Mark the whole batch attempted — hit or miss — so a burst of thirty
+      // tiles over the same ground asks Dexie once per supertile, not once
+      // per tile. Misses re-enter through `canonBuilt` when the worker
+      // generates them, or through the decline strike-out if it evicts.
+      for (const k of missing) session.seeded.add(k);
+      const tiles = loaded.filter((t): t is { key: string; bytes: ArrayBuffer } => !!t.bytes);
+      if (tiles.length) {
+        tileStats.seeded += tiles.length;
+        // No transfer list: a copy keeps the payload compatible with the
+        // Forge bridge, and seeding is rare enough that copying ~2 MB beats
+        // owning a second postMessage signature.
+        session.worker.postMessage({
+          type: 'seedCanon',
+          contextId: session.contextId,
+          tiles,
+        });
+      }
+      return keys;
+    } catch (err) {
+      tileStats.seedErrors++;
+      if (tileStats.seedErrors === 1) {
+        // Una vez por sesión: la causa exacta, para la próxima captura.
+        console.warn('[worldgen] la siembra del canon falló (la tesela sigue su camino)', err);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * EL CALENTADOR: una petición `generate` por supertesela del plan, para que
+   * el primer paseo por suelo nuevo use TODOS los procesos de la Forja en vez
+   * de una fila india (la captura de Luis, 2026-08-12: EN VUELO 1 con quince
+   * cores parados). Cada warm genera UNA supertesela en su propia sesión, la
+   * emite a Dexie (`canonBuilt`) y la deja residente; las teselas de pantalla
+   * la encuentran por residencia o por siembra. Deduplicado por clave+edits y
+   * por época, y fire-and-forget: calentar nunca puede romper nada — lo peor
+   * que puede pasar es exactamente lo que ya pasaba.
+   */
+  warmCanon(
+    world: WorldData,
+    geography: HumanGeography,
+    ids: TileId[],
+    edits?: string,
+    workerFactory?: RegionWorkerFactory,
+  ): void {
+    const editsHash = hashString(edits ?? '');
+    const wanted = new Set(ids.map((id) => `${this.worldIdentity(world)}:${canonTileKey(id)}:e${editsHash}`));
+    // Primero retirar lo que el plan ya no pisa: el suelo que el lector dejó
+    // atrás no puede ir por delante del que está mirando.
+    for (const [key, cancelWarm] of [...this.warming]) {
+      if (wanted.has(key)) continue;
+      this.warming.delete(key);
+      this.warmed.delete(key);
+      cancelWarm();
+    }
+    for (const id of ids) {
+      const key = `${this.worldIdentity(world)}:${canonTileKey(id)}:e${editsHash}`;
+      if (this.warmed.has(key)) continue;
+      this.warmed.add(key);
+      const handle = this.request(world, geography, tileWindow(world, id), {
+        params: canonParams(world),
+        geometry: tileGeometry(world, id),
+        canonKey: canonTileKey(id),
+        edits,
+        workerFactory,
+      });
+      this.warming.set(key, handle.cancel);
+      handle.promise.then(() => {
+        this.warming.delete(key);
+      }).catch(() => {
+        // Un warm fallido (timeout, cancelación, worker caído) debe poder
+        // reintentarse en el siguiente gesto.
+        this.warming.delete(key);
+        this.warmed.delete(key);
+      });
+    }
+  }
+
   private spawnSession(
     factory: RegionWorkerFactory,
     world: WorldData,
@@ -730,6 +1222,7 @@ export class RegionWorkerClient {
       revision: world.revision ?? 0,
       activeRequestId: requestId,
       lastUsed: Date.now(),
+      seeded: new Set(),
     };
     this.sessions.add(session);
     try {
@@ -738,6 +1231,7 @@ export class RegionWorkerClient {
         contextId: session.contextId,
         world,
         geography: packRegionGeography(geography),
+        persistCanon: !!canonPersistence,
       });
     } catch (error) {
       this.terminateSession(session);

@@ -14,9 +14,12 @@
 //   2. ZIP backups written before the removal (`links/links.json`)
 //   3. the legacy JSON project/full import path (`data.externalLinks`)
 //
-// It imports types only, so db/index.ts can use it without an import cycle.
+// Its only runtime dependency is `services/urlDetector`, itself a leaf module
+// with type-only imports, so db/index.ts can still use it without an import
+// cycle.
 
 import type { Snapshot, SnapshotSource } from './types';
+import { detectUrlSource } from './services/urlDetector';
 
 /** The retired `externalLinks` row shape. */
 export interface LegacyExternalLink {
@@ -32,14 +35,14 @@ export interface LegacyExternalLink {
   updatedAt?: number;
 }
 
-/** Same host detection Scrapper's capture bar uses, minus the DOM. */
+/**
+ * Same host detection Scrapper's capture bar uses — now literally the same
+ * function, instead of a second copy that carried the same substring bug
+ * (`includes('x.com')` matched netflix.com).
+ */
 export function detectSnapshotSource(url: string): SnapshotSource {
-  const u = (url || '').toLowerCase();
-  if (!u) return 'manual';
-  if (u.includes('youtube.com') || u.includes('youtu.be')) return 'youtube';
-  if (u.includes('instagram.com')) return 'instagram';
-  if (u.includes('twitter.com') || u.includes('x.com')) return 'tweet';
-  return 'url';
+  if (!(url || '').trim()) return 'manual';
+  return detectUrlSource(url);
 }
 
 /**

@@ -6,7 +6,7 @@ import CodexEntryForm from './CodexEntryForm';
 import CharacterConnections from './CharacterConnections';
 import EmptyState from '@/components/common/EmptyState';
 import { useTranslation } from '@/i18n/useTranslation';
-import { ConfirmDialog } from '@/engines/_shared';
+import { ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from './codexTypeMeta';
 
@@ -27,6 +27,23 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<CodexEntryType | 'all'>('all');
   const [selectedEntry, setSelectedEntry] = useState<CodexEntry | null>(null);
+
+  // Deep link: `/project/:id/codex?entry=<id>` — how global search, Cmd+K and
+  // annotation backlinks arrive here. Opens the detail modal on the record
+  // instead of dumping the author on the grid.
+  //
+  // Render-adjust rather than an effect (same pattern as CompileModal): the
+  // selection is applied while rendering and marked as applied, so closing the
+  // modal doesn't get undone by the next unrelated re-render.
+  const deepLinkedEntryId = useDeepLinkParam('entry');
+  const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
+  if (deepLinkedEntryId && deepLinkedEntryId !== appliedDeepLink) {
+    const target = entries.find((e) => e.id === deepLinkedEntryId);
+    if (target) {
+      setAppliedDeepLink(deepLinkedEntryId);
+      setSelectedEntry(target);
+    }
+  }
   const [pendingDeleteEntry, setPendingDeleteEntry] = useState<CodexEntry | null>(null);
 
   const filtered = entries.filter(e => {

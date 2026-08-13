@@ -31,6 +31,22 @@ export interface RoadOverlayOptions {
   alpha?: number;
   /** Drawn brighter and thicker: the road being laid, or the one picked. */
   emphasis?: (road: Road, index: number) => boolean;
+  /**
+   * Vía afín equirect: pantalla = origen + celda × escala, en los dos ejes.
+   *
+   * La misma que ya tiene la capa de fronteras, y por la misma cuenta: sin
+   * ella cada vértice de cada camino pasa por el cierre `toScreen` y asigna
+   * una tupla de dos elementos — por copia y por fotograma. Medido en
+   * `harness/road-affine-bench.ts` (91 caminos, 7 677 celdas, encuadre
+   * entero): la GEOMETRÍA del fotograma baja de 1,53 a 1,17 ms por copia con
+   * esto más la caché de desenrollado, y ~7 700 asignaciones de `Pt` por
+   * fotograma desaparecen. El fotograma completo apenas se mueve (7,6 → 7,2
+   * ms): el grueso es el TRAZADO de Skia, no la proyección — que nadie vuelva
+   * aquí a buscar milisegundos de stroke. Tinta comprobada idéntica byte a
+   * byte entre las dos vías. Ausente, se usa `toScreen` y nada cambia — toda
+   * proyección que no sea equirect CURVA.
+   */
+  linear?: { ox: number; oy: number; scale: number };
 }
 
 export interface RoadOverlayResult {
@@ -77,6 +93,28 @@ export function unwrapRoad(cells: number[], W: number): Pt[] {
 }
 
 /**
+ * El desenrollado, memorizado POR OBJETO CAMINO.
+ *
+ * `unwrapRoad` es una función pura de (cells, W) y un `Road` es inmutable una
+ * vez construido, pero se ejecutaba por camino, por copia y por fotograma:
+ * ~7 700 `Pt` asignados en cada fotograma de un paneo sólo para volver a
+ * calcular lo que ya se calculó el fotograma anterior. La llave es el OBJETO
+ * (WeakMap): un `patchGeography` que estrena lista de caminos estrena objetos
+ * y la caché se vacía sola con ellos. `w` guardado al lado, como en
+ * `ROAD_BOXES`: una caché que contestara para otra anchura escondería caminos
+ * en un mundo redimensionado en vez de fallar.
+ */
+const UNWRAP_CACHE = new WeakMap<Road, { w: number; path: Pt[] }>();
+
+function unwrapRoadCached(road: Road, W: number): Pt[] {
+  const hit = UNWRAP_CACHE.get(road);
+  if (hit && hit.w === W) return hit.path;
+  const path = unwrapRoad(road.cells, W);
+  UNWRAP_CACHE.set(road, { w: W, path });
+  return path;
+}
+
+/**
  * World-cell polyline → screen polyline, or null if none of it can be seen.
  *
  * The cull is a bounding box with a generous skirt rather than a segment test:
@@ -86,19 +124,34 @@ export function unwrapRoad(cells: number[], W: number): Pt[] {
  */
 export function roadScreenPath(
   path: Pt[],
-  opts: Pick<RoadOverlayOptions, 'worldWidth' | 'worldHeight' | 'toScreen' | 'width' | 'height'>,
+  opts: Pick<RoadOverlayOptions, 'worldWidth' | 'worldHeight' | 'toScreen' | 'width' | 'height' | 'linear'>,
 ): Pt[] | null {
   const { worldWidth: W, worldHeight: H, toScreen, width, height } = opts;
   if (path.length < 2) return null;
   const out: Pt[] = new Array(path.length);
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (let k = 0; k < path.length; k++) {
-    const [sx, sy] = toScreen((path[k].x + 0.5) / W, (path[k].y + 0.5) / H);
-    out[k] = { x: sx, y: sy };
-    if (sx < minX) minX = sx;
-    if (sx > maxX) maxX = sx;
-    if (sy < minY) minY = sy;
-    if (sy > maxY) maxY = sy;
+  const lin = opts.linear;
+  if (lin) {
+    // El caso afín, con la aritmética en línea: ni cierre ni tupla por vértice.
+    // El centro de la celda (+0,5) es el mismo que proyecta la rama de abajo.
+    for (let k = 0; k < path.length; k++) {
+      const sx = lin.ox + (path[k].x + 0.5) * lin.scale;
+      const sy = lin.oy + (path[k].y + 0.5) * lin.scale;
+      out[k] = { x: sx, y: sy };
+      if (sx < minX) minX = sx;
+      if (sx > maxX) maxX = sx;
+      if (sy < minY) minY = sy;
+      if (sy > maxY) maxY = sy;
+    }
+  } else {
+    for (let k = 0; k < path.length; k++) {
+      const [sx, sy] = toScreen((path[k].x + 0.5) / W, (path[k].y + 0.5) / H);
+      out[k] = { x: sx, y: sy };
+      if (sx < minX) minX = sx;
+      if (sx > maxX) maxX = sx;
+      if (sy < minY) minY = sy;
+      if (sy > maxY) maxY = sy;
+    }
   }
   const skirt = 24;
   if (maxX < -skirt || minX > width + skirt) return null;
@@ -158,7 +211,7 @@ export function drawRoadNetwork(
   for (let i = 0; i < roads.length; i++) {
     const road = roads[i];
     if (road.cells.length < 2) { result.culled++; continue; }
-    const screen = roadScreenPath(unwrapRoad(road.cells, opts.worldWidth), opts);
+    const screen = roadScreenPath(unwrapRoadCached(road, opts.worldWidth), opts);
     if (!screen) { result.culled++; continue; }
     // Simplify in SCREEN space, so the cost of a road falls with the zoom
     // instead of staying at one vertex per world cell forever; smooth after,

@@ -22,7 +22,7 @@ import { createRng, type Rng } from '../core/rng';
 import { generateName, type CultureId } from '../core/naming';
 import { buildLanguageFamily, coinName, type Gloss, type Language } from '../core/language';
 import {
-  area, bisect, centroid, circle, clipHalfPlane, compactness, contains, dist, lerp, longestEdge,
+  area, bisect, centroid, circle, clipHalfPlane, compactness, contains, cut, dist, lerp, longestEdge,
   norm, perimeter, radial, rect, relax, ring, rot90, semiRadial, shrink, shrinkEdges, signedArea,
   slicePlots, smoothPoly, sub, voronoi,
   type Poly, type V,
@@ -1414,6 +1414,78 @@ export function generateCity(params: CityParams): CityPlan {
   }
   weldVertices(shapes);
 
+  /**
+   * LA CIUDAD ES LO QUE PUEDE LLEGAR AL MERCADO. Con mar, la elección de
+   * distritos por coste puede quedarse una cuña al otro lado de la
+   * desembocadura: suelo seco, coste finito, y ningún camino hasta el resto
+   * del pueblo que no cruce el MAR — que las calles nunca cruzan (peso
+   * infinito), así que ningún puente la alcanzará jamás. El censo de bolsas
+   * la midió: 3 725 m² de suelo urbano sellado en río+costa 20, y una puerta
+   * ciega (costa 20#0) abierta hacia esa cuña. Se poda AQUÍ, antes de la
+   * muralla, para que ni el lienzo ni las puertas ni los barrios lleguen a
+   * contar con ella. La vecindad es por vértices soldados compartidos; un
+   * cruce de RÍO se permite — pesa ×3,2 y trae puente, y los pueblos partidos
+   * por su río son legítimos y buenos.
+   */
+  if (coastAxis) {
+    const cand = patches.filter((q) => q.withinCity);
+    if (cand.length > 1) {
+      const seaS = (v: V) => v.x * coastAxis.n.x + v.y * coastAxis.n.y - coastAxis.d;
+      const iOf = new Map<Patch, number>(cand.map((q, i) => [q, i]));
+      const byVert = new Map<V, number[]>();
+      for (const q of cand) {
+        for (const v of q.shape) {
+          const l = byVert.get(v);
+          if (l) l.push(iOf.get(q)!); else byVert.set(v, [iOf.get(q)!]);
+        }
+      }
+      // Un par de distritos conecta si comparte ≥2 vértices soldados y al
+      // menos uno de ellos pisa tierra (con 1,2 u de margen): así dos vecinos
+      // costeros siguen unidos por su lado seco y nadie conecta POR el agua.
+      const touch = new Map<number, number>(); // par (a*n+b) → nº de vértices secos compartidos
+      const pares = new Map<number, number>(); // par → nº de vértices compartidos
+      const n = cand.length;
+      for (const [v, list] of byVert) {
+        if (list.length < 2) continue;
+        const dry = seaS(v) < -0.3;
+        for (let a = 0; a < list.length; a++) {
+          for (let b = a + 1; b < list.length; b++) {
+            const key = Math.min(list[a], list[b]) * n + Math.max(list[a], list[b]);
+            pares.set(key, (pares.get(key) ?? 0) + 1);
+            if (dry) touch.set(key, (touch.get(key) ?? 0) + 1);
+          }
+        }
+      }
+      // Semilla: el distrito más cercano al origen del crecimiento, que es el
+      // centro histórico por construcción.
+      let seed = 0, sd = Infinity;
+      for (let i = 0; i < n; i++) {
+        const d = Math.hypot(centroid(cand[i].shape).x, centroid(cand[i].shape).y);
+        if (d < sd) { sd = d; seed = i; }
+      }
+      const seen = new Uint8Array(n);
+      const stack = [seed];
+      seen[seed] = 1;
+      while (stack.length) {
+        const a = stack.pop()!;
+        for (let b = 0; b < n; b++) {
+          if (seen[b] || a === b) continue;
+          const key = Math.min(a, b) * n + Math.max(a, b);
+          if ((pares.get(key) ?? 0) >= 2 && (touch.get(key) ?? 0) >= 1) {
+            seen[b] = 1;
+            stack.push(b);
+          }
+        }
+      }
+      for (let i = 0; i < n; i++) {
+        if (!seen[i]) {
+          cand[i].withinCity = false;
+          cand[i].withinWalls = false;
+        }
+      }
+    }
+  }
+
   const inner = patches.filter((q) => q.withinCity);
   const center = centroid(inner[0]?.shape ?? [{ x: 0, y: 0 }]);
 
@@ -1578,7 +1650,41 @@ export function generateCity(params: CityParams): CityPlan {
   if (wallRing.length >= 6) {
     const n = wallRing.length;
     const want = Math.max(1, Math.min(6, 2 + Math.floor((nInner / 12) * (p.coast ? 0.75 : 1))));
-    const dryHere = (v: V) => !coast || (v.x - coast.p.x) * coast.n.x + (v.y - coast.p.y) * coast.n.y < 0;
+    /**
+     * CON MARGEN Y CON RÍO, no sólo el signo del mar. «Never put a gate on
+     * the waterfront» comprobaba el signo del semiplano, y el signo a trece
+     * centímetros del agua sigue siendo el correcto: el banco midió una
+     * puerta con 0,5 m de tierra por delante (costa 20) y otra a 14,9 m del
+     * eje de un río de 38,1 m (río+costa 20) — seca por signo, dentro del
+     * cauce DIBUJADO. Una puerta pide 1,5 u (6 m) de tierra hasta el mar y
+     * quedar fuera del semiancho del cauce más una unidad; si ese vértice no
+     * existe, la vuelta de emplazamiento sigue girando hasta el que sí.
+     */
+    const dryHere = (v: V) =>
+      (!coast || (v.x - coast.p.x) * coast.n.x + (v.y - coast.p.y) * coast.n.y < -1.5)
+      && (!river || !river.some((rp) => dist(rp, v) < riverWidth * 0.5 + 1));
+    /**
+     * Y CON SUELO DE PUEBLO DETRÁS. La puerta se dibuja sobre la línea SUAVE
+     * de la muralla, y en una esquina CÓNCAVA el suavizado corta la escotadura
+     * por dentro: el punto dibujado cae a 4–7 u del vértice soldado, sobre un
+     * distrito de labranza que no es suelo urbano. Medido con la sonda de
+     * puertas ciegas: las tres puertas que el mercado no alcanzaba en carro
+     * (interior 40#1, río 40#1, costa 40#2) eran exactamente esto — una isla
+     * de 315 celdas, el disco de la puerta flotando en tierra de nadie, con el
+     * distrito más cercano a 4,1–6,6 u. Una puerta es un agujero entre la
+     * ciudad y el campo; si a un lado no hay ciudad, no es sitio para puerta.
+     */
+    const townFloorBehind = (v: V) =>
+      inner.some((q) => q.shape.length >= 3
+        && (contains(q.shape, v) || q.shape.some((s0, si) => {
+          const s1 = q.shape[(si + 1) % q.shape.length];
+          const dx = s1.x - s0.x, dy = s1.y - s0.y;
+          const ll = dx * dx + dy * dy || 1e-9;
+          let t = ((v.x - s0.x) * dx + (v.y - s0.y) * dy) / ll;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const ex = v.x - (s0.x + dx * t), ey = v.y - (s0.y + dy * t);
+          return ex * ex + ey * ey < 2.2 * 2.2;
+        })));
     // Separación mínima, en vértices del anillo: dos puertas en la misma esquina
     // son un boquete.
     const minSep = Math.max(2, Math.floor((n / (want + 1)) * 0.55));
@@ -1601,7 +1707,7 @@ export function generateCity(params: CityParams): CityPlan {
       if (!Number.isFinite(b) || gates.length >= want) break;
       let best = -1, bestScore = -Infinity;
       for (let i = 0; i < n; i++) {
-        if (!dryHere(wallRing[i]) || !free(i)) continue;
+        if (!dryHere(wallRing[i]) || !free(i) || !townFloorBehind(wallRing[i])) continue;
         const s = Math.cos(bearingOf(i) - b);
         if (s > bestScore) { bestScore = s; best = i; }
       }
@@ -1616,7 +1722,7 @@ export function generateCity(params: CityParams): CityPlan {
     let idx = Math.floor(rng() * n);
     for (let g = 0; g < want * 3 && gates.length < want; g++) {
       const at = ((idx % n) + n) % n;
-      if (dryHere(wallRing[at]) && free(at)) place(at, bearingOf(at), false);
+      if (dryHere(wallRing[at]) && free(at) && townFloorBehind(wallRing[at])) place(at, bearingOf(at), false);
       idx += spacingIdx + Math.floor(rng() * 2);
     }
   }
@@ -1857,9 +1963,20 @@ export function generateCity(params: CityParams): CityPlan {
 
   let citadelPatch: Patch | null = null;
   if (p.citadel && inner.length > 5) {
+    /**
+     * NUNCA SOBRE UNA PUERTA DEL PUEBLO. Las calles no atraviesan el patio de
+     * armas (peso infinito), así que una puerta cuyo vértice soldado pertenece
+     * al distrito del castillo no puede enrutar su avenida: TODOS sus arcos
+     * salen por la ciudadela. Medido en costa 20: la puerta #0 quedaba con
+     * «BFS puro llega, BFS finito no» — grafo conexo, todo camino infinito —
+     * y era la única puerta ciega que quedaba en el banco. Un castillo urbano
+     * manda desde el borde, pero no se sienta ENCIMA de la puerta de la villa.
+     */
+    const anchorSet = new Set<V>(gateAnchors);
     let best = -Infinity;
     for (const q of inner) {
       if (q === market || !dryPatch(q)) continue;
+      if (q.shape.some((v) => anchorSet.has(v))) continue;
       const c = centroid(q.shape);
       const score = dist(c, center) * compactness(q.shape);
       if (score > best) { best = score; citadelPatch = q; }
@@ -2020,22 +2137,39 @@ export function generateCity(params: CityParams): CityPlan {
     roads.push(road);
   }
 
-  // Secondary streets: from the far corners of the town back to the network, so
-  // the quarters that no gate route happened to pass through are still reachable.
-  // Without them a town has four grand avenues and a lot of sealed courtyards.
+  // Secondary streets: EVERY district joins the network, not only the far 35 %.
+  // The old top-35 % rule left middle-ring quarters unstreeted, and the pocket
+  // census showed what that costs: whole district interiors sealed (bolsas of
+  // 300–7 100 m² in craftsmen and slum wards). Most districts exit on the first
+  // check — their nearest node is already on somebody's route — so the extra
+  // work is only paid exactly where a quarter was stranded.
   const onNetwork = new Set<number>();
   for (const k of used) for (const part of k.split('|')) onNetwork.add(Number(part));
   const far = [...inner]
     .map((q) => ({ q, d: dist(centroid(q.shape), center) }))
-    .sort((a, b) => b.d - a.d)
-    .slice(0, Math.max(2, Math.round(inner.length * 0.35)));
+    .sort((a, b) => b.d - a.d);
   for (const { q } of far) {
     const from = nearestNode(graph, centroid(q.shape));
     if (from < 0 || onNetwork.has(from)) continue;
     const to = nearestNode(graph, graph.nodes[from], (i) => onNetwork.has(i));
     if (to < 0) continue;
     const path = routeStreet(graph, from, to, weight);
-    if (!path || path.length < 2) continue;
+    if (!path || path.length < 2) {
+      /**
+       * SIN CALLE NO HAY CIUDAD. El único camino hasta este distrito cruza el
+       * MAR (peso infinito): es la cuña al otro lado de la desembocadura que
+       * el censo de bolsas pintó de rojo — suelo urbano al que ninguna calle,
+       * y por tanto ningún puente, puede llegar jamás. Un barrio amurallado en
+       * un espigón sin puente no existe en ningún pueblo real: se queda en
+       * campo. (El cruce de RÍO sí se enruta — pesa ×3,2 y trae puente — así
+       * que esto no toca a los pueblos partidos por su río, sólo a lo que el
+       * mar aísla de verdad.)
+       */
+      q.withinCity = false;
+      q.withinWalls = false;
+      q.ward = 'outskirts';
+      continue;
+    }
     for (let i = 0; i < path.length - 1; i++) {
       used.add(ekey(path[i], path[i + 1]));
       onNetwork.add(path[i]); onNetwork.add(path[i + 1]);
@@ -2124,10 +2258,17 @@ export function generateCity(params: CityParams): CityPlan {
         const pierCount = Math.max(1, Math.round((a1 - a0) / (radius * 0.55)));
         for (let i = 0; i < pierCount; i++) {
           const sAlong = a0 + ((i + 0.5) / pierCount) * (a1 - a0) + (rng() - 0.5) * radius * 0.08;
-          const w = MAIN_STREET * (0.6 + rng() * 0.4);
+          // Medidas de muelle de verdad: con 0,6–1,0 × MAIN_STREET de ancho y
+          // 0,05–0,11 · r de salida, el embarcadero medía 4 × 14 u y a escala
+          // de lámina se leía como una astilla clavada en la orilla. Ancho de
+          // calle mayor y salida hasta 0,14 · r — todavía muy lejos del
+          // 0,28 · r que convertía esto en escolleras (ver abajo) — y el
+          // MISMO número de sorteos, porque un sorteo más baraja todos los
+          // planos que vienen detrás (determinismo del contrato).
+          const w = MAIN_STREET * (0.85 + rng() * 0.55);
           // A pier is a jetty, not a causeway. At radius*0.28 they reached a third
           // of the way across the bay and read as breakwaters.
-          const out = radius * (0.05 + rng() * 0.06);
+          const out = radius * (0.07 + rng() * 0.07);
           piers.push([
             at(sAlong - w, base), at(sAlong + w, base),
             at(sAlong + w * 0.7, base + out), at(sAlong - w * 0.7, base + out),
@@ -2150,6 +2291,24 @@ export function generateCity(params: CityParams): CityPlan {
       if (clipped.length >= 3) q.shape = clipped;
       else if (q.withinCity) { q.shape = []; q.withinCity = false; }
       else q.shape = [];
+    }
+    /**
+     * Y LAS CALLES TAMBIÉN SALEN DEL AGUA. El grafo se enruta sobre las formas
+     * SIN recortar (ver arriba: recortar antes rompería la identidad de los
+     * vértices soldados), así que un nodo de distrito que caía mar adentro
+     * seguía mar adentro como vértice de calle — medido: dos vértices a 13,3 y
+     * 9,1 m de la orilla en río+costa 8. El semiplano del recorte es el mismo:
+     * todo vértice mojado se proyecta a 0,6 u tierra adentro de la línea de
+     * agua. El muelle vive a −3,2 u y no se toca; los embarcaderos no son
+     * calles y siguen entrando en el mar, que es su oficio.
+     */
+    const sSea = (v: V) => (v.x - coast.p.x) * coast.n.x + (v.y - coast.p.y) * coast.n.y;
+    const ashore = (v: V): V => {
+      const d = sSea(v);
+      return d > -0.6 ? { x: v.x - coast.n.x * (d + 0.6), y: v.y - coast.n.y * (d + 0.6) } : v;
+    };
+    for (const list of [mainStreets, streets, roads]) {
+      for (const st of list) for (let i = 0; i < st.length; i++) st[i] = ashore(st[i]);
     }
   }
 
@@ -2430,7 +2589,39 @@ export function generateCity(params: CityParams): CityPlan {
         const bailey = shrink(block, MAIN_STREET * 1.2);
         if (bailey.length < 3) break;
         const { strips, court } = ring(bailey, Math.sqrt(area(bailey)) * 0.17);
-        q.buildings.push(...strips.map((b) => asBuilding(b, 'barracks')));
+        /**
+         * LA PUERTA DEL PATIO DE ARMAS. El anillo de crujías cerraba el patio
+         * por los cuatro costados y el castillo era la mayor bolsa sellada de
+         * TODAS las ciudades grandes (5 000–11 800 m² medidos por el censo de
+         * bolsas; fachada del barrio castle 81 %, la peor de los trece).
+         * Un castillo real tiene puerta al pueblo: la crujía que mira al
+         * mercado se parte en dos con un hueco de carro (1,5 u = 6 m).
+         * Sin sorteo — la puerta mira a donde mira el pueblo.
+         */
+        const bcen = centroid(bailey);
+        const toMarket = norm(sub(marketC, bcen));
+        let gateI = -1, gateDot = -Infinity;
+        for (let i = 0; i < strips.length; i++) {
+          if (strips[i].length < 3) continue;
+          const d0 = norm(sub(centroid(strips[i]), bcen));
+          const s0 = d0.x * toMarket.x + d0.y * toMarket.y;
+          if (s0 > gateDot) { gateDot = s0; gateI = i; }
+        }
+        for (let i = 0; i < strips.length; i++) {
+          if (i !== gateI) { q.buildings.push(asBuilding(strips[i], 'barracks')); continue; }
+          const st = strips[i];
+          const c0 = centroid(st);
+          const fe = longestEdge(st);
+          const axis = norm(sub(st[(fe + 1) % st.length], st[fe]));
+          // El corte va PERPENDICULAR al eje largo de la crujía: la parte en
+          // dos rangos y deja el hueco de la puerta entre ambos.
+          const perp = rot90(axis);
+          const from0 = { x: c0.x - perp.x * 40, y: c0.y - perp.y * 40 };
+          const across = { x: c0.x + perp.x * 40, y: c0.y + perp.y * 40 };
+          for (const half of cut(st, from0, across, 1.5)) {
+            if (half.length >= 3) q.buildings.push(asBuilding(half, 'barracks'));
+          }
+        }
         const yard = court ?? bailey;
         if (court) q.courts.push(court);
         const c = centroid(yard);

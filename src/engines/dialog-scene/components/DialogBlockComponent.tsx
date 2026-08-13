@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
+import { useDebouncedField } from '@/engines/_shared';
 import { Trash2, GripVertical, Type, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { DialogBlock, BlockFormatting } from '../types';
@@ -109,34 +110,34 @@ function FormatToolbar({
 
 const BLOCK_META: Record<
   string,
-  { label: string; wrapCls: string; textCls: string; align: string }
+  { labelKey: string; wrapCls: string; textCls: string; align: string }
 > = {
   'stage-direction': {
-    label: 'STAGE DIRECTION',
+    labelKey: 'dialogScene.block.stage-direction',
     wrapCls: 'bg-elevated/50',
     textCls: 'italic text-text-muted',
     align: 'text-center',
   },
   action: {
-    label: 'ACTION',
+    labelKey: 'dialogScene.block.action',
     wrapCls: 'bg-elevated/30',
     textCls: 'text-text-primary',
     align: 'text-left',
   },
   transition: {
-    label: 'TRANSITION',
+    labelKey: 'dialogScene.block.transition',
     wrapCls: 'bg-elevated/30 border-r-4 border-r-accent-gold/40',
     textCls: 'uppercase font-semibold text-text-muted tracking-wide',
     align: 'text-right',
   },
   note: {
-    label: 'NOTE',
+    labelKey: 'dialogScene.block.note',
     wrapCls: 'bg-amber-950/20 border-l-4 border-l-amber-500/40',
     textCls: 'text-amber-200/80 italic',
     align: 'text-left',
   },
   slug: {
-    label: 'SCENE HEADING',
+    labelKey: 'dialogScene.block.slug',
     wrapCls: 'bg-elevated/40',
     textCls: 'uppercase font-bold text-text-primary tracking-wider',
     align: 'text-left',
@@ -156,7 +157,66 @@ export default function DialogBlockComponent({
   const isDialog = block.type === 'dialog';
   const meta = BLOCK_META[block.type];
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Buffered. Every keystroke used to be a Dexie write plus a full refresh of
+  // the scene, with the textarea `value`-bound to the row coming back — so a
+  // refresh landing mid-word reinstated older text and threw the caret to the
+  // end. In the script editor of all places.
+  const contentField = useDebouncedField(block.content, (content) =>
+    onUpdate(content, block.parenthetical),
+  );
   const [showAutocomplete, setShowAutocomplete] = useState(false);
+
+  // ── Autocomplete scope ────────────────────────────────────────────────
+  //
+  // The suggestion list used to be filtered against the WHOLE block and
+  // accepting one replaced the WHOLE block. That is fine for a one-word
+  // character cue and destructive everywhere else: an action paragraph that
+  // happened to contain "CUT" offered "CUT TO:", and taking it deleted the
+  // paragraph.
+  //
+  // The unit is the LINE, not the block — a cue, a transition and a scene
+  // heading are all line-shaped. So the query is the current line up to the
+  // caret, and accepting replaces exactly that span, leaving the rest of the
+  // block (and anything after the caret on that line) untouched.
+  const [caret, setCaret] = useState(0);
+
+  const lineStartOf = (text: string, pos: number) =>
+    text.lastIndexOf('\n', Math.max(0, pos - 1)) + 1;
+
+  const activeLine = useMemo(() => {
+    const value = contentField.value;
+    const pos = Math.min(caret, value.length);
+    const start = lineStartOf(value, pos);
+    return { start, end: pos, text: value.slice(start, pos) };
+  }, [contentField.value, caret]);
+
+  const applySuggestion = (suggestion: AutocompleteSuggestion) => {
+    const value = contentField.value;
+    // The DOM is the source of truth for the caret at accept time — the user
+    // may have moved it since the last change event.
+    const pos = Math.min(textareaRef.current?.selectionStart ?? activeLine.end, value.length);
+    const start = lineStartOf(value, pos);
+    const next = value.slice(0, start) + suggestion.label + value.slice(pos);
+
+    contentField.onChange(next);
+    contentField.flush();
+    setShowAutocomplete(false);
+
+    const nextCaret = start + suggestion.label.length;
+    setCaret(nextCaret);
+    window.requestAnimationFrame(() => {
+      const node = textareaRef.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const caretBindings = {
+    onKeyUp: (e: React.KeyboardEvent<HTMLTextAreaElement>) => setCaret(e.currentTarget.selectionStart ?? 0),
+    onClick: (e: React.MouseEvent<HTMLTextAreaElement>) => setCaret(e.currentTarget.selectionStart ?? 0),
+  };
 
   // Filter suggestions by block type context
   const contextSuggestions = suggestions.filter((s) => {
@@ -183,7 +243,7 @@ export default function DialogBlockComponent({
           {/* Header row */}
           <div className="flex items-center justify-between mb-2">
             <span className="text-[9px] font-bold uppercase tracking-widest text-text-dim/60">
-              {meta.label}
+              {t(meta.labelKey)}
             </span>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
               <FormatToolbar formatting={block.formatting} onChange={onUpdateFormatting} />
@@ -208,23 +268,27 @@ export default function DialogBlockComponent({
           <div className="relative">
             <textarea
               ref={textareaRef}
-              value={block.content}
-              onChange={(e) => onUpdate(e.target.value)}
+              value={contentField.value}
+              onChange={(e) => {
+                contentField.onChange(e.target.value);
+                setCaret(e.target.selectionStart ?? e.target.value.length);
+              }}
+              {...caretBindings}
               onFocus={() => setShowAutocomplete(true)}
-              onBlur={() => setTimeout(() => setShowAutocomplete(false), 200)}
+              onBlur={() => {
+                contentField.onBlur();
+                setTimeout(() => setShowAutocomplete(false), 200);
+              }}
               className={`w-full bg-transparent resize-none focus:outline-none border-none p-0 leading-relaxed ${meta.textCls} ${meta.align} ${fontCls(block.formatting)}`}
-              rows={Math.max(1, Math.ceil(block.content.length / 60))}
-              placeholder={`Enter ${meta.label.toLowerCase()}...`}
+              rows={Math.max(1, contentField.value.split('\n').length, Math.ceil(contentField.value.length / 60))}
+              placeholder={t('dialogScene.blockPlaceholder').replace('{type}', t(meta.labelKey).toLowerCase())}
             />
             <ScriptAutocomplete
-              value={block.content}
+              value={activeLine.text}
               suggestions={contextSuggestions}
               anchorRef={textareaRef}
-              active={showAutocomplete && block.content.length > 0}
-              onSelect={(s) => {
-                onUpdate(s.label);
-                setShowAutocomplete(false);
-              }}
+              active={showAutocomplete && activeLine.text.trim().length > 0}
+              onSelect={applySuggestion}
             />
           </div>
         </div>
@@ -287,23 +351,30 @@ export default function DialogBlockComponent({
           <div className="relative">
             <textarea
               ref={textareaRef}
-              value={block.content}
-              onChange={(e) => onUpdate(e.target.value, block.parenthetical)}
+              value={contentField.value}
+              onChange={(e) => {
+                contentField.onChange(e.target.value);
+                setCaret(e.target.selectionStart ?? e.target.value.length);
+              }}
+              {...caretBindings}
               onFocus={() => setShowAutocomplete(true)}
-              onBlur={() => setTimeout(() => setShowAutocomplete(false), 200)}
+              onBlur={() => {
+                contentField.onBlur();
+                setTimeout(() => setShowAutocomplete(false), 200);
+              }}
               className={`w-full bg-elevated text-text-primary resize-none focus:outline-none border-none p-0 leading-relaxed ${fontCls(block.formatting)}`}
-              rows={Math.max(2, Math.ceil(block.content.length / 60))}
+              rows={Math.max(2, contentField.value.split('\n').length, Math.ceil(contentField.value.length / 60))}
               placeholder={t('dialogScene.dialogPlaceholder')}
             />
+            {/* `@` opens a character mention on the CURRENT line — it used to
+                require the whole block to start with '@', so a mention was only
+                ever possible as the very first thing in a speech. */}
             <ScriptAutocomplete
-              value={block.content}
+              value={activeLine.text.slice(1)}
               suggestions={contextSuggestions.filter((s) => s.category === 'character')}
               anchorRef={textareaRef}
-              active={showAutocomplete && block.content.length > 0 && block.content.startsWith('@')}
-              onSelect={(s) => {
-                onUpdate(s.label, block.parenthetical);
-                setShowAutocomplete(false);
-              }}
+              active={showAutocomplete && activeLine.text.startsWith('@')}
+              onSelect={applySuggestion}
             />
           </div>
         </div>
