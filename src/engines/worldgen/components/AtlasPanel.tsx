@@ -4,7 +4,7 @@ import type { WorldData } from '../core/types';
 import type { HumanGeography } from '../core/settlements';
 import {
   buildAtlas, buildIndex, describePlace, reconcile, snapshotPositions,
-  LINK_KIND_ES, RELATION_ES,
+  LINK_KIND_KEY, RELATION_KEY,
   type AtlasPlace, type ManuscriptLink,
 } from '../core/atlas';
 import EditableName from './EditableName';
@@ -133,7 +133,7 @@ export default function AtlasPanel({
             />
             <span className="text-[9px] text-white/35 shrink-0">{KIND_KEY[selected.kind] ? t(KIND_KEY[selected.kind]) : selected.kind}</span>
           </div>
-          {describePlace(selected, selectedLinks).map((line, i) => (
+          {describePlace(selected, selectedLinks, t).map((line, i) => (
             <p key={i} className="text-[10px] text-white/60 leading-snug">{line}</p>
           ))}
           {selectedLinks.length === 0 && (
@@ -151,7 +151,7 @@ export default function AtlasPanel({
               >
                 <span className="truncate text-white/80">{l.title}</span>
                 <span className="text-[9px] text-white/30 shrink-0">
-                  {l.relation ? RELATION_ES[l.relation] : (l.where ?? LINK_KIND_ES[l.kind])}
+                  {l.relation ? t(RELATION_KEY[l.relation]) : (l.where ?? t(LINK_KIND_KEY[l.kind]))}
                 </span>
               </button>
             ))}

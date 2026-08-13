@@ -207,7 +207,7 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
           <option value="">{t('diary.allMoods')}</option>
           {Object.entries(MOOD_CONFIG).map(([key, cfg]) => (
             <option key={key} value={key}>
-              {cfg.emoji} {cfg.label}
+              {cfg.emoji} {t(cfg.labelKey)}
             </option>
           ))}
         </select>

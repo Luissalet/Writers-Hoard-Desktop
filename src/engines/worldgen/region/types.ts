@@ -39,6 +39,21 @@ export interface RegionParams {
   habitation: number;
   /** 0–1 threshold on flow accumulation for a stream to be drawn. */
   streamDensity: number;
+  /**
+   * De dónde sale el PERMISO para sembrar lugares (granjas, aldeas, abadías…).
+   *
+   * `everywhere` — el comportamiento de siempre: el enrejado siembra toda la
+   * hoja. Es el DEFECTO para que ningún banco ni llamante directo cambie de
+   * suelo por esta llave.
+   *
+   * `auto` — lo que pide la aplicación (Luis, 2026-08-12: «no he pedido
+   * abadías, casas, monasterios»): la política sale de la LISTA DE EDICIONES
+   * de la petición (`sitesPolicyFrom`) — cerrado del todo sin ediciones,
+   * abierto con el tick `placesEverywhere`, y por zonas con las pinceladas
+   * `placesZone`. Forma parte de la identidad de caché: dos hojas con
+   * distinta política son distinto país.
+   */
+  sites?: 'auto' | 'everywhere';
 }
 
 export const DEFAULT_REGION_PARAMS: RegionParams = {
@@ -48,6 +63,7 @@ export const DEFAULT_REGION_PARAMS: RegionParams = {
   settled: 0.6,
   habitation: 1,
   streamDensity: 0.5,
+  sites: 'everywhere',
 };
 
 /**

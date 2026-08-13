@@ -19,10 +19,10 @@ export interface DiaryEntry {
   updatedAt: number;
 }
 
-export const MOOD_CONFIG: Record<DiaryMood, { label: string; emoji: string; color: string }> = {
-  great: { label: 'Great', emoji: '\u2728', color: 'text-yellow-400' },
-  good:  { label: 'Good',  emoji: '\ud83d\ude0a', color: 'text-green-400' },
-  neutral: { label: 'Neutral', emoji: '\ud83d\ude10', color: 'text-gray-400' },
-  low:   { label: 'Low',   emoji: '\ud83d\ude14', color: 'text-blue-400' },
-  bad:   { label: 'Bad',   emoji: '\ud83d\ude1e', color: 'text-red-400' },
+export const MOOD_CONFIG: Record<DiaryMood, { labelKey: string; emoji: string; color: string }> = {
+  great: { labelKey: 'diary.mood.great', emoji: '\u2728', color: 'text-yellow-400' },
+  good:  { labelKey: 'diary.mood.good',  emoji: '\ud83d\ude0a', color: 'text-green-400' },
+  neutral: { labelKey: 'diary.mood.neutral', emoji: '\ud83d\ude10', color: 'text-gray-400' },
+  low:   { labelKey: 'diary.mood.low',   emoji: '\ud83d\ude14', color: 'text-blue-400' },
+  bad:   { labelKey: 'diary.mood.bad',   emoji: '\ud83d\ude1e', color: 'text-red-400' },
 };

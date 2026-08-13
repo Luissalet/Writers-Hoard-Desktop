@@ -10,15 +10,18 @@ import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import type { StoryboardPanel } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
 import GalleryAssetPicker from '@/components/gallery/GalleryAssetPicker';
+import type { Scene } from '@/engines/dialog-scene/types';
 
 interface PanelEditorProps {
   panel: StoryboardPanel | null;
   isOpen: boolean;
   onClose: () => void;
   onSave: (panel: StoryboardPanel) => void;
+  /** Scenes available for linking (`linkedSceneId` had no UI at all). */
+  scenes?: Scene[];
 }
 
-export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEditorProps) {
+export default function PanelEditor({ panel, isOpen, onClose, onSave, scenes = [] }: PanelEditorProps) {
   const { t } = useTranslation();
   const [formData, setFormData] = useState<Partial<StoryboardPanel>>(
     panel || { subtitle: '', description: '', duration: '', tags: [] }
@@ -152,6 +155,27 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave }: PanelEdi
             className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary placeholder-text-muted focus:border-accent-gold focus:outline-none transition"
           />
           <p className="text-text-muted text-xs mt-1">{t('storyboard.form.durationHint')}</p>
+        </div>
+
+        {/* Linked scene — the bridge between the storyboard and the script.
+            `StoryboardPanel.linkedSceneId` was declared in types.ts and never
+            read or written by anything. */}
+        <div className="mb-4">
+          <label className="block text-sm font-semibold text-text-primary mb-2">
+            {t('storyboard.form.linkedScene')}
+          </label>
+          <select
+            value={formData.linkedSceneId ?? ''}
+            onChange={(e) => setFormData({ ...formData, linkedSceneId: e.target.value || undefined })}
+            className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary focus:border-accent-gold focus:outline-none transition text-sm"
+          >
+            <option value="">{t('storyboard.form.noLinkedScene')}</option>
+            {scenes.map((sc) => (
+              <option key={sc.id} value={sc.id}>
+                {sc.sceneNumber ? `#${sc.sceneNumber} ` : ''}{sc.title}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Tags */}

@@ -47,6 +47,10 @@ export default function InspirationGallery({
   const [entrySearchQuery, setEntrySearchQuery] = useState('');
   const [showEntryPicker, setShowEntryPicker] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<string[]>([]);
+  // Deleting an image was a single unconfirmed click sitting on the thumbnail
+  // hover bar — one slip and an irreplaceable reference photo was gone, while
+  // deleting a whole album (recoverable, since images survive) did confirm.
+  const [pendingDeleteImageId, setPendingDeleteImageId] = useState<string | null>(null);
   const [pendingDeleteCollectionId, setPendingDeleteCollectionId] = useState<string | null>(null);
   const entryPickerRef = useRef<HTMLDivElement>(null);
 
@@ -63,7 +67,7 @@ export default function InspirationGallery({
     Promise.all(readers).then(results => setPendingFiles(results));
   };
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, open: openFilePicker } = useDropzone({
     onDrop,
     accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp'] },
   });
@@ -276,7 +280,7 @@ export default function InspirationGallery({
           icon={<ImageIcon size={40} />}
           title={activeCollectionId ? t('gallery.albumEmpty.title') : t('gallery.empty.title')}
           message={activeCollectionId ? t('gallery.albumEmpty.message') : t('gallery.empty.message')}
-          action={{ label: t('gallery.uploadImages'), onClick: () => {} }}
+          action={{ label: t('gallery.uploadImages'), onClick: openFilePicker }}
         />
       ) : (
         <Masonry
@@ -360,7 +364,8 @@ export default function InspirationGallery({
                         <ZoomIn size={14} className="text-white" />
                       </button>
                       <button
-                        onClick={() => onDelete(image.id)}
+                        onClick={() => setPendingDeleteImageId(image.id)}
+                        title={t('common.delete')}
                         className="p-1.5 bg-black/50 rounded hover:bg-danger/70 transition"
                       >
                         <Trash2 size={14} className="text-white" />
@@ -431,8 +436,14 @@ export default function InspirationGallery({
         />
       )}
 
+      {/* Keyed by the file being cropped. ImagePreviewCrop seeds crop, zoom and
+          rotation in state and only resets `crop` on image load, so dropping
+          several photos at once carried the first one's crop rectangle (in
+          displayed pixels) and rotation onto the second and third — producing
+          off-centre crops or blank canvases. Remounting per file resets it. */}
       {pendingFiles.length > 0 && (
         <ImagePreviewCrop
+          key={pendingFiles[0]}
           imageSrc={pendingFiles[0]}
           onConfirm={(cropped, original) => {
             onAdd({
@@ -450,6 +461,17 @@ export default function InspirationGallery({
           onCancel={() => setPendingFiles(prev => prev.slice(1))}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteImageId !== null}
+        destructive
+        message={t('gallery.deleteImageConfirm')}
+        onConfirm={() => {
+          if (pendingDeleteImageId) onDelete(pendingDeleteImageId);
+          setPendingDeleteImageId(null);
+        }}
+        onCancel={() => setPendingDeleteImageId(null)}
+      />
 
       <ConfirmDialog
         open={pendingDeleteCollectionId !== null}

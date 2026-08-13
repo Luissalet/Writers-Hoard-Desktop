@@ -124,7 +124,12 @@ export default function CityPlanView({
   const atlasSummary = useMemo(() => {
     const bits: string[] = [];
     const roads = base.roadBearings?.length ?? 0;
-    if (roads) bits.push(t('worldgen.cityPlan.atlasRoads').replace('{n}', String(roads)));
+    // Con forma singular, como worldgen.paint.edits: «1 caminos» delataba que
+    // la frase se montaba sin mirar el número.
+    if (roads) {
+      bits.push(t(roads === 1 ? 'worldgen.cityPlan.atlasRoads.one' : 'worldgen.cityPlan.atlasRoads.many')
+        .replace('{n}', String(roads)));
+    }
     if (base.shoreLine?.length) bits.push(t('worldgen.cityPlan.atlasShore'));
     if (base.riverCourse) {
       // El ancho se guarda en unidades de plano; el lector piensa en metros.

@@ -25,8 +25,7 @@ import type { HumanGeography } from '../core/settlements';
 import type { Ctx } from '../cartography/symbols';
 import { renderAtlasWindow, BIOME_COLORS } from '../core/render';
 import { riverKey } from '../core/edits';
-import { generateCanonTile, canonTileKey } from './generate';
-import { canonRefinement, type TileId } from './tiles';
+import { canonRefinement } from './tiles';
 import { canonWindowCover, composeCanonWindow, type CanonWindowSpec } from './composeWindow';
 import {
   renderSatellite, oceanRgb, makeLatticeHash, latticeFbm, LX, LY, LZ,
@@ -37,7 +36,7 @@ import {
 } from './terrain';
 import { DEFAULT_REGION_PARAMS, type RegionData } from './types';
 import { drawTownPlans, PLAN_MAX_METRES_PER_PX } from './townPlan';
-import type { CanonCache, TilePlace } from './deepTile';
+import { canonCoverFor, type CanonCache, type TilePlace } from './deepTile';
 import {
   TILE_PX, tileCountX, tileView, wrapTileX, type TileKey,
 } from '../cartography/tiles';
@@ -99,11 +98,16 @@ export interface SatelliteTileOptions {
   layers: Record<string, boolean | undefined>;
   density: number;
   edits?: WorldEdit[];
+  /** Install fresh supertiles as their stored (quantised) selves — set by the
+   *  worker core whenever the client persists canon. */
+  quantizeCanon?: boolean;
 }
 
 export interface SatelliteTileResult {
   /** Canon supertiles generated for this tile (0 = fully warm). */
   generated: number;
+  /** The freshly generated supertiles, for the worker core to persist. */
+  built: { key: string; data: RegionData }[];
   /** Named places whose ground lies INSIDE this tile — the main thread letters
    *  these live, because a label baked into a tile is pinned to the wrong
    *  pixels the moment the view moves. */
@@ -376,12 +380,6 @@ export function drawWorldRivers(
 // Deep: the canon countryside
 // ---------------------------------------------------------------------------
 
-function canonBytes(r: RegionData): number {
-  return r.elevation.byteLength + r.water.byteLength + r.flow.byteLength
-    + r.slope.byteLength + r.wet.byteLength + r.biome.byteLength
-    + r.cover.byteLength + 4096;
-}
-
 /**
  * Render one deep satellite tile: generate (or reuse) the canon supertiles
  * under it, compose the exact window, and ink it photographically.
@@ -397,32 +395,8 @@ export function renderSatelliteDeepTile(
 ): SatelliteTileResult {
   const spec = satelliteTileSpec(world, key);
   const cover = canonWindowCover(world, spec);
-  let generated = 0;
-  const placed: { id: TileId; data: RegionData }[] = [];
-  for (const id of cover) {
-    const k = canonTileKey(id);
-    let data = cache.map.get(k);
-    if (!data) {
-      data = generateCanonTile(world, geography, id, { edits: opts.edits });
-      generated++;
-      cache.map.set(k, data);
-      cache.order.push(k);
-      cache.bytes += canonBytes(data);
-      while ((cache.order.length > limits.cap || cache.bytes > limits.bytes)
-        && cache.order.length > 1) {
-        const evict = cache.order.shift();
-        if (!evict) break;
-        const dead = cache.map.get(evict);
-        if (dead) cache.bytes -= canonBytes(dead);
-        cache.map.delete(evict);
-      }
-    } else {
-      const at = cache.order.indexOf(k);
-      if (at >= 0) cache.order.splice(at, 1);
-      cache.order.push(k);
-    }
-    placed.push({ id, data });
-  }
+  const built: { key: string; data: RegionData }[] = [];
+  const placed = canonCoverFor(world, geography, cache, cover, opts.edits, limits, built, opts.quantizeCanon);
 
   const region = composeCanonWindow(world, placed, spec);
   const m = region.margin;
@@ -467,5 +441,5 @@ export function renderSatelliteDeepTile(
     metresPerWorldCell: region.metresPerCell * canonRefinement(world),
   });
 
-  return { generated, places };
+  return { generated: built.length, built, places };
 }

@@ -115,9 +115,43 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
 
   // ---- derived graph --------------------------------------------------
 
+  // Metrics depend on the SHAPE of the graph, never on what a node says.
+  // `computeMetrics` runs Brandes betweenness, closeness, components and
+  // Tarjan's critical elements — all O(V·E) — and it was memoised on the
+  // identity of `graph.nodes`, which `applyOps` rebuilds on every mutation.
+  // Inline renaming calls `patchNodes` per keystroke, so typing a title on a
+  // 300-node board re-ran the whole suite (~300 BFS passes) for every letter.
+  //
+  // Keying on a signature of ids + edge topology means a rename now costs
+  // exactly one string rebuild, and the metrics are only recomputed when
+  // something that can actually change them does.
+  const topologySignature = useMemo(() => {
+    const nodePart = graph.nodes.map((node) => node.id).join(',');
+    const edgePart = graph.edges
+      .map((edge) =>
+        [
+          edge.id,
+          edge.kind,
+          edge.weight,
+          edge.certainty,
+          edge.direction,
+          edge.sources.map((s) => `${s.on}:${s.id}`).join('|'),
+          edge.targets.map((tg) => `${tg.on}:${tg.id}`).join('|'),
+        ].join('~'),
+      )
+      .join(';');
+    return `${nodePart}#${edgePart}`;
+  }, [graph.nodes, graph.edges]);
+
+  // Keyed on the topology signature ON PURPOSE. `graph.nodes`/`graph.edges`
+  // change identity on every content edit; listing them as deps would restore
+  // the very per-keystroke recomputation this memo exists to prevent. When the
+  // signature is unchanged the captured arrays are topologically identical to
+  // the current ones, so the cached result is still correct.
   const metrics = useMemo(
     () => computeMetrics(graph.nodes, graph.edges),
-    [graph.nodes, graph.edges],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [topologySignature],
   );
 
   const layerById = useMemo(() => new Map(layers.map((layer) => [layer.id, layer])), [layers]);

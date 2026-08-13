@@ -3,7 +3,7 @@ import { randomSeed } from '../randomSeed';
 import {
   Map as MapIcon, Box, Dices, Download, Waves, Flame, MapPin, Globe,
   Loader2, X, ChevronDown, Send, Mountain, ScrollText, Trees, Route, Landmark,
-  Signpost, Compass, Flag,
+  Signpost, Compass, Flag, Search, Home,
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -20,7 +20,7 @@ import type {
 import { WAYPOINT_COLORS } from '../types';
 import type { ViewMode, WorldData, WorldParams } from '../core/types';
 import {
-  doubleClickSpanKm, type FlyTarget,
+  doubleClickSpanKm, EARTH_KM, type FlyTarget,
 } from '../core/camera';
 import { normalizeParams } from '../core/types';
 import { renderComposite } from '../core/render';
@@ -36,12 +36,13 @@ import CityPlanView from './CityPlanView';
 import RegionSheetView from './RegionSheetView';
 import JourneyPanel from './JourneyPanel';
 import AtlasPanel from './AtlasPanel';
+import LocatorPanel from './LocatorPanel';
 import PaintPanel, { DEFAULT_PAINT_TOOL, type PaintTool } from './PaintPanel';
 import FiltersPanel from './FiltersPanel';
 import SavedRegionsPanel from './SavedRegionsPanel';
 import SpatialEntityInspector from './SpatialEntityInspector';
 import { PaintSession } from '../core/paintSession';
-import { deserializeEdits, editKey, targetFromKey } from '../core/edits';
+import { deserializeEdits, editKey, sitesPolicyFrom, targetFromKey } from '../core/edits';
 import { planRoute } from '../core/travel';
 import { nameBridges, paleoMap } from '../core/paleo';
 import type { WorldEdit } from '../core/edits';
@@ -62,6 +63,13 @@ import {
 } from '../core/spatialEntities';
 import { regionKindVisible, semanticZoomProfile } from '../core/semanticZoom';
 import { regionClient, requestRegion } from '../region/client';
+import { bindCanonWorld, registerCanonPersistence } from '../canonSnapshots';
+
+// Canon supertiles persist across sessions from the moment the engine loads
+// (PENDIENTE §2b.1). Module scope on purpose: the registration must exist
+// before the FIRST tile request, and every view that can ask for tiles lives
+// under this component's bundle.
+registerCanonPersistence();
 import { requestCanonComposite, CANON_LOD_MAX_KM } from '../region/tileClient';
 import type { RegionData } from '../region/types';
 
@@ -228,6 +236,8 @@ export default function WorldView({
   const [roadFrom, setRoadFrom] = useState<Settlement | null>(null);
   const [exaggeration, setExaggeration] = useState(30);
   const [exportOpen, setExportOpen] = useState(false);
+  /** El localizador: Ctrl+F o la lupa, en las tres vistas. */
+  const [locatorOpen, setLocatorOpen] = useState(false);
   // Declared up here with the rest of the view state rather than down in the
   // painting section, because whether a brush is out decides when the human
   // geography may be rebuilt — and that effect runs above it.
@@ -414,9 +424,29 @@ export default function WorldView({
     const value = edits
       ? { world: { ...data, elevation: s!.pristineElevation }, edits }
       : { world: data, edits: undefined };
+    /**
+     * EL MUNDO PRÍSTINO TAMBIÉN SE LIGA AL ALMACÉN. `bindCanonWorld` se
+     * enseñaba sólo sobre `data` (el mundo editado, en `remember`), pero las
+     * teselas hondas y el calentador viajan con ESTE objeto — el prístino —
+     * y para el almacén un mundo sin vínculo no persiste ni siembra nada:
+     * cuarenta y una superteselas «guardadas» a la basura y «sembradas 0»
+     * eternas, con cada sesión de la Forja regenerando lo que su vecina
+     * acababa de pagar (las capturas de Luis, 2026-08-12). El vínculo del
+     * prístino — y el respaldo por semilla dentro de `bindCanonWorld` — es
+     * lo que enciende el bus entre sesiones de verdad.
+     */
+    bindCanonWorld(value.world, world.id);
     canonPrev.current = { key, value };
     return value;
-  }, [data, paintRev]);
+  }, [data, paintRev, world.id]);
+
+  /** La política de sembrado vigente (tick + zonas), deserializada UNA vez por
+   *  cambio de ediciones — no en cada render — para la hoja libre y la de
+   *  comarca, que viajan con el mundo editado y no pueden mandar `edits`. */
+  const worldSitesPolicy = useMemo(
+    () => sitesPolicyFrom(canonSource?.edits ? deserializeEdits(canonSource.edits) : undefined),
+    [canonSource],
+  );
 
   // Close-range geography follows the shared viewport. Requests are debounced,
   // cancellable, worker-backed, and leave the previous patch visible until the
@@ -483,7 +513,14 @@ export default function WorldView({
             params: {
               res: semanticProfile.regionalResolution,
               aspect: 1.55,
+              // La hoja ancha obedece la MISMA política de sembrado que el
+              // canon: sin el tick ni zonas, sin granjas — a cualquier vano.
+              sites: 'auto',
             },
+            // EXPLÍCITA, no vía `edits`: esta hoja viaja con el mundo YA
+            // editado, y mandarle la lista replicaría los trazos encima dos
+            // veces. La política es lo único de las ediciones que necesita.
+            sitesPolicy: worldSitesPolicy,
             onProgress: (stage) => setRegionDetailStage(stage),
           },
         );
@@ -506,6 +543,7 @@ export default function WorldView({
     data,
     geography,
     canonSource,
+    worldSitesPolicy,
     semanticProfile.regionalResolution,
     semanticProfile.showRegionalTerrain,
     view,
@@ -642,6 +680,20 @@ export default function WorldView({
   /** Strokes on the world, for the tab badge. Read during render, so it follows
    *  `paintRev` — which every edit, undo, redo and clear bumps. */
   const strokeCount = session.current?.edits.length ?? 0;
+  /**
+   * El grifo de los lugares aleatorios, LEÍDO de la lista de ediciones: manda
+   * el último `placesEverywhere`, y sin ninguno está cerrado — el defecto que
+   * pidió Luis (2026-08-12: «no he pedido abadías, casas, monasterios»).
+   * Derivado y no guardado aparte, para que Ctrl+Z lo revierta como a
+   * cualquier otra edición y el tick nunca pueda mentir.
+   */
+  const randomPlacesOn = useMemo(() => {
+    void paintRev;
+    const s = sessionWorld.current === data ? session.current : null;
+    let on = false;
+    for (const e of s?.edits ?? []) if (e.kind === 'placesEverywhere') on = e.enabled;
+    return on;
+  }, [data, paintRev]);
   /** True while the reader is holding a brush: nothing expensive may run. */
   const brushIsOut = brush.mode !== 'off';
   const brushingRef = useRef(brushIsOut);
@@ -680,10 +732,20 @@ export default function WorldView({
     for (const v of journeyVia) pins.push({ x: v.x, y: v.y, label: v.name, kind: 'mark' });
     if (journeyTo) pins.push({ x: journeyTo.x, y: journeyTo.y, label: journeyTo.name, kind: 'to' });
     const r = journeyRoute.route;
-    if (!pins.length && !r && !paleoState && !linked) return undefined;
+    // Las comarcas guardadas también son anotación de la CARTA: guardar un
+    // valle y que la carta no sepa señalarlo era tener el marcapáginas en
+    // otro libro.
+    const regions: NonNullable<CartoAnnotations['regions']> = savedRegions.map((rg) => ({
+      x: rg.x, y: rg.y, spanKm: rg.spanKm,
+      aspect: rg.params?.aspect || 1.55,
+      title: rg.title,
+      active: rg.id === regionAt?.savedId,
+    }));
+    if (!pins.length && !r && !paleoState && !linked && !regions.length) return undefined;
     return {
       pins,
       linked,
+      regions: regions.length ? regions : undefined,
       route: r && r.cells.length > 1 ? { cells: r.cells, color: journeyRoute.color } : undefined,
       paleo: paleoState && data ? (() => {
         const pm = paleoMap(data, paleoState);
@@ -693,7 +755,8 @@ export default function WorldView({
         return pm;
       })() : undefined,
     };
-  }, [journeyFrom, journeyTo, journeyVia, journeyRoute, paleoState, data, linked, geography]);
+  }, [journeyFrom, journeyTo, journeyVia, journeyRoute, paleoState, data, linked, geography,
+    savedRegions, regionAt?.savedId]);
   useEffect(() => {
     setGeography(null);
     geoRev.current = -1;
@@ -1173,6 +1236,31 @@ export default function WorldView({
     setFlyTarget({ u, v, spanKm, token: Date.now() });
   }, []);
 
+  /**
+   * Ctrl+F abre el localizador en las TRES vistas, e Inicio devuelve el
+   * encuadre entero en la carta y el globo — el 2D tiene su propia tecla
+   * Inicio con pila de historial (`Map2D.flyHome`), así que aquí se calla
+   * cuando el 2D está delante para no volar dos veces.
+   */
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA'
+        || (e.target as HTMLElement | null)?.isContentEditable) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setLocatorOpen(true);
+        return;
+      }
+      if (e.key === 'Home' && view !== 'map' && tag !== 'SELECT') {
+        e.preventDefault();
+        flyCamera(0.5, 0.5, EARTH_KM);
+      }
+    };
+    window.addEventListener('keydown', down);
+    return () => window.removeEventListener('keydown', down);
+  }, [view, flyCamera]);
+
   const flyTo = useCallback((u: number, v: number) => {
     flyCamera(u, v);
     setView('3d');
@@ -1523,6 +1611,12 @@ export default function WorldView({
 
         {/* Overlay toggles */}
         <div className="flex items-center gap-1">
+          <OverlayToggle
+            active={locatorOpen}
+            onClick={() => setLocatorOpen((o) => !o)}
+            icon={Search}
+            title={t('worldgen.locator.button')}
+          />
           <OverlayToggle active={showRivers} onClick={() => setShowRivers(!showRivers)} icon={Waves} title={t('worldgen.overlay.rivers')} />
           <OverlayToggle active={showLandmarks} onClick={() => setShowLandmarks(!showLandmarks)} icon={Flame} title={t('worldgen.overlay.landmarks')} />
           <OverlayToggle active={showWaypoints} onClick={() => setShowWaypoints(!showWaypoints)} icon={MapPin} title={t('worldgen.overlay.waypoints')} />
@@ -1532,6 +1626,18 @@ export default function WorldView({
               onClick={() => setShowSettlements(!showSettlements)}
               icon={Landmark}
               title={t('worldgen.overlay.settlementsHint')}
+            />
+          )}
+          {/* El grifo del sembrado regional (granjas, abadías, ventas…). NO es
+              un filtro de vista: escribe una edición `placesEverywhere` y el
+              canon tocado se re-fragua — apagado, el mundo sólo tiene lo que
+              Luis puso. El pincel «Lugares» abre zonas concretas. */}
+          {data && (
+            <OverlayToggle
+              active={randomPlacesOn}
+              onClick={() => applyEdit({ kind: 'placesEverywhere', enabled: !randomPlacesOn })}
+              icon={Home}
+              title={t('worldgen.overlay.randomPlaces')}
             />
           )}
           {view === 'map' && (
@@ -1739,6 +1845,23 @@ export default function WorldView({
                 onZoomTo={zoomToPoint}
               />
             </Suspense>
+          )}
+
+          {/* El localizador, sobre la vista que esté delante. */}
+          {data && (
+            <LocatorPanel
+              world={data}
+              geography={geography}
+              open={locatorOpen}
+              onClose={() => setLocatorOpen(false)}
+              onFly={(x, y) => {
+                // Volar SIN cambiar de vista, y aterrizar a escala comarcal si
+                // se venía de más lejos — encontrar un pueblo desde el globo
+                // entero debe dejarte viéndolo, no a 40.000 km de él.
+                const span = Math.min(viewportRef.current?.spanKm ?? EARTH_KM, 240);
+                flyCamera(x / data.width, y / data.height, span);
+              }}
+            />
           )}
 
           {/* 3D exaggeration slider */}
@@ -2065,10 +2188,20 @@ export default function WorldView({
         )}
         {geography && (
           <span className="ml-3">
-            {t('worldgen.status.geography')
-              .replace('{settlements}', String(geography.settlements.length))
-              .replace('{realms}', String(geography.realms.length))
-              .replace('{ruins}', String(geography.ruins.length))}
+            {/* A profundidad 'places' las ruinas generadas no se calculan
+                (16,7 s de coste, decisión de worldgen-geografia): la lista
+                vacía significa «no se sabe», no «cero». La barra decía
+                «0 ruinas» en el 3D satélite sobre un mundo con 6, y el número
+                saltaba a 6 al abrir Mapa o Carta. Misma familia que la
+                lección #21: enseñar un recuento que esa vía no computa. */}
+            {geography.depth === 'full'
+              ? t('worldgen.status.geography')
+                .replace('{settlements}', String(geography.settlements.length))
+                .replace('{realms}', String(geography.realms.length))
+                .replace('{ruins}', String(geography.ruins.length))
+              : t('worldgen.status.geographyLite')
+                .replace('{settlements}', String(geography.settlements.length))
+                .replace('{realms}', String(geography.realms.length))}
             {view !== 'carta' && brush.mode !== 'off'
               ? ` · ${t('worldgen.status.dragToPaint')}`
               : ` · ${t('worldgen.status.clickTown')}`}
@@ -2128,6 +2261,9 @@ export default function WorldView({
             }
           }}
           onPickSettlement={setCityFor}
+          // La hoja obedece al mismo grifo de lugares que el canon (tick +
+          // zonas), pasado explícito porque su mundo viaja editado.
+          sitesPolicy={worldSitesPolicy}
         />
       )}
 

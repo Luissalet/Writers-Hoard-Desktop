@@ -43,14 +43,20 @@ export const PLAN_MAX_METRES_PER_PX = 5;
 type PlanCache = Map<number, CityPlan | null>;
 const CACHES = new WeakMap<WorldData, PlanCache>();
 
-function planFor(world: WorldData, s: Settlement): CityPlan | null {
+function planFor(world: WorldData, geography: HumanGeography, s: Settlement): CityPlan | null {
   let cache = CACHES.get(world);
   if (!cache) { cache = new Map(); CACHES.set(world, cache); }
   const hit = cache.get(s.id);
   if (hit !== undefined) return hit;
   let plan: CityPlan | null = null;
   try {
-    plan = generateCity(cityParamsFor(world, s));
+    // CON la geografía, como el modal. Sin ella `cityParamsFor` no puede
+    // construir `roadBearings` y el plano de la tesela salía con 0 rumbos de
+    // camino: las puertas caían donde no llega ninguno — y, peor, el MISMO
+    // pueblo tenía dos planos distintos según lo miraras en la tesela o en la
+    // ficha, porque el generador es determinista sobre sus parámetros y los
+    // parámetros eran otros.
+    plan = generateCity(cityParamsFor(world, s, geography));
   } catch {
     plan = null; // a plan that will not build must not take the tile with it
   }
@@ -118,7 +124,7 @@ export function drawTownPlans(
     if (cx + reach < 0 || cy + reach < 0 || cx - reach > view.widthPx || cy - reach > view.heightPx) {
       continue;
     }
-    const plan = planFor(world, s);
+    const plan = planFor(world, geography, s);
     if (!plan) continue;
 
     ctx.save();

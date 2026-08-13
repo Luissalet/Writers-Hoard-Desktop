@@ -59,24 +59,24 @@ export interface Relationship {
   updatedAt: number;
 }
 
-export const RELATIONSHIP_KIND_CONFIG: Record<RelationshipKind, { label: string; color: string; emoji: string }> = {
-  ally:         { label: 'Ally',         color: '#3b82f6', emoji: '\ud83e\udd1d' }, // 🤝
-  friend:       { label: 'Friend',       color: '#10b981', emoji: '\ud83d\ude42' }, // 🙂
-  family:       { label: 'Family',       color: '#8b5cf6', emoji: '\ud83d\udc6a' }, // 👪
-  romantic:     { label: 'Romantic',     color: '#ec4899', emoji: '\u2764\ufe0f' }, // ❤️
-  rival:        { label: 'Rival',        color: '#f97316', emoji: '\u26a1' },       // ⚡
-  enemy:        { label: 'Enemy',        color: '#ef4444', emoji: '\u2694\ufe0f' }, // ⚔️
-  mentor:       { label: 'Mentor',       color: '#c4973b', emoji: '\ud83c\udf93' }, // 🎓
-  subordinate:  { label: 'Subordinate',  color: '#6366f1', emoji: '\u2193' },       // ↓
-  colleague:    { label: 'Colleague',    color: '#64748b', emoji: '\ud83d\udcbc' }, // 💼
-  acquaintance: { label: 'Acquaintance', color: '#94a3b8', emoji: '\ud83d\udc4b' }, // 👋
-  other:        { label: 'Other',        color: '#6b7280', emoji: '\ud83d\udd17' }, // 🔗
+export const RELATIONSHIP_KIND_CONFIG: Record<RelationshipKind, { labelKey: string; color: string; emoji: string }> = {
+  ally:         { labelKey: 'relationships.kind.ally',         color: '#3b82f6', emoji: '\ud83e\udd1d' }, // 🤝
+  friend:       { labelKey: 'relationships.kind.friend',       color: '#10b981', emoji: '\ud83d\ude42' }, // 🙂
+  family:       { labelKey: 'relationships.kind.family',       color: '#8b5cf6', emoji: '\ud83d\udc6a' }, // 👪
+  romantic:     { labelKey: 'relationships.kind.romantic',     color: '#ec4899', emoji: '\u2764\ufe0f' }, // ❤️
+  rival:        { labelKey: 'relationships.kind.rival',        color: '#f97316', emoji: '\u26a1' },       // ⚡
+  enemy:        { labelKey: 'relationships.kind.enemy',        color: '#ef4444', emoji: '\u2694\ufe0f' }, // ⚔️
+  mentor:       { labelKey: 'relationships.kind.mentor',       color: '#c4973b', emoji: '\ud83c\udf93' }, // 🎓
+  subordinate:  { labelKey: 'relationships.kind.subordinate',  color: '#6366f1', emoji: '\u2193' },       // ↓
+  colleague:    { labelKey: 'relationships.kind.colleague',    color: '#64748b', emoji: '\ud83d\udcbc' }, // 💼
+  acquaintance: { labelKey: 'relationships.kind.acquaintance', color: '#94a3b8', emoji: '\ud83d\udc4b' }, // 👋
+  other:        { labelKey: 'relationships.kind.other',        color: '#6b7280', emoji: '\ud83d\udd17' }, // 🔗
 };
 
-export const RELATIONSHIP_STATE_CONFIG: Record<Relationship['state'], { label: string; color: string }> = {
-  current: { label: 'Current', color: 'bg-green-500/10 text-green-400' },
-  past:    { label: 'Past',    color: 'bg-gray-500/10 text-gray-400' },
-  secret:  { label: 'Secret',  color: 'bg-purple-500/10 text-purple-400' },
+export const RELATIONSHIP_STATE_CONFIG: Record<Relationship['state'], { labelKey: string; color: string }> = {
+  current: { labelKey: 'relationships.state.current', color: 'bg-green-500/10 text-green-400' },
+  past:    { labelKey: 'relationships.state.past',    color: 'bg-gray-500/10 text-gray-400' },
+  secret:  { labelKey: 'relationships.state.secret',  color: 'bg-purple-500/10 text-purple-400' },
 };
 
 /** For matrix intensity cell coloring — green to red. */

@@ -25,7 +25,7 @@ export default function BiographyEngine({ projectId }: EngineComponentProps) {
     createDefault: () => ({
       id: generateId('bio'),
       projectId,
-      subjectName: 'New Subject',
+      subjectName: t('biography.defaultSubject'),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }),

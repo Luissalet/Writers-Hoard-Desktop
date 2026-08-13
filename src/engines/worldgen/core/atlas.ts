@@ -57,14 +57,21 @@ export interface ManuscriptLink {
   relation?: 'birth' | 'home' | 'death' | 'visit' | 'origin' | 'setting' | 'mention';
 }
 
-export const RELATION_ES: Record<NonNullable<ManuscriptLink['relation']>, string> = {
-  birth: 'nació aquí', home: 'vive aquí', death: 'murió aquí', visit: 'pasó por aquí',
-  origin: 'de aquí', setting: 'transcurre aquí', mention: 'se menciona',
+/**
+ * CLAVES de catálogo, no texto: el motor guarda la clave y la vista la pasa por
+ * `t()`. Las tablas `_ES` con español a fuego eran motor fuera de i18n.
+ */
+export const RELATION_KEY: Record<NonNullable<ManuscriptLink['relation']>, string> = {
+  birth: 'worldgen.atlas.relation.birth', home: 'worldgen.atlas.relation.home',
+  death: 'worldgen.atlas.relation.death', visit: 'worldgen.atlas.relation.visit',
+  origin: 'worldgen.atlas.relation.origin', setting: 'worldgen.atlas.relation.setting',
+  mention: 'worldgen.atlas.relation.mention',
 };
 
-export const LINK_KIND_ES: Record<ManuscriptLink['kind'], string> = {
-  scene: 'escena', chapter: 'capítulo', character: 'personaje',
-  event: 'suceso', note: 'nota', item: 'objeto',
+export const LINK_KIND_KEY: Record<ManuscriptLink['kind'], string> = {
+  scene: 'worldgen.atlas.linkKind.scene', chapter: 'worldgen.atlas.linkKind.chapter',
+  character: 'worldgen.atlas.linkKind.character', event: 'worldgen.atlas.linkKind.event',
+  note: 'worldgen.atlas.linkKind.note', item: 'worldgen.atlas.linkKind.item',
 };
 
 // ---------------------------------------------------------------------------
@@ -294,7 +301,13 @@ export function placeAt(
  * nació aquí" is a thing a writer reads and acts on, and a bar chart of link
  * counts is not.
  */
-export function describePlace(place: AtlasPlace, links: ManuscriptLink[]): string[] {
+export function describePlace(
+  place: AtlasPlace,
+  links: ManuscriptLink[],
+  // La frase entera por clave (lección #8): este texto iba en español a fuego
+  // dentro del motor y una UI en inglés decía «Transcurre aquí una escena».
+  t: (key: string) => string,
+): string[] {
   if (!links.length) return [];
   const out: string[] = [];
   const chars = links.filter((l) => l.kind === 'character');
@@ -303,22 +316,26 @@ export function describePlace(place: AtlasPlace, links: ManuscriptLink[]): strin
 
   if (chars.length) {
     const named = chars.slice(0, 3).map((c) => {
-      const rel = c.relation ? ` (${RELATION_ES[c.relation]})` : '';
+      const rel = c.relation ? ` (${t(RELATION_KEY[c.relation])})` : '';
       return `${c.title}${rel}`;
     });
     const rest = chars.length - named.length;
-    out.push(`${named.join(', ')}${rest > 0 ? ` y ${rest} más` : ''}`);
+    out.push(rest > 0
+      ? t('worldgen.atlas.charsMore').replace('{names}', named.join(', ')).replace('{n}', String(rest))
+      : named.join(', '));
   }
   if (scenes.length) {
     const where = scenes.map((s) => s.where).filter(Boolean) as string[];
     out.push(scenes.length === 1
-      ? `Transcurre aquí ${where[0] ?? 'una escena'}`
-      : `${scenes.length} escenas transcurren aquí${where.length ? ` (${where.slice(0, 3).join(', ')}${where.length > 3 ? '…' : ''})` : ''}`);
+      ? t('worldgen.atlas.sceneHere').replace('{what}', where[0] ?? t('worldgen.atlas.aScene'))
+      : t('worldgen.atlas.scenesHere').replace('{n}', String(scenes.length))
+        + (where.length ? ` (${where.slice(0, 3).join(', ')}${where.length > 3 ? '…' : ''})` : ''));
   }
   if (events.length) {
     out.push(events.length === 1
-      ? `Suceso: ${events[0].title}${events[0].where ? ` · ${events[0].where}` : ''}`
-      : `${events.length} sucesos anclados aquí`);
+      ? t('worldgen.atlas.eventOne').replace('{title}', events[0].title)
+        + (events[0].where ? ` · ${events[0].where}` : '')
+      : t('worldgen.atlas.eventsHere').replace('{n}', String(events.length)));
   }
   void place;
   return out;

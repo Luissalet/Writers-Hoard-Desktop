@@ -400,55 +400,33 @@ export function ruinPrefix(kind: RuinKind, x: number, y: number): string {
   return opts[(x * 7 + y * 13) % opts.length];
 }
 
-export const RUIN_CONDITION_ES: Record<RuinCondition, string> = {
-  overgrown: 'cubierto de vegetación',
-  buried: 'sepultado por la arena',
-  flooded: 'inundado',
-  burnt: 'calcinado',
-  standing: 'aún en pie',
-  drowned: 'bajo las aguas',
+/**
+ * CLAVES de catálogo para la UI, no texto (las tablas `_ES` con español a
+ * fuego eran motor fuera de i18n). El gazetteer — que es un documento en
+ * castellano por diseño, como los nombres que acuña `naming.ts` — lleva sus
+ * propias tablas de prosa junto al resto de su prosa.
+ */
+export const RUIN_KIND_KEY: Record<RuinKind, string> = {
+  city: 'worldgen.ruinKind.city',
+  fort: 'worldgen.ruinKind.fort',
+  tower: 'worldgen.ruinKind.tower',
+  temple: 'worldgen.ruinKind.temple',
+  stones: 'worldgen.ruinKind.stones',
+  bridge: 'worldgen.ruinKind.bridge',
+  mine: 'worldgen.ruinKind.mine',
+  wall: 'worldgen.ruinKind.wall',
 };
 
-/** Feminine forms. "Una fortaleza cubierto de vegetación" is how generated prose
- *  gives itself away, and Spanish makes the fix cheap. */
-const RUIN_CONDITION_ES_F: Record<RuinCondition, string> = {
-  overgrown: 'cubierta de vegetación',
-  buried: 'sepultada por la arena',
-  flooded: 'inundada',
-  burnt: 'calcinada',
-  standing: 'aún en pie',
-  drowned: 'bajo las aguas',
-};
-
-/** Which ruin nouns are feminine in Spanish. */
-const RUIN_FEMININE = new Set<RuinKind>(['city', 'fort', 'tower', 'mine', 'wall']);
-
-/** Condition text agreeing with the gender of the ruin's noun. */
-export function ruinCondition(kind: RuinKind, condition: RuinCondition): string {
-  return (RUIN_FEMININE.has(kind) ? RUIN_CONDITION_ES_F : RUIN_CONDITION_ES)[condition];
-}
-
-export const RUIN_KIND_ES: Record<RuinKind, string> = {
-  city: 'ciudad en ruinas',
-  fort: 'fortaleza',
-  tower: 'torre',
-  temple: 'templo',
-  stones: 'círculo de piedras',
-  bridge: 'puente',
-  mine: 'mina',
-  wall: 'muralla',
-};
-
-export const RUIN_SITE_ES: Record<RuinSite, string> = {
-  harbour: 'puerto natural',
-  pass: 'paso de montaña',
-  confluence: 'confluencia de ríos',
-  summit: 'cumbre con vistas',
-  island: 'isla apartada',
-  oasis: 'oasis',
-  ford: 'vado',
-  mineral: 'veta mineral',
-  holy: 'lugar sagrado',
-  strait: 'estrecho',
-  cape: 'cabo',
+export const RUIN_SITE_KEY: Record<RuinSite, string> = {
+  harbour: 'worldgen.ruinSite.harbour',
+  pass: 'worldgen.ruinSite.pass',
+  confluence: 'worldgen.ruinSite.confluence',
+  summit: 'worldgen.ruinSite.summit',
+  island: 'worldgen.ruinSite.island',
+  oasis: 'worldgen.ruinSite.oasis',
+  ford: 'worldgen.ruinSite.ford',
+  mineral: 'worldgen.ruinSite.mineral',
+  holy: 'worldgen.ruinSite.holy',
+  strait: 'worldgen.ruinSite.strait',
+  cape: 'worldgen.ruinSite.cape',
 };

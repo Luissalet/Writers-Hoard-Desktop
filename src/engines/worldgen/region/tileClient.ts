@@ -19,6 +19,7 @@ import type { WorldData } from '../core/types';
 import { kmPerWorldCell } from './terrain';
 import type { RegionData, RegionParams, RegionPlace, RegionStream, RegionTrack } from './types';
 import { regionClient, type RegionRequestOptions } from './client';
+import { canonTileKey } from './generate';
 import {
   canonParams, canonRefinement, tileGeometry, tileInterior, tileWindow,
   tileCountY, wrapTx, TILE_WORLD_CELLS, type TileId,
@@ -237,6 +238,11 @@ export function requestCanonComposite(
     params: canonParams(world, options.params),
     geometry: tileGeometry(world, id),
     edits: options.edits,
+    // La identidad canónica: con ella la sábana siembra del almacén, responde
+    // de la residencia del worker, y lo que genere se guarda — antes el
+    // composite era el único productor de canon cuyo trabajo moría con la
+    // petición (PENDIENTE §2b, el «detalle regional» de 49 s).
+    canonKey: canonTileKey(id),
     signal: options.signal,
     workerFactory: options.workerFactory,
   }));

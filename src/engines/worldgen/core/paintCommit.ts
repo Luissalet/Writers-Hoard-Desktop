@@ -251,9 +251,28 @@ export function commitPaintStroke(
         ? { kind: 'biome', biome: p.biome, stroke, only }
         : { kind: 'biome', biome: p.biome, stroke };
     }
+    case 'places':
+      // El pincel de LUGARES escribe permiso, no píxeles: la pincelada entera
+      // es UNA edición (`placesZone`) con los puntos y el radio del pincel, y
+      // el sembrado regional la consulta al fraguar el canon. Ctrl (el
+      // negativo universal) vacía la zona en vez de sembrarla — también con el
+      // grifo global abierto.
+      return {
+        kind: 'placesZone',
+        mode: ctx.negative ? 'remove' : 'add',
+        pts,
+        radius: Math.max(0.5, p.radius),
+      };
     case 'river':
       if (ctx.negative) {
-        return { kind: 'eraseRivers', x: at.x, y: at.y, radius: Math.max(3, p.riverWidth * 3) };
+        // Alcance de PUNTERÍA, no de anchura: `riverWidth · 3` con el ancho en
+        // celdas barría un disco de ~235 km con el mando por defecto (12
+        // celdas a 19,6 km/celda en un mundo de 2048) y se llevaba todos los
+        // ríos de una comarca por un clic. El borrador alcanza lo que el error
+        // de puntería justifica (16 px en celdas, con el mismo techo que el de
+        // marcadores) más media anchura del río al que se apunta — que es lo
+        // que mide estar «encima» de un cauce gordo.
+        return { kind: 'eraseRivers', x: at.x, y: at.y, radius: negativeReach(ctx) + p.riverWidth / 2 };
       }
       return pts.length >= 2 ? { kind: 'river', pts, width: p.riverWidth } : null;
     case 'point': {
@@ -349,8 +368,16 @@ export function pickGeneratedAt(
   }
   if (best) return best;
   for (const f of geo.features) {
+    // Con `tol`, NO con `f.extent`: extent es el TAMAÑO del accidente (celdas
+    // de la región, o del cauce en un río), no un radio de puntería. Usarlo de
+    // alcance hacía que un Ctrl+clic en suelo vacío devolviera el continente a
+    // 32 celdas del clic — y como este picker responde antes que el borrador de
+    // marcadores, `eraseMarkers` era inalcanzable: nunca se podía borrar una
+    // marca propia sin llevarse un accidente generado. El lector que borra
+    // apunta al RÓTULO, y el rótulo se dibuja en el ancla — que es exactamente
+    // lo que `tol` (16 px en celdas) sabe medir a cualquier zoom.
     offer('feature', editKey('feature', f.x, f.y, `${f.kind}:`), f.name,
-      dist(f.x, f.y), Math.max(tol, f.extent));
+      dist(f.x, f.y), tol);
   }
   // And nothing after this. The REALM under the pointer used to be offered here
   // as a last resort, which meant that a Ctrl+click on empty ground — where

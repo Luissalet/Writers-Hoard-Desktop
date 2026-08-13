@@ -7,6 +7,8 @@ import { Plus, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { StoryboardPanel as StoryboardPanelType, Storyboard, StoryboardConnector } from '../types';
 import { generateId } from '@/utils/idGenerator';
+import { useTranslation } from '@/i18n/useTranslation';
+import type { Scene } from '@/engines/dialog-scene/types';
 import StoryboardPanel from './StoryboardPanel';
 import PanelEditor from './PanelEditor';
 import ConnectorBadge from './ConnectorBadge';
@@ -24,6 +26,8 @@ interface StoryboardViewProps {
   onUpdateConnector: (id: string, changes: Partial<StoryboardConnector>) => void;
   onDeleteConnector: (id: string) => void;
   onUpdateStoryboard: (id: string, changes: Partial<Storyboard>) => void;
+  /** Scenes available for panel↔scene linking. */
+  scenes?: Scene[];
 }
 
 export default function StoryboardView({
@@ -38,7 +42,9 @@ export default function StoryboardView({
   onUpdateConnector,
   onDeleteConnector,
   onUpdateStoryboard,
+  scenes = [],
 }: StoryboardViewProps) {
+  const { t } = useTranslation();
   const [editingPanel, setEditingPanel] = useState<StoryboardPanelType | null>(null);
   const [editingConnectorFrom, setEditingConnectorFrom] = useState<string>('');
   const [editingConnectorTo, setEditingConnectorTo] = useState<string>('');
@@ -142,19 +148,19 @@ export default function StoryboardView({
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-serif font-bold text-accent-gold">Storyboard: {storyboard.title}</h2>
+          <h2 className="text-xl font-serif font-bold text-accent-gold">{t('storyboard.viewTitle').replace('{name}', storyboard.title)}</h2>
         </div>
         <div className="border border-border rounded-xl bg-surface/50 p-12 text-center space-y-4">
           <div className="flex justify-center">
             <Zap size={48} className="text-text-muted opacity-50" />
           </div>
-          <h3 className="text-lg font-serif font-bold text-text-primary">No panels yet</h3>
-          <p className="text-text-muted">Start building your storyboard by adding your first panel</p>
+          <h3 className="text-lg font-serif font-bold text-text-primary">{t('storyboard.emptyTitle')}</h3>
+          <p className="text-text-muted">{t('storyboard.emptyMessage')}</p>
           <button
             onClick={handleAddPanel}
             className="inline-block px-4 py-2 bg-accent-gold text-deep rounded-lg hover:bg-accent-amber transition font-semibold"
           >
-            Add Panel
+            {t('storyboard.addPanel')}
           </button>
         </div>
       </div>
@@ -165,10 +171,10 @@ export default function StoryboardView({
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-serif font-bold text-accent-gold">Storyboard: {storyboard.title}</h2>
+        <h2 className="text-xl font-serif font-bold text-accent-gold">{t('storyboard.viewTitle').replace('{name}', storyboard.title)}</h2>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <label className="text-sm text-text-muted">Columns:</label>
+            <label className="text-sm text-text-muted">{t('storyboard.columnsLabel')}</label>
             <select
               value={storyboard.columns}
               onChange={(e) => onUpdateStoryboard(storyboard.id, { columns: parseInt(e.target.value, 10) })}
@@ -187,14 +193,14 @@ export default function StoryboardView({
                 : 'bg-surface border border-border text-text-primary hover:border-accent-gold'
             }`}
           >
-            {isReordering ? 'Done Ordering' : 'Reorder'}
+            {isReordering ? t('storyboard.doneOrdering') : t('storyboard.reorder')}
           </button>
           <button
             onClick={handleAddPanel}
             className="flex items-center gap-1.5 px-3 py-1 bg-accent-gold text-deep rounded font-semibold text-sm hover:bg-accent-amber transition"
           >
             <Plus size={16} />
-            Panel
+            {t('storyboard.panelNoun')}
           </button>
         </div>
       </div>
@@ -223,6 +229,11 @@ export default function StoryboardView({
                   >
                     <StoryboardPanel
                       panel={panel}
+                      linkedSceneTitle={
+                        panel.linkedSceneId
+                          ? scenes.find((sc) => sc.id === panel.linkedSceneId)?.title
+                          : undefined
+                      }
                       isReordering={isReordering}
                       onEdit={setEditingPanel}
                       onDelete={handleDeletePanel}
@@ -232,8 +243,9 @@ export default function StoryboardView({
                 ))}
               </div>
 
-              {/* Connectors between panels in the same row */}
-              {rowIdx < rows.length && (
+              {/* Connectors between panels in the same row.
+                  (The old `rowIdx < rows.length` guard was always true.) */}
+              {row.length > 1 && (
                 <div className="grid gap-6 grid-rows-subgrid" style={{ gridTemplateColumns: `repeat(${storyboard.columns}, 1fr)` }}>
                   {row.map((panel) => {
                     const panelPosition = row.indexOf(panel);
@@ -255,39 +267,49 @@ export default function StoryboardView({
                 </div>
               )}
 
-              {/* Vertical connectors to next row */}
-              {rowIdx < rows.length - 1 && (
-                <div className="my-2">
-                  {row.map((panel) => {
-                    const nextRowPanel = rows[rowIdx + 1]?.[0];
-                    if (!nextRowPanel) return null;
-                    const connector = getConnectorBetween(panel.id, nextRowPanel.id);
-                    return (
-                      <div key={`vconn-${panel.id}`} className="flex justify-center mb-2">
-                        <ConnectorBadge
-                          connector={connector || null}
-                          fromPanelId={panel.id}
-                          toPanelId={nextRowPanel.id}
-                          onEdit={handleConnectorEdit}
-                          onDelete={() => connector && handleDeleteConnector(connector.id)}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              {/* Connector wrapping to the next row.
+                  Exactly ONE, from the last panel of this row to the first of
+                  the next — that is the reading order. This used to map over
+                  the whole row, so a 3-column board drew three identical
+                  badges between every pair of rows, all of them pointing at
+                  the same panel. */}
+              {(() => {
+                const lastOfRow = row[row.length - 1];
+                const firstOfNextRow = rows[rowIdx + 1]?.[0];
+                if (!lastOfRow || !firstOfNextRow) return null;
+                const connector = getConnectorBetween(lastOfRow.id, firstOfNextRow.id);
+                return (
+                  <div className="my-2 flex justify-center">
+                    <ConnectorBadge
+                      connector={connector || null}
+                      fromPanelId={lastOfRow.id}
+                      toPanelId={firstOfNextRow.id}
+                      onEdit={handleConnectorEdit}
+                      onDelete={() => connector && handleDeleteConnector(connector.id)}
+                    />
+                  </div>
+                );
+              })()}
             </motion.div>
           ))}
         </AnimatePresence>
       </div>
 
-      {/* Panel Editor Modal */}
-      <PanelEditor
-        panel={editingPanel}
-        isOpen={!!editingPanel}
-        onClose={() => setEditingPanel(null)}
-        onSave={handleSavePanel}
-      />
+      {/* Panel Editor Modal.
+          Mounted conditionally and keyed by panel id: PanelEditor seeds
+          formData/previewImage from `panel` in useState initialisers, which
+          only run on mount. Keeping it permanently mounted meant editing panel
+          B showed panel A's data and saving overwrote B with A's content. */}
+      {editingPanel && (
+        <PanelEditor
+          key={editingPanel.id}
+          panel={editingPanel}
+          isOpen={!!editingPanel}
+          onClose={() => setEditingPanel(null)}
+          onSave={handleSavePanel}
+          scenes={scenes}
+        />
+      )}
 
       {/* Connector Editor Modal */}
       <ConnectorEditor

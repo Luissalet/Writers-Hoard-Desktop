@@ -49,9 +49,12 @@ registerEntityResolver({
       thumbnail: entry.avatar,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = await db.codexEntries.filter(e => e.title.toLowerCase().includes(q)).toArray();
+    const base = projectId
+      ? db.codexEntries.where('projectId').equals(projectId)
+      : db.codexEntries.toCollection();
+    const rows = await base.filter(e => e.title.toLowerCase().includes(q)).toArray();
     return rows.map(e => ({
       id: e.id,
       type: e.type,

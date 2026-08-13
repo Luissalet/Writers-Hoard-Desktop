@@ -49,7 +49,13 @@ export default function CompileModal({ open, onClose, writings, projectTitle }: 
 
   // (Re)initialize selection when the modal opens — render-adjust pattern,
   // no effect needed.
-  const openKey = open ? `${projectTitle}:${writings.length}` : null;
+  //
+  // The key covers the actual SET of writings, not just how many there are.
+  // Keying on `writings.length` meant deleting one chapter and writing another
+  // produced the same key, so the modal skipped re-initialising: `order` still
+  // held the dead id and the new chapter — never added to `order` — was
+  // silently missing from the compiled manuscript.
+  const openKey = open ? `${projectTitle}:${writings.map((w) => w.id).join(',')}` : null;
   if (open && initializedFor !== openKey) {
     setInitializedFor(openKey);
     const ordered = defaultOrder(writings);

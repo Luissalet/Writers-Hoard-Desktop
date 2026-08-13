@@ -60,9 +60,12 @@ registerEntityResolver({
       subtitle: pin.description,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = await db.mapPins.filter(p => p.name.toLowerCase().includes(q)).toArray();
+    const base = projectId
+      ? db.mapPins.where('projectId').equals(projectId)
+      : db.mapPins.toCollection();
+    const rows = await base.filter(p => p.name.toLowerCase().includes(q)).toArray();
     return rows.map(p => ({
       id: p.id,
       type: 'map-pin',

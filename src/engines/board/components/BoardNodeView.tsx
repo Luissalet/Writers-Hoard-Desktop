@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { MIN_SIZE, getNodeRole } from '../catalog';
 import type { BoardNode } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 // Explicit map instead of `import * as Lucide` — a namespace import pulls the
 // entire icon set into the bundle, and this project checks its bundle budget.
@@ -43,6 +44,7 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 function NodeChrome({ data, selected }: { data: BoardNodeData; selected: boolean }) {
+  const { t } = useTranslation();
   const { node } = data;
   const stop = (event: React.MouseEvent) => event.stopPropagation();
 
@@ -58,7 +60,7 @@ function NodeChrome({ data, selected }: { data: BoardNodeData; selected: boolean
       {node.ref ? (
         <button
           type="button"
-          title={node.ref.missing ? 'Reference is broken' : 'Open the referenced record'}
+          title={node.ref.missing ? t('board.node.refBroken') : t('board.node.refOpen')}
           onClick={(event) => {
             stop(event);
             data.onOpenRef(node.id);
@@ -70,7 +72,7 @@ function NodeChrome({ data, selected }: { data: BoardNodeData; selected: boolean
       ) : null}
       <button
         type="button"
-        title="Connect"
+        title={t('board.node.connect')}
         onClick={(event) => {
           stop(event);
           data.onStartLink(node.id);
@@ -81,7 +83,7 @@ function NodeChrome({ data, selected }: { data: BoardNodeData; selected: boolean
       </button>
       <button
         type="button"
-        title="Edit"
+        title={t('common.edit')}
         onClick={(event) => {
           stop(event);
           data.onEdit(node.id);
@@ -92,7 +94,7 @@ function NodeChrome({ data, selected }: { data: BoardNodeData; selected: boolean
       </button>
       <button
         type="button"
-        title="Delete"
+        title={t('common.delete')}
         onClick={(event) => {
           stop(event);
           data.onDelete(node.id);
@@ -131,6 +133,7 @@ function shapeStyle(node: BoardNode): React.CSSProperties {
 }
 
 function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
+  const { t } = useTranslation();
   const { node } = data;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(node.title);
@@ -227,7 +230,7 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
               style={{ background: node.color, color: '#07070d' }}
             >
               <span>{node.collapsed ? '▸' : '▾'}</span>
-              {titleNode ?? <span className="truncate">{node.title || 'Frame'}</span>}
+              {titleNode ?? <span className="truncate">{node.title || t('board.node.frame')}</span>}
             </div>
           </div>
         );
@@ -271,7 +274,7 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
             {node.image ? (
               <img src={node.image} alt={node.title} className="min-h-0 flex-1 object-cover" draggable={false} />
             ) : (
-              <div className="flex flex-1 items-center justify-center text-xs text-text-dim">No image</div>
+              <div className="flex flex-1 items-center justify-center text-xs text-text-dim">{t('board.node.noImage')}</div>
             )}
             {node.title ? <span className="truncate px-2 py-1 text-xs text-text-muted">{node.title}</span> : null}
           </div>
@@ -295,13 +298,13 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
             ) : null}
             <div className="min-w-0 flex-1">
               <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-accent-gold">
-                {node.ref?.entityType ?? 'entity'}
+                {node.ref?.entityType ?? t('board.node.entity')}
               </p>
               <p className="truncate text-sm font-medium text-text-primary">
                 {node.ref?.title || node.title || '—'}
               </p>
               {node.ref?.missing ? (
-                <p className="truncate text-[11px] text-danger">Target no longer exists</p>
+                <p className="truncate text-[11px] text-danger">{t('board.node.targetGone')}</p>
               ) : node.ref?.subtitle ? (
                 <p className="truncate text-[11px] text-text-muted">{node.ref.subtitle}</p>
               ) : null}

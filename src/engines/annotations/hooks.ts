@@ -13,6 +13,7 @@ import {
   getBacklinksForEntity,
   getAnnotationsForProject,
   countOrphansForProject,
+  reanchorEntityAnnotations,
 } from './operations';
 import type {
   Annotation,
@@ -97,6 +98,12 @@ export function useAnnotationsForEntity(key: EntityKey | undefined) {
     valid ? `${key!.engineId}:${key!.entityId}` : null,
     valid
       ? async () => {
+          // Re-resolve drifted anchors BEFORE reading the list, so what the
+          // margin renders is already corrected against the current text.
+          // This is the only caller of the reanchor cascade — without it the
+          // whole `anchorResolver` module was dead code and notes silently
+          // pointed at whatever text had moved into their old offsets.
+          await reanchorEntityAnnotations(key!.engineId, key!.entityId);
           const annotations = await getAnnotationsForEntity(key!.engineId, key!.entityId);
           return Promise.all(
             annotations.map(async (ann) => {

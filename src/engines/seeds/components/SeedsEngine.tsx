@@ -2,13 +2,16 @@ import { useState, useMemo } from 'react';
 import { Sprout, Plus, Trash2, Target, ArrowRight, ArrowLeft } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { EngineSpinner, ConfirmDialog } from '@/engines/_shared';
+import { EngineSpinner, ConfirmDialog, useDeepLinkParam, useDebouncedField } from '@/engines/_shared';
 import { useSeeds, usePayoffs, useAllPayoffs } from '../hooks';
 import type { Seed, Payoff, SeedKind, SeedStatus } from '../types';
 import { SEED_KIND_CONFIG, SEED_STATUS_CONFIG, computeSeedStatus } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { useTextareaSelectionAnchor } from '@/engines/_shared/anchoring';
+import { useWritings } from '@/engines/writings/hooks';
+import { useScenes } from '@/engines/dialog-scene/hooks';
+import { useAllProjectBeats } from '@/engines/outline/hooks';
 
 // ---------------------------------------------------------------------------
 // SeedsEngine
@@ -23,6 +26,16 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
   const [filterKind, setFilterKind] = useState<SeedKind | ''>('');
   const [filterStatus, setFilterStatus] = useState<SeedStatus | ''>('');
   const [pendingDeleteSeedId, setPendingDeleteSeedId] = useState<string | null>(null);
+
+  // Deep link: `/project/:id/seeds?seed=<id>` — the URL the anchor adapter has
+  // always emitted for backlinks and Cmd+K hits, and that nothing ever read.
+  // Render-adjust, so going Back to the dashboard isn't instantly undone.
+  const deepLinkedSeedId = useDeepLinkParam('seed');
+  const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
+  if (deepLinkedSeedId && deepLinkedSeedId !== appliedDeepLink && seeds.some((s) => s.id === deepLinkedSeedId)) {
+    setAppliedDeepLink(deepLinkedSeedId);
+    setActiveSeedId(deepLinkedSeedId);
+  }
 
   const payoffsBySeed = useMemo(() => {
     const map = new Map<string, Payoff[]>();
@@ -67,7 +80,11 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
   // --- Dashboard totals ---
   const totalSeeds = seeds.length;
   const paidCount = seeds.filter((s) => (payoffsBySeed.get(s.id)?.length ?? 0) > 0).length;
-  const orphanCount = seeds.filter((s) => s.status !== 'cut' && (payoffsBySeed.get(s.id)?.length ?? 0) === 0).length;
+  // Counted through computeSeedStatus so the KPI, the cards and the filter can
+  // never disagree again — they now share one definition of "orphaned".
+  const orphanCount = seeds.filter(
+    (s) => computeSeedStatus(s, payoffsBySeed.get(s.id) ?? []) === 'orphaned',
+  ).length;
 
   return (
     <div className="space-y-4">
@@ -100,8 +117,8 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
           className="px-2.5 py-1.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition cursor-pointer"
         >
           <option value="">{t('seeds.filter.allKinds')}</option>
-          {(Object.entries(SEED_KIND_CONFIG) as [SeedKind, { label: string }][]).map(([k, v]) => (
-            <option key={k} value={k}>{v.label}</option>
+          {(Object.entries(SEED_KIND_CONFIG) as [SeedKind, { labelKey: string }][]).map(([k, v]) => (
+            <option key={k} value={k}>{t(v.labelKey)}</option>
           ))}
         </select>
         <select
@@ -110,8 +127,8 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
           className="px-2.5 py-1.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition cursor-pointer"
         >
           <option value="">{t('seeds.filter.allStatuses')}</option>
-          {(Object.entries(SEED_STATUS_CONFIG) as [SeedStatus, { label: string }][]).map(([k, v]) => (
-            <option key={k} value={k}>{v.label}</option>
+          {(Object.entries(SEED_STATUS_CONFIG) as [SeedStatus, { labelKey: string }][]).map(([k, v]) => (
+            <option key={k} value={k}>{t(v.labelKey)}</option>
           ))}
         </select>
       </div>
@@ -207,10 +224,10 @@ function SeedCard({
             className="text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold tracking-wide"
             style={{ backgroundColor: `${kindCfg.color}20`, color: kindCfg.color }}
           >
-            {kindCfg.label}
+            {t(kindCfg.labelKey)}
           </span>
           <span className={`text-[10px] px-1.5 py-0.5 rounded ${statusCfg.color}`}>
-            {statusCfg.label}
+            {t(statusCfg.labelKey)}
           </span>
           {seed.plantedAt !== undefined && (
             <span className="text-[10px] text-text-dim">@ {seed.plantedAt}%</span>
@@ -281,7 +298,7 @@ function NewSeedForm({
         className="w-full px-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
       />
       <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
-        {(Object.entries(SEED_KIND_CONFIG) as [SeedKind, { label: string; description: string; color: string }][]).map(([k, v]) => (
+        {(Object.entries(SEED_KIND_CONFIG) as [SeedKind, { labelKey: string; description: string; color: string }][]).map(([k, v]) => (
           <button
             key={k}
             onClick={() => setKind(k)}
@@ -289,7 +306,7 @@ function NewSeedForm({
               kind === k ? 'border-accent-gold bg-accent-gold/10' : 'border-border bg-elevated hover:border-accent-gold/40'
             }`}
           >
-            <div className="text-xs font-semibold" style={{ color: v.color }}>{v.label}</div>
+            <div className="text-xs font-semibold" style={{ color: v.color }}>{t(v.labelKey)}</div>
             <div className="text-[10px] text-text-dim mt-0.5 line-clamp-2">{v.description}</div>
           </button>
         ))}
@@ -344,6 +361,18 @@ function SeedDetail({
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<Seed>);
   };
 
+  // Buffered — one Dexie write plus a full refresh per keystroke used to make
+  // the description swallow characters as you typed.
+  // The three cross-engine links declared in types.ts that never had any UI —
+  // a seed could not point at the chapter, beat or scene it was planted in.
+  const { writings } = useWritings(projectId);
+  const { items: scenes } = useScenes(projectId);
+  const { items: outlineBeats } = useAllProjectBeats(projectId);
+
+  const titleField = useDebouncedField(seed.title, handleField('title'));
+  const descriptionField = useDebouncedField(seed.description ?? '', handleField('description'));
+  const locationField = useDebouncedField(seed.locationLabel ?? '', handleField('locationLabel'));
+
   const handleAddPayoff = async () => {
     const now = Date.now();
     const payoff: Payoff = {
@@ -378,12 +407,13 @@ function SeedDetail({
                 className="text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold tracking-wide"
                 style={{ backgroundColor: `${kindCfg.color}20`, color: kindCfg.color }}
               >
-                {kindCfg.label}
+                {t(kindCfg.labelKey)}
               </span>
             </div>
             <input
-              value={seed.title}
-              onChange={(e) => handleField('title')(e.target.value)}
+              value={titleField.value}
+              onChange={(e) => titleField.onChange(e.target.value)}
+              onBlur={titleField.onBlur}
               placeholder={t('seeds.titlePlaceholder')}
               className="w-full bg-transparent text-lg font-serif font-semibold text-text-primary outline-none border-b border-transparent focus:border-accent-gold transition"
             />
@@ -408,8 +438,8 @@ function SeedDetail({
               onChange={(e) => handleField('kind')(e.target.value as SeedKind)}
               className="w-full px-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
             >
-              {(Object.entries(SEED_KIND_CONFIG) as [SeedKind, { label: string }][]).map(([k, v]) => (
-                <option key={k} value={k}>{v.label}</option>
+              {(Object.entries(SEED_KIND_CONFIG) as [SeedKind, { labelKey: string }][]).map(([k, v]) => (
+                <option key={k} value={k}>{t(v.labelKey)}</option>
               ))}
             </select>
           </label>
@@ -420,8 +450,8 @@ function SeedDetail({
               onChange={(e) => handleField('status')(e.target.value as SeedStatus)}
               className="w-full px-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
             >
-              {(Object.entries(SEED_STATUS_CONFIG) as [SeedStatus, { label: string }][]).map(([k, v]) => (
-                <option key={k} value={k}>{v.label}</option>
+              {(Object.entries(SEED_STATUS_CONFIG) as [SeedStatus, { labelKey: string }][]).map(([k, v]) => (
+                <option key={k} value={k}>{t(v.labelKey)}</option>
               ))}
             </select>
           </label>
@@ -442,8 +472,9 @@ function SeedDetail({
         <label className="space-y-1 block">
           <span className="text-xs text-text-dim">{t('seeds.description')}</span>
           <textarea
-            value={seed.description}
-            onChange={(e) => handleField('description')(e.target.value)}
+            value={descriptionField.value}
+            onChange={(e) => descriptionField.onChange(e.target.value)}
+            onBlur={descriptionField.onBlur}
             rows={3}
             placeholder={t('seeds.descriptionPlaceholder')}
             className="w-full px-3 py-2 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition resize-none"
@@ -454,12 +485,35 @@ function SeedDetail({
         <label className="space-y-1 block">
           <span className="text-xs text-text-dim">{t('seeds.locationLabel')}</span>
           <input
-            value={seed.locationLabel ?? ''}
-            onChange={(e) => handleField('locationLabel')(e.target.value)}
+            value={locationField.value}
+            onChange={(e) => locationField.onChange(e.target.value)}
+              onBlur={locationField.onBlur}
             placeholder={t('seeds.locationPlaceholder')}
             className="w-full px-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
           />
         </label>
+
+        <LinkSelect
+          label={t('seeds.linkedWriting')}
+          value={seed.linkedWritingId ?? ''}
+          onChange={(v) => handleField('linkedWritingId')(v || undefined)}
+          options={writings.map((w) => ({ id: w.id, label: w.title }))}
+        />
+        <LinkSelect
+          label={t('seeds.linkedBeat')}
+          value={seed.linkedBeatId ?? ''}
+          onChange={(v) => handleField('linkedBeatId')(v || undefined)}
+          options={outlineBeats.map((b) => ({ id: b.id, label: b.title }))}
+        />
+        <LinkSelect
+          label={t('seeds.linkedScene')}
+          value={seed.linkedSceneId ?? ''}
+          onChange={(v) => handleField('linkedSceneId')(v || undefined)}
+          options={scenes.map((sc) => ({
+            id: sc.id,
+            label: `${sc.sceneNumber ? `#${sc.sceneNumber} ` : ''}${sc.title}`,
+          }))}
+        />
       </div>
 
       {/* Payoffs */}
@@ -557,13 +611,18 @@ function PayoffCard({
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<Payoff>);
   };
 
+  const titleField = useDebouncedField(payoff.title, handleField('title'));
+  const descriptionField = useDebouncedField(payoff.description ?? '', handleField('description'));
+  const locationField = useDebouncedField(payoff.locationLabel ?? '', handleField('locationLabel'));
+
   return (
     <div className="group border border-border rounded-lg bg-elevated/40 p-3 space-y-2">
       <div className="flex items-center gap-2">
         <ArrowRight size={12} className="text-green-400 flex-shrink-0" />
         <input
-          value={payoff.title}
-          onChange={(e) => handleField('title')(e.target.value)}
+          value={titleField.value}
+          onChange={(e) => titleField.onChange(e.target.value)}
+              onBlur={titleField.onBlur}
           className="flex-1 bg-transparent text-sm text-text-primary outline-none border-b border-transparent focus:border-green-400 transition"
         />
         <button
@@ -583,8 +642,9 @@ function PayoffCard({
       {expanded && (
         <div className="space-y-2 pl-5">
           <textarea
-            value={payoff.description}
-            onChange={(e) => handleField('description')(e.target.value)}
+            value={descriptionField.value}
+            onChange={(e) => descriptionField.onChange(e.target.value)}
+            onBlur={descriptionField.onBlur}
             rows={3}
             placeholder={t('seeds.payoff.descriptionPlaceholder')}
             className="w-full px-2 py-1.5 text-xs bg-elevated border border-border rounded text-text-primary outline-none focus:border-green-400 transition resize-none"
@@ -614,8 +674,9 @@ function PayoffCard({
               />
             </label>
             <input
-              value={payoff.locationLabel ?? ''}
-              onChange={(e) => handleField('locationLabel')(e.target.value)}
+              value={locationField.value}
+              onChange={(e) => locationField.onChange(e.target.value)}
+              onBlur={locationField.onBlur}
               placeholder={t('seeds.locationPlaceholder')}
               className="flex-1 min-w-[140px] px-2 py-0.5 text-xs bg-elevated border border-border rounded text-text-primary outline-none focus:border-green-400 transition"
             />
@@ -623,5 +684,40 @@ function PayoffCard({
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// LinkSelect — one cross-engine link dropdown, hidden when there is nothing to
+// point at (an empty select is just noise on a fresh project).
+// ---------------------------------------------------------------------------
+
+function LinkSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { id: string; label: string }[];
+}) {
+  const { t } = useTranslation();
+  if (options.length === 0) return null;
+  return (
+    <label className="space-y-1 block">
+      <span className="text-xs text-text-dim">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition cursor-pointer"
+      >
+        <option value="">{t('seeds.noLink')}</option>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>{o.label}</option>
+        ))}
+      </select>
+    </label>
   );
 }

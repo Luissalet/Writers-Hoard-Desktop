@@ -4,10 +4,42 @@
 
 import type { SnapshotSource } from '../types';
 
+/**
+ * Hostname of a URL, tolerant of input the user just pasted (no scheme).
+ * Returns '' when there is nothing parseable.
+ */
+export function hostnameOf(url: string): string {
+  const raw = (url || '').trim();
+  if (!raw) return '';
+  try {
+    const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+    return new URL(withScheme).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/** True when `host` is exactly `domain` or a subdomain of it. */
+function hostMatches(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+/**
+ * Which kind of thing a URL points at.
+ *
+ * Substring matching was actively harmful here: `url.includes('x.com')` is true
+ * for netflix.com, linux.com and phoenix.com, so ordinary web pages were
+ * classified as tweets, took the media-download path instead of the page
+ * archiver, and ended up stuck in `downloadState: 'error'` with nothing
+ * captured. Matching on the parsed hostname (exact or subdomain) fixes the
+ * whole family at once.
+ */
 export function detectUrlSource(url: string): SnapshotSource {
-  if (url.includes('twitter.com') || url.includes('x.com')) return 'tweet';
-  if (url.includes('instagram.com')) return 'instagram';
-  if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
+  const host = hostnameOf(url);
+  if (!host) return 'url';
+  if (hostMatches(host, 'twitter.com') || hostMatches(host, 'x.com')) return 'tweet';
+  if (hostMatches(host, 'instagram.com')) return 'instagram';
+  if (hostMatches(host, 'youtube.com') || hostMatches(host, 'youtu.be')) return 'youtube';
   return 'url';
 }
 

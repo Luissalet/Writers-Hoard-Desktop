@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { GripVertical, Trash2 } from 'lucide-react';
 import type { VideoSegment, VisualType } from '../types';
 import SegmentEditor from './SegmentEditor';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface SegmentCardProps {
   segment: VideoSegment;
@@ -29,14 +30,15 @@ export default function SegmentCard({
   isDragging,
   onDragStart,
 }: SegmentCardProps) {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
 
   const formatTimecodeRange = (start?: string, end?: string): string => {
     if (!start && !end) return '';
     if (start && end) return `${start} → ${end}`;
-    if (start) return `From ${start}`;
-    return `To ${end}`;
+    if (start) return t('videoPlanner.segment.fromTime').replace('{time}', start);
+    return t('videoPlanner.segment.toTime').replace('{time}', end ?? '');
   };
 
   return (
@@ -63,7 +65,7 @@ export default function SegmentCard({
                 <h3 className="font-serif text-lg text-neutral-50">{segment.title}</h3>
               </div>
               {segment.speakerName && (
-                <p className="text-xs text-accent-gold mt-1">Speaker: {segment.speakerName}</p>
+                <p className="text-xs text-accent-gold mt-1">{t('videoPlanner.segment.speaker').replace('{name}', segment.speakerName)}</p>
               )}
             </div>
           </div>
@@ -84,19 +86,19 @@ export default function SegmentCard({
         <div className="grid grid-cols-2 gap-4 mb-3">
           {/* Left: Script */}
           <div className="bg-deep rounded border border-border/50 p-3">
-            <p className="text-xs text-accent-gold/70 uppercase tracking-wide mb-2">Script</p>
+            <p className="text-xs text-accent-gold/70 uppercase tracking-wide mb-2">{t('videoPlanner.segment.script')}</p>
             <p className="text-sm text-neutral-100 line-clamp-3 font-serif">
-              {segment.script || '(no script)'}
+              {segment.script || t('videoPlanner.segment.noScript')}
             </p>
           </div>
 
           {/* Right: Visual */}
           <div className="bg-deep rounded border border-border/50 p-3">
-            <p className="text-xs text-accent-gold/70 uppercase tracking-wide mb-2">Visual</p>
+            <p className="text-xs text-accent-gold/70 uppercase tracking-wide mb-2">{t('videoPlanner.segment.visualHeading')}</p>
             <div className="flex items-start gap-2">
               <span className="text-xl">{VISUAL_ICONS[segment.visualType]}</span>
               <div className="flex-1">
-                <p className="text-xs text-accent-gold capitalize">{segment.visualType.replace('-', ' ')}</p>
+                <p className="text-xs text-accent-gold">{t(`videoPlanner.segment.visual.${segment.visualType}`)}</p>
                 {segment.visualImageData ? (
                   <img
                     src={segment.visualImageData}
@@ -106,7 +108,7 @@ export default function SegmentCard({
                 ) : segment.visualDescription ? (
                   <p className="text-xs text-neutral-300 mt-1 line-clamp-2">{segment.visualDescription}</p>
                 ) : (
-                  <p className="text-xs text-neutral-400 italic mt-1">No visual set</p>
+                  <p className="text-xs text-neutral-400 italic mt-1">{t('videoPlanner.segment.noVisual')}</p>
                 )}
               </div>
             </div>

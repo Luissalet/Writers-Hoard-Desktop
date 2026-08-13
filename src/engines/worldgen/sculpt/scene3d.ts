@@ -390,6 +390,24 @@ uniform float uHeadlight;    // 0 = fixed sun, 1 = light from the camera
 uniform vec2  uMirror;       // 1 where that axis is mirrored, for the guide line
 uniform float uShadow;       // 0–1 strength of the cast shadow
 
+// ---------------------------------------------------------------------------
+// LA LUZ QUE HAY, Y EL AIRE QUE HAY EN MEDIO
+// ---------------------------------------------------------------------------
+// Ocho valores que antes eran constantes dentro del shader, y ese era el motivo
+// de que el terreno se pintara a MEDIODÍA bajo un cielo de atardecer: el sol
+// entraba como dirección y nada más, así que a las 20:00 el mar salía naranja
+// hasta el horizonte y las islas del fondo seguían verde oscuro saturado. Ahora
+// los tres primeros los llena sky.sunLight() y los cuatro últimos
+// sky.horizonColor(), así que la lámpara del terreno ES la del cielo dibujado
+// y no una parecida afinada por separado.
+uniform vec3  uSunColor;     // color de la luz directa
+uniform float uSunPower;     // 0–1, su fuerza (0,055 de noche, 1 a mediodía)
+uniform vec3  uAmbient;      // tinte del relleno, ya normalizado (ver setSunLight)
+uniform vec3  uHorizon;      // el cielo en la dirección de la vista, APLANADA
+uniform vec3  uFogWarm;      // el cielo en el horizonte del lado del sol
+uniform float uFogDist;      // distancia a la que la niebla vale 1-1/e
+uniform float uFogOn;
+
 in vec2 vUV;
 in float vElev;
 in vec3 vWorld;
@@ -819,17 +837,74 @@ void main() {
   // A drawn map is a picture with its own light already in it, and a satellite
   // raster is close to albedo. So the skins take a flatter, mostly ambient lamp
   // and let the bump and the cavity do the shaping; the clay takes the full sun.
+  //
+  // EL REPARTO ENTRE PLANO Y MODELADO NO CAMBIA CON LA HORA, y eso es
+  // deliberado. uFlatLight dice «esta imagen ya trae su propia luz dentro»,
+  // que es una propiedad del DIBUJO y no del momento del día: la carta seguirá
+  // teniendo sus montañas sombreadas desde arriba a la izquierda a las tres de
+  // la mañana. Lo que sí cambia —y antes no— es el COLOR y la FUERZA de las dos
+  // mitades: un mapa tumbado en el suelo al atardecer está iluminado por el
+  // atardecer, y dejarlo a plena luz de mediodía era exactamente el defecto que
+  // hacía que el 3D pareciera una maqueta con el cielo pegado detrás.
   float lightMix = 1.0 - uFlatLight * 0.55;
-  col *= (0.30 + 0.70 * uFlatLight * 0.55) + (0.92 * lam * sh + 0.18 * sky) * lightMix;
+  // Cuánta luz hay en el mundo ahora mismo. MISMA CURVA que el cuerpo de agua
+  // (exponente 0,65 en water.ts) y mismo suelo de 0,12: si la tierra y el mar
+  // no se apagan a la vez, de noche las islas salen como recortes negros sobre
+  // un mar todavía azulado, y los dos se desmienten el uno al otro.
+  float dayAmt = 0.12 + 0.88 * pow(clamp(uSunPower, 0.0, 1.0), 0.65);
+  // EL FOCO FRONTAL ES DEL LECTOR, NO DEL MUNDO. Es la linterna con la que se
+  // esculpe, y si siguiera al sol, esculpir de noche sería esculpir a ciegas.
+  // Con uHeadlight en uno esta lámpara vuelve a ser blanca y a plena potencia,
+  // o sea EXACTAMENTE la de siempre: la arcilla con luz frontal se pinta hoy
+  // igual que se pintaba antes de que existiera el cielo.
+  vec3 sunCol = mix(uSunColor * clamp(uSunPower, 0.0, 1.0), vec3(1.0), uHeadlight);
+  vec3 ambCol = mix(uAmbient * dayAmt, vec3(1.0), uHeadlight);
+  col *= ambCol * (0.30 + 0.70 * uFlatLight * 0.55)
+       + (sunCol * (0.92 * lam * sh) + ambCol * (0.18 * sky)) * lightMix;
   col *= 1.0 - max(0.0, cav) * uCavity;              // hollows darken
-  col += vec3(1.0) * max(0.0, -cav) * uCavity * 0.35; // ridges catch the light
-  col += spec * sh + rim * vec3(0.55, 0.65, 0.8);
+  // Y lo que se SUMA también es luz: una cresta que «coge la luz» con blanco
+  // puro de noche es un collar fosforescente sobre una montaña negra.
+  col += ambCol * max(0.0, -cav) * uCavity * 0.35;   // ridges catch the light
+  col += sunCol * spec * sh + ambCol * rim * vec3(0.55, 0.65, 0.8);
 
   if (!underwater && uContour > 0.0) {
     float f = e / uContour;
     float w = fwidth(f);
     float line = 1.0 - smoothstep(0.0, w * 1.3, abs(fract(f) - 0.5) - 0.5 + w * 1.3);
     col = mix(col, col * 0.72, clamp(line, 0.0, 1.0) * 0.45);
+  }
+
+  // ---- la lejanía ----------------------------------------------------------
+  //
+  // EL DEFECTO QUE ESTO ARREGLA, con nombre: al atardecer el mar llegaba
+  // naranja hasta el horizonte y las islas del fondo se quedaban verde oscuro
+  // saturado, recortadas contra él como calcomanías. El agua ya se fundía al
+  // cielo (haze en water.ts) y el terreno no se fundía a nada, porque
+  // scene.fog de three.js NO ACTÚA aquí: este material es un ShaderMaterial
+  // propio y no incluye los trozos de niebla que three inyecta en los suyos.
+  //
+  // Tres cosas tienen que coincidir con el agua o la costa lejana se parte en
+  // dos a lo largo de la orilla:
+  //   · la CURVA — 1-exp(-(d/D)^1,3), la misma;
+  //   · la DISTANCIA D — min(6·max(|camY-marY|, SIZE_X·0,06), SIZE_X·8),
+  //     calculada por la vista y pasada igual a los dos (ver World3D.draw);
+  //   · el COLOR — el horizonte, calentado hacia el lado del sol con el mismo
+  //     pow(dot(-V,uSun),3)·0,55. Sin ese calentamiento, medido en la clave de
+  //     atardecer y a 45° del sol, el agua funde a (0,84 0,56 0,48) y el terreno
+  //     fundiría a (0,67 0,48 0,44): una costura naranja/parda de lado a lado.
+  //
+  // DISTANCIA HORIZONTAL en el plano, no en línea recta: es la que mide el aire
+  // que atraviesa la mirada. Desde muy alto y mirando a plomo el camino es
+  // corto y la vista de mapa tiene que quedar limpia; en el globo no hay
+  // horizonte al que fundir y uFogOn llega en cero (ver setFog).
+  //
+  // Y va ANTES del pincel y de las guías de simetría a propósito: esas dos son
+  // herramienta, no sitio. Un aro de pincel que se desvanece con la distancia es
+  // el contorno con el que apuntas desapareciendo justo donde más falta hace.
+  if (uFogOn > 0.5) {
+    float dxz = uShape < 0.5 ? length(vWorld.xz - uCam.xz) : length(vWorld - uCam);
+    vec3 fogCol = mix(uHorizon, uFogWarm, pow(max(dot(-V, uSun), 0.0), 3.0) * 0.55);
+    col = mix(col, fogCol, 1.0 - exp(-pow(dxz / max(1e-3, uFogDist), 1.3)));
   }
 
   // ---- the brush, measured in cells ---------------------------------------
@@ -1029,6 +1104,16 @@ export class SculptSurface {
         uHeadlight: { value: 0 },
         uMirror: { value: new THREE.Vector2(0, 0) },
         uShadow: { value: 0.65 },
+        // Los valores de partida son los de MEDIODÍA, que es lo que el shader
+        // daba por supuesto cuando la luz era una constante: una superficie que
+        // nadie conecte a un cielo se sigue viendo exactamente como antes.
+        uSunColor: { value: new THREE.Color(1, 0.97, 0.93) },
+        uSunPower: { value: 1 },
+        uAmbient: { value: new THREE.Color(1, 1, 1) },
+        uHorizon: { value: new THREE.Color(0.6, 0.7, 0.8) },
+        uFogWarm: { value: new THREE.Color(0.7, 0.75, 0.85) },
+        uFogDist: { value: SIZE_X * 8 },
+        uFogOn: { value: 0 },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -1172,6 +1257,67 @@ export class SculptSurface {
   setContour(km: number): void {
     this.material.uniforms.uContour.value = km;
   }
+
+  /**
+   * La luz que hay: lo que `sky.sunLight()` devuelve, tal cual.
+   *
+   * EL AMBIENTE SE NORMALIZA AQUÍ, y hace falta. `sunLight().ambient` es medio
+   * cénit medio horizonte, o sea el color real del relleno — a mediodía sale
+   * (0,47 0,62 0,86): luminancia 0,60 y muy azul. Multiplicar la lámpara por él
+   * tal cual haría dos cosas mal a la vez: bajaría el fotograma de mediodía un
+   * 40 % respecto al que todo el mundo lleva mirando, y teñiría de azul el
+   * papel de la carta dibujada, que se lleva el 30 % plano de su brillo. Se
+   * lleva a luminancia 1 —así el mediodía es EL MISMO de siempre y lo que
+   * cambia es todo lo demás— y luego se acerca un 65 % al gris, que deja el
+   * frío en la sombra sin pintar el dibujo. La fuerza no se pierde: viaja en
+   * `power`, y el shader la aplica con la misma curva que el agua.
+   *
+   * Los colores que llegan son de usar y tirar (el cielo reutiliza los suyos
+   * entre fotogramas), así que se COPIAN a los uniformes; nunca se guardan.
+   */
+  setSunLight(color: THREE.Color, power: number, ambient: THREE.Color): void {
+    (this.material.uniforms.uSunColor.value as THREE.Color).copy(color);
+    this.material.uniforms.uSunPower.value = power;
+    const lum = 0.2126 * ambient.r + 0.7152 * ambient.g + 0.0722 * ambient.b;
+    const k = 1 / Math.max(1e-3, lum);
+    const NEUTRAL = 0.35;   // 1 = el tinte entero; 0 = gris
+    (this.material.uniforms.uAmbient.value as THREE.Color).setRGB(
+      1 + (ambient.r * k - 1) * NEUTRAL,
+      1 + (ambient.g * k - 1) * NEUTRAL,
+      1 + (ambient.b * k - 1) * NEUTRAL,
+    );
+  }
+
+  /**
+   * La niebla de distancia: a qué color funde lo lejano y a qué ritmo.
+   *
+   * `horizon` es `sky.horizonColor(dirAplanada)` y `warm` es el horizonte del
+   * lado del sol (`sky.waterSky().horizonWarm`); `dist` TIENE QUE SER el mismo
+   * número que el agua se calcula por dentro, o la costa lejana se parte en dos
+   * — ver el bloque de la lejanía en el fragment shader.
+   *
+   * En el globo llega apagada: allí no hay horizonte al que fundir, lo que
+   * rodea al planeta es espacio casi negro, y una niebla hacia él oscurecería
+   * los continentes del limbo. Ahí el aire lo dibujan el anillo del cielo y la
+   * bruma de limbo del agua, que sí saben de qué van.
+   */
+  setFog(horizon: THREE.Color, warm: THREE.Color, dist: number, on: boolean): void {
+    (this.material.uniforms.uHorizon.value as THREE.Color).copy(horizon);
+    (this.material.uniforms.uFogWarm.value as THREE.Color).copy(warm);
+    this.material.uniforms.uFogDist.value = Math.max(1e-3, dist);
+    this.material.uniforms.uFogOn.value = on ? 1 : 0;
+  }
+
+  /**
+   * La textura de alturas del mundo, para quien necesite leer el mismo campo.
+   *
+   * La usa el agua (`water.update({ heightTex })`) para saber dónde está el
+   * fondo: su orilla sale del MISMO R32F que desplaza esta malla, así que la
+   * espuma no puede quedar ni un téxel tierra adentro ni mar adentro. Es esto o
+   * que la vista meta la mano en `material.uniforms.uHeight.value`, que es un
+   * detalle de implementación de esta clase.
+   */
+  get heightTexture(): THREE.DataTexture { return this.heightTex; }
 
   /** Azimuth and elevation in degrees. */
   setSun(azimuthDeg: number, elevationDeg: number): void {

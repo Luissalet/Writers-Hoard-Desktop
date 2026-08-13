@@ -554,7 +554,11 @@ export function renderSatellite(region: RegionData, ctx: Ctx, opts: SatelliteOpt
   if (opts.tracks !== false && pxPerCell >= 1.5) {
     drawTracks(region, ctx, toPx, pxPerCell, metresPerPx);
   }
-  if (opts.buildings !== false && metresPerPx <= 2.2) {
+  // Hasta 160 m/px, no 2,2: la puerta estrecha era la mitad del hueco en el
+  // que un pueblo desaparecía del mapa (z9→z14 sin punto, sin mancha y sin
+  // tejados). `drawBuildings` decide solo qué dibujar a cada escala: mancha
+  // urbana cuando un tejado aún no mide 1,4 px, tejados cuando ya se leen.
+  if (opts.buildings !== false && metresPerPx <= 160) {
     drawBuildings(region, ctx, L, toPx, metresPerPx, opts.skipTownRoofs === true);
   }
   ctx.restore();
@@ -922,9 +926,55 @@ function drawBuildings(
     const s = spread[p.kind];
     if (!s) continue;
     const roofPx = s.roofM / metresPerPx;
-    if (roofPx < 1.4) continue;
     const spreadCells = s.radiusM / cellM;
     const ruin = p.kind === 'ruin';
+    if (roofPx < 1.4) {
+      /**
+       * LA MANCHA URBANA. Entre que el mapa apaga el punto del mundo (z9) y
+       * que un tejado mide 1,4 px (z14) había SEIS niveles en los que un
+       * pueblo era sólo su nombre sobre campo raso — «me acerco y desaparece
+       * la ciudad» (capturas de Eskuunkald, 2026-08-11). A esas escalas un
+       * pueblo real se lee como una MASA parda continua, no como tejados:
+       * unos lóbulos solapados y un corazón más denso, con el mismo hash
+       * estable por celda que los tejados para que cada tesela pinte la misma
+       * mancha. Cuando el tejado ya se lee, la mancha se retira y entran los
+       * tejados de abajo; cuando el plano real se dibuja (≤5 m/px), `skipTowns`
+       * ya se llevó el pueblo entero de este bucle.
+       */
+      const stainPx = s.radiusM / metresPerPx;
+      if (stainPx < 2.5) continue;
+      const hx0 = Math.floor(p.x), hy0 = Math.floor(p.y);
+      const blobs = Math.max(4, Math.min(11, Math.round(stainPx * 0.8)));
+      ctx.save();
+      // α igualada con la mancha del RELLENO del 3D (`townStains`, α0,34):
+      // aquélla tuvo que subir de 0,26 porque sobre albedo plano era un borrón
+      // tímido, y si la tesela llegara más clara el pueblo se ATENUARÍA justo
+      // al ponerse nítido. Mismo número aquí y allí, a la vez o en ninguno.
+      ctx.fillStyle = ruin ? '#6d675d' : '#6e5847';
+      ctx.globalAlpha = 0.34;
+      for (let k = 0; k < blobs; k++) {
+        const a = L.cell(hx0, hy0, 3000 + k * 3) * Math.PI * 2;
+        const dCells = Math.sqrt(L.cell(hx0, hy0, 3001 + k * 3)) * spreadCells * 0.72;
+        const gx = p.x + Math.cos(a) * dCells;
+        const gy = p.y + Math.sin(a) * dCells;
+        // Tampoco la mancha se mete en el agua: el lóbulo que cae en el lago
+        // se descarta, igual que el tejado que este bucle descarta más abajo.
+        const wi = Math.min(region.height - 1, Math.max(0, Math.floor(gy))) * region.width
+          + Math.min(region.width - 1, Math.max(0, Math.floor(gx)));
+        if (region.water[wi]) continue;
+        const r = stainPx * (0.26 + L.cell(hx0, hy0, 3002 + k * 3) * 0.3);
+        ctx.beginPath();
+        ctx.ellipse(toPx(gx), toPx(gy), r, r * 0.78, a, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // El corazón: el casco denso alrededor del que creció lo demás.
+      ctx.globalAlpha = 0.42;
+      ctx.beginPath();
+      ctx.arc(toPx(p.x), toPx(p.y), stainPx * 0.34, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      continue;
+    }
     // Hash on the place's own lattice cell, so every tile showing this hamlet
     // puts the same roof in the same field.
     const hx = Math.floor(p.x), hy = Math.floor(p.y);

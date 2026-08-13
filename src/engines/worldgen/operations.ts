@@ -14,11 +14,14 @@ export const worldWaypointOps = makeTableOps<WorldWaypoint>({
   sortFn: (a, b) => a.createdAt - b.createdAt,
 });
 
-/** Deleting a world removes its waypoints and its forged snapshot too. */
+/** Deleting a world removes its waypoints and its forged caches too. */
 export async function deleteWorldCascade(worldId: string): Promise<void> {
-  await db.transaction('rw', [db.generatedWorlds, db.worldWaypoints, db.worldSnapshots], async () => {
+  await db.transaction('rw', [
+    db.generatedWorlds, db.worldWaypoints, db.worldSnapshots, db.canonTiles,
+  ], async () => {
     await db.worldWaypoints.where('worldId').equals(worldId).delete();
     await db.worldSnapshots.delete(worldId);
+    await db.canonTiles.where('worldId').equals(worldId).delete();
     await db.generatedWorlds.delete(worldId);
   });
 }

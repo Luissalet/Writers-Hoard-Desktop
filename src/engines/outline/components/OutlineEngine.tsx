@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react';
-import { ListTree, Plus } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { ListTree, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { useAutoSelect, useEnsureDefault, EngineSpinner } from '@/engines/_shared';
+import { useAutoSelect, useEnsureDefault, EngineSpinner, ConfirmDialog, useDebouncedField } from '@/engines/_shared';
 import { useOutlines, useOutlineBeats } from '../hooks';
+import { getBeatCountsByOutline } from '../operations';
 import { useScenes } from '@/engines/dialog-scene/hooks';
+import { useWritings } from '@/engines/writings/hooks';
 import { BEAT_SHEET_TEMPLATES } from '../types';
 import type { Outline, OutlineBeat } from '../types';
 import { generateId } from '@/utils/idGenerator';
@@ -23,6 +25,23 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
 
   const { items: beats, addItem: addBeat, editItem: editBeat, removeItem: removeBeat } = useOutlineBeats(activeOutlineId);
   const { items: scenes } = useScenes(projectId);
+  const { writings } = useWritings(projectId);
+
+  // Per-outline beat totals for the dashboard cards. `beats` only ever holds
+  // the ACTIVE outline's beats, so counting it per card showed "0 beats" on
+  // every inactive outline.
+  const [beatCounts, setBeatCounts] = useState<Record<string, number>>({});
+  const [pendingDeleteOutline, setPendingDeleteOutline] = useState<Outline | null>(null);
+
+  const refreshBeatCounts = useCallback(() => {
+    let cancelled = false;
+    void getBeatCountsByOutline(projectId).then((counts) => {
+      if (!cancelled) setBeatCounts(counts);
+    });
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  useEffect(() => refreshBeatCounts(), [refreshBeatCounts, outlines.length, beats.length]);
 
   useAutoSelect(outlines, activeOutlineId, setActiveOutlineId);
 
@@ -43,6 +62,14 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
   const activeOutline = useMemo(
     () => outlines.find((o) => o.id === activeOutlineId),
     [outlines, activeOutlineId],
+  );
+
+  // Buffered: the title used to hit Dexie plus a full table refresh on every
+  // keystroke, with the input bound to the refreshed row — so typing fast lost
+  // characters.
+  const titleField = useDebouncedField(
+    activeOutline?.title ?? '',
+    (title) => { if (activeOutlineId) void editOutline(activeOutlineId, { title, updatedAt: Date.now() }); },
   );
 
   const handleCreateOutline = async (name: string, selectedTemplateId?: string) => {
@@ -93,15 +120,14 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
     await removeOutline(id);
     if (activeOutlineId === id) {
       const remaining = outlines.filter((o) => o.id !== id);
-      if (remaining.length > 0) {
-        setActiveOutlineId(remaining[0].id);
-      } else {
-        setActiveOutlineId('');
-      }
+      setActiveOutlineId(remaining.length > 0 ? remaining[0].id : '');
     }
+    setBeatCounts((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
-  // Suppress unused — wired to UI delete buttons
-  void handleDeleteOutline;
 
   if (loading) return <EngineSpinner />;
 
@@ -114,8 +140,9 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
             {/* Outline Title */}
             <input
               type="text"
-              value={activeOutline.title}
-              onChange={(e) => editOutline(activeOutlineId, { title: e.target.value, updatedAt: Date.now() })}
+              value={titleField.value}
+              onChange={(e) => titleField.onChange(e.target.value)}
+              onBlur={titleField.onBlur}
               className="text-2xl font-semibold text-text-primary bg-transparent focus:outline-none focus:ring-2 focus:ring-accent-gold/50 rounded px-2 py-1 -mx-2 mb-2 w-full"
               placeholder={t('outline.titlePlaceholder')}
             />
@@ -129,7 +156,10 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
           {/* Beat List */}
           <BeatList
             beats={beats}
+            outlineId={activeOutlineId}
+            projectId={projectId}
             scenes={scenes}
+            writings={writings}
             onAddBeat={async (beatData) => {
               const beat: OutlineBeat = {
                 ...beatData,
@@ -214,15 +244,34 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
             {outlines.map((outline) => {
               const isActive = outline.id === activeOutlineId;
               return (
-                <button
+                <div
                   key={outline.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setActiveOutlineId(outline.id)}
-                  className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition text-center min-h-24 ${
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setActiveOutlineId(outline.id);
+                    }
+                  }}
+                  className={`group relative cursor-pointer flex flex-col items-center justify-center p-3 rounded-xl border-2 transition text-center min-h-24 ${
                     isActive
                       ? 'border-accent-gold bg-accent-gold/10'
                       : 'border-border bg-surface/50 hover:border-accent-gold/50'
                   }`}
                 >
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPendingDeleteOutline(outline);
+                    }}
+                    title={t('common.delete')}
+                    className="absolute top-1 right-1 p-1 rounded text-red-500 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-red-500/10 transition"
+                  >
+                    <Trash2 size={13} />
+                  </button>
                   <ListTree
                     size={20}
                     className={isActive ? 'text-accent-gold mb-1' : 'text-text-dim mb-1'}
@@ -231,14 +280,25 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
                     {outline.title}
                   </p>
                   <p className="text-xs text-text-dim mt-1">
-                    {beats.filter((b) => b.outlineId === outline.id).length} {t('outline.beats')}
+                    {beatCounts[outline.id] ?? 0} {t('outline.beats')}
                   </p>
-                </button>
+                </div>
               );
             })}
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteOutline !== null}
+        destructive
+        message={t('outline.deleteConfirm').replace('{name}', pendingDeleteOutline?.title ?? '')}
+        onConfirm={() => {
+          if (pendingDeleteOutline) void handleDeleteOutline(pendingDeleteOutline.id);
+          setPendingDeleteOutline(null);
+        }}
+        onCancel={() => setPendingDeleteOutline(null)}
+      />
     </div>
   );
 }

@@ -237,11 +237,36 @@ export type WorldEdit =
   }
   /** A road drawn by hand between two places. */
   | { kind: 'road'; pts: Pt[]; major: boolean }
+  /**
+   * EL GRIFO DE LOS LUGARES ALEATORIOS (Luis, 2026-08-12: «no he pedido
+   * abadías, casas, monasterios»). El sembrado regional — granjas, aldeas,
+   * abadías, molinos, torres, ventas, minas — está APAGADO por defecto en
+   * todos los mundos; este edit lo abre para el mundo entero (el tick del
+   * menú lateral). Es una edición y no un parámetro a propósito: viaja con
+   * la lista (se guarda, se deshace con Ctrl+Z, invalida el canon tocado por
+   * el hash de ediciones) sin abrir un segundo canal de persistencia. Los
+   * pueblos del MUNDO (capitales, villas…) no pasan por aquí: eso es la
+   * geografía humana, no el sembrado de comarca.
+   */
+  | { kind: 'placesEverywhere'; enabled: boolean }
+  /**
+   * «Generar lugares en esta zona»: el pincel de lugares. `add` siembra el
+   * enrejado regional sólo bajo la pincelada (con el grifo global cerrado);
+   * `remove` (Ctrl, el negativo universal) lo vacía aunque el grifo esté
+   * abierto. `pts` en celdas del mundo, `radius` en celdas — la geometría
+   * exacta de un trazo de calzada, y con su misma invalidación: sólo las
+   * superteselas que la pincelada pisa se vuelven a fraguar.
+   */
+  | { kind: 'placesZone'; mode: 'add' | 'remove'; pts: Pt[]; radius: number }
   /** Erase generated roads passing within a radius. */
   | { kind: 'eraseRoads'; x: number; y: number; radius: number };
 
 export type EditTarget =
-  | 'settlement' | 'ruin' | 'realm' | 'feature' | 'landmark' | 'region' | 'road';
+  | 'settlement' | 'ruin' | 'realm' | 'feature' | 'landmark' | 'region' | 'road'
+  // Los rótulos pintados: identidad = posición de ORIGEN (`label:x,y`), como
+  // todo lo demás. Sin llave propia no se podían arrastrar — eran el único
+  // objeto del mapa que respondía al puntero y no al gesto de mover.
+  | 'label';
 
 /**
  * Identity for a generated river: the cell it ends at.
@@ -260,7 +285,7 @@ export function editKey(target: EditTarget, x: number, y: number, extra = ''): s
 }
 
 const TARGETS: EditTarget[] = [
-  'settlement', 'ruin', 'realm', 'feature', 'landmark', 'region', 'road',
+  'settlement', 'ruin', 'realm', 'feature', 'landmark', 'region', 'road', 'label',
 ];
 
 /**
@@ -666,7 +691,29 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     } else if (e.kind === 'restore') {
       for (const key of compatibleEditKeys(e.target, e.key)) out.removed.delete(key);
     } else if (e.kind === 'move') {
-      out.moves[e.key] = { x: e.x, y: e.y };
+      /**
+       * COLLAPSE CHAINS. A second drag of the same object arrives keyed by
+       * where the object was DRAWN — its first destination — because that is
+       * the position the patched list hands the view. Storing it verbatim
+       * builds `{origin→d1, d1→d2}`: the patch (which moves base objects, all
+       * of them at their origins) stops at d1, and only a view with its own
+       * second correction ever showed d2 — the carta, the globe and the atlas
+       * silently disagreed with the 2D from the second drag on. So if this
+       * key IS some entry's current destination, redirect: the ORIGIN key is
+       * the object's one stable name, and one entry per object is the whole
+       * invariant. Replays collapse saved chains the same way, so a world
+       * that already has one heals on open. (Edge accepted: an object born on
+       * the exact cell another was dropped on inherits its key; a cell is
+       * ~19 km of ground, and the drop would have landed on the same spot.)
+       */
+      let key = e.key;
+      const wanted = new Set(compatibleEditKeys(e.target, e.key));
+      for (const k0 of Object.keys(out.moves)) {
+        const t0 = k0.slice(0, k0.indexOf(':'));
+        const p = out.moves[k0];
+        if (wanted.has(`${t0}:${Math.round(p.x)},${Math.round(p.y)}`)) { key = k0; break; }
+      }
+      out.moves[key] = { x: e.x, y: e.y };
     } else if (e.kind === 'style') {
       out.styles[e.key] = { ...out.styles[e.key], ...e.style };
     } else if (e.kind === 'road' && e.pts.length >= 2) {
@@ -933,19 +980,78 @@ export function editCostClass(edits: WorldEdit[]): 'local' | 'global' {
  *  have to land within 1/512 of a cell of a crossing exactly on a centre to move
  *  one cell of the border, and that cell is by definition on the edge the reader
  *  drew freehand to ±half a cell. */
-export function serializeEdits(edits: WorldEdit[]): string {
-  const round = (p: Pt) => ({ x: Math.round(p.x * 256) / 256, y: Math.round(p.y * 256) / 256 });
-  return JSON.stringify(edits.map((e) => {
-    if ('stroke' in e) return { ...e, stroke: { ...e.stroke, pts: e.stroke.pts.map(round) } };
-    if (e.kind === 'river' || e.kind === 'realmArea') return { ...e, pts: e.pts.map(round) };
-    return e;
-  }));
+/**
+ * La política de sembrado regional que una lista de ediciones dicta.
+ *
+ * Derivada y no almacenada: el estado del grifo es «lo que diga el ÚLTIMO
+ * `placesEverywhere` de la lista» (así Ctrl+Z lo revierte como a cualquier
+ * otra edición), y las zonas se evalúan en orden de lista — la última
+ * pincelada que pisa un punto decide, que es la semántica de pintar encima.
+ * Sin ediciones de lugares: todo cerrado, que es el defecto que pidió Luis
+ * (2026-08-12) para mundos nuevos Y viejos.
+ */
+export interface SitesPolicy {
+  everywhere: boolean;
+  zones: { mode: 'add' | 'remove'; pts: Pt[]; radius: number }[];
 }
 
+export function sitesPolicyFrom(edits: readonly WorldEdit[] | undefined): SitesPolicy {
+  const policy: SitesPolicy = { everywhere: false, zones: [] };
+  if (!edits) return policy;
+  for (const e of edits) {
+    if (e.kind === 'placesEverywhere') policy.everywhere = e.enabled;
+    else if (e.kind === 'placesZone' && e.pts.length) {
+      policy.zones.push({ mode: e.mode, pts: e.pts, radius: e.radius });
+    }
+  }
+  return policy;
+}
+
+export function serializeEdits(edits: WorldEdit[]): string {
+  const round = (p: Pt) => ({ x: Math.round(p.x * 256) / 256, y: Math.round(p.y * 256) / 256 });
+  return JSON.stringify({
+    v: 2,
+    edits: edits.map((e) => {
+      if ('stroke' in e) return { ...e, stroke: { ...e.stroke, pts: e.stroke.pts.map(round) } };
+      if (e.kind === 'river' || e.kind === 'realmArea' || e.kind === 'placesZone') {
+        return { ...e, pts: e.pts.map(round) };
+      }
+      return e;
+    }),
+  });
+}
+
+/**
+ * A bare array is the v1 format, and v1 stroke points speak the OLD stamp
+ * convention: `stampDisc` measured cells by their index, so a stroke's painted
+ * ground sat half a cell south-east of its points. The formula now measures
+ * cell CENTRES; shifting v1 points by that same half cell reproduces the old
+ * masks bit for bit, so a saved world's ground does not move by a single cell.
+ * Only kinds carrying a `stroke` migrate: `river`/`realmArea`/`road` points
+ * are curve geometry, not stamp centres — a v1 river's carved channel settles
+ * half a cell north-west, which ALIGNS it with its own ink (the channel was
+ * the one consumer of the stroke mask that had no compensating ring).
+ */
 export function deserializeEdits(json: string): WorldEdit[] {
   try {
     const v = JSON.parse(json);
-    return Array.isArray(v) ? (v as WorldEdit[]) : [];
+    if (Array.isArray(v)) {
+      // One malformed element must cost one element, not the reader's whole
+      // edit history — hence the object filter before the migration touches
+      // anything.
+      return (v as WorldEdit[])
+        .filter((e): e is WorldEdit => !!e && typeof e === 'object')
+        .map((e) => ('stroke' in e
+          ? {
+            ...e,
+            stroke: { ...e.stroke, pts: e.stroke.pts.map((p) => ({ x: p.x + 0.5, y: p.y + 0.5 })) },
+          }
+          : e));
+    }
+    if (v && typeof v === 'object' && Array.isArray((v as { edits?: unknown }).edits)) {
+      return (v as { edits: WorldEdit[] }).edits;
+    }
+    return [];
   } catch {
     return [];
   }

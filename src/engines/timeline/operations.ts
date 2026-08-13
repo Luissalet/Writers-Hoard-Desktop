@@ -3,7 +3,6 @@
 // ============================================
 
 import { db } from '@/db';
-import { makeCascadeDeleteOp } from '@/engines/_shared';
 import type { Timeline, TimelineEvent, TimelineConnection } from '@/types';
 
 // ===== Timelines =====
@@ -20,13 +19,34 @@ export async function updateTimeline(id: string, changes: Partial<Timeline>): Pr
   await db.timelines.update(id, { ...changes, updatedAt: Date.now() });
 }
 
-export const deleteTimeline = makeCascadeDeleteOp({
-  tableName: 'timelines',
-  cascades: [
-    { table: 'timelineEvents', foreignKey: 'timelineId' },
-    { table: 'timelineConnections', foreignKey: 'timelineId' },
-  ],
-});
+/**
+ * Delete a timeline, its events, and every connection that touched them.
+ *
+ * The plain cascade on `timelineConnections.timelineId` was not enough:
+ * connections are allowed to cross timelines and are stored with the
+ * **target's** timelineId, so deleting the source lane left live rows pointing
+ * at a `sourceEventId` that no longer existed. The UI hides them, but they
+ * survived in Dexie and were written into every backup ZIP.
+ */
+export async function deleteTimeline(id: string): Promise<void> {
+  await db.transaction('rw', db.timelines, db.timelineEvents, db.timelineConnections, async () => {
+    const eventIds = (
+      await db.timelineEvents.where('timelineId').equals(id).primaryKeys()
+    ) as string[];
+
+    await db.timelineConnections.where('timelineId').equals(id).delete();
+    if (eventIds.length > 0) {
+      const owned = new Set(eventIds);
+      const dangling = await db.timelineConnections
+        .filter((c) => owned.has(c.sourceEventId) || owned.has(c.targetEventId))
+        .primaryKeys();
+      if (dangling.length > 0) await db.timelineConnections.bulkDelete(dangling);
+    }
+
+    await db.timelineEvents.where('timelineId').equals(id).delete();
+    await db.timelines.delete(id);
+  });
+}
 
 // ===== Timeline Events =====
 
@@ -47,12 +67,24 @@ export async function updateTimelineEvent(id: string, changes: Partial<TimelineE
 }
 
 export async function deleteTimelineEvent(id: string): Promise<void> {
-  // Also remove any connections referencing this event
-  const conns = await db.timelineConnections
-    .filter(c => c.sourceEventId === id || c.targetEventId === id)
-    .toArray();
-  await Promise.all(conns.map(c => db.timelineConnections.delete(c.id)));
-  await db.timelineEvents.delete(id);
+  // Also remove any connections referencing this event. `sourceEventId` and
+  // `targetEventId` are both indexed, so this is two index lookups instead of
+  // the full-table scan (across every project) this used to do — and it now
+  // runs inside one transaction rather than as loose parallel deletes.
+  await db.transaction('rw', db.timelineEvents, db.timelineConnections, async () => {
+    await db.timelineConnections.where('sourceEventId').equals(id).delete();
+    await db.timelineConnections.where('targetEventId').equals(id).delete();
+    await db.timelineEvents.delete(id);
+  });
+}
+
+/** How many connections would be lost if this event were deleted. */
+export async function countConnectionsForEvent(id: string): Promise<number> {
+  const [asSource, asTarget] = await Promise.all([
+    db.timelineConnections.where('sourceEventId').equals(id).count(),
+    db.timelineConnections.where('targetEventId').equals(id).count(),
+  ]);
+  return asSource + asTarget;
 }
 
 // ===== Timeline Connections =====
