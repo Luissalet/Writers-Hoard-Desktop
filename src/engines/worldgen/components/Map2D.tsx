@@ -33,6 +33,7 @@ import {
   type WorldSpatialEntity,
 } from '../core/spatialEntities';
 import { biomeName } from '../core/gazetteer';
+import { biomeLocaleKey } from '../core/biomeKeys';
 import {
   declutterLabels, nextSemanticTier, profileForTier, semanticTier,
   type SemanticZoomTier,
@@ -44,7 +45,10 @@ import { drawRealmBorders, realmBorders, realmTint } from '../cartography/realmO
 import {
   MAX_SAT_TILE_Z, SAT_DEEP_Z, satPxPerCanonCell, satelliteDeepSupported,
 } from '../region/satelliteTile';
-import { regionClient } from '../region/client';
+import { regionClient, tileStats, oldestInFlightMs } from '../region/client';
+import { TILE_WORLD_CELLS, wrapTx } from '../region/tiles';
+import { forgeAvailable, forgeDegraded } from '../forge/bridge';
+import { canonWorldBound } from '../canonSnapshots';
 import type { TilePlace } from '../region/deepTile';
 import { COVER_LABEL_ES } from '../region/types';
 import type { RegionData } from '../region/types';
@@ -54,11 +58,9 @@ import {
   type FlyTarget,
 } from '../core/camera';
 
-export const BIOME_KEYS = [
-  'ocean', 'lake', 'iceCap', 'tundra', 'boreal', 'tempForest', 'tempRain',
-  'grassland', 'shrubland', 'savanna', 'tropForest', 'tropRain', 'desert',
-  'coldDesert', 'alpine', 'glacier', 'beach', 'saltFlat',
-] as const;
+// La tabla completa vive en `core/biomeKeys.ts` (44 entradas): la copia local
+// se quedó en 17 cuando la revisión ecológica llevó `Biome` a 43 y el
+// sobrevuelo caía al castellano del gazetteer en los biomas nuevos.
 
 /**
  * The ends of the brush-size track, in kilometres of ground.
@@ -71,34 +73,29 @@ export const BIOME_KEYS = [
 const BRUSH_MIN_KM = 0.15;
 const BRUSH_MAX_KM = 2500;
 
+/** HUD de depuración del suelo (TEMPORAL — lo pidió Luis el 2026-08-12 para
+ *  cazar por qué el zoom se queda borroso en su máquina; quitar cuando el
+ *  diagnóstico esté hecho: poner a false y borrar los bloques que lo leen). */
+const DEBUG_HUD = true;
+
 /**
- * MEDIA CELDA AL SUR-ESTE: dónde cae de verdad la pincelada (B6).
+ * MEDIA CELDA AL SUR-ESTE, resuelta en la raíz (B6, cicatriz).
  *
- * El puntero da una coordenada continua — `m.u * W` — y en este mundo la celda
- * k es el suelo que va de k a k+1, con su centro en k+0,5. Así lo entienden
- * `polygonCells` (muestrea en `y + 0,5`), `realmFloodCells` (trunca) y la
- * lectura de terreno del sobrevuelo.
+ * `stampDisc` medía `dx = gx - cx` contra el ÍNDICE de la celda, cuando la
+ * celda k es el suelo de k a k+1 con su centro en k+0,5 — así que toda
+ * pincelada caía media celda al sur-este del puntero (centroide medido:
+ * +0,500, +0,500 exactas para radios 1–25). Esta vista lo compensaba
+ * desplazando el anillo y la previsualización (`STAMP_OFFSET_CELLS = 0.5`);
+ * el 3D no compensaba, y el canon re-rasterizaba el mismo trazo media celda
+ * de MUNDO más allá de donde lo puso la malla del mundo, porque el desfase
+ * era de media celda DE QUIEN SELLARA.
  *
- * `stampDisc`, que es quien decide qué celdas entinta una pincelada, NO: mide
- * `dx = gx - cx` contra el ÍNDICE de la celda, como si el suelo de la celda k
- * estuviera en el punto k. Con radio 1 y el puntero en 5,5 entinta las columnas
- * 5 y 6 — suelo de 5 a 7, centrado en 6,0 — mientras el anillo se dibuja
- * centrado en 5,5. Media celda de desfase, hacia el sur-este, en las dos
- * direcciones a la vez.
- *
- * Medido sobre el mismo test de inclusión, con radios 1, 2, 4, 9 y 25: el
- * centroide del SUELO entintado cae en (+0,500, +0,500) exactas respecto al
- * punto para cualquier radio, y entre +0,30 y +0,52 para un punto cualquiera
- * dentro de la celda (la diferencia es la cuantización del borde del disco).
- *
- * A escala planetaria media celda es medio píxel y no se ve. A 40 km de vano
- * una celda son cientos de píxeles: el anillo dice una cosa y la tinta aparece
- * visiblemente abajo y a la derecha, que es justo el zoom al que se pinta con
- * cuidado. El anillo se corrige aquí porque el desfase está en `sculpt/ops.ts`
- * y esa es la única implementación de la máscara: si se arreglara ahí — que es
- * lo correcto — habría que poner esta constante a cero, y no cambiar nada más.
+ * En la pasada 8 la fórmula pasó a medir centros (`gx + 0,5 − cx`) en
+ * `sculpt/ops.ts`, la constante se fue, y las listas guardadas se migran al
+ * deserializar (v1 → puntos +0,5) para que el suelo de un mundo pintado no se
+ * mueva ni una celda. El banco `harness/stamp-convention.ts` guarda la
+ * igualdad bit a bit de esa migración y el centrado del convenio nuevo.
  */
-const STAMP_OFFSET_CELLS = 0.5;
 
 interface Map2DProps {
   world: WorldData;
@@ -444,6 +441,7 @@ function realmColor(
 function hasRadius(tool: PaintTool | null | undefined): boolean {
   if (!tool) return false;
   return tool.mode === 'terrain' || tool.mode === 'land' || tool.mode === 'biome'
+    || tool.mode === 'places'
     || (tool.mode === 'frontera' && tool.realmTool === 'brush');
 }
 
@@ -750,7 +748,11 @@ function deepestSatelliteZ(world: WorldData): number {
 function makeCanvas(px: Uint8ClampedArray<ArrayBuffer>, w: number, h: number): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
-  c.getContext('2d')!.putImageData(new ImageData(px, w, h), 0, 0);
+  // El contexto PUEDE venir null (presión de memoria del rasterizador; medido
+  // al entrar aquí desde el 3D con SwiftShader). Una tesela en blanco se
+  // repinta al fotograma siguiente; el `!` convertía esto en un TypeError que
+  // se comía el fotograma entero.
+  c.getContext('2d')?.putImageData(new ImageData(px, w, h), 0, 0);
   return c;
 }
 
@@ -862,6 +864,8 @@ export default function Map2D({
    */
   const panRef = useRef(false);
   const rafRef = useRef(0);
+  /** Reintento pendiente tras un contexto 2D nulo — ver la guarda de `draw`. */
+  const ctxRetryRef = useRef(0);
   /**
    * Non-zero while the export is rendering: the ratio `draw` must use in place
    * of the screen's own device pixel ratio.
@@ -1349,7 +1353,23 @@ export default function Map2D({
     const canvas = canvasRef.current;
     const view = viewRef.current;
     if (!canvas || !view) return;
-    const ctx = canvas.getContext('2d')!;
+    // SIN `!`: al entrar desde el 3D el contexto llegó null (huele a presión
+    // de memoria de SwiftShader, no a este fichero) y el TypeError dentro del
+    // bucle de dibujo dejaba el mapa en blanco (0,8 % de tinta medido por el
+    // banco de arranque) y la consola en rojo. Saltarse el fotograma no basta:
+    // nadie vuelve a pedir otro sin un gesto del lector, así que la guarda
+    // deja UN reintento armado — cuando el rasterizador vuelva, el mapa
+    // aparece solo. Reproducción: views-smoke-run.mjs world3d-globo map2d.
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      if (!ctxRetryRef.current) {
+        ctxRetryRef.current = window.setTimeout(() => {
+          ctxRetryRef.current = 0;
+          scheduleDraw();
+        }, 120);
+      }
+      return;
+    }
     // The export owns this ratio while it renders — see `exportScale`. Every
     // other frame is a screen frame and uses the screen's.
     const dpr = exportScale.current || Math.min(window.devicePixelRatio || 1, 2);
@@ -1388,21 +1408,17 @@ export default function Map2D({
     // can never be what the pointer is tested against.
     const hits: Hit[] = [];
     /**
-     * LAS MUDANZAS DEL LECTOR, aplicadas aquí y no antes.
+     * LAS MUDANZAS DEL LECTOR ya vienen aplicadas en `geography`.
      *
-     * `AppliedEdits.moves` sólo lo lee `resolveWorldSpatialEntity`, así que los
-     * hitos y los lugares de comarca llegan a esta vista YA movidos y no deben
-     * volver a corregirse. Las poblaciones, las ruinas y los accidentes no: se
-     * dibujan directamente desde `geography`, y ni `buildHumanGeography` ni el
-     * parche barato `patchGeography` miran `moves` — de modo que sin esto un
-     * arrastre se guardaría, se contaría en el badge del Pincel y NO MOVERÍA
-     * NADA. Un gesto que no llega a la pantalla es un gesto que no existe
-     * (lección #23).
-     *
-     * Corregirlo aquí deja el 2D — que es donde está el gesto — diciendo la
-     * verdad hoy; hasta que los dos constructores de geografía honren `moves`,
-     * la Carta y el globo seguirán dibujando la posición de origen. Está pedido
-     * en el informe.
+     * `buildHumanGeography` y `patchGeography` honran `moves` desde la pasada
+     * 7, así que poblaciones, ruinas y accidentes llegan aquí YA movidos y no
+     * deben corregirse otra vez: la doble corrección de antes convertía el
+     * segundo arrastre de un objeto en una CADENA de llaves ({origen→d1,
+     * d1→d2}) que sólo esta vista sabía seguir — la Carta, el globo y el
+     * atlas se quedaban en d1. Hoy la cadena se colapsa donde se construye el
+     * estado (`applyEdits`), la llave del hit puede ser la del dibujo, y la
+     * única lista que sigue necesitando su mudanza local son los RÓTULOS
+     * pintados, que no pasan por la geografía.
      */
     const moves = world.painted?.moves;
     const movedAt = (key: string): Pt | undefined => moves?.[key];
@@ -1502,6 +1518,12 @@ export default function Map2D({
     // ring. The order is now conditional — see `blitSharp` above.
     const tilesEligible = pyramidHere;
     let tileZ = -1;
+    /** Si el plan de teselas del fotograma está ENTREGADO entero (exacto). La
+     *  cesión de rótulos al canon depende de esto: ceder a teselas que aún no
+     *  han llegado dejaba el mapa sin nombres justo mientras carga — la
+     *  captura de Luis del 2026-08-12. */
+    let tilesDelivered = false;
+    let tilePlanDebug: { needed: number; exact: number } | null = null;
     if (!tilesEligible) tileLevel.current = -1;
     if (tilesEligible) {
       // A painted stroke is a different country: bumping the generation empties
@@ -1553,9 +1575,32 @@ export default function Map2D({
         + `,${Math.ceil((tv.x + tv.w) / cellsPerTile)},${Math.ceil((tv.y + tv.h) / cellsPerTile)}`;
       if ((!dragRef.current || tileZ !== lastWant.current.z) && wantKey !== lastWant.current.key) {
         lastWant.current = { z: tileZ, key: wantKey };
+        // EL CALENTADOR VA DELANTE DEL PEDIDO. En suelo hondo y frío, cada
+        // supertesela del plan se genera en su propia sesión de la Forja — en
+        // PARALELO — y las teselas llegan detrás por residencia o siembra.
+        // Antes, la afinidad de sesión convertía el primer paseo en una fila
+        // india: EN VUELO 1 con quince cores parados (captura de Luis,
+        // 2026-08-12). Deduplicado dentro del cliente; fuera de suelo hondo
+        // no hace nada.
+        if (tileZ >= SAT_DEEP_Z && canonWorld && geography
+          && satelliteDeepSupported(world, tileZ)) {
+          const ids: { tx: number; ty: number }[] = [];
+          const ty0 = Math.max(0, Math.floor(tv.y / TILE_WORLD_CELLS));
+          const ty1 = Math.min(Math.ceil(H / TILE_WORLD_CELLS) - 1,
+            Math.floor((tv.y + tv.h) / TILE_WORLD_CELLS));
+          for (let ty = ty0; ty <= ty1; ty++) {
+            for (let tx = Math.floor(tv.x / TILE_WORLD_CELLS);
+              tx <= Math.floor((tv.x + tv.w) / TILE_WORLD_CELLS); tx++) {
+              ids.push({ tx: wrapTx(world, tx), ty });
+            }
+          }
+          regionClient.warmCanon(canonWorld, geography, ids, canonEdits);
+        }
         tileStore.want(world, tileZ, tv);
       }
       const got = tileStore.draw(ctx, world, tileZ, tv, { x: 0, y: 0, w: cw, h: ch });
+      tilesDelivered = got.exact >= got.needed;
+      tilePlanDebug = got;
       // The live ground goes back on top: `patchLive` writes the deforming
       // cells into the sharp window and nowhere else, so under the tiles it is
       // invisible and the reader paints by ring alone.
@@ -1601,8 +1646,15 @@ export default function Map2D({
      * never reaches canon ground, nothing is inked, and standing down would
      * leave the map with no places at all.
      */
+    // …y ENTREGADAS. `deepMarks` cede los rótulos del mundo porque las teselas
+    // hondas los traen ellas — pero eso sólo es verdad de las teselas que HAN
+    // LLEGADO. Ceder mientras el canon se genera (30 s por supertesela la
+    // primera vez) dejaba al lector sin la etiqueta de su ciudad exactamente
+    // durante la espera, que desde fuera se lee como «desaparece al hacer
+    // zoom» (Luis, 2026-08-12). Mientras falte una tesela, el mundo sigue
+    // rotulando; al completarse el plan, cede en el mismo fotograma.
     const deepMarks = tilesEligible && tileZ >= SAT_DEEP_Z
-      && !!canonWorld && satelliteDeepSupported(world, tileZ);
+      && !!canonWorld && satelliteDeepSupported(world, tileZ) && tilesDelivered;
 
     // Book a fresh window once the view rests. Booked from draw() so any
     // gesture reschedules it; rendered synchronously after 170 ms of quiet,
@@ -1919,6 +1971,11 @@ export default function Map2D({
             height: ch,
             pxPerCell,
             alpha,
+            // La misma vía afín que la capa de fronteras, con la misma
+            // condición: sólo equirect es afín; todo lo demás curva.
+            linear: projection === 'equirect'
+              ? { ox: copyOx, oy: view.oy, scale: pxPerCell }
+              : undefined,
           });
         }
       }
@@ -2027,11 +2084,10 @@ export default function Map2D({
       ctx.globalAlpha = 0.82;
       for (const copyOx of copies) {
         for (const ru of geography.ruins) {
+          // `ru` llega ya mudada por la geografía; la llave del dibujo la
+          // redirige `applyEdits` al origen si el lector vuelve a arrastrar.
           const ruKey = editKey('ruin', ru.x, ru.y);
-          const ruAt = movedAt(ruKey);
-          const [sx, sy] = toScreen(
-            ((ruAt?.x ?? ru.x) + 0.5) / W, ((ruAt?.y ?? ru.y) + 0.5) / H, copyOx,
-          );
+          const [sx, sy] = toScreen((ru.x + 0.5) / W, (ru.y + 0.5) / H, copyOx);
           if (sx < -20 || sx > cw + 20 || sy < -20 || sy > ch + 20) continue;
           const r = ru.kind === 'city' ? 4.2 : ru.kind === 'fort' ? 3.8 : 3.2;
           // A broken square: the universal "this was a building and is not any
@@ -2091,11 +2147,10 @@ export default function Map2D({
           // El mar sigue donde estaba; el rótulo se aparta de la costa que
           // tapaba. Es el mismo `move` — la posición del accidente es su ancla
           // de rótulo y nada más (ver `NamedFeature.x`).
+          // `f` llega ya mudado por la geografía (el ancla del rótulo es lo
+          // que se muda); `applyEdits` redirige la llave si se arrastra otra vez.
           const fKey = editKey('feature', f.x, f.y, `${f.kind}:`);
-          const fAt = movedAt(fKey);
-          const [sx, sy] = toScreen(
-            ((fAt?.x ?? f.x) + 0.5) / W, ((fAt?.y ?? f.y) + 0.5) / H, copyOx,
-          );
+          const [sx, sy] = toScreen((f.x + 0.5) / W, (f.y + 0.5) / H, copyOx);
           if (sx < -80 || sx > cw + 80 || sy < -30 || sy > ch + 30) continue;
           const water = river || f.kind === 'sea' || f.kind === 'bay' || f.kind === 'strait'
             || f.kind === 'ocean' || f.kind === 'lake' || f.kind === 'marsh';
@@ -2136,11 +2191,20 @@ export default function Map2D({
     if (world.painted?.labels?.length) {
       for (const copyOx of copies) {
         for (const pl of world.painted.labels) {
-          const [sx, sy] = toScreen((pl.x + 0.5) / W, (pl.y + 0.5) / H, copyOx);
+          // Identidad para el arrastre: la llave es la posición de ORIGEN
+          // (`label:x,y`, como todo lo demás) y el dibujo sigue a la mudanza.
+          // Sin `mover`, el rótulo era lo único del mapa que respondía al
+          // puntero pero no al gesto de mover.
+          const plKey = editKey('label', pl.x, pl.y);
+          const plAt = movedAt(plKey);
+          const [sx, sy] = toScreen(
+            ((plAt?.x ?? pl.x) + 0.5) / W, ((plAt?.y ?? pl.y) + 0.5) / H, copyOx,
+          );
           if (sx < -100 || sx > cw + 100 || sy < -30 || sy > ch + 30) continue;
           hits.push({
             kind: 'note', x: sx, y: sy, reach: 22, bias: 0.9,
             note: `${pl.text} · ${t('worldgen.hover.yourLabel')}`,
+            mover: { target: 'label', key: plKey, label: pl.text },
           });
           queueLabel(
             pl.style === 'region' || pl.style === 'range' ? pl.text.toUpperCase() : pl.text,
@@ -2188,13 +2252,10 @@ export default function Map2D({
           // the reader wondering whether the click registered at all.
           const pending = roadFrom?.id === s.id;
           if (rank > maxRank && !pending) continue;
-          // La llave sigue a la posición de ORIGEN aunque el dibujo siga a la
-          // mudanza: ver `Hit.mover`.
+          // `s` llega ya mudado por la geografía; la llave del dibujo la
+          // redirige `applyEdits` al origen si el lector vuelve a arrastrar.
           const sKey = editKey('settlement', s.x, s.y);
-          const sAt = movedAt(sKey);
-          const [sx, sy] = toScreen(
-            ((sAt?.x ?? s.x) + 0.5) / W, ((sAt?.y ?? s.y) + 0.5) / H, copyOx,
-          );
+          const [sx, sy] = toScreen((s.x + 0.5) / W, (s.y + 0.5) / H, copyOx);
           if (sx < -40 || sx > cw + 40 || sy < -20 || sy > ch + 20) continue;
           const r = rank === 0 ? 5 : rank === 1 ? 4 : rank === 2 ? 3 : 2.2;
           // The reach is the DOT plus a finger's worth, not a flat 14 px over
@@ -2215,7 +2276,15 @@ export default function Map2D({
           }
           // From here down is the MARK. The tiles draw it themselves at canon
           // depth; the hit and the pending ring above are ours at every level.
-          if (deepMarks) continue;
+          //
+          // EL PUNTO AGUANTA DOS NIVELES MÁS QUE EL RÓTULO. Las teselas
+          // «llevan el pueblo» desde z9, pero a z9–z10 su mancha urbana mide
+          // 4–8 px y todavía no se lee: apagar aquí el punto en cuanto
+          // entraban dejaba a la ciudad SIN CUERPO — sólo su nombre — durante
+          // los niveles medios (la captura de Eskuunkald de Luis). El rótulo
+          // sí se cede al canon desde z9, o el mismo nombre entra dos veces al
+          // declutterer y las dos cajas pelean.
+          if (deepMarks && tileZ >= SAT_DEEP_Z + 2) continue;
           ctx.beginPath();
           ctx.arc(sx, sy, r, 0, Math.PI * 2);
           ctx.fillStyle = pending ? '#ffd479' : rank === 0 ? '#ffd479' : '#f4ead4';
@@ -2223,16 +2292,21 @@ export default function Map2D({
           ctx.lineWidth = 1.5;
           ctx.strokeStyle = 'rgba(6,8,13,0.92)';
           ctx.stroke();
-          if (rank === 0
+          if (!deepMarks && (rank === 0
               || (rank <= 1 && semantic.tier !== 'planetary')
               || (rank <= 2 && (semantic.tier === 'regional' || semantic.tier === 'local'))
-              || semantic.tier === 'local') {
+              || semantic.tier === 'local')) {
+            // El rótulo CRECE con el zoom (Luis, 2026-08-12: «que siga
+            // apareciendo bien grande»): de lejos el tamaño de siempre; de
+            // cerca hasta 19 px, que una capital a cuarenta kilómetros de
+            // vano no puede anunciarse en letra de nota al pie.
+            const boost = Math.max(0, Math.min(8, (Math.log2((PW * scale) / W) - 1) * 2));
             queueLabel(
               s.name,
               sx + r + 5,
               sy,
               '#f6efe0',
-              rank <= 1 ? 11 : 10,
+              Math.round((rank <= 1 ? 11 : 10) + boost),
               rank <= 1 ? 600 : 500,
               100 - rank * 15,
             );
@@ -2260,11 +2334,31 @@ export default function Map2D({
     // landmarks come up as `landmark`/`crag` and read as geography.
     if (tilesEligible && tileZ >= SAT_DEEP_Z && (showSettlements || showFeatures)) {
       const prefix = `${tileZ}/`;
+      /**
+       * LA ESCALERA DE IMPORTANCIA, o el mapa se ahoga en nombres.
+       *
+       * El canon emite TODO — cada casa, venta, vado, granja y majada — y este
+       * bloque lo rotulaba todo en cuanto las teselas hondas entraban (z9):
+       * a escala comarcal eso son cientos de rótulos de 9,5 px a la vez, y la
+       * ciudad que buscas desaparece entre ellos. Es la captura de Luis del
+       * 2026-08-11 («aparecen mil mierdas»). Un mapa real deja entrar los
+       * nombres por tamaño según te acercas.
+       *
+       * El suelo por nivel sigue las importancias que `places.ts` asigna:
+       * pueblo 0,6+ · aldea 0,34 · abadía 0,4 · caserío 0,2 · torre 0,24 ·
+       * molino 0,14 · venta 0,15 · granja 0,1. El PUNTO entra un escalón antes
+       * que el NOMBRE (el campo se ve habitado sin leerse), y el sobrevuelo
+       * (`hits`) va con el punto, así que lo que se ve se puede preguntar.
+       */
+      const placeFloor = tileZ >= 14 ? 0 : tileZ >= 13 ? 0.09 : tileZ >= 12 ? 0.13
+        : tileZ >= 11 ? 0.19 : 0.32;
       for (const [id, places] of deepPlaces.current) {
         if (!id.startsWith(prefix)) continue;
         for (const p of places) {
           const geographic = DEEP_FEATURE_KINDS.has(p.kind);
           if (geographic ? !showFeatures : !showSettlements) continue;
+          if (p.importance < placeFloor) continue;
+          const labeled = tileZ >= 14 || p.importance >= placeFloor * 1.7;
           for (const copyOx of copies) {
             const [sx, sy] = toScreen(p.worldX / W, p.worldY / H, copyOx);
             if (sx < -80 || sx > cw + 80 || sy < -30 || sy > ch + 30) continue;
@@ -2274,11 +2368,16 @@ export default function Map2D({
             ctx.arc(sx, sy, big ? 3 : 2, 0, Math.PI * 2);
             ctx.fillStyle = 'rgba(20,18,14,0.75)';
             ctx.fill();
-            queueLabel(
-              p.name, sx + 5, sy, '#f2ecdd',
-              big ? 11 : 9.5, big ? 600 : 500,
-              40 + p.importance * 30,
-            );
+            if (labeled) {
+              // La misma regla que el rótulo del mundo: crece con el zoom.
+              const boost = Math.max(0, Math.min(8, (Math.log2((PW * scale) / W) - 1) * 2));
+              queueLabel(
+                p.name, sx + 5, sy, '#f2ecdd',
+                Math.round((big ? 11 : 9.5) + (big ? boost : boost * 0.75)),
+                big ? 600 : 500,
+                40 + p.importance * 30,
+              );
+            }
           }
         }
       }
@@ -2381,7 +2480,25 @@ export default function Map2D({
             ctx.closePath();
             ctx.stroke();
           } else {
+            // Suelo guardado, no una caja perdida: lavado sutil del interior
+            // y soportes de esquina sólidos — el lenguaje de un plano — sobre
+            // el marco a trazos de siempre. La Carta hace la misma marca con
+            // su propia tinta (`annotations.ts`), así que bajar del satélite
+            // a la carta no cambia qué significa el recuadro.
+            ctx.fillStyle = active ? 'rgba(255,212,121,0.07)' : 'rgba(226,214,190,0.045)';
+            ctx.fillRect(rx - halfW, ry - halfH, halfW * 2, halfH * 2);
             ctx.strokeRect(rx - halfW, ry - halfH, halfW * 2, halfH * 2);
+            ctx.setLineDash([]);
+            const arm = Math.min(14, Math.min(halfW, halfH) * 0.34);
+            ctx.lineWidth = active ? 2.6 : 2;
+            ctx.beginPath();
+            for (const [dx, dy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+              const px = rx + dx * halfW, py = ry + dy * halfH;
+              ctx.moveTo(px + (dx < 0 ? arm : -arm), py);
+              ctx.lineTo(px, py);
+              ctx.lineTo(px, py + (dy < 0 ? arm : -arm));
+            }
+            ctx.stroke();
           }
           ctx.setLineDash([]);
           // El nombre va en el borde superior del marco, no en el centro: el
@@ -2462,7 +2579,11 @@ export default function Map2D({
         const pxPerCell = (PW * scale) / W;
         const tint = bt0.mode === 'biome'
           ? `rgba(${(BIOME_COLORS[bt0.biome] ?? [120, 160, 90]).join(',')},0.5)`
-          : bt0.mode === 'river'
+          : bt0.mode === 'places'
+            // Ámbar de asentamiento: la zona que la pincelada abre (o vacía,
+            // con Ctrl) para el sembrado de lugares.
+            ? (negRef.current ? 'rgba(120,72,52,0.4)' : 'rgba(214,168,90,0.4)')
+            : bt0.mode === 'river'
             ? 'rgba(64,124,196,0.55)'
             : bt0.mode === 'land'
               ? (bt0.landOp === 'sea' ? 'rgba(38,74,128,0.45)' : 'rgba(196,176,128,0.5)')
@@ -2478,19 +2599,16 @@ export default function Map2D({
         if (tint) {
           // Screen position through the RING'S anchor, so the preview stays on
           // the copy of the world the pointer is actually over when the map
-          // wraps — the same trick the cursor outline uses.
-          // Con la misma media celda que el anillo: los dos previsualizan la
-          // MISMA máscara (`strokeMask`, incluido el río, que la usa para
-          // excavar el cauce), así que corregir uno y no el otro sería cambiar
-          // una mentira por dos que además se contradicen. Ver
-          // `STAMP_OFFSET_CELLS`.
+          // wraps — the same trick the cursor outline uses. Sin corrección de
+          // media celda: `stampDisc` mide centros de celda desde la pasada 8
+          // (ver la nota B6), así que la máscara cae donde el puntero dice.
           const px = (p: Pt) => {
-            let dx = p.x - anchor.cx + STAMP_OFFSET_CELLS;
+            let dx = p.x - anchor.cx;
             while (dx > W / 2) dx -= W;
             while (dx < -W / 2) dx += W;
             return anchor.x + dx * pxPerCell;
           };
-          const py = (p: Pt) => anchor.y + (p.y - anchor.cy + STAMP_OFFSET_CELLS) * pxPerCell;
+          const py = (p: Pt) => anchor.y + (p.y - anchor.cy) * pxPerCell;
           const wCells = bt0.mode === 'river' ? Math.max(0.8, bt0.riverWidth) : bt0.radius * 2;
           ctx.save();
           ctx.beginPath();
@@ -2799,11 +2917,11 @@ export default function Map2D({
         const pts2 = tipOutline(tip, Math.max(0.6, rCells), at.cx, at.cy, 96);
         ctx.beginPath();
         for (let k = 0; k < pts2.length; k++) {
-          // Desplazado media celda: ver `STAMP_OFFSET_CELLS`. El anillo tiene
-          // que rodear el suelo que la pincelada va a entintar, no el punto
-          // desde el que se calcula.
-          const px = at.x + (pts2[k].x - at.cx + STAMP_OFFSET_CELLS) * pxPerCell;
-          const py = at.y + (pts2[k].y - at.cy + STAMP_OFFSET_CELLS) * pxPerCell;
+          // Directo, sin media celda: la máscara mide centros de celda desde
+          // la pasada 8 (nota B6), así que el suelo entintado queda centrado
+          // en el puntero y el anillo puede decir la verdad sin corregirse.
+          const px = at.x + (pts2[k].x - at.cx) * pxPerCell;
+          const py = at.y + (pts2[k].y - at.cy) * pxPerCell;
           if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
         ctx.closePath();
@@ -2823,6 +2941,50 @@ export default function Map2D({
         ring(bt.radius * soft);
         ctx.setLineDash([]);
       }
+    }
+
+    // ---- HUD DE DEPURACIÓN (temporal, Luis 2026-08-12) ----------------------
+    // «Se ve borroso» y «todavía no ha llegado» se parecen mucho desde fuera:
+    // este bloque dice qué nivel se está PIDIENDO, cuál es el techo del mundo,
+    // cuántas teselas del plan han llegado, si el canon 2D está armado, y qué
+    // ha pasado en la sesión con la vía de teselas. Nunca en exportaciones.
+    if (DEBUG_HUD && !exportScale.current) {
+      const fw = cw / (PW * scale);
+      const spanKm = EARTH_KM * fw;
+      const pxCell = (PW * scale) / W;
+      const divide = satelliteDeepSupported(world, SAT_DEEP_Z);
+      const lines = [
+        `DEBUG 2D · vano ${spanKm >= 100 ? Math.round(spanKm) : spanKm.toFixed(1)} km · `
+        + `pide z${tileZ} (techo z${satTopZ}) · ${pxCell >= 10 ? Math.round(pxCell) : pxCell.toFixed(1)} px/celda`,
+        `teselas: ${tilesEligible ? 'elegibles' : 'NO elegibles'}`
+        + (tilePlanDebug ? ` · entregadas ${tilePlanDebug.exact}/${tilePlanDebug.needed}` : ' · sin plan')
+        + ` · rótulos: ${deepMarks ? 'canon' : 'mundo'}`,
+        `canon 2D: ${canonWorld ? 'armado' : 'SIN ARMAR'}`
+        + ` · almacén ${canonWorld && canonWorldBound(canonWorld) ? 'ligado' : 'SIN LIGAR'}`
+        + ` · geo ${geography ? geography.depth : '—'}`
+        + ` · mundo ${W}×${H} ${divide ? '(divide la retícula)' : '(NO divide: sin canon hondo)'}`,
+        `forja: ${forgeAvailable() ? (forgeDegraded() ? 'DEGRADADA (web worker)' : 'sí') : 'no (web worker)'}`
+        + ` · sesión: pedidas ${tileStats.asked} · entregadas ${tileStats.delivered}`
+        + ` · declinadas ${tileStats.declined} · errores ${tileStats.errors}`
+        + ` · caducadas ${tileStats.timeouts}`
+        + ` · EN VUELO ${Math.max(0, tileStats.asked - tileStats.delivered - tileStats.declined
+          - tileStats.errors - tileStats.timeouts)}${oldestInFlightMs() > 3000
+          ? ` (la más vieja ${Math.round(oldestInFlightMs() / 1000)} s)` : ''}`
+        + ` · sembradas ${tileStats.seeded} · guardadas ${tileStats.canonBuilt}`
+        + (tileStats.seedErrors ? ` · SIEMBRA-ERR ${tileStats.seedErrors} (mira la consola)` : '')
+        + (tileStats.fabErrors ? ` · FÁBRICA-ERR ${tileStats.fabErrors} (mira la consola)` : ''),
+      ];
+      ctx.save();
+      ctx.font = '500 10px ui-monospace, monospace';
+      const wMax = Math.max(...lines.map((l) => ctx.measureText(l).width));
+      const x0 = cw - wMax - 22, y0 = ch - 16 * lines.length - 14;
+      ctx.fillStyle = 'rgba(7,7,13,0.78)';
+      ctx.beginPath();
+      ctx.roundRect(x0 - 8, y0 - 6, wMax + 16, 16 * lines.length + 12, 6);
+      ctx.fill();
+      ctx.fillStyle = '#9fd8a4';
+      lines.forEach((l, i) => ctx.fillText(l, x0, y0 + 8 + i * 16));
+      ctx.restore();
     }
   };
 
@@ -2875,6 +3037,8 @@ export default function Map2D({
       ro.disconnect();
       cancelAnimationFrame(rafRef.current);
       window.clearTimeout(sharpTimer.current);
+      window.clearTimeout(ctxRetryRef.current);
+      ctxRetryRef.current = 0;
     };
   }, [PW, PH, projection, scheduleDraw, spec, wraps]);
 
@@ -3870,15 +4034,14 @@ export default function Map2D({
     /**
      * What is growing here.
      *
-     * `BIOME_KEYS` stops at 17 and `Biome` runs to 39 — mangrove, steppe, erg,
-     * salt marsh and every other id the ecology overhaul added. The old
-     * `?? 'ocean'` turned all of them into "Océano", which is a confident wrong
-     * answer over a swamp. `biomeName` knows every id, so it is the fallback
-     * until the catalogue carries them all.
+     * Por `biomeLocaleKey`, que cubre los 44 ids — la tabla local de 17 dejaba
+     * manglar, estepa, erg y compañía cayendo al castellano del gazetteer en
+     * una UI en inglés. `biomeName` queda de reserva para un id que ni el
+     * catálogo conozca (un mundo guardado por una versión más nueva).
      */
     const biomeId = world.biome[i];
-    const biomeKey = BIOME_KEYS[biomeId];
-    const biomeLabel = biomeKey ? t(`worldgen.biome.${biomeKey}`) : biomeName(biomeId);
+    const biomeK = biomeLocaleKey(biomeId);
+    const biomeLabel = biomeK ? t(biomeK) : biomeName(biomeId);
 
     // Ask the canon, if the canon is what is on screen. One reading per cell of
     // ground, so a moving cursor asks a few times a second and not a few
@@ -4206,6 +4369,10 @@ export default function Map2D({
     ? t('worldgen.map.brushWheelHint')
     : hasRadius(tool) ? t('worldgen.map.brushSizeHint') : '';
 
+  /** La chuleta de navegación, detrás del botón «?» (Luis, 2026-08-12: el
+   *  rótulo permanente tapaba media esquina inferior). */
+  const [hintsOpen, setHintsOpen] = useState(false);
+
   return (
     <div ref={containerRef} className="absolute inset-0">
       <canvas
@@ -4250,45 +4417,54 @@ export default function Map2D({
           {hover.text}
         </div>
       )}
-      <div className="absolute bottom-2 left-2 px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] leading-snug text-white shadow-lg shadow-black/50 backdrop-blur-sm pointer-events-none">
-        {refusal
-          ? refusal
-          : brushing
-          ? (tool?.mode === 'road'
-            ? `${roadFrom
-              ? t('worldgen.map.roadFrom').replace('{name}', roadFrom.name)
-              : t('worldgen.map.roadStart')} · ${t('worldgen.map.roadHintTail')}`
-            // The lasso is the only gesture in this view that spans several
-            // clicks, and Intro / Retroceso / Esc are the only ways out of it.
-            // A key nothing on screen mentions is a key nobody presses — and a
-            // reader who cannot finish a shape cannot abandon one either.
-            : tool?.mode === 'frontera'
-              ? (tool.realmTool === 'brush'
-                ? t('worldgen.map.realmBrushHint')
-                : tool.realmTool === 'fill'
-                  ? t('worldgen.map.realmFillHint')
-                  : t('worldgen.map.realmPolyHint'))
-              : `${t('worldgen.map.paintHint')}${wheelHint ? ` · ${wheelHint}` : ''}`)
-          /**
-           * La vista sin pincel explica DOS cosas, en dos renglones.
-           *
-           * `worldgen.mapHint` abría con «Arrastra para mover», que desde que
-           * un pueblo se puede coger con la mano ya no dice cuál de las dos
-           * cosas hace un arrastre. Así que la línea de los gestos se escribe
-           * entera aquí, y las teclas de cámara — que no son gestos y nadie
-           * adivina — van debajo, más apagadas, donde no compiten con ellas.
-           */
-          : (
-            <>
+      {/* Los avisos de HERRAMIENTA se enseñan solos (son cortos y van con el
+          gesto); la chuleta de navegación vive detrás del botón «?» — a
+          pantalla completa tapaba media esquina, incluido el HUD de
+          depuración (Luis, 2026-08-12). */}
+      {(refusal || brushing) && (
+        <div className="absolute bottom-2 left-2 px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] leading-snug text-white shadow-lg shadow-black/50 backdrop-blur-sm pointer-events-none">
+          {refusal
+            ? refusal
+            : (tool?.mode === 'road'
+              ? `${roadFrom
+                ? t('worldgen.map.roadFrom').replace('{name}', roadFrom.name)
+                : t('worldgen.map.roadStart')} · ${t('worldgen.map.roadHintTail')}`
+              // The lasso is the only gesture in this view that spans several
+              // clicks, and Intro / Retroceso / Esc are the only ways out of it.
+              // A key nothing on screen mentions is a key nobody presses — and a
+              // reader who cannot finish a shape cannot abandon one either.
+              : tool?.mode === 'frontera'
+                ? (tool.realmTool === 'brush'
+                  ? t('worldgen.map.realmBrushHint')
+                  : tool.realmTool === 'fill'
+                    ? t('worldgen.map.realmFillHint')
+                    : t('worldgen.map.realmPolyHint'))
+                : `${t('worldgen.map.paintHint')}${wheelHint ? ` · ${wheelHint}` : ''}`)}
+        </div>
+      )}
+      {!refusal && !brushing && (
+        <div className="absolute bottom-2 left-2 flex items-end gap-1.5">
+          <button
+            onClick={() => setHintsOpen((o) => !o)}
+            title={t('worldgen.hints.button')}
+            className={`w-6 h-6 rounded-full border text-[12px] font-semibold shadow-lg shadow-black/50 backdrop-blur-sm transition ${
+              hintsOpen
+                ? 'bg-accent-gold/20 border-accent-gold/60 text-accent-gold'
+                : 'bg-[#0b0e14]/92 border-white/20 text-white/70 hover:text-white'
+            }`}
+          >?</button>
+          {hintsOpen && (
+            <div className="px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] leading-snug text-white shadow-lg shadow-black/50 backdrop-blur-sm max-w-[720px]">
               <span className="block">
                 {t('worldgen.map.panHint')}
                 {onEdit ? ` · ${t('worldgen.map.moveHint')}` : ''}
                 {onPickSettlement ? ` · ${t('worldgen.mapHint.town')}` : ''}
               </span>
               <span className="block text-white/60">{t('worldgen.map.cameraHint')}</span>
-            </>
+            </div>
           )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4339,7 +4515,9 @@ function makeRegionalTerrainCanvas(region: RegionData): HTMLCanvasElement {
       rgba[output + 3] = 255;
     }
   }
-  canvas.getContext('2d')!.putImageData(new ImageData(rgba, width, height), 0, 0);
+  // Igual que en `makeCanvas`: contexto null = ráster en blanco un fotograma,
+  // nunca un TypeError dentro del dibujo.
+  canvas.getContext('2d')?.putImageData(new ImageData(rgba, width, height), 0, 0);
   return canvas;
 }
 

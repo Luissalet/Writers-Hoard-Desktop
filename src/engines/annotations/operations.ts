@@ -7,6 +7,7 @@
 
 import { db } from '@/db';
 import { makeTableOps, makeCascadeDeleteOp } from '@/engines/_shared';
+import { getAnchorAdapter, resolveTextRangeAnchor } from '@/engines/_shared/anchoring';
 import type { Annotation, AnnotationReference } from './types';
 
 // ===== Annotations =========================================================
@@ -64,6 +65,75 @@ export async function updateAnchor(
     isOrphaned: false,
     updatedAt: Date.now(),
   });
+}
+
+export interface ReanchorSummary {
+  /** Anchors whose offsets were corrected against the current text. */
+  moved: number;
+  /** Anchors that could not be found and are now flagged in the margin. */
+  orphaned: number;
+  /** Previously-orphaned anchors whose text reappeared. */
+  recovered: number;
+}
+
+/**
+ * Re-resolve every text-range anchor on an entity against its current text.
+ *
+ * This is the step that was missing. `resolveTextRangeAnchor` — a full
+ * five-stage fuzzy cascade — plus `updateAnchor`, `markOrphaned` and the three
+ * engine `getEntityText` implementations were all written and **had no
+ * caller**. The consequence was silent and permanent: rewrite a paragraph and
+ * every margin note above it kept its old character offsets, so notes drifted
+ * onto unrelated sentences, `isOrphaned` never became true, and the orphan
+ * badge on the annotations tab read 0 forever.
+ *
+ * Runs on entity open (see `useAnnotationsForEntity`), which is the moment the
+ * text is known and the notes are about to be shown. Cheap: one text fetch,
+ * then pure string matching per note. Entity-level anchors are skipped
+ * outright, as are engines that don't implement `getEntityText`.
+ */
+export async function reanchorEntityAnnotations(
+  engineId: string,
+  entityId: string,
+): Promise<ReanchorSummary> {
+  const summary: ReanchorSummary = { moved: 0, orphaned: 0, recovered: 0 };
+
+  const adapter = getAnchorAdapter(engineId);
+  if (!adapter?.supportsTextRange || !adapter.getEntityText) return summary;
+
+  const rows = await getAnnotationsForEntity(engineId, entityId);
+  const textRanged = rows.filter((a) => a.anchor.type === 'text_range');
+  if (textRanged.length === 0) return summary;
+
+  const bodyText = await adapter.getEntityText(entityId);
+  // A null body means "couldn't read it", not "the text is gone" — flagging
+  // every note as orphaned because a fetch failed would be worse than leaving
+  // them alone.
+  if (bodyText === null || bodyText === undefined) return summary;
+
+  for (const annotation of textRanged) {
+    const resolution = resolveTextRangeAnchor(annotation.anchor, bodyText);
+
+    if (!resolution.ok) {
+      if (!annotation.isOrphaned) {
+        await markOrphaned(annotation.id, true);
+        summary.orphaned += 1;
+      }
+      continue;
+    }
+
+    const { start, end } = resolution.anchor;
+    const drifted = annotation.anchor.start !== start || annotation.anchor.end !== end;
+    if (drifted) {
+      await updateAnchor(annotation.id, start, end);
+      summary.moved += 1;
+    } else if (annotation.isOrphaned) {
+      await markOrphaned(annotation.id, false);
+      summary.recovered += 1;
+    }
+  }
+
+  return summary;
 }
 
 // ===== Annotation References ==============================================

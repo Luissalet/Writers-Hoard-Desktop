@@ -198,65 +198,101 @@ export async function recordTeleprompter(opts: RecordOptions): Promise<RecordRes
 
   return await new Promise<RecordResult>((resolve, reject) => {
     let rafId = 0;
+    let tickerId: ReturnType<typeof setInterval> | null = null;
+    let watchdogId: ReturnType<typeof setTimeout> | null = null;
     let startTime = 0;
-    let finished = false;
+    /** The run has asked the recorder to stop; we are waiting for `onstop`. */
+    let stopping = false;
+    /** Terminated for good — the promise has settled exactly once. */
+    let settled = false;
+    let aborted = false;
 
     const cleanup = () => {
       cancelAnimationFrame(rafId);
+      if (tickerId !== null) clearInterval(tickerId);
+      if (watchdogId !== null) clearTimeout(watchdogId);
+      tickerId = null;
+      watchdogId = null;
       stream.getTracks().forEach((t) => t.stop());
       signal?.removeEventListener('abort', onAbort);
     };
 
-    function onAbort() {
-      if (finished) return;
-      finished = true;
+    // Every exit goes through exactly one of these two. The old code had two
+    // independent guards — `finished` on the abort path and `signal.aborted` on
+    // the stop path — and cancelling in the window between "the run asked the
+    // recorder to stop" and "onstop fired" tripped BOTH: the promise never
+    // settled, the canvas stream stayed live, and the export modal was stuck in
+    // `phase='recording'` with its close button hidden behind `busy`. Unclosable.
+    const finish = (result: RecordResult) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err);
+    };
+
+    const requestStop = () => {
+      if (stopping) return;
+      stopping = true;
       try {
         if (recorder.state !== 'inactive') recorder.stop();
+        else settleFromChunks();
       } catch {
-        /* noop */
+        settleFromChunks();
       }
-      cleanup();
-      reject(new DOMException('Aborted', 'AbortError'));
+    };
+
+    function settleFromChunks() {
+      if (aborted) fail(new DOMException('Aborted', 'AbortError'));
+      else
+        finish({
+          blob: new Blob(chunks, { type: mimeType || 'video/webm' }),
+          mimeType: mimeType || 'video/webm',
+          durationSec: totalSec,
+        });
+    }
+
+    function onAbort() {
+      if (settled) return;
+      aborted = true;
+      requestStop();
+      // Safety net: if `onstop` never arrives (recorder wedged, tracks already
+      // dead), settle anyway rather than leaving the caller hanging forever.
+      watchdogId = setTimeout(() => fail(new DOMException('Aborted', 'AbortError')), 1500);
     }
     signal?.addEventListener('abort', onAbort);
 
-    recorder.onstop = () => {
-      if (signal?.aborted) return; // already rejected by onAbort
-      cleanup();
-      resolve({
-        blob: new Blob(chunks, { type: mimeType || 'video/webm' }),
-        mimeType: mimeType || 'video/webm',
-        durationSec: totalSec,
-      });
-    };
-    recorder.onerror = () => {
-      if (finished) return;
-      finished = true;
-      cleanup();
-      reject(new Error('Recording failed.'));
-    };
+    recorder.onstop = () => settleFromChunks();
+    recorder.onerror = () => fail(new Error('Recording failed.'));
 
-    const tick = () => {
-      if (finished) return;
+    // Progress is derived from the wall clock, never accumulated per frame, and
+    // it is driven by BOTH rAF (smooth while visible) and a plain interval.
+    // rAF alone froze the scroll the moment the window was hidden or minimised
+    // while MediaRecorder happily kept writing, so the exported video contained
+    // a still frame lasting exactly as long as the user had looked away.
+    const step = () => {
+      if (settled || stopping) return;
       const now = performance.now();
       if (!startTime) startTime = now;
       const elapsed = (now - startTime) / 1000;
-      const scrollY = Math.min(elapsed * pps, maxScroll);
-      drawFrame(scrollY);
+      drawFrame(Math.min(elapsed * pps, maxScroll));
       onProgress?.(Math.min(elapsed, totalSec), totalSec);
-      if (elapsed >= totalSec) {
-        finished = true;
-        try {
-          if (recorder.state !== 'inactive') recorder.stop();
-        } catch {
-          /* noop */
-        }
-        return;
-      }
-      rafId = requestAnimationFrame(tick);
+      if (elapsed >= totalSec) requestStop();
+    };
+
+    const paint = () => {
+      if (settled || stopping) return;
+      step();
+      rafId = requestAnimationFrame(paint);
     };
 
     recorder.start();
-    rafId = requestAnimationFrame(tick);
+    rafId = requestAnimationFrame(paint);
+    tickerId = setInterval(step, 100);
   });
 }

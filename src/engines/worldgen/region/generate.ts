@@ -27,13 +27,21 @@ import {
 } from './terrain';
 import { DEFAULT_REGION_PARAMS, type RegionData, type RegionParams, type RegionWindow } from './types';
 import { canonParams, tileGeometry, tileKey, tileWindow, type TileId } from './tiles';
+import { hashEditsString } from './workerProtocol';
 import { applyCanonElevationEdits, applyCanonCoverEdits } from './canonEdits';
-import type { WorldEdit } from '../core/edits';
+import { sitesPolicyFrom, type SitesPolicy, type WorldEdit } from '../core/edits';
 
 export interface RegionBuildOptions {
   params?: Partial<RegionParams>;
   /** Stage callback for the progress bar. */
   onProgress?: (stage: string, t: number) => void;
+  /**
+   * La política de sembrado EXPLÍCITA, para llamantes que no pueden mandar
+   * `edits` (la hoja libre viaja con el mundo YA editado — replicar encima
+   * los trazos los aplicaría dos veces). Si falta y `params.sites === 'auto'`,
+   * se deriva de `edits`; con 'everywhere', ni se mira.
+   */
+  sitesPolicy?: SitesPolicy;
   /**
    * Use THIS grid instead of deriving one from the window. The canon tiles
    * pass their world-aligned geometry through here, so the whole pipeline —
@@ -63,9 +71,16 @@ interface RegionCache { rev: number; order: string[]; map: Map<string, RegionDat
 const CACHE = new WeakMap<WorldData, RegionCache>();
 const CACHE_LIMIT = scaleCount(8);
 
-function cacheKey(g: RegionGeometry, params: RegionParams): string {
+function cacheKey(g: RegionGeometry, params: RegionParams, policy: SitesPolicy | undefined): string {
   return `${g.originX.toFixed(6)}:${g.originY.toFixed(6)}:${g.worldPerCellX.toFixed(9)}`
-    + `:${g.width}x${g.height}:${params.detail}:${params.settled}:${params.habitation}:${params.streamDensity}`;
+    + `:${g.width}x${g.height}:${params.detail}:${params.settled}:${params.habitation}:${params.streamDensity}`
+    // La política de sembrado es identidad — LA POLÍTICA, no sólo el modo. En
+    // la aplicación cada edición bumpa la revisión y el choque no puede darse,
+    // pero un llamante directo (los bancos) pide la misma hoja con ediciones
+    // distintas bajo la misma revisión, y con sólo el modo en la clave la
+    // segunda petición cobraba la PRIMERA hoja de la caché — el banco de
+    // lugares lo retrató (C/D/E clavados en cero).
+    + `:${policy ? hashEditsString(JSON.stringify(policy)) : (params.sites ?? 'everywhere')}`;
 }
 
 /** Drop every cached sheet for a world — the paint engine calls this. */
@@ -85,10 +100,14 @@ export function generateRegion(
   p('relieve', 0);
   const g = opts.geometry ?? regionGeometry(world, win, params);
 
+  // Derivada ANTES de mirar la caché: forma parte de la identidad de la hoja.
+  const policy = opts.sitesPolicy
+    ?? (params.sites === 'auto' ? sitesPolicyFrom(opts.edits) : undefined);
+
   const rev = world.revision ?? 0;
   let cache = CACHE.get(world);
   if (!cache || cache.rev !== rev) CACHE.set(world, (cache = { rev, order: [], map: new Map() }));
-  const key = cacheKey(g, params);
+  const key = cacheKey(g, params, policy);
   const hit = cache.map.get(key);
   if (hit) {
     p('listo', 1);
@@ -120,7 +139,12 @@ export function generateRegion(
   }
 
   p('poblamiento', 0.6);
-  const hab = buildHabitation(world, geo, g, patch, t, natural.cover, streams, params);
+  // Con `sites: 'auto'` la política (derivada arriba, junto a la caché) sale
+  // de las EDICIONES de la petición: cerrado sin nada, el grifo global
+  // (`placesEverywhere`) y las pinceladas de zona (`placesZone`). Con
+  // 'everywhere' (el defecto de siempre) no hay política y el sembrado es el
+  // de toda la vida — bancos intactos.
+  const hab = buildHabitation(world, geo, g, patch, t, natural.cover, streams, params, policy);
 
   p('hitos', 0.7);
   // Landmarks are found AFTER the cover and BEFORE the farming, because a crag

@@ -15,6 +15,19 @@ export type RegionWorkerGeography = Omit<HumanGeography, 'languages'> & {
   languageCount: number;
 };
 
+/** FNV-1a, shared by both sides of the canon persistence handshake: the
+ *  worker stamps `canonBuilt` with the hash of the edit list it generated
+ *  from, and the client compares against the hash of the list it holds NOW —
+ *  same function or the comparison is theatre. */
+export function hashEditsString(s: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
 export function packRegionGeography(
   geography: HumanGeography,
 ): RegionWorkerGeography {
@@ -30,6 +43,11 @@ export interface RegionConfigureWorkerRequest {
   contextId: string;
   world: WorldData;
   geography: RegionWorkerGeography;
+  /** The client persists canon supertiles (Dexie). When set, the worker
+   *  encodes each freshly generated supertile and posts it back as
+   *  `canonBuilt` BEFORE the tile that caused it — absent (benches, hosts
+   *  with no storage) the worker never pays the encode. */
+  persistCanon?: boolean;
 }
 
 export interface RegionGenerateWorkerRequest {
@@ -43,6 +61,19 @@ export interface RegionGenerateWorkerRequest {
   /** Serialized edit list, applied at sheet resolution (canon path only —
    *  requires the configured world to carry PRISTINE elevation). */
   edits?: string;
+  /** Política de sembrado explícita (hojas libres: el mundo va editado y no
+   *  puede mandar `edits` sin aplicarlos dos veces). Ver RegionBuildOptions. */
+  sitesPolicy?: import('../core/edits').SitesPolicy;
+  /**
+   * Set when this sheet IS a supertile of the canon lattice (`c:tx:ty`) —
+   * the regional composite's case. It buys three things: the worker answers
+   * from its resident canon without generating; a fresh build is installed in
+   * the session cache (so the display tiles and the 3D's `consumeOnly` find
+   * the ground the composite just paid for); and, under `persistCanon`, the
+   * build is encoded and posted as `canonBuilt` — the composite was the one
+   * canon producer whose work died with the session.
+   */
+  canonKey?: string;
 }
 
 /**
@@ -86,6 +117,21 @@ export interface RegionCancelWorkerRequest {
 }
 
 /**
+ * Seed the worker's canon cache from the client's persistence (PENDIENTE
+ * §2b.1: pay the ~31 s of canon generation once per WORLD, not once per
+ * session). Posted BEFORE the `renderTile` that needs the ground; the worker
+ * processes messages in arrival order, so no acknowledgement is needed — by
+ * the time the tile request runs, the supertiles are resident. Decode is
+ * ~300 ms against the ~31.900 ms it replaces, and a bad payload is simply a
+ * cache miss: the tile path regenerates as it always did.
+ */
+export interface RegionSeedCanonWorkerRequest {
+  type: 'seedCanon';
+  contextId: string;
+  tiles: { key: string; bytes: ArrayBuffer }[];
+}
+
+/**
  * One carta display tile, drawn by this worker because it already holds the
  * cloned world and geography — the whole cost of a tile is the render, not
  * another 80 MB structured clone. Theme travels by id: a CartoTheme is data
@@ -116,6 +162,16 @@ export interface RegionRenderTileWorkerRequest {
    *  re-applies strokes at its own resolution, so the session world must be
    *  the PRISTINE one and the edits ride the request. */
   edits?: string;
+  /**
+   * SÓLO CONSUMIR: una tesela honda se entinta únicamente si TODAS sus
+   * superteselas de canon ya son residentes en la caché del worker; si falta
+   * alguna, el worker responde `declined` en microsegundos en vez de pagar
+   * segundos de generación. Es el contrato del 3D (decisión de Luis,
+   * 2026-08-11: «el 3D consume, no genera»): la vista pide lo que el 2D ya
+   * dibujó barato y nada más. Ausente = falso, todos los llamantes de antes
+   * quedan igual.
+   */
+  consumeOnly?: boolean;
 }
 
 export type RegionWorkerRequest =
@@ -123,7 +179,8 @@ export type RegionWorkerRequest =
   | RegionGenerateWorkerRequest
   | RegionRenderTileWorkerRequest
   | RegionProbeWorkerRequest
-  | RegionCancelWorkerRequest;
+  | RegionCancelWorkerRequest
+  | RegionSeedCanonWorkerRequest;
 
 export type RegionWorkerReply =
   | { type: 'configured'; contextId: string }
@@ -140,10 +197,36 @@ export type RegionWorkerReply =
     width?: number;
     height?: number;
     places?: TilePlace[];
+    /** Petición `consumeOnly` cuyo canon no estaba residente: sin mapa de bits
+     *  y sin coste. El cliente lo resuelve como null, no como error. */
+    declined?: boolean;
+    /**
+     * EL BUS DE DESALOJOS. Claves de canon que ESTA sesión ha desalojado de su
+     * LRU desde su última respuesta de tesela. Sin esto, el libro de siembras
+     * del cliente (`session.seeded`) daba por residente lo que el worker ya
+     * había tirado, la siembra de 300 ms se saltaba, y la tesela pagaba una
+     * REGENERACIÓN de decenas de segundos — el atasco cuadrático del primer
+     * paseo hondo (0/45 con EN VUELO 4, captura de Luis 2026-08-12). La vía
+     * `consumeOnly` ya tenía su tachadura vía `declined`; ésta es la misma
+     * verdad para la vía que genera.
+     */
+    evictedCanon?: string[];
   }
   | { type: 'probed'; requestId: string; probe: RegionProbe | null }
   | { type: 'cancelled'; requestId: string }
-  | { type: 'error'; requestId: string; message: string };
+  | { type: 'error'; requestId: string; message: string }
+  /** A freshly generated canon supertile, encoded for storage. Posted BEFORE
+   *  the `tile` reply of the request that generated it, while the client's
+   *  message handler for that request is still attached. `editsHash` is the
+   *  hash of the request's edit list, so the client can refuse to store a
+   *  supertile the reader has already painted past. */
+  | {
+    type: 'canonBuilt';
+    requestId: string;
+    key: string;
+    editsHash: string;
+    bytes: ArrayBuffer;
+  };
 
 /** Transfer the heavy raster layers without copying the generated result back to the renderer. */
 export function regionTransferables(region: RegionData): Transferable[] {

@@ -6,6 +6,7 @@ import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_sha
 import { db } from '@/db';
 const RelationshipsEngine = lazy(() => import('./components/RelationshipsEngine'));
 import { RELATIONSHIP_KIND_CONFIG } from './types';
+import { t } from '@/i18n/useTranslation';
 
 const relationshipsEngine: EngineDefinition = {
   id: 'relationships',
@@ -34,7 +35,7 @@ registerEntityResolver({
       engineId: 'relationships',
       projectId: rel.projectId,
       title: rel.label || `${rel.entityAName} ${cfg?.emoji ?? ''} ${rel.entityBName}`,
-      subtitle: cfg?.label,
+      subtitle: cfg ? t(cfg.labelKey) : undefined,
       color: rel.color ?? cfg?.color,
     };
   },

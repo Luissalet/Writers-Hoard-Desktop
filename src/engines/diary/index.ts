@@ -3,6 +3,7 @@ import { BookOpen } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
+import { stripHtml } from '@/utils/text';
 import { db } from '@/db';
 const DiaryEngine = lazy(() => import('./components/DiaryEngine'));
 
@@ -34,15 +35,28 @@ registerEntityResolver({
       title: entry.entryDate,
     };
   },
-  searchEntities: async (query: string) => {
+  // Matches the date, the title AND the body. Searching only `entryDate` meant
+  // a diary entry could never be found by anything the author actually wrote in
+  // it — neither from Cmd+K nor from the annotation reference picker.
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = await db.diaryEntries.filter(d => (d.entryDate || '').toLowerCase().includes(q)).toArray();
+    const base = projectId
+      ? db.diaryEntries.where('projectId').equals(projectId)
+      : db.diaryEntries.toCollection();
+    const rows = await base
+      .filter((d) =>
+        (d.entryDate || '').toLowerCase().includes(q) ||
+        (d.title || '').toLowerCase().includes(q) ||
+        stripHtml(d.content || '').toLowerCase().includes(q),
+      )
+      .toArray();
     return rows.map(d => ({
       id: d.id,
       type: 'diary-entry',
       engineId: 'diary',
       projectId: d.projectId,
-      title: d.entryDate,
+      title: d.title || d.entryDate,
+      subtitle: d.title ? d.entryDate : undefined,
     }));
   },
 });

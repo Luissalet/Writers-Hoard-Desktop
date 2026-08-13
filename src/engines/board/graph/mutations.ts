@@ -198,17 +198,38 @@ export function cloneSelection(
     };
   });
 
+  // Which edges survive the copy. A meta-edge (one anchored ON another edge)
+  // may only be kept if its anchor is kept too — so this is a fixed point, not
+  // a single pass. Validating against the *input* list instead let a meta-edge
+  // whose anchor was dropped through: `edgeIdMap.get(anchor)` came back
+  // undefined and `remap` fell back to the ORIGINAL id, silently wiring the
+  // pasted board to the edge it was copied from.
+  const keptIds = new Set(edges.map((e) => e.id));
+  for (;;) {
+    let changed = false;
+    for (const edge of edges) {
+      if (!keptIds.has(edge.id)) continue;
+      const ok = [...edge.sources, ...edge.targets].every((endpoint) =>
+        endpoint.on === 'node' ? idMap.has(endpoint.id) : keptIds.has(endpoint.id),
+      );
+      if (!ok) {
+        keptIds.delete(edge.id);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  const kept = edges.filter((edge) => keptIds.has(edge.id));
+
   const edgeIdMap = new Map<string, string>();
-  const kept = edges.filter((edge) =>
-    [...edge.sources, ...edge.targets].every(
-      (endpoint) => (endpoint.on === 'node' ? idMap.has(endpoint.id) : edges.some((e) => e.id === endpoint.id)),
-    ),
-  );
   for (const edge of kept) edgeIdMap.set(edge.id, generateId('bedge'));
 
+  // `side` is part of the endpoint contract (types.ts) — dropping it re-routed
+  // every pasted thread from the card face it was attached to back to centre.
   const remap = (endpoint: BoardEndpoint): BoardEndpoint => ({
     on: endpoint.on,
     id: (endpoint.on === 'node' ? idMap.get(endpoint.id) : edgeIdMap.get(endpoint.id)) ?? endpoint.id,
+    side: endpoint.side,
   });
 
   const clonedEdges = kept.map((edge) => {

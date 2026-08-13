@@ -140,8 +140,90 @@ export async function updateCodexEntry(id: string, changes: Partial<CodexEntry>)
   await db.codexEntries.update(id, { ...changes, updatedAt: Date.now() });
 }
 
+/**
+ * Delete a codex entry and clean up everything that pointed at it.
+ *
+ * This used to be a bare `db.codexEntries.delete(id)`, which was the single
+ * root cause of a family of "ghost character" bugs: character arcs and
+ * relationships denormalise the character's NAME at creation time, so once the
+ * entry was gone they kept rendering a character that no longer existed, kept
+ * being indexed by global search, and kept travelling inside every backup ZIP.
+ *
+ * The policy per table is deliberate:
+ *  • `relationships` — a relationship with a missing endpoint means nothing,
+ *    so the rows go.
+ *  • `sceneCasts` — likewise, a cast line for a deleted character is junk.
+ *  • `characterArcs` / `dialogBlocks` — these hold the user's OWN writing.
+ *    Only the foreign key is cleared, so the arc or the line survives as
+ *    unassigned and can be re-linked.
+ *  • `mapPins.linkedEntryId` / `inspirationImages.linkedEntryIds` — links are
+ *    dropped, the pin and the image stay.
+ */
 export async function deleteCodexEntry(id: string): Promise<void> {
-  await db.codexEntries.delete(id);
+  const entry = await db.codexEntries.get(id);
+  const projectId = entry?.projectId;
+
+  await db.transaction(
+    'rw',
+    [
+      db.codexEntries,
+      db.relationships,
+      db.characterArcs,
+      db.sceneCasts,
+      db.dialogBlocks,
+      db.mapPins,
+      db.inspirationImages,
+    ],
+    async () => {
+      // Relationships: both endpoints are indexed.
+      await db.relationships.where('entityAId').equals(id).delete();
+      await db.relationships.where('entityBId').equals(id).delete();
+
+      // Character arcs keep the user's authored beats — unassign, don't delete.
+      const arcs = await db.characterArcs.where('characterId').equals(id).toArray();
+      if (arcs.length > 0) {
+        const now = Date.now();
+        await db.characterArcs.bulkPut(
+          arcs.map((arc) => ({ ...arc, characterId: undefined, updatedAt: now })),
+        );
+      }
+
+      // Scene casts are pure join rows — drop them.
+      const castIds = await db.sceneCasts.filter((c) => c.characterId === id).primaryKeys();
+      if (castIds.length > 0) await db.sceneCasts.bulkDelete(castIds);
+
+      // Dialogue lines are authored text — unassign the speaker only.
+      const blockQuery = projectId
+        ? db.dialogBlocks.where('projectId').equals(projectId)
+        : db.dialogBlocks.toCollection();
+      const blocks = (await blockQuery.toArray()).filter((b) => b.characterId === id);
+      if (blocks.length > 0) {
+        await db.dialogBlocks.bulkPut(blocks.map((b) => ({ ...b, characterId: undefined })));
+      }
+
+      // Map pins and gallery images keep their content, lose the link.
+      const pinQuery = projectId
+        ? db.mapPins.where('projectId').equals(projectId)
+        : db.mapPins.toCollection();
+      const pins = (await pinQuery.toArray()).filter((p) => p.linkedEntryId === id);
+      if (pins.length > 0) {
+        await db.mapPins.bulkPut(pins.map((p) => ({ ...p, linkedEntryId: undefined })));
+      }
+
+      const images = await db.inspirationImages.where('linkedEntryIds').equals(id).toArray();
+      if (images.length > 0) {
+        await db.inspirationImages.bulkPut(
+          images.map((img) => ({
+            ...img,
+            linkedEntryIds: (img.linkedEntryIds ?? []).filter((x) => x !== id),
+            linkedEntryId: img.linkedEntryId === id ? undefined : img.linkedEntryId,
+          })),
+        );
+      }
+
+      await db.codexEntries.delete(id);
+    },
+  );
 }
 
 export async function searchCodexEntries(projectId: string, query: string): Promise<CodexEntry[]> {

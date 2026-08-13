@@ -104,8 +104,12 @@ export default function VideoPlanView({
     const targetIndex = sortedSegments.findIndex(s => s.id === targetId);
 
     if (draggedIndex !== -1 && targetIndex !== -1) {
+      // Move, don't swap. Swapping meant dragging segment 1 onto segment 5
+      // produced 5,2,3,4,1 instead of the 2,3,4,5,1 the gesture promises —
+      // every long drag scrambled two segments at once.
       const newOrder = [...sortedSegments];
-      [newOrder[draggedIndex], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[draggedIndex]];
+      const [moved] = newOrder.splice(draggedIndex, 1);
+      newOrder.splice(targetIndex, 0, moved);
       onReorderSegments(newOrder.map(s => s.id));
     }
 

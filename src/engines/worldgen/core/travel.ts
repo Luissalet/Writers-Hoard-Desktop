@@ -20,11 +20,19 @@ import type { HumanGeography } from './settlements';
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 export type TravelMode = 'foot' | 'horse' | 'cart' | 'boat' | 'ship';
 
-export const SEASON_ES: Record<Season, string> = {
-  spring: 'primavera', summer: 'verano', autumn: 'otoño', winter: 'invierno',
+/**
+ * CLAVES de catálogo, no texto. El motor no traduce: guarda la clave y quien
+ * pinta la pasa por `t()` — las tablas `_ES` con español a fuego eran la única
+ * parte del motor fuera de i18n (una UI en inglés decía «a caballo»).
+ */
+export const SEASON_KEY: Record<Season, string> = {
+  spring: 'worldgen.travel.season.spring', summer: 'worldgen.travel.season.summer',
+  autumn: 'worldgen.travel.season.autumn', winter: 'worldgen.travel.season.winter',
 };
-export const MODE_ES: Record<TravelMode, string> = {
-  foot: 'a pie', horse: 'a caballo', cart: 'en carro', boat: 'en barca', ship: 'en barco',
+export const MODE_KEY: Record<TravelMode, string> = {
+  foot: 'worldgen.travel.mode.foot', horse: 'worldgen.travel.mode.horse',
+  cart: 'worldgen.travel.mode.cart', boat: 'worldgen.travel.mode.boat',
+  ship: 'worldgen.travel.mode.ship',
 };
 
 export interface TravelOptions {
@@ -704,14 +712,25 @@ function greatCircleKm(world: WorldData, a: number, b: number, radiusKm: number)
 }
 
 /** "4 días y 3 horas", the way a person would say it. */
-export function describeDuration(hours: number, hoursPerDay: number): string {
-  if (hours < 1) return `${Math.round(hours * 60)} min`;
-  if (hours < hoursPerDay) return `${hours.toFixed(1).replace('.', ',')} h`;
+export function describeDuration(
+  hours: number,
+  hoursPerDay: number,
+  // La frase entera sale del catálogo (lección #8: nada de gramática
+  // concatenada alrededor de un fragmento traducido). El separador decimal
+  // también es del catálogo: «1,5 h» en español, "1.5 h" en inglés.
+  t: (key: string) => string,
+): string {
+  if (hours < 1) return t('worldgen.travel.dur.min').replace('{n}', String(Math.round(hours * 60)));
+  if (hours < hoursPerDay) {
+    return t('worldgen.travel.dur.hours')
+      .replace('{n}', hours.toFixed(1).replace('.', t('worldgen.travel.dur.decimal')));
+  }
   const days = Math.floor(hours / hoursPerDay);
   const rest = hours - days * hoursPerDay;
-  const d = `${days} ${days === 1 ? 'jornada' : 'jornadas'}`;
+  const d = t(days === 1 ? 'worldgen.travel.dur.days.one' : 'worldgen.travel.dur.days.many')
+    .replace('{n}', String(days));
   if (rest < 0.6) return d;
-  return `${d} y ${Math.round(rest)} h`;
+  return t('worldgen.travel.dur.daysAnd').replace('{d}', d).replace('{h}', String(Math.round(rest)));
 }
 
 /** Every mode and season at once — the table a writer actually wants. */

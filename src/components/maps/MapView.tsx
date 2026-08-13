@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import {
   Plus,
@@ -46,6 +46,12 @@ interface MapViewProps {
   onAddPin: (pin: MapPin) => void | Promise<void>;
   onEditPin: (id: string, changes: Partial<MapPin>) => void | Promise<void>;
   onDeletePin: (id: string) => void | Promise<void>;
+  /**
+   * Pin to open on mount, from a `?pin=` deep link (search hit, backlink).
+   * Handled here rather than by the caller because pin selection also seeds
+   * the editor draft.
+   */
+  focusPinId?: string | null;
 }
 
 interface PinDraft {
@@ -79,6 +85,7 @@ export default function MapView({
   onAddPin,
   onEditPin,
   onDeletePin,
+  focusPinId,
 }: MapViewProps) {
   const { t } = useTranslation();
   const [placingPin, setPlacingPin] = useState(false);
@@ -117,6 +124,16 @@ export default function MapView({
       linkedEntryId: pin.linkedEntryId,
     });
   };
+
+  // Open the pin a `?pin=` deep link asked for, once its row has landed.
+  const focusedPin = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusPinId || focusedPin.current === focusPinId) return;
+    const pin = pins.find((p) => p.id === focusPinId);
+    if (!pin) return;
+    focusedPin.current = focusPinId;
+    selectPin(pin);
+  }, [focusPinId, pins]);
 
   const getMapPosition = (clientX: number, clientY: number): MapPin['position'] | null => {
     const rect = mapRef.current?.getBoundingClientRect();

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
-  Globe, Layers, Loader2, Sun, Sliders, FlipHorizontal, FlipVertical,
+  Globe, Layers, Loader2, Sun, Sliders, FlipHorizontal, FlipVertical, Footprints,
 } from 'lucide-react';
 // `translate` is the non-reactive twin of the hook's `t`: the render uses the
 // hook, and the callbacks and effects below use this one, so that a translation
@@ -10,7 +10,7 @@ import {
 import { useTranslation, t as translate } from '@/i18n/useTranslation';
 import type { WorldData } from '../core/types';
 import { BIOME_COUNT } from '../core/types';
-import { BIOME_COLORS, renderComposite } from '../core/render';
+import { BIOME_COLORS, renderBase } from '../core/render';
 import { SculptGesture, tipOf } from '../sculpt/ops';
 import {
   clampCameraToSurface,
@@ -22,6 +22,9 @@ import {
   R_GLOBE,
   type SculptShape,
 } from '../sculpt/scene3d';
+import { createSky, type Sky } from '../sculpt/sky';
+import { createWater, type Water } from '../sculpt/water';
+import { createScatter, type Scatter } from '../sculpt/scatter';
 import type { Pt, Stroke, TerrainOp, WorldEdit } from '../core/edits';
 import {
   commitPaintStroke, isSculptMode, isWaypointTool, negativeOf, pickGeneratedAt,
@@ -35,8 +38,13 @@ import {
   planZoomSkin, samePlan, zoomSkinCovers, MAX_ZOOM_SKIN_SPAN,
   type SkinWindow, type ZoomSkinPlan,
 } from '../cartography/zoomSkin';
-import { regionClient } from '../region/client';
-import { SAT_DEEP_Z } from '../region/satelliteTile';
+import { regionClient, tileStats, oldestInFlightMs } from '../region/client';
+import { drawRoadNetwork, roadOverlayAlpha } from '../cartography/roadOverlay';
+import { drawTownStains } from '../cartography/townStains';
+import {
+  drawWorldRivers, MAX_SAT_TILE_Z, SAT_DEEP_Z, satelliteDeepSupported, satPxPerCanonCell,
+} from '../region/satelliteTile';
+import { DEEP_TILE_Z, deepTileSupported } from '../region/deepTile';
 import type { WorldViewport, WorldWaypoint } from '../types';
 import { CURVES, TIPS, type PaintTool } from './PaintPanel';
 import SculptView from './SculptView';
@@ -174,19 +182,48 @@ const VIEWPORT_REPORT_MS = 180;
  * A 1200 km caben los Alpes cuatro veces: es un encuadre de cordillera, que
  * es exactamente lo que esta vista existe para enseñar.
  */
-// 1200 km, y se queda ahí.
+// 150, Y AHORA EL CÓDIGO Y EL COMENTARIO DICEN LO MISMO.
 //
-// Bajé esto a 150 pensando que el relieve inventado daba algo que enseñar de
-// cerca. Daba ruido: una manta de bultos verdes que no es ladera, es grano —
-// y Luis ya había puesto la regla, que el primer plano es del 2D y de nadie
-// más. Además este suelo es lo que impide que la vista abra con el morro
-// metido en la hierba cuando la cámara compartida trae un encuadre de treinta
-// kilómetros (ver la adopción del viewport más abajo): al bajarlo, regenerar
-// un mapa dejaba la cámara pegada a la superficie.
+// Aquí había un párrafo que anunciaba una vuelta a 1200 que nunca se aplicó al
+// número, y llevaba razón en su día por dos motivos, de los cuales hoy queda
+// medio:
 //
-// Esta vista es la topografía a grandes rasgos. Mil doscientos kilómetros de
-// encuadre es exactamente eso.
-const MIN_3D_SPAN_KM = 150;
+//   · «De cerca sólo hay grano»: cierto para el TERRENO y sigue siéndolo — una
+//     celda son 19,5 km y acercarse no revela nada que el generador haya
+//     calculado. Pero ya no es lo único que se ve. Con un cielo y un mar de
+//     verdad, la cámara baja deja de mirar una manta de bultos verdes y pasa a
+//     mirar una COSTA: horizonte, orilla con espuma, el reguero del sol sobre
+//     el oleaje. La estampa de `harness/out/sky-water/1-atardecer.png` es una
+//     cámara a 1,4 unidades sobre el agua; a 1200 km de suelo esa cámara no
+//     puede existir (el suelo se traduce a ~7,4 unidades de distancia mínima) y
+//     con 150 sí (~0,92). Lo que se gana ahí no lo pinta el relieve: lo pintan
+//     el agua y el cielo.
+//   · «Abrir con el morro en la hierba»: eso ya NO depende de este número. Es
+//     ADOPT_MIN_SPAN_KM, justo debajo, que se separó precisamente porque
+//     confundir las dos cosas fue lo que obligó a revertir la bajada. Acercarse
+//     a mirar es una decisión del lector; que le dejen caer ahí, no.
+//
+// 25, POR DECISIÓN DE LUIS (2026-08-11): «puedes hacer zoom sin necesidad de
+// hacer esa teselación exagerada — el terreno es bastante llano». La regla
+// antigua («el suelo sólo baja cuando el relieve tenga algo debajo») queda
+// REVOCADA: el suelo de cerca es la interpolación LISA del campo del mundo, a
+// propósito — nada de relieve inventado, que fue lo que dio picos y poros y
+// obligó a revertir el intento anterior. Lo que sí gana nitidez al bajar es la
+// PIEL: bajo «consume», un encuadre de 25 km pide teselas z14 (~10 m/px) y
+// donde el 2D ya generó ese canon el 3D las entinta gratis — tejados y mancha
+// urbana incluidos. Frío, se queda en el respaldo z8: borroso pero liso.
+// …y 10 desde el 2026-08-12 (Luis: quiere llegar a VER la ciudad — «que las
+// ciudades estén ahí literalmente»). A 10 km de vano el plan pide z15–z16
+// (2,4–5 m/px): los planos de ciudad de las teselas se leen calle a calle.
+// Sigue siendo interpolación lisa del campo del mundo — el relieve no se
+// inventa — y bajo «consume» la piel honda sale gratis de la residencia o del
+// canon persistido (pasada 8); fría, se queda en el respaldo liso de siempre.
+const MIN_3D_SPAN_KM = 10;
+
+/** HUD de depuración de la piel (TEMPORAL — Luis, 2026-08-12): añade a la
+ *  línea de la piel el techo del plan, el estado del contrato consume y los
+ *  contadores de sesión de la vía de teselas. Quitar tras el diagnóstico. */
+const DEBUG_HUD = true;
 
 /**
  * Y UN SUELO DISTINTO PARA EL ENCUADRE HEREDADO.
@@ -198,25 +235,62 @@ const MIN_3D_SPAN_KM = 150;
  * calle, abrir ahí te pone el morro en la hierba de un terreno que sólo tiene
  * una muestra cada veinte kilómetros. Acercarse a mirar es una decisión; que te
  * dejen caer ahí, no.
+ *
+ * 150 desde que el suelo del lector bajó a 25 (decisión de Luis, 2026-08-11):
+ * venir del 2D mirando una comarca abre EN esa comarca, no a 1200 km — pero
+ * nunca más cerca de lo que un posado deliberado enseña con dignidad.
  */
-const ADOPT_MIN_SPAN_KM = 1200;
+const ADOPT_MIN_SPAN_KM = 150;
+
+/**
+ * EL PASEO: LA CÁMARA A LA ALTURA DE LOS OJOS.
+ *
+ * Todo lo demás de esta vista orbita un punto del suelo, que es la postura
+ * correcta para mirar una cordillera y la equivocada para estar EN un sitio.
+ * Con el cielo y el mar de verdad ya puestos, lo que faltaba para que una
+ * costa se lea como una costa es ponerse a su altura.
+ *
+ * No hay controles nuevos: se reaprovecha el orbitador poniéndole el punto de
+ * mira a un palmo delante de la cámara. Girar deja de rodear el paisaje y pasa
+ * a ser mirar alrededor, que es exactamente el gesto que se quiere, y toda la
+ * maquinaria de amortiguado, de límites y de posado sigue siendo la misma. Un
+ * `FirstPersonControls` habría sido un segundo sistema de cámara conviviendo
+ * con el primero, y dos cámaras en una vista es de donde salen los saltos.
+ *
+ * 1,7 m de estatura. En las unidades de esta escena eso es ridículamente poco
+ * —el mundo entero mide 240 y una celda son veinte kilómetros—, así que la
+ * altura de los ojos se toma como una fracción del plano cercano de la cámara:
+ * lo bastante alta para no meterse dentro del terreno y lo bastante baja para
+ * que el horizonte quede donde lo pone un ojo humano.
+ */
+const WALK_EYE = 0.06;
+/** A qué distancia se pone el punto de mira. Corto, para que girar sea mirar. */
+const WALK_LOOK = 0.9;
 
 /**
  * LO MÁS HONDO QUE ESTA VISTA LE PIDE A LA PIRÁMIDE.
  *
- * z8 es el último nivel que sale del ráster del MUNDO amplificado por píxel.
- * A partir de z9 la tesela se dibuja sobre el canon de 153 m, y eso significa
- * generar superteselas de 156 km de suelo — segundos de trabajo, disparados
- * desde una rueda del ratón. Esta vista no genera nada: pide lo que el 2D ya
- * sabe dibujar barato y para en el borde.
- *
- * No es una limitación sentida: con el suelo de encuadre en 1200 km, un bloque
- * de z8 sobre esa ventana da ~600 m por píxel, que es lo que mide un píxel de
- * pantalla ahí. Más resolución de textura no se vería. Si algún día el suelo
- * de encuadre baja, este techo es lo primero que hay que subir — y entonces
- * habrá que decidir qué hacer con la generación de canon, no antes.
+ * z8 es el último nivel que sale del ráster del MUNDO amplificado por píxel; a
+ * partir de z9 la tesela se dibuja sobre el canon de 153 m. La decisión de
+ * producto, tomada por Luis (2026-08-11): **el 3D CONSUME, no genera** —
+ * «hasta que lo optimicemos de verdad». Así que el techo sube hasta donde la
+ * pirámide de este mundo llega, pero cada petición honda viaja con
+ * `consumeOnly`: el worker sólo entinta teselas cuyo canon YA es residente
+ * (lo generó el 2D, o una pasada anterior), y DECLINA las demás en
+ * microsegundos en vez de pagar superteselas de 156 km disparadas desde una
+ * rueda del ratón. Frío, la piel se queda exactamente como con el techo z8
+ * (el mosaico rellena con los padres); caliente — vienes del 2D mirando esa
+ * misma comarca — el bloque sube nítido a canon sin coste de generación.
  */
-const ZOOM_SKIN_MAX_Z = SAT_DEEP_Z - 1;
+const zoomSkinMaxZ = (world: WorldData, skin: string): number => {
+  let top = SAT_DEEP_Z - 1;
+  for (let z = SAT_DEEP_Z; z <= MAX_SAT_TILE_Z; z++) {
+    const ok = skin === 'dibujado' ? deepTileSupported(world, z) : satelliteDeepSupported(world, z);
+    if (!ok) break;
+    top = z;
+  }
+  return top;
+};
 
 /** Cuánto tiene que estarse quieta la cámara antes de recomponer la piel de
  *  cerca. Por debajo de esto se recompone durante el gesto y se nota. */
@@ -234,6 +308,90 @@ const ZOOM_SKIN_REFINE_PX = 4096;
  *  número que decide cuándo rehacerla: ver `zoomSkinCovers`, que explica por
  *  qué confundirlos rehace el bloque en cada gesto. */
 const ZOOM_SKIN_FADE = 0.05;
+
+/**
+ * EL OLEAJE NECESITA FOTOGRAMAS, Y ESO SE PAGA. La decisión, y por qué ésta.
+ *
+ * El pulso de esta vista sólo dibuja cuando alguien lo pide (`st.need`), y así
+ * ha sido siempre: es lo que hace que un mundo quieto cueste CERO. El mar del
+ * shader nuevo se mueve con `uTime`, así que sin fotogramas es una foto de un
+ * mar — bonita, pero muerta.
+ *
+ * Las dos salidas obvias son malas:
+ *   · Ensuciar la escena en cada tic: sesenta fotogramas por segundo para
+ *     siempre. En una vista que se deja abierta mientras se escribe la
+ *     gacetilla al lado, eso es la GPU al ralentí durante horas, el ventilador
+ *     y la batería, a cambio de un rizado que nadie está mirando.
+ *   · Animar sólo mientras la cámara se mueve: el mar se congela EN CUANTO
+ *     sueltas el ratón, que es justo el instante en el que el lector se queda
+ *     mirando el atardecer. La cosa que hace falta que esté viva es la que se
+ *     apaga.
+ *
+ * Se toma el punto medio, con dos topes medidos:
+ *   1. Cualquier señal de que hay alguien —la cámara se mueve, el puntero se
+ *      mueve por encima, cambia la hora o la piel— abre una ventana de
+ *      SEA_AWAKE_MS. Dentro de ella el mar pide fotogramas él solo; fuera, el
+ *      pulso vuelve a cero absoluto. Un lector que se levanta de la silla deja
+ *      de gastar seis segundos después, y el fotograma congelado sigue siendo
+ *      un fotograma con oleaje dentro.
+ *   2. Dentro de la ventana se pide a ~30 Hz, no a 60. El arrastre del oleaje
+ *      es lentísimo (0,085 de espacio de muestreo por segundo): a treinta se ve
+ *      igual de fluido y cuesta la mitad.
+ *   3. Y sólo si el oleaje SE VE. `water.ts` lo apaga entre 3 y 18 km por
+ *      píxel; por encima de eso el mar es una lámina lisa y despertar el bucle
+ *      no cambiaría un solo píxel. A vista de mapa o de globo, cero fotogramas.
+ *
+ * `time` se acumula por delta con tope de 0,1 s por fotograma, no se lee del
+ * reloj de pared: si se leyera, volver después de un minuto quieto reharía el
+ * mar entero de golpe, y un salto así se ve más que la propia animación.
+ */
+const SEA_AWAKE_MS = 6000;
+const SEA_FRAME_MS = 33;
+/** Por encima de esto un píxel se come una ola entera. Mismo umbral que el
+ *  `waveGate` de water.ts, que es quien de verdad lo apaga en el shader. */
+const SEA_KM_PER_PX = 18;
+
+/**
+ * LA HORA DEL DÍA, que es lo que el mando del sol quería decir desde el principio.
+ *
+ * Antes había un azimut de 0 a 360 y una elevación clavada en 38°, escrita en la
+ * llamada. Con el fondo gris eso bastaba, porque el sol no existía más que como
+ * dirección de sombreado; con un cielo detrás, un mando que gira la luz sin
+ * moverla de altura es un sol que el lector VE quieto en el cénit mientras las
+ * sombras dan la vuelta al mundo. No hay forma de creérselo.
+ *
+ * El modelo es el de un sitio de latitud media en equinoccio, que es el que hace
+ * falta para que amanecer, mediodía, atardecer y noche estén todos a mano:
+ *
+ *   ángulo horario  H = (hora - 12) x 15°     — cero al mediodía
+ *   sen(elevación)  = 0,87 x cos(H)           — 60° de altura al mediodía
+ *   azimut          = 90° + H                 — sale por el este (+x), cruza
+ *                                               por el sur (+z), se pone al
+ *                                               oeste (-x)
+ *
+ * A las 6:00 y a las 18:00 el sol queda EXACTAMENTE en el horizonte, que es
+ * donde la clave de atardecer del cielo (h = 0,03) da toda la estampa; de 18:00
+ * a 19:50 se recorre entero el crepúsculo hasta la noche cerrada.
+ *
+ * Y el valor por defecto son las 15:00 porque ahí este modelo da az 135°,
+ * el 38,0° de elevación — o sea, a cinco grados de azimut del sol que esta vista
+ * llevaba clavado (140°, 38°). El fotograma de siempre sigue siendo el fotograma
+ * de partida; lo que cambia es que ahora se puede mover.
+ */
+const SUN_SIN_MAX = 0.87;
+const DEG = Math.PI / 180;
+function sunAt(hour: number): { az: number; el: number } {
+  const H = (hour - 12) * 15;
+  const s = Math.max(-1, Math.min(1, SUN_SIN_MAX * Math.cos(H * DEG)));
+  return { az: 90 + H, el: Math.asin(s) / DEG };
+}
+
+/** La hora, como la lee un reloj. */
+function hourLabel(hour: number): string {
+  const h = Math.floor(hour) % 24;
+  const m = Math.round((hour - Math.floor(hour)) * 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
 
 /** Which brush Ctrl turns each one into. */
 const INVERSE: Partial<Record<TerrainOp, TerrainOp>> = {
@@ -275,6 +433,12 @@ const HUD_TEXT = 'text-[11px] leading-snug text-white';
 
 const RANK_ORDER: Record<string, number> = { capital: 0, city: 1, town: 2, village: 3 };
 
+/** Vector de trabajo del bucle de dibujo. Fuera del bucle porque `draw` corre
+ *  sesenta veces por segundo y un `new THREE.Vector3` por fotograma es basura
+ *  para el recolector justo en el hilo que está dibujando. Se usa y se consume
+ *  dentro del mismo bloque síncrono, así que compartirlo no puede cruzarse. */
+const FWD = new THREE.Vector3();
+
 interface ScreenMark {
   x: number;
   y: number;
@@ -307,8 +471,31 @@ export default function World3D({
   const [headlight, setHeadlight] = useState(false);
   const [shadow, setShadow] = useState(0.55);
   const [contour, setContour] = useState(0);
-  const [sunAz, setSunAz] = useState(140);
-  const [detailAmt, setDetailAmt] = useState(0.55);
+  /** Ver `sunAt`: las 15:00 reproducen el sol fijo que esta vista tenía. */
+  const [hour, setHour] = useState(15);
+  /** A CERO por defecto (Luis, 2026-08-11): el ruido de detalle por píxel es
+   *  exactamente lo que él describe como «picos y poros» al acercarse. El
+   *  suelo de cerca es LISO por decisión; quien quiera el grano inventado
+   *  tiene el mando «Detalle de cerca» y se lo sube. */
+  const [detailAmt, setDetailAmt] = useState(0);
+  /**
+   * El paseo, con su espejo en un ref.
+   *
+   * El estado lo pinta el botón; el ref lo lee `stabilizeCamera`, que corre
+   * dentro del bucle de dibujo y no puede depender de que React haya vuelto a
+   * renderizar. Es el mismo patrón que `shapeRef` justo aquí al lado, y por la
+   * misma razón: un fotograma no espera a nadie.
+   */
+  const [walking, setWalking] = useState(false);
+  /** Vuelve a sembrar la vegetación. Lo pone el efecto de montaje y lo llaman
+   *  los tres sitios que rehacen el terreno. */
+  const sembrarRef = useRef<(() => void) | null>(null);
+  const walkRef = useRef(false);
+  walkRef.current = walking;
+  // El paseo es del PLANO. En el globo el lector está fuera del planeta, así
+  // que no hay suelo sobre el que estar de pie; pasar a globo lo apaga en vez
+  // de dejar un botón encendido que no hace nada.
+  useEffect(() => { if (shape === 'globe') setWalking(false); }, [shape]);
   const [mirrorX, setMirrorX] = useState(false);
   const [mirrorY, setMirrorY] = useState(false);
   const [panel, setPanel] = useState(false);
@@ -324,6 +511,8 @@ export default function World3D({
    *  desde fuera, y porque es el número que decide si merece la pena acercarse
    *  más. */
   const [skinInfo, setSkinInfo] = useState('');
+  /** La chuleta de navegación, detrás del «?» (Luis, 2026-08-12). */
+  const [hintsOpen, setHintsOpen] = useState(false);
   /** What the modifier keys are doing to the brush right now. */
   const [modifier, setModifier] = useState<'' | 'smooth' | 'invert'>('');
   const landmarks = useMemo(
@@ -343,8 +532,19 @@ export default function World3D({
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
     surface: SculptSurface;
-    sea: THREE.Mesh;
-    seaGlobe: THREE.Mesh;
+    sky: Sky;
+    water: Water;
+    scatter: Scatter;
+    /** La dirección AL sol, la misma que `surface.setSun` construye. */
+    sun: THREE.Vector3;
+    /** Segundos de oleaje acumulados. No es el reloj de pared: ver el pulso. */
+    time: number;
+    /** Hasta cuándo el mar tiene derecho a pedir fotogramas él solo. */
+    wakeUntil: number;
+    /** Si a este encuadre el oleaje se ve; si no, animarlo no cambia un píxel. */
+    waves: boolean;
+    /** Kilómetros de suelo del ENCUADRE (no de lo visible). Ver el contrato. */
+    focusKm: number;
     albedo: THREE.CanvasTexture | null;
     raf: number;
     timer: number;
@@ -353,6 +553,18 @@ export default function World3D({
     booked: number;
     cost: number;
     frameAvg: number;
+    /** Media del INTERVALO real entre fotogramas encadenados (0 = sin muestra).
+     *  `cost`/`frameAvg` cronometran sólo el JavaScript de `draw()`; con
+     *  SwiftShader el rasterizado vive en el proceso GPU y el intervalo real
+     *  medido fue de 2,0–5,8 s en plano y 15,3 s en globo mientras `frameAvg`
+     *  decía 13–15 ms. El vigilante, la escalera de calidad y el amortiguado
+     *  comen de ESTE número, no de aquél. */
+    frameGapAvg: number;
+    /** Arranque del dibujo anterior, para medir el intervalo. */
+    lastT0: number;
+    /** ¿El dibujo anterior terminó pidiendo otro? Sólo entonces el hueco hasta
+     *  este dibujo es un fotograma y no tiempo parado. */
+    chained: boolean;
     qualityFrames: number;
     pixelRatio: number;
     hudAt: number;
@@ -365,6 +577,10 @@ export default function World3D({
      *  encima, así que su peor caso es la imagen de siempre y nunca un
      *  agujero negro esperando a que llegue una tesela. */
     albedoCanvas: HTMLCanvasElement | null;
+    /** La misma piel SIN ríos: el relleno de la piel de cerca parte de aquí y
+     *  los ríos se dibujan a la resolución del bloque, con anchura de suelo.
+     *  Nulo en carta y arcilla (la carta trae los suyos; la arcilla no lleva). */
+    albedoBase: HTMLCanvasElement | null;
     /** La piel de cerca: qué bloque de teselas cubre, para qué mundo, y en qué
      *  lienzo. `zoomWant` es la última ventana que la malla pidió, que se
      *  compara con el plan para decidir si hay que rehacerlo. */
@@ -482,8 +698,14 @@ export default function World3D({
     };
     renderer.domElement.addEventListener('webglcontextlost', onContextLost);
 
+    // SIN `scene.background`. Era `0x0e1116`: un rectángulo gris, y un
+    // rectángulo gris no tiene horizonte. Sin horizonte el ojo no tiene contra
+    // qué medir la distancia y todo queda a la misma profundidad, que es la
+    // profundidad de una maqueta. Ahora el fondo es el cielo de `sculpt/sky.ts`
+    // —un triángulo a pantalla completa, dibujado el primero y sin profundidad—
+    // así que el buffer de color siempre acaba cubierto y nadie ve el negro del
+    // clear.
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0e1116);
 
     // A narrow field of view: perspective distorts the very thing you are
     // judging — whether a slope is steeper than the one beside it.
@@ -514,6 +736,9 @@ export default function World3D({
     controls.addEventListener('change', () => {
       if (!R.current) return;
       R.current.need = true;
+      // Y el mar se despierta: ver SEA_AWAKE_MS. Mover la cámara es la señal
+      // más fiable de que hay alguien delante de la pantalla.
+      R.current.wakeUntil = performance.now() + SEA_AWAKE_MS;
     });
 
     const palette: [number, number, number][] = [];
@@ -530,41 +755,82 @@ export default function World3D({
     } catch (e) {
       setFailed(e instanceof Error ? e.message : String(e));
       renderer.dispose();
+      // Igual que en el desmontaje: sin esto el contexto WebGL del intento
+      // fallido sigue reteniendo memoria del proceso GPU.
+      renderer.forceContextLoss();
       return;
     }
     surface.uploadAll(world.elevation, world.biome);
     scene.add(surface.mesh);
+    /**
+     * SEMBRAR VA CON SUBIR EL TERRENO.
+     *
+     * Los cuatro sitios que llaman a `uploadAll` son exactamente los cuatro en
+     * los que el suelo ha cambiado: el montaje, el fin de una pincelada, el
+     * deshacer y el cambio de mundo. Si la siembra no fuera con ellos, un
+     * bosque se quedaría flotando sobre el valle que el lector acaba de excavar.
+     *
+     * `temperature` va porque el límite del arbolado del atlas ya está ajustado
+     * por altitud, y sin él un mundo cálido saca bosque por encima de donde el
+     * mapa ya pinta nieve. `heightAt` va contra la SUPERFICIE y no contra la
+     * retícula: con un parche canónico atado el terreno sube hasta un kilómetro
+     * y las plantas quedarían enterradas.
+     */
+    const sembrar = () => {
+      const st = R.current;
+      const sf = st ? st.surface : surface;
+      const sc = st ? st.scatter : scatter;
+      sc.setWorld({
+        elevation: world.elevation, biome: world.biome,
+        width: world.width, height: world.height,
+        yMul: sf.yMul, seaLevel: 0,
+        temperature: world.temperature,
+        heightAt: (u: number, v: number) => sf.heightAtUV(u, v),
+      });
+    };
+    // La PRIMERA siembra no se hace aquí: `scatter` se crea más abajo, después
+    // del agua, y llamarla ya daba `Cannot access 'scatter' before
+    // initialization` — el banco del componente real lo cazó en la primera
+    // pasada. Se guarda el cierre y se dispara en cuanto el módulo existe.
+    sembrarRef.current = sembrar;
 
-    // The sea is a real surface, not a colour below zero: you need to see the
-    // land go under it while you are pushing it down.
+    // EL CIELO Y EL AGUA, que antes eran un color de fondo y un plano azul al
+    // 50 % de opacidad.
     //
-    // `polygonOffset` negativo empuja el agua un pelín hacia la cámara en el
-    // buffer de profundidad. No la mueve ni un milímetro en el espacio de la
-    // escena — sólo rompe el empate cuando el fondo marino está a la misma
-    // profundidad que la superficie, que es exactamente el caso de una
-    // plataforma continental a menos veinte metros. Sin esto, y aunque el
-    // near ya dé doce veces más precisión, sobre esas llanuras sumergidas
-    // enormes el empate vuelve: el agua debe ganar SIEMPRE ahí, y el sesgo
-    // constante lo garantiza sin depender de cuánta precisión sobre.
-    const seaMat = new THREE.MeshBasicMaterial({
-      color: 0x3f6f96, transparent: true, opacity: 0.5, depthWrite: false,
-      side: THREE.DoubleSide,
-      // Sólo sesgo CONSTANTE, con el factor a cero. El factor multiplica la
-      // PENDIENTE de profundidad del polígono, y este polígono es un plano de
-      // doscientos cuarenta unidades visto casi de canto: su pendiente es
-      // enorme, y un factor negativo lo adelantaría tanto que ahogaría
-      // montañas que están legítimamente por encima del mar.
-      polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -4,
-    });
+    // Lo que se va: un `MeshBasicMaterial` —Basic significa SIN LUZ: ignoraba
+    // el sol, la cámara y el fondo— sobre un plano del tamaño exacto del mundo,
+    // así que el océano se acababa en un canto recto a ciento veinte unidades
+    // del centro, a la vista de todos. Lo que llega: dos módulos con su propio
+    // shader, ya medidos por separado (`harness/out/sky-water/*.png`), que se
+    // encargan de Fresnel, orilla, destello y lejanía.
+    //
+    // El agua sigue a la cámara y se escala con el far en cada `update`, así que
+    // aquí no lleva tamaño: se le dice de qué mundo es (la semilla decide la
+    // fase del oleaje, para que dos mundos no tengan el mar en el mismo sitio) y
+    // el resto lo hace ella.
+    const sky = createSky({ renderer });
+    scene.add(sky.mesh);
     const sizeZ = SIZE_X * (world.height / world.width);
-    const sea = new THREE.Mesh(new THREE.PlaneGeometry(SIZE_X, sizeZ), seaMat);
-    sea.rotation.x = -Math.PI / 2;
-    sea.renderOrder = 1;
-    scene.add(sea);
-    const seaGlobe = new THREE.Mesh(new THREE.SphereGeometry(R_GLOBE, 96, 64), seaMat);
-    seaGlobe.visible = false;
-    seaGlobe.renderOrder = 1;
-    scene.add(seaGlobe);
+    const water = createWater({
+      seed: world.params.seed, sizeX: SIZE_X, sizeZ, radius: R_GLOBE,
+    });
+    water.globe.visible = false;
+    scene.add(water.plane);
+    scene.add(water.globe);
+
+    /**
+     * Y LO QUE CRECE ENCIMA.
+     *
+     * Se añade a la escena sin más: el módulo se coloca solo entre el terreno y
+     * el agua, y a encuadre de planeta no dibuja ni una instancia — el color
+     * del atlas ya lleva los bosques, y una mota de tres píxeles por árbol es
+     * grano sucio, no un bosque.
+     */
+    const scatter = createScatter({
+      seed: world.params.seed, sizeX: SIZE_X, sizeZ, radius: R_GLOBE,
+    });
+    scene.add(scatter.group);
+    sembrar();
 
     // El almacén de teselas: mismo tipo, mismo protocolo y mismo worker que usa
     // el 2D. Nace aquí para que su vida sea la de la escena.
@@ -581,6 +847,11 @@ export default function World3D({
           layers: { rivers: true, roads: true, fields: true },
           density: 1,
           reliefAmount: 1,
+          // EL 3D CONSUME (decisión de Luis, 2026-08-11): una tesela honda
+          // sólo se entinta si su canon ya es residente en el worker; si no,
+          // el worker la declina al instante. Ninguna rueda de ratón paga
+          // superteselas de 156 km desde esta vista.
+          consumeOnly: true,
         });
         return {
           promise: req.promise.then((res) => res?.bitmap ?? null).catch(() => null),
@@ -597,12 +868,18 @@ export default function World3D({
     );
 
     const st = {
-      renderer, scene, camera, controls, surface, sea, seaGlobe,
+      renderer, scene, camera, controls, surface, sky, water, scatter,
+      // La misma que `setSun(az, el)` arma; el efecto de la hora la rellena
+      // antes del primer dibujo. Aquí, mediodía largo, por si acaso.
+      sun: new THREE.Vector3(0, 1, 0),
+      time: 0, wakeUntil: 0, waves: false, focusKm: EARTH_KM,
       albedo: null as THREE.CanvasTexture | null,
       raf: 0, timer: 0, need: true, rafAlive: true, booked: 0, cost: 16,
-      frameAvg: 16, qualityFrames: 0, pixelRatio: initialPixelRatio, hudAt: 0, lastDraw: 0,
+      frameAvg: 16, frameGapAvg: 0, lastT0: 0, chained: false,
+      qualityFrames: 0, pixelRatio: initialPixelRatio, hudAt: 0, lastDraw: 0,
       uploadedRev: revision, skinnedRev: -1, skinnedKey: '', poseKey: '', viewportKey: '',
       albedoCanvas: null as HTMLCanvasElement | null,
+      albedoBase: null as HTMLCanvasElement | null,
       zoomPlan: null as ZoomSkinPlan | null,
       zoomGen: '', zoomCanvas: null as HTMLCanvasElement | null,
       zoomTex: null as THREE.CanvasTexture | null, zoomTimer: 0, zoomArriveTimer: 0, zoomRefineTimer: 0,
@@ -651,11 +928,21 @@ export default function World3D({
       zoomStore.dispose();
       st.albedo?.dispose();
       st.zoomTex?.dispose();
-      seaMat.dispose();
-      sea.geometry.dispose();
-      seaGlobe.geometry.dispose();
+      sky.dispose();
+      water.dispose();
+      scatter.dispose();
       renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
       renderer.dispose();
+      /**
+       * Y SOLTAR EL CONTEXTO DE VERDAD. `dispose()` libera los recursos de
+       * three, pero el contexto WebGL vive hasta que el recolector pase por el
+       * lienzo — y con SwiftShader eso es memoria del proceso GPU retenida
+       * mientras la siguiente vista intenta abrir SU contexto: el banco de
+       * arranque midió `getContext('2d')` devolviendo null en Map2D justo
+       * después de desmontar el 3D (el hallazgo «forceContextLoss que falta»
+       * anotado en el corredor). Perderlo aquí devuelve la memoria ya.
+       */
+      renderer.forceContextLoss();
       if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
       R.current = null;
     };
@@ -692,6 +979,32 @@ export default function World3D({
     // en ciento cincuenta es lo que impide rasar el terreno. Ahora son unos
     // seis, y por debajo manda el plano cercano de la cámara.
     const clearance = Math.max(st.camera.near * 4, 0.035);
+    /**
+     * EN PASEO MANDA LA ESTATURA, NO LA ÓRBITA.
+     *
+     * La cámara se pega al suelo a la altura de los ojos y el punto de mira se
+     * pone delante, a la misma altura, así que el orbitador gira la vista en
+     * vez de rodear el paisaje. Se hace ANTES del posado normal y se sale: el
+     * posado normal sube la cámara para que no rase el terreno, que es justo
+     * lo contrario de lo que aquí se quiere.
+     */
+    if (walkRef.current && shapeRef.current === 'plane') {
+      const c = st.camera.position;
+      const u = c.x / SIZE_X + 0.5, v = c.z / sizeZ + 0.5;
+      const eye = Math.max(0, st.surface.heightAtUV(u, v) * st.surface.yMul) + WALK_EYE;
+      const moved = Math.abs(c.y - eye) > 1e-4;
+      c.y = eye;
+      // El punto de mira, delante y a los ojos. Se conserva el RUMBO que tenía
+      // el orbitador: si se recolocara a ciegas, cada fotograma daría un tirón
+      // hacia el norte y no se podría mirar a ningún otro sitio.
+      const t = st.controls.target;
+      let dx = t.x - c.x, dz = t.z - c.z;
+      const l = Math.hypot(dx, dz);
+      if (l < 1e-5) { dx = 0; dz = -1; } else { dx /= l; dz /= l; }
+      const pitch = l > 1e-5 ? (t.y - c.y) / l : 0;
+      t.set(c.x + dx * WALK_LOOK, c.y + pitch * WALK_LOOK, c.z + dz * WALK_LOOK);
+      return moved;
+    }
     if (shapeRef.current === 'plane') {
       const targetU = st.controls.target.x / SIZE_X + 0.5;
       const targetV = st.controls.target.z / sizeZ + 0.5;
@@ -1138,7 +1451,11 @@ export default function World3D({
     //    de hoy, y es lo que garantiza que ninguna tesela que tarde deje un
     //    agujero negro sobre el relieve. Por trozos, porque la ventana puede
     //    cruzar la costura y el lienzo de origen no se envuelve solo.
-    const base = st.albedoCanvas;
+    //    SIN RÍOS cuando hay versión sin ellos (`albedoBase`): un río cocido a
+    //    resolución de mundo y ampliado ×8 es la cinta gorda que Luis
+    //    fotografió; aquí se rellena la base limpia y los ríos se dibujan
+    //    después A LA RESOLUCIÓN DEL BLOQUE, con su anchura de suelo.
+    const base = st.albedoBase ?? st.albedoCanvas;
     if (base) {
       const kx = base.width / w.width;
       const ky = base.height / w.height;
@@ -1157,12 +1474,87 @@ export default function World3D({
       }
     }
 
+    // 1b. LOS RÍOS DEL RELLENO, a anchura honesta. Sólo para la piel satélite
+    //     (la carta lleva los suyos dibujados en su propia lámina): la MISMA
+    //     rutina que usan las teselas someras, así el relleno y las teselas
+    //     que van llegando encima hablan un único idioma y el ancho del río no
+    //     depende de a qué distancia esté la cámara.
+    if (st.albedoBase && st.zoomInputs.skin !== 'dibujado') {
+      drawWorldRivers(w, ctx, plan.view, plan.width);
+    }
+
     // 2. LAS TESELAS ENCIMA: exactas donde las hay, el cuarto de un ancestro
     //    escalado donde todavía no. Nunca bloquea, nunca deja hueco.
     const got = st.zoomStore.draw(
       ctx, w, plan.z, plan.view, { x: 0, y: 0, w: plan.width, h: plan.height },
     );
+    /**
+     * EL SUELO DE NITIDEZ BAJO «CONSUME». Un plan hondo con el canon frío se
+     * declina ENTERO (contrato consumeOnly) y este lienzo se quedaría en el
+     * albedo ampliado — peor que el techo z8 que había antes, que es
+     * exactamente lo que Luis fotografió: mancha borrosa con un río gordo.
+     * El último nivel SOMERO (z8 en satélite, z9 en carta) no toca canon y
+     * nunca se declina: se pide SIEMPRE como respaldo del mismo encuadre — se
+     * pide PRIMERO, para que el pool fabrique antes lo que seguro se va a ver
+     * — y el paseo por antepasados de `draw` lo funde bajo las teselas hondas
+     * que sí lleguen. `lastAsk` del store es por nivel justo para que estas
+     * dos peticiones por fotograma no se pisen la dedupe.
+     */
+    const floorZ = (st.zoomInputs.skin === 'dibujado' ? DEEP_TILE_Z : SAT_DEEP_Z) - 1;
+    if (plan.z > floorZ) st.zoomStore.want(w, floorZ, plan.view);
     st.zoomStore.want(w, plan.z, plan.view);
+
+    const mPerPx = (plan.view.w * (EARTH_KM / w.width) * 1000) / plan.width;
+    const done = got.exact >= got.needed;
+
+    // 2b. LAS CIUDADES DEL RELLENO. «Coloca las ciudades» (Luis, 2026-08-11):
+    //     a 25 km una casa mide menos de un píxel, así que en el suelo del 3D
+    //     la ciudad es su MANCHA — la misma mancha parda que inkan las teselas
+    //     hondas, pero dibujada aquí desde la geografía, en el hilo principal
+    //     y EN FRÍO, para que el consumo (que declina el canon frío) nunca
+    //     deje el suelo sin pueblos. Va ENCIMA de las teselas y no en el
+    //     relleno porque el respaldo somero z8 (que se pide SIEMPRE, ver
+    //     arriba) tapa el bloque entero en cuanto llega y se llevaría por
+    //     delante cualquier mancha pintada debajo. Sólo se retira cuando
+    //     TODAS las teselas del plan son exactas y de un nivel que ya trae su
+    //     propia mancha o sus tejados: ≤160 m/px, la MISMA puerta que abre
+    //     `drawBuildings` en la tesela honda — así el relevo es un cambio de
+    //     pincel, no una aparición.
+    const geo = st.zoomInputs.geography;
+    if (geo && st.zoomInputs.skin !== 'dibujado') {
+      const inked = done && plan.z >= SAT_DEEP_Z && satelliteDeepSupported(w, plan.z);
+      if (!(inked && mPerPx <= 160)) {
+        drawTownStains(ctx, geo.settlements, {
+          worldWidth: w.width, worldHeight: w.height,
+          view: plan.view, width: plan.width, height: plan.height,
+          metresPerCell: (EARTH_KM / w.width) * 1000,
+        });
+      }
+      // 2c. LOS CAMINOS, la misma capa y el mismo fundido que el 2D
+      //     (`roadOverlayAlpha`): enteros hasta que las teselas inken calzadas
+      //     reales, y sólo si el plan está entero — bajo consumo un canon frío
+      //     declina las hondas, y sin la condición `done` el fundido borraría
+      //     los caminos justo cuando no hay tesela que los traiga. Por copias
+      //     este–oeste, como toda capa lineal: la ventana puede cruzar la
+      //     costura y `unwrapRoad` deja cada camino en la copia [0, W).
+      const roadAlpha = roadOverlayAlpha(inked ? satPxPerCanonCell(w, plan.z) : 0);
+      if (roadAlpha > 0.01 && geo.roads.length) {
+        const s = plan.width / plan.view.w;
+        const k0 = Math.floor(plan.view.x / w.width);
+        const k1 = Math.floor((plan.view.x + plan.view.w) / w.width);
+        for (let k = k0; k <= k1; k++) {
+          const ox = (k * w.width - plan.view.x) * s;
+          const oy = -plan.view.y * s;
+          drawRoadNetwork(ctx, geo.roads, {
+            worldWidth: w.width, worldHeight: w.height,
+            toScreen: (u, v) => [ox + u * w.width * s, oy + v * w.height * s],
+            width: plan.width, height: plan.height,
+            pxPerCell: s, alpha: roadAlpha,
+            linear: { ox, oy, scale: s },
+          });
+        }
+      }
+    }
 
     let tex = st.zoomTex;
     if (!tex) {
@@ -1183,14 +1575,25 @@ export default function World3D({
     }
     st.zoomPlan = plan;
     st.surface.setZoomSkin(tex, plan.window, ZOOM_SKIN_FADE);
-    const mPerPx = (plan.view.w * (40075 / w.width) * 1000) / plan.width;
-    const done = got.exact >= got.needed;
     setSkinInfo(translate('worldgen.threeD.skinInfo')
       .replace('{z}', String(plan.z))
       .replace('{nx}', String(plan.nx))
       .replace('{ny}', String(plan.ny))
       + (mPerPx >= 1000 ? `${(mPerPx / 1000).toFixed(1)} km/px` : `${Math.round(mPerPx)} m/px`)
-      + (done ? '' : ` · ${got.exact}/${got.needed}`));
+      + (done ? '' : ` · ${got.exact}/${got.needed}`)
+      // DEBUG (temporal, Luis 2026-08-12): el techo del plan, el contrato, y
+      // los contadores de sesión — «declinadas» creciendo = el canon de este
+      // suelo no existe aún (el 2D no lo generó y el almacén no lo tiene).
+      + (DEBUG_HUD
+        ? ` · DEBUG techo z${zoomSkinMaxZ(st.zoomInputs.world, st.zoomInputs.skin)}`
+        + ` · consume · vano ${Math.round(st.focusKm)} km (mín ${MIN_3D_SPAN_KM})`
+        + ` · sesión: ${tileStats.delivered} entregadas · ${tileStats.declined} declinadas`
+        + ` · ${Math.max(0, tileStats.asked - tileStats.delivered - tileStats.declined
+          - tileStats.errors - tileStats.timeouts)} en vuelo${oldestInFlightMs() > 3000
+          ? ` (${Math.round(oldestInFlightMs() / 1000)} s)` : ''}`
+        + ` · ${tileStats.seeded} sembradas · ${tileStats.errors} errores · ${tileStats.timeouts} caducadas`
+        + (tileStats.fabErrors ? ` · FÁBRICA-ERR ${tileStats.fabErrors}` : '')
+        : ''));
     request();
 
     // AFINADO ENCADENADO. Cuando el bloque está entero, se intenta el nivel
@@ -1198,7 +1601,7 @@ export default function World3D({
     // mientras la miras, como cualquier mapa deslizante, en vez de quedarse en
     // el nivel más hondo que cupo de una sentada. Sólo cuando ya no falta
     // ninguna tesela, para que refinar nunca compita con terminar lo que hay.
-    if (done && plan.z < ZOOM_SKIN_MAX_Z && !st.zoomRefineTimer) {
+    if (done && plan.z < zoomSkinMaxZ(st.zoomInputs.world, st.zoomInputs.skin) && !st.zoomRefineTimer) {
       st.zoomRefineTimer = window.setTimeout(() => {
         st.zoomRefineTimer = 0;
         const want = st.zoomWant;
@@ -1272,7 +1675,9 @@ export default function World3D({
       st.zoomTimer = 0;
       const want = st.zoomWant;
       if (!want) return;
-      const plan = planZoomSkin(st.zoomInputs.world, want, { maxZ: ZOOM_SKIN_MAX_Z });
+      const plan = planZoomSkin(st.zoomInputs.world, want, {
+        maxZ: zoomSkinMaxZ(st.zoomInputs.world, st.zoomInputs.skin),
+      });
       if (!plan) { off(); return; }
       // Rehacer el bloque que ya está puesto no cambia un píxel, y con la
       // prueba de tamaño de `zoomSkinCovers` eso pasaría en cada posada.
@@ -1321,6 +1726,23 @@ export default function World3D({
     st.need = false;
     const t0 = performance.now();
 
+    // EL FOTOGRAMA DE VERDAD. El intervalo entre dos dibujos ENCADENADOS (el
+    // anterior terminó pidiendo otro) es lo que dura un fotograma en esta
+    // máquina, rasterizado incluido — que `cost`, más abajo, no ve. El hueco
+    // entre dos ráfagas separadas es tiempo parado y no se muestrea.
+    if (st.chained && st.lastT0 > 0) {
+      const gap = t0 - st.lastT0;
+      st.frameGapAvg = st.frameGapAvg > 0 ? st.frameGapAvg * 0.8 + gap * 0.2 : gap;
+    }
+    st.lastT0 = t0;
+
+    // El reloj del oleaje. POR DELTA Y CON TOPE, no leído del reloj de pared:
+    // el mar se congela cuando nadie mira (ver SEA_AWAKE_MS), y con un reloj
+    // absoluto volver un minuto después rehacía el mar entero de un salto —
+    // un salto que se ve muchísimo más que la propia animación. Con el tope de
+    // 0,1 s por fotograma, la pausa más larga cuesta una décima de ola.
+    st.time += st.lastDraw ? Math.min(0.1, Math.max(0, (t0 - st.lastDraw) / 1000)) : 0;
+
     if (st.fly.active) {
       st.fly.t = Math.min(1, st.fly.t + 1 / 42);
       const s = st.fly.t < 0.5 ? 2 * st.fly.t * st.fly.t : 1 - Math.pow(-2 * st.fly.t + 2, 2) / 2;
@@ -1343,7 +1765,12 @@ export default function World3D({
     // discutir a cualquier altura.
     {
       const dist = st.camera.position.distanceTo(st.controls.target);
-      const near = Math.max(0.05, Math.min(dist * 0.01, 2));
+      // El suelo del near baja con la distancia: 0,05 fijo estaba pensado para
+      // encuadres de ≥150 km; con el suelo del lector en 25 km la cámara llega
+      // a ~0,15 unidades del objetivo y un near de 0,05 recortaba el terreno
+      // que tienes delante. Nunca por encima del 25 % de la distancia, nunca
+      // por debajo del 1 % — y el buffer logarítmico absorbe el cociente.
+      const near = Math.max(Math.min(0.05, dist * 0.25), Math.min(dist * 0.01, 2));
       const far = Math.max(dist * 4 + SIZE_X * 1.5, SIZE_X * 3);
       if (Math.abs(st.camera.near - near) > near * 0.05
         || Math.abs(st.camera.far - far) > far * 0.05) {
@@ -1370,28 +1797,202 @@ export default function World3D({
       // se está MIRANDO. No son lo mismo en cuanto la cámara se inclina, y
       // repartir dos mil píxeles de textura entre el suelo y el horizonte es
       // dárselos al horizonte. Ver `focusWindow`.
-      scheduleZoomSkin(
-        focusWindow(c, st.controls.target, shapeRef.current, world.width, world.height, meshWindow),
+      const focus = focusWindow(
+        c, st.controls.target, shapeRef.current, world.width, world.height, meshWindow,
       );
+      scheduleZoomSkin(focus);
       st.surface.setCamera(c.position);
       const cpq = st.surface.cellsPerQuad(MESH_STEPS[mesh]);
       const km = Math.round((40075 / world.width) * cpq);
       if (t0 - st.hudAt > 220) {
-        setDetail(cpq < 1
+        /**
+         * Y CUÁNTAS PLANTAS, CON SU COSTE.
+         *
+         * Sin este número, un fotograma que se va de 14 a 3 100 ms al añadir la
+         * vegetación no se puede atribuir: podría ser la siembra, el dibujo, o
+         * la varianza del rasterizador por software del banco. Un contador que
+         * dice CUÁNTAS instancias hay y CUÁNTO costó sembrarlas separa las tres
+         * cosas en un vistazo, y es lo primero que se mira cuando alguien dice
+         * que el 3D va lento.
+         */
+        const veg = st.scatter.stats();
+        setDetail((cpq < 1
           ? translate('worldgen.threeD.trianglesPerCell').replace('{n}', (1 / cpq).toFixed(1))
           : translate('worldgen.threeD.cellsPerTriangle')
             .replace('{n}', cpq.toFixed(1))
-            .replace('{km}', String(km)));
+            .replace('{km}', String(km)))
+          + (veg.instances > 0
+            ? ` · ${translate('worldgen.threeD.plants')
+              .replace('{n}', String(veg.instances))
+              .replace('{ms}', veg.ms.toFixed(1))}`
+            : ''));
       }
-      const viewportKey = `${nextWindow.u.toFixed(5)}:${nextWindow.v.toFixed(5)}:${nextWindow.size.toFixed(5)}`;
+      // ---- EL CONTRATO DE LA CÁMARA COMPARTIDA -----------------------------
+      //
+      // Lo que se manda es el ENCUADRE, no lo que se alcanza a ver. Son dos
+      // números distintos y se estaba mandando el que no era:
+      //
+      //   · `visibleWindow` es la caja que ENVUELVE todo lo que hay en pantalla,
+      //     con un 35 % de margen encima. Una cámara inclinada mete el horizonte
+      //     dentro, así que esa caja incluye tierra a la que el lector no está
+      //     mirando y que ocupa doce píxeles de alto. Medido en la misma pose:
+      //     0,324 de mundo.
+      //   · `focusWindow` es el trozo que cabe en la pantalla a la distancia del
+      //     objetivo de la órbita, o sea lo que el lector diría que está
+      //     mirando. En esa misma pose: 0,067 x 0,152.
+      //
+      // Mandar el primero significaba que inclinar el 3D y pasarse al 2D te
+      // sacaba unas CINCO VECES más lejos de lo que esperabas, y como la cámara
+      // es compartida, al volver ya no estabas donde lo dejaste. Este contrato
+      // dice ahora «a esto estoy mirando», que es lo que las dos vistas
+      // necesitan compartir y lo que la piel de cerca ya usaba desde el
+      // principio (mismo `focus`, dos líneas más arriba: una sola verdad).
+      //
+      // El lado largo, y no el ancho a secas: `spanKm` es horizontal por
+      // contrato, pero una vista inclinada abarca más suelo A LO LARGO de la
+      // mirada que a lo ancho, y quedarse con el ancho encuadraría MENOS de lo
+      // que se estaba viendo. Errar por encima es recuperable; errar por debajo
+      // es perderse.
+      const focusKm = Math.max(
+        focus.uSize * EARTH_KM,
+        focus.vSize * EARTH_KM * (world.height / world.width),
+      );
+      st.focusKm = focusKm;
+      const viewportKey = `${focus.u.toFixed(5)}:${focus.v.toFixed(5)}:${focusKm.toFixed(2)}`;
       if (viewportKey !== st.viewportKey) {
         st.viewportKey = viewportKey;
         queueViewport({
-          u: ((nextWindow.u % 1) + 1) % 1,
-          v: nextWindow.v,
-          spanKm: Math.max(MIN_SPAN_KM, nextWindow.size * EARTH_KM),
+          u: ((focus.u % 1) + 1) % 1,
+          v: focus.v,
+          spanKm: Math.max(MIN_SPAN_KM, focusKm),
         });
       }
+    }
+
+    // ---- el cielo, el mar, y el aire que hay entre medias -------------------
+    //
+    // Los tres se ponen al día JUNTOS y en este orden, justo antes de dibujar,
+    // porque los tres cuelgan del mismo sol: el cielo resuelve su tabla de color
+    // a partir de la altura del sol, y el agua y la niebla del terreno le
+    // preguntan al cielo YA RESUELTO de qué color es el horizonte. Al revés —o
+    // un fotograma tarde— el mar reflejaría el cielo del fotograma anterior, que
+    // al girar deprisa se ve como un horizonte que resbala sobre el suelo.
+    //
+    // `spanKm` sale de la ventana de la MALLA (todo lo visible) y no del
+    // encuadre: lo único que el cielo hace con él es decidir si el lector tiene
+    // delante un horizonte o un planeta entero, y para eso lo que cuenta es lo
+    // que se alcanza a ver.
+    const spanKm = st.surface.uvWindow.size * EARTH_KM;
+    st.sky.update({ camera: c, sun: st.sun, shape: shapeRef.current, spanKm });
+    // ¿Hay oleaje que animar en este encuadre? El shader del agua lo apaga entre
+    // 3 y 18 km por píxel; por encima de eso el mar es una lámina lisa y pedir
+    // fotogramas para moverla es gastar batería en no cambiar nada. En el globo,
+    // nunca: se ve el planeta entero de una vez.
+    //
+    // SE MIDE CON EL ENCUADRE, NO CON `spanKm`. `visibleWindow` devuelve el
+    // mundo ENTERO en cuanto un rayo de esquina se escapa por encima del
+    // horizonte — que es exactamente lo que pasa con la cámara a ras de mar,
+    // o sea justo donde el oleaje es la mitad del fotograma. Con spanKm este
+    // gate daba 36 km/px en la pose de costa y apagaba la animación en la única
+    // pose donde importa.
+    const px = Math.max(1, hostRef.current?.clientWidth ?? 1);
+    st.waves = shapeRef.current === 'plane' && st.focusKm / px < SEA_KM_PER_PX;
+
+    // LA DIRECCIÓN VA APLANADA, y esto es un fallo medido, no una precaución.
+    // Con la dirección de la vista tal cual, una cámara que mira un poco hacia
+    // abajo —o sea, casi siempre— le pide al cielo el color que hay POR DEBAJO
+    // del horizonte, que está oscurecido un 28 % a propósito; y entonces la
+    // lejanía del mar y el reflejo del oleaje se van a gris: el mar entero
+    // moteado de plomo bajo un cielo naranja. Y hay que aplanar CON GUARDIA:
+    // mirando a plomo —la vista de mapa, o el polar mínimo de la órbita— el
+    // aplanado da el vector cero, y normalizar eso son tres NaN que se propagan
+    // al color del horizonte y de ahí a media pantalla.
+    c.getWorldDirection(FWD);
+    FWD.y = 0;
+    if (FWD.lengthSq() < 1e-9) FWD.set(0, 0, 1); else FWD.normalize();
+    const horizon = st.sky.horizonColor(FWD);
+    const skyForWater = st.sky.waterSky();
+
+    // La luz del terreno, del mismo cielo que se está pintando.
+    const light = st.sky.sunLight();
+    st.surface.setSunLight(light.color, light.intensity, light.ambient);
+
+    // La distancia de la niebla. ES LA MISMA CUENTA QUE EL AGUA SE HACE POR
+    // DENTRO (ver `update` en water.ts): escala con la ALTURA sobre el agua y no
+    // con la distancia de la mirada, con suelo en el 6 % del mundo para que una
+    // cámara pegada al mar no tiña de horizonte lo que tiene delante, y techo en
+    // ocho mundos. Se copia a mano porque el agua no la expone; si los dos
+    // números se separan, la costa lejana se parte en dos a lo largo de la
+    // orilla, la mitad fundida al cielo y la mitad todavía saturada.
+    const seaY = 0;   // el nivel del mar de esta vista, en unidades de escena
+    const camH = Math.max(0.05, Math.abs(c.position.y - seaY));
+    const fogDist = Math.min(6 * Math.max(camH, SIZE_X * 0.06), SIZE_X * 8);
+    st.surface.setFog(
+      horizon, skyForWater.horizonWarm, fogDist, shapeRef.current === 'plane',
+    );
+
+    st.water.update({
+      camera: c,
+      sun: st.sun,
+      time: st.time,
+      horizon,
+      // El MISMO R32F que desplaza la malla: la orilla del agua y la costa del
+      // terreno salen del mismo campo, así que la espuma no puede quedar ni un
+      // téxel tierra adentro.
+      heightTex: st.surface.heightTexture,
+      gridW: world.width,
+      gridH: world.height,
+      yMul: st.surface.yMul,
+      seaLevel: 0,
+      sky: skyForWater,
+    });
+
+    /**
+     * LA VEGETACIÓN, CON EL MISMO AIRE QUE TODO LO DEMÁS.
+     *
+     * Después del cielo, porque la luz y el horizonte salen de él, y con la
+     * ventana de la MALLA — que es el suelo que de verdad se está dibujando —
+     * en vez de con el encuadre. `heightAt` va contra la superficie y no contra
+     * la retícula: cuando hay un parche canónico atado, el terreno sube hasta
+     * un kilómetro y las plantas se quedarían enterradas.
+     */
+    st.scatter.update({
+      camera: c,
+      sun: st.sun,
+      shape: shapeRef.current,
+      spanKm,
+      window: st.surface.uvWindow,
+      time: st.time,
+      horizon,
+      sun3: light,
+      horizonWarm: skyForWater.horizonWarm,
+    });
+
+    /**
+     * GIRAR EL GLOBO DE CERCA NO PUEDE IR TAN RÁPIDO COMO DE LEJOS.
+     *
+     * `OrbitControls` gira en ÁNGULO: un mismo arrastre son los mismos grados
+     * de latitud tanto si estás a un radio de distancia como si tienes el morro
+     * en la corteza. Pero el suelo que barren esos grados no es el mismo — a
+     * ras de superficie unos pocos grados son medio continente — así que de
+     * cerca la cámara se dispara y no hay forma de mirar un sitio concreto.
+     * Reportado por el lector, y es la queja correcta.
+     *
+     * La velocidad pasa a escalar con la ALTURA sobre la superficie, que es lo
+     * que traduce grados a kilómetros de suelo. Suelo en 0,12 para que quien se
+     * pega del todo pueda seguir moviéndose, y techo en 1 para no acelerar
+     * nunca por encima de lo que había — desde lejos el comportamiento es
+     * exactamente el de antes.
+     *
+     * El plano no lo necesita: allí el arrastre ya es panorámica y traslación,
+     * que son lineales en la distancia por construcción.
+     */
+    if (shapeRef.current === 'globe') {
+      const dist = c.position.length();
+      const alto = Math.max(0, dist - R_GLOBE) / R_GLOBE;
+      st.controls.rotateSpeed = Math.max(0.12, Math.min(1, alto * 1.1));
+    } else if (st.controls.rotateSpeed !== 1) {
+      st.controls.rotateSpeed = 1;
     }
 
     st.renderer.render(st.scene, st.camera);
@@ -1401,21 +2002,35 @@ export default function World3D({
     const cost = performance.now() - t0;
     st.cost = cost;
     st.frameAvg = st.frameAvg * 0.9 + cost * 0.1;
+    // EL NÚMERO QUE MANDA: el intervalo real entre fotogramas si hay muestra,
+    // el coste de JS sólo como arranque. El HUD decía «13–15 ms» en una máquina
+    // que entregaba un fotograma cada 15 s (medido con SwiftShader en globo), y
+    // los tres mecanismos de abajo hacían lo contrario de lo que debían:
+    // la escalera SUBÍA el pixelRatio a 0,07 fps y el amortiguado no se
+    // apagaba nunca.
+    const frameMs = st.frameGapAvg > 0 ? st.frameGapAvg : st.frameAvg;
     st.qualityFrames += 1;
     st.lastDraw = performance.now();
     if (t0 - st.hudAt > 220) {
       st.hudAt = t0;
-      setMs(Math.round(st.frameAvg));
+      setMs(Math.round(frameMs));
     }
-    if (qualityRef.current === 'auto' && st.qualityFrames >= 24) {
+    // Las 24 muestras que pide la escalera son 0,4 s a 60 fps — y DOCE MINUTOS
+    // en una máquina de 30 s por fotograma, que es justo la que más necesita
+    // bajar. Con tres fotogramas por encima de dos segundos la evidencia sobra
+    // (PENDIENTE §1.2): el intervalo real ya viene de dibujos encadenados, así
+    // que no puede ser una pausa del usuario disfrazada de fotograma lento.
+    const settled = st.qualityFrames >= 24
+      || (st.frameGapAvg > 2000 && st.qualityFrames >= 3);
+    if (qualityRef.current === 'auto' && settled) {
       const maxDpr = Math.min(2, window.devicePixelRatio || 1);
-      if (st.frameAvg > 30) {
+      if (frameMs > 30) {
         if (st.pixelRatio > 0.85) {
           st.pixelRatio = Math.max(0.85, st.pixelRatio - 0.15);
           st.renderer.setPixelRatio(st.pixelRatio);
         }
         st.qualityFrames = 0;
-      } else if (st.frameAvg < 17 && st.qualityFrames >= 110) {
+      } else if (frameMs < 17 && st.qualityFrames >= 110) {
         if (st.pixelRatio < maxDpr) {
           st.pixelRatio = Math.min(maxDpr, st.pixelRatio + 0.15);
           st.renderer.setPixelRatio(st.pixelRatio);
@@ -1425,8 +2040,12 @@ export default function World3D({
     }
     // Damping is a per-FRAME decay, so it silently assumes sixty of them a
     // second. Below a usable frame rate the camera goes where it is put.
-    st.controls.enableDamping = cost < 40;
+    // Se decide con el fotograma REAL: con `cost` (sólo JS, 13–15 ms medidos a
+    // 0,07 fps) esta condición no se desactivaba jamás.
+    st.controls.enableDamping = frameMs < 40;
     if (moving) st.need = true;
+    // Para el muestreo del intervalo: ¿este dibujo terminó pidiendo otro?
+    st.chained = st.need;
   }, [
     world.width,
     world.height,
@@ -1447,15 +2066,45 @@ export default function World3D({
       // A frame that has not arrived is only evidence of a dead clock if the
       // main thread was FREE to deliver it — and a frame here can legitimately
       // cost half a second, so the deadline scales with what one actually costs.
-      if (st.raf && now - st.booked > Math.max(500, st.cost * 4)) {
+      // CON EL FOTOGRAMA REAL, no con el coste de JS: el plazo antiguo era
+      // max(500, cost·4) = 500 ms frente a un fotograma legítimo de 15 s
+      // (SwiftShader, medido), y mataba relojes sanos — 1 cancelación medida
+      // en globo. Además, cada disparo alimenta la media: si este plazo era
+      // corto, el siguiente es proporcionalmente más largo y el vigilante
+      // converge solo en dos o tres intentos en vez de matar para siempre.
+      if (st.raf && now - st.booked > Math.max(500, st.frameGapAvg * 4, st.cost * 4)) {
+        st.frameGapAvg = Math.max(st.frameGapAvg, now - st.booked);
         st.rafAlive = false;
         cancelAnimationFrame(st.raf);
         st.raf = 0;
       }
+      // EL LATIDO DEL MAR, y las tres condiciones que impiden que se convierta
+      // en un bucle de sesenta hercios para siempre (ver SEA_AWAKE_MS):
+      // que haya alguien delante (ventana de seis segundos desde la última
+      // señal), que haya oleaje visible a este encuadre, y como mucho a 30 Hz.
+      // Fuera de eso esto no toca `need` y el pulso vuelve a costar cero.
+      if (st.waves && now < st.wakeUntil && now - st.lastDraw >= SEA_FRAME_MS) {
+        st.need = true;
+      }
       if (!st.need) return;
       if (st.rafAlive) { request(); return; }
-      if (now - st.lastDraw < Math.max(16, st.cost)) return;
+      if (now - st.lastDraw < Math.max(16, st.frameGapAvg, st.cost)) return;
       drawRef.current();
+      // EL CANARIO QUE RESUCITA EL RELOJ. `rafAlive = false` era una condena
+      // perpetua: sólo se asignaba `false`, `request()` quedaba cortocircuitado
+      // y la vista dibujaba desde este setInterval de por vida aunque el
+      // compositor volviera (pestaña visible otra vez, GPU liberada). Tras cada
+      // dibujo de rescate se deja UN rAF armado: si el compositor lo entrega,
+      // el reloj estaba vivo y se restaura la vía normal; si no, el vigilante
+      // de arriba lo recoge con su plazo adaptativo.
+      if (!st.raf) {
+        st.booked = now;
+        st.raf = requestAnimationFrame(() => {
+          st.raf = 0;
+          st.rafAlive = true;
+          if (st.need) drawRef.current();
+        });
+      }
     }, 16);
     return () => window.clearInterval(st.timer);
   }, [ready, request]);
@@ -1465,8 +2114,11 @@ export default function World3D({
     const st = R.current;
     if (!st) return;
     st.surface.setShape(shape);
-    st.sea.visible = shape === 'plane';
-    st.seaGlobe.visible = shape === 'globe';
+    // Exactamente el mismo interruptor que había: el plano lleva la lámina que
+    // sigue a la cámara hasta el far, el globo lleva la esfera. El cielo no se
+    // conmuta — él mismo mira `shape` y pinta horizonte o espacio.
+    st.water.plane.visible = shape === 'plane';
+    st.water.globe.visible = shape === 'globe';
     // How far back the whole thing fits. The bounding extent and the NARROWER of
     // the two field angles give the distance that cannot crop, whatever the
     // shape of the panel.
@@ -1491,6 +2143,22 @@ export default function World3D({
       st.controls.maxPolarAngle = (85 * Math.PI) / 180;
       st.controls.enablePan = true;
       st.controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
+      /**
+       * Y EN PASEO, OTROS LÍMITES.
+       *
+       * El punto de mira está a `WALK_LOOK` de la cámara, así que la distancia
+       * del orbitador se clava ahí: la rueda deja de acercar —no hay nada a lo
+       * que acercarse cuando el objetivo va contigo— y `onWheel` la usa para
+       * andar. El ángulo polar se abre hasta casi el suelo porque mirarse los
+       * pies es un gesto legítimo cuando estás de pie, y los 85° de la órbita
+       * existían para no cruzar el terreno, que aquí lo impide la estatura.
+       */
+      if (walkRef.current) {
+        st.controls.minDistance = WALK_LOOK;
+        st.controls.maxDistance = WALK_LOOK;
+        st.controls.maxPolarAngle = (172 * Math.PI) / 180;
+        st.controls.enablePan = false;
+      }
     } else {
       const d = (R_GLOBE * 1.1) / Math.sin(Math.max(0.08, Math.min(halfV, halfH)));
       st.controls.target.set(0, 0, 0);
@@ -1539,9 +2207,24 @@ export default function World3D({
         ));
       } else {
         st.controls.target.set(0, 0, 0);
-        st.camera.position.copy(focus).normalize().multiplyScalar(
-          R_GLOBE * (1.02 + Math.max(0.06, fraction * 2.4)),
+        // GEOMETRÍA DEL CASQUETE, NO UNA RECTA A OJO. La fórmula antigua
+        // (1,02 + fraction·2,4) topaba en 3,42·R, por debajo del encaje
+        // R/sin16° = 3,63·R: con el encuadre por defecto (spanKm = 20 000,
+        // fraction = 0,5) daba 2,22·R y el planeta desbordaba el marco por los
+        // cuatro lados — y como la vista arranca en plano y la adopción llega
+        // al segundo posado, eso era exactamente lo que se veía al pulsar
+        // «Globo». Aquí: β es el semiarco de suelo pedido, y la distancia es
+        // la que hace que ese casquete llene el marco — cos β + 1,1·sin β /
+        // sin(halfMin) —, que en β = 90° es EXACTAMENTE el posado por defecto
+        // (3,99·R), así que encuadre compartido y mundo recién hecho aterrizan
+        // en el mismo sitio cuando piden lo mismo.
+        const halfMin = Math.max(0.08, Math.min(halfV, halfH));
+        const beta = Math.min(Math.PI / 2, Math.PI * fraction);
+        const d = R_GLOBE * Math.max(
+          1.08,
+          Math.cos(beta) + (1.1 * Math.sin(beta)) / Math.sin(halfMin),
         );
+        st.camera.position.copy(focus).normalize().multiplyScalar(d);
       }
     }
     st.fly.active = false;
@@ -1572,6 +2255,7 @@ export default function World3D({
       st.albedo?.dispose();
       st.albedo = null;
       st.albedoCanvas = null;
+      st.albedoBase = null;
       request();
       return;
     }
@@ -1580,14 +2264,35 @@ export default function World3D({
     if (skin === 'dibujado') {
       canvas = getCartoTexture(world, theme, geography ?? undefined,
         Math.min(4096, Math.max(2048, world.width)));
+      // La carta trae sus ríos dibujados en su propia lámina: el relleno de la
+      // piel de cerca usa la misma imagen y no necesita base aparte.
+      st.albedoBase = null;
     } else {
       // Unshaded on purpose: the scene supplies the form, and a second NW
       // hillshade baked into the raster would shade every slope twice.
-      const rgba = renderComposite(world, 'atlas', true, { shade: false });
+      // SIN el tampón de ríos de renderComposite: aquello estampa alfa POR
+      // CELDA, así que un río medía una celda de gordo (19,6 km en un mundo
+      // de 2048) hiciera lo que hiciera la cámara — la cinta gorda de las
+      // capturas de Luis. La base limpia se guarda para el relleno de la piel
+      // de cerca, y la textura del mundo lleva los ríos dibujados por la MISMA
+      // rutina de anchura-de-suelo que usan las teselas someras del satélite:
+      // un solo idioma de río a todas las distancias.
+      const rgba = renderBase(world, 'atlas', { shade: false });
+      const baseCanvas = document.createElement('canvas');
+      baseCanvas.width = world.width;
+      baseCanvas.height = world.height;
+      baseCanvas.getContext('2d')!.putImageData(new ImageData(rgba, world.width, world.height), 0, 0);
+      st.albedoBase = baseCanvas;
       canvas = document.createElement('canvas');
       canvas.width = world.width;
       canvas.height = world.height;
-      canvas.getContext('2d')!.putImageData(new ImageData(rgba, world.width, world.height), 0, 0);
+      const cctx = canvas.getContext('2d');
+      if (cctx) {
+        cctx.drawImage(baseCanvas, 0, 0);
+        // wrap=false: este ráster ya cubre el cilindro entero; re-ramificar
+        // por ventana empujaría los ríos orientales fuera del borde izquierdo.
+        drawWorldRivers(world, cctx, { x: 0, y: 0, w: world.width, h: world.height }, world.width, false);
+      }
     }
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -1618,11 +2323,21 @@ export default function World3D({
     st.surface.setExaggeration(exaggeration);
     st.surface.setShading(skin === 'arcilla', cavity, headlight, shadow);
     st.surface.setContour(contour);
-    st.surface.setSun(sunAz, 38);
+    // UNA SOLA FUENTE PARA EL SOL. El terreno lo quiere en grados (para su
+    // sombreado y su sombra arrojada) y el cielo y el agua en vector; los dos
+    // salen de la misma hora y con la misma trigonometría que `setSun` usa por
+    // dentro, así que no pueden discrepar — que es como se consigue un sol
+    // dibujado en un sitio y unas sombras tiradas desde otro.
+    const s = sunAt(hour);
+    st.surface.setSun(s.az, s.el);
+    const a = s.az * DEG, e = s.el * DEG;
+    st.sun.set(Math.cos(e) * Math.cos(a), Math.sin(e), Math.cos(e) * Math.sin(a));
     st.surface.setMirror(mirrorX, mirrorY);
     st.surface.setDetail(detailAmt);
     stabilizeCamera();
     st.poseKey = '';
+    // Mover la hora es tocar el mundo: el mar tiene derecho a moverse un rato.
+    st.wakeUntil = performance.now() + SEA_AWAKE_MS;
     request();
   }, [
     exaggeration,
@@ -1631,7 +2346,7 @@ export default function World3D({
     headlight,
     shadow,
     contour,
-    sunAz,
+    hour,
     mirrorX,
     mirrorY,
     detailAmt,
@@ -1665,6 +2380,10 @@ export default function World3D({
       st.renderer.setPixelRatio(st.pixelRatio);
       setMesh(1);
       st.frameAvg = 16;
+      // La media del intervalo real también se vacía: con otro pixelRatio es
+      // otra máquina, y la escalera automática decide sobre lo que mida ahora.
+      st.frameGapAvg = 0;
+      st.chained = false;
       st.qualityFrames = 0;
     }
     request();
@@ -1675,6 +2394,7 @@ export default function World3D({
     if (!st) return;
     if (st.uploadedRev !== revision) {
       st.surface.uploadAll(world.elevation, world.biome);
+      sembrarRef.current?.();
       st.uploadedRev = revision;
     }
     request();
@@ -1844,6 +2564,11 @@ export default function World3D({
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const st = R.current;
     if (!st) return;
+    // La otra señal de que hay alguien delante, además de mover la cámara: la
+    // mano sobre la vista. Mirar el atardecer sin tocar nada mantiene el mar
+    // vivo mientras el puntero se pasea, y lo apaga seis segundos después de
+    // que la mano se vaya. Ver SEA_AWAKE_MS.
+    st.wakeUntil = performance.now() + SEA_AWAKE_MS;
     if (press.current && !press.current.moved
         && Math.hypot(e.clientX - press.current.x, e.clientY - press.current.y) > 4) {
       press.current.moved = true;
@@ -1900,6 +2625,7 @@ export default function World3D({
       // edit list would produce, never what the preview happened to do.
       g.rollback();
       st?.surface.uploadAll(world.elevation, world.biome);
+      sembrarRef.current?.();
       const edits: WorldEdit[] = g.edits().map((ed) => (ed.kind === 'land'
         ? { kind: 'land', op: ed.op as 'land' | 'sea', stroke: ed.stroke }
         : { kind: 'terrain', op: ed.op as TerrainOp, stroke: ed.stroke }));
@@ -2006,6 +2732,7 @@ export default function World3D({
     if (!g) return;
     g.rollback();
     R.current?.surface.uploadAll(world.elevation, world.biome);
+    sembrarRef.current?.();
     request();
   }, [world, request]);
 
@@ -2031,6 +2758,32 @@ export default function World3D({
     const host = hostRef.current;
     if (!host) return;
     const onWheel = (e: WheelEvent) => {
+      /**
+       * EN PASEO, LA RUEDA ANDA.
+       *
+       * El orbitador tiene la distancia clavada en `WALK_LOOK`, así que su
+       * acercamiento no puede hacer nada: se le quita el evento y se mueven la
+       * cámara y su punto de mira JUNTOS a lo largo del rumbo. El paso escala
+       * con la altura sobre el suelo, que es lo que hace que andar por un valle
+       * y sobrevolar una cordillera se sientan igual de manejables.
+       */
+      if (walkRef.current && !brushingRef.current && !(e.ctrlKey || e.metaKey || e.shiftKey)) {
+        const st = R.current;
+        if (!st || shapeRef.current !== 'plane') return;
+        e.preventDefault();
+        e.stopPropagation();
+        const c = st.camera.position, t = st.controls.target;
+        let dx = t.x - c.x, dz = t.z - c.z;
+        const l = Math.hypot(dx, dz) || 1;
+        dx /= l; dz /= l;
+        const u = c.x / SIZE_X + 0.5, v = c.z / sizeZ + 0.5;
+        const alto = Math.max(0.02, c.y - st.surface.heightAtUV(u, v) * st.surface.yMul);
+        const paso = Math.max(0.05, Math.min(6, alto * 6)) * (e.deltaY > 0 ? -1 : 1);
+        c.x += dx * paso; c.z += dz * paso;
+        t.x += dx * paso; t.z += dz * paso;
+        st.need = true;
+        return;
+      }
       if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return;   // let OrbitControls dolly
       if (!brushingRef.current) return;
       e.preventDefault();
@@ -2049,7 +2802,11 @@ export default function World3D({
     };
     host.addEventListener('wheel', onWheel, { passive: false, capture: true });
     return () => host.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
-  }, [onTool, request]);
+    // `sizeZ` entra en la lista porque el paseo lo usa para leer la altura del
+    // suelo bajo la cámara: es constante para un mundo dado, pero cambia con
+    // la proporción de la retícula, y un oyente de rueda con el valor viejo
+    // andaría sobre la altura equivocada.
+  }, [onTool, request, sizeZ]);
 
   // ---- keys ----------------------------------------------------------------
   useEffect(() => {
@@ -2187,6 +2944,12 @@ export default function World3D({
             label={t('worldgen.threeD.shape.plane')} title={`${t('worldgen.threeD.shape.plane')} (G)`} />
           <Chip on={shape === 'globe'} onClick={() => onShape('globe')} icon={Globe}
             label={t('worldgen.threeD.shape.globe')} title={`${t('worldgen.threeD.shape.globe')} (G)`} />
+          <Chip
+            on={walking}
+            onClick={() => setWalking((v) => !v)}
+            icon={Footprints}
+            title={t('worldgen.threeD.walk')}
+          />
           <span className="w-px my-1 bg-white/20" />
           <Chip on={mirrorX} onClick={() => setMirrorX((v) => !v)} icon={FlipHorizontal} title={t('worldgen.threeD.symmetryX')} />
           <Chip on={mirrorY} onClick={() => setMirrorY((v) => !v)} icon={FlipVertical} title={t('worldgen.threeD.symmetryY')} />
@@ -2204,8 +2967,24 @@ export default function World3D({
               onChange={setShadow}
               format={(v) => (v < 0.03 ? t('worldgen.threeD.sliderOff') : v.toFixed(2))}
               disabled={shape === 'globe' || headlight} />
-            <Slider label={t('worldgen.threeD.sun')} value={sunAz} min={0} max={360} step={5}
-              onChange={setSunAz} format={(v) => `${v}°`} disabled={headlight} />
+            {/* LA HORA SUSTITUYE AL AZIMUT, y el cambio es de fondo.
+                El mando de antes giraba la luz sin moverla de altura: con un
+                fondo gris eso valía, porque el sol no existía más que como
+                dirección de sombreado. Con un cielo detrás es un sol que se ve
+                clavado en el cénit mientras las sombras dan la vuelta al mundo.
+                La hora mueve azimut Y elevación a la vez, así que amanecer,
+                mediodía, atardecer y noche son sitios a los que se puede ir —
+                y de paso mueve el cielo, el color del agua y la niebla, que
+                cuelgan del mismo vector.
+                Lo que se pierde: elegir a mano de qué cuarto viene la luz para
+                leer el relieve. Se recupera girando el mundo, que es la misma
+                operación y además mueve las sombras — cosa que el azimut solo
+                nunca hizo. Y para leer forma sin sol está la luz frontal, que
+                sigue ahí y sigue siendo blanca a cualquier hora.
+                NO se desactiva con la luz frontal: ésa es la linterna del
+                lector, y la hora sigue mandando sobre el cielo y el mar. */}
+            <Slider label={t('worldgen.threeD.hour')} value={hour} min={0} max={24} step={0.25}
+              onChange={setHour} format={hourLabel} title={t('worldgen.threeD.hourHint')} />
             <Slider label={t('worldgen.threeD.contours')} value={contour} min={0} max={1} step={0.05}
               onChange={setContour} format={(v) => (v < 0.03 ? t('worldgen.threeD.sliderOff') : `${Math.round(v * 1000)} m`)} />
             <label className="flex items-center justify-between">
@@ -2314,15 +3093,34 @@ export default function World3D({
         )}
         <div className="flex gap-1.5 items-center">
           <span className={`px-2 py-1 ${HUD} ${HUD_TEXT} tabular-nums`}>{ms ? `${ms} ms` : '—'}</span>
-          <span className={`px-2 py-1 ${HUD} ${HUD_TEXT}`}>
-            {!brushing
-              ? t('worldgen.threeD.hint.navigate')
-              : sculpting
+          {/* La chuleta de navegación va detrás del «?»; los avisos de pincel
+              siguen solos, que acompañan al gesto (Luis, 2026-08-12). */}
+          {!brushing ? (
+            <>
+              <button
+                onClick={() => setHintsOpen((o) => !o)}
+                title={t('worldgen.hints.button')}
+                className={`pointer-events-auto w-6 h-6 rounded-full border text-[12px] font-semibold shadow-lg shadow-black/50 backdrop-blur-sm transition ${
+                  hintsOpen
+                    ? 'bg-accent-gold/20 border-accent-gold/60 text-accent-gold'
+                    : 'bg-[#0b0e14]/92 border-white/20 text-white/70 hover:text-white'
+                }`}
+              >?</button>
+              {hintsOpen && (
+                <span className={`px-2 py-1 ${HUD} ${HUD_TEXT}`}>
+                  {t('worldgen.threeD.hint.navigate')}
+                </span>
+              )}
+            </>
+          ) : (
+            <span className={`px-2 py-1 ${HUD} ${HUD_TEXT}`}>
+              {sculpting
                 ? (modifier === 'smooth' ? t('worldgen.threeD.hint.smoothModifier')
                   : modifier === 'invert' ? t('worldgen.threeD.hint.invertModifier')
                     : t('worldgen.threeD.hint.sculpt'))
                 : t('worldgen.threeD.hint.paint')}
-          </span>
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -2412,12 +3210,13 @@ function Toggle({ on, onClick, label: text, icon: Icon, title }: {
   );
 }
 
-function Slider({ label: text, value, min, max, step, onChange, format, disabled }: {
+function Slider({ label: text, value, min, max, step, onChange, format, disabled, title }: {
   label: string; value: number; min: number; max: number; step: number;
   onChange: (v: number) => void; format: (v: number) => string; disabled?: boolean;
+  title?: string;
 }) {
   return (
-    <label className={`flex items-center gap-2 ${disabled ? 'opacity-40' : ''}`}>
+    <label title={title} className={`flex items-center gap-2 ${disabled ? 'opacity-40' : ''}`}>
       <span className="w-28 shrink-0">{text}</span>
       <input
         type="range" min={min} max={max} step={step} value={value} disabled={disabled}

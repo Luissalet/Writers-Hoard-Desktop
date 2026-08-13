@@ -16,6 +16,15 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+
+  const commitRename = useCallback(() => {
+    const id = renamingId;
+    const title = renameDraft.trim();
+    setRenamingId(null);
+    if (id && title) void editItem(id, { title });
+  }, [renamingId, renameDraft, editItem]);
 
   const makeBoard = useCallback(
     (title: string): Board => ({
@@ -66,9 +75,31 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           {boards.map((board) => (
             <div key={board.id} className="group relative">
+              {renamingId === board.id ? (
+                <input
+                  autoFocus
+                  value={renameDraft}
+                  onChange={(e) => setRenameDraft(e.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitRename();
+                    else if (e.key === 'Escape') setRenamingId(null);
+                  }}
+                  className="w-28 rounded-lg border border-accent-gold bg-elevated px-2.5 py-1 text-xs text-text-primary outline-none"
+                />
+              ) : (
               <button
                 type="button"
                 onClick={() => setActiveId(board.id)}
+                // Double-click renames. `onRenameBoard` was declared, passed
+                // down and then never destructured inside BoardCanvas, and no
+                // other surface offered a rename — a board's title was fixed
+                // forever at the moment it was created.
+                onDoubleClick={() => {
+                  setRenamingId(board.id);
+                  setRenameDraft(board.title);
+                }}
+                title={t('board.renameHint')}
                 className={`rounded-lg border px-2.5 py-1 text-xs transition ${
                   board.id === activeId
                     ? 'border-accent-gold text-accent-gold'
@@ -77,6 +108,7 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
               >
                 {board.title}
               </button>
+              )}
               {boards.length > 1 ? (
                 <button
                   type="button"

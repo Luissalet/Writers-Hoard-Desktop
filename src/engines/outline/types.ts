@@ -388,10 +388,10 @@ export const BEAT_SHEET_TEMPLATES: BeatSheetTemplate[] = [
 ];
 
 export const BEAT_STATUS_CONFIG = {
-  empty: { label: 'Empty', color: 'bg-gray-500/20 text-gray-400', icon: 'circle' },
-  outlined: { label: 'Outlined', color: 'bg-blue-500/20 text-blue-400', icon: 'check-circle' },
-  drafted: { label: 'Drafted', color: 'bg-amber-500/20 text-amber-400', icon: 'edit' },
-  done: { label: 'Done', color: 'bg-green-500/20 text-green-400', icon: 'check-circle-2' },
+  empty: { labelKey: 'outline.status.empty', color: 'bg-gray-500/20 text-gray-400', icon: 'circle' },
+  outlined: { labelKey: 'outline.status.outlined', color: 'bg-blue-500/20 text-blue-400', icon: 'check-circle' },
+  drafted: { labelKey: 'outline.status.drafted', color: 'bg-amber-500/20 text-amber-400', icon: 'edit' },
+  done: { labelKey: 'outline.status.done', color: 'bg-green-500/20 text-green-400', icon: 'check-circle-2' },
 };
 
 export const BEAT_LEVEL_INDENT = {
@@ -401,9 +401,10 @@ export const BEAT_LEVEL_INDENT = {
   beat: 'pl-12',
 };
 
+/** i18n keys, not display text — resolve with `t()` at the render site. */
 export const BEAT_LEVEL_LABEL = {
-  act: 'Act',
-  chapter: 'Chapter',
-  scene: 'Scene',
-  beat: 'Beat',
+  act: 'outline.level.act',
+  chapter: 'outline.level.chapter',
+  scene: 'outline.level.scene',
+  beat: 'outline.level.beat',
 };

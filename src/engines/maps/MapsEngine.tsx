@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ExternalLink, Link2, Map } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard } from '@/engines/_shared';
+import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard, useDeepLinkParam } from '@/engines/_shared';
+import { db } from '@/db';
 import { useWorldMaps, useMapPins } from './hooks';
 import MapView from '@/components/maps/MapView';
 import { generateId } from '@/utils/idGenerator';
@@ -19,6 +20,18 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
   const { items: codexEntries } = useCodexEntries(projectId);
 
   useAutoSelect(maps, activeMapId, setActiveMapId);
+
+  // Deep link: `/project/:id/maps?pin=<id>`. A pin belongs to a map, so the
+  // engine first has to switch to the owning map; MapView then opens the pin.
+  const deepLinkedPinId = useDeepLinkParam('pin');
+  useEffect(() => {
+    if (!deepLinkedPinId) return;
+    let cancelled = false;
+    void db.mapPins.get(deepLinkedPinId).then((pin) => {
+      if (!cancelled && pin?.mapId) setActiveMapId(pin.mapId);
+    });
+    return () => { cancelled = true; };
+  }, [deepLinkedPinId]);
 
   useEnsureDefault({
     items: maps,
@@ -96,6 +109,7 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
             onAddPin={addPin}
             onEditPin={editPin}
             onDeletePin={removePin}
+            focusPinId={deepLinkedPinId}
           />
           {/* Annotation surface — margin notes + backlinks for the active map */}
           <div className="pt-2 border-t border-border">

@@ -6,6 +6,7 @@ import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
 import Modal from '@/components/common/Modal';
 import ColorPicker from '@/components/common/ColorPicker';
+import { useCodexEntries } from '@/engines/codex/hooks';
 
 // ============================================
 // Swim-Lane Timeline View
@@ -364,6 +365,7 @@ export default function SwimLaneView({
   const [hoveredConnectionId, setHoveredConnectionId] = useState<string | null>(null);
   const [showEventForm, setShowEventForm] = useState(false);
   const [editingEvent, setEditingEvent] = useState<TimelineEvent | null>(null);
+  const { items: codexEntries } = useCodexEntries(projectId);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; eventId: string } | null>(null);
   const [connContextMenu, setConnContextMenu] = useState<{ x: number; y: number; connId: string } | null>(null);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
@@ -386,6 +388,7 @@ export default function SwimLaneView({
     lane: 'Main',
     color: '#c4973b',
     timelineId: '',
+    linkedEntryId: '',
   });
 
   const { positions, totalWidth } = useMemo(() => buildEventPositions(timelines, events), [timelines, events]);
@@ -578,7 +581,7 @@ export default function SwimLaneView({
     setForm({
       title: '', description: '', date: '', dateMode: 'text', eventType: 'point',
       realDate: '', realDateEnd: '', lane: 'Main', color: tl?.color || '#c4973b',
-      timelineId,
+      timelineId, linkedEntryId: '',
     });
     setEditingEvent(null);
     setShowEventForm(true);
@@ -591,6 +594,7 @@ export default function SwimLaneView({
       eventType: evt.eventType || 'point',
       realDate: evt.realDate || '', realDateEnd: evt.realDateEnd || '',
       lane: evt.lane, color: evt.color, timelineId: evt.timelineId,
+      linkedEntryId: evt.linkedEntryId || '',
     });
     setEditingEvent(evt);
     setShowEventForm(true);
@@ -619,6 +623,7 @@ export default function SwimLaneView({
         realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
         lane: form.lane, color: form.color,
+        linkedEntryId: form.linkedEntryId || undefined,
         ...(timelineChanged ? { timelineId: form.timelineId, order: newOrder } : {}),
       });
     } else {
@@ -630,6 +635,7 @@ export default function SwimLaneView({
         realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
         order: tlEvents.length, lane: form.lane, color: form.color,
+        linkedEntryId: form.linkedEntryId || undefined,
         createdAt: Date.now(), updatedAt: Date.now(),
       });
     }
@@ -1148,6 +1154,25 @@ export default function SwimLaneView({
             <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelColor')}</label>
             <ColorPicker value={form.color} onChange={(color) => setForm({ ...form, color })} size="sm" />
           </div>
+
+          {/* Codex link. `TimelineEvent.linkedEntryId` was declared in
+              types.ts and neither read nor written anywhere, so an event could
+              not be tied to the character or place it was about. */}
+          {codexEntries.length > 0 && (
+            <div>
+              <label className="block text-sm text-text-muted mb-1.5">{t('timeline.linkedEntry')}</label>
+              <select
+                value={form.linkedEntryId}
+                onChange={(e) => setForm({ ...form, linkedEntryId: e.target.value })}
+                className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition cursor-pointer"
+              >
+                <option value="">{t('timeline.noLinkedEntry')}</option>
+                {codexEntries.map((entry) => (
+                  <option key={entry.id} value={entry.id}>{entry.title}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="flex gap-3 pt-2">
             <button onClick={handleSave}

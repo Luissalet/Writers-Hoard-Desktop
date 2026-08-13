@@ -190,6 +190,7 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     allSceneIds,
     allAnnotationIds,
     allWorldIds,
+    canonTileWorldIds,
   ] = await Promise.all([
     db.writingSnapshots.where('projectId').equals(projectId).toArray(),
     boardIds.size ? db.boardEdges.where('boardId').anyOf([...boardIds]).toArray() : [],
@@ -200,6 +201,8 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     db.scenes.toCollection().primaryKeys(),
     db.annotations.toCollection().primaryKeys(),
     db.generatedWorlds.toCollection().primaryKeys(),
+    // Index keys only — one per row, never the multi-MB payloads.
+    db.canonTiles.orderBy('worldId').keys(),
   ]);
   const boardNodeIds = new Set(boardNodes.map(row => row.id));
   const boardEdgeIds = new Set(boardEdges.map(row => row.id));
@@ -228,6 +231,7 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     row => !existingAnnotationIds.has(row.annotationId),
   );
   const orphanWorldSnapshots = worldSnapshots.filter(row => !existingWorldIds.has(row.worldId));
+  const orphanCanonTiles = (canonTileWorldIds as string[]).filter(id => !existingWorldIds.has(id));
   const interruptedJobs = snapshots.filter(
     row => row.downloadState === 'downloading' || row.captureState === 'capturing',
   );
@@ -250,7 +254,7 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     issue('orphan-storyboard-connectors', 'error', 'integrity', 'Broken storyboard connectors', 'Connectors point to missing panels.', orphanStoryboardConnectors.length, true),
     issue('orphan-scene-casts', 'error', 'integrity', 'Orphan scene casts', 'Cast rows point to deleted scenes.', orphanSceneCasts.length, true),
     issue('orphan-annotation-references', 'error', 'integrity', 'Orphan annotation references', 'References point to deleted annotations.', orphanAnnotationReferences.length, true),
-    issue('orphan-world-snapshots', 'warning', 'storage', 'Stale world caches', 'Regenerable caches remain after their worlds were deleted.', orphanWorldSnapshots.length, true),
+    issue('orphan-world-snapshots', 'warning', 'storage', 'Stale world caches', 'Regenerable caches remain after their worlds were deleted.', orphanWorldSnapshots.length + orphanCanonTiles.length, true),
     issue('interrupted-native-jobs', 'warning', 'storage', 'Interrupted capture jobs', 'Jobs were still marked active after the previous session ended.', interruptedJobs.length, true),
     issue('broken-gallery-collections', 'warning', 'integrity', 'Images in missing collections', 'Gallery images reference a deleted collection.', brokenGalleryCollections.length, true),
     issue('broken-map-pins', 'error', 'integrity', 'Pins on missing maps', 'Map pins reference a deleted map.', brokenMapPins.length, true),
@@ -591,6 +595,11 @@ export async function repairProjectHealthIssue(projectId: string, issueId: strin
       const worlds = new Set(await db.generatedWorlds.toCollection().primaryKeys());
       const rows = await db.worldSnapshots.toArray();
       await db.worldSnapshots.bulkDelete(rows.filter(row => !worlds.has(row.worldId)).map(row => row.worldId));
+      // Canon supertiles too — same lifetime, different table. Index keys
+      // only: a canon row's payload is megabytes and never needs loading here.
+      const canonOwners = await db.canonTiles.orderBy('worldId').uniqueKeys();
+      const gone = (canonOwners as string[]).filter(id => !worlds.has(id));
+      if (gone.length) await db.canonTiles.where('worldId').anyOf(gone).delete();
       break;
     }
     case 'interrupted-native-jobs': {

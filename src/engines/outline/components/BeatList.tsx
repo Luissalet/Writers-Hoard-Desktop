@@ -1,30 +1,46 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical, Link2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical, Link2, Pencil } from 'lucide-react';
 import type { OutlineBeat } from '../types';
 import type { Scene } from '@/engines/dialog-scene/types';
+import type { Writing } from '@/types';
 import { BEAT_STATUS_CONFIG, BEAT_LEVEL_LABEL } from '../types';
 import BeatEditor from './BeatEditor';
+import { ConfirmDialog } from '@/engines/_shared';
 import { useTranslation } from '@/i18n/useTranslation';
 
 interface BeatListProps {
   beats: OutlineBeat[];
+  /**
+   * Owning outline / project. Passed explicitly rather than sniffed from
+   * `beats[0]`: on an empty outline there is no first beat, and the row was
+   * being created with `outlineId: ''`, which no scoped query ever returns
+   * and no project delete ever cleans up.
+   */
+  outlineId: string;
+  projectId: string;
   onAddBeat: (beat: Omit<OutlineBeat, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onUpdateBeat: (beatId: string, changes: Partial<OutlineBeat>) => void;
   onDeleteBeat: (beatId: string) => void;
   /** Scenes available for linking */
   scenes?: Scene[];
+  /** Writings available for linking */
+  writings?: Writing[];
 }
 
 export default function BeatList({
   beats,
+  outlineId,
+  projectId,
   onAddBeat,
   onUpdateBeat,
   onDeleteBeat,
   scenes = [],
+  writings = [],
 }: BeatListProps) {
   const { t } = useTranslation();
   const [expandedBeats, setExpandedBeats] = useState<Set<string>>(new Set());
   const [editingBeat, setEditingBeat] = useState<OutlineBeat | null>(null);
+  const [pendingDeleteBeat, setPendingDeleteBeat] = useState<OutlineBeat | null>(null);
 
   const toggleExpanded = (beatId: string) => {
     const newExpanded = new Set(expandedBeats);
@@ -60,7 +76,7 @@ export default function BeatList({
             <button
               onClick={() => toggleExpanded(beat.id)}
               className="text-text-dim hover:text-text-primary transition"
-              title={isExpanded ? 'Collapse' : 'Expand'}
+              title={isExpanded ? t('common.collapse') : t('common.expand')}
             >
               {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             </button>
@@ -79,7 +95,7 @@ export default function BeatList({
 
           {/* Level Label */}
           <span className="text-xs font-medium text-text-dim uppercase w-12 flex-shrink-0">
-            {BEAT_LEVEL_LABEL[beat.level]}
+            {t(BEAT_LEVEL_LABEL[beat.level])}
           </span>
 
           {/* Title and Description */}
@@ -98,7 +114,7 @@ export default function BeatList({
           {beat.linkedSceneId && (() => {
             const linkedScene = scenes.find((s) => s.id === beat.linkedSceneId);
             return linkedScene ? (
-              <div className="flex items-center gap-1 text-xs text-accent-gold/80 px-2 py-1 bg-accent-gold/10 rounded flex-shrink-0" title={`Linked: ${linkedScene.title}`}>
+              <div className="flex items-center gap-1 text-xs text-accent-gold/80 px-2 py-1 bg-accent-gold/10 rounded flex-shrink-0" title={t('outline.beat.linkedTo').replace('{name}', linkedScene.title)}>
                 <Link2 size={10} />
                 <span className="max-w-20 truncate">#{linkedScene.sceneNumber ?? '?'}</span>
               </div>
@@ -116,7 +132,7 @@ export default function BeatList({
           <div
             className={`text-xs font-medium px-2 py-1 rounded flex-shrink-0 ${statusConfig.color}`}
           >
-            {statusConfig.label}
+            {t(statusConfig.labelKey)}
           </div>
 
           {/* Actions */}
@@ -126,10 +142,10 @@ export default function BeatList({
               className="p-1.5 hover:bg-accent-gold/10 rounded text-accent-gold transition"
               title={t('common.edit')}
             >
-              <div className="w-4 h-4" />
+              <Pencil size={14} />
             </button>
             <button
-              onClick={() => onDeleteBeat(beat.id)}
+              onClick={() => setPendingDeleteBeat(beat)}
               className="p-1.5 hover:bg-red-500/10 rounded text-red-500 transition"
               title={t('common.delete')}
             >
@@ -154,11 +170,11 @@ export default function BeatList({
         <button
           onClick={() => {
             const newBeat: Omit<OutlineBeat, 'id' | 'createdAt' | 'updatedAt'> = {
-              outlineId: beats[0]?.outlineId || '',
-              projectId: beats[0]?.projectId || '',
+              outlineId,
+              projectId,
               order: beats.length,
               level: 'beat',
-              title: 'New Beat',
+              title: t('outline.beat.defaultTitle'),
               description: '',
               status: 'empty',
               tags: [],
@@ -168,7 +184,7 @@ export default function BeatList({
           className="flex items-center gap-1.5 px-3 py-2 text-xs bg-accent-gold/10 text-accent-gold rounded-lg hover:bg-accent-gold/20 transition"
         >
           <Plus size={13} />
-          Add Beat
+          {t('outline.addBeat')}
         </button>
       </div>
 
@@ -176,7 +192,7 @@ export default function BeatList({
       <div className="border border-border rounded-xl bg-surface/30 overflow-hidden">
         {topLevelBeats.length === 0 ? (
           <div className="p-8 text-center text-text-dim">
-            <p className="text-sm">No beats yet. Click "Add Beat" to get started.</p>
+            <p className="text-sm">{t('outline.noBeats')}</p>
           </div>
         ) : (
           <div className="divide-y divide-border/50">
@@ -194,8 +210,21 @@ export default function BeatList({
           }}
           onClose={() => setEditingBeat(null)}
           scenes={scenes}
+          siblings={beats}
+          writings={writings}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteBeat !== null}
+        destructive
+        message={t('outline.beat.deleteConfirm').replace('{name}', pendingDeleteBeat?.title ?? '')}
+        onConfirm={() => {
+          if (pendingDeleteBeat) onDeleteBeat(pendingDeleteBeat.id);
+          setPendingDeleteBeat(null);
+        }}
+        onCancel={() => setPendingDeleteBeat(null)}
+      />
     </div>
   );
 }

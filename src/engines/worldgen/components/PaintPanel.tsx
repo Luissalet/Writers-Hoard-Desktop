@@ -5,6 +5,7 @@ import type { BrushTip, Falloff, LandOp, PaintFilter, TerrainOp } from '../core/
 import type { PointKind } from '../core/paintCommit';
 export type { PointKind };
 import { biomeName } from '../core/gazetteer';
+import { biomeLocaleKey } from '../core/biomeKeys';
 import { BIOME_COLORS } from '../core/render';
 import { useTranslation } from '@/i18n/useTranslation';
 
@@ -43,6 +44,10 @@ export type PaintMode =
   | 'off'
   // the brush
   | 'terrain' | 'land' | 'biome'
+  // el pincel de LUGARES: dónde puede el enrejado regional sembrar granjas,
+  // aldeas, abadías… (Ctrl = vaciar la zona). No pone lugares uno a uno — eso
+  // es Punto — sino el PERMISO por zonas, guardado como edición.
+  | 'places'
   // the line
   | 'river'
   // the object
@@ -142,6 +147,7 @@ const GROUPS: { title: string; note: string; modes: ModeSpec[] }[] = [
       { id: 'land', label: 'worldgen.paint.mode.land', hint: 'worldgen.paint.mode.land.hint', negative: 'worldgen.paint.mode.land.negative' },
       { id: 'terrain', label: 'worldgen.paint.mode.terrain', hint: 'worldgen.paint.mode.terrain.hint', negative: 'worldgen.paint.mode.terrain.negative' },
       { id: 'biome', label: 'worldgen.paint.mode.biome', hint: 'worldgen.paint.mode.biome.hint', negative: 'worldgen.paint.mode.biome.negative' },
+      { id: 'places', label: 'worldgen.paint.mode.places', hint: 'worldgen.paint.mode.places.hint', negative: 'worldgen.paint.mode.places.negative' },
     ],
   },
   {
@@ -474,7 +480,10 @@ export default function PaintPanel({
 
       {tool.mode === 'biome' && (
         <div className="flex flex-col gap-2">
-          <Row label={t('worldgen.paint.row.biome').replace('{n}', biomeName(tool.biome))}>
+          {/* Por clave de catálogo, con `biomeName` (castellano del gazetteer)
+              sólo de reserva: este panel decía «estepa» en una UI en inglés. */}
+          <Row label={t('worldgen.paint.row.biome')
+            .replace('{n}', (() => { const k = biomeLocaleKey(tool.biome); return k ? t(k) : biomeName(tool.biome); })())}>
             <div className="flex flex-col gap-1.5">
               {BIOME_GROUPS.map((g) => (
                 <div key={g.title}>
@@ -483,7 +492,7 @@ export default function PaintPanel({
                     {g.ids.map((b) => (
                       <button
                         key={b}
-                        title={biomeName(b)}
+                        title={(() => { const k = biomeLocaleKey(b); return k ? t(k) : biomeName(b); })()}
                         onClick={() => set('biome', b)}
                         style={{ background: swatch(b) }}
                         className={`w-5 h-5 rounded-sm border transition ${

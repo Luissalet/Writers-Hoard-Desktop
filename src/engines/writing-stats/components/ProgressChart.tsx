@@ -1,3 +1,4 @@
+import { useTranslation } from '@/i18n/useTranslation';
 import type { WritingStatsData } from '../types';
 
 interface ProgressChartProps {
@@ -5,15 +6,21 @@ interface ProgressChartProps {
   dailyGoal: number | null;
 }
 
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+/** Monday-first weekday keys; the labels themselves come from the catalogue. */
+const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 
 export default function ProgressChart({ stats, dailyGoal }: ProgressChartProps) {
+  const { t } = useTranslation();
   const { last7Days } = stats;
+
+  // Normalised once: the prop is `number | null` and the caller also passes
+  // `targetWords || 0`, so every downstream check can just compare `> 0`.
+  const goal = dailyGoal ?? 0;
 
   // Find max to scale bars
   const maxWords = Math.max(
     ...last7Days.map((d) => d.words),
-    dailyGoal || 0,
+    goal,
     1 // Minimum 1 to avoid division by zero
   );
 
@@ -21,17 +28,20 @@ export default function ProgressChart({ stats, dailyGoal }: ProgressChartProps) 
   const getDayLabel = (dateStr: string) => {
     const date = new Date(dateStr + 'T00:00:00');
     const dayIndex = date.getDay() === 0 ? 6 : date.getDay() - 1; // Adjust for Mon-Sun
-    return DAYS[dayIndex];
+    return t(`stats.day.${DAY_KEYS[dayIndex]}`);
   };
 
   return (
     <div className="space-y-4">
       {/* Chart Grid */}
       <div className="bg-surface border border-border rounded-lg p-6">
-        {/* Goal line (if exists) */}
-        {dailyGoal && (
+        {/* Goal line (if exists).
+            Guarded with `> 0`, not truthiness: `dailyGoal` is a number, and
+            the caller passes `targetWords || 0`, so with no goal set React
+            happily rendered a bare "0" into the card. */}
+        {goal > 0 && (
           <div className="mb-4 text-xs text-text-dim font-medium">
-            Daily Goal: {dailyGoal} words
+            {t('stats.chart.dailyGoal').replace('{count}', String(goal))}
           </div>
         )}
 
@@ -70,14 +80,14 @@ export default function ProgressChart({ stats, dailyGoal }: ProgressChartProps) 
         </div>
 
         {/* Goal line (visual reference) */}
-        {dailyGoal && (
+        {goal > 0 && (
           <div className="mt-6 relative h-6 bg-elevated rounded border border-border">
             <div
               className="absolute h-full bg-dashed border-t-2 border-dashed border-border pointer-events-none"
-              style={{ left: `${(dailyGoal / maxWords) * 100}%` }}
+              style={{ left: `${(goal / maxWords) * 100}%` }}
             />
             <div className="absolute inset-0 flex items-center justify-center text-xs text-text-dim">
-              {dailyGoal > 0 ? `Goal: ${dailyGoal}` : ''}
+              {t('stats.chart.goal').replace('{count}', String(goal))}
             </div>
           </div>
         )}
@@ -85,10 +95,10 @@ export default function ProgressChart({ stats, dailyGoal }: ProgressChartProps) 
 
       {/* Stats Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Total Words" value={stats.totalWords.toLocaleString()} />
-        <StatCard label="Daily Avg" value={stats.averageDaily.toLocaleString()} />
-        <StatCard label="Best Day" value={Math.max(...last7Days.map((d) => d.words)).toLocaleString()} />
-        <StatCard label="Days Active" value={last7Days.filter((d) => d.words > 0).length.toString()} />
+        <StatCard label={t('stats.chart.totalWords')} value={stats.totalWords.toLocaleString()} />
+        <StatCard label={t('stats.chart.dailyAvg')} value={stats.averageDaily.toLocaleString()} />
+        <StatCard label={t('stats.chart.bestDay')} value={Math.max(...last7Days.map((d) => d.words)).toLocaleString()} />
+        <StatCard label={t('stats.chart.daysActive')} value={last7Days.filter((d) => d.words > 0).length.toString()} />
       </div>
     </div>
   );

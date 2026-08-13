@@ -223,22 +223,22 @@ export const ARC_TEMPLATES: ArcTemplate[] = [
   },
 ];
 
-export const ARC_STAGE_CONFIG: Record<ArcBeatStage, { label: string; color: string; order: number }> = {
-  ghost:            { label: 'Ghost',            color: '#6b7280', order: 0 },
-  weak:             { label: 'Weak / Flawed',    color: '#94a3b8', order: 1 },
-  flaw:             { label: 'Flaw Tested',      color: '#f59e0b', order: 2 },
-  denial:           { label: 'Denial',           color: '#ef4444', order: 3 },
-  inciting:         { label: 'Inciting',         color: '#f97316', order: 4 },
-  commitment:       { label: 'Commitment',       color: '#8b5cf6', order: 5 },
-  growth:           { label: 'Growth',           color: '#10b981', order: 6 },
-  'moment-of-truth': { label: 'Moment of Truth', color: '#3b82f6', order: 7 },
-  climax:           { label: 'Climax',           color: '#c4973b', order: 8 },
-  resolution:       { label: 'Resolution',       color: '#6366f1', order: 9 },
+export const ARC_STAGE_CONFIG: Record<ArcBeatStage, { labelKey: string; color: string; order: number }> = {
+  ghost:            { labelKey: 'characterArc.stage.ghost',            color: '#6b7280', order: 0 },
+  weak:             { labelKey: 'characterArc.stage.weak',    color: '#94a3b8', order: 1 },
+  flaw:             { labelKey: 'characterArc.stage.flaw',      color: '#f59e0b', order: 2 },
+  denial:           { labelKey: 'characterArc.stage.denial',           color: '#ef4444', order: 3 },
+  inciting:         { labelKey: 'characterArc.stage.inciting',         color: '#f97316', order: 4 },
+  commitment:       { labelKey: 'characterArc.stage.commitment',       color: '#8b5cf6', order: 5 },
+  growth:           { labelKey: 'characterArc.stage.growth',           color: '#10b981', order: 6 },
+  'moment-of-truth': { labelKey: 'characterArc.stage.moment-of-truth', color: '#3b82f6', order: 7 },
+  climax:           { labelKey: 'characterArc.stage.climax',           color: '#c4973b', order: 8 },
+  resolution:       { labelKey: 'characterArc.stage.resolution',       color: '#6366f1', order: 9 },
 };
 
-export const ARC_STATUS_CONFIG: Record<ArcStatus, { label: string; color: string }> = {
-  planning: { label: 'Planning', color: 'bg-gray-500/20 text-gray-400' },
-  drafting: { label: 'Drafting', color: 'bg-blue-500/20 text-blue-400' },
-  revised:  { label: 'Revised',  color: 'bg-amber-500/20 text-amber-400' },
-  done:     { label: 'Done',     color: 'bg-green-500/20 text-green-400' },
+export const ARC_STATUS_CONFIG: Record<ArcStatus, { labelKey: string; color: string }> = {
+  planning: { labelKey: 'characterArc.status.planning', color: 'bg-gray-500/20 text-gray-400' },
+  drafting: { labelKey: 'characterArc.status.drafting', color: 'bg-blue-500/20 text-blue-400' },
+  revised:  { labelKey: 'characterArc.status.revised',  color: 'bg-amber-500/20 text-amber-400' },
+  done:     { labelKey: 'characterArc.status.done',     color: 'bg-green-500/20 text-green-400' },
 };

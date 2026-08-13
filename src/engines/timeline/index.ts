@@ -50,9 +50,12 @@ registerEntityResolver({
       color: event.color,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = await db.timelineEvents.filter(e => e.title.toLowerCase().includes(q)).toArray();
+    const base = projectId
+      ? db.timelineEvents.where('projectId').equals(projectId)
+      : db.timelineEvents.toCollection();
+    const rows = await base.filter(e => e.title.toLowerCase().includes(q)).toArray();
     return rows.map(e => ({
       id: e.id,
       type: 'timeline-event',

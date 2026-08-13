@@ -16,13 +16,17 @@ interface ConnectorBadgeProps {
   onDelete: () => void;
 }
 
-const CONNECTOR_ICONS: Record<string, { icon: LucideIcon; label: string; symbol: string }> = {
-  arrow: { icon: ArrowRight, label: 'Arrow', symbol: '→' },
-  note: { icon: Edit2, label: 'Note', symbol: '◆' },
-  cut: { icon: Scissors, label: 'Cut', symbol: '|' },
-  fade: { icon: Edit2, label: 'Fade', symbol: '◇' },
-  dissolve: { icon: Edit2, label: 'Dissolve', symbol: '◊' },
-  custom: { icon: Edit2, label: 'Custom', symbol: '•' },
+// No `label` here on purpose: the translated names already live in the
+// catalogue as `storyboard.connector.types.<id>.label` (ConnectorEditor uses
+// them). This table used to carry a second, English-only copy that the tooltip
+// rendered raw.
+const CONNECTOR_ICONS: Record<string, { icon: LucideIcon; symbol: string }> = {
+  arrow: { icon: ArrowRight, symbol: '→' },
+  note: { icon: Edit2, symbol: '◆' },
+  cut: { icon: Scissors, symbol: '|' },
+  fade: { icon: Edit2, symbol: '◇' },
+  dissolve: { icon: Edit2, symbol: '◊' },
+  custom: { icon: Edit2, symbol: '•' },
 };
 
 export default function ConnectorBadge({
@@ -64,7 +68,7 @@ export default function ConnectorBadge({
         {connector.label && <span className="ml-1">{connector.label}</span>}
         {isHovering && (
           <div className="absolute top-full mt-1 left-1/2 -translate-x-1/2 whitespace-nowrap bg-deep border border-border rounded px-2 py-1 text-text-primary text-xs z-10 pointer-events-none">
-            {info.label}
+            {t(`storyboard.connector.types.${connector.type}.label`)}
           </div>
         )}
       </button>
@@ -74,7 +78,7 @@ export default function ConnectorBadge({
             e.stopPropagation();
             setPendingDelete(true);
           }}
-          className="ml-1 p-1 text-red-600 hover:text-red-700 transition opacity-0 group-hover:opacity-100"
+          className="ml-1 p-1 text-red-600 hover:text-red-700 transition"
           title={t('storyboard.deleteConnector')}
         >
           <Trash2 size={14} />

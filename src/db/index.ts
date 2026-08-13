@@ -26,7 +26,7 @@ import type { Relationship } from '@/engines/relationships/types';
 import type { Seed, Payoff } from '@/engines/seeds/types';
 import type { Annotation, AnnotationReference } from '@/engines/annotations/types';
 import type { WritingSnapshot } from '@/engines/writings/snapshotTypes';
-import type { GeneratedWorld, WorldSnapshot, WorldWaypoint } from '@/engines/worldgen/types';
+import type { CanonTileRow, GeneratedWorld, WorldSnapshot, WorldWaypoint } from '@/engines/worldgen/types';
 import type { Note } from '@/engines/notes/types';
 import type { Board, BoardEdge, BoardLayer, BoardNode, BoardView } from '@/engines/board/types';
 import type {
@@ -82,6 +82,7 @@ export class WritersHoardDB extends Dexie {
   generatedWorlds!: Table<GeneratedWorld>;
   worldWaypoints!: Table<WorldWaypoint>;
   worldSnapshots!: Table<WorldSnapshot>;
+  canonTiles!: Table<CanonTileRow>;
   notes!: Table<Note>;
   entityLinks!: Table<EntityLink>;
   citations!: Table<Citation>;
@@ -756,6 +757,16 @@ export class WritersHoardDB extends Dexie {
           if (row[field] === 'yarn-board' || row[field] === 'brainstorm') row[field] = 'board';
         });
       }
+    });
+
+    // v25: persisted canon supertiles for the world generator — the ~31 s of
+    // regional generation paid once per world instead of once per session
+    // (PENDIENTE §2b.1). A pure cache in the `worldSnapshots` mould:
+    // versioned, byte-budgeted, evicted by `savedAt`, cleared with its world,
+    // and deliberately OUTSIDE the backup registry — see
+    // `engines/worldgen/canonSnapshots.ts` for the one door to it.
+    this.version(25).stores({
+      canonTiles: 'id, worldId, savedAt',
     });
   }
 }

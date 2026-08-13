@@ -47,7 +47,7 @@ export default function EntryCard({ entry, onEdit, onTogglePin }: EntryCardProps
           </span>
         )}
         {moodCfg && (
-          <span className={`text-xs ${moodCfg.color}`} title={moodCfg.label}>
+          <span className={`text-xs ${moodCfg.color}`} title={t(moodCfg.labelKey)}>
             {moodCfg.emoji}
           </span>
         )}

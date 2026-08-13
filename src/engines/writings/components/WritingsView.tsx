@@ -31,6 +31,7 @@ import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
 import GoogleDocsPicker from './GoogleDocsPicker';
 import GoogleDocBadge from './GoogleDocBadge';
+import SyncButton from './SyncButton';
 import AiToolbar from './AiToolbar';
 import CompileModal from './CompileModal';
 import HistoryModal from './HistoryModal';
@@ -40,7 +41,7 @@ import { useGoogleStore } from '@/stores/googleStore';
 import { fetchGoogleDocForAi } from '@/services/googleDocs';
 import { recordEditorActivity } from '@/services/writingActivity';
 import { useTranslation } from '@/i18n/useTranslation';
-import { ConfirmDialog } from '@/engines/_shared';
+import { ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import type { AnnotationAnchor } from '@/engines/annotations/types';
 import GettingStartedChecklist from '@/components/project/GettingStartedChecklist';
@@ -336,6 +337,11 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
     finished: writings.filter(w => w.status === 'finished').length,
   }), [writings]);
 
+  // Deep link: `/project/:id/writings?writing=<id>`. Global search, Cmd+K and
+  // annotation backlinks all navigate here; until now the URL landed on the
+  // list and the author had to find the chapter again by hand.
+  const deepLinkedWritingId = useDeepLinkParam('writing');
+
   const handleOpenWriting = useCallback((writing: Writing) => {
     const recovery = readWritingRecoveryDraft(writing);
     const content = recovery?.content ?? writing.content;
@@ -361,6 +367,20 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
     // capturing the document as it was BEFORE this session's changes.
     if (!writing.isGoogleDoc) void takeSnapshot(writing, 'auto');
   }, []);
+
+  // Open whatever the deep link pointed at, once the row is available.
+  // Guarded so it never yanks the author out of a document they already have
+  // open (e.g. a stale param surviving a re-render).
+  const deepLinkOpened = useRef<string | null>(null);
+  useEffect(() => {
+    if (!deepLinkedWritingId || deepLinkOpened.current === deepLinkedWritingId) return;
+    if (openWriting) return;
+    const target = writings.find((w) => w.id === deepLinkedWritingId);
+    if (!target) return;
+    deepLinkOpened.current = deepLinkedWritingId;
+    setActiveStatus(target.status);
+    handleOpenWriting(target);
+  }, [deepLinkedWritingId, writings, openWriting, handleOpenWriting]);
 
   const handleCloseWriting = useCallback(async () => {
     const saved = await flushSave();
@@ -511,9 +531,21 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
         {/* Title */}
         <h1 className="text-2xl font-serif font-bold text-text-primary">{openWriting.title}</h1>
 
-        {/* Metadata */}
+        {/* Metadata.
+            SyncButton is mounted here — it existed as a component and was
+            never rendered anywhere, so a linked Google Doc kept `content: ''`
+            forever: no word count, nothing to search, and silently excluded
+            from Compile (which filters out empty writings). */}
         <div className="flex items-center gap-4 text-xs text-text-muted">
           <GoogleDocBadge lastSyncedAt={openWriting.lastSyncedAt} googleDocUrl={openWriting.googleDocUrl} />
+          <SyncButton
+            writing={openWriting}
+            size="md"
+            onSynced={(changes) => {
+              void onEdit(openWriting.id, changes);
+              setOpenWriting({ ...openWriting, ...changes });
+            }}
+          />
         </div>
 
         {/* Open in Google Docs */}

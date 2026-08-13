@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useGoogleStore } from '@/stores/googleStore';
 import { syncGoogleDoc } from '@/services/googleDocs';
+import { useTranslation } from '@/i18n/useTranslation';
+import { toast } from '@/components/common/toast';
 import type { Writing } from '@/types';
 
 interface SyncButtonProps {
@@ -11,6 +13,7 @@ interface SyncButtonProps {
 }
 
 export default function SyncButton({ writing, onSynced, size = 'sm' }: SyncButtonProps) {
+  const { t } = useTranslation();
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { accessToken } = useGoogleStore();
@@ -25,8 +28,11 @@ export default function SyncButton({ writing, onSynced, size = 'sm' }: SyncButto
     try {
       const changes = await syncGoogleDoc(accessToken, writing);
       onSynced(changes);
+      toast.success(t('writings.gdoc.synced'));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error de sincronización');
+      const message = err instanceof Error ? err.message : t('writings.gdoc.syncError');
+      setError(message);
+      toast.error(message);
     } finally {
       setSyncing(false);
     }
@@ -48,10 +54,10 @@ export default function SyncButton({ writing, onSynced, size = 'sm' }: SyncButto
           }
           ${!accessToken ? 'opacity-50 cursor-not-allowed' : ''}
         `}
-        title={!accessToken ? 'Conecta Google primero' : 'Sincronizar desde Google Docs'}
+        title={!accessToken ? t('writings.gdoc.connectFirst') : t('writings.gdoc.syncTooltip')}
       >
         <RefreshCw size={size === 'sm' ? 14 : 16} className={syncing ? 'animate-spin' : ''} />
-        {size === 'md' && <span>{syncing ? 'Sincronizando...' : 'Sincronizar'}</span>}
+        {size === 'md' && <span>{syncing ? t('writings.gdoc.syncing') : t('writings.gdoc.sync')}</span>}
       </button>
       {error && (
         <div className="absolute top-full right-0 mt-1 px-2 py-1 bg-red-500/20 text-red-400 text-[10px] rounded whitespace-nowrap z-10">

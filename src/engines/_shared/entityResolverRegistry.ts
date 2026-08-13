@@ -15,8 +15,17 @@ export interface EntityResolverConfig {
   entityTypes: string[];
   /** Resolve a single entity by ID to a preview */
   resolveEntity: (entityId: string, entityType: string) => Promise<EntityPreview | null>;
-  /** Search for entities matching a query string */
-  searchEntities: (query: string) => Promise<EntityPreview[]>;
+  /**
+   * Search for entities matching a query string.
+   *
+   * `projectId` is a **scoping hint, not a filter of last resort**: the registry
+   * still drops out-of-project results afterwards, but an engine that ignores
+   * it ends up scanning its whole table — across every project the user has
+   * ever created, deserialising base64 images and all — on every keystroke of
+   * the global search box. Use it with `.where('projectId')` whenever the
+   * table is indexed by it.
+   */
+  searchEntities: (query: string, projectId?: string) => Promise<EntityPreview[]>;
 }
 
 /**
@@ -95,7 +104,7 @@ export async function searchEntities(
     engines
       .map(eid => resolverRegistry.get(eid))
       .filter(Boolean)
-      .map(config => config!.searchEntities(query))
+      .map(config => config!.searchEntities(query, projectId))
   );
   const flattened = results.flat();
   return projectId

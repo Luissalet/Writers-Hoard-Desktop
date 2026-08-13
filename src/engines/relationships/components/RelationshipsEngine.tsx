@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Network, Plus, Trash2, X, LayoutGrid, List } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { EngineSpinner, ConfirmDialog } from '@/engines/_shared';
+import { EngineSpinner, ConfirmDialog, useDebouncedField } from '@/engines/_shared';
 import { useRelationships } from '../hooks';
 import type { Relationship, RelationshipKind } from '../types';
 import { RELATIONSHIP_KIND_CONFIG, RELATIONSHIP_STATE_CONFIG, intensityColor } from '../types';
@@ -218,7 +218,7 @@ function MatrixView({
                         onClick={() => onCellClick(primary)}
                         className="w-full h-full rounded flex items-center justify-center text-sm hover:ring-2 hover:ring-accent-gold transition"
                         style={{ backgroundColor: `${intensityColor(primary.intensity)}30`, borderColor: intensityColor(primary.intensity) }}
-                        title={`${primary.entityAName} → ${primary.entityBName}\n${RELATIONSHIP_KIND_CONFIG[primary.kind]?.label}${primary.label ? ` — ${primary.label}` : ''}`}
+                        title={`${primary.entityAName} → ${primary.entityBName}\n${t(RELATIONSHIP_KIND_CONFIG[primary.kind]?.labelKey ?? '')}${primary.label ? ` — ${primary.label}` : ''}`}
                       >
                         {RELATIONSHIP_KIND_CONFIG[primary.kind]?.emoji}
                       </button>
@@ -269,9 +269,9 @@ function ListView({
                 </div>
                 <div className="flex items-center gap-2 text-[10px] text-text-dim">
                   <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: `${cfg?.color}30`, color: cfg?.color }}>
-                    {cfg?.label}
+                    {cfg ? t(cfg.labelKey) : ''}
                   </span>
-                  <span className={`px-1.5 py-0.5 rounded ${state?.color}`}>{state?.label}</span>
+                  <span className={`px-1.5 py-0.5 rounded ${state?.color}`}>{state ? t(state.labelKey) : ''}</span>
                   <span>
                     {t('relationships.intensity')}: <span style={{ color: intensityColor(r.intensity) }}>{r.intensity > 0 ? '+' : ''}{r.intensity}</span>
                   </span>
@@ -383,8 +383,8 @@ function NewRelationshipForm({
             onChange={(e) => setKind(e.target.value as RelationshipKind)}
             className="w-full px-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
           >
-            {(Object.entries(RELATIONSHIP_KIND_CONFIG) as [RelationshipKind, { label: string; emoji: string }][]).map(([k, v]) => (
-              <option key={k} value={k}>{v.emoji} {v.label}</option>
+            {(Object.entries(RELATIONSHIP_KIND_CONFIG) as [RelationshipKind, { labelKey: string; emoji: string }][]).map(([k, v]) => (
+              <option key={k} value={k}>{v.emoji} {t(v.labelKey)}</option>
             ))}
           </select>
         </label>
@@ -437,6 +437,12 @@ function RelationshipEditor({
     onSave({ [key]: value, updatedAt: Date.now() } as Partial<Relationship>);
   };
 
+  // Buffered. `relationships` sorts by `updatedAt desc`, so typing a note
+  // reordered the list underneath on every character, and the controlled input
+  // — bound to the refreshed row — swallowed keystrokes.
+  const labelField = useDebouncedField(r.label, handleField('label'));
+  const notesField = useDebouncedField(r.notes, handleField('notes'));
+
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
@@ -450,7 +456,7 @@ function RelationshipEditor({
               <div className="text-sm font-semibold text-text-primary">
                 {r.entityAName} {r.directional ? '→' : '↔'} {r.entityBName}
               </div>
-              <div className="text-xs text-text-dim">{cfg?.label}</div>
+              <div className="text-xs text-text-dim">{cfg ? t(cfg.labelKey) : ''}</div>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded hover:bg-elevated text-text-dim hover:text-text-primary transition" title={t('common.close')}>
@@ -466,8 +472,8 @@ function RelationshipEditor({
                 onChange={(e) => handleField('kind')(e.target.value as RelationshipKind)}
                 className="w-full px-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
               >
-                {(Object.entries(RELATIONSHIP_KIND_CONFIG) as [RelationshipKind, { label: string; emoji: string }][]).map(([k, v]) => (
-                  <option key={k} value={k}>{v.emoji} {v.label}</option>
+                {(Object.entries(RELATIONSHIP_KIND_CONFIG) as [RelationshipKind, { labelKey: string; emoji: string }][]).map(([k, v]) => (
+                  <option key={k} value={k}>{v.emoji} {t(v.labelKey)}</option>
                 ))}
               </select>
             </label>
@@ -478,8 +484,8 @@ function RelationshipEditor({
                 onChange={(e) => handleField('state')(e.target.value as Relationship['state'])}
                 className="w-full px-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
               >
-                {(Object.entries(RELATIONSHIP_STATE_CONFIG) as [Relationship['state'], { label: string }][]).map(([k, v]) => (
-                  <option key={k} value={k}>{v.label}</option>
+                {(Object.entries(RELATIONSHIP_STATE_CONFIG) as [Relationship['state'], { labelKey: string }][]).map(([k, v]) => (
+                  <option key={k} value={k}>{t(v.labelKey)}</option>
                 ))}
               </select>
             </label>
@@ -513,8 +519,9 @@ function RelationshipEditor({
           <label className="space-y-1 block">
             <span className="text-xs text-text-dim">{t('relationships.label')}</span>
             <input
-              value={r.label}
-              onChange={(e) => handleField('label')(e.target.value)}
+              value={labelField.value}
+              onChange={(e) => labelField.onChange(e.target.value)}
+              onBlur={labelField.onBlur}
               placeholder={t('relationships.labelPlaceholder')}
               className="w-full px-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
             />
@@ -523,8 +530,9 @@ function RelationshipEditor({
           <label className="space-y-1 block">
             <span className="text-xs text-text-dim">{t('relationships.notes')}</span>
             <textarea
-              value={r.notes}
-              onChange={(e) => handleField('notes')(e.target.value)}
+              value={notesField.value}
+              onChange={(e) => notesField.onChange(e.target.value)}
+              onBlur={notesField.onBlur}
               rows={4}
               placeholder={t('relationships.notesPlaceholder')}
               className="w-full px-3 py-2 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition resize-none"
@@ -555,16 +563,22 @@ function RelationshipEditor({
         </div>
       </div>
 
-      <ConfirmDialog
-        open={pendingDelete}
-        destructive
-        message={t('relationships.confirmDelete')}
-        onConfirm={async () => {
-          setPendingDelete(false);
-          await onDelete();
-        }}
-        onCancel={() => setPendingDelete(false)}
-      />
+      {/* Stop-propagation wrapper: this dialog lives inside the editor's own
+          backdrop, whose onClick closes the editor. Without it, clicking
+          "Cancel" in the confirmation bubbled up and dismissed the relationship
+          editor too — cancelling a delete threw away the edit session. */}
+      <div onClick={(e) => e.stopPropagation()}>
+        <ConfirmDialog
+          open={pendingDelete}
+          destructive
+          message={t('relationships.confirmDelete')}
+          onConfirm={async () => {
+            setPendingDelete(false);
+            await onDelete();
+          }}
+          onCancel={() => setPendingDelete(false)}
+        />
+      </div>
     </div>
   );
 }

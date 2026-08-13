@@ -210,32 +210,91 @@ export const CITY_INK: CityInk = {
 
 const INK_BY_THEME = new WeakMap<CartoTheme, CityInk>();
 
+/** Mezcla lineal de dos colores hex, t = 0 → a, t = 1 → b. */
+function mixHex(a: string, b: string, t: number): string {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  const c = (sh: number) => {
+    const va = (pa >> sh) & 255, vb = (pb >> sh) & 255;
+    return Math.round(va + (vb - va) * t);
+  };
+  return `#${((c(16) << 16) | (c(8) << 8) | c(0)).toString(16).padStart(6, '0')}`;
+}
+
+/** Luminancia 0..1 de un hex. */
+function lumOf(hex: string): number {
+  const n = parseInt(hex.slice(1), 16);
+  return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+}
+
+/**
+ * Un color llevado a la familia sepia del tema, CONSERVANDO su valor.
+ *
+ * La rampa va de la tinta del tema (oscuro) al papel (claro); el color de
+ * entrada aporta su luminancia — así una iglesia de plomo sigue siendo más
+ * fría y clara que una teja doméstica — y un 28 % del matiz original
+ * sobrevive, que es el aspecto de un grabado coloreado a mano: se ADIVINA la
+ * teja, pero el pliego manda. El techo en 0,82 evita que los tejados claros
+ * se fundan con el propio papel del suelo.
+ */
+function sepiaOf(theme: CartoTheme, hex: string): string {
+  const t = Math.min(0.82, Math.max(0.12, (lumOf(hex) - 0.16) / 0.62));
+  const ramp = mixHex(theme.settlement.ink, theme.paper.base, t);
+  return mixHex(ramp, hex, 0.28);
+}
+
 /**
  * La paleta del pueblo, opcionalmente teñida por el tema de la lámina.
  *
- * Lo que el tema decide es el SOPORTE — el papel, el agua, el color de la
- * tinta maestra — porque eso es lo que cambia entre un pergamino y una carta
- * náutica. Los tejados y la fábrica no: una teja es una teja en cualquier
- * lámina, y si el mapa y el modal no las pintan igual vuelven a ser dos
- * dibujos distintos, que es el problema que esto viene a cerrar.
+ * SIN tema, la canónica a todo color: es la que usan las teselas del
+ * satélite, donde el suelo es fotográfico y una teja debe ser una teja.
+ *
+ * CON tema, TODO pasa por el tema — tejados y fábrica incluidos. La versión
+ * anterior teñía sólo el soporte («una teja es una teja en cualquier lámina»)
+ * y el resultado fue la lección #28: el plano salió de terracota sobre una
+ * lámina que es tinta sobre pergamino, y bajar del atlas a un pueblo era un
+ * cambio de medio. Luis eligió cohesión (2026-08-11): en el pergamino, el
+ * pueblo es un grabado coloreado a mano de la MISMA plancha que la carta.
  */
 export function cityInk(theme?: CartoTheme): CityInk {
   if (!theme) return CITY_INK;
   const hit = INK_BY_THEME.get(theme);
   if (hit) return hit;
+
+  // Los tejados, por la misma fábrica que los canónicos (jitter y vertiente
+  // idénticos) pero con las bases llevadas a la familia del tema.
+  const roofs = {} as Record<BuildingKind, RoofInk[]>;
+  for (const k of Object.keys(ROOF_BASE) as BuildingKind[]) {
+    roofs[k] = ROOF_JITTER.map((j) => {
+      const lit = tone(sepiaOf(theme, ROOF_BASE[k]), j);
+      return { lit, shade: tone(lit, ROOF_PITCH), ink: tone(lit, -0.58) };
+    });
+  }
+  const ward: Partial<Record<WardType, string>> = {};
+  for (const [w, c] of Object.entries(WARD_TINT) as [WardType, string][]) {
+    ward[w] = mixHex(sepiaOf(theme, c), theme.paper.grain, 0.35);
+  }
+  const inkRgb = parseInt(theme.settlement.ink.slice(1), 16);
+
   const v: CityInk = {
     ...CITY_INK,
     ground: theme.paper.base,
     paving: theme.paper.grain,
     pavingEdge: theme.dunes.color,
     ink: theme.settlement.ink,
+    stone: sepiaOf(theme, CITY_INK.stone),
+    stoneShade: sepiaOf(theme, CITY_INK.stoneShade),
     stoneInk: theme.settlement.ink,
     park: theme.forest.light,
     parkInk: theme.forest.ink,
+    garden: sepiaOf(theme, CITY_INK.garden),
     field: theme.dunes.color,
     water: theme.ocean.shallow,
     waterDeep: theme.ocean.deep,
     waterInk: theme.coastline.color,
+    // La sombra es la tinta del tema con el mismo peso que llevaba la parda.
+    shadow: `rgba(${(inkRgb >> 16) & 255},${(inkRgb >> 8) & 255},${inkRgb & 255},0.20)`,
+    ward,
+    roofs,
   };
   INK_BY_THEME.set(theme, v);
   return v;

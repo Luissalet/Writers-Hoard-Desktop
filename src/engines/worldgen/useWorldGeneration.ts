@@ -27,6 +27,7 @@ import { forgeAvailable, forgeDegraded, spawnForgeWorker } from './forge/bridge'
 import type { WorldData, WorldParams } from './core/types';
 import { unpackWorld } from './core/types';
 import { loadSnapshot, saveSnapshot } from './snapshots';
+import { bindCanonWorld } from './canonSnapshots';
 import type { WorkerReply } from './worldgen.worker';
 
 interface Entry {
@@ -53,6 +54,11 @@ function remember(worldId: string, key: string, data: WorldData): Entry {
       lake: Uint8Array.from(data.lake),
     },
   };
+  // Every world object that reaches a view passes through here, so this is
+  // the one place the canon persistence learns which Dexie row a live world
+  // belongs to. A world that never passes (benches, transient previews)
+  // simply never persists canon.
+  bindCanonWorld(data, worldId);
   cache.delete(worldId);
   cache.set(worldId, entry);
   // Three worlds of pristine copies is about thirty-six megabytes; a reader who

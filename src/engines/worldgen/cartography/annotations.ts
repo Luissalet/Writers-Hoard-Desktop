@@ -20,6 +20,13 @@ export interface CartoAnnotations {
   paleo?: PaleoMap;
   /** Places the manuscript points at, sized by how much it says about them. */
   linked?: { x: number; y: number; weight: number }[];
+  /** The reader's saved regions: a window on the world with a name. Drawn as
+   *  a surveyor's mark — wash, corner brackets, cartouche label — because a
+   *  saved valley the carta cannot show is a bookmark in someone else's book. */
+  regions?: {
+    x: number; y: number; spanKm: number; aspect: number;
+    title: string; active: boolean;
+  }[];
 }
 
 type Ctx2D = CanvasRenderingContext2D;
@@ -170,6 +177,67 @@ export function drawAnnotations(
     ctx.lineWidth = 2.6;
     ctx.setLineDash([]);
     ctx.stroke();
+    ctx.restore();
+  }
+
+  // ---- the reader's saved regions ------------------------------------------
+  if (ann.regions?.length) {
+    const kx = sx(1) - sx(0);
+    const ky = sy(1) - sy(0);
+    ctx.save();
+    ctx.font = '600 10px "Source Sans 3", system-ui, sans-serif';
+    ctx.textBaseline = 'alphabetic';
+    for (const rg of ann.regions) {
+      const halfW = ((rg.spanKm / 40075) * W * kx) / 2;
+      const halfH = (halfW / Math.max(0.25, rg.aspect)) * (ky / kx);
+      const cx = sx(rg.x), cy = sy(rg.y);
+      if (cx + halfW < -30 || cx - halfW > ctx.canvas.width + 30
+        || cy + halfH < -20 || cy - halfH > ctx.canvas.height + 20) continue;
+      const ink = rg.active ? 'rgba(140,90,20,0.95)' : 'rgba(90,60,30,0.7)';
+      if (halfW < 4 || halfH < 4) {
+        // Too small for a frame: a surveyor's lozenge, like the 2D's.
+        ctx.strokeStyle = ink;
+        ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - 5); ctx.lineTo(cx + 5, cy);
+        ctx.lineTo(cx, cy + 5); ctx.lineTo(cx - 5, cy);
+        ctx.closePath();
+        ctx.stroke();
+      } else {
+        // The wash first — saved ground reads as GROUND, not as a box.
+        ctx.fillStyle = rg.active ? 'rgba(198,148,55,0.08)' : 'rgba(90,60,30,0.05)';
+        ctx.fillRect(cx - halfW, cy - halfH, halfW * 2, halfH * 2);
+        ctx.strokeStyle = ink;
+        ctx.lineWidth = rg.active ? 1.6 : 1.1;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(cx - halfW, cy - halfH, halfW * 2, halfH * 2);
+        ctx.setLineDash([]);
+        // Corner brackets, solid: the draughtsman's "this sheet exists".
+        const arm = Math.min(14, Math.min(halfW, halfH) * 0.34);
+        ctx.lineWidth = rg.active ? 2.2 : 1.6;
+        ctx.beginPath();
+        for (const [dx, dy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+          const px = cx + dx * halfW, py = cy + dy * halfH;
+          ctx.moveTo(px + (dx < 0 ? arm : -arm), py);
+          ctx.lineTo(px, py);
+          ctx.lineTo(px, py + (dy < 0 ? arm : -arm));
+        }
+        ctx.stroke();
+      }
+      if (rg.title) {
+        const ty = Math.max(10, cy - halfH - 5);
+        const w = ctx.measureText(rg.title).width;
+        ctx.fillStyle = 'rgba(244,234,210,0.85)';
+        ctx.fillRect(cx - w / 2 - 4, ty - 10, w + 8, 13);
+        ctx.strokeStyle = 'rgba(90,60,30,0.5)';
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(cx - w / 2 - 4, ty - 10, w + 8, 13);
+        ctx.fillStyle = rg.active ? '#7a5416' : '#5c4426';
+        ctx.textAlign = 'center';
+        ctx.fillText(rg.title, cx, ty);
+        ctx.textAlign = 'start';
+      }
+    }
     ctx.restore();
   }
 

@@ -1,4 +1,4 @@
-import { makeEntityHook } from '@/engines/_shared';
+import { makeEntityHook, makeReadOnlyHook } from '@/engines/_shared';
 import * as ops from './operations';
 import type { Outline, OutlineBeat } from './types';
 
@@ -15,4 +15,9 @@ export const useOutlineBeats = makeEntityHook<OutlineBeat>({
   updateFn: ops.updateBeat,
   deleteFn: ops.deleteBeat,
   reorderFn: ops.reorderBeats,
+});
+
+/** Read-only: every beat in the project, for cross-engine link pickers. */
+export const useAllProjectBeats = makeReadOnlyHook<OutlineBeat>({
+  fetchFn: ops.getAllProjectBeats,
 });

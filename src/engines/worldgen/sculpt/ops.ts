@@ -143,7 +143,9 @@ export function tipOutline(
         // d = |p| + push(p) = r. Three passes of a fixed point; the push varies
         // slowly compared with the radius, so it converges immediately.
         for (let it = 0; it < 3; it++) {
-          const gx = Math.round(cx + dx * rr), gy = Math.round(cy + dy * rr);
+          // The cell whose CENTRE sits at the rim point — the same cell whose
+          // noise `stampDisc` will read there under the centre convention.
+          const gx = Math.round(cx + dx * rr - 0.5), gy = Math.round(cy + dy * rr - 0.5);
           rr = r - (vnoise2(gx * freq, gy * freq) - 0.5) * r * tip.jitter * 0.9;
         }
         break;
@@ -450,7 +452,17 @@ function stampDisc(
   const freq = 1 / Math.max(2.5, r * 0.9);
   for (let gy = gy0; gy <= gy1; gy++) {
     for (let gx = gx0; gx <= gx1; gx++) {
-      const dx = gx - cx, dy = gy - cy;
+      // Cell k is the ground from k to k+1 with its centre at k+0.5 — that is
+      // how `polygonCells`, the hover probe and every screen draw read the
+      // grid. Measuring against the INDEX shifted every stamp half a cell
+      // south-east of the pointer (B6): the world grid hid it behind a
+      // half-cell ring offset in the 2D, and the canon grid re-rasterised the
+      // same stroke half a WORLD cell away from where the world grid put it,
+      // because the offset is half of whichever cell is doing the stamping.
+      // Saved worlds keep their ground: `deserializeEdits` shifts pre-v2
+      // stroke points by the same half cell, which reproduces the old masks
+      // bit for bit under this formula.
+      const dx = gx + 0.5 - cx, dy = gy + 0.5 - cy;
       let d: number;
       switch (tip.kind) {
         case 'square': {

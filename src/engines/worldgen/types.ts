@@ -83,6 +83,22 @@ export interface WorldSnapshot {
   savedAt: number;
 }
 
+/** One persisted canon supertile (see `canonSnapshots.ts`): the ~31 s of
+ *  regional generation paid once per world instead of once per session.
+ *  A cache like `worldSnapshots` — versioned, LRU-evicted, outside the
+ *  backup registry — never the only home of anything the reader made. */
+export interface CanonTileRow {
+  /** `${worldId}:${canonKey}`. */
+  id: string;
+  worldId: string;
+  /** Full invalidation key; any mismatch is a miss. */
+  key: string;
+  version: number;
+  bytes: Uint8Array;
+  byteLength: number;
+  savedAt: number;
+}
+
 export interface WorldWaypoint {
   id: string;
   projectId: string;

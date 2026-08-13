@@ -80,6 +80,13 @@ export interface NamedFeature {
 }
 
 export interface HumanGeography {
+  /** Con qué profundidad se construyó ESTE objeto. A `'places'` los caminos,
+   *  los accidentes con nombre y las ruinas generadas son [] por decisión de
+   *  coste (16,7 s de los 17,9 medidos), no porque no existan: quien enseñe
+   *  un recuento de esas listas tiene que mirar aquí antes, o dirá «0 ruinas»
+   *  en un mundo que tiene 6 — que es exactamente lo que hacía la barra de
+   *  estado en el 3D satélite. */
+  depth: GeoDepth;
   settlements: Settlement[];
   roads: Road[];
   realms: Realm[];
@@ -614,7 +621,26 @@ export function buildHumanGeography(
   // ---- roads --------------------------------------------------------------
   // A* between every pair of towns worth joining: eight seconds, and nothing
   // outside the carta and the journey panel draws or walks them.
-  const roads = depth === 'full' ? buildRoads(world, settlements, coastal) : [];
+  //
+  // Routed against where each town actually STANDS — the reader's `moves`
+  // applied — not against the generated positions. The base is built with
+  // `corrections=false` and it is `patchGeography` that moves the towns on the
+  // LIST afterwards (origin-keyed, so renames still find their door), but a
+  // road is not a correction that can be patched on: it is a shape computed
+  // FROM positions, at A* prices. Reading `moves` here, outside the flag, is
+  // what lets the full pass — the one `WorldView` schedules as soon as the
+  // brush is down — bring the road to the town's new ground instead of to its
+  // old solar forever. The list itself keeps origin positions either way; only
+  // the router sees the moved ones, and only at `full`, which is the only
+  // depth that routes.
+  const roadMoves = world.painted?.moves;
+  const routedSettlements = depth === 'full' && roadMoves && Object.keys(roadMoves).length
+    ? settlements.map((s) => {
+      const m = roadMoves[editKey('settlement', s.x, s.y)];
+      return m ? { ...s, x: m.x, y: m.y } : s;
+    })
+    : settlements;
+  const roads = depth === 'full' ? buildRoads(world, routedSettlements, coastal) : [];
 
   // ---- named geography ----------------------------------------------------
   // Landforms are found once and used twice: the label layer names them, and the
@@ -658,8 +684,9 @@ export function buildHumanGeography(
   // that survives only until a slider is touched is not a rename.
   const painted2 = corrections ? world.painted : undefined;
   const pops = world.painted?.populations ?? {};
+  const mvs = painted2?.moves ?? {};
   if (painted2 && (Object.keys(painted2.renames).length || painted2.removed.size
-    || Object.keys(pops).length)) {
+    || Object.keys(pops).length || Object.keys(mvs).length)) {
     const ren = painted2.renames, gone = painted2.removed;
     const keep = <T extends { x: number; y: number; name: string }>(list: T[], target: 'settlement' | 'ruin') =>
       list.filter((o) => !gone.has(editKey(target, o.x, o.y)))
@@ -667,8 +694,18 @@ export function buildHumanGeography(
           const k = editKey(target, o.x, o.y);
           const n = ren[k];
           const pop = target === 'settlement' ? pops[k] : undefined;
-          if (!n && pop === undefined) return o;
-          return { ...o, ...(n ? { name: n } : {}), ...(pop === undefined ? {} : { population: pop }) };
+          // La mudanza del lector se honra también en el pase completo, con la
+          // misma regla que en `patchGeography`: la llave es la posición de
+          // ORIGEN, el dibujo es la de destino. Sin esto, mover un pueblo en el
+          // 2D no movía nada en la Carta, el 3D ni el atlas.
+          const m = mvs[k];
+          if (!n && pop === undefined && !m) return o;
+          return {
+            ...o,
+            ...(n ? { name: n } : {}),
+            ...(pop === undefined ? {} : { population: pop }),
+            ...(m ? { x: m.x, y: m.y } : {}),
+          };
         });
     const keptS = keep(settlements, 'settlement');
     settlements.length = 0;
@@ -681,7 +718,16 @@ export function buildHumanGeography(
       const f = features[i];
       const k = editKey('feature', f.x, f.y, `${f.kind}:`);
       if (gone.has(k)) { features.splice(i--, 1); continue; }
-      if (ren[k]) features[i] = { ...f, name: ren[k] };
+      // La mudanza puede venir escrita como `feature:` o `landmark:` según qué
+      // capa registró el gesto; las dos grafías son el mismo objeto.
+      const m = compatibleEditKeys('landmark', k).map((kk) => mvs[kk]).find(Boolean);
+      if (ren[k] || m) {
+        features[i] = {
+          ...f,
+          ...(ren[k] ? { name: ren[k] } : {}),
+          ...(m ? { x: m.x, y: m.y } : {}),
+        };
+      }
     }
     for (let i = 0; i < realms.length; i++) {
       // Through `realmEditKey`, because this loop spelled the key by hand as
@@ -710,7 +756,7 @@ export function buildHumanGeography(
   }
   for (const r of world.painted?.roads ?? []) finalRoads.push({ cells: r.cells, major: r.major });
 
-  return { settlements, roads: finalRoads, realms, realmOf, features, ruins, landforms, languages, languageOf };
+  return { depth, settlements, roads: finalRoads, realms, realmOf, features, ruins, landforms, languages, languageOf };
 }
 
 // ---------------------------------------------------------------------------

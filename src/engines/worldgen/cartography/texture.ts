@@ -248,49 +248,80 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
    * is itself suppressed while a brush is out. A few hundred spreads is nothing;
    * this list is settlements plus ruins.
    */
+  /**
+   * `moves` TAMBIÉN aquí, no sólo en el 2D. Esta es la única vía que corre
+   * tras un gesto (lección #23): sin esto, arrastrar un pueblo se guardaba,
+   * se contaba en el badge — y la Carta, el 3D y el atlas seguían dibujando
+   * la posición de origen para siempre, porque el pase completo se suprime
+   * mientras hay un pincel fuera. La LLAVE sigue siendo la posición de
+   * ORIGEN (eso es lo que la hace estable); lo que cambia es dónde se dibuja.
+   * Un objeto mudado no se ahoga por la costa de su origen ni por la de su
+   * destino: la colocación explícita del lector gana a la marea.
+   */
+  const mv = world.painted?.moves ?? {};
   const fix = <T extends { x: number; y: number; name: string }>(list: T[], target: 'settlement' | 'ruin'): T[] =>
     list.filter((o) => !gone.has(`${target}:${Math.round(o.x)},${Math.round(o.y)}`))
+      .filter((o) => mv[`${target}:${Math.round(o.x)},${Math.round(o.y)}`] || !drowned(o.x, o.y))
       .map((o) => {
         const k = `${target}:${Math.round(o.x)},${Math.round(o.y)}`;
         const n = ren[k];
         const pop = target === 'settlement' ? pops[k] : undefined;
-        return { ...o, ...(n ? { name: n } : {}), ...(pop === undefined ? {} : { population: pop }) };
+        const m = mv[k];
+        return {
+          ...o,
+          ...(n ? { name: n } : {}),
+          ...(pop === undefined ? {} : { population: pop }),
+          ...(m ? { x: m.x, y: m.y } : {}),
+        };
       });
-  const settlements = fix(base.settlements.filter((s) => !drowned(s.x, s.y)), 'settlement');
-  const ruins = fix(base.ruins.filter((r) => !drowned(r.x, r.y)), 'ruin');
+  const settlements = fix(base.settlements, 'settlement');
+  const ruins = fix(base.ruins, 'ruin');
   const haveS = new Set(settlements.map((s) => kOf(s.x, s.y)));
   const haveR = new Set(ruins.map((r) => kOf(r.x, r.y)));
 
   let nextId = settlements.reduce((m, s) => Math.max(m, s.id), 0) + 1;
+  // A los marcadores pintados les valen las MISMAS correcciones que a lo
+  // generado — un pueblo pintado es indistinguible de uno generado, ése es el
+  // contrato. Antes este bucle ignoraba `gone`, `ren`, `pops` y `mv`: borrar
+  // un pueblo pintado a mano no surtía efecto en la vía barata (el marcador
+  // volvía a empujarse tras cada parche), y renombrarlo o moverlo tampoco.
+  // El pase completo sí lo hacía… 19 s después y suprimido con el pincel fuera,
+  // o sea nunca (lección #23).
   for (const m of world.painted?.markers ?? []) {
     const k = kOf(m.x, m.y);
     if (m.marker === 'settlement') {
-      if (haveS.has(k) || drowned(m.x, m.y)) continue;
+      const ek = `settlement:${Math.round(m.x)},${Math.round(m.y)}`;
+      if (gone.has(ek)) continue;
+      const mvd = mv[ek];
+      if (haveS.has(k) || (!mvd && drowned(m.x, m.y))) continue;
       haveS.add(k);
       const rank = m.rank ?? 'town';
       settlements.push({
         id: nextId++,
-        x: Math.round(m.x), y: Math.round(m.y),
+        x: Math.round(mvd?.x ?? m.x), y: Math.round(mvd?.y ?? m.y),
         // Named on the next full pass, when the language machinery is running.
-        name: m.name ?? '·',
+        name: ren[ek] ?? m.name ?? '·',
         culture: settlements[0]?.culture ?? 'imperial',
         rank,
-        population: m.population
+        population: pops[ek] ?? m.population
           ?? (rank === 'capital' ? 42000 : rank === 'city' ? 16000 : rank === 'town' ? 3800 : 700),
         port: false,
         river: false,
-        realm: base.realmOf[at(m.x, m.y)] ?? -1,
+        realm: base.realmOf[at(mvd?.x ?? m.x, mvd?.y ?? m.y)] ?? -1,
         score: 1,
         painted: true,
       });
     } else if (m.marker === 'ruin') {
-      if (haveR.has(k) || drowned(m.x, m.y)) continue;
+      const ek = `ruin:${Math.round(m.x)},${Math.round(m.y)}`;
+      if (gone.has(ek)) continue;
+      const mvd = mv[ek];
+      if (haveR.has(k) || (!mvd && drowned(m.x, m.y))) continue;
       haveR.add(k);
       ruins.push({
         id: ruins.length,
         kind: m.ruin ?? 'city',
-        x: Math.round(m.x), y: Math.round(m.y),
-        name: m.name ?? '·',
+        x: Math.round(mvd?.x ?? m.x), y: Math.round(mvd?.y ?? m.y),
+        name: ren[ek] ?? m.name ?? '·',
         condition: 'overgrown',
         site: 'holy',
         importance: 0.72,
@@ -302,7 +333,11 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
   /**
    * ROADS are left exactly as they were: they are wrong in the painted area
    * until the next full pass, and being wrong for a second beats being right
-   * four seconds after every stroke.
+   * four seconds after every stroke. (The full pass, in turn, routes against
+   * the reader's `moves` — `buildHumanGeography` feeds the router the moved
+   * positions outside the corrections flag — so "until the next full pass" is
+   * now a promise with an ending: `WorldView` schedules that pass as soon as
+   * the brush is down, and the road comes to the town's new ground.)
    *
    * FRONTIERS are not, any more. They used to be, for the same reason - but a
    * frontier now has a brush of its own, and "wrong until the next full pass"
@@ -321,8 +356,14 @@ function patchGeography(world: WorldData, base: HumanGeography): HumanGeography 
   const features = base.features
     .filter((f) => !gone.has(`feature:${f.kind}:${Math.round(f.x)},${Math.round(f.y)}`))
     .map((f) => {
-      const n = ren[`feature:${f.kind}:${Math.round(f.x)},${Math.round(f.y)}`];
-      return n ? { ...f, name: n } : f;
+      const fk = `feature:${f.kind}:${Math.round(f.x)},${Math.round(f.y)}`;
+      const n = ren[fk];
+      // Los accidentes también se mudan por aquí. La llave puede venir escrita
+      // como `feature:` o como `landmark:` según qué capa registró el gesto;
+      // `compatibleEditKeys` conoce las dos grafías.
+      const m = compatibleEditKeys('landmark', fk).map((k) => mv[k]).find(Boolean);
+      if (!n && !m) return f;
+      return { ...f, ...(n ? { name: n } : {}), ...(m ? { x: m.x, y: m.y } : {}) };
     });
   // Copies for the same reason `fix` copies: `patchedRealmOf` rewrites
   // `cellCount` from the overlay, and through an alias that rewrite lands in the
