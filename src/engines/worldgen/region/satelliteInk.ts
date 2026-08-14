@@ -35,6 +35,7 @@
 
 import type { Ctx } from '../cartography/symbols';
 import { BIOME_COLORS } from '../core/render';
+import { streamWidthMetres, worldRiverMinimumPixels } from './riverScale';
 import { Cover, type RegionData } from './types';
 
 /** Sun direction, identical to the atlas raster's hillshade so relief reads the
@@ -72,6 +73,8 @@ export interface SatelliteOptions {
   tracks?: boolean;
   /** Draw enclosure boundaries. */
   hedges?: boolean;
+  /** Draw authoritative world trunks. Local canon streams remain visible. */
+  worldTrunks?: boolean;
   /** Draw building footprints at inhabited places. */
   buildings?: boolean;
   /** 0–1 multiplier on stamp counts (trees, scrub). 1 = as designed. */
@@ -332,7 +335,9 @@ export function renderSatellite(region: RegionData, ctx: Ctx, opts: SatelliteOpt
   // nothing else. Sizing stamps in fractions of a cell is how a forest ends up
   // with forty-metre trees at street level and invisible ones a level above.
   const wantMicroRelief = pxPerCell >= 2.5;
-  const wantWarp = pxPerCell >= 1.5;
+  // Geometry does not switch at a zoom threshold. At the coarsest canon level
+  // this field is merely sub-pixel filtered; at every closer level it resolves
+  // the same boundary instead of inventing a new one.
   const wantGroundTexture = pxPerCell >= 8;
   // A crown reads once its radius clears about a pixel: 6 m / 5 m per px.
   const wantCrowns = metresPerPx <= 5.5;
@@ -404,6 +409,41 @@ export function renderSatellite(region: RegionData, ctx: Ctx, opts: SatelliteOpt
     return clampY(y0 + py) * RW + clampX(x0 + px);
   };
 
+  /** The organic land-cover boundary shared by ground colour and every object
+   *  stamped on it. Water deliberately does not use this displacement: its
+   *  canon mask already comes from the cross-LOD coast field. */
+  const warpedGrid = (ax: number, ay: number): [number, number] => [
+    ax + L.fbm(ax, ay, 4, 0.33, 211) * 1.15,
+    ay + L.fbm(ax, ay, 4, 0.33, 307) * 1.15,
+  ];
+  const resolvedCoverAt = (ax: number, ay: number, slot = 601): number => {
+    const [gx, gy] = warpedGrid(ax, ay);
+    const picked = region.cover[ditherIndex(gx, gy, slot)];
+    if (!isWater(picked)) return picked;
+
+    // Water geometry is resolved independently above.  A cover warp is free
+    // to make a woodland edge organic, but if it happens to sample a sea cell
+    // on the dry side it must not paint a false blue inlet. Find the nearest
+    // genuinely dry cover; at a shoreline this is at most a cell or two away.
+    let nearest: number = Cover.Beach;
+    let best = Infinity;
+    const cx = Math.floor(gx), cy = Math.floor(gy);
+    for (let reach = 0; reach <= 2; reach++) {
+      for (let yy = cy - reach; yy <= cy + reach; yy++) {
+        for (let xx = cx - reach; xx <= cx + reach; xx++) {
+          const qx = clampX(xx), qy = clampY(yy);
+          const qi = qy * RW + qx;
+          const cover = region.cover[qi];
+          if (region.water[qi] || isWater(cover)) continue;
+          const d2 = (qx + 0.5 - gx) ** 2 + (qy + 0.5 - gy) ** 2;
+          if (d2 < best) { best = d2; nearest = cover; }
+        }
+      }
+      if (best < Infinity) break;
+    }
+    return nearest;
+  };
+
   // --- pass 1: amplified surface -------------------------------------------
   // One scratch buffer with a one-pixel skirt, so the shading pass takes its
   // slopes from the SAME surface the colour pass sees, at one noise cost
@@ -439,15 +479,7 @@ export function renderSatellite(region: RegionData, ctx: Ctx, opts: SatelliteOpt
       const [ax, ay] = gridAt(px, py);
       // Warp the LOOKUP, not the ground: cover boundaries stop being straight
       // lattice lines without any feature moving.
-      let gx = ax, gy = ay;
-      if (wantWarp) {
-        // Amplitude is a bit over ONE canon cell, in three octaves. Half a cell
-        // — the first guess — leaves a 153 m staircase perfectly visible on a
-        // lake shore at 38 m/px: the wiggle has to be wider than the step it is
-        // hiding. Three octaves so the boundary has coves as well as bays.
-        gx += L.fbm(ax, ay, 4, 0.33, 211) * 1.15;
-        gy += L.fbm(ax, ay, 4, 0.33, 307) * 1.15;
-      }
+      const [gx, gy] = warpedGrid(ax, ay);
 
       const si = (py + 1) * EW + (px + 1);
       const e = surface[si];
@@ -459,24 +491,22 @@ export function renderSatellite(region: RegionData, ctx: Ctx, opts: SatelliteOpt
       const dot = (-dzdx * LX + -dzdy * LY + LZ) / len;
       let shade = 0.62 + 0.55 * Math.max(0, dot);
 
-      const mask = waterAt(gx, gy);
+      // Water follows the undisplaced canon coast. Cover may feather and bend;
+      // a coastline may not move when a detail level switches on.
+      const mask = waterAt(ax, ay);
       const o = (py * OW + px) * 4;
-      const idx = cellIndex(gx, gy);
+      const idx = cellIndex(ax, ay);
       const lake = region.water[idx] === 2;
 
-      // Where the water's edge actually falls.
-      //
-      // Thresholding the 153 m mask puts the shoreline on lattice lines, which
-      // is the staircase this whole exercise exists to kill. Inside the
-      // boundary band the AMPLIFIED SURFACE decides instead — sea is wherever
-      // the ground is below sea level, at pixel resolution — so the coast
-      // wanders the way the relief does. A lake keeps the mask: a lake has a
-      // level, not a sign, and its surface is flat by definition.
+      // Where the water's edge actually falls. The continuous canon elevation
+      // decides inside the interpolated mask band. Shading microrrelief is not
+      // allowed to change land into sea, so this contour is identical at every
+      // deep zoom level.
       let wet: number;
       if (mask <= 0.02) wet = 0;
       else if (mask >= 0.98) wet = 1;
       else if (lake) wet = mask >= 0.5 ? 1 : 0;
-      else wet = e <= 0 ? 1 : 0;
+      else wet = sample(region.elevation, ax, ay) <= 0 ? 1 : 0;
 
       if (wet >= 0.5) {
         // Sea takes the atlas depth ramp; a lake is flat and lighter. Both get
@@ -500,7 +530,7 @@ export function renderSatellite(region: RegionData, ctx: Ctx, opts: SatelliteOpt
       }
 
       const cIdxDither = ditherIndex(gx, gy, 601);
-      const cov = region.cover[cIdxDither];
+      const cov = resolvedCoverAt(ax, ay, 601);
       const base = COVER_RGB[cov] ?? COVER_RGB[Cover.Grass];
       let r = base[0], g = base[1], b = base[2];
 
@@ -548,9 +578,12 @@ export function renderSatellite(region: RegionData, ctx: Ctx, opts: SatelliteOpt
   const toPx = (v: number) => (v - m) * pxPerCell;
 
   if (opts.hedges !== false && metresPerPx <= 12) drawHedges(region, ctx, toPx, metresPerPx);
-  drawWater(region, ctx, toPx, pxPerCell, metresPerPx);
+  drawWater(region, ctx, toPx, pxPerCell, metresPerPx, opts.worldTrunks !== false);
   if (wantFurrows) drawFields(region, ctx, L, pxPerCell, metresPerPx, m, OW, OH);
-  if (wantCrowns) drawCover(region, ctx, L, pxPerCell, metresPerPx, m, OW, OH, density);
+  if (wantCrowns) {
+    drawCover(region, ctx, L, pxPerCell, metresPerPx, m, OW, OH, density,
+      resolvedCoverAt, waterAt);
+  }
   if (opts.tracks !== false && pxPerCell >= 1.5) {
     drawTracks(region, ctx, toPx, pxPerCell, metresPerPx);
   }
@@ -571,22 +604,29 @@ export function renderSatellite(region: RegionData, ctx: Ctx, opts: SatelliteOpt
 /**
  * Streams, drawn from the vector polylines rather than the raster, because a
  * watercourse narrower than a canon cell is still a watercourse and the raster
- * cannot hold it. Width comes from catchment, which is what actually sets a
- * river's width on the ground.
+ * cannot hold it. Local width comes from catchment; a world trunk keeps its
+ * global magnitude across the shallow/deep hand-off.
  */
 function drawWater(
   region: RegionData, ctx: Ctx, toPx: (v: number) => number,
-  pxPerCell: number, metresPerPx: number,
+  pxPerCell: number, metresPerPx: number, worldTrunks: boolean,
 ): void {
   if (!region.streams.length) return;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  for (const s of region.streams) {
+  // Narrow first, broad last: a tributary closes at the confluence but never
+  // paints a hairline over the middle of the main channel.
+  const ordered = region.streams
+    .filter((s) => worldTrunks || !s.trunk)
+    .map((s) => ({ stream: s, metres: streamWidthMetres(s) }))
+    .sort((a, b) => a.metres - b.metres);
+  for (const { stream: s, metres } of ordered) {
     if (s.pts.length < 2) continue;
-    // Regime width in metres from catchment area — the same power law a real
-    // channel follows — then to pixels, floored so a brook stays visible.
-    const metres = Math.min(900, 1.6 * Math.pow(Math.max(0.5, s.areaKm2), 0.47));
-    const w = Math.max(pxPerCell >= 4 ? 1.1 : 0.7, metres / metresPerPx);
+    // A world trunk keeps the physical width of its global discharge. Using
+    // only the catchment visible in this canon tile demotes great rivers into
+    // the same perceptual hairline as local brooks.
+    const w = riverStrokePixels(s, metresPerPx, pxPerCell);
+    if (w <= 0) continue;
     ctx.beginPath();
     ctx.moveTo(toPx(s.pts[0].x), toPx(s.pts[0].y));
     for (let i = 1; i < s.pts.length; i++) ctx.lineTo(toPx(s.pts[i].x), toPx(s.pts[i].y));
@@ -597,10 +637,25 @@ function drawWater(
       ctx.lineWidth = w * 1.9;
       ctx.stroke();
     }
-    ctx.strokeStyle = s.areaKm2 > 40 ? '#3f7f9e' : '#4a86a2';
+    ctx.strokeStyle = metres > 100 ? '#3f7f9e' : '#4a86a2';
     ctx.lineWidth = w;
     ctx.stroke();
   }
+}
+
+/** Pixel projection kept public for the multizoom hierarchy regression. */
+export function riverStrokePixels(
+  stream: RegionData['streams'][number], metresPerPx: number, pxPerCell: number,
+): number {
+  const physical = streamWidthMetres(stream) / metresPerPx;
+  if (stream.worldFlow === undefined) {
+    // A sub-quarter-pixel brook is detail the current scale cannot resolve.
+    // Giving every one a fixed 1.1 px made a regional view look ruled with
+    // thousands of cyan lines; it appears naturally one or two zooms later.
+    if (physical < 0.28) return 0;
+    return Math.max(pxPerCell >= 4 ? 0.8 : 0.45, physical);
+  }
+  return Math.max(worldRiverMinimumPixels(stream.worldFlow), physical);
 }
 
 // ---------------------------------------------------------------------------
@@ -807,13 +862,14 @@ const FLECKS: Record<number, { spacing: number; radius: number; color: string }>
 function drawCover(
   region: RegionData, ctx: Ctx, L: Lattice, pxPerCell: number, metresPerPx: number,
   m: number, OW: number, OH: number, density: number,
+  coverAt: (gx: number, gy: number, slot?: number) => number,
+  waterAt: (gx: number, gy: number) => number,
 ): void {
-  const RW = region.width;
   const cellM = region.metresPerCell;
   // Read one cell beyond the interior on every side: a crown centred just
   // outside must still cast its half into this tile, exactly as the
   // neighbouring tile draws it.
-  const reach = 1;
+  const reach = 3;
   const x0 = Math.max(0, Math.floor(m - reach));
   const y0 = Math.max(0, Math.floor(m - reach));
   const x1 = Math.min(region.width, Math.ceil(m + OW / pxPerCell + reach));
@@ -832,25 +888,28 @@ function drawCover(
 
   for (let gy = y0; gy < y1; gy++) {
     for (let gx = x0; gx < x1; gx++) {
-      const i = gy * RW + gx;
-      const cov = region.cover[i];
-      const spec = CROWNS[cov];
-      const fleck = FLECKS[cov];
-      if ((!spec && !fleck) || region.water[i]) continue;
-
-      const spacing = spec ? spec.spacing : fleck!.spacing;
-      const radiusM = spec ? spec.radius : fleck!.radius;
-      const rBase = radiusM / metresPerPx;
-      if (rBase < 0.42) continue; // sub-pixel: the mottling already says this
-
-      // Individuals this cell actually holds, then what we can afford.
-      const real = (cellM / spacing) * (cellM / spacing) * (spec ? spec.closure : 1);
-      const count = Math.max(1, Math.min(budget, Math.round(real * density)));
-
-      for (let k = 0; k < count; k++) {
+      // Candidates exist in every global cell. Their cover is resolved at the
+      // candidate position with the SAME warp+dither as the ground, so a wood
+      // can feather into its neighbour and leave organic clearings instead of
+      // filling a 153 m square with crowns.
+      for (let k = 0; k < budget; k++) {
         const jx = L.cell(gx, gy, 1000 + k * 3);
         const jy = L.cell(gx, gy, 1001 + k * 3);
         const draw = L.cell(gx, gy, 1002 + k * 3);
+        const cgx = gx + jx, cgy = gy + jy;
+        const cov = coverAt(cgx, cgy, 601);
+        const spec = CROWNS[cov];
+        const fleck = FLECKS[cov];
+        if ((!spec && !fleck) || waterAt(cgx, cgy) >= 0.5) continue;
+
+        const spacing = spec ? spec.spacing : fleck!.spacing;
+        const radiusM = spec ? spec.radius : fleck!.radius;
+        const rBase = radiusM / metresPerPx;
+        if (rBase < 0.42) continue;
+        const real = (cellM / spacing) * (cellM / spacing) * (spec ? spec.closure : 1);
+        const count = Math.max(0, Math.min(budget, Math.round(real * density)));
+        if (k >= count) continue;
+
         const cxp = (gx - m + jx) * pxPerCell;
         const cyp = (gy - m + jy) * pxPerCell;
         const rr = rBase * (0.72 + draw * 0.7);

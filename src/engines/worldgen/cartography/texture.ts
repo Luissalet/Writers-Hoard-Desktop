@@ -114,6 +114,21 @@ export function rebuildGeography(
   return geo;
 }
 
+/** Adopt an immutable geography base built outside the UI thread. Corrections
+ * are intentionally applied here, against the current world and revision, so
+ * a late worker result cannot resurrect an old rename, move or frontier. */
+export function adoptGeographyBase(
+  world: WorldData,
+  base: HumanGeography,
+  params: HumanGeographyParams = { ...DEFAULT_HUMAN_PARAMS, sites: 'auto' },
+): HumanGeography {
+  const key = geoKey(world, params);
+  const rev = world.revision ?? 0;
+  const geo = patchGeography(world, base);
+  GEO_CACHE.set(world, { key, rev, geo, base, baseRev: rev, depth: base.depth });
+  return geo;
+}
+
 /**
  * True when what is cached is not good enough for what is being asked.
  *

@@ -19,7 +19,7 @@
 
 import { createRng } from '../core/rng';
 import { coinName, settlementBias, type LanguageFamily } from '../core/language';
-import type { HumanGeography, Settlement } from '../core/settlements';
+import { settlementCellCenter, type HumanGeography, type Settlement } from '../core/settlements';
 import { zoneAllowsWorld, type SitesPolicy } from '../core/edits';
 import type { WorldData } from '../core/types';
 import { Cover, type RegionParams, type RegionPlace, type RegionStream } from './types';
@@ -292,7 +292,10 @@ export function buildHabitation(
   // ---- the world's own places come through unchanged -----------------------
   const townCulture: Settlement[] = [];
   for (const s of geo.settlements) {
-    const p = toSheet(s.x, s.y);
+    // Settlements live at the centre of their world cell, exactly where Map2D
+    // draws their mark and where road endpoints terminate.
+    const centre = settlementCellCenter(s);
+    const p = toSheet(centre.x, centre.y);
     if (p.x < -8 || p.x > W + 8 || p.y < -8 || p.y > H + 8) continue;
     townCulture.push(s);
     places.push(materializeRegionPlace({
@@ -319,7 +322,8 @@ export function buildHabitation(
     let best: Settlement | undefined;
     let bd = Infinity;
     for (const s of townCulture) {
-      const p = toSheet(s.x, s.y);
+      const centre = settlementCellCenter(s);
+      const p = toSheet(centre.x, centre.y);
       const d = (p.x - x) ** 2 + (p.y - y) ** 2;
       if (d < bd) { bd = d; best = s; }
     }

@@ -181,10 +181,15 @@ export interface RegionStream {
   pts: { x: number; y: number }[];
   /** 0–1 discharge at the mouth. */
   flow: number;
-  /** Catchment at the mouth, in km². This is what sets the drawn width, because
-   *  a river's width is a function of its catchment and not of where it happens
-   *  to rank among the other streams on this particular sheet. */
+  /** Catchment at the mouth, in km². It sets the width of locally invented
+   *  streams; a world trunk uses `worldFlow` so a tile cannot demote it. */
   areaKm2: number;
+  /** Global, log-scaled discharge inherited from the world river. Unlike
+   *  `flow`, this value is comparable between sheets and levels of detail and
+   *  therefore owns the physical width of a trunk. Local streams omit it. */
+  worldFlow?: number;
+  /** Content-addressed identity of the world polyline this trunk continues. */
+  sourceRiverKey?: string;
   /** Carried down from a named world river. */
   name?: string;
   /** True when this is the continuation of a world river rather than local runoff. */

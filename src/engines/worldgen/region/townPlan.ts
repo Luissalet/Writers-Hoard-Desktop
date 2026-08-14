@@ -19,7 +19,7 @@
 // the world seed, and one plan serves every tile that shows any part of it.
 
 import type { WorldData } from '../core/types';
-import type { HumanGeography, Settlement } from '../core/settlements';
+import { settlementCellCenter, type HumanGeography, type Settlement } from '../core/settlements';
 import type { Ctx } from '../cartography/symbols';
 import { generateCity, type CityPlan } from '../city/generate';
 import { cityInk, drawCityBody, lodFor } from '../city/render';
@@ -114,11 +114,15 @@ export function drawTownPlans(
   for (const s of geography.settlements) {
     // Where the town centre lands on this tile, taking the nearest wrapped
     // branch so a town by the antimeridian is not drawn a world away.
-    let dx = s.x - view.originWorldX;
+    // Same cell-centre contract as Map2D, roads and regional habitation. At
+    // street zoom a missing +0.5 was thousands of pixels, so the real city was
+    // being drawn several kilometres away from its visible name and marker.
+    const centre = settlementCellCenter(s);
+    let dx = centre.x - view.originWorldX;
     while (dx > W / 2) dx -= W;
     while (dx < -W / 2) dx += W;
     const cx = dx * cellPx;
-    const cy = (s.y - view.originWorldY) * cellPx;
+    const cy = (centre.y - view.originWorldY) * cellPx;
     const size = s.rank === 'capital' ? 34 : s.rank === 'city' ? 22 : s.rank === 'town' ? 13 : 7;
     const reach = (planRadiusMetres(size) / view.metresPerPx);
     if (cx + reach < 0 || cy + reach < 0 || cx - reach > view.widthPx || cy - reach > view.heightPx) {
@@ -154,14 +158,17 @@ export function drawTownPlans(
      *               casi cien metros y se cruzan en mitad del muelle, cada una
      *               de su azul. Aquí el agua la manda el terreno; el plano
      *               manda las casas.
-     * Y al revés: `groundFill` sí, porque aquí debajo hay terreno de verdad y
-     * sin suelo el pueblo se dibujaría sobre el bosque.
+     * El canon ya despeja y cultiva el suelo alrededor de cada asentamiento.
+     * Repetir aquí `groundFill`/`wardTints` plantaba encima una silueta beige
+     * opaca con perímetro Voronoi. En el mapa sólo entran los objetos urbanos;
+     * el terreno que queda entre ellos sigue siendo el terreno real.
      */
     drawCityBody(ctx, plan, {
       ink: INK,
       unit: 1 / unitPx,
       lod: lodFor(unitPx),
-      groundFill: true,
+      groundFill: false,
+      wardTints: false,
       fields: false,
       roads: false,
       water: false,

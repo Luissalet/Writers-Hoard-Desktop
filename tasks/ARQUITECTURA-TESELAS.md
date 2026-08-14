@@ -184,6 +184,127 @@ La composición sigue una propiedad de capa explícita:
 cámara. En 2D sólo la pirámide solicita terreno detallado; lugares y detalle
 viajan en sus mismas respuestas.
 
+## 7 · Continuidad de LOD y arranque no bloqueante (2026-08-14)
+
+Toda costa visible deriva ahora de `region/coastField.ts`. El atlas lejano, las
+teselas satélite someras y el canon regional comparten el mismo contorno cero,
+la misma convención de centro de celda y una deformación física fija de 1,8 km.
+El relieve fino puede erosionar y sombrear, pero vuelve a fijar el signo de cada
+celda contra ese contorno; las ediciones de elevación del lector son la única
+excepción. El color de bioma/cobertura tampoco puede escoger mar para un píxel
+que el contorno ya declaró tierra. La regresión de imagen mide 0,07 % de
+desacuerdo atlas z5→satélite z6 y 0,06 % satélite z8→canon z9.
+
+Las fronteras de cobertura usan un campo mundial continuo en todos los niveles,
+sin interruptores por zoom. La tinta de copas pregunta a esa misma máscara
+orgánica incluso fuera de la celda forestal original; por eso un bosque puede
+formar dedos y claros y cruzar una costura sin revelar el cuadrado canon.
+
+`settlementCellCenter` es el ancla única de una población. Marcador, carretera,
+mancha urbana, lugar regional y plano de calles coinciden en `(x+0.5,y+0.5)`.
+Antes, la tesela buscaba edificios en la esquina de la celda mientras la capa
+viva dibujaba la ciudad en el centro: a z17 la separación era de miles de
+píxeles. Las teselas profundas siguen dibujando techos y, cuando la resolución
+lo permite, el plano urbano completo sin necesitar clic ni hover.
+
+La geografía humana completa ya no se calcula en `requestIdleCallback`: ese
+callback seguía ejecutando 13 s síncronos en el hilo de la interfaz. Un worker
+deduplicado por identidad de contenido construye la base, transfiere
+`realmOf` y `WorldView` adopta el resultado sólo si mundo y revisión siguen
+vigentes. `LanguageFamily` contiene funciones ortográficas no clonables, de
+modo que el worker envía los datos pesados y el cliente reconstruye esa familia
+determinista desde semilla y número de lenguas. Durante el primer cálculo se
+mantiene el mapa provisional y se muestra `worldgen-map-loading`; las entradas
+posteriores cobran la base de memoria.
+
+## 8 · Jerarquía hidrológica entre niveles (2026-08-14)
+
+La geometría por sí sola no identifica un río. El `flow` de un río mundial es
+una magnitud global, normalizada contra todo el planeta; el `flow` de un cauce
+canon se normaliza dentro de su propia metatesela. No son intercambiables. La
+implementación antigua convertía aproximadamente el primero en acumulación
+local y después dibujaba sólo desde esa cuenca parcial: al cruzar al canon, un
+río de 2.220 m podía quedar en unos 20 m y volver a cambiar en la metatesela
+siguiente.
+
+`region/riverScale.ts` es ahora la única ley física de anchura. La vista somera
+la usa directamente; el canon transporta `worldFlow` y una `sourceRiverKey`
+derivada del contenido de la polilínea. `sourceRiverKey` no es un índice: borrar
+otro río no puede renumerarla. Los cauces inventados localmente omiten ambos
+campos y conservan su ley por cuenca.
+
+La identidad del tronco no se deduce por solape. Cada `CarvedRiver` se incorpora
+al canon como stream autoritativo con su polilínea, clave y caudal originales;
+los cauces D8 locales nunca reciben esos campos. Así un arroyo que toca o corre
+junto al río principal no puede heredar dos kilómetros de anchura. Cuando una
+vista necesita ambos, la tinta ordena estrechos primero y anchos después para
+que ningún afluente pinte una raya sobre el cauce principal.
+
+El formato canon y la caché de entintado llevan versiones nuevas. La regresión
+`harness/river-hierarchy.ts` verifica la relación principal/arroyo a 1.000,
+100 y 10 m/px, la identidad en una metatesela real, la igualdad exacta de
+caudal/anchura a ambos lados del hand-off y la ausencia de contagio en
+confluencias.
+
+## 9 · Geometría autoritativa y carga estable de ríos (2026-08-14)
+
+El solape hidrológico descrito arriba resultó insuficiente como fuente de
+identidad: un cauce local corto podía coincidir por casualidad con varias
+muestras del tronco y reclamar su clave antes que el trazado correcto. Tener el
+caudal correcto sobre la polilínea equivocada seguía produciendo, al terminar
+la carga, una raya corta y arbitraria. El canon ya no infiere el tronco. Recibe
+directamente cada polilínea de `CarvedRiver`, con sus puntos, clave y caudal
+mundiales intactos; la extracción D8 sólo genera tributarios locales sin
+identidad mundial. La composición conserva esos puntos sin volver a suavizarlos.
+
+En el mapa equirectangular, los troncos mundiales pertenecen a una única capa
+vectorial de pantalla dibujada después del terreno. Ni la tesela somera ni el
+ancestro de respaldo los hornean en sus bitmaps; al ampliar, por tanto, ningún
+raster pequeño puede convertirse en una mancha azul borrosa. Las teselas
+profundas conservan el detalle hidrológico local, pero omiten el tronco que ya
+posee la pantalla. El mismo vector permanece visible antes, durante y después
+de entregar las teselas exactas, de modo que el cambio de LOD sólo sustituye el
+terreno bajo el río y nunca su recorrido.
+
+Las proyecciones no equirectangulares, que todavía no usan la pirámide profunda,
+mantienen su raster proyectado. `harness/map2d-layer-contract.ts` fija esta
+separación de responsabilidades y `harness/river-hierarchy.ts` exige igualdad
+punto por punto entre el río tallado mundial y el tronco recibido por el canon.
+
+## 10 · Forma fluvial y huella urbana (2026-08-14)
+
+La anchura visible del tronco mundial ya no reutiliza el caudal de la
+desembocadura en todos sus puntos. `world.flow` aporta el caudal de cada celda
+y `riverScale.ts` lo convierte con una curva convexa de 24 a 700 m. Esta ley es
+física y compartida por la capa mundial y el canon. Sólo cuando esa medida cae
+por debajo del píxel se aplica una línea cartográfica mínima, también
+jerarquizada por caudal.
+
+En primer plano el agua no se dibuja como un `stroke` de anchura constante. Se
+muestrea la polilínea en distancia real y se construyen dos orillas
+independientes, moduladas por una señal determinista en metros. La silueta, por
+tanto, es orgánica pero no cambia ni se desplaza al variar el zoom o al cruzar
+una tesela. En la costura cilíndrica la separación se decide comparando las
+longitudes de las celdas fuente; nunca se intenta deducir después de proyectar
+a píxeles.
+
+La acumulación D8 del canon describe sólo drenaje regional. El tronco mundial
+ya viaja como vector autoritativo y no vuelve a inyectarse en esa acumulación:
+hacerlo creaba un segundo río cardinal y corredores húmedos falsos. Un pequeño
+microgradiente global deshace empates de elevación; además, una confluencia se
+cierra antes de leer la cuenca del receptor y los cursos con rayas cardinales
+kilométricas se descartan. Los arroyos subpíxel tampoco reciben un mínimo de
+1,1 px, por lo que no forman un entramado azul artificial a media distancia.
+
+La base del plano urbano se integra con el terreno existente. El mapa conserva
+tejados, calles, plazas, bloques y muralla, pero desactiva el relleno opaco del
+suelo y los tintes Voronoi de barrio. La tierra cultivada o despejada alrededor
+de un asentamiento sigue perteneciendo al canon y no a una mancha decorativa.
+
+Las regresiones fijan las cuatro propiedades: anchura física y orillas
+deterministas, ausencia de costura planetaria, ausencia de rayas D8 largas y
+cero píxeles de pergamino opaco alrededor de la ciudad.
+
 ## Fuentes
 - mod_tile/renderd: github.com/openstreetmap/mod_tile (colas al vuelo de 32
   metateselas, servir-caducado-y-encolar, metateselas 8×8, colas por

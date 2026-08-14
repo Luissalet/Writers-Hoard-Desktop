@@ -211,7 +211,10 @@ export function composeCanonWindow(
       // length. Smoothing once, globally, then truncating, keeps the drawn
       // geometry — and the dash odometer — identical in every window.
       for (const s of data.streams) {
-        const smooth = s.pts.length >= 3 ? chaikin(s.pts, false, 2) : s.pts;
+        // World trunks were already smoothed once from their authoritative
+        // world polyline. Re-smoothing each canon tile/window independently
+        // moves the same river differently on either side of a seam.
+        const smooth = !s.trunk && s.pts.length >= 3 ? chaikin(s.pts, false, 2) : s.pts;
         for (const run of clipRuns(smooth, keepPt, toGrid)) {
           out.streams.push({ ...s, pts: run.pts });
         }

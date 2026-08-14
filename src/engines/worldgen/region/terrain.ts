@@ -515,7 +515,7 @@ export interface CarvedRiver {
   /** Sheet-space polyline, already clipped with a margin. */
   pts: { x: number; y: number }[];
   flow: number;
-  worldIndex: number;
+  sourceRiverKey: string;
 }
 
 /**
@@ -612,7 +612,7 @@ export function carveWorldRivers(
     // as a trunk, and every sheet silently lost its main river and its name.
     const pts = resample(smoothPolyline(seg, 12), 0.75, false);
     if (pts.length < 3) continue;
-    out.push({ pts, flow: r.flow, worldIndex: ri });
+    out.push({ pts, flow: r.flow, sourceRiverKey: riverKey(r.cells) });
   }
 
   // Deepest first, so a tributary carved later does not cut through its trunk.
@@ -747,6 +747,7 @@ const DY8 = [0, 1, 1, 1, 0, -1, -1, -1];
  */
 export function fillDepressions(
   elev: Float32Array, W: number, H: number, seaLevel = 0,
+  epsilonField?: (x: number, y: number) => number,
 ): { filled: Float32Array; order: Int32Array } {
   const n = W * H;
   const filled = new Float32Array(n);
@@ -780,7 +781,11 @@ export function fillDepressions(
       const j = ny * W + nx;
       if (done[j]) continue;
       done[j] = 1;
-      filled[j] = Math.max(elev[j], h + EPS);
+      // A constant epsilon plus a fixed neighbour order grows long cardinal
+      // ramps over every filled plain. The optional WORLD-anchored field keeps
+      // the slope positive while breaking those grid-aligned drainage fans.
+      const epsilon = EPS * (1 + (epsilonField?.(nx, ny) ?? 0) * 0.32);
+      filled[j] = Math.max(elev[j], h + epsilon);
       heap.push(filled[j], j);
     }
   }
@@ -896,29 +901,24 @@ export function buildHydrology(
   g: RegionGeometry,
   patch: WorldPatch,
   elev: Float32Array,
-  rivers: CarvedRiver[],
 ): TerrainFields {
   const W = g.width, H = g.height, n = W * H;
 
-  // Upstream area arriving from outside the window, injected where each world
-  // river enters the sheet.
-  const extra = new Float32Array(n);
-  for (const r of rivers) {
-    // Inject where the river ENTERS the sheet, which is the first point that is
-    // actually on it — not the clamped first point of the clipped run, which for
-    // a river arriving from off-page sits on the border a long way from the
-    // channel and pours its catchment down the wrong valley.
-    let p = r.pts.find((q) => q.x >= 0 && q.x < W && q.y >= 0 && q.y < H);
-    if (!p) p = r.pts[0];
-    const x = Math.min(W - 1, Math.max(0, Math.round(p.x)));
-    const y = Math.min(H - 1, Math.max(0, Math.round(p.y)));
-    // world `flow` is log-scaled 0–1; turn it back into something area-like.
-    extra[y * W + x] += Math.pow(10, r.flow * 3.2) * 6;
-  }
-
-  const { filled, order } = fillDepressions(elev, W, H, 0);
+  // The world trunk is already carved and transported as an authoritative
+  // vector. Re-injecting its global catchment into the LOCAL D8 accumulation
+  // creates a second, usually grid-straight river beside it and even a false
+  // wet vegetation corridor. Local drainage must remain local.
+  const drainageTie = new SphereNoise(world.params.seed, 'region-drainage-tie');
+  const epsilonAt = (x: number, y: number) => {
+    const wx = g.originX + (x + 0.5) * g.worldPerCellX;
+    const wy = g.originY + (y + 0.5) * g.worldPerCellY;
+    const u = ((wx / world.width) % 1 + 1) % 1;
+    const v = Math.min(1, Math.max(0, wy / world.height));
+    return drainageTie.sample(u, v, world.width * 32);
+  };
+  const { filled, order } = fillDepressions(elev, W, H, 0, epsilonAt);
   const down = flowRouting(filled, W, H, 0);
-  const acc = accumulate(down, order, n, extra);
+  const acc = accumulate(down, order, n);
 
   const water = new Uint8Array(n);
   const slope = new Float32Array(n);
@@ -1113,66 +1113,89 @@ export function extractStreams(
     if (j >= 0 && isStream[j] && upCount[j] < 255) upCount[j]++;
   }
 
-  // Which sheet stream carries which world river, so trunks get the right name
-  // and the right width. Matched by proximity at the river's mouth-most point.
-  const trunkAt = new Int32Array(n).fill(-1);
-  rivers.forEach((r, k) => {
-    for (const p of r.pts) {
-      const x = Math.round(p.x), y = Math.round(p.y);
-      if (x < 0 || x >= W || y < 0 || y >= H) continue;
-      for (let dy = -2; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          const xx = x + dx, yy = y + dy;
-          if (xx < 0 || xx >= W || yy < 0 || yy >= H) continue;
-          const i = yy * W + xx;
-          if (isStream[i] && trunkAt[i] < 0) trunkAt[i] = k;
-        }
-      }
-    }
-  });
-
   const visited = new Uint8Array(n);
   const out: RegionStream[] = [];
   let id = 0;
 
   const heads: number[] = [];
   for (let i = 0; i < n; i++) if (isStream[i] && upCount[i] === 0) heads.push(i);
-  // Longest first: a trunk claims its cells before its tributaries, so the
-  // tributaries stop at the confluence instead of running parallel to it.
+  // Largest local channel first, so tributaries stop at the confluence instead
+  // of running parallel to an already claimed downstream reach.
   heads.sort((a, b) => flow[b] - flow[a]);
 
   for (const head of heads) {
     if (visited[head]) continue;
     const pts: { x: number; y: number }[] = [];
     let i = head;
-    let trunk = -1;
     let guard = 0;
     let endFlow = flow[head];
     let endArea = accum[head];
     while (i >= 0 && guard++ < n) {
       pts.push({ x: (i % W) + 0.5, y: ((i / W) | 0) + 0.5 });
-      endFlow = flow[i];
-      endArea = accum[i];
-      if (trunkAt[i] >= 0 && trunk < 0) trunk = trunkAt[i];
       const already = visited[i];
-      visited[i] = 1;
       // Stop one cell INTO an existing stream so the junction closes visually.
       if (already && pts.length > 1) break;
+      // The junction point closes the line but belongs to the receiving river;
+      // borrowing its area is what made tiny tributaries thousands of km².
+      endFlow = flow[i];
+      endArea = accum[i];
+      visited[i] = 1;
       const j = down[i];
       if (j < 0) break;
       if (water[j] !== 0) { pts.push({ x: (j % W) + 0.5, y: ((j / W) | 0) + 0.5 }); break; }
       i = j;
     }
     if (pts.length < 4) continue;
+    const smooth = chaikin(pts, 2);
+    if (degenerateLocalStream(smooth)) continue;
     out.push({
       id: id++,
-      pts: chaikin(pts, 2),
+      pts: smooth,
       flow: endFlow,
       areaKm2: endArea * km2PerCell,
-      trunk: trunk >= 0,
+      trunk: false,
     });
   }
+  // The world's trunk is not inferred from a nearby D8 path. It IS the carved
+  // world polyline: copying it directly is the only contract that can preserve
+  // its route, source identity and magnitude together. Local hydrology remains
+  // free to add tributaries, but can never borrow these fields.
+  out.push(...authoritativeTrunkStreams(rivers, id, km2PerCell));
   return out;
+}
+
+/** Reject the unmistakable D8 failure: a long ruler-straight cardinal run.
+ * Short straight reaches remain valid; only kilometre-scale grid rays go. */
+export function degenerateLocalStream(pts: readonly { x: number; y: number }[]): boolean {
+  let runLength = 0, longest = 0, previousAxis = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const dx = pts[i].x - pts[i - 1].x;
+    const dy = pts[i].y - pts[i - 1].y;
+    const axis = Math.abs(dy) < 1e-9 ? 1 : Math.abs(dx) < 1e-9 ? 2 : 0;
+    const length = Math.hypot(dx, dy);
+    if (axis !== 0 && axis === previousAxis) runLength += length;
+    else runLength = axis === 0 ? 0 : length;
+    previousAxis = axis;
+    if (runLength > longest) longest = runLength;
+  }
+  return longest >= 10;
+}
+
+/** Materialise world trunks without any proximity or first-winner heuristic. */
+export function authoritativeTrunkStreams(
+  rivers: readonly CarvedRiver[], firstId = 0, km2PerCell = 1,
+): RegionStream[] {
+  return rivers.map((river, index) => ({
+    id: firstId + index,
+    pts: river.pts,
+    flow: river.flow,
+    // Preserve the area-like magnitude downstream systems saw before. Width
+    // itself is owned by worldFlow, not by this regional approximation.
+    areaKm2: Math.pow(10, river.flow * 3.2) * 6 * km2PerCell,
+    worldFlow: river.flow,
+    sourceRiverKey: river.sourceRiverKey,
+    trunk: true,
+  }));
 }
 
 /** Corner-cutting smoothing — turns a staircase of cell centres into a river. */

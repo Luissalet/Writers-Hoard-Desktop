@@ -47,7 +47,10 @@ import { planRoute } from '../core/travel';
 import { nameBridges, paleoMap } from '../core/paleo';
 import type { WorldEdit } from '../core/edits';
 import { THEMES, themeById } from '../cartography/theme';
-import { getGeography, geographyIsStale, rebuildGeography, renderCartoCanvas } from '../cartography/texture';
+import {
+  adoptGeographyBase, getGeography, geographyIsStale, rebuildGeography, renderCartoCanvas,
+} from '../cartography/texture';
+import { requestGeographyBase } from '../cartography/geographyClient';
 import type { GeoDepth } from '../core/settlements';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import type { CartoLayers } from '../cartography/render';
@@ -247,8 +250,6 @@ export default function WorldView({
   // Same reason: a stroke bumps this, and the geography effect has to notice.
   const [paintRev, setPaintRev] = useState(0);
   const [regionDetail, setRegionDetail] = useState<RegionData | null>(null);
-  const [regionDetailBusy, setRegionDetailBusy] = useState(false);
-  const [regionDetailStage, setRegionDetailStage] = useState('');
 
   const thumbRef = useRef<string | undefined>(world.thumbnail);
 
@@ -456,8 +457,6 @@ export default function WorldView({
   // then was hidden under the pyramid anyway. Local places now ride tile replies.
   useEffect(() => {
     setRegionDetail(null);
-    setRegionDetailBusy(false);
-    setRegionDetailStage('');
   }, [data, geography, view]);
 
   const regionalSpatialEntities = useMemo(() => {
@@ -722,10 +721,11 @@ export default function WorldView({
      * up — and because the cache never downgrades, the second pass is paid once
      * per world and every view after it is free.
      */
-    const step: GeoDepth = geoDepth === 'full' && stagedDepth.current !== 'places'
-      && (!geography || geoRev.current !== rev)
-      ? 'places'
-      : geoDepth;
+    // Only a genuinely empty first visit needs the quick `places` stage. A
+    // stale/full map remains useful while its replacement builds in the worker;
+    // rebuilding it as `places` would secretly request full again because the
+    // geography cache never downgrades.
+    const step: GeoDepth = geoDepth === 'full' && !geography ? 'places' : geoDepth;
     const more = step !== geoDepth;
     /**
      * The deep pass waits for the brush to go away. So does a REBUILD.
@@ -740,8 +740,25 @@ export default function WorldView({
      */
     if (brushOut && geography) { setGeoBusy(false); return; }
     setGeoBusy(true);
-    // The deep pass blocks the main thread, so it waits for an idle moment
-    // rather than landing on the frame that is still painting the first one.
+    // Full geography is real background work. `requestIdleCallback` was not:
+    // the new log measured two 13.2 s UI freezes inside that callback, during
+    // which even completed tile messages could not be received.
+    if (step === 'full') {
+      let cancelled = false;
+      requestGeographyBase(data, 'full').then((base) => {
+        if (cancelled || (data.revision ?? 0) !== rev) return;
+        geoRev.current = rev;
+        stagedDepth.current = 'full';
+        setGeography(adoptGeographyBase(data, base));
+        setGeoBusy(false);
+      }).catch((error: unknown) => {
+        if (cancelled || (error instanceof DOMException && error.name === 'AbortError')) return;
+        console.error('[worldgen] geography worker', error);
+        setGeoBusy(false);
+      });
+      return () => { cancelled = true; };
+    }
+
     const run = () => {
       try {
         geoRev.current = rev;
@@ -753,16 +770,9 @@ export default function WorldView({
         setGeoBusy(more);
       }
     };
-    if (more) {
-      const t = window.setTimeout(run, 30);
-      return () => window.clearTimeout(t);
-    }
-    const idle = window.requestIdleCallback?.(run, { timeout: 1200 });
-    const t = idle === undefined ? window.setTimeout(run, 240) : 0;
-    return () => {
-      if (idle !== undefined) window.cancelIdleCallback?.(idle);
-      else window.clearTimeout(t);
-    };
+    // Let React commit the loading surface before the short first pass starts.
+    const t = window.setTimeout(run, more ? 30 : 80);
+    return () => window.clearTimeout(t);
   }, [needsGeo, geoDepth, brushIsOut, data, geography, paintRev]);
 
   // ---- painting ------------------------------------------------------------
@@ -1640,7 +1650,8 @@ export default function WorldView({
       <div className="flex gap-3 items-stretch" style={{ height: 'max(440px, calc(100vh - 300px))' }}>
         <div className="flex-1 relative rounded-xl overflow-hidden border border-border bg-deep min-w-0">
           {data && view === 'map' && (
-            <Map2D
+            !geography ? <EngineSpinner /> : (
+              <Map2D
               world={data}
               viewMode={viewMode}
               projection={projection}
@@ -1700,7 +1711,8 @@ export default function WorldView({
               // puntas del viaje y los sitios que nombra el manuscrito se
               // dibujan aquí también.
               annotations={annotations}
-            />
+              />
+            )
           )}
           {data && view === 'carta' && (
             !geography ? <EngineSpinner /> : (
@@ -1808,10 +1820,14 @@ export default function WorldView({
             </div>
           )}
 
-          {data && view === 'map' && regionDetailBusy && (
-            <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-md border border-white/15 bg-[#0b0e14]/88 px-2 py-1 text-[10px] text-white/75 shadow-lg backdrop-blur-sm">
+          {data && view === 'map' && geoBusy && (
+            <div role="status" data-testid="worldgen-map-loading" className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2 rounded-lg border border-white/15 bg-[#0b0e14]/92 px-3 py-2 text-xs text-white/80 shadow-xl backdrop-blur-sm">
               <Loader2 size={11} className="animate-spin text-accent-gold" />
-              {t('worldgen.status.regionDetail')} · {regionDetailStage || t('worldgen.status.preparing')}
+              {geography
+                ? (stagedDepth.current === 'places'
+                  ? t('worldgen.status.tracingRoads')
+                  : t('worldgen.status.recalculating'))
+                : t('worldgen.status.preparing')}
             </div>
           )}
 
