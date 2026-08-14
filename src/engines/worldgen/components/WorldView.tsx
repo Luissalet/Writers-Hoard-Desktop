@@ -42,7 +42,7 @@ import FiltersPanel from './FiltersPanel';
 import SavedRegionsPanel from './SavedRegionsPanel';
 import SpatialEntityInspector from './SpatialEntityInspector';
 import { PaintSession } from '../core/paintSession';
-import { deserializeEdits, editKey, sitesPolicyFrom, targetFromKey } from '../core/edits';
+import { deserializeEdits, editKey, serializeEdits, sitesPolicyFrom, targetFromKey } from '../core/edits';
 import { planRoute } from '../core/travel';
 import { nameBridges, paleoMap } from '../core/paleo';
 import type { WorldEdit } from '../core/edits';
@@ -62,15 +62,17 @@ import {
   type WorldSpatialStyleOverride,
 } from '../core/spatialEntities';
 import { regionKindVisible, semanticZoomProfile } from '../core/semanticZoom';
-import { regionClient, requestRegion } from '../region/client';
+import { regionClient } from '../region/client';
 import { bindCanonWorld, registerCanonPersistence } from '../canonSnapshots';
+import { registerRenderedTilePersistence } from '../renderedSnapshots';
 
 // Canon supertiles persist across sessions from the moment the engine loads
 // (PENDIENTE §2b.1). Module scope on purpose: the registration must exist
 // before the FIRST tile request, and every view that can ask for tiles lives
-// under this component's bundle.
+// under this component's bundle. Las teselas ENTINTADAS igual (ARQUITECTURA-
+// TESELAS §3.2): las dos capas del almacén cuelgan antes del primer pedido.
 registerCanonPersistence();
-import { requestCanonComposite, CANON_LOD_MAX_KM } from '../region/tileClient';
+registerRenderedTilePersistence();
 import type { RegionData } from '../region/types';
 
 // three.js and the surface shader are the heaviest thing in the engine, so they
@@ -448,114 +450,27 @@ export default function WorldView({
     [canonSource],
   );
 
-  // Close-range geography follows the shared viewport. Requests are debounced,
-  // cancellable, worker-backed, and leave the previous patch visible until the
-  // replacement arrives.
-  //
-  // LA COMARCA ES DEL MAPA 2D. Y DE NADIE MÁS.
-  //
-  // Cada vista tiene un oficio y sólo uno:
-  //   · 3D    — la topografía a grandes rasgos. Cordilleras, cuencas, costas.
-  //   · 2D    — el Google Maps: caminos, ciudades, cuevas, el detalle fino.
-  //   · Carta — una lámina bonita para exportar.
-  //
-  // Antes el 3D también pedía comarca, y de ahí salía el bloqueo que Luis
-  // diagnosticó: la cámara arrancaba cerca, se generaba el terreno regional,
-  // y al alejarse cada reposo de cámara pedía OTRA comarca más ancha — entre
-  // 170 y 400 km ni siquiera por la vía canónica cacheada, sino por el
-  // generador libre, que rehace erosión e hidrología enteras. Cada resultado
-  // subía una DataTexture flotante nueva a la GPU y tiraba la anterior. El
-  // 3D no se quedaba "petado" por dibujar: se quedaba petado por estar
-  // generando comarcas sin parar para enseñarlas a cuarenta kilómetros por
-  // píxel, donde no se distingue ninguna.
+  // The slippy pyramid is now the sole terrain-detail pipeline for Map2D.
+  // Keeping the older freeform/composite sheet alive here made every settled
+  // camera launch a second terrain generator which competed for the same farm,
+  // then was hidden under the pyramid anyway. Local places now ride tile replies.
   useEffect(() => {
-    if (!data || !geography || view !== 'map' || !semanticProfile.showRegionalTerrain
-        || viewport.spanKm > 700) {
-      setRegionDetail(null);
-      setRegionDetailBusy(false);
-      return;
-    }
-    const controller = new AbortController();
-    let handle: { promise: Promise<RegionData>; cancel: () => void } | null = null;
-    const timer = window.setTimeout(() => {
-      setRegionDetailBusy(true);
-      // Ask for a padded patch only after the camera settles. The extra gutter
-      // lets several small wheel/pan updates reuse the same cached lattice
-      // instead of terminating and cloning a worker context for every pose.
-      const spanKm = Math.min(400, Math.max(30, viewport.spanKm * 1.7));
-      // Close windows come from the CANONICAL tiles — one countryside per
-      // ground, shared with everything else that looks at it. Wider regional
-      // windows keep the freeform sheet until the display pyramid (P4) takes
-      // them over: at those spans the ~150 m canon is oversampled anyway, and
-      // a cold multi-tile fill would cost more than it shows.
-      if (spanKm <= CANON_LOD_MAX_KM && canonSource) {
-        handle = requestCanonComposite(
-          canonSource.world,
-          geography,
-          { u: viewport.u, v: viewport.v, spanKm, aspect: 1.55 },
-          {
-            signal: controller.signal,
-            edits: canonSource.edits,
-            onProgress: (stage) => setRegionDetailStage(stage),
-          },
-        );
-      } else {
-        handle = requestRegion(
-          data,
-          geography,
-          {
-            cx: viewport.u * data.width,
-            cy: viewport.v * data.height,
-            spanKm,
-          },
-          {
-            signal: controller.signal,
-            params: {
-              res: semanticProfile.regionalResolution,
-              aspect: 1.55,
-              // La hoja ancha obedece la MISMA política de sembrado que el
-              // canon: sin el tick ni zonas, sin granjas — a cualquier vano.
-              sites: 'auto',
-            },
-            // EXPLÍCITA, no vía `edits`: esta hoja viaja con el mundo YA
-            // editado, y mandarle la lista replicaría los trazos encima dos
-            // veces. La política es lo único de las ediciones que necesita.
-            sitesPolicy: worldSitesPolicy,
-            onProgress: (stage) => setRegionDetailStage(stage),
-          },
-        );
-      }
-      handle.promise.then((region) => {
-        if (!controller.signal.aborted) setRegionDetail(region);
-      }).catch((error: unknown) => {
-        if (error instanceof Error && error.name === 'AbortError') return;
-        console.warn('[worldgen] regional LOD failed', error);
-      }).finally(() => {
-        if (!controller.signal.aborted) setRegionDetailBusy(false);
-      });
-    }, 400);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-      handle?.cancel();
-    };
-  }, [
-    data,
-    geography,
-    canonSource,
-    worldSitesPolicy,
-    semanticProfile.regionalResolution,
-    semanticProfile.showRegionalTerrain,
-    view,
-    viewport.spanKm,
-    viewport.u,
-    viewport.v,
-  ]);
+    setRegionDetail(null);
+    setRegionDetailBusy(false);
+    setRegionDetailStage('');
+  }, [data, geography, view]);
 
   const regionalSpatialEntities = useMemo(() => {
     void paintRev;
     if (!data || !regionDetail) return [];
     return regionDetail.places
+      // LA CIUDAD NO SE DIBUJA DOS VECES. La comarca re-emite los pueblos del
+      // MUNDO re-anclados a su retícula (~150 m de deriva), y esta capa los
+      // pintaba ADEMÁS del rótulo del mundo: la captura de Luis (2026-08-13),
+      // «Pisfiisild» blanca y su copia marrón a un lado. Lo que viene del
+      // mundo (worldId) ya lo dibuja la capa del mundo en su ancla de verdad;
+      // aquí sólo entra lo que la comarca aporta de suyo.
+      .filter((place) => place.worldId === undefined)
       .filter((place) => regionKindVisible(place.kind, semanticProfile.tier))
       .map((place) => resolveWorldSpatialEntity({
         key: place.sourceKey,
@@ -690,7 +605,10 @@ export default function WorldView({
   const randomPlacesOn = useMemo(() => {
     void paintRev;
     const s = sessionWorld.current === data ? session.current : null;
-    let on = false;
+    // Sin edición de lugares el grifo está ABIERTO (legado — la ausencia
+    // jamás borra lo existente); los mundos nuevos nacen con un
+    // `placesEverywhere:false` explícito que este bucle recoge.
+    let on = true;
     for (const e of s?.edits ?? []) if (e.kind === 'placesEverywhere') on = e.enabled;
     return on;
   }, [data, paintRev]);
@@ -904,8 +822,16 @@ export default function WorldView({
     if (cleanSlate.current || data.params.seed !== editsSeed.current) {
       cleanSlate.current = false;
       editsSeed.current = data.params.seed;
-      savedEdits.current = undefined;
-      saveEditsRef.current?.('[]');
+      // UN MUNDO NUEVO (o re-forjado con otra semilla) NACE DESNUDO, y lo
+      // dice una EDICIÓN, no una ausencia: `placesEverywhere:false` como
+      // primer asiento de la lista. Así el tick nace apagado, Ctrl+Z lo
+      // revierte como a todo, y los mundos EXISTENTES — cuyas listas no
+      // llevan ninguna edición de lugares — conservan su país entero
+      // (2026-08-13: la ausencia-como-negativa borró lo que Luis ya tenía;
+      // «una cosa es lo que te pedí para NUEVOS mundos o REGENERADOS»).
+      const desnudo = serializeEdits([{ kind: 'placesEverywhere', enabled: false }]);
+      savedEdits.current = desnudo;
+      saveEditsRef.current?.(desnudo);
     }
     const stored = savedEdits.current;
     let initial: WorldEdit[] = [];
@@ -1812,6 +1738,8 @@ export default function WorldView({
               <World3D
                 world={data}
                 geography={geography}
+                canonWorld={canonSource?.world}
+                canonEdits={canonSource?.edits}
                 theme={theme}
                 waypoints={waypoints}
                 showWaypoints={showWaypoints}

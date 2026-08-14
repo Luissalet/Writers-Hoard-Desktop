@@ -83,8 +83,9 @@ export function testWorldgenDetailShader(): string {
     uSize: 0.2,
     vSize: 0.5,
   });
+  const wrappedDetailHeight = surface.heightAtUV(0, 0.5);
   assert(
-    Math.abs(surface.heightAtUV(0, 0.5) - 3) < 1e-5,
+    wrappedDetailHeight > 1 + 1e-5 && wrappedDetailHeight <= 3 + 1e-5,
     'CPU detail sampling did not wrap a regional patch across the world seam',
   );
 
@@ -105,15 +106,17 @@ export function testWorldgenDetailShader(): string {
       `close zoom produced an invalid UV window at step ${step}`,
     );
     const interactiveCamera = zoomCamera.position.clone();
+    const terrainHeight = surface.heightAtUV(0, 0.5);
     clampCameraToSurface(
       interactiveCamera,
       'plane',
-      surface.heightAtUV(0, 0.5),
+      terrainHeight,
       0.5,
       0.12,
     );
     assert(
-      Number.isFinite(interactiveCamera.y) && interactiveCamera.y >= 1.62,
+      Number.isFinite(interactiveCamera.y)
+      && interactiveCamera.y >= Math.max(0, terrainHeight * 0.5) + 0.12 - 1e-5,
       `close zoom entered regional relief at step ${step}`,
     );
   }

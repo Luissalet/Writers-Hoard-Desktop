@@ -16,7 +16,7 @@ import { scaleCount } from '@/utils/capacity';
 import type { HumanGeography } from '../core/settlements';
 import type { WorldData } from '../core/types';
 import { buildNaturalCover, applyHabitation } from './cover';
-import { buildHabitation } from './places';
+import { buildHabitation, siteAllower } from './places';
 import { buildTracks } from './tracks';
 import { buildFields } from './fields';
 import { buildLandmarks } from './landmarks';
@@ -152,7 +152,13 @@ export function generateRegion(
   // move it. They join the place list so labels, links and the manuscript index
   // treat a waterfall exactly like a hamlet.
   let nextPlaceId = hab.places.reduce((m, q) => Math.max(m, q.id), 0) + 1;
-  const marks = buildLandmarks(world, geo, g, t, natural.cover, streams, () => nextPlaceId++);
+  // Los hitos naturales NOMBRADOS (Fuente de…, Salto de…) también piden
+  // permiso: el accidente es geografía, su nombre es contenido inventado
+  // (Luis, 2026-08-13: «lo mismo con fuentes, puentes»). Sin política, todo
+  // — el defecto de los bancos.
+  const permite = policy ? siteAllower(policy, g, world.width) : null;
+  const marks = buildLandmarks(world, geo, g, t, natural.cover, streams, () => nextPlaceId++)
+    .filter((m) => !permite || permite(m.x, m.y));
   hab.places.push(...marks);
 
   p('cultivo', 0.78);

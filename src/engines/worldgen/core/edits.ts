@@ -366,6 +366,10 @@ export interface PaintedLabel {
 }
 
 export interface AppliedEdits {
+  /** La política de sembrado que dicta la lista (grifo + zonas), derivada en
+   *  el replay para que TODO consumidor del mundo (geografía humana, hojas)
+   *  la lea del propio mundo sin canales aparte. */
+  sitesPolicy: SitesPolicy;
   /** True when any edit touched elevation, so callers know the coastline moved. */
   terrainChanged: boolean;
   markers: PaintedMarker[];
@@ -527,6 +531,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     terrainChanged: false, markers: [], labels: [], rivers: [],
     renames: {}, populations: {}, removed: new Set(), moves: {}, styles: {},
     roads: [], roadErasers: [], realmCells: null,
+    sitesPolicy: sitesPolicyFrom(edits),
   };
   if (!edits.length) return out;
   // Any consumer that caches something derived from this world keys on the
@@ -995,8 +1000,58 @@ export interface SitesPolicy {
   zones: { mode: 'add' | 'remove'; pts: Pt[]; radius: number }[];
 }
 
+/**
+ * ¿Permite la política sembrar en ESTA celda del mundo? La misma pregunta para
+ * el enrejado regional (region/places) y para la geografía humana del mundo
+ * (core/settlements): grifo global de base, y la última zona pisada decide.
+ * `worldWidth` para la envoltura en x — una pincelada que cruza el
+ * antimeridiano es una polilínea continua.
+ */
+export function zoneAllowsWorld(
+  policy: SitesPolicy, wx: number, wy: number, worldWidth: number,
+): boolean {
+  let ok = policy.everywhere;
+  for (const z of policy.zones) {
+    if (!z.pts.length) continue;
+    const r2 = z.radius * z.radius;
+    const wrapNear = (x: number, ref: number): number => {
+      let v = x;
+      while (v - ref > worldWidth / 2) v -= worldWidth;
+      while (v - ref < -worldWidth / 2) v += worldWidth;
+      return v;
+    };
+    let prevX = wrapNear(z.pts[0].x, wx);
+    let prevY = z.pts[0].y;
+    let dentro = z.pts.length === 1
+      && (wx - prevX) * (wx - prevX) + (wy - prevY) * (wy - prevY) <= r2;
+    for (let k = 1; k < z.pts.length && !dentro; k++) {
+      const x = wrapNear(z.pts[k].x, prevX);
+      const y = z.pts[k].y;
+      const dx = x - prevX, dy = y - prevY;
+      const len2 = dx * dx + dy * dy;
+      const u = len2 > 0 ? Math.max(0, Math.min(1, ((wx - prevX) * dx + (wy - prevY) * dy) / len2)) : 0;
+      const qx = prevX + u * dx, qy = prevY + u * dy;
+      if ((wx - qx) * (wx - qx) + (wy - qy) * (wy - qy) <= r2) dentro = true;
+      prevX = x; prevY = y;
+    }
+    if (dentro) ok = z.mode === 'add';
+  }
+  return ok;
+}
+
 export function sitesPolicyFrom(edits: readonly WorldEdit[] | undefined): SitesPolicy {
-  const policy: SitesPolicy = { everywhere: false, zones: [] };
+  // SIN EDICIÓN DE LUGARES, EL GRIFO ESTÁ ABIERTO. La primera versión hacía
+  // lo contrario (ausencia = cerrado) y con ello VACIÓ todos los mundos que
+  // Luis ya tenía: sus ciudades y caminos existían porque el mundo se generó
+  // cuando no había política, y una lista de ediciones antigua no lleva
+  // ninguna edición de lugares (Luis, 2026-08-13: «había mapas con ciudades
+  // y caminos ya. Los has borrado. Una cosa es lo que te pedí para NUEVOS
+  // mundos… pero no te pedí que borrases lo existente»). La ausencia
+  // significa LEGADO, no negativa: el mundo conserva exactamente el país con
+  // el que nació. El «desnudo por defecto» de los mundos nuevos lo pone el
+  // FLUJO DE CREACIÓN escribiendo `placesEverywhere:false` como primera
+  // edición — explícito, visible en el tick, y reversible con Ctrl+Z.
+  const policy: SitesPolicy = { everywhere: true, zones: [] };
   if (!edits) return policy;
   for (const e of edits) {
     if (e.kind === 'placesEverywhere') policy.everywhere = e.enabled;

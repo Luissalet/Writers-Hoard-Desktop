@@ -57,12 +57,27 @@ const GEO_CACHE = new WeakMap<WorldData, GeoEntry>();
  * were. `rebuildGeography` forces the full pass when it is genuinely wanted —
  * the caller schedules it once the reader stops painting.
  */
+/**
+ * LA PUERTA DE LA APLICACIÓN LLEVA EL GRIFO PUESTO. `sites: 'auto'` hace que
+ * la geografía humana lea la política de lugares del propio mundo
+ * (`world.painted.sitesPolicy`): sin tick ni zonas, mundo desnudo — Luis,
+ * 2026-08-13. Los bancos que quieran país habitado abren el grifo con la
+ * edición `placesEverywhere` (o llaman a `buildHumanGeography` a pelo, cuyo
+ * defecto sigue siendo 'everywhere'). La política entra en la CLAVE de la
+ * caché: el nivel base depende de ella, y un tick que cambia con la misma
+ * revisión no puede cobrar la base del otro estado.
+ */
+function geoKey(world: WorldData, params: HumanGeographyParams): string {
+  return JSON.stringify(params)
+    + '|' + JSON.stringify(world.painted?.sitesPolicy ?? null);
+}
+
 export function getGeography(
   world: WorldData,
   depth: GeoDepth = 'full',
-  params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS,
+  params: HumanGeographyParams = { ...DEFAULT_HUMAN_PARAMS, sites: 'auto' },
 ): HumanGeography {
-  const key = JSON.stringify(params);
+  const key = geoKey(world, params);
   const rev = world.revision ?? 0;
   const hit = GEO_CACHE.get(world);
   // A deeper entry answers a shallower question, so opening the 3D world after
@@ -85,9 +100,9 @@ export function getGeography(
 export function rebuildGeography(
   world: WorldData,
   depth: GeoDepth = 'full',
-  params: HumanGeographyParams = DEFAULT_HUMAN_PARAMS,
+  params: HumanGeographyParams = { ...DEFAULT_HUMAN_PARAMS, sites: 'auto' },
 ): HumanGeography {
-  const key = JSON.stringify(params);
+  const key = geoKey(world, params);
   const rev = world.revision ?? 0;
   // Never downgrade: a rebuild asked for the dots must not discard the roads,
   // the named seas and the ruins if the reader has already paid for them.

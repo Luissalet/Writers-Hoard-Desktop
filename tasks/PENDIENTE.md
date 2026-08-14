@@ -447,8 +447,243 @@ canon-persist · canon-seed-flow · places-policy 9/9 · tile-retention VERDE
   lento (contenedor), el plan hondo espera detrás de ancestros ya obsoletos.
   En su máquina (Forja, supers de 2-5 s) no se nota; si algún día molesta, la
   prioridad va en `acquireSessionWhenFree`, no en otra guarda más (lección
-  #35).
+  #35). [Pasada 10: la cola honda vive ahora en el `tileService` (corta,
+  descartable); la del pool ya no puede crecer. La prioridad, si hiciera
+  falta, iría en la cola del servicio.]
 - El tick regenera el canon entero al cambiar (correcto: el suelo cambia de
   verdad — granjas, cercas, sendas). La primera pasada tras encenderlo/
   apagarlo re-fragua como un primer paseo; con el almacén de Dexie los dos
   estados quedan cacheados por separado y alternar es barato después.
+
+---
+
+## 6h · Décima pasada (2026-08-13): el mundo entero al grifo, y la reestructura F1
+
+El segundo parte de Luis: un mundo NUEVO nació con ciudades y caminos («cuando
+te dije que todo lo que no fuese geografía debe de ser una opción»), la ciudad
+salía duplicada y en otro color al acercar, y el encargo grande: «investiga en
+profundidad cómo se hacen este tipo de aplicaciones de mapas… y si es
+necesario reestructura. Esto ya se ha resuelto en otras apps».
+
+### El grifo manda también EN EL MUNDO
+- `HumanGeographyParams.sites?: 'auto'|'everywhere'` (fuera de
+  `DEFAULT_HUMAN_PARAMS` a propósito: el rowKey del canon no se mueve).
+  `buildHumanGeography` con 'auto' filtra el sembrado GENERADO — ciudades,
+  calzadas, ruinas — por `world.painted.sitesPolicy`; lo PINTADO jamás se
+  filtra. La puerta de la app es `getGeography`/`rebuildGeography` (texture.ts,
+  `sites:'auto'` + política en `geoKey`); los bancos que llaman
+  `buildHumanGeography` a pelo conservan el país de siempre.
+- Los hitos naturales NOMBRADOS (Fuente de…, Salto de…) también piden permiso
+  («lo mismo con fuentes, puentes»): el accidente es geografía, su nombre es
+  contenido inventado (generate.ts, filtro sobre `buildLandmarks`).
+- La ciudad duplicada blanca/marrón: `regionalSpatialEntities` en WorldView
+  dedupe por `worldId === undefined` — el pueblo del MUNDO no vuelve a
+  entrar como lugar regional.
+- Banco `places-policy` ampliado a 16 varas: G (mundo desnudo = 0 ciudades /
+  0 calzadas / 0 ruinas), H (grifo abierto == legado ciudad a ciudad,
+  calzada a calzada, ruina a ruina), B corregida (hitos nombrados callan con
+  el grifo cerrado — la vara vieja esperaba lo contrario a lo decidido),
+  C ampliada (los hitos vuelven todos con el grifo abierto).
+
+### La investigación y el rediseño (tasks/ARQUITECTURA-TESELAS.md)
+Referencias leídas de verdad: mod_tile/renderd y Tirex (OSM), MapLibre GL
+(life-of-a-tile), Leaflet (keepBuffer/fallback), Paper (chunk streaming). El
+diagnóstico: la pirámide estaba bien; el TRANSPORTE (promesa+plazo+cancelación
+por tesela contra sesiones con estado casadas por identidad de objeto) era
+exactamente lo que las referencias no hacen. El plan por fases quedó escrito
+en el documento; **F1 está HECHA y medida**:
+
+- **`region/tileService.ts`** — el embudo único (2D, carta, 3D): disco →
+  cola corta y descartable → pool. Techo de vuelo = `sessionCapacity` del
+  pool; cancelar EN COLA descarta (null re-pedible), cancelar EN VUELO deja
+  aterrizar, entrega y guarda (regla renderd: lo empezado ya está pagado);
+  dedupe por contenido con copia para la segunda vista (dos almacenes no
+  pueden compartir un ImageBitmap que uno cerrará). 15 varas en
+  `harness/tile-service.ts` (workers de mentira, png de verdad).
+- **`renderedSnapshots.ts` + Dexie `renderedTiles` (v26)** — la tesela
+  ENTINTADA persistida con clave de contenido (versión de tinta + versión de
+  canon + semilla + dims + params + humanos + ediciones relevantes POR
+  HUELLA — `relevantEditsForSheets`, las mismas reglas que el canon — +
+  estilo + z/x/y). Sólo suelo hondo; presupuesto 128 MB LRU; una fila por
+  suelo+estilo (editar sobrescribe, no acumula).
+- **El 3D con identidad de contenido**: props nuevas `canonWorld`/`canonEdits`
+  hasta `zoomInputs`; sus hondas comparten encargos y disco con el 2D y el
+  `consumeOnly` se responde del almacén sin tocar worker.
+- **MEDIDO** (banco de retención, mundo 512, Chromium real): bajada a z16 =
+  672 pedidas → 87 despachadas, 208 descartadas en cola, 12/12 entregadas,
+  0 renacidas, 0 caducadas, reposo mudo, 1 cambio de generación. SEGUNDA
+  VISITA (recarga = sesión nueva, mismo IndexedDB): las 35/35 hondas
+  guardadas sirvieron del disco — 0 fraguas para suelo ya visto.
+
+### Google Maps de verdad: la tinta, medida
+`harness/tile-ink.ts` (nuevo): por DIFERENCIA de píxeles, sin adivinar
+colores. Calzadas en campo abierto (la 1.ª versión medía en el casco urbano,
+donde tejados y mancha pintan ENCIMA en ambas pasadas y la diferencia se
+anula): z10 225px · z12 129px · z14 256px · z16 512px. Ciudad contra mundo
+desnudo: z10 4.580px · z12 60.863px · z14/16 ~65.000px · plano de calles
+presente a z16 (2,4 m/px). Y el desnudo, desnudo: 0 ciudades · 0 caminos.
+
+### Bancos puestos al día con el mundo desnudo
+`views-smoke`, `tile-retention` y `edit-vocab` abren el grifo en su
+`preparar` (en edit-vocab DENTRO de la PaintSession: la lista serializada
+debe reabrirlo sola al regenerar de la semilla). `tile-retention` registra
+también el almacén de entintadas, pasa `canonEdits` de verdad (serializado,
+como WorldView), y su corredor tiene fase de SEGUNDA VISITA con vara propia
+(disco a cero = ROJO DEL DISCO). `consume-only-probe` se esperaba las
+respuestas en el mismo tick y el núcleo encadena una cola async desde la
+pasada 9 — ahora espera por sondeo (declinada 3,8 ms · genera 21,8 s ·
+residente 1,9 s: CONTRATO CUMPLIDO).
+
+### Pool: la fila india, curada de raíz
+`acquireSessionWhenFree` (rama busy-match con paralelo): si el pool está
+lleno de sesiones de OTRO mundo ociosas, desaloja la más vieja y abre una
+fresca — las 404 peticiones por una sola sesión del log no pueden repetirse.
+Y con la cola corta del servicio delante, al pool ya sólo llegan ≤techo.
+
+### Verificación de la pasada
+tsc 0 · eslint 0 · conformance 2.047 claves · tile-service 15/15 ·
+places-policy 16/16 · edit-vocab todo sí · canon-persist/seed/composite/pool
+VERDES · consume-only-probe CUMPLIDO · tile-ink 14/14 · tile-retention VERDE
+×2 (con segunda visita VERDE DEL DISCO) · views-smoke 17/17.
+
+---
+
+## 6i · Décima pasada, segunda tanda (2026-08-13, con el parte y el log de Luis en vivo)
+
+Luis probó la entrega y encontró DOS ROTURAS MÍAS, con captura y log
+(«zoom a un río pixelado», HUD 0/60 · EN VUELO 0 · disco 0/0, y «había mapas
+con ciudades y caminos ya. Los has borrado»):
+
+### 1 · El grifo aplicado hacia atrás borró contenido existente (lección #43)
+La primera codificación (ausencia de edición = cerrado) vació los mundos que
+Luis ya tenía. Corregido en la raíz semántica: **ausencia = LEGADO (abierto)**
+— `sitesPolicyFrom` sin ediciones de lugares devuelve everywhere:true, el
+respaldo de `buildHumanGeography` sin `painted` también, y el atajo
+«abierto y sin zonas = sin filtro» garantiza el país legado POR EL MISMO
+CAMINO de siempre (bit a bit). El desnudo de los mundos NUEVOS/regenerados es
+un asiento explícito: WorldView escribe `placesEverywhere:false` como primera
+edición al estrenar semilla (visible en el tick, reversible con Ctrl+Z).
+Los canonTiles viejos de Luis (generados abiertos) vuelven a ser coherentes
+con su clave. Varas nuevas en `places-policy` (21): **F — RESTAURACIÓN**
+(mundo sin ediciones == legado ciudad a ciudad, calzada a calzada), G con
+cierre explícito, B1/B2 divididas, D con el asiento de nacimiento.
+
+### 2 · El 0/60 del río pixelado: tres culpas del transporte (lección #44)
+Del log (1.804 pedidas · 873 despachadas · 320 descartadas · 24 contextos):
+- **La cola del servicio descartaba EL CENTRO**: FIFO + descarte por cabeza
+  + `want` del centro afuera = lo más cercano moría primero y los restos del
+  nivel abandonado despachaban antes que el plan mirado. Ahora la cola es un
+  escalafón POR OLAS (el molde exacto de renderd, verificado en su
+  `request_queue.c`: cola llena = descartar, drenado por prioridad estricta):
+  se despacha la ola más nueva en su orden, el desborde se come la más vieja,
+  techo 192. Varas G/H del banco del servicio (20/20).
+- **El desalojo del pool thrasheaba**: mi cura de la fila india desalojaba
+  CUALQUIER ociosa que no coincidiera, y con dos familias vivas (hondas con
+  el mundo del canon; miniatura/sábanas con el editado) cada ráfaga mataba
+  las sesiones calientes de la otra — 24 contextos en 2 min, cada uno
+  re-clonando un 2048 y re-sembrando 8 s de Dexie. Regla nueva: **sólo se
+  desaloja lo ocioso Y FRÍO** (`sessionHeat.coldMs`, 10 s; en las DOS ramas)
+  y el aparcamiento re-comprueba con reloj (`waitForFree`) — inagotable
+  aunque se pierda un aviso. Vara 6 del banco del pool (13/13).
+- **Una ola de nulos congelaba el mapa**: null borra `lastAsk` para re-pedir,
+  pero sólo re-pide quien DIBUJA, y con la cámara quieta sólo dibuja
+  `onArrive` — que un null no dispara. El 0/60 con EN VUELO 0 de la captura.
+  Ahora el almacén programa un empujón coalescido (400 ms) tras cada null.
+- **Y el disco apagado en mundos sin ediciones**: las hondas viajaban con
+  `edits: undefined` (canonSource sin trazos) → clave por revisión (`s:r3`
+  del log), sin compartir, sin persistir (disco 0/0 · guardadas 0). Ahora
+  `edits: canonEdits ?? ''` en los tres consumidores: un mundo sin trazos es
+  contenido direccionable igual.
+
+### La disciplina que faltaba en los bancos
+El caso de Luis era un mundo LEGADO SIN EDICIONES de 2048 con miniatura y
+sábanas vivas — ninguna de mis pruebas lo cubría (todas usaban mundos con
+grifo explícito y canonEdits servido). Las varas nuevas (F de restauración,
+G/H de olas, 6 de calor) codifican exactamente ese caso. `confirmarVista`
+del smoke pasó de dormir-y-afirmar a esperar-hasta (12 s de techo): con el
+legado restaurado la carta vuelve a montar un mundo habitado y rozaba el
+presupuesto en SwiftShader.
+
+---
+
+## 6j · EL DERRIBO (2026-08-14): fuera el pool de sesiones, entra LA GRANJA
+
+El tercer parte de Luis en 24 h: Atlas clavado en 0/28 con EN VUELO 0 «la
+más vieja 18 s», declinadas 432, disco 0/863 — y en el log, la pieza final:
+**`RangeError: Array buffer allocation failed`** — el renderer SIN MEMORIA.
+Su orden, literal: «HAY MILES DE APLICACIONES DE MAPAS, HAZ QUE FUNCIONE
+ESTA» · «Manda a tomar por culo el sistema actual y haz uno que funcione» ·
+«Nuestra prioridad es que funcione, no conservar la arquitectura si NO
+funciona». Ejecutado (lección #45): F2 del documento, por demolición.
+
+### Lo que murió (client.ts)
+`WorkerSession` y el casamiento por identidad · `acquireSessionWhenFree`
+(las 4 ramas con predicados que podían no darse nunca) · el desalojo (con y
+sin calor: `sessionHeat` queda como símbolo hueco) · `waitForFree`/waiters/
+`notifyFree` · los plazos POR PETICIÓN con `armDeadline`/`armIdle` · el
+pulso de cola (`queuePulse`/`pulseQueue`) — la maquinaria que mantenía vivo
+el cuelgue que decía curar: los 20 huecos de vuelo del servicio clavados en
+acquire, re-armados eternamente por el progreso de las sábanas (caducadas 0
+con todo muerto) · `spawnSession`/`terminateSession`/`pruneSessions` · el
+calentador entero (`warmCanon` → no-op documentado; su llamada en Map2D,
+fuera): la granja reparte sola y el canon persiste en Dexie.
+
+### Lo que vive (la granja, en el mismo client.ts)
+- **Obreros fijos, jamás desalojados**: nacen perezosos hasta el techo y
+  sólo mueren MUDOS (vigía). Reconfigurarse ≠ morir: un envío de contexto,
+  y el libro de siembras se vacía con él.
+- **`tomar` sin predicados imposibles** — (1) libre CON el contexto
+  (afinidad); (2) hueco bajo el techo (un fresco cuesta el mismo configure y
+  CONSERVA la residencia de la otra familia); (3) cualquier libre,
+  reconfigurado; (4) aparcado re-intentable drenado al liberar Y por reloj
+  (500 ms). Cada rama termina.
+- **UN vigía por SILENCIO DE OBRERO** (paso adaptativo: min(presupuestos)/3,
+  250 ms–5 s). Cada mensaje es latido; el mudo se retira y su trabajo
+  resuelve null re-pedible (tesela) o rechaza (sábana). Ningún otro reloj.
+- **Techo 8 con Forja** (min(cores, 8)): veinte obreros eran veinte clones
+  de un 2048 en ráfaga A TRAVÉS del renderer — el funeral de la memoria.
+  Ocho fraguas paralelas llenan cualquier plan con tránsito acotado.
+- Sondas: obrero libre con el contexto residente, y nada más. Sheets: mismo
+  camino con presupuesto de sábana. `parallelWorldSessions` queda como campo
+  ignorado (la granja siempre es paralela).
+
+### Medido (todo tras el derribo)
+- Banco de la granja (ex canon-pool-parallel) 9/9: 4 teselas = 4 obreros a
+  un solo reloj · el mudo cae por el vigía en 501 ms y el siguiente trabajo
+  abre fresco · **dos familias alternando 24 teselas = 4 configures, 0
+  terminates** (el thrash es imposible por construcción).
+- tile-service 20/20 · canon-seed/composite VERDES · consume-only CUMPLIDO.
+- Retención (Chromium, granja real): 9/9 entregadas · 0 renacidas · 0
+  caducadas · **0 descartes de cola en las DOS visitas** (la granja da
+  abasto) · reposo mudo · segunda visita del disco VERDE.
+- views-smoke 17/17 · tsc 0 · eslint 0.
+
+### Y LA MEMORIA: las cachés de RAM sobraban desde F1
+El `RangeError: Array buffer allocation failed` de su log saltó pidiendo
+3,6 MB — el renderer ya no tenía sitio. Lo que se apilaba en el HILO
+PRINCIPAL: 256 MB de sábanas `RegionData` + 512 mapas de bits de 256²
+(~134 MB) + el mundo + los rásters del atlas, encima de los clones de mundo
+de 24-58 contextos naciendo y muriendo. Con canon en Dexie (pasada 8) y
+tinta en Dexie (pasada 10) esas cachés gigantes ya no ahorran minutos:
+- caché de sábanas **256 MB → 64 MB** (6 entradas),
+- almacén de pantalla **512 → 224** teselas (~59 MB): volver sobre tus pasos
+  lo paga ahora el disco en milisegundos, no la RAM,
+- y la **dedupe global de lecturas de canon** (`loadCanonDedup`): un plan de
+  28 teselas pedía las mismas 4-12 superteselas ~100 veces a IndexedDB, que
+  las serializa — de ahí el «siembra … 8279 ms» de su log y 2,2 MB copiados
+  por cada una. Ahora son 4-12 lecturas y el resto se cuelga de la promesa.
+
+### El caso de Luis, EN BANCO (lo que faltaba)
+`tile-retention` acepta `BANCO_ANCHO` y `BANCO_LEGADO`: con **2048 + legado
+sin ediciones** — su escenario exacto, el del 0/28 — la bajada entrega
+**24/24 a z14** (más hondo que su z11) con 0 caducadas, 0 renacidas y reposo
+mudo; la segunda visita, **32/32 a z11** con el disco sirviendo. Ese banco es
+ahora la vara de «el 2D funciona», y corre con un mundo del tamaño del suyo.
+
+### Señales del tercer parte aún abiertas (vigilar en su máquina)
+- declinadas 432: el 3D consumiendo canon frío en bucle con el empujón de
+  400 ms del almacén — con la granja + disco debería colapsar (el 3D ya se
+  sirve de `renderedTiles`); si su próximo log sigue enseñando cientos de
+  declinadas, el empujón necesita retroceso exponencial.
+- disco 0/863 de aquel log era el `edits: undefined` (curado en 6i §disco);
+  con la granja el HUD debe cantar aciertos en suelo revisitado.

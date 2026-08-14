@@ -97,8 +97,10 @@ await page.waitForFunction(() => window.__banco?.listo, undefined, { timeout: 30
 
 // Mundo 512: el de los bancos del canon de la pasada 8, con niveles hondos de
 // verdad y una generación que cabe en un banco.
-console.log('generando mundo 512 + geografía full…');
-const prep = await page.evaluate((w) => window.__banco.preparar(w), 512);
+console.log(`generando mundo ${Number(process.env.BANCO_ANCHO || 512)}${process.env.BANCO_LEGADO === '1' ? ' LEGADO' : ''} + geografía full…`);
+const ANCHO = Number(process.env.BANCO_ANCHO || 512);
+const LEGADO = process.env.BANCO_LEGADO === '1';
+const prep = await page.evaluate(({ w, l }) => window.__banco.preparar(w, l), { w: ANCHO, l: LEGADO });
 console.log('mundo listo:', JSON.stringify(prep));
 if (prep.topZ < 11) {
   console.error(`ROJO DE PLOMERÍA: el mundo no llega a suelo hondo (topZ ${prep.topZ})`);
@@ -205,6 +207,60 @@ if (bucle) {
     + ` (${inf.genCambiosTotal} cambios de generación en toda la bajada).`);
 }
 
+// ============================================================================
+// SEGUNDA VISITA — el almacén de entintadas ENTRE SESIONES (F1)
+// ============================================================================
+// La promesa central de ARQUITECTURA-TESELAS §3.2: suelo dibujado una vez es
+// suelo dibujado para siempre. Se recarga la página (módulos frescos, almacén
+// de pantalla vacío, worker nuevo — una sesión nueva de verdad sobre el MISMO
+// IndexedDB), se regenera el mismo mundo desde la semilla y se repite la
+// bajada: las teselas hondas tienen que venir del disco, no de la fragua.
+let segunda = null;
+if (!bucle && !cojo) {
+  console.log('\n=== SEGUNDA VISITA (el disco de entintadas) ===');
+  await page.reload();
+  await page.waitForFunction(() => window.__banco?.listo, undefined, { timeout: 30_000 });
+  const prep2 = await page.evaluate(({ w, l }) => window.__banco.preparar(w, l), { w: ANCHO, l: LEGADO });
+  console.log(`mundo regenerado en ${prep2.segundos}s`);
+  await espera(4000);
+  const caja2 = await page.locator('#escenario canvas').first().boundingBox({ timeout: 20_000 });
+  await page.mouse.move(caja2.x + caja2.width / 2, caja2.y + caja2.height / 2);
+  const t0v2 = Date.now();
+  let nivel2 = -1;
+  for (let rafaga = 0; rafaga < 8 && nivel2 < objetivo; rafaga++) {
+    for (let tique = 0; tique < 10 && nivel2 < objetivo; tique++) {
+      await page.mouse.wheel(0, -160);
+      await espera(140);
+      nivel2 = await page.evaluate(() => window.__banco.nivelActual(2));
+    }
+    if (nivel2 >= objetivo) break;
+    await espera(3000);
+  }
+  let p2 = null;
+  const d2 = Date.now();
+  for (;;) {
+    await espera(2000);
+    p2 = await page.evaluate((n) => window.__banco.progreso(n), Math.max(2, nivel2));
+    if ((p2.coords > 0 && p2.entregadas >= p2.coords) || Date.now() - d2 > 120_000) break;
+  }
+  const inf2 = await page.evaluate(
+    ({ nivel: n, desde }) => window.__banco.informe(n, desde),
+    { nivel: Math.max(2, nivel2), desde: 0 },
+  );
+  segunda = {
+    segundos: (Date.now() - t0v2) / 1000, nivel: nivel2, plan: p2, servicio: inf2.servicio,
+  };
+  writeFileSync(`${SALIDA}/informe2.json`, JSON.stringify(segunda, null, 2));
+  console.log('servicio de la segunda visita:', JSON.stringify(inf2.servicio));
+  if (inf2.servicio.diskHits === 0) {
+    segunda.rojo = true;
+    console.log('\nROJO DEL DISCO: la segunda visita no sirvió NI UNA tesela del almacén de entintadas.');
+  } else {
+    console.log(`\nVERDE DEL DISCO: la segunda visita sirvió ${inf2.servicio.diskHits} teselas del disco`
+      + ` (plan z${nivel2}: ${p2.entregadas}/${p2.coords} · bajada ${segunda.segundos.toFixed(1)} s).`);
+  }
+}
+
 await browser.close();
 server.close();
-process.exit(bucle || cojo ? 1 : 0);
+process.exit(bucle || cojo || (segunda && segunda.rojo) ? 1 : 0);

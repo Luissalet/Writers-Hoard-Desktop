@@ -42,7 +42,11 @@ core({
 } as never);
 
 const tile = { z: SAT_DEEP_Z, tx: 3, ty: 2 };
-const ask = (id: string, consumeOnly: boolean) => {
+// El núcleo encadena los mensajes en una cola ASÍNCRONA (desde la pasada 9 la
+// fragua pre-forja el canon con partes de `progress`): la respuesta llega por
+// microtarea, así que se ESPERA — leerla en el mismo tick es leer la nada,
+// que es exactamente el «¿nada? en 0 ms» que rompió esta sonda.
+const ask = async (id: string, consumeOnly: boolean) => {
   const t0 = performance.now();
   core({
     type: 'renderTile', requestId: id, contextId: 'probe',
@@ -50,20 +54,32 @@ const ask = (id: string, consumeOnly: boolean) => {
     layers: { rivers: true, roads: true, fields: true },
     density: 1, reliefAmount: 1, consumeOnly,
   } as never);
+  const llegado = () => replies.some((x) => 'requestId' in x && x.requestId === id
+    && (x.type === 'tile' || x.type === 'error'));
+  while (!llegado() && performance.now() - t0 < 300_000) {
+    await new Promise((r) => setTimeout(r, 1));
+  }
   const ms = performance.now() - t0;
-  const r = replies.filter((x) => 'requestId' in x && x.requestId === id).pop();
+  const r = replies.filter((x) => 'requestId' in x && x.requestId === id
+    && (x.type === 'tile' || x.type === 'error')).pop();
   const kind = r && r.type === 'tile' ? (r.declined ? 'DECLINADA' : 'entintada') : r?.type ?? '¿nada?';
   return { kind, ms };
 };
 
-const fria = ask('t1', true);
-console.log(`1 · consumeOnly, canon frío:      ${fria.kind} en ${fria.ms.toFixed(1)} ms`);
-const genera = ask('t2', false);
-console.log(`2 · sin consumeOnly (genera):     ${genera.kind} en ${genera.ms.toFixed(0)} ms`);
-const caliente = ask('t3', true);
-console.log(`3 · consumeOnly, canon residente: ${caliente.kind} en ${caliente.ms.toFixed(1)} ms`);
+const main = async () => {
+  const fria = await ask('t1', true);
+  console.log(`1 · consumeOnly, canon frío:      ${fria.kind} en ${fria.ms.toFixed(1)} ms`);
+  const genera = await ask('t2', false);
+  console.log(`2 · sin consumeOnly (genera):     ${genera.kind} en ${genera.ms.toFixed(0)} ms`);
+  const caliente = await ask('t3', true);
+  console.log(`3 · consumeOnly, canon residente: ${caliente.kind} en ${caliente.ms.toFixed(1)} ms`);
 
-const ok = fria.kind === 'DECLINADA' && genera.kind === 'entintada' && caliente.kind === 'entintada'
-  && fria.ms < 50 && caliente.ms < genera.ms;
-console.log(ok ? '\nCONTRATO CUMPLIDO' : '\n¡CONTRATO ROTO!');
-process.exit(ok ? 0 : 1);
+  // El plazo de la declinación sube de 50 ms a 250: la espera por sondeo
+  // (setTimeout de 1 ms) mide ticks del reloj, no microsegundos del worker.
+  const ok = fria.kind === 'DECLINADA' && genera.kind === 'entintada' && caliente.kind === 'entintada'
+    && fria.ms < 250 && caliente.ms < genera.ms;
+  console.log(ok ? '\nCONTRATO CUMPLIDO' : '\n¡CONTRATO ROTO!');
+  process.exit(ok ? 0 : 1);
+};
+
+void main();

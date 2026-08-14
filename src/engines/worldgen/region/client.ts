@@ -1,10 +1,10 @@
-import { scaleBytes, scaleCount, workerSlots } from '@/utils/capacity';
+import { workerSlots } from '@/utils/capacity';
 import type { HumanGeography } from '../core/settlements';
 import { deepTileSpec, deepTileSupported, type TilePlace } from './deepTile';
 import { satelliteDeepSupported, satelliteTileSpec } from './satelliteTile';
 import { canonWindowCover } from './composeWindow';
 import { canonTileKey } from './generate';
-import { canonParams, tileGeometry, tileWindow, type TileId } from './tiles';
+import type { TileId } from './tiles';
 import { forgeAvailable, forgeDegraded, spawnForgeWorker } from '../forge/bridge';
 import type { WorldData } from '../core/types';
 import { regionGeometry, type RegionGeometry } from './terrain';
@@ -20,6 +20,7 @@ import {
   type RegionWorkerReply,
   type RegionWorkerRequest,
 } from './workerProtocol';
+import { geographyContentKey, mapSourceKey, worldContentKey } from './contentIdentity';
 
 /**
  * The renderer's canon storage, injected rather than imported: this module is
@@ -30,12 +31,96 @@ import {
  */
 export interface CanonPersistence {
   /** Stored bytes for one supertile under the CURRENT edit list, or null. */
-  load(world: WorldData, canonKey: string, editsJson: string): Promise<ArrayBuffer | null>;
+  load(
+    world: WorldData, geography: HumanGeography, canonKey: string, editsJson: string,
+  ): Promise<ArrayBuffer | null>;
   /** Persist one freshly generated supertile, built at `editsJson`. */
-  save(world: WorldData, canonKey: string, editsJson: string, bytes: ArrayBuffer): void;
+  save(
+    world: WorldData, geography: HumanGeography, canonKey: string,
+    editsJson: string, bytes: ArrayBuffer,
+  ): void;
 }
 
 let canonPersistence: CanonPersistence | null = null;
+
+/**
+ * LECTURAS DE CANON EN VUELO, deduplicadas globalmente.
+ *
+ * Un plan de 28 teselas hondas pide las MISMAS 4-12 superteselas: sin esto
+ * eran ~100 lecturas simultáneas de 2,2 MB contra IndexedDB, que las
+ * serializa — la última tardaba OCHO SEGUNDOS en el log de Luis
+ * («siembra c:245:155 HIT 2.2MB 8279 ms») y cada una copiaba su buffer al
+ * worker. Con la dedupe son 4-12 lecturas y el resto se cuelga de la misma
+ * promesa. La entrada se borra al resolverse: esto NO es una caché de bytes
+ * (eso volvería a llenar el renderer), sólo un embudo.
+ */
+const canonLoadsEnVuelo = new Map<string, Promise<ArrayBuffer | null>>();
+
+interface CanonBuildFlight {
+  id: string;
+  promise: Promise<ArrayBuffer | null>;
+  resolve: (bytes: ArrayBuffer | null) => void;
+  settled: boolean;
+}
+
+/** Global single-flight for canon generation. Adjacent display tiles overlap
+ * the same supertiles; only the first request may generate each one, while the
+ * rest await its bytes and seed their own worker. */
+const canonBuildsEnVuelo = new Map<string, CanonBuildFlight>();
+
+interface CanonPreparation {
+  keys: string[];
+  seeds: Array<{ key: string; bytes: ArrayBuffer }>;
+  owned: Map<string, CanonBuildFlight>;
+}
+
+function canonBuildId(
+  world: WorldData, geography: HumanGeography, canonKey: string, editsJson: string,
+): string {
+  return `${mapSourceKey(world, geography, editsJson)}:${canonKey}`;
+}
+
+function claimCanonBuild(id: string): { flight: CanonBuildFlight; owner: boolean } {
+  const existing = canonBuildsEnVuelo.get(id);
+  if (existing) return { flight: existing, owner: false };
+  let resolve!: (bytes: ArrayBuffer | null) => void;
+  const flight: CanonBuildFlight = {
+    id,
+    promise: new Promise<ArrayBuffer | null>((done) => { resolve = done; }),
+    resolve: (bytes) => {
+      if (flight.settled) return;
+      flight.settled = true;
+      resolve(bytes);
+      if (bytes) {
+        // Keep the resolved flight briefly: persistence writes are asynchronous,
+        // and a request arriving in that gap should seed these bytes, not rebuild.
+        setTimeout(() => {
+          if (canonBuildsEnVuelo.get(id) === flight) canonBuildsEnVuelo.delete(id);
+        }, 2_000);
+      } else if (canonBuildsEnVuelo.get(id) === flight) {
+        canonBuildsEnVuelo.delete(id);
+      }
+    },
+    settled: false,
+  };
+  canonBuildsEnVuelo.set(id, flight);
+  return { flight, owner: true };
+}
+
+function loadCanonDedup(
+  world: WorldData, geography: HumanGeography, canonKey: string, editsJson: string,
+): Promise<ArrayBuffer | null> {
+  const persistence = canonPersistence;
+  if (!persistence) return Promise.resolve(null);
+  const k = `${mapSourceKey(world, geography, editsJson)}:${canonKey}`;
+  const vivo = canonLoadsEnVuelo.get(k);
+  if (vivo) return vivo;
+  const p = persistence.load(world, geography, canonKey, editsJson)
+    .catch(() => null)
+    .finally(() => { canonLoadsEnVuelo.delete(k); });
+  canonLoadsEnVuelo.set(k, p);
+  return p;
+}
 
 export function setCanonPersistence(persistence: CanonPersistence | null): void {
   canonPersistence = persistence;
@@ -102,6 +187,10 @@ export const requestDeadlines = {
   generateIdleMs: 180_000,
 };
 
+/** HISTÓRICO: la granja no desaloja obreros — no hay «calor» que medir.
+ *  Se conserva el símbolo para no romper importadores viejos; no hace nada. */
+export const sessionHeat = { coldMs: 10_000 };
+
 export interface RegionWorkerLike {
   onmessage: ((event: MessageEvent<RegionWorkerReply>) => void) | null;
   onerror: ((event: ErrorEvent) => void) | null;
@@ -165,19 +254,47 @@ interface ActiveRequest {
   cancel: () => void;
 }
 
-interface WorkerSession {
-  contextId: string;
+/**
+ * UN OBRERO DE LA GRANJA — el sustituto de las «sesiones» (2026-08-14, orden
+ * de Luis: «manda a tomar por culo el sistema actual y haz uno que funcione»).
+ *
+ * El pool viejo casaba sesiones por identidad de objeto y las mataba para
+ * abrir hueco: cuatro modos de cuelgue distintos en dos días (la fila india,
+ * el thrash de familias, los 20 huecos de vuelo clavados en el acquire, y el
+ * `RangeError: Array buffer allocation failed` — el renderer sin memoria de
+ * tanto clonar mundos de 2048 por cada contexto que nacía y moría: 24-58 por
+ * sesión de uso en sus logs). La granja es lo que hacen renderd y todos los
+ * servidores de teselas de verdad:
+ *
+ *   · N obreros fijos, arrancados perezosos y JAMÁS desalojados — un obrero
+ *     sólo muere si su latido calla (y se le reemplaza al siguiente trabajo).
+ *   · Cualquier obrero libre sirve cualquier trabajo; si su contexto
+ *     residente no es el pedido, se reconfigura — un envío, no una muerte.
+ *     Con el mundo quieto, las reconfiguraciones tienden a CERO por afinidad
+ *     (se prefiere el obrero que ya tiene el contexto).
+ *   · La supervisión es POR OBRERO y por SILENCIO (un solo reloj de granja),
+ *     no por petición: fuera plazos por tesela, rearmes y pulsos de cola.
+ *   · Tomar obrero no tiene predicados que puedan no cumplirse nunca: libre
+ *     con contexto > libre > abrir hueco > aparcar con re-intento por reloj.
+ */
+interface Obrero {
   worker: RegionWorkerLike;
   factory: RegionWorkerFactory;
-  world: WorldData;
-  geography: HumanGeography;
-  revision: number;
-  activeRequestId?: string;
-  lastUsed: number;
-  /** Canon supertile keys this session has been seeded with (or has built) —
+  /** Identidad del contexto RESIDENTE (mundo+geografía+revisión), o '' si
+   *  aún no se configuró. */
+  contextId: string;
+  busy: boolean;
+  /** Última señal de vida (cualquier mensaje del worker). */
+  lastBeat: number;
+  /** Presupuesto de silencio del trabajo en curso (teselas o sábanas). */
+  idleBudgetMs: number;
+  /** Aviso al trabajo en curso cuando el vigía retira al obrero mudo. */
+  onDead: (() => void) | null;
+  /** Canon supertile keys this obrero has been seeded with (or has built) —
    *  the "don't ask Dexie twice" ledger. Entries are struck when a
    *  `consumeOnly` decline proves the worker evicted them. */
   seeded: Set<string>;
+  muerto: boolean;
 }
 
 // The Forge first: a dedicated OS process per session, outside the renderer's
@@ -195,15 +312,6 @@ const defaultWorkerFactory: RegionWorkerFactory | null = forgeAvailable()
     ? webWorkerFactory()
     : spawnForgeWorker('region') as unknown as Worker)
   : webWorkerFactory;
-
-function hashString(s: string): string {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(36);
-}
 
 function abortError(): Error {
   const error = new Error('Regional generation was cancelled.');
@@ -236,9 +344,16 @@ function cacheGeometryKey(
 export class RegionWorkerClient {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly active = new Map<string, ActiveRequest>();
-  private readonly sessions = new Set<WorkerSession>();
-  private readonly worldIds = new WeakMap<WorldData, number>();
-  private readonly geographyIds = new WeakMap<HumanGeography, number>();
+  /** La granja: una flota de obreros por fábrica (la de la app, y las de
+   *  mentira de cada banco). */
+  private readonly flotas = new Map<RegionWorkerFactory, Obrero[]>();
+  /** Trabajos aparcados esperando obrero: cada uno es un intento re-ejecutable
+   *  (devuelve true si consiguió obrero). Se drena al liberar Y por reloj —
+   *  sin predicados imposibles, aparcarse no puede ser eterno. */
+  private readonly parked: Array<() => boolean> = [];
+  private parkedTimer: ReturnType<typeof setInterval> | null = null;
+  /** El vigía único de la granja (ver `vigilar`). */
+  private latido: ReturnType<typeof setInterval> | null = null;
   private readonly cacheLimit: number;
   private readonly sessionLimit: number;
   /** Hard byte ceiling for cached RegionData. A 1024-width world's canon
@@ -246,32 +361,25 @@ export class RegionWorkerClient {
    *  main thread, which is the classic silent "Render process gone". */
   private readonly cacheByteBudget: number;
   private cacheBytes = 0;
-  /** Bancos: fuerza (true/false) el multi-sesión por mundo; null = decide la
-   *  Forja (procesos propios sí, web workers dentro del renderer no). */
+  /** HISTÓRICO (los bancos aún lo tocan): la granja siempre es paralela —
+   *  el campo se conserva para no romper firmas y se ignora. */
   parallelWorldSessions: boolean | null = null;
-  /** Superteselas ya calentadas (clave canon + hash de ediciones), para que
-   *  cada gesto no relance el mismo calentamiento. Se vacía por época. */
-  private warmed = new Set<string>();
-  /** Calentamientos VIVOS, con su mando de cancelar: cuando el plan cambia,
-   *  los obsoletos se retiran — cuarenta warms de un paseo encolados delante
-   *  de las teselas de la pantalla eran siete minutos de cola (la captura de
-   *  Luis del «0/50 clavado», 2026-08-12). Un warm encolado se cancela
-   *  gratis; uno ya en sesión, en el peor caso, cuesta esa sesión — minutos
-   *  de cola contra segundos de reconfigurar, y gana retirarlo. */
-  private warming = new Map<string, () => void>();
-  /** Bumped when the reader moves to a new world (regenerate, load). Entries
-   *  and idle sessions from older epochs are purged eagerly instead of
-   *  waiting for count-based eviction to reach them. */
+  /** Bumped when the reader moves to a new world (regenerate, load). */
   private epoch = 0;
-  private nextWorldId = 1;
-  private nextGeographyId = 1;
   private nextRequestId = 1;
-  private nextContextId = 1;
 
   constructor(cacheLimit = 6, sessionLimit = 2, cacheByteBudget = 144 * 1024 * 1024) {
     this.cacheLimit = Math.max(1, Math.floor(cacheLimit));
     this.sessionLimit = Math.max(1, Math.floor(sessionLimit));
     this.cacheByteBudget = Math.max(16 * 1024 * 1024, cacheByteBudget);
+  }
+
+  /** Cuántas sesiones puede tener el pool a la vez. El `tileService` lo lee
+   *  para dimensionar su techo de vuelo: despachar más teselas que sesiones
+   *  posibles sólo reconstruye la cola honda del pool que la cola corta y
+   *  descartable del servicio existe para impedir. */
+  get sessionCapacity(): number {
+    return this.sessionLimit;
   }
 
   /**
@@ -282,17 +390,19 @@ export class RegionWorkerClient {
    */
   newEpoch(): void {
     this.epoch++;
-    this.warmed.clear();
-    for (const cancelWarm of this.warming.values()) cancelWarm();
-    this.warming.clear();
     for (const [key, entry] of this.cache) {
       if (entry.epoch !== this.epoch) {
         this.cacheBytes -= entry.bytes;
         this.cache.delete(key);
       }
     }
-    for (const session of [...this.sessions]) {
-      if (!session.activeRequestId) this.terminateSession(session);
+    // Los obreros LIBRES de mundos anteriores se retiran (su contexto es peso
+    // muerto); los ocupados terminan su trabajo y se reconfigurarán al primer
+    // uso — la granja jamás mata trabajo en curso.
+    for (const flota of this.flotas.values()) {
+      for (const obrero of [...flota]) {
+        if (!obrero.busy) this.matar(obrero);
+      }
     }
   }
 
@@ -304,10 +414,8 @@ export class RegionWorkerClient {
   ): RegionRequestHandle {
     const requestId = `region-${this.nextRequestId++}`;
     const params: RegionParams = { ...DEFAULT_REGION_PARAMS, ...options.params };
-    const worldKey = this.worldIdentity(world);
-    const geographyKey = this.geographyIdentity(geography);
-    const key = `${worldKey}:${geographyKey}:${cacheGeometryKey(world, window, params, options.geometry)}`
-      + (options.edits ? `:e${hashString(options.edits)}` : '');
+    const key = `${mapSourceKey(world, geography, options.edits ?? '')}`
+      + `:${cacheGeometryKey(world, window, params, options.geometry)}`;
     const hit = this.cache.get(key);
     if (hit) {
       this.cache.delete(key);
@@ -323,32 +431,19 @@ export class RegionWorkerClient {
       return { requestId, promise: Promise.reject(abortError()), cancel: () => undefined };
     }
 
-    let session: WorkerSession | null = null;
+    let session: Obrero | null = null;
     let settled = false;
-    let idleTimer = 0;
     let rejectPromise: (reason: unknown) => void = () => undefined;
     let abortListener: (() => void) | null = null;
 
-    const cleanup = (terminateSession: boolean) => {
+    const cleanup = (roto: boolean) => {
       if (abortListener) options.signal?.removeEventListener('abort', abortListener);
       abortListener = null;
       this.active.delete(requestId);
       inFlightSince.delete(requestId);
-      // OJO: aquí `window` es la ventana REGIONAL (el parámetro); los relojes
-      // van por los globales pelados.
-      if (idleTimer) { clearTimeout(idleTimer); idleTimer = 0; }
       if (!session) return;
-      if (terminateSession) {
-        this.terminateSession(session);
-      } else {
-        session.worker.onmessage = null;
-        session.worker.onerror = null;
-        session.worker.onmessageerror = null;
-        session.activeRequestId = undefined;
-        session.lastUsed = Date.now();
-        this.pruneSessions();
-        this.notifyFree();
-      }
+      if (roto) this.matar(session);
+      else this.liberar(session);
       session = null;
     };
 
@@ -384,34 +479,36 @@ export class RegionWorkerClient {
         return;
       }
 
-      this.acquireSessionWhenFree(factory, world, geography, requestId).then((acquired) => {
+      this.tomar(factory, world, geography).then((acquired) => {
+        if (!acquired) {
+          fail(new Error('No hay obrero regional disponible.'));
+          return;
+        }
         if (settled) {
-          acquired.activeRequestId = undefined;
-          acquired.lastUsed = Date.now();
-          this.notifyFree();
+          this.liberar(acquired);
           return;
         }
         session = acquired;
         attach(acquired);
       }).catch((error: unknown) => fail(error));
 
-      const attach = (live: WorkerSession) => {
-      /** El vigilante de INACTIVIDAD: una sábana legítima tarda minutos pero
-       *  habla (progress); un worker muerto calla. Cada señal lo rearma. */
-      const armIdle = () => {
-        if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => {
-          if (settled) return;
-          tileStats.timeouts++;
-          traceTiles(requestId, 'CADUCADA (sábana muda; sesión retirada)');
-          fail(new Error('El worker regional dejó de responder; sesión retirada.'));
-        }, requestDeadlines.generateIdleMs) as unknown as number;
+      const attach = (live: Obrero) => {
+      // El presupuesto de silencio de una sábana: cada mensaje es su latido
+      // (una sábana legítima tarda minutos pero HABLA por `progress`); el
+      // vigía de la granja retira al obrero mudo — ningún reloj propio aquí.
+      live.idleBudgetMs = requestDeadlines.generateIdleMs;
+      live.onDead = () => {
+        if (settled) return;
+        settled = true;
+        session = null; // el vigía ya lo retiró
+        this.active.delete(requestId);
+        inFlightSince.delete(requestId);
+        traceTiles(requestId, 'CADUCADA (obrero mudo; retirado por el vigía)');
+        rejectPromise(new Error('El worker regional dejó de responder; obrero retirado.'));
       };
       live.worker.onmessage = (event) => {
         const reply = event.data;
-        // Una sábana que habla también es el pool trabajando: pulso para las
-        // teselas en cola (ver `pulseQueue`).
-        if (reply.type === 'progress' || reply.type === 'canonBuilt') { armIdle(); this.pulseQueue(); }
+        live.lastBeat = Date.now();
         // A composite sheet that generated fresh canon ships it for storage
         // ahead of `done` — same contract as the display tiles, same guard:
         // ground the reader has painted past since the request is refused.
@@ -420,7 +517,7 @@ export class RegionWorkerClient {
           const persistence = canonPersistence;
           if (persistence && reply.editsHash === hashEditsString(options.edits ?? '')) {
             live.seeded.add(reply.key);
-            persistence.save(world, reply.key, options.edits ?? '', reply.bytes);
+            persistence.save(world, geography, reply.key, options.edits ?? '', reply.bytes);
           }
           return;
         }
@@ -451,7 +548,6 @@ export class RegionWorkerClient {
           traceTiles(requestId, options.canonKey
             ? `sábana canónica ${options.canonKey} → worker`
             : '→ worker (sábana libre)');
-          armIdle();
           live.worker.postMessage({
             type: 'generate',
             requestId,
@@ -472,7 +568,7 @@ export class RegionWorkerClient {
       // one canon consumer the persistence didn't reach.
       if (options.canonKey && canonPersistence && !live.seeded.has(options.canonKey)) {
         const k = options.canonKey;
-        canonPersistence.load(world, k, options.edits ?? '')
+        loadCanonDedup(world, geography, k, options.edits ?? '')
           .then((bytes) => {
             live.seeded.add(k);
             if (bytes && !settled) {
@@ -526,16 +622,14 @@ export class RegionWorkerClient {
     const requestId = `probe-${this.nextRequestId++}`;
     const factory = opts.workerFactory === undefined ? defaultWorkerFactory : opts.workerFactory;
     if (!factory) return Promise.resolve(null);
-    // Reuse a session that is ALREADY configured for this world and idle. A
-    // probe must never queue behind a tile, never spin one up, and never make
-    // the reader wait: if there is nothing free, there is no answer.
-    let session: WorkerSession | null = null;
-    for (const candidate of this.sessions) {
-      if (candidate.world === world && candidate.geography === geography
-        && !candidate.activeRequestId) {
-        session = candidate;
-        break;
-      }
+    // Un obrero LIBRE que ya tenga el contexto residente. Una sonda jamás
+    // encola, jamás abre obrero, jamás reconfigura: sin residencia, no hay
+    // respuesta — es lo que la hace segura desde un hover.
+    const ctx = this.contextIdFor(world, geography);
+    let session: Obrero | null = null;
+    for (const flota of this.flotas.values()) {
+      const candidato = flota.find((o) => !o.busy && o.contextId === ctx);
+      if (candidato) { session = candidato; break; }
     }
     if (!session) return Promise.resolve(null);
     const live = session;
@@ -556,7 +650,8 @@ export class RegionWorkerClient {
      * A probe is a few milliseconds of reading resident memory. Holding the
      * session for its duration costs nothing and makes the race impossible.
      */
-    live.activeRequestId = requestId;
+    live.busy = true;
+    live.lastBeat = Date.now();
     return new Promise((resolve) => {
       const prev = live.worker.onmessage;
       let done = false;
@@ -567,16 +662,9 @@ export class RegionWorkerClient {
         // Only take back what is still ours: if something else has since
         // installed a handler, restoring `prev` would destroy it.
         if (live.worker.onmessage === mine) live.worker.onmessage = prev;
-        if (live.activeRequestId === requestId) {
-          live.activeRequestId = undefined;
-          // AND WAKE THE QUEUE. Reserving the session without this was a second
-          // way to strand the pyramid: `acquireSessionWhenFree` parks on a busy
-          // match before it will spawn a second session, so a tile requested
-          // during a 400 ms probe waited in `waiters` for a notification that
-          // only some OTHER request could send. On a settled view there is no
-          // other request, and `DisplayTileStore` leaves the id in `inflight`
-          // for the whole generation — that square of map never comes back.
-          this.notifyFree();
+        if (live.busy && !live.muerto) {
+          live.busy = false;
+          this.drenarParking();
         }
       };
       const timer = setTimeout(() => { cleanup(); resolve(null); }, 400);
@@ -615,34 +703,27 @@ export class RegionWorkerClient {
     },
   ): { promise: Promise<RenderedTile | null>; cancel: () => void } {
     const requestId = `tile-${this.nextRequestId++}`;
-    let session: WorkerSession | null = null;
+    let session: Obrero | null = null;
     let settled = false;
-    let watchdog = 0;
     /** Cancelled AFTER a worker had already started drawing: the caller is
      *  gone, but the reply still has to be collected. */
     let abandoned = false;
     let rejectPromise: (reason: unknown) => void = () => undefined;
-    /** El rearme del plazo, visible fuera del ejecutor para que `cleanup`
-     *  pueda darlo de baja del pulso de la cola. */
-    let armDeadlineRef: () => void = () => undefined;
+    let preparation: CanonPreparation | null = null;
 
-    const cleanup = (terminate: boolean) => {
+    const releaseOwnedCanon = () => {
+      if (!preparation) return;
+      for (const flight of preparation.owned.values()) flight.resolve(null);
+      preparation.owned.clear();
+    };
+
+    const cleanup = (roto: boolean) => {
       this.active.delete(requestId);
       inFlightSince.delete(requestId);
-      this.queuePulse.delete(armDeadlineRef);
-      if (watchdog) { clearTimeout(watchdog); watchdog = 0; }
+      releaseOwnedCanon();
       if (!session) return;
-      if (terminate) {
-        this.terminateSession(session);
-      } else {
-        session.worker.onmessage = null;
-        session.worker.onerror = null;
-        session.worker.onmessageerror = null;
-        session.activeRequestId = undefined;
-        session.lastUsed = Date.now();
-        this.pruneSessions();
-        this.notifyFree();
-      }
+      if (roto) this.matar(session);
+      else this.liberar(session);
       session = null;
     };
     /**
@@ -652,8 +733,8 @@ export class RegionWorkerClient {
      * ~30 tiles — so what this costs matters as much as what it saves.
      *
      * NOT DISPATCHED YET is where the saving is: the request simply leaves the
-     * queue (`acquireSessionWhenFree` drops it at its next wake) and never
-     * becomes work at all. That is the ordinary case; the pool only ever has
+     * parking (`tomar` deja de intentar al ver `abandoned`) and never becomes
+     * work at all. That is the ordinary case; the farm only ever has
      * `sessionLimit` tiles actually in a worker.
      *
      * ALREADY IN A WORKER cannot be stopped: the worker's handler is
@@ -687,58 +768,62 @@ export class RegionWorkerClient {
         resolve(null);
         return;
       }
-      // El plazo nace CON la petición, no con el post: una cadena que se
-      // cuelga ANTES de postear (adquisición, siembra) dejaba el marcador del
-      // almacén de pantalla huérfano para siempre y el mapa no re-pedía — la
-      // 4.ª captura de Luis (pedidas quietas, EN VUELO 0, 0/54 eterno). El
-      // post lo rearma para el tramo de trabajo.
       inFlightSince.set(requestId, Date.now());
       const born = Date.now();
       traceTiles(requestId, `nace z${tile.z}(${tile.tx},${tile.ty})`,
         opts.ink ?? 'carta', opts.consumeOnly ? 'consume' : '');
-      /** El plazo mide SILENCIO: nace con la petición, se rearma en el post y
-       *  con cada `progress` de la fragua (una señal por supertesela). */
-      const armDeadline = () => {
-        if (watchdog) clearTimeout(watchdog);
-        watchdog = setTimeout(() => {
-          if (settled) return;
-          tileStats.timeouts++;
-          settled = true;
-          traceTiles(requestId, `CADUCADA a los ${((Date.now() - born) / 1000).toFixed(1)}s (sesión retirada)`);
-          cleanup(true);
-          resolve(null);
-        }, requestDeadlines.tileMs) as unknown as number;
-      };
-      armDeadlineRef = armDeadline;
-      armDeadline();
-      // EL PULSO DE LA COLA: mientras el pool entregue, ninguna tesela en
-      // espera debe caducar. `notifyFree` despierta a UN parado (FIFO), así
-      // que el del fondo de una cola larga no oye nada en minutos — 163 de
-      // las teselas del banco de retención caducaban EN LA COLA detrás de dos
-      // sesiones que fraguaban canon legítimamente (contenedor lento), y el
-      // plan entero renacía en tromba. Registrar el rearme en `queuePulse`
-      // deja el plazo midiendo lo único que debe matar: el SILENCIO del pool
-      // entero, no la longitud de la cola.
-      this.queuePulse.add(armDeadline);
-      this.acquireSessionWhenFree(factory, world, geography, requestId, () => settled).then((acquired) => {
-        traceTiles(requestId, `sesión ${acquired.contextId} (cola ${Date.now() - born} ms)`);
-        if (settled) {
-          acquired.activeRequestId = undefined;
-          acquired.lastUsed = Date.now();
-          this.notifyFree();
-          return;
-        }
-        session = acquired;
-        attach(acquired);
-      }).catch(() => {
-        if (!settled) { settled = true; resolve(null); }
-      });
+      // Sin plazo propio: el vigía de la granja mide el silencio POR OBRERO,
+      // y una tesela aparcada sin obrero no puede caducar — se descarta desde
+      // el servicio o deja de intentar (`abandoned`). Fuera el plazo por
+      // petición, el rearme y el pulso de cola: era la maquinaria que
+      // mantenía vivo el cuelgue que decía curar (los 20 huecos de vuelo
+      // clavados en el acquire de los logs de Luis, re-armados eternamente
+      // por el progreso de las sábanas).
+      // Storage and single-flight coordination happen BEFORE taking a worker.
+      // The old order reserved every worker during 3-8 s IndexedDB reads, which
+      // is why the log showed a full farm doing no CPU work.
+      this.prepareCanonFor(world, geography, tile, opts, () => settled || abandoned)
+        .then((prepared) => {
+          preparation = prepared;
+          if (settled || abandoned) {
+            releaseOwnedCanon();
+            return null;
+          }
+          return this.tomar(factory, world, geography, () => settled || abandoned);
+        })
+        .then((acquired) => {
+          if (!acquired) {
+            if (!settled && !abandoned) { settled = true; cleanup(false); resolve(null); }
+            return;
+          }
+          traceTiles(requestId, `obrero ${acquired.contextId} (cola ${Date.now() - born} ms)`);
+          if (settled || abandoned) {
+            this.liberar(acquired);
+            if (!settled) { settled = true; cleanup(false); resolve(null); }
+            return;
+          }
+          session = acquired;
+          attach(acquired);
+        }).catch(() => {
+          if (!settled) { settled = true; cleanup(false); resolve(null); }
+        });
 
-      const attach = (live: WorkerSession) => {
+      const attach = (live: Obrero) => {
+      live.idleBudgetMs = requestDeadlines.tileMs;
+      live.onDead = () => {
+        if (settled) return;
+        settled = true;
+        session = null; // el vigía ya lo retiró
+        this.active.delete(requestId);
+        inFlightSince.delete(requestId);
+        traceTiles(requestId, `CADUCADA a los ${((Date.now() - born) / 1000).toFixed(1)}s (obrero mudo retirado)`);
+        resolve(null);
+      };
       /** The supertile keys under THIS tile, kept for the decline bookkeeping. */
       let coverKeys: string[] | null = null;
       live.worker.onmessage = (event) => {
         const reply = event.data;
+        live.lastBeat = Date.now();
         // Fresh canon rides ahead of the tile that grew it, and it is worth
         // storing even when the reader has already panned away (abandoned):
         // the 31 s were paid either way. The edits-hash guard refuses ground
@@ -753,22 +838,17 @@ export class RegionWorkerClient {
             persistence ? (fresh ? '→ almacén' : 'DESCARTADO (ediciones cambiaron)') : 'sin almacén');
           if (persistence && fresh) {
             live.seeded.add(reply.key);
-            persistence.save(world, reply.key, opts.edits ?? '', reply.bytes);
+            persistence.save(world, geography, reply.key, opts.edits ?? '', reply.bytes);
           }
+          preparation?.owned.get(reply.key)?.resolve(reply.bytes);
           return;
         }
         if (settled || reply.type === 'configured') return;
         if (reply.requestId !== requestId) return;
         if (reply.type === 'progress') {
           // La fragua canta una vez por supertesela (workerCore): cada señal
-          // rearma el plazo, que así mide SILENCIO y no duración total — una
-          // tesela cuyo suelo cueste tres minutos ya no caduca a los 120 s
-          // retirando la sesión a media generación (la espiral del banco de
-          // retención: 163 caducadas y un plan 0/60 eterno).
-          armDeadline();
-          // Y el pulso para TODA la cola: esta fragua demuestra que el pool
-          // trabaja, también para los que esperan sesión.
-          this.pulseQueue();
+          // es latido del obrero (ya anotado arriba) — una tesela cuyo suelo
+          // cueste tres minutos no caduca mientras su fragua HABLE.
           traceTiles(requestId, `fragua canon ${(reply.overall * 100).toFixed(0)}%`);
           return;
         }
@@ -879,9 +959,6 @@ export class RegionWorkerClient {
         try {
           tileStats.asked++;
           traceTiles(requestId, '→ worker');
-          // Rearme para el tramo de trabajo: la sesión que no conteste se
-          // retira, y la siguiente petición abre una fresca.
-          armDeadline();
           live.worker.postMessage({
             type: 'renderTile',
             requestId,
@@ -910,7 +987,7 @@ export class RegionWorkerClient {
       // runs the ground is resident — a ~300 ms decode standing in for the
       // ~31.900 ms generation it replaces (PENDIENTE §2b.1). The seed never
       // blocks the pixels: any failure just falls through to the old path.
-      this.seedCanonFor(live, world, tile, opts).then((keys) => {
+      this.seedPreparedCanon(live, preparation).then((keys) => {
         coverKeys = keys;
         if (settled) return;
         if (abandoned) {
@@ -939,7 +1016,7 @@ export class RegionWorkerClient {
       this.cache.clear();
       this.cacheBytes = 0;
       for (const request of [...this.active.values()]) request.cancel();
-      for (const session of [...this.sessions]) this.terminateSession(session);
+      for (const flota of this.flotas.values()) for (const o of [...flota]) this.matar(o);
       return;
     }
     for (const [key, entry] of this.cache) {
@@ -948,21 +1025,26 @@ export class RegionWorkerClient {
         this.cache.delete(key);
       }
     }
-    for (const session of [...this.sessions]) {
-      if (session.world !== world) continue;
-      // Settle the caller's promise, THEN take the session down — a region
-      // build's cancel already did (hence the membership check), but a TILE's
-      // is deliberately gentle: it abandons the reply and keeps the session so
-      // a pan does not throw away the canon cache. That is exactly the wrong
-      // trade when the world itself is the thing going away.
-      if (session.activeRequestId) this.active.get(session.activeRequestId)?.cancel();
-      if (this.sessions.has(session)) this.terminateSession(session);
+    // Los obreros con el contexto de ESTE mundo: los libres se retiran (su
+    // contexto muere con el mundo); los ocupados terminan su trabajo — un
+    // mundo que se va con un render en vuelo no justifica matar al obrero,
+    // se reconfigurará al siguiente uso.
+    const prefix = `w${worldContentKey(world)}:g`;
+    for (const flota of this.flotas.values()) {
+      for (const o of [...flota]) {
+        if (!o.contextId.startsWith(prefix)) continue;
+        if (!o.busy) this.matar(o);
+      }
     }
   }
 
   dispose(): void {
     for (const request of [...this.active.values()]) request.cancel();
-    for (const session of [...this.sessions]) this.terminateSession(session);
+    for (const flota of this.flotas.values()) for (const o of [...flota]) this.matar(o);
+    this.flotas.clear();
+    this.parked.length = 0;
+    if (this.parkedTimer !== null) { clearInterval(this.parkedTimer); this.parkedTimer = null; }
+    if (this.latido !== null) { clearInterval(this.latido); this.latido = null; }
     this.cache.clear();
     this.cacheBytes = 0;
   }
@@ -976,140 +1058,216 @@ export class RegionWorkerClient {
   }
 
   get workerSessionCount(): number {
-    return this.sessions.size;
-  }
-
-  /** Callers parked until a session slot frees. FIFO: the composite's centre
-   *  tile queued first stays first. */
-  private waiters: Array<() => void> = [];
-
-  /** Rearmes de plazo de las teselas VIVAS (en cola o en vuelo): cada vez que
-   *  el pool suelta una sesión, todas reciben un pulso. Ver el comentario del
-   *  registro en `requestTile` — el plazo mata silencios, no colas largas. */
-  private queuePulse = new Set<() => void>();
-
-  private notifyFree(): void {
-    this.waiters.shift()?.();
-    this.pulseQueue();
-  }
-
-  /** El pool está VIVO: que ninguna petición en espera caduque. Lo dispara
-   *  cada sesión que se libera Y cada `progress` de una fragua — en suelo
-   *  frío la primera supertesela tarda minutos sin soltar sesión alguna, y
-   *  sin este segundo disparador la cola entera caducaba en silencio detrás
-   *  de un worker perfectamente sano (159 caducadas en el banco). */
-  pulseQueue(): void {
-    for (const pulse of this.queuePulse) pulse();
+    let n = 0;
+    for (const flota of this.flotas.values()) n += flota.length;
+    return n;
   }
 
   /**
-   * A session, WITHIN THE CAP, or a promise that waits for one.
-   *
-   * The old acquire spawned whenever nothing idle matched — one worker per
-   * concurrent request, each configured with its own ~80 MB structured clone
-   * of the world. The canonical composite and the display tiles ask in
-   * BURSTS, so a regeneration followed by a zoom could stack dozens of
-   * workers and take the renderer process down with it. Now: reuse an idle
-   * match, spawn only under the cap, evict an idle non-match at the cap, and
-   * otherwise WAIT — memory stays bounded no matter how eager the callers.
+   * TOMAR OBRERO — el corazón de la granja, sin predicados imposibles:
+   *   1. libre con el CONTEXTO pedido ya residente (afinidad: cero envíos);
+   *   2. cualquier libre (se reconfigura: UN envío, ninguna muerte);
+   *   3. hueco bajo el techo → nace uno;
+   *   4. nada → aparcado re-intentable, drenado al liberar Y por reloj.
+   * No hay desalojo, ni calor, ni coincidencia por identidad que pueda no
+   * darse nunca: las cuatro ramas terminan. Un `abandoned` (tesela cancelada
+   * en cola del servicio) simplemente deja de intentar.
    */
-  private async acquireSessionWhenFree(
+  private tomar(
     factory: RegionWorkerFactory,
     world: WorldData,
     geography: HumanGeography,
-    requestId: string,
-    /** True once the caller has given up. Checked after every wait, because
-     *  this queue is where a cancelled display tile actually lives: handing it
-     *  a session anyway — or, worse, SPAWNING one and cloning the world into it
-     *  — only to release it again is the entire cost the cancel exists to
-     *  avoid. Absent for callers that never cancel mid-queue. */
     abandoned?: () => boolean,
-  ): Promise<WorkerSession> {
-    /** Pass the wake-up on. `notifyFree` resolves exactly ONE waiter, so a
-     *  request that leaves the queue after being woken must hand its turn to
-     *  the next in line or the rest of the queue parks behind a ghost. */
-    const leave = (): never => {
-      this.notifyFree();
-      throw abortError();
-    };
-    for (;;) {
-      const revision = world.revision ?? 0;
-      let busyMatch = false;
-      for (const candidate of this.sessions) {
-        const matches = candidate.factory === factory
-          && candidate.world === world
-          && candidate.geography === geography
-          && candidate.revision === revision;
-        if (!matches) continue;
-        if (candidate.activeRequestId) {
-          busyMatch = true;
-          continue;
+  ): Promise<Obrero | null> {
+    return new Promise((resolve) => {
+      const intentar = (): boolean => {
+        if (abandoned?.()) { resolve(null); return true; }
+        const ctx = this.contextIdFor(world, geography);
+        const flota = this.flota(factory);
+        // El orden de la afinidad: (1) libre CON el contexto; (2) hueco bajo
+        // el techo — un obrero fresco cuesta el mismo configure que
+        // reconfigurar a uno ajeno y CONSERVA la residencia de la otra
+        // familia (sin el paso 2 por delante, dos familias alternando se
+        // robaban los mismos dos obreros: 24 configures para 24 teselas en el
+        // banco); (3) cualquier libre, reconfigurado; (4) aparcar.
+        let libre: Obrero | null = flota.find((o) => !o.busy && o.contextId === ctx) ?? null;
+        if (!libre && flota.length < this.sessionLimit) {
+          libre = this.spawnObrero(factory);
+          if (!libre) { resolve(null); return true; } // la fábrica falló
         }
-        candidate.activeRequestId = requestId;
-        candidate.lastUsed = Date.now();
-        return candidate;
-      }
-      if (busyMatch) {
-        /**
-         * Una sesión de este mundo existe y está trabajando. ANTES se esperaba
-         * SIEMPRE («no clonar otro mundo de 80 MB a un segundo worker»), y eso
-         * convirtió el primer paseo por suelo nuevo en una fila india: una
-         * supertesela cada 30-60 s con quince cores mirando (la captura de
-         * Luis del 2026-08-12: EN VUELO 1, entregadas 0/35). Con la FORJA cada
-         * sesión es su propio proceso — el clon no le cuesta memoria al
-         * renderer — y el peligro de «dos gemelas generando el mismo canon»
-         * lo desactiva la persistencia: el calentador reparte UNA petición
-         * por supertesela y las demás sesiones se siembran de Dexie. Así que
-         * bajo Forja sana se abre otra sesión mientras quepa; con web workers
-         * (el mundo vive DENTRO del renderer) se espera como siempre.
-         */
-        const parallel = this.parallelWorldSessions
-          ?? (forgeAvailable() && !forgeDegraded());
-        if (parallel && this.sessions.size < this.sessionLimit) {
-          return this.spawnSession(factory, world, geography, requestId);
+        if (!libre) libre = flota.find((o) => !o.busy) ?? null;
+        if (!libre) return false;
+        libre.busy = true;
+        libre.lastBeat = Date.now();
+        if (libre.contextId !== ctx && !this.configurar(libre, ctx, world, geography)) {
+          // La configuración reventó: obrero retirado; probar con uno fresco
+          // UNA vez (hay hueco: acabamos de retirar).
+          const fresco = this.spawnObrero(factory);
+          if (!fresco || !this.configurar(fresco, ctx, world, geography)) {
+            resolve(null);
+            return true;
+          }
+          fresco.busy = true;
+          fresco.lastBeat = Date.now();
+          this.armarLatido();
+          resolve(fresco);
+          return true;
         }
-        await new Promise<void>((resolveWait) => this.waiters.push(resolveWait));
-        if (abandoned?.()) leave();
-        continue;
-      }
-      if (this.sessions.size < this.sessionLimit) {
-        return this.spawnSession(factory, world, geography, requestId);
-      }
-      let idle: WorkerSession | null = null;
-      for (const candidate of this.sessions) {
-        if (candidate.activeRequestId) continue;
-        if (!idle || candidate.lastUsed < idle.lastUsed) idle = candidate;
-      }
-      if (idle) {
-        this.terminateSession(idle);
-        continue;
-      }
-      await new Promise<void>((resolveWait) => this.waiters.push(resolveWait));
-      if (abandoned?.()) leave();
+        this.armarLatido();
+        resolve(libre);
+        return true;
+      };
+      if (intentar()) return;
+      this.parked.push(intentar);
+      this.armarRecheck();
+    });
+  }
+
+  private flota(factory: RegionWorkerFactory): Obrero[] {
+    let flota = this.flotas.get(factory);
+    if (!flota) { flota = []; this.flotas.set(factory, flota); }
+    return flota;
+  }
+
+  private contextIdFor(world: WorldData, geography: HumanGeography): string {
+    return `w${worldContentKey(world)}:g${geography.depth}:${geographyContentKey(geography)}`;
+  }
+
+  private spawnObrero(factory: RegionWorkerFactory): Obrero | null {
+    try {
+      const obrero: Obrero = {
+        worker: factory(),
+        factory,
+        contextId: '',
+        busy: false,
+        lastBeat: Date.now(),
+        idleBudgetMs: requestDeadlines.tileMs,
+        onDead: null,
+        seeded: new Set(),
+        muerto: false,
+      };
+      this.flota(factory).push(obrero);
+      return obrero;
+    } catch {
+      return null;
     }
   }
 
+  /** Enviar el contexto al obrero. El workerCore procesa los mensajes EN
+   *  ORDEN, así que no se espera confirmación: el render que sigue ya lo
+   *  encuentra puesto. Reconfigurar vacía el canon del obrero — la siembra
+   *  de Dexie lo repone en frío — así que el libro de siembras se vacía. */
+  private configurar(
+    obrero: Obrero, ctx: string, world: WorldData, geography: HumanGeography,
+  ): boolean {
+    try {
+      traceTiles('granja', `obrero ${ctx}`, obrero.contextId ? `reconfigura (era ${obrero.contextId})` : 'primer contexto');
+      obrero.worker.postMessage({
+        type: 'configure',
+        contextId: ctx,
+        world,
+        geography: packRegionGeography(geography),
+        persistCanon: !!canonPersistence,
+      });
+      obrero.contextId = ctx;
+      obrero.seeded = new Set();
+      return true;
+    } catch {
+      this.matar(obrero);
+      return false;
+    }
+  }
+
+  /** El obrero terminó su trabajo y vuelve a la flota; se drena el parking. */
+  private liberar(obrero: Obrero): void {
+    if (obrero.muerto) return;
+    obrero.worker.onmessage = null;
+    obrero.worker.onerror = null;
+    obrero.worker.onmessageerror = null;
+    obrero.busy = false;
+    obrero.onDead = null;
+    obrero.lastBeat = Date.now();
+    this.drenarParking();
+  }
+
+  /** Retirar a un obrero (mudo, roto, o de un mundo que ya no existe). No se
+   *  reemplaza aquí: el siguiente `tomar` abre hueco perezosamente. */
+  private matar(obrero: Obrero): void {
+    obrero.muerto = true;
+    obrero.worker.onmessage = null;
+    obrero.worker.onerror = null;
+    obrero.worker.onmessageerror = null;
+    try { obrero.worker.terminate(); } catch { /* ya muerto */ }
+    const flota = this.flotas.get(obrero.factory);
+    if (flota) {
+      const i = flota.indexOf(obrero);
+      if (i >= 0) flota.splice(i, 1);
+    }
+    this.drenarParking();
+  }
+
+  private drenarParking(): void {
+    while (this.parked.length && this.parked[0]()) this.parked.shift();
+    if (!this.parked.length && this.parkedTimer !== null) {
+      clearInterval(this.parkedTimer);
+      this.parkedTimer = null;
+    }
+  }
+
+  private armarRecheck(): void {
+    if (this.parkedTimer !== null) return;
+    this.parkedTimer = setInterval(() => this.drenarParking(), 500);
+  }
+
   /**
-   * Load any stored canon under a DEEP tile and post it to the session ahead
-   * of the render. Returns the tile's supertile keys (for the decline
-   * bookkeeping) or null when the tile is shallow / persistence is absent.
-   * Never rejects: a storage error is a cache miss, not a broken tile.
+   * EL VIGÍA — el único reloj del sistema. Un obrero OCUPADO cuyo último
+   * mensaje quedó más atrás que el presupuesto de su trabajo está mudo
+   * (proceso caído, bundle roto): se retira, y su trabajo recibe `onDead`
+   * (la tesela resuelve null re-pedible; la sábana rechaza). Nada de plazos
+   * por petición, rearmes ni pulsos: una sábana legítima HABLA (progress) y
+   * cada mensaje es su latido.
    */
-  private async seedCanonFor(
-    session: WorkerSession,
+  private vigilar(): void {
+    let ocupados = 0;
+    for (const flota of this.flotas.values()) {
+      for (const obrero of [...flota]) {
+        if (!obrero.busy) continue;
+        ocupados++;
+        if (Date.now() - obrero.lastBeat <= obrero.idleBudgetMs) continue;
+        tileStats.timeouts++;
+        traceTiles('granja', obrero.contextId,
+          `obrero MUDO ${(Date.now() - obrero.lastBeat) / 1000 | 0}s — retirado`);
+        const onDead = obrero.onDead;
+        this.matar(obrero);
+        onDead?.();
+      }
+    }
+    if (!ocupados && this.latido !== null) {
+      clearInterval(this.latido);
+      this.latido = null;
+    }
+  }
+
+  private armarLatido(): void {
+    if (this.latido !== null) return;
+    // El paso del vigía sigue a los presupuestos (los bancos los aprietan a
+    // cientos de ms): un tercio del menor, entre 250 ms y 5 s.
+    const paso = Math.max(250, Math.min(5_000,
+      Math.floor(Math.min(requestDeadlines.tileMs, requestDeadlines.generateIdleMs) / 3)));
+    this.latido = setInterval(() => this.vigilar(), paso);
+  }
+
+  /** Resolve stored and concurrently-built canon before reserving a worker.
+   * Every missing supertile has exactly one owner across the whole farm. */
+  private async prepareCanonFor(
     world: WorldData,
+    geography: HumanGeography,
     tile: { z: number; tx: number; ty: number },
-    opts: { edits?: string; ink?: 'carta' | 'satellite' },
-  ): Promise<string[] | null> {
+    opts: { edits?: string; ink?: 'carta' | 'satellite'; consumeOnly?: boolean },
+    abandoned: () => boolean,
+  ): Promise<CanonPreparation | null> {
     const persistence = canonPersistence;
     if (!persistence) return null;
-    // TODO el cuerpo bajo try: esta función corre POR DELANTE del post de la
-    // tesela, y un lanzamiento síncrono suyo (una spec rara, una cubierta que
-    // no cuadra) rechazaba la cadena entera — el post nunca corría, el
-    // vigilante (que se armaba EN el post) nunca vigilaba, y el marcador del
-    // almacén de pantalla quedaba huérfano para siempre: pedidas quietas,
-    // EN VUELO 0, y 0/54 clavado (la 4.ª captura de Luis, 2026-08-12). La
-    // siembra es una optimización; jamás puede costar la tesela.
     try {
       const satellite = opts.ink === 'satellite';
       const deep = satellite
@@ -1118,166 +1276,81 @@ export class RegionWorkerClient {
       if (!deep) return null;
       const spec = (satellite ? satelliteTileSpec : deepTileSpec)(world, tile);
       const keys = canonWindowCover(world, spec).map(canonTileKey);
-      const missing = keys.filter((k) => !session.seeded.has(k));
-      if (!missing.length) return keys;
       const t0 = Date.now();
-      const loaded = await Promise.all(missing.map(async (k) => ({
-        key: k,
-        bytes: await persistence.load(world, k, opts.edits ?? '').catch(() => null),
+      const loaded = await Promise.all(keys.map(async (key) => ({
+        key,
+        bytes: await loadCanonDedup(world, geography, key, opts.edits ?? ''),
       })));
-      traceTiles('siembra', missing.map((k, i) => `${k} ${loaded[i].bytes
-        ? `HIT ${(loaded[i].bytes!.byteLength / 1e6).toFixed(1)}MB` : 'miss'}`).join(' · '),
-      `${Date.now() - t0} ms`);
-      // Mark the whole batch attempted — hit or miss — so a burst of thirty
-      // tiles over the same ground asks Dexie once per supertile, not once
-      // per tile. Misses re-enter through `canonBuilt` when the worker
-      // generates them, or through the decline strike-out if it evicts.
-      for (const k of missing) session.seeded.add(k);
-      const tiles = loaded.filter((t): t is { key: string; bytes: ArrayBuffer } => !!t.bytes);
-      if (tiles.length) {
-        tileStats.seeded += tiles.length;
-        // No transfer list: a copy keeps the payload compatible with the
-        // Forge bridge, and seeding is rare enough that copying ~2 MB beats
-        // owning a second postMessage signature.
-        session.worker.postMessage({
-          type: 'seedCanon',
-          contextId: session.contextId,
-          tiles,
-        });
+      if (abandoned()) return null;
+
+      const seeds = loaded.filter(
+        (item): item is { key: string; bytes: ArrayBuffer } => !!item.bytes,
+      );
+      const owned = new Map<string, CanonBuildFlight>();
+      const waiting: Array<Promise<{ key: string; bytes: ArrayBuffer | null }>> = [];
+      if (!opts.consumeOnly) {
+        for (const miss of loaded) {
+          if (miss.bytes) continue;
+          const id = canonBuildId(world, geography, miss.key, opts.edits ?? '');
+          const claimed = claimCanonBuild(id);
+          if (claimed.owner) owned.set(miss.key, claimed.flight);
+          else waiting.push(claimed.flight.promise.then((bytes) => ({ key: miss.key, bytes })));
+        }
       }
-      return keys;
+      const shared = await Promise.all(waiting);
+      if (abandoned()) {
+        for (const flight of owned.values()) flight.resolve(null);
+        return null;
+      }
+      for (const item of shared) if (item.bytes) seeds.push({ key: item.key, bytes: item.bytes });
+      traceTiles('canon-plan',
+        `${keys.length} hojas · disco ${seeds.length - shared.filter((x) => !!x.bytes).length}`
+          + ` · compartidas ${shared.length} · propias ${owned.size}`,
+        `${Date.now() - t0} ms`);
+      return { keys, seeds, owned };
     } catch (err) {
       tileStats.seedErrors++;
       if (tileStats.seedErrors === 1) {
-        // Una vez por sesión: la causa exacta, para la próxima captura.
-        console.warn('[worldgen] la siembra del canon falló (la tesela sigue su camino)', err);
+        console.warn('[worldgen] la preparación del canon falló (la tesela sigue su camino)', err);
       }
       return null;
     }
   }
 
+  /** Seed only bytes this particular worker does not already hold. Misses are
+   * never written into the ledger: an owner must remain visibly missing so its
+   * render generates it and emits `canonBuilt`. */
+  private async seedPreparedCanon(
+    session: Obrero,
+    preparation: CanonPreparation | null,
+  ): Promise<string[] | null> {
+    if (!preparation) return null;
+    const tiles = preparation.seeds.filter((item) => !session.seeded.has(item.key));
+    if (tiles.length) {
+      tileStats.seeded += tiles.length;
+      session.worker.postMessage({
+        type: 'seedCanon',
+        contextId: session.contextId,
+        tiles,
+      });
+      for (const item of tiles) session.seeded.add(item.key);
+    }
+    return preparation.keys;
+  }
+
   /**
-   * EL CALENTADOR: una petición `generate` por supertesela del plan, para que
-   * el primer paseo por suelo nuevo use TODOS los procesos de la Forja en vez
-   * de una fila india (la captura de Luis, 2026-08-12: EN VUELO 1 con quince
-   * cores parados). Cada warm genera UNA supertesela en su propia sesión, la
-   * emite a Dexie (`canonBuilt`) y la deja residente; las teselas de pantalla
-   * la encuentran por residencia o por siembra. Deduplicado por clave+edits y
-   * por época, y fire-and-forget: calentar nunca puede romper nada — lo peor
-   * que puede pasar es exactamente lo que ya pasaba.
+   * HISTÓRICO — el calentador está JUBILADO por la granja (2026-08-14).
+   * Existía para que el primer paseo usara todos los procesos en vez de una
+   * fila india; la granja ya reparte cualquier trabajo entre todos los
+   * obreros libres, el servicio de teselas mantiene el plan vigente por
+   * delante, y el canon persiste en Dexie — calentar aparte sólo volvía a
+   * encolar por delante de lo que el lector mira. Firma conservada para no
+   * romper llamantes; no hace nada.
    */
   warmCanon(
-    world: WorldData,
-    geography: HumanGeography,
-    ids: TileId[],
-    edits?: string,
-    workerFactory?: RegionWorkerFactory,
+    ...args: [WorldData, HumanGeography, TileId[], (string | undefined)?, (RegionWorkerFactory | undefined)?]
   ): void {
-    const editsHash = hashString(edits ?? '');
-    const wanted = new Set(ids.map((id) => `${this.worldIdentity(world)}:${canonTileKey(id)}:e${editsHash}`));
-    // Primero retirar lo que el plan ya no pisa: el suelo que el lector dejó
-    // atrás no puede ir por delante del que está mirando.
-    for (const [key, cancelWarm] of [...this.warming]) {
-      if (wanted.has(key)) continue;
-      this.warming.delete(key);
-      this.warmed.delete(key);
-      cancelWarm();
-    }
-    for (const id of ids) {
-      const key = `${this.worldIdentity(world)}:${canonTileKey(id)}:e${editsHash}`;
-      if (this.warmed.has(key)) continue;
-      this.warmed.add(key);
-      const handle = this.request(world, geography, tileWindow(world, id), {
-        params: canonParams(world),
-        geometry: tileGeometry(world, id),
-        canonKey: canonTileKey(id),
-        edits,
-        workerFactory,
-      });
-      this.warming.set(key, handle.cancel);
-      handle.promise.then(() => {
-        this.warming.delete(key);
-      }).catch(() => {
-        // Un warm fallido (timeout, cancelación, worker caído) debe poder
-        // reintentarse en el siguiente gesto.
-        this.warming.delete(key);
-        this.warmed.delete(key);
-      });
-    }
-  }
-
-  private spawnSession(
-    factory: RegionWorkerFactory,
-    world: WorldData,
-    geography: HumanGeography,
-    requestId: string,
-  ): WorkerSession {
-    const worker = factory();
-    const session: WorkerSession = {
-      contextId: `region-context-${this.nextContextId++}`,
-      worker,
-      factory,
-      world,
-      geography,
-      revision: world.revision ?? 0,
-      activeRequestId: requestId,
-      lastUsed: Date.now(),
-      seeded: new Set(),
-    };
-    this.sessions.add(session);
-    try {
-      worker.postMessage({
-        type: 'configure',
-        contextId: session.contextId,
-        world,
-        geography: packRegionGeography(geography),
-        persistCanon: !!canonPersistence,
-      });
-    } catch (error) {
-      this.terminateSession(session);
-      throw error;
-    }
-    this.pruneSessions();
-    return session;
-  }
-
-  private terminateSession(session: WorkerSession): void {
-    session.worker.onmessage = null;
-    session.worker.onerror = null;
-    session.worker.onmessageerror = null;
-    session.worker.terminate();
-    this.sessions.delete(session);
-    this.notifyFree();
-  }
-
-  private pruneSessions(): void {
-    while (this.sessions.size > this.sessionLimit) {
-      let oldest: WorkerSession | null = null;
-      for (const candidate of this.sessions) {
-        if (candidate.activeRequestId) continue;
-        if (!oldest || candidate.lastUsed < oldest.lastUsed) oldest = candidate;
-      }
-      if (!oldest) return;
-      this.terminateSession(oldest);
-    }
-  }
-
-  private geographyIdentity(geography: HumanGeography): number {
-    let id = this.geographyIds.get(geography);
-    if (id === undefined) {
-      id = this.nextGeographyId++;
-      this.geographyIds.set(geography, id);
-    }
-    return id;
-  }
-
-  private worldIdentity(world: WorldData): number {
-    let id = this.worldIds.get(world);
-    if (id === undefined) {
-      id = this.nextWorldId++;
-      this.worldIds.set(world, id);
-    }
-    return id;
+    void args; // nada — ver arriba
   }
 
   private remember(key: string, world: WorldData, region: RegionData): void {
@@ -1315,10 +1388,24 @@ export class RegionWorkerClient {
 // Sized from the hardware, not from a constant. A Forge session is its own OS
 // process, so the pool tracks the core count directly; a web-worker session
 // lives inside the renderer, so that path stays at half the cores.
+// EL TECHO DE LA GRANJA: min(cores, 8). Los 20 obreros que permitía el
+// core-count fueron parte del funeral del renderer de Luis (2026-08-14,
+// «RangeError: Array buffer allocation failed»): cada configure clona el
+// mundo A TRAVÉS del renderer aunque el obrero viva en su propio proceso, y
+// veinte clones de un 2048 en ráfaga son gigas de tránsito. Ocho obreros
+// fraguan ocho superteselas a la vez — de sobra para llenar un plan — con el
+// tránsito acotado. Los web workers (sin Forja) siguen a la mitad.
+// Y LA CACHÉ DE SÁBANAS, AL MÍNIMO ÚTIL (64 MB, 6 entradas). Los 256 MB de
+// RegionData vivían en el HILO PRINCIPAL del renderer, junto a los mapas de
+// bits del almacén de pantalla y al mundo mismo: ese apilamiento es lo que
+// reventó con «RangeError: Array buffer allocation failed» al pedir 3,6 MB
+// (log de Luis, 2026-08-14). Desde la pasada 8 el canon vive en Dexie y
+// desde la 10 la tinta también, así que una caché de sábanas enorme en RAM
+// ya no ahorra minutos — ahorra milisegundos y cuesta el renderer.
 export const regionClient = new RegionWorkerClient(
-  scaleCount(16),
-  forgeAvailable() ? workerSlots() : Math.max(2, Math.floor(workerSlots() / 2)),
-  scaleBytes(256 * 1024 * 1024),
+  6,
+  forgeAvailable() ? Math.min(8, workerSlots()) : Math.max(2, Math.floor(workerSlots() / 2)),
+  64 * 1024 * 1024,
 );
 
 export function requestRegion(
