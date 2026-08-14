@@ -17,10 +17,9 @@ import { createCanvas } from '@napi-rs/canvas';
 import { getWorld } from './world-cache';
 import { buildHumanGeography, DEFAULT_HUMAN_PARAMS } from '../src/engines/worldgen/core/settlements';
 import {
-  drawRoadNetwork, roadOverlayAlpha, unwrapRoad,
+  drawRoadNetwork, unwrapRoad,
   type Ctx,
 } from '../src/engines/worldgen/cartography/roadOverlay';
-import { satPxPerCanonCell, SAT_DEEP_Z } from '../src/engines/worldgen/region/satelliteTile';
 import { PROJECTIONS } from '../src/engines/worldgen/core/projections';
 
 const seed = process.argv[2] || 'monstruo';
@@ -40,20 +39,19 @@ console.log(`${geo.settlements.length} poblaciones · ${geo.roads.length} camino
 const CW = 1280, CH = 800;
 const spec = PROJECTIONS.equirect;
 
-/** Cell with the most roads near it — the honest place to point the camera. */
+/** A cell on the longest road — every close-range viewport must contain ink. */
 function busiestCell(): { x: number; y: number } {
-  const bucket = new Map<number, number>();
-  const S = 16;
-  for (const r of geo.roads) {
-    for (const c of r.cells) {
-      const k = (Math.floor((c / world.width | 0) / S) * 1000) + Math.floor((c % world.width) / S);
-      bucket.set(k, (bucket.get(k) ?? 0) + 1);
-    }
+  const roads = [...geo.roads].sort((a, b) => b.cells.length - a.cells.length);
+  let cell: number | undefined;
+  for (const road of roads) {
+    cell = road.cells.find((candidate) => {
+      const x = candidate % world.width;
+      return x > world.width * 0.25 && x < world.width * 0.75;
+    });
+    if (cell !== undefined) break;
   }
-  let bestK = -1, bestN = -1;
-  for (const [k, n] of bucket) if (n > bestN) { bestN = n; bestK = k; }
-  if (bestK < 0) return { x: world.width * 0.5, y: world.height * 0.5 };
-  return { x: (bestK % 1000) * S + S / 2, y: Math.floor(bestK / 1000) * S + S / 2 };
+  if (cell === undefined) return { x: world.width * 0.5, y: world.height * 0.5 };
+  return { x: (cell % world.width) + 0.5, y: Math.floor(cell / world.width) + 0.5 };
 }
 const focus = busiestCell();
 console.log(`cámara sobre la celda más transitada: ${focus.x.toFixed(0)},${focus.y.toFixed(0)}`);
@@ -66,7 +64,8 @@ const TIERS: { name: string; spanKm: number }[] = [
   { name: 'local hondo ', spanKm: 40 },
 ];
 
-console.log('\ntier          span      px/celda  z    px/canon  alfa   dibujados  vértices  tinta%');
+let failures = 0;
+console.log('\ntier          span      px/celda  z    alfa   dibujados  vértices  tinta%');
 for (const tier of TIERS) {
   // scale: screen px per projected-map px. Map width in px = W * scale, and the
   // window shows CW screen px = (spanKm / EARTH_KM) of the world's girth.
@@ -79,11 +78,10 @@ for (const tier of TIERS) {
     return [ox + X * mapW, oy + Y * mapH];
   };
 
-  // Level the pyramid would draw at, and therefore whether the deep tiles are
-  // already inking real tracks under us.
+  // Roads belong to the screen-space overlay now. Terrain coverage no longer
+  // controls their opacity: exact, parent fallback or cold cache all use 1.
   const z = Math.max(0, Math.round(Math.log2(scale * world.width / 256)));
-  const pxCanon = z >= SAT_DEEP_Z ? satPxPerCanonCell(world, z) : 0;
-  const alpha = roadOverlayAlpha(pxCanon);
+  const alpha = 1;
 
   const canvas = createCanvas(CW, CH);
   const ctx = canvas.getContext('2d') as unknown as Ctx;
@@ -105,9 +103,11 @@ for (const tier of TIERS) {
   const pct = (100 * inked) / (CW * CH);
   console.log(
     `${tier.name}${String(tier.spanKm).padStart(6)} km  ${scale.toFixed(3).padStart(8)}  `
-    + `${String(z).padStart(2)}  ${pxCanon.toFixed(2).padStart(8)}  ${alpha.toFixed(2)}   `
+    + `${String(z).padStart(2)}  ${alpha.toFixed(2)}   `
     + `${String(res.drawn).padStart(9)}  ${String(res.vertices).padStart(8)}  ${pct.toFixed(3)}`,
   );
+  if ((tier.name.trim() === 'regional' || tier.name.trim().startsWith('local'))
+    && geo.roads.length && (res.drawn === 0 || inked === 0)) failures++;
 }
 
 // ---- the seam -------------------------------------------------------------
@@ -137,11 +137,9 @@ for (let i = 0; i < geo.roads.length; i++) {
 }
 console.log(`  peor salto en los ${geo.roads.length} caminos del mundo: `
   + `${worstReal.toFixed(1)} celdas (camino #${worstRoad})`);
+if (biggestJump >= 2 || worstReal >= W / 2) failures++;
 
-// ---- the hand-over --------------------------------------------------------
-console.log('\nrelevo con las teselas profundas (las que entintan veredas reales):');
-for (let z = SAT_DEEP_Z; z <= 13; z++) {
-  const p = satPxPerCanonCell(world, z);
-  console.log(`  z${String(z).padStart(2)}  ${p.toFixed(2).padStart(6)} px/celda canon  `
-    + `· teselas entintan: ${p >= 1.5 ? 'SÍ' : 'no'}  · alfa de la capa: ${roadOverlayAlpha(p).toFixed(2)}`);
-}
+console.log(failures
+  ? `\nROJO: ${failures} varas — un camino desaparece o salta la costura`
+  : '\nTODO VERDE: caminos visibles a todo zoom y costura continua');
+process.exit(failures ? 1 : 0);

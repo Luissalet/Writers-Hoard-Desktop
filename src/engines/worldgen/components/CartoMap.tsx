@@ -16,7 +16,7 @@ import {
 import { DisplayTileStore } from '../cartography/tileStore';
 import { levelFor, MAX_TILE_Z, MAX_WORLD_TILE_Z, TILE_PX } from '../cartography/tiles';
 import { DEEP_TILE_Z, type TilePlace } from '../region/deepTile';
-import { regionClient } from '../region/client';
+import { serveTile } from '../region/tileService';
 import { declutterLabels } from '../core/semanticZoom';
 
 /**
@@ -262,11 +262,16 @@ export default function CartoMap({
     const W = p.world.width;
     const cx = v.x + v.w / 2;
     const prefix = `${z}/`;
+    const principalNames = new Set(
+      p.geography?.settlements.map((s) => s.name.trim().toLocaleLowerCase()) ?? [],
+    );
     interface Deco { pl: TilePlace; sx: number; sy: number; size: number; font: string }
     const cands: { value: Deco; x: number; y: number; width: number; height: number; priority: number }[] = [];
     for (const [key, list] of deepPlaces.current) {
       if (!key.startsWith(prefix)) continue;
       for (const pl of list) {
+        if ((pl.kind === 'town' || pl.kind === 'village')
+          && principalNames.has(pl.name.trim().toLocaleLowerCase())) continue;
         let x = pl.worldX;
         while (x < cx - W / 2) x += W;
         while (x > cx + W / 2) x -= W;
@@ -317,7 +322,7 @@ export default function CartoMap({
     const wantNames = p.layers.labels !== false;
     if (!geo || (!wantMarks && !wantNames)) return;
     const z = levelFor(p.world, outW / v.w, p.canonWorld ? MAX_TILE_Z : MAX_WORLD_TILE_Z);
-    const deep = z >= DEEP_TILE_Z && !!p.canonWorld;
+    const deep = z >= DEEP_TILE_Z && !!p.canonWorld && geo.depth === 'full';
     drawOverlay(ctx, p.world, geo, {
       theme: p.theme,
       view: v,
@@ -325,10 +330,9 @@ export default function CartoMap({
       width: outW,
       height: outH,
       worldWidth: p.world.width,
-      // Deep ground carries real BUILDINGS: the world-level rank marks would
-      // double-mark every town, so they stand down and the buildings' own
-      // names take over.
-      layers: { roads: false, borders: false, settlements: wantMarks && !deep, labels: wantNames },
+      // Principal settlements stay authoritative in screen space. Tile detail
+      // may add buildings and hamlets, but loading state never removes a city.
+      layers: { roads: false, borders: false, settlements: wantMarks, labels: wantNames },
       typeScale,
     });
     if (deep && wantNames) drawDeepNames(ctx, v, outW, outH, typeScale, z);
@@ -684,15 +688,19 @@ export default function CartoMap({
         // (strokes re-applied at canon resolution inside the worker); the
         // carta levels read the edited raster as always. Two worlds, two
         // worker sessions — the pool holds both.
-        const deep = key.z >= DEEP_TILE_Z && q.canonWorld;
+        const deep = key.z >= DEEP_TILE_Z && q.canonWorld && q.geography.depth === 'full';
         // Handed back whole, so the store can cancel a tile that has left the
         // window rather than making the one you stopped on wait behind it.
-        const req = regionClient.requestTile(deep ? q.canonWorld! : q.world, q.geography, key, {
+        // Por el SERVICIO (ARQUITECTURA-TESELAS §3.1): disco primero, cola
+        // corta delante del pool, render compartido entre vistas.
+        const req = serveTile(deep ? q.canonWorld! : q.world, q.geography, key, {
           themeId: q.theme.id,
           layers: q.layers as Record<string, boolean>,
           density: q.density,
           reliefAmount: q.reliefAmount,
-          edits: deep ? q.canonEdits : undefined,
+          // `?? ''`: hondo sin ediciones sigue siendo contenido direccionable
+          // (ver la nota gemela en Map2D — el `s:r3` del log de Luis).
+          edits: deep ? (q.canonEdits ?? '') : undefined,
         });
         const promise = req.promise.then((res) => {
           if (!res) return null;

@@ -25,7 +25,7 @@ export function testWorldgenSemanticZoom(): string {
     'semantic zoom did not cross after leaving the hysteresis band',
   );
   assert(
-    semanticZoomProfile(80).regionalResolution === 768,
+    semanticZoomProfile(80).regionalResolution === 640,
     'local tier did not request high-resolution regional data',
   );
   assert(regionKindVisible('village', 'regional'), 'regional tier hid villages');

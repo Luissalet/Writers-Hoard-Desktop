@@ -20,7 +20,7 @@
 import { createRng } from '../core/rng';
 import { coinName, settlementBias, type LanguageFamily } from '../core/language';
 import type { HumanGeography, Settlement } from '../core/settlements';
-import type { SitesPolicy } from '../core/edits';
+import { zoneAllowsWorld, type SitesPolicy } from '../core/edits';
 import type { WorldData } from '../core/types';
 import { Cover, type RegionParams, type RegionPlace, type RegionStream } from './types';
 import { patchBilinear, type RegionGeometry, type TerrainFields, type WorldPatch } from './terrain';
@@ -66,49 +66,17 @@ export function siteAllower(
   worldWidth: number,
 ): (x: number, y: number) => boolean {
   if (!policy) return () => true;
-  const zones = policy.zones;
-  if (!zones.length) {
+  if (!policy.zones.length) {
     const all = policy.everywhere;
     return () => all;
   }
-  const wrapNear = (x: number, ref: number): number => {
-    let v = x;
-    while (v - ref > worldWidth / 2) v -= worldWidth;
-    while (v - ref < -worldWidth / 2) v += worldWidth;
-    return v;
-  };
-  /** Distancia² del punto (px,py) al segmento a→b, con a/b ya desenvueltos. */
-  const segDist2 = (px: number, py: number, ax: number, ay: number, bx: number, by: number): number => {
-    const dx = bx - ax, dy = by - ay;
-    const len2 = dx * dx + dy * dy;
-    const u = len2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
-    const qx = ax + u * dx, qy = ay + u * dy;
-    return (px - qx) * (px - qx) + (py - qy) * (py - qy);
-  };
-  const inZone = (z: SitesPolicy['zones'][number], wx: number, wy: number): boolean => {
-    const r2 = z.radius * z.radius;
-    let prevX = wrapNear(z.pts[0].x, wx);
-    let prevY = z.pts[0].y;
-    if (z.pts.length === 1) {
-      return (wx - prevX) * (wx - prevX) + (wy - prevY) * (wy - prevY) <= r2;
-    }
-    for (let k = 1; k < z.pts.length; k++) {
-      // Cada tramo se desenvuelve respecto al ANTERIOR, no respecto al punto:
-      // una pincelada que cruza el antimeridiano es una polilínea continua,
-      // no dos mitades pegadas a los bordes.
-      const x = wrapNear(z.pts[k].x, prevX);
-      const y = z.pts[k].y;
-      if (segDist2(wx, wy, prevX, prevY, x, y) <= r2) return true;
-      prevX = x; prevY = y;
-    }
-    return false;
-  };
+  // La misma pregunta que la geografía humana del mundo, con la misma
+  // aritmética: `zoneAllowsWorld` (core/edits). Aquí sólo se traduce de celda
+  // de HOJA a celda de MUNDO antes de preguntar.
   return (x: number, y: number): boolean => {
     const wx = ((g.originX + x * g.worldPerCellX) % worldWidth + worldWidth) % worldWidth;
     const wy = g.originY + y * g.worldPerCellY;
-    let ok = policy.everywhere;
-    for (const z of zones) if (inZone(z, wx, wy)) ok = z.mode === 'add';
-    return ok;
+    return zoneAllowsWorld(policy, wx, wy, worldWidth);
   };
 }
 

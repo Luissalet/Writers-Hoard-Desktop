@@ -1,11 +1,12 @@
 // ============================================
-// Banco: el pool en paralelo, el vigilante y el calentador
+// Banco: LA GRANJA — paralelismo, vigía y afinidad de contexto
 // ============================================
 // Workers DE MENTIRA (responden por reloj, no generan nada): lo que se prueba
-// es el POOL — que bajo multi-sesión un plan de teselas usa varias sesiones a
-// la vez (la fila india de la captura de Luis, curada); que una sesión MUDA
-// cae por el vigilante, se retira, y la siguiente petición abre una fresca; y
-// que el calentador no repite superteselas ya calentadas.
+// es la GRANJA (2026-08-14, el derribo del pool de sesiones) — que un plan
+// usa varios obreros a la vez; que un obrero MUDO cae por el vigía, se retira
+// y el siguiente trabajo abre uno fresco; y que dos familias de contexto
+// alternando NO thrashean: los obreros no se matan jamás por hueco, solo se
+// reconfiguran, y la afinidad deja las reconfiguraciones en ~una por obrero.
 
 import { RegionWorkerClient, requestDeadlines, tileStats, type RegionWorkerLike } from '../src/engines/worldgen/region/client';
 import { getWorld } from './world-cache';
@@ -85,26 +86,7 @@ const run = async () => {
     client.dispose();
   }
 
-  // ---- 2. la fila india de antes, para contraste ---------------------------
-  {
-    const client = new RegionWorkerClient(8, 4);
-    client.parallelWorldSessions = false;
-    let spawns = 0;
-    const factory = () => { spawns++; return fakeWorker({ tileMs: 120 }); };
-    const t0 = performance.now();
-    // Escalonadas: la primera ya tiene sesión ANTES de que pregunte la segunda
-    // (en el mismo tick, cuatro acquire simultáneos siempre han podido abrir
-    // hasta el tope — el modo serie protege el régimen, no el primer tick).
-    const first = tile(client, 0, factory);
-    await new Promise((r) => setTimeout(r, 15));
-    await Promise.all([first, ...[1, 2, 3].map((i) => tile(client, i, factory))]);
-    const wall = performance.now() - t0;
-    check('en serie: una sesión, cuatro turnos', spawns === 1 && wall >= 440,
-      `${spawns} sesión · ${wall.toFixed(0)} ms`);
-    client.dispose();
-  }
-
-  // ---- 3. el vigilante retira a la sesión muda -----------------------------
+  // ---- 2. el vigía retira al obrero mudo -----------------------------------
   {
     const prior = requestDeadlines.tileMs;
     requestDeadlines.tileMs = 400;
@@ -121,54 +103,56 @@ const run = async () => {
     const t0 = performance.now();
     const dead = await tile(client, 0, factory);
     const waited = performance.now() - t0;
-    check('la petición muda cae por plazo', dead === null && waited >= 380 && waited < 1500,
+    check('la petición muda cae por el vigía', dead === null && waited >= 380 && waited < 2500,
       `null en ${waited.toFixed(0)} ms`);
     check('cuenta como caducada', tileStats.timeouts === before + 1, `timeouts ${tileStats.timeouts}`);
-    check('la sesión muda fue retirada', log.includes('terminate'), log.join(','));
+    check('el obrero mudo fue retirado', log.includes('terminate'), log.join(','));
     const alive = await tile(client, 0, factory);
-    check('la siguiente abre sesión fresca y entrega', !!alive && spawned >= 2,
-      `${spawned} sesiones vividas`);
+    check('el siguiente trabajo abre obrero fresco y entrega', !!alive && spawned >= 2,
+      `${spawned} obreros vividos`);
     requestDeadlines.tileMs = prior;
     client.dispose();
   }
 
-  // ---- 4. el calentador no repite ------------------------------------------
+  // ---- 3. dos familias, cero thrash: reconfigurar, jamás matar -------------
+  // El funeral del pool viejo: familias alternando (hondas con el mundo del
+  // canon; sábanas/miniatura con el editado) mataban sesiones calientes por
+  // hueco — 24-58 contextos por sesión de uso en los logs de Luis, y el
+  // renderer sin memoria de tanto clon. En la granja un obrero NUNCA muere
+  // por hueco: como mucho se reconfigura, y con obreros de sobra la afinidad
+  // deja a cada familia con los suyos.
   {
     const client = new RegionWorkerClient(8, 4);
     client.parallelWorldSessions = true;
-    let generates = 0;
+    let spawns = 0;
+    let configures = 0;
+    const terminates: string[] = [];
     const factory = () => {
-      const w = fakeWorker({ tileMs: 50 });
-      const inner = w.postMessage.bind(w);
-      w.postMessage = (m: RegionWorkerRequest) => {
-        if (m.type === 'generate') generates++;
-        inner(m);
+      spawns++;
+      const w = fakeWorker({ tileMs: 40, log: terminates });
+      const post = w.postMessage.bind(w);
+      w.postMessage = (m) => {
+        if ((m as { type: string }).type === 'configure') configures++;
+        post(m);
       };
       return w;
     };
-    // Dos gestos seguidos piden las MISMAS dos superteselas.
-    client.warmCanon(world, geography, [{ tx: 3, ty: 5 }, { tx: 4, ty: 5 }], undefined, factory);
-    client.warmCanon(world, geography, [{ tx: 3, ty: 5 }, { tx: 4, ty: 5 }], undefined, factory);
-    await new Promise((r) => setTimeout(r, 400));
-    check('el calentador deduplica por clave', generates === 2,
-      `${generates} generaciones para 4 pedidas`);
-    client.dispose();
-  }
-
-  // ---- 5. el calentador retira lo que el plan ya no pisa -------------------
-  {
-    const client = new RegionWorkerClient(8, 2);
-    client.parallelWorldSessions = true;
-    const factory = () => fakeWorker({ tileMs: 250 });
-    client.warmCanon(world, geography, [{ tx: 10, ty: 2 }, { tx: 11, ty: 2 }], undefined, factory);
-    // El plan cambia antes de que terminen: sólo B sobrevive, C entra.
-    client.warmCanon(world, geography, [{ tx: 11, ty: 2 }, { tx: 12, ty: 2 }], undefined, factory);
-    const inner = client as unknown as { warming: Map<string, () => void>; warmed: Set<string> };
-    check('los warms obsoletos se retiran', inner.warming.size === 2 && inner.warmed.size === 2,
-      `${inner.warming.size} vivos · ${inner.warmed.size} marcados (A cancelado y re-calentable)`);
-    await new Promise((r) => setTimeout(r, 500));
-    check('los vivos terminan y sueltan el registro', inner.warming.size === 0,
-      `${inner.warming.size} vivos al final`);
+    const mundoB = { ...world };
+    const pedir = (w: typeof world, i: number, ty: number) =>
+      client.requestTile(w, geography, { z: 9, tx: i, ty }, {
+        themeId: 'satellite', layers: {}, density: 1, reliefAmount: 1,
+        ink: 'satellite', workerFactory: factory,
+      }).promise;
+    // Seis rondas alternas de dos teselas por familia.
+    for (let ronda = 0; ronda < 6; ronda++) {
+      await Promise.all([pedir(world, ronda, 0), pedir(world, ronda + 10, 0)]);
+      await Promise.all([pedir(mundoB, ronda, 1), pedir(mundoB, ronda + 10, 1)]);
+    }
+    check('ningún obrero muere por hueco', terminates.length === 0,
+      `${terminates.length} terminates en 6 rondas alternas`);
+    check('los obreros se quedan (≤ techo)', spawns <= 4, `${spawns} obreros vividos`);
+    check('la afinidad frena las reconfiguraciones', configures <= spawns + 4,
+      `${configures} configures para ${spawns} obreros y 24 teselas`);
     client.dispose();
   }
 

@@ -28,6 +28,26 @@ export function hashEditsString(s: string): string {
   return (h >>> 0).toString(36);
 }
 
+/**
+ * JSON con las claves ORDENADAS, recursivo. `JSON.stringify` serializa en
+ * orden de inserción, y los `params` de un mundo recién generado y los del
+ * mismo mundo decodificado de la instantánea pueden llevar las mismas claves
+ * en distinto orden — con lo que una clave de invalidación «cambiaba» entre
+ * sesiones y el almacén nunca acertaba: trece superteselas guardadas y cero
+ * sembradas (la captura de Luis, 2026-08-12). La identidad debe depender del
+ * CONTENIDO, nunca del orden en que un objeto fue construido. Vive aquí — el
+ * módulo puro que ya comparten cliente, workers y puertas de persistencia —
+ * porque dos copias de esta función son dos claves que pueden divergir.
+ */
+export function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'undefined';
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const keys = Object.keys(value as Record<string, unknown>)
+    .filter((k) => (value as Record<string, unknown>)[k] !== undefined)
+    .sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`).join(',')}}`;
+}
+
 export function packRegionGeography(
   geography: HumanGeography,
 ): RegionWorkerGeography {

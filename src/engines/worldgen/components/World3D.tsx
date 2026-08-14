@@ -38,7 +38,8 @@ import {
   planZoomSkin, samePlan, zoomSkinCovers, MAX_ZOOM_SKIN_SPAN,
   type SkinWindow, type ZoomSkinPlan,
 } from '../cartography/zoomSkin';
-import { regionClient, tileStats, oldestInFlightMs } from '../region/client';
+import { tileStats, oldestInFlightMs } from '../region/client';
+import { serveTile } from '../region/tileService';
 import { drawRoadNetwork, roadOverlayAlpha } from '../cartography/roadOverlay';
 import { drawTownStains } from '../cartography/townStains';
 import {
@@ -94,6 +95,13 @@ export type Shape3D = SculptShape;
 interface World3DProps {
   world: WorldData;
   geography?: HumanGeography | null;
+  /** El mundo PRÍSTINO del canon y sus ediciones serializadas — la identidad
+   *  de CONTENIDO de las teselas hondas. Con ellos, una tesela que el 2D ya
+   *  entintó se comparte (mismo encargo del servicio) o llega del almacén de
+   *  entintadas; sin ellos, el 3D pedía por la identidad del objeto editado y
+   *  ni el canon residente ni el disco le servían de nada. */
+  canonWorld?: WorldData | null;
+  canonEdits?: string;
   theme: CartoTheme;
   waypoints: WorldWaypoint[];
   showWaypoints: boolean;
@@ -455,7 +463,7 @@ interface ScreenMark {
 }
 
 export default function World3D({
-  world, geography, theme, waypoints, showWaypoints, showSettlements,
+  world, geography, canonWorld, canonEdits, theme, waypoints, showWaypoints, showSettlements,
   showLandmarks, selectedSpatialKey, onSelectSpatialEntity, regionalEntities = [],
   viewport, onViewportChange,
   skin, shape, onShape, exaggeration, tool, onTool, onEdit, onEdits, revision,
@@ -596,6 +604,8 @@ export default function World3D({
     zoomInputs: {
       world: WorldData;
       geography: HumanGeography | null;
+      canonWorld: WorldData | null;
+      canonEdits: string | undefined;
       skin: Skin3D;
       theme: CartoTheme;
       revision: number;
@@ -841,16 +851,28 @@ export default function World3D({
         const carta = q.skin === 'dibujado';
         // Handed back whole, so the store can cancel a tile the camera has
         // already turned away from instead of queueing behind it.
-        const req = regionClient.requestTile(q.world, q.geography, key, {
+        // Por el SERVICIO (ARQUITECTURA-TESELAS §3.1), y las hondas con la
+        // identidad de CONTENIDO (mundo prístino del canon + ediciones), la
+        // misma que usa el 2D: una tesela que el 2D ya entintó se comparte o
+        // llega del almacén de entintadas en milisegundos — antes el 3D pedía
+        // por el objeto editado y ni el canon caliente ni el disco le valían.
+        const deep = key.z >= (carta ? DEEP_TILE_Z : SAT_DEEP_Z)
+          && !!q.canonWorld && q.geography.depth === 'full';
+        const req = serveTile(deep ? q.canonWorld! : q.world, q.geography, key, {
           ink: carta ? 'carta' : 'satellite',
           themeId: carta ? q.theme.id : 'satellite',
           layers: { rivers: true, roads: true, fields: true },
           density: 1,
           reliefAmount: 1,
+          // `?? ''`: hondo sin ediciones sigue siendo contenido direccionable
+          // (ver la nota gemela en Map2D — el `s:r3` del log de Luis).
+          edits: deep ? (q.canonEdits ?? '') : undefined,
           // EL 3D CONSUME (decisión de Luis, 2026-08-11): una tesela honda
           // sólo se entinta si su canon ya es residente en el worker; si no,
           // el worker la declina al instante. Ninguna rueda de ratón paga
-          // superteselas de 156 km desde esta vista.
+          // superteselas de 156 km desde esta vista. (El almacén de
+          // entintadas responde ANTES de este contrato: un disco que acierta
+          // no molesta al worker.)
           consumeOnly: true,
         });
         return {
@@ -886,7 +908,8 @@ export default function World3D({
       zoomWant: null as SkinWindow | null,
       zoomStore,
       zoomInputs: {
-        world, geography: geography ?? null, skin, theme, revision,
+        world, geography: geography ?? null,
+        canonWorld: canonWorld ?? null, canonEdits, skin, theme, revision,
       },
       onZoomArrive: () => undefined,
       composeZoom: (() => undefined) as (plan: ZoomSkinPlan) => void,
@@ -1426,8 +1449,11 @@ export default function World3D({
   useEffect(() => {
     const st = R.current;
     if (!st) return;
-    st.zoomInputs = { world, geography: geography ?? null, skin, theme, revision };
-  }, [world, geography, skin, theme, revision, ready]);
+    st.zoomInputs = {
+      world, geography: geography ?? null,
+      canonWorld: canonWorld ?? null, canonEdits, skin, theme, revision,
+    };
+  }, [world, geography, canonWorld, canonEdits, skin, theme, revision, ready]);
 
   const composeZoomSkin = useCallback((plan: ZoomSkinPlan) => {
     const st = R.current;
@@ -1497,12 +1523,13 @@ export default function World3D({
      * nunca se declina: se pide SIEMPRE como respaldo del mismo encuadre — se
      * pide PRIMERO, para que el pool fabrique antes lo que seguro se va a ver
      * — y el paseo por antepasados de `draw` lo funde bajo las teselas hondas
-     * que sí lleguen. `lastAsk` del store es por nivel justo para que estas
-     * dos peticiones por fotograma no se pisen la dedupe.
+     * que sí lleguen. Ambos niveles se declaran en un solo plan atómico para
+     * que ninguno cancele o invalide la deduplicación del otro.
      */
     const floorZ = (st.zoomInputs.skin === 'dibujado' ? DEEP_TILE_Z : SAT_DEEP_Z) - 1;
-    if (plan.z > floorZ) st.zoomStore.want(w, floorZ, plan.view);
-    st.zoomStore.want(w, plan.z, plan.view);
+    st.zoomStore.wantPlan(w, plan.z > floorZ
+      ? [{ z: floorZ, view: plan.view }, { z: plan.z, view: plan.view }]
+      : [{ z: plan.z, view: plan.view }]);
 
     const mPerPx = (plan.view.w * (EARTH_KM / w.width) * 1000) / plan.width;
     const done = got.exact >= got.needed;

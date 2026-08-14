@@ -65,6 +65,8 @@ export class DisplayTileStore {
   private renderer: TileRenderer;
   private onArrive: () => void;
   private capacity: number;
+  /** El re-dibujo pendiente tras una ola de nulos; ver `nudge`. */
+  private nudgeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(renderer: TileRenderer, onArrive: () => void, capacity = 320 /* ≈84 MB of 256² RGBA */) {
     this.renderer = renderer;
@@ -82,7 +84,7 @@ export class DisplayTileStore {
     // the cost the note on `lastAsk` says it prevents. It belongs INSIDE the
     // change: a new generation is when the previous ask stops meaning anything.
     if (gen === this.generation) return;
-    this.lastAsk.clear();
+    this.lastAsk = '';
     this.generation = gen;
     this.epoch++;
     for (const e of this.tiles.values()) close(e.bmp);
@@ -101,53 +103,56 @@ export class DisplayTileStore {
     return e.bmp;
   }
 
-  /** Ask for every tile of the view at level z, nearest the centre first. */
-  /** The last set of tiles asked for, so an identical ask costs nothing. The
-   *  carta calls `want` once per interim FRAME of a gesture, and now that a
-   *  `want` cancels what fell out of the window, an unchanged repeat would
-   *  cancel-and-refetch the same tiles for the length of the pan.
-   *  POR NIVEL desde que el 3D pide dos niveles por fotograma (el del plan y
-   *  el suelo somero de respaldo): con una sola cadena, cada llamada pisaba a
-   *  la otra y la dedupe no disparaba nunca — el coste por fotograma que esta
-   *  nota existe para impedir. */
-  private lastAsk = new Map<number, string>();
+  /** The complete last plan, so an identical frame costs nothing. Both the
+   *  carta and the 3D call this during gestures; deduping the whole plan avoids
+   *  rebuilding coverage while still letting a consumer ask atomically for a
+   *  coarse floor and a sharp level. */
+  private lastAsk = '';
 
   want(world: { width: number; height: number }, z: number, view: CartoView): void {
-    const keys = tilesInView(world, z, view);
-    const cx = view.x + view.w / 2, cy = view.y + view.h / 2;
-    const cells = world.width / tileCountX(z);
-    keys.sort((a, b) => {
-      // Distance from the UNWRAPPED column. The wrapped one puts a tile a whole
-      // world away whenever the view straddles the seam, so "nearest first"
-      // asked for the far edge before the middle of the screen.
-      const da = ((a.viewTx + 0.5) * cells - cx) ** 2 + ((a.ty + 0.5) * cells - cy) ** 2;
-      const db = ((b.viewTx + 0.5) * cells - cx) ** 2 + ((b.ty + 0.5) * cells - cy) ** 2;
-      return da - db;
-    });
-    // Drop what the reader has moved OFF before asking for what they moved
-    // onto. A one-second pan at deep zoom crosses ~30 tiles, each a real canon
-    // build of seconds and tens of MB, and the pool serves them in order — so
-    // without this the tile under the reader's eyes when they stop waits behind
-    // every tile they merely flew over.
-    //
-    // ONLY AT THIS LEVEL, though. `inflight` is keyed across every level, and
-    // cancelling the others kills exactly the tiles `draw` falls back on: its
-    // "walk up, an ancestor's quarter, blurry beats blank" loop needs the
-    // parents. Wheeling from z9 to z14 cancelled z9…z13 on the way down, so the
-    // gesture ended on the bare 39 km raster instead of on a progressively
-    // sharper blur. Parents finish; only siblings the reader flew past go.
+    this.wantPlan(world, [{ z, view }]);
+  }
+
+  /** Replace the complete wanted set atomically. Consumers which need both a
+   * coarse floor and a sharp level submit both together. */
+  wantPlan(
+    world: { width: number; height: number },
+    levels: ReadonlyArray<{ z: number; view: CartoView }>,
+  ): void {
     const wanted = new Set<string>();
-    for (const key of keys) wanted.add(tileId(key));
-    const ask = `${this.generation}|${z}|${[...wanted].join()}`;
-    if (ask === this.lastAsk.get(z)) return;
-    this.lastAsk.set(z, ask);
-    const levelPrefix = `${z}/`;
+    const ordered: TileKey[] = [];
+    const parts: string[] = [];
+    for (const { z, view } of levels) {
+      const keys = tilesInView(world, z, view);
+      const cx = view.x + view.w / 2, cy = view.y + view.h / 2;
+      const cells = world.width / tileCountX(z);
+      keys.sort((a, b) => {
+        const da = ((a.viewTx + 0.5) * cells - cx) ** 2 + ((a.ty + 0.5) * cells - cy) ** 2;
+        const db = ((b.viewTx + 0.5) * cells - cx) ** 2 + ((b.ty + 0.5) * cells - cy) ** 2;
+        return da - db;
+      });
+      const ids: string[] = [];
+      for (const key of keys) {
+        const id = tileId(key);
+        ids.push(id);
+        if (wanted.has(id)) continue;
+        wanted.add(id);
+        ordered.push(key);
+      }
+      parts.push(`${z}:${ids.join(',')}`);
+    }
+    const ask = `${this.generation}|${parts.join('|')}`;
+    if (ask === this.lastAsk) return;
+    this.lastAsk = ask;
+
+    // Resident parents stay in the LRU as fallback. Only obsolete unfinished
+    // work is cancelled, across every level crossed by the camera.
     for (const [id, pending] of this.inflight) {
-      if (wanted.has(id) || !id.startsWith(levelPrefix)) continue;
+      if (wanted.has(id)) continue;
       this.inflight.delete(id);
       pending.cancel();
     }
-    for (const key of keys) this.fetch(key);
+    for (const key of ordered) this.fetch(key);
   }
 
   private fetch(key: TileKey): void {
@@ -176,7 +181,8 @@ export class DisplayTileStore {
         // contó con que este almacén re-pediría; borrar la memoria del nivel
         // es lo que lo hace verdad. Cuesta re-recorrer un `want` — los
         // residentes y los volando se saltan solos.
-        this.lastAsk.delete(key.z);
+        this.lastAsk = '';
+        this.nudge();
         return;
       }
       // A stale country, or a store the component has already torn down:
@@ -190,13 +196,45 @@ export class DisplayTileStore {
       if (prior && prior.bmp !== bmp) close(prior.bmp);
       this.tiles.set(id, { bmp, at: this.stamp++ });
       this.evict();
+      // Una llegada REAL devuelve el empujón a su paso corto (ver `nudge`).
+      this.nudgeDelayMs = 400;
       this.onArrive();
     }).catch(() => {
       this.settled(id, pending);
       // El mismo hueco por la vía del rechazo (una cancelación que asienta
-      // tarde): re-pedible, no eterno.
-      this.lastAsk.delete(key.z);
+      // tarde): re-pedible, no eterno — y con el mismo empujón.
+      this.lastAsk = '';
+      this.nudge();
     });
+  }
+
+  /**
+   * UNA OLA DE NULOS TIENE QUE VOLVER A PEDIRSE SOLA. Un nulo borra la
+   * memoria del plan (`lastAsk`) para que el siguiente `want` re-pida — pero
+   * el siguiente `want` sólo corre cuando algo DIBUJA, y con la cámara quieta
+   * sólo dibuja `onArrive`… que un nulo no dispara. Si el plan entero se
+   * resuelve en nulos (la cola del servicio descartó una ola completa), no
+   * queda ninguna llegada que despierte el bucle: el 0/60 clavado con
+   * EN VUELO 0 de la captura de Luis (2026-08-13) — el mapa congelado en
+   * borroso para siempre sobre una vista perfectamente sana. Este empujón
+   * coalescido convierte el nulo en lo que siempre debió ser: «ahora no —
+   * vuelve a preguntar en nada». Los 400 ms le dan a la cola tiempo de
+   * drenar algo antes del re-pedido, para no girar en seco.
+   */
+  /** Retraso vigente del empujón. CON RETROCESO: cada empujón sin llegada
+   *  real lo multiplica (×1,7 hasta 6 s) y cualquier tesela que SÍ llega lo
+   *  devuelve a 400 ms. Sin esto, el 3D sobre canon frío era un bucle de
+   *  sondeo eterno — pedir → declinar en µs → null → empujón a los 400 ms →
+   *  pedir… (las 432 declinadas del tercer parte de Luis, 2026-08-14). */
+  private nudgeDelayMs = 400;
+
+  private nudge(): void {
+    if (this.nudgeTimer !== null || this.disposed) return;
+    this.nudgeTimer = setTimeout(() => {
+      this.nudgeTimer = null;
+      if (!this.disposed) this.onArrive();
+    }, this.nudgeDelayMs);
+    this.nudgeDelayMs = Math.min(6_000, Math.round(this.nudgeDelayMs * 1.7));
   }
 
   /**
@@ -300,8 +338,9 @@ export class DisplayTileStore {
   }
 
   dispose(): void {
-    this.lastAsk.clear();
+    this.lastAsk = '';
     this.disposed = true;
+    if (this.nudgeTimer !== null) { clearTimeout(this.nudgeTimer); this.nudgeTimer = null; }
     this.epoch++;
     for (const e of this.tiles.values()) close(e.bmp);
     this.tiles.clear();

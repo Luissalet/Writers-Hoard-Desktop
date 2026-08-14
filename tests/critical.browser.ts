@@ -41,10 +41,11 @@ function assert(condition: unknown, message: string): asserts condition {
 async function testMigration(): Promise<void> {
   await db.delete();
   await db.open();
-  assert(db.verno === 24, `expected schema v24, received v${db.verno}`);
+  assert(db.verno === 26, `expected schema v26, received v${db.verno}`);
   for (const table of [
     'entityLinks', 'citations', 'publishingProfiles', 'conversionReceipts',
     'boards', 'boardNodes', 'boardEdges', 'boardLayers', 'boardViews',
+    'canonTiles', 'renderedTiles',
   ]) {
     assert(db.tables.some(row => row.name === table), `missing migrated table ${table}`);
   }
@@ -56,7 +57,7 @@ async function testMigration(): Promise<void> {
   ]) {
     assert(!db.tables.some(row => row.name === retired), `retired table ${retired} still exists`);
   }
-  passed.push('Dexie migration v24');
+  passed.push('Dexie migration v26');
 }
 
 async function seedBackupFixture(projectId: string): Promise<string[]> {

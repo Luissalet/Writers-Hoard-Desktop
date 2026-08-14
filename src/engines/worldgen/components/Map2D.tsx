@@ -39,14 +39,16 @@ import {
   type SemanticZoomTier,
 } from '../core/semanticZoom';
 import { DisplayTileStore } from '../cartography/tileStore';
+import { map2DLayerPlan } from '../cartography/map2dLayers';
 import { levelFor, tileCountX, tileId, TILE_PX, type TileKey } from '../cartography/tiles';
-import { drawRoadNetwork, roadOverlayAlpha, unwrapRoad } from '../cartography/roadOverlay';
+import { drawRoadNetwork, unwrapRoad } from '../cartography/roadOverlay';
 import { drawRealmBorders, realmBorders, realmTint } from '../cartography/realmOverlay';
 import {
-  MAX_SAT_TILE_Z, SAT_DEEP_Z, satPxPerCanonCell, satelliteDeepSupported,
+  MAX_SAT_TILE_Z, SAT_DEEP_Z, satelliteDeepSupported,
 } from '../region/satelliteTile';
-import { regionClient, tileStats, oldestInFlightMs } from '../region/client';
-import { TILE_WORLD_CELLS, wrapTx } from '../region/tiles';
+import { regionClient, tileStats, oldestInFlightMs, traceTiles } from '../region/client';
+import { serveTile, tileServiceStats } from '../region/tileService';
+import { mapSourceKey } from '../region/contentIdentity';
 import { forgeAvailable, forgeDegraded } from '../forge/bridge';
 import { canonWorldBound } from '../canonSnapshots';
 import type { TilePlace } from '../region/deepTile';
@@ -1048,28 +1050,48 @@ export default function Map2D({
   tileProps.current = { world, geography, canonWorld, canonEdits, showRivers };
   const deepPlaces = useRef(new Map<string, TilePlace[]>());
   const requestDrawRef = useRef<() => void>(() => undefined);
-  const tileStore = useMemo(() => new DisplayTileStore(
-    (key: TileKey) => {
+  const tileGeneration = useRef('');
+  const tileStore = useRef<DisplayTileStore | null>(null);
+  useEffect(() => {
+    // The store is an external resource and must be created by the effect that
+    // owns it. StrictMode runs setup -> cleanup -> setup; the old memoized store
+    // survived that probe as disposed and closed every later bitmap (0/N).
+    const store = new DisplayTileStore((key: TileKey) => {
       const q = tileProps.current;
       if (!q.geography) return Promise.resolve(null);
-      const deep = key.z >= SAT_DEEP_Z && !!q.canonWorld;
+      // `places` is an intermediate geography snapshot. Persistent deep tiles
+      // are valid only once roads and the inhabited context are complete.
+      const deep = key.z >= SAT_DEEP_Z && !!q.canonWorld && q.geography.depth === 'full';
       // The generation this request belongs to, captured NOW.
       const bornAt = tileGeneration.current;
       // The REQUEST, not just its promise. `DisplayTileStore` cancels tiles that
       // leave the wanted set, and it can only do that if the loader hands the
       // handle back — otherwise a one-second pan still queues every tile it
       // crossed and the one the reader stopped on waits behind all of them.
-      const req = regionClient.requestTile(
+      //
+      // POR EL SERVICIO, no por el pool a pelo (ARQUITECTURA-TESELAS §3.1):
+      // el servicio sirve del almacén de entintadas primero (revisitas en
+      // milisegundos, también entre sesiones), mantiene la cola corta y
+      // descartable delante del pool, y comparte el render con cualquier
+      // otra vista que quiera la misma tesela.
+      const req = serveTile(
         deep ? q.canonWorld! : q.world,
         q.geography,
         key,
         {
           ink: 'satellite',
           themeId: 'satellite',
-          layers: { rivers: q.showRivers, roads: true, fields: true },
+          // Tiles own terrain and water. Roads and principal city marks are
+          // authoritative screen-space overlays and cannot disappear on misses.
+          layers: map2DLayerPlan(q.showRivers).tileLayers,
           density: 1,
           reliefAmount: 1,
-          edits: deep ? q.canonEdits : undefined,
+          // `?? ''`: un mundo SIN ediciones también es suelo hondo con
+          // identidad de contenido — con `undefined` el servicio lo trataba
+          // como somero (clave por revisión, sin almacén de entintadas): el
+          // `s:r3` del log de Luis del 2026-08-13, disco 0/0 y guardadas 0
+          // en el mundo recién abierto.
+          edits: deep ? (q.canonEdits ?? '') : undefined,
         },
       );
       const promise = req.promise.then((res) => {
@@ -1096,11 +1118,27 @@ export default function Map2D({
         return res.bitmap;
       }).catch(() => null);
       return { promise, cancel: req.cancel };
-    },
-    () => requestDrawRef.current(),
-  ), []);
-  useEffect(() => () => tileStore.dispose(), [tileStore]);
-  const tileGeneration = useRef('');
+      },
+      () => requestDrawRef.current(),
+    /**
+     * 224, no 512. Aquella subida (2026-08-13) compraba «volver sobre tus
+     * pasos sin pagar la cola» a cambio de ~134 MB de RGBA 256² EN EL HILO
+     * PRINCIPAL — y ese apilamiento acabó en «RangeError: Array buffer
+     * allocation failed» en la máquina de Luis (2026-08-14). Desde F1 volver
+     * sobre tus pasos ya no paga la cola: lo paga el ALMACÉN DE ENTINTADAS,
+     * en milisegundos y desde el disco. 224 teselas son ~59 MB y cubren dos
+     * pantallas del nivel vigente más sus padres.
+     */
+      224,
+    );
+    tileStore.current = store;
+    traceTiles('almacén-pantalla', 'montado');
+    return () => {
+      traceTiles('almacén-pantalla', 'DESMONTADO (pirámide fuera)');
+      if (tileStore.current === store) tileStore.current = null;
+      store.dispose();
+    };
+  }, []);
   /** Level the pyramid is drawing at, for the parts of the UI outside draw(). */
   const tileLevel = useRef(-1);
   /** The generation, level and (rounded) window the store was last asked to
@@ -1486,11 +1524,17 @@ export default function Map2D({
       }
     };
 
+    const layerPlan = map2DLayerPlan(showRivers);
+    const blitRivers = () => {
+      if (!layerPlan.riverFallback || viewMode === 'plates' || viewMode === 'flow') return;
+      for (let ox = firstOx; ox <= lastOx; ox += mapW) {
+        ctx.drawImage(riverCanvas, ox, view.oy, mapW, mapH);
+        if (!wraps) break;
+      }
+    };
+
     for (let ox = firstOx; ox <= lastOx; ox += mapW) {
       ctx.drawImage(baseCanvas, ox, view.oy, mapW, mapH);
-      if (showRivers && viewMode !== 'plates' && viewMode !== 'flow') {
-        ctx.drawImage(riverCanvas, ox, view.oy, mapW, mapH);
-      }
       if (!wraps) break;
     }
     // `!tilesEligible` matters: the second call below lives INSIDE the pyramid
@@ -1500,6 +1544,9 @@ export default function Map2D({
     // but the ring, which is the failure the conditional order exists to prevent.
     const pyramidHere = viewMode === 'atlas' && projection === 'equirect' && !!geography;
     if (!live || !pyramidHere) blitSharp();
+    // The settled sharp window contains terrain only. Rivers must sit above it,
+    // otherwise that fallback erases them before any exact tile can arrive.
+    blitRivers();
 
     // ---- the satellite pyramid ---------------------------------------------
     // Drawn OVER the world raster, never instead of it. The raster is the
@@ -1516,16 +1563,15 @@ export default function Map2D({
     // wrong about why: the pyramid draws AFTER the sharp window, so it covered
     // the only surface the live brush updates and the reader saw nothing but the
     // ring. The order is now conditional — see `blitSharp` above.
-    const tilesEligible = pyramidHere;
+    const displayTiles = tileStore.current;
+    const tilesEligible = pyramidHere && !!displayTiles;
     let tileZ = -1;
-    /** Si el plan de teselas del fotograma está ENTREGADO entero (exacto). La
-     *  cesión de rótulos al canon depende de esto: ceder a teselas que aún no
-     *  han llegado dejaba el mapa sin nombres justo mientras carga — la
-     *  captura de Luis del 2026-08-12. */
-    let tilesDelivered = false;
+    /** Cobertura exacta del plan vigente. Sólo diagnostica la convergencia:
+     *  carreteras, ríos de respaldo y ciudades principales siguen siendo
+     *  entidades de pantalla aunque falte una tesela. */
     let tilePlanDebug: { needed: number; exact: number } | null = null;
     if (!tilesEligible) tileLevel.current = -1;
-    if (tilesEligible) {
+    if (tilesEligible && displayTiles) {
       // A painted stroke is a different country: bumping the generation empties
       // the store rather than showing tiles of the world as it was.
       // Keyed on what the tiles actually INK, not on object identity. Keying on
@@ -1535,14 +1581,20 @@ export default function Map2D({
       // every bitmap and re-configured the worker session — the reader watched
       // the ground go blurry a second time for no change they could see. The
       // counts move exactly when a road, a town or a ruin appears or goes.
-      const gen = `${worldId(world)}:${revision}`
-        + `:${geography ? `${geography.roads.length}/${geography.settlements.length}/${geography.ruins.length}` : '-'}`
-        + `:${showRivers ? 1 : 0}:${canonWorld ? worldId(canonWorld) : 0}`;
+      const gen = geography
+        ? `${mapSourceKey(world, geography, canonEdits ?? '')}`
+          + `:rivers${showRivers ? 1 : 0}:canon${canonWorld ? worldId(canonWorld) : 0}`
+        : `${worldId(world)}:${revision}:pending`;
       if (gen !== tileGeneration.current) {
+        // DEBUG (caza de olas, 2026-08-13): el log de Luis enseñó olas
+        // completas de re-pedidos (+208.0 y +209.5) sin causa visible — esta
+        // traza nombra QUÉ componente de la generación se movió. Quitar con
+        // el resto del DEBUG cuando la caza cierre.
+        traceTiles('generación', `«${tileGeneration.current}» → «${gen}»`);
         tileGeneration.current = gen;
         deepPlaces.current.clear();
       }
-      tileStore.setGeneration(gen);
+      displayTiles.setGeneration(gen);
       // `topZ`, not `MAX_SAT_TILE_Z`: the camera stops half a level past the
       // deepest level this world supports, and `levelFor` rounds UP — so a bare
       // `MAX_SAT_TILE_Z` here would still ask for the level above the floor at
@@ -1582,29 +1634,20 @@ export default function Map2D({
         // india: EN VUELO 1 con quince cores parados (captura de Luis,
         // 2026-08-12). Deduplicado dentro del cliente; fuera de suelo hondo
         // no hace nada.
-        if (tileZ >= SAT_DEEP_Z && canonWorld && geography
-          && satelliteDeepSupported(world, tileZ)) {
-          const ids: { tx: number; ty: number }[] = [];
-          const ty0 = Math.max(0, Math.floor(tv.y / TILE_WORLD_CELLS));
-          const ty1 = Math.min(Math.ceil(H / TILE_WORLD_CELLS) - 1,
-            Math.floor((tv.y + tv.h) / TILE_WORLD_CELLS));
-          for (let ty = ty0; ty <= ty1; ty++) {
-            for (let tx = Math.floor(tv.x / TILE_WORLD_CELLS);
-              tx <= Math.floor((tv.x + tv.w) / TILE_WORLD_CELLS); tx++) {
-              ids.push({ tx: wrapTx(world, tx), ty });
-            }
-          }
-          regionClient.warmCanon(canonWorld, geography, ids, canonEdits);
-        }
-        tileStore.want(world, tileZ, tv);
+
+        // (El calentador de canon vivía aquí; la granja + el servicio + el
+        // almacén de entintadas lo jubilaron el 2026-08-14 — ver client.ts.)
+        displayTiles.want(world, tileZ, tv);
       }
-      const got = tileStore.draw(ctx, world, tileZ, tv, { x: 0, y: 0, w: cw, h: ch });
-      tilesDelivered = got.exact >= got.needed;
+      const got = displayTiles.draw(ctx, world, tileZ, tv, { x: 0, y: 0, w: cw, h: ch });
       tilePlanDebug = got;
       // The live ground goes back on top: `patchLive` writes the deforming
       // cells into the sharp window and nowhere else, so under the tiles it is
       // invisible and the reader paints by ring alone.
-      if (live) blitSharp();
+      if (live) {
+        blitSharp();
+        blitRivers();
+      }
       // Say so when the ground under the reader is still an ancestor's blur.
       // A stroke empties the store — the canon has to be rebuilt with it — and
       // without a word of warning that reads as "the paint did nothing".
@@ -1629,32 +1672,10 @@ export default function Map2D({
       }
     }
 
-    /**
-     * THE TILES ARE DRAWING THE INHABITED WORLD THEMSELVES.
-     *
-     * From the level where deep tiles are eligible they ink real buildings and
-     * re-emit the world's own towns as `deepPlaces`, so every layer above that
-     * draws a place has to stand down or the reader gets the same hamlet twice.
-     * The Carta has had exactly this rule since it existed — `settlements:
-     * wantMarks && !deep` in `CartoMap.drawLettering` — and it is the rule two
-     * separate layers here were missing.
-     *
-     * Declared HERE, where `tileZ` settles, rather than three screens down next
-     * to the settlement dots: it is a fact about the frame, and every consumer
-     * of it has to agree. `satelliteDeepSupported` is part of it because on a
-     * world whose canon lattice does not divide the display grid the pyramid
-     * never reaches canon ground, nothing is inked, and standing down would
-     * leave the map with no places at all.
-     */
-    // …y ENTREGADAS. `deepMarks` cede los rótulos del mundo porque las teselas
-    // hondas los traen ellas — pero eso sólo es verdad de las teselas que HAN
-    // LLEGADO. Ceder mientras el canon se genera (30 s por supertesela la
-    // primera vez) dejaba al lector sin la etiqueta de su ciudad exactamente
-    // durante la espera, que desde fuera se lee como «desaparece al hacer
-    // zoom» (Luis, 2026-08-12). Mientras falte una tesela, el mundo sigue
-    // rotulando; al completarse el plan, cede en el mismo fotograma.
-    const deepMarks = tilesEligible && tileZ >= SAT_DEEP_Z
-      && !!canonWorld && satelliteDeepSupported(world, tileZ) && tilesDelivered;
+    /** Principal settlements are an authoritative screen-space layer. Deep
+     * tiles add buildings and minor places, but never take ownership of city
+     * identity or labels; a cache miss therefore cannot hide a city. */
+    const deepMarks = !layerPlan.principalSettlements;
 
     // Book a fresh window once the view rests. Booked from draw() so any
     // gesture reschedules it; rendered synchronously after 170 ms of quiet,
@@ -1915,19 +1936,10 @@ export default function Map2D({
     // road runs THROUGH the country and the towns sit ON it, so a dot must
     // never end up hidden under a calzada.
     //
-    // The deep tiles ink their own draped tracks, but only from the level where
-    // a canon cell is 1,5 output pixels — z11 on a 2048 world. Above that this
-    // layer is the only road there is; from there it fades out so the two
-    // drawings of the same road cross over instead of blinking.
+    // Roads are an authoritative screen-space layer at every zoom. Deep terrain
+    // tiles deliberately do not bake them, so loading state cannot hide them.
     if (showRoads && geography && geography.roads.length) {
-      // `satelliteDeepSupported` matters: on a world whose canon lattice does
-      // not divide the display grid the pyramid never reaches canon ground, so
-      // nothing else would ever draw a road and fading out would leave the map
-      // with none at any zoom.
-      const inkedPx = tilesEligible && canonWorld && tileZ >= SAT_DEEP_Z
-        && satelliteDeepSupported(world, tileZ)
-        ? satPxPerCanonCell(world, tileZ) : 0;
-      const alpha = roadOverlayAlpha(inkedPx);
+      const alpha = layerPlan.roadAlpha;
       if (alpha > 0.01) {
         const pxPerCell = (PW * scale) / W;
         // Once per road array, ever — see `roadBoxes`. This is the un-wrap that
@@ -2220,23 +2232,10 @@ export default function Map2D({
       }
     }
 
-    // Towns. Drawn before the waypoints so a pin the reader placed is never
-    // hidden behind a dot the generator placed.
-    // At canon depth the tiles carry the real buildings AND re-emit the world's
-    // own towns as places, so drawing the rank dots too stamped a second, darker
-    // dot on every town and put two identical names into the declutterer to
-    // fight each other. The Carta solved this long ago with `settlements:
-    // wantMarks && !deep`; this is the same rule.
-    //
-    // But only the DOT. The first version of this skipped the whole block, and
-    // the block is where the hits are pushed — so below about 850 km of span
-    // (z9 on a 1400 px canvas) there were no settlement hits at all: clicking a
-    // town did not open its plan, the Camino brush was dead at exactly the zoom
-    // roads are drawn at, the journey picker was dead, and the pending-road ring
-    // had nothing to draw on. The town is still on screen at those levels, drawn
-    // by the tiles, so it must still be clickable.
-    // (`deepMarks` is decided up where `tileZ` settles — the regional-entity
-    // overlay needs the same answer and reads it long before this block.)
+    // Towns are authoritative screen entities, drawn before waypoints so a pin
+    // the reader placed is never hidden behind a generated dot. Canon tiles may
+    // carry buildings and minor places, but loading or changing tile level must
+    // never remove a principal city, its label, or its hit target.
     if (showSettlements && geography) {
       // Only as much of the gazetteer as the zoom can carry: every village at
       // full extent is a grey smear along every coast.
@@ -2274,16 +2273,9 @@ export default function Map2D({
             ctx.stroke();
             ctx.setLineDash([]);
           }
-          // From here down is the MARK. The tiles draw it themselves at canon
-          // depth; the hit and the pending ring above are ours at every level.
-          //
-          // EL PUNTO AGUANTA DOS NIVELES MÁS QUE EL RÓTULO. Las teselas
-          // «llevan el pueblo» desde z9, pero a z9–z10 su mancha urbana mide
-          // 4–8 px y todavía no se lee: apagar aquí el punto en cuanto
-          // entraban dejaba a la ciudad SIN CUERPO — sólo su nombre — durante
-          // los niveles medios (la captura de Eskuunkald de Luis). El rótulo
-          // sí se cede al canon desde z9, o el mismo nombre entra dos veces al
-          // declutterer y las dos cajas pelean.
+          // From here down is the authoritative principal mark. `deepMarks`
+          // remains in the branch so alternate layer contracts can opt into
+          // tile-owned marks without changing hit testing.
           if (deepMarks && tileZ >= SAT_DEEP_Z + 2) continue;
           ctx.beginPath();
           ctx.arc(sx, sy, r, 0, Math.PI * 2);
@@ -2334,6 +2326,12 @@ export default function Map2D({
     // landmarks come up as `landmark`/`crag` and read as geography.
     if (tilesEligible && tileZ >= SAT_DEEP_Z && (showSettlements || showFeatures)) {
       const prefix = `${tileZ}/`;
+      // Deep tiles re-emit nearby towns for consumers that have no world
+      // gazetteer. This view does have it, so keep those towns in the principal
+      // layer and use tile places only for genuinely additional local detail.
+      const principalNames = new Set(
+        geography?.settlements.map((s) => s.name.trim().toLocaleLowerCase()) ?? [],
+      );
       /**
        * LA ESCALERA DE IMPORTANCIA, o el mapa se ahoga en nombres.
        *
@@ -2355,6 +2353,8 @@ export default function Map2D({
       for (const [id, places] of deepPlaces.current) {
         if (!id.startsWith(prefix)) continue;
         for (const p of places) {
+          if ((p.kind === 'town' || p.kind === 'village')
+            && principalNames.has(p.name.trim().toLocaleLowerCase())) continue;
           const geographic = DEEP_FEATURE_KINDS.has(p.kind);
           if (geographic ? !showFeatures : !showSettlements) continue;
           if (p.importance < placeFloor) continue;
@@ -2973,6 +2973,16 @@ export default function Map2D({
         + ` · sembradas ${tileStats.seeded} · guardadas ${tileStats.canonBuilt}`
         + (tileStats.seedErrors ? ` · SIEMBRA-ERR ${tileStats.seedErrors} (mira la consola)` : '')
         + (tileStats.fabErrors ? ` · FÁBRICA-ERR ${tileStats.fabErrors} (mira la consola)` : ''),
+        // El embudo nuevo (ARQUITECTURA-TESELAS): cuánto sirvió el disco, qué
+        // descartó la cola corta, cuánto aterrizó huérfano. «disco 0/N» con
+        // suelo revisitado = el almacén de entintadas no acierta — mirar clave.
+        `servicio: pedidas ${tileServiceStats.asked}`
+        + ` · disco ${tileServiceStats.diskHits}/${tileServiceStats.diskHits + tileServiceStats.diskMisses}`
+        + ` · compartidas ${tileServiceStats.shared}`
+        + ` · despachadas ${tileServiceStats.dispatched}`
+        + ` · descartadas ${tileServiceStats.droppedQueued}`
+        + ` · huérfanas ${tileServiceStats.landedOrphan}`
+        + ` · entintadas guardadas ${tileServiceStats.saved}`,
       ];
       ctx.save();
       ctx.font = '500 10px ui-monospace, monospace';
