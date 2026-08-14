@@ -27,7 +27,7 @@
 
 import type { RegionData } from './types';
 
-export const CANON_STORE_VERSION = 1;
+export const CANON_STORE_VERSION = 5;
 const MAGIC = 0x57474331; // 'WGC1'
 
 interface RasterSpec {

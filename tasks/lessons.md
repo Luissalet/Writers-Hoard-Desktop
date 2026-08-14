@@ -511,3 +511,59 @@ obrero, y aparcamiento sin predicados — cada rama del tomar termina). El
 inventario de guardas de un módulo es su detector de humo: plazos que se
 rearman unos a otros, pulsos, libros de siembras y desalojos con calor no
 son robustez — son la lista de sus cadáveres.
+
+## #46 — Que las teselas lleguen no basta si cada LOD cuenta otro mundo
+**Fecha:** 2026-08-14
+**Contexto:** La primera corrección consiguió terreno, caminos, ciudades y ríos
+durante el zoom, pero Luis detectó que la geografía mutaba demasiado entre la
+vista lejana y la cercana, que la ciudad seguía siendo sólo un punto, que el
+bosque revelaba la retícula y que el primer montaje parecía congelado. El
+transporte ya funcionaba; faltaba continuidad cartográfica y respuesta visual.
+**Regla:** Una regresión de mapa debe probar también IDENTIDAD entre niveles, no
+sólo entrega: misma costa/río/bioma al muestrear el mismo punto, detalle urbano
+visible sin interacción, máscaras sin huella de celda y primer fotograma de
+carga antes de preparar datos pesados. «18/18 teselas» es salud del transporte,
+no aceptación visual del mapa.
+
+## #47 — Conservar el recorrido de un río no conserva su jerarquía
+**Fecha:** 2026-08-14
+**Contexto:** Tras unificar la geometría, el río principal seguía el mismo valle
+al acercarse, pero el canon olvidaba su caudal mundial y recalculaba la anchura
+desde la cuenca visible/local. Luis detectó que los ríos grandes perdían su
+grandeza y ya no se distinguían de los riachuelos.
+**Regla:** La identidad hidrológica que cruza niveles incluye RECORRIDO y
+MAGNITUD. Un tronco mundial transporta su caudal global hasta la tinta profunda;
+la hidrología local puede añadir afluentes y detalle, pero no reclasificar el río
+principal. La regresión debe comparar la relación de anchuras entre categorías,
+no limitarse a preguntar si existen píxeles azules.
+
+## #48 — Una clave correcta sobre la línea equivocada sigue siendo otro río
+**Fecha:** 2026-08-14
+**Contexto:** La primera corrección preservó `worldFlow` y `sourceRiverKey`, pero
+los asignó al primer cauce local que superaba un umbral de proximidad. La prueba
+comprobaba clave, unicidad y anchura, no que sus puntos siguieran la polilínea
+mundial. En la aplicación, un tramo corto aleatorio recibió dos kilómetros de
+anchura mientras el río verdadero desaparecía. Durante la espera, además, el
+río ya horneado en el raster mundial se amplificaba como una mancha azul.
+**Regla:** La identidad de una geometría exige comparar su RECORRIDO. Una
+geometría autoritativa no se reasigna por proximidad: se transporta, recorta y
+dibuja directamente. Y una capa lineal que tiene fallback vectorial no debe
+estar duplicada dentro de un raster que vaya a ampliarse por encima de su
+resolución nativa. Toda regresión de hand-off debe observar el mismo encuadre
+antes, durante y después de sustituir la fuente.
+
+## #49 — Geometría autoritativa no significa cartografía aceptable
+**Fecha:** 2026-08-14
+**Contexto:** El tronco mundial dejó de cambiar durante la carga, pero al verlo
+de cerca quedaron expuestos defectos que las capas anteriores ocultaban: la ley
+de anchura convertía el caudal máximo en 2,2 km, un salto de longitud en la
+costura cilíndrica se unía como una línea horizontal mundial, la hidrología
+local publicaba largos tramos D8 casi axiales y el plano urbano tapaba el terreno
+con un relleno claro uniforme. El recorrido correcto no hacía correctos su
+grosor, sus orillas ni las geometrías auxiliares.
+**Regla:** Toda capa autoritativa debe validar también ESCALA, TOPOLOGÍA y
+COMPOSICIÓN: anchuras físicas plausibles en metros; separación explícita de la
+costura antes de trazar; rechazo de cauces locales degenerados por longitud,
+rectitud y dirección; y tinta urbana que integre edificios/calles sin sustituir
+el suelo por una silueta opaca. Las regresiones visuales deben cubrir vista
+mundial y primer plano, no sólo el hand-off intermedio.

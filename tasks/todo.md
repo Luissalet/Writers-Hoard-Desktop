@@ -730,3 +730,207 @@ dejar los cambios sin commit/push salvo petición expresa.
   ejecutó los scripts de la página; la validación dinámica se realizó con los
   bancos Chromium/TypeScript del proyecto y el arranque Vite de la suite crítica.
 - Cambios deliberadamente sin rama, commit, staging ni push.
+
+---
+
+# Worldgen 2D: continuidad visual, ciudades, bosques y arranque
+
+**Started:** 2026-08-14
+
+## Especificación verificable
+
+- [x] La costa, ríos, relieve y biomas conservan la misma silueta al cambiar de
+      nivel; acercarse añade detalle, no sustituye el territorio por otro.
+- [x] Las ciudades visibles se representan físicamente con su huella urbana y
+      edificios sin requerir clic, hover ni otra interacción.
+- [x] Los bosques cercanos no exponen bordes de celda ni bandas rectangulares
+      entre teselas.
+- [x] La primera entrada a 2D pinta inmediatamente un estado de carga y mantiene
+      respuesta visual mientras se preparan los datos pesados.
+
+## Plan
+
+- [x] Medir el nuevo log y localizar cada cambio de fuente cartográfica.
+- [x] Unificar el contrato de LOD para que todas las escalas deriven de la misma
+      geografía y sólo cambie su filtrado/detalle.
+- [x] Hacer que la tinta urbana sea una capa visible estable y deduplicada.
+- [x] Suavizar la máscara forestal en coordenadas mundiales, con continuidad de
+      borde entre teselas.
+- [x] Añadir el estado inicial de carga antes de cualquier trabajo síncrono.
+- [x] Añadir regresiones y verificar navegador, bancos, typecheck y build.
+- [x] Documentar resultados y actualizar el grafo del proyecto si está disponible.
+
+## Review
+
+- El log nuevo probó que el transporte estaba sano (830 teselas entregadas,
+  cero errores) y que el supuesto “freeze de teselas” era un cálculo de
+  geografía de 26,86 s ejecutado en callbacks del hilo visual. Ahora vive en un
+  worker, se deduplica y conserva la geografía anterior mientras recalcula.
+- Una sola costa sirve atlas, satélite y canon. La comparación dibujada queda
+  en 99,9 % de IoU atlas→satélite y 99,8 % satélite→canon; el desacuerdo es
+  0,07 % y 0,06 %. El canon medido discrepa 0,0 % del agua mundial.
+- La ciudad estaba desplazada media celda: a z17 eran 5.434 px. El ancla común
+  corrige marcador, mancha, lugar y plano. El banco encuentra tinta urbana a
+  z10/z12/z14/z16 y plano de calles a z16 sin interacción.
+- La máscara forestal y las copas comparten deformación mundial. La prueba
+  cercana registra 5.669 px vegetales y 21 px de variación p10–p90 en el borde,
+  en lugar de una arista de celda.
+- Navegador real: primera entrada 2D en 700 ms, spinner visible inmediatamente,
+  resultado completo (120 ruinas) y cero errores tras terminar. La primera
+  prueba descubrió y permitió corregir la familia lingüística no clonable del
+  worker; se repitió desde una sesión limpia.
+- Verificación verde: `verify:quick`, `test:critical` (12/12), build de
+  producción, presupuesto informativo, contratos de capas, servicio de
+  teselas, caminos, ciudades, cohesión LOD y cliente de geografía.
+- El refresco del grafo se intentó al final, pero la ruta obligatoria de la
+  habilidad (`/sessions/festive-cool-keller/mnt/.auto-memory`) no existe en
+  este entorno; la arquitectura local sí queda actualizada.
+- Sin rama, commit, staging ni push.
+
+---
+
+# Worldgen 2D: jerarquía física de los ríos
+
+**Started:** 2026-08-14
+
+## Especificación verificable
+
+- [x] Un río mundial conserva en el canon profundo la misma categoría de
+      anchura que tenía en el mapa lejano.
+- [x] Los afluentes y arroyos locales siguen siendo estrechos: heredar la
+      magnitud mundial no engorda por error cualquier cauce que confluya con él.
+- [x] La diferencia entre un río principal y un arroyo se mantiene legible en
+      varios niveles de zoom, usando metros reales más un mínimo perceptivo.
+
+## Plan
+
+- [x] Trazar la pérdida de caudal mundo → canon → tinta y fijar un único
+      contrato físico.
+- [x] Propagar la magnitud mundial sólo por el tronco que realmente coincide
+      con el río original.
+- [x] Invalidar canon y entintado incompatibles y añadir una regresión de
+      jerarquía multizoom.
+- [x] Verificar bancos, tipos, build y navegador real.
+- [x] Documentar el resultado y refrescar el grafo si está disponible.
+
+## Review
+
+- La pérdida no era subjetiva: para un mundo 2048, el río máximo pasaba de
+  2.220 m en la vista mundial a unos 20 m en canon (111× más estrecho); caudales
+  medios perdían entre 200× y 427× al renormalizarse por metatesela.
+- `riverScale.ts` fija una ley física compartida. Cada tronco canon transporta
+  el `worldFlow` original y una clave por contenido; los cauces locales siguen
+  midiendo por su propia cuenca.
+- En confluencias gana el candidato de mayor caudal, se exige solape mayoritario
+  y una clave sólo puede tener un ganador. El banco real encontró un único
+  tronco de 2.220 m y 16.378 cauces locales, sin contagios ni duplicados.
+- La relación principal/arroyo se mantiene a 1.000, 100 y 10 m/px. El mismo
+  banco prueba igualdad exacta entre anchura mundial y profunda.
+- Se invalidaron canon (v3) y entintado (v4). La ida y vuelta real de un canon
+  de 21,47 MB preserva todos los streams byte a byte y es estable al recodificar.
+- Verificación verde: `verify:quick`, `test:critical` (12/12), build de
+  producción, typecheck, banco de jerarquía y banco de persistencia. El Browser
+  integrado cargó 12/12 teselas profundas a z16 sin huecos ni errores.
+- El grafo de memoria no pudo actualizar su catálogo: la ruta obligatoria de la
+  habilidad (`/sessions/festive-cool-keller/mnt/.auto-memory`) no está montada
+  en este entorno. El contrato sí queda recogido en `ARQUITECTURA-TESELAS.md`.
+- Cambios locales sobre `main`, sin rama, commit, staging ni push.
+
+---
+
+# Worldgen 2D: cartografía fluvial y urbana sin artefactos
+
+**Started:** 2026-08-14
+
+## Especificación verificable
+
+- [x] Un río principal conserva jerarquía sin ocupar kilómetros de anchura ni
+      mostrar orillas matemáticamente lisas en primer plano.
+- [x] Los cauces locales no producen familias de líneas horizontales/verticales
+      largas ni segmentos rectos nacidos en límites de tesela.
+- [x] Un río que cruza la costura cilíndrica levanta el lápiz: nunca aparece una
+      línea horizontal que atraviese el mundo lejano.
+- [x] Las ciudades mantienen edificios, calles, muralla y barrios sin una
+      silueta clara opaca que tape el terreno circundante.
+
+## Plan
+
+- [x] Medir anchuras, discontinuidades y rectitud en las cuatro rutas de dibujo.
+- [x] Sustituir el trazo uniforme del tronco por una escala plausible con orilla
+      determinista en coordenadas mundiales.
+- [x] Cortar correctamente la costura y filtrar hidrología local degenerada.
+- [x] Integrar el plano urbano con el albedo en vez de rellenar toda su huella.
+- [x] Añadir regresiones y verificar navegador, bancos, tipos y build.
+- [x] Documentar resultados, actualizar el grafo si existe y limpiar temporales.
+
+## Review
+
+- La anchura mundial deja de ser lineal y constante: usa caudal por celda y una
+  curva convexa de 24–700 m. A corta distancia se rellena un polígono de orillas
+  asimétricas, determinista y estable al cambiar de zoom; en vista lejana sólo
+  queda un mínimo cartográfico jerarquizado.
+- La hidrología D8 regional vuelve a ser estrictamente local. Se eliminó la
+  segunda inyección del caudal mundial, se corrigió la herencia de cuenca en
+  confluencias, se añadieron desempates de pendiente y se descartan rayas
+  cardinales degeneradas.
+- La costura se detecta en las celdas fuente, no en píxeles de una vista. El
+  atlas completo ya no puede unir extremos del cilindro con una línea azul.
+- El plano de una ciudad conserva edificios, calles, bloques y muralla, pero no
+  rellena su Voronoi con pergamino ni tintes de barrio. `tile-ink` registra 0 px
+  de suelo claro opaco en z10, z12, z14 y z16.
+- Verificación: navegador real en z2 y z15; `river-width`, `river-hierarchy`,
+  `tile-ink`, `map2d-layer-contract`, `satellite-handoff`,
+  `satellite-lod-cohesion` y `canon-persist` verdes; `verify:quick`, 12 pruebas
+  críticas y build de producción verdes.
+
+---
+
+# Worldgen 2D: continuidad real del tronco fluvial
+
+**Started:** 2026-08-14
+
+## Especificación verificable
+
+- [x] Mientras cargan teselas profundas, el terreno de respaldo no contiene
+      ríos rasterizados que se conviertan en manchas al ampliarse.
+- [x] El río vectorial provisional conserva recorrido y grosor legibles.
+- [x] La tesela cargada dibuja exactamente el mismo tronco mundial, no un cauce
+      local cercano al que una heurística haya prestado su magnitud.
+- [x] La transición provisional → exacta no desplaza, corta ni sustituye el río.
+
+## Plan
+
+- [x] Trazar las dos capas visibles en las capturas y cuantificar su desacuerdo.
+- [x] Separar el terreno raster de toda tinta fluvial ampliable.
+- [x] Hacer del vector mundial recortado la geometría autoritativa del tronco
+      dentro del canon; la hidrología local sólo añade tributarios.
+- [x] Añadir regresiones de recorrido, clipping y carga.
+- [x] Verificar navegador, bancos, tipos y build; documentar el resultado.
+
+## Review
+
+- Las capturas contenían dos defectos independientes. El respaldo era el raster
+  mundial de ríos estirado con suavizado al ampliar, de ahí la mancha azul
+  gigante; la línea final era un cauce D8 local que coincidía por casualidad con
+  el tronco y reclamaba antes su clave y caudal.
+- El atlas equirectangular dibuja ahora una única capa vectorial mundial después
+  de todo el terreno. Las teselas y sus ancestros no hornean troncos ampliables;
+  el canon sólo añade arroyos locales bajo esa capa.
+- El canon recibe directamente la polilínea tallada del mundo. Se eliminó la
+  inferencia por proximidad y la composición no vuelve a suavizar el tronco.
+  La regresión real compara todos sus puntos, no sólo identidad o anchura:
+  16.380 cauces = 1 tronco mundial exacto + 16.379 locales, principal de 2.220 m.
+- Navegador real a z10 (68 px/celda): con 0/20 teselas el río ya era nítido y
+  con 20/20 conservó el mismo recorrido; ninguna entrega tardía lo sustituyó.
+  La costa cambió sólo de nivel de detalle bajo la capa fluvial.
+- Persistencia verde: canon de 21,52 MB, 6.427 streams idénticos tras
+  encode/decode y recodificación byte-estable. Handoff de costa: 99,9 % de IoU
+  atlas→satélite y 99,8 % satélite→canon.
+- Verificación verde: `verify:quick`, `test:critical` (12/12), build de
+  producción, bancos de jerarquía fluvial, contrato de capas, persistencia,
+  tinta profunda, handoff satélite y cohesión LOD.
+- El refresco del grafo se intentó al final, pero la ruta exigida por la
+  habilidad (`/sessions/festive-cool-keller/mnt/.auto-memory`) no está montada
+  en este entorno; el contrato vigente queda actualizado en
+  `ARQUITECTURA-TESELAS.md`.
+- Cambios locales sobre `main`, sin rama, commit, staging ni push.

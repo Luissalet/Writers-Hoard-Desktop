@@ -31,7 +31,7 @@ const rivers = carveWorldRivers(world, g, elevation);
 lap('tallar ríos');
 erodeSheet(elevation, g.width, g.height, g.metresPerCell, 3, 0.0055 * params.detail);
 lap('erosión (3 pasadas)');
-const tf = buildHydrology(world, g, patch, elevation, rivers);
+const tf = buildHydrology(world, g, patch, elevation);
 lap('hidrología');
 const streams = extractStreams(g, tf, rivers, params);
 lap('extraer cursos');

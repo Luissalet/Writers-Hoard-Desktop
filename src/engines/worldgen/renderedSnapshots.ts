@@ -35,7 +35,7 @@ import type { TileKey } from './cartography/tiles';
 /** Versión del ENTINTADO. Se sube cuando cambia lo que los pinceles dibujan
  *  (satelliteInk, deepTile carta): las filas viejas dejan de acertar y caen
  *  por LRU — sin migración, sin borrado. */
-export const RENDERED_INK_VERSION = 2;
+export const RENDERED_INK_VERSION = 6;
 
 /**
  * Presupuesto del almacén. Una tesela honda entintada pesa ~20-80 KB en

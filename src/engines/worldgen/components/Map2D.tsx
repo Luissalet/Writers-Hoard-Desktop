@@ -23,7 +23,7 @@ import type { EditTarget, Pt, Stroke, WorldEdit } from '../core/edits';
 import { editKey, filterFor } from '../core/edits';
 import { strokeMask } from '../sculpt/ops';
 import { Biome } from '../core/types';
-import type { HumanGeography, Road, Settlement } from '../core/settlements';
+import { settlementCellCenter, type HumanGeography, type Road, type Settlement } from '../core/settlements';
 import type { SavedWorldRegion, WorldViewport, WorldWaypoint } from '../types';
 import { drawAnnotations, type CartoAnnotations } from '../cartography/annotations';
 import { tipOf, tipOutline } from '../sculpt/ops';
@@ -39,12 +39,12 @@ import {
   type SemanticZoomTier,
 } from '../core/semanticZoom';
 import { DisplayTileStore } from '../cartography/tileStore';
-import { map2DLayerPlan } from '../cartography/map2dLayers';
+import { map2DLayerPlan, map2DVectorRiverFallback } from '../cartography/map2dLayers';
 import { levelFor, tileCountX, tileId, TILE_PX, type TileKey } from '../cartography/tiles';
 import { drawRoadNetwork, unwrapRoad } from '../cartography/roadOverlay';
 import { drawRealmBorders, realmBorders, realmTint } from '../cartography/realmOverlay';
 import {
-  MAX_SAT_TILE_Z, SAT_DEEP_Z, satelliteDeepSupported,
+  drawWorldRivers, MAX_SAT_TILE_Z, SAT_DEEP_Z, satelliteDeepSupported,
 } from '../region/satelliteTile';
 import { regionClient, tileStats, oldestInFlightMs, traceTiles } from '../region/client';
 import { serveTile, tileServiceStats } from '../region/tileService';
@@ -1527,6 +1527,23 @@ export default function Map2D({
     const layerPlan = map2DLayerPlan(showRivers);
     const blitRivers = () => {
       if (!layerPlan.riverFallback || viewMode === 'plates' || viewMode === 'flow') return;
+      if (map2DVectorRiverFallback(showRivers, viewMode, projection)) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, cw, ch);
+        ctx.clip();
+        for (let ox = firstOx; ox <= lastOx; ox += mapW) {
+          drawWorldRivers(world, ctx, {
+            x: -ox / scale,
+            y: -view.oy / scale,
+            w: cw / scale,
+            h: ch / scale,
+          }, cw, false);
+          if (!wraps) break;
+        }
+        ctx.restore();
+        return;
+      }
       for (let ox = firstOx; ox <= lastOx; ox += mapW) {
         ctx.drawImage(riverCanvas, ox, view.oy, mapW, mapH);
         if (!wraps) break;
@@ -1544,10 +1561,6 @@ export default function Map2D({
     // but the ring, which is the failure the conditional order exists to prevent.
     const pyramidHere = viewMode === 'atlas' && projection === 'equirect' && !!geography;
     if (!live || !pyramidHere) blitSharp();
-    // The settled sharp window contains terrain only. Rivers must sit above it,
-    // otherwise that fallback erases them before any exact tile can arrive.
-    blitRivers();
-
     // ---- the satellite pyramid ---------------------------------------------
     // Drawn OVER the world raster, never instead of it. The raster is the
     // fallback that is always there and always current — including mid-stroke,
@@ -1646,7 +1659,6 @@ export default function Map2D({
       // invisible and the reader paints by ring alone.
       if (live) {
         blitSharp();
-        blitRivers();
       }
       // Say so when the ground under the reader is still an ancestor's blur.
       // A stroke empties the store — the canon has to be rebuilt with it — and
@@ -1671,6 +1683,11 @@ export default function Map2D({
         ctx.fillText(msg, 18, ch - 13);
       }
     }
+
+    // World rivers are an authoritative vector OVER every terrain source:
+    // coarse fallback, ancestor and exact canon tile. Their geometry therefore
+    // cannot blur while loading or be replaced when the exact bitmap lands.
+    blitRivers();
 
     /** Principal settlements are an authoritative screen-space layer. Deep
      * tiles add buildings and minor places, but never take ownership of city
@@ -2254,7 +2271,8 @@ export default function Map2D({
           // `s` llega ya mudado por la geografía; la llave del dibujo la
           // redirige `applyEdits` al origen si el lector vuelve a arrastrar.
           const sKey = editKey('settlement', s.x, s.y);
-          const [sx, sy] = toScreen((s.x + 0.5) / W, (s.y + 0.5) / H, copyOx);
+          const centre = settlementCellCenter(s);
+          const [sx, sy] = toScreen(centre.x / W, centre.y / H, copyOx);
           if (sx < -40 || sx > cw + 40 || sy < -20 || sy > ch + 20) continue;
           const r = rank === 0 ? 5 : rank === 1 ? 4 : rank === 2 ? 3 : 2.2;
           // The reach is the DOT plus a finger's worth, not a flat 14 px over

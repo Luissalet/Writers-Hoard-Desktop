@@ -12,7 +12,7 @@
 // Fuera de Map2D/World3D a propósito, como `roadOverlay`: un módulo puro se
 // mide sin navegador (lección #21).
 
-import type { Settlement } from '../core/settlements';
+import { settlementCellCenter, type Settlement } from '../core/settlements';
 
 /** Radio de la mancha por rango, en METROS — la misma escala que usa
  *  `satelliteInk` para su dispersión de tejados (town 620 m). El rango manda:
@@ -68,12 +68,13 @@ export function drawTownStains(
     // punto y su nombre a esos encuadres.
     if (stainPx < 2.5) continue;
     // La rama envuelta más cercana a la ventana, como los caminos.
-    let cx = s.x + 0.5;
+    const centre = settlementCellCenter(s);
+    let cx = centre.x;
     const mid = view.x + view.w / 2;
     while (cx - mid > W / 2) cx -= W;
     while (cx - mid < -W / 2) cx += W;
     const px = (cx - view.x) * scale;
-    const py = (s.y + 0.5 - view.y) * scale;
+    const py = (centre.y - view.y) * scale;
     if (px < -stainPx * 2 || px > width + stainPx * 2) continue;
     if (py < -stainPx * 2 || py > height + stainPx * 2) continue;
 

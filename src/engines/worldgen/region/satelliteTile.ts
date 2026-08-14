@@ -19,7 +19,7 @@
 // Pure data + an injected 2D context, like every other tile path here: the
 // worker feeds an OffscreenCanvas, the harness feeds @napi-rs.
 
-import type { WorldData } from '../core/types';
+import { Biome, type WorldData } from '../core/types';
 import type { WorldEdit } from '../core/edits';
 import type { HumanGeography } from '../core/settlements';
 import type { Ctx } from '../cartography/symbols';
@@ -31,9 +31,11 @@ import {
   renderSatellite, oceanRgb, makeLatticeHash, latticeFbm, LX, LY, LZ,
 } from './satelliteInk';
 import {
-  buildElevation, extractPatch, kmPerWorldCell, patchBilinear,
+  buildElevation, extractPatch, kmPerWorldCell,
   type RegionGeometry,
 } from './terrain';
+import { createWorldCoastField } from './coastField';
+import { worldRiverMinimumPixels, worldRiverWidthMetres } from './riverScale';
 import { DEFAULT_REGION_PARAMS, type RegionData } from './types';
 import { drawTownPlans, PLAN_MAX_METRES_PER_PX } from './townPlan';
 import { canonCoverFor, type CanonCache, type TilePlace } from './deepTile';
@@ -198,7 +200,7 @@ export function renderSatelliteShallowTile(
   // place for that knowledge to arrive.
   // World-lattice noise: coordinates here are already absolute world cells, so
   // these hash them directly. `world.width` is the wrap.
-  const warp = makeLatticeHash(`${world.params.seed}::coast`);
+  const boundary = createWorldCoastField(world, patch);
   const grain = makeLatticeHash(`${world.params.seed}::shallowgrain`);
   // Fine grain on a lattice fixed in WORLD terms — 256 steps per world cell,
   // which lands at about 150 m, the canon's own resolution. Keying it to the
@@ -208,12 +210,6 @@ export function renderSatelliteShallowTile(
   const GRAIN_SUB = 256;
   const grainSub = makeLatticeHash(`${world.params.seed}::shallowfine`);
   const wrapW = (v: number) => ((v % world.width) + world.width) % world.width;
-  // Coast and biome boundaries share one warp — they have to, or a wood would
-  // end in the sea. A third of a WORLD cell, which is about twelve kilometres
-  // of wander: enough for headlands and bays at continental scale, small
-  // enough that the canon's own coastline lands in the same place.
-  const coastWarp = 0.34;
-
   const img = ctx.createImageData(TILE_PX, TILE_PX);
   const out = img.data;
   for (let py = 0; py < TILE_PX; py++) {
@@ -228,9 +224,8 @@ export function renderSatelliteShallowTile(
 
       const wx = g.originX + (px + SKIRT + 0.5) * perPx;
       const wy = g.originY + (py + SKIRT + 0.5) * perPx;
-      const wxw = wx + latticeFbm(warp, wx, wy, 3, 1.3, 11, world.width) * coastWarp;
-      const wyw = wy + latticeFbm(warp, wx, wy, 3, 1.3, 29, world.width) * coastWarp;
-      const e = patchBilinear(patch, patch.elev, wxw, wyw);
+      const coast = boundary.sample(wx, wy);
+      const wxw = coast.x, wyw = coast.y, e = coast.elevation;
 
       if (e <= 0) {
         const [r, gg, b] = oceanRgb(-e);
@@ -242,7 +237,7 @@ export function renderSatelliteShallowTile(
       // cells by bilinear weight, so a biome boundary is a grained band and
       // not a 39 km square. Warped first, dithered second — the warp gives
       // the boundary its shape, the dither gives it its edge.
-      const biome = ditherBiome(patch, wxw, wyw, warp, world.width);
+      const biome = ditherBiome(patch, wxw, wyw, boundary.hash, world.width);
       const tint = BIOME_COLORS[biome] ?? [116, 120, 105];
       // Ground grain, so a province of one biome is a living surface rather
       // than a flat fill of paint. Two scales: kilometres, and pixels.
@@ -277,7 +272,26 @@ function ditherBiome(
   const py = (latticeFbm(hash, wx, wy, 2, 4, 853, wrapX) * 0.5 + 0.5) < ty ? 1 : 0;
   const ix = Math.min(patch.w - 1, Math.max(0, x0 + px));
   const iy = Math.min(patch.h - 1, Math.max(0, y0 + py));
-  return patch.biome[iy * patch.w + ix];
+  const picked = patch.biome[iy * patch.w + ix];
+  if (picked !== Biome.Ocean && picked !== Biome.Lake) return picked;
+
+  // The coast field above has already decided that this pixel is land. A
+  // stochastic colour lookup may choose an ocean corner of the world raster,
+  // but it must not paint that dry pixel blue — visually that manufactures a
+  // second, grid-shifted coastline. Pick the strongest dry corner instead.
+  const candidates = [
+    { x: x0, y: y0, w: (1 - tx) * (1 - ty) },
+    { x: x0 + 1, y: y0, w: tx * (1 - ty) },
+    { x: x0, y: y0 + 1, w: (1 - tx) * ty },
+    { x: x0 + 1, y: y0 + 1, w: tx * ty },
+  ].sort((a, b) => b.w - a.w);
+  for (const c of candidates) {
+    const cx = Math.min(patch.w - 1, Math.max(0, c.x));
+    const cy = Math.min(patch.h - 1, Math.max(0, c.y));
+    const biome = patch.biome[cy * patch.w + cx];
+    if (biome !== Biome.Ocean && biome !== Biome.Lake) return biome;
+  }
+  return Biome.Beach;
 }
 
 /**
@@ -306,74 +320,198 @@ export function drawWorldRivers(
     : world.rivers;
   const all = painted?.length ? [...generated, ...painted] : generated;
 
+  const metresPerCell = kmPerWorldCell(world) * 1000;
+  const outH = view.h * s;
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = '#4f93b8';
   for (const river of all) {
     const cells = river.cells;
     const n = cells.length;
     if (n < 2) continue;
-    // EL ANCHO DE UN RÍO ES UNA ANCHURA EN EL SUELO.
-    //
-    // Estaba en CELDAS DE MUNDO multiplicadas por la escala de salida, lo cual
-    // parece físico y no lo es: la escala depende de cuánto suelo cubre el
-    // ráster, así que el mismo río salía de seis píxeles en una textura ancha y
-    // de treinta y siete en una estrecha — cuarenta kilómetros de ancho. Y como
-    // el 3D cambia de ventana con la distancia de la cámara, el río cambiaba de
-    // grosor y de forma al acercarse: «los ríos se desplazan en función de la
-    // distancia de la cámara». (Un río de 0,35 celdas en un mundo de 1024 son
-    // catorce kilómetros ya de entrada; el error venía de lejos.)
-    //
-    // Un río grande tiene un par de kilómetros de cauce y un arroyo unos
-    // metros. Eso es lo que se dibuja, y donde eso caiga por debajo de un
-    // píxel se dibuja un pelo, que es lo único honrado a esa distancia.
-    const widthKm = 0.12 + 2.1 * river.flow;
-    // UN RÍO NO TIENE CODOS.
-    //
-    // El cauce viene como una lista de CELDAS DE MUNDO, o sea un vértice cada
-    // veinte kilómetros, y unirlos con rectas se ve exactamente como lo que es
-    // en cuanto un píxel baja del kilómetro: una polilínea con esquinas, que es
-    // el aspecto de «hecho con celdas» que todo lo demás ya no tiene. La curva
-    // cuadrática por los puntos medios pasa suave por cada celda sin inventar
-    // recorrido: el río sigue estando donde el generador lo puso, y deja de
-    // doblar en ángulo.
-    const xs: number[] = [];
-    const ys: number[] = [];
+    const key = riverKey(cells);
+    const seed = hashRiverKey(key);
+    const runs: RiverGroundPoint[][] = [];
+    let run: RiverGroundPoint[] = [];
+    let carriedFlow = 0;
+    let distanceM = 0;
+    let prevRawX = 0;
+    let prevGroundX = 0;
     for (let k = 0; k < n; k++) {
       const c = cells[k];
-      let x = c % W;
+      const rawX = c % W;
       const y = (c / W) | 0;
-      if (wrap) {
-        // Take the branch of the cylinder nearest this tile.
-        while (x - view.x > W / 2) x -= W;
-        while (x - view.x < -W / 2) x += W;
+      const seam = k > 0 && riverCrossesWorldSeam(prevRawX, rawX, W);
+      let x = rawX;
+      if (wrap && k > 0) {
+        while (x - prevGroundX > W / 2) x -= W;
+        while (x - prevGroundX < -W / 2) x += W;
+      } else if (!wrap && seam) {
+        if (run.length >= 2) runs.push(run);
+        run = [];
       }
-      xs.push((x + 0.5 - view.x) * s);
-      ys.push((y + 0.5 - view.y) * s);
+      if (k > 0) {
+        let dx = rawX - prevRawX;
+        if (dx > W / 2) dx -= W;
+        if (dx < -W / 2) dx += W;
+        const py = ((cells[k - 1] / W) | 0);
+        distanceM += Math.hypot(dx, y - py) * metresPerCell;
+      }
+      const sampledFlow = world.flow[c] ?? 0;
+      if (sampledFlow > 0) carriedFlow = Math.max(carriedFlow, sampledFlow);
+      // Hand-painted rivers have no global accumulation raster. Give them the
+      // same source→mouth growth instead of painting the mouth width upstream.
+      const fallbackFlow = river.flow * (0.35 + 0.65 * (k / Math.max(1, n - 1)));
+      run.push({ x: x + 0.5, y: y + 0.5, flow: Math.max(carriedFlow, fallbackFlow), distanceM });
+      prevRawX = rawX;
+      prevGroundX = x;
     }
-    ctx.beginPath();
-    let started = false;
-    for (let k = 0; k < n; k++) {
-      // Un salto imposible es la costura: se levanta el lápiz.
-      if (started && Math.abs(xs[k] - xs[k - 1]) > outPx * 4) started = false;
-      if (!started) { ctx.moveTo(xs[k], ys[k]); started = true; continue; }
-      const last = k === n - 1 || Math.abs(xs[k + 1] - xs[k]) > outPx * 4;
-      if (last) ctx.lineTo(xs[k], ys[k]);
-      else ctx.quadraticCurveTo(xs[k], ys[k], (xs[k] + xs[k + 1]) / 2, (ys[k] + ys[k + 1]) / 2);
+    if (run.length >= 2) runs.push(run);
+
+    for (const sourceRun of runs) {
+      let shift = 0;
+      if (wrap) {
+        const middle = (sourceRun[0].x + sourceRun[sourceRun.length - 1].x) * 0.5;
+        shift = Math.round((view.x + view.w * 0.5 - middle) / W) * W;
+      }
+      const shifted = shift === 0
+        ? sourceRun
+        : sourceRun.map((p) => ({ ...p, x: p.x + shift }));
+      const visibleRuns = sampleVisibleRiverRuns(
+        shifted, view, s, outPx, outH, kmPerPx,
+      );
+      for (const sample of visibleRuns) drawRiverSample(ctx, sample, seed);
     }
-    // EL SUELO EN PÍXELES, no en metros: un mínimo LEGIBLE.
-    //
-    // El ancho físico es correcto y por sí solo da un pelo de nueve décimas de
-    // píxel en casi todos los niveles — y como el bloque se redibuja más fino
-    // al acercarse, ese pelo mide lo mismo en pantalla por mucho que te
-    // aproximes: «los ríos se vuelven demasiado finos». Un río que existe se
-    // dibuja con grosor suficiente para leerse; a partir de ahí manda la
-    // anchura de verdad, y de cerca un río grande sí engorda.
-    ctx.lineWidth = Math.max(1.5, widthKm / kmPerPx);
-    ctx.stroke();
   }
   ctx.restore();
+}
+
+interface RiverGroundPoint { x: number; y: number; flow: number; distanceM: number }
+interface RiverScreenPoint extends RiverGroundPoint {
+  sx: number; sy: number; nx: number; ny: number; halfPx: number;
+}
+
+/** A discontinuity is a fact of source longitude, never of viewport pixels. */
+export function riverCrossesWorldSeam(a: number, b: number, worldWidth: number): boolean {
+  return Math.abs(a - b) > worldWidth / 2;
+}
+
+function hashRiverKey(key: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
+/** Stable ground-space bank modulation. It is independent of pixels and zoom. */
+export function riverBankFactor(distanceM: number, seed: number, side: -1 | 1): number {
+  const p = ((seed >>> (side > 0 ? 0 : 11)) & 2047) / 2047 * Math.PI * 2;
+  const broad = Math.sin(distanceM / 620 + p) * 0.13;
+  const fine = Math.sin(distanceM / 175 + p * 1.73 + side * 0.9) * 0.065;
+  return 1 + broad + fine;
+}
+
+function catmullPoint(
+  p0: RiverGroundPoint, p1: RiverGroundPoint, p2: RiverGroundPoint, p3: RiverGroundPoint, t: number,
+): { x: number; y: number } {
+  const t2 = t * t, t3 = t2 * t;
+  return {
+    x: 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t
+      + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2
+      + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+    y: 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t
+      + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2
+      + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
+  };
+}
+
+function sampleVisibleRiverRuns(
+  pts: RiverGroundPoint[], view: { x: number; y: number; w: number; h: number },
+  scale: number, outW: number, outH: number, kmPerPx: number,
+): RiverScreenPoint[][] {
+  const runs: RiverScreenPoint[][] = [];
+  let current: RiverScreenPoint[] = [];
+  const spacingM = Math.max(80, kmPerPx * 1000 * 1.8);
+  const flush = () => {
+    if (current.length >= 2) runs.push(current);
+    current = [];
+  };
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const pad = worldRiverWidthMetres(Math.max(a.flow, b.flow)) / (kmPerPx * 1000) + 4;
+    const ax = (a.x - view.x) * scale, ay = (a.y - view.y) * scale;
+    const bx = (b.x - view.x) * scale, by = (b.y - view.y) * scale;
+    if (Math.max(ax, bx) < -pad || Math.min(ax, bx) > outW + pad
+      || Math.max(ay, by) < -pad || Math.min(ay, by) > outH + pad) {
+      flush();
+      continue;
+    }
+    const p0 = pts[Math.max(0, i - 1)], p3 = pts[Math.min(pts.length - 1, i + 2)];
+    const segmentM = Math.max(1, b.distanceM - a.distanceM);
+    const steps = Math.max(2, Math.min(256, Math.ceil(segmentM / spacingM)));
+    for (let q = 0; q < steps; q++) {
+      if (current.length && q === 0) continue;
+      const t = q / steps;
+      const p = catmullPoint(p0, a, b, p3, t);
+      const before = catmullPoint(p0, a, b, p3, Math.max(0, t - 0.01));
+      const after = catmullPoint(p0, a, b, p3, Math.min(1, t + 0.01));
+      const dx = after.x - before.x, dy = after.y - before.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const flow = a.flow + (b.flow - a.flow) * t;
+      current.push({
+        x: p.x, y: p.y, flow,
+        distanceM: a.distanceM + segmentM * t,
+        sx: (p.x - view.x) * scale,
+        sy: (p.y - view.y) * scale,
+        nx: -dy / len, ny: dx / len,
+        halfPx: worldRiverWidthMetres(flow) / (kmPerPx * 1000) * 0.5,
+      });
+    }
+    if (i === pts.length - 2) {
+      const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+      current.push({
+        ...b, sx: (b.x - view.x) * scale, sy: (b.y - view.y) * scale,
+        nx: -dy / len, ny: dx / len,
+        halfPx: worldRiverWidthMetres(b.flow) / (kmPerPx * 1000) * 0.5,
+      });
+    }
+  }
+  flush();
+  return runs;
+}
+
+function drawRiverSample(ctx: Ctx, pts: RiverScreenPoint[], seed: number): void {
+  let maxFlow = 0, maxPhysicalPx = 0;
+  for (const p of pts) {
+    maxFlow = Math.max(maxFlow, p.flow);
+    maxPhysicalPx = Math.max(maxPhysicalPx, p.halfPx * 2);
+  }
+  // At overview scale the bank polygon is sub-pixel. A class-dependent
+  // cartographic hairline keeps hierarchy without inflating physical width.
+  if (maxPhysicalPx < 4) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].sx, pts[0].sy);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].sx, pts[i].sy);
+    ctx.strokeStyle = '#4f93b8';
+    ctx.lineWidth = Math.max(maxPhysicalPx, worldRiverMinimumPixels(maxFlow));
+    ctx.stroke();
+    return;
+  }
+
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    const r = p.halfPx * riverBankFactor(p.distanceM, seed, 1);
+    const x = p.sx + p.nx * r, y = p.sy + p.ny * r;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i];
+    const r = p.halfPx * riverBankFactor(p.distanceM, seed, -1);
+    ctx.lineTo(p.sx - p.nx * r, p.sy - p.ny * r);
+  }
+  ctx.closePath();
+  ctx.fillStyle = '#4f93b8';
+  ctx.fill();
 }
 
 // ---------------------------------------------------------------------------
@@ -424,6 +562,7 @@ export function renderSatelliteDeepTile(
     },
     tracks: L.roads !== false,
     hedges: L.fields !== false,
+    worldTrunks: L.rivers !== false,
     buildings: true,
     density: opts.density,
     skipTownRoofs: (region.metresPerCell / pxPerCell) <= PLAN_MAX_METRES_PER_PX,

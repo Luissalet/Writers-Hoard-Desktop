@@ -65,6 +65,9 @@ export function applyCanonElevationEdits(
   g: RegionGeometry,
   world: WorldData,
   edits: WorldEdit[],
+  /** Cells whose coast/relief was explicitly touched. The coastline anchor
+   *  skips them after erosion so authored land and sea remain authoritative. */
+  touchedMask?: Uint8Array,
 ): boolean {
   const W = g.width, H = g.height;
   let touched = false;
@@ -74,6 +77,7 @@ export function applyCanonElevationEdits(
       if (!stroke) continue;
       const s = maskForOp(e.op, stroke, W, H, /* sheets do not wrap */ false);
       if (!s || s.empty) continue;
+      if (touchedMask) s.each((i, cov) => { if (cov > 0) touchedMask[i] = 1; });
       const r = opBaseRect(e.op, stroke, s, W);
       const base = snapshotBase(elev, W, H, r.x0, r.y0, r.w, r.h);
       applyTerrainOp(e.op, elev, base, W, H, s, stroke, world.params.seed);
@@ -83,6 +87,7 @@ export function applyCanonElevationEdits(
       if (!stroke) continue;
       const s = strokeMask(stroke, W, H, false);
       if (!s || s.empty) continue;
+      if (touchedMask) s.each((i, cov) => { if (cov > 0) touchedMask[i] = 1; });
       applyLandOp(e.op, elev, { at: (i) => elev[i] }, W, H, s, stroke, world.params.seed);
       touched = true;
     }
