@@ -44,6 +44,7 @@ import WorldView from '../src/engines/worldgen/components/WorldView';
 
 import { generateWorld } from '../src/engines/worldgen/core/pipeline';
 import { DEFAULT_PARAMS, type WorldData } from '../src/engines/worldgen/core/types';
+import { applyEdits } from '../src/engines/worldgen/core/edits';
 import { getGeography } from '../src/engines/worldgen/cartography/texture';
 import type { HumanGeography, Settlement } from '../src/engines/worldgen/core/settlements';
 import { THEMES } from '../src/engines/worldgen/cartography/theme';
@@ -443,24 +444,39 @@ function Cascara({ vista }: { vista: '3d' | 'map' | 'carta' }) {
  * en esa vista, no una clase de color.
  */
 async function confirmarVista(vista: '3d' | 'map' | 'carta') {
+  // ESPERAR-HASTA, no dormir-y-afirmar. La versión de un solo disparo medía
+  // «¿está a los N segundos exactos?» y con el legado restaurado (2026-08-13)
+  // la carta vuelve a montar un mundo HABITADO — pueblos, calzadas y rótulos
+  // que en SwiftShader rozan el presupuesto: el botón llegaba al segundo 21 y
+  // el banco preguntaba en el 20. Un banco de humo pregunta si la vista LLEGA,
+  // no si llega antes de un reloj arbitrario; el techo de 12 s extra sigue
+  // convirtiendo un «no llega nunca» en rojo.
+  const hasta = async (listo: () => boolean, queja: string) => {
+    const t0 = performance.now();
+    while (!listo()) {
+      if (performance.now() - t0 > 12_000) throw new Error(queja);
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  };
   const stage = document.getElementById('escenario');
   if (vista === 'map') {
     // Los dos desplegables (modo y proyección) los pinta `WorldView` sólo
     // cuando `view === 'map'`.
-    if ((stage?.querySelectorAll('select').length ?? 0) < 2) throw new Error('no llegó al satélite: faltan los desplegables de modo y proyección');
+    await hasta(() => (stage?.querySelectorAll('select').length ?? 0) >= 2,
+      'no llegó al satélite: faltan los desplegables de modo y proyección');
     return;
   }
   if (vista === 'carta') {
     // El botón de encuadre de `CartoMap`, que no existe en ninguna otra vista.
-    const hay = [...(stage?.querySelectorAll('button') ?? [])]
-      .some((b) => b.getAttribute('title') === 'Encuadrar el mundo');
-    if (!hay) throw new Error('no llegó a la carta: falta el botón de encuadre de CartoMap');
+    await hasta(() => [...(stage?.querySelectorAll('button') ?? [])]
+      .some((b) => b.getAttribute('title') === 'Encuadrar el mundo'),
+    'no llegó a la carta: falta el botón de encuadre de CartoMap');
     return;
   }
   const chip = traducir('worldgen.threeD.shape.plane');
-  const hay = [...(stage?.querySelectorAll('button') ?? [])]
-    .some((b) => (b.textContent ?? '').trim() === chip);
-  if (!hay) throw new Error('no llegó al 3D: falta el mando de forma de World3D');
+  await hasta(() => [...(stage?.querySelectorAll('button') ?? [])]
+    .some((b) => (b.textContent ?? '').trim() === chip),
+  'no llegó al 3D: falta el mando de forma de World3D');
 }
 
 // ---------------------------------------------------------------------------
@@ -573,6 +589,10 @@ declare global {
 async function preparar() {
   const t0 = performance.now();
   mundo = generateWorld({ ...DEFAULT_PARAMS, seed: 'banco-vistas', width: 256 });
+  // EL GRIFO ABIERTO. Desde la pasada 10 un mundo nace DESNUDO (Luis: «todo
+  // lo que no sea geografía debe ser opción»), y estos casos retratan vistas
+  // con capital, puerto, caminos y planos — el paisaje del grifo abierto.
+  applyEdits(mundo, [{ kind: 'placesEverywhere', enabled: true }]);
   geografia = getGeography(mundo, 'full');
   const porRango = [...geografia.settlements].sort((a, b) => b.population - a.population);
   capital = porRango[0];

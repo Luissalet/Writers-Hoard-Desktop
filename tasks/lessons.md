@@ -433,3 +433,81 @@ caducaban igual, porque el fondo de una cola FIFO no oye nada en minutos.
 rearma — el `progress` por supertesela de la propia fragua, y el pulso del
 pool entero (`queuePulse`: cada sesión liberada y cada progreso rearman a
 TODOS los que esperan). Matar sólo lo que lleva 120 s sin dar señal alguna.
+
+## #41 — La respuesta de una cola async no se lee en el mismo tick
+**Fecha:** 2026-08-13
+**Contexto:** `consume-only-probe` llamaba al núcleo del worker y leía las
+respuestas SÍNCRONAMENTE — y desde que el núcleo encadena los mensajes en una
+cola de promesas (pasada 9, la fragua pre-forja con partes de `progress`),
+la respuesta llega por microtarea. La sonda cantó «¿nada? en 0 ms» tres veces
+y «¡CONTRATO ROTO!» sobre un contrato perfectamente cumplido: declinada en
+3,8 ms, generada en 21,8 s, residente en 1,9 s cuando por fin se le esperó.
+**Regla:** Cuando un módulo pasa de contestar en el tick a contestar por
+cola, TODOS sus bancos-sonda cambian de contrato aunque no cambie una línea
+suya: buscar cada lector síncrono de sus respuestas y hacerle esperar (sondeo
+con techo, no `await` ciego — el banco debe distinguir «tarda» de «mudo»).
+
+## #42 — Un banco que mide por una traza se queda ciego cuando la vía nueva no la canta
+**Fecha:** 2026-08-13
+**Contexto:** El corredor de retención media el nivel de bajada contando las
+trazas «nace» del POOL. Con el almacén de entintadas delante (F1), la segunda
+visita servía las teselas del disco — sin pool, sin «nace» — y el corredor
+bajó a ciegas: nivelActual -1, «bajada de 232 s» que eran sus propios bucles
+de espera girando en vacío, con el mapa ya nítido debajo.
+**Regla:** Cada vez que una vía nueva SUSTITUYE trabajo de la vía que un
+banco instrumenta, darle al banco la señal equivalente de la vía nueva (el
+par sintético nacimiento+entrega del «disco ✓») ANTES de leer sus números:
+un banco ciego a la mejora la retrata como regresión.
+
+## #43 — Un defecto nuevo aplicado hacia atrás borra contenido del usuario
+**Fecha:** 2026-08-13
+**Contexto:** «Los lugares al grifo» codificó el grifo como ausencia-de-edición
+= cerrado. Correcto para mundos NUEVOS; para los EXISTENTES — cuyas listas de
+ediciones son de antes de que el grifo existiera — significó abrir la app y
+encontrarse los mapas sin sus ciudades ni caminos. Luis: «Había mapas con
+ciudades y caminos ya. Los has borrado. Una cosa es lo que te pedí para
+NUEVOS mundos… pero no te pedí que borrases lo existente.»
+**Regla:** La AUSENCIA de un dato nuevo significa LEGADO (lo que ese contenido
+era cuando se creó), jamás el defecto nuevo. El defecto nuevo se escribe como
+asiento EXPLÍCITO en el momento de la creación (aquí: `placesEverywhere:false`
+como primera edición del mundo nuevo — visible en el tick y reversible con
+Ctrl+Z). Y toda pasada que cambie un defecto necesita una vara de
+RESTAURACIÓN: contenido viejo antes == contenido viejo después, bit a bit.
+
+## #44 — Una cola sin prioridad castiga exactamente lo que el lector mira
+**Fecha:** 2026-08-13
+**Contexto:** La cola del tileService (F1 v1) era FIFO con descarte por la
+cabeza. El `want` pide del centro afuera → lo más CERCANO al centro entra
+primero → es lo más viejo → el desborde lo mata primero, y los restos del
+nivel que el lector ya dejó despachaban por delante del plan que MIRA. En el
+log de Luis: las z10 del centro renaciendo en bucle, el río pixelado
+eternamente, y — con la cámara quieta y una ola entera descartada en nulos —
+un 0/60 congelado sin nada que volviera a dibujar. renderd no tiene este
+fallo porque su cola ES un escalafón (reqPrio→req→reqLow→dirty→bulk, drenado
+estricto; llena = descartar, `request_queue.c`).
+**Regla:** Una cola de render lleva SIEMPRE dos prioridades: qué se despacha
+primero (el plan vigente — la ola más nueva) y qué se descarta primero (el
+plan abandonado — la ola más vieja). Y todo camino que resuelva «ahora no»
+(null) debe dejar programado el re-pedido (el empujón coalescido del
+almacén): un null sin re-pedido es un mapa congelado con la maquinaria sana.
+
+## #45 — Cuatro cuelgues distintos en el mismo sitio no se curan: se derriba
+**Fecha:** 2026-08-14
+**Contexto:** El pool de sesiones con estado (casadas por identidad de objeto,
+desalojadas por hueco, vigiladas por plazos por-petición con pulso de cola)
+produjo CUATRO modos de fallo en dos días: la fila india, el thrash de dos
+familias, los 20 huecos de vuelo clavados en el acquire (re-armados
+eternamente por el progreso de las sábanas: caducadas 0 con todo muerto), y
+el funeral del renderer («RangeError: Array buffer allocation failed») por
+los clones de mundo de cada contexto nacido y muerto — 24-58 por sesión de
+uso. Cada cura destapaba el siguiente. Luis: «Nuestra prioridad es que
+funcione, no conservar la arquitectura si NO funciona» — y tenía razón antes
+que yo.
+**Regla:** Cuando el mismo subsistema acumula el TERCER modo de fallo
+estructural, la siguiente sesión no le añade una guarda: lo sustituye por el
+modelo de referencia (aquí: granja fija de obreros nunca-desalojados,
+reconfigurables por contexto con afinidad, un solo vigía por SILENCIO de
+obrero, y aparcamiento sin predicados — cada rama del tomar termina). El
+inventario de guardas de un módulo es su detector de humo: plazos que se
+rearman unos a otros, pulsos, libros de siembras y desalojos con calor no
+son robustez — son la lista de sus cadáveres.

@@ -20,7 +20,7 @@ import {
 } from './language';
 import { findLandforms, type Landform, type LandformKind } from './landforms';
 import { generateRuins, ruinPrefix, RUIN_BIAS, type Ruin } from './ruins';
-import { compatibleEditKeys, editKey, realmEditKey } from './edits';
+import { compatibleEditKeys, editKey, realmEditKey, zoneAllowsWorld } from './edits';
 
 export type SettlementRank = 'capital' | 'city' | 'town' | 'village';
 
@@ -109,6 +109,19 @@ export interface HumanGeographyParams {
   realmCount: number;
   /** How many distinct language groups populate the world. */
   cultureCount: number;
+  /**
+   * De dónde sale el permiso para FUNDAR lo generado (ciudades, calzadas por
+   * arrastre, ruinas). Ausente = 'everywhere', el comportamiento de siempre —
+   * y DELIBERADAMENTE fuera de DEFAULT_HUMAN_PARAMS: ese objeto se hashea en
+   * la identidad del canon almacenado (rowKey) y `stableStringify` filtra los
+   * undefined, así que el hash de todo lo guardado no se mueve. Con 'auto'
+   * (la puerta de la APLICACIÓN, en cartography/texture) la política se lee
+   * de `world.painted.sitesPolicy` — el grifo y las zonas que el replay de
+   * ediciones deja escritos en el propio mundo. Luis, 2026-08-13: «todo lo
+   * que no sea geografía, o aleatorio a elección o pintado». Lo PINTADO
+   * (marcadores, calzadas a mano) no pasa por aquí jamás.
+   */
+  sites?: 'auto' | 'everywhere';
 }
 
 export const DEFAULT_HUMAN_PARAMS: HumanGeographyParams = {
@@ -359,6 +372,22 @@ export function buildHumanGeography(
   const seed = world.params.seed;
   const rng = createRng(seed, 'human');
   const registry = new NameRegistry(seed);
+  // El grifo del mundo: con 'auto' y sin ediciones de lugares, NADA generado
+  // se funda — mundo desnudo (tierra, ríos, biomas). Las zonas dejan fundar
+  // sólo dentro. Nulo = todo permitido (bancos y llamantes de siempre).
+  // Un mundo sin `painted` (nunca pasó por applyEdits) es un mundo LEGADO:
+  // grifo abierto — el mismo defecto que `sitesPolicyFrom` sin ediciones.
+  // El «desnudo por defecto» de los mundos nuevos viaja como una edición
+  // explícita `placesEverywhere:false`, nunca como ausencia (2026-08-13:
+  // la ausencia-como-negativa vació los mundos existentes de Luis).
+  const sitesPolicy = params.sites === 'auto'
+    ? (world.painted?.sitesPolicy ?? { everywhere: true, zones: [] })
+    : null;
+  // Grifo abierto y sin zonas = el país de siempre, POR EL MISMO CAMINO de
+  // siempre: sin filtro por sitio, la geografía es bit a bit la del legado.
+  const siteAllowed = sitesPolicy && !(sitesPolicy.everywhere && sitesPolicy.zones.length === 0)
+    ? (x: number, y: number) => zoneAllowsWorld(sitesPolicy, x, y, W)
+    : null;
   const { cultureAt, seeds: cultureSeeds } = cultureMap(seed, W, H, params.cultureCount);
 
   // One living language per culture present on the map, all descended from a
@@ -486,6 +515,7 @@ export function buildHumanGeography(
   for (const i of order) {
     if (settlements.length >= targetTotal) break;
     const x = i % W, y = (i / W) | 0;
+    if (siteAllowed && !siteAllowed(x, y)) continue;
     // Rank by position in the sorted list — a Zipf-ish hierarchy where a few
     // dominant sites become cities and the long tail becomes villages.
     const q = settlements.length / targetTotal;
@@ -656,6 +686,9 @@ export function buildHumanGeography(
       const et = coin(cultureAt(x, y), `ruin:${kind}:${x},${y}`, RUIN_BIAS[kind]);
       return `${ruinPrefix(kind, x, y)} ${et.text}`;
     }, { density: world.params.filters?.ruinDensity ?? 1, filters: world.params.filters })
+      // Las ruinas generadas piden el mismo permiso que las ciudades: son
+      // contenido inventado, no geografía. Las pintadas (más abajo) no.
+      .filter((r) => !siteAllowed || siteAllowed(r.x, r.y))
     : [];
 
   for (const m of world.painted?.markers ?? []) {

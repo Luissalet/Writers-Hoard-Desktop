@@ -6,6 +6,13 @@ import { editKey, type WorldEdit } from '../src/engines/worldgen/core/edits';
 import { getGeography, rebuildGeography } from '../src/engines/worldgen/cartography/texture';
 
 const w = getWorld({ seed: 'monstruo', width: 1024 });
+// EL GRIFO ABIERTO, y DENTRO de la sesión: desde la pasada 10 un mundo nace
+// desnudo, y este banco renombra capitales y ruinas GENERADAS. El grifo va
+// como primera edición de la sesión para que la lista serializada sea
+// autosuficiente — la mitad «regenerar desde la semilla» arranca de un mundo
+// desnudo fresco y debe reabrir el grifo ella sola desde el JSON.
+const s = new PaintSession(w);
+s.push({ kind: 'placesEverywhere', enabled: true });
 const g0 = rebuildGeography(w);
 const cap = g0.settlements.find((s) => s.rank === 'capital')!;
 const doomed = g0.settlements.filter((s) => s.rank === 'village')[0];
@@ -15,7 +22,6 @@ const realm = g0.realms[0];
 console.log(`antes: capital "${cap.name}", aldea "${doomed.name}", ruina "${ruin.name}"`);
 console.log(`       océano "${sea.name}", reino "${realm.name}" · ${g0.roads.length} calzadas`);
 
-const s = new PaintSession(w);
 const edits: WorldEdit[] = [
   { kind: 'rename', target: 'settlement', key: editKey('settlement', cap.x, cap.y), name: 'Ciudad de las Puertas' },
   { kind: 'remove', target: 'settlement', key: editKey('settlement', doomed.x, doomed.y) },

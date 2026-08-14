@@ -26,7 +26,7 @@ import type { Relationship } from '@/engines/relationships/types';
 import type { Seed, Payoff } from '@/engines/seeds/types';
 import type { Annotation, AnnotationReference } from '@/engines/annotations/types';
 import type { WritingSnapshot } from '@/engines/writings/snapshotTypes';
-import type { CanonTileRow, GeneratedWorld, WorldSnapshot, WorldWaypoint } from '@/engines/worldgen/types';
+import type { CanonTileRow, GeneratedWorld, RenderedTileRow, WorldSnapshot, WorldWaypoint } from '@/engines/worldgen/types';
 import type { Note } from '@/engines/notes/types';
 import type { Board, BoardEdge, BoardLayer, BoardNode, BoardView } from '@/engines/board/types';
 import type {
@@ -83,6 +83,7 @@ export class WritersHoardDB extends Dexie {
   worldWaypoints!: Table<WorldWaypoint>;
   worldSnapshots!: Table<WorldSnapshot>;
   canonTiles!: Table<CanonTileRow>;
+  renderedTiles!: Table<RenderedTileRow>;
   notes!: Table<Note>;
   entityLinks!: Table<EntityLink>;
   citations!: Table<Citation>;
@@ -767,6 +768,16 @@ export class WritersHoardDB extends Dexie {
     // `engines/worldgen/canonSnapshots.ts` for the one door to it.
     this.version(25).stores({
       canonTiles: 'id, worldId, savedAt',
+    });
+
+    // v26: persisted RENDERED tiles for the world generator — the inked
+    // 256² product itself, content-addressed, so ground drawn once is ground
+    // drawn for ever (tasks/ARQUITECTURA-TESELAS.md §3.2, the renderd rule:
+    // the render store IS the product). Same mould as `canonTiles`: a pure
+    // cache, byte-budgeted, evicted by `savedAt`, outside the backup
+    // registry — see `engines/worldgen/renderedSnapshots.ts` for the door.
+    this.version(26).stores({
+      renderedTiles: 'id, worldId, savedAt',
     });
   }
 }

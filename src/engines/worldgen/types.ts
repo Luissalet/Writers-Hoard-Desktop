@@ -83,6 +83,30 @@ export interface WorldSnapshot {
   savedAt: number;
 }
 
+/** Una tesela de pantalla ENTINTADA y persistida (ver `renderedSnapshots.ts`):
+ *  el producto final del render — png/webp de 256² — guardado con clave de
+ *  contenido, para que revisitar suelo ya dibujado cueste milisegundos ENTRE
+ *  SESIONES (la sensación Google Maps; ARQUITECTURA-TESELAS §3.2). Caché puro:
+ *  versionado, con presupuesto en bytes, desalojado por `savedAt`, fuera del
+ *  registro de copias — nunca el único hogar de nada que el lector hiciera. */
+export interface RenderedTileRow {
+  /** `${worldId}:${styleHash}:${z}/${tx}/${ty}` — una fila por suelo y estilo;
+   *  el contenido nuevo del mismo suelo REEMPLAZA la fila vieja en vez de
+   *  acumular basura. */
+  id: string;
+  worldId: string;
+  /** Clave de invalidación completa (versiones + semilla + params + ediciones
+   *  relevantes + estilo); cualquier desajuste es un fallo de caché. */
+  key: string;
+  version: number;
+  /** La imagen codificada (webp/png). */
+  bytes: Uint8Array;
+  byteLength: number;
+  /** Lugares con nombre de la tesela (JSON), para las etiquetas del visor. */
+  places?: string;
+  savedAt: number;
+}
+
 /** One persisted canon supertile (see `canonSnapshots.ts`): the ~31 s of
  *  regional generation paid once per world instead of once per session.
  *  A cache like `worldSnapshots` — versioned, LRU-evicted, outside the

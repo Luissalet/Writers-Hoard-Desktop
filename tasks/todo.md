@@ -660,3 +660,73 @@ warnings) plus numeric harnesses and eyeballed PNGs before delivery.
 - Minor: 2D live terrain sculpt via windowed renderBaseRect; live biome channel
   via SculptSurface.patch; canon biome overlay ignores slope filter
   (documented); painted river names only when matching a named world river.
+
+---
+
+# Worldgen 2D: zoom continuo con terreno, caminos y ciudades
+
+**Started:** 2026-08-14
+**Mandate:** prioridad absoluta a funcionamiento tipo Google Maps; se permite
+reemplazar la arquitectura actual. Preservar el trabajo local no relacionado y
+dejar los cambios sin commit/push salvo petición expresa.
+
+## Especificación verificable
+
+- [x] Una sola cámara (`centro + zoom`) gobierna cobertura, resolución y
+      transformación de todas las capas 2D.
+- [x] Al cruzar cualquier nivel de zoom nunca aparece un hueco: se conservan el
+      raster base, la ventana nítida y los antepasados residentes hasta que
+      llega la tesela ideal.
+- [x] El terreno se solicita por el plan visible vigente, priorizado desde el
+      centro, sin sesiones huérfanas ni peticiones bloqueadas para siempre.
+- [x] Ríos, caminos y ciudades usan las mismas coordenadas mundiales y la misma
+      transformación que el terreno; no dependen del contenido efímero de una
+      tesela para seguir visibles.
+- [x] El zoom lejano conserva generalización y decluttering; el zoom cercano
+      añade detalle sin cambiar identidades ni desplazar geometría.
+- [x] El mapa queda inactivo cuando converge: cero cola/vuelo permanente y cero
+      renacimientos en reposo.
+
+## Plan
+
+- [x] Diagnosticar capturas, log y flujo cámara → cobertura → servicio → tienda
+      → composición → lettering.
+- [x] Contrastar el código actual con `INVESTIGACION-MAPAS.md` y fijar el diseño
+      mínimo de referencia.
+- [x] Sustituir el transporte con estado restante por una granja/cola estable
+      orientada a contenido y al plan visible.
+- [x] Unificar la composición de terreno, caminos y asentamientos en el mismo
+      sistema de coordenadas y ciclo de render.
+- [x] Añadir regresiones de zoom quieto, zoom continuo, retención, caminos y
+      ciudades, incluyendo la vía real del navegador.
+- [x] Verificar typecheck, lint dirigido, bancos worldgen, arranque real y las
+      capas cartográficas en varios niveles de zoom.
+- [x] Actualizar arquitectura y esta revisión con resultados medidos.
+- [ ] Refrescar el grafo de memoria de la aplicación: bloqueado porque la ruta
+      de sesión indicada por la habilidad (`/sessions/festive-cool-keller/...`)
+      no existe en este entorno y no hay copia local que actualizar.
+
+## Review
+
+- Causa directa del `0/N`: React StrictMode desmontaba el efecto y dejaba a
+  `Map2D` reutilizando un `DisplayTileStore` ya desechado; cada bitmap que
+  llegaba se cerraba. El almacén pertenece ahora al efecto que lo destruye.
+- Un nuevo plan cancela trabajo obsoleto de **todos** los niveles; el 3D declara
+  suelo y nitidez juntos. El zoom ya no deja una procesión de niveles viejos
+  delante de la cámara actual.
+- Identidad y persistencia son por contenido de mundo + geografía + profundidad
+  + ediciones. Las escrituras tardías ya no pueden reemplazar otra versión.
+- Las metateselas canon compartidas se construyen en *single-flight* global y
+  el disco se consulta antes de ocupar un worker. En el log original, 130
+  construcciones eran sólo 53 únicas (77 repetidas, 61 % de desperdicio).
+- Contrato de capas 2D: teselas = terreno/agua/campos; pantalla = carreteras,
+  ciudades principales/rótulos y río de respaldo. La tesela exacta sustituye
+  el río de respaldo cuando llega, pero una carga nunca deja el mapa sin él.
+- Pruebas nuevas verdes: plan/retención StrictMode, contrato de capas, tinta de
+  ríos, carreteras en todos los niveles y canon compartido (cada metatesela se
+  genera una sola vez). También pasan `verify:quick`, las 12 pruebas críticas
+  y el build de producción.
+- La previsualización local del Browser integrado se abrió, pero ese entorno no
+  ejecutó los scripts de la página; la validación dinámica se realizó con los
+  bancos Chromium/TypeScript del proyecto y el arranque Vite de la suite crítica.
+- Cambios deliberadamente sin rama, commit, staging ni push.

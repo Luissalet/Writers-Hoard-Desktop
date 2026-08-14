@@ -13,16 +13,19 @@
 // Lecciones que paga: #21 («medir el renderizador no es medir la vista») y
 // #26 («contar cosas no es medirlas») — de ahí que la vara sea «ninguna
 // coordenada renace más de dos veces Y el reposo queda mudo», no un ok:true.
-import { createElement, useState } from 'react';
+import { createElement, StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import Map2D from '../src/engines/worldgen/components/Map2D';
 import { generateWorld } from '../src/engines/worldgen/core/pipeline';
 import { DEFAULT_PARAMS, type WorldData } from '../src/engines/worldgen/core/types';
+import { applyEdits, serializeEdits, type WorldEdit } from '../src/engines/worldgen/core/edits';
 import { getGeography } from '../src/engines/worldgen/cartography/texture';
 import type { HumanGeography } from '../src/engines/worldgen/core/settlements';
 import { DisplayTileStore } from '../src/engines/worldgen/cartography/tileStore';
 import { registerCanonPersistence, bindCanonWorld } from '../src/engines/worldgen/canonSnapshots';
+import { registerRenderedTilePersistence } from '../src/engines/worldgen/renderedSnapshots';
 import { tileStats } from '../src/engines/worldgen/region/client';
+import { tileServiceStats } from '../src/engines/worldgen/region/tileService';
 import { satelliteDeepSupported, MAX_SAT_TILE_Z, SAT_DEEP_Z } from '../src/engines/worldgen/region/satelliteTile';
 
 // ---------------------------------------------------------------------------
@@ -51,6 +54,21 @@ console.log = (...args: unknown[]) => {
       entregas.push({ t: ahora(), id });
     } else if (cuerpo.startsWith('DECLINADA')) {
       declinadas.push({ t: ahora(), id });
+    } else if (id === 'servicio' && args[3] === 'disco ✓') {
+      // Una tesela servida del ALMACÉN DE ENTINTADAS no pasa por el pool y no
+      // canta «nace»/«entregada» — pero es suelo que llega igual, y sin este
+      // par sintético la segunda visita del corredor va a ciegas (nivelActual
+      // -1, bajada de 232 s esperando nacimientos que el disco hizo
+      // innecesarios). La clave de contenido termina en `:z/tx/ty`.
+      const disco = cuerpo.match(/:(\d+)\/(\d+)\/(\d+)$/);
+      if (disco) {
+        const idSint = `disco-${cuerpo}`;
+        nacimientos.push({
+          t: ahora(), id: idSint,
+          z: Number(disco[1]), tx: Number(disco[2]), ty: Number(disco[3]),
+        });
+        entregas.push({ t: ahora(), id: idSint });
+      }
     }
   }
   logOriginal(...args);
@@ -79,6 +97,7 @@ DisplayTileStore.prototype.setGeneration = function setGenEspiado(gen: string) {
 // ---------------------------------------------------------------------------
 let mundo: WorldData;
 let geografia: HumanGeography;
+let edicionesCanon = '';
 let raiz: ReturnType<typeof createRoot> | null = null;
 
 function nivelHondoDisponible(w: WorldData): number {
@@ -110,16 +129,35 @@ function Banco({ u, v, spanKm }: { u: number; v: number; spanKm: number }) {
     onViewportChange: setViewport,
     revision: 0,
     canonWorld: mundo,
-    canonEdits: undefined,
+    canonEdits: edicionesCanon,
   });
 }
 
-async function preparar(width: number) {
+async function preparar(width: number, legado = false) {
   const t0 = performance.now();
   registerCanonPersistence();
+  // El almacén de ENTINTADAS también (F1): este banco corre en Chromium con
+  // IndexedDB de verdad, así que la vía disco→servicio queda bajo prueba —
+  // el parte final canta cuántas teselas sirvió el disco.
+  registerRenderedTilePersistence();
   logOriginal(`[banco] generando mundo ${width}…`);
   mundo = generateWorld({ ...DEFAULT_PARAMS, seed: 'banco-retencion', width });
   bindCanonWorld(mundo, 'banco-retencion');
+  // EL GRIFO ABIERTO: desde la pasada 10 un mundo nace desnudo, y este paseo
+  // retrata «suelo firme con caminos y casas» — la captura original de Luis.
+  // Las MISMAS ediciones viajan serializadas como canonEdits (abajo), que es
+  // exactamente lo que hace WorldView: sin ellas, el worker replicaría un
+  // canon desnudo bajo una geografía habitada.
+  // LEGADO = el caso de Luis: un mundo SIN ediciones (el grifo abierto por
+  // ausencia) y `canonEdits` vacío, como lo manda WorldView. Es la
+  // combinación que su HUD retrataba con 0/28 y disco 0/863.
+  if (legado) {
+    edicionesCanon = '';
+  } else {
+    const grifo: WorldEdit[] = [{ kind: 'placesEverywhere', enabled: true }];
+    applyEdits(mundo, grifo);
+    edicionesCanon = serializeEdits(grifo);
+  }
   logOriginal('[banco] geografía full…');
   geografia = getGeography(mundo, 'full');
   logOriginal('[banco] montando Map2D…');
@@ -133,7 +171,10 @@ async function preparar(width: number) {
   host.style.cssText = 'position:relative;width:1280px;height:760px;overflow:hidden;background:#0b0e14';
   document.body.appendChild(host);
   raiz = createRoot(host);
-  raiz.render(createElement(Banco, { u, v, spanKm: 1600 }));
+  // Match the real app. This is the lifecycle probe that caught a memoized
+  // DisplayTileStore being disposed by StrictMode and then silently reused.
+  raiz.render(createElement(StrictMode, null,
+    createElement(Banco, { u, v, spanKm: 1600 })));
   // El latido: si el hilo principal se atasca, esto calla — y el corredor
   // sabe distinguir «página muerta» de «Playwright esperando a un selector».
   window.setInterval(() => logOriginal(`[banco] latido +${ahora().toFixed(1)}s`), 2000);
@@ -231,6 +272,7 @@ function informe(nivel: number, reposoDesdeT: number) {
     genUltimos: genCambios.slice(-6),
     declinadas: declinadas.length,
     stats: { ...tileStats },
+    servicio: { ...tileServiceStats },
   };
 }
 

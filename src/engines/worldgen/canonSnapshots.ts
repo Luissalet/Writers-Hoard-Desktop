@@ -29,12 +29,13 @@ import { db } from '@/db';
 import type { WorldData } from './core/types';
 import type { Stroke, WorldEdit } from './core/edits';
 import { deserializeEdits } from './core/edits';
-import { DEFAULT_HUMAN_PARAMS } from './core/settlements';
+import { DEFAULT_HUMAN_PARAMS, type HumanGeography } from './core/settlements';
 import { CANON_STORE_VERSION } from './region/canonStore';
 import { strokeTouchesSheet } from './region/canonEdits';
 import { tileGeometry } from './region/tiles';
 import { setCanonPersistence, traceTiles } from './region/client';
-import { hashEditsString } from './region/workerProtocol';
+import { hashEditsString, stableStringify } from './region/workerProtocol';
+import { geographyContentKey } from './region/contentIdentity';
 import type { CanonTileRow } from './types';
 
 export type { CanonTileRow };
@@ -66,7 +67,10 @@ const WORLD_IDS_BY_SEED = new Map<string, string>();
 const seedKey = (world: WorldData): string =>
   `${world.params.seed}:${world.width}x${world.height}`;
 
-function resolveWorldId(world: WorldData): string | undefined {
+/** Exportado: la puerta de las teselas entintadas (`renderedSnapshots.ts`)
+ *  resuelve sus filas con el MISMO vínculo mundo→id, respaldo por semilla
+ *  incluido — dos registros del vínculo serían dos maneras de desincronizarse. */
+export function resolveWorldId(world: WorldData): string | undefined {
   return WORLD_IDS.get(world) ?? WORLD_IDS_BY_SEED.get(seedKey(world));
 }
 
@@ -86,20 +90,27 @@ export function canonWorldBound(world: WorldData): boolean {
   return resolveWorldId(world) !== undefined;
 }
 
-/** The per-supertile slice of the edit list that its identity depends on. */
-function relevantEdits(world: WorldData, canonKey: string, editsJson: string): WorldEdit[] {
+/**
+ * Las ediciones cuya HUELLA puede tocar alguna de estas sábanas — la rodaja
+ * de la lista de la que depende la identidad del suelo que cubren. Exportada:
+ * la clave de una supertesela usa UNA sábana; la de una tesela de pantalla
+ * usa las (≤4) superteselas bajo ella, y las dos deben filtrar con las
+ * MISMAS reglas o una invalidaría lo que la otra conserva.
+ */
+export function relevantEditsForSheets(
+  world: WorldData, sheets: ReturnType<typeof tileGeometry>[], editsJson: string,
+): WorldEdit[] {
   if (!editsJson) return [];
-  const parts = canonKey.split(':');
-  const id = { tx: Number(parts[1]), ty: Number(parts[2]) };
-  if (!Number.isFinite(id.tx) || !Number.isFinite(id.ty)) return deserializeEdits(editsJson);
-  const g = tileGeometry(world, id);
+  if (!sheets.length) return deserializeEdits(editsJson);
   const asStroke = (pts: { x: number; y: number }[], radius: number): Stroke =>
     ({ pts, radius, strength: 1, softness: 0 });
+  const touches = (stroke: Stroke): boolean =>
+    sheets.some((g) => strokeTouchesSheet(stroke, g, world.width));
   return deserializeEdits(editsJson).filter((e) => {
-    if ('stroke' in e) return strokeTouchesSheet(e.stroke, g, world.width);
-    if (e.kind === 'river') return strokeTouchesSheet(asStroke(e.pts, Math.max(1, e.width)), g, world.width);
+    if ('stroke' in e) return touches(e.stroke);
+    if (e.kind === 'river') return touches(asStroke(e.pts, Math.max(1, e.width)));
     if (e.kind === 'road' || e.kind === 'realmArea') {
-      return strokeTouchesSheet(asStroke(e.pts, 1), g, world.width);
+      return touches(asStroke(e.pts, 1));
     }
     // Una zona de lugares invalida SÓLO las superteselas que su pincelada
     // pisa — su geometría es un trazo como el de una calzada. El grifo global
@@ -107,7 +118,7 @@ function relevantEdits(world: WorldData, canonKey: string, editsJson: string): W
     // abrirlo o cerrarlo re-fragua el mundo entero, que es exactamente lo que
     // hace.
     if (e.kind === 'placesZone') {
-      return strokeTouchesSheet(asStroke(e.pts, Math.max(1, e.radius)), g, world.width);
+      return touches(asStroke(e.pts, Math.max(1, e.radius)));
     }
     // Everything else reaches the supertile through the global geography
     // (moves, markers, renames, fills, erasers): include it always.
@@ -115,34 +126,31 @@ function relevantEdits(world: WorldData, canonKey: string, editsJson: string): W
   });
 }
 
-/**
- * JSON con las claves ORDENADAS, recursivo. `JSON.stringify` serializa en
- * orden de inserción, y los `params` de un mundo recién generado y los del
- * mismo mundo decodificado de la instantánea pueden llevar las mismas claves
- * en distinto orden — con lo que la clave de invalidación «cambiaba» entre
- * sesiones y el almacén nunca acertaba: trece superteselas guardadas y cero
- * sembradas (la captura de Luis, 2026-08-12). La identidad debe depender del
- * CONTENIDO, nunca del orden en que un objeto fue construido.
- */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'undefined';
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  const keys = Object.keys(value as Record<string, unknown>)
-    .filter((k) => (value as Record<string, unknown>)[k] !== undefined)
-    .sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`).join(',')}}`;
+/** The per-supertile slice of the edit list that its identity depends on. */
+function relevantEdits(world: WorldData, canonKey: string, editsJson: string): WorldEdit[] {
+  if (!editsJson) return [];
+  const parts = canonKey.split(':');
+  const id = { tx: Number(parts[1]), ty: Number(parts[2]) };
+  if (!Number.isFinite(id.tx) || !Number.isFinite(id.ty)) return deserializeEdits(editsJson);
+  return relevantEditsForSheets(world, [tileGeometry(world, id)], editsJson);
 }
 
-function rowKey(world: WorldData, canonKey: string, editsJson: string): string {
+function rowKey(
+  world: WorldData, geography: HumanGeography, canonKey: string, editsJson: string,
+): string {
   const paramsHash = hashEditsString(stableStringify(world.params));
   const humanHash = hashEditsString(stableStringify(DEFAULT_HUMAN_PARAMS));
   const editsHash = hashEditsString(stableStringify(relevantEdits(world, canonKey, editsJson)));
   return `${CANON_STORE_VERSION}:${world.params.seed}:${world.width}x${world.height}`
-    + `:${paramsHash}:${humanHash}:e${editsHash}`;
+    + `:${paramsHash}:${humanHash}:g${geography.depth}:${geographyContentKey(geography)}:e${editsHash}`;
+}
+
+function rowId(worldId: string, canonKey: string, contentKey: string): string {
+  return `${worldId}:${canonKey}:${contentKey}`;
 }
 
 async function loadCanonTile(
-  world: WorldData, canonKey: string, editsJson: string,
+  world: WorldData, geography: HumanGeography, canonKey: string, editsJson: string,
 ): Promise<ArrayBuffer | null> {
   const worldId = resolveWorldId(world);
   if (!worldId) {
@@ -150,7 +158,8 @@ async function loadCanonTile(
     return null;
   }
   try {
-    const id = `${worldId}:${canonKey}`;
+    const contentKey = rowKey(world, geography, canonKey, editsJson);
+    const id = rowId(worldId, canonKey, contentKey);
     const row = await db.canonTiles.get(id);
     if (!row) {
       traceTiles('almacén', canonKey, 'load miss (sin fila)');
@@ -160,9 +169,9 @@ async function loadCanonTile(
       traceTiles('almacén', canonKey, `load miss (versión ${row.version}≠${CANON_STORE_VERSION})`);
       return null;
     }
-    if (row.key !== rowKey(world, canonKey, editsJson)) {
+    if (row.key !== contentKey) {
       traceTiles('almacén', canonKey, 'load miss (CLAVE DISTINTA)',
-        `guardada ${row.key.slice(0, 46)}…`, `esperada ${rowKey(world, canonKey, editsJson).slice(0, 46)}…`);
+        `guardada ${row.key.slice(0, 46)}…`, `esperada ${contentKey.slice(0, 46)}…`);
       return null;
     }
     void db.canonTiles.update(id, { savedAt: Date.now() }).catch(() => {});
@@ -176,7 +185,8 @@ async function loadCanonTile(
 }
 
 function saveCanonTile(
-  world: WorldData, canonKey: string, editsJson: string, bytes: ArrayBuffer,
+  world: WorldData, geography: HumanGeography, canonKey: string,
+  editsJson: string, bytes: ArrayBuffer,
 ): void {
   const worldId = resolveWorldId(world);
   if (!worldId) {
@@ -186,10 +196,11 @@ function saveCanonTile(
   traceTiles('almacén', canonKey, `save ${(bytes.byteLength / 1e6).toFixed(1)}MB → ${worldId}`);
   void (async () => {
     try {
+      const contentKey = rowKey(world, geography, canonKey, editsJson);
       await db.canonTiles.put({
-        id: `${worldId}:${canonKey}`,
+        id: rowId(worldId, canonKey, contentKey),
         worldId,
-        key: rowKey(world, canonKey, editsJson),
+        key: contentKey,
         version: CANON_STORE_VERSION,
         bytes: new Uint8Array(bytes),
         byteLength: bytes.byteLength,
