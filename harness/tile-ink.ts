@@ -23,6 +23,7 @@ import { canonMetresPerCell, tileCountX as canonCountX } from '../src/engines/wo
 import { TILE_PX, tileCountX } from '../src/engines/worldgen/cartography/tiles';
 import type { HumanGeography } from '../src/engines/worldgen/core/settlements';
 import type { WorldData } from '../src/engines/worldgen/core/types';
+import { cityInk } from '../src/engines/worldgen/city/render';
 
 void canonCountX;
 
@@ -66,6 +67,20 @@ function diffPx(a: Uint8ClampedArray, b: Uint8ClampedArray): number {
   return n;
 }
 
+const groundHex = cityInk().ground;
+const groundRgb = [1, 3, 5].map((i) => Number.parseInt(groundHex.slice(i, i + 2), 16));
+function opaqueGroundPx(city: Uint8ClampedArray, bare: Uint8ClampedArray): number {
+  let n = 0;
+  for (let i = 0; i < city.length; i += 4) {
+    const nearGround = Math.abs(city[i] - groundRgb[0]) + Math.abs(city[i + 1] - groundRgb[1])
+      + Math.abs(city[i + 2] - groundRgb[2]) < 18;
+    const changed = Math.abs(city[i] - bare[i]) + Math.abs(city[i + 1] - bare[i + 1])
+      + Math.abs(city[i + 2] - bare[i + 2]) > 24;
+    if (nearGround && changed) n++;
+  }
+  return n;
+}
+
 let rojo = false;
 const di = (que: string, ok: boolean, detalle: string) => {
   console.log(`${que}: ${ok ? 'sí' : `NO — ${detalle}`}`);
@@ -97,20 +112,28 @@ for (const z of [10, 12, 14, 16]) {
   const sinCaminos = renderTile(w, gCon, z, rtx, rty, false, cacheCon);
   const caminosPx = diffPx(conCaminos, sinCaminos);
 
-  const tx = Math.floor(cap.x / cells), ty = Math.floor(cap.y / cells);
+  // The visible marker, roads, regional habitation and town plan all share the
+  // centre of the settlement's world cell. The old bank asked for raw `cap.x`
+  // and therefore proved there was a city several kilometres away from its dot.
+  const tx = Math.floor((cap.x + 0.5) / cells), ty = Math.floor((cap.y + 0.5) / cells);
   const ciudad = renderTile(w, gCon, z, tx, ty, true, cacheCon);
   const desnuda = renderTile(wSin, gSin, z, tx, ty, true, cacheSin);
   const ciudadPx = diffPx(ciudad, desnuda);
+  const sueloOpacoPx = opaqueGroundPx(ciudad, desnuda);
 
   console.log(`z${z} (${mPx.toFixed(1)} m/px) · calzada ${rtx},${rty} ${caminosPx}px`
-    + ` · ciudad ${tx},${ty} ${ciudadPx}px`);
+    + ` · ciudad ${tx},${ty} ${ciudadPx}px · suelo claro opaco ${sueloOpacoPx}px`);
   // La vara: desde el primer nivel hondo los caminos se VEN (≥40 px de una
   // tesela de 65.536) y la ciudad deja huella (≥150 px: mancha urbana, tejados
   // o plano según el nivel). En el nivel del plano (≤5 m/px) la ciudad debe
   // ser una presencia grande (≥1000 px).
   di(`z${z} · los caminos entintan`, caminosPx >= 40, `${caminosPx}px`);
   di(`z${z} · la ciudad entinta`, ciudadPx >= 150, `${ciudadPx}px`);
-  if (mPx <= 5) di(`z${z} · plano de calles presente`, ciudadPx >= 1000, `${ciudadPx}px`);
+  if (mPx <= 5) {
+    di(`z${z} · plano de calles presente`, ciudadPx >= 1000, `${ciudadPx}px`);
+    di(`z${z} · el plano no tapa el terreno con pergamino`,
+      sueloOpacoPx <= Math.max(80, ciudadPx * 0.08), `${sueloOpacoPx}/${ciudadPx}px`);
+  }
 }
 
 process.exit(rojo ? 1 : 0);

@@ -1,4 +1,6 @@
-import { map2DLayerPlan } from '../src/engines/worldgen/cartography/map2dLayers';
+import {
+  map2DLayerPlan, map2DVectorRiverFallback,
+} from '../src/engines/worldgen/cartography/map2dLayers';
 import { renderRivers } from '../src/engines/worldgen/core/render';
 import { buildHumanGeography, DEFAULT_HUMAN_PARAMS } from '../src/engines/worldgen/core/settlements';
 import { getWorld } from './world-cache';
@@ -19,8 +21,12 @@ check('el camino principal no depende de cobertura', layers.roadAlpha === 1,
   `alpha=${layers.roadAlpha}`);
 check('las ciudades principales no se ceden a la tesela', layers.principalSettlements === true,
   `${geography.settlements.length} ciudades bajo la capa principal`);
-check('el río existe en la capa de respaldo', layers.riverFallback && layers.tileLayers.rivers,
+check('el río existe en la capa de respaldo', layers.riverFallback,
   `fallback=${layers.riverFallback} · tile=${layers.tileLayers.rivers}`);
+check('el tronco no se hornea en teselas ampliables', layers.tileLayers.rivers === false,
+  `tile.rivers=${layers.tileLayers.rivers}`);
+check('el atlas equirectangular usa respaldo vectorial',
+  map2DVectorRiverFallback(true, 'atlas', 'equirect'), 'vector=true');
 
 const riverPixels = renderRivers(world);
 let riverInk = 0;

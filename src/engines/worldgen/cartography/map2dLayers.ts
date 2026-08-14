@@ -14,9 +14,20 @@ export interface Map2DLayerPlan {
 
 export function map2DLayerPlan(showRivers: boolean): Map2DLayerPlan {
   return {
-    tileLayers: { rivers: showRivers, roads: false, fields: true },
+    // World trunks are a screen-space vector, like principal roads and cities.
+    // Baking them into shallow tiles makes an ancestor blur and magnify them
+    // while a deeper tile loads. Deep tiles still draw their LOCAL streams.
+    tileLayers: { rivers: false, roads: false, fields: true },
     riverFallback: showRivers,
     roadAlpha: 1,
     principalSettlements: true,
   };
+}
+
+/** Equirectangular atlas views can draw the source polyline directly. Other
+ * projections keep the projected raster at their shallow, capped zoom range. */
+export function map2DVectorRiverFallback(
+  showRivers: boolean, viewMode: string, projection: string,
+): boolean {
+  return showRivers && viewMode === 'atlas' && projection === 'equirect';
 }

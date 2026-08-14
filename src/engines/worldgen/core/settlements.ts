@@ -46,6 +46,13 @@ export interface Settlement {
   painted?: boolean;
 }
 
+/** Canonical visual anchor of a settlement. Settlement coordinates identify a
+ * world cell; maps, roads, regional habitation and city plans all meet at its
+ * centre, never at the cell's north-west corner. */
+export function settlementCellCenter(s: Pick<Settlement, 'x' | 'y'>): { x: number; y: number } {
+  return { x: s.x + 0.5, y: s.y + 0.5 };
+}
+
 export interface Road {
   /** Cell indices along the route. */
   cells: number[];
