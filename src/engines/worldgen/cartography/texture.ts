@@ -6,7 +6,7 @@
 // panning, switching views and opening the 3D scene never pay for them twice.
 
 import { Biome, type WorldData } from '../core/types';
-import { applyPaintedRealms, buildHumanGeography, DEFAULT_HUMAN_PARAMS, type GeoDepth, type HumanGeography, type HumanGeographyParams, type Settlement
+import { applyPaintedRealms, buildHumanGeography, DEFAULT_HUMAN_PARAMS, settlementCellCenter, type GeoDepth, type HumanGeography, type HumanGeographyParams, type Settlement
 } from '../core/settlements';
 import { compatibleEditKeys, realmEditKey, riverKey } from '../core/edits';
 import { BIOME_COLORS } from '../core/render';
@@ -17,6 +17,7 @@ import {
   buildElevation, extractPatch, kmPerWorldCell, smoothPolyline, type RegionGeometry,
 } from '../region/terrain';
 import { canonMetresPerCell, canonRefinement } from '../region/tiles';
+import { worldRiverWidthMetres } from '../region/riverScale';
 import { marchingSquares } from './contours';
 import { renderCartography, type CartoLayers, type CartoView } from './render';
 import type { CartoTheme } from './theme';
@@ -785,6 +786,12 @@ interface TownGround {
   riverCourse: { line: V[]; width: number } | null;
 }
 
+interface RiverPlacement {
+  /** City centre relative to the settlement's atlas anchor, in city units. */
+  urbanCenter: V;
+  riverMode: 'bank' | 'crossing';
+}
+
 interface GroundCache { rev: number; map: Map<string, TownGround> }
 const GROUND = new WeakMap<WorldData, GroundCache>();
 
@@ -841,17 +848,18 @@ function riversOf(world: WorldData): { cells: ArrayLike<number>; flow: number }[
  */
 function shoreFor(world: WorldData, s: Settlement, R0: number): { line: V[]; dir: V } | null {
   const W = world.width, H = world.height;
+  const anchor = settlementCellCenter(s);
   const REACH = 4;   // celdas de mundo a cada lado: 156 km de vecindad
   const SUB = 4;     // muestras por celda; la bilineal ya suaviza el contorno
   const N = REACH * 2 * SUB + 1;
   const field = new Float32Array(N * N);
   const elev = world.elevation;
   for (let j = 0; j < N; j++) {
-    const wy = s.y - REACH + j / SUB;
+    const wy = anchor.y - REACH + j / SUB;
     const y0 = Math.min(H - 2, Math.max(0, Math.floor(wy)));
     const ty = Math.min(1, Math.max(0, wy - y0));
     for (let i = 0; i < N; i++) {
-      const wx = s.x - REACH + i / SUB;
+      const wx = anchor.x - REACH + i / SUB;
       const x0 = Math.floor(wx);
       const tx = wx - x0;
       const xa = ((x0 % W) + W) % W, xb = ((x0 + 1) % W + W) % W;
@@ -930,18 +938,14 @@ function shoreFor(world: WorldData, s: Settlement, R0: number): { line: V[]; dir
  * segmento recto, y eso es exactamente lo que el mundo sabe. Inventarle una
  * sinusoide (que es lo que había) no añade información: la cambia de sitio.
  *
- * El ANCHO sale del caudal local, con la misma ley que dibuja el río en el
- * mapa (`drawWorldRivers`: 0,12 + 2,1·flujo km). A escala del plano esa ley da
- * 429 m para el río de Vaaspool — 107 unidades contra un pueblo de 95 de
- * radio, el río más ancho que el pueblo entero. Se conserva la ley y se aplica
- * un único factor de plano (0,10) y un tope de 0,42·R0: entre 16 m para un
- * arroyo y 222 m para el mayor río del mundo, que es el orden de un Sena en
- * París.
+ * El ANCHO sale del caudal local y de `worldRiverWidthMetres`, la misma ley
+ * física que usa el vector del mapa. No se vuelve a encoger para que quepa en
+ * la ciudad: si el cauce es demasiado ancho para cruzarlo, el casco se coloca
+ * en una orilla. Ese es precisamente el contexto que el ancho transporta.
  */
-const PLAN_RIVER_SQUEEZE = 0.10;
-
 function riverFor(world: WorldData, s: Settlement, R0: number): { line: V[]; width: number; dir: V } | null {
   const W = world.width;
+  const anchor = settlementCellCenter(s);
   const index = riverIndex(world);
   const all = riversOf(world);
   const sx = Math.round(s.x), sy = Math.round(s.y);
@@ -968,10 +972,10 @@ function riverFor(world: WorldData, s: Settlement, R0: number): { line: V[]; wid
   const seg: { x: number; y: number }[] = [];
   for (let j = Math.max(0, k - 4); j <= Math.min(cells.length - 1, k + 4); j++) {
     const c = cells[j];
-    let dx = (c % W) + 0.5 - s.x;
+    let dx = (c % W) + 0.5 - anchor.x;
     if (dx > W / 2) dx -= W;
     if (dx < -W / 2) dx += W;
-    seg.push({ x: dx * units, y: (((c / W) | 0) + 0.5 - s.y) * units });
+    seg.push({ x: dx * units, y: (((c / W) | 0) + 0.5 - anchor.y) * units });
   }
   if (seg.length < 2) return null;
   const line = runThroughOrigin(smoothPolyline(seg, 12), R0 * 2.8, R0 / 8);
@@ -979,14 +983,21 @@ function riverFor(world: WorldData, s: Settlement, R0: number): { line: V[]; wid
 
   // Caudal LOCAL, no el de la desembocadura: un pueblo en la cabecera de un
   // gran río no tiene un gran río, tiene el arroyo con el que empieza.
-  const local = world.flow[cellOf(world, s.x, s.y)];
+  const local = world.flow[cells[k]];
   const flow = Math.max(local, river.flow * 0.35);
-  const widthUnits = ((0.12 + 2.1 * flow) * 1000 / METRES_PER_CITY_UNIT) * PLAN_RIVER_SQUEEZE;
+  const widthUnits = worldRiverWidthMetres(flow) / METRES_PER_CITY_UNIT;
+  // `riverine` is a catchment score, not proof that a published river axis
+  // crosses this particular town. Neighbouring world cells are tens of
+  // kilometres apart; accepting the first river in a two-cell ring made the
+  // modal inherit a random remote river. Keep only a channel that reaches the
+  // actual urban sheet. Smaller uncharted streams remain terrain detail.
+  const nearest = closestPointToOrigin(line);
+  if (Math.hypot(nearest.x, nearest.y) > R0 * 1.8 + widthUnits * 0.5) return null;
   const a = line[0], b = line[line.length - 1];
   const m = Math.hypot(b.x - a.x, b.y - a.y) || 1;
   return {
     line,
-    width: Math.max(R0 * 0.05, Math.min(R0 * 0.42, widthUnits)),
+    width: Math.max(R0 * 0.05, widthUnits),
     dir: { x: (b.x - a.x) / m, y: (b.y - a.y) / m },
   };
 }
@@ -1009,12 +1020,13 @@ function riverFor(world: WorldData, s: Settlement, R0: number): { line: V[]; wid
  */
 function reliefFor(world: WorldData, s: Settlement, R0: number): { dir: V | null; amount: number } {
   const ref = canonRefinement(world);
+  const anchor = settlementCellCenter(s);
   const per = 1 / ref;
   const N = 24; // 3,67 km: unas quince veces el radio de una capital
   // Origen SNAPEADO a la retícula del canon, que es lo que hace que estas
   // muestras sean los mismos puntos que el tile — ver `latticeOffset`.
-  const originX = Math.round(s.x * ref) / ref - (N / 2) * per;
-  const originY = Math.round(s.y * ref) / ref - (N / 2) * per;
+  const originX = Math.round(anchor.x * ref) / ref - (N / 2) * per;
+  const originY = Math.round(anchor.y * ref) / ref - (N / 2) * per;
   const g: RegionGeometry = {
     width: N, height: N, margin: 0,
     metresPerCell: canonMetresPerCell(world),
@@ -1027,7 +1039,7 @@ function reliefFor(world: WorldData, s: Settlement, R0: number): { dir: V | null
   } catch {
     return { dir: null, amount: 0 };
   }
-  const cx = (s.x - originX) * ref - 0.5, cy = (s.y - originY) * ref - 0.5;
+  const cx = (anchor.x - originX) * ref - 0.5, cy = (anchor.y - originY) * ref - 0.5;
   // El radio del pueblo en celdas de canon; nunca menos de 2 o el ajuste no
   // tiene de dónde agarrarse (una aldea son 0,7 celdas).
   const rCells = Math.max(2, Math.min(N / 2 - 2, (R0 * METRES_PER_CITY_UNIT) / g.metresPerCell));
@@ -1099,6 +1111,87 @@ function townGround(world: WorldData, s: Settlement): TownGround {
   return ground;
 }
 
+function closestPointToOrigin(line: V[]): V {
+  let best = line[0] ?? { x: 0, y: 0 };
+  let bestD = best.x * best.x + best.y * best.y;
+  for (let i = 0; i < line.length - 1; i++) {
+    const a = line[i], b = line[i + 1];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const l2 = dx * dx + dy * dy;
+    const t = l2 > 1e-9 ? Math.max(0, Math.min(1, -(a.x * dx + a.y * dy) / l2)) : 0;
+    const p = { x: a.x + dx * t, y: a.y + dy * t };
+    const d = p.x * p.x + p.y * p.y;
+    if (d < bestD) { best = p; bestD = d; }
+  }
+  return best;
+}
+
+/**
+ * Decide whether this settlement genuinely spans its river or grows from one
+ * bank. The decision uses physical river width and the roads that reach the
+ * site; it is therefore stable and says something about why the town exists.
+ */
+function riverPlacementFor(
+  s: Settlement,
+  R0: number,
+  ground: TownGround,
+  roadBearings: number[],
+): RiverPlacement {
+  const course = ground.riverCourse;
+  if (!course || course.line.length < 2) return { urbanCenter: { x: 0, y: 0 }, riverMode: 'bank' };
+  const near = closestPointToOrigin(course.line);
+  const nearD = Math.hypot(near.x, near.y);
+  // A nearby river can explain the site without cutting through its streets.
+  if (nearD > R0 * 1.2 + course.width * 0.5) {
+    return { urbanCenter: { x: 0, y: 0 }, riverMode: 'bank' };
+  }
+
+  const dir = ground.riverDir ?? (() => {
+    const a = course.line[0], b = course.line[course.line.length - 1];
+    const m = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    return { x: (b.x - a.x) / m, y: (b.y - a.y) / m };
+  })();
+  const perp = { x: -dir.y, y: dir.x };
+  let roadPos = 0, roadNeg = 0;
+  for (const bearing of roadBearings) {
+    const side = Math.cos(bearing) * perp.x + Math.sin(bearing) * perp.y;
+    if (side > 0.18) roadPos++;
+    else if (side < -0.18) roadNeg++;
+  }
+  const bridgeable = course.width <= R0 * (
+    s.rank === 'capital' ? 0.64 : s.rank === 'city' ? 0.52 : s.rank === 'town' ? 0.38 : 0.24
+  );
+  const roadsNeedCrossing = roadPos > 0 && roadNeg > 0;
+  // A large name on the map is not, by itself, a reason to build half a city
+  // across a major river. Two-sided access explains a substantial crossing;
+  // without it, only a genuinely modest channel may be absorbed by an old
+  // capital/city as it grows. This keeps one-road estuary towns on one bank.
+  const modestUrbanRiver = (s.rank === 'capital' || s.rank === 'city')
+    && course.width <= R0 * 0.32;
+  if (bridgeable && (roadsNeedCrossing || modestUrbanRiver)) {
+    return { urbanCenter: { x: 0, y: 0 }, riverMode: 'crossing' };
+  }
+
+  // Wide rivers found towns on a bank, not in the channel. Prefer the bank
+  // served by more roads; at an estuary prefer the side away from open sea;
+  // ties are broken by settlement identity, never by render order.
+  let sign = roadPos === roadNeg ? ((s.id & 1) ? 1 : -1) : roadPos > roadNeg ? 1 : -1;
+  const clearance = course.width * 0.5 + R0 * 0.58;
+  const candidate = (sgn: number): V => ({
+    x: near.x + perp.x * clearance * sgn,
+    y: near.y + perp.y * clearance * sgn,
+  });
+  if (ground.shoreLine?.length && ground.coastDir) {
+    const n = ground.coastDir;
+    const coastD = Math.min(...ground.shoreLine.map((v) => v.x * n.x + v.y * n.y));
+    const a = candidate(1), b = candidate(-1);
+    const aSea = a.x * n.x + a.y * n.y - coastD;
+    const bSea = b.x * n.x + b.y * n.y - coastD;
+    if ((aSea > 0) !== (bSea > 0)) sign = aSea <= 0 ? 1 : -1;
+  }
+  return { urbanCenter: candidate(sign), riverMode: 'bank' };
+}
+
 /**
  * Todo lo que el mundo le dice a un plano de ciudad.
  *
@@ -1117,14 +1210,19 @@ export function cityParamsFor(
   const size = planSizeFor(s);
   const ground = townGround(world, s);
   const known = geo ?? GEO_CACHE.get(world)?.geo;
+  const roadBearings = known ? roadBearingsFor(world, known, s) : [];
+  const placement = riverPlacementFor(s, 10 + size * 2.5, ground, roadBearings);
   return {
     seed: `${world.params.seed}::city::${s.id}`,
     name: s.name,
     size,
     walls: s.rank !== 'village',
     citadel: s.rank === 'capital' || s.rank === 'city',
-    river: s.river,
-    coast: s.port,
+    // Flags explain why the settlement was selected; geometry decides what is
+    // actually present on this sheet. Never synthesize a second, unrelated
+    // river merely because the gazetteer says "river".
+    river: !!ground.riverCourse,
+    coast: !!ground.shoreLine,
     farms: !BARREN_BIOMES.has(world.biome[cellOf(world, s.x, s.y)]),
     culture: s.culture,
     population: s.population,
@@ -1132,9 +1230,11 @@ export function cityParamsFor(
     riverDir: ground.riverDir,
     slopeDir: ground.slopeDir,
     slopeAmount: ground.slopeAmount,
-    roadBearings: known ? roadBearingsFor(world, known, s) : [],
+    roadBearings,
     shoreLine: ground.shoreLine,
     riverCourse: ground.riverCourse,
+    urbanCenter: placement.urbanCenter,
+    riverMode: placement.riverMode,
     // A little per-town variation in how lobed it is: a planned bastide and a
     // village that grew where the tracks crossed are not the same shape.
     irregularity: 0.38 + ((s.id * 2654435761) % 1000) / 1000 * 0.34,

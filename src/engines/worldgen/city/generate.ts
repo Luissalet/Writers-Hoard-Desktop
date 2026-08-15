@@ -275,6 +275,10 @@ export interface CityParams {
   shoreLine?: V[] | null;
   /** The real river course through the town, in city units, with its width. */
   riverCourse?: { line: V[]; width: number } | null;
+  /** Urban centre relative to the settlement's atlas anchor. */
+  urbanCenter?: V | null;
+  /** Whether the settlement occupies one bank or deliberately spans both. */
+  riverMode?: 'bank' | 'crossing';
   /**
    * La lengua viva del pueblo y la protolengua de su familia.
    *
@@ -1228,8 +1232,12 @@ export function generateCity(params: CityParams): CityPlan {
   // Generate a generous surplus so the inner set is fully surrounded by outer
   // patches — the wall needs neighbours on every side to have somewhere to go.
   const nTotal = nInner * 8;
+  const R0 = 10 + nInner * 2.5;
+  const origin = p.urbanCenter && Number.isFinite(p.urbanCenter.x) && Number.isFinite(p.urbanCenter.y)
+    ? p.urbanCenter
+    : { x: 0, y: 0 };
 
-  let sites = spiralSites(rng, nTotal);
+  let sites = spiralSites(rng, nTotal).map((v) => ({ x: v.x + origin.x, y: v.y + origin.y }));
   const span = Math.max(...sites.map((s) => Math.hypot(s.x, s.y))) * 1.15 + 20;
   const bounds: Poly = [
     { x: -span, y: -span }, { x: span, y: -span }, { x: span, y: span }, { x: -span, y: span },
@@ -1250,7 +1258,6 @@ export function generateCity(params: CityParams): CityPlan {
   // along their river and along their shore, they do not grow into the water,
   // they climb a hillside reluctantly, and they are lobed rather than round
   // because land is. That is the whole difference between a plan and a token.
-  const R0 = 10 + nInner * 2.5; // the nominal radius the spiral would have given
   const irregularity = Math.max(0, Math.min(1, p.irregularity ?? 0.55));
 
   const norm = (v: V): V => {
@@ -1299,20 +1306,28 @@ export function generateCity(params: CityParams): CityPlan {
           ? norm(p.coastDir)
           : norm({ x: b.y - a.y, y: -(b.x - a.x) });
         let projs = givenShore.map((v) => v.x * n.x + v.y * n.y);
-        if (Math.min(...projs) < 0) { n = { x: -n.x, y: -n.y }; projs = projs.map((t) => -t); }
+        const originProj = origin.x * n.x + origin.y * n.y;
+        if (Math.min(...projs) < originProj) {
+          n = { x: -n.x, y: -n.y };
+          projs = projs.map((t) => -t);
+        }
         // Sólo el tramo que pasa por delante del pueblo: una ría a tres radios
         // de aquí no tiene por qué estrangular el plano.
         const near = givenShore
-          .map((v, i) => ({ t: projs[i], along: Math.abs(-v.x * n.y + v.y * n.x) }))
+          .map((v, i) => ({
+            t: projs[i],
+            along: Math.abs(-(v.x - origin.x) * n.y + (v.y - origin.y) * n.x),
+          }))
           .filter((s) => s.along < R0 * 1.4)
           .map((s) => s.t);
         const d = Math.min(...(near.length ? near : projs));
-        return { n, d: Math.max(R0 * 0.18, Math.min(R0 * 1.2, d)) };
+        const centreProj = origin.x * n.x + origin.y * n.y;
+        return { n, d: centreProj + Math.max(R0 * 0.18, Math.min(R0 * 1.2, d - centreProj)) };
       }
       const n = pickDir(p.coastDir, rng() * Math.PI * 2);
       const theta = Math.atan2(n.y, n.x);
       // 0,72 of the reach: the sea bites into the plan rather than grazing it.
-      return { n, d: R0 * lobeAt(theta) * 0.72 };
+      return { n, d: origin.x * n.x + origin.y * n.y + R0 * lobeAt(theta) * 0.72 };
     })()
     : null;
   // The river: an axis with an off-centre channel, so it never runs through
@@ -1338,18 +1353,25 @@ export function generateCity(params: CityParams): CityPlan {
         coastAxis ? Math.atan2(coastAxis.n.y, coastAxis.n.x) + (rng() - 0.5) * 0.7 : rng() * Math.PI,
       );
       const perp = { x: -dir.y, y: dir.x };
-      const off = (rng() < 0.5 ? -1 : 1) * R0 * (0.22 + rng() * 0.3);
+      const off = origin.x * perp.x + origin.y * perp.y
+        + (rng() < 0.5 ? -1 : 1) * R0 * (0.22 + rng() * 0.3);
       return { dir, perp, off };
     })()
     : null;
+  // The physical width is needed before the curtain wall exists: a one-bank
+  // city must claim only dry Voronoi ground, otherwise its wall is computed
+  // around cells that geometrically extend through the channel. Use R0 for the
+  // synthetic fallback; world-backed plans carry their measured width.
+  const groundRiverWidth = givenCourse ? Math.max(1.2, givenCourse.width) : R0 * 0.09;
   const slopeDir = p.slopeDir && (p.slopeDir.x || p.slopeDir.y) ? norm(p.slopeDir) : null;
   const slopeAmount = Math.max(0, Math.min(1, p.slopeAmount ?? 0));
 
   /** How far the town reaches towards `v`, as a multiple of R0. */
   const growth = (v: V): number => {
-    const r = Math.hypot(v.x, v.y);
+    const rel = { x: v.x - origin.x, y: v.y - origin.y };
+    const r = Math.hypot(rel.x, rel.y);
     if (r < 1e-6) return 1;
-    const u = { x: v.x / r, y: v.y / r };
+    const u = { x: rel.x / r, y: rel.y / r };
     let g = lobeAt(Math.atan2(u.y, u.x));
 
     if (coastAxis) {
@@ -1366,7 +1388,11 @@ export function generateCity(params: CityParams): CityPlan {
       g *= 0.80 + 0.48 * along;
       // The far bank is a bridge away, so it gets a quarter, not a half.
       const side = v.x * riverAxis.perp.x + v.y * riverAxis.perp.y;
-      if (Math.sign(side - riverAxis.off) !== Math.sign(-riverAxis.off)) g *= 0.55;
+      const homeSide = origin.x * riverAxis.perp.x + origin.y * riverAxis.perp.y - riverAxis.off;
+      if (Math.sign(side - riverAxis.off) !== Math.sign(homeSide || 1)) {
+        if (p.riverMode === 'bank') return 0;
+        g *= 0.55;
+      }
     }
     if (slopeDir) {
       // Uphill is dear: carts, wells and drains all argue against it.
@@ -1376,11 +1402,11 @@ export function generateCity(params: CityParams): CityPlan {
     return Math.max(0.22, g);
   };
 
-  // The race. Site 0 sits on the origin and always wins it.
+  // The race. Site 0 sits on the inhabited centre and always wins it.
   const ranked = sites
     .map((v, i) => {
       const g = growth(v);
-      return { i, cost: g <= 0 ? Infinity : Math.hypot(v.x, v.y) / (R0 * g) };
+      return { i, cost: g <= 0 ? Infinity : Math.hypot(v.x - origin.x, v.y - origin.y) / (R0 * g) };
     })
     .sort((a, b) => a.cost - b.cost);
   const chosen = new Set<number>();
@@ -1460,7 +1486,8 @@ export function generateCity(params: CityParams): CityPlan {
       // centro histórico por construcción.
       let seed = 0, sd = Infinity;
       for (let i = 0; i < n; i++) {
-        const d = Math.hypot(centroid(cand[i].shape).x, centroid(cand[i].shape).y);
+        const c = centroid(cand[i].shape);
+        const d = Math.hypot(c.x - origin.x, c.y - origin.y);
         if (d < sd) { sd = d; seed = i; }
       }
       const seen = new Uint8Array(n);
@@ -1486,8 +1513,47 @@ export function generateCity(params: CityParams): CityPlan {
     }
   }
 
+  /**
+   * UNA ORILLA ES SUELO, NO SÓLO UNA PREFERENCIA DE CRECIMIENTO.
+   *
+   * `growth` impedía elegir centros de distrito en la margen opuesta, pero
+   * sus celdas de Voronoi seguían siendo polígonos completos y se alargaban a
+   * través del agua. La muralla se calculaba sobre esos polígonos antes de
+   * recortar edificios: en el plano de Brias aparecía una muralla gigantesca
+   * rodeando medio estuario aunque todas las casas estuvieran en la derecha.
+   *
+   * En modo `bank` se recorta ahora el propio suelo urbano por la orilla seca,
+   * antes de construir muralla, puertas y grafo de calles. Se vuelven a soldar
+   * los vértices creados por el corte para que las calles sigan siendo los
+   * huecos compartidos entre manzanas.
+   */
+  if (riverAxis && p.riverMode === 'bank') {
+    const homeProjection = origin.x * riverAxis.perp.x + origin.y * riverAxis.perp.y;
+    const homeSign = Math.sign(homeProjection - riverAxis.off) || 1;
+    const bankProjection = riverAxis.off + homeSign * (groundRiverWidth * 0.5 + 0.8);
+    const bankPoint = {
+      x: riverAxis.perp.x * bankProjection,
+      y: riverAxis.perp.y * bankProjection,
+    };
+    const outward = {
+      x: -riverAxis.perp.x * homeSign,
+      y: -riverAxis.perp.y * homeSign,
+    };
+    for (const q of patches) {
+      if (!q.withinCity) continue;
+      const clipped = clipHalfPlane(q.shape, bankPoint, outward);
+      if (clipped.length >= 3) q.shape = clipped;
+      else {
+        q.shape = [];
+        q.withinCity = false;
+        q.withinWalls = false;
+      }
+    }
+    weldVertices(patches.map((q) => q.shape));
+  }
+
   const inner = patches.filter((q) => q.withinCity);
-  const center = centroid(inner[0]?.shape ?? [{ x: 0, y: 0 }]);
+  const center = centroid(inner[0]?.shape ?? [origin]);
 
   // ---- curtain wall -------------------------------------------------------
   /**
@@ -2185,6 +2251,45 @@ export function generateCity(params: CityParams): CityPlan {
     if (inner1.length >= 3) {
       const ringRoad = wallClosed ? [...inner1, inner1[0]] : inner1;
       (nInner >= 24 ? mainStreets : streets).push(ringRoad);
+    }
+  }
+
+  /**
+   * A road from the far bank does not become a causeway just because its world
+   * bearing points at this city. In one-bank mode, stop the countryside road
+   * at the water's edge; the world-map compositor applies the same rule by
+   * repainting the river above ordinary roads. A future ferry may begin here,
+   * but an unmodelled bridge must never be implied by a line through blue.
+   */
+  if (river && p.riverMode === 'bank') {
+    const bankDistance = riverWidth * 0.5 + 1;
+    for (const road of roads) {
+      if (road.length < 2) continue;
+      const dry: V[] = [road[0]];
+      let cut = false;
+      for (let i = 0; i < road.length - 1 && !cut; i++) {
+        const a = road[i], b = road[i + 1];
+        const steps = Math.max(4, Math.ceil(dist(a, b) / 2));
+        let prevT = 0;
+        for (let k = 1; k <= steps; k++) {
+          const t = k / steps;
+          if (lineDist(lerp(a, b, t), river) > bankDistance) {
+            prevT = t;
+            continue;
+          }
+          let lo = prevT, hi = t;
+          for (let j = 0; j < 10; j++) {
+            const mid = (lo + hi) / 2;
+            if (lineDist(lerp(a, b, mid), river) > bankDistance) lo = mid;
+            else hi = mid;
+          }
+          dry.push(lerp(a, b, lo));
+          cut = true;
+          break;
+        }
+        if (!cut) dry.push(b);
+      }
+      road.splice(0, road.length, ...dry);
     }
   }
 
