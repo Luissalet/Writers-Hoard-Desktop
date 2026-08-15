@@ -567,3 +567,18 @@ costura antes de trazar; rechazo de cauces locales degenerados por longitud,
 rectitud y dirección; y tinta urbana que integre edificios/calles sin sustituir
 el suelo por una silueta opaca. Las regresiones visuales deben cubrir vista
 mundial y primer plano, no sólo el hand-off intermedio.
+
+## #50 — Una ciudad colocada sobre geografía no es una ciudad que la comprende
+**Fecha:** 2026-08-14
+**Contexto:** El plano urbano empezó a verse directamente sobre las teselas, pero
+seguía generándose en aislamiento. En una ciudad ribereña, el gran río se pintó
+por encima de edificios y murallas; al abrir el plano, la misma población dejó
+de ser costera y su silueta ignoró por completo el agua que justificaba su
+emplazamiento. La coincidencia de coordenadas sólo hizo visible la contradicción.
+**Regla:** Una entidad espacial detallada debe recibir las RESTRICCIONES del
+entorno que ocupa, no sólo su punto central. Costa, cauces, orillas y accesos se
+transforman al sistema local antes de generar el plano; la ciudad decide qué
+suelo es edificable, si ocupa una o dos orillas, dónde necesita puentes/puertos
+y cómo termina la muralla. El orden de dibujo expresa semántica —agua bajo
+puentes y lejos de edificios— y la regresión compara mapa y plano sobre la misma
+geografía, no dos ilustraciones independientes.

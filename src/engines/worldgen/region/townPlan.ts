@@ -22,7 +22,7 @@ import type { WorldData } from '../core/types';
 import { settlementCellCenter, type HumanGeography, type Settlement } from '../core/settlements';
 import type { Ctx } from '../cartography/symbols';
 import { generateCity, type CityPlan } from '../city/generate';
-import { cityInk, drawCityBody, lodFor } from '../city/render';
+import { cityInk, drawCityBody, drawCityWaterfrontStructures, lodFor } from '../city/render';
 import { cityParamsFor } from '../cartography/texture';
 
 /** Metres per city unit. The generator's own documented scale: a main street
@@ -40,13 +40,21 @@ export const METRES_PER_CITY_UNIT = 4;
  */
 export const PLAN_MAX_METRES_PER_PX = 5;
 
-type PlanCache = Map<number, CityPlan | null>;
+interface PlanCache {
+  revision: number;
+  geography: HumanGeography;
+  plans: Map<number, CityPlan | null>;
+}
 const CACHES = new WeakMap<WorldData, PlanCache>();
 
-function planFor(world: WorldData, geography: HumanGeography, s: Settlement): CityPlan | null {
+export function cityPlanFor(world: WorldData, geography: HumanGeography, s: Settlement): CityPlan | null {
   let cache = CACHES.get(world);
-  if (!cache) { cache = new Map(); CACHES.set(world, cache); }
-  const hit = cache.get(s.id);
+  const revision = world.revision ?? 0;
+  if (!cache || cache.revision !== revision || cache.geography !== geography) {
+    cache = { revision, geography, plans: new Map() };
+    CACHES.set(world, cache);
+  }
+  const hit = cache.plans.get(s.id);
   if (hit !== undefined) return hit;
   let plan: CityPlan | null = null;
   try {
@@ -60,7 +68,7 @@ function planFor(world: WorldData, geography: HumanGeography, s: Settlement): Ci
   } catch {
     plan = null; // a plan that will not build must not take the tile with it
   }
-  cache.set(s.id, plan);
+  cache.plans.set(s.id, plan);
   return plan;
 }
 
@@ -124,11 +132,11 @@ export function drawTownPlans(
     const cx = dx * cellPx;
     const cy = (centre.y - view.originWorldY) * cellPx;
     const size = s.rank === 'capital' ? 34 : s.rank === 'city' ? 22 : s.rank === 'town' ? 13 : 7;
-    const reach = (planRadiusMetres(size) / view.metresPerPx);
+    const reach = (planRadiusMetres(size) * 2.5 / view.metresPerPx);
     if (cx + reach < 0 || cy + reach < 0 || cx - reach > view.widthPx || cy - reach > view.heightPx) {
       continue;
     }
-    const plan = planFor(world, geography, s);
+    const plan = cityPlanFor(world, geography, s);
     if (!plan) continue;
 
     ctx.save();
@@ -175,6 +183,57 @@ export function drawTownPlans(
       blockEdges: true,
     });
 
+    ctx.restore();
+    drawn++;
+  }
+  return drawn;
+}
+
+/**
+ * Repaint only structures that cross the water. Map2D owns the world-river
+ * vector and draws it after terrain tiles; this pass restores bridge decks and
+ * piers above that water without lifting roofs or walls above the channel.
+ */
+export function drawTownWaterfrontStructures(
+  world: WorldData,
+  geography: HumanGeography,
+  ctx: Ctx,
+  view: {
+    originWorldX: number; originWorldY: number;
+    widthPx: number; heightPx: number;
+    metresPerPx: number; metresPerWorldCell: number;
+  },
+): number {
+  if (view.metresPerPx > PLAN_MAX_METRES_PER_PX) return 0;
+  const unitPx = METRES_PER_CITY_UNIT / view.metresPerPx;
+  const cellPx = view.metresPerWorldCell / view.metresPerPx;
+  const W = world.width;
+  let drawn = 0;
+  for (const s of geography.settlements) {
+    const centre = settlementCellCenter(s);
+    let dx = centre.x - view.originWorldX;
+    while (dx > W / 2) dx -= W;
+    while (dx < -W / 2) dx += W;
+    const cx = dx * cellPx;
+    const cy = (centre.y - view.originWorldY) * cellPx;
+    const size = s.rank === 'capital' ? 34 : s.rank === 'city' ? 22 : s.rank === 'town' ? 13 : 7;
+    const coarseReach = planRadiusMetres(size) * 2.5 / view.metresPerPx;
+    if (cx + coarseReach < 0 || cy + coarseReach < 0
+      || cx - coarseReach > view.widthPx || cy - coarseReach > view.heightPx) continue;
+    const plan = cityPlanFor(world, geography, s);
+    if (!plan || (!plan.bridges.length && !plan.piers.length)) continue;
+    const exactReach = (Math.hypot(plan.center.x, plan.center.y) + plan.radius * 1.5)
+      * METRES_PER_CITY_UNIT / view.metresPerPx;
+    if (cx + exactReach < 0 || cy + exactReach < 0
+      || cx - exactReach > view.widthPx || cy - exactReach > view.heightPx) continue;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(unitPx, unitPx);
+    drawCityWaterfrontStructures(ctx, plan, {
+      ink: INK,
+      unit: 1 / unitPx,
+      lod: lodFor(unitPx),
+    });
     ctx.restore();
     drawn++;
   }

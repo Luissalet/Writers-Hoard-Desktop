@@ -305,6 +305,38 @@ Las regresiones fijan las cuatro propiedades: anchura física y orillas
 deterministas, ausencia de costura planetaria, ausencia de rayas D8 largas y
 cero píxeles de pergamino opaco alrededor de la ciudad.
 
+## 11 · Ciudad y geografía comparten suelo (2026-08-14)
+
+El plano urbano ya no recibe sólo las etiquetas `port` y `river`. El atlas
+transforma al sistema local de la ciudad el litoral, el eje fluvial, su anchura
+física, la pendiente y los rumbos de las carreteras. Todas esas medidas parten
+de `settlementCellCenter`; la antigua mezcla de `(x,y)` con `(x+0.5,y+0.5)`
+desplazaba el cauce varios kilómetros en la ficha aunque coincidiera en el mapa.
+Un indicador fluvial tampoco puede apropiarse del primer río de una celda
+vecina: el cauce publicado debe alcanzar realmente la hoja urbana.
+
+La posición del casco es una decisión geográfica. Un cauce modesto o con accesos
+desde las dos orillas puede producir una ciudad de cruce; el generador conserva
+ambas márgenes y crea puentes exactamente donde las calles lo atraviesan. Un
+río ancho con acceso unilateral desplaza el centro urbano a la margen servida,
+recorta allí las parcelas antes de calcular la muralla y detiene en la orilla
+cualquier carretera que, sin puente, se convertiría en una calzada sobre el
+agua. En un estuario, la costa elimina además la alternativa que caería en mar.
+
+La composición de primer plano expresa la misma topología. La tesela dibuja
+terreno y tejido urbano; la capa vectorial autoritativa repinta el río por
+encima de edificios, murallas y carreteras ordinarias incluso durante la carga;
+un pase final y exclusivo devuelve sólo puentes y embarcaderos por encima del
+agua. `townPlan` comparte caché por revisión y por objeto de geografía, por lo
+que mapa y modal generan byte a byte el mismo plano y ninguna reconstrucción
+humana deja una ciudad obsoleta en teselas posteriores.
+
+`harness/city-ground-context.ts` fija este contrato sobre mundos reales y
+sintéticos: coordenadas de ancla, selección de margen, ausencia de edificios,
+caminos y muralla en el canal, puentes sobre el agua, costa edificable, igualdad
+mapa/modal e invalidación de caché. El banco histórico `city-quality.ts` conserva
+además sus 32 controles de conectividad, fachadas, escalas, puertas y agua.
+
 ## Fuentes
 - mod_tile/renderd: github.com/openstreetmap/mod_tile (colas al vuelo de 32
   metateselas, servir-caducado-y-encolar, metateselas 8×8, colas por
