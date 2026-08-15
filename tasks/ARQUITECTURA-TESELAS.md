@@ -352,3 +352,59 @@ además sus 32 controles de conectividad, fachadas, escalas, puertas y agua.
   cruzar niveles) · plugin tilelayer.fallback (padres cuando el hijo falta)
 - Generación cara con prioridad por distancia y persistencia:
   papermc-paper.mintlify.app/optimization/chunk-loading
+
+### 11.1 · El canal es del mundo; el muelle es de la ciudad (2026-08-15)
+
+`riverWidth` es AGUA: sale de `worldRiverWidthMetres` y tiene que coincidir con
+el vector que `Map2D` pinta encima. Ninguna distancia urbana se deriva de él.
+`generate.ts` publica tres medidas y todo lo demás se expresa con ellas:
+
+- `bankHalf = riverWidth / 2` — el canal.
+- `quayMargin = max(1, radius·0,03)` — el muelle: agua → primera fachada.
+- `floodMargin = max(2, radius·0,09)` — la vega: ni plaza ni foso, sí sirga.
+
+De ahí `bankKeepOut = bankHalf + quayMargin` (recorte del suelo, culata de
+edificios, tablero del puente) y `floodKeepOut = bankHalf + floodMargin` (plaza,
+foso, coste de calle, molinos y almacenes). El polígono de agua del plano se
+dibuja con ancho CONSTANTE (±3,5 % de temblor de orilla): el vector del mapa lo
+repinta encima y dos anchuras distintas dejaban un borde que leía como orilla
+falsa.
+
+El recorte de la margen habitada usa `signedCourseDistance` —distancia con signo
+a la polilínea— y `clipByField`, que busca el corte por bisección sobre cada
+arista. Un semiplano en la proyección MEDIA del cauce se iba hasta 55 m del agua
+en un río curvo. La poda del componente conexo corre DESPUÉS del recorte y
+también sin costa: partir el casco por la orilla dejaba la ciudadela suelta,
+`outerRing` no cerraba anillo y una ciudad salía «villa abierta» con radio 25
+sobre un plano de 107.
+
+`riverPlacementFor` decide cruce u orilla sin mirar la geografía humana: luz de
+vano en METROS por rango (village 70 · town 190 · city 380 · capital 620), que el
+casco pueda absorber el canal (`ancho ≤ 0,35…0,85·R0` por rango) y un dado por
+identidad del asentamiento para que no crucen todas las que pueden. Pesar
+`roadBearings` hacía que el mismo pueblo saliera de cruce desde la tesela y de
+orilla desde la ficha según qué pase de geografía hubiera terminado.
+
+`cityPlanFor` cachea por `worldContentKey` + `geographyContentKey`. Comparar el
+objeto de geografía tiraba los planos de todo el mundo cada vez que el segundo
+pase aterrizaba o que un consumidor pasaba su copia.
+
+### 11.2 · Lo que se elige y lo que viene del sitio (2026-08-15)
+
+`CityParams` separa ahora las dos familias. **Del sitio** (las pone el atlas y
+sólo cambian si el pueblo se mueve): `river`, `coast`, `riverCourse`,
+`shoreLine`, `urbanCenter`, `riverMode`, `slopeDir`, `roadBearings`. **De quien
+manda** (interruptores en la ficha): `walls`, `citadel`, `cathedral`, `moat`.
+La ficha ya no ofrece «Río» ni «Costa»: apagarle el río a una ciudad fluvial
+producía un plano que contradecía el mapa a un clic de distancia.
+
+Cada decisión encendible tiene su propio hilo de números
+(`createRng(seed, 'city:moat')`) **y sigue gastando el sorteo que ocupaba en el
+hilo principal**. Lo primero hace que el interruptor no dependa de nada de
+arriba; lo segundo, que arreglarlo no mueva barrios, plazas ni casas.
+
+`Fortification.wet` marca los vértices del lienzo que caen sobre el cauce. El
+anillo sigue entero —puertas, avenidas y radio se calculan sobre él— y el
+dibujante se salta ese tramo y sus almenas: una muralla que cruza su río se
+cierra con una puerta de agua, dos torres y una cadena, no con sillería sobre el
+agua.

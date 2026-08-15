@@ -12,6 +12,7 @@ import { applyEdits } from '../src/engines/worldgen/core/edits';
 import { getGeography, cityParamsFor } from '../src/engines/worldgen/cartography/texture';
 import { DEFAULT_CITY, generateCity, type CityPlan } from '../src/engines/worldgen/city/generate';
 import { centroid, type Poly, type V } from '../src/engines/worldgen/city/geometry';
+import type { HumanGeography } from '../src/engines/worldgen/core/settlements';
 import { cityInk, drawCityWaterfrontStructures } from '../src/engines/worldgen/city/render';
 import { cityPlanFor } from '../src/engines/worldgen/region/townPlan';
 
@@ -119,8 +120,100 @@ for (const settlement of riverSettlements.slice(0, 20)) {
     : 0;
   check(wetWallPoints === 0, `${settlement.name}: la muralla pertenece a la orilla habitada`, `${wetWallPoints} puntos`);
   check(bridgeSurvivesWater(plan), `${settlement.name}: los puentes se restauran por encima del agua`);
+
+  /**
+   * Y ADEMÁS LA CIUDAD TIENE QUE TOCAR SU RÍO.
+   *
+   * «Ningún edificio en el canal» se cumplía de la peor manera posible: cada
+   * prueba de «aquí no se construye» era un múltiplo del ANCHO del cauce, así
+   * que al pasar el ancho a físico la ciudad se apartaba del agua entera. Medido
+   * sobre el mundo de Luis antes de arreglarlo: 78 m de media entre la casa más
+   * cercana y su propia orilla, en las 32 ciudades fluviales, y ni un muelle.
+   * Un río al que nadie se asoma no explica por qué el pueblo está ahí.
+   */
+  let closest = Infinity;
+  for (const patch of plan.patches) {
+    for (const building of patch.buildings) {
+      closest = Math.min(closest, lineDistance(centroid(building.shape), visibleRiver) - course.width * 0.5);
+    }
+  }
+  check(closest <= 14, `${settlement.name}: la ciudad se asoma a su río`, `${closest.toFixed(1)} u de la orilla`);
+
+  /**
+   * El canal del plano ES el del mapa. `Map2D` repinta encima el vector del
+   * mundo con ancho constante; si aquí se dibuja un cauce que se ensancha, el
+   * plano asoma por fuera del vector y el borde lee como una orilla falsa.
+   */
+  const channel = plan.waters?.water?.[plan.waters.water.length - 1];
+  if (params.riverMode !== 'bank' && channel && plan.waters?.river) {
+    const half = plan.waters.river.width * 0.5;
+    const strays = channel.filter((v) => Math.abs(lineDistance(v, plan.waters!.river!.line) - half) > half * 0.12).length;
+    check(strays === 0, `${settlement.name}: el canal del plano tiene el ancho del atlas`, `${strays} vértices fuera`);
+  }
+
+  /**
+   * Una CIUDAD amurallada tiene muralla, y `radius` describe todo el plano.
+   *
+   * Al recortar la orilla el casco puede partirse: la poda del componente
+   * conexo corría sólo con costa y corría ANTES del recorte, así que en Nasdial
+   * la ciudadela se despegaba, `outerRing` no cerraba anillo y una ciudad de
+   * 16.414 habitantes salía «villa abierta» con radio 25 sobre un plano de 107.
+   */
+  if (params.walls) {
+    check((plan.wall?.length ?? 0) >= 6, `${settlement.name}: una ciudad amurallada conserva su muralla`,
+      `${plan.wall?.length ?? 0} vértices`);
+    let reach = 0;
+    for (const patch of plan.patches) {
+      if (!patch.withinCity) continue;
+      for (const v of patch.shape) reach = Math.max(reach, Math.hypot(v.x - plan.center.x, v.y - plan.center.y));
+    }
+    check(plan.radius >= reach * 0.75, `${settlement.name}: el radio declarado cubre el plano`,
+      `radio ${plan.radius.toFixed(0)} contra alcance ${reach.toFixed(0)}`);
+  }
+
+  /**
+   * Y LA DECISIÓN NO DEPENDE DE QUE LA GEOGRAFÍA HAYA LLEGADO.
+   *
+   * Pesaba `roadBearings`, que sólo existen con geografía humana construida: el
+   * mismo pueblo salía de cruce desde la tesela y de orilla desde la ficha
+   * según qué pase hubiera terminado. Emplazamiento y modo salen ahora del
+   * suelo, que está siempre.
+   */
+  const roadless = cityParamsFor(world, settlement, { ...geography, roads: [] } as HumanGeography);
+  check(roadless.roadBearings?.length === 0, `${settlement.name}: el caso sin caminos es de verdad sin caminos`);
+  check(roadless.riverMode === params.riverMode
+    && Math.hypot((roadless.urbanCenter?.x ?? 0) - origin.x, (roadless.urbanCenter?.y ?? 0) - origin.y) < 1e-9,
+    `${settlement.name}: el emplazamiento no depende de la geografía humana`,
+    `${params.riverMode}/${origin.x.toFixed(1)} contra ${roadless.riverMode}/${(roadless.urbanCenter?.x ?? 0).toFixed(1)}`);
 }
 check(bankPlans > 0, 'la muestra contiene ciudades de una sola orilla');
+/**
+ * Y QUE EL PLANETA NO SE QUEDE SIN UN SOLO PUENTE.
+ *
+ * El criterio de cruce comparaba el ancho del río con el TAMAÑO DEL DIBUJO y
+ * exigía además caminos por las dos márgenes. Resultado medido sobre el mundo
+ * por defecto: 32 ciudades con cauce, 32 en modo orilla, cero puentes en todo
+ * el planeta. Un puente es una obra con una luz conocida y se mide en metros.
+ *
+ * Va sobre el mundo POR DEFECTO y no sobre el de este banco: los dos únicos
+ * cauces de aquí miden 625 y 607 m, que son estuarios de verdad y de verdad no
+ * se cruzan. Un banco que sólo mira su propio caso cómodo no vio el fallo.
+ */
+{
+  const wide = getWorld();
+  const wideGeo = getGeography(wide, 'full');
+  const withCourse = wideGeo.settlements
+    .map((s) => cityParamsFor(wide, s, wideGeo))
+    .filter((q) => q.riverCourse);
+  const spanning = withCourse.filter((q) => q.riverMode === 'crossing');
+  check(withCourse.length >= 8, 'el mundo por defecto tiene cauces medidos que juzgar',
+    `${withCourse.length} ciudades con cauce`);
+  check(spanning.length > 0, 'un mundo con ríos tiene ciudades de cruce',
+    `${spanning.length} de ${withCourse.length}`);
+  const bridges = spanning.reduce((a, q) => a + generateCity(q).bridges.length, 0);
+  check(bridges >= spanning.length, 'y cada ciudad de cruce levanta su puente',
+    `${bridges} puentes en ${spanning.length} ciudades`);
+}
 
 // A Duug-like major city: 160 m river, roads arriving from both banks. This
 // proves the complementary branch even if the small random world above happens
@@ -139,6 +232,63 @@ const crossing = generateCity({
 check(crossing.bridges.length > 0, 'una ciudad mayor que ocupa ambas orillas materializa un puente');
 check(bridgeSurvivesWater(crossing), 'el puente del cruce queda por encima del agua');
 
+/**
+ * LA PUERTA DE AGUA: donde el lienzo cruza el canal no se levanta piedra.
+ *
+ * Se dibujaba la muralla entera: once vértices de cuarenta y uno plantados en
+ * mitad del río. El anillo sigue completo en el modelo —puertas, avenidas y
+ * radio se calculan sobre él—; lo que cambia es que el dibujante se salta el
+ * tramo mojado y planta una torre en la última piedra seca de cada orilla.
+ */
+{
+  const wet = crossing.fort?.wet ?? [];
+  const ring = crossing.fort?.line ?? [];
+  const inChannel = ring.filter((v) => Math.abs(v.y) < 20).length;
+  check(wet.length === ring.length && wet.filter(Boolean).length > 0,
+    'una ciudad de cruce marca el tramo de muralla que va sobre el agua',
+    `${wet.filter(Boolean).length} de ${ring.length}`);
+  check(inChannel === 0 || wet.filter(Boolean).length >= inChannel,
+    'y no se queda ningún vértice de fábrica dentro del canal sin marcar',
+    `${inChannel} en el canal, ${wet.filter(Boolean).length} marcados`);
+  const banks = ring.filter((v, i) => !wet[i] && (wet[(i - 1 + ring.length) % ring.length] || wet[(i + 1) % ring.length]));
+  const towered = banks.filter((v) => (crossing.fort?.towers ?? []).some((t) => Math.hypot(t.at.x - v.x, t.at.y - v.y) < 3)).length;
+  check(banks.length > 0 && towered === banks.length,
+    'con torre en cada orilla, que es donde iba la cadena',
+    `${towered} de ${banks.length}`);
+}
+
+/**
+ * UN INTERRUPTOR CAMBIA UNA COSA.
+ *
+ * Todo el plano salía de un solo hilo de números en orden de llamada, así que
+ * apagar «Río» en la ficha movía el FOSO en 61 de 120 planos. Por geometría el
+ * agua sólo puede QUITAR perímetro donde cavar; que lo añadiera era la prueba
+ * de que el interruptor estaba barajando el hilo entero.
+ */
+{
+  const N = 120;
+  let adds = 0, forced = 0, removed = 0, sameBody = 0;
+  for (let k = 0; k < N; k++) {
+    const seedBase = { ...DEFAULT_CITY, seed: `contract-moat-${k}`, size: 18 + (k % 22), walls: true };
+    const dry = generateCity({ ...seedBase, river: false });
+    const wetTown = generateCity({ ...seedBase, river: true });
+    if (!dry.fort?.moat && wetTown.fort?.moat) adds++;
+    if (k < 12) {
+      const on = generateCity({ ...seedBase, moat: true });
+      const off = generateCity({ ...seedBase, moat: false });
+      if (on.fort?.moat && !off.fort?.moat) forced++;
+      const body = (c: CityPlan) => `${c.patches.length}:${c.patches.reduce((a, q) => a + q.buildings.length, 0)}:${c.streets.length}`;
+      if (body(on) === body(off)) sameBody++;
+      if (!generateCity({ ...seedBase, cathedral: false }).patches.some((q) => q.ward === 'cathedral')) removed++;
+    }
+  }
+  check(adds === 0, 'poner un río nunca AÑADE un foso: el agua sólo quita orilla donde cavar', `${adds} de ${N}`);
+  check(forced === 12, 'el foso es suyo: se fuerza y se quita a voluntad', `${forced} de 12`);
+  check(sameBody === 12, 'y cavarlo no mueve ni una manzana, ni una casa, ni una calle', `${sameBody} de 12`);
+  check(removed === 12, 'la catedral también es una decisión del pueblo, no del sitio', `${removed} de 12`);
+}
+check(bridgeSurvivesWater(crossing), 'el puente del cruce queda por encima del agua');
+
 const sharedSettlement = geography.settlements.find((s) => cityParamsFor(world, s, geography).riverCourse)
   ?? geography.settlements[0];
 const tilePlanA = cityPlanFor(world, geography, sharedSettlement);
@@ -146,10 +296,23 @@ const tilePlanB = cityPlanFor(world, geography, sharedSettlement);
 const modalPlan = generateCity(cityParamsFor(world, sharedSettlement, geography));
 check(tilePlanA === tilePlanB, 'la tesela reutiliza una única instancia del plano');
 check(JSON.stringify(tilePlanA) === JSON.stringify(modalPlan), 'mapa y modal generan exactamente la misma ciudad');
+// La caché va por CONTENIDO (regla #1 de la arquitectura), no por identidad de
+// objeto: la geografía se construye en dos pases y además llega decodificada de
+// la instantánea, así que el mismo terreno es OTRO objeto muchas veces al día.
+// Antes eso tiraba los 24 planos de ciudad del mundo — lo más caro por tesela —
+// cada vez. El contrato son las dos caras: mismo terreno, mismo plano; otro
+// terreno, plano nuevo.
 const geographyCopy = { ...geography };
-const tilePlanFresh = cityPlanFor(world, geographyCopy, sharedSettlement);
-check(tilePlanFresh !== tilePlanA, 'la caché se invalida al cambiar la geografía');
-check(JSON.stringify(tilePlanFresh) === JSON.stringify(tilePlanA), 'invalidar la caché no cambia un terreno equivalente');
+const tilePlanCopy = cityPlanFor(world, geographyCopy, sharedSettlement);
+check(tilePlanCopy === tilePlanA, 'una geografía equivalente REUTILIZA el plano, no lo recalcula');
+const geographyMoved = {
+  ...geography,
+  settlements: geography.settlements.map((s) => (s.id === sharedSettlement.id ? { ...s, x: s.x + 3 } : s)),
+};
+const tilePlanMoved = cityPlanFor(world, geographyMoved, sharedSettlement);
+check(tilePlanMoved !== tilePlanA, 'una geografía DISTINTA invalida la caché');
+check(cityPlanFor(world, geography, sharedSettlement) !== tilePlanMoved,
+  'volver a la geografía original vuelve a construir su propio plano');
 
 for (const settlement of portSettlements.slice(0, 12)) {
   const params = cityParamsFor(world, settlement, geography);

@@ -1127,15 +1127,39 @@ function closestPointToOrigin(line: V[]): V {
 }
 
 /**
+ * Luz máxima que sabe salvar un puente, EN METROS, por rango.
+ *
+ * El criterio anterior era `ancho ≤ k·R0`: comparaba el río con el TAMAÑO DEL
+ * DIBUJO, no con la ingeniería. Como aquí una capital mide 380 m de radio
+ * nominal, «0,64·R0» son 243 m — y encima exigía además caminos por las dos
+ * márgenes, que casi ninguna población tiene (0–3 caminos por ciudad). Sobre el
+ * mundo de Luis el resultado fue exacto: 32 ciudades con cauce, 32 en modo
+ * orilla, CERO puentes en todo el planeta. Un mundo sin un solo puente.
+ *
+ * Un puente es una obra, y las obras tienen luces conocidas: el de Aviñón medía
+ * 900 m, el Carlos de Praga 516, el de Londres 270, el Valentré 138. Una villa
+ * levanta uno de madera sobre pilas de piedra; una capital, uno de veinte ojos.
+ */
+function bridgeSpanMetres(rank: Settlement['rank']): number {
+  return rank === 'capital' ? 620 : rank === 'city' ? 380 : rank === 'town' ? 190 : 70;
+}
+
+/**
  * Decide whether this settlement genuinely spans its river or grows from one
- * bank. The decision uses physical river width and the roads that reach the
- * site; it is therefore stable and says something about why the town exists.
+ * bank.
+ *
+ * NO MIRA LA GEOGRAFÍA HUMANA, a propósito. Antes pesaba `roadBearings`, que
+ * sólo existen si la geografía ya está construida: el mismo pueblo salía de
+ * cruce desde la tesela (con geografía) y de orilla desde la ficha (sin ella),
+ * o al revés según qué pase hubiera terminado. La decisión se toma ahora con lo
+ * que el suelo dice siempre — anchura física del cauce, rango y un dado
+ * determinista por identidad —, así que el plano es el mismo lo llame quien lo
+ * llame y llegue cuando llegue.
  */
 function riverPlacementFor(
   s: Settlement,
   R0: number,
   ground: TownGround,
-  roadBearings: number[],
 ): RiverPlacement {
   const course = ground.riverCourse;
   if (!course || course.line.length < 2) return { urbanCenter: { x: 0, y: 0 }, riverMode: 'bank' };
@@ -1152,31 +1176,49 @@ function riverPlacementFor(
     return { x: (b.x - a.x) / m, y: (b.y - a.y) / m };
   })();
   const perp = { x: -dir.y, y: dir.x };
-  let roadPos = 0, roadNeg = 0;
-  for (const bearing of roadBearings) {
-    const side = Math.cos(bearing) * perp.x + Math.sin(bearing) * perp.y;
-    if (side > 0.18) roadPos++;
-    else if (side < -0.18) roadNeg++;
-  }
-  const bridgeable = course.width <= R0 * (
-    s.rank === 'capital' ? 0.64 : s.rank === 'city' ? 0.52 : s.rank === 'town' ? 0.38 : 0.24
-  );
-  const roadsNeedCrossing = roadPos > 0 && roadNeg > 0;
-  // A large name on the map is not, by itself, a reason to build half a city
-  // across a major river. Two-sided access explains a substantial crossing;
-  // without it, only a genuinely modest channel may be absorbed by an old
-  // capital/city as it grows. This keeps one-road estuary towns on one bank.
-  const modestUrbanRiver = (s.rank === 'capital' || s.rank === 'city')
-    && course.width <= R0 * 0.32;
-  if (bridgeable && (roadsNeedCrossing || modestUrbanRiver)) {
+  /**
+   * Dos condiciones, y las dos son reales.
+   *
+   * La INGENIERÍA dice si el puente se puede levantar (luz en metros). La
+   * URBANÍSTICA dice si el pueblo puede tragarse el canal: un cauce más ancho
+   * que el radio del casco no parte una ciudad en dos, la ahoga. Con sólo la
+   * primera condición salieron ciudades de cruce sobre ríos de 334 m con un
+   * radio nominal de 260 — medido: 292 edificios donde una ciudad seca del
+   * mismo rango tiene 1.500, un pueblo hueco a cada lado de un lago.
+   */
+  const bridgeable = course.width * METRES_PER_CITY_UNIT <= bridgeSpanMetres(s.rank)
+    && course.width <= R0 * (
+      s.rank === 'capital' ? 0.85 : s.rank === 'city' ? 0.75 : s.rank === 'town' ? 0.60 : 0.35
+    );
+  /**
+   * Y no todas las que PUEDEN, cruzan.
+   *
+   * Colonia creció en una orilla del Rin y Viena en una del Danubio; París y
+   * Londres se comieron las dos. Un dado por identidad —no un sorteo del
+   * generador, que barajaría todos los planos detrás de él— reparte esa
+   * variedad sin perder el determinismo, y sube con el rango porque el puente
+   * es caro y sólo una ciudad grande arrastra el arrabal de enfrente.
+   */
+  const die = ((s.id * 2654435761) >>> 0) % 100;
+  const appetite = s.rank === 'capital' ? 82 : s.rank === 'city' ? 70 : s.rank === 'town' ? 58 : 0;
+  if (bridgeable && die < appetite) {
     return { urbanCenter: { x: 0, y: 0 }, riverMode: 'crossing' };
   }
 
-  // Wide rivers found towns on a bank, not in the channel. Prefer the bank
-  // served by more roads; at an estuary prefer the side away from open sea;
-  // ties are broken by settlement identity, never by render order.
-  let sign = roadPos === roadNeg ? ((s.id & 1) ? 1 : -1) : roadPos > roadNeg ? 1 : -1;
-  const clearance = course.width * 0.5 + R0 * 0.58;
+  // Wide rivers found towns on a bank, not in the channel. At an estuary the
+  // side away from open sea wins; otherwise the settlement's own identity
+  // decides, never render order or whether the atlas happened to be resident.
+  let sign = (s.id & 1) ? 1 : -1;
+  /**
+   * El casco se aparta del canal LO JUSTO.
+   *
+   * Estaba en `ancho/2 + 0,58·R0`: el centro urbano se iba a más de medio radio
+   * del agua y la ciudad acababa mirando su río desde lejos — medido, 78 m de
+   * media entre la última casa y su propia orilla, sin un muelle en 32 ciudades.
+   * Una ciudad de orilla ESTÁ en la orilla: la plaza se retira del agua lo que
+   * ocupan el muelle y la primera hilera, y no más.
+   */
+  const clearance = course.width * 0.5 + Math.max(4, R0 * 0.24);
   const candidate = (sgn: number): V => ({
     x: near.x + perp.x * clearance * sgn,
     y: near.y + perp.y * clearance * sgn,
@@ -1211,7 +1253,7 @@ export function cityParamsFor(
   const ground = townGround(world, s);
   const known = geo ?? GEO_CACHE.get(world)?.geo;
   const roadBearings = known ? roadBearingsFor(world, known, s) : [];
-  const placement = riverPlacementFor(s, 10 + size * 2.5, ground, roadBearings);
+  const placement = riverPlacementFor(s, 10 + size * 2.5, ground);
   return {
     seed: `${world.params.seed}::city::${s.id}`,
     name: s.name,
