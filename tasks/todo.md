@@ -934,3 +934,54 @@ dejar los cambios sin commit/push salvo petición expresa.
   en este entorno; el contrato vigente queda actualizado en
   `ARQUITECTURA-TESELAS.md`.
 - Cambios locales sobre `main`, sin rama, commit, staging ni push.
+# Worldgen 2D: ciudades conscientes de la geografía
+
+**Started:** 2026-08-14
+
+## Especificación verificable
+
+- [x] El mapa y el plano modal usan el mismo contexto de costa y ríos alrededor
+      del asentamiento; una ciudad costera no deja de serlo al abrirla.
+- [x] Ningún edificio, parcela o tramo de muralla queda debajo del agua. Los
+      cruces deliberados se representan como puentes y el agua pasa por debajo.
+- [x] Una ciudad ribereña decide de forma determinista entre ocupar una orilla o
+      ambas según tamaño y accesibilidad; si usa ambas, crea conexiones válidas.
+- [x] La silueta urbana y sus accesos responden a la línea de costa, la dirección
+      del cauce y el suelo edificable, sin tapar ni inventar geografía.
+- [x] La composición es estable entre teselas y niveles de zoom.
+
+## Plan
+
+- [x] Auditar coordenadas, generador y orden de capas de ciudad/agua.
+- [x] Crear un contexto hidrográfico local compartido por mapa y plano modal.
+- [x] Restringir parcelas/muralla y derivar puentes, puertas y frente de agua.
+- [x] Separar las fases de tinta: agua, tejido urbano e infraestructura superior.
+- [x] Añadir regresiones geométricas/de píxel y probar el caso en navegador.
+- [x] Documentar, actualizar el grafo disponible y limpiar temporales.
+
+## Review
+
+- Corregido el desfase de media celda que entregaba al plano costas, cauces y
+  relieve situados varios kilómetros respecto a su ancla visible.
+- El ancho fluvial físico y los accesos deciden ahora entre ciudad de una orilla
+  o ciudad de cruce. En una sola orilla se recortan suelo urbano, muralla y
+  caminos; en cruce, las calles que atraviesan el agua generan puentes.
+- La composición de calle queda en terreno/ciudad → agua autoritativa →
+  puentes y embarcaderos. Durante la carga el agua puede ocultar temporalmente
+  un puente, pero una carretera nunca vuelve a aparecer como calzada ficticia.
+- `harness/city-ground-context.ts`: 61 comprobaciones verdes sobre mundos reales
+  y un cruce mayor; igualdad exacta mapa/modal, caché, costa y ocupación seca.
+- `harness/city-quality.ts`: 32 comprobaciones verdes; `tile-ink.ts`: ciudad,
+  caminos y plano urbano presentes en z10/z12/z14/z16, sin relleno opaco.
+- Validación visual en el navegador integrado sobre Brias (capital de estuario,
+  266 m, un camino): casco y muralla en la margen servida, litoral conservado y
+  carretera detenida en el agua. Consola sin avisos ni errores.
+- `npm run verify:release` verde: tipos renderer/Electron, lint, conformidad de
+  21 motores, 12 pruebas críticas, build de escritorio y presupuesto de bundles.
+- Arquitectura actualizada en `tasks/ARQUITECTURA-TESELAS.md`. La habilidad del
+  grafo se evaluó al cierre; no hubo altas, bajas o renombres de motores ni
+  cambios de stores, DB, rutas, servicios o dependencias que exigieran tocar su
+  catálogo externo.
+- Trabajo local sobre `main`, sin rama, staging, commit ni push.
+
+---

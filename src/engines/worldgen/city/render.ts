@@ -1092,6 +1092,65 @@ function drawFort(ctx: Ctx, fort: Fortification, center: V, o: CityBodyOptions):
 // ---------------------------------------------------------------------------
 
 /**
+ * Infrastructure that must remain above water in every compositor. The deep
+ * tile draws the whole plan first, while Map2D owns the authoritative world
+ * river and paints it later; exposing this small final pass lets bridges and
+ * piers recover their correct semantic layer without repainting the town over
+ * the channel.
+ */
+export function drawCityWaterfrontStructures(
+  ctx: Ctx,
+  plan: CityPlan,
+  o: Pick<CityBodyOptions, 'ink' | 'unit' | 'lod'>,
+): void {
+  const px = (n: number) => n * o.unit;
+  const fill = (poly: Poly, color: string, stroke: string, width: number) => {
+    if (poly.length < 3) return;
+    ctx.beginPath();
+    tracePoly(ctx, poly);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = width;
+    ctx.stroke();
+  };
+  for (const pier of plan.piers) {
+    fill(pier, o.ink.paving, o.ink.pavingEdge, px(0.8));
+    if (pier.length === 4 && o.lod >= 3) {
+      ctx.save();
+      ctx.beginPath(); tracePoly(ctx, pier); ctx.clip();
+      ctx.strokeStyle = o.ink.pavingEdge;
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = px(0.7);
+      const length = dist(pier[0], pier[1]);
+      const boards = Math.max(1, Math.round(length / 2.2));
+      ctx.beginPath();
+      for (let i = 1; i < boards; i++) {
+        const t = i / boards;
+        ctx.moveTo(pier[0].x + (pier[1].x - pier[0].x) * t, pier[0].y + (pier[1].y - pier[0].y) * t);
+        ctx.lineTo(pier[3].x + (pier[2].x - pier[3].x) * t, pier[3].y + (pier[2].y - pier[3].y) * t);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+  }
+  for (const bridge of plan.bridges) {
+    fill(bridge, o.ink.ground, o.ink.ink, px(1.1));
+    if (bridge.length === 4) {
+      ctx.strokeStyle = o.ink.ink;
+      ctx.lineWidth = px(0.7);
+      for (const [i, j] of [[0, 1], [2, 3]] as [number, number][]) {
+        ctx.beginPath();
+        ctx.moveTo(bridge[i].x, bridge[i].y);
+        ctx.lineTo(bridge[j].x, bridge[j].y);
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+/**
  * El plano entero salvo los rótulos, en coordenadas de plano.
  *
  * Quien llama deja puesta la transformación (traslación y escala) y dice a qué
@@ -1270,15 +1329,6 @@ export function drawCityBody(ctx: Ctx, plan: CityPlan, o: CityBodyOptions): void
     ctx.lineWidth = Math.max(px(0.8), w - px(0.4));
     ctx.stroke();
   };
-  const fillPoly = (poly: Poly, fill: string, stroke?: string, lw = px(0.8)) => {
-    if (poly.length < 3) return;
-    ctx.beginPath();
-    tracePoly(ctx, poly);
-    ctx.fillStyle = fill;
-    ctx.fill();
-    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
-  };
-
   // A escala de mapa la red viaria se lee del borde de la manzana: el hueco
   // entre manzanas ES la calle, y perfilarlo cuesta un trazo por celda en vez
   // de un listado de ejes que a 0,5 px/unidad ya no se distinguen.
@@ -1301,45 +1351,7 @@ export function drawCityBody(ctx: Ctx, plan: CityPlan, o: CityBodyOptions): void
   // Drawn after the streets and before the buildings: a quay is paving that the
   // houses stand back from, and a bridge deck has to cover the water the street
   // was just drawn across.
-  for (const pier of plan.piers) {
-    fillPoly(pier, ink.paving, ink.pavingEdge, px(0.8));
-    // Los tablones cruzados: un embarcadero es madera sobre el agua, y sin
-    // ellos el muelle sale como una barra parda saliendo del pueblo hacia el
-    // mar, que es exactamente lo que se veía.
-    if (pier.length === 4 && o.lod >= 3) {
-      ctx.save();
-      ctx.beginPath(); tracePoly(ctx, pier); ctx.clip();
-      ctx.strokeStyle = ink.pavingEdge;
-      ctx.globalAlpha = 0.5;
-      ctx.lineWidth = px(0.7);
-      const l = dist(pier[0], pier[1]);
-      const k = Math.max(1, Math.round(l / 2.2));
-      ctx.beginPath();
-      for (let i = 1; i < k; i++) {
-        const t = i / k;
-        ctx.moveTo(pier[0].x + (pier[1].x - pier[0].x) * t, pier[0].y + (pier[1].y - pier[0].y) * t);
-        ctx.lineTo(pier[3].x + (pier[2].x - pier[3].x) * t, pier[3].y + (pier[2].y - pier[3].y) * t);
-      }
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.restore();
-    }
-  }
-  for (const b of plan.bridges) {
-    fillPoly(b, ink.ground, ink.ink, px(1.1));
-    // Two parapet lines along the deck read as a bridge at any zoom; a plain
-    // rectangle over a river reads as a mistake.
-    if (b.length === 4) {
-      ctx.strokeStyle = ink.ink;
-      ctx.lineWidth = px(0.7);
-      for (const [i, j] of [[0, 1], [2, 3]] as [number, number][]) {
-        ctx.beginPath();
-        ctx.moveTo(b[i].x, b[i].y);
-        ctx.lineTo(b[j].x, b[j].y);
-        ctx.stroke();
-      }
-    }
-  }
+  drawCityWaterfrontStructures(ctx, plan, o);
 
   // ---- 5. los tejados ------------------------------------------------------
   if (o.lod >= 2) {

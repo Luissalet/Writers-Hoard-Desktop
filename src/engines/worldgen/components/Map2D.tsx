@@ -46,6 +46,8 @@ import { drawRealmBorders, realmBorders, realmTint } from '../cartography/realmO
 import {
   drawWorldRivers, MAX_SAT_TILE_Z, SAT_DEEP_Z, satelliteDeepSupported,
 } from '../region/satelliteTile';
+import { drawTownWaterfrontStructures, PLAN_MAX_METRES_PER_PX } from '../region/townPlan';
+import { kmPerWorldCell } from '../region/terrain';
 import { regionClient, tileStats, oldestInFlightMs, traceTiles } from '../region/client';
 import { serveTile, tileServiceStats } from '../region/tileService';
 import { mapSourceKey } from '../region/contentIdentity';
@@ -1684,9 +1686,9 @@ export default function Map2D({
       }
     }
 
-    // World rivers are an authoritative vector OVER every terrain source:
-    // coarse fallback, ancestor and exact canon tile. Their geometry therefore
-    // cannot blur while loading or be replaced when the exact bitmap lands.
+    // The stable river fallback stays visible over every terrain source while
+    // the pyramid converges. At ordinary map scales roads are composited later
+    // so their bridges remain legible without street-plan detail.
     blitRivers();
 
     /** Principal settlements are an authoritative screen-space layer. Deep
@@ -2007,6 +2009,40 @@ export default function Map2D({
               : undefined,
           });
         }
+      }
+    }
+
+    const cityLayerPxPerCell = (PW * scale) / W;
+    const cityLayerMetresPerWorldCell = kmPerWorldCell(world) * 1000;
+    const streetScaleVisible = geography && pyramidHere
+      && cityLayerMetresPerWorldCell / cityLayerPxPerCell <= PLAN_MAX_METRES_PER_PX;
+    if (streetScaleVisible) {
+      // At street-plan scale the physical river masks every ordinary road and
+      // urban stroke, including while exact terrain is still arriving. The
+      // dedicated pass below restores real decks/piers once the city itself is
+      // resident; loading may omit a bridge briefly, never invent a causeway.
+      blitRivers();
+    }
+
+    const cityLayerVisible = streetScaleVisible && tilePlanDebug
+      && tilePlanDebug.needed > 0 && tilePlanDebug.exact === tilePlanDebug.needed;
+
+    // Bridges and piers are the only urban objects that belong above water.
+    // The deep tile owns the town body, while the authoritative world river
+    // and road overlays are composited later; restore only these structures
+    // once the exact ground is resident, never the whole town over the river.
+    if (cityLayerVisible && geography) {
+      const pxPerCell = cityLayerPxPerCell;
+      const metresPerWorldCell = cityLayerMetresPerWorldCell;
+      for (const copyOx of copies) {
+        drawTownWaterfrontStructures(world, geography, ctx, {
+          originWorldX: -copyOx / pxPerCell,
+          originWorldY: -view.oy / pxPerCell,
+          widthPx: cw,
+          heightPx: ch,
+          metresPerPx: metresPerWorldCell / pxPerCell,
+          metresPerWorldCell,
+        });
       }
     }
 
