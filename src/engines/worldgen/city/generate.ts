@@ -131,6 +131,16 @@ export interface Fortification {
   /** Grosor de la fábrica, en unidades. */
   thickness: number;
   towers: { at: V; shape: Poly; kind: 'round' | 'square' | 'bastion' }[];
+  /**
+   * Vértices que caen sobre el agua, uno por vértice de `line`.
+   *
+   * El anillo sigue entero —puertas, avenidas y radio se calculan sobre él—,
+   * pero ahí no se levanta fábrica: una muralla que cruza su propio río se
+   * cierra con una PUERTA DE AGUA (dos torres y una cadena), no con sillería
+   * sobre el cauce. Medido en una ciudad de cruce: once de cuarenta y un
+   * vértices estaban dentro del canal.
+   */
+  wet?: boolean[];
   gates: {
     /** Sobre la línea dibujada. */
     at: V;
@@ -227,6 +237,24 @@ export interface CityParams {
   size: number;
   walls: boolean;
   citadel: boolean;
+  /**
+   * Cavar un foso delante de la muralla.
+   *
+   * Es una decisión MILITAR y suya: no la traía nadie, salía de una moneda al
+   * aire (0,66) en medio del hilo de números del plano, así que apagar «Río» en
+   * la ficha se llevaba el foso por delante en la mitad de los pueblos. Sin
+   * declarar, el foso lo decide el propio pueblo por su semilla —una villa sin
+   * amurallar o en cuesta no cava ninguno— y aquí se puede forzar o quitar.
+   */
+  moat?: boolean;
+  /**
+   * Sede episcopal.
+   *
+   * Como la muralla o la ciudadela, es una decisión HUMANA sobre el pueblo y no
+   * un rasgo del sitio. Por defecto la tiene todo pueblo con diez distritos o
+   * más, que es la regla que había.
+   */
+  cathedral?: boolean;
   /** Put a river through the town. */
   river: boolean;
   /** Put the sea on one side. */
@@ -637,9 +665,9 @@ const WARD_WEIGHTS: [WardType, number][] = [
  * a coin toss and nobody had told the generator that a cathedral is *the*
  * cathedral. Rare wards get a quota instead.
  */
-function wardQuota(ward: WardType, innerCount: number): number {
+function wardQuota(ward: WardType, innerCount: number, cathedral = true): number {
   switch (ward) {
-    case 'cathedral': return innerCount >= 10 ? 1 : 0;
+    case 'cathedral': return cathedral && innerCount >= 10 ? 1 : 0;
     case 'park': return Math.max(1, Math.round(innerCount / 14));
     case 'military': return Math.max(1, Math.round(innerCount / 12));
     case 'administration': return Math.max(1, Math.round(innerCount / 15));
@@ -976,6 +1004,57 @@ function lineDist(q: V, line: V[]): number {
   return best;
 }
 
+/**
+ * Distancia CON SIGNO a una polilínea: positiva a la izquierda de su marcha.
+ *
+ * El recorte de la orilla usaba un solo semiplano colocado en la proyección
+ * MEDIA de todo el cauce. Un río recto lo tolera; uno curvo, no: medido sobre
+ * el mundo de Luis, el plano de corte se iba hasta 13,7 unidades (55 m) del
+ * agua de verdad, de modo que en unas ciudades la manzana se comía la orilla y
+ * en otras quedaba una franja de nadie entre la última casa y el río. Un cauce
+ * no es una recta y no hay que resumirlo como si lo fuera.
+ */
+function signedCourseDistance(q: V, line: V[]): number {
+  if (line.length < 2) return Infinity;
+  let best = Infinity, sign = 1;
+  for (let i = 0; i < line.length - 1; i++) {
+    const a = line[i], b = line[i + 1];
+    const d = segDist(q, a, b);
+    if (d >= best) continue;
+    best = d;
+    const e = sub(b, a);
+    sign = (e.x * (q.y - a.y) - e.y * (q.x - a.x)) >= 0 ? 1 : -1;
+  }
+  return best * sign;
+}
+
+/**
+ * Recorta un polígono por un CAMPO escalar (se conserva `f >= 0`).
+ *
+ * Sutherland–Hodgman supone que el borde es una recta y corta interpolando; con
+ * la distancia a una polilínea el corte se busca por bisección sobre la propia
+ * arista. Las celdas de Voronoi son convexas y pequeñas frente a la curvatura
+ * del cauce, así que una arista cruza la orilla como mucho una vez.
+ */
+function clipByField(poly: Poly, f: (v: V) => number): Poly {
+  if (poly.length < 3) return [];
+  const out: Poly = [];
+  const n = poly.length;
+  for (let i = 0; i < n; i++) {
+    const a = poly[i], b = poly[(i + 1) % n];
+    const fa = f(a), fb = f(b);
+    if (fa >= 0) out.push(a);
+    if ((fa >= 0) === (fb >= 0)) continue;
+    let lo = 0, hi = 1;
+    for (let k = 0; k < 14; k++) {
+      const m = (lo + hi) / 2;
+      if ((f(lerp(a, b, m)) >= 0) === (fa >= 0)) lo = m; else hi = m;
+    }
+    out.push(lerp(a, b, (lo + hi) / 2));
+  }
+  return out.length >= 3 ? out : [];
+}
+
 /** Recorta un polígono contra otro CONVEXO (Sutherland–Hodgman). */
 function clipToConvex(poly: Poly, clip: Poly): Poly {
   if (poly.length < 3 || clip.length < 3) return [];
@@ -1228,6 +1307,27 @@ function tongueFor(culture: CultureId): { lang: Language; proto: Language } {
 export function generateCity(params: CityParams): CityPlan {
   const p = { ...DEFAULT_CITY, ...params };
   const rng = createRng(p.seed, 'city');
+  /**
+   * EL FOSO TIENE SU PROPIO HILO DE NÚMEROS.
+   *
+   * Todo el plano sale de UN hilo en orden de llamada, así que cualquier rama
+   * que consuma un sorteo desplaza a todas las de detrás. El foso se echa a
+   * suertes al final de la fábrica militar: por detrás del río, del litoral y
+   * del bucle de torres —que gasta un número de sorteos que depende de la
+   * LONGITUD del anillo—. Consecuencia medida: apagar «Río» en la ficha movía
+   * el foso en 61 de 120 planos, y ponerlo lo AÑADÍA en 38 de 200, que es
+   * imposible por geometría (el agua sólo puede quitar perímetro donde cavar).
+   * Un interruptor que dice «río» tiene que cambiar el río y nada más.
+   *
+   * El foso decide con su propio hilo, derivado de la misma semilla: sigue
+   * siendo determinista y sigue siendo del pueblo. Pero el sorteo del hilo
+   * principal SE SIGUE GASTANDO donde estaba (ver abajo): quitarlo desplazaría
+   * barrios, plazas y casas, y cambiaría todas las ciudades del mundo por un
+   * arreglo que sólo va del foso — medido, la fachada a espacio público caía
+   * del 92,3 % al 89,3 % sin que nada estuviera peor, sólo distinto.
+   */
+  const moatRng = createRng(p.seed, 'city:moat');
+  const wantsCathedral = p.cathedral ?? true;
   const nInner = Math.max(4, Math.round(p.size));
   // Generate a generous surplus so the inner set is fully surrounded by outer
   // patches — the wall needs neighbours on every side to have somewhere to go.
@@ -1363,6 +1463,26 @@ export function generateCity(params: CityParams): CityPlan {
   // around cells that geometrically extend through the channel. Use R0 for the
   // synthetic fallback; world-backed plans carry their measured width.
   const groundRiverWidth = givenCourse ? Math.max(1.2, givenCourse.width) : R0 * 0.09;
+  /**
+   * EL CANAL Y LA RIBERA SON DOS MEDIDAS DISTINTAS.
+   *
+   * `riverWidth` es AGUA: sale de `worldRiverWidthMetres` y tiene que coincidir
+   * con el vector que el mapa pinta encima. La distancia a la que una ciudad se
+   * aparta del agua NO escala con el caudal: un muelle está a diez metros del
+   * agua igual en el Sena que en un arroyo. Mientras los dos números fueron el
+   * mismo, cada prueba de «aquí no se construye» se escribió como un múltiplo
+   * del ancho (1,5·, 1,6·, 0,8·, 5·…) — y al pasar el ancho a físico esos
+   * múltiplos crecieron con el río. Medido sobre el mundo de Luis: la casa más
+   * cercana quedaba a 78 m de media de su propia orilla, en las 32 ciudades
+   * fluviales, y ninguna tenía frente de agua. Un río ancho esterilizaba media
+   * ciudad.
+   *
+   * El retranqueo es una medida URBANA (6–24 m por tamaño de plano) y el canal
+   * es una medida HIDROLÓGICA. Aquí se separan de una vez.
+   */
+  const quayMarginFor = (span: number) => Math.max(1, span * 0.03);
+  /** Primera línea edificable, para lo que ocurre ANTES de que exista muralla. */
+  const groundBankKeepOut = groundRiverWidth * 0.5 + quayMarginFor(R0);
   const slopeDir = p.slopeDir && (p.slopeDir.x || p.slopeDir.y) ? norm(p.slopeDir) : null;
   const slopeAmount = Math.max(0, Math.min(1, p.slopeAmount ?? 0));
 
@@ -1441,6 +1561,54 @@ export function generateCity(params: CityParams): CityPlan {
   weldVertices(shapes);
 
   /**
+   * UNA ORILLA ES SUELO, NO SÓLO UNA PREFERENCIA DE CRECIMIENTO.
+   *
+   * `growth` impedía elegir centros de distrito en la margen opuesta, pero
+   * sus celdas de Voronoi seguían siendo polígonos completos y se alargaban a
+   * través del agua. La muralla se calculaba sobre esos polígonos antes de
+   * recortar edificios: en el plano de Brias aparecía una muralla gigantesca
+   * rodeando medio estuario aunque todas las casas estuvieran en la derecha.
+   *
+   * En modo `bank` se recorta ahora el propio suelo urbano por la orilla seca,
+   * antes de construir muralla, puertas y grafo de calles. Se vuelven a soldar
+   * los vértices creados por el corte para que las calles sigan siendo los
+   * huecos compartidos entre manzanas.
+   *
+   * El corte sigue el CAUCE, no su plano medio (ver `signedCourseDistance`), y
+   * se para en la primera línea edificable, no a 0,8 unidades del agua: entre
+   * la orilla y la primera casa hay un muelle, y ese muelle mide lo mismo en un
+   * arroyo que en un estuario.
+   */
+  /** Positivo = suelo edificable de la margen habitada. Null si no hay recorte. */
+  let bankField: ((v: V) => number) | null = null;
+  if (riverAxis && p.riverMode === 'bank') {
+    const homeProjection = origin.x * riverAxis.perp.x + origin.y * riverAxis.perp.y;
+    const homeSign = Math.sign(homeProjection - riverAxis.off) || 1;
+    // El signo de `signedCourseDistance` es el del cauce tal como viene; el de
+    // la ciudad se lee UNA vez en su centro y manda sobre todo lo demás.
+    const courseLine = givenCourse?.line ?? null;
+    const courseSign = courseLine
+      ? (Math.sign(signedCourseDistance(origin, courseLine)) || homeSign)
+      : 0;
+    const perp = riverAxis.perp;
+    const off = riverAxis.off;
+    bankField = courseLine
+      ? (v: V) => courseSign * signedCourseDistance(v, courseLine) - groundBankKeepOut
+      : (v: V) => homeSign * (v.x * perp.x + v.y * perp.y - off) - groundBankKeepOut;
+    for (const q of patches) {
+      if (!q.withinCity) continue;
+      const clipped = clipByField(q.shape, bankField);
+      if (clipped.length >= 3) q.shape = clipped;
+      else {
+        q.shape = [];
+        q.withinCity = false;
+        q.withinWalls = false;
+      }
+    }
+    weldVertices(patches.map((q) => q.shape));
+  }
+
+  /**
    * LA CIUDAD ES LO QUE PUEDE LLEGAR AL MERCADO. Con mar, la elección de
    * distritos por coste puede quedarse una cuña al otro lado de la
    * desembocadura: suelo seco, coste finito, y ningún camino hasta el resto
@@ -1453,10 +1621,23 @@ export function generateCity(params: CityParams): CityPlan {
    * cruce de RÍO se permite — pesa ×3,2 y trae puente, y los pueblos partidos
    * por su río son legítimos y buenos.
    */
-  if (coastAxis) {
+  if (coastAxis || bankField) {
     const cand = patches.filter((q) => q.withinCity);
     if (cand.length > 1) {
-      const seaS = (v: V) => v.x * coastAxis.n.x + v.y * coastAxis.n.y - coastAxis.d;
+      /**
+       * Seco = ni mar ni canal.
+       *
+       * La prueba sólo miraba el mar y la poda sólo corría con costa. Tras
+       * recortar por la orilla el casco puede quedar partido igual —medido en
+       * Nasdial: la ciudadela se despegaba del cuerpo, `outerRing` no cerraba
+       * un anillo de seis vértices y una CIUDAD salía «villa abierta», sin
+       * muralla y con radio 25 sobre un plano de 107—, así que la poda corre
+       * también cuando hubo recorte y el canal cuenta como agua.
+       */
+      const seaS = (v: V) => Math.max(
+        coastAxis ? v.x * coastAxis.n.x + v.y * coastAxis.n.y - coastAxis.d : -1e4,
+        bankField ? -bankField(v) : -1e4,
+      );
       const iOf = new Map<Patch, number>(cand.map((q, i) => [q, i]));
       const byVert = new Map<V, number[]>();
       for (const q of cand) {
@@ -1511,45 +1692,6 @@ export function generateCity(params: CityParams): CityPlan {
         }
       }
     }
-  }
-
-  /**
-   * UNA ORILLA ES SUELO, NO SÓLO UNA PREFERENCIA DE CRECIMIENTO.
-   *
-   * `growth` impedía elegir centros de distrito en la margen opuesta, pero
-   * sus celdas de Voronoi seguían siendo polígonos completos y se alargaban a
-   * través del agua. La muralla se calculaba sobre esos polígonos antes de
-   * recortar edificios: en el plano de Brias aparecía una muralla gigantesca
-   * rodeando medio estuario aunque todas las casas estuvieran en la derecha.
-   *
-   * En modo `bank` se recorta ahora el propio suelo urbano por la orilla seca,
-   * antes de construir muralla, puertas y grafo de calles. Se vuelven a soldar
-   * los vértices creados por el corte para que las calles sigan siendo los
-   * huecos compartidos entre manzanas.
-   */
-  if (riverAxis && p.riverMode === 'bank') {
-    const homeProjection = origin.x * riverAxis.perp.x + origin.y * riverAxis.perp.y;
-    const homeSign = Math.sign(homeProjection - riverAxis.off) || 1;
-    const bankProjection = riverAxis.off + homeSign * (groundRiverWidth * 0.5 + 0.8);
-    const bankPoint = {
-      x: riverAxis.perp.x * bankProjection,
-      y: riverAxis.perp.y * bankProjection,
-    };
-    const outward = {
-      x: -riverAxis.perp.x * homeSign,
-      y: -riverAxis.perp.y * homeSign,
-    };
-    for (const q of patches) {
-      if (!q.withinCity) continue;
-      const clipped = clipHalfPlane(q.shape, bankPoint, outward);
-      if (clipped.length >= 3) q.shape = clipped;
-      else {
-        q.shape = [];
-        q.withinCity = false;
-        q.withinWalls = false;
-      }
-    }
-    weldVertices(patches.map((q) => q.shape));
   }
 
   const inner = patches.filter((q) => q.withinCity);
@@ -1637,6 +1779,23 @@ export function generateCity(params: CityParams): CityPlan {
    * donde el atlas dibuja un río navegable es dos mapas del mismo sitio.
    */
   const riverWidth = givenCourse ? Math.max(1.2, givenCourse.width) : radius * 0.09;
+  /** El agua, sin más. Lo que el mapa pinta encima con el vector autoritativo. */
+  const bankHalf = riverWidth * 0.5;
+  /**
+   * Dos márgenes de ribera, los dos medidos en CIUDAD y no en caudal.
+   *
+   * `quayMargin` es el muelle: la franja entre el agua y la primera fachada.
+   * `floodMargin` es la vega: el suelo que se moja de vez en cuando, donde no
+   * se pone una plaza ni se cava un foso pero sí pasa un camino de sirga. Un
+   * arroyo y un estuario tienen el mismo muelle y la misma vega; lo que cambia
+   * entre ellos es el AGUA, que ya la lleva `bankHalf`.
+   */
+  const quayMargin = quayMarginFor(radius);
+  const floodMargin = Math.max(2, radius * 0.09);
+  /** Primera fachada: agua + muelle. */
+  const bankKeepOut = bankHalf + quayMargin;
+  /** Borde de la vega: agua + vega. */
+  const floodKeepOut = bankHalf + floodMargin;
 
   // A wall does not run into the sea. Clip the ring to the dry arc so it ends at
   // the waterline on both sides, the way a real harbour town's does — the sea
@@ -1728,7 +1887,7 @@ export function generateCity(params: CityParams): CityPlan {
      */
     const dryHere = (v: V) =>
       (!coast || (v.x - coast.p.x) * coast.n.x + (v.y - coast.p.y) * coast.n.y < -1.5)
-      && (!river || !river.some((rp) => dist(rp, v) < riverWidth * 0.5 + 1));
+      && (!river || !river.some((rp) => dist(rp, v) < bankHalf + 1));
     /**
      * Y CON SUELO DE PUEBLO DETRÁS. La puerta se dibuja sobre la línea SUAVE
      * de la muralla, y en una esquina CÓNCAVA el suavizado corta la escotadura
@@ -1954,12 +2113,20 @@ export function generateCity(params: CityParams): CityPlan {
      * es la forma de decir un anillo con un solo polígono simple.
      */
     let moat: Poly | null = null;
-    if ((p.slopeAmount ?? 0) < 0.55 && nInner >= 10 && rng() < 0.66) {
+    // La cuesta y el tamaño son razones del sitio: en pendiente el foso se
+    // vacía solo y una aldea no tiene con qué pagarlo. Lo demás es del pueblo,
+    // por su propio hilo (`moatRng`), y `p.moat` manda sobre todo.
+    const canDig = (p.slopeAmount ?? 0) < 0.55 && nInner >= 10;
+    // El sorteo de siempre, que ya no decide nada pero sigue corriendo el hilo
+    // para que lo que viene detrás no se mueva. Ver la nota de `moatRng`.
+    rng();
+    const wantsMoat = p.moat ?? (moatRng() < 0.66);
+    if (canDig && wantsMoat) {
       const berm = Math.max(2.2, thickness * 3);
       const width = Math.max(3, radius * 0.045 + thickness * 2);
       const dryOut = (v: V) => !(
         (coast && (v.x - coast.p.x) * coast.n.x + (v.y - coast.p.y) * coast.n.y > -1)
-        || (river && lineDist(v, river) < riverWidth * 1.6)
+        || (river && lineDist(v, river) < floodKeepOut)
       );
       const ok: boolean[] = [];
       for (let i = 0; i < n; i++) {
@@ -1990,7 +2157,35 @@ export function generateCity(params: CityParams): CityPlan {
       }
     }
 
-    fort = { line: wallRing, closed: wallClosed, thickness, towers: list, gates: fortGates, moat };
+    /**
+     * LA PUERTA DE AGUA.
+     *
+     * Donde el lienzo cruza el canal no hay piedra: hay dos torres, una en cada
+     * orilla, y entre ellas la cadena. Se marca el vértice mojado —el dibujante
+     * se salta ese tramo y sus almenas— y se planta una torre en el último
+     * vértice seco de cada lado, que es exactamente donde estaba el torreón de
+     * la cadena en Colonia, en Lyon o en el Támesis.
+     */
+    let wet: boolean[] | undefined;
+    if (river && river.length >= 2) {
+      const flags = wallRing.map((v) => lineDist(v, river) < bankHalf);
+      if (flags.some(Boolean) && flags.some((f) => !f)) {
+        wet = flags;
+        const m = wallRing.length;
+        for (let i = 0; i < m; i++) {
+          if (flags[i]) continue;
+          const before = flags[(i - 1 + m) % m], after = flags[(i + 1) % m];
+          if (!before && !after) continue;
+          if (list.some((tw) => dist(tw.at, wallRing[i]) < thickness * 3)) continue;
+          list.push({
+            at: wallRing[i],
+            shape: circle(Math.max(1.4, thickness * 2.2), 12, wallRing[i]),
+            kind: 'round',
+          });
+        }
+      }
+    }
+    fort = { line: wallRing, closed: wallClosed, thickness, towers: list, gates: fortGates, moat, wet };
     towers = list.map((t) => t.at);
   }
 
@@ -2005,8 +2200,8 @@ export function generateCity(params: CityParams): CityPlan {
   // not a penalty — a slightly-less-central square is free, a market under two
   // feet of water is not.
   const inWater = (v: V): boolean => {
-    if (coast && (v.x - coast.p.x) * coast.n.x + (v.y - coast.p.y) * coast.n.y > -riverWidth) return true;
-    if (river && lineDist(v, river) < riverWidth * 1.5) return true;
+    if (coast && (v.x - coast.p.x) * coast.n.x + (v.y - coast.p.y) * coast.n.y > -floodMargin) return true;
+    if (river && lineDist(v, river) < floodKeepOut) return true;
     return false;
   };
   const dryPatch = (q: Patch) => !q.shape.some(inWater) && !inWater(centroid(q.shape));
@@ -2080,7 +2275,7 @@ export function generateCity(params: CityParams): CityPlan {
     l.push(q);
   }
   for (const [ward, list] of counted) {
-    const quota = wardQuota(ward, inner.length);
+    const quota = wardQuota(ward, inner.length, wantsCathedral);
     if (list.length <= quota) continue;
     // A cathedral wants a big dry central block; a park wants whatever is left.
     const ranked = list.slice().sort((a, b) => {
@@ -2103,7 +2298,7 @@ export function generateCity(params: CityParams): CityPlan {
   // market, and it usually stands ON the market square or one block off it. So:
   // score by centrality first, size second, and give a real bonus for touching
   // the market place.
-  if (!inner.some((q) => q.ward === 'cathedral') && wardQuota('cathedral', inner.length) > 0) {
+  if (!inner.some((q) => q.ward === 'cathedral') && wardQuota('cathedral', inner.length, wantsCathedral) > 0) {
     const marketVerts = new Set(
       (market?.shape ?? []).map((v) => `${v.x.toFixed(3)},${v.y.toFixed(3)}`),
     );
@@ -2150,7 +2345,7 @@ export function generateCity(params: CityParams): CityPlan {
     // Fording is expensive; a bridge is a decision, not an accident. The route
     // will cross where the town is narrow, which is where bridges really go.
     const mid = lerp(graph.nodes[a], graph.nodes[b], 0.5);
-    if (river && river.some((rp) => dist(rp, mid) < riverWidth * 1.4)) w *= 3.2;
+    if (river && lineDist(mid, river) < floodKeepOut) w *= 3.2;
     if (coast && (mid.x - coast.p.x) * coast.n.x + (mid.y - coast.p.y) * coast.n.y > 0) return Infinity;
     return w;
   };
@@ -2260,9 +2455,16 @@ export function generateCity(params: CityParams): CityPlan {
    * at the water's edge; the world-map compositor applies the same rule by
    * repainting the river above ordinary roads. A future ferry may begin here,
    * but an unmodelled bridge must never be implied by a line through blue.
+   *
+   * Y donde el camino muere se pone la BARCA. Cortado a secas, el camino se
+   * quedaba en un muñón apuntando al agua, que en el mapa lee como un fallo de
+   * dibujo; un embarcadero en la punta dice lo que de verdad pasa ahí y es la
+   * razón por la que ese camino llega hasta la orilla. Un río demasiado ancho
+   * para un puente se cruzaba en barca, no se dejaba de cruzar.
    */
+  const ferryLandings: { at: V; dir: V }[] = [];
   if (river && p.riverMode === 'bank') {
-    const bankDistance = riverWidth * 0.5 + 1;
+    const bankDistance = bankHalf + 1;
     for (const road of roads) {
       if (road.length < 2) continue;
       const dry: V[] = [road[0]];
@@ -2289,6 +2491,10 @@ export function generateCity(params: CityParams): CityPlan {
         }
         if (!cut) dry.push(b);
       }
+      if (cut && dry.length >= 2) {
+        const end = dry[dry.length - 1], prev = dry[dry.length - 2];
+        if (dist(end, prev) > 1e-6) ferryLandings.push({ at: end, dir: norm(sub(end, prev)) });
+      }
       road.splice(0, road.length, ...dry);
     }
   }
@@ -2302,9 +2508,17 @@ export function generateCity(params: CityParams): CityPlan {
     const seen: V[] = [];
     for (const st of [...mainStreets, ...streets]) {
       for (const x of crossings(st, river)) {
-        if (seen.some((s) => dist(s, x.at) < riverWidth * 2)) continue;
+        // Se descarta un cruce sólo si su tablero PISARÍA al anterior. Puesto en
+        // `riverWidth · 2` valía con el cauce estrecho de laboratorio; con el
+        // ancho físico ese radio se traga cruces de calles de verdad y el banco
+        // los ve como vados (8 de 12). Un puente estorba a otro cuando están a
+        // menos de un tablero, y eso se mide en anchura de calle.
+        if (seen.some((s) => dist(s, x.at) < Math.max(riverWidth * 0.5, MAIN_STREET * 3))) continue;
         seen.push(x.at);
-        const halfLen = riverWidth * 1.9;
+        // El tablero cruza el canal y apea en tierra: medio ancho + el muelle + un
+        // par de unidades de estribo. Estaba en `riverWidth · 1,9`, que sobre un
+        // cauce físico salía como una losa del doble de largo que el río.
+        const halfLen = bankHalf * 1.04 + quayMargin + 2;
         const halfW = MAIN_STREET * 1.5;
         const d = x.dir, n = rot90(d);
         bridges.push([
@@ -2415,6 +2629,21 @@ export function generateCity(params: CityParams): CityPlan {
     for (const list of [mainStreets, streets, roads]) {
       for (const st of list) for (let i = 0; i < st.length; i++) st[i] = ashore(st[i]);
     }
+  }
+
+  // El embarcadero de la barca, en la punta del camino que el río cortó. Va con
+  // los muelles porque es lo mismo: madera sobre el agua, y se repinta por
+  // encima del vector del río junto con los puentes.
+  for (const landing of ferryLandings.slice(0, 3)) {
+    const d = landing.dir, n = rot90(d);
+    const out = Math.min(bankHalf * 0.5, quayMargin + 2.5);
+    const half = MAIN_STREET * 0.9;
+    piers.push([
+      { x: landing.at.x - d.x * 1.5 - n.x * half, y: landing.at.y - d.y * 1.5 - n.y * half },
+      { x: landing.at.x + d.x * out - n.x * half, y: landing.at.y + d.y * out - n.y * half },
+      { x: landing.at.x + d.x * out + n.x * half, y: landing.at.y + d.y * out + n.y * half },
+      { x: landing.at.x - d.x * 1.5 + n.x * half, y: landing.at.y - d.y * 1.5 + n.y * half },
+    ]);
   }
 
   // ---- las plazas ---------------------------------------------------------
@@ -2877,7 +3106,7 @@ export function generateCity(params: CityParams): CityPlan {
     }
   }
   if (river) {
-    const nearRiver = (v: V) => lineDist(v, river!) < riverWidth * 0.8;
+    const nearRiver = (v: V) => lineDist(v, river!) < bankKeepOut;
     for (const q of patches) {
       q.buildings = q.buildings.filter((b) => !b.shape.some(nearRiver));
       q.courts = q.courts.filter((c) => !c.some(nearRiver));
@@ -2958,32 +3187,25 @@ export function generateCity(params: CityParams): CityPlan {
     let course: CityWater['river'] = null;
     if (river && river.length >= 2) {
       /**
-       * EL RÍO SE ENSANCHA AGUAS ABAJO.
+       * EL CANAL DEL PLANO ES EL MISMO QUE EL DEL MAPA.
        *
-       * `width` en el tipo es UN número, así que el ancho que varía va donde de
-       * verdad se ve: en las orillas, como polígono de agua cerrado. El escalar
-       * queda como ancho nominal, para quien sólo quiera trazar el eje.
+       * Aquí el cauce se abría de 0,6 a 1,38 veces su ancho nominal a lo largo
+       * del pueblo, más un estrechamiento del 18 % bajo cada puente. Tenía
+       * sentido cuando el ancho era una licencia del plano. Ya no: `Map2D`
+       * repinta encima el vector autoritativo del mundo con ANCHO CONSTANTE
+       * (`worldRiverWidthMetres`), así que sobre la misma ciudad se veían dos
+       * azules distintos — el del plano asomando por fuera aguas abajo y
+       * metiéndose por dentro aguas arriba — y el borde entre ambos leía como
+       * una orilla falsa. Un río tiene la anchura que tiene.
        *
-       * Y se estrecha donde cruza el puente, no al revés: el puente está ahí
-       * PORQUE ahí el río se estrecha. Es el vado que hizo el pueblo.
+       * Queda un temblor del ±3,5 %: la orilla es tierra, no un tiralíneas, y
+       * ese margen está muy por debajo de lo que el vector del mapa tapa.
        */
       const nR = river.length;
-      // Aguas abajo es hacia el mar; sin mar, hacia donde baja el terreno.
-      let flip = false;
-      if (!coast && slopeDir) {
-        const up = (v: V) => v.x * slopeDir.x + v.y * slopeDir.y;
-        flip = up(river[0]) < up(river[nR - 1]);
-      }
       const phase = rng() * Math.PI * 2;
       const wAt: number[] = [];
       for (let i = 0; i < nR; i++) {
-        const t = nR > 1 ? i / (nR - 1) : 0;
-        const tt = flip ? 1 - t : t;
-        wAt.push(riverWidth * (0.6 + 0.78 * tt) * (1 + 0.1 * Math.sin(i * 0.9 + phase)));
-      }
-      for (const b of bridges) {
-        const bc = centroid(b);
-        for (let i = 0; i < nR; i++) if (dist(river[i], bc) < riverWidth * 2.2) wAt[i] *= 0.82;
+        wAt.push(riverWidth * (1 + 0.035 * Math.sin(i * 0.9 + phase)));
       }
       const left: V[] = [], right: V[] = [];
       for (let i = 0; i < nR; i++) {
@@ -3053,8 +3275,8 @@ export function generateCity(params: CityParams): CityPlan {
           break;
       }
       // El molino, donde hay fuerza: pegado al cauce.
-      if (river && mills < maxMills && lineDist(c, river) < riverWidth * 5) {
-        if (promote(q.buildings, 'mill', { where: (b) => nearWater(b, river!, riverWidth * 2.6) })) mills++;
+      if (river && mills < maxMills && lineDist(c, river) < floodKeepOut + radius * 0.3) {
+        if (promote(q.buildings, 'mill', { where: (b) => nearWater(b, river!, floodKeepOut + 4) })) mills++;
       }
       // Los almacenes dan al muelle, que es la calle a la que se descarga.
       if (quayLine && stores < maxStores && lineDist(c, quayLine) < radius * 0.32) {
@@ -3135,7 +3357,7 @@ export function generateCity(params: CityParams): CityPlan {
         case 'slum': heads.push('marsh', 'moor', 'grave', 'house'); mods.push('low', 'dark', 'small', 'black'); score += 0.7; break;
         default: heads.push('house', 'field', 'road', 'stone'); mods.push('old', 'small', 'people'); break;
       }
-      if (river && lineDist(c, river) < riverWidth * 3.5) {
+      if (river && lineDist(c, river) < floodKeepOut + radius * 0.22) {
         heads.push('river', 'mill', 'ford', 'bridge');
         mods.push('water', 'wild', 'salmon');
         score += 0.9;

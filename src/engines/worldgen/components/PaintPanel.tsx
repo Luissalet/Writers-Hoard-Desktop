@@ -54,7 +54,10 @@ export type PaintMode =
   | 'point'
   // and the two that are neither: two clicks and an A* between them, and a
   // frontier that is nudged, poured or lassoed onto ground that already exists
-  | 'road' | 'frontera';
+  | 'road' | 'frontera'
+  // MOVER: coger lo que ya existe y llevarlo a otro sitio. No pinta nada; es
+  // el único modo cuyo gesto es el arrastre sobre una cosa que ya está ahí.
+  | 'move';
 
 export interface PaintTool {
   mode: PaintMode;
@@ -164,6 +167,7 @@ const GROUPS: { title: string; note: string; modes: ModeSpec[] }[] = [
       { id: 'point', label: 'worldgen.paint.mode.point', hint: 'worldgen.paint.mode.point.hint', negative: 'worldgen.paint.mode.point.negative' },
       { id: 'road', label: 'worldgen.paint.mode.road', hint: 'worldgen.paint.mode.road.hint', negative: 'worldgen.paint.mode.road.negative' },
       { id: 'frontera', label: 'worldgen.paint.mode.frontera', hint: 'worldgen.paint.mode.frontera.hint', negative: 'worldgen.paint.mode.frontera.negative' },
+      { id: 'move', label: 'worldgen.paint.mode.move', hint: 'worldgen.paint.mode.move.hint', negative: '' },
     ],
   },
 ];
