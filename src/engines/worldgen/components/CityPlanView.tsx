@@ -171,6 +171,10 @@ export default function CityPlanView({
     seed: variant === 0 ? base.seed : `${base.seed}::v${variant}`,
   }), [grounded, base.seed, overrides, planSize, settled, variant]);
 
+  /** Lo que el pueblo cava por su cuenta, para que el interruptor diga la verdad
+   *  mientras nadie lo haya tocado. */
+  const planHasMoat = !!plan.fort?.moat;
+
   const dirty = pop !== settlement.population;
   const save = useCallback(() => {
     if (!onPopulation || !dirty) return;
@@ -282,10 +286,19 @@ export default function CityPlanView({
             on={fromAtlas}
             onClick={() => setFromAtlas((v) => !v)}
           />
+          {/*
+            LO QUE SE ELIGE ES LO QUE DECIDIÓ UNA PERSONA, NO DÓNDE ESTÁ EL PUEBLO.
+            Aquí había interruptores de «Río» y «Costa». Un río no es una
+            preferencia: es el sitio. Ofrecerlo como opción permitía apagarle el
+            río a una ciudad fluvial —y ponerle mar a una de tierra adentro— y
+            producía un plano que contradecía el mapa a un clic de distancia. El
+            emplazamiento sale del atlas y sólo cambia si el pueblo se mueve; lo
+            que se elige aquí es lo que mandó construir su señor.
+          */}
           <Toggle label={t('worldgen.cityPlan.toggleWalls')} on={overrides.walls ?? base.walls} onClick={() => setOverrides((o) => ({ ...o, walls: !(o.walls ?? base.walls) }))} />
           <Toggle label={t('worldgen.cityPlan.toggleCitadel')} on={overrides.citadel ?? base.citadel} onClick={() => setOverrides((o) => ({ ...o, citadel: !(o.citadel ?? base.citadel) }))} />
-          <Toggle label={t('worldgen.cityPlan.toggleRiver')} on={overrides.river ?? base.river} onClick={() => setOverrides((o) => ({ ...o, river: !(o.river ?? base.river) }))} />
-          <Toggle label={t('worldgen.cityPlan.toggleCoast')} on={overrides.coast ?? base.coast} onClick={() => setOverrides((o) => ({ ...o, coast: !(o.coast ?? base.coast) }))} />
+          <Toggle label={t('worldgen.cityPlan.toggleCathedral')} title={t('worldgen.cityPlan.toggleCathedralHint')} on={overrides.cathedral ?? base.cathedral ?? true} onClick={() => setOverrides((o) => ({ ...o, cathedral: !(o.cathedral ?? base.cathedral ?? true) }))} />
+          <Toggle label={t('worldgen.cityPlan.toggleMoat')} title={t('worldgen.cityPlan.toggleMoatHint')} on={overrides.moat ?? planHasMoat} onClick={() => setOverrides((o) => ({ ...o, moat: !(o.moat ?? planHasMoat) }))} />
 
           <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
             {t('worldgen.cityPlan.population')}

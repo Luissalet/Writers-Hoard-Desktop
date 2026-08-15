@@ -365,6 +365,34 @@ function traceLine(ctx: Ctx, p: V[], close = false): void {
   if (close) ctx.closePath();
 }
 
+/**
+ * Los tramos de muralla que están sobre TIERRA.
+ *
+ * Una muralla que cruza su río no se construye de piedra sobre el agua: se
+ * cierra con una puerta de agua —dos torres, una cadena entre ellas— y el
+ * lienzo arranca otra vez en la orilla de enfrente. Aquí se dibujaba entero, y
+ * en una ciudad de cruce salían once vértices de fábrica de cuarenta y uno
+ * plantados en mitad del canal. El anillo SIGUE completo en el modelo: las
+ * puertas, las avenidas y el radio se calculan sobre él; lo único que cambia es
+ * que la piedra no se pinta donde no la hay.
+ */
+function dryRuns(line: V[], wet: boolean[] | undefined, closed: boolean): V[][] {
+  if (!wet || !wet.some(Boolean)) return [line];
+  const n = line.length;
+  const runs: V[][] = [];
+  let run: V[] = [];
+  const total = closed ? n + 1 : n;
+  for (let k = 0; k < total; k++) {
+    const i = k % n;
+    if (wet[i]) {
+      if (run.length >= 2) runs.push(run);
+      run = [];
+    } else run.push(line[i]);
+  }
+  if (run.length >= 2) runs.push(run);
+  return runs;
+}
+
 /** Caja envolvente holgada: el «todo» de un recorte por regla par-impar. */
 function looseBox(poly: V[]): { x0: number; y0: number; x1: number; y1: number } {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -989,9 +1017,12 @@ function drawFort(ctx: Ctx, fort: Fortification, center: V, o: CityBodyOptions):
     ctx.restore();
   }
 
+  const runs = dryRuns(fort.line, fort.wet, closed);
+  const wholeRing = runs.length === 1 && runs[0] === fort.line;
   const stroke = (w: number, color: string) => {
     ctx.beginPath();
-    traceLine(ctx, fort.line, closed);
+    if (wholeRing) traceLine(ctx, fort.line, closed);
+    else for (const run of runs) traceLine(ctx, run, false);
     ctx.strokeStyle = color;
     ctx.lineWidth = w;
     ctx.stroke();
@@ -1014,6 +1045,8 @@ function drawFort(ctx: Ctx, fort: Fortification, center: V, o: CityBodyOptions):
     const n = fort.line.length;
     const last = closed ? n : n - 1;
     for (let i = 0; i < last; i++) {
+      // Sin piedra no hay almenas: el mismo tramo mojado que se saltó el paño.
+      if (fort.wet?.[i] || fort.wet?.[(i + 1) % n]) continue;
       const a = fort.line[i], b = fort.line[(i + 1) % n];
       const dx = b.x - a.x, dy = b.y - a.y;
       const l = Math.hypot(dx, dy);

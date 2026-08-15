@@ -976,7 +976,12 @@ export default function Map2D({
    *  the first camera it is given so the opening frame is not a transition. */
   const tierRef = useRef<SemanticZoomTier>(semanticTier(viewport?.spanKm ?? 40075));
   const spaceRef = useRef(false);
-  const brushing = !!tool && tool.mode !== 'off' && !!onEdit;
+  /**
+   * Mover NO es pintar: el arrastre no deja tinta, coge lo que ya está ahí. Si
+   * contara como pincel, el gesto entraría por el camino del trazo y el mapa no
+   * se podría ni desplazar con la herramienta puesta.
+   */
+  const brushing = !!tool && tool.mode !== 'off' && tool.mode !== 'move' && !!onEdit;
   // `onTool` rides along here rather than in the wheel effect's dependency
   // list: the parent hands it down as a fresh closure every render, so a
   // dependency would tear down and re-add the non-passive wheel listener on
@@ -1581,10 +1586,17 @@ export default function Map2D({
     const displayTiles = tileStore.current;
     const tilesEligible = pyramidHere && !!displayTiles;
     let tileZ = -1;
-    /** Cobertura exacta del plan vigente. Sólo diagnostica la convergencia:
-     *  carreteras, ríos de respaldo y ciudades principales siguen siendo
-     *  entidades de pantalla aunque falte una tesela. */
-    let tilePlanDebug: { needed: number; exact: number } | null = null;
+    /**
+     * Cobertura exacta del plan vigente.
+     *
+     * Carreteras, ríos de respaldo y ciudades principales son entidades de
+     * PANTALLA y salen aunque falte una tesela. Esto no es una traza: decide la
+     * única capa que sí depende del suelo hondo —los puentes y embarcaderos,
+     * que sólo tienen sentido si el cuerpo de la ciudad ya está debajo—, y por
+     * eso no puede llamarse «debug»: quien viera el nombre lo quitaría con el
+     * resto del DEBUG y los puentes desaparecerían del mapa sin explicación.
+     */
+    let tileCoverage: { needed: number; exact: number } | null = null;
     if (!tilesEligible) tileLevel.current = -1;
     if (tilesEligible && displayTiles) {
       // A painted stroke is a different country: bumping the generation empties
@@ -1655,7 +1667,7 @@ export default function Map2D({
         displayTiles.want(world, tileZ, tv);
       }
       const got = displayTiles.draw(ctx, world, tileZ, tv, { x: 0, y: 0, w: cw, h: ch });
-      tilePlanDebug = got;
+      tileCoverage = got;
       // The live ground goes back on top: `patchLive` writes the deforming
       // cells into the sharp window and nowhere else, so under the tiles it is
       // invisible and the reader paints by ring alone.
@@ -1689,7 +1701,15 @@ export default function Map2D({
     // The stable river fallback stays visible over every terrain source while
     // the pyramid converges. At ordinary map scales roads are composited later
     // so their bridges remain legible without street-plan detail.
-    blitRivers();
+    //
+    // A escala de calle este pase se repetía entero más abajo —para quedar por
+    // encima de las carreteras— y todo lo que pintaba aquí acababa tapado: dos
+    // pasadas vectoriales de todos los ríos de la ventana por fotograma, una de
+    // ellas invisible por construcción. Se pinta donde manda la semántica y una
+    // sola vez.
+    const streetScaleVisible = !!geography && pyramidHere
+      && (kmPerWorldCell(world) * 1000) / ((PW * scale) / W) <= PLAN_MAX_METRES_PER_PX;
+    if (!streetScaleVisible) blitRivers();
 
     /** Principal settlements are an authoritative screen-space layer. Deep
      * tiles add buildings and minor places, but never take ownership of city
@@ -2014,8 +2034,6 @@ export default function Map2D({
 
     const cityLayerPxPerCell = (PW * scale) / W;
     const cityLayerMetresPerWorldCell = kmPerWorldCell(world) * 1000;
-    const streetScaleVisible = geography && pyramidHere
-      && cityLayerMetresPerWorldCell / cityLayerPxPerCell <= PLAN_MAX_METRES_PER_PX;
     if (streetScaleVisible) {
       // At street-plan scale the physical river masks every ordinary road and
       // urban stroke, including while exact terrain is still arriving. The
@@ -2024,8 +2042,8 @@ export default function Map2D({
       blitRivers();
     }
 
-    const cityLayerVisible = streetScaleVisible && tilePlanDebug
-      && tilePlanDebug.needed > 0 && tilePlanDebug.exact === tilePlanDebug.needed;
+    const cityLayerVisible = streetScaleVisible && tileCoverage
+      && tileCoverage.needed > 0 && tileCoverage.exact === tileCoverage.needed;
 
     // Bridges and piers are the only urban objects that belong above water.
     // The deep tile owns the town body, while the authoritative world river
@@ -3011,7 +3029,7 @@ export default function Map2D({
         `DEBUG 2D · vano ${spanKm >= 100 ? Math.round(spanKm) : spanKm.toFixed(1)} km · `
         + `pide z${tileZ} (techo z${satTopZ}) · ${pxCell >= 10 ? Math.round(pxCell) : pxCell.toFixed(1)} px/celda`,
         `teselas: ${tilesEligible ? 'elegibles' : 'NO elegibles'}`
-        + (tilePlanDebug ? ` · entregadas ${tilePlanDebug.exact}/${tilePlanDebug.needed}` : ' · sin plan')
+        + (tileCoverage ? ` · entregadas ${tileCoverage.exact}/${tileCoverage.needed}` : ' · sin plan')
         + ` · rótulos: ${deepMarks ? 'canon' : 'mundo'}`,
         `canon 2D: ${canonWorld ? 'armado' : 'SIN ARMAR'}`
         + ` · almacén ${canonWorld && canonWorldBound(canonWorld) ? 'ligado' : 'SIN LIGAR'}`
@@ -3471,6 +3489,18 @@ export default function Map2D({
    * enganchado al rótulo — que está más cerca — y no movería nada.
    */
   const movableAt = (sx: number, sy: number): Hit | null => {
+    /**
+     * NADA SE COGE SI NO SE HA PEDIDO COGER (Luis, 2026-08-15).
+     *
+     * Esto no pedía modo: bastaba con que el puntero cayera a menos de diez
+     * píxeles de un pueblo, una ruina o un rótulo. Diez píxeles es un pelo a
+     * escala de mundo y la mitad del mapa es justamente eso —topónimos y
+     * puntos—, así que pasear por el mapa se llevaba cosas por delante sin
+     * querer, y cada una de esas es una edición guardada que sobrevive a cerrar
+     * el mundo. Un gesto destructivo no puede ser el gesto por defecto de la
+     * navegación: mover es ahora su propia herramienta.
+     */
+    if (tool?.mode !== 'move') return null;
     // Sólo lo que el padre sabe guardar. Ofrecer el gesto — cursor de mover,
     // fantasma siguiendo la mano — y tragárselo al soltar es peor que no
     // ofrecerlo: el lector cree que ha movido el pueblo y no lo ha movido.
@@ -3853,11 +3883,12 @@ export default function Map2D({
     /**
      * ¿HAY ALGO AQUÍ QUE COGER? Entonces el arrastre lo mueve a ÉL, no al mapa.
      *
-     * Es la regla de cualquier editor de mapas y no hace falta ningún modo: el
-     * impacto es de diez píxeles, así que arrastrar sobre suelo vacío sigue
-     * siendo mover el mapa, que es el 99 % de los arrastres. Sólo con el botón
-     * izquierdo y sin pincel — con un pincel fuera el arrastre es la pincelada,
-     * y esa es la promesa que el lector ha hecho al coger la herramienta.
+     * Sólo con la herramienta MOVER puesta — ver `movableAt`. Aquí se decía que
+     * «no hace falta ningún modo» porque el impacto es de diez píxeles; era
+     * falso, porque la mitad de la superficie del mapa son topónimos y puntos y
+     * el lector se llevaba pueblos por delante mientras se paseaba. Con la
+     * herramienta puesta, arrastrar sobre suelo vacío sigue siendo mover el
+     * mapa.
      *
      * `dragRef` se arma igual, y no sobra: hasta los cuatro píxeles el gesto
      * todavía puede acabar siendo un clic, y el camino del clic sale de ahí.
@@ -4485,10 +4516,14 @@ export default function Map2D({
           gesto); la chuleta de navegación vive detrás del botón «?» — a
           pantalla completa tapaba media esquina, incluido el HUD de
           depuración (Luis, 2026-08-12). */}
-      {(refusal || brushing) && (
+      {(refusal || brushing || tool?.mode === 'move') && (
         <div className="absolute bottom-2 left-2 px-2 py-1 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] leading-snug text-white shadow-lg shadow-black/50 backdrop-blur-sm pointer-events-none">
           {refusal
             ? refusal
+            // Mover no pinta, así que no entra por `brushing`; pero es
+            // justamente el modo en el que hace falta decir qué se puede coger.
+            : tool?.mode === 'move'
+              ? t('worldgen.map.moveToolHint')
             : (tool?.mode === 'road'
               ? `${roadFrom
                 ? t('worldgen.map.roadFrom').replace('{name}', roadFrom.name)

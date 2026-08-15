@@ -582,3 +582,47 @@ suelo es edificable, si ocupa una o dos orillas, dónde necesita puentes/puertos
 y cómo termina la muralla. El orden de dibujo expresa semántica —agua bajo
 puentes y lejos de edificios— y la regresión compara mapa y plano sobre la misma
 geografía, no dos ilustraciones independientes.
+
+## #51 — Una constante afinada contra una magnitud falsa se rompe al arreglar la magnitud
+**Fecha:** 2026-08-15
+**Contexto:** Durante años el ancho del río en el plano urbano fue una licencia
+del dibujante (`PLAN_RIVER_SQUEEZE = 0,10`, ≈0,09·radio). Todas las reglas de
+«aquí no se construye» se escribieron como MÚLTIPLOS de ese ancho: 1,5× para la
+plaza, 1,6× para el foso, 0,8× para el edificio, 2× para separar puentes, 1,9×
+para el tablero, 5× para el molino. Al pasar el ancho a físico —correcto, porque
+`Map2D` repinta encima el vector del mundo— cada uno de esos múltiplos creció con
+el caudal: un río de 200 m esterilizaba una franja de 600 m dentro de una ciudad
+de 1 km. El resultado medido: 78 m de media entre la casa más cercana y su propia
+orilla, en las 32 ciudades fluviales del mundo, y ni un muelle. Todos los bancos
+seguían en verde porque medían sobre ciudades SINTÉTICAS, donde el ancho no había
+cambiado.
+**Regla:** Cuando una magnitud pasa de ser una licencia de dibujo a ser física,
+hay que auditar TODA constante expresada como múltiplo suyo. Y, mejor, no
+escribirlas así: separar la magnitud del mundo (el canal, hidrológico) de la
+magnitud del oficio (el muelle y la vega, urbanas, en unidades absolutas). Una
+distancia de retranqueo no escala con el caudal — un muelle mide diez metros
+tanto en el Sena como en un arroyo.
+**Corolario:** Un umbral de decisión que compara una magnitud FÍSICA con el
+TAMAÑO DEL DIBUJO (`ancho ≤ 0,64·R0`) no es un criterio, es una coincidencia de
+escala. Un puente se mide en metros de luz; con el criterio anterior el planeta
+entero se quedó sin un solo puente y el banco no lo vio porque sólo miraba dos
+ciudades de su propio mundo de pruebas, las dos sobre estuarios de 600 m.
+
+## #52 — Un interruptor que baraja el hilo de números cambia cosas que no menciona
+**Fecha:** 2026-08-15
+**Contexto:** El plano urbano entero sale de un `Rng` en orden de llamada, así
+que cualquier rama condicional que consuma un sorteo desplaza a todas las de
+detrás. El interruptor «Río» de la ficha movía el FOSO en 61 de 120 planos —y en
+38 de 200 lo AÑADÍA, que es imposible por geometría— además de los lóbulos, los
+barrios y las plazas. Luis lo vio antes que cualquier banco: «¿por qué "río"
+añade un foso?».
+**Regla:** Una decisión que el usuario puede encender y apagar necesita su propio
+hilo derivado de la semilla (`createRng(seed, 'city:moat')`). Y al sacarla del
+hilo común hay que SEGUIR GASTANDO el sorteo que ocupaba, o el arreglo de una
+cosa cambia todas las demás: quitarlo bajó la fachada a espacio público del
+92,3 % al 89,3 % sin que nada estuviera peor, sólo distinto.
+**Corolario, y es de Luis:** lo que se ofrece como opción tiene que ser lo que
+alguien DECIDIÓ, no dónde está la cosa. Murallas, ciudadela, catedral y foso son
+opciones; río y costa son el sitio, y ofrecerlos permitía apagarle el río a una
+ciudad fluvial y contradecir el mapa a un clic de distancia. Si el emplazamiento
+cambia —mover el pueblo— el plano se re-mide solo.

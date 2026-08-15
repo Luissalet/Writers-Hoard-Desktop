@@ -985,3 +985,147 @@ dejar los cambios sin commit/push salvo petición expresa.
 - Trabajo local sobre `main`, sin rama, staging, commit ni push.
 
 ---
+# Worldgen 2D: la ciudad consciente, segunda pasada
+
+**Started:** 2026-08-15
+
+Las ciudades ya recibían su contexto (pasada del 14) pero el resultado «iba
+regular». Medido sobre el mundo por defecto del banco, ANTES de tocar nada:
+
+- 32 ciudades con cauce medido · **32 en modo orilla · CERO puentes en todo el
+  planeta**. La rama de cruce era código muerto.
+- **78 m de media** entre la casa más cercana y su propia orilla. Ninguna de las
+  32 tenía frente de agua, muelle ni almacenes al río.
+- Casco desplazado hasta **0,9 R0** del ancla del atlas.
+- El plano de recorte de la orilla se alejaba hasta **13,7 u (55 m)** del cauce
+  real en un río curvo.
+- El canal del plano se abría de **0,6× a 1,38×** su ancho a lo largo del
+  pueblo, mientras `Map2D` repinta encima el vector del mundo de ancho CONSTANTE.
+
+## Especificación verificable
+
+- [x] Una ciudad fluvial se asoma a su río: primera fachada a menos de 14 u de
+      la orilla, con muelle y molino.
+- [x] Un mundo con ríos tiene ciudades de cruce, y cada una levanta su puente.
+- [x] El cauce del plano tiene el mismo ancho que el vector del mapa (±12 %).
+- [x] El emplazamiento no cambia según haya llegado o no la geografía humana.
+- [x] Una ciudad amurallada conserva su muralla tras el recorte de orilla, y
+      `radius` describe todo el plano.
+- [x] La caché de planos va por CONTENIDO, no por identidad de objeto.
+
+## Plan
+
+- [x] Medir el estado real con sondas nuevas (`city-bank-probe`, `city-look`,
+      `city-one`) sobre el mundo por defecto, no sobre un caso de laboratorio.
+- [x] Separar CANAL (hidrológico) de RIBERA (urbano) en `generate.ts`.
+- [x] Recortar la orilla por el cauce con signo, no por su plano medio.
+- [x] Criterio de cruce por luz de vano en metros + absorción por el casco.
+- [x] Podar el componente conexo DESPUÉS del recorte, y también sin costa.
+- [x] Canal de ancho constante; tablero de puente que apea en tierra.
+- [x] Embarcadero de barca donde el camino muere en el agua.
+- [x] Caché por `worldContentKey` + `geographyContentKey`; `tileCoverage` en vez
+      de `tilePlanDebug`; un solo pase de río a escala de calle.
+- [x] Regresiones nuevas en `city-ground-context.ts` y bancos verdes.
+
+## Review — los números, después
+
+| medida | antes | después |
+| --- | --- | --- |
+| hueco casa→orilla (media, 32 ciudades) | 78 m | **18 m** |
+| ciudades de cruce / con cauce | 0 / 32 | **7 / 32** |
+| puentes en el mundo | 0 | **20** |
+| muelles y embarcaderos | 18 | **55** |
+| desfase plano de corte ↔ cauce | hasta 55 m | **0** (campo con signo) |
+| ancho del canal a lo largo del pueblo | 0,60–1,38× | **0,965–1,035×** |
+| suelo urbano sellado (`gate-pinch-probe`) | 7,0 % | **6,5 %** |
+| fachada a espacio público (`city-quality`) | 92,4 % (peor 89,6) | 92,3 % (**peor 90,0**) |
+
+- `harness/city-quality.ts`: **32/32 en verde**, incluidos «0 vados de 14
+  cruces» y el determinismo byte a byte.
+- `harness/city-ground-context.ts`: **75/75 en verde** (eran 61). Nuevas: la
+  ciudad se asoma a su río, ancho de canal igual al del atlas, muralla y radio
+  tras el recorte, emplazamiento independiente de la geografía humana, caché por
+  contenido en sus dos caras, y «un mundo con ríos tiene cruces».
+- `tile-ink`, `map2d-layer-contract`, `display-tile-plan`, `road-overlay`,
+  `satellite-handoff`, `satellite-lod-cohesion`, `river-hierarchy`,
+  `geography-client`, `tile-service`, `places-policy`, `gate-blind-probe`,
+  `gate-pinch-probe`, `city-shape`: todos en verde.
+- `npx tsc -p tsconfig.app.json`: cero errores en `worldgen`. `eslint` sobre los
+  ficheros tocados: mismo recuento que antes de la pasada (ruido preexistente
+  del plugin de React, no de este trabajo).
+- Trabajo local sobre `main`, sin rama, staging, commit ni push.
+
+---
+
+## Revisión de Luis (2026-08-15, misma tarde)
+
+Tres preguntas suyas, las tres con causa real:
+
+**1 · «¿Por qué "río" añade un foso? Eso debería ser "foso".»** El foso se echaba
+a suertes (0,66) al final de la fábrica militar, o sea por detrás del río, del
+litoral y del bucle de torres —que gasta un número de sorteos que depende de la
+LONGITUD del anillo—. Todo el plano sale de un hilo de números en orden de
+llamada, así que el interruptor «Río» barajaba el hilo entero. Medido: movía el
+foso en **61 de 120** planos, y lo AÑADÍA en **38 de 200**, que es imposible por
+geometría (el agua sólo puede quitar perímetro donde cavar). Ahora el foso
+decide con su propio hilo (`city:moat`) y es un parámetro suyo (`moat?: boolean`)
+con interruptor propio en la ficha. El sorteo del hilo principal se sigue
+gastando donde estaba, a propósito: quitarlo desplazaba barrios, plazas y casas
+y bajaba la fachada del 92,3 % al 89,3 % sin que nada estuviera peor, sólo
+distinto. **Poner río añade foso: 0 de 200.**
+
+**2 · «¿Por qué hay murallas en el agua del río?»** El lienzo se clipaba contra
+el mar pero nunca contra el cauce: en una ciudad de cruce salían **11 de 41**
+vértices de sillería plantados en mitad del canal. Una muralla que cruza su río
+se cierra con una PUERTA DE AGUA —dos torres y la cadena entre ellas—, no con
+piedra sobre el agua. `Fortification.wet` marca los vértices mojados; el anillo
+sigue entero en el modelo (puertas, avenidas y radio se calculan sobre él) y el
+dibujante se salta ese tramo y sus almenas, con torre en la última piedra seca
+de cada orilla.
+
+**3 · «Ni río ni costa deberían ser opciones; lo otro depende de dónde la
+coloques.»** Tiene razón y era una contradicción a un clic: se le podía apagar el
+río a una ciudad fluvial y ponerle mar a una de tierra adentro, y el plano
+contradecía el mapa. Fuera los interruptores de **Río** y **Costa**; dentro
+**Catedral** (`cathedral?: boolean`) y **Foso**. Lo que se elige es lo que mandó
+construir su señor; el emplazamiento lo pone el atlas.
+
+Y lo que preguntaba de arrastrar el pueblo YA funciona: mover Quliiti nueve
+celdas cambia `río=true costa=true modo=crossing` → `río=false costa=false
+modo=bank`, porque `cityParamsFor` re-mide el suelo desde `settlementCellCenter`
+y la caché de planos va por `geographyContentKey`. La edición existe
+(`kind: 'move'` en `core/edits.ts`).
+
+- `city-quality`: **32/32 en verde** (fachada 92,3 %, peor ciudad 90,0 %).
+- `city-ground-context`: **83/83 en verde** (eran 75). Nuevas: puerta de agua con
+  torre en cada orilla, «poner río nunca añade foso», el foso se fuerza y se
+  quita sin mover una manzana ni una casa ni una calle, y la catedral es una
+  decisión del pueblo.
+
+## Mover deja de ser el gesto por defecto (Luis, 2026-08-15)
+
+**Síntoma:** «cada vez que clico se puede arrastrar una ciudad, ruina, letrero…
+No paro de moverlas sin querer al moverme por el mapa.»
+
+**Causa:** `movableAt` no pedía modo ninguno. Bastaba con que el puntero cayera a
+menos de diez píxeles de un pueblo, una ruina o un rótulo para que el arrastre se
+lo llevara en vez de desplazar el mapa. El comentario que lo defendía decía que
+«no hace falta ningún modo, el impacto es de diez píxeles»: falso en cuanto el
+mapa se llena: la mitad de su superficie son topónimos y puntos. Y cada arrastre
+accidental es una edición `kind: 'move'` guardada, que sobrevive a cerrar el
+mundo.
+
+**Arreglo:** mover es ahora su propia herramienta — `PaintMode` `'move'`,
+«Mover», en el grupo de Punto junto a Punto, Camino y Frontera. `movableAt`
+devuelve `null` con cualquier otra herramienta, y de ahí cuelga todo lo demás:
+el cursor de mover, el fantasma que sigue la mano y el `drop`. `brushing` la
+excluye —mover no deja tinta— así que sobre suelo vacío el arrastre sigue siendo
+la cámara y con la herramienta puesta el mapa se sigue pudiendo pasear.
+
+- `PaintMode` += `'move'`; botón en `GROUPS` (grupo Punto).
+- `Map2D`: guarda en `movableAt`, `brushing` excluye `move`, rótulo de ayuda
+  propio en la barra inferior (`worldgen.map.moveToolHint`).
+- La chuleta del «?» ya no promete el gesto a secas: ahora dice «con la
+  herramienta Mover».
+- i18n es/en en paridad: `paint.mode.move`, `paint.mode.move.hint`,
+  `map.moveToolHint`, y `map.moveHint` reescrito.

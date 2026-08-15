@@ -24,6 +24,7 @@ import type { Ctx } from '../cartography/symbols';
 import { generateCity, type CityPlan } from '../city/generate';
 import { cityInk, drawCityBody, drawCityWaterfrontStructures, lodFor } from '../city/render';
 import { cityParamsFor } from '../cartography/texture';
+import { geographyContentKey, worldContentKey } from './contentIdentity';
 
 /** Metres per city unit. The generator's own documented scale: a main street
  *  is 2 units, which it calls ~8 m. */
@@ -40,18 +41,29 @@ export const METRES_PER_CITY_UNIT = 4;
  */
 export const PLAN_MAX_METRES_PER_PX = 5;
 
+/**
+ * La caché de planos, por CONTENIDO.
+ *
+ * Estaba comparando `cache.geography !== geography` — identidad de OBJETO, que
+ * es justo lo que la arquitectura prohíbe desde `contentIdentity.ts`: la
+ * geografía se construye en dos pases y llega decodificada de la instantánea,
+ * así que son objetos distintos con el mismo contenido y cada uno tiraba la
+ * caché entera. Un mundo de 24 poblaciones vuelve a generar veinticuatro planos
+ * de ciudad —lo más caro que hay por tesela— cada vez que el segundo pase
+ * aterriza o que un consumidor pasa su propia copia. Con la clave de contenido,
+ * dos geografías equivalentes son la misma y el plano se calcula una vez.
+ */
 interface PlanCache {
-  revision: number;
-  geography: HumanGeography;
+  key: string;
   plans: Map<number, CityPlan | null>;
 }
 const CACHES = new WeakMap<WorldData, PlanCache>();
 
 export function cityPlanFor(world: WorldData, geography: HumanGeography, s: Settlement): CityPlan | null {
   let cache = CACHES.get(world);
-  const revision = world.revision ?? 0;
-  if (!cache || cache.revision !== revision || cache.geography !== geography) {
-    cache = { revision, geography, plans: new Map() };
+  const key = `${worldContentKey(world)}|${geographyContentKey(geography)}`;
+  if (!cache || cache.key !== key) {
+    cache = { key, plans: new Map() };
     CACHES.set(world, cache);
   }
   const hit = cache.plans.get(s.id);
