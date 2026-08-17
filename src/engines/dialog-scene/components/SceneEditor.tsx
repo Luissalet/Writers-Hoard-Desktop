@@ -147,7 +147,7 @@ export default function SceneEditor({
     }
   };
 
-  const handleAddDialog = async (characterName: string, characterColor: string) => {
+  const handleAddDialog = async (characterName: string, characterColor: string, characterId?: string) => {
     const nextOrder = blocks.length > 0 ? Math.max(...blocks.map((b) => b.order)) + 1 : 0;
     const block: DialogBlock = {
       id: generateId('block'),
@@ -155,6 +155,10 @@ export default function SceneEditor({
       projectId: scene.projectId,
       type: 'dialog',
       characterName,
+      // Hereda la ficha del miembro del reparto que la creó. Sin esto la réplica
+      // nace huérfana aunque el reparto SÍ estuviera enlazado, y el Cockpit
+      // vuelve a contar «hablante sin mapear».
+      characterId,
       characterColor,
       content: '',
       order: nextOrder,
@@ -234,7 +238,32 @@ export default function SceneEditor({
       sceneId: scene.id,
     };
     await addMember(castMember);
+
+    // Y se cura el guion que ya estaba escrito.
+    //
+    // Todo el diálogo anterior a este arreglo tiene `characterName` y ningún
+    // `characterId`. Una migración masiva emparejando por nombre sobre TODA la
+    // base sería adivinar —dos personajes pueden llamarse igual en proyectos
+    // distintos, y un nombre puede no ser una ficha—; hacerlo aquí, sobre las
+    // réplicas de ESTA escena y sólo cuando el lector acaba de decir «este
+    // nombre es esta ficha», no adivina nada: es exactamente lo que acaba de
+    // afirmar. El guion viejo se repara a medida que se van enlazando.
+    if (castMember.characterId) {
+      const huerfanas = blocks.filter(
+        (b) => !b.characterId && b.characterName === castMember.characterName,
+      );
+      for (const b of huerfanas) {
+        await editBlock(b.id, { characterId: castMember.characterId });
+      }
+    }
   };
+
+  // Sólo los personajes: el códice también guarda lugares, objetos y facciones,
+  // y ninguno de ésos sube a un escenario a decir una réplica.
+  const codexCharacters = useMemo(
+    () => codexEntries.filter((e) => e.type === 'character').map((e) => ({ id: e.id, title: e.title })),
+    [codexEntries],
+  );
 
   const blockIds = useMemo(() => blocks.map((b) => b.id), [blocks]);
 
@@ -356,6 +385,7 @@ export default function SceneEditor({
           {/* Cast Bar */}
           <CastBar
             cast={cast}
+            codexCharacters={codexCharacters}
             onAddCharacter={handleAddCharacter}
             onAddDialog={handleAddDialog}
             onRemoveCharacter={removeMember}

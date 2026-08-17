@@ -199,7 +199,12 @@ export default function MapView({
 
   const handlePinPointerDown = (e: React.PointerEvent<HTMLDivElement>, pin: MapPin) => {
     e.stopPropagation();
-    selectPin(pin);
+    // Sólo si es OTRO pin. `selectPin` reinicia el borrador con lo último
+    // guardado, y esto se ejecuta en cada `pointerdown` —antes incluso de saber
+    // si el gesto va a ser un clic o un arrastre—, así que reseleccionar el pin
+    // que ya estabas editando te borraba la descripción recién escrita: abrías
+    // el pin, escribías, y lo arrastrabas para recolocarlo antes de guardar.
+    if (pin.id !== selectedPinId) selectPin(pin);
     if (placingPin || e.button !== 0) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);

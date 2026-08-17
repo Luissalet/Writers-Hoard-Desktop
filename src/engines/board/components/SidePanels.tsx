@@ -3,6 +3,7 @@ import {
   Activity, Eye, EyeOff, Layers as LayersIcon, Lock, Plus, Save, Trash2, Unlock,
 } from 'lucide-react';
 import { InlineColorPicker } from '@/components/common/ColorPicker';
+import { ConfirmDialog } from '@/engines/_shared';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { GraphSummary } from '../graph/metrics';
 import type { BoardLayer, BoardView } from '../types';
@@ -26,6 +27,7 @@ export interface LayersPanelProps {
 export function LayersPanel({
   layers, activeLayerId, counts, onCreate, onPatch, onDelete, onSetActive, onSelectContents,
 }: LayersPanelProps) {
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const { t } = useTranslation();
   const [draft, setDraft] = useState('');
 
@@ -76,7 +78,12 @@ export function LayersPanel({
             </button>
             <button
               type="button"
-              onClick={() => onDelete(layer.id)}
+              // Los únicos botones destructivos del motor que no preguntaban,
+              // en una fila de cuatro iconos de doce píxeles pegados: la
+              // papelera está justo al lado del candado. Y `useBoardLayers`
+              // escribe directo, fuera del sistema de comandos, así que Ctrl+Z
+              // tampoco lo recuperaba.
+              onClick={() => setPendingDelete(layer.id)}
               className="text-text-muted transition hover:text-danger"
             >
               <Trash2 size={12} />
@@ -127,6 +134,21 @@ export function LayersPanel({
           <Plus size={12} />
         </button>
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        destructive
+        message={t('board.layers.confirmDelete').replace(
+          '{n}',
+          String(pendingDelete ? counts.get(pendingDelete) ?? 0 : 0),
+        )}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          const id = pendingDelete;
+          setPendingDelete(null);
+          if (id) onDelete(id);
+        }}
+      />
     </div>
   );
 }
@@ -143,6 +165,7 @@ export interface ViewsPanelProps {
 }
 
 export function ViewsPanel({ views, activeViewId, onApply, onSave, onUpdate, onDelete }: ViewsPanelProps) {
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const { t } = useTranslation();
   const [draft, setDraft] = useState('');
 
@@ -175,7 +198,7 @@ export function ViewsPanel({ views, activeViewId, onApply, onSave, onUpdate, onD
             </button>
             <button
               type="button"
-              onClick={() => onDelete(view.id)}
+              onClick={() => setPendingDelete(view.id)}
               className="text-text-muted transition hover:text-danger"
             >
               <Trash2 size={12} />
@@ -212,6 +235,18 @@ export function ViewsPanel({ views, activeViewId, onApply, onSave, onUpdate, onD
           <Plus size={12} />
         </button>
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        destructive
+        message={t('board.views.confirmDelete')}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          const id = pendingDelete;
+          setPendingDelete(null);
+          if (id) onDelete(id);
+        }}
+      />
     </div>
   );
 }

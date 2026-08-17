@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Sprout, Plus, Trash2, Target, ArrowRight, ArrowLeft } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { EngineSpinner, ConfirmDialog, useDeepLinkParam, useDebouncedField } from '@/engines/_shared';
+import { EngineSpinner, ConfirmDialog, LinkSelect, useDeepLinkParam, useDebouncedField } from '@/engines/_shared';
 import { useSeeds, usePayoffs, useAllPayoffs } from '../hooks';
 import type { Seed, Payoff, SeedKind, SeedStatus } from '../types';
 import { SEED_KIND_CONFIG, SEED_STATUS_CONFIG, computeSeedStatus } from '../types';
@@ -544,6 +544,9 @@ function SeedDetail({
                   await onPayoffsChanged();
                 }}
                 onDelete={() => setPendingDeletePayoffId(p.id)}
+                writings={writings}
+                scenes={scenes}
+                outlineBeats={outlineBeats}
               />
             ))}
           </div>
@@ -595,14 +598,31 @@ function SeedDetail({
 // PayoffCard
 // ---------------------------------------------------------------------------
 
+/**
+ * El pago recibe los mismos tres enlaces que la semilla.
+ *
+ * `Payoff.linkedWritingId` / `linkedBeatId` / `linkedSceneId` estaban
+ * declarados en `types.ts` desde el principio y **ningún componente los
+ * escribía ni los leía**: la semilla tenía sus tres desplegables y el pago sólo
+ * una «ubicación» de texto libre. Y es en el pago donde más falta hacen — la
+ * pregunta que uno se hace revisando es «¿dónde se paga esto?», y contestarla
+ * con una cadena escrita a mano no permite saltar allí ni saber si esa escena
+ * sigue existiendo.
+ */
 function PayoffCard({
   payoff,
   onUpdate,
   onDelete,
+  writings,
+  scenes,
+  outlineBeats,
 }: {
   payoff: Payoff;
   onUpdate: (changes: Partial<Payoff>) => Promise<void>;
   onDelete: () => void;
+  writings: { id: string; title: string }[];
+  scenes: { id: string; title: string; sceneNumber?: number }[];
+  outlineBeats: { id: string; title: string }[];
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -681,43 +701,35 @@ function PayoffCard({
               className="flex-1 min-w-[140px] px-2 py-0.5 text-xs bg-elevated border border-border rounded text-text-primary outline-none focus:border-green-400 transition"
             />
           </div>
+
+          <LinkSelect
+            label={t('seeds.linkedWriting')}
+            value={payoff.linkedWritingId ?? ''}
+            onChange={(v) => handleField('linkedWritingId')(v || undefined)}
+            options={writings.map((w) => ({ id: w.id, label: w.title }))}
+          />
+          <LinkSelect
+            label={t('seeds.linkedBeat')}
+            value={payoff.linkedBeatId ?? ''}
+            onChange={(v) => handleField('linkedBeatId')(v || undefined)}
+            options={outlineBeats.map((b) => ({ id: b.id, label: b.title }))}
+          />
+          <LinkSelect
+            label={t('seeds.linkedScene')}
+            value={payoff.linkedSceneId ?? ''}
+            onChange={(v) => handleField('linkedSceneId')(v || undefined)}
+            options={scenes.map((sc) => ({
+              id: sc.id,
+              label: `${sc.sceneNumber ? `#${sc.sceneNumber} ` : ''}${sc.title}`,
+            }))}
+          />
         </div>
       )}
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// LinkSelect — one cross-engine link dropdown, hidden when there is nothing to
-// point at (an empty select is just noise on a fresh project).
-// ---------------------------------------------------------------------------
-
-function LinkSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: { id: string; label: string }[];
-}) {
-  const { t } = useTranslation();
-  if (options.length === 0) return null;
-  return (
-    <label className="space-y-1 block">
-      <span className="text-xs text-text-dim">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition cursor-pointer"
-      >
-        <option value="">{t('seeds.noLink')}</option>
-        {options.map((o) => (
-          <option key={o.id} value={o.id}>{o.label}</option>
-        ))}
-      </select>
-    </label>
-  );
-}
+// `LinkSelect` vivía aquí, como función local. Subió a `@/engines/_shared` el
+// 2026-08-16, cuando dejó de ser cosa de un motor: character-arc y los pagos de
+// este mismo motor tenían cinco campos de enlace declarados y sin interfaz, y
+// cuatro copias de un desplegable divergen a la primera corrección.

@@ -47,9 +47,14 @@ registerEntityResolver({
       subtitle: writing.status,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = await db.writings.filter(w => w.title.toLowerCase().includes(q)).toArray();
+    // Acotar antes de filtrar (contrato en `_shared/entityResolverRegistry.ts`).
+    // El más caro de los once: cada fila arrastra el HTML del manuscrito.
+    const base = projectId
+      ? db.writings.where('projectId').equals(projectId)
+      : db.writings.toCollection();
+    const rows = await base.filter(w => w.title.toLowerCase().includes(q)).toArray();
     return rows.map(w => ({
       id: w.id,
       type: 'writing',

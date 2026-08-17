@@ -327,7 +327,7 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
                   style={{ color: node.color }}
                 >
                   {RoleIcon ? <RoleIcon size={11} /> : null}
-                  {node.role}
+                  {roleDef ? t(roleDef.labelKey) : node.role}
                 </span>
               ) : null}
               {titleNode ?? (

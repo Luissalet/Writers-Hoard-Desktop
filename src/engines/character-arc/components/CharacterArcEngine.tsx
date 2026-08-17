@@ -1,8 +1,13 @@
 import { useState, useMemo } from 'react';
 import { TrendingUp, Plus, Trash2, ArrowLeft, ChevronDown, ChevronRight, Sparkles, GripVertical } from 'lucide-react';
-import { useTranslation } from '@/i18n/useTranslation';
+// `t` (module-level, non-reactive) is for `seedTemplateBeats`, which runs
+// outside React and writes the resolved text into the DB. Components use the
+// `useTranslation()` hook so they re-render when the locale changes.
+import { t, useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { EngineSpinner, ConfirmDialog, useDebouncedField } from '@/engines/_shared';
+import { EngineSpinner, ConfirmDialog, LinkSelect, useDebouncedField } from '@/engines/_shared';
+import { useScenes } from '@/engines/dialog-scene/hooks';
+import { useAllProjectBeats } from '@/engines/outline/hooks';
 import { useCharacterArcs, useArcBeats } from '../hooks';
 import type { CharacterArc, ArcBeat, ArcTemplateId, ArcBeatStage, ArcStatus } from '../types';
 import { ARC_TEMPLATES, ARC_STAGE_CONFIG, ARC_STATUS_CONFIG } from '../types';
@@ -242,9 +247,9 @@ function NewArcForm({
             >
               <div className="flex items-center gap-1.5">
                 <Sparkles size={11} className="text-accent-gold" />
-                <span className="text-xs font-semibold text-text-primary">{tpl.name}</span>
+                <span className="text-xs font-semibold text-text-primary">{t(tpl.nameKey)}</span>
               </div>
-              <p className="text-[11px] text-text-dim mt-1 line-clamp-2">{tpl.description}</p>
+              <p className="text-[11px] text-text-dim mt-1 line-clamp-2">{t(tpl.descriptionKey)}</p>
             </button>
           ))}
         </div>
@@ -288,11 +293,30 @@ function ArcEditor({
 }) {
   const { t } = useTranslation();
   const { items: beats, addItem: addBeat, editItem: editBeat, removeItem: removeBeat } = useArcBeats(arc.id);
+  // A qué puede apuntar un beat del arco. `ArcBeat.linkedBeatId` y
+  // `linkedSceneId` estaban declarados desde el principio y nadie los escribía,
+  // pero `services/projectIntelligence.ts` SÍ lee el primero: cuenta cuántos
+  // beats de arco cuelgan de cada beat del esquema (`arcBeatCount`). Al no
+  // existir forma de rellenarlo, esa cuenta valía cero para siempre y no había
+  // manera de que valiera otra cosa.
+  const { items: outlineBeats } = useAllProjectBeats(projectId);
+  const { items: scenes } = useScenes(projectId);
   const [corePanelOpen, setCorePanelOpen] = useState(true);
   const [pendingDeleteArc, setPendingDeleteArc] = useState(false);
 
   // The template's questions, shown as placeholders in the six core fields.
-  const corePrompts = ARC_TEMPLATES.find((tpl) => tpl.id === arc.templateId)?.prompts;
+  // `promptKeys` holds i18n keys, so resolve them here — otherwise the raw key
+  // ('characterArc.template.positive-change.prompt.1') would be the placeholder.
+  const promptKeys = ARC_TEMPLATES.find((tpl) => tpl.id === arc.templateId)?.promptKeys;
+  const corePrompts = promptKeys
+    ? {
+        ghost: t(promptKeys.ghost),
+        lie: t(promptKeys.lie),
+        truth: t(promptKeys.truth),
+        want: t(promptKeys.want),
+        need: t(promptKeys.need),
+      }
+    : undefined;
 
   const handleField = (key: keyof CharacterArc) => (value: string) => {
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<CharacterArc>);
@@ -440,6 +464,8 @@ function ArcEditor({
                         beat={beat}
                         onUpdate={(changes) => editBeat(beat.id, changes)}
                         onDelete={() => removeBeat(beat.id)}
+                        outlineBeats={outlineBeats}
+                        scenes={scenes}
                       />
                     ))}
                   </div>
@@ -513,10 +539,14 @@ function BeatRow({
   beat,
   onUpdate,
   onDelete,
+  outlineBeats,
+  scenes,
 }: {
   beat: ArcBeat;
   onUpdate: (changes: Partial<ArcBeat>) => Promise<void>;
   onDelete: () => Promise<void>;
+  outlineBeats: { id: string; title: string }[];
+  scenes: { id: string; title: string; sceneNumber?: number }[];
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -589,6 +619,22 @@ function BeatRow({
               className="w-16 px-2 py-1 text-xs bg-elevated border border-border rounded text-text-primary outline-none focus:border-accent-gold transition"
             />
           </div>
+
+          <LinkSelect
+            label={t('characterArc.beat.linkedBeat')}
+            value={beat.linkedBeatId ?? ''}
+            onChange={(v) => onUpdate({ linkedBeatId: v || undefined, updatedAt: Date.now() })}
+            options={outlineBeats.map((b) => ({ id: b.id, label: b.title }))}
+          />
+          <LinkSelect
+            label={t('characterArc.beat.linkedScene')}
+            value={beat.linkedSceneId ?? ''}
+            onChange={(v) => onUpdate({ linkedSceneId: v || undefined, updatedAt: Date.now() })}
+            options={scenes.map((sc) => ({
+              id: sc.id,
+              label: `${sc.sceneNumber ? `#${sc.sceneNumber} ` : ''}${sc.title}`,
+            }))}
+          />
         </div>
       )}
 
@@ -610,8 +656,13 @@ function BeatRow({
 // seedTemplateBeats — creates initial ArcBeats from a template
 // ---------------------------------------------------------------------------
 
+// The template's beats carry i18n keys, and this is the one place where they
+// stop being labels and become the author's content: whatever lands in `title`
+// / `description` / `emotion` is persisted in the ArcBeat row forever. Resolve
+// every key with the module-level `t()` here — writing the raw key would leave
+// 'characterArc.template.positive-change.beat.1.title' inside the project.
 async function seedTemplateBeats(arcId: string, projectId: string, templateId: ArcTemplateId): Promise<void> {
-  const template = ARC_TEMPLATES.find((t) => t.id === templateId);
+  const template = ARC_TEMPLATES.find((candidate) => candidate.id === templateId);
   if (!template) return;
   // Import lazily to avoid circular
   const { createBeat } = await import('../operations');
@@ -624,9 +675,9 @@ async function seedTemplateBeats(arcId: string, projectId: string, templateId: A
       projectId,
       order: i,
       stage: tpl.stage,
-      title: tpl.title,
-      description: tpl.description,
-      emotion: tpl.emotion,
+      title: t(tpl.titleKey),
+      description: t(tpl.descriptionKey),
+      emotion: tpl.emotionKey ? t(tpl.emotionKey) : undefined,
       storyPosition: tpl.storyPosition,
       status: 'planning',
       createdAt: now,

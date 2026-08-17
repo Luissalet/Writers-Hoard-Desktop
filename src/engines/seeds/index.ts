@@ -55,10 +55,17 @@ registerEntityResolver({
       subtitle: seed?.title,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const seeds = await db.seeds.filter(s => s.title.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)).toArray();
-    const payoffs = await db.payoffs.filter(p => p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)).toArray();
+    // Acotar antes de filtrar (contrato en `_shared/entityResolverRegistry.ts`).
+    const seedsBase = projectId
+      ? db.seeds.where('projectId').equals(projectId)
+      : db.seeds.toCollection();
+    const seeds = await seedsBase.filter(s => s.title.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)).toArray();
+    const payoffsBase = projectId
+      ? db.payoffs.where('projectId').equals(projectId)
+      : db.payoffs.toCollection();
+    const payoffs = await payoffsBase.filter(p => p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)).toArray();
     return [
       ...seeds.map(s => ({ id: s.id, type: 'seed' as const, engineId: 'seeds', projectId: s.projectId, title: s.title })),
       ...payoffs.map(p => ({ id: p.id, type: 'payoff' as const, engineId: 'seeds', projectId: p.projectId, title: p.title })),

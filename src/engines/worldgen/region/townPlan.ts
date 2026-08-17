@@ -19,6 +19,7 @@
 // the world seed, and one plan serves every tile that shows any part of it.
 
 import type { WorldData } from '../core/types';
+import { EARTH_KM } from '../core/camera';
 import { settlementCellCenter, type HumanGeography, type Settlement } from '../core/settlements';
 import type { Ctx } from '../cartography/symbols';
 import { generateCity, type CityPlan } from '../city/generate';
@@ -90,6 +91,85 @@ export function planRadiusMetres(size: number): number {
   // Mirrors the generator's nominal radius (10 + n·2.5 units) with room for the
   // lobes and the outskirts ring.
   return (10 + Math.max(4, Math.round(size)) * 2.5) * 1.9 * METRES_PER_CITY_UNIT;
+}
+
+/**
+ * EL ENCUADRE PARA BAJAR A UN PUEBLO: dónde mirar, con qué vano, y dónde va la
+ * diana.
+ *
+ * Vive aquí, fuera de `WorldView`, porque una cuenta metida en un `.tsx` no
+ * tiene banco posible sin montar React — y ésta llevaba desde que existe el
+ * gesto con un fallo que ningún banco podía ver: **volaba a `s.x, s.y` a secas,
+ * que es la ESQUINA NOROESTE de la celda, mientras todo lo que DIBUJA el pueblo
+ * usa `settlementCellCenter`**. Media celda de un mundo de 40.075 km son diez
+ * kilómetros (más en un mundo pequeño: en uno de 512 son cuarenta), y el vuelo
+ * pide entre 0,5 y 2 km de vano — así que al llegar, la ciudad estaba a varias
+ * pantallas de distancia y la diana marcaba campo vacío. Luis lo retrató el
+ * 2026-08-16: la cruz siempre al noroeste del punto de la ciudad, que es
+ * exactamente donde cae la esquina respecto al centro.
+ *
+ * Las tres cuentas salen del MISMO centro a propósito: el vuelo, la diana y el
+ * «ya estás ahí». Si la última se midiera contra la esquina, con un radio de
+ * pueblo por debajo de media celda la respuesta sería que no lo estás nunca, y
+ * el segundo clic —el que abre la lámina— no llegaría jamás.
+ */
+export interface TownFrame {
+  /** Centro del encuadre, en uv de mundo. */
+  u: number;
+  v: number;
+  /** Vano PEDIDO, en km. Cada vista lo recorta con su propio suelo. */
+  spanKm: number;
+  /** La diana de llegada, en CELDAS (fraccionarias): el mismo punto donde el
+   *  mapa dibuja el pueblo. */
+  mark: { x: number; y: number };
+  /** El radio del plano en km — lo que mide «ya estás ahí». */
+  radiusKm: number;
+}
+
+/** El tamaño nominal del plano por rango, el mismo que usa el generador. */
+export function planSizeFor(rank: Settlement['rank']): number {
+  return rank === 'capital' ? 34 : rank === 'city' ? 22 : rank === 'town' ? 13 : 7;
+}
+
+export function townFrame(
+  s: Pick<Settlement, 'x' | 'y' | 'rank'>,
+  world: { width: number; height: number },
+): TownFrame {
+  const radiusKm = planRadiusMetres(planSizeFor(s.rank)) / 1000;
+  // EL CENTRO DE LA CELDA, no su esquina. Ver el comentario de arriba.
+  const centre = settlementCellCenter(s);
+  return {
+    u: centre.x / world.width,
+    v: centre.y / world.height,
+    // Tres veces el radio del plano deja la ciudad entera con su ejido: una
+    // capital pide ~2,2 km y una aldea ~0,6. Un número fijo dejaba la aldea
+    // como una mota en mitad de un campo.
+    spanKm: Math.max(0.5, radiusKm * 3),
+    mark: { x: centre.x, y: centre.y },
+    radiusKm,
+  };
+}
+
+/**
+ * ¿Está la cámara YA sobre este pueblo? Entonces el mismo clic abre su lámina.
+ *
+ * No son dos significados para un gesto: es el mismo verbo en sus dos tiempos.
+ * Se mide contra el encuadre que pediría el vuelo (con holgura) Y contra el
+ * radio del pueblo — sin lo segundo, estar a esa escala sobre el pueblo de al
+ * lado también contaría.
+ */
+export function alreadyAtTown(
+  frame: TownFrame,
+  vp: { u: number; v: number; spanKm: number } | null | undefined,
+  world: { width: number; height: number },
+): boolean {
+  if (!vp) return false;
+  if (vp.spanKm > frame.spanKm * 1.5) return false;
+  // La longitud envuelve; la latitud no. Y el eje v mide en unidades de ANCHO
+  // de mundo, que es lo que hace falta para comparar en kilómetros.
+  const du = Math.abs((((vp.u - frame.u) % 1) + 1.5) % 1 - 0.5) * EARTH_KM;
+  const dv = Math.abs(vp.v - frame.v) * EARTH_KM * (world.height / world.width);
+  return du <= frame.radiusKm && dv <= frame.radiusKm;
 }
 
 /**

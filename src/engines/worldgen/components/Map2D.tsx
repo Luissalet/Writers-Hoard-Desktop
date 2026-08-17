@@ -43,6 +43,7 @@ import { map2DLayerPlan, map2DVectorRiverFallback } from '../cartography/map2dLa
 import { levelFor, tileCountX, tileId, TILE_PX, type TileKey } from '../cartography/tiles';
 import { drawRoadNetwork, unwrapRoad } from '../cartography/roadOverlay';
 import { drawRealmBorders, realmBorders, realmTint } from '../cartography/realmOverlay';
+import { drawArrivalMark, drawScreenScaleBar } from '../cartography/screenFurniture';
 import {
   drawWorldRivers, MAX_SAT_TILE_Z, SAT_DEEP_Z, satelliteDeepSupported,
 } from '../region/satelliteTile';
@@ -50,7 +51,7 @@ import { drawTownWaterfrontStructures, PLAN_MAX_METRES_PER_PX } from '../region/
 import { kmPerWorldCell } from '../region/terrain';
 import { regionClient, tileStats, oldestInFlightMs, traceTiles } from '../region/client';
 import { serveTile, tileServiceStats } from '../region/tileService';
-import { mapSourceKey } from '../region/contentIdentity';
+import { mapSourceKey, worldFamilyKey } from '../region/contentIdentity';
 import { forgeAvailable, forgeDegraded } from '../forge/bridge';
 import { canonWorldBound } from '../canonSnapshots';
 import type { TilePlace } from '../region/deepTile';
@@ -59,6 +60,7 @@ import type { RegionData } from '../region/types';
 import { regionVisibleRect } from '../region/coordinates';
 import {
   EARTH_KM, MAX_SPAN_KM, MIN_SPAN_KM, clampViewport, flightAt, FLIGHT_MS, sameViewport,
+  type FlyMark,
   type FlyTarget,
 } from '../core/camera';
 
@@ -170,6 +172,14 @@ interface Map2DProps {
   onViewportChange?: (viewport: WorldViewport) => void;
   /** One-shot animated flight request (double-click, "volar aquí"). */
   flyTarget?: FlyTarget | null;
+  /**
+   * La chincheta de llegada del localizador, en celdas de mundo.
+   *
+   * La pone el padre porque la cámara es compartida: buscar en el 3D y pasarse
+   * al 2D tiene que dejar la marca donde estaba. Se dibuja como una diana, que
+   * no se parece ni a una chincheta del lector ni a un punto de población.
+   */
+  flyMark?: FlyMark | null;
   /** Bumped when an edit changed the world under us, so the raster is rebuilt. */
   revision?: number;
   /**
@@ -820,7 +830,7 @@ export default function Map2D({
   geography, showSettlements, showRoads = true, showBorders = false,
   showFeatures = true, roadFrom = null,
   tool, onEdit, onTool, onPickSettlement, onZoomTo,
-  viewport, onViewportChange, flyTarget, revision = 0, canonWorld, canonEdits,
+  viewport, onViewportChange, flyTarget, flyMark = null, revision = 0, canonWorld, canonEdits,
   exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations,
 }: Map2DProps) {
   const { t } = useTranslation();
@@ -1621,7 +1631,12 @@ export default function Map2D({
         tileGeneration.current = gen;
         deepPlaces.current.clear();
       }
-      displayTiles.setGeneration(gen);
+      // El segundo argumento es EL SUELO, sin la revisión: mientras siga
+      // siendo el mismo planeta, la generación que se va no se tira — se
+      // queda de FANTASMA debajo y la tinta nueva se funde encima en 250 ms.
+      // Sin él, cada pincelada dejaba al lector mirando el cuarto borroso de
+      // un antepasado hasta que llegaba la tesela nueva (§19.2, remate 1).
+      displayTiles.setGeneration(gen, worldFamilyKey(world));
       // `topZ`, not `MAX_SAT_TILE_Z`: the camera stops half a level past the
       // deepest level this world supports, and `levelFor` rounds UP — so a bare
       // `MAX_SAT_TILE_Z` here would still ask for the level above the floor at
@@ -2624,6 +2639,23 @@ export default function Map2D({
       }
     }
 
+    // ---- la diana de llegada -------------------------------------------------
+    // Encima de las chinchetas y por debajo de los rótulos, con el nombre en la
+    // banda más alta del descarte: es lo que el lector acaba de teclear, así
+    // que si algo tiene que ceder sitio no es esto. Envuelve por las copias
+    // como todo lo demás — buscar un sitio cerca del antimeridiano y que la
+    // marca saliera en la copia de al lado sería peor que no marcarlo.
+    if (flyMark) {
+      const mu = ((flyMark.x / world.width) % 1 + 1) % 1;
+      const mv = flyMark.y / world.height;
+      for (const copyOx of copies) {
+        const [sx, sy] = toScreen(mu, mv, copyOx);
+        if (sx < -80 || sx > cw + 80 || sy < -40 || sy > ch + 40) continue;
+        const r1 = drawArrivalMark(ctx, sx, sy);
+        queueLabel(flyMark.name, sx + r1 + 6, sy, '#ffd479', 12, 600, 600);
+      }
+    }
+
     for (const candidate of declutterLabels(mapLabels, semantic.labelBudget, 3)) {
       const item = candidate.value;
       ctx.font = `${item.weight} ${item.size}px "Source Sans 3", sans-serif`;
@@ -2824,42 +2856,38 @@ export default function Map2D({
     // the labels and is the only thing in this frame that a click can close.
     painted.current = hits;
 
-    // ---- scale bar ----------------------------------------------------------
-    // The 2D had no scale of any kind: nothing on screen said whether you were
-    // looking at five hundred kilometres of ground or five. The Carta has had a
-    // scale bar since it existed. A round number of ground units, drawn to the
-    // width they actually occupy.
-    {
-      const kmPerPx = spanKm / cw;
-      const want = kmPerPx * 150;                       // aim for ~150 px
-      const pow = Math.pow(10, Math.floor(Math.log10(Math.max(1e-6, want))));
-      const nice = [1, 2, 5, 10].find((f) => f * pow >= want) ?? 10;
-      const barKm = nice * pow;
-      const barPx = barKm / kmPerPx;
-      const label = barKm >= 1
+    // ---- la barra de escala --------------------------------------------------
+    /**
+     * EL MISMO INSTRUMENTO QUE EL 3D, Y AHORA EL MISMO CÓDIGO.
+     *
+     * Esta barra la escribió el 2D por dentro en la pasada de cohesión, y el
+     * 3D estrenó la suya en `cartography/screenFurniture.ts` el 15. Dos
+     * dibujos de la misma cosa se separan a la primera corrección —bastaba
+     * tocar un color aquí— y el lector lo lee como dos aplicaciones. Ahora las
+     * dos llaman a la misma rutina, con el mismo paso 1-2-5 y la misma chapa.
+     *
+     * Lo que sí cambia es la ESQUINA, y no por gusto: aquí el rincón de abajo
+     * a la derecha lo ocupa el chivato de teselas y el de abajo a la izquierda
+     * está libre; en el 3D es al revés (el reloj de fotograma y el «?» viven a
+     * la izquierda). La barra va donde hay sitio en cada vista; lo que no
+     * puede cambiar es cómo se lee.
+     *
+     * Un cambio de comportamiento, a mejor: la de antes buscaba la longitud
+     * bonita más corta que llegara a 150 px, así que podía salirse hasta 300;
+     * el módulo coge la más larga que QUEPA en 150. Una barra que crece hacia
+     * el centro del mapa tapa mapa.
+     */
+    drawScreenScaleBar(ctx, {
+      kmPerPx: spanKm / cw,
+      align: 'left',
+      edge: 7,
+      bottom: ch - 23,
+      format: (km) => (km >= 1
         ? t('worldgen.paint.units.km')
-          .replace('{n}', String(barKm >= 1000 ? Math.round(barKm) : barKm))
-        : t('worldgen.paint.units.m').replace('{n}', String(Math.round(barKm * 1000)));
-      const bx = 12, by = ch - 34;
-      ctx.save();
-      ctx.font = '600 10px "Source Sans 3", sans-serif';
-      ctx.textBaseline = 'alphabetic';
-      const tw = ctx.measureText(label).width;
-      ctx.fillStyle = 'rgba(7,7,13,0.55)';
-      ctx.beginPath();
-      ctx.roundRect(bx - 5, by - 13, Math.max(barPx, tw) + 12, 24, 4);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(240,236,228,0.9)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(bx, by - 4); ctx.lineTo(bx, by + 2); ctx.lineTo(bx + barPx, by + 2);
-      ctx.lineTo(bx + barPx, by - 4);
-      ctx.stroke();
-      ctx.fillStyle = '#f0ece4';
-      ctx.fillText(label, bx, by - 6);
-      ctx.restore();
-      ctx.textBaseline = 'middle';
-    }
+          .replace('{n}', String(km >= 1000 ? Math.round(km) : km))
+        : t('worldgen.paint.units.m').replace('{n}', String(Math.round(km * 1000)))),
+    });
+    ctx.textBaseline = 'middle';
 
     // ---- el localizador ------------------------------------------------------
     /**
@@ -3151,7 +3179,7 @@ export default function Map2D({
     showRivers, showLandmarks, showWaypoints, showGrid, showSettlements,
     showRoads, showBorders, showFeatures, roadFrom, tool,
     waypoints, selectedWaypointId, selectedSpatialKey, regionalEntities,
-    regionDetail, canonWorld, canonEdits, landmarks,
+    regionDetail, canonWorld, canonEdits, landmarks, flyMark,
     // Las capas nuevas: sin esto una comarca recién guardada no aparece hasta
     // que algo mueva el mapa, y una ruta recién calculada tampoco.
     savedRegions, activeRegionId, annotations,

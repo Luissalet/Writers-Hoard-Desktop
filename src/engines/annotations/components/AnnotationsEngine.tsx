@@ -101,6 +101,7 @@ function EngineGroup({ engineId, annotations }: { engineId: string; annotations:
 }
 
 function AnnotationRow({ ann }: { ann: Annotation }) {
+  const { t } = useTranslation();
   const adapter = getAnchorAdapter(ann.sourceEngineId);
   const snippet =
     ann.anchor.selectedText ||
@@ -116,7 +117,7 @@ function AnnotationRow({ ann }: { ann: Annotation }) {
       {ann.isOrphaned && (
         <span className="text-[10px] uppercase tracking-wide text-amber-400 flex items-center gap-1">
           <AlertTriangle size={10} />
-          orphaned
+          {t('annotations.card.orphan')}
         </span>
       )}
       {adapter && (
@@ -124,7 +125,7 @@ function AnnotationRow({ ann }: { ann: Annotation }) {
           onClick={() => adapter.navigateToEntity(ann.sourceEntityId)}
           className="text-[11px] text-accent-gold hover:underline flex-shrink-0"
         >
-          open
+          {t('common.open')}
         </button>
       )}
     </li>

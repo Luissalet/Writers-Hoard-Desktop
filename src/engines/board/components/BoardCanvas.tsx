@@ -1306,6 +1306,12 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
 
           {!panel && selectedNode ? (
             <NodeInspector
+              // Sin `key` el inspector no remonta al cambiar de tarjeta: React
+              // reutiliza la instancia y el mini-formulario de «propiedad
+              // personalizada» conserva lo escrito para la anterior. Escribías
+              // «coartada / en el teatro» para el Sospechoso A, pinchabas en el
+              // B para comparar, dabas a «+» y la propiedad se le añadía a B.
+              key={selectedNode.id}
               node={selectedNode}
               layers={layers}
               onPatch={(changes) =>

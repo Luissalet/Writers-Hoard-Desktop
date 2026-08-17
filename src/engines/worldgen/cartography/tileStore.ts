@@ -11,6 +11,29 @@
 // settles; tiles arriving later fire `onArrive`, which the component uses to
 // repaint the interim once more. That loop IS the Google-Maps feel:
 // blurry-then-sharp, and the thread the reader's hand lives on never waits.
+//
+// DOS REMATES DE §19.2 DE `INVESTIGACION-MAPAS.md` VIVEN AQUÍ:
+//
+//  · LA GENERACIÓN ANTERIOR NO SE TIRA, SE DEGRADA A FANTASMA. Una pincelada
+//    cambia la clave de contenido y hasta hoy eso VACIABA el almacén: el
+//    lector veía su trazo y, de premio, todo el suelo que estaba mirando se
+//    volvía el cuarto borroso de un antepasado durante los segundos que
+//    tardaba la tinta nueva. El fantasma es el MISMO suelo a la MISMA
+//    resolución — sólo le falta la pincelada — así que taparlo con él y fundir
+//    la tesela nueva encima (250 ms) es estrictamente mejor que el borrón. Es
+//    el «stale-while-revalidate» de cualquier mapa deslizante.
+//  · EN REPOSO, EL DESTINO VA A PÍXEL ENTERO. Un rect fraccionario obliga al
+//    lienzo a remuestrear una tesela de 256² sobre medios píxeles: el mapa
+//    quieto se ve lavado y hacía falta medio píxel de solape (`+ 0.5`) para
+//    que no se abrieran costuras. Con la cámara parada se redondea, y los
+//    anchos salen por DIFERENCIA de redondeos, que es lo que hace que el borde
+//    derecho de una tesela y el izquierdo de la siguiente sean el mismo entero.
+//
+// El reposo lo detecta el propio almacén comparando el cuadro con el anterior:
+// cualquier movimiento —arrastre, rueda, vuelo del localizador, cambio de
+// tamaño— mueve la vista, así que el primer cuadro de una posición nueva jamás
+// se redondea y todos los siguientes sí. No hace falta que ningún componente
+// le cuente su gesto.
 
 import type { CartoView } from './render';
 import {
@@ -19,6 +42,25 @@ import {
 } from './tiles';
 
 export type TileBitmap = ImageBitmap | HTMLCanvasElement | OffscreenCanvas;
+
+/** Lo que tarda una tesela nueva en tapar del todo a su fantasma. 250 ms es lo
+ *  que pide §19.2: se nota que el suelo se refresca y no llega a leerse como
+ *  un parpadeo. */
+export const FADE_MS = 250;
+/** El paso del re-dibujo mientras algo se funde (~60 Hz). El almacén se lo
+ *  pide a sí mismo por `onArrive`: sin esto el fundido se quedaría clavado en
+ *  el alfa del último cuadro que alguien dibujara por otro motivo. */
+const FADE_STEP_MS = 16;
+/**
+ * Cuántos fantasmas se guardan. Una pantalla de 1920×1080 necesita ~40 teselas
+ * por nivel; 96 cubre la vista y su nivel de respaldo con holgura, y son ~25 MB
+ * frente a los ~84 MB del almacén vivo. Guardar la generación entera habría
+ * DOBLADO la memoria del mapa para tapar un cuarto de segundo.
+ */
+const GHOST_CAPACITY = 96;
+/** Y se van solos: una vista que nunca llega a cubrirse (canon frío, worker
+ *  caído) no puede quedarse con 96 mapas de bits colgando para siempre. */
+const GHOST_MAX_AGE_MS = 10_000;
 /** A build in progress, and the handle that stops it. */
 export interface TileRequest {
   promise: Promise<TileBitmap | null>;
@@ -35,7 +77,10 @@ export interface TileRequest {
  */
 export type TileRenderer = (key: TileKey) => Promise<TileBitmap | null> | TileRequest;
 
-interface Entry { bmp: TileBitmap; at: number }
+/** `at` es el sello del LRU (orden de uso); `born` es reloj de pared, y son
+ *  cosas distintas a propósito: el fundido mide TIEMPO y el desalojo mide
+ *  ORDEN. Mezclarlos haría que mirar una tesela reiniciara su fundido. */
+interface Entry { bmp: TileBitmap; at: number; born: number }
 /** One unfinished request. The OBJECT is the token: only the request that owns
  *  an id may clear its marker (see `settled`). */
 interface Pending { cancel: () => void }
@@ -46,6 +91,22 @@ const close = (b: TileBitmap) => {
 
 export class DisplayTileStore {
   private tiles = new Map<string, Entry>();
+  /**
+   * La generación ANTERIOR, viva mientras la nueva se fabrica.
+   *
+   * Sólo se puebla cuando el que cambia es el CONTENIDO del mismo suelo (ver
+   * `setGeneration`): un planeta distinto no deja fantasma, porque enseñar el
+   * mar de otro mundo bajo el continente nuevo no es «un poco viejo», es
+   * mentira. Un mapa de bits que entra aquí sale de `tiles` sin cerrarse: el
+   * fantasma es su ÚNICO dueño hasta que `draw` lo suelta o `dispose` lo
+   * cierra.
+   */
+  private ghosts = new Map<string, Entry>();
+  /** Cuándo se degradó la generación viva a fantasma (reloj de pared). */
+  private ghostsAt = 0;
+  /** Qué SUELO representa lo cacheado — el mundo, sin la revisión ni la tinta.
+   *  Es lo que distingue «otra versión de esto» de «otra cosa». */
+  private family = '';
   private inflight = new Map<string, Pending>();
   private stamp = 1;
   /** Everything cached is for THIS generation of the world/theme; bumping the
@@ -65,16 +126,37 @@ export class DisplayTileStore {
   private renderer: TileRenderer;
   private onArrive: () => void;
   private capacity: number;
+  /** El reloj. Inyectable porque el fundido es una MEDIDA y una medida sin
+   *  banco no existe: el banco le pasa un reloj falso y comprueba el alfa a
+   *  los 0, 125 y 250 ms sin dormir un cuarto de segundo. */
+  private now: () => number;
   /** El re-dibujo pendiente tras una ola de nulos; ver `nudge`. */
   private nudgeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** El re-dibujo pendiente mientras algo se funde; ver `pumpFade`. */
+  private fadeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** El último cuadro dibujado (nivel + vista + rect). Igual = cámara quieta. */
+  private lastFrame = '';
 
-  constructor(renderer: TileRenderer, onArrive: () => void, capacity = 320 /* ≈84 MB of 256² RGBA */) {
+  constructor(
+    renderer: TileRenderer,
+    onArrive: () => void,
+    capacity = 320 /* ≈84 MB of 256² RGBA */,
+    now: () => number = () => performance.now(),
+  ) {
     this.renderer = renderer;
     this.onArrive = onArrive;
     this.capacity = capacity;
+    this.now = now;
   }
 
-  setGeneration(gen: string): void {
+  /**
+   * @param gen  La identidad del CONTENIDO: cambia y lo cacheado deja de valer.
+   * @param family La identidad del SUELO — el mismo mundo con otra tinta. Si no
+   *   se pasa, vale `gen`, y entonces toda generación nueva es «otro planeta»:
+   *   el comportamiento exacto de antes de que existieran los fantasmas, que es
+   *   lo que deben tener los consumidores que no han optado por esto.
+   */
+  setGeneration(gen: string, family: string = gen): void {
     // Both consumers call this on EVERY frame, so clearing `lastAsk` before the
     // early return cleared it every frame: by the time `want` compared its ask
     // against it, it was always '' and the dedupe below could never fire. The
@@ -85,10 +167,13 @@ export class DisplayTileStore {
     // change: a new generation is when the previous ask stops meaning anything.
     if (gen === this.generation) return;
     this.lastAsk = '';
+    // El primer arranque no tiene nada que degradar, y un `family` que se
+    // mueve es otro planeta: en los dos casos se cierra todo, como siempre.
+    const sameGround = this.generation !== '' && family === this.family;
     this.generation = gen;
+    this.family = family;
     this.epoch++;
-    for (const e of this.tiles.values()) close(e.bmp);
-    this.tiles.clear();
+    if (sameGround) this.demote(); else this.clearTiles();
     // STOP the builds, do not merely forget them. Every one is seconds of a
     // worker drawing a country that no longer exists — queued AHEAD of the
     // tiles of the country the reader is looking at right now.
@@ -96,11 +181,55 @@ export class DisplayTileStore {
     this.inflight.clear();
   }
 
+  /** Vaciar de verdad: vivos y fantasmas, cerrados y fuera. */
+  private clearTiles(): void {
+    for (const e of this.tiles.values()) close(e.bmp);
+    this.tiles.clear();
+    for (const e of this.ghosts.values()) close(e.bmp);
+    this.ghosts.clear();
+  }
+
+  /**
+   * La generación viva pasa a fantasma.
+   *
+   * Los fantasmas de ANTES sí se cierran: se guarda UNA generación anterior, no
+   * una pila. Encadenar cinco pinceladas rápidas dejaría si no cinco capas de
+   * suelo viejo que nadie va a mirar, y el fundido se haría siempre contra la
+   * más vieja de todas. Se conservan los `GHOST_CAPACITY` más recientemente
+   * usados —el LRU ya sabe cuáles estaban en pantalla— y el resto se cierra
+   * aquí mismo.
+   */
+  private demote(): void {
+    for (const e of this.ghosts.values()) close(e.bmp);
+    this.ghosts.clear();
+    const byUse = [...this.tiles.entries()].sort((a, b) => b[1].at - a[1].at);
+    this.tiles.clear();
+    for (const [id, e] of byUse) {
+      if (this.ghosts.size < GHOST_CAPACITY) this.ghosts.set(id, e);
+      else close(e.bmp);
+    }
+    this.ghostsAt = this.now();
+  }
+
+  /** Soltar los fantasmas. Un mapa de bits que sale de aquí no lo tiene nadie
+   *  más, así que se cierra en el mismo gesto. */
+  private dropGhosts(): void {
+    if (!this.ghosts.size) return;
+    for (const e of this.ghosts.values()) close(e.bmp);
+    this.ghosts.clear();
+  }
+
   get(key: TileKey): TileBitmap | null {
-    const e = this.tiles.get(tileId(key));
+    return this.entry(this.tiles, key)?.bmp ?? null;
+  }
+
+  /** La entrada, refrescando su sello de LRU. `draw` necesita la ENTRADA y no
+   *  sólo el mapa de bits, porque el fundido pregunta por `born`. */
+  private entry(map: Map<string, Entry>, key: TileKey): Entry | null {
+    const e = map.get(tileId(key));
     if (!e) return null;
     e.at = this.stamp++;
-    return e.bmp;
+    return e;
   }
 
   /** The complete last plan, so an identical frame costs nothing. Both the
@@ -194,7 +323,7 @@ export class DisplayTileStore {
       // the bitmap it replaced.
       const prior = this.tiles.get(id);
       if (prior && prior.bmp !== bmp) close(prior.bmp);
-      this.tiles.set(id, { bmp, at: this.stamp++ });
+      this.tiles.set(id, { bmp, at: this.stamp++, born: this.now() });
       this.evict();
       // Una llegada REAL devuelve el empujón a su paso corto (ver `nudge`).
       this.nudgeDelayMs = 400;
@@ -238,6 +367,24 @@ export class DisplayTileStore {
   }
 
   /**
+   * EL FUNDIDO SE TIENE QUE PEDIR SUS PROPIOS CUADROS.
+   *
+   * El alfa es una función del tiempo, pero `draw` sólo corre cuando el
+   * componente decide pintar — y con la cámara quieta y todas las teselas ya
+   * llegadas no hay ningún motivo para pintar. Sin este empujón el fundido se
+   * quedaba congelado en el alfa del último cuadro que alguien dibujara por
+   * otro motivo: mitad tesela vieja, mitad nueva, para siempre. Coalescido, y
+   * se apaga solo en cuanto ninguna tesela está a medio fundir.
+   */
+  private pumpFade(): void {
+    if (this.fadeTimer !== null || this.disposed) return;
+    this.fadeTimer = setTimeout(() => {
+      this.fadeTimer = null;
+      if (!this.disposed) this.onArrive();
+    }, FADE_STEP_MS);
+  }
+
+  /**
    * Clear the in-flight marker — but only if this request still OWNS it.
    *
    * Deleting blindly erases somebody else's marker, and the store then fetches
@@ -278,8 +425,26 @@ export class DisplayTileStore {
     view: CartoView,
     screen: { x: number; y: number; w: number; h: number },
   ): { needed: number; exact: number } {
+    const now = this.now();
     const pxPerCell = screen.w / view.w;
     const keys = tilesInView(world, z, view);
+    /**
+     * ¿ESTÁ QUIETA LA CÁMARA? Lo dice el cuadro anterior, y lo dice para
+     * CUALQUIER movimiento —arrastre, rueda, vuelo del localizador, cambio de
+     * tamaño de la ventana—, que es más de lo que ningún componente sabe contar
+     * de sí mismo (`dragRef` no ve la rueda, la rueda no ve el vuelo). El
+     * PRIMER cuadro de una posición nueva se dibuja como siempre: redondear
+     * mientras la vista se mueve hace que cada tesela cambie de ancho un píxel
+     * por su cuenta y el mosaico hierve. Del segundo cuadro en adelante, a
+     * píxel entero — y siempre hay un segundo, porque cada tesela que llega
+     * repinta y el fundido se pide sus propios cuadros.
+     */
+    const frame = `${z}|${view.x},${view.y},${view.w},${view.h}`
+      + `|${screen.x},${screen.y},${screen.w},${screen.h}`;
+    const atRest = frame === this.lastFrame;
+    this.lastFrame = frame;
+    /** Cuántas teselas están a medio tapar a su fantasma ahora mismo. */
+    let fading = 0;
     // Counted by GROUND, not by occurrence. A view wider than the world shows
     // its two seam columns twice, and counting both told the reader they were
     // waiting on 40 tiles when 32 was the whole of it.
@@ -307,43 +472,120 @@ export class DisplayTileStore {
       const sx = screen.x + (gx - view.x) * pxPerCell;
       const sy = screen.y + (key.ty * cells - view.y) * pxPerCell;
       const sw = cells * pxPerCell;
+      /**
+       * El destino. En reposo, a PÍXEL ENTERO — y el ancho por DIFERENCIA DE
+       * BORDES, jamás `round(ancho)`.
+       *
+       * El borde derecho de esta tesela se calcula con la MISMA expresión que
+       * el izquierdo de la siguiente, cambiando sólo el índice entero: mismo
+       * número en coma flotante, mismo redondeo, mismo píxel. Por eso no queda
+       * costura y sobra el medio píxel de solape que había —y que se pagaba
+       * remuestreando los 256² de cada tesela sobre medios píxeles, que es
+       * exactamente por qué el mapa quieto se veía lavado—. Redondear el ANCHO
+       * en vez de los bordes no vale: dos vecinas redondean su ancho por
+       * separado y la suma se desalinea a la tercera tesela.
+       */
+      const nx = screen.x + ((key.viewTx + 1) * cells - view.x) * pxPerCell;
+      const ny = screen.y + ((key.ty + 1) * cells - view.y) * pxPerCell;
+      const dx = atRest ? Math.round(sx) : sx;
+      const dy = atRest ? Math.round(sy) : sy;
+      const dw = atRest ? Math.round(nx) - dx : sw + 0.5;
+      const dh = atRest ? Math.round(ny) - dy : sw + 0.5;
 
-      const own = this.get(key);
+      const own = this.entry(this.tiles, key);
+      const ghost = this.entry(this.ghosts, key);
       if (own) {
-        ctx.drawImage(own as CanvasImageSource, sx, sy, sw + 0.5, sw + 0.5);
+        // El fundido sólo existe si hay algo debajo que fundir: una tesela que
+        // llega a suelo virgen entra opaca, exactamente como antes.
+        const t = ghost ? Math.min(1, Math.max(0, (now - own.born) / FADE_MS)) : 1;
+        if (ghost && t < 1) {
+          ctx.drawImage(ghost.bmp as CanvasImageSource, dx, dy, dw, dh);
+          const alpha = ctx.globalAlpha;
+          ctx.globalAlpha = alpha * t;
+          ctx.drawImage(own.bmp as CanvasImageSource, dx, dy, dw, dh);
+          ctx.globalAlpha = alpha;
+          fading++;
+        } else {
+          ctx.drawImage(own.bmp as CanvasImageSource, dx, dy, dw, dh);
+        }
         sharp.add(id);
         continue;
       }
-      // Walk up: an ancestor's quarter, scaled. Blurry beats blank.
-      let az = key.z - 1, atx = key.tx, aty = key.ty;
-      let found = false;
-      while (az >= MIN_TILE_Z) {
-        atx = Math.floor(atx / 2); aty = Math.floor(aty / 2);
-        const anc = this.get({ z: az, tx: wrapTileX(az, atx), ty: Math.min(tileCountY(az) - 1, aty) });
-        if (anc) {
-          const scale = 1 << (key.z - az);
-          const frac = TILE_PX / scale;
-          const ox = (key.tx - atx * scale) * frac;
-          const oy = (key.ty - aty * scale) * frac;
-          ctx.drawImage(anc as CanvasImageSource, ox, oy, frac, frac, sx, sy, sw + 0.5, sw + 0.5);
-          found = true;
-          break;
-        }
-        az--;
+      if (ghost) {
+        // LA TESELA ANTERIOR, MIENTRAS LLEGA LA NUEVA: mismo suelo, misma
+        // resolución, sólo le falta la pincelada. No cuenta como exacta —el
+        // aviso de «N de M» sigue diciendo la verdad y el nivel se sigue
+        // re-pidiendo—, pero tapa el borrón, que es de lo que iba esto.
+        ctx.drawImage(ghost.bmp as CanvasImageSource, dx, dy, dw, dh);
+        continue;
       }
-      void found;
+      // Walk up: an ancestor's quarter, scaled. Blurry beats blank. Primero
+      // entre los vivos; después entre los fantasmas, porque un antepasado con
+      // la tinta de hace un segundo sigue ganándole al papel desnudo.
+      const anc = this.ancestorQuarter(this.tiles, key)
+        ?? this.ancestorQuarter(this.ghosts, key);
+      if (anc) {
+        ctx.drawImage(
+          anc.bmp as CanvasImageSource, anc.ox, anc.oy, anc.frac, anc.frac,
+          dx, dy, dw, dh,
+        );
+      }
     }
     ctx.imageSmoothingEnabled = smoothing;
+    /**
+     * LOS FANTASMAS SE SUELTAN SOLOS. En cuanto la generación nueva cubre todo
+     * lo que se ve y no queda nada a medio fundir ya no tapan nada, y retenerlos
+     * son ~25 MB de mapas de bits que nadie va a dibujar jamás. Y si la vista
+     * NUNCA llega a cubrirse —canon frío, un obrero caído, un nivel que el
+     * mundo no soporta—, el plazo los suelta igual: un fantasma eterno es una
+     * fuga con buena excusa.
+     */
+    if (this.ghosts.size
+      && ((fading === 0 && sharp.size >= needed.size)
+        || now - this.ghostsAt > GHOST_MAX_AGE_MS)) {
+      this.dropGhosts();
+    }
+    if (fading > 0) this.pumpFade();
     return { needed: needed.size, exact: sharp.size };
+  }
+
+  /** El cuarto del antepasado residente más cercano en `map`, ya escalado.
+   *  Sacado del bucle de `draw` porque ahora se recorre dos veces: los vivos
+   *  primero y los fantasmas después. */
+  private ancestorQuarter(
+    map: Map<string, Entry>, key: TileKey,
+  ): { bmp: TileBitmap; ox: number; oy: number; frac: number } | null {
+    if (!map.size) return null;
+    let az = key.z - 1, atx = key.tx, aty = key.ty;
+    while (az >= MIN_TILE_Z) {
+      atx = Math.floor(atx / 2); aty = Math.floor(aty / 2);
+      const anc = this.entry(
+        map, { z: az, tx: wrapTileX(az, atx), ty: Math.min(tileCountY(az) - 1, aty) });
+      if (anc) {
+        const scale = 1 << (key.z - az);
+        const frac = TILE_PX / scale;
+        return {
+          bmp: anc.bmp,
+          ox: (key.tx - atx * scale) * frac,
+          oy: (key.ty - aty * scale) * frac,
+          frac,
+        };
+      }
+      az--;
+    }
+    return null;
   }
 
   dispose(): void {
     this.lastAsk = '';
+    this.lastFrame = '';
     this.disposed = true;
     if (this.nudgeTimer !== null) { clearTimeout(this.nudgeTimer); this.nudgeTimer = null; }
+    // El temporizador del fundido también: un `onArrive` de un componente ya
+    // desmontado es el mismo fallo que el empujón, con otro nombre.
+    if (this.fadeTimer !== null) { clearTimeout(this.fadeTimer); this.fadeTimer = null; }
     this.epoch++;
-    for (const e of this.tiles.values()) close(e.bmp);
-    this.tiles.clear();
+    this.clearTiles();
     // The component is gone; nothing will ever draw these. Cancelling is the
     // difference between a closed view releasing the pool and a closed view
     // holding a worker busy for the next minute.

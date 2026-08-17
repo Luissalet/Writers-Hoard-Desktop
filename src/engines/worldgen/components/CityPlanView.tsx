@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Dices, Download, Trash2, X } from 'lucide-react';
+import { Check, Dices, Download, Map, Trash2, X } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import type { WorldData } from '../core/types';
 import type { HumanGeography, Settlement } from '../core/settlements';
@@ -41,6 +41,15 @@ interface CityPlanViewProps {
   onRename?: (name: string) => void;
   /** Delete this town from the world. The modal closes itself afterwards. */
   onDelete?: () => void;
+  /**
+   * Bajar al mapa, a las calles de esta ciudad.
+   *
+   * La otra mitad del relevo: el mapa abre la lámina (acción secundaria) y la
+   * lámina devuelve al mapa. Sin esto, editar el plano era un callejón — se
+   * cerraba la ventana y la cámara seguía donde estuviera, que después de una
+   * búsqueda por el Índice podía ser el otro hemisferio.
+   */
+  onDescend?: () => void;
   /** Persist a new population. Absent means the reader may look but not set. */
   onPopulation?: (population: number) => void;
 }
@@ -89,7 +98,7 @@ function sliderToPop(v: number): number {
 }
 
 export default function CityPlanView({
-  world, settlement, geography, theme, onClose, onRename, onDelete, onPopulation,
+  world, settlement, geography, theme, onClose, onRename, onDelete, onDescend, onPopulation,
 }: CityPlanViewProps) {
   const { t, locale } = useTranslation();
   const hostRef = useRef<HTMLDivElement>(null);
@@ -342,6 +351,14 @@ export default function CityPlanView({
               danger
             >
               <Trash2 size={14} />
+            </IconBtn>
+          )}
+          {onDescend && (
+            <IconBtn
+              title={t('worldgen.cityPlan.descend')}
+              onClick={() => { onDescend(); onClose(); }}
+            >
+              <Map size={14} />
             </IconBtn>
           )}
           <IconBtn title={t('worldgen.cityPlan.variant')} onClick={() => setVariant((v) => v + 1)}><Dices size={14} /></IconBtn>

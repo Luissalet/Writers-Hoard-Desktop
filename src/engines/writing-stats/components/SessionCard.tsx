@@ -1,6 +1,7 @@
 import { Clock, FileText } from 'lucide-react';
 import type { WritingSession } from '../types';
 import { toLocalDateKey } from '../date';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface SessionCardProps {
   session: WritingSession;
@@ -13,20 +14,23 @@ const TYPE_COLORS: Record<WritingSession['type'], string> = {
   outline: 'bg-warning/15 text-warning',
 };
 
-const TYPE_LABELS: Record<WritingSession['type'], string> = {
-  freewrite: 'Freewrite',
-  sprint: 'Sprint',
-  edit: 'Edit',
-  outline: 'Outline',
+// `labelKey`, no `label`: es la regla del proyecto para todo objeto de
+// configuración, y estas cuatro claves ya existían y las usa `SprintTimer`.
+const TYPE_LABEL_KEYS: Record<WritingSession['type'], string> = {
+  freewrite: 'stats.type.freewrite',
+  sprint: 'stats.type.sprint',
+  edit: 'stats.type.edit',
+  outline: 'stats.type.outline',
 };
 
 export default function SessionCard({ session }: SessionCardProps) {
+  const { t } = useTranslation();
   const date = new Date(session.date + 'T00:00:00');
   const today = toLocalDateKey();
   const isToday = session.date === today;
 
   const dateLabel = isToday
-    ? 'Today'
+    ? t('common.today')
     : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
   const hours = Math.floor(session.duration / 3600);
@@ -41,7 +45,7 @@ export default function SessionCard({ session }: SessionCardProps) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className={`text-xs font-semibold px-2 py-1 rounded ${TYPE_COLORS[session.type]}`}>
-              {TYPE_LABELS[session.type]}
+              {t(TYPE_LABEL_KEYS[session.type])}
             </span>
             <span className="text-xs text-text-muted">{dateLabel}</span>
           </div>

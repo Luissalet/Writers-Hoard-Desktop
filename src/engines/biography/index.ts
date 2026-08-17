@@ -49,9 +49,16 @@ registerEntityResolver({
       thumbnail: bio.subjectPhoto,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = await db.biographies.filter(b => b.subjectName.toLowerCase().includes(q)).toArray();
+    // Acotar ANTES de filtrar. El registro descarta por proyecto lo que ya se ha
+    // traído, así que ignorar este parámetro no filtraba datos ajenos — hacía
+    // que cada tecla del buscador global deserializara todas las biografías, con
+    // sus fotos en base64, de todos los proyectos que hayas creado nunca.
+    const base = projectId
+      ? db.biographies.where('projectId').equals(projectId)
+      : db.biographies.toCollection();
+    const rows = await base.filter(b => b.subjectName.toLowerCase().includes(q)).toArray();
     return rows.map(b => ({
       id: b.id,
       type: 'biography',
