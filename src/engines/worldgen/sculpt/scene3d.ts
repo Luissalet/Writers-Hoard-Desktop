@@ -33,7 +33,37 @@ export const SIZE_X = 240;
 export const R_GLOBE = SIZE_X / (2 * Math.PI);
 const Y_PER_KM = 0.24;
 export const GLOBE_RELIEF = 0.55;
-export const MIN_UV_WINDOW = 0.0005;
+/**
+ * LO MÁS PEQUEÑA QUE PUEDE SER LA VENTANA DEL MUNDO. Y era lo que impedía
+ * que el 3D enseñara una calle.
+ *
+ * Estaba en 0,0005 sin una línea de comentario. En kilómetros son **20 km de
+ * suelo**: más ANCHA que el propio suelo de acercamiento de la vista (10 km
+ * desde el 2026-08-12), así que la piel de cerca no podía enfocar más
+ * apretado que veinte kilómetros por mucho que la cámara bajara. Con esa
+ * ventana, `planZoomSkin` sólo llega a z13 —unos 19 m/px— y el plano de
+ * calles de las teselas se dibuja a partir de 5 m/px (`PLAN_MAX_METRES_PER_PX`
+ * en `region/townPlan.ts`). Es decir: el comentario de `MIN_3D_SPAN_KM` decía
+ * que a 10 km «el plan pide z15-z16, 2,4-5 m/px», y era imposible — esta
+ * constante lo recortaba cuatro veces antes. La medida de la pasada anterior
+ * («a 25 km el plan pide z13-z14, 10-19 m/px») era en realidad la medida de
+ * este tope, no la del vano.
+ *
+ * Ahora son 1e-6 ≈ 40 m: DEBAJO de cualquier ventana que la vista vaya a
+ * pedir, para que esta constante deje de ser el tope escondido. El tope de
+ * verdad vive donde se puede razonar —`MIN_3D_SPAN_KM`— y no aquí.
+ *
+ * (Estuvo en 5e-6 ≈ 200 m del 15 al 16 de agosto, cuando el suelo de la vista
+ * eran 2 km y sobraba de largo. Con el marco local el suelo bajó a 250 m y esos
+ * 200 dejaban un 25 % de holgura: volvía a ser el tope escondido, sólo que un
+ * poco más abajo. Un margen de seis veces es margen; uno de uno coma dos es una
+ * bomba de relojería.)
+ *
+ * No hay relieve inventado en ese acercamiento y no lo va a haber: la
+ * geometría sigue siendo interpolación LISA del campo del mundo (doctrina
+ * «CERCA = LISO», Luis 2026-08-11). Lo que trae la calle es la PIEL.
+ */
+export const MIN_UV_WINDOW = 1e-6;
 
 export function elevKmToY(exaggeration: number, worldWidth: number): number {
   return Y_PER_KM * exaggeration * (SIZE_X / worldWidth);
@@ -291,15 +321,35 @@ uniform float uSizeZ;
 uniform float uGlobeRelief;
 uniform vec2  uUVMin;        // the window of the world this grid covers
 uniform vec2  uUVSize;
+uniform vec3  uPivot;        // dónde vive la malla en la escena (ver «setWindow»)
 uniform float uAmpDetail;    // km of invented sub-cell relief, at full roughness
 
 out vec2 vUV;
+out vec2 vLocal;
 out float vElev;
 out vec3 vWorld;
 
 ${HEIGHT_FN}
 
 void main() {
+  /**
+   * EL MARCO LOCAL, y es lo que separa un 3D que llega a 2 km de uno que llega
+   * a 250 m.
+   *
+   * «uv» es exacto (0..1 en pasos de 1/N) y «uUVSize» es diminuto, así que «d»
+   * —el desplazamiento respecto al CENTRO de la ventana— se calcula con toda la
+   * precisión que tiene un float32. Lo que NO se puede hacer es lo de antes:
+   * sumarlo a una coordenada de mundo de ~0,5, porque ahí el escalón de un
+   * float32 es 2⁻²⁴ ≈ 6e-8, que en este mundo son 2,4 METROS. A 2 km de vano
+   * eso son dos píxeles y no se ve; a 250 m son quince, y el ráster de la piel
+   * se parte en bandas porque muchos vértices seguidos caen en la misma uv.
+   */
+  vec2 d = (uv - 0.5) * uUVSize;
+  vLocal = d;
+  // La uv ABSOLUTA sobrevive, pero sólo para MUESTREAR. Un téxel del campo del
+  // mundo son veinte kilómetros: 2,4 m de error en la coordenada es 1e-4 de
+  // téxel. Donde hace falta resolución sub-métrica —el plano de calles del
+  // fragmento— se usa «vLocal», no esto.
   vec2 w = uUVMin + uv * uUVSize;
   vUV = w;
   // Displacement is BAND-LIMITED to what this mesh can carry (uDetailDisp is
@@ -308,8 +358,32 @@ void main() {
   // fragment's canon-resolution normals draw the ridges the mesh cannot.
   float e = heightAtDisp(w, uDetailDisp);
   vElev = e;
-  vec3 p = placeAt(w, e);
-  vWorld = p;
+  /**
+   * Y LA OTRA MITAD DEL PROBLEMA, que es del mismo tamaño: «modelViewMatrix * p»
+   * restaba dos números de ~96 unidades de escena para dar ~1e-3, y a esa
+   * magnitud el escalón del float32 es 7,6e-6 unidades ≈ 1,3 m. Arreglar la uv
+   * y dejar esto habría movido el tope de 2 km a 1 y ahí se habría quedado.
+   *
+   * La cura es que la malla deje de vivir en el origen: «setWindow» la muda al
+   * centro de su ventana y aquí el vértice devuelve coordenadas RELATIVAS a
+   * ella. three.js compone «modelViewMatrix» en la CPU en doble precisión, así
+   * que la resta grande la hace él y al shader le llega ya pequeña y exacta.
+   *
+   * El GLOBO se queda como estaba, a propósito: «uPivot» vale cero allí, la
+   * rama de abajo es literalmente «placeAt» y no hay un solo bit de diferencia.
+   * A escala de planeta no hay problema de precisión que resolver, y una
+   * esfera no tiene un marco local barato — el centro de la ventana sobre una
+   * esfera exige restar dos puntos grandes, que es justo lo que se evita aquí.
+   */
+  vec3 p = uShape < 0.5
+    ? vec3(d.x * uSizeX, e * uYMul, d.y * uSizeZ)
+    : placeAt(w, e);
+  // «vWorld» sigue siendo ABSOLUTO. El ruido procedimental del fragmento está
+  // clavado a la posición del mundo a propósito (para que no nade cuando la
+  // cámara se mueve), así que no puede pasar a local; y la luz y la niebla
+  // toleran de sobra 1,3 m sobre 250. Lo que sí cambia de marco en el fragmento
+  // son las DERIVADAS — ver «dpx».
+  vWorld = p + uPivot;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
 }
 `;
@@ -381,6 +455,17 @@ uniform sampler2D uZoom;
 uniform float uZoomOn;
 uniform vec2  uZoomMin;      // esquina noroeste de la ventana, en uv de mundo
 uniform vec2  uZoomSize;     // su extensión, en las mismas unidades
+/**
+ * El CENTRO de la ventana de la malla menos «uZoomMin», con la costura ya
+ * resuelta — y calculado en la CPU en doble precisión.
+ *
+ * Existe porque «vUV.x - uZoomMin.x» era una cancelación catastrófica: dos
+ * números de ~0,5 restándose para dar ~1e-8, justo en la cuenta de la que sale
+ * el plano de calles. Esa resta, hecha en float32, tiene un escalón de 2,4 m;
+ * dividida por una ventana de 250 m da saltos de un DÉCIMO de la textura. Aquí
+ * llega ya hecha, y lo que se le suma («vLocal») es pequeño por construcción.
+ */
+uniform vec2  uZoomRel;
 uniform float uZoomFade;     // ancho del borde suave, en fracción de la ventana
 uniform float uFlatLight;    // 1 = the skin already carries its own shading
 uniform float uDetail;       // 0–1 how much invented close-range relief
@@ -409,6 +494,9 @@ uniform float uFogDist;      // distancia a la que la niebla vale 1-1/e
 uniform float uFogOn;
 
 in vec2 vUV;
+/** El desplazamiento respecto al CENTRO de la ventana, en uv de mundo. Pequeño
+ *  por construcción, y por eso exacto: ver el comentario del vértice. */
+in vec2 vLocal;
 in float vElev;
 in vec3 vWorld;
 out vec4 outColor;
@@ -555,7 +643,26 @@ void main() {
   // narrow to the patch's own cell.
   float inD = 0.0;
   vec2 dlp = vec2(0.0);
-  vec3 dpx = dFdx(vWorld), dpy = dFdy(vWorld);
+  /**
+   * LAS DERIVADAS, POR EL MARCO LOCAL.
+   *
+   * «dFdx(vWorld)» es la diferencia entre dos píxeles vecinos de un número que
+   * vale ~96 unidades. A 250 m de vano esa diferencia es 1,5e-9 y el escalón del
+   * float32 a esa magnitud es 7,6e-6: la derivada salía **exactamente cero**, y
+   * con ella «pxUnits» se iba al mínimo, «resolvable» a uno y el marco tangente
+   * («det») a un determinante nulo. Un cero silencioso, del que nadie se entera.
+   * «vLocal» es pequeño por construcción, así que su derivada es honesta; se
+   * multiplica por el tamaño de la escena para volver a unidades, y la
+   * componente vertical sale de «vElev», que también es pequeño.
+   * El globo se queda con la fórmula de siempre (allí «vLocal» no es el
+   * desplazamiento de la escena, y a escala de planeta no hacía falta).
+   */
+  vec3 dpx = uShape < 0.5
+    ? vec3(dFdx(vLocal.x) * uSizeX, dFdx(vElev) * uYMul, dFdx(vLocal.y) * uSizeZ)
+    : dFdx(vWorld);
+  vec3 dpy = uShape < 0.5
+    ? vec3(dFdy(vLocal.x) * uSizeX, dFdy(vElev) * uYMul, dFdy(vLocal.y) * uSizeZ)
+    : dFdy(vWorld);
   if (uDetailOn > 0.5) {
     float wx0 = vUV.x - uDetailOrigin.x;
     wx0 -= round(wx0);
@@ -808,10 +915,12 @@ void main() {
   if (uZoomOn > 0.5 && uClay < 0.5) {
     // La rama envuelta más cercana a la ventana. Sin esto, una ventana que
     // cruza el antimeridiano lee el otro extremo del mundo en media pantalla.
-    float zx = vUV.x - uZoomMin.x;
-    zx -= round(zx);
-    vec2 zl = vec2(zx / max(1e-7, uZoomSize.x),
-                   (vUV.y - uZoomMin.y) / max(1e-7, uZoomSize.y));
+    // POR EL MARCO LOCAL. La rama envuelta más cercana ya no se resuelve aquí
+    // con un «round»: viene resuelta dentro de «uZoomRel», en float64 y una vez
+    // por fotograma, en vez de por píxel sobre un número que ya había perdido
+    // la precisión que hacía falta.
+    vec2 zl = vec2((uZoomRel.x + vLocal.x) / max(1e-9, uZoomSize.x),
+                   (uZoomRel.y + vLocal.y) / max(1e-9, uZoomSize.y));
     if (zl.x > 0.0 && zl.x < 1.0 && zl.y > 0.0 && zl.y < 1.0) {
       float edge = min(min(zl.x, 1.0 - zl.x), min(zl.y, 1.0 - zl.y));
       float f = smoothstep(0.0, max(1e-4, uZoomFade), edge);
@@ -1002,6 +1111,18 @@ export class SculptSurface {
   private heights: Float32Array;
   private meshResolution: number;
   private window: UVWindow = { ...FULL_WINDOW };
+  /**
+   * La ventana de la piel de cerca, guardada.
+   *
+   * `uZoomRel` depende de DOS cosas que se fijan por caminos distintos —la
+   * ventana de la MALLA (`setWindow`, en cada fotograma de un vuelo) y la de la
+   * PIEL (`setZoomSkin`, sólo al posarse)—, así que hay que recalcularlo desde
+   * las dos. Hacerlo sólo en `setZoomSkin` habría salido verde en cualquier
+   * banco estático y se habría desviado en cuanto la cámara se moviera sin
+   * recomponer la piel: el plano de calles resbalando sobre el suelo, sin que
+   * nada fallara por ningún lado.
+   */
+  private zoomWindow: FocusRect | null = null;
 
   constructor(opts: SurfaceOptions) {
     this.W = opts.worldWidth;
@@ -1066,6 +1187,7 @@ export class SculptSurface {
         uGlobeRelief: { value: GLOBE_RELIEF },
         uUVMin: { value: new THREE.Vector2(0, 0) },
         uUVSize: { value: new THREE.Vector2(1, 1) },
+        uPivot: { value: new THREE.Vector3(0, 0, 0) },
         // APAGADO POR DEFECTO, y a propósito.
         //
         // Inventar relieve entre las muestras del mundo funciona —el banco mide
@@ -1096,6 +1218,7 @@ export class SculptSurface {
         uZoomOn: { value: 0 },
         uZoomMin: { value: new THREE.Vector2(0, 0) },
         uZoomSize: { value: new THREE.Vector2(1, 1) },
+        uZoomRel: { value: new THREE.Vector2(0, 0) },
         uZoomFade: { value: 0.06 },
         uFlatLight: { value: 0 },
         uDetail: { value: 0.6 },
@@ -1126,6 +1249,9 @@ export class SculptSurface {
 
   setShape(shape: SculptShape): void {
     this.material.uniforms.uShape.value = shape === 'globe' ? 1 : 0;
+    // El pivote de la malla depende de la FORMA (el globo no lo usa), así que
+    // cambiar de forma sin recolocarlo dejaba el plano desplazado media ventana.
+    this.setWindow(this.window);
   }
 
   setExaggeration(exag: number): void {
@@ -1243,7 +1369,11 @@ export class SculptSurface {
       (this.material.uniforms.uZoomMin.value as THREE.Vector2).set(window.u, window.v);
       (this.material.uniforms.uZoomSize.value as THREE.Vector2).set(window.uSize, window.vSize);
       this.material.uniforms.uZoomFade.value = Math.min(0.45, Math.max(0.002, fade));
+      this.zoomWindow = { ...window };
+    } else {
+      this.zoomWindow = null;
     }
+    this.updateZoomRel();
   }
 
   get hasZoomSkin(): boolean {
@@ -1346,8 +1476,40 @@ export class SculptSurface {
     this.window = { u: w.u, v, size };
     (this.material.uniforms.uUVMin.value as THREE.Vector2).set(w.u - size / 2, v - size / 2);
     (this.material.uniforms.uUVSize.value as THREE.Vector2).set(size, size);
+    /**
+     * EL PIVOTE: la malla se muda al centro de su ventana.
+     *
+     * Es la mitad de la cura de precisión que NO está en el shader. El vértice
+     * devuelve coordenadas relativas a este punto (ver `VERT`), y la resta
+     * grande —cámara menos malla, dos números de ~96 unidades— la hace three.js
+     * al componer `modelViewMatrix` en la CPU, en doble precisión. Sin esto,
+     * arreglar la uv sólo habría bajado el tope de 2 km a 1.
+     *
+     * El GLOBO se queda en el origen: allí el vértice sigue usando `placeAt` y
+     * un pivote no cero le desplazaría el planeta entero.
+     */
+    const sizeZ = SIZE_X * (this.H / this.W);
+    if ((this.material.uniforms.uShape.value as number) < 0.5) {
+      this.mesh.position.set((w.u - 0.5) * SIZE_X, 0, (v - 0.5) * sizeZ);
+    } else {
+      this.mesh.position.set(0, 0, 0);
+    }
+    (this.material.uniforms.uPivot.value as THREE.Vector3).copy(this.mesh.position);
+    this.updateZoomRel();
     this.updateDetailDisp();
     return { u: w.u, v, size };
+  }
+
+  /** `uZoomRel` = centro de la ventana de la malla − esquina de la piel, con la
+   *  costura resuelta, EN DOBLE PRECISIÓN. Lo llaman los dos sitios que pueden
+   *  moverlo; ver `zoomWindow` para por qué eso importa. */
+  private updateZoomRel(): void {
+    const rel = this.material.uniforms.uZoomRel.value as THREE.Vector2;
+    const z = this.zoomWindow;
+    if (!z) { rel.set(0, 0); return; }
+    let du = this.window.u - z.u;
+    du -= Math.round(du);
+    rel.set(du, this.window.v - z.v);
   }
 
   /** Swap the grid for a denser or coarser one. Textures are untouched. */

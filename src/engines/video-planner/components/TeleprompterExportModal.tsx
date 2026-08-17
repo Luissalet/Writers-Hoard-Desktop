@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Loader2, CheckCircle2, AlertCircle, Clapperboard } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -40,6 +40,29 @@ export default function TeleprompterExportModal({ plan, segments, onClose }: Pro
   const [fallback, setFallback] = useState(false);
   const ctrlRef = useRef<AbortController | null>(null);
 
+  /**
+   * La grabación tiene que morir con el componente.
+   *
+   * `recordTeleprompter` es correcta: para sus pistas por las cuatro salidas
+   * posibles. El fallo estaba AQUÍ, en quien la orquesta — el `AbortController`
+   * sólo se abortaba desde el botón «Cancelar», así que bastaba con navegar
+   * fuera del proyecto (atrás del ratón, Alt+Izquierda, cualquier ruta que
+   * desmonte `ProjectDetail`) para dejar corriendo, invisible, un lienzo con su
+   * `MediaRecorder`, su `requestAnimationFrame` y su `setInterval`. Y lo peor no
+   * era el gasto: al terminar sola llamaba a `saveTeleprompterMp4`, que abre el
+   * diálogo NATIVO de guardado de Electron encima de lo que el lector estuviera
+   * haciendo, en otro proyecto y sin contexto ninguno.
+   *
+   * Por eso van las dos cosas y no sólo el abort: abortar detiene la grabación,
+   * pero si el desmontaje pilla la cadena ya pasada de `recordTeleprompter` —
+   * codificando— el abort no la alcanza, y hay que impedir el diálogo a mano.
+   */
+  const aliveRef = useRef(true);
+  useEffect(() => () => {
+    aliveRef.current = false;
+    ctrlRef.current?.abort();
+  }, []);
+
   const recSegments: RecorderSegment[] = segments
     .filter((s) => (s.script && s.script.trim()) || (s.title && s.title.trim()))
     .map((s) => ({ title: s.title, speakerName: s.speakerName, script: s.script }));
@@ -63,6 +86,9 @@ export default function TeleprompterExportModal({ plan, segments, onClose }: Pro
         onProgress: (elapsed, total) => setProgress({ elapsed, total }),
         signal: ctrl.signal,
       });
+      // Si el modal ya no está, el vídeo no se guarda en ningún sitio: nadie
+      // pidió un diálogo de guardado en la pantalla donde el lector esté ahora.
+      if (!aliveRef.current) return;
       const base = sanitize(plan.title);
       const api = window.electronAPI;
       if (api?.media) {

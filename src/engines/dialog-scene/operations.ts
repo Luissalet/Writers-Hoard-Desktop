@@ -16,13 +16,41 @@ export const createScene = sceneOps.create;
 export const updateScene = sceneOps.update;
 
 // deleteScene cascades to blocks and cast
-export const deleteScene = makeCascadeDeleteOp({
+const deleteSceneRow = makeCascadeDeleteOp({
   tableName: 'scenes',
   cascades: [
     { table: 'dialogBlocks', foreignKey: 'sceneId' },
     { table: 'sceneCasts', foreignKey: 'sceneId' },
   ],
 });
+
+/**
+ * Borrar una escena, y DESVINCULAR los beats del esquema que apuntaban a ella.
+ *
+ * La cascada de arriba se llevaba los bloques y el reparto —lo que sólo existe
+ * dentro de la escena— pero dejaba `outlineBeats.linkedSceneId` apuntando a un
+ * id muerto, aunque este mismo fichero conoce la relación: la consulta
+ * `getLinkedBeats`, treinta líneas más abajo.
+ *
+ * El síntoma no era un error, que es lo que lo hacía invisible: era un contador
+ * que mentía. `services/projectIntelligence.ts` cuenta un beat como conectado
+ * con sólo mirar si `linkedSceneId` tiene valor, sin comprobar que la escena
+ * exista, y de ahí sale el medidor «beats del esquema conectados» del Cockpit.
+ * Con punteros muertos ese medidor **sólo podía subir**: borrases las escenas
+ * que borrases, la cobertura de tu esquema seguía marcando lo mismo.
+ *
+ * Se desvincula, no se borra: el beat es texto del autor y sobrevive sin
+ * escena, listo para volver a enlazarse. Es la misma política de
+ * `deleteCodexEntry` — se borra lo que es puro vínculo, se desvincula lo que
+ * alguien escribió.
+ */
+export async function deleteScene(id: string): Promise<void> {
+  const orphaned = await getLinkedBeats(id);
+  for (const beat of orphaned) {
+    await db.table('outlineBeats').update(beat.id, { linkedSceneId: undefined });
+  }
+  await deleteSceneRow(id);
+}
 
 export async function reorderScenes(projectId: string, orderedIds: string[]): Promise<void> {
   await reorderItems('scenes', 'projectId', projectId, orderedIds);

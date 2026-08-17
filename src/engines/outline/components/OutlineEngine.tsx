@@ -23,7 +23,9 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
   const [templateForNewOutline, setTemplateForNewOutline] = useState<string | undefined>(undefined);
   void templateForNewOutline; // used in template selection flow
 
-  const { items: beats, addItem: addBeat, editItem: editBeat, removeItem: removeBeat } = useOutlineBeats(activeOutlineId);
+  // `reorder` estaba en el hook desde el principio y no se extraía siquiera:
+  // el asa de arrastre de `BeatList` era decoración.
+  const { items: beats, addItem: addBeat, editItem: editBeat, removeItem: removeBeat, reorder: reorderBeats } = useOutlineBeats(activeOutlineId);
   const { items: scenes } = useScenes(projectId);
   const { writings } = useWritings(projectId);
 
@@ -64,6 +66,11 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
     [outlines, activeOutlineId],
   );
 
+  const activeTemplate = useMemo(
+    () => BEAT_SHEET_TEMPLATES.find((tmpl) => tmpl.id === activeOutline?.templateId),
+    [activeOutline?.templateId],
+  );
+
   // Buffered: the title used to hit Dexie plus a full table refresh on every
   // keystroke, with the input bound to the refreshed row — so typing fast lost
   // characters.
@@ -84,9 +91,12 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
     await addOutline(outline);
     setActiveOutlineId(outline.id);
 
-    // Add beats from template if selected
+    // Add beats from template if selected.
+    // The template only holds i18n keys, so they MUST be resolved here: these
+    // strings are copied into the beat rows and live in the author's project
+    // for good — a key (or English) written now would never be re-translated.
     if (selectedTemplateId) {
-      const template = BEAT_SHEET_TEMPLATES.find((t) => t.id === selectedTemplateId);
+      const template = BEAT_SHEET_TEMPLATES.find((tmpl) => tmpl.id === selectedTemplateId);
       if (template) {
         for (let i = 0; i < template.beats.length; i++) {
           const templateBeat = template.beats[i];
@@ -96,8 +106,8 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
             projectId,
             order: i,
             level: templateBeat.level,
-            title: templateBeat.title,
-            description: templateBeat.description,
+            title: t(templateBeat.titleKey),
+            description: t(templateBeat.descriptionKey),
             storyPosition: templateBeat.storyPosition,
             color: templateBeat.color,
             status: 'empty',
@@ -148,7 +158,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
             />
             {activeOutline.templateId && (
               <p className="text-xs text-text-dim">
-                {t('outline.usingTemplate')} {BEAT_SHEET_TEMPLATES.find((tmpl) => tmpl.id === activeOutline.templateId)?.name}
+                {t('outline.usingTemplate')} {activeTemplate ? t(activeTemplate.nameKey) : activeOutline.templateId}
               </p>
             )}
           </div>
@@ -171,6 +181,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
             }}
             onUpdateBeat={editBeat}
             onDeleteBeat={removeBeat}
+            onReorder={(orderedIds) => { void reorderBeats(orderedIds); }}
           />
         </div>
       )}

@@ -2,8 +2,9 @@ import { useState, useMemo } from 'react';
 import { Clock, List, Layers } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard } from '@/engines/_shared';
+import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard, ConfirmDialog } from '@/engines/_shared';
 import { useTimelines, useTimelineEvents, useAllProjectEvents, useTimelineConnections } from './hooks';
+import { countConnectionsForEvent } from './operations';
 import { generateId } from '@/utils/idGenerator';
 import TimelineView from './components/TimelineView';
 import SwimLaneView from './components/SwimLaneView';
@@ -15,6 +16,13 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
   const { timelines, loading: timelinesLoading, addTimeline, editTimeline, removeTimeline } = useTimelines(projectId);
   const [activeTimelineId, setActiveTimelineId] = useState<string>('');
   const [viewMode, setViewMode] = useState<ViewMode>('swimlane');
+  // El evento que está esperando confirmación para borrarse. Arriba con el
+  // resto de hooks porque más abajo hay un `return` temprano por carga, y un
+  // hook detrás de un return no se llama siempre en el mismo orden. La
+  // explicación de por qué existe esta guarda está en `askRemoveEvent`.
+  const [pendingDelete, setPendingDelete] = useState<
+    { id: string; title: string; connections: number; run: (id: string) => Promise<void> } | null
+  >(null);
 
   // Single-timeline events (for list view)
   const { events: activeEvents, addEvent, editEvent, removeEvent, refresh: refreshActiveEvents } = useTimelineEvents(activeTimelineId);
@@ -118,6 +126,33 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
     refreshConnections();
   };
 
+  /**
+   * La pregunta antes de borrar un evento, UNA sola vez y para las dos vistas.
+   *
+   * Había tres sitios que borraban un evento —el botón flotante de la vista de
+   * carriles, su menú contextual y la papelera de la vista de lista— y los tres
+   * llamaban al borrado a pelo: sin confirmación, sin aviso y sin deshacer,
+   * arrastrando en cascada todas las conexiones del evento. En los carriles, los
+   * tres botones del evento seleccionado (Editar · Conectar · Eliminar) son
+   * círculos de doce píxeles con seis de separación real: un clic desviado a la
+   * derecha cuando querías conectar dos eventos te borraba uno.
+   *
+   * La guarda va AQUÍ y no en los tres sitios a propósito: `TimelineEngine` es
+   * el dueño de las dos funciones de borrado, así que puesta aquí no hay forma
+   * de añadir un cuarto botón que se la salte. Las vistas siguen llamando a
+   * `onDeleteEvent` sin enterarse de nada.
+   *
+   * Y se dice CUÁNTAS conexiones se van a perder. `countConnectionsForEvent`
+   * llevaba escrita desde el principio justo para esto y no la llamaba nadie:
+   * el dato que convierte «¿seguro?» en una pregunta que se puede contestar.
+   */
+  const askRemoveEvent = (id: string, run: (id: string) => Promise<void>) => {
+    const event = allEvents.find((e) => e.id === id) ?? activeEvents.find((e) => e.id === id);
+    void countConnectionsForEvent(id).then((connections) => {
+      setPendingDelete({ id, title: event?.title ?? '', connections, run });
+    });
+  };
+
   return (
     <div className="space-y-4">
       {/* View Mode Toggle */}
@@ -162,7 +197,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
           connections={connections}
           onAddEvent={handleAddEventGlobal}
           onEditEvent={handleEditEventGlobal}
-          onDeleteEvent={handleRemoveEventGlobal}
+          onDeleteEvent={(id) => askRemoveEvent(id, handleRemoveEventGlobal)}
           onAddConnection={addConnection}
           onDeleteConnection={removeConnection}
           onEditTimeline={editTimeline}
@@ -175,7 +210,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
             events={activeEvents}
             onAddEvent={handleAddEvent}
             onEditEvent={handleEditEvent}
-            onDeleteEvent={handleRemoveEvent}
+            onDeleteEvent={(id) => askRemoveEvent(id, handleRemoveEvent)}
           />
         )
       )}
@@ -190,6 +225,23 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
         onCreate={handleCreateTimeline}
         onDelete={handleDeleteTimeline}
         placeholder={t('timeline.namePlaceholder')}
+      />
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        destructive
+        message={
+          `${t('timeline.deleteEvent.message').replace('{title}', pendingDelete?.title ?? '')}`
+          + (pendingDelete && pendingDelete.connections > 0
+            ? `\n\n${t('timeline.deleteEvent.connections').replace('{n}', String(pendingDelete.connections))}`
+            : '')
+        }
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={async () => {
+          const target = pendingDelete;
+          setPendingDelete(null);
+          if (target) await target.run(target.id);
+        }}
       />
     </div>
   );

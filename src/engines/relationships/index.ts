@@ -39,9 +39,13 @@ registerEntityResolver({
       color: rel.color ?? cfg?.color,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = await db.relationships.filter(r =>
+    // Acotar antes de filtrar (contrato en `_shared/entityResolverRegistry.ts`).
+    const base = projectId
+      ? db.relationships.where('projectId').equals(projectId)
+      : db.relationships.toCollection();
+    const rows = await base.filter(r =>
       r.entityAName.toLowerCase().includes(q) ||
       r.entityBName.toLowerCase().includes(q) ||
       (r.label ?? '').toLowerCase().includes(q)

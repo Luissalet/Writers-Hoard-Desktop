@@ -43,9 +43,14 @@ registerEntityResolver({
       thumbnail: snap.thumbnail,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = await db.snapshots.filter(s => s.title.toLowerCase().includes(q)).toArray();
+    // Acotar antes de filtrar (contrato en `_shared/entityResolverRegistry.ts`).
+    // Aquí es de lo más caro del buscador: cada recorte lleva su miniatura.
+    const base = projectId
+      ? db.snapshots.where('projectId').equals(projectId)
+      : db.snapshots.toCollection();
+    const rows = await base.filter(s => s.title.toLowerCase().includes(q)).toArray();
     return rows.map(s => ({
       id: s.id,
       type: 'snapshot',

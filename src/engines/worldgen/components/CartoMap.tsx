@@ -9,14 +9,17 @@ import { CartoBaseGL } from '../cartography/glbase';
 import { computeFields, getTintFieldFor } from '../cartography/render';
 import { drawAnnotations, type CartoAnnotations } from '../cartography/annotations';
 import { drawOverlay } from '../cartography/overlay';
+import { drawArrivalMark } from '../cartography/screenFurniture';
 import {
   cartaViewToViewport, viewportToCartaCamera, clampViewport, sameViewport,
-  flightAt, FLIGHT_MS, type FlyTarget,
+  flightAt, FLIGHT_MS, type FlyMark,
+  type FlyTarget,
 } from '../core/camera';
 import { DisplayTileStore } from '../cartography/tileStore';
 import { levelFor, MAX_TILE_Z, MAX_WORLD_TILE_Z, TILE_PX } from '../cartography/tiles';
 import { DEEP_TILE_Z, type TilePlace } from '../region/deepTile';
 import { serveTile } from '../region/tileService';
+import { worldFamilyKey } from '../region/contentIdentity';
 import { declutterLabels } from '../core/semanticZoom';
 
 /**
@@ -69,6 +72,14 @@ interface CartoMapProps {
   onViewportChange?: (viewport: WorldViewport) => void;
   /** One-shot animated flight request (double-click, "volar aquí"). */
   flyTarget?: FlyTarget | null;
+  /**
+   * La chincheta de llegada del localizador, en celdas de mundo.
+   *
+   * La carta era la única de las tres vistas que se quedaba muda: el
+   * localizador vuela en las tres —ése es su contrato— y aterrizar sin marca
+   * en la vista que MÁS se parece a un mapa de verdad era donde peor sentaba.
+   */
+  flyMark?: FlyMark | null;
   /**
    * A plain click, in world coordinates, when the caller wants to inspect the
    * ground rather than open a town. Takes priority over `onPickSettlement`, so
@@ -124,7 +135,7 @@ interface LiveView { zoom: number; cu: number; cv: number }
 export default function CartoMap({
   world, theme, geography, layers, density, reliefAmount, title, subtitle,
   onPickSettlement, onZoomTo, onInspect, onViewChange, annotations,
-  viewport, onViewportChange, flyTarget, canonWorld, canonEdits,
+  viewport, onViewportChange, flyTarget, flyMark = null, canonWorld, canonEdits,
 }: CartoMapProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -200,6 +211,8 @@ export default function CartoMap({
   propsRef.current = { world, theme, geography, layers, density, reliefAmount, title, subtitle, canonWorld, canonEdits };
   const annRef = useRef<CartoAnnotations | undefined>(annotations);
   annRef.current = annotations;
+  const markRef = useRef<FlyMark | null>(flyMark);
+  markRef.current = flyMark;
 
   /**
    * Deepest useful zoom for THIS canvas: the tile ladder's honest top —
@@ -309,6 +322,54 @@ export default function CartoMap({
     ctx.restore();
   }, []);
 
+  /**
+   * La diana de llegada, en la retícula de la carta.
+   *
+   * Va FUERA de `drawLettering` a propósito: aquella se calla entera cuando el
+   * lector apaga los rótulos o las poblaciones, y la marca no es una capa del
+   * mapa sino la respuesta a lo que acaba de buscar. Apagar los nombres no
+   * puede esconder dónde has aterrizado.
+   *
+   * `pxScale` es la razón entre el lienzo y sus píxeles de CSS: esta vista
+   * dibuja en píxeles de dispositivo (ver `drawArrivalMark`).
+   */
+  const drawFlyMark = useCallback((
+    ctx: CanvasRenderingContext2D,
+    v: CartoView,
+    outW: number,
+    outH: number,
+    pxScale: number,
+  ) => {
+    const mark = markRef.current;
+    if (!mark) return;
+    const p = propsRef.current;
+    const W = p.world.width;
+    const scale = outW / v.w;
+    // La misma vuelta al mundo que dan los rótulos profundos: la carta puede
+    // estar mirando a caballo de la costura, y la marca tiene que aparecer en
+    // la copia que se ve, no en la de al lado.
+    const cx = v.x + v.w / 2;
+    let x = mark.x;
+    while (x < cx - W / 2) x += W;
+    while (x > cx + W / 2) x -= W;
+    const sx = (x - v.x) * scale;
+    const sy = (mark.y - v.y) * scale;
+    if (sx < -80 * pxScale || sy < -40 * pxScale
+      || sx > outW + 80 * pxScale || sy > outH + 40 * pxScale) return;
+    const r1 = drawArrivalMark(ctx, sx, sy, '#ffd479', pxScale);
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.font = `600 ${12 * pxScale}px ${p.theme.type.body}`;
+    ctx.lineWidth = 3 * pxScale;
+    ctx.strokeStyle = 'rgba(6,8,13,0.85)';
+    ctx.strokeText(mark.name, sx + r1 + 6 * pxScale, sy);
+    ctx.fillStyle = '#ffd479';
+    ctx.fillText(mark.name, sx + r1 + 6 * pxScale, sy);
+    ctx.restore();
+  }, []);
+
   const drawLettering = useCallback((
     ctx: CanvasRenderingContext2D,
     v: CartoView,
@@ -391,7 +452,9 @@ export default function CartoMap({
         lastTileGeneration.current = generation;
         deepPlaces.current.clear();
       }
-      store.setGeneration(generation);
+      // Mismo planeta = la lámina anterior se queda de fantasma bajo la
+      // nueva mientras se entinta, y se funde en 250 ms. Ver `DisplayTileStore`.
+      store.setGeneration(generation, worldFamilyKey(p.world));
       const z = levelFor(p.world, canvas.width / v.w, p.canonWorld ? MAX_TILE_Z : MAX_WORLD_TILE_Z);
       store.want(p.world, z, v);
       store.draw(ctx, p.world, z, v, { x: 0, y: 0, w: canvas.width, h: canvas.height });
@@ -401,7 +464,8 @@ export default function CartoMap({
     // underneath carry no type at all.
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     drawLettering(ctx, v, canvas.width, canvas.height, dpr > 1 ? 1 : 0.92);
-  }, [viewFor, size.w, size.h, world.width, world.height, theme.paper.base, theme.ocean.deep, drawLettering]);
+    drawFlyMark(ctx, v, canvas.width, canvas.height, canvas.width / Math.max(1, size.w));
+  }, [viewFor, size.w, size.h, world.width, world.height, theme.paper.base, theme.ocean.deep, drawLettering, drawFlyMark]);
 
   /**
    * Book an interim blit, with a timer behind it.
@@ -530,6 +594,7 @@ export default function CartoMap({
             // Words on top, live — the settle draws the same lettering the
             // gesture frames do, so nothing jumps at the handover.
             drawLettering(ctx, v, w, h, typeScale);
+            drawFlyMark(ctx, v, w, h, w / Math.max(1, size.w));
           }
         }
       } finally {
@@ -544,7 +609,7 @@ export default function CartoMap({
         }
       }
     });
-  }, [size.w, size.h, viewFor, drawBase, drawLettering]);
+  }, [size.w, size.h, viewFor, drawBase, drawLettering, drawFlyMark]);
   renderRef.current = render;
 
   // ---- the ink layer -------------------------------------------------------
@@ -652,6 +717,12 @@ export default function CartoMap({
   // Annotations are cheap and change often (a slider drag), so they repaint on
   // their own rather than waiting for the map's debounced render.
   useEffect(() => { paintInk(); }, [annotations, paintInk, size.w, size.h]);
+
+  // Y la marca de llegada repinta por el camino BARATO. El repintado completo
+  // de más abajo reconstruye la lámina del mundo entera (segundos, y con GL de
+  // por medio): buscar un sitio no puede costar eso, y quitar la marca con Esc
+  // menos todavía.
+  useEffect(() => { requestInterim(); }, [flyMark, requestInterim]);
 
   // Re-render from scratch when anything other than the view changes.
   //

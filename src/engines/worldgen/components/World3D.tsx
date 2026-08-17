@@ -8,6 +8,9 @@ import {
 // hook, and the callbacks and effects below use this one, so that a translation
 // never becomes a dependency of the draw loop or of the WebGL setup.
 import { useTranslation, t as translate } from '@/i18n/useTranslation';
+import {
+  drawArrivalMark, drawScreenCompass, drawScreenScaleBar, northOnScreen,
+} from '../cartography/screenFurniture';
 import type { WorldData } from '../core/types';
 import { BIOME_COUNT } from '../core/types';
 import { BIOME_COLORS, renderBase } from '../core/render';
@@ -54,7 +57,10 @@ import {
   type WorldSpatialEntity,
 } from '../core/spatialEntities';
 import { semanticZoomProfile } from '../core/semanticZoom';
-import { EARTH_KM, MIN_SPAN_KM, type FlyTarget } from '../core/camera';
+import {
+  EARTH_KM, MIN_3D_SPAN_KM, MIN_SPAN_KM, type FlyMark, type FlyTarget,
+} from '../core/camera';
+import { anchoredDolly, anchoredGlobeDolly } from '../core/zoomAnchor';
 
 /**
  * The world, in three dimensions. The main view.
@@ -128,6 +134,9 @@ interface World3DProps {
   onEdits?: (edits: WorldEdit[]) => void;
   revision: number;
   flyTarget: FlyTarget | null;
+  /** La chincheta de llegada. Se dibuja como una diana con su nombre y no se
+   *  descarta nunca por amontonamiento: es lo que el lector fue a buscar. */
+  flyMark?: FlyMark | null;
   onPickSettlement?: (s: Settlement) => void;
   onPickWaypoint?: (id: string) => void;
   /** The Punto tool with Chincheta selected. Normalized, which is how a pin is
@@ -176,57 +185,13 @@ const MESH_STEPS = [512, 1024, 1536];
  */
 const VIEWPORT_REPORT_MS = 180;
 
-/**
- * Hasta dónde deja acercarse esta vista, en kilómetros de suelo a lo ancho.
- *
- * Una celda de mundo son ~19,5 km, así que esto es el punto donde una celda
- * mide una decena de píxeles en pantalla. Más abajo no queda NADA que
- * enseñar: sólo un téxel magnificado, y todo rasgo del tamaño de una celda
- * —el ruido natural del fondo marino, el borde de un bioma— se lee como un
- * cuadrado. Ese vacío es justamente lo que el parche regional venía a tapar,
- * y ahora vive donde le corresponde, en el 2D. Así que el 3D se planta aquí,
- * con honradez, y el que quiera bajar más pasa al mapa.
- *
- * A 1200 km caben los Alpes cuatro veces: es un encuadre de cordillera, que
- * es exactamente lo que esta vista existe para enseñar.
+/* El suelo de acercamiento de esta vista —MIN_3D_SPAN_KM— y toda su historia
+ * (1200 → 150 → 25 → 10 → 2 km, con el porqué de cada bajada) viven ahora en
+ * `core/camera.ts`, al lado del contrato de cámara compartida del que salen.
+ * Se mudó el 2026-08-15 por una razón práctica: una constante dentro de un
+ * `.tsx` no se puede medir sin montar React, y ésta ES una medida — el banco
+ * `harness/descent-3d.ts` la compara contra lo que la piel puede servir.
  */
-// 150, Y AHORA EL CÓDIGO Y EL COMENTARIO DICEN LO MISMO.
-//
-// Aquí había un párrafo que anunciaba una vuelta a 1200 que nunca se aplicó al
-// número, y llevaba razón en su día por dos motivos, de los cuales hoy queda
-// medio:
-//
-//   · «De cerca sólo hay grano»: cierto para el TERRENO y sigue siéndolo — una
-//     celda son 19,5 km y acercarse no revela nada que el generador haya
-//     calculado. Pero ya no es lo único que se ve. Con un cielo y un mar de
-//     verdad, la cámara baja deja de mirar una manta de bultos verdes y pasa a
-//     mirar una COSTA: horizonte, orilla con espuma, el reguero del sol sobre
-//     el oleaje. La estampa de `harness/out/sky-water/1-atardecer.png` es una
-//     cámara a 1,4 unidades sobre el agua; a 1200 km de suelo esa cámara no
-//     puede existir (el suelo se traduce a ~7,4 unidades de distancia mínima) y
-//     con 150 sí (~0,92). Lo que se gana ahí no lo pinta el relieve: lo pintan
-//     el agua y el cielo.
-//   · «Abrir con el morro en la hierba»: eso ya NO depende de este número. Es
-//     ADOPT_MIN_SPAN_KM, justo debajo, que se separó precisamente porque
-//     confundir las dos cosas fue lo que obligó a revertir la bajada. Acercarse
-//     a mirar es una decisión del lector; que le dejen caer ahí, no.
-//
-// 25, POR DECISIÓN DE LUIS (2026-08-11): «puedes hacer zoom sin necesidad de
-// hacer esa teselación exagerada — el terreno es bastante llano». La regla
-// antigua («el suelo sólo baja cuando el relieve tenga algo debajo») queda
-// REVOCADA: el suelo de cerca es la interpolación LISA del campo del mundo, a
-// propósito — nada de relieve inventado, que fue lo que dio picos y poros y
-// obligó a revertir el intento anterior. Lo que sí gana nitidez al bajar es la
-// PIEL: bajo «consume», un encuadre de 25 km pide teselas z14 (~10 m/px) y
-// donde el 2D ya generó ese canon el 3D las entinta gratis — tejados y mancha
-// urbana incluidos. Frío, se queda en el respaldo z8: borroso pero liso.
-// …y 10 desde el 2026-08-12 (Luis: quiere llegar a VER la ciudad — «que las
-// ciudades estén ahí literalmente»). A 10 km de vano el plan pide z15–z16
-// (2,4–5 m/px): los planos de ciudad de las teselas se leen calle a calle.
-// Sigue siendo interpolación lisa del campo del mundo — el relieve no se
-// inventa — y bajo «consume» la piel honda sale gratis de la residencia o del
-// canon persistido (pasada 8); fría, se queda en el respaldo liso de siempre.
-const MIN_3D_SPAN_KM = 10;
 
 /** HUD de depuración de la piel (TEMPORAL — Luis, 2026-08-12): añade a la
  *  línea de la piel el techo del plan, el estado del contrato consume y los
@@ -450,7 +415,7 @@ const FWD = new THREE.Vector3();
 interface ScreenMark {
   x: number;
   y: number;
-  kind: 'settlement' | 'waypoint' | 'spatial';
+  kind: 'settlement' | 'waypoint' | 'spatial' | 'fly';
   rank: number;
   label: string;
   color: string;
@@ -467,7 +432,7 @@ export default function World3D({
   showLandmarks, selectedSpatialKey, onSelectSpatialEntity, regionalEntities = [],
   viewport, onViewportChange,
   skin, shape, onShape, exaggeration, tool, onTool, onEdit, onEdits, revision,
-  flyTarget, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint,
+  flyTarget, flyMark = null, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint,
   onZoomTo,
 }: World3DProps) {
   const { t } = useTranslation();
@@ -649,6 +614,9 @@ export default function World3D({
     showWaypoints,
     showSettlements,
     showLandmarks,
+    // La chincheta viaja por el ref, como todo lo que el fotograma lee sin
+    // querer reconstruirse: `projectMarks` la mira dentro del dibujo.
+    flyMark,
     spatialEntities,
     selectedSpatialKey,
     onSelectSpatialEntity,
@@ -665,6 +633,7 @@ export default function World3D({
     showWaypoints,
     showSettlements,
     showLandmarks,
+    flyMark,
     spatialEntities,
     selectedSpatialKey,
     onSelectSpatialEntity,
@@ -997,11 +966,28 @@ export default function World3D({
   const stabilizeCamera = useCallback((): boolean => {
     const st = R.current;
     if (!st) return false;
-    // Separación mínima sobre el suelo. Eran veinte kilómetros, que con el
-    // suelo de acercamiento en mil doscientos no se notaba nunca; con el suelo
-    // en ciento cincuenta es lo que impide rasar el terreno. Ahora son unos
-    // seis, y por debajo manda el plano cercano de la cámara.
-    const clearance = Math.max(st.camera.near * 4, 0.035);
+    /**
+     * Separación mínima sobre el suelo. Eran veinte kilómetros, que con el
+     * suelo de acercamiento en mil doscientos no se notaba nunca; con el suelo
+     * en ciento cincuenta es lo que impide rasar el terreno. Luego seis.
+     *
+     * Y ahora ESCALA, que es lo único que cambia: los seis kilómetros eran una
+     * constante (0,035 unidades) puesta cuando el suelo del vano estaba en 10
+     * km, y con el suelo en 0,25 km habrían dejado la cámara a seis kilómetros
+     * de altura mirando un pueblo de 250 metros — o sea, habrían anulado el
+     * descenso entero sin fallar por ningún lado. Con `min(0,035, dist)` el
+     * comportamiento por encima del suelo viejo es EXACTAMENTE el de antes
+     * (allí `near·4` ya valía `dist` y mandaba él), y por debajo la misma
+     * geometría, escalada.
+     *
+     * Lo que NO cambia hoy, a propósito: el ángulo. `near·4 = dist` obliga a
+     * mirar desde unos 58° sobre el horizonte en cuanto te acercas, así que la
+     * órbita no rasa aunque la piel ya lo permita. Bajar ese ángulo es un
+     * cambio de tacto en una vista que Luis ya dio por buena, y para ir a ras
+     * de suelo está el PASEO. Queda anotado, no hecho.
+     */
+    const orbitDist = st.camera.position.distanceTo(st.controls.target);
+    const clearance = Math.max(st.camera.near * 4, Math.min(0.035, orbitDist));
     /**
      * EN PASEO MANDA LA ESTATURA, NO LA ÓRBITA.
      *
@@ -1101,6 +1087,7 @@ export default function World3D({
     const out: ScreenMark[] = [];
     const p = new THREE.Vector3();
     const camDir = new THREE.Vector3();
+    const marca = propsRef.current.flyMark;
 
     /** Project, cull, and place. Returns null when the point is not on screen. */
     const place = (cx: number, cy: number): { x: number; y: number } | null => {
@@ -1115,6 +1102,22 @@ export default function World3D({
       return { x: (p.x * 0.5 + 0.5) * w, y: (-p.y * 0.5 + 0.5) * h };
     };
 
+    /**
+     * La chincheta va la PRIMERA, y es lo único de aquí que no se gana el
+     * sitio: el descarte por amontonamiento (`fits`, en el dibujo) recorre
+     * esta lista en orden y el primero que pasa se queda el hueco. Si la
+     * llegada se colocara al final, buscar un sitio en una comarca poblada te
+     * llevaría hasta él para tapar su nombre con el de un pueblo vecino.
+     */
+    if (marca) {
+      const at = place(marca.x, marca.y);
+      if (at) {
+        out.push({
+          x: at.x, y: at.y, kind: 'fly', rank: -2,
+          label: marca.name, color: '#ffd479',
+        });
+      }
+    }
     if (ss && geo) {
       // How much of the world is on screen decides how much of the gazetteer
       // is worth drawing: every village at full zoom is a grey smear, and only
@@ -1207,6 +1210,18 @@ export default function World3D({
     };
 
     for (const m of marks) {
+      if (m.kind === 'fly') {
+        const r1 = drawArrivalMark(ctx, m.x, m.y, m.color);
+        // El nombre RESERVA su hueco (`fits`) pero se dibuja pase lo que pase:
+        // es lo que el lector tecleó para llegar aquí.
+        ctx.font = '600 12px "Source Sans 3", system-ui, sans-serif';
+        const tw = ctx.measureText(m.label).width;
+        const lx = m.x + r1 + 6;
+        fits(lx - 2, m.y - 9, lx + tw + 2, m.y + 9);
+        label(ctx, m.label, lx, m.y, 12, m.color);
+        m.hit = { x0: m.x - r1, y0: m.y - r1, x1: lx + tw + 3, y1: m.y + r1 };
+        continue;
+      }
       if (m.kind === 'waypoint') {
         ctx.beginPath();
         ctx.moveTo(m.x, m.y);
@@ -1361,6 +1376,64 @@ export default function World3D({
         }
       }
       ctx.restore();
+    }
+
+    // ---- la escala y la brújula ---------------------------------------------
+    /**
+     * EL 3D NO DECÍA A QUÉ ESCALA ESTABA, NI POR DÓNDE CAÍA EL NORTE.
+     *
+     * El 2D lleva su barra de escala desde la pasada de cohesión; ésta la vista
+     * PRINCIPAL (Luis, en mayúsculas: «el mapa 3D es el que más importa») y no
+     * tenía ninguna de las dos. Sin escala, un valle y un continente son la
+     * misma mancha verde con un río; y sin norte, en cuanto orbitas medio giro
+     * ya no sabes si ese río va al mar del sur o baja de las montañas del
+     * norte — un problema que el 2D no tiene porque allí el norte es arriba
+     * SIEMPRE, y por eso nadie había echado de menos la brújula.
+     *
+     * Van sobre la capa de rótulos, en la esquina de abajo a la derecha: la de
+     * abajo a la izquierda la ocupan el reloj de fotograma y el «?», y la de
+     * arriba a la derecha los mandos de piel y forma. El levantón de 52 px deja
+     * libre el mando de exageración, que lo pone WorldView encima de esta vista.
+     */
+    const stF = R.current;
+    if (stF) {
+      const kmPorPx = stF.focusKm / Math.max(1, w);
+      drawScreenScaleBar(ctx, {
+        kmPerPx: kmPorPx,
+        align: 'right',
+        edge: w - 12,
+        bottom: h - 52,
+        format: (km) => (km >= 1
+          ? translate('worldgen.paint.units.km')
+            .replace('{n}', String(km >= 1000 ? Math.round(km) : km))
+          : translate('worldgen.paint.units.m')
+            .replace('{n}', String(Math.round(km * 1000)))),
+      });
+      /**
+       * La aguja es sólo del PLANO, y en el globo NO es que falte.
+       *
+       * En la esfera el norte del punto que se está mirando es la tangente de
+       * su meridiano, y esa tangente es exactamente el eje Y de la cámara —
+       * porque el orbitador mantiene «arriba» clavado en +Y. Su proyección
+       * cae siempre en la vertical de la pantalla (el aspecto de la ventana se
+       * cancela entre las dos tangentes del campo). Es decir: **en el globo el
+       * norte está SIEMPRE arriba**, igual que en el 2D, y una aguja que sólo
+       * puede señalar hacia arriba es decoración que tapa mapa. Demostrado en
+       * `northOnGlobe` y medido contra una cámara de verdad en el banco.
+       */
+      if (shapeRef.current === 'plane') {
+        const norte = northOnScreen(
+          stF.controls.target.x - stF.camera.position.x,
+          stF.controls.target.z - stF.camera.position.z,
+        );
+        if (norte) {
+          drawScreenCompass(ctx, {
+            x: w - 30, y: h - 100, r: 13,
+            northX: norte.x, northY: norte.y,
+            letter: translate('worldgen.threeD.compass.n'),
+          });
+        }
+      }
     }
   }, [scenePos]);
 
@@ -2449,6 +2522,9 @@ export default function World3D({
     showWaypoints,
     showSettlements,
     showLandmarks,
+    // La marca de llegada también manda dibujar: sin esto, quitarla con
+    // Esc no borraba la diana hasta que la cámara se moviera sola.
+    flyMark,
     spatialEntities,
     selectedSpatialKey,
     request,
@@ -2811,6 +2887,102 @@ export default function World3D({
         st.need = true;
         return;
       }
+      /**
+       * LA RUEDA VA AL CURSOR, COMO EN EL 2D.
+       *
+       * El orbitador se acerca a SU PUNTO DE MIRA, y el punto de mira es el
+       * centro de la pantalla: para mirar de cerca la esquina del encuadre
+       * había que acercarse al centro y arrastrar, acercarse y arrastrar. El
+       * 2D no hace eso —su rueda ancla la celda que está bajo el ratón— y que
+       * el mismo verbo signifique dos cosas distintas en dos vistas de la
+       * MISMA cámara es de lo que más hacía que el 3D se sintiera prestado.
+       * La tecla de enfoque de más abajo ya existía para paliarlo, con esta
+       * misma frase escrita en su comentario: «la razón más común de que una
+       * vista 3D se sienta rota». Era una tirita sobre el gesto equivocado.
+       *
+       * Son DOS cuentas distintas porque son dos problemas distintos, y las
+       * dos viven en `core/zoomAnchor.ts` con su banco:
+       *
+       *  · EN EL PLANO, una homotecia de centro P (el punto del terreno bajo
+       *    el cursor): la cámara y el punto de mira se escalan los dos por el
+       *    mismo factor respecto de P. Se conserva la dirección cámara→mira
+       *    (misma orientación) y la cámara se mueve por la recta que pasa por
+       *    P, así que P vuelve al mismo píxel. No es una aproximación afinada
+       *    a ojo: es la invariante «lo que señalas no se mueve», la del 2D.
+       *
+       *  · EN EL GLOBO no se puede: el punto de mira ES el centro del planeta
+       *    y de él cuelga la órbita entera. Sólo se puede cambiar el radio, y
+       *    eso solo empuja hacia el borde todo lo que no esté en el centro.
+       *    Hay que acercarse Y GIRAR el globo a la vez — `anchoredGlobeDolly`.
+       *
+       * P se saca del RAYO y no de `scenePos(celda)` en el plano: la celda que
+       * devuelve `pickCell` viene envuelta a [0, ancho) y el plano se repite al
+       * este y al oeste, así que a un lado de la costura `scenePos` habría
+       * devuelto un punto a un mundo entero de distancia y la rueda habría
+       * teletransportado al lector. En el globo no hay copias y `scenePos` es
+       * exactamente el punto que hace falta.
+       */
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey) && !brushingRef.current) {
+        const st = R.current;
+        const host2 = hostRef.current;
+        const celda = st && host2 ? cellUnder(e.clientX, e.clientY) : null;
+        if (st && host2 && celda) {
+          const caja = host2.getBoundingClientRect();
+          const ndcX = ((e.clientX - caja.left) / caja.width) * 2 - 1;
+          const ndcY = -((e.clientY - caja.top) / caja.height) * 2 + 1;
+          // Misma base que el orbitador (0,95 por muesca) para que las dos
+          // ramas —plano y globo— se sientan iguales en la mano. El tope de
+          // cuatro muescas por evento es por los ratones de rueda libre y los
+          // paneles táctiles, que mandan deltas de miles: sin él, un golpe de
+          // dedo te saca del planeta.
+          const factor = Math.pow(0.95, Math.max(-4, Math.min(4, -e.deltaY / 100)));
+          // Los topes de acercamiento siguen siendo los del orbitador:
+          // `minDistance` ES el suelo de MIN_3D_SPAN_KM traducido a distancia
+          // de cámara, en `applyShape`.
+          let movido = false;
+          let anclado = false;
+          if (shapeRef.current === 'plane') {
+            const dir = new THREE.Vector3(ndcX, ndcY, 0.5)
+              .unproject(st.camera).sub(st.camera.position).normalize();
+            // Mirando al horizonte el rayo no corta el suelo en ningún sitio
+            // útil: el reparto de `t` se dispara y P se iría al infinito. Ahí
+            // no hay nada que anclar y el gesto vuelve al orbitador.
+            const sueloY = st.surface.heightAtCell(celda.x, celda.y) * st.surface.yMul;
+            const tHit = dir.y < -1e-3 ? (sueloY - st.camera.position.y) / dir.y : -1;
+            if (tHit > 0 && Number.isFinite(tHit)) {
+              const P = dir.clone().multiplyScalar(tHit).add(st.camera.position);
+              anclado = true;
+              movido = anchoredDolly(
+                st.camera.position, st.controls.target, P, factor,
+                st.controls.minDistance, st.controls.maxDistance,
+              );
+            }
+          } else {
+            const P = new THREE.Vector3();
+            scenePos(celda.x, celda.y, P);
+            anclado = true;
+            movido = anchoredGlobeDolly(
+              st.camera.position, P, ndcX, ndcY,
+              st.camera.fov, st.camera.aspect, factor,
+              st.controls.minDistance, st.controls.maxDistance,
+            );
+          }
+          if (anclado) {
+            // El gesto está consumido aunque no se haya movido nada: en el
+            // suelo de acercamiento, dejárselo al orbitador sería acercarse
+            // por el centro justo cuando el lector mira un detalle.
+            e.preventDefault();
+            e.stopPropagation();
+            if (movido) {
+              // Un vuelo en curso y una rueda son dos manos en el mismo
+              // volante: gana la del lector, como en la tecla de enfoque.
+              st.fly.active = false;
+              st.need = true;
+            }
+            return;
+          }
+        }
+      }
       if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return;   // let OrbitControls dolly
       if (!brushingRef.current) return;
       e.preventDefault();
@@ -2833,7 +3005,7 @@ export default function World3D({
     // suelo bajo la cámara: es constante para un mundo dado, pero cambia con
     // la proporción de la retícula, y un oyente de rueda con el valor viejo
     // andaría sobre la altura equivocada.
-  }, [onTool, request, sizeZ]);
+  }, [cellUnder, onTool, request, scenePos, sizeZ]);
 
   // ---- keys ----------------------------------------------------------------
   useEffect(() => {

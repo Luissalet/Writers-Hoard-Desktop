@@ -76,6 +76,10 @@ await build({ ...comunes, entryPoints: [`${RAIZ}/harness/views-smoke.tsx`], outf
 // culpa de la aplicación. Un banco que no distingue esos dos ceros no sirve.
 await build({ ...comunes, entryPoints: [`${RAIZ}/src/engines/worldgen/region.worker.ts`], outfile: `${SALIDA}/region.worker.js` });
 await build({ ...comunes, entryPoints: [`${RAIZ}/src/engines/worldgen/worldgen.worker.ts`], outfile: `${SALIDA}/worldgen.worker.js` });
+// Y el TERCERO, que faltaba desde que la geografía humana se mudó a su propio
+// obrero (2026-08-14): sin él, `worldview-map` y `worldview-carta` salían en
+// rojo con «geography worker failed» — un fallo del banco, no de las vistas.
+await build({ ...comunes, entryPoints: [`${RAIZ}/src/engines/worldgen/geography.worker.ts`], outfile: `${SALIDA}/geography.worker.js` });
 
 // ---------------------------------------------------------------------------
 // 2. EL CALZO DE CSS — la parte obligatoria
@@ -243,6 +247,7 @@ const ficheros = {
   '/app.js': [`${SALIDA}/app.js`, 'text/javascript'],
   '/region.worker.ts': [`${SALIDA}/region.worker.js`, 'text/javascript'],
   '/worldgen.worker.ts': [`${SALIDA}/worldgen.worker.js`, 'text/javascript'],
+  '/geography.worker.ts': [`${SALIDA}/geography.worker.js`, 'text/javascript'],
 };
 const server = createServer((req, res) => {
   const url = (req.url || '/').split('?')[0];

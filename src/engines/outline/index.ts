@@ -49,10 +49,17 @@ registerEntityResolver({
       };
     }
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const outlines = await db.outlines.filter((o) => o.title.toLowerCase().includes(q)).toArray();
-    const beats = await db.outlineBeats.filter((b) => b.title.toLowerCase().includes(q)).toArray();
+    // Acotar antes de filtrar (contrato en `_shared/entityResolverRegistry.ts`).
+    const outlinesBase = projectId
+      ? db.outlines.where('projectId').equals(projectId)
+      : db.outlines.toCollection();
+    const outlines = await outlinesBase.filter((o) => o.title.toLowerCase().includes(q)).toArray();
+    const beatsBase = projectId
+      ? db.outlineBeats.where('projectId').equals(projectId)
+      : db.outlineBeats.toCollection();
+    const beats = await beatsBase.filter((b) => b.title.toLowerCase().includes(q)).toArray();
 
     const results = [
       ...outlines.map((o) => ({

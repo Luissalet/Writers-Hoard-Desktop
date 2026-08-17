@@ -1129,3 +1129,585 @@ la cámara y con la herramienta puesta el mapa se sigue pudiendo pasear.
   herramienta Mover».
 - i18n es/en en paridad: `paint.mode.move`, `paint.mode.move.hint`,
   `map.moveToolHint`, y `map.moveHint` reescrito.
+
+
+---
+
+# Worldgen: el paquete de NAVEGACIÓN — buscar, acercarse al cursor, bajar a la calle
+
+**Started:** 2026-08-15 · **Cerrado, mirado y verificado:** 2026-08-16
+
+El mapa ya sabía dibujar el mundo, pero no dejaba MOVERSE por él. Cuatro
+carencias del mismo tipo, y ninguna daba error: se buscaba mal, la rueda del 3D
+acercaba al centro de la pantalla mientras la del 2D acercaba al cursor, nada
+en pantalla decía a qué escala estabas mirando, y el 3D no bajaba hasta la
+calle aunque el 2D sí bajaba desde hacía semanas.
+
+## Especificación verificable
+
+- [x] «rio» encuentra «Río Sombrío» y «canada» encuentra «Cañada Honda»: la
+      consulta y el nombre se pliegan los DOS, no sólo uno.
+- [x] La aldea que se llama «Vado» va por delante de la capital «Gran Vado
+      Real», que sólo lo contiene.
+- [x] Con la caja vacía el buscador ya ofrece algo: lo importante que hay
+      alrededor de la cámara, con su distancia en km.
+- [x] La rueda del 3D no mueve el punto señalado — medido en píxeles con una
+      `PerspectiveCamera` de verdad, no a ojo.
+- [x] En el globo lo mismo, que no es el mismo problema: ahí hay que acercarse
+      Y girar el planeta a la vez.
+- [x] Acercar y alejar lo mismo devuelve la cámara exactamente donde estaba.
+- [x] En el tope de acercamiento el gesto se consume y no pasa nada: no se cae
+      al acercamiento por el centro justo cuando más se notaría.
+- [x] El HUD del 3D dice la escala y dónde cae el norte, y se lee sobre mar,
+      nieve, desierto y bosque.
+- [x] En el globo no se dibuja brújula, y hay una demostración de por qué.
+- [x] Pinchar una ciudad BAJA hasta ella; el plano modal pasa a ser la acción
+      secundaria de editarla.
+- [x] Bajando de verdad se ven las calles: por debajo de 5 m/px, con margen.
+- [x] Toda clave de idioma que el código PIDE existe, y la guarda lo comprueba.
+
+## Plan
+
+- [x] Sacar las tres cuentas a módulos puros y sin React —`core/searchText.ts`,
+      `core/zoomAnchor.ts`, `cartography/screenFurniture.ts`— para poder
+      medirlas: ninguna de las tres se comprueba mirando una captura.
+- [x] Bancos numéricos: `harness/screen-navigation.ts` y `harness/descent-3d.ts`.
+- [x] Sondas visuales: `harness/screen-furniture-look.ts` y `descent-look.ts`.
+- [x] Cablearlas en `LocatorPanel`, `World3D`, `Map2D`, `CartoMap`, `WorldView`,
+      `AtlasPanel` y `CityPlanView`.
+- [x] Guarda de conformidad para las claves de idioma que se piden y no existen.
+- [x] Mirar los PNG, correr `verify:quick`, y dejarlo sin commitear.
+
+## Review
+
+### 1 · El localizador dejó de ser una lista y pasó a ser un buscador
+
+El emparejado era `name.toLocaleLowerCase('es').includes(q)`, sin normalizar, en
+un motor cuyo gazetteer es prosa castellana **por diseño**: 9 de las 94
+plantillas de `core/naming.ts` llevan tilde o eñe, y no están repartidas al
+azar — son **2 de las 4 del RÍO** y **2 de las 4 del OCÉANO**. Traducido:
+teclear «rio» no encontraba la mitad de los ríos con nombre del mundo.
+
+- `foldForSearch` (NFD + barrido de U+0300–U+036F + minúsculas de «es») se
+  aplica a los dos lados. El nombre plegado se guarda en el `LocatorHit`: se
+  paga una vez por sitio, no una por tecla.
+- `matchRank` devuelve 0 si el nombre EMPIEZA por lo tecleado, 1 si empieza una
+  palabra, 2 si cae dentro, −1 si no encaja. El orden es rango → importancia →
+  nombre más corto. Antes se ordenaba sólo por importancia, y eso dejaba la
+  aldea cuyo nombre tecleaste entero por debajo de la capital que lo contiene.
+- **Con la caja vacía, «cerca de aquí»**: los 8 mejores del atlas alrededor de
+  `atU/atV`, con `score = d / (0,35 + max(0, importancia))`. El peso DIVIDE a la
+  distancia en vez de sumarse, así una capital a 300 km puede ganarle a una
+  aldea a 80 sin que se cuele ninguna del otro hemisferio. La distancia envuelve
+  este-oeste (`min(dx, width − dx)`): sin eso, un pueblo a diez celdas del
+  meridiano salía a un mundo entero.
+- De paso, un fallo de mostrador: `KIND_KEY` era una tabla de CUATRO clases y el
+  atlas produce SEIS, así que un hito salía en la lista rotulado «landmark», en
+  inglés y en crudo. Ahora la clave se compone (`worldgen.atlas.kind.${kind}`);
+  comprobado a mano hoy que las seis existen en los dos locales.
+- `atU`/`atV` viajan como dos números sueltos y no como un `{u,v}`: un objeto
+  construido en el JSX del padre estrena identidad en cada dibujo y la lista de
+  cercanía recorre el atlas entero.
+
+### 2 · La rueda anclada al cursor, en el plano y en el globo
+
+En 2D la rueda ancla la celda bajo el puntero; en 3D acercaba al centro de la
+pantalla, que es el comportamiento nativo de `OrbitControls`. Dos vistas de la
+MISMA cámara compartida comportándose distinto es de las cosas que hacen que un
+3D «se sienta roto» sin que nadie sepa señalar qué falla.
+
+- **Plano** (`anchoredDolly`): homotecia de centro el punto del terreno bajo el
+  cursor. Al escalar cámara y punto de mira por el mismo factor, el vector
+  cámara→mira sólo cambia de módulo —la orientación se conserva exacta— y la
+  cámara se mueve por la recta que pasa por el ancla —el ancla vuelve al mismo
+  píxel—. No es una aproximación afinada a ojo: sale de la geometría. El factor
+  se recorta contra los topes ANTES de aplicarlo; recortar la posición después
+  rompería la homotecia justo al llegar al suelo, que es cuando más se nota.
+- El ancla se saca del RAYO y no de `scenePos(celda)`, porque `pickCell` envuelve
+  la celda a `[0, ancho)` y el plano se repite este-oeste: cerca de la costura,
+  `scenePos` teletransportaba la cámara.
+- **Globo** (`anchoredGlobeDolly`): ahí el punto de mira es el centro del planeta
+  y no se puede tocar, así que la homotecia no vale — hay que acercarse Y girar,
+  que es lo que hace Google Earth. Sale una ecuación de segundo grado con la
+  base de cámara dentro, y se resuelve por punto fijo. **64 vueltas, no 6**: la
+  convergencia es lineal con razón ≈ 0,74, y con seis quedaban 3e-3 de
+  normalizada ≈ 5 px de 1600 — por encima del listón, así que se caía al
+  respaldo y la rueda volvía a ser la de antes SIN decirlo. Al final se
+  reproyecta el ancla y se mide: si el error pasa de 5e-4 normalizadas (0,4 px),
+  respaldo. Fe no, comprobación.
+- El gesto se consume siempre que haya ancla, incluso si la cámara no se movió
+  por estar en el tope. Y si se movió, cancela el vuelo animado en curso: un
+  vuelo y una rueda son dos manos en el mismo volante, y gana la del lector.
+- Medido en `harness/screen-navigation.ts` con una `PerspectiveCamera` real y el
+  mismo `lookAt` que hace `OrbitControls.update()`: **deriva 0,00000 px** en los
+  cuatro encuadres (centro, esquina, cámara girada 40°, casi a ras de suelo),
+  giro 1e-14 grados, y volver a alejar deja la cámara a 3,66e-15 de donde
+  estaba. En el globo, deriva 0,0000 px en los cuatro casos con 18,5 % de
+  acercamiento por golpe.
+
+### 3 · El mobiliario de pantalla: escala, aguja y diana
+
+El 3D no tenía ninguno: nada decía si mirabas quinientos kilómetros de suelo o
+cinco, y sin escala un valle y un continente son la misma mancha verde con un
+río. Vive en `cartography/screenFurniture.ts`, fuera de `furniture.ts` —aquello
+es tinta sobre pergamino a resolución de impresión; esto es una chapa legible
+sobre cualquier terreno, en píxeles de CSS y redibujada cada fotograma— y sus
+rutinas son PURAS: reciben contexto y números, nunca el mundo ni `t()`.
+
+- La barra elige la longitud 1-2-5 más larga que QUEPA en 150 px. El 2D pasa a
+  usar la misma rutina; su versión anterior cogía la más corta que llegara a
+  150 px y podía estirarse a ~300, o sea crecer hacia el centro del mapa tapando
+  mapa. Cambio de comportamiento deliberado, no refactor neutro.
+- Se ancla a la izquierda en 2D y a la derecha en 3D, y la razón no es estética:
+  cada vista tiene ocupada una esquina distinta (el chivato de teselas, el reloj
+  de fotograma). Anclada a la derecha además no da tirones — la barra cambia de
+  anchura en cada muesca y es el número el que se queda quieto.
+- **En el globo no hay brújula, y está demostrado**: el orbitador clava «arriba»
+  en +Y, así que el eje Y de cámara es la tangente del meridiano del punto
+  mirado, o sea el norte, y su proyección cae siempre en la vertical. El banco
+  lo comprueba contra una cámara real desde cuatro posiciones: `northOnGlobe`
+  devuelve (0, −1) exacto en las cuatro. Una aguja que sólo puede señalar hacia
+  arriba es decoración.
+- **Mirado, no sólo medido** (`harness/out/screen-furniture.png`, generado hoy
+  en esta máquina): la chapa oscura se lee sobre las cuatro franjas —mar, nieve,
+  desierto, bosque—, la letra N con su halo propio se ve también sobre la nieve
+  (era el fallo que el propio comentario del fichero documenta haber cazado
+  así), y la diana de dos anillos con cuatro tics no se confunde ni con la
+  chincheta triangular del lector ni con el disco ámbar con halo de una capital,
+  que son las dos cosas a las que más se podía parecer.
+
+### 4 · El descenso: el 3D ya llega a la calle
+
+- `MIN_3D_SPAN_KM` sale de `World3D.tsx` y se muda a `core/camera.ts` —una
+  constante dentro de un `.tsx` no se puede medir sin montar React, y ésta ES
+  una medida— y pasa de **10 a 2 km**.
+- El techo de verdad estaba escondido en otro sitio: `MIN_UV_WINDOW` valía
+  `0,0005`, que son **20 km de suelo**, más ancho que el propio suelo de
+  acercamiento vigente. Es decir, la ventana de la piel era un tope MÁS
+  ESTRICTO que el documentado, y el comentario que decía «a 10 km el plan pide
+  z15-z16, 2,4-5 m/px» describía algo que no podía ocurrir. Ahora vale `5e-6`
+  (≈200 m), deliberadamente por debajo de cualquier ventana que la vista vaya a
+  pedir: el tope queda donde se puede leer y medir.
+- La escalera, medida con las funciones reales (`harness/descent-3d.ts`), contra
+  el umbral de 5 m/px al que `region/townPlan.ts` empieza a dibujar calles:
+
+  | vano | z de la piel | m/px | ¿calles? |
+  | --- | --- | --- | --- |
+  | 25 km | z13 | 19,11 | no |
+  | 20 km | z14 | 9,55 | no ← el techo viejo |
+  | 10 km | z15 | 4,78 | sí |
+  | 4 km | z16 | 2,39 | sí |
+  | 2 km | z17 | 1,19 | sí ← el suelo nuevo, 4,2× por debajo |
+  | 1 km | z18 | 0,60 | sí ← el fondo de la pirámide |
+
+- **Por qué no se baja hasta los 0,25 km del contrato general**: el vértice
+  calcula `w = uUVMin + uv·uUVSize` en float32, y cerca de u = 0,5 el escalón de
+  un ulp son **2,39 m**. A 2 km de vano eso es 1,9 px de 1600 —invisible—; a
+  0,25 km son 15 px y la piel se parte en bandas. Bajar más no es cambiar una
+  constante: es mover la cuenta del vértice a un marco local.
+- El `clearance` del orbitador estaba calibrado para el suelo viejo:
+  `max(near·4, 0,035)` son unos 6 km fijos, que con un suelo de 2 km habrían
+  dejado la cámara mirando desde 6 km de altura un pueblo de 250 m — anulando el
+  descenso sin fallar en ningún sitio. Pasa a `max(near·4, min(0,035, orbitDist))`:
+  por encima del suelo viejo el comportamiento es idéntico, por debajo escala
+  con la distancia real de órbita.
+- **Mirado** (`harness/out/descent-look.png`, Fauthar, capital, 26.839 hab.,
+  dibujado con la MISMA `drawTownPlans` que usan las teselas): a 9,55 m/px el
+  panel es **hierba vacía** —eso era lo que se veía antes—; a 4,78 aparece el
+  casco amurallado entero; a 2,39 las manzanas y las calles; a 1,19 y 0,60 los
+  edificios uno a uno, la plaza mayor y la catedral.
+
+### 5 · Pinchar una ciudad ya no abre un modal: baja hasta ella
+
+Petición de Luis: «el modal de la ciudad no lo veo necesariamente, pero sí como
+una acción secundaria para editar la ciudad».
+
+- `descendToTown` pide un vano de `max(0,5 km, 3 × radio del plano)` — unos
+  2,2 km para una capital y 0,6 para una aldea. Un fijo de 2 km habría dejado la
+  aldea como una mota.
+- Es un gesto de dos tiempos: si la cámara YA está a esa escala y sobre ese
+  pueblo (1,5× de holgura en el vano y el radio del plano en ambos ejes, con
+  envoltura este-oeste), el mismo clic abre el plano. Si no, baja.
+- Desde «carta» cambia primero a «map», porque la Carta se planta en z12
+  (~38 m/px) y ahí no hay calles que enseñar.
+- La **diana de llegada** (`FlyMark`, en celdas de mundo) se dibuja en las tres
+  vistas, con `rank −2` y primera en la lista de amontonamiento: es lo que el
+  lector fue a buscar, así que nunca la descarta un topónimo vecino. Se limpia
+  con Esc, y sola por histéresis: primero hay que ARMARLA acercándose a ≤0,75×
+  del vano visible y sólo desde armada se desarma al alejarse a >1,2× — medir
+  «¿estás lejos?» desde el principio la habría borrado en el despegue.
+- El Índice gana el botón «Plano» (`onEditPlan`), que empareja por clave
+  posicional y no por identidad de objeto: ya se demostró que la identidad no
+  sobrevive a dos pasadas de geografía. Y la lámina de ciudad gana «Bajar al
+  mapa, a sus calles», el camino de vuelta.
+- Los cuatro rótulos de ayuda que prometían «abrir su plano» dicen ahora
+  «bajar»; el del 3D dice además que la rueda acerca al cursor.
+
+### 6 · La guarda de claves de idioma, y el agujero que tenía
+
+La paridad es/en sólo compara los dos ficheros ENTRE SÍ: una clave que no está
+en ninguno de los dos los deja igual de incompletos y pasaba. Y `t()` devuelve
+la clave cuando no la encuentra, así que el fallo no es una excepción sino texto
+de programador en la cara del lector. La guarda nueva encontró **5 claves
+fantasma de 1.395**: las tres del localizador (su caja de búsqueda decía
+literalmente «worldgen.locator.placeholder»), la del botón de ayuda del 2D y una
+del selector de iconos. Ninguna había fallado nunca en ningún banco.
+
+**Añadido hoy (2026-08-16), y es lo único que he tocado de código:** la guarda
+buscaba `\bt\(` y `World3D.tsx` importa `t as translate` —porque ya tiene una
+`t` del hook dentro del componente—, así que sus llamadas eran invisibles.
+Medido: **288 de las 1.683 llamadas literales de `src/`, el 17 %**, y justo el
+17 % que dibuja el HUD nuevo. El nombre local se lee ahora del PROPIO `import`
+en vez de mantener aquí una lista de alias, que es la clase de lista que se
+queda vieja sin que nadie se entere. Comprobado antes de tocar nada que la
+ampliación no destapa ninguna clave rota: **0 fantasmas** con el barrido
+extendido, así que es blindaje, no una reparación. Si no lo quieres, son cinco
+líneas en `scripts/check-conformance.mjs`.
+
+### Verificación
+
+- `npx tsx --tsconfig tsconfig.app.json harness/screen-navigation.ts` — **TODO
+  VERDE** (localizador, rueda anclada en plano y globo, norte del globo, escala
+  y brújula).
+- `npx tsx --tsconfig tsconfig.app.json harness/descent-3d.ts` — **TODO VERDE**
+  (11 varas, más la tabla de la escalera).
+- Las dos sondas visuales generadas y MIRADAS en esta máquina.
+- `npm run verify:quick` — verde: tipos del renderer, tipos de Electron, lint
+  de envío con 0 huellas de la línea base, conformidad de **21 motores, 41
+  tablas y 2.061 claves** con 0 avisos.
+- Nota de proceso: los bancos necesitan `--tsconfig tsconfig.app.json` para que
+  `tsx` resuelva el alias `@/`; sin él, cualquiera que importe `region/` muere
+  con `ERR_MODULE_NOT_FOUND`. Los que sólo tocan módulos puros corren sin nada.
+
+### Lo que queda anotado y NO hecho
+
+1. **El ángulo de aproximación.** `near·4 = dist` obliga a mirar desde unos 58°
+   sobre el horizonte. El suelo de distancia ya permitiría bajarlo, pero es un
+   cambio de tacto en una vista que ya diste por buena. Anotado por el propio
+   autor en `World3D.tsx`, y sigue anotado.
+2. **`nearby[i]?.d` en `LocatorPanel`** está acoplado por POSICIÓN a `shown`.
+   Hoy coinciden porque `shown` se deriva de `nearby`, pero es un invariante
+   implícito entre dos arrays con nombres distintos: si alguien filtra uno de
+   los dos, las distancias se desalinean en silencio, sin error de compilación
+   ni excepción. Llevar la distancia dentro del propio elemento lo cierra.
+3. **El `0,35` del score de cercanía** no tiene justificación escrita. Funciona,
+   pero es indistinguible de haberse afinado a ojo.
+4. **La guarda sólo ve claves LITERALES.** `t(\`worldgen.atlas.kind.${kind}\`)`
+   sigue fuera de su alcance por construcción — resolverlo pediría ejecutar la
+   aplicación. Comprobado a mano hoy que las seis clases del atlas tienen su
+   rótulo en los dos locales; la próxima clave compuesta que se escriba no
+   tendrá esa red.
+5. `_to_delete/tsconfig.check-2026-08-15.json` sigue en el árbol y git lo ve.
+
+Trabajo local sobre `main`: **sin rama, sin staging, sin commit y sin push**,
+para tu revisión.
+
+### Aviso: OTRA MANO en el árbol mientras se cerraba esto (2026-08-16, 19:55)
+
+El acta de arriba es fiel a lo que se midió, pero el árbol ha cambiado DEBAJO
+mientras se escribía, y conviene que conste con hora:
+
+- **19:2x** — `verify:quick` verde sobre los 19 ficheros del paquete de
+  navegación. Ese es el estado que certifica todo lo anterior.
+- **19:39** — aparece un `.gitattributes` nuevo (`* text=auto eol=lf`), sin
+  seguimiento, con una nota sobre 181 ficheros y 22.000 líneas de CRLF.
+- **19:44** — `CartoMap.tsx` y `Map2D.tsx` se vuelven a tocar y estrenan
+  `import { worldFamilyKey } from '../region/contentIdentity'`. Ese símbolo NO
+  existe: `contentIdentity.ts` sigue como en HEAD y sólo exporta
+  `geographyContentKey`, `worldContentKey` y `mapSourceKey`.
+- **19:52** — `verify:quick` ROJO, cuatro errores de tipos, los cuatro de ese
+  símbolo (`TS2305` en los dos imports, `TS2554` en las dos llamadas, que pasan
+  dos argumentos a algo que espera uno).
+
+O sea: hay un trabajo distinto EN CURSO —caché de teselas con generación por
+«familia de mundo»— a medio escribir encima de éste. No es del paquete de
+navegación y no se ha tocado nada suyo para arreglarlo: quien lo esté
+escribiendo tiene que añadir `worldFamilyKey` a `region/contentIdentity.ts`. Se
+deja tal cual para no pisarle el trabajo a nadie.
+
+
+---
+
+# Worldgen 2D: los dos remates de §19.2 — el fantasma y el snap a píxel
+
+**Started y cerrado:** 2026-08-16
+
+> **Para quien escribió la nota de arriba:** sí, el trabajo en curso era éste, y
+> ya está entero. `worldFamilyKey` está puesto en `region/contentIdentity.ts`
+> (con `worldContentKey` reescrito EN TÉRMINOS de él, para que no puedan
+> divergir; la cadena que produce es byte a byte la de antes). Gracias por no
+> tocarlo.
+
+Lo que quedaba del 2D tras el descenso, por valor/esfuerzo, eran los dos
+primeros puntos de §19.2 de `INVESTIGACION-MAPAS.md`. Los dos viven en
+`cartography/tileStore.ts`.
+
+## El problema, medido antes de tocar nada
+
+- `setGeneration` **vaciaba** el almacén en cada cambio de clave de contenido —y
+  una pincelada ES un cambio de clave. Cerraba las teselas vivas Y sus
+  antepasados, así que tras cada trazo no quedaba ni el cuarto borroso de un
+  padre: quedaba el raster del mundo entero que `Map2D` blitea debajo, ampliado
+  unas treinta veces. Ese es el parpadeo que Luis veía. Está fotografiado en
+  `harness/out/tile-ghost-look.png`, primer cuadro.
+- El destino de cada `drawImage` iba en coma flotante con medio píxel de solape
+  (`sw + 0.5`) para tapar costuras. Con la cámara quieta, un mapa que ya no se
+  mueve se seguía remuestreando sobre medios píxeles.
+
+## Especificación verificable
+
+- [x] Tras una pincelada, el suelo sigue tapado por la tinta ANTERIOR — mismo
+      sitio, misma resolución— hasta que llega la nueva.
+- [x] La tinta nueva entra fundiéndose, de 0 a 1 en 250 ms.
+- [x] Otro planeta NO deja fantasma: se vacía como siempre.
+- [x] El fantasma no cuenta como tesela exacta: el aviso «N de M» sigue diciendo
+      la verdad y el nivel se sigue re-pidiendo.
+- [x] Ni un mapa de bits se queda sin cerrar, ni siquiera los que no caben.
+- [x] Con la cámara quieta el destino es entero y los bordes casan sin costura
+      NI solape.
+- [x] En cuanto la vista se mueve, se deja de redondear.
+- [x] Un consumidor que no pida fantasma se comporta exactamente como antes.
+
+## Lo que se hizo
+
+- **`cartography/tileStore.ts`** — `setGeneration(gen, family?)`. Con `family`
+  igual, la generación que se va se DEGRADA a fantasma (`demote`) en vez de
+  cerrarse; sin `family` (el valor por defecto es `gen`) el comportamiento es el
+  de siempre, así que `World3D` no cambia una coma. `draw` compone en orden
+  tesela viva → fantasma del mismo suelo → antepasado vivo → antepasado
+  fantasma, funde por reloj inyectable y se pide sus propios cuadros mientras
+  algo esté a medio fundir (`pumpFade`).
+- **El reposo se detecta solo**: `draw` compara el cuadro con el anterior. Sirve
+  para el arrastre, la rueda, el vuelo del localizador y el cambio de tamaño —
+  más de lo que ningún componente sabe contar de sí mismo— y no hizo falta
+  cambiar ninguna firma.
+- **Los anchos por diferencia de BORDES** (`round(nx) - round(sx)`), no
+  `round(ancho)`: el borde derecho de una tesela y el izquierdo de la siguiente
+  salen de la misma expresión sobre el mismo número, así que son el mismo
+  entero. Sobra el `+ 0.5`.
+- **`region/contentIdentity.ts`** — `worldFamilyKey` (el suelo, sin la revisión).
+- **`Map2D.tsx`** y **`CartoMap.tsx`** — una línea cada uno: pasan la familia.
+
+## Review — los números
+
+| medida | antes | después |
+| --- | --- | --- |
+| lo que se ve tras una pincelada | raster del mundo ×30 | la tinta anterior, nítida |
+| tinta nueva | aparece de golpe | fundido 0 → 1 en 250 ms |
+| memoria del fantasma | — | tope 96 teselas (~25 MB sobre los ~84 del almacén) |
+| destino en reposo | fraccionario + 0,5 px de solape | entero, bordes exactos |
+| nitidez a 1:1 (gradiente medio) | 13,66 | **16,63 (+21,7 %)** |
+
+**La ganancia del snap NO es uniforme, y eso también es el resultado.** Barrido
+de escalas (`harness/tile-ghost-look.ts`): 1,00 → **+21,7 %**; 0,98 → −0,1 %;
+0,90 → +0,4 %; 0,75 → **+22,4 %**; 0,60 → −1,0 %; 0,50 → −25,1 %. A 1:1
+redondear convierte un remuestreo bilineal en una copia; en las escalas
+intermedias manda el filtro de minificación y da igual; en reducción fuerte el
+gradiente BAJA, que ahí no es perder detalle sino perder moaré. `levelFor` deja
+la tesela entre 128 y 256 px, así que el caso bueno es el borde de nivel — donde
+el mapa se queda cada vez que la rueda hace tope.
+
+- **`harness/tile-ghost-fade.ts`** (NUEVO): **20 varas en verde**, y 155 mapas de
+  bits nacidos con 155 cerrados — cero fugas. Incluye la vara que distingue el
+  camino bueno del respaldo (otro planeta no deja fantasma) y la que comprueba
+  que sin `family` el comportamiento es el viejo.
+- **`harness/tile-ghost-look.ts`** (NUEVO): la sonda visual, con el barrido.
+- Verdes sin tocar: `display-tile-plan`, `tile-service`, `map2d-layer-contract`,
+  `road-overlay`, `river-hierarchy`, `tile-ink`, `screen-navigation`,
+  `descent-3d`.
+- **`tile-retention` con `BANCO_ANCHO=2048 BANCO_LEGADO=1`** —el caso real de
+  Luis, Chromium de verdad, bajada con la rueda— en VERDE: 3/3 coordenadas de
+  z11 entregadas, ninguna renace, **reposo mudo con 1 solo cambio de generación
+  en toda la bajada**, y la segunda visita sirvió 5 teselas del disco.
+- `npx tsc -p` sobre lo tocado con el tsconfig del proyecto: **0 errores, 8,2 s**.
+  `eslint` sobre `tileStore.ts` y `contentIdentity.ts`: **0**.
+- Trabajo local sobre `main`, sin rama, staging, commit ni push.
+
+## Y una limpieza que no era del 2D pero bloqueaba el commit
+
+El árbol de trabajo estaba convertido a CRLF: `git status` enseñaba **193
+ficheros modificados** cuando los reales eran **12**. Los otros 181 eran 22.000
+líneas de puro fin de línea, y un `git add -A` habría enterrado el descenso y la
+navegación bajo ellas para siempre. Se añadió **`.gitattributes`** con
+`* text=auto eol=lf` (y `binary` para png/jpg/ico/icns/tgz/webp): el diff pasó a
+enseñar sólo lo que de verdad cambió, en el acto.
+
+
+---
+
+# Worldgen 3D: EL MARCO LOCAL — de 2 km a 250 m
+
+**Started y cerrado:** 2026-08-16
+
+La tercera meta del proyecto es FlowScape: una vista 3D a la que se pueda BAJAR.
+El 15 se abrió el descenso y se quedó en 2 km de vano, y el comentario de
+`MIN_3D_SPAN_KM` decía exactamente por qué: no era prudencia, era ARITMÉTICA. El
+plano de calles se dibuja desde 5 m/px y a 2 km la piel da 1,19 — o sea que las
+calles ya salían; lo que no aguantaba era la coma flotante.
+
+## El problema, medido antes de tocar nada
+
+Dos escalones, y **los dos del mismo tamaño** — que es la parte que importa:
+
+1. **La uv del vértice.** `w = uUVMin + uv * uUVSize` en `highp float`. Cerca de
+   u = 0,5 el ULP de un float32 es 2⁻²⁴, que en un mundo de 40.075 km son
+   **2,389 m**. Y el fragmento remataba la faena restando `vUV - uZoomMin` —dos
+   números de ~0,5 para dar ~1e-8—, una cancelación catastrófica de manual justo
+   en la cuenta de la que sale el plano de calles.
+2. **La matriz.** `modelViewMatrix * p` restaba dos números de ~96 unidades de
+   escena para dar ~1e-3: ULP de **1,274 m**. Arreglar sólo el primero habría
+   movido el tope de 2 km a 1 y ahí se habría quedado.
+
+A 0,25 km de vano eso son **8,9 píxeles por salto** en una pantalla de 1400: el
+plano de calles se deshace en moteado. Está fotografiado en
+`harness/out/descent-look-3d.png`, fila de arriba.
+
+## Especificación verificable
+
+- [x] Bajar a 250 m no cambia lo que se ve: el cuadro a 0,25 km es el mismo que
+      a 2 km, sólo más cerca.
+- [x] Un valor distinto por píxel de pantalla, en la piel Y en la geometría, a
+      los cuatro vanos.
+- [x] Los dos escalones caben mil veces dentro de un píxel.
+- [x] El globo no cambia ni un bit.
+- [x] En el suelo nuevo la piel sigue entintando calles, con margen.
+- [x] `MIN_UV_WINDOW` deja de ser el tope escondido, y con margen de sobra.
+
+## Lo que se hizo
+
+- **`sculpt/scene3d.ts`, vértice** — `vLocal = (uv - 0.5) * uUVSize`, que es
+  pequeño y por tanto exacto, y sale hacia el fragmento. La uv absoluta se queda
+  sólo para MUESTREAR, donde un téxel son veinte kilómetros y 2,4 m de error es
+  1e-4 de téxel. La posición del PLANO se calcula ya en local.
+- **El pivote** — `setWindow` muda `mesh.position` al centro de la ventana. Así
+  la resta grande la hace three.js al componer `modelViewMatrix` en la CPU, en
+  doble precisión, y al shader le llega ya pequeña.
+- **`uZoomRel`** — el centro de la ventana de la malla menos la esquina de la
+  piel, restado en la CPU en float64 y con la costura resuelta ahí (el `round`
+  por píxel desaparece). El fragmento hace `(uZoomRel + vLocal) / uZoomSize`.
+- **Las derivadas** — `dFdx(vWorld)` daba **cero** a 250 m (la diferencia entre
+  dos píxeles vecinos es 1,5e-9 sobre un número de 96): con ella `pxUnits` se
+  iba al mínimo, `resolvable` a uno y el marco tangente a un determinante nulo.
+  Un cero silencioso. Ahora salen de `vLocal` y `vElev`.
+- **El GLOBO no se toca**: `uPivot` vale cero allí y la rama del vértice es
+  literalmente `placeAt`. A escala de planeta no hay nada que arreglar, y una
+  esfera no tiene marco local barato.
+- **`MIN_UV_WINDOW`: 5e-6 → 1e-6** (200 m → 40 m). Con el suelo en 250 m, los
+  200 dejaban un 25 % de holgura: volvía a ser el tope escondido, un poco más
+  abajo.
+- **`MIN_3D_SPAN_KM`: 2 → `MIN_SPAN_KM`** (0,25 km), escrito como la constante y
+  no como el número, para que no puedan separarse.
+
+## Review — los números
+
+| medida | antes | después |
+| --- | --- | --- |
+| escalón de la uv del vértice | 2,389 m | **9,11 µm** |
+| escalón de la matriz | 1,274 m | **9,72 µm** |
+| píxeles por salto a 0,25 km (piel y geometría) | 8,9 | **1,00** |
+| los dos escalones, en píxeles de pantalla | 13,4 y 7,1 | **5,1e-5 y 5,4e-5** |
+| el cuadro se mueve al bajar a 0,25 km (luma) | 6,3 | **1,3** |
+| suelo del 3D | 2 km | **0,25 km** (el del contrato) |
+| la piel en el suelo nuevo | — | z18 · **0,60 m/px** (el plano dibuja desde 5) |
+
+- **`harness/descent-precision.ts`** (NUEVO, todo verde): la misma cuenta del
+  vértice ejecutada en float32 con `Math.fround`, antes y después, más el ULP
+  real — que es la medida que no depende de cuántas muestras tome el banco.
+- **`harness/descent-look-3d.ts` + `-run.mjs`** (NUEVO, 4/4 verde): el shader
+  REAL en un Chromium con swiftshader. El «antes» no se simula: se parchean en
+  el material LAS DOS LÍNEAS que cambiaron y se devuelve la malla al origen.
+- **`harness/descent-3d.ts`**: actualizado. Sus dos varas que decían «a 0,25 km
+  el escalón son 15 px, por eso el suelo no baja ahí» eran verdad hasta hoy;
+  ahora retratan el problema resuelto y apuntan al banco nuevo.
+- `npx tsc -p` con el tsconfig del proyecto sobre `scene3d`, `camera`, `World3D`
+  y `WorldView`: **0 errores, 10,5 s**. `eslint`: **0**.
+- Verdes sin tocar: `screen-navigation`, `tile-ghost-fade`, `display-tile-plan`,
+  `map2d-layer-contract`, `river-hierarchy`.
+- Trabajo local sobre `main`, sin rama, staging, commit ni push.
+
+## Lo que queda del 3D
+
+El ÁNGULO de órbita. `near·4 = dist` obliga a mirar desde unos 58° sobre el
+horizonte en cuanto te acercas, así que la órbita no rasa aunque la piel ya lo
+permita. Sigue anotado y sin hacer: es un cambio de tacto en una vista que Luis
+dio por buena, y para ir a ras de suelo está el PASEO.
+
+## Y un banco que llevaba dos días midiendo humo
+
+`views-smoke-run.mjs` empaquetaba `region.worker.ts` y `worldgen.worker.ts`,
+pero **no `geography.worker.ts`** — que existe desde el 2026-08-14, cuando la
+geografía humana se mudó a su propio obrero. Resultado: `worldview-map` y
+`worldview-carta` salían en ROJO con «geography worker failed», y las otras
+quince en verde. Un fallo del banco, no de las vistas, del tipo que se acaba
+leyendo como «esas dos vistas están rotas, ya se verá».
+
+Tres líneas en el corredor. Ahora **17/17 en verde**, y las dos vistas curadas
+además dibujan MÁS (bordes 4,90 % → 6,51 % en el mapa, 10,27 % → 11,14 % en la
+carta): la geografía humana llega de verdad, que es lo que el banco creía estar
+midiendo desde hace dos días.
+
+
+---
+
+# Worldgen: la ciudad estaba a seis pantallas de la diana
+
+**Started y cerrado:** 2026-08-17 · **Lo reportó Luis:** «cuando pulso la
+ciudad, se centra en un sitio diferente», con captura.
+
+## El diagnóstico salió de la captura, no del código
+
+En la imagen, la diana de llegada caía **siempre al noroeste** del punto de la
+ciudad. Eso no es un desajuste cualquiera: el noroeste es exactamente donde está
+la ESQUINA de una celda respecto a su CENTRO. Con eso ya había dónde mirar.
+
+`descendToTown` volaba a `s.x, s.y` a secas y ponía ahí la diana, mientras que
+**todo lo que DIBUJA un pueblo** —el punto del mapa, su blanco de pinchado, la
+tesela que decide si lo pinta, el plano de la ciudad— usa
+`settlementCellCenter`, que es la celda **+0,5**. Media celda de un mundo de
+2048 son **9,8 km**. A vista de continente son dos píxeles, y por eso el fallo
+sobrevivió a todos los bancos verdes; pero el vuelo pide **2,17 km** de vano
+para una capital, así que al llegar la ciudad estaba a **6,4 pantallas** y la
+diana marcaba campo vacío.
+
+Y tenía una segunda cara que nadie había notado: «ya estás ahí» —la condición
+que hace que el SEGUNDO clic abra la lámina de la ciudad— también se medía
+contra la esquina. Medido: **154 de 154 poblaciones no contaban NUNCA como
+alcanzadas**. El segundo clic no podía llegar jamás.
+
+## Lo que se hizo
+
+- **`region/townPlan.ts` gana `townFrame(s, world)` y `alreadyAtTown(...)`.** La
+  cuenta sale de `WorldView.tsx` porque **dentro de un `.tsx` no tiene banco
+  posible sin montar React**, y por eso llevaba ahí desde que existe el gesto
+  sin que ninguna vara pudiera verla. Ahora el vuelo, la diana y el «ya estás
+  ahí» salen del MISMO centro, que es el mismo que dibuja el mapa.
+- **`WorldView.descendToTown`** pasa a ser cuatro líneas que piden el encuadre y
+  lo obedecen.
+
+## Review — los números (`harness/town-descent.ts`, NUEVO, 8/8 verde)
+
+Sobre las **154 poblaciones** de un mundo real de 2048 (una celda = 19,6 km):
+
+| vara | resultado |
+| --- | --- |
+| el vuelo apunta al mismo punto que el mapa dibuja | desfase máximo **0 celdas** |
+| la diana cae sobre el punto | desfase máximo **0 celdas** |
+| con la cuenta vieja, el error | **13,8 km con un vano de 2,17 = 6,4 pantallas (8.943 px)** |
+| la firma del fallo | la esquina cae **9,8 km al oeste y 9,8 al norte** del centro |
+| «ya estás ahí» con la cuenta nueva | **154 de 154** |
+| «ya estás ahí» con la vieja | **0 de 154** |
+| el vecino más cercano no se confunde con éste | 0 confusiones (par más apretado, 526 km) |
+| el vano por rango | capital 2,17 · ciudad 1,48 · villa 0,97 · aldea 0,63 km |
+
+- `tsc` con el tsconfig del proyecto sobre `WorldView`, `townPlan` y `Map2D`:
+  **0 errores**. `eslint`: **0**.
+- Regresión sin tocar: `city-ground-context` **83/83**, `tile-ink` verde en
+  z10/z12/z14/z16 con plano de calles presente.
+- Trabajo local sobre `main`, sin rama, staging, commit ni push.
+
+## Una vara que salía verde sin comprobar nada
+
+La primera versión de «el pueblo vecino no cuenta como éste» filtraba por
+«vecinos a menos de cuatro radios». Con radios de menos de un kilómetro y
+pueblos a veinte, eso da **cero pares**: verde sin haber mirado nada. Ahora va
+contra el vecino MÁS CERCANO de cada pueblo, sin filtro.

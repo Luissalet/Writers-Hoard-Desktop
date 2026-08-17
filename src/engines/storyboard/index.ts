@@ -55,9 +55,13 @@ registerEntityResolver({
       title: board.title,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = await db.storyboards.filter(b => b.title.toLowerCase().includes(q)).toArray();
+    // Acotar antes de filtrar (contrato en `_shared/entityResolverRegistry.ts`).
+    const base = projectId
+      ? db.storyboards.where('projectId').equals(projectId)
+      : db.storyboards.toCollection();
+    const rows = await base.filter(b => b.title.toLowerCase().includes(q)).toArray();
     return rows.map(b => ({
       id: b.id,
       type: 'storyboard',

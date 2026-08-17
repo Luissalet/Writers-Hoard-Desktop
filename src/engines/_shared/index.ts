@@ -12,6 +12,7 @@ export { default as EngineSpinner } from './components/EngineSpinner';
 export { default as NewItemForm } from './components/NewItemForm';
 export { default as CollectionDashboard } from './components/CollectionDashboard';
 export { default as ConfirmDialog } from './components/ConfirmDialog';
+export { default as LinkSelect } from './components/LinkSelect';
 export {
   registerEntityResolver,
   resolveEntity,
@@ -45,5 +46,6 @@ export type { EngineSpinnerProps } from './components/EngineSpinner';
 export type { NewItemFormProps } from './components/NewItemForm';
 export type { CollectionDashboardProps } from './components/CollectionDashboard';
 export type { ConfirmDialogProps } from './components/ConfirmDialog';
+export type { LinkSelectProps, LinkSelectOption } from './components/LinkSelect';
 export type { EntityResolverConfig } from './entityResolverRegistry';
 export type { BackupStrategy, ExportContext, ImportContext } from './backupRegistry';

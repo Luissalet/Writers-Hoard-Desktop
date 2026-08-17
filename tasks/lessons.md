@@ -626,3 +626,102 @@ alguien DECIDIÓ, no dónde está la cosa. Murallas, ciudadela, catedral y foso 
 opciones; río y costa son el sitio, y ofrecerlos permitía apagarle el río a una
 ciudad fluvial y contradecir el mapa a un clic de distancia. Si el emplazamiento
 cambia —mover el pueblo— el plano se re-mide solo.
+
+## #53 — Una sonda visual que no repinta su fondo mide la pintura vieja
+**Fecha:** 2026-08-16
+**Contexto:** `tile-ghost-look` dibujaba el «antes» y el «después» en el mismo
+lienzo sin limpiarlo entre medias. El «antes» —donde el almacén se vacía y no
+sirve NADA— salía idéntico al «después», porque lo que se veía era lo que había
+pintado la pasada anterior. La sonda «demostró» durante dos intentos que el
+cambio no aportaba nada.
+**Regla:** Una sonda visual repinta el cuadro entero desde el fondo, igual que
+hace el motor, y el fondo tiene que ser el DE VERDAD: aquí, el raster del mundo
+que `Map2D` blitea debajo. Comparar contra negro no es comparar contra el estado
+anterior, es comparar contra la nada — y comparar contra la nada siempre gana.
+**Corolario:** la mejor forma de que el «antes» no mienta es que lo produzca el
+MISMO código: `setGeneration` sin familia ES el comportamiento viejo, así que
+los dos cuadros salen de la misma rutina y la comparación no se puede inclinar.
+
+## #54 — Medir a la escala equivocada convierte un +22 % en un +0 %
+**Fecha:** 2026-08-16
+**Contexto:** El snap a píxel entero se midió primero con la tesela reducida 5:1.
+Resultado: +0,1 %, o sea «esto no sirve para nada». A 1:1 el mismo cambio da
++21,7 %. No era el cambio: a esa reducción manda el filtro de minificación y
+mover medio píxel el destino no puede cambiar nada.
+**Regla:** Antes de dar por bueno un «no se nota», comprobar que se está midiendo
+donde el efecto PUEDE existir, y barrer el rango en vez de elegir un punto. Y
+publicar el barrido entero: aquí la ganancia es +22 % en los bordes de nivel,
+ruido en medio y negativa en reducción fuerte —donde menos gradiente es menos
+moaré, no menos detalle—. Un solo número habría sido mentira en las dos
+direcciones.
+
+## #55 — Un árbol convertido a CRLF entierra el trabajo real en su propio diff
+**Fecha:** 2026-08-16
+**Contexto:** `git status` enseñaba 193 ficheros modificados. Con
+`--ignore-cr-at-eol` eran 12: los otros 181 eran 22.000 líneas de puro fin de
+línea. Debajo de ese ruido estaban sin commitear el paquete de navegación y el
+descenso a la calle — un día entero de trabajo que un `git add -A` habría
+sepultado en un commit ilegible.
+**Regla:** Antes de creerse un `git status` grande, medirlo con
+`git diff --stat --ignore-cr-at-eol`. Y si el repo no tiene `.gitattributes`, el
+problema no es este árbol: es que va a volver a pasar. `* text=auto eol=lf` más
+`binary` para los formatos que no son texto lo cierra de una vez.
+
+## #56 — Arreglar la mitad de una cadena de precisión la mueve, no la cura
+**Fecha:** 2026-08-16
+**Contexto:** El 3D estaba clavado en 2 km de vano por el escalón de la uv del
+vértice (2,389 m). Detrás había un SEGUNDO escalón del mismo orden —
+`modelViewMatrix * p` restando dos números de ~96 unidades, 1,274 m— que nadie
+había medido. Arreglar sólo la uv habría llevado el tope a 1 km y habría parecido
+un arreglo completo: mejor, pero roto igual y sin explicación a la vista.
+**Regla:** En un problema de coma flotante, ENUMERAR la cadena entera antes de
+tocar nada y medir cada eslabón por separado. Una cadena se queda con el peor de
+sus eslabones, así que un arreglo parcial se paga con el mismo síntoma un poco
+más abajo y con la certeza falsa de haberlo entendido.
+**Corolario:** la cura de los dos era la misma — subir la resta grande a la CPU,
+que trabaja en doble precisión, y dejar en el shader sólo números pequeños. Un
+`mesh.position` en el centro de la ventana y un uniforme con la resta ya hecha
+valen más que cualquier truco dentro del shader.
+
+## #57 — Una cuenta que se rompe no borra detalle: lo sustituye por RUIDO
+**Fecha:** 2026-08-16
+**Contexto:** La sonda visual del marco local midió primero «contraste local» y
+dio el ANTES ganando por veinte puntos; se cambió a «moteado» (píxeles que se
+separan de sus dos vecinos) y contó como ruido las calles de un píxel, que son
+justo lo que hay que conservar. Los dos números decían que el cambio no servía,
+y la imagen enseñaba lo contrario a primera vista.
+**Regla:** Antes de creerse una métrica de imagen, MIRAR el cuadro. Y cuando la
+métrica y el ojo discrepan, la métrica está midiendo otra cosa: un ráster que se
+deshace tiene MÁS contraste local que uno limpio, no menos.
+**Corolario, y es lo que funcionó:** la mejor vara no puntúa la calidad, sino
+una INVARIANTE que la cuenta correcta cumple por definición. Aquí: la cámara
+encuadra siempre la misma ventana, así que los cuatro cuadros tienen que salir
+iguales — bajar no cambia lo que se ve, sólo dónde estás. Comparar cada cuadro
+con el de su propia fila no necesita ningún umbral inventado, y los umbrales
+inventados eran lo que había hundido los dos intentos anteriores.
+**Y una tercera trampa del mismo día:** un banco no puede exigir una resolución
+mejor que su propio muestreo. `descent-precision` pedía «menos de un milímetro
+por salto» contando valores distintos sobre 1400 muestras de un vano de 250 m,
+donde el mínimo aritmético es 0,18 m. Salió rojo midiendo su muestreo. El número
+honesto era el ULP del float32, que no depende del banco.
+
+## #58 — Si dos sitios calculan «dónde está la cosa», uno de los dos está mal
+**Fecha:** 2026-08-17
+**Contexto:** el mapa dibuja un pueblo en `settlementCellCenter(s)` (celda +0,5)
+y el vuelo del gesto «pinchar una ciudad» iba a `s.x, s.y`. Media celda de un
+mundo de 2048 son 9,8 km: a vista de continente, dos píxeles que ningún banco
+podía ver; con el vano de 2,17 km que pide el vuelo, seis pantallas y media. Y
+la otra cara del mismo error: «ya estás ahí» comparaba contra la esquina, así
+que 154 de 154 poblaciones no contaban NUNCA como alcanzadas y el segundo clic
+—el que abre la lámina— no llegaba jamás.
+**Regla:** la posición de una entidad se calcula en UN sitio y todos la piden
+ahí. Si una función la dibuja y otra navega hasta ella, tienen que llamar a la
+misma. Dos expresiones que «son lo mismo» divergen en cuanto una de las dos
+aprende algo (aquí, el medio de la celda).
+**Corolario de diagnóstico:** un desfase CONSTANTE y en diagonal hacia el
+noroeste es la firma de una esquina de celda donde debería haber un centro. La
+captura de Luis dijo dónde mirar antes que ninguna traza.
+**Y el motivo de que durase tanto:** una cuenta metida en un `.tsx` no tiene
+banco posible sin montar React. Sacarla a `townFrame` en un módulo es lo que
+permitió medirla sobre 154 poblaciones de un mundo de verdad en vez de
+razonarla — y lo que convirtió «creo que ya está» en ocho varas.

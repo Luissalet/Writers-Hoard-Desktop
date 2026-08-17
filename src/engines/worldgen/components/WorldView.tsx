@@ -20,7 +20,7 @@ import type {
 import { WAYPOINT_COLORS } from '../types';
 import type { ViewMode, WorldData, WorldParams } from '../core/types';
 import {
-  doubleClickSpanKm, EARTH_KM, type FlyTarget,
+  doubleClickSpanKm, EARTH_KM, type FlyMark, type FlyTarget,
 } from '../core/camera';
 import { normalizeParams } from '../core/types';
 import { renderComposite } from '../core/render';
@@ -41,6 +41,7 @@ import PaintPanel, { DEFAULT_PAINT_TOOL, type PaintTool } from './PaintPanel';
 import FiltersPanel from './FiltersPanel';
 import SavedRegionsPanel from './SavedRegionsPanel';
 import SpatialEntityInspector from './SpatialEntityInspector';
+import { alreadyAtTown, townFrame } from '../region/townPlan';
 import { PaintSession } from '../core/paintSession';
 import { deserializeEdits, editKey, serializeEdits, sitesPolicyFrom, targetFromKey } from '../core/edits';
 import { planRoute } from '../core/travel';
@@ -237,6 +238,15 @@ export default function WorldView({
   const [paleoState, setPaleoState] = useState<PaleoState | null>(null);
   const [selectedWaypointId, setSelectedWaypointId] = useState<string | null>(null);
   const [flyTarget, setFlyTarget] = useState<FlyTarget | null>(null);
+  /**
+   * La chincheta de llegada: el último sitio al que el localizador voló.
+   *
+   * Vive aquí y no dentro de una vista porque la cámara es COMPARTIDA: buscar
+   * en el 3D, pasarse al 2D y no encontrar la marca sería el mismo fallo que
+   * ya costó el contrato del encuadre («mandar el que no era»). Una sola
+   * marca, en celdas de mundo, y las tres vistas la dibujan a su manera.
+   */
+  const [flyMark, setFlyMark] = useState<FlyMark | null>(null);
   /** First end of a road being laid, waiting for its second click. */
   const [roadFrom, setRoadFrom] = useState<Settlement | null>(null);
   const [exaggeration, setExaggeration] = useState(30);
@@ -959,6 +969,75 @@ export default function WorldView({
    * one gesture is usually a smell, but here the tool IS the mode indicator and
    * the alternative is three different ways to point at the same dot.
    */
+  /** Point the shared camera somewhere, animated, without changing view. */
+  const flyCamera = useCallback((u: number, v: number, spanKm?: number) => {
+    setFlyTarget({ u, v, spanKm, token: Date.now() });
+  }, []);
+
+  /**
+   * BAJAR A UNA CIUDAD, que desde el 2026-08-15 es lo que hace pinchar en una.
+   *
+   * Luis, textualmente: «el modal de la ciudad no lo veo necesariamente pero
+   * como una acción secundaria para editar la ciudad». Así que el gesto
+   * primario deja de abrir una ventana ENCIMA del mapa y pasa a llevarte
+   * dentro del mapa — que es lo que el motor ya sabe hacer desde que el 3D
+   * baja a 2 km y el 2D a 0,6 m/px: las mismas calles del plano, dibujadas
+   * sobre el terreno de verdad, con su río y sus caminos llegando.
+   *
+   * El encuadre sale del TAMAÑO del pueblo y no de un número fijo: tres veces
+   * el radio de su plano (`planRadiusMetres`, el mismo que usan las teselas
+   * para decidir si lo dibujan) deja la ciudad entera con su ejido alrededor.
+   * Una capital pide ~2,2 km y una aldea ~0,6; pedir 2 km para las dos habría
+   * dejado la aldea como una mota en mitad de un campo.
+   *
+   * El vano es una PETICIÓN, no una orden: cada vista la recorta con su propio
+   * suelo (el 3D en `MIN_3D_SPAN_KM`, por la precisión del vértice), que es
+   * justo el contrato que ya tenía la cámara compartida.
+   */
+  const descendToTown = useCallback((s: Settlement) => {
+    if (!data) return;
+    const frame = townFrame(s, data);
+    /**
+     * Y SI YA ESTÁS AHÍ, EL MISMO CLIC ABRE LA LÁMINA.
+     *
+     * No son dos significados para un gesto —de eso avisa el comentario de
+     * `pickSettlement` y con razón—: es el MISMO verbo en sus dos tiempos. «Ir
+     * a la ciudad» cuando estás lejos es volar; cuando ya estás encima de sus
+     * calles, ir no queda nada, y lo único que queda por abrir es su lámina.
+     * Es lo que hace cualquier mapa del mundo con un sitio: te acerca, y a la
+     * segunda te enseña su ficha.
+     *
+     * «Ya estás ahí» se mide contra el propio encuadre que pediría el vuelo,
+     * con la mitad de holgura, y contra el radio del pueblo: sin la segunda
+     * condición, estar a esa escala en el pueblo de al lado también contaría.
+     */
+    /**
+     * EL ENCUADRE LO CALCULA `townFrame`, y no esta función.
+     *
+     * Aquí se volaba a `s.x, s.y` a secas —la ESQUINA noroeste de la celda—
+     * mientras todo lo que DIBUJA el pueblo usa `settlementCellCenter`. Media
+     * celda de un mundo de 2048 son 9,8 km, y el vuelo pide 2,17 km de vano
+     * para una capital: al llegar, la ciudad estaba a 6,4 pantallas y la diana
+     * marcaba campo vacío al noroeste. Luis lo fotografió el 2026-08-16.
+     *
+     * La cuenta se fue a `region/townPlan.ts` porque dentro de un `.tsx` no
+     * tiene banco posible sin montar React, y por eso llevaba ahí desde que
+     * existe el gesto sin que ninguna vara pudiera verla. Ahora la mide
+     * `harness/town-descent.ts` sobre las 154 poblaciones de un mundo real.
+     */
+    if (alreadyAtTown(frame, viewportRef.current, data)) { setCityFor(s); return; }
+    // La carta NO puede cumplir la promesa: su escalera se planta en z12 (~38
+    // m/px) y el plano de calles se dibuja a partir de 5. El gesto lleva al
+    // satélite, que además GENERA ese detalle y lo deja caliente para el 3D.
+    if (view === 'carta') setView('map');
+    flyCamera(frame.u, frame.v, frame.spanKm);
+    setFlyMark({ x: frame.mark.x, y: frame.mark.y, name: s.name });
+    // El Índice es donde vive la acción secundaria: dejar la ciudad ya
+    // seleccionada allí es lo que hace que «editar el plano» esté a un tabulador
+    // y no a una búsqueda.
+    setAtlasKey(editKey('settlement', s.x, s.y));
+  }, [data, view, flyCamera]);
+
   const pickSettlement = useCallback((s: Settlement) => {
     if (brushIsOut && brush.mode === 'road') {
       if (!roadFrom) { setRoadFrom(s); return; }
@@ -985,8 +1064,8 @@ export default function WorldView({
       setJourneyVia((v) => (v.some((q) => q.id === s.id) ? v : [...v, s]));
       return;
     }
-    setCityFor(s);
-  }, [brushIsOut, brush.mode, brush.roadMajor, roadFrom, data, geography, journeyPick, applyEdit, t]);
+    descendToTown(s);
+  }, [brushIsOut, brush.mode, brush.roadMajor, roadFrom, data, geography, journeyPick, applyEdit, descendToTown, t]);
 
   /**
    * Putting the TOOL away abandons a half-drawn road. Changing panel does not.
@@ -1167,10 +1246,41 @@ export default function WorldView({
     setSelectedWaypointId((cur) => (cur === id ? null : cur));
   }, [removeWaypoint]);
 
-  /** Point the shared camera somewhere, animated, without changing view. */
-  const flyCamera = useCallback((u: number, v: number, spanKm?: number) => {
-    setFlyTarget({ u, v, spanKm, token: Date.now() });
-  }, []);
+
+  /**
+   * LA MARCA SE VA CUANDO TE VAS DE ALLÍ.
+   *
+   * Una chincheta que no se quita nunca deja de ser una respuesta y pasa a ser
+   * suciedad: a la tercera búsqueda el mapa tiene tres dianas y ninguna
+   * significa «acabas de llegar». Pero tampoco puede irse sola a los dos
+   * segundos, que es justo cuando el lector está mirando lo que encontró.
+   *
+   * El cerrojo es lo que hace que esto no sea un fallo: la marca se pone AL
+   * DESPEGAR, cuando la cámara todavía está a un mundo de distancia, así que
+   * medir «¿estás lejos?» de entrada la borraría antes de llegar. Primero hay
+   * que ACERCARSE (armar), y sólo desde ahí puede uno irse.
+   */
+  const markArmed = useRef(false);
+  useEffect(() => {
+    if (!flyMark || !data) { markArmed.current = false; return; }
+    const mu = flyMark.x / data.width, mv = flyMark.y / data.height;
+    const du0 = Math.abs(viewport.u - mu);
+    // El este y el oeste son el mismo sitio.
+    const du = Math.min(du0, 1 - du0);
+    const dv = Math.abs(viewport.v - mv);
+    // Lo que se ve, en normalizado: `spanKm` es horizontal por contrato, y el
+    // alto de un mundo son `height/width` de su ancho.
+    const spanU = viewport.spanKm / EARTH_KM;
+    const spanV = spanU * (data.width / Math.max(1, data.height));
+    if (!markArmed.current) {
+      if (du <= spanU * 0.75 && dv <= spanV * 0.75) markArmed.current = true;
+      return;
+    }
+    if (du > spanU * 1.2 || dv > spanV * 1.2) {
+      markArmed.current = false;
+      setFlyMark(null);
+    }
+  }, [viewport, flyMark, data]);
 
   /**
    * Ctrl+F abre el localizador en las TRES vistas, e Inicio devuelve el
@@ -1192,6 +1302,10 @@ export default function WorldView({
         e.preventDefault();
         flyCamera(0.5, 0.5, EARTH_KM);
       }
+      // Y Esc la quita a mano. No hace falta comprobar si el localizador está
+      // abierto: su caja de texto es un INPUT y este oyente ya se calla sobre
+      // los campos de texto, tres líneas más arriba.
+      if (e.key === 'Escape') setFlyMark(null);
     };
     window.addEventListener('keydown', down);
     return () => window.removeEventListener('keydown', down);
@@ -1201,6 +1315,7 @@ export default function WorldView({
     flyCamera(u, v);
     setView('3d');
   }, [flyCamera]);
+
 
   // Read through a ref so `zoomToPoint` keeps ONE identity: it is a prop of all
   // three views, and a new identity per camera report would re-render them all
@@ -1696,6 +1811,7 @@ export default function WorldView({
               viewport={viewport}
               onViewportChange={setViewport}
               flyTarget={flyTarget}
+              flyMark={flyMark}
               revision={paintRev}
               exportRef={mapExportRef}
               // Las comarcas guardadas, dibujadas sobre el suelo: hasta ahora
@@ -1733,6 +1849,7 @@ export default function WorldView({
                 viewport={viewport}
                 onViewportChange={setViewport}
                 flyTarget={flyTarget}
+                flyMark={flyMark}
                 onInspect={panelTab === 'atlas' && data && geography
                   ? ((x, y) => {
                     // Anything with a name, not only the dots: a click on the
@@ -1775,6 +1892,7 @@ export default function WorldView({
                 onEdits={applyEditGroup}
                 revision={paintRev}
                 flyTarget={flyTarget}
+                flyMark={flyMark}
                 onPickSettlement={pickSettlement}
                 onPickWaypoint={(id) => {
                   setSelectedWaypointId(id);
@@ -1794,12 +1912,15 @@ export default function WorldView({
               geography={geography}
               open={locatorOpen}
               onClose={() => setLocatorOpen(false)}
-              onFly={(x, y) => {
+              atU={viewport.u}
+              atV={viewport.v}
+              onFly={(x, y, name) => {
                 // Volar SIN cambiar de vista, y aterrizar a escala comarcal si
                 // se venía de más lejos — encontrar un pueblo desde el globo
                 // entero debe dejarte viéndolo, no a 40.000 km de él.
                 const span = Math.min(viewportRef.current?.spanKm ?? EARTH_KM, 240);
                 flyCamera(x / data.width, y / data.height, span);
+                setFlyMark({ x, y, name });
               }}
             />
           )}
@@ -1998,6 +2119,17 @@ export default function WorldView({
                   onRename={renameByKey}
                   onDelete={removeByKey}
                   onFlyTo={(x, y) => flyTo(x / data.width, y / data.height)}
+                  onEditPlan={(place) => {
+                    // La ficha del Índice se casa con su asentamiento por la
+                    // MISMA clave que usan el renombrado y el borrado
+                    // (`editKey('settlement', x, y)`), que es una POSICIÓN — no
+                    // la identidad del objeto, que aquí ya se demostró que no
+                    // sobrevive a dos pasadas de geografía.
+                    const town = geography?.settlements.find(
+                      (s) => editKey('settlement', s.x, s.y) === place.key,
+                    );
+                    if (town) setCityFor(town);
+                  }}
                   onOpenLink={onOpenManuscriptLink}
                 />
               ) : (
@@ -2222,6 +2354,7 @@ export default function WorldView({
           theme={theme}
           onClose={() => setCityFor(null)}
           onDelete={() => removeByKey(editKey('settlement', cityFor.x, cityFor.y))}
+          onDescend={() => descendToTown(cityFor)}
           onPopulation={(population) => {
             applyEdit({
               kind: 'populate',
