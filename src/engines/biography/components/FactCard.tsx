@@ -130,10 +130,13 @@ export default function FactCard({ fact, onEdit, onDelete, isDragging }: FactCar
                 {fact.sources.map((source, idx) => (
                   <div key={idx} className="text-xs text-text-dim p-2 bg-surface/50 rounded border border-border/50">
                     <div className="font-medium text-text-muted mb-0.5">
-                      {source.type === 'snapshot' && '📸 Snapshot'}
-                      {source.type === 'link' && '🔗 Link'}
-                      {source.type === 'manual' && '✏️ Manual'}
-                      {source.type === 'interview' && '🎤 Interview'}
+                      {/* Las mismas claves que ya usa `FactEditor` para estos
+                          cuatro tipos: el lector elegía «Captura» al escribir y
+                          la tarjeta se lo devolvía como «Snapshot». */}
+                      {source.type === 'snapshot' && `📸 ${t('biography.source.snapshot')}`}
+                      {source.type === 'link' && `🔗 ${t('biography.source.link')}`}
+                      {source.type === 'manual' && `✏️ ${t('biography.source.manual')}`}
+                      {source.type === 'interview' && `🎤 ${t('biography.source.interview')}`}
                     </div>
                     <p>{source.description}</p>
                     {source.url && (

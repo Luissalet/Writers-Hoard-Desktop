@@ -46,6 +46,19 @@ interface AtlasPanelProps {
   onDelete?: (key: string) => void;
   /** Centre the map on a place. */
   onFlyTo?: (x: number, y: number) => void;
+  /**
+   * Abrir la lámina de la ciudad, para EDITARLA.
+   *
+   * Desde el 2026-08-15 pinchar una ciudad en el mapa BAJA hasta ella (Luis:
+   * «el modal de la ciudad no lo veo necesariamente pero como una acción
+   * secundaria para editar la ciudad»), así que la lámina —renombrar, volver a
+   * tirar los dados, exportar— necesitaba una puerta que no fuera el gesto
+   * principal. Es ésta, y está aquí y no en el inspector de lugares porque en
+   * aquél no entra jamás una población: sus entidades son accidentes, ruinas y
+   * lugares de comarca. El Índice es la única lista donde la ciudad existe
+   * como cosa seleccionable.
+   */
+  onEditPlan?: (place: AtlasPlace) => void;
   /** Open the host's own editor for a linked item. */
   onOpenLink?: (link: ManuscriptLink) => void;
 }
@@ -57,7 +70,8 @@ const KIND_KEY: Record<string, string> = {
 };
 
 export default function AtlasPanel({
-  world, geography, links, selectedKey, onSelect, onRename, onDelete, onFlyTo, onOpenLink,
+  world, geography, links, selectedKey, onSelect, onRename, onDelete, onFlyTo, onEditPlan,
+  onOpenLink,
 }: AtlasPanelProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
@@ -163,6 +177,14 @@ export default function AtlasPanel({
             >
               {t('worldgen.atlas.goTo')}
             </button>
+            {onEditPlan && selected.kind === 'settlement' && (
+              <button
+                onClick={() => onEditPlan(selected)}
+                className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px]"
+              >
+                {t('worldgen.place.cityPlan')}
+              </button>
+            )}
             {onDelete && (
               <button
                 onClick={() => { onDelete(selected.key); onSelect(null); }}

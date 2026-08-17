@@ -37,6 +37,104 @@ export const EARTH_KM = 40075;
  * a decision for that view, not a limit on the contract.
  */
 export const MIN_SPAN_KM = 0.25;
+
+// ── La historia de ese suelo, traída de `components/World3D.tsx` ──
+/**
+ * Hasta dónde deja acercarse esta vista, en kilómetros de suelo a lo ancho.
+ *
+ * Una celda de mundo son ~19,5 km, así que esto es el punto donde una celda
+ * mide una decena de píxeles en pantalla. Más abajo no queda NADA que
+ * enseñar: sólo un téxel magnificado, y todo rasgo del tamaño de una celda
+ * —el ruido natural del fondo marino, el borde de un bioma— se lee como un
+ * cuadrado. Ese vacío es justamente lo que el parche regional venía a tapar,
+ * y ahora vive donde le corresponde, en el 2D. Así que el 3D se planta aquí,
+ * con honradez, y el que quiera bajar más pasa al mapa.
+ *
+ * A 1200 km caben los Alpes cuatro veces: es un encuadre de cordillera, que
+ * es exactamente lo que esta vista existe para enseñar.
+ */
+// 150, Y AHORA EL CÓDIGO Y EL COMENTARIO DICEN LO MISMO.
+//
+// Aquí había un párrafo que anunciaba una vuelta a 1200 que nunca se aplicó al
+// número, y llevaba razón en su día por dos motivos, de los cuales hoy queda
+// medio:
+//
+//   · «De cerca sólo hay grano»: cierto para el TERRENO y sigue siéndolo — una
+//     celda son 19,5 km y acercarse no revela nada que el generador haya
+//     calculado. Pero ya no es lo único que se ve. Con un cielo y un mar de
+//     verdad, la cámara baja deja de mirar una manta de bultos verdes y pasa a
+//     mirar una COSTA: horizonte, orilla con espuma, el reguero del sol sobre
+//     el oleaje. La estampa de `harness/out/sky-water/1-atardecer.png` es una
+//     cámara a 1,4 unidades sobre el agua; a 1200 km de suelo esa cámara no
+//     puede existir (el suelo se traduce a ~7,4 unidades de distancia mínima) y
+//     con 150 sí (~0,92). Lo que se gana ahí no lo pinta el relieve: lo pintan
+//     el agua y el cielo.
+//   · «Abrir con el morro en la hierba»: eso ya NO depende de este número. Es
+//     ADOPT_MIN_SPAN_KM, justo debajo, que se separó precisamente porque
+//     confundir las dos cosas fue lo que obligó a revertir la bajada. Acercarse
+//     a mirar es una decisión del lector; que le dejen caer ahí, no.
+//
+// 25, POR DECISIÓN DE LUIS (2026-08-11): «puedes hacer zoom sin necesidad de
+// hacer esa teselación exagerada — el terreno es bastante llano». La regla
+// antigua («el suelo sólo baja cuando el relieve tenga algo debajo») queda
+// REVOCADA: el suelo de cerca es la interpolación LISA del campo del mundo, a
+// propósito — nada de relieve inventado, que fue lo que dio picos y poros y
+// obligó a revertir el intento anterior. Lo que sí gana nitidez al bajar es la
+// PIEL: bajo «consume», un encuadre de 25 km pide teselas z14 (~10 m/px) y
+// donde el 2D ya generó ese canon el 3D las entinta gratis — tejados y mancha
+// urbana incluidos. Frío, se queda en el respaldo z8: borroso pero liso.
+// …y 10 desde el 2026-08-12 (Luis: quiere llegar a VER la ciudad — «que las
+// ciudades estén ahí literalmente»). A 10 km de vano el plan pide z15–z16
+// (2,4–5 m/px): los planos de ciudad de las teselas se leen calle a calle.
+// Sigue siendo interpolación lisa del campo del mundo — el relieve no se
+// inventa — y bajo «consume» la piel honda sale gratis de la residencia o del
+// canon persistido (pasada 8); fría, se queda en el respaldo liso de siempre.
+
+/**
+ * Y EL SUELO DE LA VISTA 3D, que es otra cosa y vive aquí para poder medirlo.
+ *
+ * El párrafo de arriba lo dice: el 3D puede SUBIR el suelo efectivo, y lo hace
+ * — primero 1200 km, luego 150, luego 25, luego 10, y desde el 2026-08-15 dos.
+ * Los dos números que mandan, en orden:
+ *
+ *  · LAS CALLES. El plano de ciudad de las teselas se dibuja a partir de 5
+ *    m/px (`PLAN_MAX_METRES_PER_PX`, en `region/townPlan.ts`). Medido con
+ *    `planZoomSkin` de verdad (banco `descent-3d`), la piel del 3D da:
+ *        vano 25 km → z13 → 19,11 m/px      vano 4 km → z16 → 2,39 m/px
+ *        vano 20 km → z14 →  9,55 m/px      vano 2 km → z17 → 1,19 m/px
+ *        vano 10 km → z15 →  4,78 m/px      vano 1 km → z18 → 0,60 m/px
+ *    Con el suelo en 10 km el plano SÍ entraba… sobre el papel: `MIN_UV_WINDOW`
+ *    recortaba la ventana de la piel a 20 km y la dejaba en 9,55 m/px, o sea
+ *    justo al otro lado del umbral. Dos kilómetros dan 1,19 m/px: cuatro veces
+ *    por debajo, con margen para que no lo tumbe el siguiente redondeo.
+ *
+ *  · Y POR QUÉ SE QUEDÓ EN 2 UN DÍA, Y YA NO. El vértice calculaba su punto del
+ *    mundo con `w = uUVMin + uv * uUVSize` en `highp float`, y cerca de u = 0,5
+ *    el escalón de un float32 es 2⁻²⁴ ≈ 6e-8 — que en este mundo son **2,4
+ *    metros**. Mientras el escalón sea menor que un píxel no se ve: a 2 km de
+ *    vano son 2,0 px, a 1 km 4,0 px y a 0,25 km 15 px, y ahí el ráster de la
+ *    piel se parte en bandas porque muchos vértices seguidos caen en la misma
+ *    uv. Y detrás había un SEGUNDO escalón del mismo tamaño: `modelViewMatrix *
+ *    p` restaba dos números de ~96 unidades de escena para dar ~1e-3, con un
+ *    escalón de 1,3 m.
+ *
+ *    El 2026-08-16 se pasó el vértice a un MARCO LOCAL —posición relativa al
+ *    centro de la ventana, que es un número pequeño y por tanto exacto— y la
+ *    resta grande se subió a la CPU, que la hace en doble precisión: la malla
+ *    vive en el centro de su ventana (`Surface.setWindow` mueve `mesh.position`)
+ *    y `uZoomRel` trae ya restada la esquina de la piel. La uv absoluta se queda
+ *    sólo para MUESTREAR, donde un téxel son veinte kilómetros y 2,4 m de error
+ *    es 1e-4 de téxel. Medido en `harness/descent-precision.ts`: a 0,25 km de
+ *    vano el escalón pasa de 2,4 m a menos de un milímetro, o sea de 15 px a
+ *    0,000. Por eso este número es ahora el del contrato compartido.
+ *
+ * Sigue siendo interpolación LISA del campo del mundo — el relieve no se
+ * inventa, doctrina «CERCA = LISO» (Luis, 2026-08-11) — y bajo «consume» la
+ * piel honda sale de la residencia o del canon persistido; fría, del respaldo
+ * liso de siempre. Lo que trae la calle es la PIEL, y a 0,25 km la pirámide da
+ * z18 ≈ 0,60 m/px, ocho veces por debajo de los 5 m/px que necesita el plano.
+ */
+export const MIN_3D_SPAN_KM = MIN_SPAN_KM;
 export const MAX_SPAN_KM = EARTH_KM;
 
 /** One double-click divides the span by this. */
@@ -72,6 +170,21 @@ export function doubleClickSpanKm(spanKm: number): number {
  * key an effect on it — the same pattern World3D's fly-to has always used.
  */
 export interface FlyTarget { u: number; v: number; spanKm?: number; token: number }
+
+/**
+ * La chincheta de llegada: dónde aterrizó la cámara y cómo se llama el sitio.
+ *
+ * Vuela con el vuelo pero no ES el vuelo, y por eso es un tipo aparte:
+ * `FlyTarget` se consume (una vez, con su ficha, y se acabó) mientras que la
+ * chincheta se QUEDA. Volar a un sitio y no marcarlo dejaba al lector mirando
+ * un valle igual que todos los demás valles preguntándose si había llegado; la
+ * marca es la respuesta, y dura hasta que se vaya de allí.
+ *
+ * En CELDAS de mundo, como el atlas —que es de donde sale el nombre—, y no en
+ * normalizado como el vuelo: convertir una vez en el sitio que ya tiene las dos
+ * cifras evita que cada vista se invente su propio redondeo.
+ */
+export interface FlyMark { x: number; y: number; name: string }
 
 export function wrapU(u: number): number {
   return ((u % 1) + 1) % 1;

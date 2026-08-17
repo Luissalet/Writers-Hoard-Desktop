@@ -50,10 +50,17 @@ registerEntityResolver({
       subtitle: arc?.title,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const arcs = await db.characterArcs.filter(a => a.title.toLowerCase().includes(q)).toArray();
-    const beats = await db.arcBeats.filter(b => b.title.toLowerCase().includes(q)).toArray();
+    // Acotar antes de filtrar (contrato en `_shared/entityResolverRegistry.ts`).
+    const arcsBase = projectId
+      ? db.characterArcs.where('projectId').equals(projectId)
+      : db.characterArcs.toCollection();
+    const arcs = await arcsBase.filter(a => a.title.toLowerCase().includes(q)).toArray();
+    const beatsBase = projectId
+      ? db.arcBeats.where('projectId').equals(projectId)
+      : db.arcBeats.toCollection();
+    const beats = await beatsBase.filter(b => b.title.toLowerCase().includes(q)).toArray();
     return [
       ...arcs.map(a => ({
         id: a.id,

@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "src/engines/worldgen/cartography/tileStore.ts",
+    "src/engines/worldgen/region/contentIdentity.ts",
+    "src/engines/worldgen/components/Map2D.tsx",
+    "src/engines/worldgen/components/CartoMap.tsx"
+  ]
+}

@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import type { DialogBlock, BlockFormatting } from '../types';
 import type { AutocompleteSuggestion } from './ScriptAutocomplete';
 import ScriptAutocomplete from './ScriptAutocomplete';
+import { useDebouncedField } from '@/engines/_shared';
 import { useTranslation } from '@/i18n/useTranslation';
 
 interface DualDialogGroupProps {
@@ -51,6 +52,15 @@ function DualColumn({
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
+  // El diálogo dual se quedó FUERA de la migración a `useDebouncedField`: ligaba
+  // el `<textarea>` directo a `block.content` y llamaba a `editBlock` —escritura
+  // en Dexie más `refresh()` de la tabla entera— en cada tecla. Es exactamente
+  // el fallo que ese helper vino a matar: un refresco que resuelve a mitad de
+  // palabra reinstala la cadena vieja y el cursor salta al final, así que
+  // escribiendo rápido se pierden letras. El bloque de diálogo normal lo usa
+  // desde entonces; éste no, y nadie lo notó porque emparejar dos réplicas es
+  // un gesto raro.
+  const field = useDebouncedField(block.content, (next) => onUpdate(next, block.parenthetical));
 
   return (
     <div className="flex-1 min-w-0">
@@ -78,22 +88,32 @@ function DualColumn({
         <div className="relative">
           <textarea
             ref={textareaRef}
-            value={block.content}
-            onChange={(e) => onUpdate(e.target.value, block.parenthetical)}
+            value={field.value}
+            onChange={(e) => field.onChange(e.target.value)}
             onFocus={() => setShowAutocomplete(true)}
-            onBlur={() => setTimeout(() => setShowAutocomplete(false), 200)}
+            // El `onBlur` escribe YA lo que quede pendiente, además de cerrar el
+            // autocompletado con su retardo de siempre (el clic en una sugerencia
+            // llega después del blur).
+            onBlur={() => {
+              field.onBlur();
+              setTimeout(() => setShowAutocomplete(false), 200);
+            }}
             className={`w-full bg-transparent resize-none focus:outline-none border-none p-0 leading-relaxed text-text-primary ${fontCls(block.formatting)}`}
-            rows={Math.max(2, Math.ceil(block.content.length / 30))}
+            rows={Math.max(2, Math.ceil(field.value.length / 30))}
             placeholder={t('dialogScene.dialogPlaceholder')}
           />
           {suggestions && (
             <ScriptAutocomplete
-              value={block.content}
+              // Contra el valor LOCAL, no contra el de la base de datos: si
+              // mirara al remoto, la mención `@` no se detectaría hasta que el
+              // debounce hubiera escrito, o sea siempre tarde.
+              value={field.value}
               suggestions={suggestions.filter((s) => s.category === 'character')}
               anchorRef={textareaRef}
-              active={showAutocomplete && block.content.startsWith('@')}
+              active={showAutocomplete && field.value.startsWith('@')}
               onSelect={(s) => {
-                onUpdate(s.label, block.parenthetical);
+                field.onChange(s.label);
+                field.flush();
                 setShowAutocomplete(false);
               }}
             />

@@ -8,13 +8,35 @@ import { useTranslation } from '@/i18n/useTranslation';
 
 interface CastBarProps {
   cast: SceneCast[];
+  /** Los personajes del códice de este proyecto, para poder enlazar de verdad. */
+  codexCharacters: { id: string; title: string }[];
   onAddCharacter: (member: SceneCast) => void;
-  onAddDialog: (characterName: string, characterColor: string) => void;
+  onAddDialog: (characterName: string, characterColor: string, characterId?: string) => void;
   onRemoveCharacter: (id: string) => void;
 }
 
+/**
+ * El reparto de la escena, y por fin ENLAZADO al códice.
+ *
+ * `SceneCast.characterId` y `DialogBlock.characterId` estaban declarados desde
+ * el principio y no se escribían nunca: el reparto se guardaba como texto libre
+ * y nada más. Dos cosas dependían de ese campo y por eso nunca funcionaron:
+ *
+ *  • El Cockpit (`services/projectIntelligence.ts`) cuenta «personajes sin
+ *    usar» y «hablantes sin mapear» a partir de él, así que decía siempre que
+ *    TODOS los personajes del códice estaban sin usar, escribieras el guion
+ *    como lo escribieras.
+ *  • La «telaraña de personajes» del códice (`CharacterConnections`) filtra
+ *    `sceneCasts` por `characterId`: la sección existía, se pintaba, y estaba
+ *    vacía para todos los personajes de todos los proyectos. Siempre.
+ *
+ * El nombre libre SIGUE valiendo — hay réplicas de un mensajero sin ficha, y
+ * obligar a fichar a todo el mundo antes de escribir sería peor que el fallo.
+ * Elegir del códice es un atajo que además rellena el nombre.
+ */
 export default function CastBar({
   cast,
+  codexCharacters,
   onAddCharacter,
   onAddDialog,
   onRemoveCharacter,
@@ -23,21 +45,32 @@ export default function CastBar({
   const [showNewMember, setShowNewMember] = useState(false);
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState('#c4973b');
+  const [newCodexId, setNewCodexId] = useState('');
+
+  const reset = () => {
+    setNewName('');
+    setNewColor('#c4973b');
+    setNewCodexId('');
+    setShowNewMember(false);
+  };
 
   const handleAddMember = async () => {
-    if (!newName.trim()) return;
+    // Con ficha elegida el nombre puede ir vacío: se toma el del códice, que es
+    // lo que el lector espera después de elegirlo en el desplegable.
+    const fromCodex = codexCharacters.find((c) => c.id === newCodexId);
+    const name = newName.trim() || fromCodex?.title.trim() || '';
+    if (!name) return;
 
     const member: SceneCast = {
       id: generateId('cast'),
       sceneId: '', // will be set by parent
-      characterName: newName.trim(),
+      characterName: name,
+      characterId: fromCodex?.id,
       color: newColor,
     };
 
     onAddCharacter(member);
-    setNewName('');
-    setNewColor('#c4973b');
-    setShowNewMember(false);
+    reset();
   };
 
   return (
@@ -63,6 +96,27 @@ export default function CastBar({
             className="mb-3 p-3 bg-elevated rounded-lg border border-border"
           >
             <div className="space-y-2">
+              {codexCharacters.length > 0 && (
+                <label className="space-y-1 block">
+                  <span className="text-xs text-text-dim">{t('dialogScene.castFromCodex')}</span>
+                  <select
+                    value={newCodexId}
+                    onChange={(e) => {
+                      setNewCodexId(e.target.value);
+                      // Rellenar el nombre al elegir, pero sin pisar lo que el
+                      // lector ya hubiera escrito a mano.
+                      const picked = codexCharacters.find((c) => c.id === e.target.value);
+                      if (picked && !newName.trim()) setNewName(picked.title);
+                    }}
+                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded text-sm text-text-primary focus:border-accent-gold outline-none cursor-pointer"
+                  >
+                    <option value="">{t('dialogScene.castFreeName')}</option>
+                    {codexCharacters.map((c) => (
+                      <option key={c.id} value={c.id}>{c.title}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <input
                 autoFocus
                 value={newName}
@@ -86,10 +140,7 @@ export default function CastBar({
                   {t('common.add')}
                 </button>
                 <button
-                  onClick={() => {
-                    setShowNewMember(false);
-                    setNewName('');
-                  }}
+                  onClick={reset}
                   className="flex-1 px-2 py-1.5 bg-border/30 text-text-muted text-xs rounded hover:bg-border/50 transition"
                 >
                   {t('common.cancel')}
@@ -112,7 +163,7 @@ export default function CastBar({
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              onClick={() => onAddDialog(member.characterName, member.color)}
+              onClick={() => onAddDialog(member.characterName, member.color, member.characterId)}
               className="group relative flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-elevated hover:bg-elevated/70 transition text-sm font-medium"
               style={{ borderColor: member.color + '40', backgroundColor: member.color + '08' }}
             >

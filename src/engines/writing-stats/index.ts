@@ -35,9 +35,13 @@ registerEntityResolver({
       title: `${session.date}: ${session.wordCount} words`,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = await db.writingSessions
+    // Acotar antes de filtrar (contrato en `_shared/entityResolverRegistry.ts`).
+    const base = projectId
+      ? db.writingSessions.where('projectId').equals(projectId)
+      : db.writingSessions.toCollection();
+    const rows = await base
       .filter(
         (s) =>
           (s.date || '').toLowerCase().includes(q) ||

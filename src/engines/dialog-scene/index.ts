@@ -50,9 +50,13 @@ registerEntityResolver({
       subtitle: scene.setting,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = await db.scenes.filter(s => s.title.toLowerCase().includes(q)).toArray();
+    // Acotar antes de filtrar (contrato en `_shared/entityResolverRegistry.ts`).
+    const base = projectId
+      ? db.scenes.where('projectId').equals(projectId)
+      : db.scenes.toCollection();
+    const rows = await base.filter(s => s.title.toLowerCase().includes(q)).toArray();
     return rows.map(s => ({
       id: s.id,
       type: 'scene',

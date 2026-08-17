@@ -340,6 +340,59 @@ for (const key of enKeys) {
 for (const key of esKeys) {
   if (!enKeys.has(key)) fail(`English locale is missing "${key}".`);
 }
+
+/**
+ * Toda clave que el código PIDE tiene que existir.
+ *
+ * La paridad es/en de arriba sólo compara los dos ficheros entre sí: si una
+ * clave no está en NINGUNO de los dos, los dos están igual de incompletos y la
+ * comprobación pasaba. Y `t()` devuelve la clave cuando no la encuentra, así
+ * que el fallo no es una excepción sino texto de programador en la cara del
+ * lector. Medido al escribir esta guarda: de 1 395 claves literales pedidas en
+ * `src/`, 5 no existían — las tres del localizador (su caja de búsqueda decía
+ * «worldgen.locator.placeholder»), la del botón de ayuda del 2D y una del
+ * selector de iconos. Ninguna había fallado nunca en ningún banco.
+ *
+ * Sólo se miran las claves LITERALES: una clave compuesta (`t(`x.${kind}`)`)
+ * no se puede resolver leyendo el fichero, y exigirla aquí sería pedirle a
+ * esta comprobación que ejecute la aplicación.
+ */
+function sourceFiles(dir) {
+  const out = [];
+  for (const entry of readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+    const rel = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules' || entry.name === 'locales') continue;
+      out.push(...sourceFiles(rel));
+    } else if (/\.tsx?$/.test(entry.name)) {
+      out.push(rel);
+    }
+  }
+  return out;
+}
+const missingKeys = new Map();
+for (const file of sourceFiles('src')) {
+  const src = read(file);
+  // `t` no siempre se llama `t`: `World3D.tsx` la importa como `translate`
+  // porque ya tiene una `t` del hook dentro del componente, y buscar sólo
+  // `t(` dejaba fuera 288 de las 1 683 llamadas literales de `src/` — el 17 %,
+  // y justo el 17 % que dibuja el HUD del 3D. El nombre local se lee del
+  // PROPIO import en vez de mantener una lista de alias aquí, que es la clase
+  // de lista que se queda vieja sin que nadie se entere.
+  const names = new Set(['t']);
+  for (const imported of src.matchAll(/import\s*\{([^}]*)\}\s*from/g)) {
+    for (const alias of imported[1].matchAll(/\bt\s+as\s+(\w+)/g)) names.add(alias[1]);
+  }
+  const calls = new RegExp(`\\b(?:${[...names].join('|')})\\(\\s*'((?:\\\\.|[^'])+)'\\s*\\)`, 'g');
+  for (const match of src.matchAll(calls)) {
+    const key = match[1].replaceAll("\\'", "'");
+    if (enKeys.has(key) && esKeys.has(key)) continue;
+    if (!missingKeys.has(key)) missingKeys.set(key, file);
+  }
+}
+for (const [key, file] of missingKeys) {
+  fail(`${file} asks for locale key "${key}", which no locale defines.`);
+}
 for (const engineId of engineIds) {
   for (const suffix of ['name', 'description']) {
     const key = `engines.${engineId}.${suffix}`;

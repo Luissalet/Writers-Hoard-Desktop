@@ -49,9 +49,13 @@ registerEntityResolver({
       title: plan.title,
     };
   },
-  searchEntities: async (query: string) => {
+  searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
-    const rows = await db.videoPlans.filter(v => v.title.toLowerCase().includes(q)).toArray();
+    // Acotar antes de filtrar (contrato en `_shared/entityResolverRegistry.ts`).
+    const base = projectId
+      ? db.videoPlans.where('projectId').equals(projectId)
+      : db.videoPlans.toCollection();
+    const rows = await base.filter(v => v.title.toLowerCase().includes(q)).toArray();
     return rows.map(v => ({
       id: v.id,
       type: 'video-planner',

@@ -78,9 +78,27 @@ export function geographyContentKey(geography: HumanGeography): string {
   return key;
 }
 
-export function worldContentKey(world: WorldData): string {
+/**
+ * El SUELO, sin la revisión: qué planeta es esto.
+ *
+ * `worldContentKey` responde «¿es esto exactamente lo mismo?» y por eso lleva
+ * la revisión — una pincelada cambia el contenido y todo lo cacheado deja de
+ * valer. Pero hay una pregunta distinta que hasta ahora nadie podía hacer:
+ * «¿es el MISMO SUELO con otra tinta?». La contesta esto, y de ella depende
+ * que el almacén de teselas pueda seguir enseñando la versión anterior
+ * mientras fabrica la nueva (`DisplayTileStore.setGeneration`) en vez de
+ * dejar al lector mirando el cuarto borroso de un antepasado. La semilla NO
+ * basta: reforjar con la misma semilla cambiando un parámetro es la forma
+ * normal de iterar un mundo y son continentes distintos, así que el hash de
+ * los parámetros entra y la revisión se queda fuera.
+ */
+export function worldFamilyKey(world: WorldData): string {
   return `${world.params.seed}:${world.width}x${world.height}`
-    + `:p${hashEditsString(stableStringify(world.params))}:r${world.revision ?? 0}`;
+    + `:p${hashEditsString(stableStringify(world.params))}`;
+}
+
+export function worldContentKey(world: WorldData): string {
+  return `${worldFamilyKey(world)}:r${world.revision ?? 0}`;
 }
 
 export function mapSourceKey(

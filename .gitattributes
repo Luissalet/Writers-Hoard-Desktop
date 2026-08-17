@@ -1,0 +1,10 @@
+# El árbol se convirtió a CRLF y 181 ficheros salían como modificados enteros:
+# 22.000 líneas de puro fin de línea que enterraban el trabajo real en el diff.
+# text=auto + eol=lf normaliza al añadir y deja el diff en lo que de verdad cambió.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary
+*.tgz binary
+*.webp binary
