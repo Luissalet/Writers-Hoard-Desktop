@@ -22,6 +22,7 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
   );
   const [startWordCount, setStartWordCount] = useState('');
   const [endWordCount, setEndWordCount] = useState('');
+  const [notes, setNotes] = useState('');
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   /** Absolute wall-clock instant the sprint is due to end, while running. */
   const deadlineRef = useRef<number | null>(null);
@@ -69,6 +70,7 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
     setTimeRemaining(duration);
     setStartWordCount('');
     setEndWordCount('');
+    setNotes('');
   }, [duration]);
 
   const handleStop = useCallback(async () => {
@@ -94,9 +96,15 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
       type: sessionType,
       createdAt: Date.now(),
     };
+    // Optional free-text note. Only attach it when the author wrote one —
+    // writingActivity.ts reserves notes === 'editor' for its auto-sessions,
+    // but those are type 'editor' rows it creates itself; sprint rows carry
+    // whatever the author typed here.
+    const trimmedNotes = notes.trim();
+    if (trimmedNotes) session.notes = trimmedNotes;
 
     await onComplete(session);
-  }, [projectId, duration, timeRemaining, startWordCount, endWordCount, sessionType, onComplete, t]);
+  }, [projectId, duration, timeRemaining, startWordCount, endWordCount, sessionType, notes, onComplete, t]);
 
   const minutes = Math.floor(timeRemaining / 60);
   const seconds = timeRemaining % 60;
@@ -180,6 +188,18 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
             className="w-full px-3 py-2 bg-elevated text-text-primary border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-gold disabled:opacity-50"
           />
         </div>
+      </div>
+
+      {/* Session notes — the field always existed on WritingSession and was
+          displayed and searched, but no form ever wrote it. */}
+      <div className="space-y-1">
+        <label className="text-xs font-medium text-text-muted block">{t('common.notes')}</label>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={2}
+          className="w-full px-3 py-2 bg-elevated text-text-primary border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent-gold resize-none"
+        />
       </div>
 
       {/* Controls */}

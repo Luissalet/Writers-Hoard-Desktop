@@ -4,7 +4,9 @@ import type { BiographyFact } from '../types';
 import { BIOGRAPHY_CATEGORIES } from '../types';
 import { stripHtml } from '@/utils/text';
 import { useTranslation } from '@/i18n/useTranslation';
+import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 import { toast } from '@/components/common/toast';
+import { downloadTextFile } from '@/engines/writings/manuscriptExport';
 
 interface NarrativeViewProps {
   facts: BiographyFact[];
@@ -85,13 +87,9 @@ export default function NarrativeView({ facts, subjectName }: NarrativeViewProps
   };
 
   const handleDownload = () => {
-    const element = document.createElement('a');
-    const file = new Blob([narrativeText], { type: 'text/plain' });
-    element.href = URL.createObjectURL(file);
-    element.download = `${subjectName.replace(/\s+/g, '-')}-biography.txt`;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+    // downloadTextFile revokes its object URL — the hand-rolled version here
+    // leaked one blob per export.
+    downloadTextFile(narrativeText, `${subjectName.replace(/\s+/g, '-')}-biography.txt`, 'text/plain');
   };
 
   return (
@@ -152,7 +150,7 @@ export default function NarrativeView({ facts, subjectName }: NarrativeViewProps
 
                         <div
                           className="text-sm text-text-muted leading-relaxed mb-3"
-                          dangerouslySetInnerHTML={{ __html: fact.content }}
+                          dangerouslySetInnerHTML={sanitizedHtml(fact.content)}
                         />
 
                         <div className="flex items-center gap-2 text-xs text-text-dim">

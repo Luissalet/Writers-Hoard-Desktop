@@ -5,6 +5,7 @@ import type { BiographyFact } from '../types';
 import { BIOGRAPHY_CATEGORIES, CONFIDENCE_LEVELS } from '../types';
 import { stripHtml } from '@/utils/text';
 import { useTranslation } from '@/i18n/useTranslation';
+import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 
 interface FactCardProps {
   fact: BiographyFact;
@@ -118,7 +119,7 @@ export default function FactCard({ fact, onEdit, onDelete, isDragging }: FactCar
           <div className="prose prose-sm prose-invert max-w-none">
             <div
               className="text-sm text-text-primary"
-              dangerouslySetInnerHTML={{ __html: fact.content }}
+              dangerouslySetInnerHTML={sanitizedHtml(fact.content)}
             />
           </div>
 

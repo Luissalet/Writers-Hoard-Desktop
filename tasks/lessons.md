@@ -725,3 +725,19 @@ captura de Luis dijo dónde mirar antes que ninguna traza.
 banco posible sin montar React. Sacarla a `townFrame` en un módulo es lo que
 permitió medirla sobre 154 poblaciones de un mundo de verdad en vez de
 razonarla — y lo que convirtió «creo que ya está» en ocho varas.
+
+## #37 — En esta máquina, `npm run` no sobrevive a una tubería de PowerShell
+
+**Qué pasó (2026-08-21).** `npm run verify:quick 2>&1 | Out-String` (y con
+`Select-Object`) devolvió exit 1 en medio segundo, sin un solo diagnóstico —
+parecía un typecheck roto al instante. Los mismos portones lanzados directos
+(`npx tsc -b --noEmit`, `node scripts/check-lint.mjs`,
+`node scripts/check-conformance.mjs`, `npx electron
+scripts/run-critical-tests.cjs`) salieron todos verdes con su salida entera.
+
+**Regla.** Los portones de verificación se lanzan con `npx`/`node` directos en
+el shell de Desktop Commander, cada uno seguido de `"X_EXIT=$LASTEXITCODE"`.
+Nunca `npm run … | Out-String`: el exit 1 es falso y la salida del hijo se
+pierde, así que ni siquiera puedes distinguir un fallo real de este artefacto.
+Y `tsc -b` sin `--verbose` calla hasta terminar — si necesitas prueba de que
+compiló de verdad, pídesela.

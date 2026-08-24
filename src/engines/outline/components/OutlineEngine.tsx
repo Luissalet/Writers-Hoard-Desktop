@@ -2,8 +2,8 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { ListTree, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { useAutoSelect, useEnsureDefault, EngineSpinner, ConfirmDialog, useDebouncedField } from '@/engines/_shared';
-import { useOutlines, useOutlineBeats } from '../hooks';
+import { useAutoSelect, useEnsureDefault, EngineSpinner, ConfirmDialog, useDebouncedField, useDeepLinkParam } from '@/engines/_shared';
+import { useAllProjectBeats, useOutlines, useOutlineBeats } from '../hooks';
 import { getBeatCountsByOutline } from '../operations';
 import { useScenes } from '@/engines/dialog-scene/hooks';
 import { useWritings } from '@/engines/writings/hooks';
@@ -16,6 +16,7 @@ import BeatList from './BeatList';
 export default function OutlineEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
   const { items: outlines, loading, addItem: addOutline, editItem: editOutline, removeItem: removeOutline } = useOutlines(projectId);
+  const { items: projectBeats, loading: projectBeatsLoading } = useAllProjectBeats(projectId);
   const [activeOutlineId, setActiveOutlineId] = useState<string>('');
   const [showNewOutline, setShowNewOutline] = useState(false);
   const [newOutlineName, setNewOutlineName] = useState('');
@@ -34,6 +35,27 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
   // every inactive outline.
   const [beatCounts, setBeatCounts] = useState<Record<string, number>>({});
   const [pendingDeleteOutline, setPendingDeleteOutline] = useState<Outline | null>(null);
+  const deepLinkedOutlineId = useDeepLinkParam('outline');
+  const deepLinkedBeatId = useDeepLinkParam('beat');
+  const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
+  const deepLinkedBeat = useMemo(
+    () => projectBeats.find(beat => beat.id === deepLinkedBeatId),
+    [deepLinkedBeatId, projectBeats],
+  );
+  const requestedOutlineId = deepLinkedBeat?.outlineId ?? deepLinkedOutlineId;
+  const deepLinkKey = `${deepLinkedOutlineId ?? ''}:${deepLinkedBeatId ?? ''}`;
+
+  if (
+    deepLinkKey !== ':' &&
+    deepLinkKey !== appliedDeepLink &&
+    !loading &&
+    !projectBeatsLoading
+  ) {
+    setAppliedDeepLink(deepLinkKey);
+    if (requestedOutlineId && outlines.some(outline => outline.id === requestedOutlineId)) {
+      setActiveOutlineId(requestedOutlineId);
+    }
+  }
 
   const refreshBeatCounts = useCallback(() => {
     let cancelled = false;
@@ -111,7 +133,6 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
             storyPosition: templateBeat.storyPosition,
             color: templateBeat.color,
             status: 'empty',
-            tags: [],
             createdAt: Date.now(),
             updatedAt: Date.now(),
           };
@@ -168,6 +189,9 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
             beats={beats}
             outlineId={activeOutlineId}
             projectId={projectId}
+            focusedBeatId={
+              deepLinkedBeat?.outlineId === activeOutlineId ? deepLinkedBeat.id : undefined
+            }
             scenes={scenes}
             writings={writings}
             onAddBeat={async (beatData) => {
@@ -291,7 +315,8 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
                     {outline.title}
                   </p>
                   <p className="text-xs text-text-dim mt-1">
-                    {beatCounts[outline.id] ?? 0} {t('outline.beats')}
+                    {beatCounts[outline.id] ?? 0}{' '}
+                    {t((beatCounts[outline.id] ?? 0) === 1 ? 'outline.beatSingular' : 'outline.beats')}
                   </p>
                 </div>
               );

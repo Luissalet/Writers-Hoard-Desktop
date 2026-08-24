@@ -3,6 +3,12 @@ import { TrendingUp } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
+import {
+  registerAnchorAdapter,
+  navigateTo,
+  getCurrentProjectIdFromUrl,
+} from '@/engines/_shared/anchoring';
+import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
 const CharacterArcEngine = lazy(() => import('./components/CharacterArcEngine'));
 
@@ -78,6 +84,34 @@ registerEntityResolver({
         title: b.title,
       })),
     ];
+  },
+});
+
+// Margin notes + references. Explicit adapter (entity-only ON PURPOSE): the
+// arc's text lives spread across six independent textareas plus per-beat
+// descriptions, so a single flattened `getEntityText` would produce offsets no
+// textarea selection maps back to. Registering here replaces the generic
+// fallback adapter (raw English chip label, dead `?entity=` URL).
+registerAnchorAdapter({
+  engineId: 'character-arc',
+  supportsTextRange: false,
+  async getEntityTitle(entityId: string) {
+    const arc = await db.characterArcs.get(entityId);
+    if (arc) return arc.title;
+    const beat = await db.arcBeats.get(entityId);
+    return beat?.title ?? null;
+  },
+  getEngineChipLabel: () => t('annotations.chipLabel.character-arc'),
+  navigateToEntity(entityId: string, projectId?: string) {
+    const pid = projectId ?? getCurrentProjectIdFromUrl();
+    if (!pid) return;
+    // A beat deep-links to its arc — the editor opens per arc.
+    void (async () => {
+      const arc = await db.characterArcs.get(entityId);
+      const targetId = arc ? entityId : (await db.arcBeats.get(entityId))?.arcId;
+      if (!targetId) return;
+      navigateTo(`/project/${pid}/character-arc?arc=${encodeURIComponent(targetId)}`);
+    })();
   },
 });
 

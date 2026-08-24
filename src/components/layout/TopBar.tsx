@@ -14,6 +14,7 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
   const { t } = useTranslation();
   const { setSearchOpen } = useAppStore();
   const [showSettings, setShowSettings] = useState(false);
+  const commandShortcut = /Mac|iPhone|iPad/i.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
 
   return (
     <>
@@ -36,13 +37,15 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
             <Settings size={16} />
           </button>
           <button
+            type="button"
             onClick={() => setSearchOpen(true)}
+            aria-label={`${t('topbar.search')} (${commandShortcut})`}
             className="flex items-center gap-2 px-3 py-1.5 bg-elevated border border-border rounded-lg text-text-muted text-sm hover:border-accent-gold/50 transition"
           >
             <Search size={14} />
             <span>{t('topbar.search')}</span>
             <kbd className="ml-2 px-1.5 py-0.5 bg-deep border border-border rounded text-[10px] font-mono">
-              ⌘K
+              {commandShortcut}
             </kbd>
           </button>
         </div>

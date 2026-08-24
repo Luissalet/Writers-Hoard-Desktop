@@ -2,20 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' 'sha256-Z2/iFzh9VMlVkEOar1f/oSHWwQk3ve1qk/C2WdsC4Xk=' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: wh-media: http: https:; media-src 'self' data: blob: wh-media: http: https:; connect-src 'self' https: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; frame-src 'self' blob: wh-media: https://accounts.google.com https://www.youtube.com; worker-src 'self' blob:; manifest-src 'self'"
+    />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>writers-hoard</title>
+    <script src="/renderer-prelude.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <!-- GitHub Pages SPA redirect handler -->
-    <script>
-      (function(){
-        var redirect = sessionStorage.redirect;
-        delete sessionStorage.redirect;
-        if (redirect && redirect !== location.href) {
-          history.replaceState(null, null, redirect);
-        }
-      })();
-    </script>
     <!--
       Desactiva la pista de rendimiento del build de DESARROLLO de react-dom.
 
@@ -37,9 +32,6 @@
       En producción react-dom no incluye ese código y console.timeStamp no
       lo usa nadie más, así que aquí no se pierde nada.
     -->
-    <script>
-      try { console.timeStamp = undefined; } catch (e) { /* sin drama */ }
-    </script>
   </head>
   <body>
     <div id="root"></div>

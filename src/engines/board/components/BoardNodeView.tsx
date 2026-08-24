@@ -7,6 +7,7 @@ import {
 import { MIN_SIZE, getNodeRole } from '../catalog';
 import type { BoardNode } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
+import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 
 // Explicit map instead of `import * as Lucide` — a namespace import pulls the
 // entire icon set into the bundle, and this project checks its bundle budget.
@@ -258,7 +259,7 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
             {node.richContent ? (
               <div
                 className="prose prose-invert max-w-none text-sm text-text-primary"
-                dangerouslySetInnerHTML={{ __html: node.richContent }}
+                dangerouslySetInnerHTML={sanitizedHtml(node.richContent)}
               />
             ) : (
               <p className="whitespace-pre-wrap break-words font-serif text-sm text-text-primary">

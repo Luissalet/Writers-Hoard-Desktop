@@ -23,6 +23,7 @@ interface SwimLaneViewProps {
   onEditEvent: (id: string, changes: Partial<TimelineEvent>) => void;
   onDeleteEvent: (id: string) => void;
   onAddConnection: (conn: TimelineConnection) => void;
+  onEditConnection: (id: string, changes: Partial<TimelineConnection>) => void;
   onDeleteConnection: (id: string) => void;
   onEditTimeline: (id: string, changes: Partial<Timeline>) => void;
 }
@@ -350,7 +351,8 @@ function EventNode({
 export default function SwimLaneView({
   projectId, timelines, events, connections,
   onAddEvent, onEditEvent, onDeleteEvent,
-  onAddConnection, onDeleteConnection,
+  onAddConnection, onEditConnection, onDeleteConnection,
+  onEditTimeline,
 }: SwimLaneViewProps) {
   const { t } = useTranslation();
   const TYPE_LABELS: Record<string, string> = useMemo(() => ({
@@ -368,6 +370,12 @@ export default function SwimLaneView({
   const { items: codexEntries } = useCodexEntries(projectId);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; eventId: string } | null>(null);
   const [connContextMenu, setConnContextMenu] = useState<{ x: number; y: number; connId: string } | null>(null);
+  // Rename dialog for a lane. `onEditTimeline` arrived through props since the
+  // beginning and was never destructured — there was no way to rename a
+  // timeline once created.
+  const [renamingTimeline, setRenamingTimeline] = useState<Timeline | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [renameDescription, setRenameDescription] = useState('');
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
 
   // Drag-to-reorder state
@@ -755,8 +763,16 @@ export default function SwimLaneView({
                 <line x1={LANE_LABEL_WIDTH + 20} y1={getLaneY(i)} x2={svgWidth - 20} y2={getLaneY(i)}
                   stroke={`${tl.color || '#c4973b'}40`} strokeWidth={2} strokeDasharray="6 4" />
 
-                {/* Lane label */}
-                <g className="cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                {/* Lane label — click opens the rename dialog */}
+                <g
+                  className="cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRenameTitle(tl.title);
+                    setRenameDescription(tl.description ?? '');
+                    setRenamingTimeline(tl);
+                  }}
+                >
                   <rect x={8} y={y + LANE_PADDING}
                     width={LANE_LABEL_WIDTH - 16} height={LANE_HEIGHT - LANE_PADDING * 2}
                     rx={8} fill={`${tl.color || '#c4973b'}15`}
@@ -1046,6 +1062,47 @@ export default function SwimLaneView({
               <div className="px-3 py-1.5 text-[10px] text-text-dim uppercase tracking-wider border-b border-border">
                 {srcEvt?.title || '?'} → {tgtEvt?.title || '?'}
               </div>
+
+              {/* Label + style + color — the drawer always knew how to paint
+                  these (label text, dashed/dotted strokes), but connections
+                  were created with an empty label and a fixed style and the
+                  only affordance was deleting them. `updateConnection` existed
+                  in operations.ts with no caller. */}
+              <div className="px-3 py-2 space-y-2 border-b border-border" onContextMenu={(e) => e.preventDefault()}>
+                <input
+                  defaultValue={conn.label ?? ''}
+                  placeholder={t('timeline.connectionLabel')}
+                  onBlur={(e) => {
+                    const next = e.target.value.trim();
+                    if (next !== (conn.label ?? '')) onEditConnection(conn.id, { label: next });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                  }}
+                  className="w-full px-2 py-1 text-xs bg-elevated border border-border rounded text-text-primary outline-none focus:border-accent-gold transition"
+                />
+                <div className="flex items-center gap-1">
+                  {(['solid', 'dashed', 'dotted'] as const).map((style) => (
+                    <button
+                      key={style}
+                      onClick={() => onEditConnection(conn.id, { style })}
+                      className={`flex-1 px-1.5 py-1 text-[10px] rounded transition ${
+                        conn.style === style
+                          ? 'bg-accent-gold/20 text-accent-gold font-semibold'
+                          : 'bg-elevated text-text-muted hover:text-text-primary'
+                      }`}
+                    >
+                      {t(`timeline.style.${style}`)}
+                    </button>
+                  ))}
+                  <ColorPicker
+                    value={conn.color || '#c4973b'}
+                    onChange={(color) => onEditConnection(conn.id, { color })}
+                    size="sm"
+                  />
+                </div>
+              </div>
+
               <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10 transition"
                 onClick={() => { onDeleteConnection(connContextMenu.connId); setConnContextMenu(null); }}>
                 <Trash2 size={13} /> {t('timeline.deleteConnection')}
@@ -1054,6 +1111,57 @@ export default function SwimLaneView({
           );
         })()}
       </AnimatePresence>
+
+      {/* Rename Timeline Modal */}
+      <Modal
+        open={renamingTimeline !== null}
+        onClose={() => setRenamingTimeline(null)}
+        title={t('timeline.renameTimeline')}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelTitle')}</label>
+            <input
+              value={renameTitle}
+              onChange={(e) => setRenameTitle(e.target.value)}
+              autoFocus
+              className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelDescription')}</label>
+            <textarea
+              value={renameDescription}
+              onChange={(e) => setRenameDescription(e.target.value)}
+              rows={2}
+              className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition resize-none"
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={() => {
+                if (renamingTimeline && renameTitle.trim()) {
+                  onEditTimeline(renamingTimeline.id, {
+                    title: renameTitle.trim(),
+                    description: renameDescription.trim() || undefined,
+                  });
+                }
+                setRenamingTimeline(null);
+              }}
+              disabled={!renameTitle.trim()}
+              className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition disabled:opacity-50"
+            >
+              {t('common.save')}
+            </button>
+            <button
+              onClick={() => setRenamingTimeline(null)}
+              className="flex-1 py-2.5 bg-elevated text-text-muted font-medium rounded-lg hover:bg-border transition"
+            >
+              {t('common.cancel')}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Add/Edit Event Modal */}
       <Modal open={showEventForm} onClose={() => { setShowEventForm(false); setEditingEvent(null); }}

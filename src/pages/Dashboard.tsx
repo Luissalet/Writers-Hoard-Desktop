@@ -6,12 +6,15 @@ import ProjectCard from '@/components/bubbles/ProjectCard';
 import EmptyState from '@/components/common/EmptyState';
 import TopBar from '@/components/layout/TopBar';
 import CreateProjectModal from '@/components/dashboard/CreateProjectModal';
+import ImportCollisionDialog from '@/components/dashboard/ImportCollisionDialog';
 import { importProjectData, importFullDatabase } from '@/db/operations';
 import {
   describeBackupError,
   exportFullZip,
   importFullZip,
   importProjectZip,
+  previewProjectZipImport,
+  type ProjectZipImportPreview,
 } from '@/services/zipBackup';
 import { cleanupProjectMedia } from '@/services/scrapperMedia';
 import { toast } from '@/components/common/toast';
@@ -36,6 +39,10 @@ export default function Dashboard() {
   // Same React-owned confirmation for project deletion — a single hover-click
   // must never wipe a whole project.
   const [pendingDeleteProject, setPendingDeleteProject] = useState<Project | null>(null);
+  const [pendingProjectImport, setPendingProjectImport] = useState<{
+    file: File;
+    preview: ProjectZipImportPreview;
+  } | null>(null);
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -44,6 +51,11 @@ export default function Dashboard() {
     try {
       if (file.name.endsWith('.zip')) {
         // New format: single-project ZIP (merge/restore — no DB wipe)
+        const preview = await previewProjectZipImport(file);
+        if (preview.collisions.length > 0) {
+          setPendingProjectImport({ file, preview });
+          return;
+        }
         const ids = await importProjectZip(file);
         await refresh();
         toast.success(t('dashboard.import.success'));
@@ -63,6 +75,33 @@ export default function Dashboard() {
     } finally {
       setImporting(false);
       if (importRef.current) importRef.current.value = '';
+    }
+  };
+
+  const cancelProjectImport = () => {
+    if (importing) return;
+    setPendingProjectImport(null);
+  };
+
+  const runProjectImportReplace = async () => {
+    const pending = pendingProjectImport;
+    if (!pending) return;
+    setImporting(true);
+    try {
+      const ids = await importProjectZip(pending.file, {
+        replaceProjectIds: pending.preview.collisions.map(
+          (collision) => collision.projectId,
+        ),
+      });
+      await refresh();
+      setPendingProjectImport(null);
+      toast.success(t('dashboard.import.success'));
+      if (ids.length === 1) navigate(`/project/${ids[0]}`);
+    } catch (err) {
+      console.error('Project replacement import failed:', err);
+      toast.error(describeBackupError(err, t('dashboard.import.error')), 10000);
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -267,6 +306,14 @@ export default function Dashboard() {
         message={t('dashboard.deleteProject.confirm').replace('{name}', pendingDeleteProject?.title ?? '')}
         onConfirm={runDeleteProject}
         onCancel={() => setPendingDeleteProject(null)}
+      />
+
+      <ImportCollisionDialog
+        open={pendingProjectImport !== null}
+        collisions={pendingProjectImport?.preview.collisions ?? []}
+        busy={importing}
+        onReplace={runProjectImportReplace}
+        onCancel={cancelProjectImport}
       />
     </>
   );

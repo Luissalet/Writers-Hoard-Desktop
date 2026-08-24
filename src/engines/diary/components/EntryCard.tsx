@@ -3,6 +3,7 @@ import type { DiaryEntry } from '../types';
 import { MOOD_CONFIG } from '../types';
 import { stripHtml } from '@/utils/text';
 import { useTranslation } from '@/i18n/useTranslation';
+import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 
 interface EntryCardProps {
   entry: DiaryEntry;
@@ -69,7 +70,7 @@ export default function EntryCard({ entry, onEdit, onTogglePin }: EntryCardProps
           className="text-sm text-text-secondary leading-relaxed line-clamp-4 prose prose-invert prose-sm max-w-none
                      [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-sm [&_h1]:font-semibold [&_h2]:font-semibold
                      [&_img]:hidden [&_ul]:my-0 [&_ol]:my-0 [&_p]:my-0.5 [&_blockquote]:my-0.5"
-          dangerouslySetInnerHTML={{ __html: entry.content }}
+          dangerouslySetInnerHTML={sanitizedHtml(entry.content)}
         />
       ) : (
         <p className="text-sm text-text-secondary leading-relaxed line-clamp-4 whitespace-pre-wrap">

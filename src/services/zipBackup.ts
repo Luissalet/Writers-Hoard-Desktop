@@ -91,6 +91,30 @@ interface PreflightResult {
   json: Map<string, unknown>;
 }
 
+export interface ProjectZipImportProject {
+  id: string;
+  title: string;
+}
+
+export interface ProjectZipImportCollision {
+  projectId: string;
+  incomingTitle: string;
+  existingTitle: string;
+}
+
+export interface ProjectZipImportPreview {
+  projects: ProjectZipImportProject[];
+  collisions: ProjectZipImportCollision[];
+}
+
+export interface ProjectZipImportOptions {
+  /**
+   * Exact project IDs the user explicitly approved replacing after preview.
+   * Any other collision aborts the complete transaction before it mutates data.
+   */
+  replaceProjectIds?: readonly string[];
+}
+
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -263,7 +287,10 @@ export async function exportFullZip(): Promise<void> {
   }
 }
 
-export async function exportProjectZip(projectId: string): Promise<void> {
+/** Build a single-project archive without triggering a browser download. */
+export async function createProjectZipArchive(
+  projectId: string,
+): Promise<{ blob: Blob; fileName: string }> {
   const zip = new JSZip();
   const failures: BackupFailure[] = [];
   try {
@@ -278,7 +305,16 @@ export async function exportProjectZip(projectId: string): Promise<void> {
       compression: 'DEFLATE',
       compressionOptions: { level: 6 },
     });
-    saveAs(blob, `${sanitize(project.title)}-project.zip`);
+    return { blob, fileName: `${sanitize(project.title)}-project.zip` };
+  } catch (error) {
+    throw wrapFailure('export', error, { projectId });
+  }
+}
+
+export async function exportProjectZip(projectId: string): Promise<void> {
+  const { blob, fileName } = await createProjectZipArchive(projectId);
+  try {
+    saveAs(blob, fileName);
   } catch (error) {
     throw wrapFailure('export', error, { projectId });
   }
@@ -615,12 +651,71 @@ async function clearProjectForRestore(projectId: string): Promise<void> {
   await db.projects.delete(projectId);
 }
 
-export async function importProjectZip(file: File): Promise<string[]> {
+async function findProjectImportCollisions(
+  projects: readonly PreparedProject[],
+): Promise<ProjectZipImportCollision[]> {
+  const existingProjects = await db.projects.bulkGet(
+    projects.map((project) => project.projectId),
+  );
+
+  return projects.flatMap((project, index) => {
+    const existing = existingProjects[index];
+    if (!existing) return [];
+    return [{
+      projectId: project.projectId,
+      incomingTitle: project.project.title,
+      existingTitle: existing.title,
+    }];
+  });
+}
+
+/**
+ * Validate a project archive and report collisions without writing to Dexie.
+ * The returned IDs are the only IDs callers may later authorize for replace.
+ */
+export async function previewProjectZipImport(
+  file: File,
+): Promise<ProjectZipImportPreview> {
+  const { prepared } = await loadAndPreflight(file, 'project');
+  return {
+    projects: prepared.projects.map((project) => ({
+      id: project.projectId,
+      title: project.project.title,
+    })),
+    collisions: await findProjectImportCollisions(prepared.projects),
+  };
+}
+
+export async function importProjectZip(
+  file: File,
+  options: ProjectZipImportOptions = {},
+): Promise<string[]> {
   const { zip, prepared } = await loadAndPreflight(file, 'project');
+  const approvedReplacements = new Set(options.replaceProjectIds ?? []);
   try {
     await db.transaction('rw', db.tables, async () => {
-      for (const project of prepared.projects) {
-        if (await db.projects.get(project.projectId)) {
+      const existingProjects = await db.projects.bulkGet(
+        prepared.projects.map((project) => project.projectId),
+      );
+      for (const [index, project] of prepared.projects.entries()) {
+        const existingProject = existingProjects[index];
+        if (existingProject && !approvedReplacements.has(project.projectId)) {
+          throw new BackupOperationError('import', [
+            failure(
+              'import',
+              `Project "${project.project.title}" (${project.projectId}) already exists and was not approved for replacement.`,
+              {
+                projectId: project.projectId,
+                projectDir: project.projectDir,
+              },
+            ),
+          ]);
+        }
+      }
+
+      for (const [index, project] of prepared.projects.entries()) {
+        const existingProject = existingProjects[index];
+        if (existingProject) {
           await clearProjectForRestore(project.projectId);
         }
         await db.projects.add(project.project as never);

@@ -4,11 +4,22 @@
 
 import type { AiConfig } from '@/types';
 import { DEFAULT_AI_CONFIG } from '@/config/ai';
+import { sanitizeModelText } from './aiText';
 import { t } from '@/i18n/useTranslation';
 
 /**
+ * Local-provider failure whose message is ALREADY user-facing (translated).
+ * safeAiCall surfaces it verbatim instead of the generic fallback.
+ */
+export class LocalAiError extends Error {}
+
+/**
  * Base function for all AI calls.
- * Uses OpenAI-compatible chat completions format (NOT Anthropic's native format).
+ *
+ * provider 'proxy' → OpenAI-compatible chat completions against CLIProxyAPI
+ * (NOT Anthropic's native format), exactly as always.
+ * provider 'local' → the embedded Ollama runtime, through the main process
+ * (the packaged renderer is file:// and Ollama's CORS rejects null origins).
  */
 export async function callAi(
   systemPrompt: string,
@@ -17,6 +28,24 @@ export async function callAi(
 ): Promise<string> {
   if (!config.enabled) {
     throw new Error(t('ai.disabled'));
+  }
+
+  if (config.provider === 'local') {
+    const ollama = window.electronAPI?.ollama;
+    if (!ollama) throw new LocalAiError(t('ai.localNotReady')); // web build / no bridge
+    const res = await ollama.chat({
+      model: config.localModel,
+      system: systemPrompt,
+      user: userMessage,
+    });
+    if (!res.ok || res.content == null) {
+      const code = res.error ?? '';
+      if (code === 'not-ready' || code === 'runtime-missing' || code.startsWith('model-missing')) {
+        throw new LocalAiError(t('ai.localNotReady'));
+      }
+      throw new Error(code || 'local AI failed');
+    }
+    return sanitizeModelText(res.content);
   }
 
   const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
@@ -38,7 +67,8 @@ export async function callAi(
   }
 
   const data = await response.json();
-  return data.choices[0].message.content;
+  // Harmless for Claude; load-bearing for a Qwen routed through the proxy.
+  return sanitizeModelText(data.choices[0].message.content);
 }
 
 /**
@@ -76,6 +106,10 @@ export async function safeAiCall<T>(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : '';
 
+    // Local-provider failures carry an already-translated, actionable message.
+    if (err instanceof LocalAiError) {
+      return { success: false, error: err.message };
+    }
     if (message.includes('fetch') || message.includes('Failed to fetch') || message.includes('NetworkError')) {
       return {
         success: false,

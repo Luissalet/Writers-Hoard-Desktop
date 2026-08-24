@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { BookOpen, Plus, Search, Calendar, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
+import { EngineSpinner, useDeepLinkParam } from '@/engines/_shared';
 import { useDiaryEntries } from '../hooks';
 import type { DiaryEntry, DiaryMood } from '../types';
 import { MOOD_CONFIG } from '../types';
@@ -52,6 +52,17 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
 
   // null = timeline view, string = editing existing, 'new' = creating new full entry
   const [editingId, setEditingId] = useState<string | 'new' | null>(null);
+  const deepLinkedEntryId = useDeepLinkParam('entity');
+  const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
+
+  if (
+    deepLinkedEntryId
+    && deepLinkedEntryId !== appliedDeepLink
+    && entries.some((entry) => entry.id === deepLinkedEntryId)
+  ) {
+    setAppliedDeepLink(deepLinkedEntryId);
+    setEditingId(deepLinkedEntryId);
+  }
   // Blank entry for the 'new' flow, created once at click time (not during
   // render, where regenerated ids/dates broke the editor's dirty-check).
   const [draftEntry, setDraftEntry] = useState<DiaryEntry | null>(null);

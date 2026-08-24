@@ -39,6 +39,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
   const {
     connections,
     addConnection,
+    editConnection,
     removeConnection,
     refresh: refreshConnections,
   } = useTimelineConnections(projectId);
@@ -199,6 +200,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
           onEditEvent={handleEditEventGlobal}
           onDeleteEvent={(id) => askRemoveEvent(id, handleRemoveEventGlobal)}
           onAddConnection={addConnection}
+          onEditConnection={editConnection}
           onDeleteConnection={removeConnection}
           onEditTimeline={editTimeline}
         />

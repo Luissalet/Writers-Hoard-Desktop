@@ -6,27 +6,38 @@ import {
 } from '@/services/projectIntelligence';
 
 export function useProjectCockpit(projectId: string) {
-  const [data, setData] = useState<ProjectCockpitData | null>(null);
-  const [error, setError] = useState<Error | null>(null);
+  const [state, setState] = useState<{
+    projectId: string | null;
+    data: ProjectCockpitData | null;
+    error: Error | null;
+  }>({ projectId: null, data: null, error: null });
   const [revision, setRevision] = useState(0);
 
   const retry = useCallback(() => {
-    setError(null);
+    setState(current => current.projectId === projectId
+      ? { ...current, error: null }
+      : current);
     setRevision(value => value + 1);
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     const subscription = liveQuery(() => loadProjectCockpit(projectId)).subscribe({
       next: value => {
-        setData(value);
-        setError(null);
+        setState({ projectId, data: value, error: null });
       },
       error: reason => {
-        setError(reason instanceof Error ? reason : new Error(String(reason)));
+        setState({
+          projectId,
+          data: null,
+          error: reason instanceof Error ? reason : new Error(String(reason)),
+        });
       },
     });
     return () => subscription.unsubscribe();
   }, [projectId, revision]);
 
+  const ownsCurrentProject = state.projectId === projectId;
+  const data = ownsCurrentProject ? state.data : null;
+  const error = ownsCurrentProject ? state.error : null;
   return { data, error, loading: !data && !error, retry };
 }

@@ -81,26 +81,69 @@ interface QuickNotePayload {
   projectId: string | null;
 }
 
+// ── Local AI (embedded Ollama) — mirrors electron/ollama.ts ─────────────────
+
+type OllamaState =
+  | 'absent'
+  | 'downloading-runtime'
+  | 'extracting'
+  | 'starting'
+  | 'running'
+  | 'external'
+  | 'error';
+
+interface OllamaModelInfo {
+  name: string;
+  sizeBytes: number;
+}
+
+interface OllamaStatus {
+  state: OllamaState;
+  supported: boolean;
+  runtimeInstalled: boolean;
+  url: string | null;
+  models: OllamaModelInfo[];
+  pulling: string | null;
+  runtimeBytes?: number;
+  error?: string;
+}
+
+interface OllamaOpResult {
+  ok: boolean;
+  error?: string;
+}
+
+interface OllamaRuntimeProgress {
+  phase: 'downloading' | 'extracting' | 'starting';
+  receivedBytes: number;
+  totalBytes: number | null;
+}
+
+interface OllamaPullProgress {
+  tag: string;
+  status: string;
+  completedBytes: number;
+  totalBytes: number;
+  /** 0..1, monotonic within a pull. */
+  percent: number;
+}
+
+interface OllamaChatRequest {
+  model: string;
+  system: string;
+  user: string;
+  maxTokens?: number;
+}
+
+interface OllamaChatResult {
+  ok: boolean;
+  content?: string;
+  error?: string;
+}
+
 const api = {
   /** Always true when running inside the desktop shell. */
   isDesktop: true as const,
-
-  app: {
-    platform: process.platform,
-    getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
-    getDataPath: (): Promise<string> => ipcRenderer.invoke('app:getDataPath'),
-    /** Base URL of the embedded media-downloader service (e.g. http://127.0.0.1:8765). */
-    getMediaServerUrl: (): Promise<string> => ipcRenderer.invoke('app:getMediaServerUrl'),
-  },
-
-  // Native filesystem access for the "hoard" — exports, backups, asset folders.
-  // Intentionally minimal; expand as engines start writing real files.
-  // (readFile/writeFile were removed: unvalidated arbitrary-path IO with no
-  // callers. Re-add scoped, traversal-guarded variants when actually needed.)
-  fs: {
-    pickFolder: (): Promise<string | null> => ipcRenderer.invoke('fs:pickFolder'),
-    exists: (filePath: string): Promise<boolean> => ipcRenderer.invoke('fs:exists', filePath),
-  },
 
   // Export pipelines that need native muscle (ffmpeg, PDF printing, save dialog).
   media: {
@@ -207,6 +250,38 @@ const api = {
       const listener = () => callback();
       ipcRenderer.on('updates:downloaded', listener);
       return () => ipcRenderer.removeListener('updates:downloaded', listener);
+    },
+  },
+
+  // Local AI — a portable Ollama runtime managed by the main process. ALL
+  // Ollama HTTP happens in main: the packaged renderer is file:// (null
+  // origin) and Ollama's CORS would reject it (tasks/desktop-transition.md).
+  ollama: {
+    getStatus: (): Promise<OllamaStatus> => ipcRenderer.invoke('ollama:getStatus'),
+    start: (): Promise<OllamaOpResult> => ipcRenderer.invoke('ollama:start'),
+    downloadRuntime: (): Promise<OllamaOpResult> => ipcRenderer.invoke('ollama:downloadRuntime'),
+    cancelRuntimeDownload: (): Promise<void> =>
+      ipcRenderer.invoke('ollama:cancelRuntimeDownload'),
+    pullModel: (tag: string): Promise<OllamaOpResult> => ipcRenderer.invoke('ollama:pullModel', tag),
+    cancelPull: (tag: string): Promise<void> => ipcRenderer.invoke('ollama:cancelPull', tag),
+    deleteModel: (tag: string): Promise<OllamaOpResult> =>
+      ipcRenderer.invoke('ollama:deleteModel', tag),
+    chat: (req: OllamaChatRequest): Promise<OllamaChatResult> =>
+      ipcRenderer.invoke('ollama:chat', req),
+    onRuntimeProgress: (callback: (p: OllamaRuntimeProgress) => void): (() => void) => {
+      const listener = (_e: unknown, p: OllamaRuntimeProgress) => callback(p);
+      ipcRenderer.on('ollama:runtime-progress', listener);
+      return () => ipcRenderer.removeListener('ollama:runtime-progress', listener);
+    },
+    onPullProgress: (callback: (p: OllamaPullProgress) => void): (() => void) => {
+      const listener = (_e: unknown, p: OllamaPullProgress) => callback(p);
+      ipcRenderer.on('ollama:pull-progress', listener);
+      return () => ipcRenderer.removeListener('ollama:pull-progress', listener);
+    },
+    onStatus: (callback: (s: OllamaStatus) => void): (() => void) => {
+      const listener = (_e: unknown, s: OllamaStatus) => callback(s);
+      ipcRenderer.on('ollama:status', listener);
+      return () => ipcRenderer.removeListener('ollama:status', listener);
     },
   },
 };

@@ -4,27 +4,16 @@
 // Renders a searchable grid of every Lucide icon.
 // Selected icon is stored by name string (e.g. 'BookOpen').
 
-/* eslint-disable react-refresh/only-export-components --
-   `resolveIcon` is the module's lookup util and belongs with the pickers;
-   losing HMR granularity here is acceptable. */
-
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { icons, type LucideIcon } from 'lucide-react';
-import { Search, X } from 'lucide-react';
+import { Search, Sparkles, X, type LucideIcon } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
-
-// ---------------------------------------------------------------------------
-// Curated "featured" icons shown first when search is empty
-// ---------------------------------------------------------------------------
-const FEATURED_ICONS = [
-  'BookOpen', 'Feather', 'Scroll', 'PenTool', 'Library', 'Lightbulb',
-  'Layers', 'Globe', 'Map', 'Compass', 'Castle', 'Crown',
-  'Sword', 'Shield', 'Flame', 'Star', 'Moon', 'Sun',
-  'Heart', 'Skull', 'Ghost', 'Trees', 'Mountain', 'Anchor',
-  'Gem', 'Sparkles', 'Wand2', 'Drama', 'Music', 'Camera',
-  'Eye', 'Brain', 'Rocket', 'Zap', 'Puzzle', 'Target',
-];
+import {
+  curatedProjectIconCatalog,
+  featuredProjectIconNames,
+  loadFullProjectIconCatalog,
+} from './projectIconCatalog';
+import type { ProjectIconCatalog } from './fullLucideIconCatalog';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -35,8 +24,22 @@ function iconNameToWords(name: string): string {
   return name.replace(/([A-Z])/g, ' $1').trim().toLowerCase();
 }
 
-// Pre-build the icon entries list (name -> component) once
-const ALL_ICON_ENTRIES: [string, LucideIcon][] = Object.entries(icons) as [string, LucideIcon][];
+function useDeferredIconCatalog(enabled: boolean): ProjectIconCatalog {
+  const [fullCatalog, setFullCatalog] = useState<ProjectIconCatalog | null>(null);
+
+  useEffect(() => {
+    if (!enabled || fullCatalog) return;
+    let active = true;
+    void loadFullProjectIconCatalog().then(catalog => {
+      if (active) setFullCatalog(catalog);
+    }).catch(error => {
+      console.error('Failed to load the full project icon catalog', error);
+    });
+    return () => { active = false; };
+  }, [enabled, fullCatalog]);
+
+  return fullCatalog ?? curatedProjectIconCatalog;
+}
 
 // ---------------------------------------------------------------------------
 // IconPicker (Dropdown variant — used in CreateProjectModal)
@@ -64,6 +67,11 @@ export default function IconPicker({
   const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const availableIcons = useDeferredIconCatalog(open);
+  const iconEntries = useMemo(
+    () => Object.entries(availableIcons) as [string, LucideIcon][],
+    [availableIcons],
+  );
 
   // Close on outside click
   useEffect(() => {
@@ -97,23 +105,23 @@ export default function IconPicker({
 
     if (!query) {
       // Show featured first, then the rest
-      const featuredSet = new Set(FEATURED_ICONS);
-      const featured = FEATURED_ICONS
-        .filter(name => icons[name as keyof typeof icons])
-        .map(name => [name, icons[name as keyof typeof icons]] as [string, LucideIcon]);
-      const rest = ALL_ICON_ENTRIES
+      const featuredSet = new Set<string>(featuredProjectIconNames);
+      const featured = featuredProjectIconNames
+        .filter(name => availableIcons[name])
+        .map(name => [name, availableIcons[name]] as [string, LucideIcon]);
+      const rest = iconEntries
         .filter(([name]) => !featuredSet.has(name))
         .slice(0, 200); // cap for performance
       return [...featured, ...rest];
     }
 
-    return ALL_ICON_ENTRIES.filter(([name]) => {
+    return iconEntries.filter(([name]) => {
       const words = iconNameToWords(name);
       return words.includes(query) || name.toLowerCase().includes(query);
     }).slice(0, 120);
-  }, [search]);
+  }, [availableIcons, iconEntries, search]);
 
-  const SelectedIcon = value ? (icons[value as keyof typeof icons] || null) : null;
+  const SelectedIcon = value ? (availableIcons[value] || null) : null;
   const btnSize = size === 'sm' ? 'w-9 h-9' : 'w-11 h-11';
   const iconSize = size === 'sm' ? 18 : 22;
 
@@ -217,6 +225,11 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
+  const availableIcons = useDeferredIconCatalog(open);
+  const iconEntries = useMemo(
+    () => Object.entries(availableIcons) as [string, LucideIcon][],
+    [availableIcons],
+  );
 
   // Calculate position from button rect — dropdown renders above via portal
   useEffect(() => {
@@ -260,20 +273,20 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) {
-      const featuredSet = new Set(FEATURED_ICONS);
-      const featured = FEATURED_ICONS
-        .filter(name => icons[name as keyof typeof icons])
-        .map(name => [name, icons[name as keyof typeof icons]] as [string, LucideIcon]);
-      const rest = ALL_ICON_ENTRIES
+      const featuredSet = new Set<string>(featuredProjectIconNames);
+      const featured = featuredProjectIconNames
+        .filter(name => availableIcons[name])
+        .map(name => [name, availableIcons[name]] as [string, LucideIcon]);
+      const rest = iconEntries
         .filter(([name]) => !featuredSet.has(name))
         .slice(0, 200);
       return [...featured, ...rest];
     }
-    return ALL_ICON_ENTRIES.filter(([name]) => {
+    return iconEntries.filter(([name]) => {
       const words = iconNameToWords(name);
       return words.includes(query) || name.toLowerCase().includes(query);
     }).slice(0, 120);
-  }, [search]);
+  }, [availableIcons, iconEntries, search]);
 
   const handleSelect = useCallback((name: string) => {
     onChange(name);
@@ -367,10 +380,3 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
 // ---------------------------------------------------------------------------
 // Helper: resolve icon name → component (used in ProjectCard, etc.)
 // ---------------------------------------------------------------------------
-export function resolveIcon(name?: string): LucideIcon | null {
-  if (!name) return null;
-  return (icons[name as keyof typeof icons] as LucideIcon) || null;
-}
-
-// Re-export Sparkles for the default display
-import { Sparkles } from 'lucide-react';

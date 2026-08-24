@@ -12,10 +12,11 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Grid3x3, List, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
-import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
+import { EngineSpinner, useDeepLinkParam } from '@/engines/_shared';
 import { useSnapshots } from '../hooks';
 import CaptureBar from './CaptureBar';
 import SnapshotCard from './SnapshotCard';
+import SnapshotDetail from './SnapshotDetail';
 import ManualSnapshotModal from './ManualSnapshotModal';
 import InstagramConnect from './InstagramConnect';
 import type { MediaFormat } from '@/services/mediaDownloader';
@@ -78,6 +79,19 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
   const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
   const [searchFocused, setSearchFocused] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
+  const deepLinkedSnapshotId = useDeepLinkParam('entity');
+  const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
+
+  if (
+    deepLinkedSnapshotId
+    && deepLinkedSnapshotId !== appliedDeepLink
+    && snapshots.some((snapshot) => snapshot.id === deepLinkedSnapshotId)
+  ) {
+    setAppliedDeepLink(deepLinkedSnapshotId);
+    setSearchQuery('');
+    setSelectedSnapshotId(deepLinkedSnapshotId);
+  }
 
   const filteredSnapshots = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -90,6 +104,7 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
       (s.extractedText && s.extractedText.toLowerCase().includes(q))
     );
   }, [snapshots, searchQuery]);
+  const selectedSnapshot = snapshots.find((snapshot) => snapshot.id === selectedSnapshotId);
 
   // All distinct tags already used in this project — offered as autocomplete.
   const allTags = useMemo(
@@ -272,9 +287,7 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
               <SnapshotCard
                 key={snapshot.id}
                 snapshot={snapshot}
-                onUpdate={editSnapshot}
-                onDelete={handleDelete}
-                tagSuggestions={allTags}
+                onOpen={setSelectedSnapshotId}
               />
             ))}
           </div>
@@ -284,10 +297,7 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
               <div
                 key={snapshot.id}
                 className="bg-elevated border border-border rounded-lg p-4 hover:border-accent-gold cursor-pointer transition-all hover:shadow-md"
-                onClick={() => {
-                  const card = document.querySelector(`[data-snapshot-id="${snapshot.id}"]`);
-                  if (card) card.dispatchEvent(new Event('click', { bubbles: true }));
-                }}
+                onClick={() => setSelectedSnapshotId(snapshot.id)}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
@@ -325,6 +335,16 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
             setIsManualModalOpen(false);
           }}
           onCancel={() => setIsManualModalOpen(false)}
+        />
+      )}
+
+      {selectedSnapshot && (
+        <SnapshotDetail
+          snapshot={selectedSnapshot}
+          onUpdate={editSnapshot}
+          onDelete={handleDelete}
+          onClose={() => setSelectedSnapshotId(null)}
+          tagSuggestions={allTags}
         />
       )}
     </div>

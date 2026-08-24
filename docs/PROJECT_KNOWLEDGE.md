@@ -39,6 +39,9 @@ relative paths while Electron owns the files on disk.
 
 - `src/main.tsx` mounts `App` under React StrictMode.
 - `src/App.tsx` imports `@/engines` for registration side effects.
+- Dashboard, project detail, Notes inbox, and the desktop media downloader are
+  route-level lazy chunks. Engine registration remains eager so search,
+  anchoring, backup, and conformance contracts exist before a route loads.
 - Desktop uses `HashRouter` because the renderer loads under `file://`; web uses
   `BrowserRouter`.
 - `MainLayout` permanently mounts the sidebar, route outlet, global search,
@@ -153,7 +156,7 @@ copies of the same project.
 
 ## Persistence and domain invariants
 
-`WritersHoardDB` currently reaches schema version 23 and exposes 50 typed table
+`WritersHoardDB` currently reaches schema version 26 and exposes 51 typed table
 properties. Engine table declarations are descriptive and support backup
 coverage checks; they do **not** generate the Dexie schema. A persisted engine
 still needs a central, versioned change in `src/db/index.ts`.
@@ -190,6 +193,9 @@ Recent schema direction:
 - v22 dropped the retired `externalLinks` store.
 - v23 added project-scoped `entityLinks`, `citations`, `publishingProfiles`, and
   `conversionReceipts`.
+- v24 replaced the overlapping Yarn Board and Brainstorm stores with the typed
+  Board graph.
+- v25-v26 added authoritative-free canon and rendered Worldgen tile caches.
 
 ## Cross-engine infrastructure
 
@@ -286,6 +292,62 @@ inventory. Its tool views add:
   off; only selected indexed excerpts are sent and answers are instructed to
   cite their source IDs.
 
+The eleven Cockpit views are organized as four workflows without removing any
+capability: Supervise (`overview`, `health`, `intelligence`), Develop
+(`entities`, `spine`, `ai`), Produce (`workflows`, `research`, `assets`), and
+Prepare and publish (`templates`, `publishing`). The `panel` query parameter is
+the source of truth for the selected view, so links are shareable, browser
+history works, unrelated query state is preserved, and an invalid value heals
+to Overview.
+
+`services/commandCenter.ts` owns the project-aware command model used by the
+global `Ctrl+K`/`Cmd+K` surface. It combines global navigation, Cockpit review,
+project editing, the publishing studio, enabled engines in project order, and
+engine management with indexed content results. Matching is accent-insensitive,
+engine actions are deduplicated, project-scoped results avoid redundant project
+and disabled-engine hits, and selection wraps for keyboard navigation. Query
+parameters (`panel`, `edit`, and `manage`) remain the only modal/navigation
+contract rather than creating parallel UI state.
+
+Quick Compile and saved publishing profiles are two adapters over
+`PublishingProfileModal`. A common `PublishingDocument` IR owns selection,
+order, sanitized content, localized metadata, synopsis, word counts, and
+bibliography for Markdown, HTML, desktop PDF, DOCX, and EPUB 3. DOCX and ePub
+load their binary renderers only when requested; their explicit portable-image
+policy omits all images and never fetches remote URLs. Missing selected IDs and
+uncached Google Docs are reported before export. Legacy profiles infer their
+selection mode from their stored IDs; the optional fields therefore remain
+compatible with Dexie v26 and continue to round-trip through the existing
+publishing-profile backup table.
+
+The Narrative Spine derives a deterministic local continuity queue from stored
+structure: a beat whose scene/writing references resolve to neither entity, an
+uncut seed with no payoff, and a payoff strictly earlier than its known setup.
+Signals carry stable IDs, are grouped beside their beat when possible, and link
+to the exact beat, writing, scene, or seed. `panel=spine&beat=<id>` restores the
+selected row and keyboard focus; invalid beat IDs are removed after hydration.
+
+Recent-work rows carry the source entity ID all the way to the destination.
+Writings, Codex, and Notes use the `writing`, `entry`, and `note` query keys;
+Dialog Scene, Diary, and Scrapper use the shared `entity` key. Each receiver
+waits for its reactive row to exist, selects the target once, and then leaves
+normal in-engine selection in control. Outline links use both `outline` and
+`beat`, select the owning outline, expand ancestors, and focus the exact row.
+Engines without a deep-link adapter keep the safe engine-level fallback.
+
+Coverage without a denominator is `null`, not 100%. The Cockpit renders it as
+N/A and exposes the value as not applicable to assistive technology. Project
+health has three explicit states: `not-applicable` for an empty project,
+`clean` for checked content with no issues, and `issues` when repairs are
+available.
+
+Project metadata can be edited from the project header/Cockpit without
+recreating the project. The getting-started checklist is made of navigation
+actions: details open that editor, while character and writing steps open their
+exact engines. Cockpit, cross-engine tools, recipes, engine names, project
+cards, and project type/status controls use the same English/Spanish locale
+catalogue rather than displaying persisted enum values.
+
 ### World generation
 
 The deterministic pipeline is:
@@ -300,38 +362,62 @@ then runs the pipeline in a Web Worker. Typed arrays are transferred back
 zero-copy. Painting mutates live arrays, so saved edits must replay exactly once
 against a pristine generated copy.
 
+Engine-registry entity resolution reads Worldgen rename edits through a small
+legacy/current-format parser. It does not import terrain replay or sculpting at
+startup; those modules stay behind the Worldgen route.
+
 ## Native and external boundaries
 
-- The preload bridge exposes app metadata, limited filesystem checks/pickers,
-  media, page capture, Instagram login, export, quick notes, and updates.
-- Browser windows use context isolation, sandboxing, and no Node integration.
-- Managed paths are traversal-checked before disk access.
+- The preload bridge exposes only used capabilities: managed media, page
+  capture, Instagram login, export, quick notes, updates, local Ollama, and
+  Worldgen forge ports. Unused app-metadata and arbitrary filesystem probes are
+  not exposed.
+- Browser windows use context isolation, sandboxing, no Node integration, and
+  a CSP that rejects arbitrary inline scripts. Persisted rich text passes
+  through one DOMPurify allowlist before every HTML sink.
+- Every IPC channel is assigned to the main or quick-note window, requires the
+  expected top frame and exact internal document URL, and fails closed when
+  unlisted. Production navigation is limited to that same document plus hash
+  routes.
+- Managed paths reject navigation atoms, enforce lexical containment, and
+  resolve existing ancestors before reads/writes so symlinks cannot escape the
+  media root.
 - The media-library relocation IPC chooses its destination in the main process,
   writes its location atomically, and never accepts an arbitrary renderer path.
 - Google Identity/Drive/Docs are called directly from the renderer.
-- AI uses an OpenAI-compatible endpoint, defaulting to
-  `http://localhost:8317`.
+- Remote AI uses an OpenAI-compatible endpoint, defaulting to
+  `http://localhost:8317`. Optional local AI runs through main-process IPC;
+  its portable Ollama archive is version-, size-, and SHA-256-pinned and is
+  verified in staging before extraction or execution.
 - Google OAuth tokens remain in memory; locale and AI configuration persist in
   Dexie settings.
 
 ## Current guardrails and residual risks
 
 - ZIP restore preflights before mutation, imports inside a Dexie transaction,
-  and fails closed with structured engine/path diagnostics. Scrapper backups
-  deliberately preserve metadata but reset unavailable external-file states;
-  the native files themselves are not embedded in ZIP archives.
+  and fails closed with structured engine/path diagnostics. A project-ID
+  collision requires explicit replacement approval; cancelling leaves the
+  current project untouched. Safe clone import remains disabled until all
+  cross-engine IDs and references can be remapped. Scrapper backups deliberately
+  preserve metadata but reset unavailable external-file states; the native
+  files themselves are not embedded in ZIP archives.
 - Parent deletion owns high-risk children/caches (writing snapshots, Yarn
   edges, world caches), and Project Health can detect/repair other stale soft
   references. Dexie still has no foreign keys, so new relationships require a
   deliberate lifecycle audit.
 - `verify:quick` enforces renderer/Electron types, a zero-fingerprint shipping
   lint baseline, engine/schema/backup/locale conformance, and pinned binary
-  metadata. `verify:release` additionally runs isolated Electron/IndexedDB
-  critical tests, complete bundled/Vite renderer startup smoke tests,
-  production builds, and renderer bundle budgets.
-- Engine roots are split, including large Worldgen and editor paths. The shared
-  renderer entry remains sizeable (about 1.49 MB minified in this verification)
-  and is protected by a 1.6 MB ratchet rather than considered fully optimized.
+  metadata. `verify:release` first requires a clean dependency audit, then runs
+  isolated Electron/IndexedDB and native-boundary tests, complete bundled/Vite
+  renderer startup smoke tests, production builds, and renderer bundle budgets.
+  The unpacked desktop package has its own isolated-profile startup smoke.
+  Publishing additionally refuses to run without Windows signing credentials
+  and enables electron-builder's fail-closed signing check.
+- Engine roots and global pages are split, including large Worldgen/editor
+  paths and the full Lucide project-icon catalogue. The shared renderer entry
+  is 906.2 kB minified, below its 1.6 MB release gate. Residual informative warnings
+  remain for World3D (710.6 kB against 700 kB) and total renderer JavaScript
+  (5,130.8 kB against 4,100 kB).
 - The recovery journal is intentionally best-effort and remains subject to
   browser localStorage quota. Writing analytics never turn a successful
   document save into a failure.

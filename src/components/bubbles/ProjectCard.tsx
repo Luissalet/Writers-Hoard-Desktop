@@ -1,7 +1,8 @@
-import { useMemo, useRef } from 'react';
+import { useRef } from 'react';
 import { motion } from 'framer-motion';
 import { BookOpen, Library, Lightbulb, Layers, Trash2, Palette } from 'lucide-react';
-import { InlineIconPicker, resolveIcon } from '@/components/common/IconPicker';
+import { InlineIconPicker } from '@/components/common/IconPicker';
+import { ProjectIcon } from '@/components/common/ProjectIcon';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { Project } from '@/types';
 
@@ -29,13 +30,6 @@ interface ProjectCardProps {
 
 export default function ProjectCard({ project, onClick, onDelete, onColorChange, onIconChange, index }: ProjectCardProps) {
   const { t } = useTranslation();
-  // Memoized so the icon component reference is stable across renders
-  // (react-hooks/static-components: components created during render reset
-  // their state every render).
-  const Icon = useMemo(
-    () => resolveIcon(project.icon) || typeIcons[project.type] || BookOpen,
-    [project.icon, project.type],
-  );
   const colorInputRef = useRef<HTMLInputElement>(null);
 
   return (
@@ -66,12 +60,18 @@ export default function ProjectCard({ project, onClick, onDelete, onColorChange,
               className="w-12 h-12 rounded-xl flex items-center justify-center"
               style={{ backgroundColor: `${project.color}25` }}
             >
-              {/* eslint-disable-next-line react-hooks/static-components -- resolveIcon returns stable module-scope Lucide components; memoized above */}
-              <Icon size={24} style={{ color: project.color }} />
+              <ProjectIcon
+                name={project.icon}
+                fallback={typeIcons[project.type] ?? BookOpen}
+                size={24}
+                style={{ color: project.color }}
+              />
             </div>
             <div className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${statusColors[project.status]}`} />
-              <span className="text-[10px] text-text-dim uppercase tracking-wider">{project.status}</span>
+              <span className="text-[10px] text-text-dim uppercase tracking-wider">
+                {t(`project.status.${project.status}`)}
+              </span>
             </div>
           </div>
 
@@ -80,13 +80,13 @@ export default function ProjectCard({ project, onClick, onDelete, onColorChange,
             {project.title}
           </h3>
           <p className="text-sm text-text-muted line-clamp-2 mb-4">
-            {project.description || 'No description yet'}
+            {project.description || t('projectCard.noDescription')}
           </p>
 
           {/* Footer */}
           <div className="flex items-center justify-between">
             <span className="text-xs text-text-dim capitalize px-2 py-1 bg-elevated rounded">
-              {project.type}
+              {t(`project.type.${project.type}`)}
             </span>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
               {onIconChange && (
@@ -119,6 +119,8 @@ export default function ProjectCard({ project, onClick, onDelete, onColorChange,
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(); }}
                 className="p-1.5 rounded-lg hover:bg-danger/20 transition"
+                aria-label={t('common.delete')}
+                title={t('common.delete')}
               >
                 <Trash2 size={14} className="text-danger" />
               </button>

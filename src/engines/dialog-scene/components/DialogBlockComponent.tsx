@@ -1,8 +1,8 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { useDebouncedField } from '@/engines/_shared';
 import { Trash2, GripVertical, Type, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { DialogBlock, BlockFormatting } from '../types';
+import type { DialogBlock, DialogBlockType, BlockFormatting } from '../types';
 import ScriptAutocomplete, { type AutocompleteSuggestion } from './ScriptAutocomplete';
 import { useTranslation } from '@/i18n/useTranslation';
 
@@ -10,6 +10,8 @@ interface DialogBlockComponentProps {
   block: DialogBlock;
   onUpdate: (content: string, parenthetical?: string) => void;
   onUpdateFormatting: (formatting: BlockFormatting) => void;
+  /** Tab-cycling of the block type; omit to disable (e.g. dual dialogue). */
+  onChangeType?: (type: DialogBlockType) => void;
   onDelete: () => void;
   isDragging?: boolean;
   /** dnd-kit listeners spread onto the drag handle. */
@@ -17,6 +19,15 @@ interface DialogBlockComponentProps {
   /** Autocomplete suggestions for script intelligence */
   suggestions?: AutocompleteSuggestion[];
 }
+
+/**
+ * Tab cycles the block through its types (Shift+Tab reverses) — the Final
+ * Draft muscle-memory gesture. `dialog` is skipped when the block has no
+ * character name: a block born non-dialog would otherwise render an empty
+ * name bar, while a block born dialog keeps its name through the loop and
+ * restores intact.
+ */
+const TYPE_CYCLE: DialogBlockType[] = ['dialog', 'action', 'stage-direction', 'transition', 'slug', 'note'];
 
 const FONT_FAMILIES: { key: BlockFormatting['fontFamily']; label: string; cls: string }[] = [
   { key: 'serif', label: 'Serif', cls: 'font-serif' },
@@ -148,6 +159,7 @@ export default function DialogBlockComponent({
   block,
   onUpdate,
   onUpdateFormatting,
+  onChangeType,
   onDelete,
   isDragging,
   dragHandleProps,
@@ -157,6 +169,7 @@ export default function DialogBlockComponent({
   const isDialog = block.type === 'dialog';
   const meta = BLOCK_META[block.type];
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pendingRefocus = useRef<number | null>(null);
 
   // Buffered. Every keystroke used to be a Dexie write plus a full refresh of
   // the scene, with the textarea `value`-bound to the row coming back — so a
@@ -218,6 +231,48 @@ export default function DialogBlockComponent({
     onClick: (e: React.MouseEvent<HTMLTextAreaElement>) => setCaret(e.currentTarget.selectionStart ?? 0),
   };
 
+  // ── Tab type-cycling ──────────────────────────────────────────────────
+  //
+  // ScriptAutocomplete attaches a NATIVE keydown listener directly on the
+  // textarea node while its list is non-empty and preventDefaults Tab to
+  // accept a suggestion. A native listener on the target runs before React's
+  // root-delegated synthetic handler, so bailing on `e.defaultPrevented`
+  // guarantees "accept suggestion" always wins over cycling.
+  const handleTabCycle = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!onChangeType) return;
+    if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.defaultPrevented) return; // autocomplete consumed it
+    if (block.dualGroupId) return; // a type change would orphan the pair
+    e.preventDefault();
+    const cycle = block.characterName
+      ? TYPE_CYCLE
+      : TYPE_CYCLE.filter((x) => x !== 'dialog');
+    const idx = cycle.indexOf(block.type);
+    const next =
+      idx === -1
+        ? (e.shiftKey ? cycle[cycle.length - 1] : cycle[0])
+        : cycle[(idx + (e.shiftKey ? -1 : 1) + cycle.length) % cycle.length];
+    pendingRefocus.current = e.currentTarget.selectionStart ?? contentField.value.length;
+    // Commit buffered keystrokes BEFORE the type write, so the refresh that
+    // follows adopts the text the author just typed.
+    contentField.flush();
+    onChangeType(next);
+  };
+
+  // Refocus after React commits the swapped subtree: dialog and non-dialog
+  // render different textareas, and the instance (keyed by block.id in the
+  // parent) survives the type change — only the DOM node is replaced.
+  useEffect(() => {
+    if (pendingRefocus.current === null) return;
+    const pos = pendingRefocus.current;
+    pendingRefocus.current = null;
+    const node = textareaRef.current;
+    if (!node) return;
+    node.focus();
+    const clamped = Math.min(pos, node.value.length);
+    node.setSelectionRange(clamped, clamped);
+  }, [block.type]);
+
   // Filter suggestions by block type context
   const contextSuggestions = suggestions.filter((s) => {
     if (block.type === 'slug') return s.category === 'location' || s.label.startsWith('INT') || s.label.startsWith('EXT');
@@ -274,6 +329,7 @@ export default function DialogBlockComponent({
                 setCaret(e.target.selectionStart ?? e.target.value.length);
               }}
               {...caretBindings}
+              onKeyDown={handleTabCycle}
               onFocus={() => setShowAutocomplete(true)}
               onBlur={() => {
                 contentField.onBlur();
@@ -357,6 +413,7 @@ export default function DialogBlockComponent({
                 setCaret(e.target.selectionStart ?? e.target.value.length);
               }}
               {...caretBindings}
+              onKeyDown={handleTabCycle}
               onFocus={() => setShowAutocomplete(true)}
               onBlur={() => {
                 contentField.onBlur();

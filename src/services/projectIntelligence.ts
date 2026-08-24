@@ -1,7 +1,11 @@
 import { db } from '@/db';
+import type { OutlineBeat } from '@/engines/outline/types';
+import type { Payoff, Seed } from '@/engines/seeds/types';
 import { countWords, stripHtml } from '@/utils/text';
 
 export type HealthSeverity = 'error' | 'warning' | 'info';
+export type ProjectHealthStatus = 'not-applicable' | 'clean' | 'issues';
+export type CompletionPercentage = number | null;
 
 export interface ProjectHealthIssue {
   id: string;
@@ -34,6 +38,7 @@ export interface HubEntity {
 
 export interface NarrativeSpineRow {
   beatId: string;
+  outlineId: string;
   beatTitle: string;
   outlineTitle: string;
   position?: number;
@@ -44,18 +49,41 @@ export interface NarrativeSpineRow {
   sceneTitle?: string;
   seedCount: number;
   arcBeatCount: number;
+  continuitySignals: NarrativeContinuitySignal[];
+}
+
+export type NarrativeContinuitySignalKind =
+  | 'unlinked-beat'
+  | 'unpaid-seed'
+  | 'payoff-before-setup';
+
+export interface NarrativeContinuitySignal {
+  id: string;
+  kind: NarrativeContinuitySignalKind;
+  beatId?: string;
+  seedId?: string;
+  seedTitle?: string;
+  payoffId?: string;
+  payoffTitle?: string;
+  setupPosition?: number;
+  payoffPosition?: number;
+}
+
+export interface NarrativeContinuity {
+  signals: NarrativeContinuitySignal[];
+  counts: Record<NarrativeContinuitySignalKind, number>;
 }
 
 export interface StoryIntelligence {
   totalWords: number;
   draftedDocuments: number;
-  outlineCoverage: number;
-  sceneCoverage: number;
-  seedPayoffRate: number;
-  arcCoverage: number;
+  outlineCoverage: CompletionPercentage;
+  sceneCoverage: CompletionPercentage;
+  seedPayoffRate: CompletionPercentage;
+  arcCoverage: CompletionPercentage;
   unusedCharacterCount: number;
   unmappedSpeakerCount: number;
-  researchCoverage: number;
+  researchCoverage: CompletionPercentage;
 }
 
 export interface AssetInventoryItem {
@@ -72,8 +100,10 @@ export interface AssetInventoryItem {
 export interface ProjectCockpitData {
   recent: RecentProjectItem[];
   health: ProjectHealthIssue[];
+  healthStatus: ProjectHealthStatus;
   entities: HubEntity[];
   spine: NarrativeSpineRow[];
+  continuity: NarrativeContinuity;
   spineOptions: {
     writings: Array<{ id: string; title: string }>;
     scenes: Array<{ id: string; title: string }>;
@@ -102,8 +132,120 @@ function issue(
   return count > 0 ? { id, severity, category, title, detail, count, repairable } : null;
 }
 
-function ratio(part: number, whole: number): number {
-  return whole === 0 ? 100 : Math.round((part / whole) * 100);
+export function calculateCoverage(part: number, whole: number): CompletionPercentage {
+  return whole <= 0 ? null : Math.round((part / whole) * 100);
+}
+
+export function deriveProjectHealthStatus(
+  issueCount: number,
+  assessableItemCount: number,
+): ProjectHealthStatus {
+  if (issueCount > 0) return 'issues';
+  return assessableItemCount > 0 ? 'clean' : 'not-applicable';
+}
+
+function knownStoryPosition(value: number | undefined): value is number {
+  return value !== undefined && Number.isFinite(value);
+}
+
+/**
+ * Structural continuity checks only. These signals intentionally avoid prose
+ * interpretation so the same local project data always produces the same
+ * result, without persistence or a model request.
+ */
+export function deriveNarrativeContinuity(
+  outlineBeats: Pick<OutlineBeat, 'id' | 'linkedWritingId' | 'linkedSceneId' | 'storyPosition'>[],
+  seeds: Pick<Seed, 'id' | 'title' | 'status' | 'plantedAt' | 'linkedBeatId'>[],
+  payoffs: Pick<Payoff, 'id' | 'seedId' | 'title' | 'paidAt' | 'linkedBeatId'>[],
+  existingWritingIds: ReadonlySet<string>,
+  existingSceneIds: ReadonlySet<string>,
+): NarrativeContinuity {
+  const signals: NarrativeContinuitySignal[] = [];
+  const beatById = new Map(outlineBeats.map(beat => [beat.id, beat]));
+  const payoffsBySeed = new Map<string, typeof payoffs>();
+
+  for (const payoff of payoffs) {
+    const group = payoffsBySeed.get(payoff.seedId) ?? [];
+    group.push(payoff);
+    payoffsBySeed.set(payoff.seedId, group);
+  }
+
+  for (const beat of outlineBeats) {
+    const hasWriting = Boolean(
+      beat.linkedWritingId && existingWritingIds.has(beat.linkedWritingId),
+    );
+    const hasScene = Boolean(
+      beat.linkedSceneId && existingSceneIds.has(beat.linkedSceneId),
+    );
+    if (!hasWriting && !hasScene) {
+      signals.push({
+        id: `unlinked-beat:${beat.id}`,
+        kind: 'unlinked-beat',
+        beatId: beat.id,
+      });
+    }
+  }
+
+  for (const seed of seeds) {
+    if (seed.status === 'cut') continue;
+    const seedPayoffs = payoffsBySeed.get(seed.id) ?? [];
+    const linkedBeatId = seed.linkedBeatId && beatById.has(seed.linkedBeatId)
+      ? seed.linkedBeatId
+      : undefined;
+
+    if (seedPayoffs.length === 0) {
+      signals.push({
+        id: `unpaid-seed:${seed.id}`,
+        kind: 'unpaid-seed',
+        beatId: linkedBeatId,
+        seedId: seed.id,
+        seedTitle: seed.title,
+      });
+      continue;
+    }
+
+    const linkedSetupPosition = linkedBeatId
+      ? beatById.get(linkedBeatId)?.storyPosition
+      : undefined;
+    const setupPosition = knownStoryPosition(seed.plantedAt)
+      ? seed.plantedAt
+      : linkedSetupPosition;
+    if (!knownStoryPosition(setupPosition)) continue;
+
+    for (const payoff of seedPayoffs) {
+      const payoffBeatId = payoff.linkedBeatId && beatById.has(payoff.linkedBeatId)
+        ? payoff.linkedBeatId
+        : undefined;
+      const linkedPayoffPosition = payoffBeatId
+        ? beatById.get(payoffBeatId)?.storyPosition
+        : undefined;
+      const payoffPosition = knownStoryPosition(payoff.paidAt)
+        ? payoff.paidAt
+        : linkedPayoffPosition;
+      if (!knownStoryPosition(payoffPosition) || payoffPosition >= setupPosition) continue;
+
+      signals.push({
+        id: `payoff-before-setup:${payoff.id}`,
+        kind: 'payoff-before-setup',
+        beatId: linkedBeatId ?? payoffBeatId,
+        seedId: seed.id,
+        seedTitle: seed.title,
+        payoffId: payoff.id,
+        payoffTitle: payoff.title,
+        setupPosition,
+        payoffPosition,
+      });
+    }
+  }
+
+  return {
+    signals,
+    counts: {
+      'unlinked-beat': signals.filter(signal => signal.kind === 'unlinked-beat').length,
+      'unpaid-seed': signals.filter(signal => signal.kind === 'unpaid-seed').length,
+      'payoff-before-setup': signals.filter(signal => signal.kind === 'payoff-before-setup').length,
+    },
+  };
 }
 
 /**
@@ -276,6 +418,34 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
       true,
     ),
   ].filter((row): row is ProjectHealthIssue => Boolean(row));
+  const assessableItemCount = [
+    writings,
+    snapshots,
+    codexEntries,
+    notes,
+    scenes,
+    dialogBlocks,
+    outlines,
+    outlineBeats,
+    seeds,
+    payoffs,
+    characterArcs,
+    arcBeats,
+    relationships,
+    annotations,
+    boards,
+    boardNodes,
+    storyboards,
+    imageCollections,
+    inspirationImages,
+    maps,
+    mapPins,
+    diaryEntries,
+    videoSegments,
+    entityLinks,
+    citations,
+  ].reduce((sum, rows) => sum + rows.length, 0);
+  const healthStatus = deriveProjectHealthStatus(health.length, assessableItemCount);
 
   const backlinkCounts = new Map<string, number>();
   const addBacklink = (engineId: string, entityId: string) => {
@@ -326,12 +496,27 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
 
   const writingById = new Map(writings.map(row => [row.id, row]));
   const sceneById = new Map(scenes.map(row => [row.id, row]));
+  const continuity = deriveNarrativeContinuity(
+    outlineBeats,
+    seeds,
+    payoffs,
+    writingIds,
+    sceneIds,
+  );
+  const continuityByBeat = new Map<string, NarrativeContinuitySignal[]>();
+  for (const signal of continuity.signals) {
+    if (!signal.beatId) continue;
+    const group = continuityByBeat.get(signal.beatId) ?? [];
+    group.push(signal);
+    continuityByBeat.set(signal.beatId, group);
+  }
   const spine = outlineBeats
     .map(beat => {
       const writing = beat.linkedWritingId ? writingById.get(beat.linkedWritingId) : undefined;
       const scene = beat.linkedSceneId ? sceneById.get(beat.linkedSceneId) : undefined;
       return {
         beatId: beat.id,
+        outlineId: beat.outlineId,
         beatTitle: beat.title,
         outlineTitle: outlineById.get(beat.outlineId)?.title ?? 'Outline',
         position: beat.storyPosition,
@@ -342,6 +527,7 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
         sceneTitle: scene?.title,
         seedCount: seeds.filter(seed => seed.linkedBeatId === beat.id).length,
         arcBeatCount: arcBeats.filter(arcBeat => arcBeat.linkedBeatId === beat.id).length,
+        continuitySignals: continuityByBeat.get(beat.id) ?? [],
       };
     })
     .sort((a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER));
@@ -456,8 +642,10 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
   return {
     recent,
     health,
+    healthStatus,
     entities,
     spine,
+    continuity,
     spineOptions: {
       writings: writings.map(row => ({ id: row.id, title: row.title })),
       scenes: scenes.map(row => ({ id: row.id, title: row.title })),
@@ -465,13 +653,13 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     intelligence: {
       totalWords,
       draftedDocuments: writings.filter(row => row.status !== 'idea').length,
-      outlineCoverage: ratio(linkedBeats, outlineBeats.length),
-      sceneCoverage: ratio(linkedScenes, scenes.length),
-      seedPayoffRate: ratio(seeds.filter(seed => seedPayoffIds.has(seed.id)).length, seeds.filter(seed => seed.status !== 'cut').length),
-      arcCoverage: ratio(arcsWithBeats, characterArcs.length),
+      outlineCoverage: calculateCoverage(linkedBeats, outlineBeats.length),
+      sceneCoverage: calculateCoverage(linkedScenes, scenes.length),
+      seedPayoffRate: calculateCoverage(seeds.filter(seed => seedPayoffIds.has(seed.id)).length, seeds.filter(seed => seed.status !== 'cut').length),
+      arcCoverage: calculateCoverage(arcsWithBeats, characterArcs.length),
       unusedCharacterCount,
       unmappedSpeakerCount,
-      researchCoverage: ratio(researchLinked, snapshots.length),
+      researchCoverage: calculateCoverage(researchLinked, snapshots.length),
     },
     assets,
     counts: {

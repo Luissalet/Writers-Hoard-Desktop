@@ -31,8 +31,6 @@ export interface OutlineBeat {
   color?: string;
   /** Word count target for this beat */
   wordTarget?: number;
-  /** Tags */
-  tags: string[];
   createdAt: number;
   updatedAt: number;
 }

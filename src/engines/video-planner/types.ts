@@ -18,7 +18,6 @@ export interface VideoSegment {
   startTime?: string;
   endTime?: string;
   script: string;
-  speakerId?: string;
   speakerName?: string;
   visualType: VisualType;
   visualDescription?: string;
