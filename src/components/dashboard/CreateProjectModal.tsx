@@ -170,7 +170,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
                       : 'bg-elevated border border-border text-text-muted hover:text-text-primary'
                   }`}
                 >
-                  {type}
+                  {t(`project.type.${type}`)}
                 </button>
               ))}
             </div>

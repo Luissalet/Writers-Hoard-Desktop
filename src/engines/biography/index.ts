@@ -3,6 +3,12 @@ import { BookUser } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
+import {
+  registerAnchorAdapter,
+  navigateTo,
+  getCurrentProjectIdFromUrl,
+} from '@/engines/_shared/anchoring';
+import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
 const BiographyEngine = lazy(() => import('./components/BiographyEngine'));
 
@@ -67,6 +73,36 @@ registerEntityResolver({
       title: b.subjectName,
       thumbnail: b.subjectPhoto,
     }));
+  },
+});
+
+// Margin notes + references. Explicit adapter (entity-only): a `Biography` has
+// no body text — just a subject and facts — so there is nothing for text-range
+// anchors to bind to. Registering here replaces the generic fallback adapter,
+// which showed the raw English engine name as the chip and navigated to a
+// `?entity=` URL that no view reads.
+registerAnchorAdapter({
+  engineId: 'biography',
+  supportsTextRange: false,
+  async getEntityTitle(entityId: string) {
+    // The adapter serves both entity types the resolver knows about.
+    const bio = await db.biographies.get(entityId);
+    if (bio) return bio.subjectName;
+    const fact = await db.biographyFacts.get(entityId);
+    return fact?.title ?? null;
+  },
+  getEngineChipLabel: () => t('annotations.chipLabel.biography'),
+  navigateToEntity(entityId: string, projectId?: string) {
+    const pid = projectId ?? getCurrentProjectIdFromUrl();
+    if (!pid) return;
+    // A fact deep-links to the biography it belongs to — the view opens per
+    // biography, not per fact.
+    void (async () => {
+      const bio = await db.biographies.get(entityId);
+      const targetId = bio ? entityId : (await db.biographyFacts.get(entityId))?.biographyId;
+      if (!targetId) return;
+      navigateTo(`/project/${pid}/biography?bio=${encodeURIComponent(targetId)}`);
+    })();
   },
 });
 

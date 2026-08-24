@@ -3,6 +3,7 @@ import { Network, Plus, Trash2, X, LayoutGrid, List } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { EngineSpinner, ConfirmDialog, useDebouncedField } from '@/engines/_shared';
+import ColorPicker from '@/components/common/ColorPicker';
 import { useRelationships } from '../hooks';
 import type { Relationship, RelationshipKind } from '../types';
 import { RELATIONSHIP_KIND_CONFIG, RELATIONSHIP_STATE_CONFIG, intensityColor } from '../types';
@@ -256,6 +257,9 @@ function ListView({
       {relationships.map((r) => {
         const cfg = RELATIONSHIP_KIND_CONFIG[r.kind];
         const state = RELATIONSHIP_STATE_CONFIG[r.state];
+        // Per-relationship override first, kind palette as the fallback —
+        // the field was documented that way from the start.
+        const chipColor = r.color ?? cfg?.color;
         return (
           <div key={r.id} className="group flex items-center gap-3 border border-border rounded-lg bg-elevated/40 p-3 hover:border-accent-gold/40 transition">
             <button
@@ -268,7 +272,7 @@ function ListView({
                   {r.entityAName} <span className="text-text-dim">{r.directional ? '→' : '↔'}</span> {r.entityBName}
                 </div>
                 <div className="flex items-center gap-2 text-[10px] text-text-dim">
-                  <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: `${cfg?.color}30`, color: cfg?.color }}>
+                  <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: `${chipColor}30`, color: chipColor }}>
                     {cfg ? t(cfg.labelKey) : ''}
                   </span>
                   <span className={`px-1.5 py-0.5 rounded ${state?.color}`}>{state ? t(state.labelKey) : ''}</span>
@@ -489,6 +493,27 @@ function RelationshipEditor({
                 ))}
               </select>
             </label>
+            <div className="space-y-1">
+              <span className="text-xs text-text-dim block">{t('relationships.color')}</span>
+              <div className="flex items-center gap-2">
+                {/* The field was documented as an override of the kind's color
+                    since day one; this is its first selector. */}
+                <ColorPicker
+                  value={r.color ?? cfg?.color ?? '#c4973b'}
+                  onChange={(color) => handleField('color')(color)}
+                  size="sm"
+                />
+                {r.color && (
+                  <button
+                    onClick={() => handleField('color')(undefined)}
+                    className="p-1 rounded text-text-dim hover:text-text-primary hover:bg-elevated transition"
+                    title={t('relationships.colorReset')}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           <div>

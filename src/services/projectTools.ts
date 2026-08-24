@@ -3,15 +3,22 @@ import * as projectOps from '@/db/operations';
 import { callAi } from '@/services/aiService';
 import { searchProjectContent } from '@/services/projectSearchIndex';
 import {
-  buildManuscriptHtml,
-  buildManuscriptMarkdown,
   canExportPdf,
+  downloadBlobFile,
   downloadTextFile,
-  exportManuscriptPdf,
+  exportHtmlPdf,
+  renderPublishingHtml,
+  renderPublishingMarkdown,
   sanitizeFilename,
 } from '@/engines/writings/manuscriptExport';
+import {
+  composePublishingDocument,
+  type PublishingDocument,
+} from '@/engines/writings/publishingDocument';
 import { generateId } from '@/utils/idGenerator';
 import { stripHtml } from '@/utils/text';
+import { t } from '@/i18n/useTranslation';
+import { useLocaleStore } from '@/stores/localeStore';
 import type { Project, ProjectMode, Writing } from '@/types';
 import type {
   Citation,
@@ -19,6 +26,7 @@ import type {
   EntityLink,
   PublishingFormat,
   PublishingProfile,
+  PublishingSelectionMode,
 } from '@/types/projectTools';
 
 export interface ProjectRecipe {
@@ -99,15 +107,19 @@ export async function getProjectRecipes(): Promise<ProjectRecipe[]> {
   return [...BUILT_IN_RECIPES, ...custom.map(recipe => ({ ...recipe, custom: true }))];
 }
 
-export async function saveProjectAsRecipe(project: Project, name: string): Promise<ProjectRecipe> {
+export async function saveProjectAsRecipe(
+  project: Project,
+  name: string,
+  description: string,
+): Promise<ProjectRecipe> {
   const custom = parseJson<ProjectRecipe[]>(
     await projectOps.getSetting(TEMPLATE_SETTING),
     [],
   );
   const recipe: ProjectRecipe = {
     id: generateId('recipe'),
-    name: name.trim() || `${project.title} template`,
-    description: `Reusable engine setup from ${project.title}.`,
+    name: name.trim() || project.title,
+    description: description.trim(),
     mode: project.mode,
     enabledEngines: [...new Set(project.enabledEngines)],
     engineOrder: [...new Set(project.engineOrder)],
@@ -192,15 +204,40 @@ export async function deleteCitation(id: string): Promise<void> {
   await db.citations.delete(id);
 }
 
-export function formatCitation(citation: Citation, style: PublishingProfile['citationStyle']): string {
-  const authors = citation.authors.length ? citation.authors.join(', ') : 'Unknown author';
-  const year = citation.publishedAt?.slice(0, 4) || 'n.d.';
-  const accessed = citation.accessedAt ? new Date(`${citation.accessedAt}T00:00:00`).toLocaleDateString() : '';
+export interface CitationFormatLabels {
+  locale: string;
+  unknownAuthor: string;
+  noDate: string;
+  accessedLabel: string;
+}
+
+function currentCitationLabels(): CitationFormatLabels {
+  return {
+    locale: useLocaleStore.getState().locale,
+    unknownAuthor: t('projectTools.research.unknownAuthor'),
+    noDate: t('projectTools.research.noDate'),
+    accessedLabel: t('projectTools.research.accessed'),
+  };
+}
+
+export function formatCitation(
+  citation: Citation,
+  style: PublishingProfile['citationStyle'],
+  labels: CitationFormatLabels = {
+    locale: 'en-US',
+    unknownAuthor: 'Unknown author',
+    noDate: 'n.d.',
+    accessedLabel: 'Accessed',
+  },
+): string {
+  const authors = citation.authors.length ? citation.authors.join(', ') : labels.unknownAuthor;
+  const year = citation.publishedAt?.slice(0, 4) || labels.noDate;
+  const accessed = citation.accessedAt ? new Date(`${citation.accessedAt}T00:00:00`).toLocaleDateString(labels.locale) : '';
   if (style === 'mla') {
-    return `${authors}. “${citation.title}.” ${citation.publisher ? `${citation.publisher}, ` : ''}${year}.${citation.url ? ` ${citation.url}.` : ''}${accessed ? ` Accessed ${accessed}.` : ''}`;
+    return `${authors}. “${citation.title}.” ${citation.publisher ? `${citation.publisher}, ` : ''}${year}.${citation.url ? ` ${citation.url}.` : ''}${accessed ? ` ${labels.accessedLabel} ${accessed}.` : ''}`;
   }
   if (style === 'chicago') {
-    return `${authors}. “${citation.title}.” ${citation.publisher ?? ''}${citation.publisher ? ', ' : ''}${year}.${citation.url ? ` ${citation.url}.` : ''}${accessed ? ` Accessed ${accessed}.` : ''}`;
+    return `${authors}. “${citation.title}.” ${citation.publisher ?? ''}${citation.publisher ? ', ' : ''}${year}.${citation.url ? ` ${citation.url}.` : ''}${accessed ? ` ${labels.accessedLabel} ${accessed}.` : ''}`;
   }
   return `${authors} (${year}). ${citation.title}.${citation.publisher ? ` ${citation.publisher}.` : ''}${citation.url ? ` ${citation.url}` : ''}`;
 }
@@ -213,10 +250,10 @@ export async function exportBibliography(
   const citations = await getCitations(projectId);
   const text = citations
     .sort((a, b) => (a.authors[0] ?? '').localeCompare(b.authors[0] ?? ''))
-    .map(citation => formatCitation(citation, style))
+    .map(citation => formatCitation(citation, style, currentCitationLabels()))
     .join('\n\n');
   downloadTextFile(
-    `${projectTitle}\nBibliography (${style.toUpperCase()})\n\n${text}\n`,
+    `${projectTitle}\n${t('projectTools.research.bibliography')} (${style.toUpperCase()})\n\n${text}\n`,
     `${sanitizeFilename(projectTitle)}-bibliography-${style}.txt`,
     'text/plain',
   );
@@ -226,18 +263,124 @@ export async function getPublishingProfiles(projectId: string): Promise<Publishi
   return db.publishingProfiles.where('projectId').equals(projectId).reverse().sortBy('updatedAt');
 }
 
+export interface NormalizedPublishingProfile extends PublishingProfile {
+  selectionMode: PublishingSelectionMode;
+  writingOrder: string[];
+}
+
+export interface PublishingResolution {
+  profile: NormalizedPublishingProfile;
+  writings: Writing[];
+  missingWritingIds: string[];
+  googleDocsWithoutContent: Writing[];
+}
+
+export interface PublishingArtifactLabels extends CitationFormatLabels {
+  wordLabel: string;
+  chapterLabel: string;
+  bibliographyTitle: string;
+}
+
+export interface PublishingArtifacts {
+  document: PublishingDocument;
+  markdown: string;
+  html: string;
+  markdownFilename: string;
+  htmlFilename: string;
+  pdfFilename: string;
+  docxFilename: string;
+  epubFilename: string;
+}
+
+export type PublishingOutput = 'markdown' | 'html' | 'pdf' | 'docx' | 'epub';
+export type PublishingExportReason =
+  | 'no-writings'
+  | 'google-docs-without-content'
+  | 'pdf-unavailable'
+  | 'export-failed';
+
+export interface PublishingExportResult {
+  ok: boolean;
+  canceled?: boolean;
+  reason?: PublishingExportReason;
+  error?: string;
+  missingWritingIds: string[];
+  googleDocsWithoutContent: Array<{ id: string; title: string }>;
+  omittedImageCount?: number;
+}
+
+function uniqueIds(ids: readonly string[] | undefined): string[] {
+  return [...new Set(ids ?? [])].filter(Boolean);
+}
+
+export function normalizePublishingProfile(profile: PublishingProfile): NormalizedPublishingProfile {
+  const selectedWritingIds = uniqueIds(profile.selectedWritingIds);
+  return {
+    ...profile,
+    selectionMode: profile.selectionMode ?? (selectedWritingIds.length > 0 ? 'selected' : 'all'),
+    selectedWritingIds,
+    writingOrder: uniqueIds(profile.writingOrder),
+  };
+}
+
+export function defaultPublishingOrder(writings: readonly Writing[]): Writing[] {
+  return [...writings].sort((a, b) => {
+    const chapter = (a.chapter ?? Number.MAX_SAFE_INTEGER) - (b.chapter ?? Number.MAX_SAFE_INTEGER);
+    if (chapter !== 0) return chapter;
+    if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+export function resolvePublishingWritings(
+  allWritings: readonly Writing[],
+  rawProfile: PublishingProfile,
+): PublishingResolution {
+  const profile = normalizePublishingProfile(rawProfile);
+  const scoped = allWritings.filter(writing => writing.projectId === profile.projectId);
+  const byId = new Map(scoped.map(writing => [writing.id, writing]));
+  const fallbackOrder = defaultPublishingOrder(scoped);
+  const seen = new Set<string>();
+  const ordered: Writing[] = [];
+
+  for (const id of profile.writingOrder) {
+    const writing = byId.get(id);
+    if (writing && !seen.has(id)) {
+      seen.add(id);
+      ordered.push(writing);
+    }
+  }
+  for (const writing of fallbackOrder) {
+    if (!seen.has(writing.id)) ordered.push(writing);
+  }
+
+  const selected = new Set(profile.selectedWritingIds);
+  const writings = profile.selectionMode === 'all'
+    ? ordered
+    : ordered.filter(writing => selected.has(writing.id));
+  const referencedIds = uniqueIds([...profile.selectedWritingIds, ...profile.writingOrder]);
+  const missingWritingIds = referencedIds.filter(id => !byId.has(id));
+  const googleDocsWithoutContent = writings.filter(
+    writing => Boolean(writing.isGoogleDoc) && !stripHtml(writing.content).trim(),
+  );
+
+  return { profile, writings, missingWritingIds, googleDocsWithoutContent };
+}
+
 export async function savePublishingProfile(
   value: Omit<PublishingProfile, 'id' | 'createdAt' | 'updatedAt'> & { id?: string },
 ): Promise<PublishingProfile> {
   const now = Date.now();
   const existing = value.id ? await db.publishingProfiles.get(value.id) : undefined;
-  const profile: PublishingProfile = {
+  const profile = normalizePublishingProfile({
     ...value,
     id: value.id ?? generateId('publish'),
-    selectedWritingIds: [...new Set(value.selectedWritingIds)],
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
-  };
+  });
+  if (profile.selectionMode === 'selected' && profile.selectedWritingIds.length === 0) {
+    throw new Error('A selected-only publishing profile must contain at least one writing.');
+  }
   await db.publishingProfiles.put(profile);
   return profile;
 }
@@ -246,56 +389,132 @@ export async function deletePublishingProfile(id: string): Promise<void> {
   await db.publishingProfiles.delete(id);
 }
 
-function chapterLabelFor(format: PublishingFormat): string {
-  if (format === 'screenplay') return 'Scene';
-  if (format === 'video') return 'Segment';
-  if (format === 'research') return 'Section';
-  if (format === 'biography') return 'Part';
-  return 'Chapter';
+function currentPublishingLabels(format: PublishingFormat): PublishingArtifactLabels {
+  return {
+    ...currentCitationLabels(),
+    wordLabel: t('writings.words'),
+    chapterLabel: t(`projectTools.publishing.chapterLabel.${format}`),
+    bibliographyTitle: t('projectTools.research.bibliography'),
+  };
+}
+
+export function buildPublishingArtifacts(
+  project: Pick<Project, 'id' | 'title'>,
+  profile: PublishingProfile,
+  writings: readonly Writing[],
+  citations: readonly Citation[],
+  artifactOptions: {
+    labels?: PublishingArtifactLabels;
+    titleOverride?: string;
+    generatedAt?: number;
+  } = {},
+): PublishingArtifacts {
+  const labels = artifactOptions.labels ?? currentPublishingLabels(profile.format);
+  const documentTitle = artifactOptions.titleOverride ?? `${project.title} — ${profile.name}`;
+  const compileOptions = {
+    projectTitle: documentTitle,
+    includeTitlePage: profile.includeTitlePage,
+    includeSynopsis: profile.includeSynopsis,
+    chapterLabel: labels.chapterLabel,
+    wordLabel: labels.wordLabel,
+    locale: labels.locale,
+    generatedAt: artifactOptions.generatedAt,
+  };
+  const bibliography = profile.includeBibliography
+    ? citations.map(citation => formatCitation(citation, profile.citationStyle, labels))
+    : [];
+  const document = composePublishingDocument(writings, {
+    ...compileOptions,
+    identifier: `urn:writers-hoard:${encodeURIComponent(project.id)}:${encodeURIComponent(profile.id || profile.name)}`,
+    bibliographyTitle: bibliography.length ? labels.bibliographyTitle : undefined,
+    bibliography,
+  });
+  const markdown = renderPublishingMarkdown(document);
+  const html = renderPublishingHtml(document);
+  const stem = sanitizeFilename(profile.name || project.title);
+  return {
+    document,
+    markdown,
+    html,
+    markdownFilename: `${stem}.md`,
+    htmlFilename: `${stem}.html`,
+    pdfFilename: `${stem}.pdf`,
+    docxFilename: `${stem}.docx`,
+    epubFilename: `${stem}.epub`,
+  };
 }
 
 export async function exportPublishingProfile(
-  project: Project,
+  project: Pick<Project, 'id' | 'title'>,
   profile: PublishingProfile,
-  output: 'markdown' | 'html' | 'pdf',
-): Promise<{ ok: boolean; error?: string }> {
+  output: PublishingOutput,
+  artifactOptions: { titleOverride?: string; generatedAt?: number } = {},
+): Promise<PublishingExportResult> {
   const allWritings = await db.writings.where('projectId').equals(project.id).toArray();
-  const selected = profile.selectedWritingIds.length
-    ? allWritings.filter(writing => profile.selectedWritingIds.includes(writing.id))
-    : allWritings;
-  const writings = selected.sort((a, b) => (a.chapter ?? Number.MAX_SAFE_INTEGER) - (b.chapter ?? Number.MAX_SAFE_INTEGER));
-  const options = {
-    projectTitle: `${project.title} — ${profile.name}`,
-    includeTitlePage: profile.includeTitlePage,
-    includeSynopsis: profile.includeSynopsis,
-    chapterLabel: chapterLabelFor(profile.format),
+  const resolved = resolvePublishingWritings(allWritings, profile);
+  const baseResult = {
+    missingWritingIds: resolved.missingWritingIds,
+    googleDocsWithoutContent: resolved.googleDocsWithoutContent.map(({ id, title }) => ({ id, title })),
   };
-  let bibliography = '';
-  if (profile.includeBibliography) {
-    const citations = await getCitations(project.id);
-    bibliography = citations.length
-      ? `\n\n# Bibliography\n\n${citations.map(citation => formatCitation(citation, profile.citationStyle)).join('\n\n')}`
-      : '';
+  if (resolved.writings.length === 0) {
+    return { ok: false, reason: 'no-writings', ...baseResult };
   }
+  if (resolved.googleDocsWithoutContent.length > 0) {
+    return { ok: false, reason: 'google-docs-without-content', ...baseResult };
+  }
+  const citations = profile.includeBibliography ? await getCitations(project.id) : [];
+  const artifacts = buildPublishingArtifacts(
+    project,
+    profile,
+    resolved.writings,
+    citations,
+    artifactOptions,
+  );
 
   if (output === 'markdown') {
-    downloadTextFile(
-      `${buildManuscriptMarkdown(writings, options)}${bibliography}`,
-      `${sanitizeFilename(profile.name)}.md`,
-      'text/markdown',
-    );
-    return { ok: true };
+    downloadTextFile(artifacts.markdown, artifacts.markdownFilename, 'text/markdown');
+    return { ok: true, ...baseResult };
   }
   if (output === 'html') {
-    const html = buildManuscriptHtml(writings, options).replace(
-      '</body>',
-      bibliography ? `<section class="chapter"><pre>${bibliography}</pre></section></body>` : '</body>',
-    );
-    downloadTextFile(html, `${sanitizeFilename(profile.name)}.html`, 'text/html');
-    return { ok: true };
+    downloadTextFile(artifacts.html, artifacts.htmlFilename, 'text/html');
+    return { ok: true, ...baseResult };
   }
-  if (!canExportPdf()) return { ok: false, error: 'PDF export requires the desktop app.' };
-  return exportManuscriptPdf(writings, options);
+  if (output === 'pdf' && !canExportPdf()) {
+    return { ok: false, reason: 'pdf-unavailable', ...baseResult };
+  }
+  try {
+    if (output === 'docx') {
+      const { buildPublishingDocx } = await import('@/engines/writings/publishingDocx');
+      const blob = await buildPublishingDocx(artifacts.document);
+      downloadBlobFile(blob, artifacts.docxFilename);
+      return {
+        ok: true,
+        omittedImageCount: artifacts.document.omittedPortableImageCount,
+        ...baseResult,
+      };
+    }
+    if (output === 'epub') {
+      const { buildPublishingEpub } = await import('@/engines/writings/publishingEpub');
+      const blob = await buildPublishingEpub(artifacts.document);
+      downloadBlobFile(blob, artifacts.epubFilename);
+      return {
+        ok: true,
+        omittedImageCount: artifacts.document.omittedPortableImageCount,
+        ...baseResult,
+      };
+    }
+    const result = await exportHtmlPdf(artifacts.html, artifacts.pdfFilename);
+    return result.ok
+      ? { ok: true, ...baseResult }
+      : { ok: false, canceled: result.canceled, reason: 'export-failed', error: result.error, ...baseResult };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'export-failed',
+      error: error instanceof Error ? error.message : String(error),
+      ...baseResult,
+    };
+  }
 }
 
 async function createConversion(

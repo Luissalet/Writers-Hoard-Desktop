@@ -40,12 +40,14 @@ function SortableBlockWrapper({
   block,
   onUpdate,
   onUpdateFormatting,
+  onChangeType,
   onDelete,
   suggestions,
 }: {
   block: DialogBlock;
   onUpdate: (content: string, parenthetical?: string) => void;
   onUpdateFormatting: (formatting: BlockFormatting) => void;
+  onChangeType?: (type: DialogBlockType) => void;
   onDelete: () => void;
   suggestions?: AutocompleteSuggestion[];
 }) {
@@ -63,6 +65,7 @@ function SortableBlockWrapper({
         block={block}
         onUpdate={onUpdate}
         onUpdateFormatting={onUpdateFormatting}
+        onChangeType={onChangeType}
         onDelete={onDelete}
         isDragging={isDragging}
         dragHandleProps={listeners}
@@ -451,6 +454,11 @@ export default function SceneEditor({
                             }}
                             onUpdateFormatting={(formatting) => {
                               editBlock(block.id, { formatting });
+                            }}
+                            onChangeType={(type) => {
+                              // Partial Dexie update: content, character,
+                              // formatting and order all survive the switch.
+                              editBlock(block.id, { type });
                             }}
                             onDelete={() => removeBlock(block.id)}
                             suggestions={autocompleteSuggestions}

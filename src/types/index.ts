@@ -177,6 +177,10 @@ export interface AiConfig {
   baseUrl: string;
   model: string;
   enabled: boolean;
+  /** 'proxy' = CLIProxyAPI (Claude, Max quota); 'local' = embedded Ollama. */
+  provider: 'proxy' | 'local';
+  /** Ollama tag used when provider === 'local', e.g. 'qwen3.5:9b'. */
+  localModel: string;
 }
 
 export interface ExtractedCharacter {

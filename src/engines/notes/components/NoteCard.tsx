@@ -12,6 +12,7 @@ interface NoteCardProps {
   moveTargets?: { id: string; title: string }[];
   onMove?: (id: string, projectId: string) => void;
   onTagClick?: (tag: string) => void;
+  deepLinkToken?: string | null;
 }
 
 export default function NoteCard({
@@ -21,6 +22,7 @@ export default function NoteCard({
   moveTargets = [],
   onMove,
   onTagClick,
+  deepLinkToken = null,
 }: NoteCardProps) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
@@ -30,10 +32,20 @@ export default function NoteCard({
   const [showColors, setShowColors] = useState(false);
   const [showMove, setShowMove] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
   const copiedTimer = useRef<number | null>(null);
 
   const { icon: KindIcon, color: kindColor } = NOTE_KIND_META[note.kind];
   const accent = note.color ?? kindColor;
+
+  if (deepLinkToken !== appliedDeepLink) {
+    setAppliedDeepLink(deepLinkToken);
+    if (deepLinkToken) {
+      setDraft(note.text);
+      setDraftSource(note.source ?? '');
+      setEditing(true);
+    }
+  }
 
   const startEdit = () => {
     setDraft(note.text);
@@ -62,6 +74,7 @@ export default function NoteCard({
 
   return (
     <div
+      data-note-id={note.id}
       className="break-inside-avoid mb-3 rounded-xl border bg-surface hover:border-accent-gold/40 transition group relative"
       style={{ borderColor: `${accent}40`, boxShadow: `inset 3px 0 0 0 ${accent}` }}
     >

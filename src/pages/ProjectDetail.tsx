@@ -1,12 +1,13 @@
-import { Suspense, useEffect, useMemo } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Settings2 } from 'lucide-react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useProject } from '@/hooks/useProjects';
 import { getEngine, getEnginesByIds } from '@/engines';
 import TopBar from '@/components/layout/TopBar';
 import EngineManager from '@/components/project/EngineManager';
 import EngineErrorBoundary from '@/components/common/EngineErrorBoundary';
 import ProjectCockpit from '@/components/project/ProjectCockpit';
+import EditProjectModal from '@/components/project/EditProjectModal';
 import { updateProject } from '@/db/operations';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useAppStore } from '@/stores/appStore';
@@ -15,8 +16,28 @@ export default function ProjectDetail() {
   const { t } = useTranslation();
   const { id, tab } = useParams<{ id: string; tab?: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { project, loading, refresh } = useProject(id);
   const { showEngineManager, setShowEngineManager } = useAppStore();
+  const [showProjectEditor, setShowProjectEditor] = useState(false);
+  const editRequested = tab === 'overview' && searchParams.get('edit') === '1';
+  const manageRequested = tab === 'overview' && searchParams.get('manage') === '1';
+
+  const clearCommandParam = (name: 'edit' | 'manage') => {
+    const next = new URLSearchParams(searchParams);
+    next.delete(name);
+    setSearchParams(next, { replace: true });
+  };
+
+  const closeProjectEditor = () => {
+    setShowProjectEditor(false);
+    if (editRequested) clearCommandParam('edit');
+  };
+
+  const closeEngineManager = () => {
+    setShowEngineManager(false);
+    if (manageRequested) clearCommandParam('manage');
+  };
 
   // Get enabled engines from project — deduplicate to heal any corrupt data
   const rawOrder = useMemo(
@@ -59,7 +80,7 @@ export default function ProjectDetail() {
   useEffect(() => {
     if (loading || !project || !id) return;
     if (!tab || (tab !== 'overview' && !engineIds.includes(tab))) {
-      navigate(`/project/${id}/overview`, { replace: true });
+      navigate(`/project/${encodeURIComponent(id)}/overview`, { replace: true });
     }
   }, [id, engineIds, loading, project, tab, navigate]);
 
@@ -86,7 +107,7 @@ export default function ProjectDetail() {
     <>
       <TopBar
         title={project.title}
-        subtitle={`${project.type} · ${project.status}`}
+        subtitle={`${t(`project.type.${project.type}`)} · ${t(`project.status.${project.status}`)}`}
       />
 
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -96,6 +117,7 @@ export default function ProjectDetail() {
             <ProjectCockpit
               projectId={id!}
               onManageEngines={() => setShowEngineManager(true)}
+              onEditProject={() => setShowProjectEditor(true)}
             />
           ) : activeEngine ? (
             <EngineErrorBoundary
@@ -135,8 +157,8 @@ export default function ProjectDetail() {
 
       {/* Engine Manager Modal */}
       <EngineManager
-        open={showEngineManager}
-        onClose={() => setShowEngineManager(false)}
+        open={showEngineManager || manageRequested}
+        onClose={closeEngineManager}
         project={project}
         onUpdate={async (enabledEngines, engineOrder) => {
           if (id) {
@@ -145,10 +167,21 @@ export default function ProjectDetail() {
               engineOrder,
             });
             await refresh();
-            setShowEngineManager(false);
+            closeEngineManager();
           }
         }}
       />
+
+      {(showProjectEditor || editRequested) && (
+        <EditProjectModal
+          project={project}
+          onClose={closeProjectEditor}
+          onSave={async changes => {
+            await updateProject(project.id, changes);
+            await refresh();
+          }}
+        />
+      )}
     </>
   );
 }

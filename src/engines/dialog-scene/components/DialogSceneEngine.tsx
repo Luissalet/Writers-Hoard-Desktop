@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { EngineComponentProps } from '@/engines/_types';
-import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
+import { EngineSpinner, useDeepLinkParam } from '@/engines/_shared';
 import { useScenes } from '../hooks';
 import { autoNumberScenes } from '../operations';
 import SceneListView from './SceneListView';
@@ -10,6 +10,17 @@ export default function DialogSceneEngine({ projectId }: EngineComponentProps) {
   const { items: scenes, loading, addItem: addScene, editItem: editScene, removeItem: removeScene, reorder, refresh } =
     useScenes(projectId);
   const [activeSceneId, setActiveSceneId] = useState<string>('');
+  const deepLinkedSceneId = useDeepLinkParam('entity');
+  const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
+
+  if (
+    deepLinkedSceneId
+    && deepLinkedSceneId !== appliedDeepLink
+    && scenes.some((scene) => scene.id === deepLinkedSceneId)
+  ) {
+    setAppliedDeepLink(deepLinkedSceneId);
+    setActiveSceneId(deepLinkedSceneId);
+  }
 
   // NOTE: No useAutoSelect here — Dialog engine uses explicit list→editor navigation.
   // useAutoSelect would immediately re-select a scene after Back, preventing the list view.
@@ -37,6 +48,14 @@ export default function DialogSceneEngine({ projectId }: EngineComponentProps) {
     await removeScene(sceneId);
     setTimeout(() => autoNumberScenes(projectId).then(refresh), 50);
   }, [removeScene, projectId, refresh]);
+
+  // After a script import: number the new scenes (locks from `#N#` numbers
+  // are respected) and refresh. No 50 ms timer — the import's transaction has
+  // already committed by the time this runs.
+  const handleImported = useCallback(async () => {
+    await autoNumberScenes(projectId);
+    await refresh();
+  }, [projectId, refresh]);
 
   // Auto-number on initial load if any scene lacks a number
   useEffect(() => {
@@ -67,6 +86,7 @@ export default function DialogSceneEngine({ projectId }: EngineComponentProps) {
           onUpdateScene={editScene}
           onDeleteScene={handleDeleteScene}
           onReorderScenes={handleReorder}
+          onImported={handleImported}
         />
       )}
     </div>

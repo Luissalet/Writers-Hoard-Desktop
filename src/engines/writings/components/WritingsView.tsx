@@ -879,58 +879,63 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
             {filtered.map((writing, i) => {
               const cfg = STATUS_CONFIG[writing.status];
               return (
-                <motion.button
+                <motion.div
                   key={writing.id}
-                  onClick={() => handleOpenWriting(writing)}
-                  className="w-full text-left p-4 bg-surface border border-border rounded-xl hover:border-accent-gold/40 transition group flex items-start gap-4"
+                  className="w-full p-4 bg-surface border border-border rounded-xl hover:border-accent-gold/40 transition group flex items-start gap-4"
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 }}
                 >
-                  {/* Chapter number or icon */}
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: cfg.bg }}>
-                    {writing.chapter !== undefined ? (
-                      <span className="font-serif font-bold text-sm" style={{ color: cfg.color }}>
-                        {writing.chapter}
-                      </span>
-                    ) : (
-                      <cfg.icon size={18} style={{ color: cfg.color }} />
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenWriting(writing)}
+                    className="flex flex-1 min-w-0 items-start gap-4 text-left"
+                  >
+                    {/* Chapter number or icon */}
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: cfg.bg }}>
+                      {writing.chapter !== undefined ? (
+                        <span className="font-serif font-bold text-sm" style={{ color: cfg.color }}>
+                          {writing.chapter}
+                        </span>
+                      ) : (
+                        <cfg.icon size={18} style={{ color: cfg.color }} />
+                      )}
+                    </div>
 
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-serif font-bold text-text-primary group-hover:text-accent-gold transition truncate">
-                      {writing.title}
-                    </h3>
-                    <div className="flex items-center gap-3 mt-1">
-                      {writing.synopsis && (
-                        <p className="text-xs text-text-muted truncate max-w-xs">{writing.synopsis}</p>
-                      )}
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-serif font-bold text-text-primary group-hover:text-accent-gold transition truncate">
+                        {writing.title}
+                      </h3>
+                      <div className="flex items-center gap-3 mt-1">
+                        {writing.synopsis && (
+                          <p className="text-xs text-text-muted truncate max-w-xs">{writing.synopsis}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-2 flex-wrap">
+                        <span className="text-[10px] text-text-dim">
+                          {writing.wordCount.toLocaleString()} {t('writings.words')}
+                        </span>
+                        <span className="text-[10px] text-text-dim">
+                          {t('writings.updated')} {new Date(writing.updatedAt).toLocaleDateString()}
+                        </span>
+                        {writing.isGoogleDoc && (
+                          <GoogleDocBadge compact />
+                        )}
+                        {writing.tags.length > 0 && (
+                          <div className="flex gap-1">
+                            {writing.tags.filter(t => t !== 'google-doc').slice(0, 3).map(tag => (
+                              <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-elevated rounded text-text-dim">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 mt-2 flex-wrap">
-                      <span className="text-[10px] text-text-dim">
-                        {writing.wordCount.toLocaleString()} {t('writings.words')}
-                      </span>
-                      <span className="text-[10px] text-text-dim">
-                        {t('writings.updated')} {new Date(writing.updatedAt).toLocaleDateString()}
-                      </span>
-                      {writing.isGoogleDoc && (
-                        <GoogleDocBadge compact />
-                      )}
-                      {writing.tags.length > 0 && (
-                        <div className="flex gap-1">
-                          {writing.tags.filter(t => t !== 'google-doc').slice(0, 3).map(tag => (
-                            <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-elevated rounded text-text-dim">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  </button>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition relative">
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition relative">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1033,7 +1038,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
                       </div>
                     )}
                   </div>
-                </motion.button>
+                </motion.div>
               );
             })}
           </AnimatePresence>
@@ -1122,22 +1127,30 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
         </div>
       </Modal>
 
-      {/* Google Docs Picker */}
-      <GoogleDocsPicker
-        open={showGooglePicker}
-        onClose={() => setShowGooglePicker(false)}
-        projectId={projectId}
-        existingWritings={writings}
-        onImported={() => {
-          void onRefresh?.();
-        }}
-      />
+      {/* Google Docs Picker.
+          Mounted conditionally on purpose: kept always-mounted it retained the
+          previous search text and selection from one open to the next — its
+          load effect only refires on open/auth changes, never resetting state.
+          Unmounting on close is the same remount pattern the fact/panel
+          editors use. */}
+      {showGooglePicker && (
+        <GoogleDocsPicker
+          open={showGooglePicker}
+          onClose={() => setShowGooglePicker(false)}
+          projectId={projectId}
+          existingWritings={writings}
+          onImported={() => {
+            void onRefresh?.();
+          }}
+        />
+      )}
 
       {/* Compile / Export manuscript */}
       <CompileModal
         open={showCompile}
         onClose={() => setShowCompile(false)}
-        writings={writings.filter(w => !w.isGoogleDoc)}
+        writings={writings}
+        projectId={projectId}
         projectTitle={project?.title || t('writings.compile.untitledProject')}
       />
 

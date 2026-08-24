@@ -89,14 +89,22 @@ registerAnchorAdapter({
     return note ? noteTitle(note) : null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.notes'),
-  navigateToEntity(entityId: string) {
+  navigateToEntity(entityId: string, projectId?: string) {
+    if (projectId) {
+      navigateTo(
+        projectId === GLOBAL_NOTES_SCOPE
+          ? `/notes?note=${encodeURIComponent(entityId)}`
+          : `/project/${encodeURIComponent(projectId)}/notes?note=${encodeURIComponent(entityId)}`,
+      );
+      return;
+    }
     void (async () => {
       const note = (await db.table('notes').get(entityId)) as Note | undefined;
       if (!note) return;
       navigateTo(
         note.projectId === GLOBAL_NOTES_SCOPE
-          ? '/notes'
-          : `/project/${note.projectId}/notes`,
+          ? `/notes?note=${encodeURIComponent(entityId)}`
+          : `/project/${encodeURIComponent(note.projectId)}/notes?note=${encodeURIComponent(entityId)}`,
       );
     })();
   },

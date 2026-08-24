@@ -18,6 +18,20 @@ fsSync.mkdirSync(isolatedUserData, { recursive: true });
 app.setPath('userData', isolatedUserData);
 
 async function main() {
+  const nativeBundlePath = path.join(temporaryDirectory, 'electron-security.cjs');
+  await esbuild.build({
+    entryPoints: [path.resolve(__dirname, '..', 'tests', 'electron-security.ts')],
+    outfile: nativeBundlePath,
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node20',
+    logLevel: 'warning',
+  });
+  const { runElectronSecurityTests } = require(nativeBundlePath);
+  const nativeTests = await runElectronSecurityTests(temporaryDirectory);
+  for (const test of nativeTests) console.log(`PASS ${test}`);
+
   const buildHarness = async (name, entry) => {
     const bundlePath = path.join(temporaryDirectory, `${name}.js`);
     const htmlPath = path.join(temporaryDirectory, `${name}.html`);
@@ -119,8 +133,10 @@ async function main() {
       const devUrl = devServer.resolvedUrls?.local[0];
       if (!devUrl) throw new Error('Vite did not expose a local development URL.');
       const rendererErrors = [];
-      const onConsoleMessage = (_event, level, message, line, sourceId) => {
-        if (level >= 3) rendererErrors.push(`${sourceId}:${line} ${message}`);
+      const onConsoleMessage = details => {
+        if (details.level === 'error') {
+          rendererErrors.push(`${details.sourceId}:${details.lineNumber} ${details.message}`);
+        }
       };
       const onRendererGone = (_event, details) => {
         rendererErrors.push(`Renderer process exited: ${details.reason} (${details.exitCode})`);
@@ -206,7 +222,7 @@ async function main() {
       await devServer.close();
     }
     console.log(
-      `Critical browser tests passed: ${criticalCount + startupCount + devStartupCount}`,
+      `Critical tests passed: ${nativeTests.length + criticalCount + startupCount + devStartupCount}`,
     );
   } finally {
     if (!testWindow.isDestroyed()) testWindow.destroy();

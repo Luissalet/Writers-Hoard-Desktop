@@ -50,7 +50,8 @@ export default function TemplateSelector({ onSelectTemplate }: TemplateSelectorP
               {t(template.descriptionKey)}
             </p>
             <div className="text-xs text-accent-gold font-medium">
-              {template.beats.length} {t('outline.templateSelector.beats')}
+              {template.beats.length}{' '}
+              {t(template.beats.length === 1 ? 'outline.beatSingular' : 'outline.beats')}
             </div>
           </button>
         ))}

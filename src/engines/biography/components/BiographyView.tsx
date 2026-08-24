@@ -11,6 +11,7 @@ import { generateId } from '@/utils/idGenerator';
 import { ConfirmDialog } from '@/engines/_shared';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useCodexEntries } from '@/engines/codex/hooks';
+import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 
 interface BiographyViewProps {
   biography: Biography;
@@ -283,6 +284,17 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
         <NarrativeView facts={facts} subjectName={biography.subjectName} />
       )}
 
+      {/* Margin notes + backlinks — first time biographies join the
+          interconnectedness layer. */}
+      <div className="pt-2 border-t border-border">
+        <AnnotationSurface
+          projectId={biography.projectId}
+          engineId="biography"
+          entityId={biography.id}
+          layout="stack"
+        />
+      </div>
+
       {/* Editor modal.
           Mounted conditionally and keyed by the fact being edited: FactEditor
           seeds all of its state from `fact` in useState initialisers, which
@@ -293,6 +305,7 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
         <FactEditor
           key={editingFact?.id ?? '__new__'}
           fact={editingFact}
+          projectId={biography.projectId}
           isOpen={isEditorOpen}
           onClose={() => {
             setIsEditorOpen(false);

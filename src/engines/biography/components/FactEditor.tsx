@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { X, Plus, Trash2 } from 'lucide-react';
 import TipTapEditor from '@/components/editor/TiptapEditor';
 import TagInput from '@/components/common/TagInput';
+import { LinkSelect } from '@/engines/_shared';
+import { useSnapshots } from '@/engines/scrapper/hooks';
 import type { BiographyFact, FactSource, BiographyCategory } from '../types';
 import { BIOGRAPHY_CATEGORIES, CONFIDENCE_LEVELS } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -9,12 +11,14 @@ import { toast } from '@/components/common/toast';
 
 interface FactEditorProps {
   fact?: BiographyFact;
+  /** Scope for the snapshot picker — the fact itself may not exist yet. */
+  projectId: string;
   isOpen: boolean;
   onClose: () => void;
   onSave: (fact: Omit<BiographyFact, 'id' | 'createdAt' | 'updatedAt'>) => void;
 }
 
-export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditorProps) {
+export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }: FactEditorProps) {
   const { t } = useTranslation();
   const [title, setTitle] = useState(fact?.title ?? '');
   const [content, setContent] = useState(fact?.content ?? '');
@@ -29,6 +33,10 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
   const [newSourceType, setNewSourceType] = useState<'snapshot' | 'link' | 'manual' | 'interview'>('manual');
   const [newSourceDescription, setNewSourceDescription] = useState('');
   const [newSourceUrl, setNewSourceUrl] = useState('');
+  const [newSourceEntityId, setNewSourceEntityId] = useState('');
+  // Real captures from the Scrapper, so a 'snapshot' source can finally point
+  // at one — `FactSource.entityId` was declared from day one and never filled.
+  const { items: snapshots } = useSnapshots(projectId);
 
   if (!isOpen) return null;
 
@@ -61,9 +69,11 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
         type: newSourceType,
         description: newSourceDescription.trim(),
         url: newSourceUrl || undefined,
+        entityId: (newSourceType === 'snapshot' && newSourceEntityId) || undefined,
       }]);
       setNewSourceDescription('');
       setNewSourceUrl('');
+      setNewSourceEntityId('');
     }
   };
 
@@ -201,6 +211,12 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
                         {source.type === 'interview' && `🎤 ${t('biography.source.interview')}`}
                       </p>
                       <p className="text-sm text-text-primary">{source.description}</p>
+                      {source.entityId && (() => {
+                        const snap = snapshots.find((s) => s.id === source.entityId);
+                        return snap ? (
+                          <p className="text-xs text-text-dim mt-1 truncate">📸 {snap.title || snap.url}</p>
+                        ) : null;
+                      })()}
                       {source.url && (
                         <a
                           href={source.url}
@@ -242,6 +258,15 @@ export default function FactEditor({ fact, isOpen, onClose, onSave }: FactEditor
                   </button>
                 ))}
               </div>
+
+              {newSourceType === 'snapshot' && (
+                <LinkSelect
+                  label={t('biography.source.snapshot')}
+                  value={newSourceEntityId}
+                  onChange={setNewSourceEntityId}
+                  options={snapshots.map((s) => ({ id: s.id, label: s.title || s.url }))}
+                />
+              )}
 
               <input
                 type="text"

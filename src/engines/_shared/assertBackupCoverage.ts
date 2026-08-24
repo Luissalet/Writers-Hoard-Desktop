@@ -1,12 +1,21 @@
 // ============================================
-// Dev-mode assertion: every engine's tables are covered by a backup path
+// Dev-mode assertion: every Dexie table is covered by a backup path
 // ============================================
 //
 // Invoked once from src/engines/index.ts after all engines have registered.
-// Warns in the console if any engine's `EngineDefinition.tables` key is not
-// covered by either:
+// Warns in the console if any table in the OPEN DEXIE SCHEMA is not covered by
+// either:
 //   1. A registered `BackupStrategy` (via `registerBackupStrategy`), or
 //   2. The hard-coded `legacyTables` block in `src/services/zipBackup.ts`.
+//
+// The universe used to be "tables declared by a registered engine", which left
+// the checker blind to any table that doesn't hang off an engine: the four
+// project-tools tables (`entityLinks`, `citations`, `publishingProfiles`,
+// `conversionReceipts`) were backed up fine but invisible to the guardrail,
+// and a FUTURE engineless table would have been silently dropped with no
+// warning — exactly the bug class this file exists to catch. It now iterates
+// `db.tables`, so anything Dexie stores must either be backed up or appear on
+// the explicit derived-cache exemption list below.
 //
 // We keep the legacy list in lockstep with the one in zipBackup.ts so the
 // warning is accurate. If zipBackup's legacy list changes, update both.
@@ -15,6 +24,7 @@
 // tables were silently dropped on backup/restore because engines added
 // after the original backup code never got wired in.
 
+import { db } from '@/db';
 import { getAllEngines } from '@/engines/_registry';
 import { getAllBackupStrategies } from './backupRegistry';
 
@@ -32,8 +42,19 @@ const LEGACY_BACKUP_TABLES: string[] = [
   'settings',
 ];
 
+/**
+ * Tables that are DELIBERATELY not backed up: regenerable caches of derived
+ * data. Each entry must be justified here — an unlisted, uncovered table is a
+ * bug, not a candidate for this list.
+ */
+const DERIVED_CACHE_TABLES: string[] = [
+  'worldSnapshots', // worldgen render snapshots — regenerated from the seed
+  'canonTiles',     // worldgen canonical tile cache
+  'renderedTiles',  // worldgen rendered tile cache
+];
+
 export interface BackupCoverageReport {
-  /** Tables declared by an engine but not covered anywhere. */
+  /** Tables in the Dexie schema not covered anywhere. */
   uncovered: Array<{ engineId: string; table: string }>;
   /** Tables covered by a strategy AND the legacy list (harmless but noisy). */
   doubleCovered: Array<{ engineId: string; table: string }>;
@@ -44,20 +65,34 @@ export function checkBackupCoverage(): BackupCoverageReport {
     getAllBackupStrategies().flatMap((s) => s.tables),
   );
   const legacySet = new Set(LEGACY_BACKUP_TABLES);
+  const cacheSet = new Set(DERIVED_CACHE_TABLES);
+
+  // Attribution only — coverage no longer depends on an engine declaring the
+  // table, but the warning is far more actionable with an owner next to it.
+  const ownerByTable = new Map<string, string>();
+  for (const engine of getAllEngines()) {
+    for (const table of Object.keys(engine.tables ?? {})) {
+      ownerByTable.set(table, engine.id);
+    }
+  }
+  for (const strategy of getAllBackupStrategies()) {
+    for (const table of strategy.tables) {
+      if (!ownerByTable.has(table)) ownerByTable.set(table, strategy.engineId);
+    }
+  }
 
   const uncovered: BackupCoverageReport['uncovered'] = [];
   const doubleCovered: BackupCoverageReport['doubleCovered'] = [];
 
-  for (const engine of getAllEngines()) {
-    const tables = Object.keys(engine.tables ?? {});
-    for (const table of tables) {
-      const inStrategy = strategyTables.has(table);
-      const inLegacy = legacySet.has(table);
-      if (!inStrategy && !inLegacy) {
-        uncovered.push({ engineId: engine.id, table });
-      } else if (inStrategy && inLegacy) {
-        doubleCovered.push({ engineId: engine.id, table });
-      }
+  for (const table of db.tables.map((t) => t.name)) {
+    if (cacheSet.has(table)) continue;
+    const inStrategy = strategyTables.has(table);
+    const inLegacy = legacySet.has(table);
+    const engineId = ownerByTable.get(table) ?? '(no engine)';
+    if (!inStrategy && !inLegacy) {
+      uncovered.push({ engineId, table });
+    } else if (inStrategy && inLegacy) {
+      doubleCovered.push({ engineId, table });
     }
   }
 
@@ -75,7 +110,7 @@ export function assertBackupCoverage(): void {
   if (uncovered.length > 0) {
     // One grouped warning so the console isn't flooded with N lines.
     console.warn(
-      '[backup-coverage] %d engine table(s) are not covered by any BackupStrategy ' +
+      '[backup-coverage] %d Dexie table(s) are not covered by any BackupStrategy ' +
         'or the legacy list in zipBackup.ts — these will be silently dropped ' +
         'on backup/restore:\n%s',
       uncovered.length,

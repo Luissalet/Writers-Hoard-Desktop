@@ -17,6 +17,7 @@ import { useProject } from '@/hooks/useProjects';
 import { getEnginesByIds } from '@/engines';
 import { useInboxNoteCount } from '@/engines/notes/hooks';
 import { isDesktop } from '@/utils/platform';
+import { toast } from '@/components/common/toast';
 
 export default function Sidebar() {
   const { t } = useTranslation();
@@ -47,18 +48,12 @@ export default function Sidebar() {
       // ZIP export covers EVERY engine's tables via the backup registry —
       // the old JSON export silently dropped everything added after the
       // original 13-table schema.
-      const [{ exportProjectZip }, { toast }] = await Promise.all([
-        import('@/services/zipBackup'),
-        import('@/components/common/toast'),
-      ]);
+      const { exportProjectZip } = await import('@/services/zipBackup');
       await exportProjectZip(projectId);
       toast.success(t('project.exportDone'));
     } catch (error) {
       console.error('Export failed:', error);
-      const [{ describeBackupError }, { toast }] = await Promise.all([
-        import('@/services/zipBackup'),
-        import('@/components/common/toast'),
-      ]);
+      const { describeBackupError } = await import('@/services/zipBackup');
       toast.error(describeBackupError(error, t('project.exportError')), 10000);
     } finally {
       setExporting(false);
