@@ -35,9 +35,11 @@ On Windows, `setup.bat` performs the one-time setup; subsequent launches use
 | `lint:baseline:prune` | Remove fixed fingerprints from the checked-in lint debt baseline. |
 | `conformance` | Check engine registration, schema, locale, backup, and binary declarations. |
 | `test:critical` | Run isolated Electron/Chromium tests for migration, backup, cascades, recovery/navigation, full rendering, and Vite startup. |
+| `test:packaged` | Smoke-test the already-built `release/win-unpacked` desktop app with an isolated temporary profile. |
 | `bundle:budget` | Enforce renderer entry, lazy-chunk, and total JavaScript size limits. |
+| `audit:security` | Fail when npm reports a moderate-or-higher dependency vulnerability. |
 | `verify:quick` | Run both typechecks, shipping lint, and conformance. |
-| `verify:release` | Run quick checks, critical tests, production builds, and bundle budgets. |
+| `verify:release` | Run the dependency audit, quick checks, critical tests, production builds, and bundle budgets. |
 | `fetch:bin` | Download `yt-dlp` and `gallery-dl` for this OS into `resources/bin/`. |
 | `dist` | Verify and build a local installer into `release/`. |
 | `dist:publish` | Verify, build, and publish a release to GitHub. |
@@ -79,6 +81,12 @@ git push origin v0.1.0     # .github/workflows/release.yml builds + publishes
 Auto-update is wired via `electron-updater` against the
 `Luissalet/Writers-Hoard-Desktop` releases. Users get updates automatically;
 **Help ▸ Check for Updates…** triggers a manual check.
+
+Published Windows releases are fail-closed: GitHub Actions must provide the
+repository secrets `WIN_CSC_LINK` (a PFX path/URL or base64 value accepted by
+electron-builder) and `WIN_CSC_KEY_PASSWORD`. `dist:publish` refuses to run
+without them and also enables electron-builder's `forceCodeSigning` check.
+Local `npm run dist` remains available for unsigned development installers.
 
 ### Reproducible media binaries
 

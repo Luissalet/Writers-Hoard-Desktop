@@ -427,14 +427,20 @@ export default function InspirationGallery({
         </Masonry>
       )}
 
-      {/* Lightbox */}
-      {lightboxImage && (
-        <GalleryLightbox
-          image={lightboxImage}
-          linkedEntries={getLinkedEntries(lightboxImage)}
-          onClose={() => setLightboxImage(null)}
-        />
-      )}
+      {/* Lightbox. The image is re-resolved from `images` so a caption saved
+          from inside the lightbox is reflected on the next open — the state
+          only remembers WHICH image is open, not its frozen row. */}
+      {lightboxImage && (() => {
+        const currentImage = images.find((i) => i.id === lightboxImage.id) ?? lightboxImage;
+        return (
+          <GalleryLightbox
+            image={currentImage}
+            linkedEntries={getLinkedEntries(currentImage)}
+            onClose={() => setLightboxImage(null)}
+            onEditNotes={(notes) => onEditImage(currentImage.id, { notes })}
+          />
+        );
+      })()}
 
       {/* Keyed by the file being cropped. ImagePreviewCrop seeds crop, zoom and
           rotation in state and only resets `crop` on image load, so dropping

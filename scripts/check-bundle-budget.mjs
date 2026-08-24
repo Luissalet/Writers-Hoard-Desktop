@@ -4,15 +4,10 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ASSET_DIR = path.join(ROOT, 'dist', 'assets');
-// This reports; it does not gate.
-//
-// A download budget is a guardrail for something served over a network. This
-// ships as a desktop app: the bundle is read off the user's own SSD, once, at
-// startup. Refusing to build because a feature made the app 10 kB larger was
-// optimising the wrong number — so the sizes are still printed, loudly, and
-// a build is never blocked by them.
-//
-// Set WH_BUNDLE_STRICT=1 to turn the numbers back into failures.
+// Startup entry size is a release gate because it affects every launch. Lazy
+// chunk and total-size budgets remain advisory for this desktop app until their
+// current baselines are brought under budget. WH_BUNDLE_STRICT=1 gates all of
+// them for focused optimization work.
 const strict = process.env.WH_BUNDLE_STRICT === '1';
 const limits = {
   entry: Number(process.env.WH_BUNDLE_ENTRY_KB ?? 1_600) * 1_000,
@@ -26,23 +21,24 @@ const files = readdirSync(ASSET_DIR)
   .sort((left, right) => right.bytes - left.bytes);
 const entry = files.find(file => file.name.startsWith('main-'));
 const total = files.reduce((sum, file) => sum + file.bytes, 0);
-const failures = [];
+const blockingFailures = [];
+const advisoryFailures = [];
 
-if (!entry) failures.push('No main-*.js renderer entry was found.');
+if (!entry) blockingFailures.push('No main-*.js renderer entry was found.');
 else if (entry.bytes > limits.entry) {
-  failures.push(`Renderer entry ${entry.name} is ${(entry.bytes / 1_000).toFixed(1)} kB (limit ${limits.entry / 1_000} kB).`);
+  blockingFailures.push(`Renderer entry ${entry.name} is ${(entry.bytes / 1_000).toFixed(1)} kB (limit ${limits.entry / 1_000} kB).`);
 }
 for (const file of files.filter(file => file !== entry && file.bytes > limits.chunk)) {
-  failures.push(`Lazy chunk ${file.name} is ${(file.bytes / 1_000).toFixed(1)} kB (limit ${limits.chunk / 1_000} kB).`);
+  advisoryFailures.push(`Lazy chunk ${file.name} is ${(file.bytes / 1_000).toFixed(1)} kB (limit ${limits.chunk / 1_000} kB).`);
 }
 if (total > limits.total) {
-  failures.push(`Total renderer JavaScript is ${(total / 1_000).toFixed(1)} kB (limit ${limits.total / 1_000} kB).`);
+  advisoryFailures.push(`Total renderer JavaScript is ${(total / 1_000).toFixed(1)} kB (limit ${limits.total / 1_000} kB).`);
 }
 
-if (failures.length) {
+blockingFailures.forEach(message => console.error(`ERROR ${message}`));
+if (advisoryFailures.length) {
   const label = strict ? 'ERROR' : 'NOTE ';
-  failures.forEach(message => console[strict ? 'error' : 'warn'](`${label} ${message}`));
-  if (strict) process.exit(1);
+  advisoryFailures.forEach(message => console[strict ? 'error' : 'warn'](`${label} ${message}`));
 }
 
 console.log(
@@ -50,3 +46,5 @@ console.log(
   `largest lazy ${(files.find(file => file !== entry)?.bytes ?? 0) / 1_000} kB, ` +
   `total ${(total / 1_000).toFixed(1)} kB.`,
 );
+
+if (blockingFailures.length || (strict && advisoryFailures.length)) process.exit(1);

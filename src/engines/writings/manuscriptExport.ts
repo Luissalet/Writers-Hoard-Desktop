@@ -11,8 +11,11 @@
 // (tasks/lessons: the OS save dialog is the browser's job).
 
 import type { Writing } from '@/types';
-import { countWords } from '@/utils/text';
 import { isDesktop } from '@/utils/platform';
+import {
+  composePublishingDocument,
+  type PublishingDocument,
+} from './publishingDocument';
 
 export interface CompileOptions {
   projectTitle: string;
@@ -20,6 +23,12 @@ export interface CompileOptions {
   includeSynopsis: boolean;
   /** Heading label for numbered chapters, e.g. "Capítulo" / "Chapter". */
   chapterLabel: string;
+  /** Localized label rendered beside the title-page word count. */
+  wordLabel?: string;
+  /** BCP 47 locale used for dates and numbers in the exported document. */
+  locale?: string;
+  /** Injectable timestamp keeps artifact tests deterministic. */
+  generatedAt?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,43 +98,54 @@ export function htmlToMarkdown(html: string): string {
 // Builders
 // ---------------------------------------------------------------------------
 
-function chapterHeading(w: Writing, opts: CompileOptions): string {
-  return w.chapter !== undefined ? `${opts.chapterLabel} ${w.chapter} — ${w.title}` : w.title;
+export function buildManuscriptMarkdown(writings: Writing[], opts: CompileOptions): string {
+  return renderPublishingMarkdown(composePublishingDocument(writings, opts));
 }
 
-export function buildManuscriptMarkdown(writings: Writing[], opts: CompileOptions): string {
+export function renderPublishingMarkdown(document: PublishingDocument): string {
   const parts: string[] = [];
-  if (opts.includeTitlePage) {
-    const total = writings.reduce((sum, w) => sum + (w.wordCount || countWords(w.content)), 0);
-    parts.push(`# ${opts.projectTitle}\n\n*${total.toLocaleString()} palabras · ${new Date().toLocaleDateString()}*\n\n---`);
+  if (document.includeTitlePage) {
+    const date = new Date(document.generatedAt).toLocaleDateString(document.locale);
+    parts.push(`# ${escapeHtml(document.title)}\n\n*${document.wordCount.toLocaleString(document.locale)} ${escapeHtml(document.wordLabel)} · ${escapeHtml(date)}*\n\n---`);
   }
-  for (const w of writings) {
-    parts.push(`\n\n## ${chapterHeading(w, opts)}\n`);
-    if (opts.includeSynopsis && w.synopsis) parts.push(`*${w.synopsis}*\n`);
-    parts.push(htmlToMarkdown(w.content));
+  for (const section of document.sections) {
+    parts.push(`\n\n## ${escapeHtml(section.title)}\n`);
+    if (section.synopsis) parts.push(`*${escapeHtml(section.synopsis)}*\n`);
+    parts.push(htmlToMarkdown(section.html));
     parts.push('\n\n---');
+  }
+  if (document.bibliography.length > 0 && document.bibliographyTitle) {
+    parts.push(`\n\n# ${escapeHtml(document.bibliographyTitle)}\n`);
+    for (const citation of document.bibliography) parts.push(`\n${escapeHtml(citation)}\n`);
   }
   return parts.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
 export function buildManuscriptHtml(writings: Writing[], opts: CompileOptions): string {
-  const total = writings.reduce((sum, w) => sum + (w.wordCount || countWords(w.content)), 0);
-  const chapters = writings
+  return renderPublishingHtml(composePublishingDocument(writings, opts));
+}
+
+export function renderPublishingHtml(document: PublishingDocument): string {
+  const date = new Date(document.generatedAt).toLocaleDateString(document.locale);
+  const chapters = document.sections
     .map(
-      (w) => `
+      (section) => `
     <section class="chapter">
-      <h1 class="chapter-title">${escapeHtml(chapterHeading(w, opts))}</h1>
-      ${opts.includeSynopsis && w.synopsis ? `<p class="synopsis">${escapeHtml(w.synopsis)}</p>` : ''}
-      <div class="content">${w.content}</div>
+      <h1 class="chapter-title">${escapeHtml(section.title)}</h1>
+      ${section.synopsis ? `<p class="synopsis">${escapeHtml(section.synopsis)}</p>` : ''}
+      <div class="content">${section.html}</div>
     </section>`,
     )
     .join('\n');
+  const bibliography = document.bibliography.length > 0 && document.bibliographyTitle
+    ? `<section class="chapter bibliography"><h1 class="chapter-title">${escapeHtml(document.bibliographyTitle)}</h1>${document.bibliography.map(citation => `<p>${escapeHtml(citation)}</p>`).join('')}</section>`
+    : '';
 
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>${escapeHtml(opts.projectTitle)}</title>
+<title>${escapeHtml(document.title)}</title>
 <style>
   @page { margin: 2.2cm 2cm; }
   * { box-sizing: border-box; }
@@ -159,14 +179,15 @@ export function buildManuscriptHtml(writings: Writing[], opts: CompileOptions): 
 </head>
 <body>
   ${
-    opts.includeTitlePage
+    document.includeTitlePage
       ? `<div class="title-page">
-    <h1>${escapeHtml(opts.projectTitle)}</h1>
-    <p class="meta">${total.toLocaleString()} palabras · ${new Date().toLocaleDateString()}</p>
+    <h1>${escapeHtml(document.title)}</h1>
+    <p class="meta">${document.wordCount.toLocaleString(document.locale)} ${escapeHtml(document.wordLabel)} · ${escapeHtml(date)}</p>
   </div>`
       : ''
   }
   ${chapters}
+  ${bibliography}
 </body>
 </html>`;
 }
@@ -180,7 +201,10 @@ function escapeHtml(s: string): string {
 // ---------------------------------------------------------------------------
 
 export function downloadTextFile(text: string, filename: string, mime: string): void {
-  const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+  downloadBlobFile(new Blob([text], { type: `${mime};charset=utf-8` }), filename);
+}
+
+export function downloadBlobFile(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -205,5 +229,14 @@ export async function exportManuscriptPdf(
 ): Promise<{ ok: boolean; canceled?: boolean; error?: string }> {
   if (!canExportPdf()) return { ok: false, error: 'PDF export requires the desktop app' };
   const html = buildManuscriptHtml(writings, opts);
-  return window.electronAPI!.exporter.scriptToPdf(html, `${sanitizeFilename(opts.projectTitle)}.pdf`);
+  return exportHtmlPdf(html, `${sanitizeFilename(opts.projectTitle)}.pdf`);
+}
+
+/** Send an already-composed HTML artifact to the native PDF pipeline. */
+export async function exportHtmlPdf(
+  html: string,
+  filename: string,
+): Promise<{ ok: boolean; canceled?: boolean; error?: string }> {
+  if (!canExportPdf()) return { ok: false, error: 'PDF export requires the desktop app' };
+  return window.electronAPI!.exporter.scriptToPdf(html, filename);
 }

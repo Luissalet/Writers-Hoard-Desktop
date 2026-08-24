@@ -1711,3 +1711,488 @@ La primera versión de «el pueblo vecino no cuenta como éste» filtraba por
 «vecinos a menos de cuatro radios». Con radios de menos de un kilómetro y
 pueblos a veinte, eso da **cero pares**: verde sin haber mirado nada. Ahora va
 contra el vecino MÁS CERCANO de cada pueblo, sin filtro.
+
+---
+
+# Los tres paquetes post-auditoría: anclajes, cosecha LEVE y guiones — 2026-08-21
+
+Sesión sobre la lista que quedó viva tras cerrar el §7 de la auditoría del
+16-08. Tres paquetes elegidos por Luis: AnchorAdapters para biography y
+character-arc, la cosecha de LEVE entera, e importar Fountain/FDX + ciclado
+de tipo con Tab en dialog-scene. **Nada commiteado**, 29 ficheros tocados
+(26 editados + 3 nuevos).
+
+## Plan ejecutado
+
+- [x] LEVE 1 — `SprintTimer`: textarea de notas opcional; `WritingSession.notes`
+      por fin tiene quien lo escriba (el centinela `notes === 'editor'` de
+      `writingActivity.ts` queda documentado al lado).
+- [x] LEVE 2 — `VideoSegment.speakerId` ELIMINADO del tipo (cero usos, sin
+      índice, sin migración; los ZIP viejos importan igual).
+- [x] LEVE 3 — `outline.wordTarget` por fin se LEE: chip `{escritas}/{objetivo}`
+      en la fila de `BeatList` usando el `wordCount` del escrito enlazado (verde
+      al llegar). `OutlineBeat.tags` ELIMINADO (nadie lo escribía ni leía).
+- [x] LEVE 4 — selector de color por relación (`ColorPicker` + botón de volver
+      al color del tipo); la vista de lista prefiere `r.color ?? cfg.color`.
+- [x] LEVE 5 — `ArcBeat.status` editable: select en `BeatRow` calcado del de
+      estado del arco (`ARC_STATUS_CONFIG`, cero claves nuevas).
+- [x] LEVE 6a — `FactSource.entityId` por fin se escribe: `LinkSelect` de
+      capturas del Scrapper en `FactEditor` (visible sólo con tipo Captura);
+      la fuente muestra el título de la captura enlazada. `FactEditor` recibe
+      `projectId` nuevo desde `BiographyView`.
+- [x] LEVE 6b — el export narrativo de biografía usa `downloadTextFile` (el
+      blob artesanal no revocaba su object URL).
+- [x] LEVE 7 — pie de foto editable en `GalleryLightbox` (`gallery.notes` se
+      buscaba y mostraba pero no había dónde escribirlo); el lightbox
+      re-resuelve la imagen desde `images` para no quedarse congelado.
+- [x] LEVE 8a — las conexiones del timeline por fin se EDITAN: `editConnection`
+      cableado (existía sin llamador), menú contextual con etiqueta, estilo
+      (continuo/discontinuo/punteado) y color — el dibujante ya sabía pintarlo
+      todo.
+- [x] LEVE 8b — renombrar línea temporal: `onEditTimeline` destructurado (llegaba
+      y se ignoraba); clic en la etiqueta del carril abre modal de nombre +
+      descripción.
+- [x] LEVE 9 — `GoogleDocsPicker` se desmonta al cerrar (render condicional,
+      patrón FactEditor/PanelEditor); ya no conserva búsqueda ni selección.
+- [x] LEVE 10 — `assertBackupCoverage` ahora itera `db.tables` (el universo
+      real) en vez de las tablas declaradas por motores: las 4 de project-tools
+      quedan vigiladas y cualquier tabla futura sin respaldo salta. Lista
+      explícita `DERIVED_CACHE_TABLES` (worldSnapshots, canonTiles,
+      renderedTiles) para las cachés regenerables.
+- [x] ANCLAJES — biography y character-arc con `AnchorAdapter` explícito
+      (entity-only; los dos sondean sus dos tablas, chip localizado
+      `annotations.chipLabel.*`, y navegación real: un fact lleva a su
+      biografía, un beat a su arco). OJO: ya aparecían en el selector por el
+      adaptador de RESPALDO (`registerFallbackAdapters`) — lo que faltaba era
+      chip traducido, URL viva y la MITAD RECEPTORA: `useDeepLinkParam('bio')`
+      en `BiographyEngine` y `useDeepLinkParam('arc')` en `CharacterArcEngine`
+      (patrón render-adjust con guarda, como codex). Montado
+      `<AnnotationSurface layout="stack">` en `BiographyView` y en `ArcEditor`.
+- [x] IMPORTAR GUIONES — tres ficheros nuevos en dialog-scene:
+      `importPersist.ts` (contratos + `importScript`: transacción con
+      `bulkAdd`, APPEND-ONLY tras las escenas existentes, `#N#` ⇒
+      `isLocked: true` porque el motor renumera en cada gesto, un `SceneCast`
+      por nombre canónico —extensiones `(V.O.)` fuera de la identidad,
+      `(CONT'D)` eliminado— y `characterId` del códice estampado en cast y
+      bloques, que alimenta el Cockpit), `fountainImport.ts` (parser puro,
+      inverso del exportador: título-page/boneyard/`===` fuera, sinopsis a
+      descripción, secciones a nota, OMITTED, `#N#`, `>`/`TO:`, `[[notas]]`
+      multilínea, `!`, `@`, cues con `^` dual y paréntesis inicial al campo,
+      `*línea*` a acotación; pérdidas documentadas en cabecera: los slugs
+      exportados vuelven como límite de escena) y `fdxImport.ts` (DOMParser
+      XML sin dependencias; Shot→slug, Cast List→nota, dual por contenedor y
+      por atributo best-effort, `Number`→número). Botón Importar en
+      `SceneListView` FUERA de la guarda `scenes.length > 0`, detección por
+      extensión + sniff `<FinalDraft`, prop nueva `onImported` ⇒
+      `autoNumberScenes` + `refresh` sin timer.
+- [x] TAB — ciclado de tipo de bloque en el editor: `dialog → action →
+      stage-direction → transition → slug → note` (Shift+Tab inverso),
+      saltando `dialog` si el bloque no tiene nombre (evita la cabecera vacía)
+      y sin tocar los duales. Convive con el autocompletado por
+      `e.defaultPrevented` (su listener nativo va antes); `flush()` del campo
+      antes del cambio de tipo (cero teclas perdidas) y refocus por efecto en
+      `[block.type]` — la instancia sobrevive (key = block.id), sólo cambia el
+      textarea.
+- [x] i18n — 18 pares nuevos en en/es: `dialogScene.import.*` (8),
+      `annotations.chipLabel.{biography,character-arc}`,
+      `timeline.{connectionLabel,renameTimeline,style.*}`,
+      `relationships.{color,colorReset}`, `gallery.imageNotes`.
+- [x] Test — `testScriptImportRoundTrip` en `tests/critical.browser.ts`:
+      helpers de cue, round-trip `buildFountain → parseFountain` (heading+
+      número, paréntesis, dual, acotación, transición, nota, OMITTED, slug
+      como límite, descripción como acción, `(V.O.)`), FDX inline (runs de
+      texto, fusión de Dialogue consecutivos, CONT'D, Shot/Transition) y
+      persistencia real (`importScript`: recuentos, candado del número,
+      estampado del códice) con limpieza.
+
+## Review — verificación
+
+En la máquina real (Desktop Commander, shell Windows): `tsc -b --noEmit`
+(renderer, 12s, verde con --verbose enseñando la build), tsc de Electron
+verde, `check-lint.mjs` verde con 0 huellas, `check-conformance.mjs` verde
+(21 motores, 41 tablas, **2.335 claves**), y `npx electron
+scripts/run-critical-tests.cjs` **13/13 PASS** incluido el test nuevo.
+También todo verde antes en el sandbox (npm ci --ignore-scripts).
+
+**Aviso de herramienta**: en esta máquina, `npm run X 2>&1 | Out-String` en
+PowerShell devuelve exit 1 falso y se traga la salida del hijo — los portones
+hay que lanzarlos con `npx`/`node` directos.
+
+## Lo que queda (después de esto)
+
+- `AiToolbar.tsx`: 6 cadenas en español fijo (Luis lo dejó fuera a propósito).
+- Sin UI aún: `Payoff` ya tiene sus tres selectores… (cerrado el 16-08); nada
+  más pendiente de la auditoría.
+- Ideas apuntadas, no pedidas: modo reemplazo/merge en el import, export FDX,
+  crear entradas de códice para hablantes desconocidos al importar, ciclado
+  Tab dentro de duales.
+
+---
+
+# IA local de un botón: Ollama portable embebido + Qwen — 2026-08-21 (tarde)
+
+Petición de Luis: «darle y que descargue un modelo tocho gratuito local».
+15 ficheros (2 nuevos, 12 editados, 1 borrado), **sin commitear**.
+
+## Lo que hay
+
+- [x] **`electron/ollama.ts`** (nuevo): el main gestiona un Ollama portable —
+      descarga el zip standalone oficial (CLI + CUDA) a `userData` con progreso
+      vía `net.fetch` en streaming, extrae con `tar.exe` (fallback
+      `Expand-Archive`), y arranca `ollama serve` como hijo vigilado en el
+      puerto fijo **11500** (`OLLAMA_MODELS` propio, keep_alive 30m, flash
+      attention). Si hay un Ollama del sistema en 11434, lo adopta y no
+      descarga nada (`external`). Pull de modelos por `/api/pull` NDJSON con
+      progreso agregado por capas (Σcompleted/Σtotal, monótono, ≤10 ev/s) y
+      cancelación (Ollama reanuda solo). Chat por **`/api/chat` nativo** (no
+      `/v1`: sin `options` el contexto sería 4096 y truncaría manuscritos) con
+      `num_ctx 32768`, `think: false` (retry sin el campo si el servidor es
+      viejo), timeout 10 min. Guardas de disco con `fs.statfs` (zip×2.5,
+      modelo×1.2 → error `no-space:N`). Árbol de procesos matado en
+      `will-quit` (lección #15). TODO el HTTP a Ollama vive en el main: el
+      renderer empaquetado es `file://` y el CORS de Ollama rechaza origen
+      null (pendiente conocido de `desktop-transition.md`).
+- [x] **IPC**: namespace `ollama` (8 invokes + 3 eventos push — los primeros
+      canales de progreso de la app), duplicado a mano en `preload.ts` y
+      `src/electron-env.d.ts` como siempre.
+- [x] **Proveedor**: `AiConfig.provider: 'proxy' | 'local'` + `localModel`
+      (2 claves Dexie nuevas; default `proxy` → nadie nota nada). `callAi`
+      ramifica; `LocalAiError` → clave `ai.localNotReady` vía `safeAiCall`.
+- [x] **`src/services/aiText.ts`** (nuevo, puro): `sanitizeModelText` (bloques
+      `<think>` cerrados/truncados/huérfanos) y `parseJsonFromModel` (fence →
+      texto → recorte primer-corchete-a-último; `SyntaxError` para mantener el
+      mapeo a `ai.unexpectedFormat`). Sustituye los dos `JSON.parse` frágiles
+      de `aiFeatures.ts`; `callAi` sanea SIEMPRE (inofensivo con Claude).
+- [x] **Catálogo** (`config/ai.ts`): `qwen3.5:35b-a3b` (~20 GB, el tocho, MoE
+      3B activos) y `qwen3.5:9b` (~6,6 GB, entero en la 4070 Ti). Tamaños
+      espejados en `KNOWN_MODEL_BYTES` del main (mantener en sincronía).
+- [x] **UI** (`SettingsModal`): selector de proveedor + panel local por estado
+      — CTA «Descargar motor de IA local (~1,5 GB)» → barra estilo worldgen
+      con fase/GB/cancelar → «IA local activa»; tarjetas de modelo con
+      Descargar/progreso/Usar/Borrar (ConfirmDialog), modelos extra de un
+      Ollama externo listados aparte. `aiStore`: eventos suscritos a nivel de
+      MÓDULO con guarda en window (StrictMode, lección #19).
+- [x] **Borrado**: `AiSettings.tsx` (fork muerto de la UI, cero importadores)
+      eliminado vía Desktop Commander.
+- [x] **i18n**: 32 pares nuevos es/en. **Test**: `testAiTextParsing` (9
+      asserts) en `tests/critical.browser.ts`.
+
+## Review — verificación
+
+Sandbox y máquina real (npx/node directos, lección #37): tsc renderer
+`--force` verde, tsc electron verde, lint 0 huellas, conformidad
+**2.367 claves**, `run-critical-tests` **14/14 PASS**. E2E manual pendiente
+de Luis (es literalmente el botón): descargar motor → pull del 9B → resumen/
+personajes; luego el 35B. Nada descargado en su máquina sin que él lo pida.
+
+## Notas para el futuro
+
+- El zip del runtime no reanuda (v1); los pulls de modelos sí (Ollama).
+- `settings.ai.local.*` y los códigos de error del main (`no-space:N`,
+  `runtime-missing`, `model-missing`, `busy`, `cancelled`) están mapeados en
+  `aiStore.localErrorText`.
+- Ideas no pedidas: streaming de tokens, runtime embebido mac/linux, GGUF
+  propios, enrutado por función (resumen→9b, consistencia→35b).
+
+---
+
+# Auditoría integral de app y siguientes pasos — 2026-08-24
+
+## Plan
+
+- [x] Revisar el estado real del producto, la documentación y las lecciones previas.
+- [x] Auditar arquitectura, deuda técnica, seguridad, rendimiento y cobertura de pruebas.
+- [x] Probar los flujos principales de la aplicación y evaluar la experiencia de uso.
+- [x] Inventariar capacidades existentes para no proponer funciones duplicadas.
+- [x] Priorizar hallazgos e ideas por impacto, riesgo y esfuerzo.
+- [x] Definir un roadmap de siguientes pasos con criterios verificables.
+
+## Review
+
+### Diagnóstico
+
+La aplicación ya tiene una propuesta de producto extraordinariamente amplia:
+21 motores, escritura con recuperación e historial, captura e investigación,
+Worldgen, búsqueda transversal, salud del proyecto, publicación e IA local y
+remota. El siguiente salto no es añadir otro motor, sino hacer que todos los
+motores se comporten como una sola aplicación y cerrar el perímetro de
+seguridad antes de publicar.
+
+### Bloqueantes antes de publicar
+
+- Cerrar la cadena HTML no saneado → renderer → capacidades nativas: CSP
+  estricta, sanitización con allowlist, validación runtime de backups/IPC y
+  comprobación central del remitente de cada canal.
+- Fijar versión y SHA-256 del runtime descargable de Ollama antes de extraerlo
+  o ejecutarlo; nunca usar `releases/latest/download` para un binario nativo.
+- Corregir la validación de rutas de la biblioteca (`.` y `..`), la colisión
+  destructiva al importar un proyecto y la promesa confusa de «backup
+  completo» cuando los activos de Scrapper no viajan dentro del ZIP.
+- Actualizar Electron y React Router de forma controlada, resolver los avisos
+  de dependencias y añadir firma de código al flujo de publicación.
+
+### Prioridad de producto
+
+- Reparar deep links y «Trabajo reciente» para abrir el elemento exacto.
+- Hacer útil la IA grounded: búsqueda semántica/híbrida, más fuentes y un solo
+  modelo de consentimiento que distinga proveedor local de remoto.
+- Corregir 100 % falsos en proyectos vacíos, traducir Cockpit/Tools y agrupar
+  sus 11 pestañas.
+- Llevar promoción a borrador, citas y reparaciones al contexto donde nacen;
+  convertir el onboarding en pasos navegables y específicos por modo.
+- Unificar Compilar y Publicación en perfiles reutilizables.
+
+### Roadmap recomendado
+
+1. **Seguridad de release:** CSP/sanitización/IPC, hash de Ollama, rutas,
+   dependencias y firma.
+2. **Cohesión inmediata:** deep links, métricas N/A, i18n, edición de proyecto,
+   acciones contextuales y onboarding.
+3. **Flujo editorial:** Cockpit reorganizado, centro de comandos `Ctrl+K`,
+   Compilar/Publicar unificados y backups portables.
+4. **Diferenciación:** copiloto de continuidad local-first, columna narrativa
+   navegable y pipeline DOCX/ePub/FDX.
+
+### Verificación
+
+- TypeScript renderer y Electron: verde.
+- Lint de envío: 0 huellas.
+- Conformidad: 21 motores, 41 tablas, 2.367 claves, 0 avisos.
+- Pruebas críticas: 14/14 PASS.
+- Build de producción y bundle Electron: verdes.
+- Presupuestos informativos superados: entry 1.686,9 kB, World3D 709,9 kB y
+  total 4.571,0 kB; el script no falla salvo con `WH_BUNDLE_STRICT=1`.
+- Auditoría de producción: 5 avisos (4 altos y 1 moderado), sin críticos.
+- Prueba manual a 1280×720 completada; el proyecto temporal fue eliminado al
+  terminar y el servidor local de auditoría quedó cerrado.
+
+---
+
+# Sprint 0 de seguridad previo a distribución — 2026-08-24
+
+## Plan
+
+- [x] Añadir CSP compatible con web/Electron y sanear todo HTML persistido que
+      llega a superficies con `dangerouslySetInnerHTML`.
+- [x] Validar el remitente de IPC y limitar la navegación de producción a la
+      URL exacta del renderer empaquetado.
+- [x] Fijar y verificar por SHA-256 el runtime descargable de Ollama antes de
+      extraer o ejecutar ningún binario.
+- [x] Rechazar segmentos `.`/`..` y demostrar la contención de destinos de la
+      biblioteca nativa con pruebas adversariales.
+- [x] Detectar colisiones al importar proyectos y exigir cancelar o reemplazar;
+      «importar como copia» queda visible pero deshabilitado hasta poder
+      reasignar con seguridad todas las referencias internas.
+- [x] Añadir cobertura de regresión para HTML hostil, hash incorrecto, rutas y
+      colisiones de importación.
+- [x] Ejecutar typechecks, lint, conformance, pruebas críticas, startup real y
+      build de producción.
+- [x] Actualizar la documentación arquitectónica y ejecutar el mantenimiento del
+      grafo; la memoria externa indicada por la habilidad no está montada en
+      este entorno, por lo que `docs/PROJECT_KNOWLEDGE.md` queda como fallback
+      versionado y actualizado.
+
+## Review
+
+- CSP sin `unsafe-inline` para scripts y saneador DOMPurify central aplicado a
+  las cinco superficies actuales de HTML persistido. Se conserva la excepción
+  explícita de Google Identity y `style-src 'unsafe-inline'` por los estilos
+  dinámicos de la interfaz.
+- IPC con política por canal/ventana, top frame y URL exacta; navegación de
+  producción cerrada al documento interno. Se eliminaron además cinco canales
+  sin llamadores, incluida la consulta de existencia de rutas
+  arbitrarias.
+- Biblioteca nativa contenida léxicamente y por `realpath`, incluidos escapes
+  mediante symlink. Segmentos `.` y `..` rechazados.
+- Ollama fijado a `v0.32.15`: 1.460.302.386 bytes y SHA-256
+  `a1d11d46a944f9c7521f5e9a3a5db51cd3365401da627d96c204698fc6914ff9`,
+  contrastados con la API y el `sha256sum.txt` oficiales. La descarga se hashea
+  en staging antes de extraer y el runtime instalado exige recibo coincidente.
+- La importación de proyecto previsualiza colisiones sin escribir; una colisión
+  no autorizada aborta antes de la primera mutación. La sustitución explícita se
+  vuelve a validar dentro de la transacción.
+- Dependencias actualizadas a Electron 43.4.1, electron-builder 26.15.3, Vite
+  7.3.6, React Router 7.18.2 y esbuild 0.28.2. `npm audit`: **0 avisos**.
+- Publicación Windows bloqueada si faltan `WIN_CSC_LINK` y
+  `WIN_CSC_KEY_PASSWORD`, con `forceCodeSigning=true`. El paquete local de
+  desarrollo sigue sin firma, como se espera; falta aportar el certificado en
+  los secrets del repositorio para publicar.
+- Verificación final: ambos typechecks verdes; lint 0 huellas; conformidad 21
+  motores, 41 tablas y 2.374 claves; **20/20 pruebas críticas**; build web y
+  Electron verdes; `electron-builder --dir` verde; startup del paquete real
+  verde con perfil temporal aislado. Presupuestos informativos: entry 1.693,5
+  kB, lazy máximo 709,9 kB y total 4.607,3 kB.
+- La habilidad `update-project-graph` se ejecutó al final, pero sus ficheros de
+  memoria (`/sessions/festive-cool-keller/mnt/.auto-memory/*`) no existen en
+  este host Windows ni tienen réplica local accesible. Se actualizó en su lugar
+  `docs/PROJECT_KNOWLEDGE.md`; queda pendiente sincronizar la memoria externa
+  cuando el montaje vuelva a estar disponible.
+
+---
+
+# Sprint 1 de cohesión inmediata — 2026-08-24
+
+## Plan
+
+- [x] Hacer que cada elemento de «Trabajo reciente» abra su entidad exacta y
+      mantener un fallback seguro para motores sin navegación profunda.
+- [x] Representar como no aplicables las coberturas sin denominador y distinguir
+      un proyecto vacío de un proyecto comprobado sin incidencias.
+- [x] Permitir editar desde el proyecto sus datos básicos sin recrearlo.
+- [x] Traducir las superficies visibles de Cockpit/Tools incluidas en este
+      sprint y evitar que el selector de idioma deje textos mezclados.
+- [x] Convertir los pasos iniciales en acciones navegables y útiles, con
+      destino coherente con el modo y los motores activos del proyecto.
+- [x] Añadir cobertura de regresión y ejecutar typechecks, lint, conformidad,
+      pruebas críticas, startup real y build de producción.
+- [x] Documentar el resultado y refrescar el conocimiento del proyecto.
+
+## Review
+
+- «Trabajo reciente» conserva el ID de la entidad y abre el escrito, entrada de
+  Códice, nota, escena, entrada de diario o captura exactos. Los motores sin
+  adaptador conservan la apertura segura a nivel de motor. La selección de
+  capturas del Scrapper queda además centralizada, reparando el clic de lista.
+- Las coberturas sin denominador devuelven `null` y se muestran como `N/D`; un
+  proyecto vacío queda en estado `not-applicable`, separado de `clean` e
+  `issues`.
+- Se añadió edición de título, tipo, estado, descripción, color e icono desde el
+  propio proyecto. El onboarding abre esa edición o navega a Códice/Escritos y
+  progresa con datos reales.
+- Cockpit, Tools, plantillas, nombres de motores, tarjetas y controles de tipo y
+  estado usan el catálogo común ES/EN. Conformidad: 21 motores, 41 tablas y
+  2.588 claves de idioma, sin avisos.
+- Verificación final: ambos typechecks verdes; lint de envío con 0 huellas;
+  **22/22 pruebas críticas**; arranque Vite y build web/Electron verdes;
+  `npm audit` con 0 vulnerabilidades. La prueba visual creó, editó, recorrió y
+  eliminó un proyecto temporal, y terminó sin errores en consola.
+- El presupuesto de bundle sigue siendo informativo y queda como siguiente
+  frente de optimización: entry 1.731,8 kB, World3D 709,9 kB y total 4.645,8
+  kB.
+- La habilidad `update-project-graph` se ejecutó al cierre. No hay cambios de
+  topología que trasladar a la memoria externa (sin motores, tablas, stores,
+  rutas registradas ni servicios añadidos/eliminados); el contrato funcional
+  sí quedó actualizado en `docs/PROJECT_KNOWLEDGE.md`.
+
+---
+
+# Sprint 2 de flujo editorial — 2026-08-24
+
+## Plan
+
+- [x] Reagrupar las once vistas del Cockpit en cuatro flujos comprensibles,
+      conservar cada vista existente y reflejar la selección en una URL
+      compartible y restaurable.
+- [x] Convertir `Ctrl+K` en un centro de comandos: acciones contextuales del
+      proyecto cuando está vacío, filtrado conjunto de acciones y contenido,
+      navegación por teclado y semántica accesible.
+- [x] Permitir abrir desde comandos la revisión, la edición del proyecto, sus
+      motores y el estudio de publicación sin introducir estados paralelos.
+- [x] Unificar Compilar y Publicar sobre los perfiles existentes, incluyendo
+      selección y orden de escritos, opciones de portada/sinopsis/bibliografía,
+      formato, estilo de citas y exportación Markdown/HTML/PDF.
+- [x] Mantener compatibles los perfiles antiguos y confirmar que los perfiles
+      nuevos viajan en backups sin una migración innecesaria de Dexie.
+- [x] Completar ES/EN y añadir regresiones para grupos, comandos, enlaces de
+      consulta y normalización/orden de perfiles.
+- [x] Ejecutar typechecks, lint, conformidad, pruebas críticas, arranque real,
+      prueba visual y build de producción.
+- [x] Documentar el contrato final y ejecutar `update-project-graph`.
+
+## Review
+
+- Las once vistas del Cockpit se conservan y ahora forman cuatro flujos:
+  Supervisar, Desarrollar, Producir y Preparar/publicar. `?panel=` permite
+  compartir, recargar y recorrer la selección con el historial del navegador.
+- `Ctrl+K` es un centro de comandos accesible y contextual: proyectos/notas,
+  resumen, revisión, edición, publicación, motores habilitados en su orden y
+  gestión de motores; el filtrado conjunto admite texto sin tildes.
+- Compilar y Publicar usan el mismo estudio. Los perfiles guardan selección y
+  orden explícitos, portada, sinopsis, bibliografía y citas, y producen
+  Markdown/HTML/PDF desde una composición saneada común. Los perfiles antiguos
+  se normalizan sin migración y los campos nuevos viajan en el backup existente.
+- La prueba visual creó y eliminó proyectos, escritos y perfiles efímeros;
+  comprobó los cuatro flujos, comandos contextuales, guardado/borrado seguro y
+  el estudio compartido. Durante la prueba se detectó y corrigió una tarjeta de
+  escrito con botones anidados; la repetición no generó errores nuevos de React.
+- Verificación: typechecks renderer/Electron verdes; lint de envío con 0
+  huellas; conformidad con 21 motores, 41 tablas y 2.663 claves de idioma, sin
+  avisos; **24/24 pruebas críticas**; build web/Electron verde.
+- El presupuesto de bundle sigue siendo el frente no bloqueante principal:
+  entry 1.792,9 kB, World3D 709,9 kB y total 4.671,9 kB frente a límites
+  informativos de 1.600/700/4.100 kB.
+- `update-project-graph` se ejecutó al cierre. La memoria externa configurada en
+  `/sessions/festive-cool-keller/mnt/.auto-memory/` no está montada en este
+  entorno; el nuevo servicio `commandCenter` y los contratos del Cockpit y de
+  publicación quedaron reflejados en `docs/PROJECT_KNOWLEDGE.md` como fuente
+  local verificable.
+
+---
+
+# Sprint 3 de diferenciación y rendimiento — 2026-08-24
+
+## Plan
+
+- [x] Reducir el chunk inicial por debajo de 1.600 kB mediante separación real
+      de rutas y dependencias, sin maquillar el presupuesto ni retrasar el
+      registro de motores necesario para búsqueda, backups y navegación.
+- [x] Evitar que el registro de Worldgen arrastre al inicio todo el sistema de
+      edición del planeta cuando solo necesita leer nombres persistidos.
+- [x] Introducir una representación editorial común para que Markdown, HTML,
+      PDF, DOCX y ePub compartan selección, orden, saneado, idioma y bibliografía.
+- [x] Añadir exportación DOCX y ePub desde el estudio, con descarga binaria
+      diferida y sin peticiones remotas implícitas para imágenes.
+- [x] Convertir la Columna narrativa en una cola determinista de señales de
+      continuidad: beat incompleto, semilla pendiente y payoff invertido.
+- [x] Hacer navegables el beat, escrito, escena y semilla exactos; conservar
+      `panel=spine&beat=...` en recarga e historial y degradar IDs inválidos.
+- [x] Completar ES/EN y regresiones de archivos portables, señales, deep links y
+      límites de bundle.
+- [x] Ejecutar typechecks, lint, conformidad, pruebas críticas, build, presupuesto
+      y prueba visual real; documentar y actualizar el grafo del proyecto.
+
+## Review
+
+- La entrada inicial bajó de 1.792,9 a **906,2 kB** (-49 %). Dashboard,
+  ProjectDetail, NotesInbox y MediaDownloader son rutas diferidas; el catálogo
+  Lucide completo queda en un chunk de 446,8 kB que solo se carga al abrir el
+  selector o resolver un icono antiguo. El registro temprano de motores se
+  mantiene y Worldgen lee renombres sin cargar replay ni escultura.
+- `PublishingDocument` es la representación editorial común para Markdown,
+  HTML, PDF, DOCX y EPUB 3. DOCX/ePub se construyen bajo demanda, respetan orden,
+  estilos básicos, idioma y bibliografía, omiten todas las imágenes y no hacen
+  peticiones remotas. Sus ZIP internos, manifiestos, spine y contenido saneado
+  se verifican en la suite crítica.
+- La Columna narrativa deriva localmente beats sin escena/escrito válidos,
+  semillas no cortadas sin payoff y payoffs estrictamente anteriores a su
+  planteamiento conocido. Las señales son estables y accionables, los enlaces
+  aterrizan en beat/escrito/escena/semilla y `panel=spine&beat=...` restaura
+  scroll y foco; IDs inválidos se eliminan sin romper la vista.
+- La prueba visual creó un proyecto con un icono fuera del catálogo inicial,
+  generó DOCX/ePub, recorrió una señal hasta su beat exacto, comprobó la
+  restauración de foco y eliminó todos los datos temporales. Durante la prueba se
+  detectó y corrigió una carrera de foco cancelado por una re-renderización.
+- Verificación final: typechecks renderer/Electron, lint de envío y conformidad
+  verdes; **27/27 pruebas críticas**; build web/Electron correcto; `npm audit`
+  con 0 vulnerabilidades y `git diff --check` limpio. Quedan avisos informativos
+  en World3D (710,6 kB) y total JS (5.130,8 kB), aunque el objetivo de entrada
+  ya está holgadamente cumplido.
+- `update-project-graph` se ejecutó al cierre. Sus tres archivos externos bajo
+  `/sessions/festive-cool-keller/mnt/.auto-memory/` no están montados en esta
+  sesión; rutas, publicación, continuidad, Worldgen y presupuestos sí quedaron
+  actualizados en `docs/PROJECT_KNOWLEDGE.md` como fuente local verificable.
+- Seguimiento pequeño: el límite de 1.600 kB para la entrada inicial ya es una
+  barrera real de release. Se verificó que el bundle actual pasa con 906,2 kB y
+  que una regresión simulada devuelve error; World3D y el total siguen como
+  avisos hasta abordar sus propios frentes.
+- Seguimiento pequeño: TipTap configura ahora el enlace incluido en StarterKit
+  en vez de registrar una segunda extensión `link`; desaparece así la
+  advertencia al abrir escritos sin cambiar el comportamiento del editor.
+- Seguimiento pequeño: Sidebar usa el `toast` ya presente en el paquete inicial
+  y mantiene solo el backup ZIP como importación diferida. El build confirma que
+  desapareció el aviso de importación estática/dinámica contradictoria.
+- Seguimiento pequeño: Character Arc importa `createBeat` por la misma vía
+  estática que sus hooks. El build de producción termina ahora sin advertencias
+  de Vite por módulos importados simultáneamente de forma estática y dinámica.
+- Seguimiento pequeño: los contadores del Esquema y sus plantillas distinguen
+  singular y plural; ya muestran `1 beat` y `2 beats` en lugar de `1 beats`.

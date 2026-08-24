@@ -3,6 +3,7 @@
 // ============================================
 
 import { callAi } from './aiService';
+import { parseJsonFromModel } from './aiText';
 import { stripHtml } from '@/utils/googleDocsHtmlCleaner';
 import { t } from '@/i18n/useTranslation';
 import type { AiConfig, ExtractedCharacter, ConsistencyIssue } from '@/types';
@@ -55,14 +56,9 @@ TODOS los personajes que aparecen. Para cada uno devuelve un JSON array con obje
 Responde SOLO con el JSON array válido. Sin markdown, sin backticks, sin explicaciones.`;
 
   const response = await callAi(systemPrompt, plainText, config);
-
-  try {
-    return JSON.parse(response);
-  } catch {
-    // If AI wrapped it in markdown code blocks, strip them
-    const cleaned = response.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleaned);
-  }
+  // Tolerates fences, preambles and <think> leakage (local models); a
+  // SyntaxError still maps to ai.unexpectedFormat via safeAiCall.
+  return parseJsonFromModel<ExtractedCharacter[]>(response);
 }
 
 /**
@@ -107,13 +103,7 @@ Si no encuentras inconsistencias, devuelve [].
 Responde SOLO con el JSON array válido.`;
 
   const response = await callAi(systemPrompt, combined, config);
-
-  try {
-    return JSON.parse(response);
-  } catch {
-    const cleaned = response.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleaned);
-  }
+  return parseJsonFromModel<ConsistencyIssue[]>(response);
 }
 
 /**

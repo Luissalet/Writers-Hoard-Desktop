@@ -31,12 +31,34 @@ import os from 'node:os';
 import { promises as fs } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { autoUpdater } from 'electron-updater';
-import { startMediaServer, stopMediaServer, MEDIA_SERVER_URL } from './media/server';
+import { startMediaServer, stopMediaServer } from './media/server';
 import { transcodeWebmToMp4 } from './media/transcode';
 import { downloadMedia, type MediaFormat } from './media/ytdlp';
 import { downloadGallery } from './media/gallerydl';
 import { openIgLogin, igStatus, igLogout, exportIgCookies, igCookiesPath } from './media/igAuth';
 import { capturePage, type PageMeta } from './media/pageCapture';
+import {
+  isExactRendererDocumentUrl,
+  isIpcChannelAllowedForRole,
+  isPathContainedBy,
+  isSafeNativeSegment,
+  resolveExistingContainedNativePath,
+  resolveWritableContainedNativePath,
+  type InternalRendererRole,
+} from './security';
+import {
+  initOllama,
+  getOllamaStatus,
+  startOllama,
+  downloadOllamaRuntime,
+  cancelRuntimeDownload,
+  pullOllamaModel,
+  cancelOllamaPull,
+  deleteOllamaModel,
+  ollamaChat,
+  shutdownOllama,
+  type OllamaChatRequest,
+} from './ollama';
 
 interface SaveResult {
   ok: boolean;
@@ -66,17 +88,104 @@ interface DownloadToLibraryResult {
 
 const isDev = !app.isPackaged;
 const RENDERER_DEV_URL = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5174';
+const PACKAGED_RENDERER_DIR = path.join(__dirname, '..', 'dist');
+const MAIN_RENDERER_PATH = path.join(PACKAGED_RENDERER_DIR, 'index.html');
+const QUICK_NOTE_RENDERER_PATH = path.join(PACKAGED_RENDERER_DIR, 'quick-note.html');
+const MAIN_RENDERER_URL = isDev
+  ? new URL(RENDERER_DEV_URL).href
+  : pathToFileURL(MAIN_RENDERER_PATH).href;
+const QUICK_NOTE_RENDERER_URL = isDev
+  ? new URL('/quick-note.html', RENDERER_DEV_URL).href
+  : pathToFileURL(QUICK_NOTE_RENDERER_PATH).href;
 
 let mainWindow: BrowserWindow | null = null;
+
+function rendererUrlForRole(role: InternalRendererRole): string {
+  return role === 'main' ? MAIN_RENDERER_URL : QUICK_NOTE_RENDERER_URL;
+}
+
+function windowForRole(role: InternalRendererRole): BrowserWindow | null {
+  return role === 'main' ? mainWindow : quickNoteWindow;
+}
+
+/** A trusted IPC caller must be an allowed internal window's top frame. */
+function acceptIpcSender(
+  event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
+  channel: string,
+): boolean {
+  const frame = event.senderFrame;
+  if (!frame || frame !== event.sender.mainFrame) return false;
+  const roles: readonly InternalRendererRole[] = ['main', 'quick-note'];
+  for (const role of roles) {
+    if (!isIpcChannelAllowedForRole(channel, role)) continue;
+    const win = windowForRole(role);
+    if (
+      win &&
+      !win.isDestroyed() &&
+      event.sender === win.webContents &&
+      isExactRendererDocumentUrl(frame.url, rendererUrlForRole(role))
+    ) {
+      return true;
+    }
+  }
+  console.warn(`[ipc] rejected sender for ${channel}`);
+  return false;
+}
+
+function assertIpcSender(
+  event: Electron.IpcMainInvokeEvent,
+  channel: string,
+): void {
+  if (!acceptIpcSender(event, channel)) throw new Error('Forbidden IPC sender');
+}
+
+function installNavigationGuard(
+  win: BrowserWindow,
+  expectedUrl: string,
+  openHttpExternally: boolean,
+): void {
+  const guard = (event: Electron.Event, url: string): void => {
+    if (isExactRendererDocumentUrl(url, expectedUrl)) return;
+    event.preventDefault();
+    if (openHttpExternally && /^https?:\/\//i.test(url)) void shell.openExternal(url);
+  };
+  win.webContents.on('will-navigate', guard);
+  win.webContents.on('will-redirect', guard);
+}
+
+/** Exit with a machine-readable code after a packaged renderer startup smoke. */
+function installPackagedSmokeExit(win: BrowserWindow): void {
+  if (isDev || process.env.WH_DESKTOP_SMOKE_TEST !== '1') return;
+  let settled = false;
+  const finish = (code: number): void => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeout);
+    app.exit(code);
+  };
+  const timeout = setTimeout(() => finish(1), 20_000);
+  win.webContents.once('did-fail-load', () => finish(1));
+  win.webContents.once('did-finish-load', async () => {
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const mounted = await win.webContents.executeJavaScript(`
+        (() => {
+          const root = document.getElementById('root');
+          return Boolean(root && root.childElementCount > 0 && (root.textContent?.trim().length ?? 0) > 10);
+        })()
+      `);
+      finish(mounted ? 0 : 1);
+    } catch {
+      finish(1);
+    }
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Scrapper media library — downloaded inspiration videos/audio live under
 // <userData>/scrapper-media/<projectId>/<snapshotId>.<ext> and are served to
 // the renderer through the privileged `wh-media://` scheme (registered below).
 // ---------------------------------------------------------------------------
-
-/** Only UUID-ish segments are allowed in a media path (no separators, no `..`). */
-const SAFE_SEGMENT = /^[A-Za-z0-9._-]+$/;
 
 /** Content types the wh-media:// handler pins explicitly (see protocol.handle). */
 const MEDIA_CONTENT_TYPES: Record<string, string> = {
@@ -117,8 +226,8 @@ async function listManagedFiles(projectId?: string): Promise<Array<{
   modifiedAt: number;
 }>> {
   const root = scrapperMediaDir();
-  const start = projectId ? resolveLibraryPath(projectId) : root;
-  if (!start || (projectId && !SAFE_SEGMENT.test(projectId))) return [];
+  const start = projectId ? await resolveExistingLibraryPath(projectId) : root;
+  if (!start || (projectId && !isSafeNativeSegment(projectId))) return [];
   const rows: Array<{ relPath: string; sizeBytes: number; modifiedAt: number }> = [];
   const walk = async (dir: string): Promise<void> => {
     let entries;
@@ -145,16 +254,17 @@ async function listManagedFiles(projectId?: string): Promise<Array<{
   return rows.sort((a, b) => a.relPath.localeCompare(b.relPath));
 }
 
+/** Resolve an existing item through realpath so child symlinks cannot escape. */
+async function resolveExistingLibraryPath(relPath: string): Promise<string | null> {
+  return resolveExistingContainedNativePath(scrapperMediaDir(), relPath);
+}
+
 /**
- * Resolve a renderer-supplied relative path ("<projectId>/<file>") to an
- * absolute path, guaranteeing it stays inside the media directory. Returns
- * null if the path escapes the root (path-traversal guard).
+ * Resolve a future write target and verify its nearest existing ancestor in
+ * the real filesystem. Existing and broken symlinks both fail closed.
  */
-function resolveLibraryPath(relPath: string): string | null {
-  const root = path.resolve(scrapperMediaDir());
-  const abs = path.resolve(root, relPath);
-  if (abs !== root && !abs.startsWith(root + path.sep)) return null;
-  return abs;
+async function resolveWritableLibraryPath(relPath: string): Promise<string | null> {
+  return resolveWritableContainedNativePath(scrapperMediaDir(), relPath);
 }
 
 /** In-flight downloads keyed by snapshotId, so we can cancel them / kill on quit. */
@@ -323,14 +433,10 @@ async function createWindow(): Promise<void> {
     return { action: 'deny' };
   });
 
-  // Defense in depth: block top-level navigation away from our own renderer.
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    const ownOrigin = isDev ? RENDERER_DEV_URL : 'file://';
-    if (!url.startsWith(ownOrigin)) {
-      event.preventDefault();
-      if (url.startsWith('http')) void shell.openExternal(url);
-    }
-  });
+  // In production this permits only the exact packaged index document (plus
+  // its client-side hash route), never another file:// URL.
+  installNavigationGuard(mainWindow, MAIN_RENDERER_URL, true);
+  installPackagedSmokeExit(mainWindow);
 
   if (isDev) {
     void mainWindow.loadURL(RENDERER_DEV_URL);
@@ -342,7 +448,7 @@ async function createWindow(): Promise<void> {
     // Ctrl+Shift+I lo abre cuando de verdad toque depurar.
   } else {
     // Renderer uses HashRouter in Electron, so a plain file load is enough.
-    void mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    void mainWindow.loadFile(MAIN_RENDERER_PATH);
   }
 
   mainWindow.on('closed', () => {
@@ -410,6 +516,8 @@ async function getQuickNoteWindow(): Promise<BrowserWindow> {
     },
   });
   win.setMenuBarVisibility(false);
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  installNavigationGuard(win, QUICK_NOTE_RENDERER_URL, false);
 
   // Clicking away dismisses it — a capture box that lingers is clutter.
   // Kept open in dev so DevTools interaction doesn't kill it mid-debug.
@@ -420,10 +528,14 @@ async function getQuickNoteWindow(): Promise<BrowserWindow> {
     quickNoteWindow = null;
   });
 
-  if (isDev) await win.loadURL(`${RENDERER_DEV_URL}/quick-note.html`);
-  else await win.loadFile(path.join(__dirname, '..', 'dist', 'quick-note.html'));
-
   quickNoteWindow = win;
+  try {
+    if (isDev) await win.loadURL(QUICK_NOTE_RENDERER_URL);
+    else await win.loadFile(QUICK_NOTE_RENDERER_PATH);
+  } catch (error) {
+    if (!win.isDestroyed()) win.destroy();
+    throw error;
+  }
   return win;
 }
 
@@ -606,36 +718,11 @@ async function htmlToPdf(html: string): Promise<Buffer> {
 // ---------------------------------------------------------------------------
 
 function registerIpc(): void {
-  ipcMain.handle('app:getVersion', () => app.getVersion());
-  ipcMain.handle('app:getDataPath', () => app.getPath('userData'));
-  ipcMain.handle('app:getMediaServerUrl', () => MEDIA_SERVER_URL);
-
-  ipcMain.handle('fs:pickFolder', async () => {
-    if (!mainWindow) return null;
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory', 'createDirectory'],
-    });
-    return result.canceled ? null : result.filePaths[0];
-  });
-
-  // NOTE: fs:readFile / fs:writeFile were removed on purpose. They accepted
-  // ANY absolute path with no validation and had zero renderer callers —
-  // pure attack surface (a renderer compromise could overwrite arbitrary
-  // user files). Re-add scoped variants (userData-rooted, traversal-guarded
-  // like resolveLibraryPath) if an engine ever needs real file IO.
-  ipcMain.handle('fs:exists', async (_e, filePath: string) => {
-    try {
-      await fs.access(filePath);
-      return true;
-    } catch {
-      return false;
-    }
-  });
-
   // Teleprompter video: re-encode the renderer's WebM capture to MP4 and save it.
   ipcMain.handle(
     'media:saveTeleprompterMp4',
-    async (_e, webm: ArrayBuffer, suggestedName: string): Promise<SaveResult> => {
+    async (event, webm: ArrayBuffer, suggestedName: string): Promise<SaveResult> => {
+      assertIpcSender(event, 'media:saveTeleprompterMp4');
       try {
         const mp4 = await transcodeWebmToMp4(Buffer.from(webm));
         return await saveBytesViaDialog(mp4, suggestedName, [
@@ -650,7 +737,8 @@ function registerIpc(): void {
   // Script: render styled HTML to a real PDF and save it.
   ipcMain.handle(
     'export:scriptToPdf',
-    async (_e, html: string, suggestedName: string): Promise<SaveResult> => {
+    async (event, html: string, suggestedName: string): Promise<SaveResult> => {
+      assertIpcSender(event, 'export:scriptToPdf');
       try {
         const pdf = await htmlToPdf(html);
         return await saveBytesViaDialog(pdf, suggestedName, [
@@ -666,12 +754,13 @@ function registerIpc(): void {
   ipcMain.handle(
     'media:downloadToLibrary',
     async (
-      _e,
+      event,
       args: { url: string; format: MediaFormat; projectId: string; snapshotId: string },
     ): Promise<DownloadToLibraryResult> => {
+      assertIpcSender(event, 'media:downloadToLibrary');
       const { url, projectId, snapshotId } = args ?? ({} as typeof args);
       const format: MediaFormat = args?.format === 'audio' ? 'audio' : 'video';
-      if (!url || !SAFE_SEGMENT.test(projectId) || !SAFE_SEGMENT.test(snapshotId)) {
+      if (!url || !isSafeNativeSegment(projectId) || !isSafeNativeSegment(snapshotId)) {
         return { ok: false, error: 'invalid request' };
       }
       // Don't double-spawn yt-dlp for a snapshot already downloading.
@@ -695,10 +784,13 @@ function registerIpc(): void {
             const outcome = await downloadMedia(url, format, controller.signal, cookiesFile);
             try {
               const ext = path.extname(outcome.filename) || (format === 'audio' ? '.mp3' : '.mp4');
-              const destDir = path.join(scrapperMediaDir(), projectId);
+              const destDir = await resolveWritableLibraryPath(projectId);
+              if (!destDir) throw new Error('invalid library destination');
               await fs.mkdir(destDir, { recursive: true });
               const fileName = `${snapshotId}${ext}`;
-              await fs.copyFile(outcome.filePath, path.join(destDir, fileName));
+              const destination = await resolveWritableLibraryPath(`${projectId}/${fileName}`);
+              if (!destination) throw new Error('invalid library destination');
+              await fs.copyFile(outcome.filePath, destination);
               const relPath = `${projectId}/${fileName}`;
               return {
                 ok: true,
@@ -727,14 +819,19 @@ function registerIpc(): void {
               return { ok: false, error: gErr instanceof Error ? gErr.message : String(gErr) };
             }
             try {
-              const destDir = path.join(scrapperMediaDir(), projectId, snapshotId);
+              const destDir = await resolveWritableLibraryPath(`${projectId}/${snapshotId}`);
+              if (!destDir) throw new Error('invalid library destination');
               await fs.mkdir(destDir, { recursive: true });
               const items: MediaItemRef[] = [];
               for (let i = 0; i < gallery.items.length; i++) {
                 const it = gallery.items[i];
                 const ext = path.extname(it.filePath) || (it.kind === 'video' ? '.mp4' : '.jpg');
                 const fileName = `${i}${ext}`;
-                await fs.copyFile(it.filePath, path.join(destDir, fileName));
+                const destination = await resolveWritableLibraryPath(
+                  `${projectId}/${snapshotId}/${fileName}`,
+                );
+                if (!destination) throw new Error('invalid library destination');
+                await fs.copyFile(it.filePath, destination);
                 items.push({ relPath: `${projectId}/${snapshotId}/${fileName}`, kind: it.kind });
               }
               if (items.length === 0) return { ok: false, error: 'no media found' };
@@ -762,25 +859,29 @@ function registerIpc(): void {
   );
 
   // Scrapper: cancel an in-flight download (kills yt-dlp + its ffmpeg child).
-  ipcMain.handle('media:cancelDownload', (_e, snapshotId: string): void => {
+  ipcMain.handle('media:cancelDownload', (event, snapshotId: string): void => {
+    assertIpcSender(event, 'media:cancelDownload');
     activeDownloads.get(snapshotId)?.abort();
   });
 
   // Scrapper: remove a downloaded media file (called when its snapshot is deleted).
-  ipcMain.handle('media:deleteLibraryFile', async (_e, relPath: string): Promise<void> => {
-    const abs = typeof relPath === 'string' ? resolveLibraryPath(relPath) : null;
+  ipcMain.handle('media:deleteLibraryFile', async (event, relPath: string): Promise<void> => {
+    assertIpcSender(event, 'media:deleteLibraryFile');
+    const abs = typeof relPath === 'string' ? await resolveExistingLibraryPath(relPath) : null;
     if (!abs) return;
     await fs.rm(abs, { recursive: true, force: true });
   });
 
-  ipcMain.handle('media:listLibraryFiles', async (_e, projectId?: string) => {
+  ipcMain.handle('media:listLibraryFiles', async (event, projectId?: string) => {
+    assertIpcSender(event, 'media:listLibraryFiles');
     return {
       root: scrapperMediaDir(),
       files: await listManagedFiles(projectId),
     };
   });
 
-  ipcMain.handle('media:relocateLibrary', async () => {
+  ipcMain.handle('media:relocateLibrary', async (event) => {
+    assertIpcSender(event, 'media:relocateLibrary');
     if (!mainWindow) return { ok: false, error: 'Main window unavailable' };
     const selection = await dialog.showOpenDialog(mainWindow, {
       title: 'Choose a folder for Writers Hoard managed assets',
@@ -790,7 +891,7 @@ function registerIpc(): void {
     const source = path.resolve(scrapperMediaDir());
     const destination = path.resolve(selection.filePaths[0], 'WritersHoardAssets');
     if (destination === source) return { ok: true, root: source, previousRoot: source };
-    if (destination.startsWith(source + path.sep) || source.startsWith(destination + path.sep)) {
+    if (isPathContainedBy(source, destination) || isPathContainedBy(destination, source)) {
       return { ok: false, error: 'Choose a folder outside the current managed asset folder.' };
     }
     try {
@@ -815,11 +916,12 @@ function registerIpc(): void {
   ipcMain.handle(
     'capture:page',
     async (
-      _e,
+      event,
       args: { url: string; projectId: string; snapshotId: string },
     ): Promise<CapturePageResult> => {
+      assertIpcSender(event, 'capture:page');
       const { url, projectId, snapshotId } = args ?? ({} as typeof args);
-      if (!url || !SAFE_SEGMENT.test(projectId) || !SAFE_SEGMENT.test(snapshotId)) {
+      if (!url || !isSafeNativeSegment(projectId) || !isSafeNativeSegment(snapshotId)) {
         return { ok: false, error: 'invalid request' };
       }
       if (!/^https?:\/\//i.test(url)) return { ok: false, error: 'unsupported url' };
@@ -833,18 +935,24 @@ function registerIpc(): void {
 
           const result = await capturePage(url, controller.signal);
 
-          const destDir = path.join(scrapperMediaDir(), projectId);
+          const destDir = await resolveWritableLibraryPath(projectId);
+          if (!destDir) throw new Error('invalid library destination');
           await fs.mkdir(destDir, { recursive: true });
 
           const pdfName = `${snapshotId}.pdf`;
           const htmlName = `${snapshotId}.html`;
-          await fs.writeFile(path.join(destDir, pdfName), result.pdf);
-          await fs.writeFile(path.join(destDir, htmlName), result.html, 'utf8');
+          const pdfDestination = await resolveWritableLibraryPath(`${projectId}/${pdfName}`);
+          const htmlDestination = await resolveWritableLibraryPath(`${projectId}/${htmlName}`);
+          if (!pdfDestination || !htmlDestination) throw new Error('invalid library destination');
+          await fs.writeFile(pdfDestination, result.pdf);
+          await fs.writeFile(htmlDestination, result.html, 'utf8');
 
           let imagePath: string | undefined;
           if (result.png) {
             const pngName = `${snapshotId}.png`;
-            await fs.writeFile(path.join(destDir, pngName), result.png);
+            const pngDestination = await resolveWritableLibraryPath(`${projectId}/${pngName}`);
+            if (!pngDestination) throw new Error('invalid library destination');
+            await fs.writeFile(pngDestination, result.png);
             imagePath = `${projectId}/${pngName}`;
           }
 
@@ -866,17 +974,28 @@ function registerIpc(): void {
   );
 
   // Scrapper: cancel an in-flight page capture (destroys its hidden window).
-  ipcMain.handle('capture:cancel', (_e, snapshotId: string): void => {
+  ipcMain.handle('capture:cancel', (event, snapshotId: string): void => {
+    assertIpcSender(event, 'capture:cancel');
     activeCaptures.get(snapshotId)?.abort();
   });
 
   // Instagram session — embedded login window → cookies for yt-dlp / gallery-dl.
-  ipcMain.handle('ig:login', () => openIgLogin(mainWindow));
-  ipcMain.handle('ig:status', () => igStatus());
-  ipcMain.handle('ig:logout', () => igLogout());
+  ipcMain.handle('ig:login', (event) => {
+    assertIpcSender(event, 'ig:login');
+    return openIgLogin(mainWindow);
+  });
+  ipcMain.handle('ig:status', (event) => {
+    assertIpcSender(event, 'ig:status');
+    return igStatus();
+  });
+  ipcMain.handle('ig:logout', (event) => {
+    assertIpcSender(event, 'ig:logout');
+    return igLogout();
+  });
 
   // --- Quick note capture -------------------------------------------------
-  ipcMain.on('quick-note:set-context', (_e, ctx: Partial<QuickNoteContext>) => {
+  ipcMain.on('quick-note:set-context', (event, ctx: Partial<QuickNoteContext>) => {
+    if (!acceptIpcSender(event, 'quick-note:set-context')) return;
     quickNoteContext = {
       projectId: typeof ctx?.projectId === 'string' ? ctx.projectId : null,
       projectTitle: typeof ctx?.projectTitle === 'string' ? ctx.projectTitle : null,
@@ -884,12 +1003,17 @@ function registerIpc(): void {
     };
   });
 
-  ipcMain.handle('quick-note:get-context', (): QuickNoteContext => quickNoteContext);
-  ipcMain.handle('quick-note:open', async (): Promise<void> => {
+  ipcMain.handle('quick-note:get-context', (event): QuickNoteContext => {
+    assertIpcSender(event, 'quick-note:get-context');
+    return quickNoteContext;
+  });
+  ipcMain.handle('quick-note:open', async (event): Promise<void> => {
+    assertIpcSender(event, 'quick-note:open');
     await showQuickNote();
   });
 
-  ipcMain.handle('quick-note:submit', (_e, payload: QuickNotePayload): { ok: boolean } => {
+  ipcMain.handle('quick-note:submit', (event, payload: QuickNotePayload): { ok: boolean } => {
+    assertIpcSender(event, 'quick-note:submit');
     const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
     if (!text) return { ok: false };
     if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
@@ -901,13 +1025,59 @@ function registerIpc(): void {
     return { ok: true };
   });
 
-  ipcMain.on('quick-note:close', () => {
+  ipcMain.on('quick-note:close', (event) => {
+    if (!acceptIpcSender(event, 'quick-note:close')) return;
     if (quickNoteWindow && !quickNoteWindow.isDestroyed()) quickNoteWindow.hide();
   });
 
-  ipcMain.handle('updates:check', () => checkForUpdates(true));
-  ipcMain.handle('updates:quitAndInstall', () => {
+  ipcMain.handle('updates:check', (event) => {
+    assertIpcSender(event, 'updates:check');
+    return checkForUpdates(true);
+  });
+  ipcMain.handle('updates:quitAndInstall', (event) => {
+    assertIpcSender(event, 'updates:quitAndInstall');
     autoUpdater.quitAndInstall();
+  });
+
+  // ---- Local AI (embedded portable Ollama) --------------------------------
+  // All Ollama HTTP happens here in main: the packaged renderer is file://
+  // (null origin) and Ollama's CORS would reject it. See electron/ollama.ts.
+  initOllama((channel, payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, payload);
+    }
+  });
+  ipcMain.handle('ollama:getStatus', (event) => {
+    assertIpcSender(event, 'ollama:getStatus');
+    return getOllamaStatus();
+  });
+  ipcMain.handle('ollama:start', (event) => {
+    assertIpcSender(event, 'ollama:start');
+    return startOllama();
+  });
+  ipcMain.handle('ollama:downloadRuntime', (event) => {
+    assertIpcSender(event, 'ollama:downloadRuntime');
+    return downloadOllamaRuntime();
+  });
+  ipcMain.handle('ollama:cancelRuntimeDownload', (event): void => {
+    assertIpcSender(event, 'ollama:cancelRuntimeDownload');
+    cancelRuntimeDownload();
+  });
+  ipcMain.handle('ollama:pullModel', (event, tag: string) => {
+    assertIpcSender(event, 'ollama:pullModel');
+    return pullOllamaModel(tag);
+  });
+  ipcMain.handle('ollama:cancelPull', (event, tag: string): void => {
+    assertIpcSender(event, 'ollama:cancelPull');
+    if (typeof tag === 'string') cancelOllamaPull(tag);
+  });
+  ipcMain.handle('ollama:deleteModel', (event, tag: string) => {
+    assertIpcSender(event, 'ollama:deleteModel');
+    return deleteOllamaModel(tag);
+  });
+  ipcMain.handle('ollama:chat', (event, req: OllamaChatRequest) => {
+    assertIpcSender(event, 'ollama:chat');
+    return ollamaChat(req);
   });
 }
 
@@ -949,6 +1119,7 @@ function forgeEntry(kind: string): string {
 }
 
 ipcMain.on('forge:spawn', (event, payload: { kind?: string } | undefined) => {
+  if (!acceptIpcSender(event, 'forge:spawn')) return;
   const port = event.ports[0];
   if (!port) return;
   const kind = payload?.kind === 'worldgen' ? 'worldgen' : 'region';
@@ -975,6 +1146,7 @@ ipcMain.on('forge:spawn', (event, payload: { kind?: string } | undefined) => {
 });
 
 ipcMain.on('forge:memory', (event) => {
+  if (!acceptIpcSender(event, 'forge:memory')) return;
   event.returnValue = os.totalmem();
 });
 
@@ -1068,7 +1240,7 @@ if (!gotLock) {
     protocol.handle('wh-media', async (request) => {
       try {
         const rel = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, '');
-        const abs = resolveLibraryPath(rel);
+        const abs = await resolveExistingLibraryPath(rel);
         if (!abs) return new Response(null, { status: 403 });
         const res = await net.fetch(pathToFileURL(abs).toString());
         // Archived pages are served back into <iframe>s: without an explicit
@@ -1111,4 +1283,5 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   stopMediaServer();
   abortAllDownloads();
+  shutdownOllama();
 });

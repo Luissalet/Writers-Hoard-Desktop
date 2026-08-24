@@ -34,6 +34,7 @@ export interface Citation {
 }
 
 export type PublishingFormat = 'manuscript' | 'screenplay' | 'research' | 'biography' | 'video';
+export type PublishingSelectionMode = 'all' | 'selected';
 
 export interface PublishingProfile {
   id: string;
@@ -44,7 +45,15 @@ export interface PublishingProfile {
   includeSynopsis: boolean;
   includeBibliography: boolean;
   citationStyle: 'apa' | 'mla' | 'chicago';
+  /**
+   * Missing on profiles created before reusable compilation. Legacy profiles
+   * keep their old meaning: a non-empty selection means `selected`, otherwise
+   * `all`.
+   */
+  selectionMode?: PublishingSelectionMode;
   selectedWritingIds: string[];
+  /** Explicit manuscript order. Missing means the legacy chapter/date order. */
+  writingOrder?: string[];
   createdAt: number;
   updatedAt: number;
 }

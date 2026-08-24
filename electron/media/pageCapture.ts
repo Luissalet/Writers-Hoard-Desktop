@@ -419,7 +419,9 @@ export async function capturePage(
       win.webContents.printToPDF({
         printBackground: true,
         preferCSSPageSize: false,
-        margins: { marginType: 'none' },
+        // Electron 43 replaced Chromium's marginType switch with explicit
+        // inch values. Keep the archived page edge-to-edge as before.
+        margins: { top: 0, right: 0, bottom: 0, left: 0 },
         pageSize: {
           width: VIEWPORT_WIDTH / PX_PER_INCH,
           height: Math.min(fullHeight, MAX_PDF_PAGE_PX) / PX_PER_INCH,

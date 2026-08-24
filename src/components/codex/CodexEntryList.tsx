@@ -6,6 +6,7 @@ import CodexEntryForm from './CodexEntryForm';
 import CharacterConnections from './CharacterConnections';
 import EmptyState from '@/components/common/EmptyState';
 import { useTranslation } from '@/i18n/useTranslation';
+import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 import { ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from './codexTypeMeta';
@@ -194,7 +195,7 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
             {/* Content */}
             {selectedEntry.content && (
               <div className="tiptap-editor border border-border rounded-lg p-4 bg-elevated">
-                <div dangerouslySetInnerHTML={{ __html: selectedEntry.content }} />
+                <div dangerouslySetInnerHTML={sanitizedHtml(selectedEntry.content)} />
               </div>
             )}
 

@@ -2,24 +2,19 @@
 // Scrapper Engine — Snapshot Card Component
 // ============================================
 
-import { useState } from 'react';
 import { Globe, Twitter, Instagram, Youtube, Loader2, AlertCircle, PlayCircle, Layers, FileText } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Snapshot } from '../types';
-import SnapshotDetail from './SnapshotDetail';
 import { useTranslation } from '@/i18n/useTranslation';
 import { snapshotMediaUrl } from '@/services/scrapperMedia';
 
 interface SnapshotCardProps {
   snapshot: Snapshot;
-  onUpdate: (id: string, changes: Partial<Snapshot>) => void;
-  onDelete: (id: string) => void;
-  tagSuggestions?: string[];
+  onOpen: (id: string) => void;
 }
 
-export default function SnapshotCard({ snapshot, onUpdate, onDelete, tagSuggestions }: SnapshotCardProps) {
+export default function SnapshotCard({ snapshot, onOpen }: SnapshotCardProps) {
   const { t } = useTranslation();
-  const [isDetailOpen, setIsDetailOpen] = useState(false);
 
   const getSourceColor = () => {
     switch (snapshot.source) {
@@ -56,13 +51,13 @@ export default function SnapshotCard({ snapshot, onUpdate, onDelete, tagSuggesti
   const itemCount = snapshot.mediaItems?.length ?? 0;
 
   return (
-    <>
       <motion.div
+        data-snapshot-id={snapshot.id}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         whileHover={{ y: -2 }}
-        onClick={() => setIsDetailOpen(true)}
+        onClick={() => onOpen(snapshot.id)}
         className="bg-elevated border border-border rounded-lg overflow-hidden hover:border-accent-gold cursor-pointer transition-all hover:shadow-lg"
       >
         {firstItem ? (
@@ -223,16 +218,5 @@ export default function SnapshotCard({ snapshot, onUpdate, onDelete, tagSuggesti
           )}
         </div>
       </motion.div>
-
-      {isDetailOpen && (
-        <SnapshotDetail
-          snapshot={snapshot}
-          onUpdate={onUpdate}
-          onDelete={onDelete}
-          onClose={() => setIsDetailOpen(false)}
-          tagSuggestions={tagSuggestions}
-        />
-      )}
-    </>
   );
 }

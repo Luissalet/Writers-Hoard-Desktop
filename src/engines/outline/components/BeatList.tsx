@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical, Link2, Pencil } from 'lucide-react';
 import {
   DndContext,
@@ -43,12 +43,16 @@ function SortableBeatRow({
   depth,
   dragTitle,
   expandControl,
+  focused,
+  elementRef,
   children,
 }: {
   id: string;
   depth: number;
   dragTitle: string;
   expandControl: React.ReactNode;
+  focused: boolean;
+  elementRef: (node: HTMLDivElement | null) => void;
   children: React.ReactNode;
 }) {
   const {
@@ -57,13 +61,22 @@ function SortableBeatRow({
 
   return (
     <div
-      ref={setNodeRef}
+      ref={node => {
+        setNodeRef(node);
+        elementRef(node);
+      }}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.4 : 1,
       }}
-      className="flex items-center gap-2 p-3 hover:bg-surface/80 rounded-lg transition border border-transparent hover:border-border group"
+      tabIndex={-1}
+      aria-current={focused ? 'true' : undefined}
+      className={`group flex items-center gap-2 rounded-lg border p-3 outline-none transition ${
+        focused
+          ? 'border-accent-gold bg-accent-gold/10 ring-2 ring-inset ring-accent-gold/60'
+          : 'border-transparent hover:border-border hover:bg-surface/80'
+      }`}
     >
       <div style={{ paddingLeft: `${depth * 16}px` }} className="flex items-center gap-2 flex-1 min-w-0">
         {expandControl}
@@ -111,6 +124,8 @@ interface BeatListProps {
   scenes?: Scene[];
   /** Writings available for linking */
   writings?: Writing[];
+  /** Beat selected by a stable `?beat=` deep link. */
+  focusedBeatId?: string;
 }
 
 export default function BeatList({
@@ -123,6 +138,7 @@ export default function BeatList({
   onReorder,
   scenes = [],
   writings = [],
+  focusedBeatId,
 }: BeatListProps) {
   const { t } = useTranslation();
   // El teclado va incluido a propósito: un asa que sólo responde al ratón deja
@@ -134,6 +150,34 @@ export default function BeatList({
   const [expandedBeats, setExpandedBeats] = useState<Set<string>>(new Set());
   const [editingBeat, setEditingBeat] = useState<OutlineBeat | null>(null);
   const [pendingDeleteBeat, setPendingDeleteBeat] = useState<OutlineBeat | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const appliedFocusRef = useRef<string | null>(null);
+  const focusedAncestors = useMemo(() => {
+    const ancestors = new Set<string>();
+    const byId = new Map(beats.map(beat => [beat.id, beat]));
+    let parentId = focusedBeatId ? byId.get(focusedBeatId)?.parentId : undefined;
+    while (parentId && !ancestors.has(parentId)) {
+      ancestors.add(parentId);
+      parentId = byId.get(parentId)?.parentId;
+    }
+    return ancestors;
+  }, [beats, focusedBeatId]);
+
+  useEffect(() => {
+    if (!focusedBeatId) {
+      appliedFocusRef.current = null;
+      return;
+    }
+    if (
+      appliedFocusRef.current === focusedBeatId ||
+      !beats.some(beat => beat.id === focusedBeatId)
+    ) return;
+    const row = rowRefs.current.get(focusedBeatId);
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.focus({ preventScroll: true });
+    appliedFocusRef.current = focusedBeatId;
+  }, [beats, focusedBeatId, focusedAncestors]);
 
   const toggleExpanded = (beatId: string) => {
     const newExpanded = new Set(expandedBeats);
@@ -206,7 +250,7 @@ export default function BeatList({
   };
 
   const renderBeatRow = (beat: OutlineBeat, depth: number = 0) => {
-    const isExpanded = expandedBeats.has(beat.id);
+    const isExpanded = expandedBeats.has(beat.id) || focusedAncestors.has(beat.id);
     const hasChildBeats = hasChildren(beat.id);
     const statusConfig = BEAT_STATUS_CONFIG[beat.status];
 
@@ -216,6 +260,11 @@ export default function BeatList({
           id={beat.id}
           depth={depth}
           dragTitle={t('outline.beat.dragHint')}
+          focused={focusedBeatId === beat.id}
+          elementRef={node => {
+            if (node) rowRefs.current.set(beat.id, node);
+            else rowRefs.current.delete(beat.id);
+          }}
           expandControl={hasChildBeats ? (
             <button
               onClick={() => toggleExpanded(beat.id)}
@@ -260,6 +309,27 @@ export default function BeatList({
                 <span className="max-w-20 truncate">#{linkedScene.sceneNumber ?? '?'}</span>
               </div>
             ) : null;
+          })()}
+
+          {/* Word target progress — the field was writable in the editor but
+              never read anywhere; the linked writing's live word count was
+              already arriving through the `writings` prop. */}
+          {beat.wordTarget !== undefined && beat.wordTarget > 0 && (() => {
+            const linkedWriting = beat.linkedWritingId
+              ? writings.find((w) => w.id === beat.linkedWritingId)
+              : undefined;
+            const written = linkedWriting?.wordCount ?? 0;
+            const reached = written >= (beat.wordTarget ?? 0);
+            return (
+              <div
+                className={`text-xs px-2 py-1 rounded flex-shrink-0 tabular-nums ${
+                  reached ? 'bg-green-500/10 text-green-500' : 'bg-surface text-text-dim'
+                }`}
+                title={t('outline.beat.wordTarget')}
+              >
+                {written.toLocaleString()}/{(beat.wordTarget ?? 0).toLocaleString()}
+              </div>
+            );
           })()}
 
           {/* Story Position */}
@@ -325,7 +395,6 @@ export default function BeatList({
               title: t('outline.beat.defaultTitle'),
               description: '',
               status: 'empty',
-              tags: [],
             };
             onAddBeat(newBeat);
           }}

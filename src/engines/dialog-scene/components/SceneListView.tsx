@@ -1,5 +1,5 @@
-import { Plus, Trash2, GripVertical, Lock, Unlock, EyeOff, Eye, Clapperboard } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { Plus, Trash2, GripVertical, Lock, Unlock, EyeOff, Eye, Clapperboard, Upload } from 'lucide-react';
+import { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   DndContext,
@@ -33,6 +33,8 @@ interface SceneListViewProps {
   onUpdateScene: (sceneId: string, changes: Partial<Scene>) => void;
   onDeleteScene: (sceneId: string) => void;
   onReorderScenes: (orderedIds: string[]) => void;
+  /** Called after a script import lands: renumber scenes + refresh the list. */
+  onImported: () => Promise<void>;
 }
 
 function SortableSceneCard({
@@ -171,12 +173,15 @@ export default function SceneListView({
   onUpdateScene,
   onDeleteScene,
   onReorderScenes,
+  onImported,
 }: SceneListViewProps) {
   const { t } = useTranslation();
   const { project } = useProject(projectId);
   const [showNewScene, setShowNewScene] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [pendingDeleteSceneId, setPendingDeleteSceneId] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
 
   // Export the whole screenplay as .fountain — the open format every
   // screenwriting tool (Final Draft, Highland, Fade In…) imports.
@@ -198,6 +203,46 @@ export default function SceneListView({
     } catch (err) {
       console.error('Fountain export failed:', err);
       toast.error(t('dialogScene.fountainError'));
+    }
+  };
+
+  // Import a screenplay (.fountain or Final Draft .fdx). Append-only: parsed
+  // scenes land after the existing ones, so a bad file can't disturb anything
+  // — which is also why there is no ConfirmDialog here.
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-importing the same file
+    if (!file) return;
+    setImporting(true);
+    try {
+      const text = await file.text();
+      // Extension first; sniff <FinalDraft for renamed .fdx files.
+      const isFdx =
+        /\.fdx$/i.test(file.name) ||
+        (text.trimStart().startsWith('<') && text.includes('<FinalDraft'));
+      const opts = { preambleTitle: t('dialogScene.import.opening') };
+      const parsed = isFdx
+        ? (await import('../fdxImport')).parseFdx(text, opts)
+        : (await import('../fountainImport')).parseFountain(text, opts);
+      const { importScript } = await import('../importPersist');
+      const { sceneCount, blockCount } = await importScript(projectId, parsed);
+      await onImported();
+      toast.success(
+        t('dialogScene.import.imported')
+          .replace('{scenes}', String(sceneCount))
+          .replace('{blocks}', String(blockCount)),
+      );
+    } catch (err) {
+      // Module cache ⇒ same class object as the throw sites in the parsers.
+      const { ScriptImportError } = await import('../importPersist');
+      if (err instanceof ScriptImportError) {
+        toast.error(t(`dialogScene.import.${err.message}`));
+      } else {
+        console.error('Script import failed:', err);
+        toast.error(t('dialogScene.import.failed'));
+      }
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -242,6 +287,17 @@ export default function SceneListView({
       <div className="border-b border-border bg-surface/30 px-6 py-4 flex items-center justify-between">
         <h1 className="text-2xl font-serif font-bold text-text-primary">{t('dialogScene.title')}</h1>
         <div className="flex items-center gap-2">
+          {/* Import sits OUTSIDE the scenes.length guard: importing into an
+              empty project is the main use case. */}
+          <button
+            onClick={() => importInputRef.current?.click()}
+            disabled={importing}
+            className="flex items-center gap-2 px-3 py-2 text-sm border border-border text-text-muted rounded-lg hover:text-accent-gold hover:border-accent-gold/40 transition disabled:opacity-50"
+            title={t('dialogScene.import.hint')}
+          >
+            <Upload size={15} />
+            {t('dialogScene.import.label')}
+          </button>
           {scenes.length > 0 && (
             <button
               onClick={handleExportFountain}
@@ -261,6 +317,14 @@ export default function SceneListView({
           </button>
         </div>
       </div>
+
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".fountain,.txt,.fdx,text/plain"
+        onChange={handleImportFile}
+        className="hidden"
+      />
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-6">

@@ -72,18 +72,70 @@ export interface QuickNotePayload {
   projectId: string | null;
 }
 
+// ── Local AI (embedded Ollama) — mirrors electron/ollama.ts ─────────────────
+
+export type OllamaState =
+  | 'absent'
+  | 'downloading-runtime'
+  | 'extracting'
+  | 'starting'
+  | 'running'
+  | 'external'
+  | 'error';
+
+export interface OllamaModelInfo {
+  name: string;
+  sizeBytes: number;
+}
+
+export interface OllamaStatus {
+  state: OllamaState;
+  /** Embedded runtime install is Windows-only; detection works everywhere. */
+  supported: boolean;
+  runtimeInstalled: boolean;
+  url: string | null;
+  models: OllamaModelInfo[];
+  /** Tag currently being pulled, if any. */
+  pulling: string | null;
+  runtimeBytes?: number;
+  error?: string;
+}
+
+export interface OllamaOpResult {
+  ok: boolean;
+  error?: string;
+}
+
+export interface OllamaRuntimeProgress {
+  phase: 'downloading' | 'extracting' | 'starting';
+  receivedBytes: number;
+  totalBytes: number | null;
+}
+
+export interface OllamaPullProgress {
+  tag: string;
+  status: string;
+  completedBytes: number;
+  totalBytes: number;
+  /** 0..1, monotonic within a pull. */
+  percent: number;
+}
+
+export interface OllamaChatRequest {
+  model: string;
+  system: string;
+  user: string;
+  maxTokens?: number;
+}
+
+export interface OllamaChatResult {
+  ok: boolean;
+  content?: string;
+  error?: string;
+}
+
 export interface ElectronAPI {
   isDesktop: true;
-  app: {
-    platform: string;
-    getVersion: () => Promise<string>;
-    getDataPath: () => Promise<string>;
-    getMediaServerUrl: () => Promise<string>;
-  };
-  fs: {
-    pickFolder: () => Promise<string | null>;
-    exists: (filePath: string) => Promise<boolean>;
-  };
   media: {
     saveTeleprompterMp4: (webm: ArrayBuffer, suggestedName: string) => Promise<SaveResult>;
     downloadToLibrary: (args: {
@@ -136,6 +188,19 @@ export interface ElectronAPI {
     check: () => Promise<void>;
     quitAndInstall: () => Promise<void>;
     onDownloaded: (callback: () => void) => () => void;
+  };
+  ollama: {
+    getStatus: () => Promise<OllamaStatus>;
+    start: () => Promise<OllamaOpResult>;
+    downloadRuntime: () => Promise<OllamaOpResult>;
+    cancelRuntimeDownload: () => Promise<void>;
+    pullModel: (tag: string) => Promise<OllamaOpResult>;
+    cancelPull: (tag: string) => Promise<void>;
+    deleteModel: (tag: string) => Promise<OllamaOpResult>;
+    chat: (req: OllamaChatRequest) => Promise<OllamaChatResult>;
+    onRuntimeProgress: (callback: (p: OllamaRuntimeProgress) => void) => () => void;
+    onPullProgress: (callback: (p: OllamaPullProgress) => void) => () => void;
+    onStatus: (callback: (s: OllamaStatus) => void) => () => void;
   };
 }
 

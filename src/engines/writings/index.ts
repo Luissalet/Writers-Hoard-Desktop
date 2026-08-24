@@ -79,10 +79,10 @@ registerAnchorAdapter({
     return writing?.title ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.writings'),
-  navigateToEntity(entityId: string) {
-    const pid = getCurrentProjectIdFromUrl();
+  navigateToEntity(entityId: string, projectId?: string) {
+    const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
-    navigateTo(`/project/${pid}/writings?writing=${encodeURIComponent(entityId)}`);
+    navigateTo(`/project/${encodeURIComponent(pid)}/writings?writing=${encodeURIComponent(entityId)}`);
   },
 });
 

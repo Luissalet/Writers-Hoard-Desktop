@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Search, StickyNote, X } from 'lucide-react';
 import type { EngineComponentProps } from '@/engines/_types';
-import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
+import { EngineSpinner, useDeepLinkParam } from '@/engines/_shared';
 import EmptyState from '@/components/common/EmptyState';
 import { toast } from '@/components/common/toast';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -27,6 +27,18 @@ export default function NotesEngine({ projectId }: EngineComponentProps) {
   const { projects } = useProjects();
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [query, setQuery] = useState('');
+  const deepLinkedNoteId = useDeepLinkParam('note');
+  const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
+
+  if (
+    deepLinkedNoteId
+    && deepLinkedNoteId !== appliedDeepLink
+    && notes.some((note) => note.id === deepLinkedNoteId)
+  ) {
+    setAppliedDeepLink(deepLinkedNoteId);
+    setKindFilter('all');
+    setQuery('');
+  }
 
   const moveTargets = useMemo(
     () => (isInbox ? projects.map((p) => ({ id: p.id, title: p.title })) : []),
@@ -154,6 +166,7 @@ export default function NotesEngine({ projectId }: EngineComponentProps) {
                 moveTargets={moveTargets}
                 onMove={handleMove}
                 onTagClick={(tag) => setQuery(tag)}
+                deepLinkToken={note.id === deepLinkedNoteId ? deepLinkedNoteId : null}
               />
             ))}
           </div>

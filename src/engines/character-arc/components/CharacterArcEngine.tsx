@@ -5,7 +5,8 @@ import { TrendingUp, Plus, Trash2, ArrowLeft, ChevronDown, ChevronRight, Sparkle
 // `useTranslation()` hook so they re-render when the locale changes.
 import { t, useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { EngineSpinner, ConfirmDialog, LinkSelect, useDebouncedField } from '@/engines/_shared';
+import { EngineSpinner, ConfirmDialog, LinkSelect, useDebouncedField, useDeepLinkParam } from '@/engines/_shared';
+import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { useScenes } from '@/engines/dialog-scene/hooks';
 import { useAllProjectBeats } from '@/engines/outline/hooks';
 import { useCharacterArcs, useArcBeats } from '../hooks';
@@ -13,6 +14,7 @@ import type { CharacterArc, ArcBeat, ArcTemplateId, ArcBeatStage, ArcStatus } fr
 import { ARC_TEMPLATES, ARC_STAGE_CONFIG, ARC_STATUS_CONFIG } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import { useCodexEntries } from '@/engines/codex/hooks';
+import { createBeat } from '../operations';
 
 // ---------------------------------------------------------------------------
 // CharacterArcEngine
@@ -25,6 +27,20 @@ export default function CharacterArcEngine({ projectId }: EngineComponentProps) 
   const [activeArcId, setActiveArcId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [pendingDeleteArcId, setPendingDeleteArcId] = useState<string | null>(null);
+
+  // Deep link (?arc=<id>): backlinks and global search navigate here through
+  // the anchor adapter. Render-adjust with an `applied` guard, same as codex —
+  // arcs arrive async, and re-applying on every render would drag the author
+  // back to the linked arc.
+  const deepLinkedArcId = useDeepLinkParam('arc');
+  const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
+  if (deepLinkedArcId && deepLinkedArcId !== appliedDeepLink) {
+    const target = arcs.find((a) => a.id === deepLinkedArcId);
+    if (target) {
+      setAppliedDeepLink(deepLinkedArcId);
+      setActiveArcId(deepLinkedArcId);
+    }
+  }
 
   if (loading) return <EngineSpinner />;
 
@@ -476,6 +492,17 @@ function ArcEditor({
         )}
       </div>
 
+      {/* Margin notes + backlinks — first time character arcs join the
+          interconnectedness layer. */}
+      <div className="pt-2 border-t border-border">
+        <AnnotationSurface
+          projectId={projectId}
+          engineId="character-arc"
+          entityId={arc.id}
+          layout="stack"
+        />
+      </div>
+
       <ConfirmDialog
         open={pendingDeleteArc}
         destructive
@@ -583,6 +610,18 @@ function BeatRow({
             <option key={k} value={k}>{t(v.labelKey)}</option>
           ))}
         </select>
+        {/* Beat status — the field was stamped 'planning' on create and there
+            was no control to ever change it. Same pattern as the arc-level
+            status select above. */}
+        <select
+          value={beat.status}
+          onChange={(e) => handleField('status')(e.target.value)}
+          className={`text-[10px] bg-elevated border border-border rounded px-1.5 py-0.5 outline-none focus:border-accent-gold cursor-pointer ${ARC_STATUS_CONFIG[beat.status].color}`}
+        >
+          {(Object.entries(ARC_STATUS_CONFIG) as [ArcStatus, { labelKey: string }][]).map(([k, v]) => (
+            <option key={k} value={k}>{t(v.labelKey)}</option>
+          ))}
+        </select>
         <button
           onClick={() => setPendingDelete(true)}
           className="p-1 rounded text-text-dim opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/10 transition"
@@ -664,8 +703,6 @@ function BeatRow({
 async function seedTemplateBeats(arcId: string, projectId: string, templateId: ArcTemplateId): Promise<void> {
   const template = ARC_TEMPLATES.find((candidate) => candidate.id === templateId);
   if (!template) return;
-  // Import lazily to avoid circular
-  const { createBeat } = await import('../operations');
   for (let i = 0; i < template.beats.length; i++) {
     const tpl = template.beats[i];
     const now = Date.now();

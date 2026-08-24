@@ -1,6 +1,5 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
 import { useEffect, useRef, useState } from 'react';
@@ -72,8 +71,7 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
   const [linkUrl, setLinkUrl] = useState('');
   const editor = useEditor({
     extensions: [
-      StarterKit,
-      Link.configure({ openOnClick: false }),
+      StarterKit.configure({ link: { openOnClick: false } }),
       Image,
       Placeholder.configure({ placeholder: resolvedPlaceholder }),
     ],

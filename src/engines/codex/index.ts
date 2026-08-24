@@ -83,7 +83,7 @@ registerAnchorAdapter({
   navigateToEntity(entityId: string, projectId?: string) {
     const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
-    navigateTo(`/project/${pid}/codex?entry=${encodeURIComponent(entityId)}`);
+    navigateTo(`/project/${encodeURIComponent(pid)}/codex?entry=${encodeURIComponent(entityId)}`);
   },
 });
 

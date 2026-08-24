@@ -3,6 +3,12 @@ import { ListTree } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
 import { registerEngine, registerEntityResolver } from '@/engines/_registry';
 import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_shared';
+import {
+  getCurrentProjectIdFromUrl,
+  navigateTo,
+  registerAnchorAdapter,
+} from '@/engines/_shared/anchoring';
+import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
 const OutlineEngine = lazy(() => import('./components/OutlineEngine'));
 
@@ -79,6 +85,36 @@ registerEntityResolver({
     ];
 
     return results;
+  },
+});
+
+registerAnchorAdapter({
+  engineId: 'outline',
+  supportsTextRange: false,
+  async getEntityTitle(entityId: string) {
+    const outline = await db.outlines.get(entityId);
+    if (outline) return outline.title;
+    const beat = await db.outlineBeats.get(entityId);
+    return beat?.title ?? null;
+  },
+  getEngineChipLabel: () => t('engines.outline.name'),
+  navigateToEntity(entityId: string, projectId?: string) {
+    const pid = projectId ?? getCurrentProjectIdFromUrl();
+    if (!pid) return;
+    void (async () => {
+      const outline = await db.outlines.get(entityId);
+      if (outline?.projectId === pid) {
+        navigateTo(
+          `/project/${encodeURIComponent(pid)}/outline?outline=${encodeURIComponent(outline.id)}`,
+        );
+        return;
+      }
+      const beat = await db.outlineBeats.get(entityId);
+      if (!beat || beat.projectId !== pid) return;
+      navigateTo(
+        `/project/${encodeURIComponent(pid)}/outline?outline=${encodeURIComponent(beat.outlineId)}&beat=${encodeURIComponent(beat.id)}`,
+      );
+    })();
   },
 });
 

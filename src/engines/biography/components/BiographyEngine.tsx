@@ -4,7 +4,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import NewItemForm from '@/engines/_shared/components/NewItemForm';
-import { useAutoSelect, useEnsureDefault, ConfirmDialog } from '@/engines/_shared';
+import { useAutoSelect, useEnsureDefault, ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
 import { useBiographies } from '../hooks';
 import BiographyView from './BiographyView';
 import { generateId } from '@/utils/idGenerator';
@@ -16,6 +16,18 @@ export default function BiographyEngine({ projectId }: EngineComponentProps) {
   const [showNewBio, setShowNewBio] = useState(false);
   const [newBioName, setNewBioName] = useState('');
   const [pendingDeleteBioId, setPendingDeleteBioId] = useState<string | null>(null);
+
+  // Deep link (?bio=<id>): backlinks and global search navigate here through
+  // the anchor adapter. Render-adjust with an `applied` guard, same as codex.
+  const deepLinkedBioId = useDeepLinkParam('bio');
+  const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
+  if (deepLinkedBioId && deepLinkedBioId !== appliedDeepLink) {
+    const target = biographies.find((b) => b.id === deepLinkedBioId);
+    if (target) {
+      setAppliedDeepLink(deepLinkedBioId);
+      setActiveBiographyId(deepLinkedBioId);
+    }
+  }
 
   useAutoSelect(biographies, activeBiographyId, setActiveBiographyId);
 
