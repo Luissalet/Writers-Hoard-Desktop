@@ -15,8 +15,11 @@ files:
   - package.json
 
 # Native/binary deps can't run from inside app.asar — unpack ffmpeg.
+# The MCP adapter is unpacked too: an external client spawns it with plain
+# `node`, which cannot read a file inside an asar archive.
 asarUnpack:
   - '**/node_modules/ffmpeg-static/**'
+  - 'dist-electron/aibridge/**'
 
 # The yt-dlp binary lives outside asar entirely (downloaded by `npm run fetch:bin`).
 extraResources:

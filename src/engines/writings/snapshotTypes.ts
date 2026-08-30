@@ -1,7 +1,8 @@
 // Version history for writings (v18). Kept in its own file so db/index.ts
 // can import the type without pulling the whole writings engine.
 
-export type SnapshotReason = 'auto' | 'manual' | 'pre-restore';
+/** 'pre-ai' is taken by the AI bridge before an external model overwrites a body. */
+export type SnapshotReason = 'auto' | 'manual' | 'pre-restore' | 'pre-ai';
 
 export interface WritingSnapshot {
   id: string;

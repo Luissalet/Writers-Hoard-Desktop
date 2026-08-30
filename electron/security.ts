@@ -9,6 +9,7 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'media:cancelDownload': ['main'],
   'media:deleteLibraryFile': ['main'],
   'media:listLibraryFiles': ['main'],
+  'media:readLibraryFile': ['main'],
   'media:relocateLibrary': ['main'],
   'export:scriptToPdf': ['main'],
   'capture:page': ['main'],
@@ -16,6 +17,8 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'ig:login': ['main'],
   'ig:status': ['main'],
   'ig:logout': ['main'],
+  'ig:listCollection': ['main'],
+  'ig:cancelListCollection': ['main'],
   'quick-note:set-context': ['main'],
   'quick-note:get-context': ['quick-note'],
   'quick-note:open': ['main'],
@@ -31,6 +34,17 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'ollama:cancelPull': ['main'],
   'ollama:deleteModel': ['main'],
   'ollama:chat': ['main'],
+  // AI bridge: the main window answers tool calls the local HTTP port relays
+  // from external models. `aibridge:reply` closes a request main opened with
+  // `webContents.send('aibridge:request')`; the quick-note window owns no data
+  // and must never be able to serve or observe them.
+  'aibridge:reply': ['main'],
+  'aibridge:getInfo': ['main'],
+  'aibridge:setEnabled': ['main'],
+  'aibridge:setWritesEnabled': ['main'],
+  'aibridge:regenerateToken': ['main'],
+  'aibridge:readAudit': ['main'],
+  'aibridge:undo': ['main'],
   'forge:spawn': ['main'],
   // The shared preload requests this synchronously while both trusted windows
   // initialize. The quick-note renderer does not use the value afterwards.

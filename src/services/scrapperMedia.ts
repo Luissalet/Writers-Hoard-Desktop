@@ -113,8 +113,12 @@ export function snapshotMediaUrl(relPath: string): string {
  * capture and the manual retry. `update` is the entity hook's `editItem`.
  * Never throws — failures are written into the snapshot's downloadError.
  */
-/** Convert yt-dlp's YYYYMMDD upload_date to YYYY-MM-DD (parseable by `new Date`). */
-function isoFromYtDate(d: string | undefined): string | undefined {
+/**
+ * Convert a YYYYMMDD upload_date (yt-dlp's shape, also what gallery-dl's
+ * listCollection normalizes to) to YYYY-MM-DD (parseable by `new Date`).
+ * Exported so collection-import call sites can format dates the same way.
+ */
+export function isoFromYtDate(d: string | undefined): string | undefined {
   return d && /^\d{8}$/.test(d) ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` : undefined;
 }
 

@@ -45,6 +45,17 @@ await Promise.all([
     entryPoints: ['src/engines/worldgen/forge/worldgenForge.ts'],
     outfile: 'dist-electron/forge/worldgenForge.cjs',
   }),
+  // AI bridge MCP adapter: a plain Node process an external client spawns.
+  // `electron` is NOT external here — it must not be imported at all, since
+  // there is no Electron runtime to resolve it. Keeping it out of the external
+  // list turns an accidental import into a build error instead of a crash on
+  // the user's machine.
+  build({
+    ...common,
+    external: [],
+    entryPoints: ['electron/aibridge/mcpStdio.ts'],
+    outfile: 'dist-electron/aibridge/mcpStdio.cjs',
+  }),
 ]);
 
-console.log('[electron] bundled main.cjs + preload.cjs + forge/*.cjs → dist-electron/');
+console.log('[electron] bundled main.cjs + preload.cjs + forge/*.cjs + aibridge/mcpStdio.cjs → dist-electron/');

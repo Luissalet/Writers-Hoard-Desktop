@@ -1,5 +1,5 @@
 // ============================================
-// AI Features — Summary, Characters, Consistency, Worldbuilding
+// AI Features — Summary, Characters, Consistency, Worldbuilding, Tagging
 // ============================================
 
 import { callAi } from './aiService';
@@ -136,4 +136,51 @@ Ofrece 3-5 sugerencias concretas, cada una como un párrafo breve y separado.
 No repitas lo que ya está escrito. Sé creativo pero coherente.`;
 
   return callAi(systemPrompt, entryText, config);
+}
+
+/**
+ * Suggest which of a project's EXISTING Scrapper tags apply to an imported
+ * item, from its caption alone. Deliberately constrained to the existing
+ * vocabulary — the point is "tag with what I already use", not "let the
+ * model invent new tags" — so a caption that matches nothing returns []
+ * rather than a fabricated new tag. Used by ImportCollectionModal's review
+ * step (one call per imported post, run sequentially — a local single-GPU
+ * Ollama model can't usefully serve concurrent generations anyway).
+ */
+export async function suggestSnapshotTags(
+  caption: string,
+  existingTags: string[],
+  config: AiConfig
+): Promise<string[]> {
+  const text = caption.trim();
+  if (!text || existingTags.length === 0) return [];
+
+  const systemPrompt = `Eres un asistente que etiqueta recortes guardados (de Instagram u otras
+webs) para un escritor. Estas son las etiquetas que YA EXISTEN en su aplicación:
+${existingTags.map((tag) => `- ${tag}`).join('\n')}
+
+Dado el texto (caption) de una publicación, devuelve un JSON array SOLO con las etiquetas de
+esa lista que encajen con el contenido. Reglas:
+- Usa EXCLUSIVAMENTE etiquetas de la lista de arriba, copiadas EXACTAMENTE igual (mismo texto).
+- No inventes etiquetas nuevas, aunque creas que encajarían mejor.
+- Si ninguna etiqueta de la lista encaja, devuelve [].
+- Como mucho 5 etiquetas, las más relevantes primero.
+
+Responde SOLO con el JSON array. Sin markdown, sin backticks, sin explicaciones.`;
+
+  const response = await callAi(systemPrompt, text, config);
+  const parsed = parseJsonFromModel<unknown>(response);
+  if (!Array.isArray(parsed)) return [];
+
+  // Defense in depth against the model paraphrasing or re-casing a tag
+  // instead of copying it verbatim: keep only matches against the existing
+  // vocabulary (case-insensitive), mapped back to that vocabulary's own casing.
+  const byLower = new Map(existingTags.map((tag) => [tag.toLowerCase(), tag] as const));
+  const out: string[] = [];
+  for (const item of parsed) {
+    if (typeof item !== 'string') continue;
+    const match = byLower.get(item.trim().toLowerCase());
+    if (match && !out.includes(match)) out.push(match);
+  }
+  return out;
 }

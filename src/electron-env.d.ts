@@ -29,6 +29,23 @@ export interface DownloadToLibraryResult {
   error?: string;
 }
 
+/** One post surfaced by `instagram.listCollection` — metadata only, nothing downloaded. */
+export interface CollectionItem {
+  url: string;
+  shortcode: string;
+  description?: string;
+  uploader?: string;
+  uploadDate?: string;
+  type?: string;
+}
+
+/** Result of listing an Instagram saved collection. */
+export interface ListCollectionResult {
+  ok: boolean;
+  items?: CollectionItem[];
+  error?: string;
+}
+
 /** Metadata scraped from a captured web page (og:/article:/twitter: tags). */
 export interface PageMeta {
   title?: string;
@@ -134,6 +151,64 @@ export interface OllamaChatResult {
   error?: string;
 }
 
+/** One managed media file, read back through IPC as base64. */
+export interface ReadLibraryFileResult {
+  ok: boolean;
+  base64?: string;
+  mimeType?: string;
+  error?: string;
+}
+
+/** One tool call relayed from the local AI-bridge port. */
+export interface AiBridgeRequest {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+export interface AiBridgeReply {
+  id: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  code?: string;
+}
+
+export interface AiBridgeInfo {
+  enabled: boolean;
+  writesEnabled: boolean;
+  running: boolean;
+  port: number;
+  url: string;
+  token: string;
+  /** Absolute path of the MCP stdio adapter, for the client's config. */
+  adapterPath: string;
+  auditPath: string;
+  toolCount: number;
+}
+
+export interface AiBridgeAuditEntry {
+  /** Line number in the log — what undo addresses an entry by. */
+  index: number;
+  at: number;
+  tool: string;
+  client?: string;
+  projectId?: string;
+  entityId?: string;
+  summary?: string;
+  kind?: 'create' | 'update' | 'delete' | 'undo';
+  undone?: boolean;
+  ok: boolean;
+  error?: string;
+}
+
+export interface AiBridgeUndoResult {
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  code?: string;
+}
+
 export interface ElectronAPI {
   isDesktop: true;
   media: {
@@ -146,6 +221,7 @@ export interface ElectronAPI {
     }) => Promise<DownloadToLibraryResult>;
     cancelDownload: (snapshotId: string) => Promise<void>;
     deleteLibraryFile: (relPath: string) => Promise<void>;
+    readLibraryFile: (relPath: string) => Promise<ReadLibraryFileResult>;
     listLibraryFiles: (projectId?: string) => Promise<{
       root: string;
       files: Array<{ relPath: string; sizeBytes: number; modifiedAt: number }>;
@@ -171,6 +247,8 @@ export interface ElectronAPI {
     login: () => Promise<{ connected: boolean }>;
     status: () => Promise<{ connected: boolean }>;
     logout: () => Promise<void>;
+    listCollection: (url: string) => Promise<ListCollectionResult>;
+    cancelListCollection: () => Promise<void>;
   };
   exporter: {
     scriptToPdf: (html: string, suggestedName: string) => Promise<SaveResult>;
@@ -201,6 +279,18 @@ export interface ElectronAPI {
     onRuntimeProgress: (callback: (p: OllamaRuntimeProgress) => void) => () => void;
     onPullProgress: (callback: (p: OllamaPullProgress) => void) => () => void;
     onStatus: (callback: (s: OllamaStatus) => void) => () => void;
+  };
+
+  /** Local AI bridge: see electron/aibridge/ and src/services/aiBridge/. */
+  aiBridge: {
+    onRequest: (callback: (request: AiBridgeRequest) => void) => () => void;
+    reply: (reply: AiBridgeReply) => Promise<void>;
+    getInfo: () => Promise<AiBridgeInfo>;
+    setEnabled: (enabled: boolean) => Promise<AiBridgeInfo>;
+    setWritesEnabled: (enabled: boolean) => Promise<AiBridgeInfo>;
+    regenerateToken: () => Promise<AiBridgeInfo>;
+    readAudit: (limit?: number) => Promise<AiBridgeAuditEntry[]>;
+    undo: (index: number) => Promise<AiBridgeUndoResult>;
   };
 }
 
