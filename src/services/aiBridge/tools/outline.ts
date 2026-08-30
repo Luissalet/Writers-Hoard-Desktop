@@ -19,9 +19,11 @@ import { t } from '@/i18n/useTranslation';
 // array, so the schema can never promise a template the handler rejects.
 import { TEMPLATE_IDS } from '../manifest';
 import {
+  assertEngineEnabled,
   BridgeError,
   optEnum,
   optNumber,
+  optPercent,
   optString,
   requireString,
   resolveProjectForEngine,
@@ -151,6 +153,7 @@ export async function whCreateBeat(args: ToolArgs): Promise<unknown> {
   if (!outline) {
     throw new BridgeError('not-found', `No outline with id "${outlineId}". Call wh_list_outlines first.`);
   }
+  await assertEngineEnabled(outline.projectId, 'outline');
   const siblings = await getBeats(outlineId);
   const now = Date.now();
   const beat: OutlineBeat = {
@@ -162,7 +165,7 @@ export async function whCreateBeat(args: ToolArgs): Promise<unknown> {
     parentId: optString(args, 'parentId'),
     title: requireString(args, 'title'),
     description: optString(args, 'description') ?? '',
-    storyPosition: optNumber(args, 'storyPosition'),
+    storyPosition: optPercent(args, 'storyPosition'),
     status: optEnum(args, 'status', STATUSES) ?? 'empty',
     linkedWritingId: optString(args, 'linkedWritingId'),
     color: optString(args, 'color'),
@@ -185,6 +188,7 @@ export async function whUpdateBeat(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const existing = await db.outlineBeats.get(id);
   if (!existing) throw new BridgeError('not-found', `No beat with id "${id}".`);
+  await assertEngineEnabled(existing.projectId, 'outline');
 
   const changes: Partial<OutlineBeat> = {};
   (['title', 'description', 'color', 'linkedWritingId'] as const).forEach((key) => {
@@ -195,7 +199,7 @@ export async function whUpdateBeat(args: ToolArgs): Promise<unknown> {
   if (level !== undefined) changes.level = level;
   const status = optEnum(args, 'status', STATUSES);
   if (status !== undefined) changes.status = status;
-  const storyPosition = optNumber(args, 'storyPosition');
+  const storyPosition = optPercent(args, 'storyPosition');
   if (storyPosition !== undefined) changes.storyPosition = storyPosition;
   const order = optNumber(args, 'order');
   if (order !== undefined) changes.order = order;

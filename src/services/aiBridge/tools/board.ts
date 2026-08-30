@@ -25,6 +25,7 @@ import {
 import { DEFAULT_NODE_COLOR, DEFAULT_SIZE, edgeKindColor } from '@/engines/board/catalog';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertEngineEnabled,
   BridgeError,
   dataUrlToBlob,
   optEnum,
@@ -132,11 +133,17 @@ export async function whAddBoardCard(args: ToolArgs): Promise<unknown> {
   const boardId = requireString(args, 'boardId');
   const board = await getBoard(boardId);
   if (!board) throw new BridgeError('not-found', `No board with id "${boardId}".`);
+  await assertEngineEnabled(board.projectId, 'board');
   const existing = await getBoardNodes(boardId);
 
   const x = optNumber(args, 'x');
   const y = optNumber(args, 'y');
-  const position = x !== undefined && y !== undefined ? { x, y } : nextFreeSpot(existing);
+  // One coordinate is still a coordinate. Auto-placing the card because only
+  // `x` arrived would throw away something the caller meant — and the update
+  // tool already honours them one at a time, so dropping it here made the same
+  // argument behave differently between two neighbouring tools.
+  const fallback = x === undefined || y === undefined ? nextFreeSpot(existing) : { x: 0, y: 0 };
+  const position = { x: x ?? fallback.x, y: y ?? fallback.y };
   const now = Date.now();
   // Colour and size are per node kind in the catalog, not single constants.
   const kind = optEnum(args, 'kind', NODE_KINDS) ?? 'card';
@@ -172,6 +179,7 @@ export async function whUpdateBoardCard(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const node = await getBoardNode(id);
   if (!node) throw new BridgeError('not-found', `No board card with id "${id}".`);
+  await assertEngineEnabled(node.projectId, 'board');
 
   const changes: Partial<BoardNode> = {};
   (['title', 'content', 'role', 'color'] as const).forEach((key) => {
@@ -209,6 +217,7 @@ export async function whConnectBoardCards(args: ToolArgs): Promise<unknown> {
   }
   const [source, target] = await Promise.all([getBoardNode(sourceId), getBoardNode(targetId)]);
   if (!source) throw new BridgeError('not-found', `No board card with id "${sourceId}".`);
+  await assertEngineEnabled(source.projectId, 'board');
   if (!target) throw new BridgeError('not-found', `No board card with id "${targetId}".`);
   if (source.boardId !== target.boardId) {
     throw new BridgeError('bad-args', 'Both cards must be pinned on the same board.');

@@ -14,7 +14,13 @@
 // It is NOT in the tool manifest: it is a diagnostic reached at
 // POST /api/selftest, not a capability a model should be able to invoke.
 
-import { createProject, deleteProject, notifyProjectsChanged } from '@/db/operations';
+import { db } from '@/db';
+import {
+  createProject,
+  deleteProject,
+  notifyProjectsChanged,
+  updateProject,
+} from '@/db/operations';
 import { generateId } from '@/utils/idGenerator';
 import type { Project } from '@/types';
 import { BRIDGE_TOOLS } from './manifest';
@@ -483,6 +489,145 @@ async function runAnalysisChecks(h: Harness, projectId: string, writingHostId: s
   });
 }
 
+/** Every id-based write tool the probe builder below exercises. */
+const PARENT_PROBE_TOOLS = [
+  'wh_update_writing', 'wh_append_writing', 'wh_restore_writing_version',
+  'wh_update_codex_entry', 'wh_update_diary_entry', 'wh_update_note',
+  'wh_create_event', 'wh_update_event', 'wh_connect_events',
+  'wh_create_beat', 'wh_update_beat',
+  'wh_add_dialog', 'wh_update_dialog_block', 'wh_update_scene',
+  'wh_add_arc_beat', 'wh_update_arc_beat', 'wh_update_relationship',
+  'wh_update_seed', 'wh_add_payoff',
+  'wh_add_biography_fact', 'wh_update_biography_fact',
+  'wh_add_board_card', 'wh_update_board_card', 'wh_connect_board_cards',
+  'wh_tag_image', 'wh_add_map_pin', 'wh_update_map_pin',
+  'wh_add_storyboard_panel', 'wh_update_storyboard_panel',
+  'wh_add_video_segment', 'wh_update_video_segment',
+  'wh_tag_snapshot', 'wh_download_snapshot_media',
+];
+
+/**
+ * Build one real parent per engine, then switch every engine off.
+ *
+ * These tools cannot be probed with a made-up id: they load the parent first,
+ * so a bogus id fails with `not-found` and proves nothing. The parents have to
+ * exist. Gallery and maps get their rows written straight to Dexie, because
+ * the bridge has no tool that creates a map or an image — which is exactly why
+ * their write surface was the most exposed.
+ */
+async function buildGuardProbes(
+  /** Called the moment the host project exists, so a failure can still bin it. */
+  onCreated: (projectId: string) => void,
+): Promise<[string, ToolArgs][]> {
+  const projectId = await createScratchProject();
+  onCreated(projectId);
+  const id = async (tool: string, args: ToolArgs): Promise<string> =>
+    String(pick(await call(tool, { projectId, ...args }), 'id'));
+
+  const writingId = await id('wh_create_writing', { title: 'Host', content: 'A body to edit.' });
+  const versions = await call('wh_list_writing_versions', { id: writingId });
+  await call('wh_update_writing', { id: writingId, content: 'Changed, to leave a version.' });
+  const snapshotId = String(pick(
+    await call('wh_list_writing_versions', { id: writingId }), 'versions', 0, 'snapshotId',
+  ) ?? pick(versions, 'versions', 0, 'snapshotId'));
+
+  const characterId = await id('wh_create_codex_entry', { type: 'character', title: 'Host A' });
+  const otherId = await id('wh_create_codex_entry', { type: 'character', title: 'Host B' });
+  const diaryId = await id('wh_create_diary_entry', { content: 'A day.' });
+  const noteId = await id('wh_create_note', { text: 'A thought.' });
+  const timelineId = await id('wh_create_timeline', { title: 'Host line' });
+  const eventA = String(pick(await call('wh_create_event', { timelineId, title: 'A' }), 'id'));
+  const eventB = String(pick(await call('wh_create_event', { timelineId, title: 'B' }), 'id'));
+  const outlineId = await id('wh_create_outline', { title: 'Host outline' });
+  const beatId = String(pick(await call('wh_create_beat', { outlineId, title: 'A beat' }), 'id'));
+  const sceneId = await id('wh_create_scene', { title: 'Host scene' });
+  const blockId = String(pick(
+    await call('wh_add_dialog', { sceneId, character: 'Host A', content: 'A line.' }), 'id',
+  ));
+  const arcId = await id('wh_create_arc', { title: 'Host arc' });
+  const arcBeatId = String(pick(await call('wh_add_arc_beat', { arcId, title: 'A shift' }), 'id'));
+  const relationshipId = await id('wh_create_relationship', {
+    entityAId: characterId, entityBId: otherId,
+  });
+  const seedId = await id('wh_create_seed', { title: 'Host seed' });
+  const biographyId = await id('wh_create_biography', { subjectName: 'Host A' });
+  const factId = String(pick(
+    await call('wh_add_biography_fact', { biographyId, title: 'A fact' }), 'id',
+  ));
+  const boardId = await id('wh_create_board', { title: 'Host board' });
+  const cardA = String(pick(await call('wh_add_board_card', { boardId, title: 'A' }), 'id'));
+  const cardB = String(pick(await call('wh_add_board_card', { boardId, title: 'B' }), 'id'));
+  const storyboardId = await id('wh_create_storyboard', { title: 'Host storyboard' });
+  const panelId = String(pick(
+    await call('wh_add_storyboard_panel', { storyboardId, subtitle: 'A panel' }), 'id',
+  ));
+  const videoPlanId = await id('wh_create_video_plan', { title: 'Host plan' });
+  const segmentId = String(pick(
+    await call('wh_add_video_segment', { videoPlanId, title: 'A segment' }), 'id',
+  ));
+  const snapshotRowId = String(pick(
+    await call('wh_import_snapshots', {
+      projectId,
+      items: [{ url: 'https://example.invalid/a', title: 'A clipping' }],
+    }),
+    'snapshots', 0, 'id',
+  ));
+
+  // No bridge tool makes these two, so they are written directly.
+  const now = Date.now();
+  const mapId = generateId('map');
+  await db.worldMaps.add({
+    id: mapId, projectId, title: 'Host map', source: 'uploaded',
+    createdAt: now, updatedAt: now,
+  });
+  const imageId = generateId('img');
+  await db.inspirationImages.add({
+    id: imageId, projectId, imageData: '', notes: 'Host image', tags: [], createdAt: now,
+  });
+  const pinId = generateId('pin');
+  await db.mapPins.add({
+    id: pinId, projectId, mapId, name: 'Host pin', icon: 'city', position: { x: 50, y: 50 },
+  });
+
+  await updateProject(projectId, { enabledEngines: [], updatedAt: Date.now() });
+
+  return [
+      ['wh_update_writing', { id: writingId, content: 'x' }],
+      ['wh_append_writing', { id: writingId, content: 'x' }],
+      ['wh_restore_writing_version', { snapshotId }],
+      ['wh_update_codex_entry', { id: characterId, title: 'x' }],
+      ['wh_update_diary_entry', { id: diaryId, content: 'x' }],
+      ['wh_update_note', { id: noteId, text: 'x' }],
+      ['wh_create_event', { timelineId, title: 'x' }],
+      ['wh_update_event', { id: eventA, title: 'x' }],
+      ['wh_connect_events', { sourceEventId: eventA, targetEventId: eventB }],
+      ['wh_create_beat', { outlineId, title: 'x' }],
+      ['wh_update_beat', { id: beatId, title: 'x' }],
+      ['wh_add_dialog', { sceneId, character: 'Host A', content: 'x' }],
+      ['wh_update_dialog_block', { id: blockId, content: 'x' }],
+      ['wh_update_scene', { id: sceneId, title: 'x' }],
+      ['wh_add_arc_beat', { arcId, title: 'x' }],
+      ['wh_update_arc_beat', { id: arcBeatId, title: 'x' }],
+      ['wh_update_relationship', { id: relationshipId, label: 'x' }],
+      ['wh_update_seed', { id: seedId, title: 'x' }],
+      ['wh_add_payoff', { seedId, title: 'x' }],
+      ['wh_add_biography_fact', { biographyId, title: 'x' }],
+      ['wh_update_biography_fact', { id: factId, title: 'x' }],
+      ['wh_add_board_card', { boardId, title: 'x' }],
+      ['wh_update_board_card', { id: cardA, title: 'x' }],
+      ['wh_connect_board_cards', { sourceId: cardA, targetId: cardB }],
+      ['wh_tag_image', { id: imageId, tags: ['x'] }],
+      ['wh_add_map_pin', { mapId, name: 'x' }],
+      ['wh_update_map_pin', { id: pinId, name: 'x' }],
+      ['wh_add_storyboard_panel', { storyboardId, subtitle: 'x' }],
+      ['wh_update_storyboard_panel', { id: panelId, subtitle: 'x' }],
+      ['wh_add_video_segment', { videoPlanId, title: 'x' }],
+      ['wh_update_video_segment', { id: segmentId, title: 'x' }],
+      ['wh_tag_snapshot', { id: snapshotRowId, tags: ['x'] }],
+      ['wh_download_snapshot_media', { id: snapshotRowId }],
+  ];
+}
+
 /**
  * Nothing gets written into an engine the writer has switched off.
  *
@@ -520,6 +665,53 @@ async function runEngineGuardChecks(h: Harness): Promise<void> {
       }
     }
     expect(!leaked.length, `not guarded by enabledEngines: ${leaked.join('; ')}`);
+  });
+
+  await h.step('writes that reach their project through a parent are guarded too', async () => {
+    // The tools above take a projectId. These take the id of something that
+    // already exists — a chapter, an outline, an image — and only learn the
+    // project from it. Guarding the first group and not this one would have
+    // left every update tool, and the whole of gallery and maps, wide open.
+    //
+    // The `finally` is not decoration: the first three runs of this check
+    // failed inside the builder and left their host project behind, which is
+    // exactly the mess this suite promises never to make.
+    let host: string | null = null;
+    const leaked: string[] = [];
+    try {
+      const built = await buildGuardProbes((id) => { host = id; });
+      for (const [tool, args] of built) {
+        try {
+          await call(tool, args);
+          leaked.push(`${tool} (wrote anyway)`);
+        } catch (err) {
+          const code = err instanceof BridgeError ? err.code : 'crash';
+          if (code !== 'engine-disabled') leaked.push(`${tool} (${code})`);
+        }
+      }
+    } finally {
+      if (host) {
+        await deleteProject(host);
+        notifyProjectsChanged();
+      }
+    }
+    expect(!leaked.length, `not guarded by enabledEngines: ${leaked.join('; ')}`);
+  });
+
+  await h.step('every write tool that names an engine is actually covered', async () => {
+    // The completeness property. Without it the two checks above only prove
+    // something about the tools somebody remembered to include.
+    const byProject = BRIDGE_TOOLS
+      .filter((tool) => tool.writes && tool.engineId && tool.schema.properties.projectId)
+      .map((tool) => tool.name);
+    const covered = new Set([...byProject, ...PARENT_PROBE_TOOLS]);
+    const uncovered = BRIDGE_TOOLS
+      .filter((tool) => tool.writes && tool.engineId && !covered.has(tool.name))
+      .map((tool) => tool.name);
+    expect(
+      !uncovered.length,
+      `write tools with no engine-guard check: ${uncovered.join(', ')} — add a probe to buildGuardProbes`,
+    );
   });
 
   await h.step('reading a switched-off engine still answers', async () => {

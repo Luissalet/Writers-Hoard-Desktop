@@ -18,6 +18,7 @@ import {
 } from '@/engines/biography/operations';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertEngineEnabled,
   BridgeError,
   htmlFromMarkdown,
   markdownFromHtml,
@@ -113,6 +114,7 @@ export async function whAddBiographyFact(args: ToolArgs): Promise<unknown> {
   const biographyId = requireString(args, 'biographyId');
   const bio = await getBiography(biographyId);
   if (!bio) throw new BridgeError('not-found', `No biography with id "${biographyId}".`);
+  await assertEngineEnabled(bio.projectId, 'biography');
   const siblings = await getFacts(biographyId);
 
   const sourceDescription = optString(args, 'sourceDescription');
@@ -151,6 +153,7 @@ export async function whUpdateBiographyFact(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const existing = await db.biographyFacts.get(id);
   if (!existing) throw new BridgeError('not-found', `No biography fact with id "${id}".`);
+  await assertEngineEnabled(existing.projectId, 'biography');
 
   const changes: Partial<BiographyFact> = {};
   const title = optString(args, 'title');

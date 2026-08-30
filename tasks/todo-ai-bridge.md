@@ -635,3 +635,73 @@ instante. Se arregló el test, no la guardia.
 
 - Eventos push hacia el modelo (sin empezar).
 - Sin commitear.
+
+---
+
+## Fase 8 — auditoría de promesas (2026-08-30)
+
+**88 herramientas, 28 comprobaciones.** Ninguna funcionalidad nueva: revisar
+cada descripción contra su handler y arreglar lo que el código no cumplía.
+Documentación en `docs/AI-BRIDGE.md` §17.
+
+- [x] **F31 — La guardia de motores, completa.** De 16 escrituras guardadas a
+      **49**: `assertEngineEnabled` en todas las que llegan al proyecto por un
+      padre. Galería y mapas eran el caso peor: sin herramienta de creación en
+      el puente, su superficie de escritura **entera** pasaba sin puerta.
+- [x] **F32 — `wh_restore_writing_version`, reestructurada.** Mutaba antes de
+      saber su proyecto. De paso, su auditoría apuntaba al snapshot en vez de
+      al escrito: un deshacer habría caído en el vacío.
+- [x] **F33 — Prueba completa por construcción.** Un padre real por motor
+      (mapa e imagen escritos directos a Dexie), todos los motores apagados, 33
+      sondas — más la aserción de cobertura que obliga a añadir sonda a toda
+      herramienta de escritura nueva.
+- [x] **F34 — Nueve promesas más, cumplidas o corregidas.**
+      `wh_get_context` (interruptor de escritura), `wh_add_payoff` (estado
+      derivado, no fijo), `wh_list_scenes` (reparto **y** hablantes),
+      `wh_list_annotations` (huérfanas recalculadas sin escribir),
+      `wh_connect_board_cards` (sin `enum` cerrado), `wh_add_board_card`
+      (coordenadas sueltas), `wh_list_diary` (orden real), porcentajes
+      recortados, y la plantilla de codex.
+
+### Decisiones
+
+- **Recalcular sin persistir.** `wh_list_annotations` usa el mismo resolvedor
+  que la app pero descarta las escrituras: es `writes: false`, y un cliente en
+  sólo lectura no puede mutar filas de paso. Se recalcula sólo con
+  `engineId`+`entityId`, porque leer el cuerpo entero para un listado de
+  proyecto sería cargar el manuscrito para responder a un listado.
+- **Sin `enum` donde el dato es libre.** El tipo de hilo del tablero admite
+  cadenas del autor; declarar un conjunto cerrado hacía que un cliente
+  estricto rechazara valores que la app soporta. Se enumeran en la descripción,
+  no en el esquema.
+- **Los porcentajes se recortan, no se rechazan.** Todos los demás rangos
+  declarados ya se hacían cumplir (intensidad lanza, fuerza y certeza
+  recortan); estos eran la excepción incoherente.
+
+### Verificación
+
+- Puertas: typecheck ×2, lint, conformance y 29 tests críticos.
+- Autotest en vivo: **28/28 en 638 ms**.
+- En vivo contra datos reales: `wh_get_context` trae `writesEnabled`,
+  `wh_list_scenes` trae `cast` y `speakers`, y `wh_list_annotations` con
+  entidad responde `"checked against the text as it stands right now"`.
+
+### El fallo de esta pasada
+
+Tres, todos cazados por la propia sonda antes de salir: `wh_import_snapshots`
+llamado sin `projectId`, la tabla de mapas es `worldMaps` y no `maps`, y el
+resultado del import lleva las filas en `snapshots`, no en `imported`. La sonda
+sirvió de test de sí misma.
+
+El cuarto es peor y es el que hay que recordar: esos tres fallos ocurrían
+**dentro** del constructor de sondas, así que su proyecto anfitrión se quedaba
+sin borrar. Tres «Bridge self-test …» huérfanos en la instalación real — lo que
+esta suite promete no hacer nunca. El borrado está ahora en un `finally`, con
+el id capturado en el instante de crear el proyecto y no devuelto al final del
+camino feliz. Regla: un test que crea algo en datos de verdad lo borra en
+`finally`, no en la última línea.
+
+### Pendiente de verdad
+
+- Eventos push hacia el modelo (sin empezar).
+- Sin commitear.
