@@ -32,9 +32,32 @@ import { promises as fs } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { autoUpdater } from 'electron-updater';
 import { startMediaServer, stopMediaServer } from './media/server';
+import {
+  AI_BRIDGE_PORT,
+  AI_BRIDGE_URL,
+  isAiBridgeRunning,
+  stopAiBridge,
+  syncAiBridge,
+  undoBridgeChange,
+} from './aibridge/server';
+import {
+  rejectAllPendingCalls,
+  resolveBridgeReply,
+  setBridgeWindowResolver,
+} from './aibridge/rpc';
+import {
+  auditPath,
+  getBridgeConfig,
+  getBridgeToken,
+  readAudit,
+  regenerateBridgeToken,
+  setBridgeConfig,
+  undoneIndices,
+} from './aibridge/state';
+import { BRIDGE_TOOLS } from '@/services/aiBridge/manifest';
 import { transcodeWebmToMp4 } from './media/transcode';
 import { downloadMedia, type MediaFormat } from './media/ytdlp';
-import { downloadGallery } from './media/gallerydl';
+import { downloadGallery, listCollection, type CollectionItem } from './media/gallerydl';
 import { openIgLogin, igStatus, igLogout, exportIgCookies, igCookiesPath } from './media/igAuth';
 import { capturePage, type PageMeta } from './media/pageCapture';
 import {
@@ -83,6 +106,12 @@ interface DownloadToLibraryResult {
   uploader?: string;
   uploadDate?: string;
   title?: string;
+  error?: string;
+}
+
+interface ListCollectionResult {
+  ok: boolean;
+  items?: CollectionItem[];
   error?: string;
 }
 
@@ -287,7 +316,17 @@ function abortAllDownloads(): void {
   activeDownloads.clear();
   for (const controller of activeCaptures.values()) controller.abort();
   activeCaptures.clear();
+  activeListingController?.abort();
+  activeListingController = null;
 }
+
+/**
+ * Instagram collection listing (`ig:listCollection`) — only one at a time,
+ * matching the one-modal-open reality of `ImportCollectionModal`. Unlike
+ * downloads/captures this isn't keyed by snapshotId: nothing has been saved
+ * yet at listing time, there's just one in-flight "list this collection" call.
+ */
+let activeListingController: AbortController | null = null;
 
 // --- Page captures (plain web pages → PDF + screenshot + HTML archive) ------
 // Kept on their own queue so archiving an article never waits behind a big
@@ -453,6 +492,8 @@ async function createWindow(): Promise<void> {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    // Bridge calls are answered by this window; nothing in flight can land now.
+    rejectAllPendingCalls('The Writers Hoard window was closed.');
     // The hidden quick-capture window still counts as an open window, so
     // leaving it alive would keep the app running after its last real window
     // closed (`window-all-closed` never fires).
@@ -714,6 +755,57 @@ async function htmlToPdf(html: string): Promise<Buffer> {
 }
 
 // ---------------------------------------------------------------------------
+// AI bridge — local port so external models can operate the app
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the MCP stdio adapter lives on disk. Packaged, `dist-electron` sits
+ * inside app.asar, which plain `node` cannot read — electron-builder unpacks
+ * this one directory so an external client can spawn it (see `asarUnpack`).
+ */
+function aiBridgeAdapterPath(): string {
+  const bundled = path.join(__dirname, 'aibridge', 'mcpStdio.cjs');
+  return app.isPackaged ? bundled.replace('app.asar', 'app.asar.unpacked') : bundled;
+}
+
+async function aiBridgeInfo(): Promise<{
+  enabled: boolean;
+  writesEnabled: boolean;
+  running: boolean;
+  port: number;
+  url: string;
+  token: string;
+  adapterPath: string;
+  auditPath: string;
+  toolCount: number;
+}> {
+  const [config, token] = await Promise.all([getBridgeConfig(), getBridgeToken()]);
+  return {
+    ...config,
+    running: isAiBridgeRunning(),
+    port: AI_BRIDGE_PORT,
+    url: AI_BRIDGE_URL,
+    token,
+    adapterPath: aiBridgeAdapterPath(),
+    auditPath: auditPath(),
+    toolCount: BRIDGE_TOOLS.length,
+  };
+}
+
+/** Start or stop the listener to match the switch; never fatal. */
+async function syncAiBridgeNow(): Promise<void> {
+  try {
+    await syncAiBridge({
+      version: app.getVersion(),
+      hasWindow: () => Boolean(mainWindow && !mainWindow.isDestroyed()),
+    });
+  } catch (err) {
+    // Port busy or refused: the app is entirely usable without the bridge.
+    console.error('[aibridge] could not start', err);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // IPC — the renderer's only door to native capabilities (see preload.ts)
 // ---------------------------------------------------------------------------
 
@@ -880,6 +972,31 @@ function registerIpc(): void {
     };
   });
 
+  // Read one managed file back as base64. The renderer displays these through
+  // the wh-media:// scheme, but it cannot `fetch` them: in development it is
+  // served from http://localhost and in production from file://, so a custom
+  // scheme is always cross-origin and the fetch is refused. Same reason all
+  // Ollama traffic goes through IPC. Used by the AI bridge's vision tools.
+  ipcMain.handle('media:readLibraryFile', async (event, relPath: string) => {
+    assertIpcSender(event, 'media:readLibraryFile');
+    const absolute = await resolveExistingLibraryPath(relPath);
+    if (!absolute) return { ok: false, error: 'not found' };
+    try {
+      const stat = await fs.stat(absolute);
+      // Bounded: this crosses IPC as a base64 string and then a model's context.
+      if (stat.size > 32 * 1024 * 1024) return { ok: false, error: 'file too large' };
+      const bytes = await fs.readFile(absolute);
+      const ext = path.extname(absolute).toLowerCase();
+      const mimeType =
+        MEDIA_CONTENT_TYPES[ext] ??
+        ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+           '.gif': 'image/gif', '.webp': 'image/webp' }[ext] ?? 'application/octet-stream');
+      return { ok: true, base64: bytes.toString('base64'), mimeType };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle('media:relocateLibrary', async (event) => {
     assertIpcSender(event, 'media:relocateLibrary');
     if (!mainWindow) return { ok: false, error: 'Main window unavailable' };
@@ -993,6 +1110,33 @@ function registerIpc(): void {
     return igLogout();
   });
 
+  // Scrapper: list every post in an Instagram saved collection (metadata
+  // only — no media downloaded here). Feeds ImportCollectionModal; the user
+  // reviews/tags each item, then per-item download reuses media:downloadToLibrary
+  // unchanged. One listing at a time — a second call aborts the first.
+  ipcMain.handle('ig:listCollection', async (event, url: string): Promise<ListCollectionResult> => {
+    assertIpcSender(event, 'ig:listCollection');
+    if (!url || typeof url !== 'string') return { ok: false, error: 'invalid request' };
+    activeListingController?.abort();
+    const controller = new AbortController();
+    activeListingController = controller;
+    try {
+      const hasIg = await exportIgCookies().catch(() => false);
+      const cookiesFile = hasIg ? igCookiesPath() : undefined;
+      const items = await listCollection(url, controller.signal, cookiesFile);
+      return { ok: true, items };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: msg };
+    } finally {
+      if (activeListingController === controller) activeListingController = null;
+    }
+  });
+  ipcMain.handle('ig:cancelListCollection', (event): void => {
+    assertIpcSender(event, 'ig:cancelListCollection');
+    activeListingController?.abort();
+  });
+
   // --- Quick note capture -------------------------------------------------
   ipcMain.on('quick-note:set-context', (event, ctx: Partial<QuickNoteContext>) => {
     if (!acceptIpcSender(event, 'quick-note:set-context')) return;
@@ -1078,6 +1222,45 @@ function registerIpc(): void {
   ipcMain.handle('ollama:chat', (event, req: OllamaChatRequest) => {
     assertIpcSender(event, 'ollama:chat');
     return ollamaChat(req);
+  });
+
+  // ---- AI bridge -----------------------------------------------------------
+  // The renderer answers relayed tool calls here; the rest is the settings UI.
+  ipcMain.handle('aibridge:reply', (event, payload: unknown): void => {
+    assertIpcSender(event, 'aibridge:reply');
+    resolveBridgeReply(payload);
+  });
+  ipcMain.handle('aibridge:getInfo', (event) => {
+    assertIpcSender(event, 'aibridge:getInfo');
+    return aiBridgeInfo();
+  });
+  ipcMain.handle('aibridge:setEnabled', async (event, enabled: boolean) => {
+    assertIpcSender(event, 'aibridge:setEnabled');
+    await setBridgeConfig({ enabled: enabled === true });
+    await syncAiBridgeNow();
+    return aiBridgeInfo();
+  });
+  ipcMain.handle('aibridge:setWritesEnabled', async (event, enabled: boolean) => {
+    assertIpcSender(event, 'aibridge:setWritesEnabled');
+    await setBridgeConfig({ writesEnabled: enabled === true });
+    return aiBridgeInfo();
+  });
+  ipcMain.handle('aibridge:regenerateToken', async (event) => {
+    assertIpcSender(event, 'aibridge:regenerateToken');
+    await regenerateBridgeToken();
+    return aiBridgeInfo();
+  });
+  ipcMain.handle('aibridge:readAudit', async (event, limit?: number) => {
+    assertIpcSender(event, 'aibridge:readAudit');
+    const [entries, undone] = await Promise.all([
+      readAudit(typeof limit === 'number' ? limit : 50),
+      undoneIndices(),
+    ]);
+    return entries.map((entry) => ({ ...entry, undone: undone.includes(entry.index) }));
+  });
+  ipcMain.handle('aibridge:undo', async (event, index: number) => {
+    assertIpcSender(event, 'aibridge:undo');
+    return undoBridgeChange(index);
   });
 }
 
@@ -1265,6 +1448,10 @@ if (!gotLock) {
       console.error('[media] failed to start embedded server', err);
     }
 
+    // The bridge answers from the main window, so it needs a way to find it.
+    setBridgeWindowResolver(() => mainWindow);
+    await syncAiBridgeNow();
+
     void createWindow();
     registerQuickNoteShortcut();
     initAutoUpdates();
@@ -1282,6 +1469,8 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   stopMediaServer();
+  stopAiBridge();
+  rejectAllPendingCalls('Writers Hoard is shutting down.');
   abortAllDownloads();
   shutdownOllama();
 });

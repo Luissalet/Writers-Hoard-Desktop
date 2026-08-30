@@ -26,14 +26,47 @@ function excerpt(plain: string, query: string): string {
   return `${start > 0 ? '…' : ''}${plain.slice(start, end).trim()}${end < plain.length ? '…' : ''}`;
 }
 
+/** Push a document, skipping anything with no text worth matching. */
+function add(
+  documents: SearchDocument[],
+  doc: Omit<SearchDocument, 'normalizedBody'>,
+): void {
+  if (!doc.body.trim()) return;
+  documents.push({ ...doc, normalizedBody: doc.body.toLocaleLowerCase() });
+}
+
+/**
+ * Build the body index.
+ *
+ * Deliberately absent: `boardNodes`, `inspirationImages`, `storyboardPanels`
+ * and `videoSegments`. All four store base64 images inline, and loading them
+ * here would deserialise every picture in the project on the first keystroke —
+ * the exact regression `engines/board/index.ts` records having already been
+ * fixed once. Their titles remain searchable through the entity resolvers.
+ */
 async function buildIndex(): Promise<SearchDocument[]> {
-  const [writings, codexEntries, diaryEntries, dialogBlocks, scenes, snapshots] = await Promise.all([
+  const [
+    writings, codexEntries, diaryEntries, dialogBlocks, scenes, snapshots,
+    notes, outlineBeats, seeds, payoffs, characterArcs, arcBeats,
+    relationships, biographyFacts, timelineEvents, mapPins, annotations,
+  ] = await Promise.all([
     db.writings.toArray(),
     db.codexEntries.toArray(),
     db.diaryEntries.toArray(),
     db.dialogBlocks.toArray(),
     db.scenes.toArray(),
     db.snapshots.toArray(),
+    db.notes.toArray(),
+    db.outlineBeats.toArray(),
+    db.seeds.toArray(),
+    db.payoffs.toArray(),
+    db.characterArcs.toArray(),
+    db.arcBeats.toArray(),
+    db.relationships.toArray(),
+    db.biographyFacts.toArray(),
+    db.timelineEvents.toArray(),
+    db.mapPins.toArray(),
+    db.annotations.toArray(),
   ]);
   const sceneById = new Map(scenes.map(scene => [scene.id, scene]));
   const documents: SearchDocument[] = [];
@@ -104,6 +137,123 @@ async function buildIndex(): Promise<SearchDocument[]> {
       subtitle: snapshot.source,
       body,
       normalizedBody: body.toLocaleLowerCase(),
+    });
+  }
+
+  for (const note of notes) {
+    add(documents, {
+      id: note.id,
+      engineId: 'notes',
+      projectId: note.projectId,
+      title: note.text.split('\n')[0]?.slice(0, 80) ?? '',
+      subtitle: note.kind,
+      body: [note.text, note.source, note.tags.join(' ')].filter(Boolean).join('\n'),
+    });
+  }
+  for (const beat of outlineBeats) {
+    add(documents, {
+      id: beat.id,
+      engineId: 'outline',
+      projectId: beat.projectId,
+      title: beat.title,
+      subtitle: beat.level,
+      body: [beat.title, beat.description].filter(Boolean).join('\n'),
+    });
+  }
+  for (const seed of seeds) {
+    add(documents, {
+      id: seed.id,
+      engineId: 'seeds',
+      projectId: seed.projectId,
+      title: seed.title,
+      subtitle: seed.kind,
+      body: [seed.title, seed.description, seed.locationLabel, seed.tags.join(' ')]
+        .filter(Boolean).join('\n'),
+    });
+  }
+  for (const payoff of payoffs) {
+    add(documents, {
+      id: payoff.seedId,
+      engineId: 'seeds',
+      projectId: payoff.projectId,
+      title: payoff.title,
+      subtitle: 'payoff',
+      body: [payoff.title, payoff.description, payoff.locationLabel].filter(Boolean).join('\n'),
+    });
+  }
+  for (const arc of characterArcs) {
+    add(documents, {
+      id: arc.id,
+      engineId: 'character-arc',
+      projectId: arc.projectId,
+      title: arc.title,
+      subtitle: arc.characterName ?? arc.status,
+      // The five spine fields are the arc: without them it is just a title.
+      body: [arc.title, arc.summary, arc.ghost, arc.lie, arc.truth, arc.want, arc.need]
+        .filter(Boolean).join('\n'),
+    });
+  }
+  for (const beat of arcBeats) {
+    add(documents, {
+      id: beat.arcId,
+      engineId: 'character-arc',
+      projectId: beat.projectId,
+      title: beat.title,
+      subtitle: beat.stage,
+      body: [beat.title, beat.description, beat.emotion].filter(Boolean).join('\n'),
+    });
+  }
+  for (const relationship of relationships) {
+    add(documents, {
+      id: relationship.id,
+      engineId: 'relationships',
+      projectId: relationship.projectId,
+      title: `${relationship.entityAName} – ${relationship.entityBName}`,
+      subtitle: relationship.kind,
+      body: [relationship.label, relationship.notes, relationship.entityAName, relationship.entityBName]
+        .filter(Boolean).join('\n'),
+    });
+  }
+  for (const fact of biographyFacts) {
+    add(documents, {
+      id: fact.biographyId,
+      engineId: 'biography',
+      projectId: fact.projectId,
+      title: fact.title,
+      subtitle: fact.category,
+      body: [fact.title, stripHtml(fact.content ?? ''), fact.date, fact.tags.join(' ')]
+        .filter(Boolean).join('\n'),
+    });
+  }
+  for (const event of timelineEvents) {
+    add(documents, {
+      id: event.id,
+      engineId: 'timeline',
+      projectId: event.projectId,
+      title: event.title,
+      subtitle: event.date || event.eventType,
+      body: [event.title, event.description, event.date, event.lane].filter(Boolean).join('\n'),
+    });
+  }
+  for (const pin of mapPins) {
+    add(documents, {
+      id: pin.id,
+      engineId: 'maps',
+      projectId: pin.projectId,
+      title: pin.name,
+      subtitle: pin.icon,
+      body: [pin.name, pin.description].filter(Boolean).join('\n'),
+    });
+  }
+  for (const annotation of annotations) {
+    add(documents, {
+      id: annotation.id,
+      engineId: 'annotations',
+      projectId: annotation.projectId,
+      title: annotation.anchor.selectedText || annotation.sourceEngineId,
+      subtitle: annotation.sourceEngineId,
+      // noteImageUrl may be a data URL — never indexed.
+      body: [annotation.noteBody, annotation.anchor.selectedText].filter(Boolean).join('\n'),
     });
   }
 

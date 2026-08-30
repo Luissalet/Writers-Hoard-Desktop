@@ -741,3 +741,86 @@ Nunca `npm run … | Out-String`: el exit 1 es falso y la salida del hijo se
 pierde, así que ni siquiera puedes distinguir un fallo real de este artefacto.
 Y `tsc -b` sin `--verbose` calla hasta terminar — si necesitas prueba de que
 compiló de verdad, pídesela.
+
+## #38 — Conectar un motor nuevo sin tocar el índice deja mintiendo a la búsqueda
+
+**Qué pasó (2026-08-30).** Conecté trece motores al puente IA y no toqué
+`src/services/projectSearchIndex.ts`, que sólo leía cinco tablas. Ni el
+typecheck, ni el lint, ni la conformance, ni los 29 tests críticos dijeron
+nada: no había nada roto, sólo una promesa —«busca en todos los motores»— que
+había dejado de ser verdad. Un modelo buscando el texto de una semilla o de un
+beat no encontraba nada y concluía que no existía. Y no era sólo cosa de las
+IA: `searchProjectContent` alimenta también la búsqueda global de la app, así
+que al escritor le pasaba lo mismo.
+
+**Regla.** Añadir una tabla que guarda prosa del autor obliga a decidir, en el
+mismo cambio, si entra en `buildIndex`. Si entra, un `add(...)` con su
+`engineId`. Si no entra, un comentario diciendo **por qué** — y la descripción
+de la herramienta que la ofrece tiene que decirlo también, en vez de dejar que
+el modelo lo descubra buscando y fallando.
+
+**Cómo se vigila.** El autotest planta ahora una palabra inventada
+(`wh-probe-…`) en un campo que el título no muestra de cada origen y exige que
+`wh_search` la encuentre **con el `engineId` correcto**. Quita un origen de
+`buildIndex` y la comprobación falla nombrando cuál. Una promesa que no se
+puede comprobar se pudre; una que se comprueba, no.
+
+**Corolario.** El criterio para dejar algo fuera del índice no es el gusto: es
+el coste. `boardNodes`, `inspirationImages`, `storyboardPanels` y
+`videoSegments` guardan base64 en la fila, e indexarlos deserializaría todas
+las fotos del proyecto en la primera pulsación de tecla — la regresión que
+`engines/board/index.ts` ya documenta haber arreglado una vez.
+
+## #39 — Poder escribir hijos no es poder usar un motor
+
+**Qué pasó (2026-08-30).** El puente exponía `wh_add_board_card`,
+`wh_create_beat`, `wh_add_storyboard_panel` y `wh_add_video_segment`, todas
+pidiendo el id de un contenedor —tablero, esquema, storyboard, plan— que
+**ninguna herramienta sabía crear**. En un proyecto vacío esos cuatro motores
+eran callejones sin salida: un modelo podía listarlos eternamente y no meter
+nunca nada. Los tests no lo veían porque cada handler funcionaba
+perfectamente; lo que faltaba era el paso cero.
+
+**Regla.** Al exponer un motor, recorrer el camino desde **proyecto vacío**,
+no desde el estado que ya tienes en tu instalación. Si un `wh_add_*` pide un
+id de padre, la pregunta obligatoria es: ¿existe un `wh_create_*` para ese
+padre? Si el padre necesita algo que un modelo no puede tener —una imagen
+subida, como en los mapas— eso se dice en la documentación, no se deja como
+silencio.
+
+**Y el corolario que casi se me escapa.** Cada contenedor nuevo que se puede
+crear es un contenedor que hay que poder **borrar y deshacer**. `undo.ts` cae
+a un `db.table(...).delete()` pelado si el tipo no está en `DELETABLE`, y eso
+deja huérfanos a todos los hijos. Lo cazó el test crítico
+(`"board" can be deleted but is not offered in the schema`), que es
+exactamente para lo que está: crear, borrar, deshacer y el `enum` de
+`wh_delete` son cuatro sitios, no uno.
+
+## #40 — `enabledEngines` no es cosmética: decide si un dato existe para el autor
+
+**Qué pasó (2026-08-30).** Ningún handler del puente miraba
+`Project.enabledEngines`. Una escritura en un motor apagado creaba una fila
+correcta, indexada, con su `projectId` bien puesto… e **inalcanzable**: la
+pestaña no se renderiza y `GlobalSearch` filtra por
+`getOrderedEnabledEngineIds`, así que la búsqueda del propio autor la salta. Ni
+error ni aviso. Y el preset `essentials` deja tres motores de veintiuno
+encendidos, o sea que era el caso normal en un proyecto recién creado, no un
+borde.
+
+**Regla.** Antes de dar por buena una escritura, preguntar **por qué vía la
+vería el autor**. Si la respuesta depende de un flag de configuración
+(`enabledEngines`, un filtro de vista, un modo de proyecto), ese flag es parte
+del contrato de la escritura, no decoración: hay que comprobarlo y rechazar con
+un mensaje que diga cómo desatascarse. Escribir algo que nadie puede encontrar
+es peor que no escribirlo, porque además parece que funcionó.
+
+**Corolario sobre el rechazo.** Bloquear **lecturas** por lo mismo sería
+teatro: las filas están ahí. Y la herramienta que desbloquea (`wh_enable_engine`)
+va en un solo sentido — encender es aditivo y reversible en un clic; apagar
+esconde material del autor, y eso no lo decide un modelo.
+
+**Cómo se vigila.** Cada herramienta declara su `engineId` en el manifiesto, y
+la prueba **deriva** de ahí la lista a comprobar (`writes && engineId &&
+schema.properties.projectId`) en vez de escribirla a mano. Se llama a cada una
+con **sólo `projectId`**: si falla por argumento que falta en lugar de por
+motor apagado, la guardia está en la línea equivocada y el informe la nombra.

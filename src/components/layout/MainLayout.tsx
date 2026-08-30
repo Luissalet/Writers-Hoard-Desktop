@@ -3,6 +3,7 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import GlobalSearch from '../common/GlobalSearch';
 import { ToastHost } from '../common/toast';
+import BridgeConfirmHost from '../common/BridgeConfirmHost';
 import QuickNoteHost from '@/engines/notes/components/QuickNoteHost';
 import { installNavigator } from '@/engines/_shared/anchoring';
 import { initializeAppServices } from '@/services/appInitialization';
@@ -37,6 +38,8 @@ export default function MainLayout() {
       <GlobalSearch />
       <QuickNoteHost />
       <ToastHost />
+      {/* Renders the confirmation an AI bridge deletion has to get past. */}
+      <BridgeConfirmHost />
     </div>
   );
 }

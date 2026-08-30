@@ -30,6 +30,7 @@ import { registerFallbackAnchorAdapters } from '@/engines/_shared/anchoring/regi
 import type { Scene, DialogBlock } from '@/engines/dialog-scene/types';
 import { testWorldgenSpatialEntities } from './worldgen-spatial-entities';
 import { testWorldgenSemanticZoom } from './worldgen-semantic-zoom';
+import { testAiBridgeContracts } from './ai-bridge';
 import { runRegionInfraTests } from './worldgen-region-infra.test';
 import { testWorldgenDetailShader } from './worldgen-rendering';
 import {
@@ -850,6 +851,7 @@ async function run(): Promise<void> {
   await testPublishingStudioSemantics();
   testRecoveryAndNavigation();
   testRecentEntityNavigation();
+  passed.push(await testAiBridgeContracts());
   passed.push(testWorldgenSpatialEntities());
   passed.push(testWorldgenSemanticZoom());
   await runRegionInfraTests();

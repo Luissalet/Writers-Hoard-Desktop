@@ -10,7 +10,7 @@
 //   downloads. No DB, no archive UI.
 
 import { useState, useMemo, useCallback } from 'react';
-import { Grid3x3, List, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Grid3x3, List, CheckCircle2, AlertCircle, Instagram as InstagramIcon } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { EngineSpinner, useDeepLinkParam } from '@/engines/_shared';
 import { useSnapshots } from '../hooks';
@@ -19,10 +19,19 @@ import SnapshotCard from './SnapshotCard';
 import SnapshotDetail from './SnapshotDetail';
 import ManualSnapshotModal from './ManualSnapshotModal';
 import InstagramConnect from './InstagramConnect';
+import ImportCollectionModal, { type ImportedCollectionItem } from './ImportCollectionModal';
 import type { MediaFormat } from '@/services/mediaDownloader';
-import { canDownloadMedia, deleteSnapshotMedia, runSnapshotDownload } from '@/services/scrapperMedia';
+import {
+  canDownloadMedia,
+  deleteSnapshotMedia,
+  runSnapshotDownload,
+  isoFromYtDate,
+} from '@/services/scrapperMedia';
 import { canCapturePage, deleteSnapshotCapture, runSnapshotCapture } from '@/services/pageCapture';
+import { extractDomainFromUrl } from '../services/urlDetector';
 import { isDesktop } from '@/utils/platform';
+import { useAiStore } from '@/stores/aiStore';
+import { toast } from '@/components/common/toast';
 import type { Snapshot } from '../types';
 
 type ViewMode = 'grid' | 'list';
@@ -79,9 +88,11 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
   const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
   const [searchFocused, setSearchFocused] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
   const deepLinkedSnapshotId = useDeepLinkParam('entity');
   const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
+  const aiConfig = useAiStore((s) => s.config);
 
   if (
     deepLinkedSnapshotId
@@ -159,6 +170,49 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
     [addSnapshot, editSnapshot],
   );
 
+  // Collection import: the modal already listed + reviewed everything; here we
+  // just persist each confirmed item and download its media, one at a time —
+  // same per-item mechanics as handleCapture above, looped. Sequential (not
+  // Promise.all) so downloads queue predictably instead of firing N gallery-dl/
+  // yt-dlp processes at once (the main process serializes them anyway, but no
+  // reason to fire N IPC calls simultaneously either).
+  const handleImportCollection = useCallback(
+    (items: ImportedCollectionItem[]) => {
+      setIsImportModalOpen(false);
+      if (items.length === 0) return;
+      toast.success(
+        t('scrapper.importCollection.started').replace('{count}', String(items.length)),
+      );
+      void (async () => {
+        for (const item of items) {
+          const snapshot: Snapshot = {
+            id: crypto.randomUUID(),
+            projectId,
+            url: item.url,
+            title:
+              item.description?.trim().slice(0, 80) ||
+              (item.author ? `@${item.author}` : extractDomainFromUrl(item.url)),
+            source: 'instagram',
+            status: 'success',
+            notes: '',
+            tags: item.tags,
+            description: item.description,
+            author: item.author,
+            publishDate: isoFromYtDate(item.uploadDate),
+            preservedAt: Date.now(),
+            createdAt: Date.now(),
+          };
+          await addSnapshot(snapshot);
+          if (!isDesktop()) continue;
+          if (canDownloadMedia(snapshot.source)) {
+            await runSnapshotDownload(snapshot, editSnapshot, 'video');
+          }
+        }
+      })();
+    },
+    [projectId, addSnapshot, editSnapshot, t],
+  );
+
   // Delete: also remove the local files so the library doesn't leak.
   const handleDelete = useCallback(
     (id: string) => {
@@ -228,6 +282,16 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
           )}
         </div>
         <InstagramConnect />
+        {isDesktop() && (
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            title={t('scrapper.importCollection.buttonHint')}
+            className="flex flex-shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-elevated text-foreground hover:border-accent-gold transition-colors"
+          >
+            <InstagramIcon size={14} className="text-pink-500" />
+            {t('scrapper.importCollection.button')}
+          </button>
+        )}
         <div className="flex items-center gap-1 bg-elevated border border-border rounded-lg p-1">
           <button
             onClick={() => setViewMode('grid')}
@@ -335,6 +399,15 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
             setIsManualModalOpen(false);
           }}
           onCancel={() => setIsManualModalOpen(false)}
+        />
+      )}
+
+      {isImportModalOpen && (
+        <ImportCollectionModal
+          allTags={allTags}
+          aiConfig={aiConfig}
+          onImport={handleImportCollection}
+          onCancel={() => setIsImportModalOpen(false)}
         />
       )}
 
