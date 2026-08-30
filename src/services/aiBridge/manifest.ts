@@ -73,7 +73,7 @@ const CONTEXT_TOOLS: BridgeTool[] = [
   {
     name: 'wh_get_context',
     description:
-      'What the user is looking at right now: the open project, the open engine (tab), and whether writing is permitted. Call this first when the user says "this chapter", "my project" or "here" without naming anything.',
+      'What the user is looking at right now: the open project with the engines it has switched on, the open engine (tab), and whether writing is currently permitted. Call this first when the user says "this chapter", "my project" or "here" without naming anything.',
     writes: false,
     schema: { type: 'object', properties: {}, additionalProperties: false },
   },
@@ -289,7 +289,7 @@ const CODEX_TOOLS: BridgeTool[] = [
   {
     name: 'wh_create_codex_entry',
     description:
-      'Create a character sheet, location, item, faction or concept. `fields` is a free-form label→value map (e.g. {"Age":"34","Occupation":"Smuggler"}); the app seeds a template per type but any key is valid.',
+      'Create a character sheet, location, item, faction or concept. `fields` is a free-form label→value map (e.g. {"Age":"34","Occupation":"Smuggler"}); the app offers a suggested set per type in its own form, but this tool starts from whatever you pass and nothing else — send the fields you want the sheet to have.',
     writes: true,
     schema: {
       type: 'object',
@@ -343,7 +343,7 @@ const DIARY_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_diary',
     description:
-      'List diary entries newest first, with date, mood and tags. This is the writer\'s working journal about the project, not a character\'s in-world diary.',
+      'List the diary: pinned entries first, then newest first, each with its date, mood and tags. Because pinned entries lead the whole list, a small `limit` can return an old pinned entry instead of this week\'s — pass a larger one when you want recent ones. This is the writer\'s working journal about the project, not a character\'s in-world diary.',
     writes: false,
     schema: {
       type: 'object',
@@ -367,7 +367,7 @@ const DIARY_TOOLS: BridgeTool[] = [
         entryDate: s('Moment being recorded, as "YYYY-MM-DDTHH:mm". Defaults to now.'),
         mood: s('Optional mood tag.', { enum: ['great', 'good', 'neutral', 'low', 'bad'] }),
         tags: arr('Freeform tags.'),
-        pinned: b('Pin the entry to the top of its day.'),
+        pinned: b('Pin the entry to the top of the list, above every unpinned one.'),
       },
       required: ['content'],
       additionalProperties: false,

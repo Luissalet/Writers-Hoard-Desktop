@@ -18,6 +18,7 @@ import {
 } from '@/db/operations';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertEngineEnabled,
   BridgeError,
   htmlFromMarkdown,
   markdownFromHtml,
@@ -103,6 +104,7 @@ export async function whCreateCodexEntry(args: ToolArgs): Promise<unknown> {
 
 export async function whUpdateCodexEntry(args: ToolArgs): Promise<unknown> {
   const entry = await mustGetEntry(requireString(args, 'id'));
+  await assertEngineEnabled(entry.projectId, 'codex');
   const changes: Partial<CodexEntry> = {};
 
   const incomingFields = optStringMap(args, 'fields');

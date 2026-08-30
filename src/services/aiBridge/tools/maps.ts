@@ -9,6 +9,7 @@ import type { MapPin } from '@/types';
 import { mapPinOps, worldMapOps } from '@/engines/maps/operations';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertEngineEnabled,
   BridgeError,
   optEnum,
   optNumber,
@@ -57,6 +58,7 @@ export async function whAddMapPin(args: ToolArgs): Promise<unknown> {
   const mapId = requireString(args, 'mapId');
   const map = await worldMapOps.getOne(mapId);
   if (!map) throw new BridgeError('not-found', `No map with id "${mapId}".`);
+  await assertEngineEnabled(map.projectId, 'maps');
   const pin: MapPin = {
     id: generateId('pin'),
     projectId: map.projectId,
@@ -86,6 +88,7 @@ export async function whUpdateMapPin(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const pin = await mapPinOps.getOne(id);
   if (!pin) throw new BridgeError('not-found', `No map pin with id "${id}".`);
+  await assertEngineEnabled(pin.projectId, 'maps');
 
   const changes: Partial<MapPin> = {};
   const name = optString(args, 'name');

@@ -6,6 +6,7 @@ import type { DiaryEntry, DiaryMood } from '@/engines/diary/types';
 import { createEntry, getEntries, getEntry, updateEntry } from '@/engines/diary/operations';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertEngineEnabled,
   BridgeError,
   clampLimit,
   htmlFromMarkdown,
@@ -79,6 +80,7 @@ export async function whUpdateDiaryEntry(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const existing = await getEntry(id);
   if (!existing) throw new BridgeError('not-found', `No diary entry with id "${id}".`);
+  await assertEngineEnabled(existing.projectId, 'diary');
 
   const changes: Partial<DiaryEntry> = {};
   const markdown = optString(args, 'content');

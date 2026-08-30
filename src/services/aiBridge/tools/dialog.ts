@@ -22,6 +22,7 @@ import {
 } from '@/engines/dialog-scene/operations';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertEngineEnabled,
   BridgeError,
   optBoolean,
   optEnum,
@@ -49,7 +50,12 @@ async function mustGetScene(id: string): Promise<Scene> {
 export async function whListScenes(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
   const scenes = await getScenes(projectId);
-  const blocks = await db.dialogBlocks.where('projectId').equals(projectId).toArray();
+  // sceneCasts is indexed by sceneId only — it carries no projectId — so it is
+  // fetched by the ids we already have rather than scanned.
+  const [blocks, casts] = await Promise.all([
+    db.dialogBlocks.where('projectId').equals(projectId).toArray(),
+    db.sceneCasts.where('sceneId').anyOf(scenes.map((scene) => scene.id)).toArray(),
+  ]);
   return {
     projectId,
     scenes: scenes.map((scene) => {
@@ -63,7 +69,13 @@ export async function whListScenes(args: ToolArgs): Promise<unknown> {
         description: scene.description,
         tags: scene.tags,
         blockCount: own.length,
-        speakers: [...new Set(own.filter((b) => b.type === 'dialog').map((b) => b.characterName))],
+        // Two different things, and the difference is the point: `cast` is who
+        // the writer put in the scene, `speakers` is who actually says a line.
+        // A cast member with no lines yet is exactly what someone asks about.
+        cast: casts.filter((member) => member.sceneId === scene.id).map((member) => member.characterName),
+        speakers: [...new Set(
+          own.filter((b) => b.type === 'dialog' && b.characterName).map((b) => b.characterName),
+        )],
         order: scene.order,
       };
     }),
@@ -118,6 +130,7 @@ export async function whCreateScene(args: ToolArgs): Promise<unknown> {
 
 export async function whUpdateScene(args: ToolArgs): Promise<unknown> {
   const scene = await mustGetScene(requireString(args, 'id'));
+  await assertEngineEnabled(scene.projectId, 'dialog-scene');
   const changes: Partial<Scene> = {};
   (['title', 'description', 'setting'] as const).forEach((key) => {
     const value = optString(args, key);
@@ -184,6 +197,7 @@ async function resolveSpeaker(
 
 export async function whAddDialog(args: ToolArgs): Promise<unknown> {
   const scene = await mustGetScene(requireString(args, 'sceneId'));
+  await assertEngineEnabled(scene.projectId, 'dialog-scene');
   const type = optEnum(args, 'type', BLOCK_TYPES) ?? 'dialog';
   const content = requireString(args, 'content');
   const speaker = optString(args, 'character');
@@ -240,6 +254,7 @@ export async function whUpdateDialogBlock(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const block = await db.dialogBlocks.get(id);
   if (!block) throw new BridgeError('not-found', `No dialog block with id "${id}".`);
+  await assertEngineEnabled(block.projectId, 'dialog-scene');
 
   const changes: Partial<DialogBlock> = {};
   const content = optString(args, 'content');

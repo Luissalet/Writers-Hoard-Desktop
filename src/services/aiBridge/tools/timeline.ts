@@ -22,6 +22,7 @@ import {
 } from '@/engines/timeline/operations';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertEngineEnabled,
   BridgeError,
   optEnum,
   optNumber,
@@ -110,6 +111,7 @@ export async function whCreateEvent(args: ToolArgs): Promise<unknown> {
       `No timeline with id "${timelineId}". Call wh_list_timelines, or wh_create_timeline first.`,
     );
   }
+  await assertEngineEnabled(timeline.projectId, 'timeline');
   const siblings = await getTimelineEvents(timelineId);
   const now = Date.now();
   const event: TimelineEvent = {
@@ -145,6 +147,7 @@ export async function whUpdateEvent(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const existing = await db.timelineEvents.get(id);
   if (!existing) throw new BridgeError('not-found', `No timeline event with id "${id}".`);
+  await assertEngineEnabled(existing.projectId, 'timeline');
 
   const changes: Partial<TimelineEvent> = {};
   const assignString = (key: 'title' | 'description' | 'date' | 'realDate' | 'realDateEnd' | 'lane' | 'color' | 'linkedEntryId'): void => {
@@ -186,6 +189,7 @@ export async function whConnectEvents(args: ToolArgs): Promise<unknown> {
     db.timelineEvents.get(targetEventId),
   ]);
   if (!source) throw new BridgeError('not-found', `No event with id "${sourceEventId}".`);
+  await assertEngineEnabled(source.projectId, 'timeline');
   if (!target) throw new BridgeError('not-found', `No event with id "${targetEventId}".`);
   if (source.projectId !== target.projectId) {
     throw new BridgeError('bad-args', 'Both events must belong to the same project.');

@@ -13,16 +13,19 @@ import {
   createPayoff,
   createSeed,
   getAllPayoffsForProject,
+  getPayoffs,
   getSeed,
   getSeeds,
   updateSeed,
 } from '@/engines/seeds/operations';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertEngineEnabled,
   BridgeError,
   optBoolean,
   optEnum,
   optNumber,
+  optPercent,
   optString,
   optStringArray,
   requireString,
@@ -93,7 +96,7 @@ export async function whCreateSeed(args: ToolArgs): Promise<unknown> {
     description: optString(args, 'description') ?? '',
     kind: optEnum(args, 'kind', KINDS) ?? 'foreshadow',
     status: 'planted',
-    plantedAt: optNumber(args, 'plantedAt'),
+    plantedAt: optPercent(args, 'plantedAt'),
     linkedWritingId: optString(args, 'linkedWritingId'),
     linkedSceneId: optString(args, 'linkedSceneId'),
     locationLabel: optString(args, 'locationLabel'),
@@ -112,6 +115,7 @@ export async function whUpdateSeed(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const existing = await getSeed(id);
   if (!existing) throw new BridgeError('not-found', `No seed with id "${id}".`);
+  await assertEngineEnabled(existing.projectId, 'seeds');
 
   const changes: Partial<Seed> = {};
   (['title', 'description', 'locationLabel'] as const).forEach((key) => {
@@ -122,7 +126,7 @@ export async function whUpdateSeed(args: ToolArgs): Promise<unknown> {
   if (kind !== undefined) changes.kind = kind;
   const status = optEnum(args, 'status', ['planted', 'cut'] as const);
   if (status !== undefined) changes.status = status;
-  const plantedAt = optNumber(args, 'plantedAt');
+  const plantedAt = optPercent(args, 'plantedAt');
   if (plantedAt !== undefined) changes.plantedAt = plantedAt;
   const tags = optStringArray(args, 'tags');
   if (tags !== undefined) changes.tags = tags;
@@ -146,6 +150,7 @@ export async function whAddPayoff(args: ToolArgs): Promise<unknown> {
   const seedId = requireString(args, 'seedId');
   const seed = await getSeed(seedId);
   if (!seed) throw new BridgeError('not-found', `No seed with id "${seedId}".`);
+  await assertEngineEnabled(seed.projectId, 'seeds');
 
   const rawStrength = Math.round(optNumber(args, 'strength') ?? 3);
   const strength = Math.max(1, Math.min(5, rawStrength)) as Payoff['strength'];
@@ -157,7 +162,7 @@ export async function whAddPayoff(args: ToolArgs): Promise<unknown> {
     projectId: seed.projectId,
     title: requireString(args, 'title'),
     description: optString(args, 'description') ?? '',
-    paidAt: optNumber(args, 'paidAt'),
+    paidAt: optPercent(args, 'paidAt'),
     strength,
     linkedWritingId: optString(args, 'linkedWritingId'),
     linkedSceneId: optString(args, 'linkedSceneId'),
@@ -166,8 +171,12 @@ export async function whAddPayoff(args: ToolArgs): Promise<unknown> {
     updatedAt: now,
   };
   await createPayoff(payoff);
+  // Asked, not assumed: `computeSeedStatus` answers 'cut' before it ever looks
+  // at payoffs, so a payoff on a cut seed does NOT make it paid. Reporting
+  // 'paid' unconditionally would contradict what wh_list_seeds says next.
+  const seedStatusNow = computeSeedStatus(seed, await getPayoffs(seedId));
   return withAudit(
-    { id: payoff.id, seedId, created: true, seedStatusNow: 'paid' },
+    { id: payoff.id, seedId, created: true, seedStatusNow },
     {
       projectId: seed.projectId,
       entityId: payoff.id,

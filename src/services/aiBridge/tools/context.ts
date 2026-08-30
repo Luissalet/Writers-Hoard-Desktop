@@ -30,17 +30,36 @@ async function countsFor(projectId: string): Promise<Record<string, number>> {
   return { writings, codex, diary, events };
 }
 
+/**
+ * Whether the writes switch is on, asked of the process that owns it.
+ *
+ * The flag lives in the main process's config, not in Dexie, so the renderer
+ * has to go and get it. Reported here because the tool's description says it
+ * is — a model that finds out by having a write refused learns it too late.
+ */
+async function writesPermitted(): Promise<boolean | null> {
+  try {
+    const info = await window.electronAPI?.aiBridge?.getInfo();
+    return info ? info.writesEnabled : null;
+  } catch {
+    // Never let orientation fail over a status flag.
+    return null;
+  }
+}
+
 export async function whGetContext(): Promise<unknown> {
   const projectId = useAppStore.getState().currentProjectId;
+  const writesEnabled = await writesPermitted();
   if (!projectId) {
     return {
       openProject: null,
       openEngine: null,
+      writesEnabled,
       hint: 'No project is open. Call wh_list_projects and pass projectId explicitly on the tools that need it.',
     };
   }
   const project = await db.projects.get(projectId);
-  if (!project) return { openProject: null, openEngine: null };
+  if (!project) return { openProject: null, openEngine: null, writesEnabled };
   return {
     openProject: {
       id: project.id,
@@ -48,10 +67,13 @@ export async function whGetContext(): Promise<unknown> {
       description: project.description,
       mode: project.mode,
       status: project.status,
+      // Anything not in here has no tab and is skipped by the app's own
+      // search, so a write into it is refused. wh_enable_engine turns one on.
       enabledEngines: project.enabledEngines,
       counts: await countsFor(project.id),
     },
     openEngine: currentEngineId(),
+    writesEnabled,
   };
 }
 

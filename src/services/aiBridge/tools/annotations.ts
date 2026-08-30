@@ -17,7 +17,11 @@ import {
   getAnnotationsForEntity,
   getAnnotationsForProject,
 } from '@/engines/annotations/operations';
-import { captureContext, getAnchorAdapter } from '@/engines/_shared/anchoring';
+import {
+  captureContext,
+  getAnchorAdapter,
+  resolveTextRangeAnchor,
+} from '@/engines/_shared/anchoring';
 import { generateId } from '@/utils/idGenerator';
 import {
   BridgeError,
@@ -30,7 +34,7 @@ import {
   type ToolArgs,
 } from './shared';
 
-function serialize(annotation: Annotation): Record<string, unknown> {
+function serialize(annotation: Annotation, freshOrphan?: boolean): Record<string, unknown> {
   return {
     id: annotation.id,
     engineId: annotation.sourceEngineId,
@@ -38,7 +42,7 @@ function serialize(annotation: Annotation): Record<string, unknown> {
     note: annotation.noteBody,
     noteType: annotation.noteType,
     anchoredTo: annotation.anchor.selectedText,
-    isOrphaned: annotation.isOrphaned,
+    isOrphaned: freshOrphan ?? annotation.isOrphaned,
     createdAt: annotation.createdAt,
   };
 }
@@ -56,11 +60,57 @@ export async function whListAnnotations(args: ToolArgs): Promise<unknown> {
     ? await getAnnotationsForEntity(engineId, entityId)
     : await getAnnotationsForProject(resolveProjectId(args));
 
+  // `isOrphaned` is a STORED field that only the app refreshes, and only when
+  // someone opens the entity. A model that has just rewritten a chapter here
+  // would otherwise ask which of its notes it had broken and be told "none" —
+  // the one question this tool exists to answer, answered wrongly.
+  //
+  // So it is recomputed against the text as it stands. NOT written back: this
+  // is a `writes: false` tool, and a read-only client must not mutate rows on
+  // the way past. The app still persists the same verdict when the writer
+  // opens the entity; this just refuses to report a stale one.
+  //
+  // Scoped to one entity, because re-checking reads the whole body: doing it
+  // for a project-wide listing would load the manuscript to answer a listing.
+  const fresh = engineId && entityId ? await freshOrphanFlags(engineId, rows) : null;
+
   const filtered = rows
     .filter((row) => (engineId && !entityId ? row.sourceEngineId === engineId : true))
-    .filter((row) => (orphanedOnly ? row.isOrphaned : true));
+    .filter((row) => (orphanedOnly ? fresh?.get(row.id) ?? row.isOrphaned : true));
 
-  return { count: filtered.length, annotations: filtered.map(serialize) };
+  return {
+    count: filtered.length,
+    annotations: filtered.map((row) => serialize(row, fresh?.get(row.id))),
+    orphanStatus: fresh
+      ? 'checked against the text as it stands right now'
+      : 'as of the last time each entity was opened; pass engineId and entityId to have it rechecked',
+  };
+}
+
+/**
+ * Recompute `isOrphaned` for one entity's notes without touching the database.
+ *
+ * Same resolver the app uses on entity open (`reanchorEntityAnnotations`), and
+ * the same verdict — minus the writes, which do not belong in a read tool.
+ */
+async function freshOrphanFlags(
+  engineId: string,
+  rows: Annotation[],
+): Promise<Map<string, boolean> | null> {
+  const adapter = getAnchorAdapter(engineId);
+  if (!adapter?.supportsTextRange || !adapter.getEntityText) return null;
+  const ranged = rows.filter((row) => row.anchor.type === 'text_range');
+  if (!ranged.length) return new Map();
+
+  const body = await adapter.getEntityText(rows[0].sourceEntityId);
+  // A body that cannot be read means "unknown", not "the text is gone":
+  // flagging every note as orphaned because a fetch failed would be worse
+  // than admitting the flags are stale.
+  if (body === null || body === undefined) return null;
+
+  return new Map(
+    ranged.map((row) => [row.id, !resolveTextRangeAnchor(row.anchor, body).ok]),
+  );
 }
 
 export async function whAnnotate(args: ToolArgs): Promise<unknown> {
