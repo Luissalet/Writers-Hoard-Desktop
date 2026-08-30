@@ -40,6 +40,23 @@ interface DownloadToLibraryResult {
   error?: string;
 }
 
+/** One post surfaced by `instagram.listCollection` — metadata only, nothing downloaded. Mirrors electron/media/gallerydl.ts. */
+interface CollectionItem {
+  url: string;
+  shortcode: string;
+  description?: string;
+  uploader?: string;
+  uploadDate?: string;
+  type?: string;
+}
+
+/** Result of listing an Instagram saved collection. */
+interface ListCollectionResult {
+  ok: boolean;
+  items?: CollectionItem[];
+  error?: string;
+}
+
 /** Metadata scraped from a captured web page (og:/article:/twitter: tags). */
 interface PageMeta {
   title?: string;
@@ -141,6 +158,64 @@ interface OllamaChatResult {
   error?: string;
 }
 
+/** One managed media file, read back through IPC as base64. */
+interface ReadLibraryFileResult {
+  ok: boolean;
+  base64?: string;
+  mimeType?: string;
+  error?: string;
+}
+
+/** One tool call relayed from the local AI-bridge port. */
+interface AiBridgeRequest {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+interface AiBridgeReply {
+  id: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  code?: string;
+}
+
+interface AiBridgeInfo {
+  enabled: boolean;
+  writesEnabled: boolean;
+  running: boolean;
+  port: number;
+  url: string;
+  token: string;
+  /** Absolute path of the MCP stdio adapter, for the client's config. */
+  adapterPath: string;
+  auditPath: string;
+  toolCount: number;
+}
+
+interface AiBridgeAuditEntry {
+  /** Line number in the log — what undo addresses an entry by. */
+  index: number;
+  at: number;
+  tool: string;
+  client?: string;
+  projectId?: string;
+  entityId?: string;
+  summary?: string;
+  kind?: 'create' | 'update' | 'delete' | 'undo';
+  undone?: boolean;
+  ok: boolean;
+  error?: string;
+}
+
+interface AiBridgeUndoResult {
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  code?: string;
+}
+
 const api = {
   /** Always true when running inside the desktop shell. */
   isDesktop: true as const,
@@ -163,6 +238,9 @@ const api = {
     /** Delete a downloaded media file by its relative library path. */
     deleteLibraryFile: (relPath: string): Promise<void> =>
       ipcRenderer.invoke('media:deleteLibraryFile', relPath),
+    /** Read one managed file as base64 — custom schemes cannot be fetched. */
+    readLibraryFile: (relPath: string): Promise<ReadLibraryFileResult> =>
+      ipcRenderer.invoke('media:readLibraryFile', relPath),
     listLibraryFiles: (projectId?: string): Promise<{
       root: string;
       files: Array<{ relPath: string; sizeBytes: number; modifiedAt: number }>;
@@ -196,6 +274,11 @@ const api = {
     login: (): Promise<{ connected: boolean }> => ipcRenderer.invoke('ig:login'),
     status: (): Promise<{ connected: boolean }> => ipcRenderer.invoke('ig:status'),
     logout: (): Promise<void> => ipcRenderer.invoke('ig:logout'),
+    /** List every post in a saved collection (metadata only, nothing downloaded). */
+    listCollection: (url: string): Promise<ListCollectionResult> =>
+      ipcRenderer.invoke('ig:listCollection', url),
+    /** Cancel an in-flight collection listing. */
+    cancelListCollection: (): Promise<void> => ipcRenderer.invoke('ig:cancelListCollection'),
   },
   exporter: {
     /** Render a styled HTML script to PDF and prompt the user to save it. */
@@ -283,6 +366,28 @@ const api = {
       ipcRenderer.on('ollama:status', listener);
       return () => ipcRenderer.removeListener('ollama:status', listener);
     },
+  },
+
+  // ---- AI bridge ---------------------------------------------------------
+  // The only main→renderer request/response lane in the app: main relays a
+  // tool call from the local HTTP port, this window answers it from Dexie.
+  aiBridge: {
+    onRequest: (callback: (request: AiBridgeRequest) => void): (() => void) => {
+      const listener = (_e: unknown, request: AiBridgeRequest) => callback(request);
+      ipcRenderer.on('aibridge:request', listener);
+      return () => ipcRenderer.removeListener('aibridge:request', listener);
+    },
+    reply: (reply: AiBridgeReply): Promise<void> => ipcRenderer.invoke('aibridge:reply', reply),
+    getInfo: (): Promise<AiBridgeInfo> => ipcRenderer.invoke('aibridge:getInfo'),
+    setEnabled: (enabled: boolean): Promise<AiBridgeInfo> =>
+      ipcRenderer.invoke('aibridge:setEnabled', enabled),
+    setWritesEnabled: (enabled: boolean): Promise<AiBridgeInfo> =>
+      ipcRenderer.invoke('aibridge:setWritesEnabled', enabled),
+    regenerateToken: (): Promise<AiBridgeInfo> => ipcRenderer.invoke('aibridge:regenerateToken'),
+    readAudit: (limit?: number): Promise<AiBridgeAuditEntry[]> =>
+      ipcRenderer.invoke('aibridge:readAudit', limit),
+    undo: (index: number): Promise<AiBridgeUndoResult> =>
+      ipcRenderer.invoke('aibridge:undo', index),
   },
 };
 

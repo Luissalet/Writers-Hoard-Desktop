@@ -5,6 +5,7 @@ import { useAiStore } from '@/stores/aiStore';
 import { useLocaleStore, type Locale } from '@/stores/localeStore';
 import { AVAILABLE_MODELS, LOCAL_MODELS } from '@/config/ai';
 import { ConfirmDialog } from '@/engines/_shared';
+import AiBridgePane from './AiBridgePane';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { AiConfig } from '@/types';
 
@@ -235,6 +236,11 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
             </div>
           )}
         </section>
+
+        <div className="border-t border-border" />
+
+        {/* ── AI bridge (local port for external models) ── */}
+        <AiBridgePane />
       </div>
     </Modal>
   );

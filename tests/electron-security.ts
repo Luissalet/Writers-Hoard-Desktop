@@ -9,6 +9,7 @@ import {
   resolveExistingContainedNativePath,
   resolveWritableContainedNativePath,
 } from '../electron/security';
+import { buildToolResult } from '../electron/aibridge/mcpContent';
 import {
   isCurrentOllamaRuntimeReceipt,
   isOllamaRuntimeArtifactConfigured,
@@ -74,7 +75,29 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
   assert(!isIpcChannelAllowedForRole('media:listLibraryFiles', 'quick-note'), 'quick-note gained main IPC');
   assert(isIpcChannelAllowedForRole('quick-note:submit', 'quick-note'), 'quick-note submit policy missing');
   assert(!isIpcChannelAllowedForRole('unknown:channel', 'main'), 'unknown IPC channel did not fail closed');
+  // The AI bridge answers from the main window only: the quick-note renderer
+  // owns no project data and must never be able to serve or observe a tool call.
+  assert(isIpcChannelAllowedForRole('aibridge:reply', 'main'), 'AI bridge reply policy missing');
+  assert(!isIpcChannelAllowedForRole('aibridge:reply', 'quick-note'), 'quick-note can answer AI bridge calls');
+  assert(!isIpcChannelAllowedForRole('aibridge:setEnabled', 'quick-note'), 'quick-note can toggle the AI bridge');
+  assert(isIpcChannelAllowedForRole('ig:listCollection', 'main'), 'ig:listCollection has no trusted renderer');
   passed.push('exact renderer navigation + fail-closed IPC roles');
+
+  // MCP content blocks: a picture must leave as an image block, and its base64
+  // must never also land in the text block, where it would be pure noise.
+  const withPicture = buildToolResult({
+    id: 'snap_1',
+    _media: [{ base64: 'AAAA', mimeType: 'image/jpeg' }],
+  });
+  const blocks = withPicture.content as { type: string; data?: string; text?: string }[];
+  assert(blocks.length === 2, 'expected one image block and one text block');
+  assert(blocks[0].type === 'image' && blocks[0].data === 'AAAA', 'image block missing or malformed');
+  assert(blocks[1].type === 'text' && !blocks[1].text?.includes('AAAA'), 'base64 leaked into the text block');
+  assert(blocks[1].text?.includes('snap_1'), 'text block lost the result body');
+  const plain = buildToolResult({ ok: true }, true);
+  assert((plain.content as unknown[]).length === 1, 'a result with no media gained a block');
+  assert(plain.isError === true, 'isError was dropped');
+  passed.push('MCP content blocks carry images without polluting the text');
 
   assert(isOllamaRuntimeArtifactConfigured(), 'Ollama runtime manifest is inconsistent');
   assert(matchesOllamaRuntimeDigest(OLLAMA_RUNTIME_ARTIFACT.sha256), 'official Ollama digest rejected');
