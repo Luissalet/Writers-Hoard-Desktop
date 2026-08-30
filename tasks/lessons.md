@@ -824,3 +824,58 @@ la prueba **deriva** de ahí la lista a comprobar (`writes && engineId &&
 schema.properties.projectId`) en vez de escribirla a mano. Se llama a cada una
 con **sólo `projectId`**: si falla por argumento que falta en lugar de por
 motor apagado, la guardia está en la línea equivocada y el informe la nombra.
+
+## #41 — La descripción de una herramienta es código: audítala contra su handler
+
+**Qué pasó (2026-08-30).** Una revisión sistemática de las 88 descripciones del
+puente contra sus handlers encontró **diez** afirmaciones que el código no
+cumplía. `wh_get_context` prometía decir «si está permitido escribir» y no
+devolvía ese campo. `wh_add_payoff` afirmaba «pasa la semilla a pagada» con un
+`'paid'` fijo, contradiciendo a `computeSeedStatus` para las semillas cortadas.
+`wh_list_scenes` decía «reparto» y devolvía sólo quien tiene frases.
+`wh_list_annotations` prometía decir si un ancla se había roto, leyendo una
+marca que **sólo** refresca la app al abrir la entidad —justo lo que un modelo
+que acaba de reescribir el capítulo necesita saber, respondido mal—. Nada de
+esto lo ve un typecheck, un lint ni un test de contrato: todo compilaba.
+
+**Regla.** Para un consumidor externo, la descripción **es** la API. Cada frase
+que afirma un comportamiento hay que leerla al lado del handler y preguntarse
+«¿esto es cierto hoy?». Y al tocar un handler, releer su descripción: la
+mayoría de estas empezaron siendo verdad y dejaron de serlo. Lo mismo con los
+`enum` del esquema — declarar un conjunto cerrado donde el modelo de datos
+acepta cualquier cadena hace que un cliente estricto rechace valores válidos.
+
+**Corolario metodológico.** Esta auditoría la hicieron subagentes en paralelo
+sobre las fuentes subidas al contenedor, con una consigna estrecha («encuentra
+promesas que el handler no cumpla, verifica ambos lados antes de reportar»).
+Encontraron cosas que yo había mirado y dado por buenas — incluida una guardia
+que **yo mismo había escrito una hora antes** y documentado como completa. Vale
+la pena pagar el coste: el autor de un cambio es el peor auditor de ese cambio.
+
+## #42 — «Cierro la puerta principal» sólo vale si sabes dónde están las puertas
+
+**Qué pasó (2026-08-30).** Al guardar las escrituras contra `enabledEngines`
+guardé las dieciséis que reciben `projectId` y **razoné** que bastaba: las
+escrituras de hijo reciben el id de un padre que sólo puede existir si el motor
+estuvo encendido. Lo escribí en la documentación como decisión de diseño. Una
+hora después, una auditoría encontró los dos agujeros del razonamiento:
+
+1. Un motor se puede apagar **después** de que existan sus filas — todos los
+   `wh_update_*` seguían escribiendo en él.
+2. **Galería y mapas no tienen herramienta de creación en el puente.** Sus
+   filas las crea la app, así que su superficie de escritura **entera** llegaba
+   al proyecto por el padre. No había puerta principal que cerrar: eran todo
+   ventanas.
+
+**Regla.** Cuando una defensa se justifique con «los demás casos no pueden
+darse», enumerar los casos en vez de argumentarlos. Aquí bastaba con listar las
+51 herramientas de escritura y ver cuáles pasaban por la guardia: 16. El
+razonamiento sonaba bien y era falso para 33 de ellas.
+
+**Y la forma de la prueba importa.** La comprobación derivada del manifiesto
+cubría `writes && engineId && schema.properties.projectId` — la misma
+condición que la guardia—, así que pasaba en verde mientras dejaba fuera
+exactamente lo que no estaba guardado. Una prueba derivada del criterio
+equivocado confirma el error en vez de encontrarlo. La que vale es la de
+**cobertura**: toda herramienta de escritura con motor tiene que estar en una
+de las dos listas de sondas, o falla nombrándose.
