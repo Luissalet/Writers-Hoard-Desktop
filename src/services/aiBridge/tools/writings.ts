@@ -5,6 +5,7 @@
 // Every path that can lose text takes a 'pre-ai' snapshot first, so anything
 // an external model does here is undoable from the app's history panel.
 
+import { db } from '@/db';
 import type { Writing, WritingStatus } from '@/types';
 import {
   createWriting,
@@ -16,6 +17,7 @@ import { listSnapshots, restoreSnapshot, takeSnapshot } from '@/engines/writings
 import { countWords } from '@/utils/text';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertEngineEnabled,
   BridgeError,
   htmlFromMarkdown,
   markdownFromHtml,
@@ -103,6 +105,7 @@ export async function whCreateWriting(args: ToolArgs): Promise<unknown> {
 
 export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
   const existing = await mustGetWriting(requireString(args, 'id'));
+  await assertEngineEnabled(existing.projectId, 'writings');
   const markdown = optString(args, 'content');
   const changes: Partial<Writing> = {};
 
@@ -140,6 +143,7 @@ export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
 
 export async function whAppendWriting(args: ToolArgs): Promise<unknown> {
   const existing = await mustGetWriting(requireString(args, 'id'));
+  await assertEngineEnabled(existing.projectId, 'writings');
   const addition = htmlFromMarkdown(requireString(args, 'content'));
   await takeSnapshot(existing, 'pre-ai');
   const content = `${existing.content ?? ''}${addition}`;
@@ -173,12 +177,26 @@ export async function whListWritingVersions(args: ToolArgs): Promise<unknown> {
 
 export async function whRestoreWritingVersion(args: ToolArgs): Promise<unknown> {
   const snapshotId = requireString(args, 'snapshotId');
+  // The snapshot is read BEFORE restoring, not after: `restoreSnapshot` does
+  // the whole job in one call and answers with prose only, so by the time it
+  // returns there is nothing left to check the engine against — and the write
+  // would already have happened.
+  const snapshot = await db.writingSnapshots.get(snapshotId);
+  if (!snapshot) throw new BridgeError('not-found', `No snapshot with id "${snapshotId}".`);
+  await assertEngineEnabled(snapshot.projectId, 'writings');
+
   const restored = await restoreSnapshot(snapshotId);
   if (!restored) {
     throw new BridgeError('not-found', `No snapshot with id "${snapshotId}", or its writing is gone.`);
   }
   return withAudit(
-    { restored: true, title: restored.title, wordCount: restored.wordCount },
-    { entityId: snapshotId, summary: `restored writing "${restored.title}" from a saved version` },
+    { restored: true, writingId: snapshot.writingId, title: restored.title, wordCount: restored.wordCount },
+    {
+      projectId: snapshot.projectId,
+      // The thing that changed is the writing, not the snapshot it came from:
+      // an undo has to land on the piece, or it lands on nothing.
+      entityId: snapshot.writingId,
+      summary: `restored writing "${restored.title}" from a saved version`,
+    },
   );
 }

@@ -174,6 +174,18 @@ export async function assertEngineEnabled(
   }
 }
 
+/**
+ * A percentage through the story, kept inside the 0-100 the schema promises.
+ *
+ * Every other declared range on this surface is enforced — intensity throws,
+ * strength and certainty clamp — so leaving these to be stored verbatim was
+ * the odd one out, and a beat at -40 draws off the end of the beat sheet.
+ */
+export function optPercent(args: ToolArgs, key: string): number | undefined {
+  const value = optNumber(args, key);
+  return value === undefined ? undefined : Math.min(100, Math.max(0, value));
+}
+
 /** The engine tab currently on screen, read from the hash route. */
 export function currentEngineId(): string | null {
   const match = /#\/project\/[^/]+\/([^/?#]+)/.exec(window.location.hash || '');

@@ -11,6 +11,7 @@ import { GLOBAL_NOTES_SCOPE, noteTitle } from '@/engines/notes/types';
 import { createNote, getNote, getNotes, updateNote } from '@/engines/notes/operations';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertEngineEnabled,
   BridgeError,
   clampLimit,
   optBoolean,
@@ -87,6 +88,9 @@ export async function whUpdateNote(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const existing = await getNote(id);
   if (!existing) throw new BridgeError('not-found', `No note with id "${id}".`);
+  if (existing.projectId !== GLOBAL_NOTES_SCOPE) {
+    await assertEngineEnabled(existing.projectId, 'notes');
+  }
 
   const changes: Partial<Note> = {};
   const text = optString(args, 'text');

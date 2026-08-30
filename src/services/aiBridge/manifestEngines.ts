@@ -572,7 +572,12 @@ export const BOARD_TOOLS: BridgeTool[] = [
       properties: {
         sourceId: s('Card the thread starts from.'),
         targetId: s('Card it runs to.'),
-        kind: s('Meaning of the connection. Default "related".', { enum: EDGE_KINDS }),
+        // Not an `enum`: the board deliberately accepts a writer's own kind
+        // and colours anything it does not recognise grey. Declaring a closed
+        // set would have a strict client reject values the app supports.
+        kind: s(
+          `Meaning of the connection. Default "related". The board knows ${EDGE_KINDS.join(', ')} and draws them in their own colours; any other word is accepted and drawn grey.`,
+        ),
         label: s('Text on the thread.'),
         notes: s('Longer reasoning. Plain text.'),
         certainty: n('0 to 1. Default 1.'),
@@ -875,7 +880,7 @@ export const ANNOTATION_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_annotations',
     description:
-      'List the margin notes in a project: what they say, what they are attached to, and whether the text they were anchored to has since moved away (orphaned). Pass engineId and entityId to read the notes on one chapter or one codex entry.',
+      'List the margin notes in a project: what they say, what they are attached to, and whether the text they were anchored to has since moved away (orphaned). Pass engineId AND entityId to read the notes on one chapter or one codex entry — that form also re-checks every anchor against the text as it stands right now, which is what you want after editing it. Without them the orphan flags are only as fresh as the last time each entity was opened, and `orphanStatus` in the result says which of the two you got.',
     writes: false,
     schema: {
       type: 'object',

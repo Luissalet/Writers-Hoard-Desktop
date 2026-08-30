@@ -770,3 +770,107 @@ comprobaba el proyecto; con la guardia puesta, reventó al instante con
 `No project with id "undo-test-project"`. El test estaba apoyado en el mismo
 descuido que la guardia arregla — y lo correcto era arreglar el test, no
 ablandar la guardia.
+
+---
+
+## 17. Fase 7 — auditoría de promesas
+
+Séptima pasada (2026-08-30). **88 herramientas, 28 comprobaciones.** Ninguna
+funcionalidad nueva: esta pasada consistió en revisar **cada descripción contra
+su handler** y arreglar todo lo que el código no cumplía. Un modelo externo no
+tiene más documentación que esas frases; una frase falsa es una funcionalidad
+rota que ningún typecheck ve.
+
+### La guardia de motores estaba a un tercio
+
+La pasada anterior guardó las dieciséis escrituras que reciben `projectId`, y
+documenté el razonamiento —«guardia en la puerta, no en cada habitación»—
+convencido de que bastaba. No bastaba, por dos agujeros:
+
+- Un motor se puede apagar **después** de que existan sus filas. Todos los
+  `wh_update_*` seguían escribiendo en él.
+- **Galería y mapas no tienen herramienta de creación aquí en absoluto.** Sus
+  imágenes y mapas los crea la app. Así que `wh_tag_image`, `wh_add_map_pin` y
+  `wh_update_map_pin` —el motor entero— llegaban al proyecto por el padre, sin
+  pasar por ninguna puerta. Justo donde yo había escrito que ya no pasaba.
+
+Ahora `assertEngineEnabled(projectId, engineId)` va en las **cuarenta y nueve**
+escrituras que declaran motor. `wh_restore_writing_version` hubo que
+reestructurarlo: `restoreSnapshot` hacía todo el trabajo y devolvía sólo prosa,
+así que para cuando respondía ya no quedaba nada contra lo que comprobar —y la
+escritura ya había ocurrido—. Ahora lee el snapshot **antes**, lo que además
+arregló su registro de auditoría, que apuntaba al snapshot en vez de al escrito
+(un deshacer habría caído en el vacío).
+
+### Y la prueba, esta vez, es completa
+
+Las herramientas por id no se pueden sondear con un id inventado: cargan el
+padre primero, así que fallan con `not-found` y no demuestran nada. Hacen falta
+padres de verdad. El autotest construye ahora **uno por motor**, escribe
+directamente en Dexie el mapa y la imagen que ninguna herramienta sabe crear,
+apaga **todos** los motores del proyecto y lanza las treinta y tres llamadas.
+
+Encima hay la propiedad que sostiene el resto:
+
+```js
+const covered = new Set([...guardadasPorProjectId, ...PARENT_PROBE_TOOLS]);
+const uncovered = BRIDGE_TOOLS.filter(t => t.writes && t.engineId && !covered.has(t.name));
+```
+
+Una herramienta de escritura nueva que declare motor y a la que nadie añada
+sonda hace fallar la comprobación con su nombre. Sin eso, las otras dos sólo
+demostrarían algo sobre las herramientas que alguien se acordó de incluir.
+
+### Las otras nueve promesas que no se cumplían
+
+| Herramienta | Decía | Hacía | Ahora |
+|---|---|---|---|
+| `wh_get_context` | «y si está permitido escribir» | no devolvía ese campo | lo pide al proceso principal, que es quien tiene el interruptor |
+| `wh_add_payoff` | «pasa la semilla a pagada» | devolvía `'paid'` fijo | lo calcula con `computeSeedStatus`: una semilla **cortada** sigue cortada |
+| `wh_list_scenes` | «con su reparto» | devolvía sólo quien tiene frases | devuelve `cast` (el reparto) **y** `speakers` (quien habla) |
+| `wh_list_annotations` | «si el ancla se ha ido (huérfana)» | leía una marca que sólo refresca la app al abrir la entidad | la recalcula contra el texto actual, y `orphanStatus` dice cuál de las dos te dieron |
+| `wh_connect_board_cards` | `enum` cerrado de 14 tipos | aceptaba cualquier cadena | ya no declara `enum`: el tablero admite tipos propios y los pinta gris |
+| `wh_add_board_card` | «da una posición» | tiraba la `x` si faltaba la `y` | honra cada coordenada por separado, como su herramienta hermana |
+| `wh_list_diary` | «más recientes primero» | fijadas primero, luego por fecha | lo dice, y avisa de que un `limit` pequeño puede traer una entrada fijada antigua |
+| beats, semillas, pagos | «0-100» | guardaba `-40` o `250` tal cual | `optPercent` recorta, como ya hacían intensidad, fuerza y certeza |
+| `wh_create_codex_entry` | «la app siembra una plantilla» | creaba la ficha vacía | dice que eso es el formulario de la app, no esta herramienta |
+
+### Las anotaciones huérfanas se recalculan sin escribir
+
+Tentación evidente: llamar a `reanchorEntityAnnotations`, que es exactamente lo
+que hace la app al abrir una entidad. Pero eso **escribe** —marca huérfanas,
+mueve offsets—, y `wh_list_annotations` es `writes: false`. Un cliente en modo
+sólo lectura que mutase filas de paso rompería la única garantía que ese modo
+da.
+
+Así que se usa el mismo resolvedor y se descarta el resultado: se calcula el
+veredicto y se devuelve, sin tocar la fila. La app sigue persistiéndolo cuando
+el autor abra la entidad; esto sólo se niega a informar de uno viejo. Y se hace
+sólo con `engineId` + `entityId`, porque recalcular lee el cuerpo entero: para
+un listado de proyecto habría que cargar el manuscrito para responder a un
+listado. El campo `orphanStatus` dice cuál de los dos casos ha ocurrido, en vez
+de dejar que el modelo lo suponga.
+
+### Lo que la auditoría confirmó que sí era verdad
+
+Merece decirse, porque el valor de una auditoría depende de que también mire lo
+que funciona: la lista de motores de `wh_search` coincide exactamente con el
+índice, incluida la advertencia sobre los motores con imágenes; los 28 tipos de
+`wh_delete` son exactamente las claves de `DELETABLE`; «si no hay nadie, no se
+borra nada» es real; la semántica de fusión de `fields` está implementada tal
+cual se describe; los recortes se ordenan como dicen y `restoreSnapshot` toma
+su instantánea previa; y **ninguna** herramienta declara un argumento que su
+handler no lea, ni lee uno que no declare, ni tiene mal el flag `writes`.
+
+### El fallo de esta pasada
+
+Tres, y los cazó la propia sonda antes de salir de la máquina:
+`wh_import_snapshots` llamado sin `projectId`, la tabla de mapas es `worldMaps`
+y no `maps`, y el import devuelve las filas en `snapshots`, no en `imported`.
+La sonda sirvió de test de sí misma.
+
+El cuarto es el que importa: esos tres fallos ocurrían **dentro** del
+constructor de sondas, así que su proyecto anfitrión se quedaba sin borrar —
+tres «Bridge self-test …» huérfanos en la instalación de verdad, justo lo que
+esta suite promete no hacer nunca. Ahora el borrado va en un `finally` con el
+id capturado en el momento de crearlo, no al final del camino feliz.

@@ -21,6 +21,7 @@ import {
 } from '@/engines/relationships/operations';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertEngineEnabled,
   BridgeError,
   optBoolean,
   optEnum,
@@ -121,6 +122,7 @@ export async function whUpdateRelationship(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const existing = await getRelationship(id);
   if (!existing) throw new BridgeError('not-found', `No relationship with id "${id}".`);
+  await assertEngineEnabled(existing.projectId, 'relationships');
 
   const changes: Partial<Relationship> = {};
   const kind = optEnum(args, 'kind', KINDS);

@@ -23,6 +23,7 @@ import { runSnapshotDownload, isoFromYtDate } from '@/services/scrapperMedia';
 import { listInstagramCollection } from '@/engines/scrapper/services/collectionImport';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertEngineEnabled,
   BridgeError,
   clampLimit,
   dataUrlToBlob,
@@ -137,6 +138,7 @@ export async function whViewSnapshotImage(args: ToolArgs): Promise<unknown> {
 
 export async function whTagSnapshot(args: ToolArgs): Promise<unknown> {
   const snapshot = await mustGetSnapshot(requireString(args, 'id'));
+  await assertEngineEnabled(snapshot.projectId, 'scrapper');
   const changes: Partial<Snapshot> = {};
 
   const replaceTags = optStringArray(args, 'tags');
@@ -271,6 +273,7 @@ export async function whImportSnapshots(args: ToolArgs): Promise<unknown> {
 
 export async function whDownloadSnapshotMedia(args: ToolArgs): Promise<unknown> {
   const snapshot = await mustGetSnapshot(requireString(args, 'id'));
+  await assertEngineEnabled(snapshot.projectId, 'scrapper');
   const format = optEnum(args, 'format', ['video', 'audio'] as const) ?? 'video';
 
   // Reuses the exact lifecycle the app's own download button drives, so the

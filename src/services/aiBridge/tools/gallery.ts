@@ -10,6 +10,7 @@
 import type { ImageCollection, InspirationImage } from '@/types';
 import { imageCollectionOps, inspirationImageOps } from '@/engines/gallery/operations';
 import {
+  assertEngineEnabled,
   BridgeError,
   clampLimit,
   dataUrlToBlob,
@@ -91,6 +92,7 @@ export async function whViewImage(args: ToolArgs): Promise<unknown> {
 
 export async function whTagImage(args: ToolArgs): Promise<unknown> {
   const image = await mustGetImage(requireString(args, 'id'));
+  await assertEngineEnabled(image.projectId, 'gallery');
   const changes: Partial<InspirationImage> = {};
 
   const replaceTags = optStringArray(args, 'tags');
