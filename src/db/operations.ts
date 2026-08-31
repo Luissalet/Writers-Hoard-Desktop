@@ -85,8 +85,10 @@ export async function updateProject(id: string, changes: Partial<Project>): Prom
  * backlinks forever.
  */
 export async function deleteProject(id: string): Promise<void> {
+  // Dexie keeps the primary key out of `idxByName`, so a table keyed BY the
+  // project (aiProjectSettings) needs the second test.
   const projectScoped = db.tables.filter(
-    (t) => t.name !== 'projects' && 'projectId' in t.schema.idxByName,
+    (t) => t.name !== 'projects' && ('projectId' in t.schema.idxByName || t.schema.primKey.name === 'projectId'),
   );
 
   await db.transaction('rw', db.tables, async () => {

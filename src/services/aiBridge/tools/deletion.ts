@@ -36,6 +36,8 @@ import { mapPinOps } from '@/engines/maps/operations';
 import { deletePanel, deleteStoryboard } from '@/engines/storyboard/operations';
 import { deleteSegment, deleteVideoPlan } from '@/engines/video-planner/operations';
 import { deleteAnnotation } from '@/engines/annotations/operations';
+import { deleteWorldCascade, worldWaypointOps } from '@/engines/worldgen/operations';
+import { atlasDivergenceOps, deleteAtlasPlace } from '@/engines/real-atlas/operations';
 import { t } from '@/i18n/useTranslation';
 import { requestBridgeConfirmation } from '../confirmation';
 import { BridgeError, optString, requireString, withAudit, type ToolArgs } from './shared';
@@ -86,6 +88,13 @@ export const DELETABLE: Record<string, DeletableType> = {
   'video-plan': { table: 'videoPlans', cascade: true, remove: deleteVideoPlan },
   'video-segment': { table: 'videoSegments', remove: deleteSegment },
   annotation: { table: 'annotations', titleField: 'noteBody', cascade: true, remove: deleteAnnotation },
+  'generated-world': { table: 'generatedWorlds', cascade: true, remove: deleteWorldCascade },
+  'world-waypoint': { table: 'worldWaypoints', titleField: 'name', remove: (id) => worldWaypointOps.delete(id) },
+  // "Cascade" here means what deleteAtlasPlace does to OTHER rows — divergences
+  // are unanchored and child places lifted, none deleted — and the cascade text
+  // says exactly that, so the dialog does not threaten more than will happen.
+  'atlas-place': { table: 'atlasPlaces', titleField: 'name', cascade: true, remove: deleteAtlasPlace },
+  divergence: { table: 'atlasDivergences', remove: (id) => atlasDivergenceOps.delete(id) },
 };
 
 export const DELETABLE_TYPES = Object.keys(DELETABLE);

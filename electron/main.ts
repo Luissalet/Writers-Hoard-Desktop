@@ -79,9 +79,15 @@ import {
   cancelOllamaPull,
   deleteOllamaModel,
   ollamaChat,
+  ollamaBaseUrl,
   shutdownOllama,
   type OllamaChatRequest,
 } from './ollama';
+import { registerAiIpc } from './ai/ipc';
+import { setBuiltinOllamaResolver } from './ai/connectionStore';
+import { shutdownGateway } from './ai/inferenceGateway';
+import { cancelAllCopilotRuns } from './ai/agentLoop';
+import { shutdownSdRuntime } from './ai/sdRuntime';
 
 interface SaveResult {
   ok: boolean;
@@ -1224,6 +1230,13 @@ function registerIpc(): void {
     return ollamaChat(req);
   });
 
+  // ---- AI runtime (connections by IP/URL, gateway, copilot) ---------------
+  // Every model server the app talks to — the managed Ollama included — is
+  // reached from here through electron/ai/*. The renderer holds ids, never
+  // URLs or keys. See docs/AI-BRIDGE.md §17.
+  setBuiltinOllamaResolver(() => ollamaBaseUrl());
+  registerAiIpc({ assertIpcSender, window: () => mainWindow });
+
   // ---- AI bridge -----------------------------------------------------------
   // The renderer answers relayed tool calls here; the rest is the settings UI.
   ipcMain.handle('aibridge:reply', (event, payload: unknown): void => {
@@ -1470,6 +1483,9 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   stopMediaServer();
   stopAiBridge();
+  cancelAllCopilotRuns();
+  shutdownGateway();
+  shutdownSdRuntime();
   rejectAllPendingCalls('Writers Hoard is shutting down.');
   abortAllDownloads();
   shutdownOllama();

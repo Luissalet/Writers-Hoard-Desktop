@@ -43,6 +43,7 @@ import SavedRegionsPanel from './SavedRegionsPanel';
 import SpatialEntityInspector from './SpatialEntityInspector';
 import { alreadyAtTown, townFrame } from '../region/townPlan';
 import { PaintSession } from '../core/paintSession';
+import { registerLiveWorld } from '../core/liveWorlds';
 import { deserializeEdits, editKey, serializeEdits, sitesPolicyFrom, targetFromKey } from '../core/edits';
 import { planRoute } from '../core/travel';
 import { nameBridges, paleoMap } from '../core/paleo';
@@ -827,6 +828,9 @@ export default function WorldView({
    * from what was just written and undo the reader's undo.
    */
   const savedEdits = useRef<string | undefined>(world.edits);
+  // External edits (the AI bridge, the copilot) arrive through here while this
+  // view is open, so the row has ONE writer; wired to applyEditGroup below.
+  const applyExternalRef = useRef<(edits: WorldEdit[]) => void>(() => {});
   useEffect(() => {
     if (!data) { session.current = null; sessionWorld.current = null; return; }
     // The cached world object carries whatever the last session painted on it,
@@ -865,7 +869,13 @@ export default function WorldView({
     session.current = new PaintSession(data, initial);
     sessionWorld.current = data;
     setPaintRev(initial.length);
-  }, [data, restorePristine]);
+    // Announce the open world: an external writer hands us its edits (applied
+    // like a stroke, saved by our own debounce) instead of racing us for the row.
+    return registerLiveWorld(world.id, {
+      apply: (edits) => applyExternalRef.current(edits),
+      snapshot: () => session.current?.serialize() ?? savedEdits.current ?? '',
+    });
+  }, [data, restorePristine, world.id]);
 
   // Written after the world has settled rather than on every stroke: a terrain
   // stroke is followed by more terrain strokes, and a write per stroke is a
@@ -941,6 +951,24 @@ export default function WorldView({
       }
     }, 0);
   }, [afterEdit]);
+  applyExternalRef.current = applyEditGroup;
+
+  // A change to the STORED list that we did not write — the bridge undoing one
+  // of its own edits, a backup restore — as opposed to the echo of our own save
+  // (which equals `savedEdits`). Reload the session from it, the way undo does.
+  useEffect(() => {
+    const incoming = world.edits;
+    const s = session.current;
+    if (!s || incoming === undefined || incoming === savedEdits.current) return;
+    try {
+      s.load(incoming);
+    } catch (err) {
+      console.warn('[worldgen] no se pudieron recargar las ediciones externas', err);
+      return;
+    }
+    savedEdits.current = incoming;
+    afterEdit();
+  }, [world.edits, afterEdit]);
 
   /**
    * Rename one generated thing, from wherever the reader is looking at it.

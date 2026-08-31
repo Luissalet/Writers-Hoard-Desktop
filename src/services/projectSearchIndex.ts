@@ -49,6 +49,7 @@ async function buildIndex(): Promise<SearchDocument[]> {
     writings, codexEntries, diaryEntries, dialogBlocks, scenes, snapshots,
     notes, outlineBeats, seeds, payoffs, characterArcs, arcBeats,
     relationships, biographyFacts, timelineEvents, mapPins, annotations,
+    atlasPlaces, atlasDivergences,
   ] = await Promise.all([
     db.writings.toArray(),
     db.codexEntries.toArray(),
@@ -67,6 +68,8 @@ async function buildIndex(): Promise<SearchDocument[]> {
     db.timelineEvents.toArray(),
     db.mapPins.toArray(),
     db.annotations.toArray(),
+    db.atlasPlaces.toArray(),
+    db.atlasDivergences.toArray(),
   ]);
   const sceneById = new Map(scenes.map(scene => [scene.id, scene]));
   const documents: SearchDocument[] = [];
@@ -243,6 +246,30 @@ async function buildIndex(): Promise<SearchDocument[]> {
       title: pin.name,
       subtitle: pin.icon,
       body: [pin.name, pin.description].filter(Boolean).join('\n'),
+    });
+  }
+  for (const place of atlasPlaces) {
+    add(documents, {
+      id: place.id,
+      engineId: 'real-atlas',
+      projectId: place.projectId,
+      title: place.name,
+      subtitle: place.kind,
+      body: [place.name, ...place.aliases, place.address, place.era, place.description, place.realNotes, ...place.tags]
+        .filter(Boolean)
+        .join('\n'),
+    });
+  }
+  for (const divergence of atlasDivergences) {
+    add(documents, {
+      id: divergence.id,
+      engineId: 'real-atlas',
+      projectId: divergence.projectId,
+      title: divergence.title,
+      subtitle: divergence.category,
+      body: [divergence.title, divergence.reality, divergence.fiction, divergence.reason, ...divergence.tags]
+        .filter(Boolean)
+        .join('\n'),
     });
   }
   for (const annotation of annotations) {

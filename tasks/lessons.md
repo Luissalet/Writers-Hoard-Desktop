@@ -1,5 +1,16 @@
 # Lessons Learned
 
+## 23. El copiloto interno y el MCP externo deben compartir el mismo núcleo de herramientas
+**Date:** 2026-08-30
+**Context:** Al planificar la IA nativa de Writer's Hoard, el usuario aclaró que
+la nueva experiencia interna no sustituye ni compite con el acceso desde
+Odysseus u otros agentes. El MCP existente debe seguir siendo una interfaz
+externa de primera clase y reutilizarse dentro de la aplicación.
+**Rule:** Separar el catálogo y la ejecución de herramientas de sus transportes.
+El copiloto interno, MCP stdio y cualquier API local deben invocar el mismo
+manifiesto, validadores, handlers, confirmaciones, auditoría y undo. No crear
+herramientas paralelas ni reglas de permisos específicas de una sola interfaz.
+
 ## 22. Desktop launchers must consume Vite's resolved URL
 **Date:** 2026-07-27
 **Context:** The engine `lazy` import ordering bug was fixed and the current Vite
@@ -879,3 +890,300 @@ exactamente lo que no estaba guardado. Una prueba derivada del criterio
 equivocado confirma el error en vez de encontrarlo. La que vale es la de
 **cobertura**: toda herramienta de escritura con motor tiene que estar en una
 de las dos listas de sondas, o falla nombrándose.
+
+## #43 — Un `load` no re-lista; los efectos dependen de ids, no de arrays
+
+**Qué pasó (2026-08-31).** `loadModels` terminaba llamando a `loadConnections()`
+para «refrescar el estado» de la fila. Eso ponía un array nuevo en la store; el
+selector de rutas tenía un `useEffect` dependiente de ese array que llamaba a
+`loadModels` por cada conexión; que volvía a re-listar. 192 `ai:listConnections`
+en segundos, `ERR_INSUFFICIENT_RESOURCES`, y al recargar el renderer una
+pantalla negra que parecía otra cosa.
+
+**Regla.** Un `loadX` actualiza **su** fila en su sitio (`map` sobre la store) y
+nunca vuelve a listar la colección entera. Y un efecto que dispara cargas se
+declara sobre una clave derivada de ids (`connections.map(c => c.id).join('|')`),
+nunca sobre la identidad de un array que la store reemplaza en cada `set`.
+Cuando aparezca «Forbidden IPC sender» repetido cientos de veces, es un bucle
+de render, no un problema de seguridad: mirar el efecto antes que el `security.ts`.
+
+## #44 — Dexie no cuenta la clave primaria como índice
+
+**Qué pasó (2026-08-31).** `deleteProject` barre «toda tabla con índice
+`projectId`» mirando `schema.idxByName`. La tabla nueva `aiProjectSettings`
+tiene `projectId` como **clave primaria**, y `_parseStoresSpec` hace
+`indexes.shift()` antes de construir `idxByName`: la clave primaria no está.
+Borrar un proyecto dejaba su fila de ajustes de IA viva, y la documentación de
+la tabla decía lo contrario porque yo había leído la regla, no el código.
+
+**Regla.** «Toda tabla con `projectId`» tiene que comprobar también
+`schema.primKey.name === 'projectId'`. Y cualquier tabla nueva con una clave
+que no sea `id` se prueba en `testCascades` con el borrado de proyecto, no se
+confía en el barrido genérico. Una regla genérica sólo protege las tablas que
+tienen la forma que la regla imaginó.
+
+## #45 — Escribir en la app ajena con la ventana correcta delante
+
+**Qué pasó (2026-08-31).** Un `Type` de Windows-MCP fue a parar al compositor de
+la app de Claude en vez de al copiloto: el foco había cambiado y el mensaje
+«se envió solo» al usuario, que tuvo que aclararlo al despertar.
+
+**Regla.** Antes de teclear en una ventana que no es la del propio agente:
+`App switch` a la ventana destino, clic en el campo, teclear con
+`press_enter: false`, captura para comprobar dónde ha caído el texto, y sólo
+entonces pulsar el botón de enviar. Nunca `press_enter: true` a ciegas.
+
+## #46 — Una estimación no compite en el mismo eje que una medida
+
+**Qué pasó (2026-08-31).** El ranking del «mejor modelo local» restaba
+tokens/s al puntuar. Mientras todo era estimado, `qwen3-coder:30b` (35 tok/s)
+ganaba a `qwen3-coder-next` (33). En cuanto el copiloto midió el 30b de verdad
+—28 tok/s, por debajo de la estimación— el otro, aún estimado, pasó a ser «el
+mejor» por 0,15 puntos. La medida honesta se castigaba frente a la conjetura
+que nadie había comprobado.
+
+**Regla.** Cuando un ranking mezcla números medidos y estimados, la estimación
+entra con descuento (aquí al 70 %) o en un escalón inferior; nunca al mismo
+valor nominal. Y la prueba del ranking debe incluir el caso mixto: un modelo
+medido más lento que su estimación contra otro sólo estimado.
+
+## #47 — «Nativo» antes que «bonito»: el tamaño por defecto lo pone el modelo
+
+**Qué pasó (2026-08-31).** El Estudio y `wh_generate_image` arrancaban a
+1024×1024 porque es el tamaño canónico de la API de OpenAI. Un UNet de SD 1.5
+entrenado a 512 px produce a 1024 figuras dobles y fondos de sopa; el primer
+usuario del runtime local habría concluido que «los modelos locales son
+malos».
+
+**Regla.** Cuando el modelo declara una resolución de entrenamiento, el
+formato por defecto es esa, y la UI lo dice («Nativo del modelo · 512×512»).
+Los presets grandes siguen disponibles, pero no son el valor inicial.
+
+## #48 — Verificar por el binario de electron del proyecto, no por `npx electron`
+
+**Qué pasó (2026-08-31).** A media sesión, los tests críticos empezaron a
+colgarse en «Downloading Electron binary…». Causa: `npx electron` resuelve un
+electron de la caché de npx/global, distinto del `node_modules/electron` del
+proyecto; una de mis barridas de `taskkill` mató un `install.js` a medias y
+dejó esa caché sin binario, así que cada `npx electron` intentaba —y fallaba—
+re-descargar 150 MB. El binario del proyecto (`node_modules/electron/dist/
+electron.exe`, 235 MB) estaba intacto todo el tiempo.
+
+**Regla.** Para correr los tests críticos, invocar el electron del proyecto
+directamente: `ELECTRON_OVERRIDE_DIST_PATH=<...>/node_modules/electron/dist
+node node_modules/electron/cli.js scripts/run-critical-tests.cjs`. No depender
+de `npx electron`. Y el electron es una app GUI en Windows: su stdout NO llega
+a un fichero redirigido con `Start-Process -RedirectStandardOutput`; hay que
+leerlo por el pipe de Desktop Commander (que sí lo captura). Los tests tardan
+~90 s y Desktop Commander corta cada llamada a 60 s: lanzar y luego
+`read_process_output` en llamadas sucesivas SIN `force_terminate`.
+
+## #49 — Un sondeo lento no es un trabajo fallido
+
+**Qué pasó (2026-08-31).** El adaptador de imagen sondeaba el estado del
+trabajo con `connectTimeoutMs: 10_000`. Cuando `sd-server` estaba saturado
+—Vulkan cayendo a CPU porque Ollama ocupaba los 12 GB de la tarjeta— no
+contestaba al sondeo en 10 s, el request lanzaba `timeout`, y el `catch` de la
+generación lo trataba como fallo: una imagen que se estaba generando bien se
+tiraba a la basura.
+
+**Regla.** Al sondear un trabajo asíncrono, distinguir «el trabajo falló» de
+«no pude preguntar por el trabajo». Un error transitorio de sondeo (timeout,
+conexión reseteada) se reintenta hasta el plazo global; sólo un estado
+`failed` explícito, un abort o el plazo terminan el trabajo. Un `404/410`
+(el servidor olvidó el trabajo) sí es terminal.
+
+## #50 — En una GPU compartida, medir antes de culpar al código
+
+**Qué pasó (2026-08-31).** Tras reiniciar la app para cargar cambios de main,
+las generaciones de imagen empezaron a colgarse. Parecía una regresión de mis
+cambios. `nvidia-smi` lo aclaró en un comando: la tarjeta al 95 %, con un
+modelo de Ollama residente ocupando 8,9 GB. `sd-server` no tenía VRAM y caía a
+CPU. Con la tarjeta libre (`ollama` descargado), la misma generación: 7 s.
+
+**Regla.** En una máquina con GPU compartida entre LLM e imagen, antes de
+sospechar del código medir el estado real: `nvidia-smi --query-gpu=memory.used`
+y `GET /api/ps` de Ollama. Y no verificar generación de imagen justo después
+de ejercitar el copiloto con un modelo grande: Ollama mantiene la VRAM 30 min.
+
+## #51 — Un efecto que corre por token no puede cancelar la fila del turno vivo
+
+**Qué pasó (2026-08-31, auditoría 2).** El dock del copiloto refresca su lista
+de mensajes con un efecto dependiente de `dataVersion`, y el runner hace
+`bumpData()` tras CADA evento del stream —incluido cada `delta`—. Ese efecto
+llamaba a `settleStaleMessages(threadId)`, que marcaba como `cancelled`
+CUALQUIER fila en estado `streaming`. Resultado: al primer token, la fila del
+asistente en curso se cancelaba a sí misma; la respuesta mostraba «cancelado»
+durante toda la generación y sólo aparecía entera al final. Invisible en turnos
+con herramientas (las tarjetas tapaban el texto), evidente en respuestas de
+sólo texto. Los tests de filas no lo cazaban: era un bug de timing entre el
+efecto de React y la función de saneo.
+
+**Regla.** Una función de «saneo de huérfanos» (marcar como cancelado lo que
+quedó a medias por un cierre/recarga) sólo debe tocar filas SIN un run vivo. El
+run en curso es dueño de su fila y la cierra él mismo en `finish()`. Guardar la
+invariante en la propia función (`if (runsByThread[threadId]) return;`), no en
+quien la llama, porque se la llama desde muchos sitios (incluido un refresco por
+token). Regla general: si algo corre una vez por token, revísalo como código en
+caliente y pregúntate qué escribe en disco/estado en cada iteración.
+
+## #52 — Reclamar el turno de forma síncrona ANTES del primer await
+
+**Qué pasó (2026-08-31, auditorías 2 y 3).** El mismo patrón, tres veces:
+`sendCopilotTurn`, `downloadSdModel` e `installSdRuntime` comprobaban su guarda
+(«ya hay un run», «ya hay una descarga») y sólo DESPUÉS de varios `await`
+registraban el estado que la guarda mira. Entre la comprobación y el registro
+hay una ventana; un doble clic (o doble Enter, o un botón de reintento sin
+deshabilitar) mete dos ejecuciones concurrentes: dos mensajes de usuario, dos
+descargas escribiendo los mismos ficheros (corrupción de pesos que
+`refreshModels` no detecta porque sólo compara tamaño), buffers de stream
+pisados.
+
+**Regla.** La guarda y el registro deben ser atómicos. Reclamar el hueco de
+forma síncrona antes de cualquier `await`: un `Set<threadId>` de módulo, o
+mover la asignación del estado/AbortController por delante del primer `await`
+(envolviendo lo que sigue en try/finally para liberar en todos los caminos,
+incluido el de error). El botón se deshabilita cuando el push de estado vuelve
+—un ida y vuelta—, así que la UI NO cierra la ventana; la corrección va en el
+proceso que hace el trabajo, no en el clic.
+
+## #53 — Decodificar UTF-8 una sola vez, al final del cuerpo
+
+**Qué pasó (2026-08-31, auditoría 3).** El puente HTTP acumulaba el cuerpo con
+`raw += chunk.toString('utf8')` por cada trozo del socket, y el lector de la
+respuesta MCP con `raw += chunk`. Un carácter multibyte (á, é, í, ñ, emoji)
+partido en la frontera de dos trozos se decodifica por mitades: cada mitad se
+vuelve U+FFFD. En cuerpos de prosa en castellano por encima de ~64 KB eso es
+corrupción silenciosa del manuscrito (el JSON sigue parseando; U+FFFD es válido
+en una cadena JSON, así que no salta ningún error).
+
+**Regla.** Nunca decodificar UTF-8 trozo a trozo. Acumular `Buffer`s y decodificar
+una vez (`Buffer.concat(chunks).toString('utf8')`), o poner `req.setEncoding('utf8')`
+/ `res.setEncoding('utf8')` y dejar que el `StringDecoder` interno guarde la
+secuencia parcial entre trozos. El límite de tamaño se mantiene sumando
+`chunk.length` sobre los buffers.
+
+## #54 — Un validador IPC fail-closed reconstruye el objeto: los campos nuevos se caen solos
+
+**Qué pasó (2026-08-31, img2img).** Para pasar `initImage`/`strength` del Estudio
+al servidor, añadí los campos a `AiImageRequest`, a `buildSdJobPayload` y a la
+UI. Habría fallado en silencio: el handler `ai:generateImage` no reenvía el
+objeto tal cual —lo sanea con `asImageRequest`, que RECONSTRUYE el request campo
+a campo (whitelist), así que cualquier campo no listado se descarta antes de
+llegar al gateway. El typecheck no lo caza (el objeto sigue siendo un
+`AiImageRequest` válido); la función simplemente no lo copia.
+
+**Regla.** Cuando un dato nuevo cruza IPC, el tipo NO basta: hay que añadirlo al
+validador que reconstruye el payload en main (aquí `asImageRequest`), con sus
+cotas (data URL de imagen ≤ 32 MB, `strength` recortado a [0,1]). Buscar el
+patrón `as<Thing>Request(value: unknown)` y comprobar que el campo está en el
+objeto que devuelve, no sólo en la interfaz.
+
+## #55 — Para el contrato de un binario externo, léelo del binario
+
+**Qué pasó (2026-08-31, img2img).** El formato JSON del endpoint `img_gen` de
+sd-server (nombres de campo para la imagen de init y la fuerza) no está en el
+repo: el servidor es un binario descargado. En vez de adivinar, extraje las
+cadenas ASCII del `.exe` y busqué las claves: aparecieron `init_image` (un data
+URL, no base64 pelado), `strength` (recortado a [0,1], defecto .75),
+`denoising_strength`, y el propio `/sdcpp/v1/img_gen`. El binario llevaba dentro
+su UI web, cuyo JS construye el request —fuente de la verdad exacta—.
+
+**Regla.** Antes de cablear contra un binario de terceros del que no tienes el
+código, saca sus strings (`[regex]::Matches($bytes_ascii,'[ -~]{4,}')`) y busca
+las claves/rutas: confirma nombres, tipos (data URL vs base64) y rangos de valor
+en lugar de asumir el formato «típico». Diez minutos de lectura evitan un
+img2img que no hace nada sin dar error.
+
+## #56 — Audita los adaptores en paralelo: la corrección de uno delata la del hermano
+
+**Qué pasó (2026-08-31, rondas 6-7).** Auditar `openAiCompatible.ts` y luego
+`ollama.ts` reveló los mismos huecos en ambos, porque comparten forma: un error
+de servidor en mitad del stream emitido SIN `redact()` (fuga del bearer si un
+proxy remoto refleja la cabecera), y `content`/`reasoning` emitidos sin
+comprobar que son string (un servidor que manda contenido estructurado se
+convierte en "[object Object]" en el mensaje del asistente). El adaptador que ya
+tenía la guarda fue el patrón para el que no la tenía. Además, `openAiCompatible`
+tenía dos fallos propios de la ruta de imagen remota: la URL firmada del
+resultado (con query) la rechazaba `normaliseBaseUrl` (reservado para URLs base),
+y la descarga no tenía timeout (podía colgar la cola de imágenes serializada).
+
+**Regla.** Cuando hay varios adaptadores/handlers de la misma familia, audítalos
+en tanda y aplica cada corrección a TODOS: `redact(msg, ctx.secret)` en todo
+mensaje de error que lleve texto del servidor; `typeof x === 'string'` antes de
+emitir contenido del modelo; un timeout combinado (`combineSignals([signal,
+AbortSignal.timeout(...)])`) en toda descarga sin cota de tiempo; y para validar
+una URL de recurso (no base) parsea con `new URL` + `classifyHost` en vez de
+reutilizar el normalizador de URL base, que refuse las query.
+
+## #57 — Un dato que no es fila necesita su propio modelo de escritura (y un solo escritor)
+
+**Qué pasó (2026-08-31, Worldgen MCP).** Los lugares de un mundo no son filas:
+se derivan del relieve y las ediciones son un blob JSON que la vista lee UNA vez
+y reescribe entero con debounce. Un `wh_create_settlement` que escribiera una
+fila habría creado algo invisible para el mapa, y un `update` del blob mientras
+la vista está abierta habría perdido la carrera contra su siguiente guardado (la
+vista lo pisa y nunca lo ve). La solución fue nombrar al dueño: la vista abierta
+se registra (`core/liveWorlds.ts`) y el escritor externo le ENTREGA las
+ediciones (mismo camino que una pincelada: `applyEditGroup`); sin vista, se
+añade a la fila. La lectura sin vista reproduce el blob sobre una réplica
+privada de la instantánea, nunca sobre el objeto que la vista pinta.
+
+**Regla.** Antes de exponer un motor al puente, pregunta: ¿sus entidades son
+filas con id, o se derivan de algo? Si se derivan, no inventes filas paralelas:
+direcciona por la identidad que el motor YA usa (aquí `settlement:x,y`) y
+escribe por el mismo camino que la UI. Y si la UI mantiene estado en memoria
+que luego vuelca entero, hay UN escritor: o le entregas el cambio, o no hay
+nadie en casa y escribes tú. Nunca los dos.
+
+## #58 — Las vistas no se refrescaban tras una escritura de la IA (los hooks sólo refetch tras las suyas)
+
+**Qué pasó (2026-08-31).** Al verificar en vivo un undo del puente sobre el
+mundo abierto, la fila cambió y la pantalla no. `makeEntityHook` (y Graph/
+ReadOnly) leen una vez por scope y refetch sólo tras SUS `addItem/editItem/
+removeItem`; el puente y el copiloto escriben por otro camino. Llevaba así
+desde la Fase 0: el copiloto creaba una entrada del códice y la pestaña abierta
+no la mostraba hasta remontar. El motor de notas lo había resuelto sólo para sí
+(`wh:notes-changed`).
+
+**Regla.** Cuando añadas un escritor nuevo (bridge, importación, undo, otro
+proceso) sobre tablas que la UI cachea en hooks, emite un aviso genérico
+(`notifyDataChanged` en `engines/_shared/dataChanged.ts`, ya cableado en
+`runBridgeTool` para toda escritura y undo) y comprueba EN PANTALLA que la vista
+abierta cambia — no basta con leer la fila. Un test de la fila no ve este fallo;
+sólo lo ve una captura después del tool call.
+
+## #59 — La captura por pantalla en Windows-MCP: pide un display, no el escritorio virtual
+
+**Qué pasó (2026-08-31).** El primer `Snapshot` devolvió el escritorio virtual
+entero (6004×2160, seis monitores) reducido a 1920 px; el primer clic calculado
+desde esa imagen cayó en otro monitor (el origen virtual es negativo). Con
+`display=[0]` la captura es 1:1 en coordenadas de pantalla y el backend `dxcam`
+(el `pillow` de `Screenshot` devolvió negro para ese display).
+
+**Regla.** En un equipo multimonitor, antes de hacer clic pide la captura de UN
+display (`Snapshot display=[0]`, coordenadas 1:1) y verifica que la ventana
+objetivo esté en él; nunca escales coordenadas desde la captura del escritorio
+virtual. Y comprueba `IDLE_SECONDS` (GetLastInputInfo) antes de reiniciar la
+app del usuario: si lleva media hora sin tocar el teclado, no le rompes nada.
+
+## #60 — Las puertas completas caben en el contenedor: úsalo para iterar, y deja la máquina del usuario para confirmar
+
+**Qué pasó (2026-08-31, tarde).** Hasta hoy cada cambio viajaba a Windows para
+cada typecheck y cada suite (minutos por vuelta, y un shell que se moría al
+encadenar). Con `npm ci --ignore-scripts`, `node node_modules/electron/install.js`
+(y `echo -n electron > node_modules/electron/path.txt` porque el instalador
+deja `path.txt` vacío), `ELECTRON_OVERRIDE_DIST_PATH` y `xvfb-run -a`, la suite
+crítica entera corre aquí en ~2 min; y los harnesses de navegador corren en
+Chromium headless (Playwright global) si el user-agent lleva `Electron/` (si no,
+`isDesktop()` es falso y `App.tsx` elige `BrowserRouter`, y el arranque falla
+por una razón que no es tuya). Dos fallos del autotest resultaron ser del
+harness (los adaptadores de anclaje se registran al importar `@/engines`).
+
+**Regla.** Antes de mandar nada a la máquina del usuario, corre AQUÍ tsc×2,
+lint, conformance, la suite Electron bajo xvfb y el autotest del puente con
+IndexedDB real. Windows es para la confirmación final (hash byte a byte,
+verify:quick, críticos) y para lo que sólo existe allí: la GPU, el app en
+marcha, la vista abierta. Y cuando un harness falla, comprueba primero que el
+harness reproduce el entorno real (UA, módulos que se registran al importar)
+antes de tocar el código.

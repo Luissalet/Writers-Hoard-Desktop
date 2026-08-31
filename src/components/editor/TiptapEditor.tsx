@@ -16,6 +16,7 @@ import {
   Undo2,
   Redo2,
   MessageSquarePlus,
+  ImagePlus,
 } from 'lucide-react';
 import type { AnnotationAnchor } from '@/engines/annotations/types';
 
@@ -30,6 +31,12 @@ interface TiptapEditorProps {
    * hands the anchor to the host so it can stage a margin-note composer.
    */
   onAnnotate?: (anchor: AnnotationAnchor) => void;
+  /**
+   * Optional. When provided, the editor renders a "Generar imagen" button above
+   * a non-empty selection. Clicking it hands the selected text plus surrounding
+   * context to the host, which turns it into an image via the Image Studio.
+   */
+  onGenerateImage?: (selection: { selectedText: string; contextBefore: string; contextAfter: string }) => void;
 }
 
 interface FloatingMenuState {
@@ -40,6 +47,8 @@ interface FloatingMenuState {
 
 const HIDDEN_MENU: FloatingMenuState = { visible: false, top: 0, left: 0 };
 const CONTEXT_WINDOW = 40;
+// Wider than the annotation window: the image model wants scene context.
+const IMAGE_CONTEXT_WINDOW = 500;
 
 // Module-scope: creating this inside the component made React remount every
 // toolbar button on each keystroke (react-hooks/static-components).
@@ -62,7 +71,7 @@ function ToolButton({ active, onClick, title, children }: {
   );
 }
 
-export default function TiptapEditor({ content, onChange, placeholder, onAnnotate }: TiptapEditorProps) {
+export default function TiptapEditor({ content, onChange, placeholder, onAnnotate, onGenerateImage }: TiptapEditorProps) {
   const { t } = useTranslation();
   const resolvedPlaceholder = placeholder ?? t('editor.placeholder');
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -98,7 +107,7 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
   // Track selection → position the floating "Annotate" button over the
   // active range. Hidden when no editor, no callback, or selection collapses.
   useEffect(() => {
-    if (!editor || !onAnnotate) return;
+    if (!editor || (!onAnnotate && !onGenerateImage)) return;
 
     const update = () => {
       const { from, to, empty } = editor.state.selection;
@@ -120,18 +129,22 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
       }
     };
 
-    editor.on('selectionUpdate', update);
-    editor.on('blur', () => {
+    const onBlur = () => {
       // Defer so a click on the floating button is registered before we hide.
       window.setTimeout(() => {
         const sel = editor.state.selection;
         if (sel.empty) setMenu(HIDDEN_MENU);
       }, 120);
-    });
+    };
+    editor.on('selectionUpdate', update);
+    editor.on('blur', onBlur);
     return () => {
       editor.off('selectionUpdate', update);
+      // Without this the blur handler accumulated on every re-run of the effect
+      // (the host passes inline callbacks, so it re-runs on each keystroke).
+      editor.off('blur', onBlur);
     };
-  }, [editor, onAnnotate]);
+  }, [editor, onAnnotate, onGenerateImage]);
 
   const handleAnnotateClick = () => {
     if (!editor || !onAnnotate) return;
@@ -160,6 +173,22 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
     setMenu(HIDDEN_MENU);
   };
 
+  const handleGenerateImageClick = () => {
+    if (!editor || !onGenerateImage) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) return;
+    const doc = editor.state.doc;
+    const docSize = doc.content.size;
+    // Cap the excerpt: an image is one scene, and a whole chapter would overflow
+    // the prompt-writing model for no gain.
+    const selectedText = doc.textBetween(from, to, '\n', '\n').slice(0, 2000);
+    if (!selectedText.trim()) return;
+    const contextBefore = doc.textBetween(Math.max(0, from - IMAGE_CONTEXT_WINDOW), from, '\n', '\n');
+    const contextAfter = doc.textBetween(to, Math.min(docSize, to + IMAGE_CONTEXT_WINDOW), '\n', '\n');
+    onGenerateImage({ selectedText, contextBefore, contextAfter });
+    setMenu(HIDDEN_MENU);
+  };
+
   if (!editor) return null;
 
   // Inline URL form (replaces native prompt(), which blocks the JS thread
@@ -184,21 +213,40 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
 
   return (
     <div ref={wrapperRef} className="tiptap-editor relative border border-border rounded-lg overflow-hidden bg-elevated">
-      {/* Floating selection action — "Annotate" — only when the host wired onAnnotate. */}
-      {onAnnotate && menu.visible && (
-        <button
-          type="button"
-          onMouseDown={(e) => {
-            // MouseDown (not click) so the editor blur handler can't race us.
-            e.preventDefault();
-            handleAnnotateClick();
-          }}
-          className="absolute z-20 -translate-x-1/2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface border border-accent-gold/40 text-accent-gold text-xs font-medium shadow-lg hover:bg-accent-gold hover:text-deep transition"
+      {/* Floating selection actions over a non-empty selection. */}
+      {menu.visible && (onAnnotate || onGenerateImage) && (
+        <div
+          className="absolute z-20 -translate-x-1/2 flex items-center gap-0.5 p-0.5 rounded-lg bg-surface border border-accent-gold/40 shadow-lg"
           style={{ top: menu.top, left: menu.left }}
         >
-          <MessageSquarePlus size={13} />
-          {t('annotations.panel.addNote')}
-        </button>
+          {onAnnotate && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                // MouseDown (not click) so the editor blur handler can't race us.
+                e.preventDefault();
+                handleAnnotateClick();
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-accent-gold text-xs font-medium hover:bg-accent-gold hover:text-deep transition"
+            >
+              <MessageSquarePlus size={13} />
+              {t('annotations.panel.addNote')}
+            </button>
+          )}
+          {onGenerateImage && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                handleGenerateImageClick();
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-accent-gold text-xs font-medium hover:bg-accent-gold hover:text-deep transition"
+            >
+              <ImagePlus size={13} />
+              {t('writings.generateImage')}
+            </button>
+          )}
+        </div>
       )}
       {/* Toolbar */}
       <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-border bg-surface/50 flex-wrap">

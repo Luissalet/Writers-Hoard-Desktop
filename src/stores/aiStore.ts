@@ -6,6 +6,45 @@ import * as ops from '@/db/operations';
 import { testConnection } from '@/services/aiService';
 import { toast } from '@/components/common/toast';
 import { t } from '@/i18n/useTranslation';
+import { aiApi } from '@/services/aiRuntime/client';
+import { BUILTIN_OLLAMA_ID } from '@/services/aiRuntime/constants';
+import { useAiRuntimeStore } from '@/stores/aiRuntimeStore';
+
+/**
+ * Fold the pre-settings-page configuration into the connection registry,
+ * once: the proxy URL becomes a connection and the chosen provider becomes
+ * the default chat route. Legacy keys are left in place (two versions of
+ * observation before they go), and the migration is idempotent — main
+ * remembers it ran.
+ */
+async function migrateLegacyAiSettings(config: AiConfig): Promise<void> {
+  const api = aiApi();
+  if (!api) return;
+  try {
+    if (await api.legacyMigrated()) return;
+    const defaults = await api.getDefaults();
+    if (!defaults.chat) {
+      if (config.provider === 'local') {
+        await api.setDefault('chat', { connectionId: BUILTIN_OLLAMA_ID, modelId: config.localModel });
+      } else if (config.baseUrl) {
+        const saved = await api.saveConnection({
+          name: 'CLIProxyAPI',
+          kind: 'openai-compatible',
+          baseUrl: config.baseUrl,
+          modelTypes: ['chat'],
+          pinnedModels: config.model ? [config.model] : [],
+        });
+        const connectionId = saved.ok ? saved.connection.id : null;
+        if (connectionId && config.model) {
+          await api.setDefault('chat', { connectionId, modelId: config.model });
+        }
+      }
+    }
+    await api.legacyMigrated(true);
+  } catch (err) {
+    console.error('[ai] legacy settings migration failed', err);
+  }
+}
 
 /** Same shape as worldgen's GenerationState — the app's progress vocabulary. */
 interface LocalProgress {
@@ -81,15 +120,16 @@ export const useAiStore = create<AiState>((set, get) => ({
       const provider = await ops.getSetting(AI_SETTINGS_KEYS.PROVIDER);
       const localModel = await ops.getSetting(AI_SETTINGS_KEYS.LOCAL_MODEL);
 
-      set({
-        config: {
-          baseUrl: baseUrl || DEFAULT_AI_CONFIG.baseUrl,
-          model: model || DEFAULT_AI_CONFIG.model,
-          enabled: enabled !== undefined ? enabled === 'true' : DEFAULT_AI_CONFIG.enabled,
-          provider: provider === 'local' ? 'local' : DEFAULT_AI_CONFIG.provider,
-          localModel: localModel || DEFAULT_AI_CONFIG.localModel,
-        },
-      });
+      const config: AiConfig = {
+        baseUrl: baseUrl || DEFAULT_AI_CONFIG.baseUrl,
+        model: model || DEFAULT_AI_CONFIG.model,
+        enabled: enabled !== undefined ? enabled === 'true' : DEFAULT_AI_CONFIG.enabled,
+        provider: provider === 'local' ? 'local' : DEFAULT_AI_CONFIG.provider,
+        localModel: localModel || DEFAULT_AI_CONFIG.localModel,
+      };
+      set({ config });
+      await migrateLegacyAiSettings(config);
+      await useAiRuntimeStore.getState().loadDefaults();
     } catch {
       // Use defaults if settings can't be loaded
     }

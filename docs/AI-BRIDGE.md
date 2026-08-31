@@ -306,8 +306,8 @@ usa `readLibraryBlob()` de `tools/shared.ts`, no `fetch`.
 ## 12. Fase 3 — todos los motores, y grupos de herramientas
 
 Tercera pasada (2026-08-30). El catálogo pasa de 37 a **82 herramientas**:
-están conectados los 21 motores del proyecto. (Worldgen no: tiene su propio
-proyecto.)
+están conectados los 21 motores del proyecto. (Worldgen se conectó después,
+en §23: sus lugares no son filas y necesitaban otro modelo de escritura.)
 
 ### Grupos, porque 82 herramientas ahogan a un modelo pequeño
 
@@ -753,8 +753,8 @@ comprobación sola, sin que nadie se acuerde de actualizar una lista.
 también el **proceso principal**, que no puede arrastrar React. Así que la
 copia se compara con el registro vivo en `tests/ai-bridge.ts`, donde ambos
 existen: si aparece un motor nuevo y nadie toca la lista, el test lo dice por
-su nombre. `worldgen` está exento —está registrado pero no tiene herramientas
-aquí, así que encenderlo desde un modelo no prometería nada.
+su nombre. (`worldgen` estuvo exento hasta §23; hoy ya no hay exenciones: los
+22 motores del registro están en la lista y tienen herramientas.)
 
 ### Verificado en vivo
 
@@ -874,3 +874,625 @@ constructor de sondas, así que su proyecto anfitrión se quedaba sin borrar —
 tres «Bridge self-test …» huérfanos en la instalación de verdad, justo lo que
 esta suite promete no hacer nunca. Ahora el borrado va en un `finally` con el
 id capturado en el momento de crearlo, no al final del camino feliz.
+
+## 18. IA nativa — el mismo ejecutor, dentro de la app
+
+Octava pasada (2026-08-31). El puente externo sigue igual para Odysseus, Claude
+Desktop u OpenCode; lo nuevo es que la app tiene ahora su propia IA por dentro,
+y que **usa exactamente las mismas herramientas**. El plan está en
+`docs/PLAN-IA-NATIVA.md`; lo hecho, aquí.
+
+### Un ejecutor, dos puertas
+
+Antes, `handleCall` en `electron/aibridge/server.ts` hacía todo: buscar la
+herramienta, validar, decidir si podía escribir, reenviar al renderer, apuntar
+en auditoría. Eso se ha sacado a `src/services/aiRuntime/executorCore.ts`:
+
+```ts
+const executeTool = createToolExecutor({ writesEnabled, relay, audit });
+// puente:   executeTool(call, { origin: 'bridge',  clientLabel })
+// copiloto: executeTool(call, { origin: 'copilot', projectId, policy, conversationId })
+```
+
+Lookup → `validateToolArgs` (coerción de tipos, claves desconocidas fuera) →
+`applyProjectScope` (el copiloto inyecta y **fuerza** su `projectId`: una
+llamada a otro proyecto se rechaza aunque el modelo insista) →
+`decidePermission` (el interruptor de escritura del puente; para el copiloto la
+política del proyecto: sólo lectura / preguntar / permitir; `wh_delete` nunca se
+pregunta dos veces) → aprobación → relay → línea de auditoría con `origin` y
+`conversationId` → índice de auditoría de vuelta, que es lo que el botón
+«deshacer» de la tarjeta necesita.
+
+El autotest de 28 comprobaciones pasa por ahí sin cambios, y `tests/ai-runtime.ts`
+demuestra con dependencias falsas que el puente y el copiloto producen la misma
+línea de auditoría para la misma llamada.
+
+### Conexiones por IP, y ninguna clave en el renderer
+
+`electron/ai/` es la pasarela: `connectionStore.ts` guarda las conexiones en
+`<userData>/ai/connections.json` (escritura atómica) y las claves **sólo** como
+texto cifrado con `safeStorage`; el renderer recibe `hasSecret` y una pista
+(`sk-…7f3a`), nunca la clave, nunca una URL que no haya escrito el propio
+usuario. `urlPolicy.ts` normaliza lo que se teclea (`192.168.1.20:1234`,
+`http://host:8080/v1`, `https://api…`), clasifica la localidad (loopback / red
+local / remoto), rechaza usuario:contraseña, query y fragmentos, y bloquea HTTP
+plano hacia fuera salvo consentimiento explícito. La pasarela no sigue
+redirecciones, acota cuerpos y redacta la clave de cualquier error.
+
+Dos adaptadores: **OpenAI compatible** (`/v1/models`, `/v1/chat/completions`
+en SSE con ensamblado de fragmentos de tool-calls, `/v1/images/generations`) y
+**Ollama nativo** (`/api/tags` con capacidades, `/api/show` de respaldo,
+`/api/chat` NDJSON con `num_ctx` 32K y reintento sin `think` para modelos que
+no lo aceptan). Un `/v1/models` que responde 404 marca la conexión como
+`modelsRouteMissing` y la detección local la ignora: un backend de Docker en el
+8100 estuvo a punto de salir como «servidor de IA encontrado».
+
+### Modelos locales con veredicto
+
+`fit.ts` es la estimación de si un modelo cabe: pesos + caché KV (capas × 2 ×
+8 cabezas × 128 × 2 bytes × contexto × factor de familia para las
+arquitecturas híbridas) + sobrecarga, contra la VRAM menos 1 GB y el 75 % de la
+RAM. Cuando no cabe entero en la GPU, la velocidad se estima por ancho de banda
+(450 GB/s la GPU, 55 GB/s la RAM) sobre los **bytes que se leen por token**: un
+mixture-of-experts con 3B activos lee su rebanada, no el archivo, y por eso
+`qwen3-coder:30b` sale «Bien · rápido» en una 4070 Ti mientras un 27B denso en
+q8 sale «Justo · lento». Las etiquetas son perfecto / bien / justo / no cabe, y
+«≈» avisa de que el tamaño es de catálogo, no medido. Es una estimación limpia:
+la forma sigue el enfoque público de llmfit (MIT), sin código de Odysseus (AGPL).
+
+### El copiloto
+
+Panel derecho por proyecto (`src/components/copilot/`), hilo por proyecto en
+Dexie v27 (`aiThreads`, `aiMessages`, `aiProjectSettings`; van en el backup con
+la estrategia `ai-assistant`, se barren al borrar el proyecto). El bucle está en
+`electron/ai/agentLoop.ts`: selección léxica y determinista de herramientas por
+turno (núcleo + motor abierto + motores nombrados + coincidencias, máximo 16,
+sólo lectura si la política lo dice), 8 rondas / 20 llamadas / 16 KB por
+resultado, sin repetir una llamada idéntica que ya falló. Las escrituras que
+piden permiso llegan al renderer como tarjeta con Permitir / Rechazar, y cada
+tarjeta ejecutada guarda su `auditIndex` para deshacer desde ahí mismo. Los
+modelos sin herramientas hablan pero no tocan nada, y lo dicen.
+
+### Estudio de imagen
+
+Motor `image-studio`, sin tablas: cada resultado es una fila de
+`inspirationImages` con `source: 'generated'` y `generation { prompt, modelId,
+seed, width, height… }`, así que aparece en Galería con la etiqueta «generated»
+y sobrevive a los backups sin ninguna estrategia nueva. La herramienta
+`wh_generate_image` (grupo `visual`) hace lo mismo desde el puente o el copiloto
+y devuelve ids más una miniatura, nunca el base64 dentro del JSON. Sirve con
+cualquier servidor que exponga `/v1/images/generations` —Odysseus en el 8100, un
+proxy de OpenAI, o `scripts/fake-image-server.mjs`, que responde con PNG reales
+de un color derivado del prompt y con el que se probó todo el camino sin GPU.
+
+### Lo que se probó en vivo
+
+Autotest 28/28 a través del ejecutor compartido; `wh_get_context` informa del
+proyecto abierto; conexión de imágenes añadida por IP, probada, guardada sin
+duplicarse y fijada como modelo de imagen por defecto; generación desde la
+pestaña y desde `wh-bridge call wh_generate_image` con la fila en Galería y la
+línea de auditoría `generated 1 image(s)`; en el copiloto, un turno de lectura
+(`list codex` → lista de personajes) y uno de escritura con tarjeta de permiso
+(crear nota → Permitir → nota creada → deshacer desde la tarjeta).
+
+### El fallo de esta pasada
+
+Una tormenta de IPC. `loadModels` volvía a listar las conexiones al terminar,
+eso entregaba un array nuevo a un efecto que dependía del array, y el efecto
+volvía a llamar a `loadModels`: 192 `ai:listConnections` en segundos, el
+renderer sin recursos y una pantalla negra tras recargar. La regla que queda:
+un `load` actualiza su fila **en su sitio**, y los efectos se declaran sobre
+ids (`connectionKey`), nunca sobre la identidad de un array de la store.
+
+### Todavía no
+
+- Runtime de difusión local (fase 6B del plan): el estudio genera contra un
+  servidor; no descarga ni ejecuta modelos de imagen por sí mismo.
+- La velocidad estimada con reparto GPU/RAM es una heurística de ancho de
+  banda; no mide.
+- La conexión `CLIProxyAPI` migrada de los ajustes antiguos aparece «sin
+  respuesta» mientras ese proxy no esté arrancado; se puede borrar o editar.
+
+## 19. Fase 6B — imágenes sin servidor ajeno, y velocidad medida
+
+Novena pasada (2026-08-31, segunda mitad de la noche). Tres encargos de Luis
+al despertar a medias: que el modelo de texto por defecto fuera el Qwen que
+mejor se adaptara a su equipo, que el veredicto de velocidad midiera en vez de
+estimar, y que la fase 6B del plan —descargar y ejecutar modelos de imagen en
+local— se hiciera «con Odysseus como ejemplo».
+
+### Lo que se copió de Odysseus y lo que no
+
+Odysseus resuelve la imagen local con un servidor Python (`diffusion_server.py`:
+torch + diffusers + FastAPI) que un «cookbook» instala con pip. Se copió la
+**forma**: un servidor propio en un puerto fijo de loopback que habla la API de
+imágenes, arrancado por la app con un modelo cargado, y un catálogo con
+veredicto de hardware. No se copió ni una línea ni la dependencia de Python:
+Writer's Hoard empaqueta **stable-diffusion.cpp** (MIT, C++/ggml, binario de
+una release fijada) igual que empaqueta Ollama.
+
+### El runtime
+
+`electron/ai/sdRuntimeManifest.ts` fija la release `master-709-92a3b73` con el
+SHA-256 que GitHub publica para cada activo. Tres backends en Windows: Vulkan
+por defecto (42 MB, cualquier GPU), CUDA 12 para NVIDIA (352 MB + 563 MB de
+runtime CUDA) y sólo CPU (21 MB); Linux y macOS también están fijados.
+`electron/ai/sdRuntime.ts` descarga, verifica, extrae y guarda el runtime en
+`<userData>/ai/sd-runtime/<backend>/` con recibo; descarga los pesos del
+catálogo a `<userData>/ai/image-models/<id>/`; lanza `sd-server` en
+`127.0.0.1:8102` con un modelo cargado y lo cambia cuando se pide otro; y **lo
+apaga a los cinco minutos sin uso**, porque la GPU es la misma que usan los
+modelos de texto y 7 GB de SDXL aparcados en VRAM son 7 GB que Ollama no
+tiene.
+
+Las descargas pasan por `electron/ai/download.ts`: `.part` + hash incremental,
+reanudación con `Range` cuando el servidor lo honra (Hugging Face y GitHub lo
+hacen), tamaño y huella comprobados antes de renombrar, y nada que no cuadre
+llega jamás a `sd-server`. Un test en `tests/electron-security.ts` levanta un
+servidor HTTP local y demuestra las cuatro ramas: entera, reanudada, corrupta y
+con `Content-Length` mentiroso.
+
+### El catálogo
+
+`src/services/aiRuntime/imageCatalog.ts`: cinco modelos, todos de repositorios
+sin puerta (nada de aceptar términos con cuenta), cada archivo con su tamaño y
+su `lfs.oid` de agosto de 2026. DreamShaper 8 y SD 1.5 Q8 (SD1, 512 px),
+DreamShaper XL Turbo y SDXL Turbo (SDXL), y FLUX.1 schnell Q4 en cuatro archivos
+(difusión GGUF, VAE, CLIP-L, T5 Q8). El veredicto (`computeImageFit`) mira la
+VRAM a la resolución nativa: cabe entero → perfecto/bien; los pesos en RAM con
+`--offload-to-cpu` → justo; sin GPU sólo SD1 y despacio. La licencia de cada
+modelo va en la tarjeta con su enlace: SDXL Turbo es sólo no comercial y hay
+que saberlo antes de descargar 7 GB.
+
+### La conexión y el adaptador
+
+El servidor gestionado aparece como conexión integrada «Imágenes locales
+(stable-diffusion.cpp)» (`builtin-sd`, tipo `sdcpp`): no se edita, no se borra,
+no lleva clave. Su adaptador (`electron/ai/adapters/sdcpp.ts`) usa la API
+nativa asíncrona del servidor (`/sdcpp/v1/img_gen` → trabajo → sondeo →
+cancelación) en vez de la ruta OpenAI, porque esa no acepta semilla, pasos ni
+prompt negativo salvo incrustados en el prompt. La semilla se elige en el
+adaptador cuando el usuario la deja al azar, así la fila de Galería siempre
+puede reproducir la imagen. El Estudio y `wh_generate_image` no cambiaron: la
+conexión entra por la misma puerta que la falsa del 8101 o Odysseus en el
+8100. Lo único nuevo para ellos es «Nativo del modelo» como formato por
+defecto: un UNet de 512 px a 1024 hace sopa.
+
+### Velocidad medida
+
+Ollama devuelve `eval_count` y `eval_duration` en el último trozo; el
+adaptador OpenAI cronometra la ventana de streaming y cuenta tokens del
+servidor si los da, o caracteres/4 marcados como aproximados. Cada respuesta
+de más de 24 tokens se funde con media móvil (α = 0,35) en
+`<userData>/ai/model-metrics.json`, por conexión y modelo; una lectura exacta
+sustituye de golpe a un historial aproximado. `decorate` la pega al descriptor
+y `computeFit` la usa: el número reemplaza la banda estimada y, si el modelo
+no cabía entero en la GPU, también la etiqueta (justo sólo significaba «va a
+ir lento»; si va a 28 tok/s, es bien). El copiloto muestra «28 tok/s · 73
+tokens» bajo cada respuesta.
+
+### Y el mejor modelo, en un botón
+
+`src/services/aiRuntime/pickModel.ts` ordena los modelos de chat: herramientas
+obligatorias, etiqueta de fit, banda de velocidad, tokens/s (la medida cuenta
+entera, la estimación al 70 %: una conjetura no adelanta a una lectura por
+dos tokens), huella de memoria (más ligero antes), general antes que «coder»,
+visión, parámetros. En Valores por defecto: «Usar el mejor modelo local». En el
+equipo de Luis eligió `qwen3-coder:30b` (MoE, 19 GB, bien · 28 tok/s medidos)
+y es lo que quedó por defecto. Las funciones clásicas además **recaen** en ese
+mismo ranking si la ruta por defecto no responde —el proxy CLIProxyAPI
+apagado dejaba «resumen» muerto— y avisan una vez con un toast de qué modelo
+han usado.
+
+### Dos guardias más
+
+- `check-conformance` lee `electron/security.ts` y todos los
+  `ipcMain.handle('…')` del proceso principal: un canal sin rol declarado
+  falla la conformidad con su nombre, en vez de fallar en ejecución con
+  «Forbidden IPC sender» (la trampa de §9, ahora con red).
+- El conversor Markdown → TipTap anida listas **dentro** del `<li>` padre y lee
+  un guion a ras de margen bajo un «1.» como sublista, que es lo que escriben
+  todos los modelos; la numeración ya no vuelve a 1 en cada personaje.
+
+### Probado en vivo
+
+Runtime Vulkan instalado en 8 s con huella verificada; SD 1.5 Q8 descargado,
+cancelado a 600 MB y reanudado con `Range` desde el `.part`; «Usar» lo fija
+como imagen por defecto; el Estudio genera un faro en un acantilado a 512×512
+en menos de 15 s contando el arranque del servidor; `wh-bridge call
+wh_generate_image` genera con el modelo local en 5 s con el servidor caliente
+y a resolución nativa; `sd-server` queda vivo (160 MB de proceso, pesos en
+GPU) y se apaga solo. El copiloto midió 28 tok/s en `qwen3-coder:30b` y el
+botón del mejor modelo lo escogió.
+
+### La auditoría (un subagente, adversarial)
+
+Antes de cerrar, un subagente revisó los ficheros nuevos de main buscando
+bugs. Encontró ocho, todos corregidos: `extractZip` re-lanzaba en Linux
+porque GNU tar no lee zip (ahora `unzip`); el temporizador de inactividad de
+5 min podía matar una generación en curso (ahora el sondeo lo empuja); un
+fallo de `spawn` (binario ausente) colgaba 4 min en vez de fallar al
+instante; `mergeSpeedSample` no tenía techo y un servidor mentiroso podía
+envenenar la velocidad con una muestra (ahora ≤ 2000 tok/s); la extracción de
+CUDA (dos zips) podía tirar las DLLs del runtime (ahora se aplana todo el
+árbol a un directorio); la escritura de métricas tenía una carrera
+lectura-modificación-escritura (ahora dentro de la cadena de escritura); las
+descargas dejaban el cuerpo de respuesta sin drenar en los throws tempranos
+(ahora `cancel()`); y `decorate` duplicaba modelos fijados repetidos.
+
+Y en la verificación en vivo tras la auditoría salió un noveno, más
+importante: el sondeo del trabajo tenía un timeout de conexión de 10 s, y un
+`sd-server` saturado (fallback a CPU porque Ollama ocupaba la tarjeta) no
+contestaba a tiempo, así que **un sondeo lento tiraba una imagen buena**.
+Ahora un error transitorio de sondeo no es un fallo: se reintenta hasta el
+plazo global; sólo un `failed` explícito, un abort o el plazo terminan el
+trabajo.
+
+### La contención de VRAM, que es física, no un bug
+
+En la 4070 Ti de 12 GB, con `qwen3.8:27b` residente en Ollama (8,9 GB, la
+tarjeta al 95 %), `sd-server` Vulkan no consigue memoria y cae a CPU: una
+imagen que tarda 7 s con la tarjeta libre tarda minutos. No es un fallo del
+código —es un modelo grande y un modelo de imagen peleando por 12 GB—. El
+apagado por inactividad devuelve la VRAM del lado de la imagen; del lado del
+texto, Ollama la mantiene 30 min (`OLLAMA_KEEP_ALIVE`). Con la tarjeta libre,
+generación limpia en 7 s incluyendo arranque del servidor y carga del modelo,
+con semilla reproducible.
+
+### Todavía no
+
+- Sin medida de segundos por imagen: el veredicto de imagen sigue siendo
+  estimación por VRAM.
+- Sin img2img ni LoRA en el Estudio, aunque el servidor los sirve.
+- CUDA 12 está fijado y su extracción de dos zips corregida, pero no se ha
+  probado en vivo esta noche (Vulkan sí).
+- Aviso de contención de VRAM en el Estudio cuando un LLM grande ocupa la
+  tarjeta: no está; sólo el apagado por inactividad mitiga una dirección.
+
+## 20. Dos vueltas de auditoría más (2026-08-31, madrugada)
+
+Tras dejar todo en verde, dos auditorías adversariales con subagente sobre el
+código más nuevo y sobre zonas que las pasadas anteriores tocaron poco. Ocho
+hallazgos reales; los importantes, corregidos y verificados.
+
+### Vuelta 2 — copiloto y runtime de inferencia
+
+**El bug gordo: el stream se cancelaba a sí mismo.** El dock refresca su lista
+de mensajes con un efecto que depende de `dataVersion`, y el runner hace
+`bumpData()` tras cada evento —incluido cada `delta`—. Ese efecto llamaba a
+`settleStaleMessages`, que marcaba como `cancelled` cualquier fila en
+`streaming`, **incluida la del turno en curso**. Al primer token la respuesta
+mostraba «cancelado» y sólo aparecía entera al final. Tapado en turnos con
+herramientas, evidente en respuestas de sólo texto. Arreglo: `settleStaleMessages`
+sólo sanea huérfanos —`if (runsByThread[threadId]) return;`—; el run vivo cierra
+su propia fila en `finish()`. Verificado en vivo: respuesta de sólo texto que
+ahora fluye token a token (antes: «cancelado» toda la generación). Test nuevo en
+`critical.browser.ts` (`testCopilotRunGuards`): la fila `streaming` de un run
+vivo sobrevive a un refresco; el huérfano sí se sanea; un turno no arranca si ya
+hay otro en vuelo.
+
+**Carrera de doble envío.** `sendCopilotTurn` comprobaba «ya hay un run» y sólo
+tras varios `await` registraba el run. Un doble clic/Enter metía dos turnos.
+Arreglo: un `Set` de módulo reclama el hilo de forma síncrona antes del primer
+`await`, liberado en `finally`.
+
+**Lectura de sondeo sin límite.** El sondeo del trabajo de imagen pasaba
+`maxBodyBytes` a `request()`, que —a diferencia de `requestJson`— lo ignora, y
+leía el cuerpo con `res.text()` sin cota. Arreglo: `readBounded` exportado y
+usado en el sondeo (el `request()` no puede acotar porque también sirve
+streaming).
+
+### Vuelta 3 — runtime de imagen y puente externo
+
+**Corrupción silenciosa de UTF-8 (lo más serio).** El puente HTTP acumulaba el
+cuerpo con `raw += chunk.toString('utf8')` por trozo, y el lector de respuesta
+MCP con `raw += chunk`. Un carácter multibyte partido en la frontera de dos
+trozos se decodificaba por mitades → dos U+FFFD. En prosa en castellano por
+encima de ~64 KB, corrupción silenciosa del manuscrito (el JSON seguía
+parseando). Arreglo: acumular `Buffer`s y decodificar una vez
+(`Buffer.concat(...).toString('utf8')`) en el cuerpo; `res.setEncoding('utf8')`
+en la respuesta. Demostrado con un caso partido a propósito: antes `"A��ade"`,
+ahora `"Añade"`.
+
+**Carrera de descarga/instalación de imagen.** `downloadSdModel` e
+`installSdRuntime` comprobaban su guarda antes de varios `await` y reclamaban el
+`AbortController`/estado después: un doble clic lanzaba dos descargas a los
+mismos ficheros (corrupción de pesos que `refreshModels` no ve porque sólo mira
+el tamaño). Arreglo: reclamar de forma síncrona antes del primer `await`, con
+`try/finally` para liberar en todos los caminos; `stopSdServer` movido dentro
+del `try` para que un throw no deje el `installAbort` colgado.
+
+**Error «busy» pegajoso.** Un doble clic dejaba un error rojo permanente en una
+fila de modelo ya instalado (el segundo clic devolvía `busy` y el store lo
+pintaba; el primero, que sí terminaba, no lo limpiaba). Arreglo: `busy` es un
+rechazo por concurrencia, no un fallo de esa fila; no se pinta.
+
+**Buffer de stdin sin cota.** El lector JSON-RPC por stdin (`mcpStdio.ts`)
+acumulaba sin límite si el cliente no mandaba salto de línea. Cota de 8 MB: al
+pasarse, se descarta y se responde `-32700`.
+
+### Zonas revisadas y limpias
+
+Teardown de las suscripciones push `sd:status`/`sd:progress` (una sola vez a
+nivel de módulo, sin fugas por montaje); `assertIpcSender` en los 27 handlers;
+validación de argumentos IPC; barras de progreso (guardan `total > 0`);
+cancelación del Estudio; auth del puente (loopback + sin Origin + Bearer,
+fail-closed); framing de stdio (trozos partidos, CRLF, múltiples mensajes por
+trozo).
+
+### Todavía no (de estas vueltas)
+
+- Índice de auditoría no estable ante rotación del log (`audit.jsonl` > 5 MB →
+  `audit.jsonl.1`, el contador reinicia a 0) ni ante una línea truncada por un
+  crash a mitad de append: un `undoBridgeChange` con un índice viejo podría
+  revertir la entrada equivocada. Requiere una sesión que escriba > 5 MB de
+  auditoría (uso muy intenso) y deshacer una tarjeta antigua. Arreglo correcto
+  = índice monotónico global persistido; se deja anotado por no tocar el núcleo
+  de auditoría/undo con prisa.
+- Reanudación de descarga: no valida el `Content-Range` de un 206, y un `.part`
+  completo-pero-sin-renombrar se re-descarga entero. Ambos se autocorrigen (la
+  verificación tamaño+SHA descarta cualquier `.part` corrupto), por eso quedan
+  como endurecimiento de baja prioridad.
+
+## 21. Del texto a la imagen, y referencias (2026-08-31, mañana)
+
+Dos funciones pedidas por Luis, hechas y verificadas en vivo.
+
+### Seleccionar texto en Escritos → generar imagen
+
+El editor (TipTap, `src/components/editor/TiptapEditor.tsx`) ya tenía una barra
+flotante sobre la selección para "Añadir nota"; ahora, cuando el host pasa
+`onGenerateImage`, muestra además "Generar imagen". Al pulsarla, el modelo de
+texto ELEGIDO DEL PROYECTO (`settings.chatRoute ?? defaults.chat` — la misma
+cadena que el copiloto, no el global de `callAi`) lee el extracto más ±500
+caracteres de contexto y redacta un prompt de imagen en inglés (SD rinde mucho
+mejor en inglés; el usuario lo ve y puede editarlo). El prompt se entrega al
+Estudio por un store efímero (`imageHandoffStore`) —no por la URL, que un prompt
+largo reventaría— y el Estudio lo drena al montar y genera solo en cuanto hay
+ruta resuelta. Pieza de servicio nueva: `completeOnRoute(route, system, user)`
+en `aiService.ts` (una compleción de un tiro sobre una ruta explícita, con el
+mismo fallback local que `callAi`). Verificado: «A quokka in the doorway.» →
+"A tiny brown marsupial with a distinctive wide smile, standing in a wooden
+doorway…" → imagen del quokka en la galería.
+
+### Imagen de referencia (img2img)
+
+El Estudio acepta una imagen de referencia cuando el modelo la admite
+(`routeModel.family` ∈ {sd1, sdxl}; FLUX no hace img2img clásico y no muestra el
+control). Formato del servidor confirmado leyendo el binario de sd-server:
+`init_image` (un data URL) y `strength` (0..1, defecto .75, menos = más fiel a
+la referencia) al NIVEL SUPERIOR del payload de `/sdcpp/v1/img_gen`. Camino
+completo: UI (subida de fichero → data URL → `makeThumbnail` a ≤1024 para acotar
+→ preview + slider) → `generate()` → `startGeneration` → `AiImageRequest`
+(`initImage`, `strength`) → IPC → **`asImageRequest` valida y acota** (data URL
+de imagen ≤ 32 MB, strength a [0,1]) → gateway → adaptador sdcpp →
+`buildSdJobPayload` añade `init_image`+`strength` → sd-server. Verificado de
+punta a punta: una referencia burda (círculo amarillo sobre azul, franja verde
+abajo) + "a glowing golden moon over a green meadow" → luna en la misma
+posición, cielo azul, hierba abajo; la composición de la referencia respetada.
+
+### Nota de física que reaparece
+
+El flujo de "seleccionar texto → imagen" usa un modelo de texto y luego uno de
+imagen seguidos, así que en una sola GPU AGRAVA la contención de VRAM (el LLM
+queda residente y el modelo de imagen cae a CPU). No es un bug de la función;
+con la GPU libre (`ollama stop`), la generación img2img tardó ~15 s. Candidato a
+mejora: liberar/avisar de la VRAM entre el paso de texto y el de imagen.
+
+### Ya no está en "Todavía no"
+
+- ~~Sin img2img ni LoRA en el Estudio~~ → img2img hecho (LoRA sigue pendiente).
+
+## 22. Endurecimiento de adaptadores (2026-08-31, rondas 6-7)
+
+Auditoría en paralelo de los dos adaptadores de chat. En `openAiCompatible.ts`:
+la URL firmada de una imagen de resultado (con query) la rechazaba
+`normaliseBaseUrl` → ahora se parsea con `new URL` + `classifyHost`, manteniendo
+la MISMA política SSRF (mismo host, o https público); la descarga de imagen no
+tenía timeout y podía colgar la cola serializada → `combineSignals([signal,
+AbortSignal.timeout(120s)])`; el nombre de la tool se ensamblaba por
+concatenación (`+=`) → asignación única (un servidor que repite el nombre por
+delta daba "get_xget_x"); errores de stream sin `redact()`; `content`/`reasoning`
+emitidos sin comprobar string; y la velocidad se marcaba como no-aproximada pese
+a ser reloj de pared. En `ollama.ts` (ruta primaria de qwen): el error de stream
+sin `redact()` y las mismas guardas de string. La ruta caliente de qwen se
+confirmó correcta (tool calls completos en un mensaje, args objeto/string,
+eval_duration ns→tok/s con guarda de división por cero, retry de think una sola
+vez). Todo en verde: build de producción (renderer+electron), 33 tests.
+
+## 23. El motor de mundos, y desarrollo continuo por IA (2026-08-31)
+
+Worldgen era el único motor sin herramientas. No por pereza: sus lugares **no
+son filas**. Un mundo se guarda como semilla + parámetros + una lista ordenada
+de ediciones (`edits`, JSON), y el terreno, los asentamientos, los reinos y las
+carreteras se regeneran de forma determinista cada vez que se abre (~26 s para
+un planeta de 2048 celdas). Un `wh_create_settlement` que escribiera una fila
+no existiría para el mapa. Así que el puente habla el idioma del motor.
+
+### Cómo se lee un mundo sin abrirlo
+
+`engines/worldgen/bridgeAccess.ts` → `openWorldForReading(world, depth)`:
+
+1. Si una vista tiene el mundo abierto, su objeto vivo ES el estado actual: se
+   lee (`getCachedWorld`) y no se toca nada.
+2. Si no, se carga la instantánea (`loadSnapshot`, ~1 s) en un objeto **privado**,
+   se le reproducen las ediciones guardadas (`new PaintSession(snap, edits)`) y
+   se construye la geografía y el atlas ahí. Caché privada de 2 mundos / 5 min,
+   con clave `id|params|depth|edits`, así que una lista distinta rehace.
+3. Si nunca se generó en esta máquina, se lanza la forja en segundo plano
+   (worker) y la herramienta responde `{ pending: true, code: 'generating' }`.
+   Es un **resultado, no un error**: el modelo espera medio minuto y repite. Las
+   instrucciones del manifiesto se lo dicen.
+
+### Cómo se escribe: un solo escritor
+
+`WorldView` lee `world.edits` UNA vez y luego es dueño de la lista: cada
+pincelada añade a su `PaintSession` y un guardado con debounce escribe el blob
+entero. Cualquiera que escribiera la fila mientras la vista está abierta
+perdería la carrera (el siguiente guardado de la vista lo pisa) y la vista no
+lo vería. De ahí `core/liveWorlds.ts`: la vista abierta se registra
+(`registerLiveWorld`) con `apply(edits)` —que llama a su propio
+`applyEditGroup`, el mismo camino que una pincelada, con undo/redo de la
+vista— y `snapshot()`. `applyWorldEdits(world, edits)` entrega a la vista si
+la hay y, si no, añade a la fila. El resultado dice `delivered: 'view' | 'row'`
+y la auditoría guarda `before: { edits }` con `table: 'generatedWorlds'`, así
+que el **undo genérico** (`update` → restaurar campos) devuelve la lista
+anterior. La vista abierta recarga cuando cambia la prop `world.edits` (efecto
+nuevo en `WorldView`), con lo que un undo externo también se ve en pantalla.
+Caveat honesto: el undo es de **grano grueso** —restaura la lista entera, así
+que pinceladas posteriores a la edición de la IA se van con ella. Un undo más
+fino necesitaría identidad por edición, y `PaintSession` la prohíbe a
+propósito (las ediciones son JSON plano sin ids).
+
+### Las 17 herramientas (`tools/worldgen.ts`)
+
+Lectura: `wh_list_worlds`, `wh_get_world` (con `live` y `forging`),
+`wh_list_places`, `wh_find_place` (plegado de acentos, prefijo antes que
+contenido, empate por importancia), `wh_place_at` (elevación, mar, lugar más
+importante al alcance), `wh_world_summary` (el gacetero en Markdown),
+`wh_list_waypoints`, `wh_list_place_links`. Escritura: `wh_add_place`
+(asentamiento/ruina/hito; rechaza mar si el mundo está en memoria),
+`wh_rename_place`, `wh_move_place`, `wh_remove_place`, `wh_restore_place`,
+`wh_add_label`, `wh_add_waypoint`, `wh_update_waypoint`, `wh_link_place`
+(enlaza un lugar con codex/escena/escrito/evento, misma identidad
+`<worldId>::<key>` que escribe `SpatialEntityInspector`). Los lugares se
+direccionan por la clave derivada de posición que ya usan las ediciones del
+propio motor (`settlement:512,201`, `landmark:volcano:12,6`): un renombrado
+desde aquí es EXACTAMENTE el que haría el lector a mano.
+
+`wh_remove_place` no es un borrado: añade una edición `remove` reversible, y
+por eso está exento (con aserción en su descripción) de la regla "una sola
+herramienta de borrado" en `tests/ai-bridge.ts`. Los borrados de verdad
+(`generated-world`, `world-waypoint`) van por `wh_delete`, y
+`deleteWorldCascade` ahora se lleva también los enlaces de sus lugares y las
+teselas renderizadas (antes quedaban huérfanos; el mismo camino que usa la UI).
+
+### Hallazgo colateral: ninguna vista se refrescaba tras una escritura de la IA
+
+Al verificar en vivo el undo sobre el mundo abierto, la fila cambió y la
+pantalla no. La causa no era de worldgen: `makeEntityHook` (y `makeGraphHook`,
+`makeReadOnlyHook`) leen una vez por scope y refetch sólo tras SUS propias
+escrituras; el puente y el copiloto escriben por otro camino. Llevaba así desde
+la Fase 0 — el copiloto creaba una entrada del códice y la pestaña abierta no
+la mostraba hasta remontar; el motor de notas se lo había resuelto sólo a sí
+mismo con `wh:notes-changed`. Ahora `engines/_shared/dataChanged.ts` define el
+evento genérico `wh:data-changed` (`notifyDataChanged` / `onDataChanged`),
+`runBridgeTool` lo emite tras toda escritura (`writes: true`) y tras `__undo`
+con lo que sabe la envoltura de auditoría (tabla, entidad, proyecto), y los tres
+hooks refetch al oírlo. Verificado en vivo: `wh_rename_place` → índice del mundo
+actualizado; `/api/undo` → la vista abierta recarga la lista y el nombre vuelve.
+Cualquier lista montada de cualquier motor se beneficia.
+
+### La tapa de 16 herramientas
+
+Worldgen tiene 17 y el turno del copiloto ofrece 16 (3 fijas). Antes se
+cortaba por orden de declaración; ahora `toolSelection.ts` ordena dentro de
+cada motor por coincidencia léxica con el mensaje, así que «link the place to
+the scene» conserva `wh_link_place` y «gazetteer summary» conserva
+`wh_world_summary`. Con aserción en `tests/ai-runtime.ts`.
+
+### Lo que se probó
+
+- En vivo, sobre «mundo 2» de Luis (2048×1024, 10 ediciones): lectura sin vista
+  abierta (`wh_list_places` 638 ms en `places`; `full` 12 s la primera vez y
+  ~20 ms después, por la caché privada), `wh_find_place`, `wh_place_at`,
+  `wh_world_summary` (26 k caracteres). Con la vista abierta: `wh_add_place`
+  → `delivered: 'view'`, Pincel (10→11), la ciudad en el índice de la vista;
+  `wh_rename_place` en vivo; `/api/undo` recarga la vista abierta. El mundo
+  quedó exactamente como estaba (undo de las dos ediciones de prueba).
+- `tests/worldgen-bridge.ts` (crítico, nuevo): forja real de un planeta de
+  128 celdas, instantánea, `wh_add_place` sobre tierra → `wh_find_place` lo ve
+  en la reproducción privada, `wh_place_at` lo resuelve, una lista cambiada no
+  reutiliza la caché, undo genérico del renombrado devuelve la lista y la
+  lectura posterior lo refleja, una vista registrada recibe la edición sin
+  tocar la fila, y el cascade borra enlaces e instantánea.
+- Autotest del puente (`wh_self_test`): tres pasos worldgen sin forjar nunca
+  (el camino fila), 31/31.
+- Novedad de método: los harnesses de navegador (`tests/critical.browser.ts`
+  y el autotest) corren también en Chromium headless (Playwright) fuera de
+  Electron, con IndexedDB real. Es lo que permitió iterar sin la máquina de
+  Luis; el gate sigue siendo el de Windows.
+
+
+## 24. Mejoras pendientes cerradas, y el Atlas real (2026-08-31, tarde)
+
+### VRAM: el modelo de texto se aparta antes de que cargue el de imagen
+
+Dos piezas. (1) `AiChatRequest.releaseAfter`: el flujo «seleccionar texto →
+imagen» pide al modelo de texto que se descargue al terminar su respuesta
+(`keep_alive: 0` en Ollama) SÓLO cuando la ruta de imagen es el runtime local
+(`builtin-sd`); una API de imagen remota no necesita la GPU. Validado en
+`asImageRequest`/`asChatRequest` como todo campo nuevo (lección #54). (2)
+`electron/ai/vramRoom.ts`: justo antes de que `ensureSdServer` arranque
+sd-server, mide la VRAM libre (nvidia-smi) y, si no da para `entry.vramBytes`
++ 1 GB, pide a cada Ollama LOCAL (loopback o embebido; nunca uno de otra
+máquina) que descargue lo que tenga cargado (`/api/ps` → `/api/generate
+{model, keep_alive: 0}`) y espera hasta 6 s a que `/api/ps` quede vacío. Sin
+medida (otro fabricante) descarga siempre que haya algo cargado: acertar
+cuesta segundos, fallar cuesta minutos. La contención sigue siendo física
+(§19); esto sólo decide quién se sienta.
+
+### Descargas, auditoría, velocidad
+
+- `download.ts`: un `.part` completo que pasa el hash se adopta sin volver a
+  la red (antes se borraba y se bajaban los gigas otra vez); un 206 sólo es
+  reanudación si `Content-Range` empieza exactamente en `received` — un proxy
+  que devuelve otro rango ya no se concatena a ciegas. Test en
+  `tests/electron-security.ts`.
+- `aibridge/state.ts`: los índices de auditoría son continuos a través de la
+  rotación (sidecar `audit.offset`); `audit.jsonl.1` sigue siendo direccionable
+  por número, y un undo anterior a la rotación sigue contando. Antes, tras
+  rotar, el `#412` de una tarjeta del copiloto apuntaba a OTRA línea. Test.
+- `run-critical-tests.cjs`: el bundle nativo de tests externaliza `electron`;
+  antes `app` era `undefined` dentro de él y cualquier test que tocara
+  `app.getPath` fallaba en silencio.
+- `ollama.ts`: si el servidor no manda `eval_duration`, tok/s por reloj de
+  pared con `approximate: true` (como el adaptador OpenAI).
+- Estudio/Galería: «Usar como referencia (img2img)» desde cada resultado del
+  Estudio y desde el lightbox de la Galería (`ImageHandoff.initImage`).
+
+### Atlas real — motor `real-atlas`
+
+La pregunta de Luis: ¿motor aparte o preset de worldgen para quien escribe en
+el mundo real (o el real con cambios)? Motor aparte, y además un preset. En
+worldgen los lugares se DERIVAN del relieve que el lector pinta; en el mundo
+real son hechos que el autor afirma: Lisboa está donde está, el bar de la
+calle tal no existía en 1936. Son filas con autoridad, y las filas ya tienen
+todo el aparato (backup, búsqueda, sweep, puente, undo). Dos tablas (Dexie
+v28): `atlasPlaces` (nombre, tipo, alias, lat/lon WGS84, dirección, país,
+padre, época, `description` = en la historia, `realNotes` = datos comprobados,
+fuentes, `fictional` para un Macondo dentro del mapa real, etiquetas) y
+`atlasDivergences` (título, categoría, lugar opcional —sin lugar es global—,
+`reality`, `fiction`, `reason`, `since`). Borrar un lugar NO borra sus
+divergencias (son hechos sobre el libro): las desancla y sube sus hijos.
+
+UI en `engines/real-atlas/components/`: pestañas Lugares/Divergencias, lista
+con búsqueda plegada (mismo `foldForSearch` que worldgen) y filtro por tipo,
+árbol padre→hijo, editor con coordenadas validadas y enlace a OpenStreetMap
+(`window.open`, nunca `<a href>` en Electron), padre sin ciclos, divergencias
+del lugar, deep link `?place=`, borradores que sobreviven al refresco
+(`useRowDraft`: se re-siembra sólo si cambia el id o si `updatedAt` se movió y
+no había nada escrito). Preset «Realista» (`realist`): escritos, códice,
+atlas, cronología, esquema, recortes, galería; y el atlas sugerido en
+novelista, biógrafo y periodista.
+
+Puente (`tools/realAtlas.ts`, 9 herramientas, 115 en total):
+`wh_list_atlas_places` (búsqueda por nombre/alias, filtro por tipo, cuenta de
+divergencias), `wh_get_atlas_place` (padre, hijos, divergencias),
+`wh_create_atlas_place` / `wh_update_atlas_place` (coordenadas en rango y por
+pares, padre del mismo proyecto y sin ciclo, `before` en la auditoría),
+`wh_list_divergences` / `wh_get_divergence` / `wh_create_divergence` /
+`wh_update_divergence`, y `wh_reality_check`: un informe para que el copiloto
+pueda decir «tienes tres lugares reales sin nada comprobado» antes de dar por
+coherente el escenario. Autotest: 5 pasos + dos sondas de búsqueda
+(`wh-probe-atlas`, `wh-probe-divergence`) + guardias de motor apagado.
+
+### Método: las puertas corren también en el contenedor
+
+Novedad de esta tarde que cambia el ritmo: con `npm ci --ignore-scripts` +
+el binario de Electron descargado y `xvfb-run`, la suite crítica ENTERA
+(nativa + navegador + arranque + Vite) corre en el contenedor de Claude, y los
+harnesses de navegador corren además en Chromium headless (Playwright) con un
+user-agent de Electron (sin él, `isDesktop()` es falso y el arranque escoge
+`BrowserRouter`). La máquina de Luis queda para la confirmación final y las
+pruebas en vivo, no para cada iteración.

@@ -717,6 +717,497 @@ export const MAP_TOOLS: BridgeTool[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// World generator — procedural planets, their places, and the reader's edits
+// ---------------------------------------------------------------------------
+//
+// A world is seed + parameters + an ordered edit list; terrain and places are
+// regenerated on demand. Places are addressed by a stable key (`kind:x,y`),
+// never by a row id, and every edit tool appends to the list the app's own
+// paint tools write to — undoable, and visible in an open view at once.
+//
+// Order matters here more than elsewhere: this family is larger than the
+// copilot's per-turn tool cap (aiRuntime/toolSelection.ts fills an engine in
+// manifest order), so the everyday tools come first and the detail view, the
+// links and the long gazetteer come last.
+
+const WORLD_ID = s('World id, from wh_list_worlds.');
+const PLACE_KEY = s(
+  'Place key exactly as wh_list_places, wh_find_place or wh_place_at returned it, e.g. "settlement:512,201" or "landmark:volcano:12,6".',
+);
+const CELL_X = n('World cell column: 0 (west) to width-1 (east). Fractions are rounded.');
+const CELL_Y = n('World cell row: 0 (north) to height-1 (south). Fractions are rounded.');
+const PLACE_KINDS = ['settlement', 'ruin', 'realm', 'feature', 'landmark', 'region'];
+const RUIN_KINDS = ['city', 'fort', 'tower', 'temple', 'stones', 'bridge', 'mine', 'wall'];
+const LANDMARK_TYPES = ['volcano', 'cave', 'waterfall', 'gorge', 'hotspring'];
+const PENDING_NOTE =
+  'A world never opened on this machine answers { pending: true, code: "generating" } once while it is forged in the background: wait about 30 seconds and call again.';
+
+export const WORLDGEN_TOOLS: BridgeTool[] = [
+  {
+    name: 'wh_list_worlds',
+    description:
+      'List the project\'s generated worlds: id, title, seed, grid size, how many edits of each kind the reader has made (renames, placed markers, labels, removals, moves, roads), saved regional views and waypoint count. Start here to get a worldId; nothing else in this engine works without one.',
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: { projectId: PROJECT_ID },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_list_places',
+    description:
+      `The named places of a world, most important first: settlements (capital, city, town, village), ruins, realms (countries), named features (seas, ranges, rivers) and landmarks. Each carries its stable key — the handle every other place tool takes — its cell coordinates x,y and normalised u,v in 0..1, its importance and whether the generator or the reader made it. Scope "places" is cheaper and skips realms, features and roads. ${PENDING_NOTE}`,
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        kind: s('Only places of this kind.', { enum: PLACE_KINDS }),
+        scope: s('"full" (default) or "places", which skips realms and named features.', { enum: ['places', 'full'] }),
+        limit: n('Maximum places. Default 200, maximum 1000.'),
+      },
+      required: ['worldId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_find_place',
+    description:
+      `Find places by name, accent- and case-insensitively, best match first: a name that starts with the query beats one that contains it, and "Río" alone lists the great river before the brook. Returns the same shape as wh_list_places, key included. ${PENDING_NOTE}`,
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        query: s('Name or part of a name.'),
+        limit: n('Maximum matches. Default 10, maximum 100.'),
+      },
+      required: ['worldId', 'query'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_place_at',
+    description:
+      `What is at a cell: the elevation in km (negative is sea floor), whether it is sea, and the most important place within reach, if any — a click between a capital and a hamlet resolves to the capital. Use it to check ground before placing a settlement. ${PENDING_NOTE}`,
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        x: CELL_X,
+        y: CELL_Y,
+        maxCells: n('How far to look for a place, in cells. Default 8.'),
+      },
+      required: ['worldId', 'x', 'y'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_add_place',
+    description:
+      'Place a settlement, a ruin or a landmark on a world at a cell. Settlements need land — the tool refuses a sea cell when the world is in memory, and the engine silently ignores one when it is not, so check with wh_place_at first. A settlement without a rank is a town; a ruin without a kind is a ruined city; a landmark needs its type. Omit the name and the engine coins one in the local language. Returns the new place\'s key. Appended to the world\'s edit list, so the writer can undo it.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        marker: s('What to place.', { enum: ['settlement', 'ruin', 'landmark'] }),
+        x: CELL_X,
+        y: CELL_Y,
+        name: s('Name. Omit to let the engine coin one.'),
+        rank: s('Settlements only. Default "town".', { enum: ['capital', 'city', 'town', 'village'] }),
+        population: n('Settlements only. Default follows the rank.'),
+        ruin: s('Ruins only. Default "city".', { enum: RUIN_KINDS }),
+        landmark: s('Landmarks only. Required for marker "landmark".', { enum: LANDMARK_TYPES }),
+      },
+      required: ['worldId', 'marker', 'x', 'y'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_rename_place',
+    description:
+      'Rename a place by its key: a town, a ruin, a realm, a sea, a range or a landmark, whether the generator or the reader made it. The key never changes, so a renamed place keeps its manuscript links. Undoable.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        key: PLACE_KEY,
+        name: s('The new name.'),
+      },
+      required: ['worldId', 'key', 'name'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_move_place',
+    description:
+      'Move a place to another cell without changing its key, so its links and its name survive. Roads re-route to a moved settlement the next time the world\'s full geography is built. Undoable.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        key: PLACE_KEY,
+        x: CELL_X,
+        y: CELL_Y,
+      },
+      required: ['worldId', 'key', 'x', 'y'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_remove_place',
+    description:
+      'Hide a place from the world: a town that should not exist, a ruin, a named sea, a landmark. Not a deletion — it appends a `remove` edit that wh_restore_place (or the writer\'s undo) reverses, and the place\'s key stays valid for exactly that purpose.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        key: PLACE_KEY,
+      },
+      required: ['worldId', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_restore_place',
+    description:
+      'Bring back a place that wh_remove_place (or the reader\'s eraser) hid, by the same key. A place that was never removed is unaffected.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        key: PLACE_KEY,
+      },
+      required: ['worldId', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_add_label',
+    description:
+      'Write a free-standing label on the map at a cell — the name of a region, a body of water or a range, a caption under a town, or a note. It names nothing in the atlas; use wh_rename_place to rename an actual place. Undoable.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        x: CELL_X,
+        y: CELL_Y,
+        text: s('What the label says.'),
+        style: s('Type style. Default "note".', { enum: ['region', 'water', 'range', 'settlement', 'note'] }),
+      },
+      required: ['worldId', 'x', 'y', 'text'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_list_waypoints',
+    description:
+      'The reader\'s waypoints on a world: named pins with a note and a colour, positioned by normalised u (0 west to 1 east, wrapping) and v (0 north to 1 south). Waypoints are the reader\'s own bookmarks, separate from the generated places.',
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: { worldId: WORLD_ID },
+      required: ['worldId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_add_waypoint',
+    description:
+      'Drop a waypoint on a world at a normalised position: u 0..1 west to east (wraps), v 0..1 north to south. To pin a generated place, take its u,v from wh_list_places. The colour cycles through the app\'s palette when omitted.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        name: s('Name of the waypoint.'),
+        u: n('Horizontal position, 0..1 west to east.'),
+        v: n('Vertical position, 0..1 north to south.'),
+        description: s('A note about the place. Plain text.'),
+        color: s('Colour as #rrggbb.'),
+      },
+      required: ['worldId', 'name', 'u', 'v'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_update_waypoint',
+    description: 'Change a waypoint: rename it, move it, recolour it or rewrite its note. Only the fields you pass are touched.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        id: s('Waypoint id.'),
+        name: s('New name.'),
+        description: s('New note.'),
+        color: s('New colour as #rrggbb.'),
+        u: n('New horizontal position, 0..1.'),
+        v: n('New vertical position, 0..1.'),
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_get_world',
+    description:
+      'One world in detail: the same digest as wh_list_worlds plus its full generation parameters, its waypoints, whether a view currently has it open (`live`) and whether it is being forged right now (`forging`, in which case place reads will answer pending until it finishes).',
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: { worldId: WORLD_ID },
+      required: ['worldId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_link_place',
+    description:
+      'Connect a place on the map to the manuscript: a codex entry that represents it (a location sheet), or a dialog scene, a manuscript piece or a timeline event that takes place there. This is what makes the map a navigation surface for the book — hover the town and see its scenes. Linking the same pair twice returns the existing link. The target must belong to the world\'s project.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        key: PLACE_KEY,
+        targetType: s('What the place is linked to.', { enum: ['codex-entry', 'scene', 'writing', 'timeline-event'] }),
+        targetId: s('Id of the codex entry, scene, writing or timeline event.'),
+      },
+      required: ['worldId', 'key', 'targetType', 'targetId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_list_place_links',
+    description:
+      'The manuscript links hanging on a world\'s places: which codex entries, scenes, writings and timeline events point at which place key. Pass a key to read one place; omit it for the whole world.',
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        worldId: WORLD_ID,
+        key: s('Only links on this place. Omit for every place in the world.'),
+      },
+      required: ['worldId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_world_summary',
+    description:
+      `The world's gazetteer as Markdown: an overview of the planet, its languages, realms, geography, ruins and coasts, and story hooks read off the map — everything in it is derived from the generated world, nothing is invented. Written in Spanish, the engine's language. Long; read it once, then use wh_find_place for specifics. ${PENDING_NOTE}`,
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: { worldId: WORLD_ID },
+      required: ['worldId'],
+      additionalProperties: false,
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Real atlas — the story's real-world setting, and where it departs from it
+// ---------------------------------------------------------------------------
+//
+// The counterpart of worldgen: nothing is derived. A place is an authoritative
+// row the writer has checked (a name, WGS84 coordinates or an address, the
+// facts verified there), and a divergence records one deliberate departure
+// from reality. Everyday tools first, the report last: the copilot fills an
+// engine in manifest order when a turn's cap is tight.
+
+const ATLAS_PLACE_KINDS = [
+  'country', 'region', 'city', 'town', 'village', 'district',
+  'street', 'building', 'landmark', 'natural', 'route', 'other',
+];
+const DIVERGENCE_CATEGORIES = [
+  'geography', 'history', 'politics', 'technology', 'culture', 'people', 'other',
+];
+const LAT = n('Latitude in WGS84 decimal degrees, -90 (south) to 90 (north).');
+const LON = n('Longitude in WGS84 decimal degrees, -180 (west) to 180 (east).');
+const DIVERGENCE_NOTE =
+  'A divergence records a DELIBERATE departure from reality — `reality` is what is actually the case, `fiction` what the book says instead, `reason` why the writer changed it — anchored to a place with `placeId` when the change is local, free-standing (no placeId) when it is global, like a war ending in a different year.';
+
+export const REAL_ATLAS_TOOLS: BridgeTool[] = [
+  {
+    name: 'wh_list_atlas_places',
+    description:
+      'List the real-world places the book uses, alphabetically: name, kind, aliases, country, WGS84 coordinates when known, era, whether the place is invented (`fictional`), the place that contains it (`parentId`) and how many divergences are anchored to it. This engine is the story\'s REAL setting — Lisbon, 1936 Madrid, a street in Paris — kept as rows the writer has checked, unlike the generated planets of the world generator. Pass `query` to search names and aliases accent- and case-insensitively, best match first. Descriptions, checked facts and sources are not included: read one place with wh_get_atlas_place.',
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        kind: s('Only places of this kind.', { enum: ATLAS_PLACE_KINDS }),
+        query: s('Name or alias, or part of one. Accents and case do not matter.'),
+        limit: n('Maximum places. Default 100, maximum 500.'),
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_get_atlas_place',
+    description:
+      'Read one place in full: `description` (how the story uses it), `realNotes` (what is actually true there, as checked by the writer), `sources`, address, coordinates, era and tags, plus its parent place, the places it contains and the divergences anchored to it. Read this before writing about a place, and treat realNotes as the verified facts and description as the book\'s use of them.',
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: { id: s('Place id, from wh_list_atlas_places or wh_search.') },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_create_atlas_place',
+    description:
+      'Add a real-world place the book uses. Coordinates are WGS84 decimal degrees, both or neither — a street or a bar may only have an address. Set `fictional: true` for a place the writer invented and set inside the real world (Macondo, Vetusta, a bar that never existed on a real street); a real place\'s `realNotes` should hold only facts that have been checked, with `sources` saying where they came from, and `description` what the story makes of it. Use `parentId` to nest a building in its city or a district in its town; the parent must be a place of the same project. Check wh_list_atlas_places first: the place may already exist under an alias.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        name: s('Name of the place as the book uses it.'),
+        kind: s('Default "city".', { enum: ATLAS_PLACE_KINDS }),
+        aliases: arr('Other names: historical, local-language, the book\'s own.'),
+        country: s('Country, free text.'),
+        address: s('Street address, when a point on a map is not enough.'),
+        lat: LAT,
+        lon: LON,
+        parentId: s('Id of the place that contains this one.'),
+        era: s('When the place matters to the book: "1936", "summer of 1898", "today".'),
+        description: s('How the story uses the place: scenes, mood, what the reader should feel. Plain text.'),
+        realNotes: s('What is actually true there, checked: distances, opening hours, what stood where. Plain text.'),
+        sources: arr('Where the facts came from: URLs, books, a visit.'),
+        fictional: b('True for a place the writer invented inside the real world. Default false.'),
+        tags: arr('Freeform tags.'),
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_update_atlas_place',
+    description:
+      'Change a place. Only the fields you pass are touched. An empty string clears country, address, era or parentId; `clearCoordinates: true` removes both coordinates, and passing only one of lat/lon keeps the other as it is. Undoable from the app\'s audit log.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        id: s('Place id.'),
+        name: s('New name.'),
+        kind: s('New kind.', { enum: ATLAS_PLACE_KINDS }),
+        aliases: arr('Replacement alias list.'),
+        country: s('New country. "" clears it.'),
+        address: s('New address. "" clears it.'),
+        lat: LAT,
+        lon: LON,
+        clearCoordinates: b('Remove both coordinates.'),
+        parentId: s('New containing place. "" lifts it to the top level.'),
+        era: s('New era. "" clears it.'),
+        description: s('New description.'),
+        realNotes: s('New checked facts.'),
+        sources: arr('Replacement source list.'),
+        fictional: b('Whether the place is invented.'),
+        tags: arr('Replacement tag list.'),
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_list_divergences',
+    description:
+      `List the book's deliberate departures from reality, most recently changed first: title, category, the place each is anchored to (none means a global change), from when it applies (\`since\`), and its reality, fiction and reason cut at 300 characters — wh_get_divergence has them in full. Pass \`placeId\` for one place's divergences or \`category\` to filter. ${DIVERGENCE_NOTE} It is a fact about the book, not a mistake.`,
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        placeId: s('Only divergences anchored to this place.'),
+        category: s('Only divergences of this category.', { enum: DIVERGENCE_CATEGORIES }),
+        limit: n('Maximum divergences. Default 100, maximum 500.'),
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_get_divergence',
+    description:
+      'Read one divergence in full: reality (what is actually the case), fiction (what the book says instead), reason (why the writer changed it), since, category, tags and the name of the place it is anchored to, if any.',
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: { id: s('Divergence id, from wh_list_divergences or wh_search.') },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_create_divergence',
+    description:
+      `Record where the book departs from reality on purpose. ${DIVERGENCE_NOTE} Do not file an error the writer has not chosen: raise a suspected mistake with wh_annotate instead, and record it here only once they decide to keep it.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        title: s('The change in a few words, e.g. "The bridge already stands in 1890".'),
+        category: s('Default "other".', { enum: DIVERGENCE_CATEGORIES }),
+        placeId: s('Place the change is about. Omit for a global change.'),
+        reality: s('What is actually the case. Plain text.'),
+        fiction: s('What the book says instead. Plain text.'),
+        reason: s('Why the writer changed it: dramatic need, simplification, alternate history…'),
+        since: s('From when the change applies in the story\'s chronology, free text.'),
+        tags: arr('Freeform tags.'),
+      },
+      required: ['title'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_update_divergence',
+    description:
+      'Change a divergence. Only the fields you pass are touched; `placeId: ""` unanchors it (the change becomes global) and an empty `since` clears it. Undoable from the app\'s audit log.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        id: s('Divergence id.'),
+        title: s('New title.'),
+        category: s('New category.', { enum: DIVERGENCE_CATEGORIES }),
+        placeId: s('New place. "" makes the change global.'),
+        reality: s('New reality text.'),
+        fiction: s('New fiction text.'),
+        reason: s('New reason.'),
+        since: s('New since. "" clears it.'),
+        tags: arr('Replacement tag list.'),
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_reality_check',
+    description:
+      'A read-only report on the real setting: how many places have coordinates, which real (non-fictional) places have nothing verified yet in realNotes, which places are invented, divergences per category, and divergences missing their reality or fiction text — as counts, id lists and a short Markdown summary. Run it before telling the writer their setting is consistent or well researched, and to answer "what have I not checked yet". Nothing is written.',
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: { projectId: PROJECT_ID },
+      additionalProperties: false,
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
 // Storyboard — panels in sequence
 // ---------------------------------------------------------------------------
 
@@ -939,6 +1430,38 @@ export const STATS_TOOLS: BridgeTool[] = [
     schema: {
       type: 'object',
       properties: { projectId: PROJECT_ID },
+      additionalProperties: false,
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Image studio — pictures made on demand, kept in Gallery
+// ---------------------------------------------------------------------------
+
+export const IMAGE_STUDIO_TOOLS: BridgeTool[] = [
+  {
+    name: 'wh_generate_image',
+    description:
+      'Generate one to four reference images from a text prompt using the image model configured in AI settings (a local diffusion server or a remote API), and save them into the project\'s Gallery tagged "generated" with their prompt and seed. Returns the new image ids and shows you a small preview of the first one. Costs time — and money if the configured model is a paid API — so confirm with the user before generating batches. Fails with a clear message when no image model is configured.',
+    writes: true,
+    timeoutMs: 600_000,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        prompt: s('What to draw, in the language the model works best in (usually English), with style, subject, setting and mood.'),
+        negativePrompt: s('What to avoid. Only honoured by servers that support it.'),
+        size: s('Aspect preset. Default "square" (1024×1024).', {
+          enum: ['square', 'landscape', 'portrait', 'wide', 'tall', 'cover', 'banner', 'small'],
+        }),
+        count: n('How many variants, 1-4. Default 1.'),
+        seed: n('Seed for reproducible results, when the server supports it.'),
+        quality: s('"low", "medium" or "high" — servers that understand it trade time for detail.', { enum: ['low', 'medium', 'high'] }),
+        collectionId: s('Gallery collection to file the images under (from wh_list_images). Optional.'),
+        tags: arr('Extra tags besides "generated".'),
+      },
+      required: ['prompt'],
       additionalProperties: false,
     },
   },

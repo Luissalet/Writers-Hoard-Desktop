@@ -24,6 +24,7 @@ import type { WritingSession, WritingGoal } from '@/engines/writing-stats/types'
 import type { CharacterArc, ArcBeat } from '@/engines/character-arc/types';
 import type { Relationship } from '@/engines/relationships/types';
 import type { Seed, Payoff } from '@/engines/seeds/types';
+import type { AtlasDivergence, AtlasPlace } from '@/engines/real-atlas/types';
 import type { Annotation, AnnotationReference } from '@/engines/annotations/types';
 import type { WritingSnapshot } from '@/engines/writings/snapshotTypes';
 import type { CanonTileRow, GeneratedWorld, RenderedTileRow, WorldSnapshot, WorldWaypoint } from '@/engines/worldgen/types';
@@ -36,6 +37,7 @@ import type {
   PublishingProfile,
 } from '@/types/projectTools';
 import { legacyLinksToSnapshots } from '@/engines/scrapper/legacyLinks';
+import type { AiMessage, AiProjectSettings, AiThread } from '@/services/copilot/types';
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -51,6 +53,8 @@ export class WritersHoardDB extends Dexie {
   boardViews!: Table<BoardView>;
   worldMaps!: Table<WorldMap>;
   mapPins!: Table<MapPin>;
+  atlasPlaces!: Table<AtlasPlace>;
+  atlasDivergences!: Table<AtlasDivergence>;
   imageCollections!: Table<ImageCollection>;
   inspirationImages!: Table<InspirationImage>;
   tags!: Table<Tag>;
@@ -89,6 +93,9 @@ export class WritersHoardDB extends Dexie {
   citations!: Table<Citation>;
   publishingProfiles!: Table<PublishingProfile>;
   conversionReceipts!: Table<ConversionReceipt>;
+  aiThreads!: Table<AiThread>;
+  aiMessages!: Table<AiMessage>;
+  aiProjectSettings!: Table<AiProjectSettings>;
 
   constructor() {
     super('WritersHoardDB');
@@ -778,6 +785,27 @@ export class WritersHoardDB extends Dexie {
     // registry — see `engines/worldgen/renderedSnapshots.ts` for the door.
     this.version(26).stores({
       renderedTiles: 'id, worldId, savedAt',
+    });
+
+    // v27: the in-app copilot's conversations and per-project AI preferences
+    // (model route, permission level, remote consent). Project-scoped like
+    // every other user table, so deleteProject sweeps them and the
+    // `ai-assistant` backup strategy carries them in the ZIP. Keys, model
+    // weights and full tool payloads are deliberately NOT here — see
+    // services/copilot/types.ts.
+    this.version(27).stores({
+      aiThreads: 'id, projectId, updatedAt',
+      aiMessages: 'id, threadId, projectId, createdAt, role',
+      aiProjectSettings: 'projectId, updatedAt',
+    });
+
+    // v28: the real atlas — places of the real world the book uses (with
+    // coordinates and checked facts) and the deliberate departures from
+    // reality. Authoritative rows, unlike the world generator's derived
+    // places; see engines/real-atlas/types.ts.
+    this.version(28).stores({
+      atlasPlaces: 'id, projectId, parentId, kind, name',
+      atlasDivergences: 'id, projectId, placeId, category',
     });
   }
 }

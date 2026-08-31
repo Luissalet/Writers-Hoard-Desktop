@@ -3,7 +3,7 @@
 // ============================================
 
 // Project Mode (determines which engines are visible by default)
-export type ProjectMode = 'essentials' | 'novelist' | 'biographer' | 'reporter' | 'playwright' | 'content-creator' | 'custom';
+export type ProjectMode = 'essentials' | 'novelist' | 'realist' | 'biographer' | 'reporter' | 'playwright' | 'content-creator' | 'custom';
 
 // Project (Bubble)
 export interface Project {
@@ -145,6 +145,23 @@ export interface InspirationImage {
   notes: string;
   linkedEntryId?: string; // deprecated, use linkedEntryIds
   linkedEntryIds?: string[]; // IDs of codex entries linked to this image
+  createdAt: number;
+  /** Absent means uploaded by hand; 'generated' rows come from the image studio. */
+  source?: 'uploaded' | 'generated';
+  /** Provenance of a generated image: enough to regenerate or credit it. */
+  generation?: ImageGenerationInfo;
+}
+
+export interface ImageGenerationInfo {
+  prompt: string;
+  negativePrompt?: string;
+  connectionId: string;
+  modelId: string;
+  seed?: number;
+  width: number;
+  height: number;
+  quality?: string;
+  steps?: number;
   createdAt: number;
 }
 

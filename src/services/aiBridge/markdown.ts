@@ -80,6 +80,8 @@ function inline(text: string): string {
 interface ListFrame {
   ordered: boolean;
   indent: number;
+  /** An <li> is open: a deeper list nests inside it, a sibling item closes it. */
+  open: boolean;
 }
 
 /**
@@ -100,6 +102,7 @@ export function markdownToTiptapHtml(markdown: string): string {
   const closeLists = (toIndent = -1): void => {
     while (listStack.length && listStack[listStack.length - 1].indent > toIndent) {
       const frame = listStack.pop();
+      if (frame?.open) out.push('</li>');
       out.push(frame?.ordered ? '</ol>' : '</ul>');
     }
   };
@@ -170,26 +173,37 @@ export function markdownToTiptapHtml(markdown: string): string {
     }
 
     const bullet = /^(\s*)[-*+]\s+(.*)$/.exec(line);
-    const ordered = /^(\s*)\d+[.)]\s+(.*)$/.exec(line);
+    const ordered = /^(\s*)(\d+)[.)]\s+(.*)$/.exec(line);
     const item = bullet ?? ordered;
     if (item) {
       flushParagraph();
       flushQuote();
-      const indent = item[1].length;
+      let indent = item[1].length;
       const isOrdered = Boolean(ordered);
+      const text = (ordered ? ordered[3] : item[2]).trim();
+      // Models write "1. Marta" then "- age: 34" flush left, meaning the bullet
+      // belongs to the item above. CommonMark would start a new list and the
+      // numbering would restart at 1 for every entry; read it as nesting.
+      const sibling = listStack.find((frame) => frame.indent === indent);
+      if (bullet && sibling?.ordered && sibling.open) indent = sibling.indent + 2;
       closeLists(indent);
       const top = listStack[listStack.length - 1];
       if (!top || top.indent < indent) {
-        listStack.push({ ordered: isOrdered, indent });
-        out.push(isOrdered ? '<ol>' : '<ul>');
+        const start = ordered ? Number(ordered[2]) : 1;
+        listStack.push({ ordered: isOrdered, indent, open: false });
+        out.push(isOrdered ? (start > 1 ? `<ol start="${start}">` : '<ol>') : '<ul>');
       } else if (top.ordered !== isOrdered) {
         // A different marker at the same depth starts a different list.
         listStack.pop();
+        if (top.open) out.push('</li>');
         out.push(top.ordered ? '</ol>' : '</ul>');
-        listStack.push({ ordered: isOrdered, indent });
+        listStack.push({ ordered: isOrdered, indent, open: false });
         out.push(isOrdered ? '<ol>' : '<ul>');
       }
-      out.push(`<li><p>${inline(item[2].trim())}</p></li>`);
+      const frame = listStack[listStack.length - 1];
+      if (frame.open) out.push('</li>');
+      out.push(`<li><p>${inline(text)}</p>`);
+      frame.open = true;
       continue;
     }
 

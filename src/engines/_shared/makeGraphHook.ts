@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { onDataChanged } from './dataChanged';
 
 /**
  * Options for makeGraphHook factory.
@@ -128,6 +129,9 @@ export function makeGraphHook<N, E>(
     useEffect(() => {
       refresh();
     }, [refresh]);
+
+    // And on writes that went around this hook (AI bridge, copilot, undo).
+    useEffect(() => onDataChanged(() => { void refresh(); }), [refresh]);
 
     const runMutation = useCallback(async (operation: () => Promise<unknown>) => {
       setError(null);

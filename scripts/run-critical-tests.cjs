@@ -26,6 +26,10 @@ async function main() {
     platform: 'node',
     format: 'cjs',
     target: 'node20',
+    // The bundle runs inside Electron's main process: `electron` must resolve
+    // to the real module there, not to the npm package (whose export is the
+    // path of the binary).
+    external: ['electron'],
     logLevel: 'warning',
   });
   const { runElectronSecurityTests } = require(nativeBundlePath);

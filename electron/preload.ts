@@ -9,6 +9,23 @@
 // The matching renderer-side type declaration lives in src/electron-env.d.ts.
 
 import { contextBridge, ipcRenderer } from 'electron';
+import type {
+  AiChatRequest,
+  AiCompleteResult,
+  AiConnectionInput,
+  AiConnectionSummary,
+  AiDefaults,
+  AiDiscoveredServer,
+  AiImageRequest,
+  AiImageResult,
+  AiModelDescriptor,
+  AiProbeResult,
+  AiRouteSelection,
+  AiStreamEvent,
+  HardwareProfile,
+} from '@/services/aiRuntime/types';
+import type { CopilotEvent, CopilotRunRequest } from '@/services/aiRuntime/copilot';
+import type { SdBackend, SdOpResult, SdProgress, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
 
 /** Result of a native "save file" flow. */
 interface SaveResult {
@@ -388,6 +405,101 @@ const api = {
       ipcRenderer.invoke('aibridge:readAudit', limit),
     undo: (index: number): Promise<AiBridgeUndoResult> =>
       ipcRenderer.invoke('aibridge:undo', index),
+  },
+
+  // ---- AI runtime --------------------------------------------------------
+  // Connections by IP/URL, model discovery, hardware fit and streaming
+  // inference. The renderer names a connection id; main holds the URL and
+  // the (encrypted) key. Streams: pick a request id, subscribe, then invoke.
+  ai: {
+    listConnections: (): Promise<AiConnectionSummary[]> => ipcRenderer.invoke('ai:listConnections'),
+    saveConnection: (
+      input: AiConnectionInput,
+    ): Promise<{ ok: true; connection: AiConnectionSummary } | { ok: false; code: string; error: string }> =>
+      ipcRenderer.invoke('ai:saveConnection', input),
+    deleteConnection: (id: string): Promise<boolean> => ipcRenderer.invoke('ai:deleteConnection', id),
+    setSecret: (
+      id: string,
+      secret: string,
+    ): Promise<{ ok: true; connection: AiConnectionSummary } | { ok: false; code: string; error: string }> =>
+      ipcRenderer.invoke('ai:setSecret', { id, secret }),
+    probe: (id: string): Promise<AiProbeResult> => ipcRenderer.invoke('ai:probe', id),
+    listModels: (
+      connectionId: string,
+      refresh?: boolean,
+    ): Promise<{ ok: boolean; models: AiModelDescriptor[]; code?: string; error?: string }> =>
+      ipcRenderer.invoke('ai:listModels', { connectionId, refresh: refresh === true }),
+    discoverLocal: (): Promise<AiDiscoveredServer[]> => ipcRenderer.invoke('ai:discoverLocal'),
+    hardware: (force?: boolean): Promise<HardwareProfile> => ipcRenderer.invoke('ai:hardware', force === true),
+    getDefaults: (): Promise<AiDefaults> => ipcRenderer.invoke('ai:getDefaults'),
+    setDefault: (kind: 'chat' | 'image', route: AiRouteSelection | null): Promise<AiDefaults> =>
+      ipcRenderer.invoke('ai:setDefault', { kind, route }),
+    setModelOverride: (
+      connectionId: string,
+      modelId: string,
+      override: { tools?: boolean; vision?: boolean; image?: boolean } | null,
+    ): Promise<void> => ipcRenderer.invoke('ai:setModelOverride', { connectionId, modelId, override }),
+    legacyMigrated: (mark?: boolean): Promise<boolean> => ipcRenderer.invoke('ai:legacyMigrated', mark === true),
+    chat: (requestId: string, request: AiChatRequest): Promise<{ ok: boolean; requestId?: string; error?: string }> =>
+      ipcRenderer.invoke('ai:chat', { requestId, request }),
+    complete: (request: AiChatRequest): Promise<AiCompleteResult> => ipcRenderer.invoke('ai:complete', request),
+    cancel: (requestId: string): Promise<boolean> => ipcRenderer.invoke('ai:cancel', requestId),
+    generateImage: (
+      requestId: string,
+      request: AiImageRequest,
+    ): Promise<{ ok: boolean; requestId?: string; error?: string }> =>
+      ipcRenderer.invoke('ai:generateImage', { requestId, request }),
+    onStream: (callback: (payload: { requestId: string; event: AiStreamEvent }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { requestId: string; event: AiStreamEvent }) => callback(payload);
+      ipcRenderer.on('ai:stream', listener);
+      return () => ipcRenderer.removeListener('ai:stream', listener);
+    },
+    onImageDone: (callback: (payload: { requestId: string; result: AiImageResult }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { requestId: string; result: AiImageResult }) => callback(payload);
+      ipcRenderer.on('ai:image-done', listener);
+      return () => ipcRenderer.removeListener('ai:image-done', listener);
+    },
+  },
+
+  // ---- Local image runtime -----------------------------------------------
+  // The managed stable-diffusion.cpp server: pinned binaries, catalogue
+  // weights, one loaded model. Everything downloads into userData; nothing
+  // here takes a URL from the renderer.
+  sd: {
+    status: (): Promise<SdRuntimeStatus> => ipcRenderer.invoke('sd:status'),
+    installRuntime: (backend?: SdBackend): Promise<SdOpResult> => ipcRenderer.invoke('sd:installRuntime', backend),
+    cancelInstall: (): Promise<void> => ipcRenderer.invoke('sd:cancelInstall'),
+    removeRuntime: (): Promise<SdOpResult> => ipcRenderer.invoke('sd:removeRuntime'),
+    downloadModel: (id: string): Promise<SdOpResult> => ipcRenderer.invoke('sd:downloadModel', id),
+    cancelDownload: (id: string): Promise<void> => ipcRenderer.invoke('sd:cancelDownload', id),
+    deleteModel: (id: string): Promise<SdOpResult> => ipcRenderer.invoke('sd:deleteModel', id),
+    stop: (): Promise<SdRuntimeStatus> => ipcRenderer.invoke('sd:stop'),
+    onStatus: (callback: (status: SdRuntimeStatus) => void): (() => void) => {
+      const listener = (_e: unknown, status: SdRuntimeStatus) => callback(status);
+      ipcRenderer.on('sd:status', listener);
+      return () => ipcRenderer.removeListener('sd:status', listener);
+    },
+    onProgress: (callback: (progress: SdProgress) => void): (() => void) => {
+      const listener = (_e: unknown, progress: SdProgress) => callback(progress);
+      ipcRenderer.on('sd:progress', listener);
+      return () => ipcRenderer.removeListener('sd:progress', listener);
+    },
+  },
+
+  // ---- Copilot -----------------------------------------------------------
+  // One user turn → a run in main (agent loop + shared tool executor) → a
+  // stream of events back. Approvals for writes answer through `approve`.
+  copilot: {
+    run: (request: CopilotRunRequest): Promise<{ ok: boolean; runId?: string; error?: string }> =>
+      ipcRenderer.invoke('copilot:run', request),
+    cancel: (runId: string): Promise<boolean> => ipcRenderer.invoke('copilot:cancel', runId),
+    approve: (runId: string, callId: string, approved: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('copilot:approve', { runId, callId, approved }),
+    onEvent: (callback: (payload: { runId: string; event: CopilotEvent }) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { runId: string; event: CopilotEvent }) => callback(payload);
+      ipcRenderer.on('copilot:event', listener);
+      return () => ipcRenderer.removeListener('copilot:event', listener);
+    },
   },
 };
 

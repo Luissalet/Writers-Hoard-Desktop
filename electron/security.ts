@@ -45,6 +45,39 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'aibridge:regenerateToken': ['main'],
   'aibridge:readAudit': ['main'],
   'aibridge:undo': ['main'],
+  // AI runtime: connections by IP/URL, model discovery, streaming inference
+  // and the in-app copilot. Main owns every URL and key; the renderer only
+  // ever names a connection id. Push channels (ai:stream, ai:image-done,
+  // copilot:event) go main → renderer and need no entry here.
+  'ai:listConnections': ['main'],
+  'ai:saveConnection': ['main'],
+  'ai:deleteConnection': ['main'],
+  'ai:setSecret': ['main'],
+  'ai:probe': ['main'],
+  'ai:listModels': ['main'],
+  'ai:discoverLocal': ['main'],
+  'ai:hardware': ['main'],
+  'ai:getDefaults': ['main'],
+  'ai:setDefault': ['main'],
+  'ai:setModelOverride': ['main'],
+  'ai:legacyMigrated': ['main'],
+  'ai:chat': ['main'],
+  'ai:complete': ['main'],
+  'ai:cancel': ['main'],
+  'ai:generateImage': ['main'],
+  'copilot:run': ['main'],
+  'copilot:cancel': ['main'],
+  'copilot:approve': ['main'],
+  // Managed local image runtime (stable-diffusion.cpp). Push channels
+  // sd:status and sd:progress go main → renderer and need no entry here.
+  'sd:status': ['main'],
+  'sd:installRuntime': ['main'],
+  'sd:cancelInstall': ['main'],
+  'sd:removeRuntime': ['main'],
+  'sd:downloadModel': ['main'],
+  'sd:cancelDownload': ['main'],
+  'sd:deleteModel': ['main'],
+  'sd:stop': ['main'],
   'forge:spawn': ['main'],
   // The shared preload requests this synchronously while both trusted windows
   // initialize. The quick-note renderer does not use the value afterwards.
