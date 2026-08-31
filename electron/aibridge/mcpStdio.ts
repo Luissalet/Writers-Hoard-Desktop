@@ -21,6 +21,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { BRIDGE_INSTRUCTIONS, BRIDGE_TOOLS, selectTools } from '@/services/aiBridge/manifest';
+import { toolAnnotations } from '@/services/aiRuntime/toolPolicy';
 import { buildToolResult } from './mcpContent';
 
 const SERVER_NAME = 'writers-hoard';
@@ -98,8 +99,11 @@ function request(
         timeout: timeoutMs,
       },
       (res) => {
+        // Decode with a StringDecoder so a multibyte character split across two
+        // chunks is not corrupted (per-chunk `+= chunk` would U+FFFD each half).
+        res.setEncoding('utf8');
         let raw = '';
-        res.on('data', (chunk) => {
+        res.on('data', (chunk: string) => {
           raw += chunk;
         });
         res.on('end', () => {
@@ -165,6 +169,9 @@ async function listTools(): Promise<unknown[]> {
     name: tool.name,
     description: tool.description,
     inputSchema: tool.schema,
+    // MCP tool annotations: a client with a "read-only tools run without
+    // asking" setting (Odysseus has one) gets to classify ours correctly.
+    annotations: toolAnnotations(tool),
   }));
 }
 
@@ -244,6 +251,9 @@ export async function handleRpc(message: Record<string, unknown>): Promise<void>
   }
 }
 
+/** One JSON-RPC line is bounded; a client streaming without a newline must not grow the buffer without limit. */
+const MAX_RPC_LINE_BYTES = 8 * 1024 * 1024;
+
 /** Read newline-delimited JSON-RPC from stdin until the client hangs up. */
 function main(): void {
   let buffer = '';
@@ -262,6 +272,10 @@ function main(): void {
         }
       }
       newline = buffer.indexOf('\n');
+    }
+    if (buffer.length > MAX_RPC_LINE_BYTES) {
+      buffer = '';
+      fail(null, -32700, 'Parse error');
     }
   });
   process.stdin.on('end', () => process.exit(0));

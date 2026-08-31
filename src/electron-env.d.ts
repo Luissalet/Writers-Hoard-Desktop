@@ -1,6 +1,24 @@
 // Renderer-side type for the bridge exposed by electron/preload.ts.
 // Present only in the desktop shell; always optional in the web build.
 
+import type {
+  AiChatRequest,
+  AiCompleteResult,
+  AiConnectionInput,
+  AiConnectionSummary,
+  AiDefaults,
+  AiDiscoveredServer,
+  AiImageRequest,
+  AiImageResult,
+  AiModelDescriptor,
+  AiProbeResult,
+  AiRouteSelection,
+  AiStreamEvent,
+  HardwareProfile,
+} from '@/services/aiRuntime/types';
+import type { CopilotEvent, CopilotRunRequest } from '@/services/aiRuntime/copilot';
+import type { SdBackend, SdOpResult, SdProgress, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
+
 export interface SaveResult {
   ok: boolean;
   canceled?: boolean;
@@ -291,6 +309,65 @@ export interface ElectronAPI {
     regenerateToken: () => Promise<AiBridgeInfo>;
     readAudit: (limit?: number) => Promise<AiBridgeAuditEntry[]>;
     undo: (index: number) => Promise<AiBridgeUndoResult>;
+  };
+
+  /** AI runtime: connections by IP/URL, models, hardware fit, streaming. See electron/ai/. */
+  ai: {
+    listConnections: () => Promise<AiConnectionSummary[]>;
+    saveConnection: (
+      input: AiConnectionInput,
+    ) => Promise<{ ok: true; connection: AiConnectionSummary } | { ok: false; code: string; error: string }>;
+    deleteConnection: (id: string) => Promise<boolean>;
+    setSecret: (
+      id: string,
+      secret: string,
+    ) => Promise<{ ok: true; connection: AiConnectionSummary } | { ok: false; code: string; error: string }>;
+    probe: (id: string) => Promise<AiProbeResult>;
+    listModels: (
+      connectionId: string,
+      refresh?: boolean,
+    ) => Promise<{ ok: boolean; models: AiModelDescriptor[]; code?: string; error?: string }>;
+    discoverLocal: () => Promise<AiDiscoveredServer[]>;
+    hardware: (force?: boolean) => Promise<HardwareProfile>;
+    getDefaults: () => Promise<AiDefaults>;
+    setDefault: (kind: 'chat' | 'image', route: AiRouteSelection | null) => Promise<AiDefaults>;
+    setModelOverride: (
+      connectionId: string,
+      modelId: string,
+      override: { tools?: boolean; vision?: boolean; image?: boolean } | null,
+    ) => Promise<void>;
+    legacyMigrated: (mark?: boolean) => Promise<boolean>;
+    chat: (requestId: string, request: AiChatRequest) => Promise<{ ok: boolean; requestId?: string; error?: string }>;
+    complete: (request: AiChatRequest) => Promise<AiCompleteResult>;
+    cancel: (requestId: string) => Promise<boolean>;
+    generateImage: (
+      requestId: string,
+      request: AiImageRequest,
+    ) => Promise<{ ok: boolean; requestId?: string; error?: string }>;
+    onStream: (callback: (payload: { requestId: string; event: AiStreamEvent }) => void) => () => void;
+    onImageDone: (callback: (payload: { requestId: string; result: AiImageResult }) => void) => () => void;
+  };
+
+  /** Managed local image runtime (stable-diffusion.cpp). See electron/ai/sdRuntime.ts. */
+  sd: {
+    status: () => Promise<SdRuntimeStatus>;
+    installRuntime: (backend?: SdBackend) => Promise<SdOpResult>;
+    cancelInstall: () => Promise<void>;
+    removeRuntime: () => Promise<SdOpResult>;
+    downloadModel: (id: string) => Promise<SdOpResult>;
+    cancelDownload: (id: string) => Promise<void>;
+    deleteModel: (id: string) => Promise<SdOpResult>;
+    stop: () => Promise<SdRuntimeStatus>;
+    onStatus: (callback: (status: SdRuntimeStatus) => void) => () => void;
+    onProgress: (callback: (progress: SdProgress) => void) => () => void;
+  };
+
+  /** In-app copilot: one turn per run, events streamed back. See electron/ai/agentLoop.ts. */
+  copilot: {
+    run: (request: CopilotRunRequest) => Promise<{ ok: boolean; runId?: string; error?: string }>;
+    cancel: (runId: string) => Promise<boolean>;
+    approve: (runId: string, callId: string, approved: boolean) => Promise<boolean>;
+    onEvent: (callback: (payload: { runId: string; event: CopilotEvent }) => void) => () => void;
   };
 }
 

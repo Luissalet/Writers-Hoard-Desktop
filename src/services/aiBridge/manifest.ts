@@ -35,12 +35,15 @@ import {
   BOARD_TOOLS,
   DIALOG_TOOLS,
   GALLERY_TOOLS,
+  IMAGE_STUDIO_TOOLS,
   MAP_TOOLS,
+  REAL_ATLAS_TOOLS,
   RELATIONSHIP_TOOLS,
   SEED_TOOLS,
   STATS_TOOLS,
   STORYBOARD_TOOLS,
   VIDEO_TOOLS,
+  WORLDGEN_TOOLS,
 } from './manifestEngines';
 
 export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
@@ -55,14 +58,13 @@ export const TEMPLATE_IDS = BEAT_SHEET_TEMPLATES.map((template) => template.id);
  * Written out rather than read from `engines/_registry`, which imports React
  * icons and would drag the whole renderer into the main process. The list is
  * therefore a copy, and `tests/ai-bridge.ts` compares it against the live
- * registry so it cannot drift. `worldgen` is registered in the app but has no
- * tools here, so turning it on from a model would promise nothing.
+ * registry so it cannot drift: every engine the app registers has tools here.
  */
 export const BRIDGE_ENGINE_IDS = [
   'writings', 'codex', 'diary', 'timeline', 'outline', 'notes', 'scrapper',
   'dialog-scene', 'character-arc', 'relationships', 'seeds', 'biography',
   'board', 'gallery', 'maps', 'storyboard', 'video-planner', 'annotations',
-  'pov-audit', 'writing-stats',
+  'pov-audit', 'writing-stats', 'image-studio', 'worldgen', 'real-atlas',
 ];
 
 // ---------------------------------------------------------------------------
@@ -116,6 +118,7 @@ const CONTEXT_TOOLS: BridgeTool[] = [
             'seed', 'payoff', 'arc', 'arc-beat', 'relationship', 'biography',
             'biography-fact', 'board', 'board-card', 'snapshot', 'image', 'map-pin',
             'storyboard', 'panel', 'video-plan', 'video-segment', 'annotation',
+            'generated-world', 'world-waypoint', 'atlas-place', 'divergence',
           ],
         }),
         id: s('Id of the thing to delete.'),
@@ -128,7 +131,7 @@ const CONTEXT_TOOLS: BridgeTool[] = [
   {
     name: 'wh_search',
     description:
-      'Full-text search across the project\'s prose: manuscripts, codex entries, diary entries, dialog scenes, web clippings, notes, outline beats, seeds and payoffs, character arcs and their beats, relationships, biography facts, timeline events, map pins and margin notes. Searches the BODY, not just titles, and returns a snippet plus the engine and id of each hit — the right first move for almost any question about the user\'s material. Picture-based engines (board cards, gallery, storyboard, video planner) are NOT in this index; reach those through their own wh_list_* tools.',
+      'Full-text search across the project\'s prose: manuscripts, codex entries, diary entries, dialog scenes, web clippings, notes, outline beats, seeds and payoffs, character arcs and their beats, relationships, biography facts, timeline events, map pins, real-atlas places and divergences, and margin notes. Searches the BODY, not just titles, and returns a snippet plus the engine and id of each hit — the right first move for almost any question about the user\'s material. Picture-based engines (board cards, gallery, storyboard, video planner) are NOT in this index; reach those through their own wh_list_* tools.',
     writes: false,
     schema: {
       type: 'object',
@@ -825,7 +828,10 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('script', inEngine('dialog-scene', DIALOG_TOOLS)),
   ...grouped('visual', inEngine('board', BOARD_TOOLS)),
   ...grouped('visual', inEngine('gallery', GALLERY_TOOLS)),
+  ...grouped('visual', inEngine('image-studio', IMAGE_STUDIO_TOOLS)),
   ...grouped('visual', inEngine('maps', MAP_TOOLS)),
+  ...grouped('visual', inEngine('worldgen', WORLDGEN_TOOLS)),
+  ...grouped('visual', inEngine('real-atlas', REAL_ATLAS_TOOLS)),
   ...grouped('visual', inEngine('storyboard', STORYBOARD_TOOLS)),
   ...grouped('visual', inEngine('video-planner', VIDEO_TOOLS)),
   ...grouped('research', inEngine('scrapper', SCRAPPER_TOOLS)),
@@ -887,11 +893,18 @@ Its data is organised as PROJECTS. Inside a project sit several engines:
 - Biography — a documented life, fact by fact, each with a confidence and a source.
 - Board — a corkboard: cards on a canvas with labelled threads between them.
 - Gallery, Maps, Storyboard, Video planner — reference images, pinned places, shot grids and spoken scripts.
+- World generator — procedurally generated planets: terrain, climate, realms, settlements, ruins and landmarks, plus the reader's own edits (renamed and placed towns, labels) and waypoints.
+- Real atlas — the story's real-world setting: places with coordinates and checked facts, and the deliberate divergences from reality.
 - Annotations — margin notes anchored to an exact phrase somewhere else in the project.
+- Image studio — pictures generated from a prompt with the model configured in AI settings; they are filed in the Gallery with their prompt and seed.
 
 Not every project has every engine. A project shows only the engines it has switched on, and its own search only looks at those — so writing into a switched-off engine is refused rather than quietly filed somewhere the writer will never see. wh_get_context and wh_list_projects both report enabledEngines; wh_enable_engine turns one on. Turning an engine on changes the writer's workspace, so if it is not obvious they want it, ask.
 
 Containers before contents: outlines, boards, storyboards, video plans and timelines hold everything else in their engine. If wh_list_* comes back empty, create one (wh_create_outline, wh_create_board, wh_create_storyboard, wh_create_video_plan, wh_create_timeline) rather than concluding the engine is unusable. wh_create_outline can lay down a whole beat sheet in one call.
+
+Generated worlds work differently from everything above. Their places are not rows: each has a stable key of the form kind:x,y — settlement:512,201, ruin:88,140, a landmark carries its type as landmark:volcano:12,6, a realm realm:3:0,0 — which you get from wh_list_places, wh_find_place or wh_place_at and never invent (wh_search does not index worlds; wh_find_place is their search). Coordinates are world cells: x runs 0..width-1 west to east, y runs 0..height-1 north to south (height is width/2), and every place also carries normalised u,v in 0..1, which is what waypoints use. Placing, renaming, moving, removing and labelling are edits appended to the world's edit list — the same list the writer's own brushes write — so they show up in an open view at once and can be undone; a removed place can be brought back with wh_restore_place. A world that was never opened on this machine may answer { pending: true, code: "generating" } once: it is being forged in the background, so wait about 30 seconds and call again rather than treating it as a failure.
+
+The real atlas is the opposite case: the story's REAL setting, for a project set in the real world — a historical novel, a crime story in an actual city, alternate history. Its places are ordinary rows: a name, WGS84 coordinates or an address, an era, the facts the writer has checked (realNotes) and where they came from; a place marked fictional is one the writer invented inside the real world. Divergences are deliberate departures from reality — what is actually the case, what the book says instead, and why — anchored to a place when the change is local and free-standing when it is global. Run wh_reality_check before claiming the setting is consistent or well researched. wh_search finds places and divergences by their prose; the wh_*_atlas_place and wh_*_divergence tools are for the facts themselves.
 
 How to work here:
 1. Start with wh_get_context. It tells you which project and which engine the writer is looking at, so "this chapter" and "her" resolve to something real.

@@ -1,4 +1,6 @@
 export { makeEntityHook } from './makeEntityHook';
+export { DATA_CHANGED_EVENT, notifyDataChanged, onDataChanged } from './dataChanged';
+export type { DataChangedDetail } from './dataChanged';
 export { makeGraphHook } from './makeGraphHook';
 export { makeReadOnlyHook } from './makeReadOnlyHook';
 export { makeTableOps } from './makeTableOps';

@@ -1,11 +1,23 @@
 // ============================================
-// AI Service — via CLIProxyAPI (OpenAI-compatible format)
+// AI Service — one door for the classic features
 // ============================================
+//
+// On the desktop every call goes through the main-process gateway by
+// connection id: the default chat route from AI settings (a server by IP, the
+// managed Ollama, the CLIProxyAPI proxy…). The renderer never fetches a model
+// server itself. The web build keeps the historical direct proxy call, since
+// it has no main process to delegate to.
 
 import type { AiConfig } from '@/types';
 import { DEFAULT_AI_CONFIG } from '@/config/ai';
 import { sanitizeModelText } from './aiText';
 import { t } from '@/i18n/useTranslation';
+import { aiApi } from './aiRuntime/client';
+import { useAiRuntimeStore } from '@/stores/aiRuntimeStore';
+import { DEFAULT_CONTEXT_TOKENS } from './aiRuntime/constants';
+import { pickBestChatModel } from './aiRuntime/pickModel';
+import type { AiCompleteResult, AiRouteSelection } from './aiRuntime/types';
+import { toast } from '@/components/common/toast';
 
 /**
  * Local-provider failure whose message is ALREADY user-facing (translated).
@@ -13,13 +25,39 @@ import { t } from '@/i18n/useTranslation';
  */
 export class LocalAiError extends Error {}
 
+const UNAVAILABLE_CODES = new Set(['no-connection', 'model-missing', 'connection-disabled', 'unreachable', 'timeout']);
+/** Routes already announced as replaced this session — one toast per route, not per call. */
+const announcedFallbacks = new Set<string>();
+
+/**
+ * The best model this machine serves itself, other than `exclude` — what the
+ * classic features fall back to when the configured route is a proxy that is
+ * not running. Tools are not required: a summary needs none.
+ */
+export async function localFallbackRoute(exclude: AiRouteSelection): Promise<AiRouteSelection | null> {
+  const store = useAiRuntimeStore.getState();
+  if (!store.connectionsLoaded) await store.loadConnections();
+  const local = useAiRuntimeStore
+    .getState()
+    .connections.filter((c) => c.enabled && c.kind !== 'sdcpp' && (c.locality === 'embedded' || c.locality === 'loopback'));
+  await Promise.all(local.map((c) => store.loadModels(c.id).catch(() => [])));
+  const state = useAiRuntimeStore.getState();
+  const models = local
+    .flatMap((c) => state.modelsByConnection[c.id]?.models ?? [])
+    .filter((m) => !(m.connectionId === exclude.connectionId && m.id === exclude.modelId));
+  const best = pickBestChatModel(models, state.hardware, { requireTools: false, contextTokens: DEFAULT_CONTEXT_TOKENS });
+  return best ? { connectionId: best.model.connectionId, modelId: best.model.id } : null;
+}
+
 /**
  * Base function for all AI calls.
  *
- * provider 'proxy' → OpenAI-compatible chat completions against CLIProxyAPI
- * (NOT Anthropic's native format), exactly as always.
- * provider 'local' → the embedded Ollama runtime, through the main process
- * (the packaged renderer is file:// and Ollama's CORS rejects null origins).
+ * Desktop: the gateway, addressed by the default chat route. When that route
+ * cannot answer (a proxy that is switched off, a model that was deleted), the
+ * call is retried once on the best local model and the user is told which.
+ * Without a route the legacy paths still work (provider 'local' → the managed
+ * Ollama over IPC; 'proxy' → direct fetch), so nothing configured before the
+ * settings page existed stops working.
  */
 export async function callAi(
   systemPrompt: string,
@@ -28,6 +66,47 @@ export async function callAi(
 ): Promise<string> {
   if (!config.enabled) {
     throw new Error(t('ai.disabled'));
+  }
+
+  const api = aiApi();
+  const route = useAiRuntimeStore.getState().defaults.chat;
+  if (api && route) {
+    const completeWith = (target: AiRouteSelection): Promise<AiCompleteResult> =>
+      api.complete({
+        connectionId: target.connectionId,
+        modelId: target.modelId,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        maxTokens: 4096,
+        contextTokens: DEFAULT_CONTEXT_TOKENS,
+      });
+    let res = await completeWith(route);
+    if ((!res.ok || res.content == null) && res.code && UNAVAILABLE_CODES.has(res.code)) {
+      const fallback = await localFallbackRoute(route);
+      if (fallback) {
+        const retried = await completeWith(fallback);
+        if (retried.ok && retried.content != null) {
+          const key = `${route.connectionId}::${route.modelId}`;
+          if (!announcedFallbacks.has(key)) {
+            announcedFallbacks.add(key);
+            toast.info(t('ai.fallbackNotice').replace('{failed}', route.modelId).replace('{model}', fallback.modelId), 6000);
+          }
+          res = retried;
+        }
+      }
+    }
+    if (!res.ok || res.content == null) {
+      if (res.code === 'no-connection' || res.code === 'model-missing' || res.code === 'connection-disabled') {
+        throw new LocalAiError(t('ai.routeNotReady'));
+      }
+      if (res.code === 'unreachable' || res.code === 'timeout') {
+        throw new LocalAiError(`${t('ai.serverUnreachable')} ${res.error ?? ''}`.trim());
+      }
+      throw new Error(res.error || 'AI request failed');
+    }
+    return sanitizeModelText(res.content);
   }
 
   if (config.provider === 'local') {
@@ -72,7 +151,55 @@ export async function callAi(
 }
 
 /**
- * Check if CLIProxyAPI is running and accessible.
+ * One-shot, non-streaming completion on an EXPLICIT route — for features that
+ * must honour a per-project model choice (e.g. the project's chat model) rather
+ * than the global default that `callAi` uses. Desktop only (needs the gateway);
+ * falls back to the best local model when the route can't answer, like callAi.
+ */
+export async function completeOnRoute(
+  route: AiRouteSelection,
+  systemPrompt: string,
+  userMessage: string,
+  maxTokens = 1024,
+  options: { releaseAfter?: boolean } = {},
+): Promise<string> {
+  const api = aiApi();
+  if (!api) throw new LocalAiError(t('ai.localNotReady'));
+  const completeWith = (target: AiRouteSelection): Promise<AiCompleteResult> =>
+    api.complete({
+      connectionId: target.connectionId,
+      modelId: target.modelId,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+      maxTokens,
+      contextTokens: DEFAULT_CONTEXT_TOKENS,
+      ...(options.releaseAfter ? { releaseAfter: true } : {}),
+    });
+  let res = await completeWith(route);
+  if ((!res.ok || res.content == null) && res.code && UNAVAILABLE_CODES.has(res.code)) {
+    const fallback = await localFallbackRoute(route);
+    if (fallback) {
+      const retried = await completeWith(fallback);
+      if (retried.ok && retried.content != null) res = retried;
+    }
+  }
+  if (!res.ok || res.content == null) {
+    if (res.code === 'no-connection' || res.code === 'model-missing' || res.code === 'connection-disabled') {
+      throw new LocalAiError(t('ai.routeNotReady'));
+    }
+    if (res.code === 'unreachable' || res.code === 'timeout') {
+      throw new LocalAiError(`${t('ai.serverUnreachable')} ${res.error ?? ''}`.trim());
+    }
+    throw new Error(res.error || 'AI request failed');
+  }
+  return sanitizeModelText(res.content);
+}
+
+/**
+ * Check if an OpenAI-compatible proxy is running and accessible (web build).
+ * On the desktop, connections are tested through AI settings instead.
  */
 export async function testConnection(
   baseUrl: string = DEFAULT_AI_CONFIG.baseUrl

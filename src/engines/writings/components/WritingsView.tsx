@@ -36,6 +36,7 @@ import AiToolbar from './AiToolbar';
 import CompileModal from './CompileModal';
 import HistoryModal from './HistoryModal';
 import { takeSnapshot } from '../snapshots';
+import { generateImageFromSelection } from '../generateImageFromSelection';
 import { useProject } from '@/hooks/useProjects';
 import { useGoogleStore } from '@/stores/googleStore';
 import { fetchGoogleDocForAi } from '@/services/googleDocs';
@@ -741,6 +742,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
             content={editedContent}
             onChange={setEditedContent}
             placeholder={t('writings.startWriting')}
+            onGenerateImage={(sel) => void generateImageFromSelection(projectId, sel)}
           />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
@@ -749,6 +751,7 @@ export default function WritingsView({ projectId, writings, onAdd, onEdit, onDel
               onChange={setEditedContent}
               placeholder={t('writings.startWriting')}
               onAnnotate={(anchor) => setPendingAnchor(anchor)}
+              onGenerateImage={(sel) => void generateImageFromSelection(projectId, sel)}
             />
             <AnnotationSurface
               projectId={projectId}

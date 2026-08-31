@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { onDataChanged } from './dataChanged';
 
 export interface EntityHookOptions<T> {
   /** Fetches all items for a given scope ID (projectId, boardId, etc.) */
@@ -110,6 +111,11 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
     useEffect(() => {
       refresh();
     }, [refresh]);
+
+    // Writes that go around this hook — the AI bridge, the copilot, an undo —
+    // announce themselves on the window (see ./dataChanged.ts); refetch so an
+    // open tab shows what a model just made instead of waiting for a remount.
+    useEffect(() => onDataChanged(() => { void refresh(); }), [refresh]);
 
     const addItem = useCallback(
       async (item: T) => {

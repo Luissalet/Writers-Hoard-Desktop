@@ -19,6 +19,15 @@ export default function ProjectDetail() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { project, loading, refresh } = useProject(id);
   const { showEngineManager, setShowEngineManager } = useAppStore();
+  const setCurrentProject = useAppStore((s) => s.setCurrentProject);
+
+  // The open project is what `wh_get_context` and the tools' "no projectId
+  // means the open one" rule read. Nothing set it before this: the AI bridge
+  // answered "no project is open" while one was on screen.
+  useEffect(() => {
+    setCurrentProject(id ?? null);
+    return () => setCurrentProject(null);
+  }, [id, setCurrentProject]);
   const [showProjectEditor, setShowProjectEditor] = useState(false);
   const editRequested = tab === 'overview' && searchParams.get('edit') === '1';
   const manageRequested = tab === 'overview' && searchParams.get('manage') === '1';

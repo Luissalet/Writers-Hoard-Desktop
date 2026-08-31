@@ -74,7 +74,12 @@ engine-local error boundary.
 | `src/pages/` | Global pages and dynamic project composition |
 | `src/stores/` | Thin Zustand layer for UI/integration state |
 | `src/services/` | Backup, AI, search, project intelligence/tools, Google, writing activity, media/capture bridges |
+| `src/services/aiRuntime/` | Pure AI contracts shared by main and renderer: URL policy, hardware fit, tool policy/selection, the single tool executor, copilot prompts and events |
+| `src/services/aiBridge/` | Tool manifest and handlers used by both the external bridge and the copilot |
+| `src/services/copilot/` | Copilot threads/messages/settings over Dexie, the run-event reducer, backup strategy |
 | `electron/` | Native shell, IPC, updater, media/archive infrastructure |
+| `electron/ai/` | Inference gateway: connection registry, encrypted secrets, OpenAI-compatible / Ollama / sdcpp adapters, hardware detection, measured model speed, agent loop, the managed stable-diffusion.cpp runtime and its verified downloader |
+| `electron/aibridge/` | External AI bridge (HTTP + MCP stdio), audit log, undo |
 | `harness/` | Ad-hoc worldgen checks, renderers, profilers, and browser drivers |
 | `docs/worldgen/` | Worldgen research and visual references |
 | `tasks/` | Plans, reviews, accumulated lessons, and historical audits |
@@ -134,13 +139,12 @@ copies of the same project.
 | `writings` | core | Drafts, chapters, manuscripts, version history | `writings`, `writingSnapshots` |
 | `codex` | core | Characters, locations, items, factions, concepts | `codexEntries` |
 | `timeline` | core | Multi-lane events, ranges, event links | `timelines`, `timelineEvents`, `timelineConnections` |
-| `yarn-board` | core | Freeform node/edge concept maps | `yarnBoards`, `yarnNodes`, `yarnEdges` |
+| `board` | core | Infinite canvas over a typed graph: relations, layers, views, metrics | `boards`, `boardNodes`, `boardEdges`, `boardLayers`, `boardViews` |
 | `maps` | core | Uploaded maps plus synchronized Worldgen-backed maps and editable pins | `worldMaps`, `mapPins` |
 | `gallery` | core | Image collections and linked inspiration | `imageCollections`, `inspirationImages` |
 | `notes` | core | Short notes, quotes, ideas, and global inbox capture | `notes` |
 | `writing-stats` | core | Sessions, goals, sprints, progress, streaks | `writingSessions`, `writingGoals` |
 | `biography` | creative | Subjects and ordered sourced facts | `biographies`, `biographyFacts` |
-| `brainstorm` | creative | Mixed freeform boards with entity references | `brainstormBoards`, `brainstormItems`, `brainstormConnections` |
 | `dialog-scene` | creative | Scenes, formatted dialog/action blocks, cast | `scenes`, `dialogBlocks`, `sceneCasts` |
 | `diary` | creative | Timestamped entries, moods, and tags | `diaryEntries` |
 | `worldgen` | creative | Deterministic multiscale worlds, semantic 2D/3D maps, saved regions, cartography, and spatial editing | `generatedWorlds`, `worldWaypoints` |
@@ -153,10 +157,11 @@ copies of the same project.
 | `storyboard` | planning | Ordered visual panels and connectors | `storyboards`, `storyboardPanels`, `storyboardConnectors` |
 | `video-planner` | planning | Script/visual segments, teleprompter, recording | `videoPlans`, `videoSegments` |
 | `scrapper` | research | Web/media capture, metadata, archive, local playback | `snapshots` |
+| `image-studio` | creative | Reference images from an image model (local server or OpenAI-compatible API); results land in Gallery with prompt/model/seed provenance | none (writes `inspirationImages`) |
 
 ## Persistence and domain invariants
 
-`WritersHoardDB` currently reaches schema version 26 and exposes 51 typed table
+`WritersHoardDB` currently reaches schema version 27 and exposes 54 typed table
 properties. Engine table declarations are descriptive and support backup
 coverage checks; they do **not** generate the Dexie schema. A persisted engine
 still needs a central, versioned change in `src/db/index.ts`.
@@ -196,6 +201,9 @@ Recent schema direction:
 - v24 replaced the overlapping Yarn Board and Brainstorm stores with the typed
   Board graph.
 - v25-v26 added authoritative-free canon and rendered Worldgen tile caches.
+- v27 added the copilot tables `aiThreads`, `aiMessages` and `aiProjectSettings`
+  (project-scoped; `aiProjectSettings` is keyed by `projectId`, which is why
+  `deleteProject` also sweeps tables whose primary key is the project).
 
 ## Cross-engine infrastructure
 
@@ -385,12 +393,27 @@ startup; those modules stay behind the Worldgen route.
 - The media-library relocation IPC chooses its destination in the main process,
   writes its location atomically, and never accepts an arbitrary renderer path.
 - Google Identity/Drive/Docs are called directly from the renderer.
-- Remote AI uses an OpenAI-compatible endpoint, defaulting to
-  `http://localhost:8317`. Optional local AI runs through main-process IPC;
-  its portable Ollama archive is version-, size-, and SHA-256-pinned and is
-  verified in staging before extraction or execution.
-- Google OAuth tokens remain in memory; locale and AI configuration persist in
-  Dexie settings.
+- All AI network traffic runs in the main process through the inference
+  gateway (`electron/ai/`). The managed image runtime (`electron/ai/sdRuntime.ts`)
+  installs a pinned stable-diffusion.cpp release (size + SHA-256 per asset,
+  receipt on disk), downloads catalogue weights pinned by size and SHA-256
+  (`src/services/aiRuntime/imageCatalog.ts`, resumable, refused on mismatch),
+  and runs `sd-server` on loopback port 8102 with one model loaded; it stops
+  itself after five idle minutes. Weights live under userData and are never
+  part of a backup. Connections are registered by IP/URL in
+  `<userData>/ai/connections.json`; API keys are stored only as `safeStorage`
+  ciphertext and the renderer only ever sees connection ids plus a `hasSecret`
+  flag. Plain HTTP to non-local hosts is refused unless the connection opts in,
+  redirects are never followed, and error messages are redacted. The built-in
+  Ollama connection is the managed/system Ollama; its portable archive is
+  version-, size-, and SHA-256-pinned and is verified in staging before
+  extraction or execution.
+- The external bridge (`electron/aibridge/`, HTTP + MCP stdio) and the in-app
+  copilot share one tool manifest, one executor (`createToolExecutor`), one
+  audit log and one undo path; the copilot only adds project scoping and a
+  per-project action policy on top.
+- Google OAuth tokens remain in memory; locale persists in Dexie settings. The
+  legacy Dexie AI keys are migrated once into a connection plus default route.
 
 ## Current guardrails and residual risks
 
@@ -406,8 +429,10 @@ startup; those modules stay behind the Worldgen route.
   references. Dexie still has no foreign keys, so new relationships require a
   deliberate lifecycle audit.
 - `verify:quick` enforces renderer/Electron types, a zero-fingerprint shipping
-  lint baseline, engine/schema/backup/locale conformance, and pinned binary
-  metadata. `verify:release` first requires a clean dependency audit, then runs
+  lint baseline, engine/schema/backup/locale conformance, pinned binary
+  metadata, and that every `ipcMain.handle` channel has a role in
+  `IPC_CHANNEL_ROLES` (an undeclared channel is refused for every window at
+  runtime). `verify:release` first requires a clean dependency audit, then runs
   isolated Electron/IndexedDB and native-boundary tests, complete bundled/Vite
   renderer startup smoke tests, production builds, and renderer bundle budgets.
   The unpacked desktop package has its own isolated-profile startup smoke.

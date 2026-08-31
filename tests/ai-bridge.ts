@@ -52,8 +52,16 @@ function testManifestHandlerParity(): void {
   // Exactly one way to delete, and it is a write tool so the writes switch
   // gates it. Per-engine delete tools would each need their own confirmation
   // and their own cascade — that is how the wrong op gets called.
-  const deleters = BRIDGE_TOOLS.filter((t) => /delete|remove|destroy/i.test(t.name));
+  // wh_remove_place is not one: it appends a `remove` edit to a world's list,
+  // which wh_restore_place and the undo reverse, and no row goes anywhere.
+  const deleters = BRIDGE_TOOLS.filter(
+    (t) => /delete|remove|destroy/i.test(t.name) && t.name !== 'wh_remove_place',
+  );
   assert(deleters.length === 1, 'there should be exactly one deletion tool, wh_delete');
+  assert(
+    getBridgeTool('wh_remove_place')?.description.includes('Not a deletion'),
+    'wh_remove_place must tell the model it is an undoable edit, not a deletion',
+  );
   assert(deleters[0].name === 'wh_delete', 'the deletion tool is not wh_delete');
   assert(deleters[0].writes, 'wh_delete is not marked as a write tool');
   // The types it accepts must all have a registered delete op behind them.
@@ -88,8 +96,6 @@ function testManifestHandlerParity(): void {
     assert(registered.has(engineId), `BRIDGE_ENGINE_IDS names "${engineId}", which no engine registers`);
   }
   for (const engineId of registered) {
-    // Worldgen is registered but has no tools here; anything else missing is drift.
-    if (engineId === 'worldgen') continue;
     assert(
       BRIDGE_ENGINE_IDS.includes(engineId),
       `engine "${engineId}" exists but BRIDGE_ENGINE_IDS does not list it, so wh_enable_engine cannot turn it on`,
@@ -187,6 +193,16 @@ function testMarkdownConversion(): void {
 
   // Empty input still produces a valid TipTap document.
   assert(markdownToTiptapHtml('') === '<p></p>', 'empty markdown produced an invalid document');
+
+  // Nested lists nest INSIDE the parent item, and a flush-left bullet under a
+  // numbered item is read as its sub-list — the shape every chat model writes.
+  const nested = markdownToTiptapHtml('1. Marta\n- Edad: 34\n- Nave: Kestrel\n2. Julio\n   - Sin datos\n3. Ana');
+  assert(
+    nested === '<ol><li><p>Marta</p><ul><li><p>Edad: 34</p></li><li><p>Nave: Kestrel</p></li></ul></li><li><p>Julio</p><ul><li><p>Sin datos</p></li></ul></li><li><p>Ana</p></li></ol>',
+    `nested list shape drifted: ${nested}`,
+  );
+  assert(markdownToTiptapHtml('3. three\n4. four').startsWith('<ol start="3">'), 'ordered list start lost');
+  assert(markdownToTiptapHtml('- a\n- b\n\n1. c') === '<ul><li><p>a</p></li><li><p>b</p></li></ul><ol><li><p>c</p></li></ol>', 'flat lists drifted');
 }
 
 /**

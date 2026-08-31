@@ -5,6 +5,7 @@ import GlobalSearch from '../common/GlobalSearch';
 import { ToastHost } from '../common/toast';
 import BridgeConfirmHost from '../common/BridgeConfirmHost';
 import QuickNoteHost from '@/engines/notes/components/QuickNoteHost';
+import CopilotDock from '@/components/copilot/CopilotDock';
 import { installNavigator } from '@/engines/_shared/anchoring';
 import { initializeAppServices } from '@/services/appInitialization';
 import { useAiStore } from '@/stores/aiStore';
@@ -30,11 +31,13 @@ export default function MainLayout() {
   }, [loadAiSettings, loadLocale]);
 
   return (
-    <div className="h-screen w-screen flex overflow-hidden grain-bg">
+    <div className="h-screen w-screen flex overflow-hidden grain-bg relative">
       <Sidebar />
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Outlet />
       </main>
+      {/* Right-hand copilot; renders only inside a project (desktop). */}
+      <CopilotDock />
       <GlobalSearch />
       <QuickNoteHost />
       <ToastHost />

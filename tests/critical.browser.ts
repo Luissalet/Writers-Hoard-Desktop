@@ -31,8 +31,10 @@ import type { Scene, DialogBlock } from '@/engines/dialog-scene/types';
 import { testWorldgenSpatialEntities } from './worldgen-spatial-entities';
 import { testWorldgenSemanticZoom } from './worldgen-semantic-zoom';
 import { testAiBridgeContracts } from './ai-bridge';
+import { testAiRuntimeContracts } from './ai-runtime';
 import { runRegionInfraTests } from './worldgen-region-infra.test';
 import { testWorldgenDetailShader } from './worldgen-rendering';
+import { testWorldgenBridgeAccess } from './worldgen-bridge';
 import {
   createProjectZipArchive,
   importProjectZip,
@@ -85,11 +87,13 @@ function assert(condition: unknown, message: string): asserts condition {
 async function testMigration(): Promise<void> {
   await db.delete();
   await db.open();
-  assert(db.verno === 26, `expected schema v26, received v${db.verno}`);
+  assert(db.verno === 28, `expected schema v28, received v${db.verno}`);
   for (const table of [
     'entityLinks', 'citations', 'publishingProfiles', 'conversionReceipts',
     'boards', 'boardNodes', 'boardEdges', 'boardLayers', 'boardViews',
     'canonTiles', 'renderedTiles',
+    'aiThreads', 'aiMessages', 'aiProjectSettings',
+    'atlasPlaces', 'atlasDivergences',
   ]) {
     assert(db.tables.some(row => row.name === table), `missing migrated table ${table}`);
   }
@@ -101,7 +105,7 @@ async function testMigration(): Promise<void> {
   ]) {
     assert(!db.tables.some(row => row.name === retired), `retired table ${retired} still exists`);
   }
-  passed.push('Dexie migration v26');
+  passed.push('Dexie migration v28');
 }
 
 async function seedBackupFixture(projectId: string): Promise<string[]> {
@@ -507,7 +511,87 @@ async function testCascades(): Promise<void> {
   const survivor = await db.boardEdges.get('edge-hyper');
   assert(survivor?.sources.length === 1, 'board hyper-edge kept a deleted endpoint');
   assert(survivor?.sourceId === 'node-keep', 'board hyper-edge did not renormalise its index field');
-  passed.push('writing and board cascades');
+
+  // Deleting a project must sweep the copilot tables too — including the one
+  // keyed BY projectId, which Dexie keeps out of `idxByName`.
+  const { deleteProject } = await import('@/db/operations');
+  const doomed = 'critical-project-doomed';
+  await db.aiThreads.add({ id: 'ai-thread-doomed', projectId: doomed, title: 'Doomed', policy: 'ask', archived: false, createdAt: now, updatedAt: now });
+  await db.aiMessages.add({ id: 'ai-message-doomed', threadId: 'ai-thread-doomed', projectId: doomed, role: 'user', content: 'x', status: 'complete', createdAt: now });
+  await db.aiProjectSettings.put({ projectId: doomed, defaultPolicy: 'ask', remoteConsent: false, updatedAt: now });
+  await deleteProject(doomed);
+  assert(!(await db.aiThreads.get('ai-thread-doomed')), 'project deletion left an AI thread behind');
+  assert(!(await db.aiMessages.get('ai-message-doomed')), 'project deletion left an AI message behind');
+  assert(!(await db.aiProjectSettings.get(doomed)), 'project deletion left the AI project settings behind');
+  passed.push('writing and board cascades, project sweep of copilot tables');
+}
+
+// The dock refreshes its message list on every data bump — which the runner
+// fires once per streamed token. settleStaleMessages runs on that refresh, so
+// if it cancelled *any* streaming row it would cancel the in-flight assistant
+// row out from under a live run (the answer would show "cancelled" while
+// generating, then snap in at the end). It must only settle orphans — rows with
+// no run in flight (a crash or reload). Also guards "one turn at a time".
+async function testCopilotRunGuards(): Promise<void> {
+  const { settleStaleMessages, addMessage, listMessages } = await import('@/services/copilot/threads');
+  const { sendCopilotTurn } = await import('@/services/copilot/runner');
+  const { useCopilotStore } = await import('@/stores/copilotStore');
+  const now = Date.now();
+  const projectId = 'critical-project';
+  const threadId = 'copilot-thread-guards';
+  await db.aiThreads.add({ id: threadId, projectId, title: 'Guards', policy: 'ask', archived: false, createdAt: now, updatedAt: now });
+
+  const stubRun = (runId: string) => ({
+    runId, threadId, projectId,
+    handle: { runId, cancel: () => {}, approve: () => {} },
+    assistantMessageId: null, buffer: '', reasoning: '',
+    startedAt: now, pendingApprovals: [], toolNames: [], chatOnly: false,
+  });
+
+  // A live run owns its streaming row: a refresh must NOT cancel it.
+  const row = await addMessage({ id: 'copilot-guard-streaming', threadId, projectId, role: 'assistant', content: '', status: 'streaming' });
+  useCopilotStore.getState().startRun(stubRun('run-guard-1'));
+  await settleStaleMessages(threadId);
+  assert((await db.aiMessages.get(row.id))?.status === 'streaming', "settleStaleMessages cancelled a live run's streaming row");
+
+  // One turn at a time: a send is refused while a run is in flight (no dup row).
+  const before = (await listMessages(threadId)).length;
+  await sendCopilotTurn({
+    projectId, threadId, text: 'second turn',
+    route: { connectionId: 'x', modelId: 'y' }, policy: 'ask',
+    briefing: { projectTitle: 'P', enabledEngines: [], locale: 'es' },
+  });
+  assert((await listMessages(threadId)).length === before, 'a second turn started while one was already running');
+
+  // Once no run is in flight, an orphaned streaming row IS settled.
+  useCopilotStore.getState().endRun(threadId);
+  await settleStaleMessages(threadId);
+  assert((await db.aiMessages.get(row.id))?.status === 'cancelled', 'settleStaleMessages left an orphaned streaming row unsettled');
+
+  passed.push('copilot run guards: live streaming survives refresh, one turn at a time, orphans settled');
+}
+
+// The Escritos→Studio hand-off is a single-slot store the studio drains once.
+// It must be one-shot (a second drain gets nothing) and a newer request must
+// replace an undrained one (rapid re-selection), or a stale prompt would
+// generate unexpectedly on a later studio visit.
+async function testImageHandoffStore(): Promise<void> {
+  const { useImageHandoffStore } = await import('@/stores/imageHandoffStore');
+  const store = () => useImageHandoffStore.getState();
+  store().take(); // clear any residue from earlier tests
+  assert(store().take() === null, 'hand-off store should be empty once drained');
+  store().request({ prompt: 'a red door', autoGenerate: true });
+  const first = store().take();
+  assert(first?.prompt === 'a red door' && first.autoGenerate === true, 'take() must return the requested hand-off');
+  assert(store().take() === null, 'hand-off must be one-shot: a second take() returns null');
+  store().request({ prompt: 'A', autoGenerate: false });
+  store().request({ prompt: 'B', autoGenerate: true });
+  assert(store().take()?.prompt === 'B', 'a newer request must replace an undrained one');
+  // A gallery image handed over as an img2img reference travels with no prompt.
+  store().request({ prompt: '', autoGenerate: false, initImage: 'data:image/png;base64,AAAA' });
+  const reference = store().take();
+  assert(reference?.initImage === 'data:image/png;base64,AAAA' && reference.prompt === '', 'a reference hand-off lost its image');
+  passed.push('image hand-off store: one-shot take, newer request wins, reference image rides along');
 }
 
 function testRecoveryAndNavigation(): void {
@@ -840,6 +924,8 @@ async function run(): Promise<void> {
   await testBackupRoundTrip();
   await testProjectImportCollisionGuard();
   await testCascades();
+  await testCopilotRunGuards();
+  await testImageHandoffStore();
   await testScriptImportRoundTrip();
   await testAiTextParsing();
   testProjectIntelligenceSemantics();
@@ -852,11 +938,13 @@ async function run(): Promise<void> {
   testRecoveryAndNavigation();
   testRecentEntityNavigation();
   passed.push(await testAiBridgeContracts());
+  passed.push(await testAiRuntimeContracts());
   passed.push(testWorldgenSpatialEntities());
   passed.push(testWorldgenSemanticZoom());
   await runRegionInfraTests();
   passed.push('Worldgen regional identity, coordinates, cache, and cancellation');
   passed.push(testWorldgenDetailShader());
+  passed.push(await testWorldgenBridgeAccess());
 }
 
 void run()

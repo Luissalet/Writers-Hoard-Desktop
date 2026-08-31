@@ -17,6 +17,7 @@ export type EngineCategory = 'core' | 'creative' | 'research' | 'planning';
 export type ProjectMode =
   | 'essentials'
   | 'novelist'
+  | 'realist'
   | 'biographer'
   | 'reporter'
   | 'playwright'

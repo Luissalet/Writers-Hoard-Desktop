@@ -705,3 +705,170 @@ camino feliz. Regla: un test que crea algo en datos de verdad lo borra en
 
 - Eventos push hacia el modelo (sin empezar).
 - Sin commitear.
+
+## Fase 9 — IA nativa: conexiones, copiloto y estudio de imagen (2026-08-31)
+
+Plan: `docs/PLAN-IA-NATIVA.md` (fases 0–7). Documentación en
+`docs/AI-BRIDGE.md` §18. Sesión nocturna con el PC cedido: implementado, probado
+en vivo y **sin commitear**.
+
+- [x] **F35 — Fase 0: un ejecutor.** `createToolExecutor` en
+      `src/services/aiRuntime/executorCore.ts`; `handleCall` del puente delega
+      en él y el copiloto lo comparte (`origin`, `conversationId`,
+      `auditIndex` de vuelta). `appendAudit` serializado y devuelve el índice.
+- [x] **F36 — Fase 1: pasarela en main.** `electron/ai/`: registro de
+      conexiones (`connections.json` atómico), claves sólo cifradas con
+      `safeStorage`, `urlPolicy` (normalización, localidad, HTTP plano bloqueado
+      hacia fuera), adaptadores OpenAI compatible (SSE, tool-calls, imágenes) y
+      Ollama nativo (NDJSON, capacidades), errores redactados, sin redirects.
+      IPC `ai:*` y `copilot:*` en `IPC_CHANNEL_ROLES`.
+- [x] **F37 — Fase 2: Ajustes de IA.** Ruta `/settings/ai` desde la barra
+      izquierda: conexiones (añadir/probar/editar/clave/fijar modelos/detectar
+      en este equipo), modelos locales con hardware y veredicto (`fit.ts`:
+      pesos + KV + sobrecarga; MoE por rebanada activa; velocidad por ancho de
+      banda), valores por defecto (texto e imagen) y el Puente IA movido aquí.
+- [x] **F38 — Fase 3: copiloto.** Dock derecho por proyecto, hilos en Dexie
+      v27 (`aiThreads`, `aiMessages`, `aiProjectSettings`, backup
+      `ai-assistant`), bucle de agente en main con selección léxica de
+      herramientas, aprobaciones por tarjeta y deshacer desde la tarjeta.
+- [x] **F39 — Fase 4: funciones clásicas por la pasarela.** `callAi` usa
+      `ai:complete` con la ruta de texto por defecto; migración única de
+      `ai_provider/ai_base_url/ai_model` a una conexión «CLIProxyAPI».
+- [x] **F40 — Fase 6A: Estudio de imagen.** Motor `image-studio` sin tablas
+      (filas en `inspirationImages` con `source: 'generated'` y `generation`),
+      herramienta `wh_generate_image` (grupo `visual`),
+      `scripts/fake-image-server.mjs` para probar sin GPU.
+- [x] **F41 — Remates de la verificación en vivo.** `modelsRouteMissing`
+      (un 404 en `/v1/models` ya no cuenta como servidor detectado), el
+      selector de rutas no dice «sin herramientas» a un modelo de imagen ni
+      pinta grupos vacíos, la fila de conexión no dice «sin probar» junto a un
+      error fresco, y `deleteProject` barre también la tabla cuya **clave
+      primaria** es `projectId` (Dexie la deja fuera de `idxByName`) — con
+      test crítico.
+
+### Decisiones
+
+- **Selección de herramientas determinista, no por modelo.** Ofrecer las 89 en
+  cada turno hunde a los modelos locales; se ofrecen núcleo + motor abierto +
+  motores nombrados + coincidencias léxicas (máx. 16). Un modelo que necesita
+  otro motor tiene `wh_enable_engine` y `wh_search` siempre a mano.
+- **Consentimiento remoto por proyecto.** Enviar texto a una conexión que no
+  sea local pide confirmación una vez por proyecto (`remoteConsent`), con
+  `ConfirmDialog`, y queda en `aiProjectSettings`.
+- **Sin runtime de difusión propio (6B aplazada).** El estudio habla con
+  cualquier `/v1/images/generations`; descargar y ejecutar modelos de imagen
+  queda para otra pasada.
+- **Los modelos descargados no van al backup**, y las claves nunca salen del
+  main: el renderer trabaja con ids de conexión.
+
+### Verificación
+
+- Puertas: typecheck ×2, lint, conformance (22 motores, 2964 claves) y **30**
+  tests críticos (incluido `tests/ai-runtime.ts`: política de URL, fit,
+  selección, permisos/alcance, equivalencia puente≡copiloto, replay de
+  historial; y el barrido de tablas del copiloto al borrar proyecto).
+- Autotest del puente en vivo tras reiniciar main: **28/28 en 593 ms**.
+- En vivo: conexión `127.0.0.1:8101` añadida por el formulario → «Responde en
+  8 ms · 2 modelos» → guardada sin duplicar → `fake-sd-1.5` como imagen por
+  defecto; motor añadido desde Gestionar motores; generación desde la pestaña
+  (fila en Galería con etiqueta `generated`, aviso «1 imagen(es) guardadas») y
+  desde `wh-bridge call wh_generate_image` (auditoría #30 `generated 1
+  image(s)`); copiloto con `qwen3-coder:30b`: lectura (`list codex`) y
+  escritura con permiso (crear nota → deshacer). Detección local tras el
+  reinicio: sólo Ollama; el backend de Docker del 8100 ya no aparece.
+
+### El fallo de esta pasada
+
+La tormenta de IPC (192 `ai:listConnections`, pantalla negra): `loadModels`
+re-listaba conexiones, el array nuevo disparaba el efecto que llamaba a
+`loadModels`. Y una segunda, más callada: la tabla `aiProjectSettings` no se
+barría al borrar un proyecto, porque su índice `projectId` es la clave
+primaria y Dexie no la lista en `idxByName`. Las dos están en `tasks/lessons.md`.
+
+### Pendiente de verdad
+
+- Fase 6B (runtime local de difusión) y fase 7 del plan.
+- La heurística de velocidad con reparto GPU/RAM no mide nada; si molesta,
+  medir tokens/s reales en la primera respuesta y guardarlos por modelo.
+- Sin commitear. El proyecto «Bridge self-test 2026-08-31T02:05:28» se dejó
+  con el hilo del copiloto y las imágenes de prueba para revisarlos;
+  `node scripts/wh-bridge.mjs cleanup` lo borra.
+
+## Fase 10 — 6B, velocidad medida y el mejor modelo (2026-08-31, segunda mitad)
+
+Encargos de Luis a medianoche: el mejor Qwen instalado por defecto, medir
+tokens/s en vez de estimar, y hacer la fase 6B «con Odysseus como ejemplo».
+Documentación en `docs/AI-BRIDGE.md` §19. Sin commitear.
+
+- [x] **F42 — Mejor modelo local.** `pickModel.ts` (herramientas, fit,
+      velocidad, huella, general > coder, visión, parámetros) + botón «Usar el
+      mejor modelo local» en Valores por defecto. En el equipo de Luis eligió
+      `qwen3-coder:30b`, y se fijó como texto por defecto.
+- [x] **F43 — Velocidad medida.** Ollama (`eval_duration`) y OpenAI (reloj de
+      streaming) → `usage.tokensPerSecond` → `model-metrics.json` con media
+      móvil → descriptor → `computeFit` sustituye banda y etiqueta →
+      «· 28 tok/s» en el badge y bajo cada respuesta del copiloto.
+- [x] **F44 — Runtime local de difusión.** `sdRuntimeManifest.ts` (release
+      fijada, 6 activos con SHA-256 de GitHub), `download.ts` (reanudable,
+      verificado), `sdRuntime.ts` (instalar/extraer/recibo, descargar pesos,
+      `sd-server` en 8102 con un modelo, cambio de modelo, apagado a los 5 min
+      sin uso), adaptador `sdcpp` (API nativa asíncrona con cancelación),
+      conexión integrada `builtin-sd`, IPC `sd:*`, sección «Modelos de imagen
+      locales» con catálogo de 5 modelos y veredicto por VRAM, «Nativo del
+      modelo» como formato por defecto en el Estudio y en `wh_generate_image`.
+- [x] **F45 — Recaída de las funciones clásicas.** Si la ruta por defecto no
+      responde, `callAi` reintenta una vez con el mejor modelo local y avisa
+      con un toast (una vez por ruta).
+- [x] **F46 — Guardias.** `check-conformance` cruza `ipcMain.handle` con
+      `IPC_CHANNEL_ROLES`; listas anidadas correctas en Markdown → TipTap.
+
+### Decisiones
+
+- **stable-diffusion.cpp, no Python.** Odysseus lanza torch + diffusers con un
+  cookbook de pip; aquí un binario fijado de una release (MIT), como con
+  Ollama. Vulkan por defecto (42 MB, cualquier GPU), CUDA como elección.
+- **API nativa del servidor, no la ruta OpenAI.** `/v1/images/generations` de
+  sd.cpp no acepta semilla, pasos ni prompt negativo como campos; la nativa sí,
+  y además cancela y encola.
+- **Semilla elegida en el adaptador.** Una fila de Galería sin semilla no se
+  puede reproducir; se sortea antes de enviar el trabajo.
+- **Apagado por inactividad.** La VRAM es compartida con los modelos de
+  texto; cinco minutos sin generar y el servidor se cierra.
+- **La estimación vale el 70 % de una medida** al comparar modelos: sin eso,
+  el 30b medido a 28 tok/s perdía frente al coder-next estimado a 33.
+
+### Verificación
+
+- Puertas: typecheck ×2, lint, conformance (3001 claves, guardia IPC nueva),
+  tests críticos (nuevos: velocidad medida + picker, runtime de imagen,
+  manifiesto + roles IPC, descargas verificadas contra un servidor local,
+  listas anidadas).
+- En vivo: runtime Vulkan instalado (8 s), SD 1.5 Q8 descargado con cancelar
+  + reanudar, faro generado en el Estudio a 512×512, `wh_generate_image` por
+  el puente con el modelo local (5 s), servidor vivo y auto-apagado; copiloto
+  a 28 tok/s medidos; botón del mejor modelo.
+
+### El fallo de esta pasada
+
+Comparar una medida con una estimación en el mismo eje: en cuanto el 30b
+midió 28 tok/s (por debajo de su estimación de 35), el coder-next estimado a
+33 pasó a «mejor». Lección #46.
+
+### Auditoría (subagente) y verificación final
+
+Un subagente revisó los ficheros nuevos de main y encontró 8 bugs, todos
+corregidos (unzip en Linux, apagado por inactividad durante generación, fallo
+de spawn colgado 4 min, techo de tok/s, extracción CUDA de dos zips, carrera
+RMW de métricas, cuerpo sin drenar, dedupe de fijados). La verificación en
+vivo destapó un 9º: el sondeo con timeout de 10 s tiraba imágenes buenas
+cuando el servidor estaba saturado — ahora reintenta hasta el plazo. Puertas
+verdes: tsc ×2, lint, conformance, **32** tests críticos. Generación limpia en
+7 s con la tarjeta libre y semilla reproducible; con Ollama ocupando la VRAM
+cae a CPU (física, no bug). Lecciones #46-#50.
+
+### Pendiente de verdad
+
+- Segundos por imagen medidos (el fit de imagen sigue estimando por VRAM).
+- CUDA 12 probado en vivo; img2img/LoRA en el Estudio.
+- Aviso de contención de VRAM cuando un LLM grande ocupa la tarjeta.
+- Sin commitear.
