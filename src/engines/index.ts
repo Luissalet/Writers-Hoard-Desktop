@@ -24,7 +24,10 @@ import '@/engines/seeds';
 import '@/engines/pov-audit';
 import '@/engines/annotations';
 import '@/engines/worldgen';
+import '@/engines/image-studio';
+import '@/engines/real-atlas';
 import '@/services/projectToolsBackup';
+import '@/services/copilot/backup';
 import { registerFallbackAnchorAdapters } from '@/engines/_shared/anchoring/registerFallbackAdapters';
 registerFallbackAnchorAdapters();
 

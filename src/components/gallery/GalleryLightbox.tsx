@@ -10,7 +10,7 @@
 // was displayed and searched everywhere but no input ever wrote it).
 
 import { useState } from 'react';
-import { X } from 'lucide-react';
+import { ImagePlus, X } from 'lucide-react';
 import type { InspirationImage, CodexEntry } from '@/types';
 import { codexTypeIcons, codexTypeColors } from '@/components/codex/codexTypeMeta';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -21,9 +21,11 @@ interface GalleryLightboxProps {
   onClose: () => void;
   /** Persist a new caption for this image. Omit to render read-only. */
   onEditNotes?: (notes: string) => void;
+  /** Hand the image to the Image Studio as an img2img reference. Omit to hide the action. */
+  onUseAsReference?: () => void;
 }
 
-export default function GalleryLightbox({ image, linkedEntries, onClose, onEditNotes }: GalleryLightboxProps) {
+export default function GalleryLightbox({ image, linkedEntries, onClose, onEditNotes, onUseAsReference }: GalleryLightboxProps) {
   const { t } = useTranslation();
   const [draftNotes, setDraftNotes] = useState(image.notes);
 
@@ -62,6 +64,16 @@ export default function GalleryLightbox({ image, linkedEntries, onClose, onEditN
           />
         ) : (
           image.notes && <p className="text-sm text-white/80 max-w-[90vw] text-center">{image.notes}</p>
+        )}
+        {onUseAsReference && (
+          <button
+            type="button"
+            onClick={onUseAsReference}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-white/10 text-white/90 hover:bg-accent-gold/30 hover:text-white transition"
+          >
+            <ImagePlus size={12} />
+            {t('gallery.useAsReference')}
+          </button>
         )}
         {linkedEntries.length > 0 && (
           <div className="flex gap-2 flex-wrap justify-center">

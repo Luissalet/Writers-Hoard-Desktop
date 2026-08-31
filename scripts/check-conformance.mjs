@@ -456,6 +456,38 @@ for (const binaryId of ['yt-dlp', 'gallery-dl']) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// electron: every IPC channel a handler answers must have a declared role
+// ---------------------------------------------------------------------------
+// `assertIpcSender` fails closed: a channel missing from IPC_CHANNEL_ROLES is
+// refused for every window, which in practice means a handler that was
+// wired, typed and tested still answers "Forbidden IPC sender" at runtime
+// (docs/AI-BRIDGE.md §9). Reading both files here catches it before the app
+// does. Only literal channel names are checked — a computed channel would
+// need the app running to resolve.
+{
+  const security = read('electron/security.ts');
+  const rolesBlock = security.match(/const IPC_CHANNEL_ROLES[^{]*\{([\s\S]*?)\n\}\);/);
+  if (!rolesBlock) {
+    fail('electron: IPC_CHANNEL_ROLES not found in electron/security.ts.');
+  } else {
+    const declared = new Set([...rolesBlock[1].matchAll(/^\s*'([^']+)'\s*:/gm)].map((m) => m[1]));
+    const handled = new Map();
+    for (const file of sourceFiles('electron')) {
+      const source = read(file);
+      for (const match of source.matchAll(/ipcMain\.(?:handle|on)\(\s*'([^']+)'/g)) {
+        if (!handled.has(match[1])) handled.set(match[1], file);
+      }
+    }
+    for (const [channel, file] of handled) {
+      if (!declared.has(channel)) {
+        fail(`electron: ${file} handles IPC channel "${channel}" but electron/security.ts declares no role for it — every sender would be refused.`);
+      }
+    }
+    if (handled.size === 0) fail('electron: no ipcMain handlers found — the IPC scan is broken.');
+  }
+}
+
 for (const message of warnings) console.warn(`WARN  ${message}`);
 for (const message of failures) console.error(`ERROR ${message}`);
 

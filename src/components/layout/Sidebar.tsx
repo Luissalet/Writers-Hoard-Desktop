@@ -10,6 +10,7 @@ import {
   Download,
   StickyNote,
   LayoutDashboard,
+  Bot,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -36,6 +37,7 @@ export default function Sidebar() {
   const isHome = location.pathname === '/';
   const isMediaDownloader = location.pathname === '/media-downloader';
   const isNotesInbox = location.pathname === '/notes';
+  const isAiSettings = location.pathname === '/settings/ai';
   const desktop = isDesktop();
   const inboxCount = useInboxNoteCount();
   const activeTab = tab || 'overview';
@@ -137,6 +139,20 @@ export default function Sidebar() {
             )}
           </button>
         )}
+
+        {/* AI settings — connections by IP, local models, copilot defaults. */}
+        <button
+          onClick={() => navigate('/settings/ai')}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
+            isAiSettings
+              ? 'bg-accent-gold/15 text-accent-gold'
+              : 'text-text-muted hover:text-text-primary hover:bg-elevated'
+          }`}
+          title={t('sidebar.aiSettings')}
+        >
+          <Bot size={18} className="flex-shrink-0" />
+          {sidebarOpen && <span className="whitespace-nowrap">{t('sidebar.aiSettings')}</span>}
+        </button>
 
         {/* Dynamic engine list — only when inside a project */}
         {projectId && (

@@ -84,7 +84,38 @@ import {
   whViewBoardImage,
 } from './board';
 import { whListImages, whTagImage, whViewImage } from './gallery';
+import { whGenerateImage } from './imageStudio';
 import { whAddMapPin, whListMaps, whUpdateMapPin } from './maps';
+import {
+  whAddLabel,
+  whAddPlace,
+  whAddWaypoint,
+  whFindPlace,
+  whGetWorld,
+  whLinkPlace,
+  whListPlaceLinks,
+  whListPlaces,
+  whListWaypoints,
+  whListWorlds,
+  whMovePlace,
+  whPlaceAt,
+  whRemovePlace,
+  whRenamePlace,
+  whRestorePlace,
+  whUpdateWaypoint,
+  whWorldSummary,
+} from './worldgen';
+import {
+  whCreateAtlasPlace,
+  whCreateDivergence,
+  whGetAtlasPlace,
+  whGetDivergence,
+  whListAtlasPlaces,
+  whListDivergences,
+  whRealityCheck,
+  whUpdateAtlasPlace,
+  whUpdateDivergence,
+} from './realAtlas';
 import {
   whAddStoryboardPanel,
   whCreateStoryboard,
@@ -192,10 +223,40 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_list_images: whListImages,
   wh_view_image: whViewImage,
   wh_tag_image: whTagImage,
+  // Image studio
+  wh_generate_image: whGenerateImage,
   // Maps
   wh_list_maps: whListMaps,
   wh_add_map_pin: whAddMapPin,
   wh_update_map_pin: whUpdateMapPin,
+  // World generator
+  wh_list_worlds: whListWorlds,
+  wh_get_world: whGetWorld,
+  wh_list_places: whListPlaces,
+  wh_find_place: whFindPlace,
+  wh_place_at: whPlaceAt,
+  wh_world_summary: whWorldSummary,
+  wh_add_place: whAddPlace,
+  wh_rename_place: whRenamePlace,
+  wh_move_place: whMovePlace,
+  wh_remove_place: whRemovePlace,
+  wh_restore_place: whRestorePlace,
+  wh_add_label: whAddLabel,
+  wh_list_waypoints: whListWaypoints,
+  wh_add_waypoint: whAddWaypoint,
+  wh_update_waypoint: whUpdateWaypoint,
+  wh_link_place: whLinkPlace,
+  wh_list_place_links: whListPlaceLinks,
+  // Real atlas
+  wh_list_atlas_places: whListAtlasPlaces,
+  wh_get_atlas_place: whGetAtlasPlace,
+  wh_create_atlas_place: whCreateAtlasPlace,
+  wh_update_atlas_place: whUpdateAtlasPlace,
+  wh_list_divergences: whListDivergences,
+  wh_get_divergence: whGetDivergence,
+  wh_create_divergence: whCreateDivergence,
+  wh_update_divergence: whUpdateDivergence,
+  wh_reality_check: whRealityCheck,
   // Storyboard
   wh_list_storyboards: whListStoryboards,
   wh_create_storyboard: whCreateStoryboard,

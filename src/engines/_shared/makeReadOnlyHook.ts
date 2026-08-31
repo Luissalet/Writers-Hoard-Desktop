@@ -22,6 +22,7 @@
 // consumers should memoize the value if it's an object literal.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { onDataChanged } from './dataChanged';
 
 export interface ReadOnlyHookOptions<T, Deps = void> {
   /**
@@ -118,6 +119,9 @@ export function makeReadOnlyHook<T, Deps = void>(
     useEffect(() => {
       refresh();
     }, [refresh]);
+
+    // And on writes that went around this hook (AI bridge, copilot, undo).
+    useEffect(() => onDataChanged(() => { void refresh(); }), [refresh]);
 
     return { items, loading, refetching, error, refresh };
   };

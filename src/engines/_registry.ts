@@ -5,6 +5,7 @@
 import {
   Globe, Lightbulb, MessageSquare,
   BookUser, Video, PenLine, Sparkles,
+  Earth,
 } from 'lucide-react';
 import type { EngineDefinition, ProjectMode, ProjectModeConfig } from './_types';
 import { registerEntityResolver } from './_shared/entityResolverRegistry';
@@ -73,7 +74,19 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: PenLine,
     color: '#c4973b',
     defaultEngines: ['writings', 'codex', 'timeline', 'board', 'maps', 'gallery', 'outline'],
-    suggestedEngines: ['worldgen', 'storyboard', 'notes', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit'],
+    suggestedEngines: ['worldgen', 'real-atlas', 'storyboard', 'notes', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit'],
+  },
+  {
+    // Fiction set in the real world — as it is, or with deliberate changes
+    // (historical novels, crime in a real city, alternate history). The atlas
+    // holds the places and the departures; the rest is the novelist's kit.
+    id: 'realist',
+    name: 'Realist',
+    description: 'Fiction in the real world, or the real world with changes',
+    icon: Earth,
+    color: '#3f8f7a',
+    defaultEngines: ['writings', 'codex', 'real-atlas', 'timeline', 'outline', 'scrapper', 'gallery'],
+    suggestedEngines: ['biography', 'board', 'notes', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit', 'maps'],
   },
   {
     id: 'biographer',
@@ -82,7 +95,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: BookUser,
     color: '#4a7ec4',
     defaultEngines: ['biography', 'timeline', 'codex', 'gallery', 'scrapper', 'board'],
-    suggestedEngines: ['writings', 'notes', 'diary', 'outline', 'writing-stats', 'relationships'],
+    suggestedEngines: ['writings', 'real-atlas', 'notes', 'diary', 'outline', 'writing-stats', 'relationships'],
   },
   {
     id: 'reporter',
@@ -91,7 +104,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: Globe,
     color: '#c4463a',
     defaultEngines: ['scrapper', 'timeline', 'board', 'codex', 'gallery', 'notes'],
-    suggestedEngines: ['writings', 'biography', 'writing-stats', 'relationships'],
+    suggestedEngines: ['writings', 'real-atlas', 'biography', 'writing-stats', 'relationships'],
   },
   {
     id: 'playwright',

@@ -26,6 +26,7 @@ import {
   selectTools,
 } from '@/services/aiBridge/manifest';
 import { callRenderer, pendingCallCount, type BridgeCallResult } from './rpc';
+import { executeTool } from './executor';
 import {
   appendAudit,
   getAuditRecord,
@@ -63,7 +64,7 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
 
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
-    let raw = '';
+    const chunks: Buffer[] = [];
     let size = 0;
     req.on('data', (chunk: Buffer) => {
       size += chunk.length;
@@ -72,9 +73,12 @@ function readBody(req: http.IncomingMessage): Promise<string> {
         reject(new Error('body too large'));
         return;
       }
-      raw += chunk.toString('utf8');
+      chunks.push(chunk);
     });
-    req.on('end', () => resolve(raw));
+    // Decode once at the end: a multibyte character split across two chunks
+    // must not be decoded per-chunk, or each half becomes U+FFFD and accented
+    // prose (á, é, í, ñ …) is silently corrupted on the way into the manuscript.
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
 }
@@ -123,50 +127,16 @@ async function handleCall(rawBody: string): Promise<{ status: number; body: unkn
       : {};
   const client = typeof parsed.client === 'string' ? parsed.client.slice(0, 60) : undefined;
 
-  const config = await getBridgeConfig();
-  if (tool.writes && !config.writesEnabled) {
-    return {
-      status: 403,
-      body: {
-        ok: false,
-        code: 'writes-disabled',
-        error: 'Writing is switched off in Writers Hoard (Settings → AI bridge). Reading still works.',
-      },
-    };
-  }
-
-  const outcome: BridgeCallResult = await callRenderer(toolName, args, tool.timeoutMs);
-
-  if (tool.writes) {
-    const audit =
-      outcome.result && typeof outcome.result === 'object'
-        ? ((outcome.result as Record<string, unknown>).__audit as Record<string, unknown> | undefined)
-        : undefined;
-    // What the call did, read off the result rather than declared by each of
-    // forty handlers: every create result says `created`, every delete says
-    // `deleted`, and anything else that wrote is an update.
-    const shape = (outcome.result ?? {}) as Record<string, unknown>;
-    const kind = shape.created === true ? 'create' : shape.deleted === true ? 'delete' : 'update';
-    await appendAudit({
-      at: Date.now(),
-      tool: toolName,
-      client,
-      ok: outcome.ok,
-      error: outcome.error,
-      kind: outcome.ok ? kind : undefined,
-      table: typeof audit?.table === 'string' ? audit.table : undefined,
-      projectId: typeof audit?.projectId === 'string' ? audit.projectId : undefined,
-      entityId: typeof audit?.entityId === 'string' ? audit.entityId : undefined,
-      summary: typeof audit?.summary === 'string' ? audit.summary : undefined,
-      before: audit?.before,
-    });
-    // The audit envelope is bookkeeping, not an answer: never show it to the model.
-    if (outcome.result && typeof outcome.result === 'object') {
-      delete (outcome.result as Record<string, unknown>).__audit;
-    }
-  }
-
-  return { status: outcome.ok ? 200 : 200, body: outcome };
+  // The route is a transport. Policy, scope, audit and the relay itself live
+  // in the executor, shared with the in-app copilot (tasks/lessons.md #23).
+  const { auditIndex: _auditIndex, args: _sent, ...outcome } = await executeTool(
+    { tool: toolName, args },
+    { origin: 'bridge', clientLabel: client },
+  );
+  void _auditIndex;
+  void _sent;
+  const status = outcome.code === 'writes-disabled' ? 403 : 200;
+  return { status, body: outcome satisfies BridgeCallResult };
 }
 
 /**

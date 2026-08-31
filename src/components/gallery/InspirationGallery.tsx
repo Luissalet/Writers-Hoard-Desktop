@@ -10,6 +10,8 @@ import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import { useTranslation } from '@/i18n/useTranslation';
 import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from '@/components/codex/codexTypeMeta';
 import GalleryLightbox from './GalleryLightbox';
+import { useImageHandoffStore } from '@/stores/imageHandoffStore';
+import { navigateTo } from '@/engines/_shared/anchoring/navigation';
 import { ConfirmDialog } from '@/engines/_shared';
 
 interface InspirationGalleryProps {
@@ -438,6 +440,17 @@ export default function InspirationGallery({
             linkedEntries={getLinkedEntries(currentImage)}
             onClose={() => setLightboxImage(null)}
             onEditNotes={(notes) => onEditImage(currentImage.id, { notes })}
+            onUseAsReference={() => {
+              // The studio drains the hand-off on arrival and shows the image
+              // in its reference slot; the prompt stays whatever it was.
+              useImageHandoffStore.getState().request({
+                prompt: '',
+                autoGenerate: false,
+                initImage: currentImage.imageDataOriginal ?? currentImage.imageData,
+              });
+              setLightboxImage(null);
+              navigateTo(`/project/${encodeURIComponent(projectId)}/image-studio`);
+            }}
           />
         );
       })()}

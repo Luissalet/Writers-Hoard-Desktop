@@ -32,6 +32,7 @@ import { promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { killProcessTree } from './media/ytdlp';
+import { catalogSizeBytes } from '@/services/aiRuntime/catalog';
 import {
   isCurrentOllamaRuntimeReceipt,
   isOllamaRuntimeArtifactConfigured,
@@ -45,13 +46,6 @@ import {
 const EMBEDDED_PORT = 11500;
 const EMBEDDED_URL = `http://127.0.0.1:${EMBEDDED_PORT}`;
 const SYSTEM_URL = 'http://127.0.0.1:11434';
-
-/** Mirror of src/config/ai.ts LOCAL_MODELS sizes — drives the disk guard.
- * Two constants are cheaper than coupling main to renderer config. */
-const KNOWN_MODEL_BYTES: Record<string, number> = {
-  'qwen3.5:35b-a3b': 20_000_000_000,
-  'qwen3.5:9b': 6_600_000_000,
-};
 
 const runtimeDir = (): string => path.join(app.getPath('userData'), 'ollama');
 const modelsDir = (): string => path.join(app.getPath('userData'), 'ollama-models');
@@ -250,6 +244,11 @@ async function assertDiskSpace(dir: string, needed: number): Promise<void> {
     if (err instanceof Error && err.message.startsWith('no-space:')) throw err;
     /* statfs unsupported → skip the guard rather than block the feature */
   }
+}
+
+/** Live base URL of whichever Ollama answers (system or embedded), or null. */
+export function ollamaBaseUrl(): string | null {
+  return baseUrl;
 }
 
 // ── Status ──────────────────────────────────────────────────────────────────
@@ -556,7 +555,9 @@ export async function pullOllamaModel(tag: string): Promise<OllamaOpResult> {
   const started = await startOllama();
   if (!started.ok || !baseUrl) return { ok: false, error: started.error ?? 'not-ready' };
 
-  const known = KNOWN_MODEL_BYTES[tag];
+  // Sizes come from the shared catalogue (src/services/aiRuntime/catalog.ts)
+  // — one list for the cards and the disk guard, instead of two that drift.
+  const known = catalogSizeBytes(tag);
   if (known) {
     try {
       await assertDiskSpace(app.getPath('userData'), known * 1.2);

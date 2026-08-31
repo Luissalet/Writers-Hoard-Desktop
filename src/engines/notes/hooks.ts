@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { makeEntityHook } from '@/engines/_shared';
+import { makeEntityHook, onDataChanged } from '@/engines/_shared';
 import * as ops from './operations';
 import type { Note } from './types';
 
@@ -47,7 +47,12 @@ export function useInboxNoteCount(): number {
   useEffect(() => {
     refresh();
     window.addEventListener('wh:notes-changed', refresh);
-    return () => window.removeEventListener('wh:notes-changed', refresh);
+    // A note the AI bridge or the copilot filed announces itself generically.
+    const offData = onDataChanged(refresh);
+    return () => {
+      window.removeEventListener('wh:notes-changed', refresh);
+      offData();
+    };
   }, [refresh]);
 
   return count;

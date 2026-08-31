@@ -2196,3 +2196,143 @@ seguridad antes de publicar.
   de Vite por módulos importados simultáneamente de forma estática y dinámica.
 - Seguimiento pequeño: los contadores del Esquema y sus plantillas distinguen
   singular y plural; ya muestran `1 beat` y `2 beats` en lugar de `1 beats`.
+
+---
+
+# Plan de integración de IA nativa — 2026-08-30
+
+## Plan
+
+- [x] Mapear la integración MCP/IA, el shell, la navegación, la persistencia y
+      los límites Electron/renderer actuales de Writer's Hoard.
+- [x] Mapear en Odysseus la conexión por IP, catálogo y descarga de modelos,
+      estimación de compatibilidad del hardware, chat y generación de imagen.
+- [x] Separar las piezas reutilizables de las que deben rediseñarse para los
+      contratos, seguridad y experiencia de Writer's Hoard.
+- [x] Diseñar la arquitectura objetivo y las migraciones de datos sin romper la
+      operación local-first ni la compatibilidad con el MCP externo.
+- [x] Definir un único núcleo de herramientas compartido por el copiloto interno,
+      MCP stdio y la API local, sin duplicar handlers ni políticas de seguridad.
+- [x] Descomponer la implementación en fases, paquetes delegables, dependencias,
+      criterios de aceptación, pruebas, riesgos y puertas de salida.
+- [x] Contrastar el plan final con símbolos y rutas reales de ambas codebases y
+      documentar las decisiones abiertas que requieran validación de producto.
+
+## Review
+
+- El plan completo quedó publicado en `docs/PLAN-IA-NATIVA.md`, con arquitectura
+  objetivo, contratos, persistencia, seguridad, fases 0–7, 17 paquetes para
+  agentes, hotspots de integración, matriz de pruebas y Definition of Done.
+- Se conserva el MCP actual como interfaz externa y se extrae un coordinador de
+  tools compartido con el copiloto; el chat interno no depende de activar el
+  puerto loopback ni crea handlers paralelos.
+- Se detectó un prerrequisito concreto: `wh_get_context` consulta
+  `currentProjectId`, pero el código actual no llama `setCurrentProject`; la Fase
+  0 lo fija y lo cubre antes de construir el dock.
+- Odysseus aporta patrones de endpoints, caché/backoff, HW Fit e imagen. Su
+  Cookbook no se traslada en bloque por su acoplamiento a Python/shell/SSH/Docker
+  y se exige decidir la compatibilidad de licencia AGPL antes de copiar código.
+- Solo se modificaron documentación y task tracking; no procede ejecutar
+  `update-project-graph` porque no cambió ningún archivo bajo `src/`.
+
+---
+
+# Implementación de la IA nativa — 2026-08-31
+
+Fases 0, 1, 2, 3, 4 y 6A del plan, implementadas y probadas en vivo (sesión
+nocturna con el PC cedido, sin commitear). El detalle por paquete, decisiones,
+verificación y fallos está en `tasks/todo-ai-bridge.md` → «Fase 9», y la
+documentación en `docs/AI-BRIDGE.md` §18.
+
+- [x] Fase 0 — un solo ejecutor de herramientas (puente ≡ copiloto), `wh_get_context` con proyecto abierto.
+- [x] Fase 1 — pasarela de inferencia en main: conexiones por IP/URL, claves cifradas, adaptadores OpenAI/Ollama.
+- [x] Fase 2 — «Ajustes de IA» en la barra lateral: conexiones, modelos locales con veredicto de hardware, valores por defecto.
+- [x] Fase 3 — copiloto en panel derecho por proyecto con permisos por tarjeta y deshacer.
+- [x] Fase 4 — funciones clásicas de IA por la pasarela; migración de los ajustes antiguos.
+- [x] Fase 6A — Estudio de imagen contra `/v1/images/generations` + `wh_generate_image`.
+- [x] Fase 6B — runtime local de difusión (stable-diffusion.cpp fijado, catálogo verificado, `sd-server` gestionado) — «Fase 10» en `tasks/todo-ai-bridge.md`.
+- [x] Velocidad medida (tok/s) en el veredicto y «Usar el mejor modelo local».
+- [ ] Fase 7 — pendiente.
+
+## 2026-08-31 (mañana) — Worldgen MCP, mejoras pendientes, Atlas real
+
+### Parte 2 — Worldgen MCP para desarrollo continuo por IA
+Diseño: el puente no exponía NADA de worldgen. Los lugares no son filas (se
+derivan del relieve); las ediciones son un blob JSON que la vista lee UNA vez.
+Principio: **un solo escritor**. Si la vista está abierta, ella aplica las
+ediciones externas (mismo camino que un trazo: `applyEditGroup`); si no, el
+puente escribe en Dexie. Undo del puente = restaurar el blob (grueso, con
+aviso); la vista detecta el cambio externo por la prop y recarga.
+
+- [x] `core/liveWorlds.ts`: registro worldId → {apply, snapshot} de la vista abierta
+- [x] WorldView: registrar/desregistrar al crear sesión; efecto de recarga ante cambio externo de `world.edits`
+- [x] `bridgeAccess.ts` (en vez de headless.ts + externalEdits.ts): `openWorldForReading`
+      (vivo → réplica privada de la instantánea con caché → forja en 2º plano + `pending`)
+      y `applyWorldEdits` → {before, delivered:'view'|'row'}
+- [x] `tools/worldgen.ts` + `WORLDGEN_TOOLS`: 17 herramientas (list/get worlds, list/find
+      places, place_at, summary, add/rename/move/remove/restore place, add label,
+      waypoints, link place, list links)
+- [x] Registro: BRIDGE_ENGINE_IDS, TOOL_HANDLERS, ENGINE_KEYWORDS.worldgen, DELETABLE
+      (generated-world, world-waypoint), instrucciones, i18n, exención del test retirada
+- [x] `deleteWorldCascade` se lleva también enlaces de lugares y teselas renderizadas
+- [x] Tests: paridad manifest↔handler (106/106), `tests/worldgen-bridge.ts` (forja real
+      128 celdas, lectura privada, escritura fila/vista, anuncio de cambio, undo, cascade),
+      autotest 31/31, verify:quick + 35 críticos en Windows
+- [x] Verificación en vivo (mundo real «mundo 2», 2048 celdas): lectura sin abrir (638 ms
+      places / 12 s full la 1ª vez), `wh_add_place` → `delivered:'view'` y aparece en el
+      índice de la vista, `wh_rename_place` en vivo, undo por `/api/undo` recarga la vista
+      abierta; el mundo de Luis quedó como estaba (10 ediciones)
+- [x] Hallazgo colateral: NINGUNA vista se refrescaba tras una escritura del puente/copiloto
+      (los hooks refetch sólo tras sus propias escrituras) → evento `wh:data-changed`
+      (`engines/_shared/dataChanged.ts`) emitido por `runBridgeTool` tras cada escritura y
+      undo; `makeEntityHook`/`makeGraphHook`/`makeReadOnlyHook` refetch al oírlo
+- [x] `toolSelection`: dentro de un motor, primero las herramientas que nombra el mensaje
+      (worldgen tiene 17 y la tapa es 16)
+
+### Parte 1 — Mejoras pendientes
+- [x] Liberar VRAM del modelo de texto entre texto→imagen: `releaseAfter` en `AiChatRequest`
+      (Ollama `keep_alive: 0` sólo cuando la ruta de imagen es el runtime local) + `vramRoom.ts`
+      en main: antes de arrancar sd-server, si la VRAM libre medida no da para el modelo de
+      imagen, descarga los modelos residentes de los Ollama LOCALES (`/api/ps` → `keep_alive 0`)
+      y espera a que se vayan
+- [x] "Usar como referencia" (img2img): desde el lightbox de la Galería (hand-off con `initImage`)
+      y desde cada resultado del Estudio
+- [x] Ollama: fallback de velocidad por reloj de pared (`speedFromTiming`, marcado `approximate`)
+- [x] Descargas: un `.part` completo y correcto se adopta sin red; el 206 sólo cuenta como
+      reanudación si `Content-Range` empieza exactamente donde acaba el fichero (test)
+- [x] Índice de auditoría estable ante rotación: sidecar `audit.offset`, numeración continua,
+      `audit.jsonl.1` sigue siendo legible por número (test); `run-critical-tests.cjs` ahora
+      externaliza `electron` en el bundle nativo (antes `app` era undefined en esos tests)
+- [ ] LoRA en el Estudio — pospuesto (necesita un fichero LoRA para probarlo; no hay descargas
+      sin permiso)
+- [x] `scripts/fake-image-server.mjs`: proceso de pruebas en :8101 detenido; el script queda
+
+### Parte 3 — Atlas real (mundo real / real con cambios)
+Decisión: motor aparte `real-atlas` (filas con autoridad: lugares con lat/lon y datos
+comprobados + divergencias deliberadas), MÁS un preset «Realista» que lo trae por defecto
+con el kit del novelista. No es un preset de worldgen: allí los lugares se derivan del
+relieve; aquí son hechos que el autor afirma.
+- [x] Tipos (`types.ts`), Dexie v28 (`atlasPlaces`, `atlasDivergences`), operaciones
+      (`deleteAtlasPlace` desancla divergencias y sube hijos), hooks
+- [x] Registro: motor, resolver (`atlas-place`, `divergence`), adaptador de anclaje, backup
+      simple JSON, índice de búsqueda del proyecto, modo `realist` + sugerido en novelista,
+      biógrafo y periodista, 90 claves es/en
+- [x] UI (`components/`): pestañas Lugares/Divergencias, lista con búsqueda plegada y filtro
+      por tipo, árbol padre→hijo, editor de lugar (coordenadas validadas, OSM, padre sin
+      ciclos, ficticio, en la historia / datos comprobados / fuentes / etiquetas), divergencias
+      del lugar, editor de divergencia, deep link `?place=`, borradores que sobreviven al
+      refresco, ConfirmDialog
+- [x] Puente: `tools/realAtlas.ts` + `REAL_ATLAS_TOOLS` (9 herramientas: list/get/create/update
+      de lugares y divergencias, `wh_reality_check`), grupo `visual`, `BRIDGE_ENGINE_IDS`,
+      `wh_delete` (atlas-place, divergence), `DELETABLE`, `ENGINE_KEYWORDS['real-atlas']`,
+      párrafo en `BRIDGE_INSTRUCTIONS`, autotest (5 pasos + 2 sondas de búsqueda + guardias).
+      Puertas: tsc ×2, lint, conformance, críticos (115 herramientas), autotest 36/36
+- [x] Verificación en vivo en la máquina de Luis: proyecto «Prueba Atlas real (Claude)» creado
+      con el preset Realista (la tarjeta muestra Atlas real entre los motores incluidos); estado
+      vacío; `wh_create_atlas_place` (Lisboa, coords, alias) + `wh_create_divergence` por el
+      puente aparecen EN VIVO en la vista abierta; editor completo (chips de alias, OSM, época,
+      datos comprobados, divergencias del lugar, notas al margen); edición desde la UI leída de
+      vuelta por `wh_get_atlas_place`; `wh_reality_check`; y el copiloto (qwen3-coder:30b) elige
+      solo `list atlas places` → `list divergences` → `reality check` y responde en castellano
+- [ ] Luis: confirmar el diseño (o pedir cambios); borrar el proyecto de prueba cuando quiera;
+      LoRA sigue pendiente
