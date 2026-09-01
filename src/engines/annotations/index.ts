@@ -88,9 +88,9 @@ registerBackupStrategy({
       zip,
       `${folder}/annotationReferences.json`,
     );
-    if (annotations?.length) await db.annotations.bulkAdd(annotations as never[]);
+    if (annotations?.length) await db.annotations.bulkPut(annotations as never[]);
     if (references?.length) {
-      await db.annotationReferences.bulkAdd(references as never[]);
+      await db.annotationReferences.bulkPut(references as never[]);
     }
   },
 });

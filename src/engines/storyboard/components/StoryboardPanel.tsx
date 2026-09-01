@@ -87,7 +87,7 @@ export default function StoryboardPanel({
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center bg-deep/50 text-text-dim">
             <Camera size={32} className="mb-2 opacity-50" />
-            <span className="text-xs text-center px-2">Drop image here</span>
+            <span className="text-xs text-center px-2">{t('storyboard.dropImageHere')}</span>
           </div>
         )}
 

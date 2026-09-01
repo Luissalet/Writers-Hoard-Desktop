@@ -85,6 +85,20 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
   assert(!isIpcChannelAllowedForRole('aibridge:reply', 'quick-note'), 'quick-note can answer AI bridge calls');
   assert(!isIpcChannelAllowedForRole('aibridge:setEnabled', 'quick-note'), 'quick-note can toggle the AI bridge');
   assert(isIpcChannelAllowedForRole('ig:listCollection', 'main'), 'ig:listCollection has no trusted renderer');
+  // Closing the window. The renderer's half of the veto is two inbound
+  // channels, and both belong to the window that actually holds documents.
+  assert(isIpcChannelAllowedForRole('shutdown:setWarning', 'main'), 'shutdown warning policy missing');
+  assert(isIpcChannelAllowedForRole('shutdown:reply', 'main'), 'shutdown reply policy missing');
+  // The floating capture window owns no text and must never be able to hold
+  // the app's window open — nor to hand main the words it shows the writer,
+  // which is a dialog the quick-note renderer has no business authoring.
+  assert(!isIpcChannelAllowedForRole('shutdown:setWarning', 'quick-note'), 'quick-note can warn about unsaved work it does not hold');
+  assert(!isIpcChannelAllowedForRole('shutdown:reply', 'quick-note'), 'quick-note can answer for the main window closing');
+  // `shutdown:request` goes main → renderer. Listing it would open an inbound
+  // door for a renderer to impersonate main's own question to itself, so its
+  // absence from the table is the assertion, not an oversight.
+  assert(!isIpcChannelAllowedForRole('shutdown:request', 'main'), 'the main->renderer close push was opened as an inbound channel');
+  assert(!isIpcChannelAllowedForRole('shutdown:request', 'quick-note'), 'the main->renderer close push was opened to quick-note');
   passed.push('exact renderer navigation + fail-closed IPC roles');
 
   // MCP content blocks: a picture must leave as an image block, and its base64

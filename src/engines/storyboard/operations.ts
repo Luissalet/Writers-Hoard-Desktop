@@ -47,6 +47,18 @@ export async function deletePanel(id: string): Promise<void> {
   });
 }
 
+/**
+ * Panel count per storyboard for the whole project, so the storyboard cards can
+ * show their own totals. The dashboard counted the *active* storyboard's panels
+ * for every card, which meant every card read the same number.
+ */
+export async function getPanelCountsByStoryboard(projectId: string): Promise<Record<string, number>> {
+  const rows = await db.storyboardPanels.where('projectId').equals(projectId).toArray();
+  const counts: Record<string, number> = {};
+  for (const row of rows) counts[row.storyboardId] = (counts[row.storyboardId] ?? 0) + 1;
+  return counts;
+}
+
 export async function reorderPanels(_storyboardId: string, panelIds: string[]): Promise<void> {
   await db.transaction('rw', ['storyboardPanels'], async tx => {
     for (let i = 0; i < panelIds.length; i++) {

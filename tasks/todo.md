@@ -2336,3 +2336,90 @@ relieve; aquí son hechos que el autor afirma.
       solo `list atlas places` → `list divergences` → `reality check` y responde en castellano
 - [ ] Luis: confirmar el diseño (o pedir cambios); borrar el proyecto de prueba cuando quiera;
       LoRA sigue pendiente
+
+## RESUELTO (2026-09-01) — restaurar un ZIP de proyecto se colgaba para siempre
+
+`importProjectZip(archive, { replaceProjectIds })` se colgaba —sin error y sin timeout— y no sólo
+con `ai-assistant/aiProjectSettings.json`: se colgaba con la PRIMERA fila de cualquier motor que el
+archivo trajera. La sospecha de la clave primaria *inbound* era falsa. Todas las tablas del esquema
+guardan su clave dentro de la fila; lo único raro de `aiProjectSettings` es que esa clave se llama
+`projectId` y no `id`. Era la primera escritura que llegaba a intentarse, nada más: un proyecto que
+sólo ha abierto el copiloto no tiene ningún otro dato que exportar, y `ai-assistant` es la última
+estrategia registrada.
+
+**Primera causa (de tres).** JSZip bombea cada `async()` por su propio `setImmediate`, así que una sola
+lectura devuelve el control al bucle de eventos. Dexie arrastra la zona de una transacción (`PSD`)
+únicamente a través de MICROtareas —los ecos de `newScope`, con `ZONE_ECHO_LIMIT`—, de modo que el
+código que reanuda después de esa lectura ya está FUERA de la transacción del restore. El `bulkPut`
+siguiente encuentra `PSD.trans` vacío, cae por `tempTransaction` y abre una SEGUNDA transacción
+`readwrite` sobre el mismo almacén. IndexedDB la encola detrás de la primera; la primera no puede
+confirmar hasta que la estrategia devuelva; y ninguna de las dos avanza jamás. `Dexie.waitFor` no
+provocaba este primer interbloqueo, pero es lo que lo volvía mudo: su bucle de giro
+(`store.get(-Infinity).onsuccess = spin`) mantiene viva la primera transacción exactamente el
+tiempo que dure el abrazo, y su `timeout` interno de 60 s llegaba después de los 45 s del arnés —de
+ahí el «sin timeout». Resultó ser además la SEGUNDA causa por su cuenta; ver más abajo.
+
+Los dos tests que recorrían este camino no lo veían porque sus proyectos de prueba son una fila
+`projects` pelada: sin datos de motor en el archivo, ninguna estrategia escribe nada, y la
+transacción pasa de largo.
+
+**El arreglo.**
+
+- `preloadArchive(zip)` (`engines/_shared/backupRegistry.ts`) descomprime el archivo entero ANTES de
+  abrir la transacción; `readBackupJson` e `internalizeImage` sirven desde memoria y ya no ceden el
+  control, así que la zona llega intacta hasta las escrituras y el restore sigue siendo una sola
+  transacción: un fallo a mitad lo deshace todo, como antes. Si alguien añade una entrada al zip
+  después del preload, el lector lo dice con un error en lugar de colgarse.
+- La estrategia `ai-assistant` ya no reescribe el zip al importar: limpia los campos de confianza
+  (`defaultPolicy`, `remoteConsent`, `policy`) sobre las FILAS. Reescribir una entrada del archivo
+  en pleno restore creaba justo la entrada que el preload no había visto —y, de paso, un restore
+  mutaba el archivo de quien lo llamó.
+- `clearProjectForRestore` vuelve a barrer también la tabla cuya clave primaria es `projectId`
+  (lección #44). Confiar en que la fila del archivo pisara la local sólo funciona si el archivo trae
+  fila: uno exportado antes de que existiera el copiloto no la trae, y el proyecto restaurado
+  heredaba las rutas de modelo y el permiso de su instancia anterior.
+
+**Y un segundo cuelgue debajo del primero.** Con el preload puesto, el restore llegaba entero hasta
+la primera estrategia con filas que escribir y se volvía a colgar. El rastro de marcadores, tomado
+en el renderer vivo, lo deja sin ambigüedad:
+
+```
+in:codex:TX > out:codex:ok > in:writings:TX > out:writings:ok
+in:timeline:TX > tl:counts:1/0/0        ← y nada más
+```
+
+La transacción seguía viva (`TX` en todas las estrategias, ni un solo `NOTX`), y
+`await db.timelines.bulkPut(unaFila)` **ni resolvía ni rechazaba**.
+
+**La causa era el propio `Dexie.waitFor`.** Ese envoltorio existe para mantener abierta una
+transacción mientras se espera una promesa que Dexie no controla, y lo hace girando sobre una
+lectura de mentira y aparcando en una cola las operaciones emitidas dentro de su ámbito, para que
+las vacíe el giro. Para algunos almacenes esa cola no se vacía nunca. Y peor: una estrategia que
+RECHAZABA dentro de ese ámbito tampoco propagaba nada —el giro simplemente no terminaba—, así que un
+`ConstraintError` corriente se presentaba como un restore parado para siempre, sin error y sin
+timeout. De ahí que el fallo pasara un mes sin nombre, y de ahí que la hipótesis de la clave
+primaria *inbound* pareciera encajar: `aiProjectSettings` era, en el proyecto de la reproducción, la
+primera tabla con filas que escribir.
+
+Con el preload ya nada necesita mantenerse abierto: ninguna estrategia cede el control al bucle de
+eventos, así que la zona de la transacción llega intacta a las veintitrés. `importStrategy` llama
+ahora a `strategy.importProject(...)` directamente. Comprobado, no supuesto: sin el envoltorio,
+todas las estrategias ven `Dexie.currentTransaction`, y el restore que se colgaba para siempre
+devuelve **en 47 ms** sobre el proyecto de prueba en la app en marcha, con los recuentos intactos
+(11 escritos, 3 hitos, 1 semilla, 1 pago, 2 entradas de códice).
+
+**Un tercer defecto, del mismo tamaño y hasta ahora invisible.** Nueve motores escriben su propia
+estrategia a mano y las dieciocho escrituras usaban `bulkAdd`, no `bulkPut`: sólo el ayudante
+compartido `makeSimpleBackupStrategy` se había corregido. Una fila superviviente abortaba el restore
+entero con `ConstraintError` — que, por lo de arriba, se veía como un cuelgue. Ya usan todas
+`bulkPut`, así que restaurar dos veces escribe lo mismo dos veces y no cambia nada.
+
+Sigue en pie la mitigación anterior: las estrategias restauran con `bulkPut` en vez de `bulkAdd`,
+así que una fila superviviente ya no aborta el restore entero con `ConstraintError`.
+
+Cobertura nueva, ya en `tests/critical.browser.ts`
+(`testProjectRestoreCarriesEngineRows`): restaura un archivo que trae `diaryEntries` y
+`aiProjectSettings`, comprueba que los campos de confianza no viajan y que un archivo sin fila de
+copiloto no deja viva la vieja. La operación va dentro de un `Promise.race` con plazo, para que un
+cuelgue falle como aserción con nombre en vez de llevarse el arnés entero por delante. La suite pasa
+en 62 tests.

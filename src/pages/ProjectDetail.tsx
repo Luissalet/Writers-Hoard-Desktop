@@ -9,6 +9,7 @@ import EngineErrorBoundary from '@/components/common/EngineErrorBoundary';
 import ProjectCockpit from '@/components/project/ProjectCockpit';
 import EditProjectModal from '@/components/project/EditProjectModal';
 import { updateProject } from '@/db/operations';
+import { rememberProjectTab } from '@/services/projectIntelligence';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useAppStore } from '@/stores/appStore';
 
@@ -93,6 +94,16 @@ export default function ProjectDetail() {
     }
   }, [id, engineIds, loading, project, tab, navigate]);
 
+  // Where the writer is, for the dashboard's "Continue". Recorded here rather
+  // than only on the Continue button, which could offer nothing but the chapter
+  // of its own last click. Overview is deliberately not recorded: every plain
+  // open of a project lands there, and it would wipe the engine — and the
+  // chapter — the writer was actually last working in.
+  useEffect(() => {
+    if (!id || !tab || !engineIds.includes(tab)) return;
+    rememberProjectTab(id, tab);
+  }, [engineIds, id, tab]);
+
   // Active engine is fully URL-driven
   const activeEngine = engines.find((e) => e.id === tab);
 
@@ -169,11 +180,12 @@ export default function ProjectDetail() {
         open={showEngineManager || manageRequested}
         onClose={closeEngineManager}
         project={project}
-        onUpdate={async (enabledEngines, engineOrder) => {
+        onUpdate={async ({ enabledEngines, engineOrder, mode }) => {
           if (id) {
             await updateProject(id, {
               enabledEngines,
               engineOrder,
+              mode,
             });
             await refresh();
             closeEngineManager();

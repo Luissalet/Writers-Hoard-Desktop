@@ -3,7 +3,7 @@ import {
   Activity, Eye, EyeOff, Layers as LayersIcon, Lock, Plus, Save, Trash2, Unlock,
 } from 'lucide-react';
 import { InlineColorPicker } from '@/components/common/ColorPicker';
-import { ConfirmDialog } from '@/engines/_shared';
+import { ConfirmDialog, useDebouncedField } from '@/engines/_shared';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { GraphSummary } from '../graph/metrics';
 import type { BoardLayer, BoardView } from '../types';
@@ -12,6 +12,52 @@ const panelButton =
   'flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs text-text-muted transition hover:text-accent-gold';
 
 // ---------------------------------------------------------------------------
+
+/**
+ * Buffered: `onPatch` is a Dexie write plus a full refetch of the layer table,
+ * and the input was bound to the row coming back from it — so typing a layer
+ * name dropped characters and threw the caret to the end.
+ */
+function LayerNameField({ layer, onPatch }: { layer: BoardLayer; onPatch: LayersPanelProps['onPatch'] }) {
+  const field = useDebouncedField(layer.name, (name) => onPatch(layer.id, { name }));
+  return (
+    <input
+      value={field.value}
+      onChange={(event) => field.onChange(event.target.value)}
+      onBlur={field.onBlur}
+      className="min-w-0 flex-1 bg-transparent text-xs text-text-primary outline-none"
+    />
+  );
+}
+
+/** Same write-and-refetch on every drag tick; the opacity lands on release. */
+function LayerOpacitySlider({ layer, onPatch }: { layer: BoardLayer; onPatch: LayersPanelProps['onPatch'] }) {
+  const [opacity, setOpacity] = useState(layer.opacity);
+  const [seenRemote, setSeenRemote] = useState(layer.opacity);
+  if (layer.opacity !== seenRemote) {
+    setSeenRemote(layer.opacity);
+    setOpacity(layer.opacity);
+  }
+
+  const commit = () => {
+    if (opacity !== layer.opacity) onPatch(layer.id, { opacity });
+  };
+
+  return (
+    <input
+      type="range"
+      min={0.1}
+      max={1}
+      step={0.1}
+      value={opacity}
+      onChange={(event) => setOpacity(Number(event.target.value))}
+      onPointerUp={commit}
+      onKeyUp={commit}
+      onBlur={commit}
+      className="h-1 flex-1 accent-accent-gold"
+    />
+  );
+}
 
 export interface LayersPanelProps {
   layers: BoardLayer[];
@@ -62,11 +108,7 @@ export function LayersPanel({
               {layer.visible ? <Eye size={13} /> : <EyeOff size={13} />}
             </button>
             <InlineColorPicker value={layer.color} onChange={(color) => onPatch(layer.id, { color })} size="sm" />
-            <input
-              value={layer.name}
-              onChange={(event) => onPatch(layer.id, { name: event.target.value })}
-              className="min-w-0 flex-1 bg-transparent text-xs text-text-primary outline-none"
-            />
+            <LayerNameField layer={layer} onPatch={onPatch} />
             <span className="text-[10px] text-text-dim">{counts.get(layer.id) ?? 0}</span>
             <button
               type="button"
@@ -85,20 +127,14 @@ export function LayersPanel({
               // tampoco lo recuperaba.
               onClick={() => setPendingDelete(layer.id)}
               className="text-text-muted transition hover:text-danger"
+              title={t('common.delete')}
+              aria-label={t('common.delete')}
             >
-              <Trash2 size={12} />
+              <Trash2 size={12} aria-hidden="true" />
             </button>
           </div>
           <div className="mt-1 flex items-center gap-2">
-            <input
-              type="range"
-              min={0.1}
-              max={1}
-              step={0.1}
-              value={layer.opacity}
-              onChange={(event) => onPatch(layer.id, { opacity: Number(event.target.value) })}
-              className="h-1 flex-1 accent-accent-gold"
-            />
+            <LayerOpacitySlider layer={layer} onPatch={onPatch} />
             <button type="button" onClick={() => onSetActive(layer.id)} className="text-[10px] text-text-dim hover:text-accent-gold">
               {t('board.layers.setActive')}
             </button>
@@ -130,8 +166,10 @@ export function LayersPanel({
             setDraft('');
           }}
           className={panelButton}
+          title={t('common.create')}
+          aria-label={t('common.create')}
         >
-          <Plus size={12} />
+          <Plus size={12} aria-hidden="true" />
         </button>
       </div>
 
@@ -200,8 +238,10 @@ export function ViewsPanel({ views, activeViewId, onApply, onSave, onUpdate, onD
               type="button"
               onClick={() => setPendingDelete(view.id)}
               className="text-text-muted transition hover:text-danger"
+              title={t('common.delete')}
+              aria-label={t('common.delete')}
             >
-              <Trash2 size={12} />
+              <Trash2 size={12} aria-hidden="true" />
             </button>
           </div>
           {view.query ? (
@@ -231,8 +271,10 @@ export function ViewsPanel({ views, activeViewId, onApply, onSave, onUpdate, onD
             setDraft('');
           }}
           className={panelButton}
+          title={t('common.create')}
+          aria-label={t('common.create')}
         >
-          <Plus size={12} />
+          <Plus size={12} aria-hidden="true" />
         </button>
       </div>
 

@@ -28,6 +28,8 @@ const MAX_CALLS = 20;
 /** What the model sees of a tool result; the rest is summarised away. */
 const TOOL_RESULT_LIMIT = 16_000;
 const APPROVAL_TIMEOUT_MS = 10 * 60_000;
+/** Reply written for a call the user stopped before it could run. */
+const CANCELLED_TOOL_ERROR = 'The user stopped the turn before this call ran.';
 
 export type { CopilotEvent, CopilotRunRequest } from '@/services/aiRuntime/copilot';
 
@@ -232,8 +234,24 @@ export async function runCopilotTurn(
         return;
       }
 
-      for (const call of turn.toolCalls) {
+      for (let index = 0; index < turn.toolCalls.length; index += 1) {
+        const call = turn.toolCalls[index];
         if (state.cancelled) {
+          // Every call the assistant asked for still needs its answer row: a
+          // stored turn whose tool_calls are only half answered is one no
+          // provider will replay again.
+          for (const pending of turn.toolCalls.slice(index)) {
+            emit({
+              type: 'tool-result',
+              callId: pending.id,
+              tool: pending.name,
+              ok: false,
+              code: 'cancelled',
+              error: CANCELLED_TOOL_ERROR,
+              resultText: JSON.stringify({ error: CANCELLED_TOOL_ERROR, code: 'cancelled' }),
+              summary: summaryFor(pending.name, false, undefined, CANCELLED_TOOL_ERROR),
+            });
+          }
           emit({ type: 'cancelled' });
           return;
         }

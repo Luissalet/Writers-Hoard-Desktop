@@ -46,6 +46,10 @@ export function sanitizeModelText(raw: string): string {
  *
  * Throws a SyntaxError when nothing parses, ON PURPOSE: safeAiCall already
  * maps SyntaxError to t('ai.unexpectedFormat').
+ *
+ * It validates SYNTAX, never shape: `{"personajes": [...]}` parses happily
+ * where an array was asked for, so callers must check what they got before
+ * handing it to the UI (see the guards in aiFeatures.ts).
  */
 export function parseJsonFromModel<T>(raw: string): T {
   const base = sanitizeModelText(raw);

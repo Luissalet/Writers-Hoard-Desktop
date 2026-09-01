@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical, Link2, Pencil } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical, Link2, Pencil, PenLine, Waypoints } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -23,7 +23,11 @@ import type { Writing } from '@/types';
 import { BEAT_STATUS_CONFIG, BEAT_LEVEL_LABEL } from '../types';
 import BeatEditor from './BeatEditor';
 import { ConfirmDialog } from '@/engines/_shared';
+import EmptyState from '@/components/common/EmptyState';
 import { useTranslation } from '@/i18n/useTranslation';
+import { toast } from '@/components/common/toast';
+import { beatNeedsChapter, writeChapterForBeat } from '../beatToChapter';
+import { navigateTo } from '@/engines/_shared/anchoring';
 
 /**
  * Una fila arrastrable.
@@ -150,6 +154,51 @@ export default function BeatList({
   const [expandedBeats, setExpandedBeats] = useState<Set<string>>(new Set());
   const [editingBeat, setEditingBeat] = useState<OutlineBeat | null>(null);
   const [pendingDeleteBeat, setPendingDeleteBeat] = useState<OutlineBeat | null>(null);
+  // The beat whose chapter is being created. Held by id rather than by a plain
+  // boolean so two rows cannot show the same spinner, and so a second click on
+  // the SAME row is refused here as well as inside the transaction.
+  const [writingBeatId, setWritingBeatId] = useState<string | null>(null);
+
+  // Which chapters exist right now, for the same "a link counts only when its
+  // target is alive" test the proofreader applies. Rebuilt with the prop, so a
+  // chapter deleted in another tab brings the action back on the next render.
+  const liveWritingIds = useMemo(() => new Set(writings.map(writing => writing.id)), [writings]);
+
+  // One definition of what a new beat is, because the toolbar button and the
+  // empty state both mint one and a writer who used the second must not get a
+  // different row from the writer who used the first.
+  const addBeat = () => {
+    onAddBeat({
+      outlineId,
+      projectId,
+      order: beats.length,
+      level: 'beat',
+      title: t('outline.beat.defaultTitle'),
+      description: '',
+      status: 'empty',
+    });
+  };
+
+  const writeBeat = async (beat: OutlineBeat) => {
+    if (writingBeatId) return;
+    setWritingBeatId(beat.id);
+    try {
+      const created = await writeChapterForBeat(beat);
+      // The list the spine renders comes from the parent's hook, which has no
+      // idea this wrote anything; telling it through the same callback the
+      // editor uses keeps the linked-chapter badge honest without a refetch.
+      onUpdateBeat(beat.id, { linkedWritingId: created.writingId });
+      toast.success(t('outline.beat.chapterCreated').replace('{title}', created.title));
+      navigateTo(
+        `/project/${encodeURIComponent(projectId)}/writings?writing=${encodeURIComponent(created.writingId)}`,
+      );
+    } catch (error) {
+      console.error('[outline] the chapter for this beat could not be created', error);
+      toast.error(t('outline.beat.chapterFailed'));
+    } finally {
+      setWritingBeatId(null);
+    }
+  };
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const appliedFocusRef = useRef<string | null>(null);
   const focusedAncestors = useMemo(() => {
@@ -311,6 +360,37 @@ export default function BeatList({
             ) : null;
           })()}
 
+          {/* Linked chapter indicator.
+              The spine had one for a linked SCENE and none for a linked
+              chapter, so a beat that had been written looked exactly like one
+              that had not — and after "write this beat" the writer pressed it,
+              came back, and found the row unchanged. The word-target chip below
+              shows the same link, but only for a beat that happens to carry a
+              target, which most do not. */}
+          {beat.linkedWritingId && !(beat.wordTarget !== undefined && beat.wordTarget > 0) && (() => {
+            const linkedWriting = writings.find((w) => w.id === beat.linkedWritingId);
+            if (!linkedWriting) return null;
+            // The COUNT, not the chapter's name. A chapter written from this
+            // beat takes the beat's title, so naming it here printed the row's
+            // own title back to itself twice; the number is the thing the spine
+            // could not otherwise say — whether the promise has been kept, and
+            // how far. The name is in the tooltip, where it costs no width.
+            const written = linkedWriting.wordCount ?? 0;
+            return (
+              <div
+                className={`flex items-center gap-1 text-xs px-2 py-1 rounded flex-shrink-0 tabular-nums ${
+                  written > 0 ? 'bg-accent-gold/10 text-accent-gold/80' : 'bg-surface text-text-dim'
+                }`}
+                title={`${t('outline.beat.linkedTo').replace('{name}', linkedWriting.title)} · ${
+                  written.toLocaleString()
+                } ${t('writings.words')}`}
+              >
+                <PenLine size={10} aria-hidden="true" />
+                <span>{written.toLocaleString()}</span>
+              </div>
+            );
+          })()}
+
           {/* Word target progress — the field was writable in the editor but
               never read anywhere; the linked writing's live word count was
               already arriving through the `writings` prop. */}
@@ -348,6 +428,21 @@ export default function BeatList({
 
           {/* Actions */}
           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+            {/* The spine's one verb. Shown only while the beat has nothing
+                written for it — once it does, the badge above says so and this
+                would just be a way to mint a duplicate. */}
+            {beatNeedsChapter(beat, liveWritingIds) && (
+              <button
+                type="button"
+                onClick={() => void writeBeat(beat)}
+                disabled={writingBeatId !== null}
+                className="p-1.5 hover:bg-accent-gold/10 rounded text-text-muted hover:text-accent-gold transition disabled:opacity-40"
+                title={t('outline.beat.writeChapter')}
+                aria-label={t('outline.beat.writeChapter')}
+              >
+                <PenLine size={14} aria-hidden="true" />
+              </button>
+            )}
             <button
               onClick={() => setEditingBeat(beat)}
               className="p-1.5 hover:bg-accent-gold/10 rounded text-accent-gold transition"
@@ -387,16 +482,7 @@ export default function BeatList({
       <div className="flex gap-2">
         <button
           onClick={() => {
-            const newBeat: Omit<OutlineBeat, 'id' | 'createdAt' | 'updatedAt'> = {
-              outlineId,
-              projectId,
-              order: beats.length,
-              level: 'beat',
-              title: t('outline.beat.defaultTitle'),
-              description: '',
-              status: 'empty',
-            };
-            onAddBeat(newBeat);
+            addBeat();
           }}
           className="flex items-center gap-1.5 px-3 py-2 text-xs bg-accent-gold/10 text-accent-gold rounded-lg hover:bg-accent-gold/20 transition"
         >
@@ -408,9 +494,12 @@ export default function BeatList({
       {/* Beat List */}
       <div className="border border-border rounded-xl bg-surface/30 overflow-hidden">
         {topLevelBeats.length === 0 ? (
-          <div className="p-8 text-center text-text-dim">
-            <p className="text-sm">{t('outline.noBeats')}</p>
-          </div>
+          <EmptyState
+            icon={<Waypoints size={40} className="text-accent-gold" />}
+            title={t('outline.noBeats.title')}
+            message={t('outline.noBeats.message')}
+            action={{ label: t('outline.addBeat'), onClick: addBeat }}
+          />
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext

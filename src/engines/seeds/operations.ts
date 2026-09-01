@@ -1,4 +1,5 @@
-import { makeTableOps, makeCascadeDeleteOp } from '@/engines/_shared';
+import { db } from '@/db';
+import { makeTableOps, makeCascadeDeleteOp, deleteEntityAnnotations } from '@/engines/_shared';
 import type { Seed, Payoff } from './types';
 
 // ===== Seeds =====
@@ -14,10 +15,18 @@ export const createSeed = seedOps.create;
 export const updateSeed = seedOps.update;
 
 // deleteSeed cascades to payoffs (a payoff can't exist without its seed)
-export const deleteSeed = makeCascadeDeleteOp({
+const deleteSeedRow = makeCascadeDeleteOp({
   tableName: 'seeds',
   cascades: [{ table: 'payoffs', foreignKey: 'seedId' }],
 });
+
+// ...and to the margin notes anchored on the seed, which are pure link.
+export async function deleteSeed(id: string): Promise<void> {
+  await db.transaction('rw', ['seeds', 'payoffs', 'annotations', 'annotationReferences'], async () => {
+    await deleteEntityAnnotations('seeds', id);
+    await deleteSeedRow(id);
+  });
+}
 
 // ===== Payoffs =====
 const payoffOps = makeTableOps<Payoff>({
@@ -34,6 +43,5 @@ export const deletePayoff = payoffOps.delete;
 
 // All payoffs across a project (used for the dashboard/timeline view)
 export async function getAllPayoffsForProject(projectId: string): Promise<Payoff[]> {
-  const { db } = await import('@/db');
   return db.payoffs.where('projectId').equals(projectId).toArray();
 }

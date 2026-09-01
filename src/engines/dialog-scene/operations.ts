@@ -1,4 +1,9 @@
-import { makeTableOps, reorderItems, makeCascadeDeleteOp } from '@/engines/_shared';
+import {
+  makeTableOps,
+  reorderItems,
+  makeCascadeDeleteOp,
+  deleteEntityAnnotations,
+} from '@/engines/_shared';
 import { db } from '@/db';
 import type { Scene, DialogBlock, SceneCast } from './types';
 import type { OutlineBeat } from '@/engines/outline/types';
@@ -43,13 +48,23 @@ const deleteSceneRow = makeCascadeDeleteOp({
  * escena, listo para volver a enlazarse. Es la misma política de
  * `deleteCodexEntry` — se borra lo que es puro vínculo, se desvincula lo que
  * alguien escribió.
+ *
+ * Las notas al margen ancladas en la escena sí son puro vínculo: se van con
+ * ella, junto con sus filas de referencia.
  */
 export async function deleteScene(id: string): Promise<void> {
-  const orphaned = await getLinkedBeats(id);
-  for (const beat of orphaned) {
-    await db.table('outlineBeats').update(beat.id, { linkedSceneId: undefined });
-  }
-  await deleteSceneRow(id);
+  await db.transaction(
+    'rw',
+    ['scenes', 'dialogBlocks', 'sceneCasts', 'outlineBeats', 'annotations', 'annotationReferences'],
+    async () => {
+      const orphaned = await getLinkedBeats(id);
+      for (const beat of orphaned) {
+        await db.table('outlineBeats').update(beat.id, { linkedSceneId: undefined });
+      }
+      await deleteEntityAnnotations('dialog-scene', id);
+      await deleteSceneRow(id);
+    },
+  );
 }
 
 export async function reorderScenes(projectId: string, orderedIds: string[]): Promise<void> {

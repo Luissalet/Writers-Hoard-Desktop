@@ -34,24 +34,102 @@ const PRIVATE_V4 = [
   /^0\.0\.0\.0$/,
 ];
 
-/** loopback | lan | remote for a bare hostname or IP literal. */
-export function classifyHost(rawHost: string): AiLocality {
-  const host = rawHost.trim().toLowerCase().replace(/^\[|\]$/g, '');
-  if (!host) return 'remote';
-  if (host === 'localhost' || host === '::1' || host.endsWith('.localhost')) return 'loopback';
-  if (/^127\./.test(host)) return 'loopback';
-  if (host === '::' || host === '0.0.0.0') return 'loopback';
-  // IPv4-mapped IPv6 (::ffff:192.168.0.1) and plain IPv4.
-  const v4 = /(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/.exec(host)?.[1];
-  if (v4) {
-    if (/^127\./.test(v4)) return 'loopback';
-    return PRIVATE_V4.some((re) => re.test(v4)) ? 'lan' : 'remote';
+/** The four octets of a dotted-quad IPv4 literal, or null when it is a name. */
+function ipv4Octets(text: string): number[] | null {
+  const parts = text.split('.');
+  if (parts.length !== 4) return null;
+  const octets: number[] = [];
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const value = Number(part);
+    if (value > 255) return null;
+    octets.push(value);
   }
-  // Link-local and unique-local IPv6.
-  if (/^fe[89ab][0-9a-f]:/i.test(host) || /^f[cd][0-9a-f]{2}:/i.test(host)) return 'lan';
-  // mDNS names and bare single-label machine names never leave the LAN.
+  return octets;
+}
+
+/** The eight 16-bit groups of an IPv6 literal, or null when it is not one. */
+function ipv6Groups(raw: string): number[] | null {
+  const zone = raw.indexOf('%');
+  let text = zone >= 0 ? raw.slice(0, zone) : raw;
+  if (!text.includes(':')) return null;
+  // A trailing dotted quad (::ffff:192.168.0.1) folds into two hex groups.
+  const cut = text.lastIndexOf(':');
+  const tail = text.slice(cut + 1);
+  if (tail.includes('.')) {
+    const octets = ipv4Octets(tail);
+    if (!octets) return null;
+    const high = ((octets[0] << 8) | octets[1]).toString(16);
+    const low = ((octets[2] << 8) | octets[3]).toString(16);
+    text = `${text.slice(0, cut + 1)}${high}:${low}`;
+  }
+  const halves = text.split('::');
+  if (halves.length > 2) return null;
+  const parse = (part: string): number[] | null => {
+    if (!part) return [];
+    const groups: number[] = [];
+    for (const piece of part.split(':')) {
+      if (!/^[0-9a-f]{1,4}$/.test(piece)) return null;
+      groups.push(parseInt(piece, 16));
+    }
+    return groups;
+  };
+  const left = parse(halves[0]);
+  if (!left) return null;
+  if (halves.length === 1) return left.length === 8 ? left : null;
+  const right = parse(halves[1]);
+  if (!right) return null;
+  const fill = 8 - left.length - right.length;
+  if (fill < 1) return null;
+  return [...left, ...new Array<number>(fill).fill(0), ...right];
+}
+
+function classifyIpv4(octets: number[]): AiLocality {
+  const text = octets.join('.');
+  if (octets[0] === 127 || text === '0.0.0.0') return 'loopback';
+  return PRIVATE_V4.some((re) => re.test(text)) ? 'lan' : 'remote';
+}
+
+function classifyIpv6(groups: number[]): AiLocality {
+  const topZero = groups.slice(0, 5).every((g) => g === 0);
+  // "::" (unspecified) and "::1" (loopback) both mean this machine.
+  if (topZero && groups[5] === 0 && groups[6] === 0 && (groups[7] === 0 || groups[7] === 1)) {
+    return 'loopback';
+  }
+  // IPv4-mapped: WHATWG URL rewrites ::ffff:192.168.0.1 to ::ffff:c0a8:1, so
+  // the embedded address is read back out of the last 32 bits.
+  if (topZero && groups[5] === 0xffff) {
+    return classifyIpv4([groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff]);
+  }
+  if ((groups[0] & 0xffc0) === 0xfe80) return 'lan'; // fe80::/10 link-local
+  if ((groups[0] & 0xfe00) === 0xfc00) return 'lan'; // fc00::/7 unique-local
+  return 'remote';
+}
+
+/**
+ * loopback | lan | remote for a bare hostname or IP literal.
+ *
+ * A private range is only private when the host really IS an IP literal:
+ * "127.0.0.1.evil.com" is a name that resolves wherever its owner points it,
+ * and so is any single-label name, which a search domain can send anywhere.
+ */
+export function classifyHost(rawHost: string): AiLocality {
+  const trimmed = rawHost.trim().toLowerCase();
+  // `new URL().hostname` keeps an IPv6 literal's brackets; callers may pass a
+  // bracketed authority with a port too.
+  const host = /^\[[^\]]*\](?::\d+)?$/.test(trimmed)
+    ? trimmed.slice(1, trimmed.indexOf(']'))
+    : trimmed;
+  if (!host) return 'remote';
+  if (host === 'localhost' || host.endsWith('.localhost')) return 'loopback';
+  const v4 = ipv4Octets(host);
+  if (v4) return classifyIpv4(v4);
+  if (host.includes(':')) {
+    const v6 = ipv6Groups(host);
+    return v6 ? classifyIpv6(v6) : 'remote';
+  }
+  // mDNS and the two suffixes a home router hands out never leave the LAN.
   if (host.endsWith('.local') || host.endsWith('.lan') || host.endsWith('.home')) return 'lan';
-  if (!host.includes('.')) return 'lan';
   return 'remote';
 }
 

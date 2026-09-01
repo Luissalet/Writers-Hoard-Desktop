@@ -332,11 +332,158 @@ async function testUndoRoundTrip(): Promise<void> {
   await db.projects.delete(projectId);
 }
 
+/**
+ * What a write records about the row it is replacing, and whether undo can put
+ * it back byte for byte.
+ *
+ * Three regressions live here, all of them silent in front of a model:
+ *
+ *  • an empty `content` on a codex entry used to be accepted and written, so a
+ *    small model that sent a blank string beside the field it actually meant
+ *    to change erased the whole body — and the codex has no snapshot table
+ *    behind it, so there was nothing to restore from;
+ *  • `wh_update_dialog_block` recorded `content.slice(0, 400)` under the key
+ *    `character`, so undoing a type-only edit replaced a long speech with its
+ *    first 400 characters and left a junk `character` column on the row;
+ *  • `wh_append_writing` recorded only the word count, so undoing an append
+ *    left the appended prose in the manuscript beside a count that no longer
+ *    described it.
+ */
+async function testWriteBodyGuardsAndUndoFidelity(): Promise<void> {
+  const projectId = 'bridge-write-project';
+  const call = (tool: string, args: Record<string, unknown>): Promise<unknown> =>
+    TOOL_HANDLERS[tool](args);
+  const idOf = (result: unknown): string => String((result as { id: string }).id);
+  const auditBefore = (result: unknown): Record<string, unknown> =>
+    (result as { __audit: { before: Record<string, unknown> } }).__audit.before;
+  const codeOf = async (run: Promise<unknown>): Promise<string> => {
+    try {
+      await run;
+      return '';
+    } catch (err) {
+      return err instanceof BridgeError ? err.code : 'other';
+    }
+  };
+
+  await db.projects.put({
+    id: projectId,
+    title: 'Bridge writes',
+    mode: 'custom',
+    type: 'idea',
+    color: '#6b7280',
+    description: '',
+    status: 'draft',
+    enabledEngines: ['codex', 'dialog-scene', 'writings'],
+    engineOrder: ['codex', 'dialog-scene', 'writings'],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+
+  // --- a blank body is an erasure, not an edit ----------------------------
+  const codexId = idOf(await call('wh_create_codex_entry', {
+    projectId, title: 'Marta', type: 'character', content: 'Nació en el puerto.',
+  }));
+  const originalBody = (await db.codexEntries.get(codexId))?.content;
+  assert(originalBody && originalBody.length > 0, 'the codex entry was created without a body');
+
+  assert(
+    await codeOf(call('wh_update_codex_entry', { id: codexId, content: '' })) === 'bad-args',
+    'an empty content was accepted on a codex entry',
+  );
+  assert(
+    await codeOf(call('wh_update_codex_entry', { id: codexId, content: '   \n\t ' })) === 'bad-args',
+    'a whitespace-only content was accepted on a codex entry',
+  );
+  assert(
+    (await db.codexEntries.get(codexId))?.content === originalBody,
+    'a refused content change still touched the body',
+  );
+
+  // A real change goes through — and records the body it replaced, because
+  // there is no snapshot table behind the codex to recover it from.
+  const changed = await call('wh_update_codex_entry', { id: codexId, content: 'Nació tierra adentro.' });
+  const codexAudit = auditBefore(changed);
+  assert(codexAudit.content === originalBody, 'the audit did not record the codex body it replaced');
+  const rewritten = (await db.codexEntries.get(codexId))?.content;
+  assert(rewritten && rewritten !== originalBody, 'the accepted content change did not land');
+  await undoAuditEntry({
+    entry: { kind: 'update', entityId: codexId, summary: 'rewrote a body', before: codexAudit },
+  });
+  assert(
+    (await db.codexEntries.get(codexId))?.content === originalBody,
+    'undoing a codex body change did not restore the original body',
+  );
+
+  // --- a type-only edit must not truncate the line it did not touch -------
+  const sceneId = idOf(await call('wh_create_scene', { projectId, title: 'La azotea' }));
+  const longLine = `Monólogo: ${'palabra '.repeat(90)}fin.`;
+  assert(longLine.length > 400, 'the fixture line is not long enough to catch a 400-char truncation');
+  const blockId = idOf(await call('wh_add_dialog', {
+    sceneId, type: 'dialog', character: 'Alicia', content: longLine,
+  }));
+
+  const retyped = await call('wh_update_dialog_block', { id: blockId, type: 'note' });
+  const blockAudit = auditBefore(retyped);
+  assert(blockAudit.content === longLine, 'the audit truncated the line it recorded');
+  assert(blockAudit.characterName === 'Alicia', 'the audit lost the speaker under its real column name');
+  assert(!('character' in blockAudit), 'the audit recorded a `character` key that matches no column');
+  assert((await db.dialogBlocks.get(blockId))?.type === 'note', 'the type change did not land');
+
+  await undoAuditEntry({
+    entry: { kind: 'update', entityId: blockId, summary: 'retyped a block', before: blockAudit },
+  });
+  const restoredBlock = await db.dialogBlocks.get(blockId);
+  assert(restoredBlock?.content === longLine, 'undoing a type-only edit truncated the line');
+  assert(restoredBlock?.type === 'dialog', 'undoing a type-only edit did not restore the type');
+  assert(restoredBlock?.characterName === 'Alicia', 'undoing a type-only edit lost the speaker');
+  assert(
+    !('character' in (restoredBlock as unknown as Record<string, unknown>)),
+    'undo wrote a stray `character` column onto the block',
+  );
+
+  // --- an append comes back whole: the prose AND the count ----------------
+  const writingId = idOf(await call('wh_create_writing', {
+    projectId, title: 'Capítulo uno', content: 'La primera línea del capítulo.',
+  }));
+  const original = await db.writings.get(writingId);
+  assert(original, 'the writing was not created');
+
+  const appended = await call('wh_append_writing', { id: writingId, content: 'Y una línea añadida después.' });
+  const appendAudit = auditBefore(appended);
+  const grown = await db.writings.get(writingId);
+  assert(
+    grown && grown.content.length > original.content.length && grown.wordCount > original.wordCount,
+    'the append never landed',
+  );
+  assert(appendAudit.content === original.content, 'the audit did not record the body before the append');
+  assert(appendAudit.wordCount === original.wordCount, 'the audit did not record the word count before the append');
+
+  await undoAuditEntry({
+    entry: { kind: 'update', entityId: writingId, summary: 'appended to a writing', before: appendAudit },
+  });
+  const undone = await db.writings.get(writingId);
+  assert(undone?.content === original.content, 'undoing an append left the added prose in the manuscript');
+  assert(
+    undone?.wordCount === original.wordCount,
+    'undoing an append left a word count that no longer matches the body',
+  );
+
+  // --- clean up so later suites see an untouched project set --------------
+  await db.writingSnapshots.where('writingId').equals(writingId).delete();
+  await db.writings.delete(writingId);
+  await db.dialogBlocks.where('sceneId').equals(sceneId).delete();
+  await db.sceneCasts.where('sceneId').equals(sceneId).delete();
+  await db.scenes.delete(sceneId);
+  await db.codexEntries.delete(codexId);
+  await db.projects.delete(projectId);
+}
+
 export async function testAiBridgeContracts(): Promise<string> {
   testManifestHandlerParity();
   testToolGroupSelection();
   testMarkdownConversion();
   await testDeletionConfirmation();
   await testUndoRoundTrip();
-  return `AI bridge: ${BRIDGE_TOOLS.length} tools, group filter, Markdown, deny-by-default deletes, undo`;
+  await testWriteBodyGuardsAndUndoFidelity();
+  return `AI bridge: ${BRIDGE_TOOLS.length} tools, group filter, Markdown, deny-by-default deletes, undo, blank-body refusal, lossless update undo`;
 }

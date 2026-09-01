@@ -8,19 +8,29 @@
 //   • Character arcs   (character-arc engine, characterId → codex id)
 //   • Relationships    (relationships engine, entityA/BId → codex id)
 //   • Scene appearances (dialog-scene cast, characterId → codex id)
+//   • Manuscript appearances (the chapters her name occurs in)
+//
+// The last one is the question a novelist actually asks — "when was Marek last
+// on the page?" — and until now the Codex answered every question but that one.
+// The chapters are scanned by the caller, once per project, and handed down
+// here: this component must never scan a manuscript of its own.
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TrendingUp, Network, Clapperboard, ChevronRight } from 'lucide-react';
+import { BookOpen, TrendingUp, Network, Clapperboard, ChevronRight } from 'lucide-react';
 import { db } from '@/db/index';
 import { useTranslation } from '@/i18n/useTranslation';
+import { getAnchorAdapter } from '@/engines/_shared/anchoring';
 import { RELATIONSHIP_KIND_CONFIG } from '@/engines/relationships/types';
 import type { RelationshipKind } from '@/engines/relationships/types';
+import type { CodexAppearance } from '@/services/projectIntelligence';
 import type { CodexEntry } from '@/types';
 
 interface CharacterConnectionsProps {
   projectId: string;
   entry: CodexEntry;
+  /** Chapters this character is named in, in manuscript order. */
+  appearances?: CodexAppearance[];
 }
 
 interface ConnectionsData {
@@ -60,7 +70,11 @@ function Section({
   );
 }
 
-export default function CharacterConnections({ projectId, entry }: CharacterConnectionsProps) {
+export default function CharacterConnections({
+  projectId,
+  entry,
+  appearances = [],
+}: CharacterConnectionsProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [data, setData] = useState<ConnectionsData>(EMPTY);
@@ -104,10 +118,19 @@ export default function CharacterConnections({ projectId, entry }: CharacterConn
     };
   }, [entry.id, projectId]);
 
-  const total = data.arcs.length + data.relationships.length + data.scenes.length;
+  const total =
+    data.arcs.length + data.relationships.length + data.scenes.length + appearances.length;
   if (total === 0) return null;
 
   const chip = CHIP_CLASS;
+
+  // The same jump the margin notes and global search make, so a chapter opens
+  // on the chapter rather than on the list of them.
+  const openWriting = (writingId: string) => {
+    const adapter = getAnchorAdapter('writings');
+    if (adapter) adapter.navigateToEntity(writingId, projectId);
+    else navigate(`/project/${projectId}/writings?writing=${encodeURIComponent(writingId)}`);
+  };
 
   return (
     <div className="space-y-3 p-3 bg-deep/40 border border-border rounded-xl">
@@ -136,6 +159,24 @@ export default function CharacterConnections({ projectId, entry }: CharacterConn
               </span>
             );
           })}
+        </Section>
+      )}
+
+      {appearances.length > 0 && (
+        <Section icon={BookOpen} label={t('codex.web.appearsIn')} onNavigate={() => navigate(`/project/${projectId}/writings`)}>
+          {appearances.map((appearance) => (
+            <button
+              key={appearance.writingId}
+              type="button"
+              onClick={() => openWriting(appearance.writingId)}
+              title={appearance.title}
+              className={`${chip} max-w-[12rem] truncate hover:border-accent-gold/40 hover:text-accent-gold transition`}
+            >
+              {appearance.chapter !== undefined
+                ? t('codex.web.chapterShort').replace('{n}', String(appearance.chapter))
+                : appearance.title}
+            </button>
+          ))}
         </Section>
       )}
 

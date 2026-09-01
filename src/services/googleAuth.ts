@@ -2,6 +2,8 @@
 // Google OAuth2 Authentication via Google Identity Services (GIS)
 // ============================================
 
+import { t } from '@/i18n/useTranslation';
+
 // GIS types (loaded via script tag in index.html)
 declare global {
   interface Window {
@@ -38,6 +40,46 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googl
 let tokenClient: GoogleTokenClient | null = null;
 
 /**
+ * An access token together with the instant it stops working.
+ *
+ * The GIS implicit flow hands back no refresh token, so there is nothing to
+ * renew with: once `expiresAt` passes, the only way forward is to connect
+ * again. Every caller reads this deadline instead of assuming that a token
+ * still sitting in the store is still good — which is how a Drive listing
+ * ended up 401ing behind a UI that claimed to be connected.
+ */
+export interface GoogleSession {
+  accessToken: string;
+  /** Epoch ms: `Date.now() + expires_in * 1000`, taken when GIS answered. */
+  expiresAt: number;
+}
+
+/**
+ * Google refused the token — it expired, or the writer revoked this app from
+ * their Google account page. Callers drop the session and put the connect
+ * screen back rather than showing Google's raw error body in a red chip.
+ */
+export class GoogleAuthError extends Error {}
+
+/** GIS always sends `expires_in` (3600 s); an hour is the safe assumption. */
+const FALLBACK_TOKEN_LIFETIME_MS = 60 * 60 * 1000;
+
+function tokenLifetimeMs(expiresIn: number | undefined): number {
+  return typeof expiresIn === 'number' && expiresIn > 0
+    ? expiresIn * 1000
+    : FALLBACK_TOKEN_LIFETIME_MS;
+}
+
+/**
+ * Turn a Drive/Docs 401 into a `GoogleAuthError` before any other error
+ * handling sees it, so "the session is gone" never gets reported as "this
+ * document failed".
+ */
+export function assertTokenAccepted(response: Response): void {
+  if (response.status === 401) throw new GoogleAuthError(t('gdocs.sessionExpired'));
+}
+
+/**
  * Check if GIS library is loaded
  */
 export function isGisLoaded(): boolean {
@@ -59,12 +101,13 @@ function getClientId(): string {
 
 /**
  * Initialize OAuth2 and request an access token.
- * Returns a promise that resolves with the access token.
+ * Resolves with the token *and* its expiry — a token on its own is not enough
+ * to know whether the integration still works.
  */
-export function requestAccessToken(): Promise<string> {
+export function requestAccessToken(): Promise<GoogleSession> {
   return new Promise((resolve, reject) => {
     if (!isGisLoaded()) {
-      reject(new Error('Google Identity Services not loaded. Check your internet connection.'));
+      reject(new Error(t('gdocs.gisNotLoaded')));
       return;
     }
 
@@ -74,13 +117,16 @@ export function requestAccessToken(): Promise<string> {
         scope: SCOPES,
         callback: (response: GoogleTokenResponse) => {
           if (response.error) {
-            reject(new Error(`Google Auth error: ${response.error}`));
+            reject(new Error(`${t('gdocs.authError')}: ${response.error}`));
             return;
           }
-          resolve(response.access_token);
+          resolve({
+            accessToken: response.access_token,
+            expiresAt: Date.now() + tokenLifetimeMs(response.expires_in),
+          });
         },
         error_callback: (error) => {
-          reject(new Error(`Google Auth error: ${error.message}`));
+          reject(new Error(`${t('gdocs.authError')}: ${error.message}`));
         },
       });
 
@@ -117,8 +163,9 @@ export async function getGoogleUserInfo(accessToken: string): Promise<{
   const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+  assertTokenAccepted(response);
   if (!response.ok) {
-    throw new Error('Failed to fetch Google user info');
+    throw new Error(t('gdocs.authError'));
   }
   return response.json();
 }

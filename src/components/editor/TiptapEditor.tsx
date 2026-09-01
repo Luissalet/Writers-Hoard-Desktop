@@ -1,4 +1,5 @@
 import { useEditor, EditorContent } from '@tiptap/react';
+import type { Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -13,13 +14,38 @@ import {
   Quote,
   Code,
   Link as LinkIcon,
+  Search,
   Undo2,
   Redo2,
   MessageSquarePlus,
   ImagePlus,
+  Bot,
 } from 'lucide-react';
+import { askCopilotAbout, copilotAvailable } from '@/stores/copilotHandoffStore';
 import type { AnnotationAnchor } from '@/engines/annotations/types';
+import { useAppStore } from '@/stores/appStore';
+import FindReplaceBar from './FindReplaceBar';
+import {
+  isFindShortcut,
+  isReplaceShortcut,
+  ownsEditorShortcut,
+  registerEditorSurface,
+} from './editorShortcuts';
 
+/**
+ * ONE INSTANCE PER DOCUMENT. A host that shows a different document in the same
+ * place must give this component a `key` of that document's id.
+ *
+ * `useEditor` is called with no deps, so it builds its ProseMirror editor once
+ * per mount and keeps it for the life of the component — including the undo
+ * stack, which is plugin state on that editor and belongs to no document in
+ * particular. Swapping `content` on a mounted instance goes through
+ * `setContent` below, and `setContent` is an ordinary transaction: it is added
+ * to the history like any edit. So without a key, one Ctrl+Z after a swap walks
+ * back OUT of the document on screen and into the previous one, `onUpdate`
+ * reports the result as if the writer had typed it, and the host saves the
+ * wrong document's text over the right document's row.
+ */
 interface TiptapEditorProps {
   content: string;
   onChange: (html: string) => void;
@@ -45,10 +71,29 @@ interface FloatingMenuState {
   left: number;
 }
 
+/** An open find bar, with the state the shortcut has to carry into it. */
+interface FindSession {
+  query: string;
+  replace: boolean;
+  anchor: number;
+  /** Bumped on every re-press of the shortcut, to refocus the field. */
+  token: number;
+}
+
 const HIDDEN_MENU: FloatingMenuState = { visible: false, top: 0, left: 0 };
 const CONTEXT_WINDOW = 40;
 // Wider than the annotation window: the image model wants scene context.
 const IMAGE_CONTEXT_WINDOW = 500;
+// Long enough for a character name or a phrase, short enough that selecting a
+// paragraph and hitting Ctrl+F does not fill the field with the paragraph.
+const SEED_LIMIT = 120;
+
+function seedQuery(editor: Editor): string {
+  const { from, to, empty } = editor.state.selection;
+  if (empty) return '';
+  const selected = editor.state.doc.textBetween(from, to, ' ', ' ').trim();
+  return selected.length > 0 && selected.length <= SEED_LIMIT ? selected : '';
+}
 
 // Module-scope: creating this inside the component made React remount every
 // toolbar button on each keystroke (react-hooks/static-components).
@@ -78,6 +123,9 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
   const [menu, setMenu] = useState<FloatingMenuState>(HIDDEN_MENU);
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
+  const [findSession, setFindSession] = useState<FindSession | null>(null);
+  const reading = useAppStore((s) => s.reading);
+  const loadReading = useAppStore((s) => s.loadReading);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false } }),
@@ -95,6 +143,71 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
     },
   });
 
+  useEffect(() => {
+    void loadReading();
+  }, [loadReading]);
+
+  // Plain function on purpose: React Compiler memoizes it, and a manual
+  // a manual memo here reported "existing memoization could not be preserved".
+  const openFind = (withReplace: boolean): void => {
+    if (!editor) return;
+    const query = seedQuery(editor);
+    const anchor = editor.state.selection.from;
+    setFindSession((open) =>
+      open
+        ? { ...open, replace: open.replace || withReplace, token: open.token + 1 }
+        : { query, replace: withReplace, anchor, token: 0 },
+    );
+  };
+  // Kept in a ref so the window listener below never has to be rebuilt, and
+  // assigned in an effect because refs may not be written during render.
+  const openFindRef = useRef(openFind);
+  useEffect(() => {
+    openFindRef.current = openFind;
+  });
+
+  // The find bar answers to the window, because the writer may be anywhere in
+  // the editor when they reach for it — but only when this editor is the one
+  // the keystroke belongs to. See `editorShortcuts`.
+  const findOpen = findSession !== null;
+  useEffect(() => {
+    if (!editor) return;
+    const handler = (event: KeyboardEvent) => {
+      const surface = wrapperRef.current;
+      if (!surface) return;
+
+      if (event.key === 'Escape') {
+        // Only when the writer is inside this editor: elsewhere Escape belongs
+        // to whatever is on top of it — a modal, focus mode.
+        if (!findOpen || !surface.contains(document.activeElement)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setFindSession(null);
+        return;
+      }
+
+      const find = isFindShortcut(event);
+      const replace = isReplaceShortcut(event);
+      if ((!find && !replace) || event.repeat) return;
+      // Nothing is prevented until we are sure a bar will appear, so an
+      // unhandled Ctrl+F still reaches whatever find the host provides.
+      if (!ownsEditorShortcut(surface)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openFindRef.current(replace);
+    };
+    // Capture: the same keys are watched by hosts above us (focus mode reads
+    // Escape), and the one holding the find bar decides first.
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [editor, findOpen]);
+
+  useEffect(() => {
+    const surface = wrapperRef.current;
+    if (!surface || !editor) return;
+    return registerEditorSurface(surface);
+  }, [editor]);
+
   // External content sync (e.g. restoring a version snapshot). During normal
   // typing `editor.getHTML() === content`, so this never fights the cursor.
   useEffect(() => {
@@ -107,7 +220,7 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
   // Track selection → position the floating "Annotate" button over the
   // active range. Hidden when no editor, no callback, or selection collapses.
   useEffect(() => {
-    if (!editor || (!onAnnotate && !onGenerateImage)) return;
+    if (!editor || (!onAnnotate && !onGenerateImage && !copilotAvailable())) return;
 
     const update = () => {
       const { from, to, empty } = editor.state.selection;
@@ -173,6 +286,16 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
     setMenu(HIDDEN_MENU);
   };
 
+  // Hand the selection to the copilot dock. No prop: the dock is mounted by
+  // MainLayout on every project route and drains the store itself.
+  const handleAskCopilotClick = () => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) return;
+    askCopilotAbout(editor.state.doc.textBetween(from, to, '\n', '\n'));
+    setMenu(HIDDEN_MENU);
+  };
+
   const handleGenerateImageClick = () => {
     if (!editor || !onGenerateImage) return;
     const { from, to } = editor.state.selection;
@@ -212,9 +335,17 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
   };
 
   return (
-    <div ref={wrapperRef} className="tiptap-editor relative border border-border rounded-lg overflow-hidden bg-elevated">
+    <div
+      ref={wrapperRef}
+      // The reading preference is carried as data, and index.css turns it into
+      // the custom properties the prose is set with.
+      data-reading-face={reading.face}
+      data-reading-size={reading.size}
+      data-reading-measure={reading.measure}
+      className="tiptap-editor relative border border-border rounded-lg overflow-hidden bg-elevated"
+    >
       {/* Floating selection actions over a non-empty selection. */}
-      {menu.visible && (onAnnotate || onGenerateImage) && (
+      {menu.visible && (onAnnotate || onGenerateImage || copilotAvailable()) && (
         <div
           className="absolute z-20 -translate-x-1/2 flex items-center gap-0.5 p-0.5 rounded-lg bg-surface border border-accent-gold/40 shadow-lg"
           style={{ top: menu.top, left: menu.left }}
@@ -246,6 +377,19 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
               {t('writings.generateImage')}
             </button>
           )}
+          {copilotAvailable() && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                handleAskCopilotClick();
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-accent-gold text-xs font-medium hover:bg-accent-gold hover:text-deep transition"
+            >
+              <Bot size={13} />
+              {t('editor.askCopilot')}
+            </button>
+          )}
         </div>
       )}
       {/* Toolbar */}
@@ -273,8 +417,15 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
           <Code size={16} />
         </ToolButton>
         <div className="w-px h-5 bg-border mx-1" />
-        <ToolButton active={editor.isActive('link')} onClick={openLinkForm} title={t('editor.enterUrl')}>
+        <ToolButton active={editor.isActive('link')} onClick={openLinkForm} title={t('editor.insertLink')}>
           <LinkIcon size={16} />
+        </ToolButton>
+        <ToolButton
+          active={findOpen}
+          onClick={() => openFind(false)}
+          title={t('editor.find.action')}
+        >
+          <Search size={16} />
         </ToolButton>
         <div className="flex-1" />
         <ToolButton onClick={() => editor.chain().focus().undo().run()}>
@@ -284,6 +435,21 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
           <Redo2 size={16} />
         </ToolButton>
       </div>
+
+      {/* Find & replace, inside the document it searches */}
+      {findSession && (
+        <FindReplaceBar
+          editor={editor}
+          initialQuery={findSession.query}
+          anchor={findSession.anchor}
+          showReplace={findSession.replace}
+          focusToken={findSession.token}
+          onToggleReplace={() =>
+            setFindSession((open) => (open ? { ...open, replace: !open.replace } : open))
+          }
+          onClose={() => setFindSession(null)}
+        />
+      )}
 
       {/* Inline link form */}
       {showLinkForm && (

@@ -180,8 +180,10 @@ export default function CastBar({
                   onRemoveCharacter(member.id);
                 }}
                 className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-danger/20 transition"
+                title={t('common.remove')}
+                aria-label={t('common.remove')}
               >
-                <X size={12} className="text-text-dim hover:text-danger" />
+                <X size={12} className="text-text-dim hover:text-danger" aria-hidden="true" />
               </button>
             </motion.button>
           ))}

@@ -48,6 +48,11 @@ export interface NoteCreatorProps {
 export default function NoteCreator(props: NoteCreatorProps) {
   const { t } = useTranslation();
   const [type, setType] = useState<NoteType>(props.defaultType ?? 'text');
+  // The bodies are rendered conditionally, so a draft living inside one of them
+  // died the moment the reader pressed another type button. The drafts live
+  // here instead and survive every switch.
+  const [textDraft, setTextDraft] = useState<string>('');
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
 
   return (
     <div className="rounded-lg border border-accent-gold/40 bg-bg-elevated p-3 space-y-3 shadow-sm">
@@ -61,8 +66,8 @@ export default function NoteCreator(props: NoteCreatorProps) {
         </button>
       </div>
 
-      {type === 'text' && <TextBody {...props} />}
-      {type === 'image' && <ImageBody {...props} />}
+      {type === 'text' && <TextBody {...props} draft={textDraft} onDraftChange={setTextDraft} />}
+      {type === 'image' && <ImageBody {...props} dataUrl={imageDataUrl} onDataUrlChange={setImageDataUrl} />}
       {type === 'reference' && <ReferenceBody {...props} />}
     </div>
   );
@@ -126,9 +131,11 @@ async function persistShell(
 // Text body
 // ---------------------------------------------------------------------------
 
-function TextBody(props: NoteCreatorProps) {
+function TextBody(
+  props: NoteCreatorProps & { draft: string; onDraftChange: (value: string) => void },
+) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState<string>('');
+  const { draft, onDraftChange } = props;
   const [saving, setSaving] = useState<boolean>(false);
 
   async function save() {
@@ -145,7 +152,7 @@ function TextBody(props: NoteCreatorProps) {
     <div>
       <textarea
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => onDraftChange(e.target.value)}
         placeholder={t('annotations.create.textPlaceholder')}
         className="w-full min-h-[70px] rounded-md border border-border bg-bg-base px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-gold"
         autoFocus
@@ -167,15 +174,17 @@ function TextBody(props: NoteCreatorProps) {
 // Image body
 // ---------------------------------------------------------------------------
 
-function ImageBody(props: NoteCreatorProps) {
+function ImageBody(
+  props: NoteCreatorProps & { dataUrl: string | null; onDataUrlChange: (value: string | null) => void },
+) {
   const { t } = useTranslation();
-  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const { dataUrl, onDataUrlChange } = props;
   const [saving, setSaving] = useState<boolean>(false);
 
   function onPick(file: File) {
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === 'string') setDataUrl(reader.result);
+      if (typeof reader.result === 'string') onDataUrlChange(reader.result);
     };
     reader.readAsDataURL(file);
   }

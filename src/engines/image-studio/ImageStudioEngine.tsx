@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Copy, Dices, ImagePlus, Loader2, RefreshCw, Settings2, Sparkles, Square, Trash2, XCircle } from 'lucide-react';
+import { Copy, Dices, ImagePlus, Layers, Loader2, RefreshCw, Settings2, Sparkles, Square, Trash2, XCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 import type { EngineComponentProps } from '@/engines/_types';
@@ -19,8 +19,11 @@ import { useImageRuntimeStore } from '@/stores/imageRuntimeStore';
 import { useImageHandoffStore } from '@/stores/imageHandoffStore';
 import { BUILTIN_SD_ID } from '@/services/aiRuntime/constants';
 import ModelRoutePicker from '@/components/ai-settings/ModelRoutePicker';
+import VramWarning from '@/components/ai-settings/VramWarning';
 import GalleryLightbox from '@/components/gallery/GalleryLightbox';
 import { toast } from '@/components/common/toast';
+import { detectVramContention } from '@/services/aiRuntime/sdServer';
+import { imageCatalogEntry } from '@/services/aiRuntime/imageCatalog';
 import type { AiRouteSelection } from '@/services/aiRuntime/types';
 import type { ImageHandle } from '@/services/aiRuntime/client';
 import { getProjectSettings, saveProjectSettings } from '@/services/copilot/threads';
@@ -60,6 +63,9 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
   // img2img: a reference image (data URL) and its denoise strength.
   const [initImage, setInitImage] = useState<string | null>(null);
   const [strength, setStrength] = useState(0.6);
+  // LoRA: one of the files present in the runtime's folder, with its weight.
+  const [loraName, setLoraName] = useState('');
+  const [loraWeight, setLoraWeight] = useState(0.8);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(() => {
@@ -88,8 +94,37 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
   const busy = handle !== null;
   // The managed image server loads the weights on the first request: say so
   // instead of showing a bare spinner for half a minute.
-  const localServerState = useImageRuntimeStore((s) => s.status?.state);
-  const loadingLocalModel = busy && effectiveRoute?.connectionId === BUILTIN_SD_ID && localServerState === 'starting';
+  const sdStatus = useImageRuntimeStore((s) => s.status);
+  const refreshSdRuntime = useImageRuntimeStore((s) => s.refresh);
+  const localServerState = sdStatus?.state;
+  const isLocalRoute = effectiveRoute?.connectionId === BUILTIN_SD_ID;
+  const loadingLocalModel = busy && isLocalRoute && localServerState === 'starting';
+  // LoRAs and the VRAM warning only mean anything for the managed local server:
+  // a remote image API neither loads LoRA files from this disk nor competes for
+  // this graphics card.
+  const loras = useMemo(
+    () => (isLocalRoute && sdStatus?.lorasSupported !== false ? sdStatus?.loras ?? [] : []),
+    [isLocalRoute, sdStatus?.loras, sdStatus?.lorasSupported],
+  );
+  const activeLora = loraName ? loras.find((lora) => lora.name === loraName) : undefined;
+  const contention = useMemo(
+    () => (isLocalRoute && effectiveRoute ? detectVramContention(sdStatus?.vram, imageCatalogEntry(effectiveRoute.modelId)) : null),
+    [isLocalRoute, effectiveRoute, sdStatus?.vram],
+  );
+
+  // Ask main who is holding the card whenever the local runtime becomes the
+  // route: the answer is what the warning is drawn from, and it is measured
+  // there (nvidia-smi + Ollama's /api/ps), never here. Re-asked on a slow beat
+  // because the card can change hands with this tab open — a copilot answer in
+  // the dock leaves its model resident — and a warning nobody refreshes is a
+  // warning nobody can trust. Main memoises the measurement, so this is one
+  // reading, not a poll of the driver.
+  useEffect(() => {
+    if (!isLocalRoute) return undefined;
+    void refreshSdRuntime();
+    const timer = setInterval(() => void refreshSdRuntime(), 20_000);
+    return () => clearInterval(timer);
+  }, [isLocalRoute, refreshSdRuntime]);
   const hasImageModels = useMemo(
     () => runtime.connections.some((c) => c.enabled && (runtime.modelsByConnection[c.id]?.models ?? []).some((m) => m.type === 'image')),
     [runtime.connections, runtime.modelsByConnection],
@@ -150,6 +185,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
       quality: quality === 'auto' ? undefined : quality,
       initImage: supportsImg2img && initImage ? initImage : undefined,
       strength: supportsImg2img && initImage ? strength : undefined,
+      loras: activeLora ? [{ name: activeLora.name, weight: loraWeight }] : undefined,
     };
     const started = startGeneration(options);
     setHandle(started);
@@ -162,8 +198,22 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
         toast.success(t('imageStudio.saved').replace('{count}', String(saved.images.length)));
         reload();
       }
+    } catch (err) {
+      // A rejected write (quota, most often) used to vanish: the spinner just
+      // stopped, `error` stayed null, and the author paid for the generation
+      // again to see the same nothing.
+      setError(
+        t('imageStudio.error.saveFailed').replace(
+          '{error}',
+          err instanceof Error ? err.message : String(err),
+        ),
+      );
     } finally {
       setHandle(null);
+      // The generation just changed who is on the card (the image server took
+      // it, and main may have asked a chat model to step off): re-read it so the
+      // warning reflects the machine and not the last minute.
+      if (isLocalRoute) void refreshSdRuntime();
     }
   };
 
@@ -295,6 +345,46 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleReferenceFile} />
           </div>
         )}
+        {isLocalRoute && loras.length > 0 && (
+          <div className="rounded-lg border border-border/60 bg-elevated/40 p-3 space-y-2">
+            <span className="text-[11px] text-text-muted flex items-center gap-1.5">
+              <Layers size={12} />
+              {t('imageStudio.lora.label')}
+            </span>
+            <div className="flex items-center gap-3 flex-wrap">
+              <select
+                value={loraName}
+                onChange={(e) => setLoraName(e.target.value)}
+                className="px-2 py-1.5 bg-elevated border border-border rounded-lg text-xs text-text-primary outline-none focus:border-accent-gold"
+              >
+                <option value="">{t('imageStudio.lora.none')}</option>
+                {loras.map((lora) => (
+                  <option key={lora.name} value={lora.name}>
+                    {lora.name}
+                  </option>
+                ))}
+              </select>
+              {activeLora && (
+                <label className="flex-1 min-w-[10rem] text-[11px] text-text-muted">
+                  <span className="flex items-center justify-between">
+                    <span>{t('imageStudio.lora.weight')}</span>
+                    <span className="font-mono tabular-nums text-text-dim">{loraWeight.toFixed(2)}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1.5}
+                    step={0.05}
+                    value={loraWeight}
+                    onChange={(e) => setLoraWeight(Number(e.target.value))}
+                    className="w-full accent-accent-gold"
+                  />
+                </label>
+              )}
+            </div>
+            <p className="text-[10px] text-text-dim">{t('imageStudio.lora.hint')}</p>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-[11px] text-text-muted">
             {t('imageStudio.size')}
@@ -355,7 +445,17 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
               <input value={steps} onChange={(e) => setSteps(e.target.value.replace(/[^\d]/g, ''))} placeholder={t('imageStudio.stepsPlaceholder')} className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition font-mono" />
             </label>
             <p className="sm:col-span-3 text-[10px] text-text-dim">{t('imageStudio.advanced.note')}</p>
+            {isLocalRoute && loras.length === 0 && (
+              <p className="sm:col-span-3 text-[10px] text-text-dim">{t('imageStudio.lora.empty')}</p>
+            )}
           </div>
+        )}
+        {contention && !busy && (
+          <VramWarning
+            contention={contention}
+            onProceed={() => void generate()}
+            proceedDisabled={!prompt.trim() || !effectiveRoute}
+          />
         )}
         <div className="flex items-center gap-2">
           {busy ? (

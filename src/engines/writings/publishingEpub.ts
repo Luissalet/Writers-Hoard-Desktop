@@ -1,4 +1,4 @@
-import type { PublishingDocument } from './publishingDocument';
+import { xmlSafeText, type PublishingDocument } from './publishingDocument';
 
 const XHTML_TAGS = new Set([
   'a', 'b', 'blockquote', 'br', 'code', 'del', 'div', 'em', 'h1', 'h2', 'h3',
@@ -6,8 +6,13 @@ const XHTML_TAGS = new Set([
   'sub', 'sup', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'u', 'ul',
 ]);
 
+// The characters XML cannot carry at all — C0 controls, non-characters, lone
+// surrogates — are dropped by `xmlSafeText`, which lives beside the IR because
+// the DOCX writer needs exactly the same guard and used to lack it. Any one of
+// them makes the whole .epub unparseable. This function adds the part that is
+// only ePub's: turning the five markup characters into entities.
 function escapeXml(value: string): string {
-  return value
+  return xmlSafeText(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

@@ -109,6 +109,8 @@ let state: OllamaState = 'absent';
 let baseUrl: string | null = null;
 let lastError: string | null = null;
 let serveChild: ChildProcess | null = null;
+/** Pid of a serve adopted from a previous session — our only handle on it. */
+let adoptedPid: number | null = null;
 let ensureInFlight: Promise<OllamaOpResult> | null = null;
 let runtimeAbort: AbortController | null = null;
 const activePulls = new Map<string, AbortController>();
@@ -178,6 +180,64 @@ async function probe(url: string, timeoutMs = 800): Promise<boolean> {
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Pid of whatever listens on a loopback port, or null when it cannot be
+ * resolved. `netstat`'s state column is localised, the "no peer" foreign
+ * address is not, so the row is recognised by that instead.
+ */
+async function listenerPid(port: number): Promise<number | null> {
+  const isWin = process.platform === 'win32';
+  const output = await new Promise<string>((resolve) => {
+    const child = isWin
+      ? spawn('netstat', ['-a', '-n', '-o'], { windowsHide: true })
+      : spawn('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { windowsHide: true });
+    let out = '';
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve('');
+    }, 5000);
+    child.stdout?.on('data', (d: Buffer) => {
+      out += d.toString();
+    });
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve('');
+    });
+    child.on('close', () => {
+      clearTimeout(timer);
+      resolve(out);
+    });
+  });
+  for (const line of output.split('\n')) {
+    if (!isWin) {
+      const pid = Number(line.trim());
+      if (Number.isInteger(pid) && pid > 0) return pid;
+      continue;
+    }
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 5 || parts[0].toUpperCase() !== 'TCP') continue;
+    if (!parts[1].endsWith(`:${port}`)) continue;
+    if (parts[2] !== '0.0.0.0:0' && parts[2] !== '[::]:0' && parts[2] !== '*:*') continue;
+    const pid = Number(parts[parts.length - 1]);
+    if (Number.isInteger(pid) && pid > 0) return pid;
+  }
+  return null;
+}
+
+/**
+ * Take over a serve already listening on the EMBEDDED port (an orphan from a
+ * crashed session, never the system install on 11434). Its pid is looked up
+ * now because `shutdownOllama` runs on will-quit and cannot wait for one.
+ */
+async function adoptEmbeddedServe(): Promise<void> {
+  baseUrl = EMBEDDED_URL;
+  if (serveChild) return;
+  adoptedPid = await listenerPid(EMBEDDED_PORT);
+  if (adoptedPid === null) {
+    pushLog(`adopted a serve on port ${EMBEDDED_PORT} with no resolvable pid — it cannot be reaped on quit`);
   }
 }
 
@@ -266,9 +326,13 @@ export async function getOllamaStatus(): Promise<OllamaStatus> {
     // Also adopts an orphan serve from a crashed previous session — same
     // models dir, so this is the correct behavior.
     baseUrl = EMBEDDED_URL;
-    if (state !== 'running') setState('running');
+    if (state !== 'running') {
+      await adoptEmbeddedServe();
+      setState('running');
+    }
   } else {
     baseUrl = null;
+    adoptedPid = null;
     if (state !== 'error') state = 'absent';
     cachedModels = [];
   }
@@ -297,6 +361,7 @@ async function spawnServe(): Promise<OllamaOpResult> {
     },
   });
   serveChild = child;
+  adoptedPid = null;
   child.stdout?.on('data', (d: Buffer) => pushLog(d.toString()));
   child.stderr?.on('data', (d: Buffer) => pushLog(d.toString()));
   child.on('error', (err) => {
@@ -345,7 +410,7 @@ export async function startOllama(): Promise<OllamaOpResult> {
       return { ok: true };
     }
     if (await probe(EMBEDDED_URL)) {
-      baseUrl = EMBEDDED_URL;
+      await adoptEmbeddedServe();
       setState('running');
       await refreshModels();
       return { ok: true };
@@ -545,25 +610,28 @@ export function cancelRuntimeDownload(): void {
 
 // ── Model pulls ─────────────────────────────────────────────────────────────
 
-const TAG_RE = /^[a-z0-9][a-z0-9._\-:/]*$/i;
+// No slash: a name component would carry a registry host, and Ollama would
+// pull the manifest, the blobs and the Modelfile from it.
+const TAG_RE = /^[a-z0-9][a-z0-9._-]*(?::[a-z0-9][a-z0-9._-]*)?$/i;
 
 export async function pullOllamaModel(tag: string): Promise<OllamaOpResult> {
   if (typeof tag !== 'string' || !TAG_RE.test(tag)) return { ok: false, error: 'bad-tag' };
+  // Sizes come from the shared catalogue (src/services/aiRuntime/catalog.ts)
+  // — one list for the cards and the disk guard, instead of two that drift.
+  // A tag that is not on it is refused: the registry serving an unknown model
+  // chooses its weights, its template and its system prompt.
+  const known = catalogSizeBytes(tag);
+  if (!known) return { ok: false, error: 'bad-tag' };
   if (activePulls.has(tag)) return { ok: false, error: 'already-pulling' };
   if (activePulls.size > 0) return { ok: false, error: 'busy' };
 
   const started = await startOllama();
   if (!started.ok || !baseUrl) return { ok: false, error: started.error ?? 'not-ready' };
 
-  // Sizes come from the shared catalogue (src/services/aiRuntime/catalog.ts)
-  // — one list for the cards and the disk guard, instead of two that drift.
-  const known = catalogSizeBytes(tag);
-  if (known) {
-    try {
-      await assertDiskSpace(app.getPath('userData'), known * 1.2);
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : 'no-space:24' };
-    }
+  try {
+    await assertDiskSpace(app.getPath('userData'), known * 1.2);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'no-space:24' };
   }
 
   const controller = new AbortController();
@@ -648,8 +716,12 @@ export function cancelOllamaPull(tag: string): void {
   activePulls.get(tag)?.abort();
 }
 
+// Removing a model never contacts a registry, and a system Ollama may hold
+// namespaced tags the pull path would refuse — so delete keeps the wider shape.
+const INSTALLED_TAG_RE = /^[a-z0-9][a-z0-9._\-:/]*$/i;
+
 export async function deleteOllamaModel(tag: string): Promise<OllamaOpResult> {
-  if (typeof tag !== 'string' || !TAG_RE.test(tag)) return { ok: false, error: 'bad-tag' };
+  if (typeof tag !== 'string' || !INSTALLED_TAG_RE.test(tag)) return { ok: false, error: 'bad-tag' };
   if (!baseUrl || !(await probe(baseUrl))) {
     const started = await startOllama();
     if (!started.ok || !baseUrl) return { ok: false, error: started.error ?? 'not-ready' };
@@ -743,10 +815,12 @@ export function shutdownOllama(): void {
   runtimeAbort?.abort();
   for (const c of activePulls.values()) c.abort();
   for (const c of activeChats) c.abort();
-  if (serveChild?.pid != null) {
-    // Detached taskkill survives our own exit and reaps the whole tree.
-    killProcessTree(serveChild.pid);
-    serveChild = null;
-  }
+  // A serve adopted from a previous session has no ChildProcess of ours; left
+  // alone it keeps a 7-20 GB model resident through every quit from here on.
+  const pids = new Set([serveChild?.pid, adoptedPid].filter((p): p is number => typeof p === 'number'));
+  serveChild = null;
+  adoptedPid = null;
+  // Detached taskkill survives our own exit and reaps the whole tree.
+  for (const pid of pids) killProcessTree(pid);
   void fs.rm(runtimeStagingDir(), { recursive: true, force: true }).catch(() => {});
 }

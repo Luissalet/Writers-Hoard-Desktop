@@ -92,8 +92,10 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
           <button
             onClick={onClose}
             className="p-1 text-text-muted hover:text-text-primary transition"
+            title={t('common.close')}
+            aria-label={t('common.close')}
           >
-            <X size={20} />
+            <X size={20} aria-hidden="true" />
           </button>
         </div>
 
@@ -231,8 +233,10 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
                     <button
                       onClick={() => handleRemoveSource(idx)}
                       className="p-1 text-text-muted hover:text-red-400 transition flex-shrink-0"
+                      title={t('common.remove')}
+                      aria-label={t('common.remove')}
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={14} aria-hidden="true" />
                     </button>
                   </div>
                 ))}

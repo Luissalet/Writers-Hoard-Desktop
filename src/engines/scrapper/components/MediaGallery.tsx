@@ -9,12 +9,14 @@
 import { useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { snapshotMediaUrl } from '@/services/scrapperMedia';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface MediaGalleryProps {
   items: { relPath: string; kind: 'image' | 'video' }[];
 }
 
 export default function MediaGallery({ items }: MediaGalleryProps) {
+  const { t } = useTranslation();
   const [idx, setIdx] = useState(0);
   if (items.length === 0) return null;
 
@@ -46,7 +48,7 @@ export default function MediaGallery({ items }: MediaGalleryProps) {
           <button
             type="button"
             onClick={() => go(-1)}
-            aria-label="Anterior"
+            aria-label={t('common.previous')}
             className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors"
           >
             <ChevronLeft size={20} />
@@ -54,7 +56,7 @@ export default function MediaGallery({ items }: MediaGalleryProps) {
           <button
             type="button"
             onClick={() => go(1)}
-            aria-label="Siguiente"
+            aria-label={t('common.next')}
             className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors"
           >
             <ChevronRight size={20} />

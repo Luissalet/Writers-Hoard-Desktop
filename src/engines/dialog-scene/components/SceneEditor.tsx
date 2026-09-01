@@ -26,6 +26,7 @@ import DialogBlockComponent from './DialogBlockComponent';
 import DualDialogGroup from './DualDialogGroup';
 import ChronometryBadge from './ChronometryBadge';
 import { SCREENPLAY_TRANSITIONS, SLUG_PREFIXES, type AutocompleteSuggestion } from './ScriptAutocomplete';
+import { useDebouncedField } from '@/engines/_shared';
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
 
@@ -134,6 +135,13 @@ export default function SceneEditor({
   const [editingDesc, setEditingDesc] = useState(false);
   const [editingSetting, setEditingSetting] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
+
+  // Buffered: these three inputs were bound to the row coming back from
+  // `editScene` → Dexie write → refetch, so typing in the middle of a title
+  // dropped characters and threw the caret to the end.
+  const titleField = useDebouncedField(scene.title, (value) => onUpdateScene({ title: value }));
+  const settingField = useDebouncedField(scene.setting ?? '', (value) => onUpdateScene({ setting: value }));
+  const descriptionField = useDebouncedField(scene.description ?? '', (value) => onUpdateScene({ description: value }));
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -289,11 +297,17 @@ export default function SceneEditor({
           {editingTitle ? (
             <input
               autoFocus
-              value={scene.title}
-              onChange={(e) => onUpdateScene({ title: e.target.value })}
-              onBlur={() => setEditingTitle(false)}
+              value={titleField.value}
+              onChange={(e) => titleField.onChange(e.target.value)}
+              onBlur={() => {
+                titleField.onBlur();
+                setEditingTitle(false);
+              }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') setEditingTitle(false);
+                if (e.key === 'Enter') {
+                  titleField.flush();
+                  setEditingTitle(false);
+                }
               }}
               className="text-2xl font-serif font-bold text-text-primary bg-elevated/50 rounded px-3 py-1 border border-border focus:border-accent-gold outline-none w-full"
             />
@@ -311,9 +325,12 @@ export default function SceneEditor({
           {editingSetting ? (
             <input
               autoFocus
-              value={scene.setting || ''}
-              onChange={(e) => onUpdateScene({ setting: e.target.value })}
-              onBlur={() => setEditingSetting(false)}
+              value={settingField.value}
+              onChange={(e) => settingField.onChange(e.target.value)}
+              onBlur={() => {
+                settingField.onBlur();
+                setEditingSetting(false);
+              }}
               placeholder={t('dialogScene.settingPlaceholder')}
               className="text-xs text-text-muted bg-elevated/50 rounded px-2 py-1 border border-border focus:border-accent-gold outline-none mt-1"
             />
@@ -355,9 +372,12 @@ export default function SceneEditor({
           {editingDesc ? (
             <textarea
               autoFocus
-              value={scene.description || ''}
-              onChange={(e) => onUpdateScene({ description: e.target.value })}
-              onBlur={() => setEditingDesc(false)}
+              value={descriptionField.value}
+              onChange={(e) => descriptionField.onChange(e.target.value)}
+              onBlur={() => {
+                descriptionField.onBlur();
+                setEditingDesc(false);
+              }}
               placeholder={t('dialogScene.descriptionPlaceholder')}
               className="w-full text-xs text-text-muted bg-elevated border border-border rounded px-3 py-2 focus:border-accent-gold outline-none"
               rows={2}

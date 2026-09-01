@@ -14,6 +14,7 @@ import {
   legacyLinkToSnapshot,
   type LegacyExternalLink,
 } from '@/engines/scrapper/legacyLinks';
+import { deleteEntityAnnotations } from '@/engines/_shared/deleteEntityAnnotations';
 import type { BoardEndpoint } from '@/engines/board/types';
 
 // ===== Projects =====
@@ -72,13 +73,57 @@ export async function updateProject(id: string, changes: Partial<Project>): Prom
 }
 
 /**
+ * How long a project's `updatedAt` is considered fresh enough to leave alone.
+ *
+ * The editor autosaves every couple of seconds; without a window, "writing
+ * bumps the project" would mean a second row write per keystroke burst.
+ */
+const PROJECT_TOUCH_WINDOW_MS = 60_000;
+
+/**
+ * When each project was last bumped BY THIS TAB. Checking the window in memory
+ * means the common case — the autosave that fires two seconds after the last
+ * one — costs nothing at all, not even the read `db.projects.update` would do
+ * to apply the change.
+ */
+const lastProjectTouch = new Map<string, number>();
+
+/**
+ * Mark a project as worked on.
+ *
+ * `getAllProjects` orders the dashboard by `projects.updatedAt`, but writing a
+ * chapter only ever touched `writings.updatedAt` — nothing called
+ * `updateProject`. So a project you put four thousand words into yesterday sat
+ * below one you recoloured in March. Every writing create/update/delete now
+ * calls this.
+ *
+ * Throttled, never awaited by its callers, and it swallows its own errors: a
+ * failed sort-key refresh must not fail the save that triggered it.
+ */
+export async function touchProject(projectId: string): Promise<void> {
+  if (!projectId) return;
+  const now = Date.now();
+  if (now - (lastProjectTouch.get(projectId) ?? 0) < PROJECT_TOUCH_WINDOW_MS) return;
+  lastProjectTouch.set(projectId, now);
+  try {
+    const updated = await db.projects.update(projectId, { updatedAt: now });
+    if (updated) notifyProjectsChanged();
+  } catch (error) {
+    // Let the next write try again rather than staying quiet for a minute.
+    lastProjectTouch.delete(projectId);
+    console.error('[touchProject] could not refresh the project sort key', error);
+  }
+}
+
+/**
  * Delete a project and EVERY row it owns, across all engine tables.
  *
  * Generic by design: any table with a `projectId` index is wiped
  * automatically, so engines added in the future are covered without touching
  * this function. Child tables that have no `projectId` index (they hang off a
  * parent: sceneCasts, storyboardConnectors, annotationReferences,
- * worldSnapshots) are resolved through their parents first.
+ * worldSnapshots) are resolved through their parents first, and the flat
+ * `settings` store through `PROJECT_SETTING_PREFIXES`.
  *
  * Previously this only covered the 13 original tables and silently orphaned
  * ~25 engine tables' rows — which then leaked into global search and
@@ -116,6 +161,13 @@ export async function deleteProject(id: string): Promise<void> {
       await table.where('projectId').equals(id).delete();
     }
 
+    // --- the settings rows keyed BY the project id ---
+    // `settings` is `'id, key'`: no projectId index, so the generic sweep above
+    // cannot see it and the sprint log, the active sprint, the dismissed
+    // findings, the saved searches and the grounded-AI flags used to outlive
+    // the project — and be inherited by a re-import that reuses its id.
+    await db.settings.where('key').anyOf(projectSettingKeys(id)).delete();
+
     await db.projects.delete(id);
   });
   notifyProjectsChanged();
@@ -138,8 +190,61 @@ export async function createCodexEntry(entry: CodexEntry): Promise<string> {
   return db.codexEntries.add(entry);
 }
 
+/**
+ * Update a codex entry, propagating a RENAME to the tables that denormalise
+ * the entry's title at creation time.
+ *
+ * `relationships.entityAName` / `entityBName` and `characterArcs.characterName`
+ * are copies, not lookups: the relationship list, the matrix tooltip, the
+ * entity resolver and the search index all read them. A bare
+ * `db.codexEntries.update` left those copies frozen at the old name, so the
+ * matrix header (which reads live codex titles) and the list view disagreed
+ * forever, and Cmd+K only ever found the relationship under the OLD name.
+ */
 export async function updateCodexEntry(id: string, changes: Partial<CodexEntry>): Promise<void> {
-  await db.codexEntries.update(id, { ...changes, updatedAt: Date.now() });
+  const title = changes.title;
+  if (title === undefined) {
+    await db.codexEntries.update(id, { ...changes, updatedAt: Date.now() });
+    return;
+  }
+
+  const entry = await db.codexEntries.get(id);
+  const projectId = entry?.projectId;
+
+  await db.transaction('rw', [db.codexEntries, db.relationships, db.characterArcs], async () => {
+    const now = Date.now();
+    await db.codexEntries.update(id, { ...changes, updatedAt: now });
+
+    // Both endpoints are indexed; a self-pairing would match twice, hence the map.
+    const [asA, asB] = await Promise.all([
+      db.relationships.where('entityAId').equals(id).toArray(),
+      db.relationships.where('entityBId').equals(id).toArray(),
+    ]);
+    const rels = new Map(
+      [...asA, ...asB]
+        .filter((r) => !projectId || r.projectId === projectId)
+        .map((r) => [r.id, r] as const),
+    );
+    if (rels.size > 0) {
+      await db.relationships.bulkPut(
+        Array.from(rels.values(), (r) => ({
+          ...r,
+          entityAName: r.entityAId === id ? title : r.entityAName,
+          entityBName: r.entityBId === id ? title : r.entityBName,
+          updatedAt: now,
+        })),
+      );
+    }
+
+    const arcs = (await db.characterArcs.where('characterId').equals(id).toArray()).filter(
+      (arc) => !projectId || arc.projectId === projectId,
+    );
+    if (arcs.length > 0) {
+      await db.characterArcs.bulkPut(
+        arcs.map((arc) => ({ ...arc, characterName: title, updatedAt: now })),
+      );
+    }
+  });
 }
 
 /**
@@ -160,6 +265,8 @@ export async function updateCodexEntry(id: string, changes: Partial<CodexEntry>)
  *    unassigned and can be re-linked.
  *  • `mapPins.linkedEntryId` / `inspirationImages.linkedEntryIds` — links are
  *    dropped, the pin and the image stay.
+ *  • `annotations` — a margin note whose entity is gone has nothing left to
+ *    point at, so it goes with its reference rows.
  */
 export async function deleteCodexEntry(id: string): Promise<void> {
   const entry = await db.codexEntries.get(id);
@@ -175,6 +282,8 @@ export async function deleteCodexEntry(id: string): Promise<void> {
       db.dialogBlocks,
       db.mapPins,
       db.inspirationImages,
+      db.annotations,
+      db.annotationReferences,
     ],
     async () => {
       // Relationships: both endpoints are indexed.
@@ -186,7 +295,12 @@ export async function deleteCodexEntry(id: string): Promise<void> {
       if (arcs.length > 0) {
         const now = Date.now();
         await db.characterArcs.bulkPut(
-          arcs.map((arc) => ({ ...arc, characterId: undefined, updatedAt: now })),
+          arcs.map((arc) => ({
+            ...arc,
+            characterId: undefined,
+            characterName: undefined,
+            updatedAt: now,
+          })),
         );
       }
 
@@ -223,6 +337,8 @@ export async function deleteCodexEntry(id: string): Promise<void> {
         );
       }
 
+      await deleteEntityAnnotations('codex', id);
+
       await db.codexEntries.delete(id);
     },
   );
@@ -244,19 +360,26 @@ export async function getWriting(id: string): Promise<Writing | undefined> {
 }
 
 export async function createWriting(writing: Writing): Promise<string> {
-  return db.writings.add(writing);
+  const id = await db.writings.add(writing);
+  void touchProject(writing.projectId);
+  return id;
 }
 
 export async function updateWriting(id: string, changes: Partial<Writing>): Promise<void> {
   await db.writings.update(id, { ...changes, updatedAt: Date.now() });
+  // This entry point is the Google Docs sync, not the prose editor (that saves
+  // through the writings engine's own operations), so resolving the parent with
+  // a row read costs nothing anyone is waiting on.
+  const projectId = changes.projectId ?? (await db.writings.get(id))?.projectId;
+  if (projectId) void touchProject(projectId);
 }
 
-export async function deleteWriting(id: string): Promise<void> {
-  await db.transaction('rw', [db.writings, db.writingSnapshots], async () => {
-    await db.writings.delete(id);
-    await db.writingSnapshots.where('writingId').equals(id).delete();
-  });
-}
+// There is deliberately no `deleteWriting` here. Deleting a writing means
+// cascading its annotations, unlinking the outline beats that point at it and
+// building the undo bundle `restoreDeletedWriting` reads back — all of which
+// lives in `src/engines/writings/operations.ts`. A second one here took only
+// the row and its snapshots, so anything that autocompleted to it lost the
+// rest without saying so.
 
 // ===== Timelines =====
 export async function getTimelines(projectId: string): Promise<Timeline[]> {
@@ -362,18 +485,81 @@ export async function deleteInspirationImage(id: string): Promise<void> {
 }
 
 // ===== Settings =====
+
+/**
+ * The settings keys that belong to ONE project, written as `<prefix><projectId>`.
+ *
+ * `settings` is a flat key/value store with no `projectId` index, so nothing
+ * about a project's rows here can be discovered — they have to be named.
+ * `deleteProject` sweeps exactly these, which makes a future per-project
+ * setting a ONE-LINE addition to this record and nothing else.
+ *
+ * It lives beside `getSetting`/`setSetting` because that is the module every
+ * writer of these keys already imports: the sprint log and the active sprint
+ * (`engines/writing-stats/sprints.ts`), the proofreader's dismissals
+ * (`services/proofreader.ts`) and the command centre's saved searches
+ * (`services/commandCenter.ts`) all take their prefix from here rather than
+ * spelling it out again.
+ */
+export const PROJECT_SETTING_PREFIXES = {
+  sprintLog: 'writingStats.sprintLog.',
+  activeSprint: 'writingStats.activeSprint.',
+  proofreaderDismissed: 'proofreader.dismissed.',
+  savedSearches: 'commandCenter.savedSearches.',
+  /** Written by `saveGroundedAiPrivacy` in `services/projectTools.ts`. */
+  groundedAiPrivacy: 'project-tools.ai-privacy.',
+  /** Written by `saveReadingPosition` in `engines/writings/readingPositionPersist.ts`. */
+  readingPosition: 'writings.readingPosition.',
+} as const;
+
+/** Every settings key the given project owns. */
+export function projectSettingKeys(projectId: string): string[] {
+  return Object.values(PROJECT_SETTING_PREFIXES).map(prefix => `${prefix}${projectId}`);
+}
+
+/** The row id a key is always stored under, so a write never has to look one up. */
+function settingId(key: string): string {
+  return `set_${key}`;
+}
+
 export async function getSetting(key: string): Promise<string | undefined> {
   const setting = await db.settings.where('key').equals(key).first();
   return setting?.value;
 }
 
+/**
+ * Write a value. One `put` on the deterministic id: the previous read-then-add
+ * let two concurrent writes to the same key both see "no row" and then collide
+ * on that same primary key.
+ */
 export async function setSetting(key: string, value: string): Promise<void> {
-  const existing = await db.settings.where('key').equals(key).first();
-  if (existing) {
-    await db.settings.update(existing.id, { value });
-  } else {
-    await db.settings.add({ id: `set_${key}`, key, value });
-  }
+  await db.settings.put({ id: settingId(key), key, value });
+}
+
+/**
+ * Read-modify-write a setting ATOMICALLY.
+ *
+ * Several of these values are JSON collections that are changed by adding or
+ * removing one member (dismissed findings, saved searches, the sprint log).
+ * Done as `getSetting` → mutate → `setSetting`, two overlapping calls both read
+ * the same starting value and the later write silently drops the earlier one —
+ * a dismissal that comes back, a saved search that never arrives. The read and
+ * the write belong in one transaction, which is all this is.
+ *
+ * `update` runs INSIDE that transaction and must stay synchronous: awaiting
+ * anything that is not a Dexie operation would let the transaction commit
+ * underneath it.
+ */
+export async function updateSetting(
+  key: string,
+  update: (current: string | undefined) => string,
+): Promise<string> {
+  return db.transaction('rw', db.settings, async () => {
+    const existing = await db.settings.where('key').equals(key).first();
+    const value = update(existing?.value);
+    await db.settings.put({ id: existing?.id ?? settingId(key), key, value });
+    return value;
+  });
 }
 
 export async function getAllSettings(): Promise<Record<string, string>> {
@@ -633,16 +819,65 @@ export async function exportFullDatabase() {
   };
 }
 
-/** As `importProjectData`: legacy `externalLinks` arrive as snapshots. */
+/**
+ * The tables the legacy `fullExport: true` JSON can carry, keyed by the name
+ * they use in the payload. `externalLinks` is deliberately absent: those rows
+ * are merged into `snapshots`, a table the legacy format does not own.
+ */
+const LEGACY_FULL_EXPORT_TABLES: Record<string, string> = {
+  projects: 'projects',
+  codexEntries: 'codexEntries',
+  writings: 'writings',
+  timelines: 'timelines',
+  timelineEvents: 'timelineEvents',
+  boards: 'boards',
+  boardNodes: 'boardNodes',
+  boardEdges: 'boardEdges',
+  boardLayers: 'boardLayers',
+  boardViews: 'boardViews',
+  worldMaps: 'worldMaps',
+  mapPins: 'mapPins',
+  imageCollections: 'imageCollections',
+  inspirationImages: 'inspirationImages',
+  tags: 'tags',
+  settings: 'settings',
+};
+
+/**
+ * Children that hang off a parent instead of carrying their own `projectId`,
+ * as `deleteProject` resolves them. Clearing a parent has to take them too or
+ * they survive as rows nothing can reach.
+ */
+const LEGACY_CHILD_TABLES: Record<string, string[]> = {
+  scenes: ['sceneCasts'],
+  storyboards: ['storyboardConnectors'],
+  annotations: ['annotationReferences'],
+  generatedWorlds: ['worldSnapshots'],
+};
+
+/**
+ * Restore a legacy `fullExport: true` JSON. This is a PARTIAL restore: that
+ * format only ever carried the tables in `LEGACY_FULL_EXPORT_TABLES`, so only
+ * those are cleared and repopulated. Every other table — the engines added
+ * since — is left exactly as it was, because the file holds nothing to put
+ * back into it. Use the ZIP backup for a whole-database replacement.
+ *
+ * As `importProjectData`: legacy `externalLinks` arrive as snapshots, merged
+ * rather than replacing the `snapshots` table.
+ */
 export async function importFullDatabase(
   data: Awaited<ReturnType<typeof exportFullDatabase>> & { externalLinks?: LegacyExternalLink[] },
 ): Promise<void> {
-  // Clear ALL existing data (every table, not just the legacy 15 — otherwise
-  // engine-table rows from the previous database survive the restore as
-  // orphans), then import everything the legacy JSON contains with original
-  // IDs.
+  const payload = data as unknown as Record<string, unknown>;
+  const toClear = new Set<string>();
+  for (const [key, tableName] of Object.entries(LEGACY_FULL_EXPORT_TABLES)) {
+    if (!Array.isArray(payload[key])) continue;
+    toClear.add(tableName);
+    for (const child of LEGACY_CHILD_TABLES[tableName] ?? []) toClear.add(child);
+  }
+
   await db.transaction('rw', db.tables, async () => {
-    await Promise.all(db.tables.map((t) => t.clear()));
+    for (const tableName of toClear) await db.table(tableName).clear();
 
     // Import all data with original IDs (preserving references)
     if (data.projects?.length) await db.projects.bulkAdd(data.projects);

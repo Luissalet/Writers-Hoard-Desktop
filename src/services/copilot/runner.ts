@@ -38,10 +38,14 @@ export interface SendTurnOptions {
     projectMode?: string;
     enabledEngines: string[];
     openEngine?: string | null;
+    openDocument?: { engineId: string; id: string; title?: string } | null;
     locale: string;
   };
   toolsMode?: 'auto' | 'off';
 }
+
+/** A retry takes its text from the stored user row, so it cannot be given one. */
+export type RetryTurnOptions = Omit<SendTurnOptions, 'text'>;
 
 const NOTICE_TEXT: Record<string, string> = {
   'chat-only': 'chat-only',
@@ -57,8 +61,13 @@ const NOTICE_TEXT: Record<string, string> = {
 // then in runsByThread and guards itself) or if setup throws.
 const startingByThread = new Set<string>();
 
+/** One turn at a time per thread — a live run, or one a few awaits from being one. */
+function threadBusy(threadId: string): boolean {
+  return Boolean(useCopilotStore.getState().runsByThread[threadId]) || startingByThread.has(threadId);
+}
+
 export async function sendCopilotTurn(options: SendTurnOptions): Promise<void> {
-  if (useCopilotStore.getState().runsByThread[options.threadId] || startingByThread.has(options.threadId)) return; // one turn at a time per thread
+  if (threadBusy(options.threadId)) return;
   startingByThread.add(options.threadId);
   try {
     await beginCopilotTurn(options);
@@ -67,19 +76,122 @@ export async function sendCopilotTurn(options: SendTurnOptions): Promise<void> {
   }
 }
 
-async function beginCopilotTurn(options: SendTurnOptions): Promise<void> {
+/** What a retry would replay, and what it would throw away first. */
+export interface CopilotRetryPlan {
+  /** The stored user row whose answer failed. It is replayed, never copied. */
+  userMessageId: string;
+  text: string;
+  /** The failed answer and every tool row that belonged to that same turn. */
+  dropIds: string[];
+  /** Assistant row the Retry control hangs off, when the turn left one behind. */
+  anchorMessageId: string | null;
+}
+
+/**
+ * Whether the last turn of a thread ended badly enough to be worth running
+ * again, decided from the STORED rows alone — so it works just as well on a
+ * thread reopened days later as on one that failed a second ago.
+ *
+ * A turn is the last user row plus everything after it. It ended badly when:
+ *   • its last assistant row errored (the 15-minute limit arrives as one) or
+ *     was cancelled — including a row a reload settled as cancelled;
+ *   • it left no assistant row at all (stopped before the model answered);
+ *   • or it ends on a tool card that was rejected or failed, or on one whose
+ *     answer never came — a cancel during a tool call leaves exactly that, and
+ *     it is the case that used to offer the reader nothing whatsoever.
+ *
+ * A turn that ends on a finished tool card but whose assistant row DID speak is
+ * left alone: the model answered and then had nothing to add, and a Retry there
+ * would offer to delete a real answer.
+ *
+ * Anything still streaming belongs to a live run, which settles itself.
+ */
+export function planCopilotRetry(messages: AiMessage[]): CopilotRetryPlan | null {
+  let userIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === 'user') {
+      userIndex = i;
+      break;
+    }
+  }
+  if (userIndex < 0) return null;
+  const user = messages[userIndex];
+  if (!user.content.trim()) return null;
+  const tail = messages.slice(userIndex + 1);
+  if (tail.some((message) => message.status === 'streaming')) return null;
+  let lastAssistant: AiMessage | null = null;
+  for (let i = tail.length - 1; i >= 0; i -= 1) {
+    if (tail[i].role === 'assistant') {
+      lastAssistant = tail[i];
+      break;
+    }
+  }
+  const failedVisibly = lastAssistant?.status === 'error' || lastAssistant?.status === 'cancelled';
+  const lastRow = tail[tail.length - 1];
+  const endedOnTool = lastRow?.role === 'tool';
+  const toolStopped = lastRow?.toolCall?.state === 'rejected' || lastRow?.toolCall?.state === 'failed';
+  const spoke = Boolean(lastAssistant?.content.trim());
+  const endedBadly = !lastAssistant || failedVisibly || (endedOnTool && (toolStopped || !spoke));
+  if (!endedBadly) return null;
+  return {
+    userMessageId: user.id,
+    text: user.content,
+    dropIds: tail.map((message) => message.id),
+    // Only a row that SHOWS the failure carries the control. A turn cut between
+    // a tool call and the answer ends on the tool card, and hanging Retry off
+    // the assistant row above it would put the button before the failure.
+    anchorMessageId: failedVisibly && lastAssistant ? lastAssistant.id : null,
+  };
+}
+
+/**
+ * Run the last turn again from the same history.
+ *
+ * The user's message is NOT sent a second time: the row that is already there
+ * is replayed, the failed answer and its tool rows are deleted, and the model
+ * sees exactly the conversation it saw the first time.
+ */
+export async function retryCopilotTurn(options: RetryTurnOptions): Promise<void> {
+  if (threadBusy(options.threadId)) return;
+  startingByThread.add(options.threadId);
+  try {
+    const plan = planCopilotRetry(await listMessages(options.threadId));
+    if (!plan) return;
+    if (plan.dropIds.length) {
+      const { db } = await import('@/db');
+      await db.aiMessages.bulkDelete(plan.dropIds);
+      useCopilotStore.getState().bumpData();
+    }
+    await beginCopilotTurn({ ...options, text: plan.text }, plan.userMessageId);
+  } finally {
+    startingByThread.delete(options.threadId);
+  }
+}
+
+async function beginCopilotTurn(options: SendTurnOptions, replayUserMessageId?: string): Promise<void> {
   const thread = await getThread(options.threadId);
   if (!thread) return;
-  const previous = await listMessages(options.threadId);
+  const stored = await listMessages(options.threadId);
+  // A retry replays a user row that is already stored, so the history is
+  // everything BEFORE it: the agent loop appends `message` as the user turn
+  // itself, and leaving the row in would ask the same question twice.
+  let previous = stored;
+  if (replayUserMessageId) {
+    const index = stored.findIndex((message) => message.id === replayUserMessageId);
+    if (index < 0) return;
+    previous = stored.slice(0, index);
+  }
   const { history, usedTools } = historyFromMessages(previous);
 
-  await addMessage({
-    threadId: options.threadId,
-    projectId: options.projectId,
-    role: 'user',
-    content: options.text,
-    status: 'complete',
-  });
+  if (!replayUserMessageId) {
+    await addMessage({
+      threadId: options.threadId,
+      projectId: options.projectId,
+      role: 'user',
+      content: options.text,
+      status: 'complete',
+    });
+  }
   if (!thread.title) await updateThread(thread.id, { title: threadTitleFrom(options.text) });
   await updateThread(thread.id, { route: options.route, policy: options.policy });
 
@@ -290,7 +402,11 @@ async function beginCopilotTurn(options: SendTurnOptions): Promise<void> {
       default:
         break;
     }
-    useCopilotStore.getState().bumpData();
+    // A streamed token stores nothing: the live row is drawn from the run's
+    // buffer, so bumping here would only re-run every thread query per token.
+    if (event.type !== 'delta' && event.type !== 'reasoning') {
+      useCopilotStore.getState().bumpData();
+    }
   }
 }
 

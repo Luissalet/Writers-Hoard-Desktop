@@ -78,8 +78,10 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
           <button
             onClick={onCancel}
             className="p-1 hover:bg-surface rounded transition-colors"
+            title={t('common.close')}
+            aria-label={t('common.close')}
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -212,7 +214,7 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
               className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-neutral-300 transition hover:border-accent-gold"
             >
               <Images size={15} />
-              Choose from Gallery
+              {t('common.chooseFromGallery')}
             </button>
           </div>
 

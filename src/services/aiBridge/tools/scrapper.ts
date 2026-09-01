@@ -24,6 +24,7 @@ import { listInstagramCollection } from '@/engines/scrapper/services/collectionI
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
   clampLimit,
   dataUrlToBlob,
@@ -139,6 +140,7 @@ export async function whViewSnapshotImage(args: ToolArgs): Promise<unknown> {
 export async function whTagSnapshot(args: ToolArgs): Promise<unknown> {
   const snapshot = await mustGetSnapshot(requireString(args, 'id'));
   await assertEngineEnabled(snapshot.projectId, 'scrapper');
+  assertRowInScope(args, snapshot.projectId);
   const changes: Partial<Snapshot> = {};
 
   const replaceTags = optStringArray(args, 'tags');
@@ -266,6 +268,12 @@ export async function whImportSnapshots(args: ToolArgs): Promise<unknown> {
     },
     {
       projectId,
+      // `created` in the result is a COUNT, so the executor cannot read the
+      // kind off it the way it does everywhere else — and without the ids
+      // there was nothing for undo to remove, behind a button that offered it
+      // anyway.
+      kind: 'create',
+      entityIds: created.map((snapshot) => snapshot.id),
       summary: `imported ${created.length} clipping(s), skipped ${skipped.length} duplicate(s)`,
     },
   );
@@ -274,6 +282,7 @@ export async function whImportSnapshots(args: ToolArgs): Promise<unknown> {
 export async function whDownloadSnapshotMedia(args: ToolArgs): Promise<unknown> {
   const snapshot = await mustGetSnapshot(requireString(args, 'id'));
   await assertEngineEnabled(snapshot.projectId, 'scrapper');
+  assertRowInScope(args, snapshot.projectId);
   const format = optEnum(args, 'format', ['video', 'audio'] as const) ?? 'video';
 
   // Reuses the exact lifecycle the app's own download button drives, so the

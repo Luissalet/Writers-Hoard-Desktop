@@ -5,7 +5,8 @@
 // The audit log records what each write did and what the row looked like
 // before. This turns one of those lines back:
 //
-//   create → delete the row, through the engine's own cascade operation
+//   create → delete the row (or every row the call made), through the
+//            engine's own cascade operation
 //   update → put the recorded fields back
 //   delete → reinsert the row (its cascaded children do NOT come back)
 //
@@ -59,7 +60,12 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
   const kind = String(entry.kind ?? '');
   const entityId = typeof entry.entityId === 'string' ? entry.entityId : '';
   const summary = typeof entry.summary === 'string' ? entry.summary : 'that change';
-  if (!entityId) {
+  // One call can create several rows — four images, a page of clippings. Older
+  // lines only ever recorded one, so `entityId` still stands on its own.
+  const listed = Array.isArray(entry.entityIds)
+    ? entry.entityIds.filter((id): id is string => typeof id === 'string' && Boolean(id))
+    : [];
+  if (!entityId && !listed.length) {
     throw new BridgeError(
       'cannot-undo',
       'That entry records no entity, so there is nothing to put back. Bulk imports are not reversible this way.',
@@ -67,15 +73,29 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
   }
 
   if (kind === 'create') {
-    const table = await findTable(entityId);
-    if (!table) {
+    const targets = listed.length ? listed : [entityId];
+    let removed = 0;
+    for (const id of targets) {
+      const table = await findTable(id);
+      if (!table) continue;
+      const spec = specForTable(table);
+      // Prefer the engine's own delete: it takes the children with it.
+      if (spec) await spec.remove(id);
+      else await db.table(table).delete(id);
+      removed += 1;
+    }
+    if (!removed) {
       throw new BridgeError('not-found', 'It is already gone — nothing left to undo.');
     }
-    const spec = specForTable(table);
-    // Prefer the engine's own delete: it takes the children with it.
-    if (spec) await spec.remove(entityId);
-    else await db.table(table).delete(entityId);
-    return { undone: true, kind, entityId, what: summary };
+    return {
+      undone: true,
+      kind,
+      entityId: entityId || targets[0],
+      what: summary,
+      caveat: removed < targets.length
+        ? `Removed ${removed} of the ${targets.length} rows this created; the rest were already gone.`
+        : undefined,
+    };
   }
 
   const before = entry.before as Record<string, unknown> | undefined;

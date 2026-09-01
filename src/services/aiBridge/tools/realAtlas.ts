@@ -25,6 +25,7 @@ import { foldForSearch, matchRank } from '@/engines/worldgen/core/searchText';
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
   clampLimit,
   optBoolean,
@@ -302,6 +303,7 @@ export async function whUpdateAtlasPlace(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const place = await loadPlace(id);
   await assertEngineEnabled(place.projectId, ENGINE);
+  assertRowInScope(args, place.projectId);
 
   const changes: Partial<AtlasPlace> = {};
   const before: Partial<AtlasPlace> = {};
@@ -435,6 +437,7 @@ export async function whUpdateDivergence(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const row = await loadDivergence(id);
   await assertEngineEnabled(row.projectId, ENGINE);
+  assertRowInScope(args, row.projectId);
 
   const changes: Partial<AtlasDivergence> = {};
   const before: Partial<AtlasDivergence> = {};

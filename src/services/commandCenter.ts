@@ -1,3 +1,7 @@
+import { getSetting, PROJECT_SETTING_PREFIXES, updateSetting } from '@/db/operations';
+import { generateId } from '@/utils/idGenerator';
+import { foldSearchText } from '@/services/searchQuery';
+
 export type CommandCenterActionIcon =
   | 'home'
   | 'notes'
@@ -98,11 +102,7 @@ export function buildCommandCenterActions(
 }
 
 function normalize(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLocaleLowerCase()
-    .trim();
+  return foldSearchText(value).trim();
 }
 
 export function filterCommandCenterActions(
@@ -128,4 +128,124 @@ export function moveCommandCenterSelection(
 ): number {
   if (itemCount <= 0) return 0;
   return (current + direction + itemCount) % itemCount;
+}
+
+// ---------------------------------------------------------------------------
+// Saved searches
+// ---------------------------------------------------------------------------
+//
+// A writer who works out that `engine:codex tag:secundario -muerto` is the
+// query that finds their loose ends should never have to work it out twice.
+// These live in the `settings` key/value table rather than a table of their
+// own: they are a handful of short strings per project, they are worthless
+// without the project they belong to, and a Dexie migration is a heavy price
+// for a bookmark.
+
+export interface SavedSearch {
+  id: string;
+  name: string;
+  query: string;
+  createdAt: number;
+}
+
+/**
+ * Enough to hold a working set of queries, few enough that they still fit
+ * above an empty palette without becoming a list you have to scroll.
+ */
+export const SAVED_SEARCH_LIMIT = 12;
+
+/** Searches made outside any project (the dashboard) share one bucket. */
+const SAVED_SEARCH_GLOBAL = '__global__';
+
+function savedSearchKey(projectId?: string): string {
+  return `${PROJECT_SETTING_PREFIXES.savedSearches}${projectId ?? SAVED_SEARCH_GLOBAL}`;
+}
+
+/**
+ * Read a stored list defensively: this is user-editable persisted JSON, and a
+ * malformed value must cost the writer their bookmarks, not their palette.
+ */
+export function parseSavedSearches(value: string | undefined): SavedSearch[] {
+  if (!value) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const searches: SavedSearch[] = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Partial<SavedSearch>;
+    if (typeof row.id !== 'string' || typeof row.query !== 'string') continue;
+    if (!row.query.trim()) continue;
+    searches.push({
+      id: row.id,
+      name: typeof row.name === 'string' && row.name.trim() ? row.name : row.query,
+      query: row.query,
+      createdAt: typeof row.createdAt === 'number' ? row.createdAt : 0,
+    });
+    if (searches.length >= SAVED_SEARCH_LIMIT) break;
+  }
+  return searches;
+}
+
+export async function getSavedSearches(projectId?: string): Promise<SavedSearch[]> {
+  return parseSavedSearches(await getSetting(savedSearchKey(projectId)));
+}
+
+/**
+ * Rewrite the stored list in ONE transaction.
+ *
+ * The whole list lives in a single JSON value, so a read-then-write across two
+ * awaits loses whichever change was made first: save two queries in quick
+ * succession — or save one while another tab deletes one — and the second write
+ * puts back the list the first one had already replaced. `mutate` runs inside
+ * the transaction and must stay synchronous.
+ */
+async function updateSavedSearches(
+  projectId: string | undefined,
+  mutate: (existing: SavedSearch[]) => SavedSearch[],
+): Promise<SavedSearch[]> {
+  let capped: SavedSearch[] = [];
+  await updateSetting(savedSearchKey(projectId), current => {
+    capped = mutate(parseSavedSearches(current)).slice(0, SAVED_SEARCH_LIMIT);
+    return JSON.stringify(capped);
+  });
+  return capped;
+}
+
+/**
+ * Save the current query under a name, newest first. Saving the same query
+ * twice renames the existing entry instead of stacking a duplicate.
+ */
+export async function saveSearch(
+  query: string,
+  name: string,
+  projectId?: string,
+): Promise<SavedSearch[]> {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) return getSavedSearches(projectId);
+  const trimmedName = name.trim() || trimmedQuery;
+
+  return updateSavedSearches(projectId, existing => {
+    const saved: SavedSearch = {
+      id: existing.find(search => search.query === trimmedQuery)?.id ?? generateId('search'),
+      name: trimmedName,
+      query: trimmedQuery,
+      createdAt: Date.now(),
+    };
+    return [saved, ...existing.filter(search => search.query !== trimmedQuery)];
+  });
+}
+
+export async function deleteSavedSearch(
+  id: string,
+  projectId?: string,
+): Promise<SavedSearch[]> {
+  return updateSavedSearches(projectId, existing =>
+    existing.filter(search => search.id !== id),
+  );
 }

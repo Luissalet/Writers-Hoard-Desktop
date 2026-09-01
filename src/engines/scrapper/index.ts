@@ -181,7 +181,7 @@ registerBackupStrategy({
       `${projectDir}/scrapper/snapshots.json`,
     );
     if (snapshots?.length) {
-      await db.snapshots.bulkAdd(snapshots.map(withoutExternalAssets));
+      await db.snapshots.bulkPut(snapshots.map(withoutExternalAssets));
     }
     const legacy = await readBackupJson<unknown[]>(
       zip,

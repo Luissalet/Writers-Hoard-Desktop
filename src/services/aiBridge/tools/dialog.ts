@@ -23,6 +23,7 @@ import {
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
   optBoolean,
   optEnum,
@@ -131,6 +132,7 @@ export async function whCreateScene(args: ToolArgs): Promise<unknown> {
 export async function whUpdateScene(args: ToolArgs): Promise<unknown> {
   const scene = await mustGetScene(requireString(args, 'id'));
   await assertEngineEnabled(scene.projectId, 'dialog-scene');
+  assertRowInScope(args, scene.projectId);
   const changes: Partial<Scene> = {};
   (['title', 'description', 'setting'] as const).forEach((key) => {
     const value = optString(args, key);
@@ -198,6 +200,7 @@ async function resolveSpeaker(
 export async function whAddDialog(args: ToolArgs): Promise<unknown> {
   const scene = await mustGetScene(requireString(args, 'sceneId'));
   await assertEngineEnabled(scene.projectId, 'dialog-scene');
+  assertRowInScope(args, scene.projectId);
   const type = optEnum(args, 'type', BLOCK_TYPES) ?? 'dialog';
   const content = requireString(args, 'content');
   const speaker = optString(args, 'character');
@@ -255,6 +258,7 @@ export async function whUpdateDialogBlock(args: ToolArgs): Promise<unknown> {
   const block = await db.dialogBlocks.get(id);
   if (!block) throw new BridgeError('not-found', `No dialog block with id "${id}".`);
   await assertEngineEnabled(block.projectId, 'dialog-scene');
+  assertRowInScope(args, block.projectId);
 
   const changes: Partial<DialogBlock> = {};
   const content = optString(args, 'content');
@@ -284,10 +288,13 @@ export async function whUpdateDialogBlock(args: ToolArgs): Promise<unknown> {
       projectId: block.projectId,
       entityId: id,
       summary: `edited a ${block.type} block`,
+      // Whole and under their real column names: undo writes this object back
+      // verbatim, so a truncated line would replace the monologue with its
+      // first 400 characters, and `character` would land as a junk column.
       before: {
         type: block.type,
-        character: block.characterName,
-        content: block.content.slice(0, 400),
+        characterName: block.characterName,
+        content: block.content,
       },
     },
   );

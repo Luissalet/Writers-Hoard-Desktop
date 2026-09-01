@@ -1,19 +1,37 @@
-import type { Paragraph, ParagraphChild } from 'docx';
+import type { Paragraph, ParagraphChild, Table } from 'docx';
 import type { PublishingDocument } from './publishingDocument';
 
 type DocxModule = typeof import('docx');
+
+/** What a block-level HTML element can become in the DOCX body. */
+type BlockChild = Paragraph | Table;
 
 interface InlineStyle {
   bold?: boolean;
   italics?: boolean;
   underline?: boolean;
   monospace?: boolean;
+  /** Inside <pre>: newlines and runs of spaces are content, not layout. */
+  preformatted?: boolean;
+}
+
+interface BlockContext {
+  /** Nesting depth of the enclosing list; 0 outside any list. */
+  listLevel: number;
+  /** Concrete numbering instance the enclosing list counts on. */
+  listInstance: number;
+  /** Next free numbering instance, shared by the whole document. */
+  nextInstance: { value: number };
+  /** Inside a <blockquote>: indent and italicise the paragraphs it holds. */
+  quoted: boolean;
 }
 
 const BLOCK_TAGS = new Set([
   'blockquote', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-  'ol', 'p', 'pre', 'section', 'table', 'ul',
+  'hr', 'ol', 'p', 'pre', 'section', 'table', 'ul',
 ]);
+
+const ROW_GROUP_TAGS = new Set(['thead', 'tbody', 'tfoot']);
 
 function inlineChildren(
   nodes: Iterable<Node>,
@@ -24,6 +42,19 @@ function inlineChildren(
   for (const node of nodes) {
     if (node.nodeType === 3) {
       const raw = node.textContent ?? '';
+      if (style.preformatted) {
+        raw.split('\n').forEach((line, index) => {
+          children.push(new docx.TextRun({
+            text: line,
+            break: index === 0 ? undefined : 1,
+            bold: style.bold,
+            italics: style.italics,
+            underline: style.underline ? {} : undefined,
+            font: style.monospace ? 'Courier New' : undefined,
+          }));
+        });
+        continue;
+      }
       const text = raw.replace(/\s+/g, ' ');
       if (!text) continue;
       children.push(new docx.TextRun({
@@ -62,30 +93,140 @@ function headingFor(tag: string, docx: DocxModule) {
   return docx.HeadingLevel.HEADING_6;
 }
 
+function hasBlockChildren(element: Element): boolean {
+  return [...element.children].some(child => BLOCK_TAGS.has(child.tagName.toLowerCase()));
+}
+
+function blocksFromChildren(
+  element: Element,
+  docx: DocxModule,
+  context: BlockContext,
+): BlockChild[] {
+  const blocks: BlockChild[] = [];
+  for (const child of element.childNodes) {
+    if (child instanceof Element && BLOCK_TAGS.has(child.tagName.toLowerCase())) {
+      blocks.push(...paragraphsFromElement(child, docx, context));
+    } else if (child.nodeType === 3 && child.textContent?.trim()) {
+      blocks.push(new docx.Paragraph({ children: inlineChildren([child], docx) }));
+    }
+  }
+  return blocks;
+}
+
+function listBlocks(
+  element: Element,
+  docx: DocxModule,
+  context: BlockContext,
+): BlockChild[] {
+  const reference = element.tagName.toLowerCase() === 'ul'
+    ? 'publishing-bullets'
+    : 'publishing-numbers';
+  // Every outermost list gets its own concrete instance: sharing one makes Word
+  // continue a single counter across every ordered list in the file.
+  const instance = context.listLevel === 0
+    ? context.nextInstance.value++
+    : context.listInstance;
+  const level = Math.min(context.listLevel, 5);
+  const nested: BlockContext = {
+    ...context,
+    listLevel: context.listLevel + 1,
+    listInstance: instance,
+  };
+  const blocks: BlockChild[] = [];
+  const items = [...element.children].filter(child => child.tagName.toLowerCase() === 'li');
+  for (const item of items) {
+    const children = inlineChildren(item.childNodes, docx);
+    if (children.length > 0) {
+      blocks.push(new docx.Paragraph({
+        children,
+        numbering: { reference, level, instance },
+        spacing: { after: 80 },
+      }));
+    }
+    for (const child of [...item.children].filter(node => ['ul', 'ol'].includes(node.tagName.toLowerCase()))) {
+      blocks.push(...paragraphsFromElement(child, docx, nested));
+    }
+  }
+  return blocks;
+}
+
+function rowElements(element: Element): Element[] {
+  const rows: Element[] = [];
+  for (const child of element.children) {
+    const tag = child.tagName.toLowerCase();
+    if (tag === 'tr') {
+      rows.push(child);
+    } else if (ROW_GROUP_TAGS.has(tag)) {
+      for (const row of child.children) {
+        if (row.tagName.toLowerCase() === 'tr') rows.push(row);
+      }
+    }
+  }
+  return rows;
+}
+
+function spanOf(cell: Element, attribute: string): number | undefined {
+  const value = Number.parseInt(cell.getAttribute(attribute) ?? '', 10);
+  return Number.isFinite(value) && value > 1 ? value : undefined;
+}
+
+function cellBlocks(cell: Element, docx: DocxModule, context: BlockContext): BlockChild[] {
+  const header = cell.tagName.toLowerCase() === 'th';
+  if (hasBlockChildren(cell)) {
+    const blocks = blocksFromChildren(cell, docx, context);
+    if (blocks.length > 0) return blocks;
+  }
+  // A cell may never be empty in OOXML: an empty paragraph is the empty cell.
+  return [new docx.Paragraph({
+    children: inlineChildren(cell.childNodes, docx, { bold: header }),
+  })];
+}
+
+function tableBlocks(
+  element: Element,
+  docx: DocxModule,
+  context: BlockContext,
+): BlockChild[] {
+  const rows = rowElements(element);
+  if (rows.length === 0) return blocksFromChildren(element, docx, context);
+  const border = { style: docx.BorderStyle.SINGLE, size: 1, color: '999999' };
+  return [new docx.Table({
+    width: { size: 100, type: docx.WidthType.PERCENTAGE },
+    borders: {
+      top: border,
+      bottom: border,
+      left: border,
+      right: border,
+      insideHorizontal: border,
+      insideVertical: border,
+    },
+    rows: rows.map(row => new docx.TableRow({
+      children: [...row.children]
+        .filter(cell => ['td', 'th'].includes(cell.tagName.toLowerCase()))
+        .map(cell => new docx.TableCell({
+          columnSpan: spanOf(cell, 'colspan'),
+          rowSpan: spanOf(cell, 'rowspan'),
+          children: cellBlocks(cell, docx, context),
+        })),
+    })),
+  })];
+}
+
 function paragraphsFromElement(
   element: Element,
   docx: DocxModule,
-  listLevel = 0,
-): Paragraph[] {
+  context: BlockContext,
+): BlockChild[] {
   const tag = element.tagName.toLowerCase();
-  if (tag === 'ul' || tag === 'ol') {
-    const paragraphs: Paragraph[] = [];
-    const reference = tag === 'ul' ? 'publishing-bullets' : 'publishing-numbers';
-    const items = [...element.children].filter(child => child.tagName.toLowerCase() === 'li');
-    for (const item of items) {
-      const children = inlineChildren(item.childNodes, docx);
-      if (children.length > 0) {
-        paragraphs.push(new docx.Paragraph({
-          children,
-          numbering: { reference, level: Math.min(listLevel, 5) },
-          spacing: { after: 80 },
-        }));
-      }
-      for (const nested of [...item.children].filter(child => ['ul', 'ol'].includes(child.tagName.toLowerCase()))) {
-        paragraphs.push(...paragraphsFromElement(nested, docx, listLevel + 1));
-      }
-    }
-    return paragraphs;
+  if (tag === 'ul' || tag === 'ol') return listBlocks(element, docx, context);
+  if (tag === 'table') return tableBlocks(element, docx, context);
+  if (tag === 'hr') {
+    // The manuscript convention for a scene or POV break.
+    return [new docx.Paragraph({
+      children: [new docx.TextRun({ text: '* * *' })],
+      alignment: docx.AlignmentType.CENTER,
+      spacing: { before: 240, after: 240 },
+    })];
   }
   if (/^h[1-6]$/.test(tag)) {
     return [new docx.Paragraph({
@@ -94,44 +235,53 @@ function paragraphsFromElement(
       spacing: { before: 200, after: 100 },
     })];
   }
-  if (tag === 'p' || tag === 'pre' || tag === 'blockquote') {
+  if (tag === 'blockquote') {
+    if (hasBlockChildren(element)) {
+      return blocksFromChildren(element, docx, { ...context, quoted: true });
+    }
+    return [new docx.Paragraph({
+      children: inlineChildren(element.childNodes, docx, { italics: true }),
+      indent: { left: 720, right: 720 },
+      spacing: { after: 120 },
+    })];
+  }
+  if (tag === 'p' || tag === 'pre') {
     const children = inlineChildren(element.childNodes, docx, {
-      italics: tag === 'blockquote',
+      italics: context.quoted,
       monospace: tag === 'pre',
+      preformatted: tag === 'pre',
     });
     return [new docx.Paragraph({
       children,
-      indent: tag === 'blockquote' ? { left: 720, right: 720 } : undefined,
+      indent: context.quoted ? { left: 720, right: 720 } : undefined,
       spacing: { after: 120 },
     })];
   }
 
-  const paragraphs: Paragraph[] = [];
-  for (const child of element.childNodes) {
-    if (child instanceof Element && BLOCK_TAGS.has(child.tagName.toLowerCase())) {
-      paragraphs.push(...paragraphsFromElement(child, docx, listLevel));
-    } else if (child.nodeType === 3 && child.textContent?.trim()) {
-      paragraphs.push(new docx.Paragraph({ children: inlineChildren([child], docx) }));
-    }
-  }
-  if (paragraphs.length === 0) {
+  const blocks = blocksFromChildren(element, docx, context);
+  if (blocks.length === 0) {
     const children = inlineChildren(element.childNodes, docx);
-    if (children.length > 0) paragraphs.push(new docx.Paragraph({ children }));
+    if (children.length > 0) blocks.push(new docx.Paragraph({ children }));
   }
-  return paragraphs;
+  return blocks;
 }
 
-function paragraphsFromHtml(html: string, docx: DocxModule): Paragraph[] {
+function paragraphsFromHtml(
+  html: string,
+  docx: DocxModule,
+  nextInstance: { value: number },
+): BlockChild[] {
   const parsed = new DOMParser().parseFromString(html, 'text/html');
-  const paragraphs: Paragraph[] = [];
+  const context: BlockContext = { listLevel: 0, listInstance: 0, nextInstance, quoted: false };
+  const blocks: BlockChild[] = [];
   for (const child of parsed.body.childNodes) {
     if (child instanceof Element) {
-      paragraphs.push(...paragraphsFromElement(child, docx));
+      blocks.push(...paragraphsFromElement(child, docx, context));
     } else if (child.nodeType === 3 && child.textContent?.trim()) {
-      paragraphs.push(new docx.Paragraph({ children: inlineChildren([child], docx) }));
+      blocks.push(new docx.Paragraph({ children: inlineChildren([child], docx) }));
     }
   }
-  return paragraphs;
+  return blocks;
 }
 
 function numberingLevels(docx: DocxModule, ordered: boolean) {
@@ -147,7 +297,8 @@ function numberingLevels(docx: DocxModule, ordered: boolean) {
 /** Build a browser Blob; `docx` stays out of the initial renderer bundle. */
 export async function buildPublishingDocx(document: PublishingDocument): Promise<Blob> {
   const docx = await import('docx');
-  const children: Paragraph[] = [];
+  const children: BlockChild[] = [];
+  const listInstances = { value: 0 };
   if (document.includeTitlePage) {
     children.push(
       new docx.Paragraph({
@@ -176,7 +327,7 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
         spacing: { after: 240 },
       }));
     }
-    children.push(...paragraphsFromHtml(section.portableHtml, docx));
+    children.push(...paragraphsFromHtml(section.portableHtml, docx, listInstances));
   });
   if (document.bibliography.length > 0 && document.bibliographyTitle) {
     children.push(new docx.Paragraph({

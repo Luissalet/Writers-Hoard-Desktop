@@ -21,6 +21,20 @@ export type SeedStatus =
   | 'orphaned'  // seed exists but has no payoff (yet)
   | 'cut';      // the seed was removed in revision
 
+/**
+ * What an author may STORE on `Seed.status`. 'paid' and 'orphaned' are facts
+ * about the payoff table, not decisions, so they are derived and never written
+ * — the same two values `wh_update_seed` accepts.
+ */
+export const AUTHORED_SEED_STATUSES = ['planted', 'cut'] as const satisfies readonly SeedStatus[];
+
+/**
+ * What `computeSeedStatus` can actually RETURN — the only statuses worth
+ * offering in the filter or rendering on a badge. 'planted' is a stored value,
+ * never a computed one, so filtering by it could only ever return nothing.
+ */
+export const DERIVED_SEED_STATUSES = ['paid', 'orphaned', 'cut'] as const satisfies readonly SeedStatus[];
+
 export interface Seed {
   id: string;
   projectId: string;
@@ -85,6 +99,11 @@ export const SEED_STATUS_CONFIG: Record<SeedStatus, { labelKey: string; color: s
  * "no payoff and not cut", so a fresh project reported "Orphans: 3" while every
  * card read "Planted" and the Orphan filter returned nothing. The two now agree
  * on one definition: an un-cut seed with no payoff is orphaned.
+ *
+ * Only 'cut' is read back off the row — see `AUTHORED_SEED_STATUSES`. Every
+ * surface that shows a status (card badge, filter, KPIs) goes through here, so
+ * a status the author could store but this function could never return would
+ * be a filter that can never match.
  */
 export function computeSeedStatus(seed: Seed, payoffs: Payoff[]): SeedStatus {
   if (seed.status === 'cut') return 'cut';

@@ -22,6 +22,17 @@ interface ScriptAutocompleteProps {
   anchorRef: React.RefObject<HTMLTextAreaElement | HTMLInputElement | null>;
   /** Whether autocomplete should be active */
   active: boolean;
+  /**
+   * Whether Enter accepts the highlighted suggestion.
+   *
+   * Only the caller that ARMED the list on an explicit trigger may say yes —
+   * the dialog block's leading `@`. Everywhere else the list opens on any
+   * non-empty line against the always-present transitions, so accepting on
+   * Enter meant that typing "Fade" in an action paragraph and pressing Enter
+   * to start the next line replaced the line with "FADE IN:". Tab still
+   * accepts in both cases.
+   */
+  acceptOnEnter?: boolean;
 }
 
 // Standard screenplay transitions
@@ -70,6 +81,7 @@ export default function ScriptAutocomplete({
   onSelect,
   anchorRef,
   active,
+  acceptOnEnter = false,
 }: ScriptAutocompleteProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -103,7 +115,7 @@ export default function ScriptAutocomplete({
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setSelectedIndex((prev) => (prev - 1 + filtered.length) % filtered.length);
-      } else if (e.key === 'Tab' || e.key === 'Enter') {
+      } else if (e.key === 'Tab' || (e.key === 'Enter' && acceptOnEnter)) {
         if (filtered.length > 0) {
           e.preventDefault();
           onSelect(filtered[selectedIndex]);
@@ -112,7 +124,7 @@ export default function ScriptAutocomplete({
         // Let parent handle
       }
     },
-    [filtered, selectedIndex, onSelect],
+    [filtered, selectedIndex, onSelect, acceptOnEnter],
   );
 
   // Attach keyboard listener to anchor

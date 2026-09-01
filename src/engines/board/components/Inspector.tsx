@@ -266,8 +266,10 @@ export function NodeInspector({ node, layers, onPatch, onDelete, onBindEntity, o
               type="button"
               onClick={() => onPatch({ ref: undefined })}
               className="rounded-lg border border-border p-1.5 text-text-muted transition hover:text-danger"
+              title={t('common.remove')}
+              aria-label={t('common.remove')}
             >
-              <X size={13} />
+              <X size={13} aria-hidden="true" />
             </button>
           ) : null}
         </div>
@@ -287,8 +289,10 @@ export function NodeInspector({ node, layers, onPatch, onDelete, onBindEntity, o
                   onPatch({ props: next });
                 }}
                 className="text-text-dim hover:text-danger"
+                title={t('common.remove')}
+                aria-label={t('common.remove')}
               >
-                <X size={11} />
+                <X size={11} aria-hidden="true" />
               </button>
             </div>
           ))}
@@ -320,8 +324,10 @@ export function NodeInspector({ node, layers, onPatch, onDelete, onBindEntity, o
                 setPropValue('');
               }}
               className="rounded-lg border border-border px-2 text-text-muted transition hover:text-accent-gold"
+              title={t('common.add')}
+              aria-label={t('common.add')}
             >
-              <Plus size={13} />
+              <Plus size={13} aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -477,8 +483,10 @@ export function EdgeInspector({
                       type="button"
                       onClick={() => onDetach(side, endpoint.id)}
                       className="text-text-dim transition hover:text-danger"
+                      title={t('common.remove')}
+                      aria-label={t('common.remove')}
                     >
-                      <Minus size={11} />
+                      <Minus size={11} aria-hidden="true" />
                     </button>
                   ) : null}
                 </div>

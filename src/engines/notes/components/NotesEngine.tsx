@@ -138,8 +138,10 @@ export default function NotesEngine({ projectId }: EngineComponentProps) {
             <button
               onClick={() => setQuery('')}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-primary transition"
+              title={t('engines.clearSearch')}
+              aria-label={t('engines.clearSearch')}
             >
-              <X size={14} />
+              <X size={14} aria-hidden="true" />
             </button>
           )}
         </div>

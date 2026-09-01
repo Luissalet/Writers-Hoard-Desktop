@@ -3,6 +3,7 @@ import { Send } from 'lucide-react';
 import type { DiaryMood } from '../types';
 import { MOOD_CONFIG } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
+import { toast } from '@/components/common/toast';
 
 interface QuickEntryProps {
   onSubmit: (content: string, mood?: DiaryMood) => Promise<void>;
@@ -27,10 +28,17 @@ export default function QuickEntry({ onSubmit }: QuickEntryProps) {
     const trimmed = text.trim();
     if (!trimmed || submitting) return;
     setSubmitting(true);
-    await onSubmit(trimmed, mood || undefined);
-    setText('');
-    setMood('');
-    setSubmitting(false);
+    try {
+      await onSubmit(trimmed, mood || undefined);
+      // Only clear once the note is actually stored — a rejected write must
+      // leave the text where the author can still see it.
+      setText('');
+      setMood('');
+    } catch {
+      toast.error(t('diary.saveError'));
+    } finally {
+      setSubmitting(false);
+    }
     inputRef.current?.focus();
   };
 
@@ -63,7 +71,7 @@ export default function QuickEntry({ onSubmit }: QuickEntryProps) {
 
       {/* Mood selector row */}
       <div className="flex items-center gap-1 mt-2">
-        <span className="text-[10px] uppercase tracking-wider text-text-dim mr-1">Mood:</span>
+        <span className="text-[10px] uppercase tracking-wider text-text-dim mr-1">{t('diary.mood')}</span>
         {Object.entries(MOOD_CONFIG).map(([key, cfg]) => (
           <button
             key={key}

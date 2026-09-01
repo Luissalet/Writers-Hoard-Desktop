@@ -21,6 +21,7 @@ import {
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
   optBoolean,
   optEnum,
@@ -116,6 +117,7 @@ export async function whUpdateSeed(args: ToolArgs): Promise<unknown> {
   const existing = await getSeed(id);
   if (!existing) throw new BridgeError('not-found', `No seed with id "${id}".`);
   await assertEngineEnabled(existing.projectId, 'seeds');
+  assertRowInScope(args, existing.projectId);
 
   const changes: Partial<Seed> = {};
   (['title', 'description', 'locationLabel'] as const).forEach((key) => {
@@ -151,6 +153,7 @@ export async function whAddPayoff(args: ToolArgs): Promise<unknown> {
   const seed = await getSeed(seedId);
   if (!seed) throw new BridgeError('not-found', `No seed with id "${seedId}".`);
   await assertEngineEnabled(seed.projectId, 'seeds');
+  assertRowInScope(args, seed.projectId);
 
   const rawStrength = Math.round(optNumber(args, 'strength') ?? 3);
   const strength = Math.max(1, Math.min(5, rawStrength)) as Payoff['strength'];

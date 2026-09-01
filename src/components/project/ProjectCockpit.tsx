@@ -22,12 +22,14 @@ import {
   repairMissingManagedAssets,
   updateNarrativeSpineLink,
   type NarrativeContinuitySignal,
+  type NarrativeSpineRow,
   type ProjectCockpitData,
 } from '@/services/projectIntelligence';
 import { getAnchorAdapter } from '@/engines/_shared/anchoring';
 import { toast } from '@/components/common/toast';
 import { useTranslation } from '@/i18n/useTranslation';
 import ProjectToolsPanel from './ProjectToolsPanel';
+import ProofreaderPanel from '@/components/proofreader/ProofreaderPanel';
 import {
   COCKPIT_GROUPS,
   COCKPIT_TAB_LABEL_KEYS,
@@ -130,13 +132,32 @@ function CockpitNavigation({
   );
 }
 
-function StatCard({ label, value, detail }: { label: string; value: string | number; detail?: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-surface p-4">
+function StatCard({ label, value, detail, onClick }: {
+  label: string;
+  value: string | number;
+  detail?: string;
+  onClick?: () => void;
+}) {
+  const body = (
+    <>
       <div className="text-2xl font-semibold text-text-primary">{value}</div>
       <div className="mt-1 text-sm text-text-muted">{label}</div>
       {detail && <div className="mt-2 text-xs text-text-dim">{detail}</div>}
-    </div>
+    </>
+  );
+  // A card that leads somewhere has to be reachable by keyboard and say so on
+  // hover; a plain figure stays a plain figure.
+  if (!onClick) {
+    return <div className="rounded-xl border border-border bg-surface p-4">{body}</div>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-xl border border-border bg-surface p-4 text-left transition hover:border-accent-gold/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold"
+    >
+      {body}
+    </button>
   );
 }
 
@@ -207,15 +228,23 @@ function Overview({
   projectId,
   data,
   onManageEngines,
+  onOpenHealth,
 }: {
   projectId: string;
   data: ProjectCockpitData;
   onManageEngines: () => void;
+  onOpenHealth: () => void;
 }) {
   const { t, locale } = useTranslation();
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+        {/* How big is the book. Already computed for Supervise → Intelligence;
+            it was the one number the Overview never showed. */}
+        <StatCard
+          label={t('projectCockpit.overview.words')}
+          value={data.intelligence.totalWords.toLocaleString(locale)}
+        />
         <StatCard label={t('projectCockpit.overview.writings')} value={data.counts.writings} />
         <StatCard label={t('projectCockpit.overview.scenes')} value={data.counts.scenes} />
         <StatCard label={t('projectCockpit.overview.codex')} value={data.counts.codex} />
@@ -224,11 +253,12 @@ function Overview({
         <StatCard
           label={t('projectCockpit.overview.review')}
           value={data.counts.unresolved}
+          onClick={onOpenHealth}
           detail={
             data.healthStatus === 'not-applicable'
-              ? t('projectCockpit.health.noData')
+              ? t('projectCockpit.overview.openProofreader')
               : data.healthStatus === 'clean'
-                ? t('projectCockpit.health.clean')
+                ? t('projectCockpit.overview.openProofreader')
                 : t('projectCockpit.overview.openHealth')
           }
         />
@@ -315,27 +345,22 @@ function Health({ projectId, data }: { projectId: string; data: ProjectCockpitDa
     }
   };
 
-  if (data.healthStatus === 'not-applicable') {
-    return (
-      <div className="rounded-xl border border-border bg-surface p-10 text-center">
-        <Activity className="mx-auto text-text-dim" size={34} />
-        <h3 className="mt-3 font-serif text-lg font-semibold text-text-primary">{t('projectCockpit.health.noData')}</h3>
-        <p className="mt-2 text-sm text-text-muted">{t('projectCockpit.health.noDataDetail')}</p>
-      </div>
-    );
-  }
-
-  if (data.healthStatus === 'clean') {
-    return (
-      <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-10 text-center">
-        <CheckCircle2 className="mx-auto text-green-400" size={34} />
-        <h3 className="mt-3 font-serif text-lg font-semibold text-text-primary">{t('projectCockpit.health.clean')}</h3>
-        <p className="mt-2 text-sm text-text-muted">{t('projectCockpit.health.cleanDetail')}</p>
-      </div>
-    );
-  }
-
-  return (
+  // The integrity report and the proofreader answer different questions —
+  // "is the data sound?" and "is the story sound?" — so they stack in the same
+  // tab instead of one of them early-returning the other off the screen.
+  const integrity = data.healthStatus === 'not-applicable' ? (
+    <div className="rounded-xl border border-border bg-surface p-10 text-center">
+      <Activity className="mx-auto text-text-dim" size={34} />
+      <h3 className="mt-3 font-serif text-lg font-semibold text-text-primary">{t('projectCockpit.health.noData')}</h3>
+      <p className="mt-2 text-sm text-text-muted">{t('projectCockpit.health.noDataDetail')}</p>
+    </div>
+  ) : data.healthStatus === 'clean' ? (
+    <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-10 text-center">
+      <CheckCircle2 className="mx-auto text-green-400" size={34} />
+      <h3 className="mt-3 font-serif text-lg font-semibold text-text-primary">{t('projectCockpit.health.clean')}</h3>
+      <p className="mt-2 text-sm text-text-muted">{t('projectCockpit.health.cleanDetail')}</p>
+    </div>
+  ) : (
     <div className="space-y-3">
       {data.health.map(row => (
         <div key={row.id} className="flex items-start gap-4 rounded-xl border border-border bg-surface p-4">
@@ -363,6 +388,13 @@ function Health({ projectId, data }: { projectId: string; data: ProjectCockpitDa
           )}
         </div>
       ))}
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      {integrity}
+      <ProofreaderPanel projectId={projectId} />
     </div>
   );
 }
@@ -429,6 +461,11 @@ function NarrativeSpine({
   const { t } = useTranslation();
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const appliedFocusRef = useRef<string | null>(null);
+  // The links the selects have just been given, keyed beat|field and held until
+  // the cockpit's liveQuery has reloaded the whole read model. Without them a
+  // controlled select snaps back to its previous option for as long as that
+  // reload takes — which is exactly how a stale row got written back.
+  const [pendingLinks, setPendingLinks] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!focusedBeatId) {
@@ -442,6 +479,50 @@ function NarrativeSpine({
     row.focus({ preventScroll: true });
     appliedFocusRef.current = focusedBeatId;
   }, [focusedBeatId, data.spine]);
+
+  type LinkField = 'scene' | 'writing';
+  const pendingKey = (beatId: string, field: LinkField) => `${beatId}|${field}`;
+  const linkOf = (row: NarrativeSpineRow, field: LinkField) =>
+    (field === 'scene' ? row.sceneId : row.writingId) ?? '';
+  // Render-adjust rather than an effect (same pattern as CodexEntryList): each
+  // optimistic value is dropped the moment the reloaded row agrees with it, so
+  // a later change from anywhere else is never masked.
+  const settledKeys = Object.keys(pendingLinks).filter(key => {
+    const separator = key.lastIndexOf('|');
+    const beatId = key.slice(0, separator);
+    const row = data.spine.find(candidate => candidate.beatId === beatId);
+    return row !== undefined && linkOf(row, key.slice(separator + 1) as LinkField) === pendingLinks[key];
+  });
+  if (settledKeys.length > 0) {
+    setPendingLinks(current => {
+      const next = { ...current };
+      for (const key of settledKeys) delete next[key];
+      return next;
+    });
+  }
+  const linkValue = (row: NarrativeSpineRow, field: LinkField) =>
+    pendingLinks[pendingKey(row.beatId, field)] ?? linkOf(row, field);
+  // One field per write. Sending both meant the sibling link was rewritten from
+  // whatever this render happened to hold, erasing a change made from the
+  // select next to it.
+  const changeLink = (row: NarrativeSpineRow, field: LinkField, value: string) => {
+    const key = pendingKey(row.beatId, field);
+    setPendingLinks(current => ({ ...current, [key]: value }));
+    void updateNarrativeSpineLink(
+      projectId,
+      row.beatId,
+      field === 'scene' ? { sceneId: value || undefined } : { writingId: value || undefined },
+    ).catch(() => {
+      setPendingLinks(current => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      toast.error(t(field === 'scene'
+        ? 'projectCockpit.spine.sceneError'
+        : 'projectCockpit.spine.writingError'));
+    });
+  };
 
   if (data.spine.length === 0) {
     return <p className="rounded-xl border border-border bg-surface p-8 text-center text-sm text-text-muted">{t('projectCockpit.spine.empty')}</p>;
@@ -555,11 +636,8 @@ function NarrativeSpine({
                 <div className="flex min-w-0 items-center gap-1">
                   <select
                     aria-label={t('projectCockpit.spine.sceneAria').replace('{beat}', row.beatTitle)}
-                    value={row.sceneId ?? ''}
-                    onChange={event => void updateNarrativeSpineLink(projectId, row.beatId, {
-                      sceneId: event.target.value || undefined,
-                      writingId: row.writingId,
-                    }).catch(() => toast.error(t('projectCockpit.spine.sceneError')))}
+                    value={linkValue(row, 'scene')}
+                    onChange={event => changeLink(row, 'scene', event.target.value)}
                     className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-xs text-text-primary"
                   >
                     <option value="">{t('projectCockpit.spine.notLinked')}</option>
@@ -581,11 +659,8 @@ function NarrativeSpine({
                 <div className="flex min-w-0 items-center gap-1">
                   <select
                     aria-label={t('projectCockpit.spine.writingAria').replace('{beat}', row.beatTitle)}
-                    value={row.writingId ?? ''}
-                    onChange={event => void updateNarrativeSpineLink(projectId, row.beatId, {
-                      writingId: event.target.value || undefined,
-                      sceneId: row.sceneId,
-                    }).catch(() => toast.error(t('projectCockpit.spine.writingError')))}
+                    value={linkValue(row, 'writing')}
+                    onChange={event => changeLink(row, 'writing', event.target.value)}
                     className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-xs text-text-primary"
                   >
                     <option value="">{t('projectCockpit.spine.notLinked')}</option>
@@ -815,7 +890,14 @@ export default function ProjectCockpit({ projectId, onManageEngines, onEditProje
         id="cockpit-active-panel"
         aria-label={t(COCKPIT_TAB_LABEL_KEYS[activeTab])}
       >
-        {activeTab === 'overview' && <Overview projectId={projectId} data={data} onManageEngines={onManageEngines} />}
+        {activeTab === 'overview' && (
+          <Overview
+            projectId={projectId}
+            data={data}
+            onManageEngines={onManageEngines}
+            onOpenHealth={() => selectTab('health')}
+          />
+        )}
         {activeTab === 'health' && <Health projectId={projectId} data={data} />}
         {activeTab === 'entities' && <EntityHub projectId={projectId} data={data} />}
         {activeTab === 'spine' && (

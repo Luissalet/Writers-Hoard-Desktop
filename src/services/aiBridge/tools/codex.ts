@@ -19,7 +19,9 @@ import {
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
+  EMPTY_CONTENT,
   htmlFromMarkdown,
   markdownFromHtml,
   optBoolean,
@@ -105,6 +107,7 @@ export async function whCreateCodexEntry(args: ToolArgs): Promise<unknown> {
 export async function whUpdateCodexEntry(args: ToolArgs): Promise<unknown> {
   const entry = await mustGetEntry(requireString(args, 'id'));
   await assertEngineEnabled(entry.projectId, 'codex');
+  assertRowInScope(args, entry.projectId);
   const changes: Partial<CodexEntry> = {};
 
   const incomingFields = optStringMap(args, 'fields');
@@ -128,13 +131,25 @@ export async function whUpdateCodexEntry(args: ToolArgs): Promise<unknown> {
   const type = optEnum(args, 'type', TYPES);
   if (type !== undefined) changes.type = type;
   const markdown = optString(args, 'content');
-  if (markdown !== undefined) changes.content = htmlFromMarkdown(markdown);
+  if (markdown !== undefined) {
+    if (!markdown.trim()) throw new BridgeError('bad-args', EMPTY_CONTENT);
+    changes.content = htmlFromMarkdown(markdown);
+  }
   const tags = optStringArray(args, 'tags');
   if (tags !== undefined) changes.tags = tags;
 
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
+  const before: Record<string, unknown> = {
+    title: entry.title,
+    type: entry.type,
+    fields: entry.fields,
+    tags: entry.tags,
+  };
+  // The body is replaced whole and there is no snapshot table behind the codex,
+  // so it goes into the log or it is gone.
+  if (changes.content !== undefined) before.content = entry.content;
   await updateCodexEntry(entry.id, changes);
   return withAudit(
     { id: entry.id, updated: Object.keys(changes), fields: changes.fields ?? entry.fields },
@@ -142,7 +157,7 @@ export async function whUpdateCodexEntry(args: ToolArgs): Promise<unknown> {
       projectId: entry.projectId,
       entityId: entry.id,
       summary: `updated ${entry.type} "${entry.title}" (${Object.keys(changes).join(', ')})`,
-      before: { title: entry.title, type: entry.type, fields: entry.fields, tags: entry.tags },
+      before,
     },
   );
 }

@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { Search, Settings } from 'lucide-react';
+import { Keyboard, Search, Settings } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
 import SettingsModal from '@/components/settings/SettingsModal';
 import StorageStatus from '@/components/common/StorageStatus';
+import { openShortcutsPanel } from '@/components/common/ShortcutsPanel';
+import { COMMAND_CENTRE_SHORTCUT, shortcutCaps } from '@/components/common/shortcuts';
 
 interface TopBarProps {
   title?: string;
@@ -14,7 +16,13 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
   const { t } = useTranslation();
   const { setSearchOpen } = useAppStore();
   const [showSettings, setShowSettings] = useState(false);
-  const commandShortcut = /Mac|iPhone|iPad/i.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
+  // The ⌘/Ctrl label used to be worked out here. It now comes from the
+  // shortcuts table, so this badge cannot say one key while the palette
+  // answers to another.
+  const [commandCaps = []] = shortcutCaps(COMMAND_CENTRE_SHORTCUT);
+  const commandShortcut = commandCaps
+    .map((cap) => (cap.localeKey ? t(cap.localeKey) : cap.text))
+    .join(' ');
 
   return (
     <>
@@ -29,6 +37,19 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
         </div>
         <div className="flex items-center gap-2">
           <StorageStatus />
+          {/* The sheet has a key of its own, which is no use at all to the
+              writer who does not know it exists. It sits beside settings
+              because that is where this app keeps the things you go looking
+              for rather than reach for. */}
+          <button
+            type="button"
+            onClick={() => openShortcutsPanel()}
+            className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-elevated transition"
+            title={t('topbar.shortcuts')}
+            aria-label={t('topbar.shortcuts')}
+          >
+            <Keyboard size={16} />
+          </button>
           <button
             onClick={() => setShowSettings(true)}
             className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-elevated transition"

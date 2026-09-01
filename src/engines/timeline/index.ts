@@ -121,10 +121,10 @@ registerBackupStrategy({
         zip,
         `${projectDir}/timeline-extras/timelineConnections.json`,
       );
-    if (timelines?.length) await db.timelines.bulkAdd(timelines as never[]);
-    if (events?.length) await db.timelineEvents.bulkAdd(events as never[]);
+    if (timelines?.length) await db.timelines.bulkPut(timelines as never[]);
+    if (events?.length) await db.timelineEvents.bulkPut(events as never[]);
     if (connections?.length) {
-      await db.timelineConnections.bulkAdd(connections as never[]);
+      await db.timelineConnections.bulkPut(connections as never[]);
     }
   },
 });

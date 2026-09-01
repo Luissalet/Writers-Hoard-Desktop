@@ -5,6 +5,9 @@
 import { cleanGoogleDocsHtml, countWords } from '@/utils/googleDocsHtmlCleaner';
 import { generateId } from '@/utils/idGenerator';
 import * as ops from '@/db/operations';
+import { takeSnapshot } from '@/engines/writings/snapshots';
+import { assertTokenAccepted } from '@/services/googleAuth';
+import { t } from '@/i18n/useTranslation';
 import type { Writing } from '@/types';
 
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
@@ -41,6 +44,7 @@ export async function listGoogleDocs(
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
+  assertTokenAccepted(response);
   if (!response.ok) {
     const error = await response.text();
     throw new Error(`Failed to list Google Docs: ${error}`);
@@ -62,6 +66,7 @@ export async function fetchGoogleDocHtml(
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
 
+  assertTokenAccepted(response);
   if (!response.ok) {
     const error = await response.text();
     throw new Error(`Failed to export Google Doc: ${error}`);
@@ -86,6 +91,7 @@ export async function getDocMetadata(
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
+  assertTokenAccepted(response);
   if (!response.ok) {
     throw new Error('Failed to fetch doc metadata');
   }
@@ -118,7 +124,10 @@ export async function importGoogleDoc(
     googleDocId: doc.id,
     googleDocUrl: doc.webViewLink,
     googleDocName: doc.name,
-    lastSyncedAt: Date.now(),
+    // Deliberately no `lastSyncedAt`: linking fetches nothing, so stamping one
+    // here made the badge announce a sync that never happened and presented an
+    // empty local copy as the document's freshly-pulled state. The badge simply
+    // omits the line until a real pull lands.
     syncDirection: 'pull',
     isGoogleDoc: true,
   };
@@ -127,32 +136,107 @@ export async function importGoogleDoc(
   return writing;
 }
 
-/**
- * Sync a Google Doc writing — pull latest content
- */
-export async function syncGoogleDoc(
-  accessToken: string,
-  writing: Writing
-): Promise<Partial<Writing>> {
-  if (!writing.googleDocId) {
-    throw new Error('This writing is not linked to a Google Doc');
-  }
+// ============================================
+// Pull sync — with a restore point and a shrink guard
+// ============================================
+//
+// The cached copy is not a convenience: it is what Compile, publishing and
+// full-text search read, and a pull replaces it wholesale. Two things used to
+// make that unrecoverable. Nothing snapshotted these documents — `handleOpenWriting`
+// skips the per-session `takeSnapshot` for Google Docs — so History had nothing
+// to offer afterwards. And an export that came back empty was applied without a
+// word: a half-deleted or mid-edit doc answers 200 with near-empty markup, so no
+// error path fires and a 2 400-word chapter becomes 0 words with a new title.
 
-  const cleanHtml = await fetchGoogleDocHtml(accessToken, writing.googleDocId);
-  const wc = countWords(cleanHtml);
-  const metadata = await getDocMetadata(accessToken, writing.googleDocId);
+/** Below this share of the cached word count, a pull is treated as suspect. */
+const SUSPECT_SHRINK_RATIO = 0.5;
+/** Cached copies this small are not worth interrupting the writer over. */
+const SUSPECT_MIN_CACHED_WORDS = 20;
+
+export type GoogleDocSyncRisk = 'none' | 'emptied' | 'shrunk';
+
+/** A pull that has been fetched but not written, so the writer confirms what they saw. */
+export interface GoogleDocSyncPreview {
+  changes: Partial<Writing>;
+  risk: GoogleDocSyncRisk;
+  cachedWordCount: number;
+  incomingWordCount: number;
+}
+
+export type GoogleDocSyncOutcome =
+  | { status: 'applied'; changes: Partial<Writing> }
+  | { status: 'needs-confirmation'; preview: GoogleDocSyncPreview };
+
+function assessShrink(cachedWordCount: number, incomingWordCount: number): GoogleDocSyncRisk {
+  if (cachedWordCount === 0) return 'none'; // nothing cached to lose
+  if (incomingWordCount === 0) return 'emptied';
+  if (cachedWordCount < SUSPECT_MIN_CACHED_WORDS) return 'none';
+  if (incomingWordCount < cachedWordCount * SUSPECT_SHRINK_RATIO) return 'shrunk';
+  return 'none';
+}
+
+/**
+ * Write a fetched pull into the writing, behind a restore point.
+ *
+ * The snapshot is taken of the writing as it stands *before* the pull, which is
+ * the only restore point a linked Google Doc ever gets — so History can undo a
+ * sync the same way it undoes an editing session. `lastSyncedAt` is stamped here
+ * rather than at fetch time, so it dates the write, not a pull the writer may
+ * have spent a minute deciding about.
+ */
+export async function applyGoogleDocSync(
+  writing: Writing,
+  preview: GoogleDocSyncPreview
+): Promise<Partial<Writing>> {
+  await takeSnapshot(writing, 'auto');
 
   const changes: Partial<Writing> = {
-    content: cleanHtml,
-    wordCount: wc,
-    googleDocName: metadata.name,
-    title: metadata.name, // Keep title in sync with doc name
+    ...preview.changes,
     lastSyncedAt: Date.now(),
     updatedAt: Date.now(),
   };
 
   await ops.updateWriting(writing.id, changes);
   return changes;
+}
+
+/**
+ * Sync a Google Doc writing — pull latest content.
+ *
+ * Applies the pull itself when it is unremarkable. When it would empty or gut
+ * the cached copy it writes nothing and hands the fetched result back, for the
+ * caller to put to the writer and then pass to `applyGoogleDocSync`.
+ */
+export async function syncGoogleDoc(
+  accessToken: string,
+  writing: Writing
+): Promise<GoogleDocSyncOutcome> {
+  if (!writing.googleDocId) {
+    throw new Error(t('writings.gdoc.notLinked'));
+  }
+
+  const cleanHtml = await fetchGoogleDocHtml(accessToken, writing.googleDocId);
+  const metadata = await getDocMetadata(accessToken, writing.googleDocId);
+
+  const incomingWordCount = countWords(cleanHtml);
+  // Measured from the content itself: `wordCount` is what the writer is shown,
+  // but the HTML is what a pull actually overwrites.
+  const cachedWordCount = countWords(writing.content ?? '');
+
+  const preview: GoogleDocSyncPreview = {
+    changes: {
+      content: cleanHtml,
+      wordCount: incomingWordCount,
+      googleDocName: metadata.name,
+      title: metadata.name, // Keep title in sync with doc name
+    },
+    risk: assessShrink(cachedWordCount, incomingWordCount),
+    cachedWordCount,
+    incomingWordCount,
+  };
+
+  if (preview.risk !== 'none') return { status: 'needs-confirmation', preview };
+  return { status: 'applied', changes: await applyGoogleDocSync(writing, preview) };
 }
 
 /**
@@ -225,6 +309,7 @@ export async function fetchGoogleDocForAi(
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
+  assertTokenAccepted(response);
   if (!response.ok) {
     const err = await response.text();
     throw new Error(`No se pudo obtener el documento para análisis: ${err}`);

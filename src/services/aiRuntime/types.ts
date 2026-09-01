@@ -224,6 +224,16 @@ export interface AiCompleteResult {
 // Images
 // ---------------------------------------------------------------------------
 
+/**
+ * One LoRA applied to a generation. `name` is the file's name without its
+ * extension, as the local runtime lists it; the weight is the usual 0..1.5
+ * multiplier. Only the managed stable-diffusion.cpp server honours these.
+ */
+export interface AiLoraSelection {
+  name: string;
+  weight: number;
+}
+
 export interface AiImageRequest {
   connectionId: string;
   modelId: string;
@@ -241,6 +251,8 @@ export interface AiImageRequest {
   initImage?: string;
   /** img2img denoise strength in [0,1]: lower stays closer to the reference. */
   strength?: number;
+  /** LoRAs to apply, by name and weight. Local runtime only; ignored elsewhere. */
+  loras?: AiLoraSelection[];
 }
 
 export interface AiGeneratedImage {

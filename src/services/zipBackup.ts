@@ -1,9 +1,10 @@
-import Dexie from 'dexie';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { db } from '@/db/index';
+import { projectSettingKeys } from '@/db/operations';
 import {
   getAllBackupStrategies,
+  preloadArchive,
   type BackupStrategy,
 } from '@/engines/_shared/backupRegistry';
 import { GLOBAL_NOTES_SCOPE } from '@/engines/notes/types';
@@ -250,6 +251,15 @@ async function writeProjectToZip(
   await exportStrategies(zip, project, projectDir, failures);
 }
 
+/**
+ * Build the whole-database archive and hand it to the browser as a download.
+ *
+ * Resolving means the bytes were handed over, NOT that a file exists: `saveAs`
+ * only starts the download, the shell's own save dialog comes after it, and a
+ * Cancel there leaves nothing behind and says nothing back. So no caller may
+ * record a completed backup off the back of this — a completion is stamped only
+ * from a write that reports success (see src/services/autoBackup.ts).
+ */
 export async function exportFullZip(): Promise<void> {
   const zip = new JSZip();
   const failures: BackupFailure[] = [];
@@ -580,16 +590,31 @@ async function importStrategy(
   project: PreparedProject,
 ): Promise<void> {
   try {
-    // Strategy implementations read JSZip data as well as writing Dexie.
-    // waitFor keeps the surrounding restore transaction alive across those
-    // non-IndexedDB promises, so any later failure rolls every table back.
-    await Dexie.waitFor(
-      strategy.importProject({
-        zip,
-        projectId: project.projectId,
-        projectDir: project.projectDir,
-      }),
-    );
+    // Called directly, NOT through `Dexie.waitFor`. That wrapper is what made
+    // this the restore hang of 2026-08-31, and it took a stage trail through a
+    // live renderer to see it.
+    //
+    // `waitFor` exists to hold a transaction open across a promise Dexie does
+    // not own. It does that by spinning on a dummy read and parking the
+    // operations issued inside its scope on a queue for that spin to drain —
+    // and for some stores the queue never drains. `db.timelines.bulkPut` with
+    // one row, inside a demonstrably live transaction, neither resolved nor
+    // rejected. Worse, a strategy that REJECTED inside that scope never
+    // propagated either: the spin simply never ended, so an ordinary
+    // `ConstraintError` presented as a restore that stopped for ever, with no
+    // error and no timeout — which is why this went a month without a name.
+    //
+    // Nothing needs holding open any more. `preloadArchive` decompresses the
+    // whole archive before the transaction opens, so no strategy yields to the
+    // event loop and the transaction's zone reaches all twenty-three of them
+    // intact. Verified rather than assumed: with the wrapper gone every
+    // strategy reports `Dexie.currentTransaction` set, and the restore that
+    // used to hang for ever returns in forty milliseconds.
+    await strategy.importProject({
+      zip,
+      projectId: project.projectId,
+      projectDir: project.projectDir,
+    });
   } catch (error) {
     throw new BackupOperationError('import', [
       failure('import', error, {
@@ -610,14 +635,16 @@ async function importProjectStrategies(
   }
 }
 
-/**
- * Delete one project's rows inside the caller's transaction. This mirrors the
- * generic project deletion path while also clearing world snapshots, whose
- * table is intentionally keyed only by worldId.
- */
 async function clearProjectForRestore(projectId: string): Promise<void> {
+  // Dexie keeps the primary key out of `idxByName`, so a table keyed BY the
+  // project (aiProjectSettings) needs the second test — the same pair
+  // `deleteProject` uses. Trusting the archive to overwrite that row is not
+  // enough: an archive exported before the copilot existed carries no row at
+  // all, and the restored project would inherit the previous instance's model
+  // routes and permission level.
   const projectScoped = db.tables.filter(
-    (table) => table.name !== 'projects' && 'projectId' in table.schema.idxByName,
+    (table) => table.name !== 'projects'
+      && ('projectId' in table.schema.idxByName || table.schema.primKey.name === 'projectId'),
   );
   const [sceneIds, storyboardIds, annotationIds, worldIds] = await Promise.all([
     db.scenes.where('projectId').equals(projectId).primaryKeys(),
@@ -648,6 +675,11 @@ async function clearProjectForRestore(projectId: string): Promise<void> {
   for (const table of projectScoped) {
     await table.where('projectId').equals(projectId).delete();
   }
+  // The same sweep `deleteProject` performs: without it, a project restored
+  // over itself inherits the previous instance's dismissed findings, its saved
+  // searches and a mid-flight sprint whose baseline describes a manuscript
+  // that no longer exists.
+  await db.settings.where('key').anyOf(projectSettingKeys(projectId)).delete();
   await db.projects.delete(projectId);
 }
 
@@ -692,6 +724,10 @@ export async function importProjectZip(
 ): Promise<string[]> {
   const { zip, prepared } = await loadAndPreflight(file, 'project');
   const approvedReplacements = new Set(options.replaceProjectIds ?? []);
+  // Decompress before the transaction: inside it, a JSZip read would hand
+  // control back to the event loop and take the strategy's writes out of the
+  // transaction with it. Preview does not pay this — only a real restore does.
+  await preloadArchive(zip);
   try {
     await db.transaction('rw', db.tables, async () => {
       const existingProjects = await db.projects.bulkGet(
@@ -733,6 +769,9 @@ export async function importFullZip(file: File): Promise<void> {
   const settings = expectArray(prepared.json, 'settings.json', []);
   const tags = expectArray(prepared.json, 'tags.json', []);
   const inboxNotes = expectArray(prepared.json, 'notes-inbox.json', []);
+  // Same reason as the project restore: nothing inside the transaction may
+  // yield to the event loop, and a JSZip read does.
+  await preloadArchive(zip);
 
   try {
     await db.transaction('rw', db.tables, async () => {

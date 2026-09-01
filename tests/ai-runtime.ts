@@ -58,7 +58,14 @@ function testUrlPolicy(): void {
   }
   assert(openAiBase('http://h:1') === 'http://h:1/v1' && openAiBase('http://h:1/v1') === 'http://h:1/v1', 'openAiBase mishandles /v1');
   assert(ollamaBase('http://h:11434/v1') === 'http://h:11434', 'ollamaBase keeps /v1');
-  assert(classifyHost('10.0.0.5') === 'lan' && classifyHost('::1') === 'loopback' && classifyHost('mybox') === 'lan' && classifyHost('example.org') === 'remote', 'host classification drifted');
+  assert(classifyHost('10.0.0.5') === 'lan' && classifyHost('::1') === 'loopback' && classifyHost('example.org') === 'remote', 'host classification drifted');
+  // A hostname is not an IP literal just because it starts like one, and a
+  // single label is not automatically the LAN: both used to classify as local,
+  // which sent the API key over cleartext and skipped the remote-consent prompt.
+  for (const spoof of ['127.0.0.1.evil.com', '127.grab-my-key.example.net', 'mybox', '[2606:4700:4700::1111]', '10.0.0.5.attacker.io']) {
+    assert(classifyHost(spoof) === 'remote', `host spoof classified as local: ${spoof}`);
+  }
+  assert(classifyHost('localhost') === 'loopback' && classifyHost('192.168.1.20') === 'lan', 'genuine local hosts must stay local');
   const plainRemote = normaliseBaseUrl('http://api.example.com');
   assert(plainRemote.ok && !isTransportAcceptable(plainRemote, undefined) && isTransportAcceptable(plainRemote, true), 'plain HTTP to a remote host must need an opt-in');
   const plainLan = normaliseBaseUrl('http://192.168.0.9:11434');

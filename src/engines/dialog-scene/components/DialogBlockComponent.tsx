@@ -431,6 +431,7 @@ export default function DialogBlockComponent({
               suggestions={contextSuggestions.filter((s) => s.category === 'character')}
               anchorRef={textareaRef}
               active={showAutocomplete && activeLine.text.startsWith('@')}
+              acceptOnEnter
               onSelect={applySuggestion}
             />
           </div>

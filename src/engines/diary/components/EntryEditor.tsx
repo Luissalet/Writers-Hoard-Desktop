@@ -5,6 +5,8 @@ import { MOOD_CONFIG } from '../types';
 import TiptapEditor from '@/components/editor/TiptapEditor';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
+import { toast } from '@/components/common/toast';
+import { toLocalDateTimeStamp } from '@/engines/writing-stats/date';
 
 interface EntryEditorProps {
   entry: DiaryEntry;
@@ -32,26 +34,37 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
     setContent(html);
   };
 
-  const handleSave = async () => {
-    if (saving) return;
+  // Returns whether the entry actually reached the database. A rejected write
+  // used to leave `saving` stuck at true forever: Save disabled, Back inert,
+  // and — diary has no autosave — the text gone the moment the author
+  // navigated away.
+  const handleSave = async (): Promise<boolean> => {
+    if (saving) return false;
     setSaving(true);
     const tags = tagsText
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean);
-    await onSave({
-      title: title.trim(),
-      content: contentRef.current,
-      entryDate,
-      mood: mood || undefined,
-      tags,
-      pinned,
-    });
-    setSaving(false);
+    try {
+      await onSave({
+        title: title.trim(),
+        content: contentRef.current,
+        entryDate,
+        mood: mood || undefined,
+        tags,
+        pinned,
+      });
+      return true;
+    } catch {
+      toast.error(t('diary.saveError'));
+      return false;
+    } finally {
+      setSaving(false);
+    }
   };
 
   const setToNow = () => {
-    setEntryDate(new Date().toISOString().slice(0, 16));
+    setEntryDate(toLocalDateTimeStamp());
   };
 
   // Back must never discard typed work. If anything changed, save (the
@@ -70,8 +83,11 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
   const handleBack = async () => {
     const empty = !title.trim() && !contentRef.current.trim();
     if (isDirty && !(isNew && empty)) {
-      await handleSave();
-      return;
+      // The parent closes the editor once the entry persists. When the write
+      // fails the author has already been told; Back still has to let them
+      // out instead of doing nothing.
+      const saved = await handleSave();
+      if (saved) return;
     }
     onClose();
   };

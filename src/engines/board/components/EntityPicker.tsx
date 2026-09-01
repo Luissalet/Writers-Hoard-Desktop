@@ -87,8 +87,8 @@ export default function EntityPicker({ open, projectId, onPick, onClose }: Entit
             className="flex-1 bg-transparent text-sm text-text-primary outline-none"
           />
           {query ? (
-            <button type="button" onClick={() => setQuery('')} className="text-text-dim hover:text-text-primary">
-              <X size={13} />
+            <button type="button" onClick={() => setQuery('')} className="text-text-dim hover:text-text-primary" title={t('engines.clearSearch')} aria-label={t('engines.clearSearch')}>
+              <X size={13} aria-hidden="true" />
             </button>
           ) : null}
         </div>

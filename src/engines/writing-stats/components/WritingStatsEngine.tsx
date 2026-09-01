@@ -10,6 +10,7 @@ import SprintTimer from './SprintTimer';
 import ProgressChart from './ProgressChart';
 import GoalSetter from './GoalSetter';
 import SessionCard from './SessionCard';
+import SprintHistory from './SprintHistory';
 import { generateId } from '@/utils/idGenerator';
 
 // ============================================================================
@@ -71,7 +72,8 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
     ? (() => {
         const deadline = new Date(deadlineGoal.deadline + 'T23:59:59');
         const now = new Date();
-        const daysLeft = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const rawDays = Math.floor((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const daysLeft = rawDays === 0 ? 0 : rawDays;
         return { daysLeft, target: deadlineGoal.targetWords };
       })()
     : null;
@@ -109,18 +111,22 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
             )}
           </div>
 
-          {/* Time & Streak Stats */}
+          {/* Time & Streak Stats.
+              Same card as a session row and a sprint row: `bg-elevated` on the
+              panel's `bg-surface`, one `border-border` hairline, the app's own
+              text tokens. Only the flame carries a colour, and it carries one
+              of ours. */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
-              <div className="text-xs font-medium text-blue-600 mb-1">{t('stats.timeSpent')}</div>
-              <div className="text-2xl font-bold text-blue-900">
+            <div className="bg-elevated border border-border rounded-lg p-3 text-center">
+              <div className="text-xs font-medium text-text-muted mb-1">{t('stats.timeSpent')}</div>
+              <div className="text-2xl font-bold text-text-primary">
                 {Math.floor(stats.todayTime / 3600)}h {Math.floor((stats.todayTime % 3600) / 60)}m
               </div>
             </div>
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
-              <div className="text-xs font-medium text-red-600 mb-1">{t('stats.streak')}</div>
-              <div className="text-2xl font-bold text-red-900 flex items-center justify-center gap-1">
-                <Flame size={24} />
+            <div className="bg-elevated border border-border rounded-lg p-3 text-center">
+              <div className="text-xs font-medium text-text-muted mb-1">{t('stats.streak')}</div>
+              <div className="text-2xl font-bold text-text-primary flex items-center justify-center gap-1">
+                <Flame size={24} className="text-accent-amber" />
                 {stats.streak}
               </div>
             </div>
@@ -172,29 +178,29 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
         {(projectGoal || deadlineGoal) && (
           <div className="space-y-2 pt-4 border-t border-border">
             {projectGoal && (
-              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 flex justify-between items-center">
+              <div className="bg-accent-plum/10 border border-accent-plum/30 rounded-lg p-3 flex justify-between items-center">
                 <div>
-                  <div className="text-xs font-medium text-purple-600">{t('stats.projectGoal')}</div>
-                  <div className="text-sm font-semibold text-purple-900">
+                  <div className="text-xs font-medium text-accent-plum-light">{t('stats.projectGoal')}</div>
+                  <div className="text-sm font-semibold text-text-primary">
                     {stats.totalWords.toLocaleString()} / {projectGoal.targetWords.toLocaleString()} words
                   </div>
                 </div>
-                <div className="w-12 h-12 flex items-center justify-center bg-purple-100 rounded-lg">
-                  <div className="text-xs font-bold text-purple-900">
+                <div className="w-12 h-12 flex items-center justify-center bg-accent-plum/20 rounded-lg">
+                  <div className="text-xs font-bold text-accent-plum-light">
                     {Math.round((stats.totalWords / projectGoal.targetWords) * 100)}%
                   </div>
                 </div>
               </div>
             )}
             {deadlineGoal && deadlineInfo && (
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex justify-between items-center">
+              <div className="bg-warning/10 border border-warning/30 rounded-lg p-3 flex justify-between items-center">
                 <div>
-                  <div className="text-xs font-medium text-orange-600">{t('stats.deadlineGoal')}</div>
-                  <div className="text-sm font-semibold text-orange-900">
+                  <div className="text-xs font-medium text-warning">{t('stats.deadlineGoal')}</div>
+                  <div className="text-sm font-semibold text-text-primary">
                     {deadlineGoal.targetWords.toLocaleString()} words by{' '}
                     {new Date(deadlineGoal.deadline + 'T00:00:00').toLocaleDateString()}
                   </div>
-                  <div className="text-xs text-orange-700 mt-1">
+                  <div className="text-xs text-text-muted mt-1">
                     {deadlineInfo.daysLeft > 0
                       ? `${deadlineInfo.daysLeft} days left`
                       : deadlineInfo.daysLeft === 0
@@ -219,6 +225,15 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
           ))}
         </div>
       )}
+
+      {/* =====================================================================
+          SECTION 5: SPRINT LOG
+          Timed sprints started from the manuscript editor. They are kept in
+          the settings store rather than `writingSessions`, because the words
+          they measure are already counted for the day by the editor itself —
+          filing them as sessions too would count every sprint twice.
+          ===================================================================== */}
+      <SprintHistory projectId={projectId} />
 
       {/* =====================================================================
           Goal Setter Modal

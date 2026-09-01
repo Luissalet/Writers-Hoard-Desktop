@@ -71,7 +71,13 @@ async function main() {
   const rendererUrl = resolvedDevUrl(devServer);
   console.log(`[desktop] renderer ready at ${rendererUrl}`);
 
-  electronProcess = spawn(electronExecutable, ['.'], {
+  // Extra Electron switches for a development session, e.g.
+  //   WH_ELECTRON_ARGS=--remote-debugging-port=9222 node scripts/dev-desktop.mjs
+  // so the renderer can be driven from a devtools-protocol client while it runs.
+  // Unset in a normal run, so the default behaviour is unchanged.
+  const extraArgs = (process.env.WH_ELECTRON_ARGS ?? '').split(' ').filter(Boolean);
+
+  electronProcess = spawn(electronExecutable, ['.', ...extraArgs], {
     cwd: projectRoot,
     env: {
       ...process.env,

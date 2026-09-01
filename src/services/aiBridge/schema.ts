@@ -86,6 +86,18 @@ export const PROJECT_ID = s(
   'Project to act on. Omit to use the project the user currently has open in the app.',
 );
 
+/**
+ * Reserved argument key carrying the caller's project scope to a handler that
+ * is addressed by an entity or parent id instead of a `projectId`.
+ *
+ * `applyProjectScope` can only pin a call whose schema declares `projectId`;
+ * everything else reaches its project through the row it loads, and the row's
+ * own project is not proof the caller was allowed to touch it — ids travel.
+ * Added AFTER argument validation, so no schema declares it and nothing a
+ * model sends can forge one.
+ */
+export const SCOPE_KEY = '__scopeProjectId';
+
 export const MARKDOWN_NOTE =
   'Markdown. Supported: headings (#..######), **bold**, *italic*, `code`, [links](url), ![images](url), - and 1. lists, > quotes, --- rules. Anything else is stored as plain paragraphs.';
 

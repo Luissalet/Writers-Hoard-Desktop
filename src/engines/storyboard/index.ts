@@ -92,13 +92,13 @@ registerBackupStrategy({
   },
   async importProject({ zip, projectDir }) {
     const boards = await readBackupJson<unknown[]>(zip, `${projectDir}/storyboard/storyboards.json`);
-    if (boards?.length) await db.storyboards.bulkAdd(boards as never[]);
+    if (boards?.length) await db.storyboards.bulkPut(boards as never[]);
 
     const panels = await readBackupJson<unknown[]>(zip, `${projectDir}/storyboard/storyboardPanels.json`);
-    if (panels?.length) await db.storyboardPanels.bulkAdd(panels as never[]);
+    if (panels?.length) await db.storyboardPanels.bulkPut(panels as never[]);
 
     const connectors = await readBackupJson<unknown[]>(zip, `${projectDir}/storyboard/storyboardConnectors.json`);
-    if (connectors?.length) await db.storyboardConnectors.bulkAdd(connectors as never[]);
+    if (connectors?.length) await db.storyboardConnectors.bulkPut(connectors as never[]);
   },
 });
 

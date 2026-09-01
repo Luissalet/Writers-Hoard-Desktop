@@ -22,6 +22,7 @@ import {
   getAnchorAdapter,
   resolveTextRangeAnchor,
 } from '@/engines/_shared/anchoring';
+import { resolveEntityInEngine } from '@/engines/_shared/entityResolverRegistry';
 import { generateId } from '@/utils/idGenerator';
 import {
   BridgeError,
@@ -129,6 +130,20 @@ export async function whAnnotate(args: ToolArgs): Promise<unknown> {
   }
   const title = await adapter.getEntityTitle(entityId);
   if (!title) throw new BridgeError('not-found', `No ${engineId} entity with id "${entityId}".`);
+
+  // The note is filed under `projectId` but anchored to (engineId, entityId),
+  // and existing was the only thing ever checked about the target. An id from
+  // another project would have hung a note in project A off a chapter in
+  // project B, where nothing can ever show it. `projectId` is already the
+  // caller's scope — this tool's schema takes it, so applyProjectScope pinned
+  // it — which makes this the scope check as well as the sanity one.
+  const target = await resolveEntityInEngine(engineId, entityId);
+  if (target && target.projectId !== projectId) {
+    throw new BridgeError(
+      'bad-args',
+      `That ${engineId} entity belongs to another project, so a note filed here could never be shown beside it. Annotate something in this project instead.`,
+    );
+  }
 
   let anchor: Annotation['anchor'] = { type: 'entity' };
   if (quote) {

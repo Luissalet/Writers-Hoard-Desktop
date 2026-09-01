@@ -89,13 +89,13 @@ registerBackupStrategy({
   },
   async importProject({ zip, projectDir }) {
     const scenes = await readBackupJson<unknown[]>(zip, `${projectDir}/dialog-scene/scenes.json`);
-    if (scenes?.length) await db.scenes.bulkAdd(scenes as never[]);
+    if (scenes?.length) await db.scenes.bulkPut(scenes as never[]);
 
     const blocks = await readBackupJson<unknown[]>(zip, `${projectDir}/dialog-scene/dialogBlocks.json`);
-    if (blocks?.length) await db.dialogBlocks.bulkAdd(blocks as never[]);
+    if (blocks?.length) await db.dialogBlocks.bulkPut(blocks as never[]);
 
     const casts = await readBackupJson<unknown[]>(zip, `${projectDir}/dialog-scene/sceneCasts.json`);
-    if (casts?.length) await db.sceneCasts.bulkAdd(casts as never[]);
+    if (casts?.length) await db.sceneCasts.bulkPut(casts as never[]);
   },
 });
 

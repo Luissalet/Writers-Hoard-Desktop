@@ -14,26 +14,29 @@
 // Models live outside every backup — they are re-downloadable by design.
 
 import { app, net } from 'electron';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { killProcessTree } from '../media/ytdlp';
 import { imageCatalogEntry, LOCAL_IMAGE_CATALOG, type ImageCatalogModel, type ImageFileRole } from '@/services/aiRuntime/imageCatalog';
 import {
   buildSdServerArgs,
   computeImageFit,
+  isSdLoraName,
+  SD_LORA_EXTENSIONS,
   SD_SERVER_PORT,
   SD_SERVER_URL,
   type SdBackend,
   type SdInstalledModel,
+  type SdLoraFile,
   type SdOpResult,
   type SdProgress,
   type SdRuntimeState,
   type SdRuntimeStatus,
 } from '@/services/aiRuntime/sdServer';
+import { readBounded } from './adapters/http';
 import { downloadVerified, DownloadError, verifyFile } from './download';
 import { detectHardware } from './hardware';
-import { makeRoomForImageModel } from './vramRoom';
+import { cachedVramReport, makeRoomForImageModel, readVramReport } from './vramRoom';
 import {
   isCurrentSdRuntimeReceipt,
   sdBackendsFor,
@@ -44,7 +47,7 @@ import {
 
 // ── Types live in src/services/aiRuntime/sdServer.ts (shared with the renderer)
 
-export type { SdInstalledModel, SdOpResult, SdProgress, SdRuntimeState, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
+export type { SdInstalledModel, SdLoraFile, SdOpResult, SdProgress, SdRuntimeState, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
 
 // ── Paths ───────────────────────────────────────────────────────────────────
 
@@ -54,6 +57,13 @@ const runtimeDir = (backend: SdBackend): string => path.join(runtimeRoot(), back
 const receiptPath = (backend: SdBackend): string => path.join(runtimeDir(backend), 'writers-hoard-runtime.json');
 const stagingDir = (): string => path.join(aiDir(), 'sd-staging');
 const modelsRoot = (): string => path.join(aiDir(), 'image-models');
+/**
+ * Where LoRAs live. stable-diffusion.cpp has no way to load one by path at
+ * request time: it resolves `<lora:NAME:WEIGHT>` from the prompt against the
+ * single folder the server was launched with, so the app owns one folder and
+ * the reader drops files into it. Never downloaded, never backed up.
+ */
+const lorasDir = (): string => path.join(aiDir(), 'loras');
 const modelDir = (id: string): string => path.join(modelsRoot(), id);
 const modelReceiptPath = (id: string): string => path.join(modelDir(id), 'writers-hoard-model.json');
 
@@ -64,12 +74,24 @@ let lastError: string | null = null;
 let installedBackend: SdBackend | null = null;
 let runtimeBytes: number | null = null;
 let serverChild: ChildProcess | null = null;
+/** Pid of an sd-server left over from a previous session, reaped on will-quit. */
+let orphanPid: number | null = null;
+let orphanChecked = false;
 let loadedModelId: string | null = null;
 let serverReady = false;
 let ensureChain: Promise<unknown> = Promise.resolve();
 let installAbort: AbortController | null = null;
 let modelAbort: { id: string; controller: AbortController } | null = null;
 let cachedModels: SdInstalledModel[] = [];
+let cachedLoras: SdLoraFile[] = [];
+/** Whether the live server was launched with `--lora-model-dir`. */
+let serverHasLoraDir = false;
+/**
+ * Set only after this runtime build has been seen to refuse `--lora-model-dir`
+ * and to start fine without it. Until that happens the flag is offered; after
+ * it, the studio stops offering LoRAs instead of pretending they work.
+ */
+let loraLaunchRefused = false;
 let idleTimer: NodeJS.Timeout | null = null;
 /** The card is shared with the text models: give the VRAM back after a quiet spell. */
 const IDLE_STOP_MS = 5 * 60_000;
@@ -78,6 +100,10 @@ let emit: (channel: string, payload: unknown) => void = () => {};
 
 export function initSdRuntime(sink: (channel: string, payload: unknown) => void): void {
   emit = sink;
+  // The folder is shown to the reader as the place to drop LoRAs, so it has to
+  // be there to be opened — an instruction pointing at a path that does not
+  // exist is not an instruction.
+  void fs.mkdir(lorasDir(), { recursive: true }).catch(() => undefined);
 }
 
 function pushLog(line: string): void {
@@ -110,6 +136,10 @@ function snapshot(): SdRuntimeStatus {
     downloading: modelAbort?.id ?? null,
     error: lastError ?? undefined,
     version: artifactFor('vulkan')?.version ?? 'unpinned',
+    loras: loraLaunchRefused ? [] : cachedLoras,
+    lorasDir: lorasDir(),
+    lorasSupported: !loraLaunchRefused,
+    vram: cachedVramReport(),
   };
 }
 
@@ -239,6 +269,8 @@ export async function installSdRuntime(backend: SdBackend): Promise<SdOpResult> 
   const extracted = path.join(stagingDir(), 'extracted');
   try {
     await stopSdServer();
+    // A different build gets a fresh verdict on the LoRA flag.
+    loraLaunchRefused = false;
     await fs.rm(stagingDir(), { recursive: true, force: true });
     await fs.mkdir(stagingDir(), { recursive: true });
     let doneBytes = 0;
@@ -378,6 +410,41 @@ async function refreshModels(): Promise<void> {
   cachedModels = out;
 }
 
+/** Whether this launch should point the server at the LoRA folder. */
+function wantsLoraDir(): boolean {
+  return !loraLaunchRefused && cachedLoras.length > 0;
+}
+
+/**
+ * What is in the LoRA folder right now. Cheap enough to run on every status
+ * read: the reader drops a file in with the app open and expects to see it.
+ * A name the server's `<lora:NAME:WEIGHT>` parser could not round-trip is
+ * skipped rather than offered and silently ignored at generation time.
+ */
+async function refreshLoras(): Promise<void> {
+  const dir = lorasDir();
+  const out: SdLoraFile[] = [];
+  let entries;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    cachedLoras = [];
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const extension = SD_LORA_EXTENSIONS.find((ext) => entry.name.toLowerCase().endsWith(ext));
+    if (!extension) continue;
+    const name = entry.name.slice(0, entry.name.length - extension.length);
+    if (!isSdLoraName(name)) continue;
+    const stat = await fs.stat(path.join(dir, entry.name)).catch(() => null);
+    if (!stat) continue;
+    out.push({ name, fileName: entry.name, sizeBytes: stat.size });
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  cachedLoras = out;
+}
+
 export async function downloadSdModel(id: string): Promise<SdOpResult> {
   const entry = imageCatalogEntry(id);
   if (!entry) return { ok: false, error: 'unknown-model' };
@@ -458,16 +525,166 @@ export function installedSdCatalogEntries(): ImageCatalogModel[] {
 
 // ── Server lifecycle ────────────────────────────────────────────────────────
 
-async function probeServer(timeoutMs = 800): Promise<boolean> {
+/** Plenty for a capabilities document; a stranger's page never gets to stream. */
+const PROBE_BODY_LIMIT = 64 * 1024;
+
+/**
+ * Does the holder of the port answer our own route the way an sd-server does?
+ *
+ * A 2xx on its own is not evidence of anything: a dev server with an SPA
+ * fallback answers every path it has never heard of with its index.html and a
+ * 200, and believing it means recording a stranger's pid as our orphan and
+ * killing it later. `/sdcpp/v1/capabilities` answers with a JSON object; HTML,
+ * a bare string and an array are all somebody else's server.
+ */
+function isCapabilitiesBody(body: string): boolean {
   try {
-    const res = await net.fetch(`${SD_SERVER_URL}/sdcpp/v1/capabilities`, { signal: AbortSignal.timeout(timeoutMs) });
-    return res.ok;
+    const parsed: unknown = JSON.parse(body);
+    return (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      Object.keys(parsed).length > 0
+    );
   } catch {
     return false;
   }
 }
 
-async function spawnServer(entry: ImageCatalogModel): Promise<SdOpResult> {
+async function probeServer(timeoutMs = 800): Promise<boolean> {
+  try {
+    const res = await net.fetch(`${SD_SERVER_URL}/sdcpp/v1/capabilities`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return false;
+    return isCapabilitiesBody(await readBounded(res, PROBE_BODY_LIMIT));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * SIGKILL one process — never a process group.
+ *
+ * `killProcessTree` tries `process.kill(-pid)` first, which addresses the whole
+ * GROUP led by that pid. That is right for the detached yt-dlp/ffmpeg pair it
+ * was written for and wrong for every pid here: `spawnServer` starts sd-server
+ * with `detached: false`, so our own child leads no group of its own, and an
+ * orphan holding the port was never ours to spawn at all — any group carrying
+ * that id belongs to somebody else, and killing it is not a reclaim.
+ */
+function killSdProcess(pid: number): void {
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    /* already gone, or not ours to signal */
+  }
+}
+
+/** The command that names a loopback port's listener on this platform. */
+function listenerQuery(port: number): { command: string; args: string[] } {
+  return process.platform === 'win32'
+    ? { command: 'netstat', args: ['-a', '-n', '-o'] }
+    : { command: 'lsof', args: ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'] };
+}
+
+/**
+ * Pid of whatever listens on the port, out of that command's output, or null.
+ * `netstat`'s state column is localised, the "no peer" foreign address is not,
+ * so the row is recognised by that instead.
+ */
+function parseListenerPid(output: string, port: number): number | null {
+  const isWin = process.platform === 'win32';
+  for (const line of output.split('\n')) {
+    if (!isWin) {
+      const pid = Number(line.trim());
+      if (Number.isInteger(pid) && pid > 0) return pid;
+      continue;
+    }
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 5 || parts[0].toUpperCase() !== 'TCP') continue;
+    if (!parts[1].endsWith(`:${port}`)) continue;
+    if (parts[2] !== '0.0.0.0:0' && parts[2] !== '[::]:0' && parts[2] !== '*:*') continue;
+    const pid = Number(parts[parts.length - 1]);
+    if (Number.isInteger(pid) && pid > 0) return pid;
+  }
+  return null;
+}
+
+/** Pid of whatever listens on a loopback port, or null when it cannot be resolved. */
+async function listenerPid(port: number): Promise<number | null> {
+  const { command, args } = listenerQuery(port);
+  const output = await new Promise<string>((resolve) => {
+    const child = spawn(command, args, { windowsHide: true });
+    let out = '';
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve('');
+    }, 5000);
+    child.stdout?.on('data', (d: Buffer) => {
+      out += d.toString();
+    });
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve('');
+    });
+    child.on('close', () => {
+      clearTimeout(timer);
+      resolve(out);
+    });
+  });
+  return parseListenerPid(output, port);
+}
+
+/**
+ * The same question, answered without yielding. `will-quit` runs this module's
+ * shutdown synchronously and nothing awaits it, so asking who holds the port at
+ * that moment means blocking for the answer — briefly, and only when there is
+ * an orphan to check.
+ */
+function listenerPidSync(port: number): number | null {
+  const { command, args } = listenerQuery(port);
+  const result = spawnSync(command, args, { windowsHide: true, encoding: 'utf8', timeout: 2000 });
+  return parseListenerPid(result.stdout ?? '', port);
+}
+
+/**
+ * Note an sd-server left behind by a crashed session, so will-quit reaps it.
+ * The probe is what makes it OUR orphan rather than whoever happens to hold the
+ * port. The pid is only as good as the moment it was read — this check runs
+ * once a session — so it is re-checked against the live listener before
+ * anything is killed (see `shutdownSdRuntime`).
+ */
+async function findOrphanServer(): Promise<void> {
+  if (orphanChecked || serverChild) return;
+  orphanChecked = true;
+  if (!(await probeServer(600))) return;
+  orphanPid = await listenerPid(SD_SERVER_PORT);
+}
+
+/**
+ * An sd-server orphaned by a crashed session answers `probeServer` exactly like
+ * the child we are about to spawn — with another model loaded, and holding the
+ * port ours needs. Reap it and start our own; never adopt it. Returns null once
+ * the port is clear, a failure when it cannot be freed.
+ */
+async function reclaimServerPort(): Promise<SdOpResult | null> {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const answering = await probeServer(600);
+    const pid = await listenerPid(SD_SERVER_PORT);
+    if (!answering && pid === null) return null;
+    if (answering) {
+      // Only a server answering our own route is ours to reap; a stranger keeps
+      // the port and we refuse, rather than spawn a child the next probe would
+      // mistake for it. A pid-less orphan cannot be reaped at all.
+      if (pid === null) break;
+      killSdProcess(pid);
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  setState('error', `port ${SD_SERVER_PORT} is held by another process`);
+  return { ok: false, error: 'port-busy' };
+}
+
+async function spawnServer(entry: ImageCatalogModel, allowLoras = true): Promise<SdOpResult> {
   const backend = installedBackend;
   const artifact = backend ? artifactFor(backend) : undefined;
   if (!backend || !artifact) return { ok: false, error: 'runtime-missing' };
@@ -475,19 +692,29 @@ async function spawnServer(entry: ImageCatalogModel): Promise<SdOpResult> {
   for (const file of entry.files) paths[file.role] = path.join(modelDir(entry.id), file.fileName);
   const hardware = await detectHardware(false);
   const fit = computeImageFit(hardware, entry);
+  // Only when a LoRA is actually there: a build that did not know the flag
+  // would refuse to start, and the reader who never touched LoRAs must never
+  // meet that. Empty folder → byte-identical command line to before.
+  const withLoras = allowLoras && wantsLoraDir();
+  if (withLoras) await fs.mkdir(lorasDir(), { recursive: true }).catch(() => undefined);
   const args = buildSdServerArgs(entry, {
     paths,
     port: SD_SERVER_PORT,
     offloadToCpu: fit.placement === 'split',
     flashAttention: backend === 'cuda12',
+    loraDir: withLoras ? lorasDir() : undefined,
   });
   setState('starting');
   progress({ kind: 'model', id: entry.id, phase: 'starting', receivedBytes: 0, totalBytes: 0, fileIndex: 0, fileCount: 0 });
+  const busy = await reclaimServerPort();
+  if (busy) return busy;
   const bin = path.join(runtimeDir(backend), artifact.serverBinary);
   const child = spawn(bin, args, { cwd: runtimeDir(backend), windowsHide: true, detached: false });
   serverChild = child;
+  orphanPid = null;
   serverReady = false;
   loadedModelId = entry.id;
+  serverHasLoraDir = withLoras;
   // A failure to spawn at all (missing/non-executable binary) fires 'error' but
   // never 'exit', so without this the startup loop would poll for four minutes.
   let spawnFailed: string | null = null;
@@ -527,7 +754,7 @@ async function spawnServer(entry: ImageCatalogModel): Promise<SdOpResult> {
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  if (child.pid != null) killProcessTree(child.pid);
+  if (child.pid != null) killSdProcess(child.pid);
   serverChild = null;
   loadedModelId = null;
   setState('error', `sd-server did not answer within 4 minutes\n${logTail(6)}`);
@@ -557,7 +784,14 @@ export function ensureSdServer(modelId: string): Promise<SdOpResult> {
       await refreshModels();
       if (!cachedModels.some((m) => m.id === modelId)) return { ok: false, error: 'model-missing' };
     }
-    if (serverChild && serverReady && loadedModelId === modelId && (await probeServer())) return { ok: true };
+    // The LoRA folder is read here too: a file dropped in while the server was
+    // already up needs the flag, and the flag is only settable at launch — so
+    // the first generation after a folder goes from empty to non-empty (or back)
+    // restarts the server instead of silently ignoring the LoRA.
+    await refreshLoras();
+    if (serverChild && serverReady && loadedModelId === modelId && serverHasLoraDir === wantsLoraDir() && (await probeServer())) {
+      return { ok: true };
+    }
     await stopSdServer();
     // The image model is about to take the card: ask a resident chat model to
     // step off first when they would not fit together (see vramRoom.ts).
@@ -569,7 +803,21 @@ export function ensureSdServer(modelId: string): Promise<SdOpResult> {
     } catch (err) {
       console.warn('[sd] could not make room on the GPU:', err instanceof Error ? err.message : err);
     }
-    return spawnServer(entry);
+    const usedLoraDir = wantsLoraDir();
+    const started = await spawnServer(entry);
+    if (started.ok || !usedLoraDir) return started;
+    // The LoRA folder was the only thing that launch did differently. A build
+    // that does not take `--lora-model-dir` prints its usage and exits, and the
+    // reader would be left with no image generation at all because a file sits
+    // in a folder. Try once more without it; if THAT works, the flag was the
+    // problem and the studio stops offering LoRAs for this runtime.
+    console.warn('[sd] sd-server refused to start; retrying without the LoRA folder');
+    const retried = await spawnServer(entry, false);
+    if (retried.ok) {
+      loraLaunchRefused = true;
+      emit('sd:status', snapshot());
+    }
+    return retried;
   });
   ensureChain = run.then(
     () => undefined,
@@ -587,8 +835,9 @@ export async function stopSdServer(): Promise<void> {
   serverChild = null;
   serverReady = false;
   loadedModelId = null;
+  serverHasLoraDir = false;
   if (child?.pid != null) {
-    killProcessTree(child.pid);
+    killSdProcess(child.pid);
     await new Promise((r) => setTimeout(r, 300));
   }
   if (state === 'running' || state === 'starting') setState(installedBackend ? 'ready' : 'absent');
@@ -600,10 +849,35 @@ export function sdServerUrl(): string | null {
 
 // ── Status / shutdown ───────────────────────────────────────────────────────
 
+/**
+ * Measure the card in the background and push the answer when it lands.
+ *
+ * Deliberately NOT awaited by the status read: nvidia-smi can take a moment and
+ * `/api/ps` has its own timeout, and the settings page asks for this status far
+ * more often than either figure changes. The report memoises itself for a
+ * couple of seconds, so a burst of reads costs one measurement.
+ */
+function refreshVramReport(): void {
+  void readVramReport()
+    .then((report) => {
+      if (report !== cachedVramReport()) return;
+      emit('sd:status', snapshot());
+    })
+    .catch(() => undefined);
+}
+
 export async function getSdRuntimeStatus(): Promise<SdRuntimeStatus> {
+  // With nothing measured yet — the first look, or right after an unload threw
+  // the last figure away — wait for the measurement: a status that answers "no
+  // idea" is exactly the one the studio needed in order to warn. Otherwise the
+  // memoised figure goes back now and a fresh one is pushed when it lands.
+  if (!cachedVramReport()) await readVramReport().catch(() => undefined);
+  else refreshVramReport();
   if (state === 'downloading-runtime' || state === 'extracting' || state === 'starting') return snapshot();
   await refreshInstalled();
   await refreshModels();
+  await refreshLoras();
+  await findOrphanServer();
   if (serverChild && serverReady) {
     if (!(await probeServer())) {
       serverReady = false;
@@ -618,9 +892,18 @@ export async function getSdRuntimeStatus(): Promise<SdRuntimeStatus> {
 export function shutdownSdRuntime(): void {
   installAbort?.abort();
   modelAbort?.controller.abort();
-  if (serverChild?.pid != null) {
-    killProcessTree(serverChild.pid);
-    serverChild = null;
-  }
+  const child = serverChild;
+  const orphan = orphanPid;
+  serverChild = null;
+  orphanPid = null;
+  // Ours beyond doubt: we spawned it this session and have held the handle ever
+  // since.
+  if (child?.pid != null) killSdProcess(child.pid);
+  // An orphan on the sd port is not a ChildProcess of ours; left alone it holds
+  // its weights in VRAM and RAM through every quit from here on. Its pid, on
+  // the other hand, was resolved once — possibly hours ago — and the OS may
+  // hand that number to something else the moment the process exits. So it is
+  // reaped only while it is STILL the listener on our port.
+  if (orphan !== null && listenerPidSync(SD_SERVER_PORT) === orphan) killSdProcess(orphan);
   void fs.rm(stagingDir(), { recursive: true, force: true }).catch(() => undefined);
 }
