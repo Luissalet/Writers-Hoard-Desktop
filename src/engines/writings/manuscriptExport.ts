@@ -23,6 +23,8 @@ export interface CompileOptions {
   includeSynopsis: boolean;
   /** Heading label for numbered chapters, e.g. "Capítulo" / "Chapter". */
   chapterLabel: string;
+  /** Stands in for a writing whose title is blank, e.g. "Sin título". */
+  untitledLabel?: string;
   /** Localized label rendered beside the title-page word count. */
   wordLabel?: string;
   /** BCP 47 locale used for dates and numbers in the exported document. */
@@ -82,6 +84,9 @@ export function htmlToMarkdown(html: string): string {
   s = s.replace(/<ul[^>]*>(.*?)<\/ul>/gis, (_m, inner: string) => {
     return '\n\n' + inner.replace(/<li[^>]*>(.*?)<\/li>/gis, (_m2, item: string) => `- ${item.replace(/<\/?p[^>]*>/gi, '').trim()}\n`) + '\n';
   });
+
+  // Scene / POV breaks — the editor's `---` input rule persists an <hr>.
+  s = s.replace(/<hr\b[^>]*>/gi, '\n\n---\n\n');
 
   // Paragraphs & line breaks
   s = s.replace(/<br\s*\/?>/gi, '  \n');

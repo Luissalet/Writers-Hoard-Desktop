@@ -1,8 +1,10 @@
 import { db } from '@/db';
 
 /**
- * Standard Dexie reorder: fetches all items for the given scope, maps each
- * to its new position in `orderedIds`, then batches updates via Promise.all.
+ * Standard Dexie reorder: inside one transaction, fetches all items for the
+ * given scope and stamps each one's new position in `orderedIds`. Rows the
+ * caller did not list — created after its render, by the AI bridge or another
+ * window — keep the order they already have.
  */
 export async function reorderItems(
   tableName: string,
@@ -10,12 +12,15 @@ export async function reorderItems(
   scopeId: string,
   orderedIds: string[],
 ): Promise<void> {
-  const items = (await db.table(tableName).where(scopeField).equals(scopeId).toArray()) as {
-    id: string;
-  }[];
-  await Promise.all(
-    items.map(item =>
-      db.table(tableName).update(item.id, { order: orderedIds.indexOf(item.id), updatedAt: Date.now() }),
-    ),
-  );
+  await db.transaction('rw', [tableName], async () => {
+    const items = (await db.table(tableName).where(scopeField).equals(scopeId).toArray()) as {
+      id: string;
+    }[];
+    const updatedAt = Date.now();
+    for (const item of items) {
+      const order = orderedIds.indexOf(item.id);
+      if (order < 0) continue;
+      await db.table(tableName).update(item.id, { order, updatedAt });
+    }
+  });
 }

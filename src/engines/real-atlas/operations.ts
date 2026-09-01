@@ -1,5 +1,5 @@
 import { db } from '@/db';
-import { makeTableOps } from '@/engines/_shared';
+import { makeTableOps, deleteEntityAnnotations } from '@/engines/_shared';
 import type { AtlasDivergence, AtlasPlace } from './types';
 
 export const atlasPlaceOps = makeTableOps<AtlasPlace>({
@@ -18,11 +18,18 @@ export const atlasDivergenceOps = makeTableOps<AtlasDivergence>({
  * Deleting a place keeps its divergences — a departure from reality is a
  * fact about the book, not about the row — but unanchors them, and lifts any
  * child place to the top level. Nothing else points at a place by id.
+ *
+ * The margin notes anchored on the place are pure link, so they do go with it.
  */
 export async function deleteAtlasPlace(id: string): Promise<void> {
-  await db.transaction('rw', [db.atlasPlaces, db.atlasDivergences], async () => {
-    await db.atlasDivergences.where('placeId').equals(id).modify((row) => { delete row.placeId; });
-    await db.atlasPlaces.where('parentId').equals(id).modify((row) => { delete row.parentId; });
-    await db.atlasPlaces.delete(id);
-  });
+  await db.transaction(
+    'rw',
+    [db.atlasPlaces, db.atlasDivergences, db.annotations, db.annotationReferences],
+    async () => {
+      await deleteEntityAnnotations('real-atlas', id);
+      await db.atlasDivergences.where('placeId').equals(id).modify((row) => { delete row.placeId; });
+      await db.atlasPlaces.where('parentId').equals(id).modify((row) => { delete row.parentId; });
+      await db.atlasPlaces.delete(id);
+    },
+  );
 }

@@ -89,6 +89,10 @@ export async function whGenerateImage(args: ToolArgs): Promise<unknown> {
     {
       projectId,
       entityId: first?.id,
+      // Up to four rows land in one call. Recording only the first left undo
+      // deleting one of them and marking the line reverted, with no way back
+      // to the other three.
+      entityIds: result.images.map((img) => img.id),
       summary: `generated ${result.images.length} image(s): "${prompt.slice(0, 60)}"`,
       table: 'inspirationImages',
     },

@@ -10,6 +10,7 @@ import { useAppStore } from '@/stores/appStore';
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import { htmlToMarkdown } from '@/engines/writings/manuscriptExport';
 import { markdownToTiptapHtml } from '../markdown';
+import { SCOPE_KEY } from '../schema';
 
 export type ToolArgs = Record<string, unknown>;
 
@@ -25,12 +26,29 @@ export class BridgeError extends Error {
 }
 
 /**
+ * Refusal for a `content` that is empty or nothing but whitespace.
+ *
+ * Writing it is not an edit, it is an erasure, and the small models that reach
+ * this surface send one by accident — a blank string beside the field they
+ * actually meant to change. The manuscript survives it (every path there takes
+ * a snapshot first); a codex body, a diary page and a biography fact do not.
+ */
+export const EMPTY_CONTENT =
+  'An empty "content" would erase the whole body. Omit "content" to leave it as it is, or pass the replacement text.';
+
+/**
  * Bookkeeping the main process peels off a write result to build the audit
  * line. Never reaches the model.
  */
 export interface AuditEnvelope {
   projectId?: string;
   entityId?: string;
+  /**
+   * Every row one call created, when it created more than one. Undo removes
+   * all of them; `entityId` alone would strand the rest and still mark the
+   * line as reverted.
+   */
+  entityIds?: string[];
   summary?: string;
   before?: unknown;
   /**
@@ -39,6 +57,12 @@ export interface AuditEnvelope {
    * no row left to look the table up from.
    */
   table?: string;
+  /**
+   * What the call did, for the handful of handlers whose result cannot say it
+   * — a bulk import answers with a count, not `created: true`. Left out
+   * everywhere else, where the executor infers it from the result.
+   */
+  kind?: 'create' | 'update' | 'delete';
 }
 
 export function withAudit<T extends object>(result: T, audit: AuditEnvelope): T {
@@ -172,6 +196,27 @@ export async function assertEngineEnabled(
       `The "${engineId}" engine is switched off in "${project.title}", so anything written there would be invisible to the writer — no tab, and the app's own search skips it. Call wh_enable_engine with engineId "${engineId}" to turn it on, or ask them first if you are not sure they want it.`,
     );
   }
+}
+
+/**
+ * Refuse a write that reached a row outside the caller's project.
+ *
+ * `applyProjectScope` pins a copilot call to its conversation's project, but
+ * only for tools whose schema takes `projectId`. Everything addressed by an
+ * entity or parent id arrives with the scope in SCOPE_KEY instead and is
+ * checked here, straight after the row is loaded: ids travel — a board card
+ * reference, a beat's linkedWritingId, anything the user pasted — so the row's
+ * own project is not proof the caller was allowed to touch it.
+ *
+ * A call with no scope (the bridge, an internal feature) passes untouched.
+ */
+export function assertRowInScope(args: ToolArgs, rowProjectId: string | undefined): void {
+  const scope = optString(args, SCOPE_KEY);
+  if (!scope || !rowProjectId || rowProjectId === scope) return;
+  throw new BridgeError(
+    'scope',
+    `This conversation belongs to project "${scope}"; it cannot act on project "${rowProjectId}". Ask the user to open that project and continue there.`,
+  );
 }
 
 /**

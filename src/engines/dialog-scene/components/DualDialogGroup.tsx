@@ -111,6 +111,7 @@ function DualColumn({
               suggestions={suggestions.filter((s) => s.category === 'character')}
               anchorRef={textareaRef}
               active={showAutocomplete && field.value.startsWith('@')}
+              acceptOnEnter
               onSelect={(s) => {
                 field.onChange(s.label);
                 field.flush();

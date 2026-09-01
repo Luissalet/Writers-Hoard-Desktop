@@ -15,6 +15,9 @@ import { Users, AlertTriangle, MessageSquare, Eye } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { EngineSpinner } from '@/engines/_shared';
+import { navigateTo } from '@/engines/_shared/anchoring';
+import EmptyState from '@/components/common/EmptyState';
+import { useProject } from '@/hooks/useProjects';
 import { useUsageReport } from '../hooks';
 import type { CharacterUsage } from '../types';
 
@@ -25,6 +28,7 @@ const NO_ROWS: CharacterUsage[] = [];
 export default function PovAuditEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
   const { items, loading, refresh } = useUsageReport(projectId);
+  const { project } = useProject(projectId);
   const [filter, setFilter] = useState<FilterMode>('all');
 
   const report = items[0];
@@ -48,6 +52,33 @@ export default function PovAuditEngine({ projectId }: EngineComponentProps) {
   if (!report) return null;
 
   const { totals } = report;
+
+  // A project with no characters and no scenes has nothing to audit: the KPI
+  // strip would be four zeros and the filter chips would sort an empty list,
+  // over a message ("no characters match this filter") that blames a filter
+  // the writer never touched. This engine owns no table and has no Create, so
+  // the only useful first action is the one that fills it — the codex.
+  if (totals.charactersInCodex === 0 && totals.sceneCount === 0) {
+    const codexEnabled = project?.enabledEngines?.includes('codex') ?? false;
+    return (
+      <div className="space-y-4">
+        <h2 className="text-base font-serif font-semibold text-text-primary flex items-center gap-2">
+          <Eye size={15} className="text-accent-gold" />
+          {t('povAudit.title')}
+        </h2>
+        <EmptyState
+          icon={<Eye size={40} />}
+          title={t('povAudit.firstRun.title')}
+          message={t('povAudit.firstRun.message')}
+          action={
+            codexEnabled
+              ? { label: t('povAudit.firstRun.action'), onClick: () => navigateTo(`/project/${projectId}/codex`) }
+              : undefined
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

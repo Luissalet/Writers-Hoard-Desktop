@@ -235,8 +235,10 @@ export default function Sidebar() {
       <button
         onClick={toggleSidebar}
         className="flex items-center justify-center py-3 border-t border-border text-text-muted hover:text-text-primary transition"
+        title={sidebarOpen ? t('common.collapse') : t('common.expand')}
+        aria-label={sidebarOpen ? t('common.collapse') : t('common.expand')}
       >
-        {sidebarOpen ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
+        {sidebarOpen ? <ChevronLeft size={18} aria-hidden="true" /> : <ChevronRight size={18} aria-hidden="true" />}
       </button>
     </motion.aside>
   );

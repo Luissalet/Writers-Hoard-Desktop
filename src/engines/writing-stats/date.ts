@@ -6,6 +6,12 @@ export function toLocalDateKey(date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+/** Format a Date as a local "YYYY-MM-DDTHH:mm" stamp, the shape `datetime-local` reads. */
+export function toLocalDateTimeStamp(date = new Date()): string {
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return `${toLocalDateKey(date)}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 /** Shift a local-calendar date key without crossing through UTC. */
 export function shiftLocalDateKey(dateKey: string, days: number): string {
   const [year, month, day] = dateKey.split('-').map(Number);

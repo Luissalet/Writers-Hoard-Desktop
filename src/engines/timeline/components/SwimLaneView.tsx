@@ -47,6 +47,15 @@ function getEventsForTimeline(events: TimelineEvent[], timelineId: string): Time
   return events.filter(e => e.timelineId === timelineId).sort((a, b) => a.order - b.order);
 }
 
+/** One past the highest `order` in the lane — never the row count, which
+ *  collides with an existing event as soon as the lane has had a deletion. */
+function nextOrderInLane(events: TimelineEvent[], timelineId: string): number {
+  return events.reduce(
+    (max, e) => (e.timelineId === timelineId ? Math.max(max, e.order) : max),
+    -1,
+  ) + 1;
+}
+
 function getLaneY(laneIndex: number): number {
   return TOP_PADDING + laneIndex * LANE_HEIGHT + LANE_HEIGHT / 2;
 }
@@ -577,9 +586,16 @@ export default function SwimLaneView({
     const idx = laneEvts.findIndex(e => e.id === evtId);
     const newIdx = idx + direction;
     if (newIdx < 0 || newIdx >= laneEvts.length) return;
-    // Swap orders
-    onEditEvent(laneEvts[idx].id, { order: laneEvts[newIdx].order });
-    onEditEvent(laneEvts[newIdx].id, { order: laneEvts[idx].order });
+    // Renumber the whole lane by index, the way the drag path does. Swapping
+    // the two `order` values wrote the same number to both rows whenever the
+    // pair happened to be tied — and ties were routine — so the arrow moved
+    // nothing and stayed enabled forever.
+    const reordered = [...laneEvts];
+    const [moved] = reordered.splice(idx, 1);
+    reordered.splice(newIdx, 0, moved);
+    reordered.forEach((e, i) => {
+      if (e.order !== i) onEditEvent(e.id, { order: i });
+    });
     setContextMenu(null);
   }, [events, onEditEvent]);
 
@@ -619,10 +635,13 @@ export default function SwimLaneView({
       form.dateMode === 'calendar' && form.realDateEnd ? 'range' : form.eventType;
 
     if (editingEvent) {
-      // If timeline changed, also update order to be last in new lane
+      // If timeline changed, also update order to be last in new lane.
+      // `length` is not "last": a lane that has ever had a row deleted has
+      // fewer rows than its highest `order`, so the new event lands tied with
+      // one that is already there and neither can be moved past the other.
       const timelineChanged = form.timelineId !== editingEvent.timelineId;
       const newOrder = timelineChanged
-        ? events.filter(e => e.timelineId === form.timelineId).length
+        ? nextOrderInLane(events, form.timelineId)
         : undefined;
 
       onEditEvent(editingEvent.id, {
@@ -635,14 +654,13 @@ export default function SwimLaneView({
         ...(timelineChanged ? { timelineId: form.timelineId, order: newOrder } : {}),
       });
     } else {
-      const tlEvents = events.filter(e => e.timelineId === form.timelineId);
       onAddEvent({
         id: generateId('evt'), projectId, timelineId: form.timelineId,
         title: form.title, description: form.description, date: dateValue,
         dateMode: form.dateMode, eventType: effectiveType,
         realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
-        order: tlEvents.length, lane: form.lane, color: form.color,
+        order: nextOrderInLane(events, form.timelineId), lane: form.lane, color: form.color,
         linkedEntryId: form.linkedEntryId || undefined,
         createdAt: Date.now(), updatedAt: Date.now(),
       });
@@ -678,7 +696,7 @@ export default function SwimLaneView({
               <span className="text-xs bg-blue-500/10 border border-blue-500/30 text-blue-400 px-3 py-1.5 rounded-lg flex items-center gap-1.5 animate-pulse">
                 <Link2 size={13} />
                 {t('timeline.connectingFrom')} <strong className="text-blue-300">{src?.title || '?'}</strong> {t('timeline.clickAnyEvent')}
-                <button onClick={() => setConnectingFromId(null)} className="ml-1 p-0.5 rounded hover:bg-blue-500/20"><X size={13} /></button>
+                <button onClick={() => setConnectingFromId(null)} className="ml-1 p-0.5 rounded hover:bg-blue-500/20" title={t('common.cancel')} aria-label={t('common.cancel')}><X size={13} aria-hidden="true" /></button>
               </span>
             );
           })()}

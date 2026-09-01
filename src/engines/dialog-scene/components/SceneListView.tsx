@@ -1,4 +1,4 @@
-import { Plus, Trash2, GripVertical, Lock, Unlock, EyeOff, Eye, Clapperboard, Upload } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Lock, Unlock, EyeOff, Eye, Clapperboard, Upload, MessageSquare } from 'lucide-react';
 import { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -22,6 +22,7 @@ import type { Scene } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
+import EmptyState from '@/components/common/EmptyState';
 import { toast } from '@/components/common/toast';
 import { useProject } from '@/hooks/useProjects';
 
@@ -375,11 +376,12 @@ export default function SceneListView({
 
           {/* Scenes List */}
           {scenes.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-text-dim text-sm mb-4">
-                {t('dialogScene.noScenes')}
-              </p>
-            </div>
+            <EmptyState
+              icon={<MessageSquare size={40} />}
+              title={t('dialogScene.noScenes.title')}
+              message={t('dialogScene.noScenes.message')}
+              action={{ label: t('dialogScene.newScene'), onClick: () => setShowNewScene(true) }}
+            />
           ) : (
             <DndContext
               sensors={sensors}

@@ -1455,8 +1455,11 @@ export const IMAGE_STUDIO_TOOLS: BridgeTool[] = [
         size: s('Aspect preset. Default "square" (1024×1024).', {
           enum: ['square', 'landscape', 'portrait', 'wide', 'tall', 'cover', 'banner', 'small'],
         }),
+        width: n('Exact width in pixels, 256-2048. Overrides "size". Local servers round to the nearest multiple of 64.'),
+        height: n('Exact height in pixels, 256-2048. Overrides "size". Local servers round to the nearest multiple of 64.'),
         count: n('How many variants, 1-4. Default 1.'),
         seed: n('Seed for reproducible results, when the server supports it.'),
+        steps: n('Denoising steps, 1-150. Leave it out to use the model\'s own default — more steps cost time, not always quality.'),
         quality: s('"low", "medium" or "high" — servers that understand it trade time for detail.', { enum: ['low', 'medium', 'high'] }),
         collectionId: s('Gallery collection to file the images under (from wh_list_images). Optional.'),
         tags: arr('Extra tags besides "generated".'),

@@ -17,7 +17,8 @@
 //   â€¢ metadata scraped from og:/twitter:/article: meta tags with the same
 //     fallback chain, plus a heuristic main-content text extraction
 
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, session } from 'electron';
+import { randomUUID } from 'node:crypto';
 
 /** Viewport width used for both the screenshot and the PDF page width. */
 const VIEWPORT_WIDTH = 1280;
@@ -333,12 +334,19 @@ export async function capturePage(
 ): Promise<PageCaptureResult> {
   if (signal?.aborted) throw new Error('cancelled');
 
+  // One in-memory partition per capture (no "persist:" prefix): an archived
+  // page gets its own cookie jar, cache and storage, thrown away with the
+  // window, instead of the session the app's own windows and frames use.
+  const partition = `capture-${randomUUID()}`;
+  const captureSession = session.fromPartition(partition);
+
   const win = new BrowserWindow({
     show: false,
     width: VIEWPORT_WIDTH,
     height: VIEWPORT_HEIGHT,
     useContentSize: true,
     webPreferences: {
+      partition,
       // No preload, no Node, sandboxed: this window renders untrusted pages.
       sandbox: true,
       contextIsolation: true,
@@ -360,7 +368,9 @@ export async function capturePage(
     // Nothing this window does may escape into the app or the user's browser.
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.setUserAgent(USER_AGENT);
-    win.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+    // On this partition's session only: the default one is shared with the
+    // main window, and a handler set there is never restored.
+    captureSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
 
     await loadWithTimeout(win, url);
     if (signal?.aborted) throw new Error('cancelled');
@@ -440,5 +450,6 @@ export async function capturePage(
   } finally {
     signal?.removeEventListener('abort', onAbort);
     if (!win.isDestroyed()) win.destroy();
+    await captureSession.clearStorageData().catch(() => undefined);
   }
 }

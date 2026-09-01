@@ -812,11 +812,16 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
   // ---- cross-engine reference revalidation -----------------------------
 
   const revalidatedFor = useRef<string | null>(null);
+  // Destructured so the effect depends on the three members it actually uses
+  // rather than on `graph`, which is a fresh object on every render.
+  const { loading: graphLoading, nodes: graphNodes, sync: graphSync } = graph;
   useEffect(() => {
-    if (graph.loading || revalidatedFor.current === boardId) return;
-    const referencing = graph.nodes.filter((node) => node.ref);
-    revalidatedFor.current = boardId;
-    if (referencing.length === 0) return;
+    if (graphLoading || revalidatedFor.current === boardId) return;
+    const referencing = graphNodes.filter((node) => node.ref);
+    if (referencing.length === 0) {
+      revalidatedFor.current = boardId;
+      return;
+    }
 
     let cancelled = false;
     type RefPatch = { id: string; changes: Partial<BoardNode> };
@@ -853,14 +858,19 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
       }),
     ).then((patches) => {
       if (cancelled) return;
+      // Marked done only once the pass has actually finished: claiming it
+      // up-front meant a cancelled pass — and `graph` is a fresh object every
+      // render, so every render cancelled one — could never be retried, and a
+      // card pinned to a deleted record kept showing its stale cached title.
+      revalidatedFor.current = boardId;
       const real = patches.filter((patch): patch is RefPatch => patch !== null);
-      if (real.length > 0) graph.sync(real);
+      if (real.length > 0) graphSync(real);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [graph, boardId]);
+  }, [graphLoading, graphNodes, graphSync, boardId]);
 
   // ---- deep link -------------------------------------------------------
 
@@ -1144,8 +1154,8 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
                 {t(`board.query.${queryMode}`)}
               </button>
               {query ? (
-                <button type="button" onClick={() => setQuery('')} className="text-text-dim hover:text-text-primary">
-                  <X size={13} />
+                <button type="button" onClick={() => setQuery('')} className="text-text-dim hover:text-text-primary" title={t('engines.clearSearch')} aria-label={t('engines.clearSearch')}>
+                  <X size={13} aria-hidden="true" />
                 </button>
               ) : null}
             </div>
@@ -1157,6 +1167,17 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
                 {queryResult.problems.length > 0 ? (
                   <span className="ml-2 text-warning">{queryResult.problems.join(' · ')}</span>
                 ) : null}
+              </div>
+            ) : null}
+            {/* The queue retries in the background, but silence while a batch
+                is failing is how an afternoon's work went missing: the canvas
+                keeps painting from memory and only the next open shows it. */}
+            {graph.error ? (
+              <div
+                className="rounded-lg border border-danger/60 bg-surface/95 px-2 py-1 text-[11px] text-danger backdrop-blur"
+                title={graph.error.message}
+              >
+                {t('board.saveFailed')}
               </div>
             ) : null}
           </div>
@@ -1196,8 +1217,8 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
               >
                 {t('board.link.create')}
               </button>
-              <button type="button" onClick={() => setLink(null)} className="text-text-muted hover:text-danger">
-                <X size={14} />
+              <button type="button" onClick={() => setLink(null)} className="text-text-muted hover:text-danger" title={t('common.cancel')} aria-label={t('common.cancel')}>
+                <X size={14} aria-hidden="true" />
               </button>
             </div>
           </Panel>
@@ -1236,8 +1257,10 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
                 type="button"
                 onClick={deleteSelection}
                 className="rounded-lg border border-danger/40 p-1 text-danger"
+                title={t('common.delete')}
+                aria-label={t('common.delete')}
               >
-                <Trash2 size={13} />
+                <Trash2 size={13} aria-hidden="true" />
               </button>
             </div>
           </Panel>

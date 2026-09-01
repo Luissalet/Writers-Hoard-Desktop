@@ -1,4 +1,5 @@
-import { makeTableOps, reorderItems, makeCascadeDeleteOp } from '@/engines/_shared';
+import { db } from '@/db';
+import { makeTableOps, reorderItems, makeCascadeDeleteOp, deleteEntityAnnotations } from '@/engines/_shared';
 import type { CharacterArc, ArcBeat } from './types';
 
 // ===== Character Arcs =====
@@ -14,10 +15,22 @@ export const createArc = arcOps.create;
 export const updateArc = arcOps.update;
 
 // deleteArc cascades to arcBeats
-export const deleteArc = makeCascadeDeleteOp({
+const deleteArcRow = makeCascadeDeleteOp({
   tableName: 'characterArcs',
   cascades: [{ table: 'arcBeats', foreignKey: 'arcId' }],
 });
+
+// ...and to the margin notes anchored on the arc, which are pure link.
+export async function deleteArc(id: string): Promise<void> {
+  await db.transaction(
+    'rw',
+    ['characterArcs', 'arcBeats', 'annotations', 'annotationReferences'],
+    async () => {
+      await deleteEntityAnnotations('character-arc', id);
+      await deleteArcRow(id);
+    },
+  );
+}
 
 // ===== Arc Beats =====
 const beatOps = makeTableOps<ArcBeat>({

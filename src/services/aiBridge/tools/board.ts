@@ -26,6 +26,7 @@ import { DEFAULT_NODE_COLOR, DEFAULT_SIZE, edgeKindColor } from '@/engines/board
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
   dataUrlToBlob,
   optEnum,
@@ -134,6 +135,7 @@ export async function whAddBoardCard(args: ToolArgs): Promise<unknown> {
   const board = await getBoard(boardId);
   if (!board) throw new BridgeError('not-found', `No board with id "${boardId}".`);
   await assertEngineEnabled(board.projectId, 'board');
+  assertRowInScope(args, board.projectId);
   const existing = await getBoardNodes(boardId);
 
   const x = optNumber(args, 'x');
@@ -180,6 +182,7 @@ export async function whUpdateBoardCard(args: ToolArgs): Promise<unknown> {
   const node = await getBoardNode(id);
   if (!node) throw new BridgeError('not-found', `No board card with id "${id}".`);
   await assertEngineEnabled(node.projectId, 'board');
+  assertRowInScope(args, node.projectId);
 
   const changes: Partial<BoardNode> = {};
   (['title', 'content', 'role', 'color'] as const).forEach((key) => {
@@ -218,6 +221,7 @@ export async function whConnectBoardCards(args: ToolArgs): Promise<unknown> {
   const [source, target] = await Promise.all([getBoardNode(sourceId), getBoardNode(targetId)]);
   if (!source) throw new BridgeError('not-found', `No board card with id "${sourceId}".`);
   await assertEngineEnabled(source.projectId, 'board');
+  assertRowInScope(args, source.projectId);
   if (!target) throw new BridgeError('not-found', `No board card with id "${targetId}".`);
   if (source.boardId !== target.boardId) {
     throw new BridgeError('bad-args', 'Both cards must be pinned on the same board.');

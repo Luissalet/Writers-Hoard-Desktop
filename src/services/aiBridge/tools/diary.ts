@@ -7,8 +7,10 @@ import { createEntry, getEntries, getEntry, updateEntry } from '@/engines/diary/
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
   clampLimit,
+  EMPTY_CONTENT,
   htmlFromMarkdown,
   markdownFromHtml,
   optBoolean,
@@ -81,10 +83,14 @@ export async function whUpdateDiaryEntry(args: ToolArgs): Promise<unknown> {
   const existing = await getEntry(id);
   if (!existing) throw new BridgeError('not-found', `No diary entry with id "${id}".`);
   await assertEngineEnabled(existing.projectId, 'diary');
+  assertRowInScope(args, existing.projectId);
 
   const changes: Partial<DiaryEntry> = {};
   const markdown = optString(args, 'content');
-  if (markdown !== undefined) changes.content = htmlFromMarkdown(markdown);
+  if (markdown !== undefined) {
+    if (!markdown.trim()) throw new BridgeError('bad-args', EMPTY_CONTENT);
+    changes.content = htmlFromMarkdown(markdown);
+  }
   const title = optString(args, 'title');
   if (title !== undefined) changes.title = title;
   const entryDate = optString(args, 'entryDate');
@@ -99,6 +105,13 @@ export async function whUpdateDiaryEntry(args: ToolArgs): Promise<unknown> {
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
+  const before: Record<string, unknown> = {
+    title: existing.title,
+    entryDate: existing.entryDate,
+    mood: existing.mood,
+  };
+  // The page is replaced whole, and nothing else keeps a copy of it.
+  if (changes.content !== undefined) before.content = existing.content;
   await updateEntry(id, changes);
   return withAudit(
     { id, updated: Object.keys(changes) },
@@ -106,7 +119,7 @@ export async function whUpdateDiaryEntry(args: ToolArgs): Promise<unknown> {
       projectId: existing.projectId,
       entityId: id,
       summary: `updated diary entry for ${existing.entryDate}`,
-      before: { title: existing.title, entryDate: existing.entryDate, mood: existing.mood },
+      before,
     },
   );
 }

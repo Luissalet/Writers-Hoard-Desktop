@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, Pencil, Check, X, Upload } from 'lucide-react';
+import { Plus, Pencil, Check, X, Upload, Video } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/i18n/useTranslation';
 import { generateId } from '@/utils/idGenerator';
 import type { VideoPlan } from '../types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
+import EmptyState from '@/components/common/EmptyState';
 import { useVideoPlans, useVideoSegments } from '../hooks';
 import { parsePlanJson, importPlan, PlanImportError } from '../planImport';
 import VideoPlanView from './VideoPlanView';
@@ -220,16 +221,17 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
 
         {/* Plans list or empty state */}
         {plans.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-neutral-400 mb-4">{t('videoPlanner.noPlans')}</p>
-            <div className="flex items-center justify-center gap-2">
-              <button
-                onClick={() => setShowNewPlanForm(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded bg-accent-gold text-deep font-medium hover:bg-accent-gold/90 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                {t('videoPlanner.createFirst')}
-              </button>
+          <div>
+            <EmptyState
+              icon={<Video size={40} />}
+              title={t('videoPlanner.noPlans.title')}
+              message={t('videoPlanner.noPlans.message')}
+              action={{ label: t('videoPlanner.createFirst'), onClick: () => setShowNewPlanForm(true) }}
+            />
+            {/* Import stays a second, quieter offer: a plan exported from
+                another project is the other way in, and it is not the one a
+                first-time writer is looking for. */}
+            <div className="-mt-4 flex justify-center pb-4">
               <button
                 onClick={handleImportClick}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded border border-border text-neutral-300 hover:border-accent-gold/50 hover:text-accent-gold transition-colors"

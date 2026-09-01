@@ -33,6 +33,8 @@ export interface AuditLine {
   conversationId?: string;
   projectId?: string;
   entityId?: string;
+  /** Every row a single call created, when it created more than one. */
+  entityIds?: string[];
   summary?: string;
   before?: unknown;
   kind?: 'create' | 'update' | 'delete' | 'undo';
@@ -126,8 +128,14 @@ export function createToolExecutor(deps: ExecutorDeps) {
     // What the call did, read off the result rather than declared by each of
     // forty handlers: every create result says `created`, every delete says
     // `deleted`, and anything else that wrote is an update.
+    // A handler whose result cannot say it — a bulk import answers with a
+    // count, not `created: true` — declares it on the envelope instead.
     const shape = (outcome.result ?? {}) as Record<string, unknown>;
-    const kind = shape.created === true ? 'create' : shape.deleted === true ? 'delete' : 'update';
+    const manyIds = audit?.entityIds;
+    const declared = typeof audit?.kind === 'string' ? audit.kind : '';
+    const inferred = shape.created === true ? 'create' : shape.deleted === true ? 'delete' : 'update';
+    const kind =
+      declared === 'create' || declared === 'update' || declared === 'delete' ? declared : inferred;
     const auditIndex = await deps.audit({
       at: now(),
       tool: tool.name,
@@ -140,6 +148,9 @@ export function createToolExecutor(deps: ExecutorDeps) {
       table: typeof audit?.table === 'string' ? audit.table : undefined,
       projectId: typeof audit?.projectId === 'string' ? audit.projectId : undefined,
       entityId: typeof audit?.entityId === 'string' ? audit.entityId : undefined,
+      entityIds: Array.isArray(manyIds)
+        ? manyIds.filter((id): id is string => typeof id === 'string')
+        : undefined,
       summary: typeof audit?.summary === 'string' ? audit.summary : undefined,
       before: audit?.before,
     });

@@ -19,7 +19,9 @@ import {
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
+  EMPTY_CONTENT,
   htmlFromMarkdown,
   markdownFromHtml,
   optEnum,
@@ -115,6 +117,7 @@ export async function whAddBiographyFact(args: ToolArgs): Promise<unknown> {
   const bio = await getBiography(biographyId);
   if (!bio) throw new BridgeError('not-found', `No biography with id "${biographyId}".`);
   await assertEngineEnabled(bio.projectId, 'biography');
+  assertRowInScope(args, bio.projectId);
   const siblings = await getFacts(biographyId);
 
   const sourceDescription = optString(args, 'sourceDescription');
@@ -154,12 +157,16 @@ export async function whUpdateBiographyFact(args: ToolArgs): Promise<unknown> {
   const existing = await db.biographyFacts.get(id);
   if (!existing) throw new BridgeError('not-found', `No biography fact with id "${id}".`);
   await assertEngineEnabled(existing.projectId, 'biography');
+  assertRowInScope(args, existing.projectId);
 
   const changes: Partial<BiographyFact> = {};
   const title = optString(args, 'title');
   if (title !== undefined) changes.title = title;
   const content = optString(args, 'content');
-  if (content !== undefined) changes.content = htmlFromMarkdown(content);
+  if (content !== undefined) {
+    if (!content.trim()) throw new BridgeError('bad-args', EMPTY_CONTENT);
+    changes.content = htmlFromMarkdown(content);
+  }
   const date = optString(args, 'date');
   if (date !== undefined) changes.date = date;
   const endDate = optString(args, 'endDate');
@@ -174,6 +181,13 @@ export async function whUpdateBiographyFact(args: ToolArgs): Promise<unknown> {
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
+  const before: Record<string, unknown> = {
+    title: existing.title,
+    category: existing.category,
+    confidence: existing.confidence,
+  };
+  // The fact's prose is replaced whole, and nothing else keeps a copy of it.
+  if (changes.content !== undefined) before.content = existing.content;
   await updateFact(id, changes);
   return withAudit(
     { id, updated: Object.keys(changes) },
@@ -181,11 +195,7 @@ export async function whUpdateBiographyFact(args: ToolArgs): Promise<unknown> {
       projectId: existing.projectId,
       entityId: id,
       summary: `updated fact "${existing.title}"`,
-      before: {
-        title: existing.title,
-        category: existing.category,
-        confidence: existing.confidence,
-      },
+      before,
     },
   );
 }

@@ -3,7 +3,10 @@ import { Network, Plus, Trash2, X, LayoutGrid, List } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { EngineSpinner, ConfirmDialog, useDebouncedField } from '@/engines/_shared';
+import { navigateTo } from '@/engines/_shared/anchoring';
 import ColorPicker from '@/components/common/ColorPicker';
+import EmptyState from '@/components/common/EmptyState';
+import { useProject } from '@/hooks/useProjects';
 import { useRelationships } from '../hooks';
 import type { Relationship, RelationshipKind } from '../types';
 import { RELATIONSHIP_KIND_CONFIG, RELATIONSHIP_STATE_CONFIG, intensityColor } from '../types';
@@ -21,6 +24,7 @@ export default function RelationshipsEngine({ projectId }: EngineComponentProps)
   const { items: relationships, loading, addItem: addRel, editItem: editRel, removeItem: removeRel } =
     useRelationships(projectId);
   const { items: codexEntries, loading: codexLoading } = useCodexEntries(projectId);
+  const { project } = useProject(projectId);
   const [viewMode, setViewMode] = useState<ViewMode>('matrix');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
@@ -122,10 +126,30 @@ export default function RelationshipsEngine({ projectId }: EngineComponentProps)
 
       {/* --- Main view --- */}
       {characters.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-text-dim">
-          <Network size={36} className="mb-3 opacity-40" />
-          <p className="text-sm">{t('relationships.needCharacters')}</p>
-        </div>
+        // Nothing here can be created until the codex has people in it, so the
+        // empty state carries the jump rather than making the writer find the
+        // tab themselves. Guarded: a project that has switched the codex off
+        // would be bounced back to Overview by the router.
+        <EmptyState
+          icon={<Network size={40} />}
+          title={t('relationships.needCharacters.title')}
+          message={t('relationships.needCharacters')}
+          action={
+            project?.enabledEngines?.includes('codex')
+              ? { label: t('relationships.openCodex'), onClick: () => navigateTo(`/project/${projectId}/codex`) }
+              : undefined
+          }
+        />
+      ) : relationships.length === 0 ? (
+        // Sits above the view switch on purpose. The matrix is the default
+        // view, and with no ties yet it is a grid of blank cells that nothing
+        // clicks — the emptiest screen in the engine, shown first.
+        <EmptyState
+          icon={<Network size={40} />}
+          title={t('relationships.empty.title')}
+          message={t('relationships.empty.message')}
+          action={{ label: t('relationships.new'), onClick: () => setShowNew(true) }}
+        />
       ) : viewMode === 'matrix' ? (
         <MatrixView
           characters={characters}
@@ -239,6 +263,8 @@ function MatrixView({
 // ListView
 // ---------------------------------------------------------------------------
 
+// The empty case belongs to the engine, not here: it has to cover the matrix
+// view too, and both views want the same sentence and the same button.
 function ListView({
   relationships,
   onEdit,
@@ -249,9 +275,6 @@ function ListView({
   onDelete: (id: string) => void;
 }) {
   const { t } = useTranslation();
-  if (relationships.length === 0) {
-    return <p className="text-xs text-text-dim text-center py-8">{t('relationships.empty')}</p>;
-  }
   return (
     <div className="space-y-2">
       {relationships.map((r) => {

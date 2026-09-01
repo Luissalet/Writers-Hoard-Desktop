@@ -215,11 +215,11 @@ registerBackupStrategy({
       }
 
       const edges = await readBackupJson<BoardEdge[]>(zip, `${dir}/edges.json`);
-      if (edges?.length) await db.boardEdges.bulkAdd(edges);
+      if (edges?.length) await db.boardEdges.bulkPut(edges);
       const layers = await readBackupJson<BoardLayer[]>(zip, `${dir}/layers.json`);
-      if (layers?.length) await db.boardLayers.bulkAdd(layers);
+      if (layers?.length) await db.boardLayers.bulkPut(layers);
       const views = await readBackupJson<BoardView[]>(zip, `${dir}/views.json`);
-      if (views?.length) await db.boardViews.bulkAdd(views);
+      if (views?.length) await db.boardViews.bulkPut(views);
     }
   },
 });

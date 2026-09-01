@@ -116,7 +116,7 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave, scenes = [
             className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-muted transition hover:border-accent-gold hover:text-text-primary"
           >
             <Images size={15} />
-            Choose from Gallery
+            {t('common.chooseFromGallery')}
           </button>
         </div>
 

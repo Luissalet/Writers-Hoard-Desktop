@@ -13,6 +13,8 @@ import type { AiMessage, AiProjectSettings, AiThread } from './types';
 const HISTORY_MESSAGE_LIMIT = 40;
 const HISTORY_CHAR_BUDGET = 60_000;
 const TOOL_HISTORY_CHARS = 4_000;
+/** Stands in for a call the user stopped before it could run. */
+const UNANSWERED_TOOL_ERROR = 'The user stopped the turn before this call ran.';
 
 const listeners = new Set<() => void>();
 function notify(): void {
@@ -118,13 +120,33 @@ export async function getProjectSettings(projectId: string): Promise<AiProjectSe
   );
 }
 
+/**
+ * Patch only the fields the caller names, in one transaction. Two surfaces
+ * share this single row — the Image Studio owns `imageRoute`, the copilot dock
+ * owns `chatRoute`, `defaultPolicy` and `remoteConsent` — so neither may write
+ * back a whole row it read earlier. The full-row write is the first-save path
+ * only, when there is no row to patch.
+ */
 export async function saveProjectSettings(
   projectId: string,
   changes: Partial<Omit<AiProjectSettings, 'projectId' | 'updatedAt'>>,
 ): Promise<AiProjectSettings> {
-  const current = await getProjectSettings(projectId);
-  const next: AiProjectSettings = { ...current, ...changes, projectId, updatedAt: Date.now() };
-  await db.aiProjectSettings.put(next);
+  const next = await db.transaction('rw', db.aiProjectSettings, async () => {
+    const updatedAt = Date.now();
+    const patched = await db.aiProjectSettings.update(projectId, { ...changes, updatedAt });
+    if (patched > 0) {
+      const row = await db.aiProjectSettings.get(projectId);
+      if (row) return row;
+    }
+    const row: AiProjectSettings = {
+      ...(await getProjectSettings(projectId)),
+      ...changes,
+      projectId,
+      updatedAt,
+    };
+    await db.aiProjectSettings.put(row);
+    return row;
+  });
   notify();
   return next;
 }
@@ -162,5 +184,28 @@ export function historyFromMessages(messages: AiMessage[]): { history: AiChatMes
   // trailing assistant turn whose tool results were cut off.
   const last = out[out.length - 1];
   if (last?.role === 'assistant' && last.toolCalls?.length) out.pop();
+  // And answer a request that was only half answered — a turn stopped between
+  // two of its calls — so a thread corrupted by an older build replays again.
+  for (let i = 0; i < out.length; i += 1) {
+    const entry = out[i];
+    if (entry.role !== 'assistant' || !entry.toolCalls?.length) continue;
+    const answered = new Set<string>();
+    let end = i + 1;
+    while (end < out.length && out[end].role === 'tool') {
+      const answeredId = out[end].toolCallId;
+      if (answeredId) answered.add(answeredId);
+      end += 1;
+    }
+    const missing = entry.toolCalls.filter((call) => !answered.has(call.id));
+    if (!missing.length) continue;
+    const replies = missing.map((call): AiChatMessage => ({
+      role: 'tool',
+      content: JSON.stringify({ error: UNANSWERED_TOOL_ERROR, code: 'cancelled' }),
+      toolCallId: call.id,
+      name: call.name,
+    }));
+    out.splice(end, 0, ...replies);
+    i = end + replies.length - 1;
+  }
   return { history: out, usedTools: [...usedTools] };
 }

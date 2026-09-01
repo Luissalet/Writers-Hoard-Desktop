@@ -72,8 +72,10 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
           <button
             onClick={onClose}
             className="text-text-dim hover:text-text-primary transition-colors"
+            title={t('common.close')}
+            aria-label={t('common.close')}
           >
-            <X size={20} />
+            <X size={20} aria-hidden="true" />
           </button>
         </div>
 

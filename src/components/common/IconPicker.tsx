@@ -159,8 +159,10 @@ export default function IconPicker({
               <button
                 onClick={() => setSearch('')}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 hover:bg-border rounded transition"
+                title={t('engines.clearSearch')}
+                aria-label={t('engines.clearSearch')}
               >
-                <X size={12} className="text-text-dim" />
+                <X size={12} className="text-text-dim" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -318,8 +320,10 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
           <button
             onClick={(e) => { e.stopPropagation(); setSearch(''); }}
             className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 hover:bg-border rounded transition"
+            title={t('engines.clearSearch')}
+            aria-label={t('engines.clearSearch')}
           >
-            <X size={10} className="text-text-dim" />
+            <X size={10} className="text-text-dim" aria-hidden="true" />
           </button>
         )}
       </div>

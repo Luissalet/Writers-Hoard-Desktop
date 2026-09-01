@@ -12,12 +12,14 @@ import {
   getWriting,
   getWritings,
   updateWriting,
+  WritingConflictError,
 } from '@/engines/writings/operations';
-import { listSnapshots, restoreSnapshot, takeSnapshot } from '@/engines/writings/snapshots';
+import { listSnapshotMeta, restoreSnapshot, takeSnapshot } from '@/engines/writings/snapshots';
 import { countWords } from '@/utils/text';
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
   htmlFromMarkdown,
   markdownFromHtml,
@@ -38,6 +40,41 @@ async function mustGetWriting(id: string): Promise<Writing> {
   const writing = await getWriting(id);
   if (!writing) throw new BridgeError('not-found', `No writing with id "${id}".`);
   return writing;
+}
+
+/**
+ * Write the model's change ONLY onto the row the model was shown.
+ *
+ * Both handlers below read the chapter, then spend several awaits composing the
+ * write — a snapshot, a Markdown conversion, and in the append case the whole
+ * existing body concatenated to the addition. The writer's editor is flushing
+ * its own in-memory copy of that same chapter every 1.2 seconds throughout. So
+ * `existing` is a photograph, and writing it back without checking is how a
+ * paragraph the writer typed while the model was thinking disappears without a
+ * trace.
+ *
+ * `updateWriting` refuses that write when the row has moved, and files the text
+ * it refused as a version first. What is left to do here is tell the model, in
+ * terms it can act on: nothing was lost, read the chapter again, and decide.
+ * `conflict` is a code, not a crash, so the run continues.
+ */
+async function writeToUnmovedRow(
+  existing: Writing,
+  changes: Partial<Writing>,
+): Promise<void> {
+  try {
+    await updateWriting(existing.id, changes, existing.updatedAt);
+  } catch (err) {
+    if (!(err instanceof WritingConflictError)) throw err;
+    throw new BridgeError(
+      'conflict',
+      `"${existing.title}" was changed by someone else while this call was being prepared, ` +
+      'so it was NOT overwritten. Nothing is lost: the text this call would have written ' +
+      'is saved in the chapter\'s version history' +
+      (err.rejectedSnapshotId ? ` as snapshot "${err.rejectedSnapshotId}"` : '') +
+      '. Read the chapter again with wh_get_writing before deciding what to do.',
+    );
+  }
 }
 
 export async function whListWritings(args: ToolArgs): Promise<unknown> {
@@ -106,6 +143,7 @@ export async function whCreateWriting(args: ToolArgs): Promise<unknown> {
 export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
   const existing = await mustGetWriting(requireString(args, 'id'));
   await assertEngineEnabled(existing.projectId, 'writings');
+  assertRowInScope(args, existing.projectId);
   const markdown = optString(args, 'content');
   const changes: Partial<Writing> = {};
 
@@ -129,7 +167,7 @@ export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
-  await updateWriting(existing.id, changes);
+  await writeToUnmovedRow(existing, changes);
   return withAudit(
     { id: existing.id, updated: Object.keys(changes), wordCount: changes.wordCount ?? existing.wordCount },
     {
@@ -144,25 +182,29 @@ export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
 export async function whAppendWriting(args: ToolArgs): Promise<unknown> {
   const existing = await mustGetWriting(requireString(args, 'id'));
   await assertEngineEnabled(existing.projectId, 'writings');
+  assertRowInScope(args, existing.projectId);
   const addition = htmlFromMarkdown(requireString(args, 'content'));
   await takeSnapshot(existing, 'pre-ai');
   const content = `${existing.content ?? ''}${addition}`;
   const wordCount = countWords(content);
-  await updateWriting(existing.id, { content, wordCount });
+  await writeToUnmovedRow(existing, { content, wordCount });
   return withAudit(
     { id: existing.id, wordCount, added: wordCount - existing.wordCount },
     {
       projectId: existing.projectId,
       entityId: existing.id,
       summary: `appended to writing "${existing.title}"`,
-      before: { wordCount: existing.wordCount },
+      // The body as well as the count: recording the count alone made undo a
+      // lie — the appended words stayed in the manuscript and the stored
+      // wordCount no longer matched them, with nothing to recompute it.
+      before: { content: existing.content ?? '', wordCount: existing.wordCount },
     },
   );
 }
 
 export async function whListWritingVersions(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
-  const snapshots = await listSnapshots(id);
+  const snapshots = await listSnapshotMeta(id);
   return {
     writingId: id,
     versions: snapshots.map((snapshot) => ({
@@ -184,6 +226,7 @@ export async function whRestoreWritingVersion(args: ToolArgs): Promise<unknown> 
   const snapshot = await db.writingSnapshots.get(snapshotId);
   if (!snapshot) throw new BridgeError('not-found', `No snapshot with id "${snapshotId}".`);
   await assertEngineEnabled(snapshot.projectId, 'writings');
+  assertRowInScope(args, snapshot.projectId);
 
   const restored = await restoreSnapshot(snapshotId);
   if (!restored) {

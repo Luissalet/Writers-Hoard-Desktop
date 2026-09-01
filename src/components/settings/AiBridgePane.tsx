@@ -48,6 +48,17 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
+/**
+ * Whether an entry names anything undo could act on.
+ *
+ * `entityIds` is not in the shared type — it is written by handlers that make
+ * several rows at once and read straight off the JSONL — so it is read here
+ * defensively rather than declared.
+ */
+function hasUndoTarget(entry: AiBridgeAuditEntry & { entityIds?: string[] }): boolean {
+  return Boolean(entry.entityId) || Boolean(entry.entityIds?.length);
+}
+
 /** The exact stdio entry an MCP client wants, ready to paste. */
 function mcpConfigJson(info: AiBridgeInfo): string {
   return JSON.stringify(
@@ -71,6 +82,10 @@ export default function AiBridgePane() {
   const [audit, setAudit] = useState<AiBridgeAuditEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [undoError, setUndoError] = useState<string | null>(null);
+  // What each reversal could NOT put back, by audit line. A partial undo that
+  // said nothing left the line reading "undone" with half the change still on
+  // disk — the one outcome nobody would think to check.
+  const [undoCaveats, setUndoCaveats] = useState<Record<number, string>>({});
   const bridge = typeof window !== 'undefined' ? window.electronAPI?.aiBridge : undefined;
 
   const refresh = useCallback(() => {
@@ -192,42 +207,57 @@ export default function AiBridgePane() {
             ) : (
               <div className="space-y-1 max-h-40 overflow-y-auto">
                 {audit.map((entry) => (
-                  <div key={entry.index} className="flex items-baseline gap-2 text-[10px]">
-                    <span className="text-text-dim flex-shrink-0 font-mono">
-                      {new Date(entry.at).toLocaleTimeString()}
-                    </span>
-                    <span
-                      className={
-                        entry.undone
-                          ? 'text-text-dim line-through'
-                          : entry.ok
-                            ? 'text-text-muted'
-                            : 'text-red-400'
-                      }
-                    >
-                      {entry.summary ?? entry.tool}
-                      {entry.ok ? '' : ` — ${entry.error ?? ''}`}
-                    </span>
-                    {/* Only a change that actually landed, and is not already
-                        reverted, has anything to turn back. */}
-                    {entry.ok && !entry.undone && entry.kind && entry.kind !== 'undo' && (
-                      <button
-                        onClick={() => {
-                          setBusy(true);
-                          void bridge
-                            .undo(entry.index)
-                            .then((result) => setUndoError(result.ok ? null : result.error ?? null))
-                            .finally(() => {
-                              setBusy(false);
-                              refresh();
-                            });
-                        }}
-                        disabled={busy}
-                        className="ml-auto flex-shrink-0 text-text-dim hover:text-accent-gold transition disabled:opacity-40"
-                        title={t('settings.bridge.undo')}
+                  <div key={entry.index}>
+                    <div className="flex items-baseline gap-2 text-[10px]">
+                      <span className="text-text-dim flex-shrink-0 font-mono">
+                        {new Date(entry.at).toLocaleTimeString()}
+                      </span>
+                      <span
+                        className={
+                          entry.undone
+                            ? 'text-text-dim line-through'
+                            : entry.ok
+                              ? 'text-text-muted'
+                              : 'text-red-400'
+                        }
                       >
-                        <Undo2 size={11} />
-                      </button>
+                        {entry.summary ?? entry.tool}
+                        {entry.ok ? '' : ` — ${entry.error ?? ''}`}
+                      </span>
+                      {/* Only a change that actually landed, is not already
+                          reverted, and names a row to put back. Offering the
+                          button on an entry with no entity was a button that
+                          could only ever fail. */}
+                      {entry.ok && !entry.undone && entry.kind && entry.kind !== 'undo' && hasUndoTarget(entry) && (
+                        <button
+                          onClick={() => {
+                            setBusy(true);
+                            void bridge
+                              .undo(entry.index)
+                              .then((result) => {
+                                setUndoError(result.ok ? null : result.error ?? null);
+                                const caveat = result.ok
+                                  ? (result.result as { caveat?: string } | undefined)?.caveat
+                                  : undefined;
+                                if (caveat) setUndoCaveats((prev) => ({ ...prev, [entry.index]: caveat }));
+                              })
+                              .finally(() => {
+                                setBusy(false);
+                                refresh();
+                              });
+                          }}
+                          disabled={busy}
+                          className="ml-auto flex-shrink-0 text-text-dim hover:text-accent-gold transition disabled:opacity-40"
+                          title={t('settings.bridge.undo')}
+                        >
+                          <Undo2 size={11} />
+                        </button>
+                      )}
+                    </div>
+                    {undoCaveats[entry.index] && (
+                      <p className="text-[10px] text-accent-gold pl-2 break-words">
+                        {undoCaveats[entry.index]}
+                      </p>
                     )}
                   </div>
                 ))}

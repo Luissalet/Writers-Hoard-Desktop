@@ -23,6 +23,7 @@ import {
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
   optEnum,
   optNumber,
@@ -133,6 +134,7 @@ export async function whAddArcBeat(args: ToolArgs): Promise<unknown> {
   const arc = await getArc(arcId);
   if (!arc) throw new BridgeError('not-found', `No character arc with id "${arcId}".`);
   await assertEngineEnabled(arc.projectId, 'character-arc');
+  assertRowInScope(args, arc.projectId);
   const siblings = await getBeats(arcId);
   const now = Date.now();
   const beat: ArcBeat = {
@@ -167,6 +169,7 @@ export async function whUpdateArcBeat(args: ToolArgs): Promise<unknown> {
   const existing = await db.arcBeats.get(id);
   if (!existing) throw new BridgeError('not-found', `No arc beat with id "${id}".`);
   await assertEngineEnabled(existing.projectId, 'character-arc');
+  assertRowInScope(args, existing.projectId);
 
   const changes: Partial<ArcBeat> = {};
   (['title', 'description', 'emotion', 'linkedSceneId'] as const).forEach((key) => {

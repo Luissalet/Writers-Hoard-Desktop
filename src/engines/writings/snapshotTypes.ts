@@ -15,3 +15,16 @@ export interface WritingSnapshot {
   reason: SnapshotReason;
   createdAt: number;
 }
+
+/**
+ * A version WITHOUT its body — the shape every list, count and "which is the
+ * newest" question actually needs.
+ *
+ * `content` is the whole chapter, and a chapter that has been opened three
+ * hundred times carries three hundred of them. Everything the history panel
+ * renders (when, why, how long) and everything the AI bridge reports back is in
+ * the other seven fields, so those callers get this type and never pay for the
+ * prose. The one row whose text is genuinely wanted — the version the writer
+ * clicked, or the one being restored — is read on its own by id.
+ */
+export type WritingSnapshotMeta = Omit<WritingSnapshot, 'content'>;

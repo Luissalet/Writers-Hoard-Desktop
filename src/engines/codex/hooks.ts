@@ -1,5 +1,5 @@
 import { makeEntityHook, makeTableOps } from '@/engines/_shared';
-import { deleteCodexEntry } from '@/db/operations';
+import { deleteCodexEntry, updateCodexEntry } from '@/db/operations';
 import type { CodexEntry } from '@/types';
 
 const codexEntryOps = makeTableOps<CodexEntry>({
@@ -10,7 +10,12 @@ const codexEntryOps = makeTableOps<CodexEntry>({
 export const useCodexEntries = makeEntityHook<CodexEntry>({
   fetchFn: codexEntryOps.getAll,
   createFn: codexEntryOps.create,
-  updateFn: codexEntryOps.update,
+  // Igual que el borrado: el renombrado tampoco puede ser un update plano. El
+  // nombre del personaje está denormalizado en `relationships` y en
+  // `characterArcs`, que es lo que leen la lista de Relaciones, el resolutor de
+  // entidades y el índice de búsqueda — así que renombrar aquí dejaba la mitad
+  // de la aplicación mostrando el nombre viejo, para siempre.
+  updateFn: updateCodexEntry,
   // NO `codexEntryOps.delete`. El borrado plano deja punteros muertos por media
   // aplicación: la relación «Alicia ↔ Bob» seguía saliendo entera y editable en
   // la vista de lista de Relaciones —y desaparecida en la matriz, porque ésa

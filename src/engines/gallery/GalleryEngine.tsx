@@ -6,11 +6,18 @@ import { useCodexEntries } from '@/engines/codex/hooks';
 import InspirationGallery from '@/components/gallery/InspirationGallery';
 
 export default function GalleryEngine({ projectId }: EngineComponentProps) {
-  const { items: images, addItem: addImage, editItem: editImage, removeItem: removeImage } = useInspirationImages(projectId);
+  const { items: images, addItem: addImage, editItem: editImage, removeItem: removeImage, refresh: refreshImages } = useInspirationImages(projectId);
   const { items: collections, addItem: addCollection, removeItem: removeCollection } = useImageCollections(projectId);
   const { items: entries, loading: entriesLoading } = useCodexEntries(projectId);
 
   const loading = useMemo(() => entriesLoading, [entriesLoading]);
+
+  // Deleting an album unfiles its images in the same transaction, so the grid
+  // has to re-read them — its own hook never saw that write.
+  const deleteCollection = async (id: string) => {
+    await removeCollection(id);
+    await refreshImages();
+  };
 
   if (loading) return <EngineSpinner />;
 
@@ -24,7 +31,7 @@ export default function GalleryEngine({ projectId }: EngineComponentProps) {
       onEditImage={editImage}
       onDelete={removeImage}
       onAddCollection={addCollection}
-      onDeleteCollection={removeCollection}
+      onDeleteCollection={deleteCollection}
     />
   );
 }

@@ -33,6 +33,20 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
     return () => { cancelled = true; };
   }, [deepLinkedPinId]);
 
+  // Deep link: `/project/:id/maps?map=<id>` — what the anchor adapter emits for
+  // a note anchored on the map itself (`AnnotationSurface` uses the map id).
+  // Checked against the table so a stale link can't strand the engine on a map
+  // that no longer exists.
+  const deepLinkedMapId = useDeepLinkParam('map');
+  useEffect(() => {
+    if (!deepLinkedMapId) return;
+    let cancelled = false;
+    void db.worldMaps.get(deepLinkedMapId).then((map) => {
+      if (!cancelled && map) setActiveMapId(map.id);
+    });
+    return () => { cancelled = true; };
+  }, [deepLinkedMapId]);
+
   useEnsureDefault({
     items: maps,
     loading: mapsLoading,

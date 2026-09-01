@@ -52,6 +52,74 @@ export function dataUrlToBlob(dataUrl: string): { blob: Uint8Array; ext: string;
   return { blob: bytes, ext, mime };
 }
 
+// ---------------------------------------------------------------------------
+// Preloaded archives — why a restore never reads bytes out of JSZip
+// ---------------------------------------------------------------------------
+//
+// JSZip pumps every `async()` read through its own `setImmediate`, so a single
+// read hands control back to the event loop. Dexie only carries a transaction's
+// zone across MICROtasks, which means the code that resumes after such a read is
+// no longer inside the restore's transaction: its next write opens a SECOND
+// readwrite transaction over stores the first one already holds, IndexedDB
+// queues that one behind the first, the first cannot commit until the strategy
+// returns — and the two wait for each other for ever. That is the restore hang
+// of 2026-08-31, and it is not specific to any one table; it is the first table
+// an archive happens to carry.
+//
+// Reading the whole archive before the transaction opens turns every read
+// inside it into a plain value, so a strategy can go on reading and writing in
+// the order that reads best.
+const PRELOADED = new WeakMap<JSZip, Map<string, Uint8Array>>();
+
+const ARCHIVE_TEXT = new TextDecoder();
+
+/** btoa needs a binary string, and a whole image at once blows the arg limit. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Decompress a whole archive so its strategies can run inside one Dexie
+ * transaction. Call it OUTSIDE the transaction. The cost is one uncompressed
+ * copy of an archive the caller already holds in memory, and it is released
+ * with the JSZip instance it belongs to.
+ */
+export async function preloadArchive(zip: JSZip): Promise<void> {
+  if (PRELOADED.has(zip)) return;
+  const paths: string[] = [];
+  zip.forEach((_relativePath, file) => { if (!file.dir) paths.push(file.name); });
+  const contents = new Map<string, Uint8Array>();
+  for (const path of paths) {
+    const file = zip.file(path);
+    if (file) contents.set(path, await file.async('uint8array'));
+  }
+  PRELOADED.set(zip, contents);
+}
+
+/**
+ * One entry of a preloaded archive. `undefined` means the archive was never
+ * preloaded — export, and the tests that drive a strategy directly — so the
+ * caller falls back to reading JSZip; `null` means it was preloaded and the
+ * entry is genuinely absent.
+ */
+function preloadedEntry(zip: JSZip, path: string): Uint8Array | null | undefined {
+  const contents = PRELOADED.get(zip);
+  if (!contents) return undefined;
+  const bytes = contents.get(path);
+  if (bytes !== undefined) return bytes;
+  // An entry the preload never saw was written after it ran. Reading it would
+  // yield to the event loop in the middle of the restore transaction, which is
+  // the deadlock the preload exists to prevent, so name it instead of hanging.
+  if (zip.file(path)) {
+    throw new Error(`Archive entry "${path}" was written after the archive was read.`);
+  }
+  return null;
+}
+
 /** Restore a base64 data URL from a relative path inside the zip. */
 export async function readImageAsDataUrl(
   zip: JSZip,
@@ -60,20 +128,28 @@ export async function readImageAsDataUrl(
 ): Promise<string | undefined> {
   if (!relativePath || relativePath.startsWith('data:')) return relativePath || undefined;
   const fullPath = basePath ? `${basePath}/${relativePath}` : relativePath;
-  const file = zip.file(fullPath);
-  if (!file) return undefined;
   const ext = relativePath.split('.').pop()?.toLowerCase() || 'png';
   const mimeMap: Record<string, string> = {
     png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
     gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
   };
   const mime = mimeMap[ext] || 'image/png';
+  const preloaded = preloadedEntry(zip, fullPath);
+  if (preloaded !== undefined) {
+    return preloaded === null ? undefined : `data:${mime};base64,${bytesToBase64(preloaded)}`;
+  }
+  const file = zip.file(fullPath);
+  if (!file) return undefined;
   const base64 = await file.async('base64');
   return `data:${mime};base64,${base64}`;
 }
 
 /** Read a JSON file from the zip; returns null if missing. */
 export async function readJson<T>(zip: JSZip, path: string): Promise<T | null> {
+  const preloaded = preloadedEntry(zip, path);
+  if (preloaded !== undefined) {
+    return preloaded === null ? null : (JSON.parse(ARCHIVE_TEXT.decode(preloaded)) as T);
+  }
   const file = zip.file(path);
   if (!file) return null;
   const text = await file.async('text');
@@ -238,7 +314,10 @@ export function makeSimpleBackupStrategy(opts: {
           zip,
           `${projectDir}/${folder}/${tableName}.json`,
         );
-        if (rows?.length) await db.table(tableName).bulkAdd(rows as never[]);
+        // bulkPut, not bulkAdd: a restore must be idempotent. A surviving row
+        // (a table the clear could not reach, or a retried import) turned an
+        // add into a ConstraintError that rolled the whole restore back.
+        if (rows?.length) await db.table(tableName).bulkPut(rows as never[]);
       }
     },
   };

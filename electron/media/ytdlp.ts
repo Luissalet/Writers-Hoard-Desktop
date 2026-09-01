@@ -111,7 +111,7 @@ export async function downloadMedia(
   } else {
     args.push('-f', 'bv*+ba/b', '--merge-output-format', 'mp4');
   }
-  args.push(url);
+  args.push('--', url); // `--` so a hostile URL can never be read as an option
 
   try {
     await runProcess(ytdlp, args, signal);
@@ -191,7 +191,9 @@ function runProcess(cmd: string, args: string[], signal?: AbortSignal): Promise<
       reject(new Error('cancelled'));
       return;
     }
-    const child = spawn(cmd, args, { windowsHide: true });
+    // Detached on POSIX so the child leads its own process group and
+    // killProcessTree's `kill(-pid)` reaps yt-dlp AND its ffmpeg grandchild.
+    const child = spawn(cmd, args, { windowsHide: true, detached: !isWin });
 
     // Run the download/mux below normal priority so a heavy ffmpeg pass never
     // starves the UI or the rest of the machine.

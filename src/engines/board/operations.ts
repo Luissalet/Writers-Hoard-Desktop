@@ -7,7 +7,7 @@
 // selected cards must cost one transaction, not thirty.
 
 import { db } from '@/db';
-import { makeCascadeDeleteOp, makeTableOps } from '@/engines/_shared';
+import { deleteEntityAnnotations, makeCascadeDeleteOp, makeTableOps } from '@/engines/_shared';
 import { planDeletion } from './graph/mutations';
 import type { Board, BoardEdge, BoardLayer, BoardNode, BoardView } from './types';
 
@@ -24,7 +24,7 @@ export const getBoard = boardOps.getOne;
 export const createBoard = boardOps.create;
 export const updateBoard = boardOps.update;
 
-export const deleteBoard = makeCascadeDeleteOp({
+const deleteBoardRow = makeCascadeDeleteOp({
   tableName: 'boards',
   cascades: [
     { table: 'boardNodes', foreignKey: 'boardId' },
@@ -33,6 +33,27 @@ export const deleteBoard = makeCascadeDeleteOp({
     { table: 'boardViews', foreignKey: 'boardId' },
   ],
 });
+
+/**
+ * Deleting a board takes its margin notes with it.
+ *
+ * `BoardEngine` mounts an `AnnotationSurface` with `sourceEngineId: 'board'`,
+ * so a board is annotated like any scene or writing — but it was the one
+ * annotated engine whose delete never called `deleteEntityAnnotations`, and
+ * the cascade above only knew about the board's own tables. The notes and
+ * their reference rows stayed in Dexie pointing at a board that no longer
+ * existed: invisible, unreachable, and never collected.
+ */
+export async function deleteBoard(id: string): Promise<void> {
+  await db.transaction(
+    'rw',
+    ['boards', 'boardNodes', 'boardEdges', 'boardLayers', 'boardViews', 'annotations', 'annotationReferences'],
+    async () => {
+      await deleteEntityAnnotations('board', id);
+      await deleteBoardRow(id);
+    },
+  );
+}
 
 // ===== Nodes =====
 
@@ -129,6 +150,32 @@ export async function putBoardEdges(edges: BoardEdge[]): Promise<void> {
 export async function rawDeleteBoardEdges(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   await db.boardEdges.bulkDelete(ids);
+}
+
+// ===== Canvas write queue =====
+
+export interface BoardBatch {
+  nodePuts: BoardNode[];
+  edgePuts: BoardEdge[];
+  nodeDeletes: string[];
+  edgeDeletes: string[];
+}
+
+/**
+ * One flush of the canvas queue, as a single transaction. Run as four separate
+ * awaits a quota error part-way through left the board half-written — nodes
+ * saved without the edges that gave them meaning — and the queue had already
+ * been emptied, so nothing would ever go back for the rest.
+ */
+export async function commitBoardBatch(batch: BoardBatch): Promise<void> {
+  await db.transaction('rw', [db.boardNodes, db.boardEdges], async () => {
+    // Deletes first: an edge row that references a node being removed must
+    // not be re-inserted by a put queued earlier in the same batch.
+    if (batch.edgeDeletes.length > 0) await db.boardEdges.bulkDelete(batch.edgeDeletes);
+    if (batch.nodeDeletes.length > 0) await db.boardNodes.bulkDelete(batch.nodeDeletes);
+    if (batch.nodePuts.length > 0) await db.boardNodes.bulkPut(batch.nodePuts);
+    if (batch.edgePuts.length > 0) await db.boardEdges.bulkPut(batch.edgePuts);
+  });
 }
 
 // ===== Layers =====

@@ -17,6 +17,7 @@ import {
   Loader2,
   MessageSquarePlus,
   Pencil,
+  RotateCcw,
   Send,
   Settings2,
   ShieldCheck,
@@ -29,18 +30,27 @@ import { useProject } from '@/hooks/useProjects';
 import { useLocaleStore } from '@/stores/localeStore';
 import { useCopilotStore, COPILOT_DOCK_MAX_WIDTH, COPILOT_DOCK_MIN_WIDTH } from '@/stores/copilotStore';
 import { useAiRuntimeStore, selectChatModels } from '@/stores/aiRuntimeStore';
-import { ConfirmDialog } from '@/engines/_shared';
+import { useImageRuntimeStore } from '@/stores/imageRuntimeStore';
+import { useCopilotHandoffStore } from '@/stores/copilotHandoffStore';
+import { ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
+import { getAnchorAdapter } from '@/engines/_shared/anchoring';
+import { getEngine } from '@/engines/_registry';
 import type { ActionPolicy } from '@/services/aiRuntime/toolPolicy';
 import type { AiRouteSelection } from '@/services/aiRuntime/types';
 import { fitForDescriptor, pickBestChatModel } from '@/services/aiRuntime/pickModel';
-import { DEFAULT_CONTEXT_TOKENS } from '@/services/aiRuntime/constants';
+import { BUILTIN_SD_ID, DEFAULT_CONTEXT_TOKENS } from '@/services/aiRuntime/constants';
+import { imageCatalogEntry } from '@/services/aiRuntime/imageCatalog';
+import { detectVramContention } from '@/services/aiRuntime/sdServer';
 import FitBadge from '@/components/ai-settings/FitBadge';
 import { createThread, deleteThread, saveProjectSettings, updateThread } from '@/services/copilot/threads';
-import { answerApproval, cancelCopilotTurn, sendCopilotTurn } from '@/services/copilot/runner';
+import { answerApproval, cancelCopilotTurn, planCopilotRetry, retryCopilotTurn, sendCopilotTurn } from '@/services/copilot/runner';
 import CopilotMessage from './CopilotMessage';
 import { useProjectAiSettings, useProjectThreads, useThreadMessages } from './useCopilotThread';
 
 const OVERLAY_BREAKPOINT = 1200;
+
+/** Tool calls that end up on the graphics card, and so meet the same physics. */
+const IMAGE_TOOLS = new Set(['wh_generate_image']);
 
 const POLICIES: Array<{ id: ActionPolicy; icon: typeof Eye }> = [
   { id: 'read-only', icon: Eye },
@@ -56,6 +66,125 @@ function useWindowWidth(): number {
     return () => window.removeEventListener('resize', onResize);
   }, []);
   return width;
+}
+
+/** The record the writer has open in the current tab, as the URL spells it. */
+interface OpenDocument {
+  engineId: string;
+  id: string;
+  title?: string;
+}
+
+/**
+ * How each engine names the record it has open, broad → precise.
+ *
+ * Not new plumbing: these are the very parameters the anchor adapters already
+ * write when global search, Cmd+K or an annotation backlink jumps to a record,
+ * and that `useDeepLinkParam` already reads on the other side. Engines with no
+ * deep link of their own get the fallback adapter, which uses `?entity=`.
+ */
+const DOC_PARAMS: Record<string, readonly [string, string]> = {
+  writings: ['writing', 'writing'],
+  codex: ['entry', 'entry'],
+  seeds: ['seed', 'seed'],
+  notes: ['note', 'note'],
+  outline: ['outline', 'beat'],
+  biography: ['bio', 'bio'],
+  'character-arc': ['arc', 'arc'],
+  'real-atlas': ['place', 'place'],
+  maps: ['map', 'pin'],
+  board: ['node', 'node'],
+  worldgen: ['place', 'region'],
+};
+const FALLBACK_DOC_PARAMS: readonly [string, string] = ['entity', 'entity'];
+
+/**
+ * What the writer has open, one level below the tab.
+ *
+ * The dock is mounted by MainLayout, above whatever engine is rendering, and
+ * sees no more of it than the address bar does — which is enough, because
+ * every jump to a record goes through a deep link. The title comes from the
+ * anchor adapter, the same lookup the margin notes use for their chips.
+ */
+function useOpenDocument(engineId: string | null): OpenDocument | null {
+  const [broadParam, preciseParam] = (engineId && DOC_PARAMS[engineId]) || FALLBACK_DOC_PARAMS;
+  const broadId = useDeepLinkParam(broadParam);
+  const preciseId = useDeepLinkParam(preciseParam);
+  const documentId = engineId ? preciseId ?? broadId : null;
+  const [resolved, setResolved] = useState<OpenDocument | null>(null);
+
+  useEffect(() => {
+    if (!engineId || !documentId) {
+      // Deferred: clearing synchronously inside the effect cascades a render.
+      queueMicrotask(() => setResolved(null));
+      return;
+    }
+    const adapter = getAnchorAdapter(engineId);
+    if (!adapter) {
+      // No adapter for this engine: the id is still worth handing over — a
+      // read tool can fail cleanly on it — but there is no title to name it by.
+      queueMicrotask(() => setResolved({ engineId, id: documentId }));
+      return;
+    }
+    let cancelled = false;
+    void adapter
+      .getEntityTitle(documentId)
+      .then((title) => {
+        // A null title means the adapter looked and found nothing: a stale
+        // link. Better to report nothing open than to name a record that isn't.
+        if (!cancelled) setResolved(title ? { engineId, id: documentId, title } : null);
+      })
+      .catch(() => {
+        if (!cancelled) setResolved(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [engineId, documentId]);
+
+  // Never hand back a title resolved for a record the writer has already left.
+  return resolved && resolved.engineId === engineId && resolved.id === documentId ? resolved : null;
+}
+
+/**
+ * The three things worth asking first, taken from what is actually on screen.
+ *
+ * The empty state used to DESCRIBE three things you could ask and offer no way
+ * to ask any of them, leaving the first prompt to a local 7B model to be
+ * composed from scratch — the moment a writer decides whether this is useful.
+ * These only fill the composer; nothing is sent until they press send.
+ */
+function startersFor(
+  t: (key: string) => string,
+  engineId: string | null,
+  openDocument: OpenDocument | null,
+): string[] {
+  const phrases = (prefix: string, suffixes: readonly string[]): string[] =>
+    suffixes.map((suffix) => t(`${prefix}.${suffix}`));
+  const about = (prefix: string, suffixes: readonly string[], title: string): string[] =>
+    phrases(prefix, suffixes).map((phrase) => phrase.replace('{title}', title));
+  const openTitle = openDocument?.title;
+  if (openTitle && engineId === 'writings') {
+    return about('copilot.starter.writing', ['summary', 'loose', 'cast'], openTitle);
+  }
+  if (openTitle) return about('copilot.starter.record', ['summary', 'gaps', 'mentions'], openTitle);
+  if (engineId === 'writings') return phrases('copilot.starter.writings', ['list', 'recap', 'next']);
+  if (engineId === 'codex') return phrases('copilot.starter.codex', ['list', 'thin', 'add']);
+  if (engineId && getEngine(engineId)) {
+    const engineName = t(`engines.${engineId}.name`);
+    return phrases('copilot.starter.engine', ['contents', 'gaps', 'next']).map((phrase) =>
+      phrase.replace('{engine}', engineName),
+    );
+  }
+  return phrases('copilot.starter.project', ['tour', 'next', 'note']);
+}
+
+/** A passage quoted into the draft: material to talk about, not an instruction. */
+function quoteBlock(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => `> ${line}`.trimEnd())
+    .join('\n');
 }
 
 export default function CopilotDock() {
@@ -106,13 +235,30 @@ function DockBody({ projectId, tab, open }: { projectId: string; tab: string | n
   const routeConnection = route ? runtime.connections.find((c) => c.id === route.connectionId) : undefined;
   const policy: ActionPolicy = activeThread?.policy ?? settings?.defaultPolicy ?? 'ask';
 
+  // What is on screen under the tab, and the three openers that follow from it.
+  const openEngine = tab && tab !== 'overview' ? tab : null;
+  const openDocument = useOpenDocument(openEngine);
+  const starters = startersFor(t, openEngine, openDocument);
+
   const [draft, setDraft] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [threadsOpen, setThreadsOpen] = useState(false);
-  const [pendingConsent, setPendingConsent] = useState<string | null>(null);
+  // What the remote-server consent dialog is standing in front of. A retry can
+  // reach a remote model too — the route may have changed since the turn it is
+  // replaying — so it asks through the same gate instead of around it.
+  const [pendingConsent, setPendingConsent] = useState<{ kind: 'send'; text: string } | { kind: 'retry' } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  // Bumped when something outside the dock puts text in the composer. The
+  // composer may not exist yet at that moment — a hand-off can arrive with the
+  // dock closed — so the focus waits for the render that mounts it.
+  const [focusRequest, setFocusRequest] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Held for the whole turn, set before the first await. The runner's own
+  // anti-double-send is keyed on a threadId, and on a brand-new project there
+  // is no thread yet — so two quick Enters each created one and started a
+  // generation against it.
+  const sendingRef = useRef(false);
 
   // Load what the header needs once the dock is open. Hardware drives the fit
   // badges and the "best model" star in the picker, so it is loaded too.
@@ -138,6 +284,30 @@ function DockBody({ projectId, tab, open }: { projectId: string; tab: string | n
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pickerOpen, connectionKey]);
 
+  // A passage handed over from wherever the writer was reading it — the
+  // editor's selection menu. It lands in the composer as a quote and stops
+  // there: deliberately NOT sent, so they read it back and say what they want
+  // done with it. Subscribing (not a mount-only effect) so a second selection
+  // handed over while the dock is already open is picked up too.
+  const pendingHandoff = useCopilotHandoffStore((s) => s.pending);
+  useEffect(() => {
+    if (!pendingHandoff) return;
+    const handoff = useCopilotHandoffStore.getState().take();
+    if (!handoff) return;
+    setDockOpen(true);
+    setDraft((current) => `${current.trim() ? `${current.trimEnd()}\n\n` : ''}${quoteBlock(handoff.quote)}\n\n`);
+    setFocusRequest((n) => n + 1);
+  }, [pendingHandoff, setDockOpen]);
+
+  // Put the caret after the quote, once the composer is actually on screen.
+  useEffect(() => {
+    if (focusRequest === 0) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [focusRequest, open]);
+
   // Keep the newest message in view while streaming.
   const liveLength = run?.buffer.length ?? 0;
   useEffect(() => {
@@ -153,34 +323,65 @@ function DockBody({ projectId, tab, open }: { projectId: string; tab: string | n
     return created.id;
   }, [activeThread, policy, projectId, route, setActiveThread]);
 
+  // The same briefing for a first send and for a retry: replaying a turn must
+  // put the model back in the situation it failed in, not a slightly different one.
+  const briefing = useMemo(
+    () => ({
+      projectTitle: project?.title ?? '',
+      projectDescription: project?.description,
+      projectMode: project?.mode,
+      enabledEngines: project?.enabledEngines ?? [],
+      openEngine,
+      openDocument,
+      locale,
+    }),
+    [locale, project?.title, project?.description, project?.mode, project?.enabledEngines, openEngine, openDocument],
+  );
+
   const send = useCallback(
     async (text: string, consented = false) => {
       const clean = text.trim();
       if (!clean || !route || !project) return;
       if (!consented && routeConnection?.locality === 'remote' && !settings?.remoteConsent) {
-        setPendingConsent(clean);
+        setPendingConsent({ kind: 'send', text: clean });
         return;
       }
-      const threadId = await ensureThread();
+      if (sendingRef.current) return;
+      sendingRef.current = true;
       setDraft('');
-      await sendCopilotTurn({
-        projectId,
-        threadId,
-        text: clean,
-        route,
-        policy,
-        briefing: {
-          projectTitle: project.title,
-          projectDescription: project.description,
-          projectMode: project.mode,
-          enabledEngines: project.enabledEngines,
-          openEngine: tab && tab !== 'overview' ? tab : null,
-          locale,
-        },
-      });
+      try {
+        const threadId = await ensureThread();
+        await sendCopilotTurn({ projectId, threadId, text: clean, route, policy, briefing });
+      } finally {
+        sendingRef.current = false;
+      }
     },
-    [ensureThread, locale, policy, project, projectId, route, routeConnection?.locality, settings?.remoteConsent, tab],
+    [briefing, ensureThread, policy, project, projectId, route, routeConnection?.locality, settings?.remoteConsent],
   );
+
+  // Retry: the turn that ended in an error, a timeout or a cancel is run again
+  // from the rows on disk — so it works on a thread reopened days later, and the
+  // reader's own message is replayed, never duplicated.
+  // Not while this thread is running: mid-turn the rows momentarily look like a
+  // turn that stopped between a tool call and its answer (they are exactly that,
+  // until the tool comes back), and a Retry offered next to a live approval card
+  // would be an invitation to break the turn the reader is answering.
+  const retryPlan = useMemo(() => (run ? null : planCopilotRetry(messages)), [run, messages]);
+  const startRetry = useCallback(() => {
+    if (!route || !project || !activeThreadId) return;
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    void retryCopilotTurn({ projectId, threadId: activeThreadId, route, policy, briefing }).finally(() => {
+      sendingRef.current = false;
+    });
+  }, [activeThreadId, briefing, policy, project, projectId, route]);
+  const retry = useCallback(() => {
+    if (routeConnection?.locality === 'remote' && !settings?.remoteConsent) {
+      setPendingConsent({ kind: 'retry' });
+      return;
+    }
+    startRetry();
+  }, [routeConnection?.locality, settings?.remoteConsent, startRetry]);
 
   const setPolicy = async (next: ActionPolicy) => {
     if (activeThread) await updateThread(activeThread.id, { policy: next });
@@ -210,6 +411,29 @@ function DockBody({ projectId, tab, open }: { projectId: string; tab: string | n
   const busy = Boolean(run);
   const canSend = Boolean(route) && !busy && draft.trim().length > 0;
   const noRoute = runtime.connectionsLoaded && !route;
+
+  // One card, two residents: a copilot answer leaves its chat model loaded, and
+  // the image tool it calls next needs the same memory. Warn on the card that is
+  // about to run — with the same wording and the same way out as the studio.
+  const sdStatus = useImageRuntimeStore((s) => s.status);
+  const refreshSdRuntime = useImageRuntimeStore((s) => s.refresh);
+  const imageRoute = settings?.imageRoute ?? runtime.defaults.image;
+  const imageEntry = imageRoute?.connectionId === BUILTIN_SD_ID ? imageCatalogEntry(imageRoute.modelId) : undefined;
+  const imageCallId = messages.find(
+    (message) =>
+      message.role === 'tool' &&
+      message.toolCall &&
+      IMAGE_TOOLS.has(message.toolCall.tool) &&
+      (message.toolCall.state === 'proposed' || message.toolCall.state === 'running'),
+  )?.id ?? null;
+  useEffect(() => {
+    if (!imageCallId || !imageEntry) return;
+    void refreshSdRuntime();
+  }, [imageCallId, imageEntry, refreshSdRuntime]);
+  const imageContention = useMemo(
+    () => (imageCallId ? detectVramContention(sdStatus?.vram, imageEntry) : null),
+    [imageCallId, imageEntry, sdStatus?.vram],
+  );
 
   if (!open) {
     return (
@@ -414,6 +638,25 @@ function DockBody({ projectId, tab, open }: { projectId: string; tab: string | n
             <Bot size={28} className="text-accent-gold/60" />
             <p className="text-sm text-text-primary">{t('copilot.empty.title')}</p>
             <p className="text-xs text-text-dim">{t('copilot.empty.body')}</p>
+            {route && (
+              <div className="mt-1 w-full max-w-xs space-y-1.5">
+                <p className="text-[10px] uppercase tracking-wide text-text-dim text-left">{t('copilot.starter.label')}</p>
+                {starters.map((starter) => (
+                  <button
+                    key={starter}
+                    type="button"
+                    onClick={() => {
+                      setDraft(starter);
+                      setFocusRequest((n) => n + 1);
+                    }}
+                    className="w-full text-left px-2.5 py-1.5 rounded-lg border border-border bg-elevated text-[11px] text-text-muted hover:text-text-primary hover:border-accent-gold/40 transition"
+                  >
+                    {starter}
+                  </button>
+                ))}
+                <p className="text-[10px] text-text-dim text-left">{t('copilot.starter.hint')}</p>
+              </div>
+            )}
             {noRoute && (
               <button
                 type="button"
@@ -425,7 +668,7 @@ function DockBody({ projectId, tab, open }: { projectId: string; tab: string | n
             )}
           </div>
         )}
-        {messages.map((message, index) => (
+        {messages.map((message) => (
           <CopilotMessage
             key={message.id}
             message={message}
@@ -436,22 +679,25 @@ function DockBody({ projectId, tab, open }: { projectId: string; tab: string | n
                 ? (callId, approved) => answerApproval(activeThreadId!, callId, approved)
                 : undefined
             }
-            // Retry only the most recent turn, only when it errored and nothing
-            // is running: re-send the user message it answered.
-            onRetry={
-              !run && message.status === 'error' && index === messages.length - 1
-                ? () => {
-                    for (let i = index - 1; i >= 0; i -= 1) {
-                      if (messages[i].role === 'user') {
-                        void send(messages[i].content);
-                        return;
-                      }
-                    }
-                  }
-                : undefined
-            }
+            onRetry={retryPlan?.anchorMessageId === message.id ? retry : undefined}
+            retryDisabled={busy}
+            vramContention={imageCallId === message.id ? imageContention : undefined}
           />
         ))}
+        {/* A turn stopped between a tool call and the answer leaves no assistant
+            row to hang the control off — and used to offer nothing at all. */}
+        {retryPlan && retryPlan.anchorMessageId === null && messages.length > 0 && (
+          <button
+            type="button"
+            onClick={retry}
+            disabled={busy}
+            title={t('copilot.retryHint')}
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] text-accent-gold hover:bg-accent-gold/10 transition disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            <RotateCcw size={11} />
+            {t('copilot.retry')}
+          </button>
+        )}
         {run?.chatOnly && messages.length > 0 && (
           <p className="text-[11px] text-warning">{t('copilot.notice.chat-only')}</p>
         )}
@@ -505,10 +751,12 @@ function DockBody({ projectId, tab, open }: { projectId: string; tab: string | n
         open={pendingConsent !== null}
         message={t('copilot.remoteConsent').replace('{name}', routeConnection?.name ?? '')}
         onConfirm={() => {
-          const text = pendingConsent;
+          const pending = pendingConsent;
           setPendingConsent(null);
+          if (!pending) return;
           void saveProjectSettings(projectId, { remoteConsent: true }).then(() => {
-            if (text) void send(text, true);
+            if (pending.kind === 'send') void send(pending.text, true);
+            else startRetry();
           });
         }}
         onCancel={() => setPendingConsent(null)}

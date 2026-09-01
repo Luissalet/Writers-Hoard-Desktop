@@ -1,9 +1,20 @@
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Feather, Upload, Download, Database } from 'lucide-react';
+import {
+  Plus,
+  Feather,
+  Upload,
+  Download,
+  Database,
+  Clock,
+  ShieldAlert,
+  FolderOpen,
+  Settings2,
+} from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
 import ProjectCard from '@/components/bubbles/ProjectCard';
 import EmptyState from '@/components/common/EmptyState';
+import { StoragePersistenceWarning } from '@/components/common/StorageStatus';
 import TopBar from '@/components/layout/TopBar';
 import CreateProjectModal from '@/components/dashboard/CreateProjectModal';
 import ImportCollisionDialog from '@/components/dashboard/ImportCollisionDialog';
@@ -17,10 +28,50 @@ import {
   type ProjectZipImportPreview,
 } from '@/services/zipBackup';
 import { cleanupProjectMedia } from '@/services/scrapperMedia';
+import { archiveProjectBeforeDelete } from '@/services/deleteSafetyNet';
+import {
+  backUpNow,
+  openBackupFolder,
+  setAutomaticBackupCopies,
+  setAutomaticBackupEnabled,
+  setAutomaticBackupInterval,
+  subscribeBackupStatus,
+  type BackupFailure,
+  type BackupFailureCode,
+  type BackupStatus,
+} from '@/services/autoBackup';
+import {
+  forgetProjectRoute,
+  loadAllProjectProgress,
+  localDaysSince,
+  readProjectRoute,
+  rememberProjectRoute,
+  type ProjectProgress,
+  type ProjectResume,
+} from '@/services/projectIntelligence';
 import { toast } from '@/components/common/toast';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
+import { getAnchorAdapter } from '@/engines/_shared/anchoring';
 import type { Project } from '@/types';
+
+/** The chapter a card's "Continue" would open, and what to call the button. */
+interface ResumeTarget {
+  writingId: string;
+  title: string;
+}
+
+/** What the backup settings offer. A stored value outside the list is kept. */
+const BACKUP_INTERVAL_CHOICES = [1, 3, 7, 14, 30];
+const BACKUP_COPY_CHOICES = [1, 2, 3, 5, 10];
+
+/**
+ * The offered values plus whatever is stored, so a setting restored from an
+ * older archive still shows itself instead of rendering an empty select.
+ */
+function withCurrentChoice(choices: readonly number[], current: number): number[] {
+  return Array.from(new Set([...choices, current])).sort((left, right) => left - right);
+}
 
 export default function Dashboard() {
   const { t } = useTranslation();
@@ -43,6 +94,166 @@ export default function Dashboard() {
     file: File;
     preview: ProjectZipImportPreview;
   } | null>(null);
+  // The backup line. On the desktop this is the real thing: the app writes an
+  // archive into its own data folder on a schedule, and this reports what it
+  // actually did — including when it could not. On the web build there is no
+  // door to the disk, so the same line falls back to the manual export.
+  const [backup, setBackup] = useState<BackupStatus | null>(null);
+  const [backupSettingsOpen, setBackupSettingsOpen] = useState(false);
+  const [pendingDisableAutoBackup, setPendingDisableAutoBackup] = useState(false);
+  const backupBoxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => subscribeBackupStatus(setBackup), []);
+
+  // A panel that cannot be dismissed is a trap. Escape and any click outside
+  // close it, which is what every other menu in the app does.
+  useEffect(() => {
+    if (!backupSettingsOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!backupBoxRef.current?.contains(event.target as Node)) setBackupSettingsOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setBackupSettingsOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [backupSettingsOpen]);
+
+  // Word totals, last-edited stamps and whatever each project was last left on.
+  // ONE query for the whole grid — reading it per card meant twenty round trips
+  // to draw twenty numbers — refreshed whenever the project list itself is.
+  const [progress, setProgress] = useState<Map<string, ProjectProgress>>(() => new Map());
+  const [resumeRoutes, setResumeRoutes] = useState<Map<string, ProjectResume>>(() => new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    const remembered = new Map<string, ProjectResume>();
+    for (const project of projects) {
+      const route = readProjectRoute(project.id);
+      if (route) remembered.set(project.id, route);
+    }
+    setResumeRoutes(remembered);
+    loadAllProjectProgress()
+      .then((rows) => {
+        if (!cancelled) setProgress(rows);
+      })
+      .catch((err) => console.error('[dashboard] project progress failed', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [projects]);
+
+  /**
+   * The chapter "Continue" opens for a project.
+   *
+   * The remembered chapter wins — it is where the writer actually was — but
+   * only while it still exists: one deleted since has no title to show and
+   * falls through to the most recently edited chapter, which is also the best
+   * answer available before anything has been remembered at all. Titles come
+   * from the row and never from the stored route, so renaming a chapter renames
+   * the button with it.
+   */
+  const resumeTargetFor = (project: Project): ResumeTarget | null => {
+    const stats = progress.get(project.id);
+    const remembered = resumeRoutes.get(project.id);
+    const rememberedId = remembered?.engineId === 'writings' ? remembered.entityId : undefined;
+    const rememberedTitle = rememberedId ? stats?.writingTitles.get(rememberedId) : undefined;
+    // A remembered route that predates the newest edit is stale: the writer has
+    // been working somewhere the route never saw (an AI write, a Docs sync, an
+    // import). Prefer what the manuscript itself says.
+    const staleRoute = (stats?.lastWrittenAt ?? 0) > (remembered?.savedAt ?? 0);
+    if (rememberedId && rememberedTitle && !staleRoute) {
+      return { writingId: rememberedId, title: rememberedTitle };
+    }
+    const newestId = stats?.lastWritingId ?? undefined;
+    const newestTitle = newestId ? stats?.writingTitles.get(newestId) : undefined;
+    if (newestId && newestTitle) return { writingId: newestId, title: newestTitle };
+    return null;
+  };
+
+  const openResume = (project: Project, target: ResumeTarget) => {
+    rememberProjectRoute(project.id, { engineId: 'writings', entityId: target.writingId });
+    // The same jump global search and annotation backlinks make.
+    const adapter = getAnchorAdapter('writings');
+    if (adapter) adapter.navigateToEntity(target.writingId, project.id);
+    else {
+      navigate(
+        `/project/${encodeURIComponent(project.id)}/writings?writing=${encodeURIComponent(target.writingId)}`,
+      );
+    }
+  };
+
+  /**
+   * Why the last automatic attempt produced nothing. Written as a switch over
+   * literal keys on purpose: a composed `t(`...${code}`)` cannot be checked by
+   * the conformance gate, and an unresolved key renders as its own name.
+   */
+  const backupFailureLabel = (code: BackupFailureCode): string => {
+    switch (code) {
+      case 'unsupported':
+        return t('dashboard.autoBackup.failed.unsupported');
+      case 'insufficient-space':
+        return t('dashboard.autoBackup.failed.space');
+      default:
+        return t('dashboard.autoBackup.failed.generic');
+    }
+  };
+
+  /**
+   * The line under a failure. The disk shortfall is phrased here, in the
+   * writer's language, from the numbers the service recorded; anything else is
+   * the failing layer's own message and can only be passed through.
+   */
+  const backupFailureDetail = (failure: BackupFailure): string => {
+    if (failure.code !== 'insufficient-space') return failure.detail ?? '';
+    if (typeof failure.freeBytes !== 'number' || typeof failure.requiredBytes !== 'number') {
+      return '';
+    }
+    const megabytes = (bytes: number): string =>
+      String(Math.max(1, Math.round(bytes / (1024 * 1024))));
+    return t('dashboard.autoBackup.failed.spaceDetail')
+      .replace('{free}', megabytes(failure.freeBytes))
+      .replace('{needed}', megabytes(failure.requiredBytes));
+  };
+
+  /**
+   * What the line says, and it only ever says what the app can actually know:
+   * an archive it wrote and saw land. A download it handed to the browser is
+   * not one of those — the save dialog comes after `saveAs` returns and a
+   * Cancel there is invisible from here — so a build with no write door reports
+   * that it cannot verify backups rather than counting days since a file that
+   * may never have been written.
+   */
+  const backupAgeLabel = (state: BackupStatus): string => {
+    if (state.unavailable) return t('dashboard.backupAge.unavailable');
+    if (state.running) return t('dashboard.autoBackup.running');
+    if (state.failure) return backupFailureLabel(state.failure.code);
+    if (!state.supported) return t('dashboard.backupAge.unverifiable');
+    if (!state.automaticEnabled) return t('dashboard.autoBackup.off');
+    if (state.lastBackupAt === null) return t('dashboard.backupAge.neverVerified');
+    if (state.lastWasAutomatic) {
+      if (state.daysSince === 0) return t('dashboard.autoBackup.age.today');
+      if (state.daysSince === 1) return t('dashboard.autoBackup.age.yesterday');
+      return t('dashboard.autoBackup.age.days').replace('{days}', String(state.daysSince));
+    }
+    if (state.daysSince === 0) return t('dashboard.backupAge.today');
+    if (state.daysSince === 1) return t('dashboard.backupAge.yesterday');
+    return t('dashboard.backupAge.days').replace('{days}', String(state.daysSince));
+  };
+
+  const backupIntervalLabel = (days: number): string =>
+    days === 1
+      ? t('dashboard.autoBackup.settings.everyDay')
+      : t('dashboard.autoBackup.settings.everyDays').replace('{days}', String(days));
+
+  const backupCopiesLabel = (count: number): string =>
+    count === 1
+      ? t('dashboard.autoBackup.settings.oneCopy')
+      : t('dashboard.autoBackup.settings.copiesCount').replace('{count}', String(count));
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -105,17 +316,66 @@ export default function Dashboard() {
     }
   };
 
+  /**
+   * The "Full Backup" button: build the archive and hand it to the browser as a
+   * download, which is what the writer asked for — a file of their own, where
+   * they choose to put it.
+   *
+   * Nothing is stamped here, and the toast says only what happened. `saveAs`
+   * starts a download; the shell's save dialog comes after it, and a Cancel
+   * there leaves no file and no signal this side can read. A completed backup
+   * is recorded only from a write the app watched land — the verified archive
+   * behind the reminder line and the scheduler (src/services/autoBackup.ts).
+   */
   const handleFullExport = async () => {
     setExporting(true);
     try {
       await exportFullZip();
-      toast.success(t('dashboard.fullExport.success'));
+      toast.success(t('dashboard.fullExport.started'));
     } catch (err) {
       console.error('Full export failed:', err);
       toast.error(describeBackupError(err, t('dashboard.export.error')), 10000);
     } finally {
       setExporting(false);
     }
+  };
+
+  /**
+   * The backup line's one click. On the desktop it produces the same archive
+   * the scheduler produces and writes it into the app's own data folder — a
+   * write that reports back, and the only thing that can turn this line green.
+   * On the web build, where nothing reaches the disk without a dialog nobody
+   * here can watch, it falls back to the manual export that has always been
+   * there, and the line goes on saying it cannot verify the result.
+   */
+  const runBackupNow = async () => {
+    if (!backup || backup.running) return;
+    if (!backup.supported) {
+      await handleFullExport();
+      return;
+    }
+    const next = await backUpNow();
+    if (next.unavailable) toast.error(t('dashboard.autoBackup.failed.generic'), 10000);
+    else if (next.failure) toast.error(backupFailureLabel(next.failure.code), 10000);
+    else toast.success(t('dashboard.autoBackup.done'));
+  };
+
+  const revealBackupFolder = async () => {
+    if (!(await openBackupFolder())) toast.error(t('dashboard.autoBackup.openFolder.error'));
+  };
+
+  const changeAutomaticBackup = (enabled: boolean) => {
+    // Switching the safety net off is the one setting here worth confirming.
+    if (!enabled) {
+      setPendingDisableAutoBackup(true);
+      return;
+    }
+    void setAutomaticBackupEnabled(true);
+  };
+
+  const confirmDisableAutomaticBackup = async () => {
+    setPendingDisableAutoBackup(false);
+    await setAutomaticBackupEnabled(false);
   };
 
   const handleFullImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -176,10 +436,26 @@ export default function Dashboard() {
     setPendingDeleteProject(null);
     if (!project) return;
     try {
+      // The copy is written BEFORE anything is destroyed, and the delete goes
+      // ahead either way — the writer asked for it. What changes is which of
+      // the two sentences they are told, because a writer who believes a copy
+      // exists when it does not is worse off than one who knows it does not.
+      const archived = await archiveProjectBeforeDelete(project.id);
+      if (!archived.saved) {
+        console.warn('[delete] no farewell copy was written', archived.error);
+      }
       // Best-effort: wipe the project's downloaded media library (desktop).
       await cleanupProjectMedia(project.id);
       await removeProject(project.id);
-      toast.success(t('dashboard.deleteProject.done').replace('{name}', project.title));
+      forgetProjectRoute(project.id);
+      if (archived.saved) {
+        toast.success(
+          t('dashboard.deleteProject.doneWithCopy').replace('{name}', project.title),
+          8000,
+        );
+      } else {
+        toast.success(t('dashboard.deleteProject.done').replace('{name}', project.title));
+      }
     } catch (err) {
       console.error('Project delete failed:', err);
       toast.error(t('dashboard.deleteProject.error'));
@@ -213,6 +489,126 @@ export default function Dashboard() {
           <div className="flex items-center gap-3">
             <input ref={importRef} type="file" accept=".json,.zip" className="hidden" onChange={handleImport} />
             <input ref={fullImportRef} type="file" accept=".zip,.json" className="hidden" onChange={handleFullImport} />
+
+            {/* What the automatic backup actually did. Amber once it is due,
+                red when the last attempt failed — and the label is the button
+                that runs one now. */}
+            {backup && projects.length > 0 && (
+              <div ref={backupBoxRef} className="relative flex items-center">
+                <button
+                  type="button"
+                  onClick={runBackupNow}
+                  disabled={exporting || backup.running}
+                  className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition disabled:opacity-60 ${
+                    backup.failure
+                      ? 'text-danger hover:bg-danger/10'
+                      : backup.overdue
+                        ? 'text-warning hover:bg-warning/10'
+                        : 'text-text-dim hover:bg-elevated hover:text-text-primary'
+                  }`}
+                  title={
+                    (backup.failure && backupFailureDetail(backup.failure)) ||
+                    t('dashboard.autoBackup.action')
+                  }
+                >
+                  {backup.failure || backup.overdue ? <ShieldAlert size={13} /> : <Clock size={13} />}
+                  {backupAgeLabel(backup)}
+                </button>
+
+                {backup.supported && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={revealBackupFolder}
+                      className="rounded-lg p-1.5 text-text-dim transition hover:bg-elevated hover:text-text-primary"
+                      title={t('dashboard.autoBackup.openFolder')}
+                      aria-label={t('dashboard.autoBackup.openFolder')}
+                    >
+                      <FolderOpen size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBackupSettingsOpen(open => !open)}
+                      aria-expanded={backupSettingsOpen}
+                      className="rounded-lg p-1.5 text-text-dim transition hover:bg-elevated hover:text-text-primary"
+                      title={t('dashboard.autoBackup.settings.title')}
+                      aria-label={t('dashboard.autoBackup.settings.title')}
+                    >
+                      <Settings2 size={13} />
+                    </button>
+                  </>
+                )}
+
+                {backup.supported && backupSettingsOpen && (
+                  <div className="absolute right-0 top-full z-30 mt-2 w-72 rounded-xl border border-border bg-surface p-4 text-left shadow-lg">
+                    <p className="mb-3 text-xs font-semibold text-text-primary">
+                      {t('dashboard.autoBackup.settings.title')}
+                    </p>
+
+                    <label className="flex cursor-pointer items-center justify-between gap-3 text-xs text-text-muted">
+                      {t('dashboard.autoBackup.settings.enabled')}
+                      <input
+                        type="checkbox"
+                        checked={backup.automaticEnabled}
+                        onChange={event => changeAutomaticBackup(event.target.checked)}
+                        className="h-4 w-4 accent-accent-gold"
+                      />
+                    </label>
+
+                    <label className="mt-3 flex items-center justify-between gap-3 text-xs text-text-muted">
+                      {t('dashboard.autoBackup.settings.interval')}
+                      <select
+                        value={backup.intervalDays}
+                        disabled={!backup.automaticEnabled}
+                        onChange={event =>
+                          void setAutomaticBackupInterval(Number(event.target.value))
+                        }
+                        className="rounded-lg border border-border bg-elevated px-2 py-1 text-xs text-text-primary disabled:opacity-50"
+                      >
+                        {withCurrentChoice(BACKUP_INTERVAL_CHOICES, backup.intervalDays).map(days => (
+                          <option key={days} value={days}>
+                            {backupIntervalLabel(days)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="mt-3 flex items-center justify-between gap-3 text-xs text-text-muted">
+                      {t('dashboard.autoBackup.settings.copies')}
+                      <select
+                        value={backup.copies}
+                        onChange={event => void setAutomaticBackupCopies(Number(event.target.value))}
+                        className="rounded-lg border border-border bg-elevated px-2 py-1 text-xs text-text-primary"
+                      >
+                        {withCurrentChoice(BACKUP_COPY_CHOICES, backup.copies).map(count => (
+                          <option key={count} value={count}>
+                            {backupCopiesLabel(count)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <p className="mt-3 text-[11px] leading-relaxed text-text-dim">
+                      {t('dashboard.autoBackup.settings.explain')}
+                    </p>
+
+                    {backup.lastArchivePath && (
+                      <p
+                        className="mt-2 break-all text-[11px] text-text-dim"
+                        title={backup.lastArchivePath}
+                      >
+                        {t('dashboard.autoBackup.settings.lastArchive')} {backup.lastArchivePath}
+                      </p>
+                    )}
+                    {backup.failure && backupFailureDetail(backup.failure) && (
+                      <p className="mt-2 break-words text-[11px] text-danger">
+                        {backupFailureDetail(backup.failure)}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Full backup controls */}
             <button
@@ -256,6 +652,9 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* The browser has not promised to keep any of this. */}
+        <StoragePersistenceWarning />
+
         {/* Grid */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
@@ -270,17 +669,27 @@ export default function Dashboard() {
           />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-            {projects.map((project, i) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                index={i}
-                onClick={() => navigate(`/project/${project.id}`)}
-                onDelete={() => setPendingDeleteProject(project)}
-                onColorChange={(color) => editProject(project.id, { color })}
-                onIconChange={(icon) => editProject(project.id, { icon: icon || undefined })}
-              />
-            ))}
+            {projects.map((project, i) => {
+              const stats = progress.get(project.id);
+              const resume = resumeTargetFor(project);
+              return (
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  index={i}
+                  onClick={() => navigate(`/project/${project.id}`)}
+                  onDelete={() => setPendingDeleteProject(project)}
+                  onColorChange={(color) => editProject(project.id, { color })}
+                  onIconChange={(icon) => editProject(project.id, { icon: icon || undefined })}
+                  totalWords={stats?.totalWords ?? 0}
+                  daysSinceEdit={
+                    stats?.lastWrittenAt != null ? localDaysSince(stats.lastWrittenAt) : null
+                  }
+                  resumeLabel={resume?.title}
+                  onResume={resume ? () => openResume(project, resume) : undefined}
+                />
+              );
+            })}
           </div>
         )}
       </div>
@@ -298,6 +707,16 @@ export default function Dashboard() {
         message={t('dashboard.fullImport.confirm')}
         onConfirm={runFullImport}
         onCancel={cancelFullImport}
+      />
+
+      <ConfirmDialog
+        open={pendingDisableAutoBackup}
+        destructive
+        title={t('dashboard.autoBackup.disable.title')}
+        message={t('dashboard.autoBackup.disable.message')}
+        confirmLabel={t('dashboard.autoBackup.disable.confirm')}
+        onConfirm={confirmDisableAutomaticBackup}
+        onCancel={() => setPendingDisableAutoBackup(false)}
       />
 
       <ConfirmDialog

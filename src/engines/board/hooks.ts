@@ -68,6 +68,7 @@ export interface Command {
 
 const COALESCE_WINDOW_MS = 700;
 const FLUSH_DELAY_MS = 350;
+const RETRY_DELAY_MS = 3000;
 
 interface PendingWrite {
   kind: RowKind;
@@ -173,6 +174,18 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
 
   // ---- persistence ----------------------------------------------------
 
+  // A failed flush re-queues itself, which makes `flush` and `scheduleFlush`
+  // mutually recursive; the ref breaks the cycle without either going stale.
+  const flushRef = useRef<() => Promise<void>>(() => Promise.resolve());
+
+  const scheduleFlush = useCallback((delayMs = FLUSH_DELAY_MS) => {
+    if (flushTimer.current !== null) window.clearTimeout(flushTimer.current);
+    flushTimer.current = window.setTimeout(() => {
+      flushTimer.current = null;
+      void flushRef.current();
+    }, delayMs);
+  }, []);
+
   const flush = useCallback(async () => {
     if (flushTimer.current !== null) {
       window.clearTimeout(flushTimer.current);
@@ -180,14 +193,14 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
     }
     if (pending.current.size === 0) return;
 
-    const writes = Array.from(pending.current.values());
+    const writes = Array.from(pending.current.entries());
     pending.current.clear();
 
     const nodePuts: BoardNode[] = [];
     const edgePuts: BoardEdge[] = [];
     const nodeDeletes: string[] = [];
     const edgeDeletes: string[] = [];
-    for (const write of writes) {
+    for (const [, write] of writes) {
       if (write.kind === 'node') {
         if (write.row) nodePuts.push(write.row as BoardNode);
         else nodeDeletes.push(write.id);
@@ -196,25 +209,26 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
     }
 
     try {
-      // Deletes first: an edge row that references a node being removed must
-      // not be re-inserted by a put queued earlier in the same batch.
-      await ops.rawDeleteBoardEdges(edgeDeletes);
-      await ops.rawDeleteBoardNodes(nodeDeletes);
-      await ops.putBoardNodes(nodePuts);
-      await ops.putBoardEdges(edgePuts);
+      await ops.commitBoardBatch({ nodePuts, edgePuts, nodeDeletes, edgeDeletes });
+      if (mounted.current) setError(null);
     } catch (reason) {
       console.error('[board] flush failed', reason);
-      if (mounted.current) setError(reason instanceof Error ? reason : new Error(String(reason)));
+      // Nothing was written — the transaction rolled the whole batch back — so
+      // put it back on the queue and try again. Anything the author has
+      // re-queued for the same row since is newer and keeps its place.
+      for (const [key, write] of writes) {
+        if (!pending.current.has(key)) pending.current.set(key, write);
+      }
+      if (mounted.current) {
+        setError(reason instanceof Error ? reason : new Error(String(reason)));
+        scheduleFlush(RETRY_DELAY_MS);
+      }
     }
-  }, []);
+  }, [scheduleFlush]);
 
-  const scheduleFlush = useCallback(() => {
-    if (flushTimer.current !== null) window.clearTimeout(flushTimer.current);
-    flushTimer.current = window.setTimeout(() => {
-      flushTimer.current = null;
-      void flush();
-    }, FLUSH_DELAY_MS);
-  }, [flush]);
+  useEffect(() => {
+    flushRef.current = flush;
+  });
 
   const enqueue = useCallback(
     (kind: RowKind, id: string, row: BoardNode | BoardEdge | null) => {

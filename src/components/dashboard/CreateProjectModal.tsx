@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import Modal from '@/components/common/Modal';
 import ColorPicker from '@/components/common/ColorPicker';
 import IconPicker from '@/components/common/IconPicker';
-import { PROJECT_MODES, getAllEngines, getEnginesForMode, getSuggestedEnginesForMode } from '@/engines';
+import { PROJECT_MODES, getEnginesForMode } from '@/engines';
+import { groupEnginesForMode } from '@/config/projectPresets';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { Project, ProjectMode } from '@/types';
 
@@ -34,11 +35,17 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
     icon: '',
   });
   const [creating, setCreating] = useState(false);
+  // `creating` state cannot gate re-entry: holding Enter fires several keydowns
+  // before React re-renders, and each one used to mint a fresh project id.
+  const creatingRef = useRef(false);
 
-  // Get engines for current mode
-  const defaultEnginesForMode = selectedMode ? getEnginesForMode(selectedMode) : [];
-  const suggestedEnginesForMode = selectedMode ? getSuggestedEnginesForMode(selectedMode) : [];
-  const allAvailableEngines = getAllEngines();
+  // Included / Recommended / Everything else, from the one helper the Engine
+  // Manager also groups by — so "Included with Novelist" cannot come to mean
+  // two different things in the two places a writer picks engines.
+  const groups = groupEnginesForMode(selectedMode);
+  const defaultEnginesForMode = groups.included;
+  const suggestedEnginesForMode = groups.recommended;
+  const allAvailableEngines = groups.other;
 
   const handleModeSelect = (mode: ProjectMode) => {
     setSelectedMode(mode);
@@ -56,9 +63,14 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
     setForm({ title: '', type: 'standalone', description: '', color: '#c4973b', icon: '' });
   };
 
-  const handleCreate = async () => {
-    if (!form.title.trim() || !selectedMode) return;
+  // The one gate both the submit button and the Enter key go through.
+  const canCreate = !!form.title.trim() && !!selectedMode && enabledEngines.length > 0;
 
+  const handleCreate = async () => {
+    // `selectedMode` is re-tested only so it narrows for the project below.
+    if (creatingRef.current || !canCreate || !selectedMode) return;
+
+    creatingRef.current = true;
     setCreating(true);
     try {
       const { generateId } = await import('@/utils/idGenerator');
@@ -79,6 +91,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
       await onCreate(project);
       handleResetCreate();
     } finally {
+      creatingRef.current = false;
       setCreating(false);
     }
   };
@@ -153,7 +166,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
               placeholder={t('createProject.titlePlaceholder')}
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
               autoFocus
-              onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate(); }}
             />
           </div>
 
@@ -301,7 +314,7 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
           <div className="flex gap-3 pt-2">
             <button
               onClick={handleCreate}
-              disabled={!form.title.trim() || enabledEngines.length === 0 || creating}
+              disabled={!canCreate || creating}
               className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {creating ? t('common.creating') : t('createProject.createButton')}

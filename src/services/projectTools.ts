@@ -13,8 +13,11 @@ import {
 } from '@/engines/writings/manuscriptExport';
 import {
   composePublishingDocument,
+  publishingSectionWordCount,
   type PublishingDocument,
 } from '@/engines/writings/publishingDocument';
+import { compareManuscriptOrder } from '@/engines/writings/chapterOrder';
+import { toLocalDateKey } from '@/engines/writing-stats/date';
 import { generateId } from '@/utils/idGenerator';
 import { stripHtml } from '@/utils/text';
 import { t } from '@/i18n/useTranslation';
@@ -191,7 +194,7 @@ export async function citationFromSnapshot(snapshotId: string): Promise<Citation
     title: snapshot.title || snapshot.url,
     authors: snapshot.author ? [snapshot.author] : [],
     publishedAt: snapshot.publishDate,
-    accessedAt: new Date(snapshot.preservedAt || snapshot.createdAt).toISOString().slice(0, 10),
+    accessedAt: toLocalDateKey(new Date(snapshot.preservedAt || snapshot.createdAt)),
     url: snapshot.url,
     notes: snapshot.notes,
     snapshotId: snapshot.id,
@@ -242,6 +245,12 @@ export function formatCitation(
   return `${authors} (${year}). ${citation.title}.${citation.publisher ? ` ${citation.publisher}.` : ''}${citation.url ? ` ${citation.url}` : ''}`;
 }
 
+/** APA, MLA and Chicago all order the reference list by first author. */
+export function compareCitationsForBibliography(a: Citation, b: Citation): number {
+  const author = (a.authors[0] ?? '').localeCompare(b.authors[0] ?? '');
+  return author !== 0 ? author : a.title.localeCompare(b.title);
+}
+
 export async function exportBibliography(
   projectId: string,
   style: PublishingProfile['citationStyle'],
@@ -249,7 +258,7 @@ export async function exportBibliography(
 ): Promise<void> {
   const citations = await getCitations(projectId);
   const text = citations
-    .sort((a, b) => (a.authors[0] ?? '').localeCompare(b.authors[0] ?? ''))
+    .sort(compareCitationsForBibliography)
     .map(citation => formatCitation(citation, style, currentCitationLabels()))
     .join('\n\n');
   downloadTextFile(
@@ -279,6 +288,8 @@ export interface PublishingArtifactLabels extends CitationFormatLabels {
   wordLabel: string;
   chapterLabel: string;
   bibliographyTitle: string;
+  /** Optional so a caller that only cares about order need not supply one. */
+  untitledLabel?: string;
 }
 
 export interface PublishingArtifacts {
@@ -323,13 +334,35 @@ export function normalizePublishingProfile(profile: PublishingProfile): Normaliz
   };
 }
 
+/**
+ * Manuscript order — the order the Writings list is already showing.
+ *
+ * It delegates to `compareManuscriptOrder` rather than restating the rule,
+ * because this is the order a DOCX or ePub carries its chapters in, and an
+ * export that sorts differently from the list is an export whose chapters sit
+ * in the wrong place in a file the writer has already sent to an editor. There
+ * is no way to notice from inside the app: the list looks right, and the file
+ * is somewhere else.
+ *
+ * The copy that used to live here read the chapter number, then `createdAt`,
+ * then the id, and it agreed with the list on exactly one shape — a book whose
+ * chapters are all numbered, all differently. Manuscript import made both of
+ * the others ordinary:
+ *
+ *   UNNUMBERED writings. The list shows them after the numbered ones, most
+ *   recently touched first; this sorted them oldest-created first, so an idea
+ *   and a stub came out of the file in the opposite order to the list.
+ *
+ *   TWO WRITINGS SHARING A NUMBER, which is legal and is what an import
+ *   landing beside hand-numbered chapters produces. The list breaks that tie
+ *   on the id; this broke it on `createdAt` first, so the pair came out in
+ *   whichever order they happened to be written in — and `importManuscript`
+ *   stamps one `Date.now()` across a whole imported book, so an imported
+ *   chapter 7 and a typed chapter 7 never share a creation time and the two
+ *   orders never had to agree.
+ */
 export function defaultPublishingOrder(writings: readonly Writing[]): Writing[] {
-  return [...writings].sort((a, b) => {
-    const chapter = (a.chapter ?? Number.MAX_SAFE_INTEGER) - (b.chapter ?? Number.MAX_SAFE_INTEGER);
-    if (chapter !== 0) return chapter;
-    if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
-    return a.id.localeCompare(b.id);
-  });
+  return [...writings].sort(compareManuscriptOrder);
 }
 
 export function resolvePublishingWritings(
@@ -395,6 +428,7 @@ function currentPublishingLabels(format: PublishingFormat): PublishingArtifactLa
     wordLabel: t('writings.words'),
     chapterLabel: t(`projectTools.publishing.chapterLabel.${format}`),
     bibliographyTitle: t('projectTools.research.bibliography'),
+    untitledLabel: t('projectTools.publishing.untitled'),
   };
 }
 
@@ -416,12 +450,15 @@ export function buildPublishingArtifacts(
     includeTitlePage: profile.includeTitlePage,
     includeSynopsis: profile.includeSynopsis,
     chapterLabel: labels.chapterLabel,
+    untitledLabel: labels.untitledLabel,
     wordLabel: labels.wordLabel,
     locale: labels.locale,
     generatedAt: artifactOptions.generatedAt,
   };
   const bibliography = profile.includeBibliography
-    ? citations.map(citation => formatCitation(citation, profile.citationStyle, labels))
+    ? [...citations]
+      .sort(compareCitationsForBibliography)
+      .map(citation => formatCitation(citation, profile.citationStyle, labels))
     : [];
   const document = composePublishingDocument(writings, {
     ...compileOptions,
@@ -517,6 +554,163 @@ export async function exportPublishingProfile(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Publishing preview — the exported artifacts, bounded
+// ---------------------------------------------------------------------------
+//
+// Every export used to be blind: the writer pressed PDF and learned about the
+// heading face, the dropped images or the wrong chapter order from the editor
+// they had already mailed. The preview answers that from the SAME
+// `buildPublishingArtifacts` the exporters run — not a second compile that can
+// drift — with two bounds so a 400-chapter novel stays interactive.
+
+/** Pieces whose body is compiled in full. The rest are outlined by heading. */
+export const PUBLISHING_PREVIEW_BODY_LIMIT = 8;
+/** Pieces whose heading is resolved. Past this only a count is reported. */
+export const PUBLISHING_PREVIEW_OUTLINE_LIMIT = 60;
+/** A standard manuscript page: 12pt, double spaced, about 250 words. */
+export const PUBLISHING_WORDS_PER_PAGE = 250;
+
+/**
+ * What the selection actually carries. A format caveat is only worth a line
+ * when the manuscript can trigger it, so each one is gated on a probe here.
+ */
+export interface PublishingPreviewContent {
+  images: boolean;
+  links: boolean;
+  tables: boolean;
+  mergedCells: boolean;
+  sceneBreaks: boolean;
+  headings: boolean;
+  deepHeadings: boolean;
+}
+
+// Probed on the stored bodies rather than on the compiled IR: a table in
+// chapter 300 has to raise its caveat even though only chapter 1 is rendered.
+const CONTENT_PROBES: ReadonlyArray<readonly [keyof PublishingPreviewContent, RegExp]> = [
+  ['images', /<img\b/i],
+  ['links', /<a\b[^>]*\bhref=/i],
+  ['tables', /<table\b/i],
+  ['mergedCells', /<t[dh]\b[^>]*\b(?:colspan|rowspan)=/i],
+  ['sceneBreaks', /<hr\b/i],
+  ['headings', /<h[1-6]\b/i],
+  ['deepHeadings', /<h[4-6]\b/i],
+];
+
+// One scan decides whether the seven above are worth running at all: plain
+// prose carries none of these tags, and a long manuscript is mostly prose.
+const CONTENT_PROBE_GATE = /<(?:a|h[1-6]|hr|img|t[dh]|table)\b/i;
+
+function probePublishingContent(writings: readonly Writing[]): PublishingPreviewContent {
+  const found: PublishingPreviewContent = {
+    images: false,
+    links: false,
+    tables: false,
+    mergedCells: false,
+    sceneBreaks: false,
+    headings: false,
+    deepHeadings: false,
+  };
+  let pending = CONTENT_PROBES.length;
+  for (const writing of writings) {
+    if (!CONTENT_PROBE_GATE.test(writing.content)) continue;
+    for (const [feature, probe] of CONTENT_PROBES) {
+      if (found[feature] || !probe.test(writing.content)) continue;
+      found[feature] = true;
+      pending -= 1;
+    }
+    // Every caveat has already earned its line; the remaining bodies cannot
+    // change the answer, so a long manuscript stops costing anything here.
+    if (pending === 0) break;
+  }
+  return found;
+}
+
+export interface PublishingPreviewPiece {
+  id: string;
+  /** The heading exactly as the exported file will carry it. */
+  title: string;
+  synopsis?: string;
+  wordCount: number;
+  /** Body as Markdown, HTML and PDF consume it — images intact. */
+  html: string;
+  /** Body as DOCX and ePub consume it — images removed. */
+  portableHtml: string;
+  /** False when only the heading was compiled, to bound the preview's cost. */
+  bodyCompiled: boolean;
+}
+
+export interface PublishingPreview {
+  /** The safe IR itself, so a pane can render document-level parts verbatim. */
+  document: PublishingDocument;
+  pieces: PublishingPreviewPiece[];
+  /** Selected pieces past the outline limit: counted, never listed. */
+  unlistedPieceCount: number;
+  /** Pieces in the whole selection, not just the previewed ones. */
+  pieceCount: number;
+  /** Words in the whole selection — the number the title page will print. */
+  wordCount: number;
+  pageEstimate: number;
+  content: PublishingPreviewContent;
+  missingWritingIds: string[];
+  googleDocsWithoutContent: Array<{ id: string; title: string }>;
+}
+
+/**
+ * Compile what `exportPublishingProfile` would compile, bounded.
+ *
+ * The selection, the order, the headings, the synopses, the bibliography and
+ * the title page all come out of `buildPublishingArtifacts`, so the preview
+ * cannot disagree with the file: there is one composer. Only the bodies past
+ * `PUBLISHING_PREVIEW_BODY_LIMIT` are elided — those pieces still travel the
+ * composer, they just carry no text into it, which is what keeps a very long
+ * manuscript from paying two DOM parses per chapter on every keystroke.
+ */
+export function buildPublishingPreview(
+  project: Pick<Project, 'id' | 'title'>,
+  profile: PublishingProfile,
+  writings: readonly Writing[],
+  citations: readonly Citation[],
+  previewOptions: { titleOverride?: string; generatedAt?: number } = {},
+): PublishingPreview {
+  const resolved = resolvePublishingWritings(writings, profile);
+  const listed = resolved.writings.slice(0, PUBLISHING_PREVIEW_OUTLINE_LIMIT);
+  const artifacts = buildPublishingArtifacts(
+    project,
+    profile,
+    listed.map((writing, index) => (
+      index < PUBLISHING_PREVIEW_BODY_LIMIT ? writing : { ...writing, content: '' }
+    )),
+    citations,
+    previewOptions,
+  );
+  const pieces = artifacts.document.sections.map((section, index) => ({
+    id: section.id,
+    title: section.title,
+    synopsis: section.synopsis,
+    // From the stored piece, not from the elided body it was compiled with.
+    wordCount: publishingSectionWordCount(listed[index]),
+    html: section.html,
+    portableHtml: section.portableHtml,
+    bodyCompiled: index < PUBLISHING_PREVIEW_BODY_LIMIT,
+  }));
+  const wordCount = resolved.writings.reduce(
+    (total, writing) => total + publishingSectionWordCount(writing),
+    0,
+  );
+  return {
+    document: artifacts.document,
+    pieces,
+    unlistedPieceCount: resolved.writings.length - listed.length,
+    pieceCount: resolved.writings.length,
+    wordCount,
+    pageEstimate: wordCount === 0 ? 0 : Math.max(1, Math.ceil(wordCount / PUBLISHING_WORDS_PER_PAGE)),
+    content: probePublishingContent(resolved.writings),
+    missingWritingIds: resolved.missingWritingIds,
+    googleDocsWithoutContent: resolved.googleDocsWithoutContent.map(({ id, title }) => ({ id, title })),
+  };
+}
+
 async function createConversion(
   projectId: string,
   source: { engineId: string; entityType: string; id: string; title: string },
@@ -562,7 +756,8 @@ async function createConversion(
 export async function promoteNoteToWriting(noteId: string): Promise<ConversionReceipt> {
   const note = await db.notes.get(noteId);
   if (!note) throw new Error('Note not found');
-  const title = note.text.split('\n').find(line => line.trim())?.trim().slice(0, 80) || 'Promoted note';
+  const firstLine = note.text.split('\n').find(line => line.trim())?.trim() ?? '';
+  const title = [...firstLine].slice(0, 80).join('') || 'Promoted note';
   const writing: Writing = {
     id: generateId('wrt'),
     projectId: note.projectId,

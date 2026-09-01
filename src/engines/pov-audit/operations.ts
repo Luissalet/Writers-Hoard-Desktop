@@ -13,6 +13,7 @@ import { db } from '@/db/index';
 import type { CodexEntry } from '@/types';
 import type { CharacterUsage, PovAuditReport } from './types';
 import { countWords as countWordsShared } from '@/utils/text';
+import { castKeyOf } from '@/engines/dialog-scene/importPersist';
 
 /** Count words in a string, tolerant to empty / HTML content. */
 function countWords(text: string | undefined): number {
@@ -59,7 +60,7 @@ export async function computeUsage(projectId: string): Promise<PovAuditReport> {
   const byKey = new Map<string, CharacterUsage>();
 
   const resolveKey = (id: string | undefined, name: string): string =>
-    id && id.trim() ? id : `__unmapped__:${name.trim().toLowerCase()}`;
+    id && id.trim() ? id : `__unmapped__:${castKeyOf(name).toLowerCase()}`;
 
   const touch = (
     id: string | undefined,

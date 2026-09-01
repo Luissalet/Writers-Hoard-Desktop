@@ -1,4 +1,5 @@
-import { makeTableOps, reorderItems, makeCascadeDeleteOp } from '@/engines/_shared';
+import { db } from '@/db';
+import { makeTableOps, reorderItems, makeCascadeDeleteOp, deleteEntityAnnotations } from '@/engines/_shared';
 import type { Biography, BiographyFact } from './types';
 
 // ===== Biographies =====
@@ -13,10 +14,22 @@ export const createBiography = bioOps.create;
 export const updateBiography = bioOps.update;
 
 // deleteBiography cascades to facts
-export const deleteBiography = makeCascadeDeleteOp({
+const deleteBiographyRow = makeCascadeDeleteOp({
   tableName: 'biographies',
   cascades: [{ table: 'biographyFacts', foreignKey: 'biographyId' }],
 });
+
+// ...and to the margin notes anchored on the biography, which are pure link.
+export async function deleteBiography(id: string): Promise<void> {
+  await db.transaction(
+    'rw',
+    ['biographies', 'biographyFacts', 'annotations', 'annotationReferences'],
+    async () => {
+      await deleteEntityAnnotations('biography', id);
+      await deleteBiographyRow(id);
+    },
+  );
+}
 
 // ===== Biography Facts =====
 const factOps = makeTableOps<BiographyFact>({

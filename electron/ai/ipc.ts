@@ -16,8 +16,10 @@ import type {
   AiConnectionInput,
   AiDefaults,
   AiImageRequest,
+  AiLoraSelection,
   AiRouteSelection,
 } from '@/services/aiRuntime/types';
+import { clampLoraWeight, isSdLoraName } from '@/services/aiRuntime/sdServer';
 import {
   BUILTIN_SD_ID,
   deleteConnection,
@@ -99,6 +101,24 @@ function asChatRequest(value: unknown): AiChatRequest | null {
   };
 }
 
+/**
+ * LoRAs the renderer asked for, bounded like every other new field (lesson #54):
+ * at most four, each a name the server's prompt parser can round-trip and a
+ * weight inside a sane range. Anything else is dropped, not corrected.
+ */
+function asLoras(value: unknown): AiLoraSelection[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: AiLoraSelection[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const name = item.name;
+    if (!isSdLoraName(name)) continue;
+    out.push({ name, weight: clampLoraWeight(item.weight) });
+    if (out.length === 4) break;
+  }
+  return out.length ? out : undefined;
+}
+
 function asImageRequest(value: unknown): AiImageRequest | null {
   if (!isRecord(value)) return null;
   const route = asRoute(value);
@@ -129,6 +149,19 @@ function asImageRequest(value: unknown): AiImageRequest | null {
       typeof value.strength === 'number' && Number.isFinite(value.strength)
         ? Math.max(0, Math.min(1, value.strength))
         : undefined,
+    loras: asLoras(value.loras),
+  };
+}
+
+/** The record open inside the tab, when the renderer could name one. */
+function asOpenDocument(value: unknown): CopilotRunRequest['briefing']['openDocument'] {
+  if (!isRecord(value)) return null;
+  if (typeof value.engineId !== 'string' || typeof value.id !== 'string') return null;
+  if (!value.engineId || !value.id) return null;
+  return {
+    engineId: value.engineId,
+    id: value.id,
+    title: typeof value.title === 'string' ? value.title : undefined,
   };
 }
 
@@ -153,6 +186,7 @@ function asCopilotRequest(value: unknown): CopilotRunRequest | null {
       projectMode: typeof briefing.projectMode === 'string' ? briefing.projectMode : undefined,
       enabledEngines: Array.isArray(briefing.enabledEngines) ? briefing.enabledEngines.filter((e): e is string => typeof e === 'string') : [],
       openEngine: typeof briefing.openEngine === 'string' ? briefing.openEngine : null,
+      openDocument: asOpenDocument(briefing.openDocument),
       locale: typeof briefing.locale === 'string' ? briefing.locale : 'es',
     },
     history: Array.isArray(value.history)

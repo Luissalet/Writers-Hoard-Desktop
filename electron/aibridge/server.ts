@@ -267,6 +267,14 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   // Remove a scratch project a --keep run left behind. Refuses anything that
   // is not one, so it can never be pointed at real work.
   if (req.method === 'POST' && url === '/api/selftest/cleanup') {
+    if (!config.writesEnabled) {
+      sendJson(res, 403, {
+        ok: false,
+        code: 'writes-disabled',
+        error: 'The cleanup deletes scratch projects, so it needs writing switched on.',
+      });
+      return;
+    }
     let body: Record<string, unknown> = {};
     try {
       body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>;
@@ -274,6 +282,19 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       body = {};
     }
     const outcome = await callRenderer('__selftest_cleanup', body, 60_000);
+    const removed = (outcome.result as { deleted?: unknown[] } | undefined)?.deleted;
+    // No `kind`: a cascading multi-project delete has nothing to put back, and
+    // a kind would offer the settings panel an undo button that cannot work.
+    await appendAudit({
+      at: Date.now(),
+      tool: '__selftest_cleanup',
+      origin: 'bridge',
+      ok: outcome.ok,
+      error: outcome.error,
+      summary: outcome.ok
+        ? `removed ${Array.isArray(removed) ? removed.length : 0} self-test scratch project(s)`
+        : undefined,
+    });
     sendJson(res, 200, outcome);
     return;
   }
@@ -332,12 +353,15 @@ export function startAiBridge(options: StartAiBridgeOptions): Promise<void> {
         }
       });
     });
+    // Claimed synchronously: assigning only in the listen callback let two
+    // concurrent enable calls both pass the `if (server)` guard, and the
+    // loser's error handler then discarded the handle that actually bound.
+    server = instance;
     instance.on('error', (err) => {
-      server = null;
+      if (server === instance) server = null;
       reject(err);
     });
     instance.listen(PORT, HOST, () => {
-      server = instance;
       console.log(`[aibridge] listening on ${AI_BRIDGE_URL}`);
       resolve();
     });

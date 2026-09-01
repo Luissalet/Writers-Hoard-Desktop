@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import { makeEntityHook } from '@/engines/_shared';
+import { makeEntityHook, makeReadOnlyHook } from '@/engines/_shared';
 import * as ops from './operations';
-import type { WritingSession, WritingGoal, WritingStatsData } from './types';
+import { listSprints } from './sprints';
+import type { SprintRecord, WritingSession, WritingGoal, WritingStatsData } from './types';
 import { shiftLocalDateKey, toLocalDateKey } from './date';
 
 // ============================================================================
@@ -24,6 +25,19 @@ export const useWritingGoals = makeEntityHook<WritingGoal>({
   createFn: ops.createGoal,
   updateFn: ops.updateGoal,
   deleteFn: ops.deleteGoal,
+});
+
+// ============================================================================
+// Sprint Log Hook (read-only — sprints live in `settings`, not a table)
+// ============================================================================
+//
+// Read-only rather than `makeEntityHook`: the sprint log is a single settings
+// payload written by ./sprints.ts, so there is no per-row CRUD to expose. It
+// still refreshes on `notifyDataChanged`, which `endSprint` fires — that is
+// how a sprint filed in the writings editor shows up here without a remount.
+
+export const useSprintLog = makeReadOnlyHook<SprintRecord>({
+  fetchFn: listSprints,
 });
 
 // ============================================================================

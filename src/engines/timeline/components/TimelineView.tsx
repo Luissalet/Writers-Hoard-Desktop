@@ -102,7 +102,10 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
         eventType: effectiveType,
         realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
-        order: events.length,
+        // Not `events.length`: once anything has been deleted the count is
+        // lower than the highest `order`, and the new event lands tied with a
+        // row that is already there — a tie no reorder can break.
+        order: events.reduce((max, e) => Math.max(max, e.order), -1) + 1,
         lane: form.lane,
         color: form.color,
         createdAt: now,
@@ -258,12 +261,14 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
                         )}
                       </div>
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
-                        <button className="p-1 hover:bg-elevated rounded"><GripVertical size={14} className="text-text-dim" /></button>
+                        <button className="p-1 hover:bg-elevated rounded" title={t('common.dragToReorder')} aria-label={t('common.dragToReorder')}><GripVertical size={14} className="text-text-dim" aria-hidden="true" /></button>
                         <button
                           onClick={(e) => { e.stopPropagation(); onDeleteEvent(evt.id); }}
                           className="p-1 hover:bg-danger/20 rounded"
+                          title={t('timeline.deleteEvent')}
+                          aria-label={t('timeline.deleteEvent')}
                         >
-                          <Trash2 size={14} className="text-danger" />
+                          <Trash2 size={14} className="text-danger" aria-hidden="true" />
                         </button>
                       </div>
                     </div>

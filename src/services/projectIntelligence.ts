@@ -1,6 +1,15 @@
 import { db } from '@/db';
+import { t } from '@/i18n/useTranslation';
+import { toLocalDateKey } from '@/engines/writing-stats/date';
 import type { OutlineBeat } from '@/engines/outline/types';
 import type { Payoff, Seed } from '@/engines/seeds/types';
+import {
+  buildAppearanceCandidates,
+  findAppearances,
+  localDaysBetween,
+  type AppearanceCandidate,
+  type ProofreaderCodexRow,
+} from './proofreader';
 import { countWords, stripHtml } from '@/utils/text';
 
 export type HealthSeverity = 'error' | 'warning' | 'info';
@@ -261,7 +270,6 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     notes,
     scenes,
     dialogBlocks,
-    sceneCasts,
     outlines,
     outlineBeats,
     seeds,
@@ -270,12 +278,11 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     arcBeats,
     relationships,
     annotations,
-    annotationReferences,
     boards,
     boardNodes,
     storyboards,
     imageCollections,
-    inspirationImages,
+    inspirationImageIds,
     maps,
     mapPins,
     diaryEntries,
@@ -290,7 +297,6 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     db.notes.where('projectId').equals(projectId).toArray(),
     db.scenes.where('projectId').equals(projectId).toArray(),
     db.dialogBlocks.where('projectId').equals(projectId).toArray(),
-    db.sceneCasts.toArray(),
     db.outlines.where('projectId').equals(projectId).toArray(),
     db.outlineBeats.where('projectId').equals(projectId).toArray(),
     db.seeds.where('projectId').equals(projectId).toArray(),
@@ -299,12 +305,14 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     db.arcBeats.where('projectId').equals(projectId).toArray(),
     db.relationships.where('projectId').equals(projectId).toArray(),
     db.annotations.where('projectId').equals(projectId).toArray(),
-    db.annotationReferences.toArray(),
     db.boards.where('projectId').equals(projectId).toArray(),
     db.boardNodes.where('projectId').equals(projectId).toArray(),
     db.storyboards.where('projectId').equals(projectId).toArray(),
     db.imageCollections.where('projectId').equals(projectId).toArray(),
-    db.inspirationImages.where('projectId').equals(projectId).toArray(),
+    // Keys only. A gallery row carries `imageData`, `imageDataOriginal` and
+    // `thumbnailData`; this read model never needs any of the three, and this
+    // query re-runs on every autosave.
+    db.inspirationImages.where('projectId').equals(projectId).primaryKeys(),
     db.worldMaps.where('projectId').equals(projectId).toArray(),
     db.mapPins.where('projectId').equals(projectId).toArray(),
     db.diaryEntries.where('projectId').equals(projectId).toArray(),
@@ -322,40 +330,65 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
   const storyboardIds = new Set(storyboards.map(row => row.id));
   const annotationIds = new Set(annotations.map(row => row.id));
   const collectionIds = new Set(imageCollections.map(row => row.id));
+  const imageIds = new Set(inspirationImageIds as string[]);
   const mapIds = new Set(maps.map(row => row.id));
 
+  // sceneCasts, annotationReferences, worldSnapshots and canonTiles carry no
+  // projectId of their own. A row whose parent is gone therefore belongs to no
+  // project at all, so it can only be found — and can only honestly be
+  // reported — app-wide. The three health rows below say so, and their repair
+  // deletes exactly the parentless rows. Every read here is index keys only:
+  // one key per row, never the multi-MB canon/world payloads.
   const [
-    writingSnapshots,
+    projectWritingSnapshotIds,
+    livingWritingSnapshotIds,
     boardEdges,
     storyboardConnectors,
-    worldSnapshots,
+    sceneCastSceneIds,
     allSceneIds,
+    referenceAnnotationIds,
     allAnnotationIds,
-    allWorldIds,
+    annotationReferences,
+    worldSnapshotOwnerIds,
     canonTileWorldIds,
+    allWorldIds,
   ] = await Promise.all([
-    db.writingSnapshots.where('projectId').equals(projectId).toArray(),
+    // A writing snapshot carries a whole manuscript body. Counting the orphans
+    // is a set difference over primary keys: every snapshot filed under this
+    // project, minus every snapshot reachable from a writing that still exists.
+    db.writingSnapshots.where('projectId').equals(projectId).primaryKeys(),
+    writingIds.size
+      ? db.writingSnapshots.where('writingId').anyOf([...writingIds]).primaryKeys()
+      : [],
     boardIds.size ? db.boardEdges.where('boardId').anyOf([...boardIds]).toArray() : [],
     storyboardIds.size
       ? db.storyboardConnectors.where('storyboardId').anyOf([...storyboardIds]).toArray()
       : [],
-    db.worldSnapshots.toArray(),
+    db.sceneCasts.orderBy('sceneId').keys(),
     db.scenes.toCollection().primaryKeys(),
+    db.annotationReferences.orderBy('annotationId').keys(),
     db.annotations.toCollection().primaryKeys(),
-    db.generatedWorlds.toCollection().primaryKeys(),
-    // Index keys only — one per row, never the multi-MB payloads.
+    // Backlink counting needs this project's own reference rows.
+    annotationIds.size
+      ? db.annotationReferences.where('annotationId').anyOf([...annotationIds]).toArray()
+      : [],
+    db.worldSnapshots.toCollection().primaryKeys(),
     db.canonTiles.orderBy('worldId').keys(),
+    db.generatedWorlds.toCollection().primaryKeys(),
   ]);
   const boardNodeIds = new Set(boardNodes.map(row => row.id));
   const boardEdgeIds = new Set(boardEdges.map(row => row.id));
   const panelIds = new Set(
-    (await db.storyboardPanels.where('projectId').equals(projectId).toArray()).map(row => row.id),
+    (await db.storyboardPanels.where('projectId').equals(projectId).primaryKeys()) as string[],
   );
-  const existingSceneIds = new Set(allSceneIds);
-  const existingAnnotationIds = new Set(allAnnotationIds);
-  const existingWorldIds = new Set(allWorldIds);
+  const existingSceneIds = new Set(allSceneIds as string[]);
+  const existingAnnotationIds = new Set(allAnnotationIds as string[]);
+  const existingWorldIds = new Set(allWorldIds as string[]);
 
-  const orphanWritingSnapshots = writingSnapshots.filter(row => !writingIds.has(row.writingId));
+  const livingWritingSnapshots = new Set(livingWritingSnapshotIds as string[]);
+  const orphanWritingSnapshots = (projectWritingSnapshotIds as string[]).filter(
+    id => !livingWritingSnapshots.has(id),
+  );
   // A board relation may have many endpoints and may hang off another
   // relation, so "broken" means any endpoint whose target no longer exists.
   const orphanBoardEdges = boardEdges.filter(row =>
@@ -368,18 +401,30 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
   const orphanStoryboardConnectors = storyboardConnectors.filter(
     row => !panelIds.has(row.sourceId) || !panelIds.has(row.targetId),
   );
-  const orphanSceneCasts = sceneCasts.filter(row => !existingSceneIds.has(row.sceneId));
-  const orphanAnnotationReferences = annotationReferences.filter(
-    row => !existingAnnotationIds.has(row.annotationId),
+  const orphanSceneCasts = (sceneCastSceneIds as string[]).filter(
+    id => !existingSceneIds.has(id),
   );
-  const orphanWorldSnapshots = worldSnapshots.filter(row => !existingWorldIds.has(row.worldId));
+  const orphanAnnotationReferences = (referenceAnnotationIds as string[]).filter(
+    id => !existingAnnotationIds.has(id),
+  );
+  const orphanWorldSnapshots = (worldSnapshotOwnerIds as string[]).filter(
+    id => !existingWorldIds.has(id),
+  );
   const orphanCanonTiles = (canonTileWorldIds as string[]).filter(id => !existingWorldIds.has(id));
   const interruptedJobs = snapshots.filter(
     row => row.downloadState === 'downloading' || row.captureState === 'capturing',
   );
-  const brokenGalleryCollections = inspirationImages.filter(
-    row => row.collectionId && !collectionIds.has(row.collectionId),
-  );
+  // `collectionId` is indexed, so an image filed under a deleted album is
+  // visible from the index alone. The cursor walks every gallery row in the
+  // app because that index is not compound with `projectId`; testing the
+  // cursor's primary key against this project's own keys restores the scope.
+  const brokenGalleryCollections: string[] = [];
+  await db.inspirationImages.orderBy('collectionId').eachKey((collectionId, cursor) => {
+    const imageId = cursor.primaryKey as string;
+    if (collectionId && imageIds.has(imageId) && !collectionIds.has(collectionId as string)) {
+      brokenGalleryCollections.push(imageId);
+    }
+  });
   const brokenMapPins = mapPins.filter(row => !mapIds.has(row.mapId));
   const brokenSpineLinks = outlineBeats.filter(
     row =>
@@ -394,9 +439,9 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     issue('orphan-writing-snapshots', 'error', 'integrity', 'Orphan writing history', 'Snapshots point to deleted writings.', orphanWritingSnapshots.length, true),
     issue('orphan-board-edges', 'error', 'integrity', 'Broken board relations', 'Relations point to missing nodes or relations.', orphanBoardEdges.length, true),
     issue('orphan-storyboard-connectors', 'error', 'integrity', 'Broken storyboard connectors', 'Connectors point to missing panels.', orphanStoryboardConnectors.length, true),
-    issue('orphan-scene-casts', 'error', 'integrity', 'Orphan scene casts', 'Cast rows point to deleted scenes.', orphanSceneCasts.length, true),
-    issue('orphan-annotation-references', 'error', 'integrity', 'Orphan annotation references', 'References point to deleted annotations.', orphanAnnotationReferences.length, true),
-    issue('orphan-world-snapshots', 'warning', 'storage', 'Stale world caches', 'Regenerable caches remain after their worlds were deleted.', orphanWorldSnapshots.length + orphanCanonTiles.length, true),
+    issue('orphan-scene-casts', 'error', 'integrity', 'Orphan scene casts', 'Cast rows across the app point to deleted scenes.', orphanSceneCasts.length, true),
+    issue('orphan-annotation-references', 'error', 'integrity', 'Orphan annotation references', 'References across the app point to deleted annotations.', orphanAnnotationReferences.length, true),
+    issue('orphan-world-snapshots', 'warning', 'storage', 'Stale world caches', 'Regenerable caches across the app remain after their worlds were deleted.', orphanWorldSnapshots.length + orphanCanonTiles.length, true),
     issue('interrupted-native-jobs', 'warning', 'storage', 'Interrupted capture jobs', 'Jobs were still marked active after the previous session ended.', interruptedJobs.length, true),
     issue('broken-gallery-collections', 'warning', 'integrity', 'Images in missing collections', 'Gallery images reference a deleted collection.', brokenGalleryCollections.length, true),
     issue('broken-map-pins', 'error', 'integrity', 'Pins on missing maps', 'Map pins reference a deleted map.', brokenMapPins.length, true),
@@ -437,7 +482,7 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     boardNodes,
     storyboards,
     imageCollections,
-    inspirationImages,
+    inspirationImageIds,
     maps,
     mapPins,
     diaryEntries,
@@ -467,9 +512,12 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
   for (const node of boardNodes) {
     if (node.ref) addBacklink(node.ref.engineId, node.ref.entityId);
   }
-  for (const image of inspirationImages) {
-    for (const entryId of image.linkedEntryIds ?? []) addBacklink('codex', entryId);
-  }
+  // `*linkedEntryIds` is a multi-entry index: one index entry per (image, entry)
+  // pair, which is exactly what the backlink tally counts. Scoped by primary
+  // key for the same reason as the album check above.
+  await db.inspirationImages.orderBy('linkedEntryIds').eachKey((entryId, cursor) => {
+    if (imageIds.has(cursor.primaryKey as string)) addBacklink('codex', entryId as string);
+  });
   for (const link of entityLinks) {
     addBacklink(link.sourceEngineId, link.sourceEntityId);
     addBacklink(link.targetEngineId, link.targetEntityId);
@@ -543,7 +591,11 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
       .map(block => block.characterName.toLocaleLowerCase()),
   ).size;
   const totalWords = writings.reduce((sum, row) => sum + (row.wordCount || countWords(stripHtml(row.content))), 0);
-  const linkedBeats = outlineBeats.filter(row => row.linkedWritingId || row.linkedSceneId).length;
+  const linkedBeats = outlineBeats.filter(
+    row =>
+      (row.linkedWritingId && writingIds.has(row.linkedWritingId)) ||
+      (row.linkedSceneId && sceneIds.has(row.linkedSceneId)),
+  ).length;
   const linkedScenes = scenes.filter(scene => outlineBeats.some(beat => beat.linkedSceneId === scene.id)).length;
   const arcsWithBeats = new Set(arcBeats.map(row => row.arcId)).size;
   const citedSnapshotIds = new Set(
@@ -557,12 +609,15 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
       return ids;
     }),
   );
+  const annotatedSnapshotIds = new Set(
+    annotations
+      .filter(annotation => annotation.sourceEngineId === 'scrapper')
+      .map(annotation => annotation.sourceEntityId),
+  );
   const researchLinked = snapshots.filter(snapshot =>
     citedSnapshotIds.has(snapshot.id) ||
     linkedSnapshotIds.has(snapshot.id) ||
-    annotations.some(annotation =>
-      annotation.sourceEngineId === 'scrapper' && annotation.sourceEntityId === snapshot.id,
-    ),
+    annotatedSnapshotIds.has(snapshot.id),
   ).length;
 
   const recent: RecentProjectItem[] = [
@@ -575,13 +630,17 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
   ].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 12);
 
   const assets: AssetInventoryItem[] = [
-    ...inspirationImages.map(image => ({
-      id: `gallery:${image.id}`,
-      ownerId: image.id,
+    // Label and status used to come from the row itself (`notes || tags[0]`
+    // and the presence of `imageData`). No index carries either, and reading
+    // them meant deserialising every base64 payload in the project on every
+    // autosave; the inventory now names the rows the index can name.
+    ...(inspirationImageIds as string[]).map(id => ({
+      id: `gallery:${id}`,
+      ownerId: id,
       engineId: 'gallery',
-      label: image.notes || image.tags[0] || 'Gallery image',
+      label: t('projectCockpit.assets.galleryImage'),
       storage: 'indexeddb' as const,
-      status: image.imageData ? 'available' as const : 'failed' as const,
+      status: 'available' as const,
     })),
     ...maps.filter(map => map.backgroundImage).map(map => ({
       id: `maps:${map.id}`,
@@ -727,19 +786,33 @@ export async function updateNarrativeSpineLink(
     const scene = await db.scenes.get(link.sceneId);
     if (!scene || scene.projectId !== projectId) throw new Error('Scene does not belong to this project');
   }
-  await db.outlineBeats.update(beatId, {
-    linkedWritingId: link.writingId || undefined,
-    linkedSceneId: link.sceneId || undefined,
-    updatedAt: Date.now(),
-  });
+  // Only the keys the caller actually sent. Writing both unconditionally meant
+  // a select that changed the scene also rewrote the writing link from whatever
+  // its own render happened to hold, silently undoing the other select.
+  const changes: Partial<OutlineBeat> = { updatedAt: Date.now() };
+  if ('writingId' in link) changes.linkedWritingId = link.writingId || undefined;
+  if ('sceneId' in link) changes.linkedSceneId = link.sceneId || undefined;
+  await db.outlineBeats.update(beatId, changes);
 }
 
 export async function repairProjectHealthIssue(projectId: string, issueId: string): Promise<void> {
   switch (issueId) {
     case 'orphan-writing-snapshots': {
       const writingIds = new Set(await db.writings.where('projectId').equals(projectId).primaryKeys());
-      const rows = await db.writingSnapshots.where('projectId').equals(projectId).toArray();
-      await db.writingSnapshots.bulkDelete(rows.filter(row => !writingIds.has(row.writingId)).map(row => row.id));
+      // The detector counts these orphans over primary keys precisely so that no
+      // manuscript body is ever read; the repair has to keep the same promise.
+      // `toArray()` here pulled the project's ENTIRE version history — one whole
+      // chapter per row, of which this decision needs two fields — into memory
+      // just to work out which ids to delete. The cursor drops each body with
+      // the row that carried it.
+      const orphaned: string[] = [];
+      await db.writingSnapshots
+        .where('projectId')
+        .equals(projectId)
+        .each(({ id, writingId }) => {
+          if (!writingIds.has(writingId)) orphaned.push(id);
+        });
+      await db.writingSnapshots.bulkDelete(orphaned);
       break;
     }
     case 'orphan-board-edges': {
@@ -768,21 +841,23 @@ export async function repairProjectHealthIssue(projectId: string, issueId: strin
       break;
     }
     case 'orphan-scene-casts': {
-      const scenes = new Set(await db.scenes.toCollection().primaryKeys());
+      // Parentless rows belong to no project, so the sweep is app-wide.
+      const scenes = new Set((await db.scenes.toCollection().primaryKeys()) as string[]);
       const rows = await db.sceneCasts.toArray();
       await db.sceneCasts.bulkDelete(rows.filter(row => !scenes.has(row.sceneId)).map(row => row.id));
       break;
     }
     case 'orphan-annotation-references': {
-      const annotations = new Set(await db.annotations.toCollection().primaryKeys());
+      const annotations = new Set((await db.annotations.toCollection().primaryKeys()) as string[]);
       const rows = await db.annotationReferences.toArray();
       await db.annotationReferences.bulkDelete(rows.filter(row => !annotations.has(row.annotationId)).map(row => row.id));
       break;
     }
     case 'orphan-world-snapshots': {
-      const worlds = new Set(await db.generatedWorlds.toCollection().primaryKeys());
-      const rows = await db.worldSnapshots.toArray();
-      await db.worldSnapshots.bulkDelete(rows.filter(row => !worlds.has(row.worldId)).map(row => row.worldId));
+      const worlds = new Set((await db.generatedWorlds.toCollection().primaryKeys()) as string[]);
+      const snapshotIds = (await db.worldSnapshots.toCollection().primaryKeys()) as string[];
+      const staleSnapshots = snapshotIds.filter(id => !worlds.has(id));
+      if (staleSnapshots.length) await db.worldSnapshots.bulkDelete(staleSnapshots);
       // Canon supertiles too — same lifetime, different table. Index keys
       // only: a canon row's payload is megabytes and never needs loading here.
       const canonOwners = await db.canonTiles.orderBy('worldId').uniqueKeys();
@@ -839,4 +914,297 @@ export async function repairProjectHealthIssue(projectId: string, issueId: strin
       break;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Day two — what the writer needs to see before they have opened anything
+// ---------------------------------------------------------------------------
+//
+// Everything below answers questions the dashboard could not: how big is this
+// project, when did I last touch it, and what sentence was I in the middle of.
+
+/** Progress for one project, as the dashboard card shows it. */
+export interface ProjectProgress {
+  /** Sum of the stored `wordCount` of every writing in the project. */
+  totalWords: number;
+  /** `updatedAt` of the most recently edited writing, or null when there is none. */
+  lastWrittenAt: number | null;
+  /** The most recently edited writing — where "continue" lands by default. */
+  lastWritingId: string | null;
+  /**
+   * Every writing's current title, by id. Two jobs: it names a remembered
+   * chapter with the title the writing has NOW (a rename must not leave a stale
+   * label on the card), and its absence proves a remembered chapter was deleted,
+   * so the card can fall back instead of offering a dead link.
+   */
+  writingTitles: Map<string, string>;
+}
+
+function emptyProgress(): ProjectProgress {
+  return { totalWords: 0, lastWrittenAt: null, lastWritingId: null, writingTitles: new Map() };
+}
+
+/**
+ * Word totals and last-edited stamps for EVERY project, in one pass.
+ *
+ * One query for the whole dashboard, not one per card: a grid of twenty
+ * projects used to mean twenty round trips, each re-reading rows the one
+ * before it had already walked. A cursor keeps peak memory at one chapter
+ * rather than the whole hoard, and the sum reads the stored `wordCount`
+ * field — recomputing it would mean stripping the HTML of every chapter you
+ * own to draw a number on a card.
+ */
+export async function loadAllProjectProgress(): Promise<Map<string, ProjectProgress>> {
+  const byProject = new Map<string, ProjectProgress>();
+  await db.writings.toCollection().each(row => {
+    let progress = byProject.get(row.projectId);
+    if (!progress) {
+      progress = emptyProgress();
+      byProject.set(row.projectId, progress);
+    }
+    progress.totalWords += row.wordCount || 0;
+    progress.writingTitles.set(row.id, row.title);
+    if (progress.lastWrittenAt === null || row.updatedAt > progress.lastWrittenAt) {
+      progress.lastWrittenAt = row.updatedAt;
+      progress.lastWritingId = row.id;
+    }
+  });
+  return byProject;
+}
+
+/**
+ * Whole local calendar days between a timestamp and today.
+ *
+ * Calendar days, not 24-hour blocks: something saved at 23:50 was edited
+ * "yesterday" at 00:10, not "0 days ago". Goes through the local-date helpers
+ * so a timezone west of Greenwich cannot shift the day.
+ */
+export function localDaysSince(timestamp: number): number {
+  return localDaysBetween(toLocalDateKey(new Date(timestamp)), toLocalDateKey());
+}
+
+// ---------------------------------------------------------------------------
+// Resume memory — the route each project was last left on
+// ---------------------------------------------------------------------------
+//
+// Per device and per install, never synced and never in a backup: this is a
+// convenience ("put me back where I was"), not project data, and losing it
+// costs the writer one click. localStorage is therefore the right store — but
+// it throws outright in some contexts (private windows, blocked site data), so
+// every access is guarded and a failure simply means the card offers the plain
+// open it always did.
+
+const RESUME_KEY_PREFIX = 'wh.resume.';
+
+export interface ProjectResume {
+  /** Engine tab the writer was on, e.g. `writings`. */
+  engineId: string;
+  /** The entity inside that engine, when they were inside one. */
+  entityId?: string;
+  /**
+   * When this position was recorded, epoch ms.
+   *
+   * It is what separates "where I was" from "where I was a week ago": a chapter
+   * whose `updatedAt` is newer than this stamp is the better answer, because
+   * the writer has been working somewhere this route never heard about. A route
+   * stored before routes carried a stamp cannot be weighed at all, and is
+   * therefore ancient — `readProjectRoute` drops it.
+   */
+  savedAt: number;
+}
+
+function resumeKey(projectId: string): string {
+  return `${RESUME_KEY_PREFIX}${projectId}`;
+}
+
+/**
+ * Record where the writer is, so the dashboard can offer it back to them.
+ *
+ * Called from wherever the writer actually arrives — opening a chapter,
+ * switching engine tab — and not only from the "Continue" button: a route that
+ * only the button wrote could never point anywhere but the button's own last
+ * click, which is how a card kept offering a chapter abandoned a week ago.
+ */
+export function rememberProjectRoute(
+  projectId: string,
+  route: Omit<ProjectResume, 'savedAt'>,
+): void {
+  if (!projectId || !route.engineId) return;
+  const stamped: ProjectResume = { ...route, savedAt: Date.now() };
+  try {
+    window.localStorage.setItem(resumeKey(projectId), JSON.stringify(stamped));
+  } catch {
+    // Storage unavailable or full — the card falls back to the plain open.
+  }
+}
+
+/** The remembered route for a project, or null when there is nothing usable. */
+export function readProjectRoute(projectId: string): ProjectResume | null {
+  if (!projectId) return null;
+  try {
+    const raw = window.localStorage.getItem(resumeKey(projectId));
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const { engineId, entityId, savedAt } = parsed as Partial<ProjectResume>;
+    if (typeof engineId !== 'string' || !engineId) return null;
+    // Unstamped means written before routes were dated: there is no way to tell
+    // whether the writer has moved on since, so it is treated as ancient and
+    // the card falls back to the chapter that was actually edited last.
+    if (typeof savedAt !== 'number' || !Number.isFinite(savedAt)) return null;
+    return {
+      engineId,
+      entityId: typeof entityId === 'string' && entityId ? entityId : undefined,
+      savedAt,
+    };
+  } catch {
+    // Unreadable or corrupt — treat it as "nothing remembered".
+    return null;
+  }
+}
+
+/**
+ * Record the engine tab the writer moved to, keeping whatever entity was
+ * remembered inside that same engine.
+ *
+ * Arriving on a tab is recorded on every visit, including the one a "Continue"
+ * click makes, so it must not overwrite the finer-grained position: landing on
+ * Writings means "the writer is in Writings", not "the writer is in no
+ * chapter". Opening one records the chapter itself.
+ */
+export function rememberProjectTab(projectId: string, engineId: string): void {
+  const previous = readProjectRoute(projectId);
+  const entityId = previous && previous.engineId === engineId ? previous.entityId : undefined;
+  rememberProjectRoute(projectId, { engineId, entityId });
+}
+
+/** Drop a project's remembered route. Called when the project itself is deleted. */
+export function forgetProjectRoute(projectId: string): void {
+  if (!projectId) return;
+  try {
+    window.localStorage.removeItem(resumeKey(projectId));
+  } catch {
+    // Nothing to clean up if the store cannot be reached.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Codex appearances — where a character is actually on the page
+// ---------------------------------------------------------------------------
+
+/** One chapter a codex character is named in. */
+export interface CodexAppearance {
+  writingId: string;
+  title: string;
+  chapter?: number;
+}
+
+/**
+ * The scans currently running, by project.
+ *
+ * Deliberately NOT a result cache: the entry is dropped the moment the scan
+ * settles, so a writer who leaves the Codex, writes a chapter and comes back
+ * gets an answer that includes it. What it does buy is that the same manuscript
+ * is never scanned twice at once — which is exactly what StrictMode's
+ * mount → cleanup → mount does to the effect that asks for it. A ref flag would
+ * have swallowed the second run instead of serving it (tasks/lessons.md #19).
+ */
+const appearanceScansInFlight = new Map<string, Promise<Map<string, CodexAppearance[]>>>();
+
+/**
+ * Manuscript order — the chapter number first, then creation time, then the id
+ * so the sort is total. Mirrors the proofreader and the publishing profile.
+ */
+function compareAppearanceOrder(
+  left: { chapter?: number; createdAt: number; writingId: string },
+  right: { chapter?: number; createdAt: number; writingId: string },
+): number {
+  const chapter =
+    (left.chapter ?? Number.MAX_SAFE_INTEGER) - (right.chapter ?? Number.MAX_SAFE_INTEGER);
+  if (chapter !== 0) return chapter;
+  if (left.createdAt !== right.createdAt) return left.createdAt - right.createdAt;
+  return left.writingId.localeCompare(right.writingId);
+}
+
+/**
+ * Which chapters each codex character appears in, keyed by codex entry id.
+ *
+ * The Codex could say who a character is related to and which dialogue scenes
+ * she is cast in, but not the one thing a novelist actually asks — when was she
+ * last on the page? The proofreader already answers that to find characters who
+ * disappear; this is the same scan, kept for the codex.
+ *
+ * The cost model is the proofreader's, and it matters: ONE pass over the
+ * manuscript, with the candidate names indexed by first token, so a chapter
+ * costs `O(words)` map lookups however large the codex is — never a regex per
+ * (chapter x character). Both tables are streamed with a cursor and projected
+ * down immediately, so the two base64 avatar columns on a codex row and the
+ * whole manuscript never sit in memory at once.
+ *
+ * Call it once per project (the codex list does, on demand), never per render
+ * and never per entry.
+ */
+export function loadCodexAppearances(
+  projectId: string,
+): Promise<Map<string, CodexAppearance[]>> {
+  const running = appearanceScansInFlight.get(projectId);
+  if (running) return running;
+  const scan = scanCodexAppearances(projectId).finally(() => {
+    appearanceScansInFlight.delete(projectId);
+  });
+  appearanceScansInFlight.set(projectId, scan);
+  return scan;
+}
+
+
+async function scanCodexAppearances(
+  projectId: string,
+): Promise<Map<string, CodexAppearance[]>> {
+  const byEntry = new Map<string, CodexAppearance[]>();
+
+  const codexRows: ProofreaderCodexRow[] = [];
+  await db.codexEntries
+    .where('projectId')
+    .equals(projectId)
+    .each(row => {
+      codexRows.push({ id: row.id, type: row.type, title: row.title });
+    });
+
+  const candidates = buildAppearanceCandidates(codexRows);
+  if (candidates.length === 0) return byEntry;
+
+  // `findAppearances` wants the candidates grouped by their first token; the
+  // proofreader keeps its own copy of this two-line index private.
+  const byFirstToken = new Map<string, AppearanceCandidate[]>();
+  for (const candidate of candidates) {
+    const group = byFirstToken.get(candidate.tokens[0]);
+    if (group) group.push(candidate);
+    else byFirstToken.set(candidate.tokens[0], [candidate]);
+  }
+
+  const scanned: Array<CodexAppearance & { createdAt: number; entryIds: Set<string> }> = [];
+  await db.writings
+    .where('projectId')
+    .equals(projectId)
+    .each(row => {
+      const entryIds = findAppearances(stripHtml(row.content), byFirstToken);
+      if (entryIds.size === 0) return;
+      scanned.push({
+        writingId: row.id,
+        title: row.title,
+        chapter: row.chapter,
+        createdAt: row.createdAt,
+        entryIds,
+      });
+    });
+  scanned.sort(compareAppearanceOrder);
+
+  for (const { writingId, title, chapter, entryIds } of scanned) {
+    for (const entryId of entryIds) {
+      const list = byEntry.get(entryId);
+      if (list) list.push({ writingId, title, chapter });
+      else byEntry.set(entryId, [{ writingId, title, chapter }]);
+    }
+  }
+  return byEntry;
 }

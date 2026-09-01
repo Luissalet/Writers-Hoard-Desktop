@@ -18,6 +18,7 @@ import {
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
   optEnum,
   optNumber,
@@ -87,6 +88,7 @@ export async function whAddVideoSegment(args: ToolArgs): Promise<unknown> {
   const plan = await getVideoPlan(videoPlanId);
   if (!plan) throw new BridgeError('not-found', `No video plan with id "${videoPlanId}".`);
   await assertEngineEnabled(plan.projectId, 'video-planner');
+  assertRowInScope(args, plan.projectId);
   const siblings = await getSegments(videoPlanId);
   const now = Date.now();
   const segment: VideoSegment = {
@@ -123,6 +125,7 @@ export async function whUpdateVideoSegment(args: ToolArgs): Promise<unknown> {
   const segment = await db.videoSegments.get(id);
   if (!segment) throw new BridgeError('not-found', `No video segment with id "${id}".`);
   await assertEngineEnabled(segment.projectId, 'video-planner');
+  assertRowInScope(args, segment.projectId);
 
   const changes: Partial<VideoSegment> = {};
   (
@@ -146,7 +149,9 @@ export async function whUpdateVideoSegment(args: ToolArgs): Promise<unknown> {
       projectId: segment.projectId,
       entityId: id,
       summary: `updated segment "${segment.title}"`,
-      before: { title: segment.title, script: segment.script.slice(0, 400) },
+      // Whole: undo writes this back verbatim, and a truncated script would
+      // overwrite the segment with its first 400 characters.
+      before: { title: segment.title, script: segment.script },
     },
   );
 }

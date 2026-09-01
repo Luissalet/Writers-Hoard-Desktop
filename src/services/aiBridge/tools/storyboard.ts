@@ -18,6 +18,7 @@ import {
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
   optNumber,
   optString,
@@ -78,6 +79,7 @@ export async function whAddStoryboardPanel(args: ToolArgs): Promise<unknown> {
   const board = await getStoryboard(storyboardId);
   if (!board) throw new BridgeError('not-found', `No storyboard with id "${storyboardId}".`);
   await assertEngineEnabled(board.projectId, 'storyboard');
+  assertRowInScope(args, board.projectId);
   const siblings = await getPanels(storyboardId);
   const now = Date.now();
   const panel: StoryboardPanel = {
@@ -109,6 +111,7 @@ export async function whUpdateStoryboardPanel(args: ToolArgs): Promise<unknown> 
   const panel = await db.storyboardPanels.get(id);
   if (!panel) throw new BridgeError('not-found', `No storyboard panel with id "${id}".`);
   await assertEngineEnabled(panel.projectId, 'storyboard');
+  assertRowInScope(args, panel.projectId);
 
   const changes: Partial<StoryboardPanel> = {};
   (['subtitle', 'description', 'duration', 'linkedSceneId'] as const).forEach((key) => {

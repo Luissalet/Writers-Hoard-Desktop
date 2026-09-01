@@ -47,6 +47,21 @@ export interface DownloadToLibraryResult {
   error?: string;
 }
 
+/** Outcome of writing an automatic backup archive into userData. */
+export interface BackupWriteResult {
+  ok: boolean;
+  /** Absolute path of the archive that now exists on disk. */
+  path?: string;
+  sizeBytes?: number;
+  /** How many older archives rotation removed after this write. */
+  removed?: number;
+  code?: 'invalid-name' | 'invalid-payload' | 'insufficient-space' | 'write-failed';
+  /** Bytes free on the target volume, when the write was skipped for space. */
+  freeBytes?: number;
+  requiredBytes?: number;
+  error?: string;
+}
+
 /** One post surfaced by `instagram.listCollection` — metadata only, nothing downloaded. */
 export interface CollectionItem {
   url: string;
@@ -105,6 +120,28 @@ export interface QuickNotePayload {
   kind: 'note' | 'quote' | 'idea' | 'word';
   /** null → the project-less inbox. */
   projectId: string | null;
+}
+
+/**
+ * The same note as it reaches the main renderer, tagged so the renderer can
+ * tell main which capture it just finished writing.
+ */
+export interface QuickNoteRelay extends QuickNotePayload {
+  requestId: string;
+}
+
+/** The main renderer's verdict on one relayed capture. */
+export interface QuickNoteAck {
+  requestId: string;
+  ok: boolean;
+  /** Short machine-readable reason when `ok` is false. */
+  error?: string;
+}
+
+/** What the floating window gets back from `submit` — true only once written. */
+export interface QuickNoteSubmitResult {
+  ok: boolean;
+  error?: string;
 }
 
 // ── Local AI (embedded Ollama) — mirrors electron/ollama.ts ─────────────────
@@ -227,6 +264,18 @@ export interface AiBridgeUndoResult {
   code?: string;
 }
 
+/**
+ * Copy for the native dialog the main process shows when the renderer stops
+ * answering a window close. Translated in the renderer and handed over,
+ * because the main process has no `t()`. See src/services/closeGuard.ts.
+ */
+export interface ShutdownWarning {
+  title: string;
+  message: string;
+  closeAnyway: string;
+  keepOpen: string;
+}
+
 export interface ElectronAPI {
   isDesktop: true;
   media: {
@@ -271,14 +320,46 @@ export interface ElectronAPI {
   exporter: {
     scriptToPdf: (html: string, suggestedName: string) => Promise<SaveResult>;
   };
+
+  /**
+   * Automatic backup: write finished archive bytes into `<userData>/backups`
+   * with no dialog and no transformation, and rotate older copies away.
+   * See src/services/autoBackup.ts.
+   */
+  backup: {
+    writeArchive: (
+      bytes: ArrayBuffer,
+      suggestedName: string,
+      copies: number,
+    ) => Promise<BackupWriteResult>;
+    revealFolder: () => Promise<{ ok: boolean; path?: string; error?: string }>;
+  };
   quickNote: {
     setContext: (ctx: QuickNoteContext) => void;
     getContext: () => Promise<QuickNoteContext>;
     open: () => Promise<void>;
-    submit: (payload: QuickNotePayload) => Promise<{ ok: boolean }>;
+    submit: (payload: QuickNotePayload) => Promise<QuickNoteSubmitResult>;
     close: () => void;
-    onCapture: (callback: (payload: QuickNotePayload) => void) => () => void;
+    onCapture: (callback: (payload: QuickNoteRelay) => void) => () => void;
+    ack: (ack: QuickNoteAck) => void;
     onOpenInline: (callback: () => void) => () => void;
+  };
+  /**
+   * Closing the window while a document is unsaved. `beforeunload` cannot ask
+   * this in Electron — its `preventDefault()` cancels the close silently — so
+   * the main process owns the veto and asks the renderer here. See
+   * src/services/closeGuard.ts and electron/main.ts.
+   */
+  /**
+   * Absent on a desktop build whose preload predates the close guard, and on
+   * the web build entirely — so every caller reaches it through `?.`.
+   */
+  shutdown?: {
+    setWarning: (warning: ShutdownWarning | null) => void;
+    onRequest: (callback: (requestId: number) => void) => () => void;
+    reply: (requestId: number, proceed: boolean) => void;
+    closeNow: () => void;
+    keepOpen: () => void;
   };
   updates: {
     check: () => Promise<void>;

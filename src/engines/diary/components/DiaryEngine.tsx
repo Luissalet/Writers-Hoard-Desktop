@@ -7,6 +7,7 @@ import { useDiaryEntries } from '../hooks';
 import type { DiaryEntry, DiaryMood } from '../types';
 import { MOOD_CONFIG } from '../types';
 import { generateId } from '@/utils/idGenerator';
+import { toLocalDateTimeStamp } from '@/engines/writing-stats/date';
 import QuickEntry from './QuickEntry';
 import EntryCard from './EntryCard';
 import EntryEditor from './EntryEditor';
@@ -70,7 +71,7 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
     setDraftEntry({
       id: generateId('diary'),
       projectId,
-      entryDate: new Date().toISOString().slice(0, 16),
+      entryDate: toLocalDateTimeStamp(),
       title: '',
       content: '',
       mood: undefined,
@@ -113,7 +114,7 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
       const entry: DiaryEntry = {
         id: generateId('diary'),
         projectId,
-        entryDate: now.toISOString().slice(0, 16),
+        entryDate: toLocalDateTimeStamp(now),
         title: '',
         content,
         mood,

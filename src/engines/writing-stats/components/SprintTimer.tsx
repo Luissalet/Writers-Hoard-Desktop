@@ -215,7 +215,7 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
         ) : (
           <button
             onClick={handlePause}
-            className="flex items-center gap-2 px-6 py-2 bg-yellow-500 text-deep font-medium rounded-lg hover:bg-yellow-600 transition-colors"
+            className="flex items-center gap-2 px-6 py-2 bg-warning text-deep font-medium rounded-lg hover:bg-warning/90 transition-colors"
           >
             <Pause size={18} />
             {t('stats.pause')}
@@ -237,7 +237,7 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
         <button
           onClick={handleStop}
           disabled={isRunning}
-          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white font-medium rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50"
+          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-success text-deep font-medium rounded-lg hover:bg-success/90 transition-colors disabled:opacity-50"
         >
           <Check size={18} />
           {t('stats.stopAndLog')}

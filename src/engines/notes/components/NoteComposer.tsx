@@ -132,8 +132,8 @@ export default function NoteComposer({
                 className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-plum-light/15 text-accent-plum-light text-xs"
               >
                 #{tag}
-                <button type="button" onClick={() => setTags(tags.filter((x) => x !== tag))}>
-                  <X size={11} />
+                <button type="button" onClick={() => setTags(tags.filter((x) => x !== tag))} title={t('common.remove')} aria-label={t('common.remove')}>
+                  <X size={11} aria-hidden="true" />
                 </button>
               </span>
             ))}

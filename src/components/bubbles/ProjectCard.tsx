@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Library, Lightbulb, Layers, Trash2, Palette } from 'lucide-react';
+import { BookOpen, Clock, Library, Lightbulb, Layers, PenLine, PlayCircle, Trash2, Palette } from 'lucide-react';
 import { InlineIconPicker } from '@/components/common/IconPicker';
 import { ProjectIcon } from '@/components/common/ProjectIcon';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -26,11 +26,42 @@ interface ProjectCardProps {
   onColorChange?: (color: string) => void;
   onIconChange?: (icon: string) => void;
   index: number;
+  /** Words across every writing in the project. */
+  totalWords?: number;
+  /** Whole local calendar days since the last writing was saved; null when none. */
+  daysSinceEdit?: number | null;
+  /** What "continue" would open — a chapter title, or an engine name. */
+  resumeLabel?: string;
+  /** Opens `resumeLabel`. Omitted when there is nothing to resume. */
+  onResume?: () => void;
 }
 
-export default function ProjectCard({ project, onClick, onDelete, onColorChange, onIconChange, index }: ProjectCardProps) {
-  const { t } = useTranslation();
+export default function ProjectCard({
+  project,
+  onClick,
+  onDelete,
+  onColorChange,
+  onIconChange,
+  index,
+  totalWords = 0,
+  daysSinceEdit = null,
+  resumeLabel,
+  onResume,
+}: ProjectCardProps) {
+  const { t, locale } = useTranslation();
   const colorInputRef = useRef<HTMLInputElement>(null);
+
+  // Calendar days, already counted locally by the caller — so a chapter saved
+  // last night reads as "yesterday", not "0 days ago".
+  const editedLabel =
+    daysSinceEdit === null
+      ? null
+      : daysSinceEdit <= 0
+        ? t('projectCard.editedToday')
+        : daysSinceEdit === 1
+          ? t('projectCard.editedYesterday')
+          : t('projectCard.editedDaysAgo').replace('{n}', String(daysSinceEdit));
+  const showProgress = totalWords > 0 || editedLabel !== null;
 
   return (
     <motion.div
@@ -79,9 +110,42 @@ export default function ProjectCard({ project, onClick, onDelete, onColorChange,
           <h3 className="font-serif font-bold text-lg text-text-primary mb-1 group-hover:text-accent-gold transition">
             {project.title}
           </h3>
-          <p className="text-sm text-text-muted line-clamp-2 mb-4">
+          <p className="text-sm text-text-muted line-clamp-2 mb-3">
             {project.description || t('projectCard.noDescription')}
           </p>
+
+          {/* Progress — the two facts that say whether this project is alive */}
+          {showProgress && (
+            <div className="flex items-center gap-3 mb-3 text-[11px] text-text-dim">
+              <span className="flex items-center gap-1">
+                <PenLine size={12} />
+                {t('projectCard.words').replace('{n}', totalWords.toLocaleString(locale))}
+              </span>
+              {editedLabel && (
+                <span className="flex items-center gap-1">
+                  <Clock size={12} />
+                  {editedLabel}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Resume — the card's primary action once there is somewhere to go
+              back to. The card itself still opens the project, for anyone who
+              wants the project rather than the sentence they left unfinished. */}
+          {onResume && resumeLabel && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onResume(); }}
+              className="w-full flex items-center gap-1.5 mb-3 px-3 py-2 rounded-lg border border-accent-gold/30 bg-accent-gold/10 text-accent-gold text-xs font-semibold hover:bg-accent-gold/20 transition"
+              title={t('projectCard.continue').replace('{name}', resumeLabel)}
+            >
+              <PlayCircle size={14} className="flex-shrink-0" />
+              <span className="truncate">
+                {t('projectCard.continue').replace('{name}', resumeLabel)}
+              </span>
+            </button>
+          )}
 
           {/* Footer */}
           <div className="flex items-center justify-between">

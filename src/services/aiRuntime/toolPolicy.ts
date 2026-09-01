@@ -8,7 +8,7 @@
 // sight, is what lets the critical tests prove that the copilot and the MCP
 // reach the very same verdicts.
 
-import type { BridgeTool, BridgeToolSchema } from '@/services/aiBridge/schema';
+import { SCOPE_KEY, type BridgeTool, type BridgeToolSchema } from '@/services/aiBridge/schema';
 
 /** Who is asking. The HTTP port carries both external clients and the MCP adapter. */
 export type ToolOrigin = 'bridge' | 'copilot' | 'feature';
@@ -83,8 +83,10 @@ export type ScopeVerdict =
  * Tools whose schema takes `projectId` get it filled in when the model left it
  * out, and are refused when the model named a different one: a chat opened in
  * project A is not permission to write into project B. Tools addressed by an
- * entity id are not scoped here — the handler resolves the row — and the
- * audit line records the project they actually touched.
+ * entity id cannot be decided here — only the handler can say which project
+ * the row belongs to — so the scope rides along in SCOPE_KEY and the handler
+ * checks it against the loaded row (`assertRowInScope`). Without that, an id
+ * from another project was all it took to write into one.
  */
 export function applyProjectScope(
   tool: BridgeTool,
@@ -93,7 +95,7 @@ export function applyProjectScope(
 ): ScopeVerdict {
   if (ctx.origin !== 'copilot' || !ctx.projectId) return { ok: true, args };
   const takesProject = Object.prototype.hasOwnProperty.call(tool.schema.properties, 'projectId');
-  if (!takesProject) return { ok: true, args };
+  if (!takesProject) return { ok: true, args: { ...args, [SCOPE_KEY]: ctx.projectId } };
   const given = args.projectId;
   if (typeof given === 'string' && given && given !== ctx.projectId) {
     return {
