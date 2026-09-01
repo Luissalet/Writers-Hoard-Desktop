@@ -39,6 +39,7 @@ import { ollamaAdapter } from './adapters/ollama';
 import { openAiCompatibleAdapter } from './adapters/openAiCompatible';
 import { sdcppAdapter } from './adapters/sdcpp';
 import { getAllModelMetrics, recordModelUsage } from './modelMetrics';
+import { invalidateVramReport } from './vramRoom';
 import type { AdapterContext, ProviderAdapter } from './adapters/types';
 import { AdapterError } from './adapters/http';
 
@@ -233,13 +234,23 @@ export function startChat(
   const id = requestId && !inFlight.has(requestId) ? requestId : newRequestId('chat');
   const controller = new AbortController();
   inFlight.set(id, { controller, kind: 'chat' });
-  const hardStop = setTimeout(() => controller.abort('timeout'), CHAT_HARD_LIMIT_MS);
+  let hitHardLimit = false;
+  const hardStop = setTimeout(() => {
+    hitHardLimit = true;
+    controller.abort('timeout');
+  }, CHAT_HARD_LIMIT_MS);
+  const hardLimitEvent = (): AiStreamEvent => ({
+    type: 'error',
+    code: 'timeout',
+    message: 'The answer ran past the 15-minute limit and was stopped.',
+  });
   // Every finished answer teaches the fit badge how fast this model really is.
   const measuringSink = (event: AiStreamEvent): void => {
     if (event.type === 'usage' && event.usage.tokensPerSecond) {
       void recordModelUsage(request.connectionId, request.modelId, event.usage).then(() => invalidateModels(request.connectionId));
     }
-    sink(event);
+    // The adapter reports any abort as a cancel; only the user's Stop is one.
+    sink(hitHardLimit && event.type === 'cancelled' ? hardLimitEvent() : event);
   };
   void (async () => {
     try {
@@ -247,7 +258,7 @@ export function startChat(
       await adapterFor(ctx.connection).chat(ctx, request, measuringSink, controller.signal);
     } catch (err) {
       if (controller.signal.aborted) {
-        sink({ type: 'cancelled' });
+        sink(hitHardLimit ? hardLimitEvent() : { type: 'cancelled' });
       } else {
         const e = err instanceof AdapterError ? err : new AdapterError('unreachable', String(err));
         sink({ type: 'error', code: e.code, message: e.message });
@@ -255,6 +266,11 @@ export function startChat(
     } finally {
       clearTimeout(hardStop);
       inFlight.delete(id);
+      // `releaseAfter` asked the server to drop the model the moment this answer
+      // ended (keep_alive 0), so whatever was measured about GPU memory is now
+      // out of date — including the reading the image studio's contention
+      // warning is drawn from.
+      if (request.releaseAfter) invalidateVramReport();
     }
   })();
   return id;

@@ -98,7 +98,7 @@ export async function downloadGallery(
     try {
       await runGalleryDl(
         bin,
-        [...ca, '--write-metadata', '--no-mtime', '-D', tmpdir, url],
+        [...ca, '--write-metadata', '--no-mtime', '-D', tmpdir, '--', url],
         signal,
       );
     } catch (err) {
@@ -163,7 +163,7 @@ export async function listCollection(
     if (signal?.aborted) throw new Error('cancelled');
     let result: { code: number; stdout: string; stderr: string } | undefined;
     try {
-      result = await runGalleryDlCapture(bin, [...ca, '--dump-json', url], signal);
+      result = await runGalleryDlCapture(bin, [...ca, '--dump-json', '--', url], signal);
     } catch (err) {
       lastErr = err instanceof Error ? err.message : String(err);
       if (lastErr === 'cancelled') throw err;
@@ -358,7 +358,7 @@ function runGalleryDl(cmd: string, args: string[], signal?: AbortSignal): Promis
       reject(new Error('cancelled'));
       return;
     }
-    const child = spawn(cmd, args, { windowsHide: true });
+    const child = spawn(cmd, args, { windowsHide: true, detached: !isWin });
     try {
       if (child.pid != null) {
         os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
@@ -411,7 +411,7 @@ function runGalleryDlCapture(
       reject(new Error('cancelled'));
       return;
     }
-    const child = spawn(cmd, args, { windowsHide: true });
+    const child = spawn(cmd, args, { windowsHide: true, detached: !isWin });
     try {
       if (child.pid != null) {
         os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);

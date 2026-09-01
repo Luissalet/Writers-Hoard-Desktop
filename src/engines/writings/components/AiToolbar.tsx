@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Sparkles, Users, Loader2, X, Check, CloudDownload, Merge, ArrowRight } from 'lucide-react';
 import Modal from '@/components/common/Modal';
 import { useAiStore } from '@/stores/aiStore';
@@ -49,6 +49,27 @@ export default function AiToolbar({ writing, projectId, onSynopsisUpdate, conten
     mergeContent: string;
   }[] | null>(null);
 
+  /** The chapter the state below belongs to — read by in-flight callbacks. */
+  const activeWritingId = useRef(writing.id);
+
+  // One instance survives a chapter switch: the prev/next chevrons swap
+  // `writing` in place instead of remounting. Everything cached above is
+  // derived from ONE chapter's text, so none of it may outlive that swap —
+  // otherwise `ensureContent` serves chapter A's text while the accept
+  // handlers write to chapter B. Placed before the early return for the same
+  // reason as the state above it.
+  useEffect(() => {
+    activeWritingId.current = writing.id;
+    setFetchedContent(null);
+    setFetchError(null);
+    setSummaryPreview(null);
+    setSummaryError(null);
+    setExtractedChars(null);
+    setSelectedChars(new Set());
+    setCharsError(null);
+    setMergeConflicts(null);
+  }, [writing.id]);
+
   if (!config.enabled) return null;
 
   /** Returns the best available content, fetching from Google Docs if needed */
@@ -58,14 +79,20 @@ export default function AiToolbar({ writing, projectId, onSynopsisUpdate, conten
 
     if (!contentFetcher) return null;
 
+    // Same reason as the effect above: a fetch started for this chapter must
+    // not land on whichever chapter is open when it resolves.
+    const requestedId = writing.id;
     setFetchingContent(true);
     setFetchError(null);
     try {
       const remote = await contentFetcher();
+      if (activeWritingId.current !== requestedId) return null;
       setFetchedContent(remote);
       return remote;
     } catch (err) {
-      setFetchError(err instanceof Error ? err.message : t('ai.loadError'));
+      if (activeWritingId.current === requestedId) {
+        setFetchError(err instanceof Error ? err.message : t('ai.loadError'));
+      }
       return null;
     } finally {
       setFetchingContent(false);
@@ -80,6 +107,7 @@ export default function AiToolbar({ writing, projectId, onSynopsisUpdate, conten
 
   // --- Summary ---
   const handleGenerateSummary = async () => {
+    const requestedId = writing.id;
     setSummaryLoading(true);
     setSummaryError(null);
     const content = await ensureContent();
@@ -90,12 +118,14 @@ export default function AiToolbar({ writing, projectId, onSynopsisUpdate, conten
       t('ai.summaryError')
     );
 
+    setSummaryLoading(false);
+    if (activeWritingId.current !== requestedId) return;
+
     if (result.success) {
       setSummaryPreview(result.data);
     } else {
       setSummaryError(result.error);
     }
-    setSummaryLoading(false);
   };
 
   const handleAcceptSummary = () => {
@@ -107,6 +137,7 @@ export default function AiToolbar({ writing, projectId, onSynopsisUpdate, conten
 
   // --- Characters ---
   const handleExtractCharacters = async () => {
+    const requestedId = writing.id;
     setCharsLoading(true);
     setCharsError(null);
     const content = await ensureContent();
@@ -117,13 +148,23 @@ export default function AiToolbar({ writing, projectId, onSynopsisUpdate, conten
       t('ai.charactersError')
     );
 
-    if (result.success) {
-      setExtractedChars(result.data);
-      setSelectedChars(new Set(result.data.map((_, i) => i)));
-    } else {
-      setCharsError(result.error);
-    }
     setCharsLoading(false);
+    if (activeWritingId.current !== requestedId) return;
+
+    if (!result.success) {
+      setCharsError(result.error);
+      return;
+    }
+    // extractCharacters validates the model's shape, but the preview modal
+    // opens on `!!extractedChars` and maps over it: a non-array here would
+    // take the whole engine down, so this state never holds an unchecked
+    // value — belt and braces.
+    if (!Array.isArray(result.data)) {
+      setCharsError(t('ai.unexpectedFormat'));
+      return;
+    }
+    setExtractedChars(result.data);
+    setSelectedChars(new Set(result.data.map((_, i) => i)));
   };
 
   const toggleCharSelect = (index: number) => {
@@ -288,7 +329,7 @@ ${extracted.citasRelevantes.length > 0
         {fetchedContent && (
           <span className="text-[10px] text-blue-400 flex items-center gap-1">
             <CloudDownload size={10} />
-            Contenido cargado desde Google Docs
+            {t('ai.contentLoadedFromDocs')}
           </span>
         )}
 
@@ -296,19 +337,19 @@ ${extracted.citasRelevantes.length > 0
         {fetchError && (
           <span className="text-[10px] text-red-400 flex items-center gap-1">
             {fetchError}
-            <button onClick={() => setFetchError(null)}><X size={10} /></button>
+            <button onClick={() => setFetchError(null)} title={t('common.dismiss')} aria-label={t('common.dismiss')}><X size={10} aria-hidden="true" /></button>
           </span>
         )}
         {summaryError && (
           <span className="text-[10px] text-red-400 flex items-center gap-1">
             {summaryError}
-            <button onClick={() => setSummaryError(null)}><X size={10} /></button>
+            <button onClick={() => setSummaryError(null)} title={t('common.dismiss')} aria-label={t('common.dismiss')}><X size={10} aria-hidden="true" /></button>
           </span>
         )}
         {charsError && (
           <span className="text-[10px] text-red-400 flex items-center gap-1">
             {charsError}
-            <button onClick={() => setCharsError(null)}><X size={10} /></button>
+            <button onClick={() => setCharsError(null)} title={t('common.dismiss')} aria-label={t('common.dismiss')}><X size={10} aria-hidden="true" /></button>
           </span>
         )}
       </div>
@@ -325,13 +366,13 @@ ${extracted.citasRelevantes.length > 0
               className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition inline-flex items-center justify-center gap-2"
             >
               <Check size={16} />
-              Guardar como Sinopsis
+              {t('ai.saveAsSynopsis')}
             </button>
             <button
               onClick={() => setSummaryPreview(null)}
               className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition"
             >
-              Descartar
+              {t('common.dismiss')}
             </button>
           </div>
         </div>

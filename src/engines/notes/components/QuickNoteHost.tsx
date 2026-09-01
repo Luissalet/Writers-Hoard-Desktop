@@ -20,10 +20,13 @@ import { toast } from '@/components/common/toast';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useLocaleStore } from '@/stores/localeStore';
 import { useProject } from '@/hooks/useProjects';
+import { getProject, updateProject } from '@/db/operations';
 import { captureNote } from '../operations';
 import { notifyNotesChanged } from '../hooks';
 import { GLOBAL_NOTES_SCOPE } from '../types';
 import NoteComposer, { type NoteDraft } from './NoteComposer';
+
+const NOTES_ENGINE_ID = 'notes';
 
 function activeProjectIdFrom(pathname: string): string | null {
   const match = pathname.match(/^\/project\/([^/]+)/);
@@ -39,23 +42,72 @@ export default function QuickNoteHost() {
   const [open, setOpen] = useState(false);
   const [toProject, setToProject] = useState(true);
 
+  /**
+   * Write one captured note and say where it went. Resolves true when a row
+   * was actually created — the floating window's "Saved" is derived from this
+   * and from nothing else.
+   *
+   * The target project may not have the Notes engine on: `essentials`, the
+   * mode flagged "Recommended" at project creation, enables only writings,
+   * codex and outline and merely *suggests* notes. Writing there anyway files
+   * the note behind a tab that does not exist — `/project/<id>/notes`
+   * redirects to Overview, in-project Cmd+K filters by enabled engines, and
+   * all the writer ever sees is a non-clickable "Notes: 1" on the Overview.
+   *
+   * So the capture turns the tab on instead of quietly re-routing the note.
+   * The writer picked that project on the floating window; honouring the
+   * target and telling them a tab appeared is a smaller surprise than
+   * accepting the target, saying "Saved in My Novel" and filing it elsewhere.
+   * Enabling touches only `enabledEngines`/`engineOrder` — no row is created
+   * or moved — and EngineManager switches it back off if it isn't wanted.
+   */
   const save = useCallback(
-    async (scopeId: string, draft: NoteDraft) => {
+    async (scopeId: string, draft: NoteDraft): Promise<boolean> => {
+      let targetId = scopeId;
+      let targetTitle = '';
+      let enabledNotesTab = false;
+
+      if (scopeId !== GLOBAL_NOTES_SCOPE) {
+        const target = await getProject(scopeId);
+        if (target) {
+          targetTitle = target.title;
+          if (!target.enabledEngines.includes(NOTES_ENGINE_ID)) {
+            await updateProject(target.id, {
+              enabledEngines: [...new Set([...target.enabledEngines, NOTES_ENGINE_ID])],
+              engineOrder: [...new Set([...target.engineOrder, NOTES_ENGINE_ID])],
+            });
+            enabledNotesTab = true;
+          }
+        } else {
+          // The project was deleted while the floating window sat on the
+          // desktop holding its id. The inbox is the one scope that always
+          // exists, so the paragraph lands there rather than nowhere.
+          targetId = GLOBAL_NOTES_SCOPE;
+        }
+      }
+
       const note = await captureNote({
-        projectId: scopeId,
+        projectId: targetId,
         text: draft.text,
         kind: draft.kind,
         source: draft.source,
       });
-      if (!note) return;
+      if (!note) return false;
       notifyNotesChanged();
-      toast.success(
-        scopeId === GLOBAL_NOTES_SCOPE
-          ? t('notes.savedToInbox')
-          : `${t('notes.savedTo')} ${project?.title ?? ''}`.trim(),
-      );
+
+      if (targetId === GLOBAL_NOTES_SCOPE) {
+        toast.success(
+          scopeId === GLOBAL_NOTES_SCOPE
+            ? t('notes.savedToInbox')
+            : t('notes.savedToInboxProjectGone'),
+        );
+      } else {
+        const where = `${t('notes.savedTo')} ${targetTitle}`.trim();
+        toast.success(enabledNotesTab ? `${where} · ${t('notes.notesTabEnabled')}` : where);
+      }
+      return true;
     },
-    [project?.title, t],
+    [t],
   );
 
   // 1. Report context to the main process.
@@ -68,15 +120,36 @@ export default function QuickNoteHost() {
   }, [projectId, project?.title, locale]);
 
   // 2. Notes relayed from the floating window.
+  //
+  // The floating window is still open with the writer's paragraph in it,
+  // waiting on this answer: it keeps the text and shows an error unless we
+  // acknowledge the request id, and main fails the submit if we never do. A
+  // swallowed rejection here (a quota error, a DatabaseClosedError mid-import)
+  // is what used to turn a lost note into a green "Saved".
   useEffect(() => {
     const api = window.electronAPI;
     if (!api) return;
     return api.quickNote.onCapture((payload) => {
-      void save(payload.projectId ?? GLOBAL_NOTES_SCOPE, {
-        kind: payload.kind,
-        text: payload.text,
-        tags: [],
-      });
+      void (async () => {
+        try {
+          const written = await save(payload.projectId ?? GLOBAL_NOTES_SCOPE, {
+            kind: payload.kind,
+            text: payload.text,
+            tags: [],
+          });
+          api.quickNote.ack({
+            requestId: payload.requestId,
+            ok: written,
+            error: written ? undefined : 'empty',
+          });
+        } catch (error) {
+          api.quickNote.ack({
+            requestId: payload.requestId,
+            ok: false,
+            error: error instanceof Error ? error.message : 'write-failed',
+          });
+        }
+      })();
     });
   }, [save]);
 
@@ -148,7 +221,9 @@ export default function QuickNoteHost() {
           bare
           autoFocus
           onSubmit={(draft) => {
-            void save(targetId, draft);
+            // The modal unmounts on close, so a rejected write has nowhere to
+            // surface but a toast — silence here is the same lost note.
+            void save(targetId, draft).catch(() => toast.error(t('notes.saveFailed')));
             setOpen(false);
           }}
         />

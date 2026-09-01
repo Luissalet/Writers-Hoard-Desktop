@@ -1,14 +1,24 @@
 import { useState, useMemo } from 'react';
 import { Sprout, Plus, Trash2, Target, ArrowRight, ArrowLeft } from 'lucide-react';
+import EmptyState from '@/components/common/EmptyState';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { EngineSpinner, ConfirmDialog, LinkSelect, useDeepLinkParam, useDebouncedField } from '@/engines/_shared';
 import { useSeeds, usePayoffs, useAllPayoffs } from '../hooks';
 import type { Seed, Payoff, SeedKind, SeedStatus } from '../types';
-import { SEED_KIND_CONFIG, SEED_STATUS_CONFIG, computeSeedStatus } from '../types';
+import {
+  AUTHORED_SEED_STATUSES,
+  DERIVED_SEED_STATUSES,
+  SEED_KIND_CONFIG,
+  SEED_STATUS_CONFIG,
+  computeSeedStatus,
+} from '../types';
+import { buildQuickPayoff } from '../quickPayoff';
+import { createPayoff } from '../operations';
 import { generateId } from '@/utils/idGenerator';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { useTextareaSelectionAnchor } from '@/engines/_shared/anchoring';
+import { useProject } from '@/hooks/useProjects';
 import { useWritings } from '@/engines/writings/hooks';
 import { useScenes } from '@/engines/dialog-scene/hooks';
 import { useAllProjectBeats } from '@/engines/outline/hooks';
@@ -79,9 +89,13 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
 
   // --- Dashboard totals ---
   const totalSeeds = seeds.length;
-  const paidCount = seeds.filter((s) => (payoffsBySeed.get(s.id)?.length ?? 0) > 0).length;
-  // Counted through computeSeedStatus so the KPI, the cards and the filter can
-  // never disagree again — they now share one definition of "orphaned".
+  // Counted through computeSeedStatus so the KPIs, the cards and the filter can
+  // never disagree again — they all share one definition of every status. (A
+  // cut seed that once had a payoff reads "cut" on its card, so it must not
+  // also be counted as paid here.)
+  const paidCount = seeds.filter(
+    (s) => computeSeedStatus(s, payoffsBySeed.get(s.id) ?? []) === 'paid',
+  ).length;
   const orphanCount = seeds.filter(
     (s) => computeSeedStatus(s, payoffsBySeed.get(s.id) ?? []) === 'orphaned',
   ).length;
@@ -127,8 +141,8 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
           className="px-2.5 py-1.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition cursor-pointer"
         >
           <option value="">{t('seeds.filter.allStatuses')}</option>
-          {(Object.entries(SEED_STATUS_CONFIG) as [SeedStatus, { labelKey: string }][]).map(([k, v]) => (
-            <option key={k} value={k}>{t(v.labelKey)}</option>
+          {DERIVED_SEED_STATUSES.map((k) => (
+            <option key={k} value={k}>{t(SEED_STATUS_CONFIG[k].labelKey)}</option>
           ))}
         </select>
       </div>
@@ -146,21 +160,39 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
       )}
 
       {filteredSeeds.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-text-dim">
-          <Sprout size={36} className="mb-3 opacity-40" />
-          <p className="text-sm">
-            {seeds.length === 0 ? t('seeds.empty') : t('seeds.noResults')}
-          </p>
-        </div>
+        // Two different situations behind one blank list, and only one of them
+        // is a first run. A filter that matched nothing is a filtering result —
+        // offering "plant a seed" there would answer a question nobody asked.
+        seeds.length === 0 ? (
+          <EmptyState
+            icon={<Sprout size={40} className="text-accent-gold" />}
+            title={t('seeds.empty.title')}
+            message={t('seeds.empty.message')}
+            action={{ label: t('seeds.newSeed'), onClick: () => setShowNew(true) }}
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center py-16 text-text-dim">
+            <Sprout size={36} className="mb-3 opacity-40" aria-hidden="true" />
+            <p className="text-sm">{t('seeds.noResults')}</p>
+          </div>
+        )
       ) : (
         <div className="space-y-2">
           {filteredSeeds.map((seed) => (
             <SeedCard
               key={seed.id}
               seed={seed}
+              projectId={projectId}
               payoffs={payoffsBySeed.get(seed.id) ?? []}
               onOpen={() => setActiveSeedId(seed.id)}
               onDelete={() => setPendingDeleteSeedId(seed.id)}
+              onPaidOff={async (payoff) => {
+                await createPayoff(payoff);
+                // The card reads its status back through `computeSeedStatus`,
+                // so the fresh payoff list is the whole update: no seed row is
+                // touched, and none should be.
+                await refreshAllPayoffs();
+              }}
             />
           ))}
         </div>
@@ -202,53 +234,191 @@ function StatCard({ label, value, color }: { label: string; value: number; color
 
 function SeedCard({
   seed,
+  projectId,
   payoffs,
   onOpen,
   onDelete,
+  onPaidOff,
 }: {
   seed: Seed;
+  projectId: string;
   payoffs: Payoff[];
   onOpen: () => void;
   onDelete: () => void;
+  onPaidOff: (payoff: Payoff) => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const [picking, setPicking] = useState(false);
   const status = computeSeedStatus(seed, payoffs);
   const kindCfg = SEED_KIND_CONFIG[seed.kind];
   const statusCfg = SEED_STATUS_CONFIG[status];
   return (
-    <div className="group flex items-stretch border border-border rounded-xl bg-elevated/40 hover:border-accent-gold/40 transition overflow-hidden">
-      <div className="w-1" style={{ backgroundColor: seed.color ?? kindCfg.color }} />
-      <button onClick={onOpen} className="flex-1 min-w-0 text-left p-3 space-y-1">
-        <div className="flex items-center gap-2">
-          <span
-            className="text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold tracking-wide"
-            style={{ backgroundColor: `${kindCfg.color}20`, color: kindCfg.color }}
-          >
-            {t(kindCfg.labelKey)}
-          </span>
-          <span className={`text-[10px] px-1.5 py-0.5 rounded ${statusCfg.color}`}>
-            {t(statusCfg.labelKey)}
-          </span>
-          {seed.plantedAt !== undefined && (
-            <span className="text-[10px] text-text-dim">@ {seed.plantedAt}%</span>
-          )}
-          <h3 className="text-sm font-semibold text-text-primary truncate flex-1">{seed.title}</h3>
-        </div>
-        {seed.description && <p className="text-xs text-text-dim line-clamp-2">{seed.description}</p>}
-        {payoffs.length > 0 && (
-          <div className="flex items-center gap-1 text-[11px] text-green-400">
-            <Target size={10} />
-            <span>{payoffs.length} payoff{payoffs.length === 1 ? '' : 's'}</span>
+    <div className="group border border-border rounded-xl bg-elevated/40 hover:border-accent-gold/40 transition overflow-hidden">
+      <div className="flex items-stretch">
+        <div className="w-1" style={{ backgroundColor: seed.color ?? kindCfg.color }} />
+        <button onClick={onOpen} className="flex-1 min-w-0 text-left p-3 space-y-1">
+          <div className="flex items-center gap-2">
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold tracking-wide"
+              style={{ backgroundColor: `${kindCfg.color}20`, color: kindCfg.color }}
+            >
+              {t(kindCfg.labelKey)}
+            </span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${statusCfg.color}`}>
+              {t(statusCfg.labelKey)}
+            </span>
+            {seed.plantedAt !== undefined && (
+              <span className="text-[10px] text-text-dim">@ {seed.plantedAt}%</span>
+            )}
+            <h3 className="text-sm font-semibold text-text-primary truncate flex-1">{seed.title}</h3>
           </div>
+          {seed.description && <p className="text-xs text-text-dim line-clamp-2">{seed.description}</p>}
+          {payoffs.length > 0 && (
+            <div className="flex items-center gap-1 text-[11px] text-green-400">
+              <Target size={10} />
+              <span>
+                {t(payoffs.length === 1 ? 'seeds.payoffCountOne' : 'seeds.payoffCount').replace(
+                  '{count}',
+                  payoffs.length.toLocaleString(),
+                )}
+              </span>
+            </div>
+          )}
+        </button>
+        {/* The one action the orphan badge is asking for, so it stays lit
+            rather than waiting for a hover the way Delete does. */}
+        {status === 'orphaned' && (
+          <button
+            onClick={() => setPicking((open) => !open)}
+            className={`flex items-center gap-1 px-2.5 text-[11px] whitespace-nowrap transition ${
+              picking ? 'bg-green-500/20 text-green-400' : 'text-green-400/70 hover:bg-green-500/10 hover:text-green-400'
+            }`}
+          >
+            <Target size={11} />
+            {t('seeds.payoff.markPaid')}
+          </button>
         )}
-      </button>
-      <button
-        onClick={onDelete}
-        className="px-2 text-text-dim opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/10 transition"
-        title={t('common.delete')}
-      >
-        <Trash2 size={13} />
-      </button>
+        <button
+          onClick={onDelete}
+          className="px-2 text-text-dim opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/10 transition"
+          title={t('common.delete')}
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
+      {picking && (
+        <PayoffTargetPicker
+          seed={seed}
+          projectId={projectId}
+          onCancel={() => setPicking(false)}
+          onCreate={async (payoff) => {
+            await onPaidOff(payoff);
+            setPicking(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PayoffTargetPicker
+// ---------------------------------------------------------------------------
+
+/**
+ * «Esto se paga en el capítulo 7», dicho en un paso.
+ *
+ * Se monta sólo al abrir el desplegable, y por eso carga aquí sus propias
+ * listas en vez de recibirlas del panel: `getWritings` trae el HTML completo
+ * de cada capítulo, y el listado de semillas no debe pagar una novela entera
+ * por un menú que casi nadie abre en una visita dada.
+ *
+ * La escena sólo se ofrece si el proyecto tiene encendido el motor de guion:
+ * las filas de `scenes` sobreviven a apagarlo, y enlazar un pago a una escena
+ * que su autor ya no puede abrir es exactamente el enlace muerto que el
+ * corrector existe para cazar.
+ */
+function PayoffTargetPicker({
+  seed,
+  projectId,
+  onCancel,
+  onCreate,
+}: {
+  seed: Seed;
+  projectId: string;
+  onCancel: () => void;
+  onCreate: (payoff: Payoff) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const { project, loading: projectLoading } = useProject(projectId);
+  const { writings, loading: writingsLoading } = useWritings(projectId);
+  const { items: scenes, loading: scenesLoading } = useScenes(projectId);
+  const [writingId, setWritingId] = useState('');
+  const [sceneId, setSceneId] = useState('');
+
+  const writingOptions = useMemo(
+    () => writings.map((w) => ({ id: w.id, label: w.title })),
+    [writings],
+  );
+  const sceneOptions = useMemo(
+    () =>
+      project?.enabledEngines.includes('dialog-scene')
+        ? scenes.map((sc) => ({
+            id: sc.id,
+            label: `${sc.sceneNumber ? `#${sc.sceneNumber} ` : ''}${sc.title}`,
+          }))
+        : [],
+    [project, scenes],
+  );
+
+  const loading = projectLoading || writingsLoading || scenesLoading;
+  const nothingToPointAt = !loading && writingOptions.length === 0 && sceneOptions.length === 0;
+
+  const handleCreate = async () => {
+    const payoff = buildQuickPayoff({
+      seed,
+      writingId,
+      sceneId,
+      writings: writingOptions,
+      scenes: sceneOptions,
+      titleTemplate: t('seeds.payoff.markPaid.title'),
+      id: generateId('payoff'),
+      now: Date.now(),
+    });
+    if (!payoff) return;
+    await onCreate(payoff);
+  };
+
+  return (
+    <div className="border-t border-border bg-surface/50 p-3 space-y-2">
+      <p className="text-xs text-text-dim">{t('seeds.payoff.markPaid.hint')}</p>
+      {loading && <p className="text-xs text-text-dim">{t('common.loading')}</p>}
+      {nothingToPointAt && <p className="text-xs text-text-dim">{t('seeds.payoff.markPaid.empty')}</p>}
+      <LinkSelect
+        label={t('seeds.linkedWriting')}
+        value={writingId}
+        onChange={(v) => setWritingId(v)}
+        options={writingOptions}
+      />
+      <LinkSelect
+        label={t('seeds.linkedScene')}
+        value={sceneId}
+        onChange={(v) => setSceneId(v)}
+        options={sceneOptions}
+      />
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button onClick={onCancel} className="px-3 py-1.5 text-xs text-text-dim hover:text-text-primary transition">
+          {t('common.cancel')}
+        </button>
+        <button
+          onClick={handleCreate}
+          disabled={!writingId && !sceneId}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-500/10 text-green-400 rounded-lg hover:bg-green-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition"
+        >
+          <Target size={12} />
+          {t('seeds.payoffs.add')}
+        </button>
+      </div>
     </div>
   );
 }
@@ -445,13 +615,16 @@ function SeedDetail({
           </label>
           <label className="space-y-1">
             <span className="text-xs text-text-dim">{t('seeds.status')}</span>
+            {/* Only 'cut' vs 'planted' is ever read back: 'paid' and 'orphaned'
+                are derived from the payoff table, so offering them here wrote a
+                value nothing would honour. */}
             <select
-              value={seed.status}
+              value={seed.status === 'cut' ? 'cut' : 'planted'}
               onChange={(e) => handleField('status')(e.target.value as SeedStatus)}
               className="w-full px-3 py-1.5 text-sm bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition"
             >
-              {(Object.entries(SEED_STATUS_CONFIG) as [SeedStatus, { labelKey: string }][]).map(([k, v]) => (
-                <option key={k} value={k}>{t(v.labelKey)}</option>
+              {AUTHORED_SEED_STATUSES.map((k) => (
+                <option key={k} value={k}>{t(SEED_STATUS_CONFIG[k].labelKey)}</option>
               ))}
             </select>
           </label>

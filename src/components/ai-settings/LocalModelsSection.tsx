@@ -10,7 +10,7 @@
 // the classic features.
 
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Cpu, Download, HardDrive, Loader2, MemoryStick, RefreshCw, Trash2, X, XCircle } from 'lucide-react';
+import { Check, CheckCircle2, Copy, Cpu, Download, HardDrive, Loader2, MemoryStick, RefreshCw, Trash2, X, XCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 import { useAiStore } from '@/stores/aiStore';
@@ -20,6 +20,27 @@ import { computeFit, fitRank, formatBytes, formatBinaryBytes, quantBitsFromLabel
 import type { AiModelDescriptor, FitEstimate, HardwareProfile } from '@/services/aiRuntime/types';
 import { DEFAULT_CONTEXT_TOKENS } from '@/services/aiRuntime/constants';
 import FitBadge from './FitBadge';
+
+/**
+ * The command Ollama itself documents for installing on this machine.
+ *
+ * Only the two platforms where the answer is a single honest line — Homebrew
+ * on macOS, the vendor's own install script on Linux. Anywhere else the
+ * download page really is the truthful answer, and the block falls back to it.
+ * The app still cannot install the engine for them off Windows; what it can do
+ * is stop making that the first sentence and hand over the next step instead.
+ */
+function ollamaInstall(): { platform: 'mac' | 'linux'; command: string } | null {
+  const agent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+  if (/Mac OS X|Macintosh/i.test(agent)) {
+    return { platform: 'mac', command: 'brew install ollama && brew services start ollama' };
+  }
+  if (/Linux|X11/i.test(agent)) {
+    return { platform: 'linux', command: 'curl -fsSL https://ollama.com/install.sh | sh' };
+  }
+  return null;
+}
+const OLLAMA_INSTALL = ollamaInstall();
 
 function ProgressBar({ progress, indeterminate }: { progress: number; indeterminate?: boolean }) {
   return (
@@ -108,6 +129,7 @@ export default function LocalModelsSection() {
   const setDefault = useAiRuntimeStore((s) => s.setDefault);
   const [pendingDeleteTag, setPendingDeleteTag] = useState<string | null>(null);
   const [onlyFits, setOnlyFits] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState(false);
 
   useEffect(() => {
     void loadHardware();
@@ -225,9 +247,39 @@ export default function LocalModelsSection() {
 
       <HardwareStrip hardware={hardware} onRefresh={() => void loadHardware(true)} />
 
-      {/* Runtime state */}
+      {/* Runtime state. Off Windows with nothing answering yet, lead with the
+          one command that fixes it and leave the download page as the footnote
+          it should be — the limitation is true, but it is not the first thing
+          a novelist opening this page needs to read. */}
       {!supported && !live && (
         <div className="px-3 py-2 bg-elevated rounded-lg text-[10px] text-text-dim space-y-2">
+          {OLLAMA_INSTALL && (
+            <>
+              <p className="text-text-muted">{t('settings.ai.local.installLead')}</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 min-w-0 px-2 py-1.5 rounded bg-surface text-[10px] text-text-primary break-all select-all">
+                  {OLLAMA_INSTALL.command}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard
+                      ?.writeText(OLLAMA_INSTALL.command)
+                      .then(() => {
+                        setCopiedCommand(true);
+                        setTimeout(() => setCopiedCommand(false), 1500);
+                      })
+                      .catch(() => undefined);
+                  }}
+                  title={t('settings.ai.local.copyCommand')}
+                  className="p-1.5 rounded border border-border text-text-muted hover:text-accent-gold hover:border-accent-gold/40 transition flex-shrink-0"
+                >
+                  {copiedCommand ? <Check size={12} /> : <Copy size={12} />}
+                </button>
+              </div>
+              <p>{t(`settings.ai.local.installNote.${OLLAMA_INSTALL.platform}`)}</p>
+            </>
+          )}
           <p>{t('settings.ai.local.notWindows')}</p>
           <button type="button" onClick={() => void refreshLocalStatus()} className="px-3 py-1.5 text-xs bg-surface border border-border rounded-lg text-text-muted hover:text-text-primary hover:border-accent-gold/30 transition">
             {t('settings.ai.local.retryDetect')}
@@ -290,10 +342,20 @@ export default function LocalModelsSection() {
           </button>
         </div>
       )}
+      {/* An Ollama the app did not install is still an Ollama: say it was found,
+          say it will be used, and let the catalogue below do the rest. */}
       {live && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-green-500/10 text-green-400 text-xs rounded-lg">
-          <CheckCircle2 size={14} />
-          <span>{state === 'external' ? t('settings.ai.local.external') : t('settings.ai.local.running')}</span>
+        <div className="flex items-start gap-2 px-3 py-2 bg-green-500/10 text-green-400 text-xs rounded-lg">
+          <CheckCircle2 size={14} className="mt-0.5 flex-shrink-0" />
+          <div className="min-w-0 space-y-0.5">
+            <p>{state === 'external' ? t('settings.ai.local.external') : t('settings.ai.local.running')}</p>
+            {state === 'external' && (
+              <p className="text-[10px] text-green-400/80 break-all">
+                {t('settings.ai.local.externalReady')}
+                {localStatus?.url ? ` · ${localStatus.url}` : ''}
+              </p>
+            )}
+          </div>
         </div>
       )}
 

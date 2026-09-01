@@ -121,6 +121,27 @@ export function generateImage(request: AiImageRequest): ImageHandle {
   };
 }
 
+/**
+ * Ask a local Ollama to drop a chat model out of GPU memory, now.
+ *
+ * Ollama's documented unload is a chat call with no messages and
+ * `keep_alive: 0` — it never runs the model, it only expires the runner. That
+ * is the same `keep_alive: 0` the text→image hand-off sends through
+ * `releaseAfter` and that `electron/ai/vramRoom.ts` sends to `/api/generate`
+ * before sd-server starts; going through the gateway keeps the URL and the key
+ * in main, where they belong, instead of adding a channel to say one word.
+ *
+ * The caller should re-read the runtime status afterwards rather than believe
+ * this: an "ok" means the server accepted the request, and the only honest
+ * proof that the card is free is the next measurement.
+ */
+export async function unloadChatModel(connectionId: string, modelId: string): Promise<{ ok: boolean; error?: string }> {
+  const api = aiApi();
+  if (!api) return { ok: false, error: 'The AI runtime is only available in the desktop app.' };
+  const result = await api.complete({ connectionId, modelId, messages: [], maxTokens: 1, releaseAfter: true });
+  return result.ok ? { ok: true } : { ok: false, error: result.error };
+}
+
 export interface CopilotRunHandle {
   runId: string;
   cancel: () => void;

@@ -58,7 +58,7 @@ import { BRIDGE_TOOLS } from '@/services/aiBridge/manifest';
 import { transcodeWebmToMp4 } from './media/transcode';
 import { downloadMedia, type MediaFormat } from './media/ytdlp';
 import { downloadGallery, listCollection, type CollectionItem } from './media/gallerydl';
-import { openIgLogin, igStatus, igLogout, exportIgCookies, igCookiesPath } from './media/igAuth';
+import { openIgLogin, igStatus, igLogout, exportIgCookies, cleanupIgCookies, igCookiesPath } from './media/igAuth';
 import { capturePage, type PageMeta } from './media/pageCapture';
 import {
   isExactRendererDocumentUrl,
@@ -443,8 +443,211 @@ function trackWindowState(win: BrowserWindow): void {
   win.on('close', save);
 }
 
+// ---------------------------------------------------------------------------
+// Closing the window while a chapter is unsaved
+// ---------------------------------------------------------------------------
+//
+// The renderer used to answer this with `beforeunload` + `preventDefault()`.
+// In a browser that raises the "leave site?" prompt. In an Electron renderer
+// it cancels the close and shows NOTHING — so the writer clicked the X, the
+// window sat there, and they clicked again. Worse, while the save kept failing
+// (quota gone, the row deleted underneath it) the X could never close the
+// window at all, and the way out was a force-kill: the one exit that beats the
+// recovery journal.
+//
+// So the veto moved here, because the window is main's to close and only main
+// can put a real dialog in front of the writer. The split is:
+//
+//   • the renderer knows whether anything is unsaved, and is the only side
+//     that can flush it — so main asks, and does not guess;
+//   • main owns the window, so main is the only side that can promise the X
+//     eventually works.
+//
+// Three rules keep it honest, in the order they matter:
+//   1. Nothing at risk → the close is never intercepted. No round trip, no
+//      latency; the overwhelmingly common close stays instant.
+//   2. Something at risk → one round trip. The renderer flushes and answers
+//      `proceed`, and the window goes. That is the common unsaved case, and
+//      from the writer's seat it is indistinguishable from rule 1.
+//   3. No answer, or a second press on the X → a native dialog says what is
+//      happening, in words, with "close anyway" in it. A renderer that is
+//      wedged or lying can delay the close; it can never win it.
+//
+// The words in that dialog come from the renderer (`shutdown:setWarning`).
+// Main has no `t()`, and a second copy of the strings here would drift out of
+// the locale files; the constants below exist only so the type is total and
+// are unreachable while any warning has been registered — which is exactly
+// when the dialog can appear.
+
+/** How long main waits for a renderer that may simply have no listener. */
+const SHUTDOWN_REPLY_TIMEOUT_MS = 2_500;
+
+/** Localized copy for the last-ditch native dialog, supplied by the renderer. */
+interface ShutdownWarning {
+  title: string;
+  message: string;
+  closeAnyway: string;
+  keepOpen: string;
+}
+
+const SHUTDOWN_WARNING_FALLBACK: ShutdownWarning = {
+  title: 'Unsaved changes',
+  message: 'Writers Hoard is not responding, so the last changes could not be confirmed as saved.',
+  closeAnyway: 'Close anyway',
+  keepOpen: 'Keep the window open',
+};
+
+/** Set while the renderer holds unsaved text. Null means "close is free". */
+let shutdownWarning: ShutdownWarning | null = null;
+/** True once a close has been approved, so the next `close` event passes through. */
+let closeApproved = false;
+/** True between `before-quit` and the quit finishing, so approval quits rather than closes. */
+let quitting = false;
+let shutdownRequestSeq = 0;
+/** The round currently waiting on the renderer, if any. */
+let pendingShutdown: { id: number; timer: NodeJS.Timeout | null } | null = null;
+/** The native dialog is already up; a further X press must not stack another. */
+let escalating = false;
+
+function clearShutdownTimer(): void {
+  if (pendingShutdown?.timer) {
+    clearTimeout(pendingShutdown.timer);
+    pendingShutdown.timer = null;
+  }
+}
+
+/** The writer asked, everything that could be said has been said: let it go. */
+function approveShutdown(): void {
+  forgetPendingShutdown();
+  closeApproved = true;
+  // A quit that reached a vetoed `close` was cancelled by Electron, so it has
+  // to be asked for again rather than resumed.
+  if (quitting) {
+    app.quit();
+    return;
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+}
+
+/** Drop the round in flight. A later X starts a fresh one from scratch. */
+function forgetPendingShutdown(): void {
+  clearShutdownTimer();
+  pendingShutdown = null;
+}
+
+/**
+ * The writer chose to stay. That also retracts the quit: Electron cancelled it
+ * when the close was vetoed, and a `quitting` flag left standing would turn
+ * their next plain window close into an app quit they never asked for.
+ */
+function abandonShutdown(): void {
+  forgetPendingShutdown();
+  quitting = false;
+}
+
+/**
+ * The renderer is not answering, or the writer has pressed the X again. Either
+ * way they have watched a button do nothing, which is the bug this replaces —
+ * so say it out loud and give them the exit.
+ */
+async function escalateShutdown(): Promise<void> {
+  if (!pendingShutdown || escalating) return;
+  clearShutdownTimer();
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    abandonShutdown();
+    return;
+  }
+  const warning = shutdownWarning ?? SHUTDOWN_WARNING_FALLBACK;
+  escalating = true;
+  try {
+    // Keeping the window is the default and the Escape answer: the deliberate
+    // click is the one that can cost words, exactly as in ConfirmDialog.
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: warning.title,
+      message: warning.title,
+      detail: warning.message,
+      buttons: [warning.closeAnyway, warning.keepOpen],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+    // The round may already be over — the renderer answered, or the window
+    // went — in which case there is nothing left here to decide.
+    if (!pendingShutdown) return;
+    if (response === 0) approveShutdown();
+    else abandonShutdown();
+  } finally {
+    escalating = false;
+  }
+}
+
+/**
+ * Intercept one close. Returns true when the close was held back, which is the
+ * caller's cue to `preventDefault()`.
+ */
+function interceptClose(): boolean {
+  if (closeApproved) return false;
+  // Rule 1: the renderer has never claimed unsaved text, so there is nothing
+  // to flush and nothing to warn about. Closing instantly IS the honest answer.
+  if (!shutdownWarning) return false;
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+
+  // Rule 3: pressing the X again while a round is in flight means the first
+  // press looked like it did nothing. Stop waiting and say something.
+  if (pendingShutdown) {
+    void escalateShutdown();
+    return true;
+  }
+
+  const id = ++shutdownRequestSeq;
+  pendingShutdown = {
+    id,
+    timer: setTimeout(() => void escalateShutdown(), SHUTDOWN_REPLY_TIMEOUT_MS),
+  };
+  // Fire-and-forget by nature: this succeeds against a renderer with no
+  // listener, which is precisely what the timer above is for.
+  mainWindow.webContents.send('shutdown:request', id);
+  return true;
+}
+
+/**
+ * The renderer's answer, in four shapes:
+ *
+ *   (id, true)     the flush landed — close.
+ *   (id, false)    the question is now on screen in the renderer's own dialog,
+ *                  so the escalation timer stops: the writer is looking at
+ *                  words, not at nothing.
+ *   (null, true)   the writer chose "close anyway" in that dialog.
+ *   (null, false)  the writer chose to stay, so the round is over.
+ *
+ * The two null forms carry no id on purpose. Main may have stood down in the
+ * meantime, and a button in that dialog that stopped working because of it
+ * would be the very defect this channel exists to remove.
+ */
+function handleShutdownReply(requestId: number | null, proceed: boolean): void {
+  if (requestId === null) {
+    if (proceed) approveShutdown();
+    else abandonShutdown();
+    return;
+  }
+  if (!pendingShutdown || pendingShutdown.id !== requestId) return;
+  if (proceed) approveShutdown();
+  else clearShutdownTimer();
+}
+
+/** Guards the window-less gap between this function's first await and its window. */
+let creatingMainWindow = false;
+
 async function createWindow(): Promise<void> {
-  const state = await loadWindowState();
+  // Two "open the app" requests can land inside that gap — an impatient
+  // double-double-click on the icon launches two processes, each firing
+  // `second-instance` — and each would otherwise build its own main window.
+  if (creatingMainWindow) return;
+  creatingMainWindow = true;
+  const state = await loadWindowState().finally(() => {
+    creatingMainWindow = false;
+  });
   mainWindow = new BrowserWindow({
     width: state.width,
     height: state.height,
@@ -483,6 +686,22 @@ async function createWindow(): Promise<void> {
   installNavigationGuard(mainWindow, MAIN_RENDERER_URL, true);
   installPackagedSmokeExit(mainWindow);
 
+  // A reload (Ctrl+R) hands the user a fresh renderer, but a copilot run keeps
+  // looping here — writing to the database with no card and no undo button.
+  // In-page hash routing (isSameDocument) is not a reload and must not cancel.
+  mainWindow.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) {
+      cancelAllCopilotRuns();
+      // A reload throws away the editor that registered the warning. Keeping it
+      // would make every later close pay the round trip and then offer a dialog
+      // about a draft nothing is holding — a warning is only honest while the
+      // renderer that raised it is still there to answer for it.
+      shutdownWarning = null;
+      abandonShutdown();
+    }
+  });
+  mainWindow.webContents.on('destroyed', () => cancelAllCopilotRuns());
+
   if (isDev) {
     void mainWindow.loadURL(RENDERER_DEV_URL);
     // DevTools ya NO se abre solo. Con las herramientas abiertas, la consola
@@ -496,14 +715,38 @@ async function createWindow(): Promise<void> {
     void mainWindow.loadFile(MAIN_RENDERER_PATH);
   }
 
+  // Held back only while the renderer says a chapter is unsaved; see
+  // `interceptClose`. Registered after `trackWindowState`'s own `close`
+  // listener so the window geometry is still saved on the vetoed pass too.
+  mainWindow.on('close', (event) => {
+    if (interceptClose()) event.preventDefault();
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
+    // The window this protocol was arguing about no longer exists. `quitting`
+    // is deliberately left alone: a quit that got this far is still under way.
+    shutdownWarning = null;
+    forgetPendingShutdown();
+    closeApproved = false;
     // Bridge calls are answered by this window; nothing in flight can land now.
     rejectAllPendingCalls('The Writers Hoard window was closed.');
-    // The hidden quick-capture window still counts as an open window, so
-    // leaving it alive would keep the app running after its last real window
-    // closed (`window-all-closed` never fires).
+    // Same for relayed quick captures: the only Dexie writer just went away,
+    // so every parked submit fails now instead of sitting out its timeout.
+    failAllPendingQuickNotes('window-closed');
+    // Every hidden window still counts as an open window, so leaving one alive
+    // keeps the app running after its last real window closed —
+    // `window-all-closed` never fires, `will-quit` never runs, and the
+    // single-instance lock then turns every relaunch into an immediate quit
+    // against a process the user has no way to reach.
+    //
+    // The quick-capture window is one of those. So is the page-capture window
+    // `electron/media/pageCapture.ts` opens per archive: parentless, hidden,
+    // and alive for up to ~90s, so closing the app five seconds into a
+    // Scrapper capture hit exactly that dead end. Aborting the captures
+    // destroys their windows, which is what lets this quit finish.
     if (quickNoteWindow && !quickNoteWindow.isDestroyed()) quickNoteWindow.destroy();
+    abortAllDownloads();
   });
 }
 
@@ -533,10 +776,60 @@ interface QuickNotePayload {
   projectId: string | null;
 }
 
+/** What the main renderer reports back once it has tried to write the note. */
+interface QuickNoteAck {
+  requestId: string;
+  ok: boolean;
+  error?: string;
+}
+
+interface QuickNoteSubmitResult {
+  ok: boolean;
+  error?: string;
+}
+
 const QUICK_NOTE_ACCELERATOR = 'CommandOrControl+Shift+N';
+
+/**
+ * How long main waits for the main renderer to confirm the Dexie write before
+ * calling the capture lost. Long enough to outlast a slow first write or a
+ * transaction queued behind a ZIP import; short enough that the floating
+ * window doesn't feel hung with the writer's paragraph still in it.
+ */
+const QUICK_NOTE_ACK_TIMEOUT_MS = 10_000;
 
 let quickNoteWindow: BrowserWindow | null = null;
 let quickNoteContext: QuickNoteContext = { projectId: null, projectTitle: null, locale: 'es' };
+
+/**
+ * Relayed captures still waiting for the main renderer's verdict.
+ *
+ * `webContents.send` is fire-and-forget: it succeeds against a renderer that
+ * is gone, mid-reload or simply has no listener yet, which is how a typed
+ * paragraph could be answered with "Saved" and then thrown away. Every submit
+ * now parks here under a correlation id and is only answered `ok: true` by
+ * `quick-note:ack`, which the renderer sends after the write resolves.
+ */
+let quickNoteRequestSeq = 0;
+const pendingQuickNotes = new Map<
+  string,
+  { settle: (result: QuickNoteSubmitResult) => void; timer: NodeJS.Timeout }
+>();
+
+function settleQuickNote(requestId: string, result: QuickNoteSubmitResult): void {
+  const pending = pendingQuickNotes.get(requestId);
+  if (!pending) return;
+  pendingQuickNotes.delete(requestId);
+  clearTimeout(pending.timer);
+  pending.settle(result);
+}
+
+/** Fail every parked capture at once — the renderer that owed us an answer is gone. */
+function failAllPendingQuickNotes(error: string): void {
+  for (const requestId of [...pendingQuickNotes.keys()]) {
+    settleQuickNote(requestId, { ok: false, error });
+  }
+}
 
 async function getQuickNoteWindow(): Promise<BrowserWindow> {
   if (quickNoteWindow && !quickNoteWindow.isDestroyed()) return quickNoteWindow;
@@ -761,6 +1054,246 @@ async function htmlToPdf(html: string): Promise<Buffer> {
 }
 
 // ---------------------------------------------------------------------------
+// Automatic backup — the renderer's archive, given a home under userData
+// ---------------------------------------------------------------------------
+// The manuscript lives in IndexedDB: invisible to the writer, and evictable by
+// the browser engine under storage pressure. The renderer knows how to turn it
+// into a restorable ZIP; what it has never had is anywhere to put one without
+// a save dialog in front of it. This is that place.
+//
+// Nothing here trusts the renderer with a path. It sends bytes and a suggested
+// name; the directory, the final name, the atomicity and which older copies
+// survive are all decided on this side.
+
+/** Automatic archives live here, always inside userData. */
+function backupDir(): string {
+  return path.join(app.getPath('userData'), 'backups');
+}
+
+/**
+ * The app's own archive names — a UTC stamp that sorts chronologically.
+ * Rotation deletes only names matching this, so a writer's own ZIP dropped
+ * into the folder survives, and a half-written `.part` can never be counted
+ * as a backup.
+ */
+const BACKUP_ARCHIVE_NAME = /^writers-hoard-auto-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.zip$/;
+
+/**
+ * The farewell copy written just before a project is deleted for good.
+ *
+ * A second shape rather than a looser first one. This channel takes bytes and a
+ * name from the renderer and puts them on disk with no dialog in front of it,
+ * so the name is the whole boundary: anything it accepts is a file a
+ * compromised renderer can create. Both patterns are therefore anchored,
+ * fixed-extension, and built only from characters that cannot traverse, cannot
+ * spell a reserved device name, and cannot hide an extension.
+ *
+ * The slug is the project's title, reduced by the renderer to lowercase ASCII
+ * and hyphens — enough to tell twenty archives apart in a folder listing, and
+ * not enough to be anything but a file name. It is optional because a title
+ * made entirely of characters outside that alphabet reduces to nothing, and a
+ * project called "第一章" must still get its copy.
+ */
+const BACKUP_DELETED_NAME =
+  /^writers-hoard-deleted-(?:[a-z0-9]+(?:-[a-z0-9]+)*-)?\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.zip$/;
+
+/** Either kind of archive this folder holds. */
+function isBackupArchiveName(name: string): boolean {
+  return BACKUP_ARCHIVE_NAME.test(name) || BACKUP_DELETED_NAME.test(name);
+}
+
+/** Suffix of an in-flight write. Deliberately outside BACKUP_ARCHIVE_NAME. */
+const BACKUP_PART_SUFFIX = '.part';
+
+/** Windows refuses these as file names whatever extension follows. */
+const RESERVED_WINDOWS_NAMES = /^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])$/i;
+
+/** Leave the writer this much room rather than filling their disk for them. */
+const BACKUP_FREE_SPACE_HEADROOM = 64 * 1024 * 1024;
+
+const DEFAULT_BACKUP_COPIES = 3;
+const MAX_BACKUP_COPIES = 20;
+
+interface BackupWriteResult {
+  ok: boolean;
+  /** Absolute path of the archive that now exists. */
+  path?: string;
+  sizeBytes?: number;
+  /** How many older archives rotation removed after this write. */
+  removed?: number;
+  code?: 'invalid-name' | 'invalid-payload' | 'insufficient-space' | 'write-failed';
+  freeBytes?: number;
+  requiredBytes?: number;
+  error?: string;
+}
+
+/**
+ * Reduce whatever the renderer sent to one safe file name, or to nothing.
+ *
+ * Separators are stripped rather than rejected outright so the name is judged
+ * on what it would actually address, and every later rule has to pass on that
+ * stripped result. Trailing dots and spaces are refused because Windows trims
+ * them silently — "x.zip." becomes a second file rotation cannot see — and the
+ * reserved device names because opening `CON` there is not a file at all.
+ * `isSafeNativeSegment` then admits only `[A-Za-z0-9._-]`, which is what rules
+ * out `..`, control characters and every other exotic atom in one gate.
+ * Finally the name must be one this app would itself have produced: a name
+ * rotation could never collect would grow the folder forever.
+ */
+function sanitizeBackupFileName(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const stripped = raw.replace(/[\\/]+/g, '');
+  if (!stripped || stripped.length > 120) return null;
+  if (/[. ]$/.test(stripped)) return null;
+  if (RESERVED_WINDOWS_NAMES.test(stripped.replace(/\..*$/, ''))) return null;
+  if (!isSafeNativeSegment(stripped)) return null;
+  return isBackupArchiveName(stripped) ? stripped : null;
+}
+
+/**
+ * Bytes actually available on the volume holding `dir`, or null when this
+ * build cannot say. `statfs` arrived in Node 18.15 and is not implemented for
+ * every filesystem, so "unknown" is a normal answer: the write then proceeds
+ * exactly as it would have without the check.
+ */
+async function availableBytesFor(dir: string): Promise<number | null> {
+  if (typeof fs.statfs !== 'function') return null;
+  try {
+    const stats = await fs.statfs(dir);
+    return Number(stats.bsize) * Number(stats.bavail);
+  } catch {
+    return null;
+  }
+}
+
+/** Remove `.part` files a killed or crashed write left behind. */
+async function sweepInterruptedBackupWrites(dir: string): Promise<void> {
+  try {
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(BACKUP_PART_SUFFIX)) continue;
+      const absolute = await resolveExistingContainedNativePath(dir, entry.name);
+      if (absolute) await fs.rm(absolute, { force: true });
+    }
+  } catch {
+    /* no folder yet, or unreadable — the write below will say so */
+  }
+}
+
+/**
+ * Keep the newest `keep` archives, delete the rest.
+ *
+ * Ordering comes from the app's own names, not from mtimes a copy or a restore
+ * may have rewritten. Every target is re-resolved through the containment
+ * helper before it is removed, so a symlink planted in the folder cannot turn
+ * a rotation into a deletion somewhere else on the disk.
+ */
+async function rotateBackupArchives(dir: string, keep: number, forName: string): Promise<number> {
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => null);
+  if (!entries) return 0;
+  // Each kind rotates against its own history. The two answer different
+  // questions — "the library as it was last week" and "the project I deleted" —
+  // and letting one evict the other would mean a run of deletions quietly
+  // eating every automatic backup, or a week of backups eating the only copy of
+  // a project that no longer exists anywhere else.
+  const matches = BACKUP_DELETED_NAME.test(forName) ? BACKUP_DELETED_NAME : BACKUP_ARCHIVE_NAME;
+  const archives = entries
+    .filter((entry) => entry.isFile() && matches.test(entry.name))
+    .map((entry) => entry.name)
+    .sort()
+    .reverse();
+  let removed = 0;
+  for (const name of archives.slice(keep)) {
+    const absolute = await resolveExistingContainedNativePath(dir, name);
+    if (!absolute) continue;
+    try {
+      await fs.rm(absolute, { force: true });
+      removed += 1;
+    } catch (err) {
+      console.error('[backup] could not remove an old archive', err);
+    }
+  }
+  return removed;
+}
+
+/** One archive write at a time — the sweep and the rotation both read the folder. */
+let backupQueue: Promise<unknown> = Promise.resolve();
+function enqueueBackup<T>(task: () => Promise<T>): Promise<T> {
+  const run = backupQueue.then(task, task);
+  backupQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+async function writeBackupArchive(
+  bytes: unknown,
+  suggestedName: unknown,
+  copies: unknown,
+): Promise<BackupWriteResult> {
+  if (!(bytes instanceof ArrayBuffer) || bytes.byteLength === 0) {
+    return { ok: false, code: 'invalid-payload', error: 'empty archive' };
+  }
+  const name = sanitizeBackupFileName(suggestedName);
+  if (!name) return { ok: false, code: 'invalid-name', error: 'unusable archive name' };
+  const payload = Buffer.from(bytes);
+
+  const requested =
+    typeof copies === 'number' && Number.isFinite(copies)
+      ? Math.trunc(copies)
+      : DEFAULT_BACKUP_COPIES;
+  const keep = Math.min(Math.max(requested, 1), MAX_BACKUP_COPIES);
+
+  const dir = backupDir();
+  await fs.mkdir(dir, { recursive: true });
+  await sweepInterruptedBackupWrites(dir);
+
+  // Disk safety before the first byte. An archive that does not fit is a
+  // skipped backup with a reason, never a full disk with a stub file on it.
+  const available = await availableBytesFor(dir);
+  const required = payload.byteLength + BACKUP_FREE_SPACE_HEADROOM;
+  if (available !== null && available < required) {
+    return { ok: false, code: 'insufficient-space', freeBytes: available, requiredBytes: required };
+  }
+
+  const target = await resolveWritableContainedNativePath(dir, name);
+  const temporary = await resolveWritableContainedNativePath(dir, `${name}${BACKUP_PART_SUFFIX}`);
+  if (!target || !temporary) {
+    return { ok: false, code: 'invalid-name', error: 'archive path escapes the backup folder' };
+  }
+
+  try {
+    // Atomic by construction: the bytes land in a `.part` file rotation
+    // ignores, are flushed to the device, and only then take the real name in
+    // one rename on the same filesystem. Interrupt it anywhere and what
+    // remains is a `.part` the next run sweeps — never a truncated ZIP that
+    // still opens far enough to look like a backup.
+    const handle = await fs.open(temporary, 'wx');
+    try {
+      await handle.write(payload);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await fs.rename(temporary, target);
+  } catch (err) {
+    await fs.rm(temporary, { force: true }).catch(() => undefined);
+    return {
+      ok: false,
+      code: 'write-failed',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  return {
+    ok: true,
+    path: target,
+    sizeBytes: payload.byteLength,
+    removed: await rotateBackupArchives(dir, keep, name),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // AI bridge — local port so external models can operate the app
 // ---------------------------------------------------------------------------
 
@@ -848,6 +1381,51 @@ function registerIpc(): void {
     },
   );
 
+  // Automatic backup: take the archive the renderer built out of its own
+  // database and give it a home under userData. Every decision that could hurt
+  // — the folder, the final name, the atomicity, which older copies go — is
+  // made in writeBackupArchive above, never by the caller.
+  ipcMain.handle(
+    'backup:writeArchive',
+    async (
+      event,
+      bytes: ArrayBuffer,
+      suggestedName: string,
+      copies: number,
+    ): Promise<BackupWriteResult> => {
+      assertIpcSender(event, 'backup:writeArchive');
+      try {
+        // Serialised: two writes at once would sweep and rotate each other's
+        // files out from under themselves.
+        return await enqueueBackup(() => writeBackupArchive(bytes, suggestedName, copies));
+      } catch (err) {
+        return {
+          ok: false,
+          code: 'write-failed',
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  // Show the writer where their archives actually are. This reuses the one
+  // shell-open path the process already has — the same `shell.openExternal`
+  // external links take — and the folder is computed here, never sent in.
+  ipcMain.handle(
+    'backup:revealFolder',
+    async (event): Promise<{ ok: boolean; path?: string; error?: string }> => {
+      assertIpcSender(event, 'backup:revealFolder');
+      const dir = backupDir();
+      try {
+        await fs.mkdir(dir, { recursive: true });
+        await shell.openExternal(pathToFileURL(dir).href);
+        return { ok: true, path: dir };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
   // Scrapper: download a link's media into the managed library, return its rel path.
   ipcMain.handle(
     'media:downloadToLibrary',
@@ -861,6 +1439,7 @@ function registerIpc(): void {
       if (!url || !isSafeNativeSegment(projectId) || !isSafeNativeSegment(snapshotId)) {
         return { ok: false, error: 'invalid request' };
       }
+      if (!/^https?:\/\//i.test(url)) return { ok: false, error: 'unsupported url' };
       // Don't double-spawn yt-dlp for a snapshot already downloading.
       if (activeDownloads.has(snapshotId)) {
         return { ok: false, error: 'already downloading' };
@@ -952,6 +1531,9 @@ function registerIpc(): void {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       } finally {
         activeDownloads.delete(snapshotId);
+        // The exported cookie jar is a live session credential: it exists only
+        // for as long as the child process that reads it.
+        await cleanupIgCookies();
       }
     },
   );
@@ -1123,6 +1705,8 @@ function registerIpc(): void {
   ipcMain.handle('ig:listCollection', async (event, url: string): Promise<ListCollectionResult> => {
     assertIpcSender(event, 'ig:listCollection');
     if (!url || typeof url !== 'string') return { ok: false, error: 'invalid request' };
+    // A bare "--input-file=…" would reach gallery-dl as an OPTION, not a URL.
+    if (!/^https?:\/\//i.test(url)) return { ok: false, error: 'unsupported url' };
     activeListingController?.abort();
     const controller = new AbortController();
     activeListingController = controller;
@@ -1136,6 +1720,9 @@ function registerIpc(): void {
       return { ok: false, error: msg };
     } finally {
       if (activeListingController === controller) activeListingController = null;
+      // The exported cookie jar is a live session credential: it exists only for
+      // as long as the child process that reads it.
+      await cleanupIgCookies();
     }
   });
   ipcMain.handle('ig:cancelListCollection', (event): void => {
@@ -1162,23 +1749,88 @@ function registerIpc(): void {
     await showQuickNote();
   });
 
-  ipcMain.handle('quick-note:submit', (event, payload: QuickNotePayload): { ok: boolean } => {
-    assertIpcSender(event, 'quick-note:submit');
-    const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
-    if (!text) return { ok: false };
-    if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
-    mainWindow.webContents.send('quick-note:add', {
-      text,
-      kind: payload?.kind ?? 'note',
-      projectId: typeof payload?.projectId === 'string' ? payload.projectId : null,
+  // Resolves only once the main renderer has actually written the note. See
+  // `pendingQuickNotes`: anything less is a "Saved" the database never heard.
+  ipcMain.handle(
+    'quick-note:submit',
+    async (event, payload: QuickNotePayload): Promise<QuickNoteSubmitResult> => {
+      assertIpcSender(event, 'quick-note:submit');
+      const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
+      if (!text) return { ok: false, error: 'empty' };
+      if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: 'no-window' };
+
+      const requestId = `qn-${++quickNoteRequestSeq}`;
+      const target = mainWindow;
+      return new Promise<QuickNoteSubmitResult>((resolve) => {
+        const timer = setTimeout(
+          () => settleQuickNote(requestId, { ok: false, error: 'timeout' }),
+          QUICK_NOTE_ACK_TIMEOUT_MS,
+        );
+        pendingQuickNotes.set(requestId, { settle: resolve, timer });
+        try {
+          target.webContents.send('quick-note:add', {
+            requestId,
+            text,
+            kind: payload?.kind ?? 'note',
+            projectId: typeof payload?.projectId === 'string' ? payload.projectId : null,
+          });
+        } catch (error) {
+          settleQuickNote(requestId, {
+            ok: false,
+            error: error instanceof Error ? error.message : 'send-failed',
+          });
+        }
+      });
+    },
+  );
+
+  ipcMain.on('quick-note:ack', (event, ack: QuickNoteAck) => {
+    if (!acceptIpcSender(event, 'quick-note:ack')) return;
+    if (typeof ack?.requestId !== 'string') return;
+    settleQuickNote(ack.requestId, {
+      ok: ack.ok === true,
+      error: typeof ack.error === 'string' ? ack.error : undefined,
     });
-    return { ok: true };
   });
 
   ipcMain.on('quick-note:close', (event) => {
     if (!acceptIpcSender(event, 'quick-note:close')) return;
     if (quickNoteWindow && !quickNoteWindow.isDestroyed()) quickNoteWindow.hide();
   });
+
+  // --- Closing the window -------------------------------------------------
+  // Both are `send`, not `invoke`: the renderer has nothing to wait for, and
+  // an unsaved-state report that could reject would be one more thing between
+  // a keystroke and the journal.
+  ipcMain.on('shutdown:setWarning', (event, warning: Partial<ShutdownWarning> | null) => {
+    if (!acceptIpcSender(event, 'shutdown:setWarning')) return;
+    if (!warning) {
+      // Nothing is at risk any more — the write landed, or the editor that
+      // raised this went away. Any round still in flight is moot, and leaving
+      // one standing would send the NEXT press of the X straight to the "not
+      // responding" dialog instead of retrying a save that now works.
+      shutdownWarning = null;
+      abandonShutdown();
+      return;
+    }
+    const text = (value: unknown, fallback: string): string =>
+      typeof value === 'string' && value.trim() ? value : fallback;
+    shutdownWarning = {
+      title: text(warning.title, SHUTDOWN_WARNING_FALLBACK.title),
+      message: text(warning.message, SHUTDOWN_WARNING_FALLBACK.message),
+      closeAnyway: text(warning.closeAnyway, SHUTDOWN_WARNING_FALLBACK.closeAnyway),
+      keepOpen: text(warning.keepOpen, SHUTDOWN_WARNING_FALLBACK.keepOpen),
+    };
+  });
+
+  ipcMain.on(
+    'shutdown:reply',
+    (event, reply: { requestId?: number | null; proceed?: boolean } | undefined) => {
+      if (!acceptIpcSender(event, 'shutdown:reply')) return;
+      const requestId = typeof reply?.requestId === 'number' ? reply.requestId : null;
+      handleShutdownReply(requestId, reply?.proceed === true);
+    },
+  );
 
   ipcMain.handle('updates:check', (event) => {
     assertIpcSender(event, 'updates:check');
@@ -1420,10 +2072,17 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
+    // Double-clicking the icon is the user saying "show me the app". This
+    // instance owns the single-instance lock, so if it has no window left —
+    // the app outlived its last one because something hidden was still open —
+    // nobody else is going to open one. Making a new window here is the only
+    // way back in short of killing the process from the task manager.
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      void createWindow();
+      return;
     }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
   });
 
   app.whenReady().then(async () => {
@@ -1474,6 +2133,15 @@ if (!gotLock) {
     });
   });
 }
+
+// Quit (Cmd+Q, the menu, an auto-update install) closes the window the same
+// way the X does, so it runs through the same veto — a writer's last paragraph
+// is worth no less because they reached for Quit. Electron cancels the whole
+// quit when a `close` is vetoed, so `approveShutdown` asks for it again rather
+// than expecting it to resume.
+app.on('before-quit', () => {
+  quitting = true;
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

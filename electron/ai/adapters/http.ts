@@ -38,18 +38,34 @@ export interface RequestOptions {
 const DEFAULT_CONNECT_MS = 15_000;
 const DEFAULT_MAX_BODY = 8 * 1024 * 1024;
 
-export function combineSignals(signals: Array<AbortSignal | undefined>): AbortSignal {
+/**
+ * `dispose()` detaches the listeners again: a caller that reuses one long-lived
+ * signal across many requests (the image poll fires every 500 ms) would
+ * otherwise pile a permanent listener on it per request.
+ */
+export function combineSignals(signals: Array<AbortSignal | undefined>): {
+  signal: AbortSignal;
+  dispose: () => void;
+} {
   const live = signals.filter((s): s is AbortSignal => Boolean(s));
-  if (live.length === 1) return live[0];
+  if (live.length === 1) return { signal: live[0], dispose: () => undefined };
   const controller = new AbortController();
+  const attached: Array<[AbortSignal, () => void]> = [];
+  const dispose = (): void => {
+    for (const [source, onAbort] of attached) source.removeEventListener('abort', onAbort);
+    attached.length = 0;
+  };
   for (const signal of live) {
     if (signal.aborted) {
       controller.abort(signal.reason);
+      dispose();
       break;
     }
-    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+    const onAbort = (): void => controller.abort(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    attached.push([signal, onAbort]);
   }
-  return controller.signal;
+  return { signal: controller.signal, dispose };
 }
 
 export function redact(text: string, secret: string | null | undefined): string {
@@ -104,8 +120,16 @@ export async function request(url: string, options: RequestOptions = {}): Promis
   const headers: Record<string, string> = { Accept: 'application/json', ...(options.headers ?? {}) };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
   if (options.secret) headers.Authorization = `Bearer ${options.secret}`;
-  const timeout = AbortSignal.timeout(options.connectTimeoutMs ?? DEFAULT_CONNECT_MS);
-  const signal = combineSignals([options.signal, timeout]);
+  // Only the connect phase is bounded: folding this into the signal handed to
+  // net.fetch and leaving it armed killed the streamed body too, so any answer
+  // longer than the connect budget died. A stalled body is streamLines' job.
+  const connect = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    connect.abort('timeout');
+  }, options.connectTimeoutMs ?? DEFAULT_CONNECT_MS);
+  const { signal, dispose } = combineSignals([options.signal, connect.signal]);
   try {
     const res = await net.fetch(url, {
       method: options.method ?? (options.body !== undefined ? 'POST' : 'GET'),
@@ -120,7 +144,10 @@ export async function request(url: string, options: RequestOptions = {}): Promis
     }
     return res;
   } catch (err) {
-    throw errorFromException(err, options.signal?.aborted ? options.signal : timeout.aborted ? timeout : undefined, options.secret);
+    throw errorFromException(err, options.signal?.aborted ? options.signal : timedOut ? connect.signal : undefined, options.secret);
+  } finally {
+    clearTimeout(timer);
+    dispose();
   }
 }
 

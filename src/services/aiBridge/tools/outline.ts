@@ -20,6 +20,7 @@ import { t } from '@/i18n/useTranslation';
 import { TEMPLATE_IDS } from '../manifest';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
   optEnum,
   optNumber,
@@ -154,6 +155,7 @@ export async function whCreateBeat(args: ToolArgs): Promise<unknown> {
     throw new BridgeError('not-found', `No outline with id "${outlineId}". Call wh_list_outlines first.`);
   }
   await assertEngineEnabled(outline.projectId, 'outline');
+  assertRowInScope(args, outline.projectId);
   const siblings = await getBeats(outlineId);
   const now = Date.now();
   const beat: OutlineBeat = {
@@ -189,6 +191,7 @@ export async function whUpdateBeat(args: ToolArgs): Promise<unknown> {
   const existing = await db.outlineBeats.get(id);
   if (!existing) throw new BridgeError('not-found', `No beat with id "${id}".`);
   await assertEngineEnabled(existing.projectId, 'outline');
+  assertRowInScope(args, existing.projectId);
 
   const changes: Partial<OutlineBeat> = {};
   (['title', 'description', 'color', 'linkedWritingId'] as const).forEach((key) => {

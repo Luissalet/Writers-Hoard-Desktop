@@ -185,8 +185,8 @@ export default function ImportCollectionModal({
               {t('scrapper.importCollection.title')}
             </h2>
           </div>
-          <button onClick={onCancel} className="p-1 hover:bg-elevated rounded-lg transition-colors">
-            <X size={20} className="text-muted" />
+          <button onClick={onCancel} className="p-1 hover:bg-elevated rounded-lg transition-colors" title={t('common.close')} aria-label={t('common.close')}>
+            <X size={20} className="text-muted" aria-hidden="true" />
           </button>
         </div>
 

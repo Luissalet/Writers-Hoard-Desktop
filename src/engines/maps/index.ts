@@ -62,25 +62,46 @@ registerEntityResolver({
   },
   searchEntities: async (query: string, projectId?: string) => {
     const q = query.toLowerCase();
+    // Maps as well as pins: a map is an annotatable entity in its own right,
+    // so its title has to be reachable from global search too.
+    const mapBase = projectId
+      ? db.worldMaps.where('projectId').equals(projectId)
+      : db.worldMaps.toCollection();
+    const maps = await mapBase.filter(m => m.title.toLowerCase().includes(q)).toArray();
     const base = projectId
       ? db.mapPins.where('projectId').equals(projectId)
       : db.mapPins.toCollection();
     const rows = await base.filter(p => p.name.toLowerCase().includes(q)).toArray();
-    return rows.map(p => ({
-      id: p.id,
-      type: 'map-pin',
-      engineId: 'maps',
-      projectId: p.projectId,
-      title: p.name,
-      subtitle: p.description,
-    }));
+    return [
+      ...maps.map(m => ({
+        id: m.id,
+        type: 'maps',
+        engineId: 'maps',
+        projectId: m.projectId,
+        title: m.title,
+        thumbnail: m.backgroundImage,
+      })),
+      ...rows.map(p => ({
+        id: p.id,
+        type: 'map-pin',
+        engineId: 'maps',
+        projectId: p.projectId,
+        title: p.name,
+        subtitle: p.description,
+      })),
+    ];
   },
 });
 
 registerAnchorAdapter({
   engineId: 'maps',
   supportsTextRange: false,
+  // The entity can be a map or one of its pins — `AnnotationSurface` anchors
+  // on the MAP (`worldMaps.id`), so resolving pins only left every backlink to
+  // a map showing its raw id and navigating to a pin that does not exist.
   async getEntityTitle(entityId: string) {
+    const map = await db.worldMaps.get(entityId);
+    if (map) return map.title;
     const pin = await db.mapPins.get(entityId);
     return pin?.name ?? null;
   },
@@ -88,7 +109,10 @@ registerAnchorAdapter({
   navigateToEntity(entityId: string, projectId?: string) {
     const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
-    navigateTo(`/project/${pid}/maps?pin=${encodeURIComponent(entityId)}`);
+    void db.worldMaps.get(entityId).then((map) => {
+      const param = map ? 'map' : 'pin';
+      navigateTo(`/project/${pid}/maps?${param}=${encodeURIComponent(entityId)}`);
+    });
   },
 });
 
@@ -138,7 +162,7 @@ registerBackupStrategy({
       await db.worldMaps.add(mapData as never);
 
       const pins = await readBackupJson<Record<string, unknown>[]>(zip, `${mDir}/pins.json`);
-      if (pins?.length) await db.mapPins.bulkAdd(pins as never[]);
+      if (pins?.length) await db.mapPins.bulkPut(pins as never[]);
     }
   },
 });

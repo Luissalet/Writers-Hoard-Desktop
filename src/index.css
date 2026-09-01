@@ -1,5 +1,110 @@
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Source+Sans+3:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
+
+/* ── The app's own typefaces, bundled ────────────────────────────────────────
+   These three used to arrive from fonts.googleapis.com over an `@import`,
+   which meant a local-first app needed the network to look like itself: on a
+   plane every title, label and button dropped silently to a system face. The
+   files now live in `public/fonts/` (that folder's README lists exactly which
+   ones, at which weights, under which licence).
+
+   The `src` URLs start with a slash ON PURPOSE. A slash-rooted url in CSS is a
+   PUBLIC-DIRECTORY reference: Vite copies the file to `dist/fonts/` and — because
+   the desktop build runs with `VITE_BASE_URL=./` (see `build:desktop`) — rewrites
+   the reference in the emitted stylesheet to a path relative to that stylesheet,
+   `../fonts/…`. That is what the packaged app needs, because its renderer is
+   opened with `loadFile(dist/index.html)`: the origin is `file://`, where a URL
+   left as `/fonts/…` would be read from the root of the user's disk. Writing
+   `../fonts/…` here by hand would be wrong in the other direction — Vite resolves
+   relative css urls against THIS file, i.e. `src/fonts/`, where nothing lives.
+   Same convention as `/vite.svg` and `/renderer-prelude.js` in index.html, which
+   already survive the packaged build.
+
+   Until the .woff2 files are dropped in, Vite leaves the unresolved url alone
+   (it warns and moves on), the browser skips the face, and the next entry in the
+   stack is used. That is why every stack in `@theme` below names real system
+   fonts instead of a bare `serif`/`sans-serif`/`monospace`: with the files or
+   without them, the chrome is set in something chosen — which is already better
+   than today's offline behaviour. */
+
+@font-face {
+  font-family: 'Cinzel';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/cinzel-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Cinzel';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/cinzel-600.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Cinzel';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/cinzel-700.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/source-sans-3-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/source-sans-3-400-italic.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/source-sans-3-500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/source-sans-3-600.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/source-sans-3-700.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-500.woff2') format('woff2');
+}
 
 @theme {
   --color-deep: #07070d;
@@ -22,10 +127,55 @@
   --color-warning: #d4a843;
   --color-danger: #c4463a;
 
-  --font-serif: 'Cinzel', serif;
-  --font-sans: 'Source Sans 3', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  /* The bundled face first, then a real system stack — not a bare generic.
+     A missing .woff2 must land on a chosen fallback, not on whatever the
+     platform calls `serif`. These are the same stacks the reading settings
+     use below, so the app has ONE typographic vocabulary. */
+  --font-serif: 'Cinzel', 'Iowan Old Style', Charter, Georgia, 'Liberation Serif',
+    'Noto Serif', 'Times New Roman', serif;
+  --font-sans: 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Noto Sans', 'Liberation Sans', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
+    'Liberation Mono', 'DejaVu Sans Mono', monospace;
 }
+
+/* ── Reading (manuscript prose only) ──────────────────────────────────────────
+   Three preferences — face, size, measure — written by the editor as
+   `data-reading-*` attributes and resolved to custom properties here, so the
+   values have one home and TypeScript never carries a font stack.
+
+   The stacks are system fonts on purpose: a manuscript should be set in a face
+   the writer's own machine renders well at length, and none of the three
+   families this app's chrome uses is a reading face — Cinzel is a Roman titling
+   design. `--wh-face-sans` and `--wh-face-mono` still name the bundled families
+   first, which now resolve from `public/fonts/` rather than from the network. */
+:root {
+  --wh-face-serif: 'Iowan Old Style', Charter, 'Bitstream Charter', Georgia,
+    'Liberation Serif', 'Noto Serif', 'DejaVu Serif', 'Times New Roman', serif;
+  --wh-face-sans: 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Noto Sans', 'Liberation Sans', Arial, sans-serif;
+  --wh-face-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
+    'Liberation Mono', 'DejaVu Sans Mono', monospace;
+
+  /* Defaults, matching DEFAULT_READING in stores/appStore.ts: prose is already
+     set correctly on the first paint, before the stored preference is read. */
+  --wh-reading-font: var(--wh-face-serif);
+  --wh-reading-size: 1.0625rem;
+  --wh-reading-measure: 46rem;
+}
+
+[data-reading-face='serif'] { --wh-reading-font: var(--wh-face-serif); }
+[data-reading-face='sans'] { --wh-reading-font: var(--wh-face-sans); }
+[data-reading-face='mono'] { --wh-reading-font: var(--wh-face-mono); }
+
+[data-reading-size='small'] { --wh-reading-size: 0.9375rem; }
+[data-reading-size='medium'] { --wh-reading-size: 1.0625rem; }
+[data-reading-size='large'] { --wh-reading-size: 1.25rem; }
+
+/* ~58 and ~78 characters at the medium size. Unbounded prose on a wide
+   monitor is a single 1400px line, which nobody can track back to. */
+[data-reading-measure='narrow'] { --wh-reading-measure: 34rem; }
+[data-reading-measure='wide'] { --wh-reading-measure: 46rem; }
 
 /* Base styles */
 * {
@@ -97,18 +247,40 @@ body {
   outline: none;
   min-height: 200px;
   padding: 1rem;
+  font-family: var(--wh-reading-font);
+  font-size: var(--wh-reading-size);
+  line-height: 1.7;
+  max-width: var(--wh-reading-measure);
+  margin-inline: auto;
 }
 
 .tiptap-editor .ProseMirror p {
   margin: 0.5em 0;
 }
 
+/* Cinzel is a Roman titling face: right for the app's own chrome, wrong for a
+   chapter heading, which belongs to the same family as the prose it opens.
+   Tailwind's preflight resets heading size and weight to `inherit`, so both
+   have to be stated here or the headings stop reading as headings. */
 .tiptap-editor .ProseMirror h1,
 .tiptap-editor .ProseMirror h2,
 .tiptap-editor .ProseMirror h3 {
-  font-family: var(--font-serif);
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--color-accent-gold);
-  margin: 1em 0 0.5em;
+  margin: 1.2em 0 0.5em;
+}
+
+.tiptap-editor .ProseMirror h1 { font-size: 1.5em; }
+.tiptap-editor .ProseMirror h2 { font-size: 1.28em; }
+.tiptap-editor .ProseMirror h3 { font-size: 1.1em; }
+
+/* The prose column is now narrower than the editor, so an inserted image has
+   to be told to live inside it. */
+.tiptap-editor .ProseMirror img {
+  max-width: 100%;
+  height: auto;
 }
 
 .tiptap-editor .ProseMirror a {
@@ -144,6 +316,27 @@ body {
   color: var(--color-text-dim);
   pointer-events: none;
   height: 0;
+}
+
+/* Find & replace: ProseMirror decorations, so nothing here is in the document.
+   Every match is marked; the one being stepped through is filled. */
+.tiptap-editor .ProseMirror .wh-find-match {
+  background: rgba(196, 151, 59, 0.22);
+  box-shadow: 0 0 0 1px rgba(196, 151, 59, 0.4);
+  border-radius: 2px;
+}
+
+.tiptap-editor .ProseMirror .wh-find-current {
+  background: var(--color-accent-amber);
+  color: var(--color-deep);
+}
+
+/* Sample line in Settings → Reading, set exactly as the manuscript will be. */
+.wh-reading-sample {
+  font-family: var(--wh-reading-font);
+  font-size: var(--wh-reading-size);
+  line-height: 1.7;
+  max-width: var(--wh-reading-measure);
 }
 
 /* Backlink style */
@@ -264,7 +457,7 @@ body {
 }
 .copilot-md code {
   background: var(--color-elevated); border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.8em;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
 }
 .copilot-md pre { background: var(--color-deep); border-radius: 6px; padding: 0.5rem; overflow-x: auto; margin: 0.4rem 0; }
 .copilot-md pre code { background: transparent; padding: 0; }

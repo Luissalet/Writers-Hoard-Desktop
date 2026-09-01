@@ -105,8 +105,8 @@ export default function TagInput({ tags, onChange, placeholder, suggestions = []
             className="inline-flex items-center gap-1 px-2 py-0.5 bg-accent-plum/20 text-accent-plum-light text-sm rounded"
           >
             {tag}
-            <button onClick={() => removeTag(tag)} className="hover:text-white transition">
-              <X size={12} />
+            <button onClick={() => removeTag(tag)} className="hover:text-white transition" title={t('common.remove')} aria-label={t('common.remove')}>
+              <X size={12} aria-hidden="true" />
             </button>
           </span>
         ))}

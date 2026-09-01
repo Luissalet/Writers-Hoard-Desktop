@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Search, Cloud, Check, Loader2, FileText, AlertCircle } from 'lucide-react';
+import { Search, Cloud, Check, Loader2, FileText, AlertCircle, LogOut } from 'lucide-react';
 import Modal from '@/components/common/Modal';
-import { useGoogleStore } from '@/stores/googleStore';
+import { handleGoogleAuthError, useGoogleStore } from '@/stores/googleStore';
 import { listGoogleDocs, importGoogleDoc, type GoogleDocFile } from '@/services/googleDocs';
 import { isGisLoaded } from '@/services/googleAuth';
 import { t } from '@/i18n/useTranslation';
 import type { Writing } from '@/types';
+
+/** `setTimeout` silently fires at once past this, so a far-off expiry is clamped. */
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
 interface GoogleDocsPickerProps {
   open: boolean;
@@ -22,7 +25,17 @@ export default function GoogleDocsPicker({
   existingWritings,
   onImported,
 }: GoogleDocsPickerProps) {
-  const { isAuthenticated, accessToken, userEmail, login, isLoading: authLoading, error: authError } = useGoogleStore();
+  const {
+    isAuthenticated,
+    accessToken,
+    expiresAt,
+    userEmail,
+    login,
+    logout,
+    expireSession,
+    isLoading: authLoading,
+    error: authError,
+  } = useGoogleStore();
 
   const [docs, setDocs] = useState<GoogleDocFile[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -47,11 +60,32 @@ export default function GoogleDocsPicker({
       const files = await listGoogleDocs(accessToken, query);
       setDocs(files);
     } catch (err: unknown) {
+      // A revoked or expired token answers 401 here. Dropping the session
+      // swaps this browser for the connect screen; anything else is a genuine
+      // listing failure and stays in the chip.
+      if (handleGoogleAuthError(err)) return;
       setError(err instanceof Error ? err.message : t('docs.loadError'));
     } finally {
       setLoading(false);
     }
   }, [accessToken]);
+
+  // The GIS implicit flow has no refresh token, so a connected session simply
+  // stops working roughly an hour in. Retire it on the dot — otherwise the
+  // browser below keeps offering files it can no longer fetch.
+  useEffect(() => {
+    if (!isAuthenticated || !expiresAt) return;
+    const remaining = expiresAt - Date.now();
+    if (remaining <= 0) {
+      expireSession();
+      return;
+    }
+    const timer = window.setTimeout(
+      () => expireSession(),
+      Math.min(remaining, MAX_TIMEOUT_MS),
+    );
+    return () => window.clearTimeout(timer);
+  }, [isAuthenticated, expiresAt, expireSession]);
 
   // Load docs when authenticated
   useEffect(() => {
@@ -93,7 +127,9 @@ export default function GoogleDocsPicker({
       onImported();
       onClose();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('docs.importError'));
+      if (!handleGoogleAuthError(err)) {
+        setError(err instanceof Error ? err.message : t('docs.importError'));
+      }
     } finally {
       setImporting(false);
     }
@@ -152,11 +188,23 @@ export default function GoogleDocsPicker({
   return (
     <Modal open={open} onClose={onClose} title={t('gdocs.linkTitle')} wide>
       <div className="space-y-4">
-        {/* User info */}
-        <div className="flex items-center justify-between">
+        {/* User info.
+            Disconnect lives here because it was the one control the integration
+            never had: with no sign-out anywhere, a session that went bad — token
+            expired, access revoked from the Google account page — could only be
+            cleared by restarting the app. */}
+        <div className="flex items-center justify-between gap-3">
           <span className="text-xs text-text-muted">
             {t('gdocs.connectedAs')} <span className="text-blue-400">{userEmail}</span>
           </span>
+          <button
+            onClick={() => void logout()}
+            title={t('gdocs.disconnectHint')}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border text-xs text-text-muted hover:text-text-primary hover:bg-elevated transition"
+          >
+            <LogOut size={12} />
+            {t('gdocs.disconnect')}
+          </button>
         </div>
 
         {/* Search */}

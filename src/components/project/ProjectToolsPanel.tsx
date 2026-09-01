@@ -10,12 +10,14 @@ import {
   Plus,
   RotateCcw,
   Save,
+  Search,
   Send,
   Sparkles,
   Trash2,
 } from 'lucide-react';
 import { db } from '@/db';
 import { captureNote } from '@/engines/notes/operations';
+import { toLocalDateKey } from '@/engines/writing-stats/date';
 import { useAiStore } from '@/stores/aiStore';
 import {
   applyProjectRecipe,
@@ -47,6 +49,7 @@ import type { DiaryEntry } from '@/engines/diary/types';
 import type { Snapshot } from '@/engines/scrapper/types';
 import { toast } from '@/components/common/toast';
 import { useTranslation } from '@/i18n/useTranslation';
+import ProjectReplaceModal from '@/components/project/ProjectReplaceModal';
 import PublishingProfileModal from '@/components/project/PublishingProfileModal';
 import { ConfirmDialog } from '@/engines/_shared';
 
@@ -146,6 +149,7 @@ function SourceRow({
 function Workflows({ projectId, data }: { projectId: string; data: ToolsData }) {
   const { t, locale } = useTranslation();
   const [busy, setBusy] = useState<string | null>(null);
+  const [replaceOpen, setReplaceOpen] = useState(false);
   const run = async (key: string, action: () => Promise<unknown>, success: string) => {
     setBusy(key);
     try {
@@ -189,6 +193,20 @@ function Workflows({ projectId, data }: { projectId: string; data: ToolsData }) 
           </button>
         </div>
       </section>
+
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <h3 className="font-serif font-semibold text-text-primary">{t('projectReplace.open')}</h3>
+        <p className="mt-1 text-sm text-text-muted">{t('projectReplace.openDetail')}</p>
+        <button type="button" onClick={() => setReplaceOpen(true)} className={`${buttonClass} mt-4`}>
+          <Search size={15} /> {t('projectReplace.openAction')}
+        </button>
+      </section>
+
+      <ProjectReplaceModal
+        open={replaceOpen}
+        projectId={projectId}
+        onClose={() => setReplaceOpen(false)}
+      />
 
       <div className="grid gap-5 xl:grid-cols-3">
         <section className="overflow-hidden rounded-xl border border-border bg-surface">
@@ -276,7 +294,7 @@ function Research({ data }: { data: ToolsData }) {
         projectId: data.project.id,
         title: title.trim(),
         authors: authors.split(',').map(value => value.trim()).filter(Boolean),
-        accessedAt: new Date().toISOString().slice(0, 10),
+        accessedAt: toLocalDateKey(new Date()),
         url: url.trim() || undefined,
         writingIds: [],
         tags: [],

@@ -1,4 +1,5 @@
-import { makeEntityHook, makeTableOps, makeCascadeDeleteOp } from '@/engines/_shared';
+import { db } from '@/db';
+import { makeEntityHook, makeTableOps, makeCascadeDeleteOp, deleteEntityAnnotations } from '@/engines/_shared';
 import type { WorldMap, MapPin } from '@/types';
 
 const worldMapOps = makeTableOps<WorldMap>({
@@ -11,11 +12,24 @@ const worldMapOps = makeTableOps<WorldMap>({
  * engine still using the plain delete: pins survived their map, kept showing up
  * in project search (the resolver scans `mapPins` directly) and navigated
  * nowhere when clicked.
+ *
+ * The margin notes anchored on the map are pure link, so they go too.
  */
-const deleteWorldMap = makeCascadeDeleteOp({
+const deleteWorldMapRow = makeCascadeDeleteOp({
   tableName: 'worldMaps',
   cascades: [{ table: 'mapPins', foreignKey: 'mapId' }],
 });
+
+async function deleteWorldMap(id: string): Promise<void> {
+  await db.transaction(
+    'rw',
+    ['worldMaps', 'mapPins', 'annotations', 'annotationReferences'],
+    async () => {
+      await deleteEntityAnnotations('maps', id);
+      await deleteWorldMapRow(id);
+    },
+  );
+}
 
 export const useWorldMaps = makeEntityHook<WorldMap>({
   fetchFn: worldMapOps.getAll,

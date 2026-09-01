@@ -6,6 +6,7 @@ import { TrendingUp, Plus, Trash2, ArrowLeft, ChevronDown, ChevronRight, Sparkle
 import { t, useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { EngineSpinner, ConfirmDialog, LinkSelect, useDebouncedField, useDeepLinkParam } from '@/engines/_shared';
+import EmptyState from '@/components/common/EmptyState';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { useScenes } from '@/engines/dialog-scene/hooks';
 import { useAllProjectBeats } from '@/engines/outline/hooks';
@@ -94,10 +95,12 @@ export default function CharacterArcEngine({ projectId }: EngineComponentProps) 
       )}
 
       {arcs.length === 0 && !showNew ? (
-        <div className="flex flex-col items-center justify-center py-16 text-text-dim">
-          <TrendingUp size={36} className="mb-3 opacity-40" />
-          <p className="text-sm">{t('characterArc.empty')}</p>
-        </div>
+        <EmptyState
+          icon={<TrendingUp size={40} />}
+          title={t('characterArc.empty.title')}
+          message={t('characterArc.empty.message')}
+          action={{ label: t('characterArc.newArc'), onClick: () => setShowNew(true) }}
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {arcs.map((arc) => (
@@ -317,8 +320,24 @@ function ArcEditor({
   // manera de que valiera otra cosa.
   const { items: outlineBeats } = useAllProjectBeats(projectId);
   const { items: scenes } = useScenes(projectId);
+  const { items: codexEntries } = useCodexEntries(projectId);
+  const characters = codexEntries.filter((e) => e.type === 'character');
   const [corePanelOpen, setCorePanelOpen] = useState(true);
   const [pendingDeleteArc, setPendingDeleteArc] = useState(false);
+
+  // A name left over from a character that no longer exists: keep it selectable
+  // so picking anything else — including "unlinked" — actually clears it.
+  const orphanName = !arc.characterId && arc.characterName ? arc.characterName : undefined;
+
+  const handleCharacter = (nextId: string) => {
+    const character = characters.find((c) => c.id === nextId);
+    // No `updatedAt` here: makeTableOps.update already stamps it, and calling
+    // Date.now() in the component body is impure.
+    onUpdate({
+      characterId: character?.id,
+      characterName: character?.title,
+    });
+  };
 
   // The template's questions, shown as placeholders in the six core fields.
   // `promptKeys` holds i18n keys, so resolve them here — otherwise the raw key
@@ -395,9 +414,18 @@ function ArcEditor({
               placeholder={t('characterArc.arcTitlePlaceholder')}
               className="w-full bg-transparent text-lg font-serif font-semibold text-text-primary outline-none border-b border-transparent focus:border-accent-gold transition"
             />
-            {arc.characterName && (
-              <p className="text-xs text-text-dim">{arc.characterName}</p>
-            )}
+            <select
+              value={arc.characterId ?? (orphanName ? '__orphan__' : '')}
+              onChange={(e) => handleCharacter(e.target.value)}
+              title={t('characterArc.character')}
+              className="max-w-full text-xs text-text-dim bg-transparent border border-transparent rounded cursor-pointer outline-none hover:border-border focus:border-accent-gold transition"
+            >
+              <option value="">{t('characterArc.unlinked')}</option>
+              {orphanName && <option value="__orphan__">{orphanName}</option>}
+              {characters.map((c) => (
+                <option key={c.id} value={c.id}>{c.title}</option>
+              ))}
+            </select>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -583,6 +611,7 @@ function BeatRow({
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<ArcBeat>);
   };
 
+  const titleField = useDebouncedField(beat.title, handleField('title'));
   const descriptionField = useDebouncedField(beat.description, handleField('description'));
   const emotionField = useDebouncedField(beat.emotion ?? '', handleField('emotion'));
 
@@ -593,12 +622,15 @@ function BeatRow({
         <button
           onClick={() => setExpanded((e) => !e)}
           className="p-0.5 mt-0.5 text-text-dim hover:text-text-primary transition"
+          title={expanded ? t('common.collapse') : t('common.expand')}
+          aria-label={expanded ? t('common.collapse') : t('common.expand')}
         >
-          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          {expanded ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
         </button>
         <input
-          value={beat.title}
-          onChange={(e) => handleField('title')(e.target.value)}
+          value={titleField.value}
+          onChange={(e) => titleField.onChange(e.target.value)}
+          onBlur={titleField.onBlur}
           className="flex-1 bg-transparent text-sm text-text-primary outline-none border-b border-transparent focus:border-accent-gold transition"
         />
         <select

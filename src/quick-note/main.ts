@@ -26,8 +26,9 @@ const STRINGS = {
     placeholder: 'Apunta lo que se te ha ocurrido…',
     hint: 'Enter guarda · Shift+Enter salta línea · Esc cierra',
     inbox: 'Inbox',
+    saving: 'Guardando…',
     saved: 'Guardado',
-    error: 'No se pudo guardar',
+    error: 'No se pudo guardar — tu texto sigue aquí',
     kind: { note: 'Nota', quote: 'Cita', idea: 'Idea', word: 'Palabra' },
   },
   en: {
@@ -35,8 +36,9 @@ const STRINGS = {
     placeholder: 'Jot down what just occurred to you…',
     hint: 'Enter saves · Shift+Enter new line · Esc closes',
     inbox: 'Inbox',
+    saving: 'Saving…',
     saved: 'Saved',
-    error: "Couldn't save",
+    error: "Couldn't save — your text is still here",
     kind: { note: 'Note', quote: 'Quote', idea: 'Idea', word: 'Word' },
   },
 } as const;
@@ -57,6 +59,17 @@ let kind: NoteKind = 'note';
 let context: QuickNoteContext = { projectId: null, projectTitle: null, locale: 'es' };
 /** false → save to the project-less inbox even when a project is open. */
 let toProject = true;
+/**
+ * True once the current session ended for real — the note was written, or the
+ * writer dismissed it with Esc. ONLY then may the next summon clear the box.
+ *
+ * The window is hidden on blur, and hide→show is what fires
+ * `visibilitychange`. Resetting there unconditionally meant any notification
+ * that stole focus wiped a half-typed note, with no draft and no undo.
+ */
+let consumed = false;
+/** A submit is in flight; Enter must not queue a second copy of the note. */
+let submitting = false;
 
 const root = document.getElementById('app')!;
 const strings = () => (context.locale === 'en' ? STRINGS.en : STRINGS.es);
@@ -128,8 +141,13 @@ function renderTarget(): void {
 function render(): void {
   brand.textContent = strings().brand;
   textarea.placeholder = strings().placeholder;
-  status.textContent = strings().hint;
-  status.className = 'hint';
+  // A re-render must never overwrite "Saving…" with the idle hint: blurring
+  // the window mid-save re-renders it, and the writer would be told the note
+  // is idle while it is still in flight.
+  if (!submitting) {
+    status.textContent = strings().hint;
+    status.className = 'hint';
+  }
   renderChips();
   renderTarget();
 }
@@ -140,6 +158,7 @@ function reset(): void {
   textarea.value = '';
   kind = 'note';
   toProject = true;
+  consumed = false;
   render();
   textarea.focus();
 }
@@ -153,13 +172,26 @@ async function loadContext(): Promise<void> {
   render();
 }
 
+/**
+ * Hand the note to the main process and wait for the real answer.
+ *
+ * `submit` resolves only once the main renderer has written the row, so "ok"
+ * here means the note exists. Anything else — no main window, a renderer
+ * mid-reload with no listener, a rejected Dexie write — keeps the text on
+ * screen and says so. Nothing is cleared and nothing closes until the note is
+ * somewhere other than this textarea.
+ */
 async function submit(): Promise<void> {
   const text = textarea.value.trim();
-  if (!text) return;
+  if (!text || submitting) return;
   const projectId = toProject ? context.projectId : null;
+  submitting = true;
+  status.textContent = strings().saving;
+  status.className = 'hint';
   try {
     const result = await api.quickNote.submit({ text, kind, projectId });
-    if (!result?.ok) throw new Error('rejected');
+    if (!result?.ok) throw new Error(result?.error ?? 'rejected');
+    consumed = true;
     status.textContent = strings().saved;
     status.className = 'saved';
     textarea.value = '';
@@ -168,6 +200,9 @@ async function submit(): Promise<void> {
   } catch {
     status.textContent = strings().error;
     status.className = 'error';
+    textarea.focus();
+  } finally {
+    submitting = false;
   }
 }
 
@@ -184,18 +219,27 @@ textarea.addEventListener('keydown', (e) => {
     void submit();
   } else if (e.key === 'Escape') {
     e.preventDefault();
+    // Esc is the writer throwing this one away on purpose — the only
+    // dismissal that authorises clearing the box on the next summon.
+    consumed = true;
     api.quickNote.close();
   }
 });
 
 // The window is reused across summons (creating it each time costs ~150ms of
 // nothing). Hiding and showing it flips document visibility, which is the
-// precise "you're up again" signal — reset there, not on focus, so clicking
-// back into a half-typed note doesn't wipe it.
+// precise "you're up again" signal.
+//
+// It is NOT, however, a signal that the last note is finished with: in
+// production the window hides on blur, so anything that steals focus — a
+// notification, an alt-tab — takes the same path back. Refresh the context
+// every time (the open project may have changed), but only clear the box when
+// the previous session actually ended: submitted, or dismissed with Esc.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   void loadContext();
-  reset();
+  if (consumed) reset();
+  else textarea.focus();
 });
 
 window.addEventListener('focus', () => textarea.focus());

@@ -337,7 +337,7 @@ async function downloadImageUrl(url: string, ctx: AdapterContext, signal: AbortS
   }
   // A total timeout so a stalled/dribbling download can't wedge the serialized
   // image queue forever (the chat path has a hard-stop; this one had none).
-  const res = await net.fetch(url, { signal: combineSignals([signal, AbortSignal.timeout(120_000)]), redirect: 'manual' });
+  const res = await net.fetch(url, { signal: combineSignals([signal, AbortSignal.timeout(120_000)]).signal, redirect: 'manual' });
   if (!res.ok || !res.body) throw new AdapterError('bad-response', `Image download failed (HTTP ${res.status}).`);
   const reader = res.body.getReader();
   const parts: Uint8Array[] = [];

@@ -23,6 +23,39 @@ export interface SdInstalledModel {
   installedBytes: number;
 }
 
+/**
+ * A LoRA the runtime found in its folder. `name` is the file name without its
+ * extension, which is exactly what stable-diffusion.cpp resolves inside
+ * `--lora-model-dir` when it reads `<lora:NAME:WEIGHT>` out of a prompt.
+ */
+export interface SdLoraFile {
+  name: string;
+  fileName: string;
+  sizeBytes: number;
+}
+
+/** One Ollama model sitting in GPU memory right now, and who to ask to drop it. */
+export interface SdResidentModel {
+  connectionId: string;
+  connectionName: string;
+  modelId: string;
+  /** What the server says it occupies on the card; null when it does not say. */
+  sizeVramBytes: number | null;
+}
+
+/**
+ * Who is holding the card, measured just before an image model would load.
+ * `measured` is false when no vendor tool answered (see electron/ai/hardware.ts):
+ * the free figure is then unknown, and only the resident list is meaningful.
+ */
+export interface SdVramReport {
+  at: number;
+  measured: boolean;
+  freeBytes: number | null;
+  totalBytes: number | null;
+  resident: SdResidentModel[];
+}
+
 export interface SdRuntimeStatus {
   supported: boolean;
   backends: SdBackend[];
@@ -37,6 +70,18 @@ export interface SdRuntimeStatus {
   downloading: string | null;
   error?: string;
   version: string;
+  /** LoRA files present in `lorasDir`, refreshed with every status read. */
+  loras?: SdLoraFile[];
+  /** Absolute path of the folder the user drops LoRA files into. */
+  lorasDir?: string | null;
+  /**
+   * False once this runtime build has been seen to refuse the LoRA folder flag.
+   * Undefined means "no reason to think otherwise" — it is only ever set by the
+   * server actually failing to start with it and succeeding without.
+   */
+  lorasSupported?: boolean;
+  /** GPU memory and resident chat models, as of `vram.at`. */
+  vram?: SdVramReport | null;
 }
 
 export interface SdProgress {
@@ -96,6 +141,71 @@ export function computeImageFit(hardware: HardwareProfile, entry: Pick<ImageCata
   return { ...base, label: 'no-fit', placement: 'none', speedHint: 'unusable' };
 }
 
+// ---- VRAM contention: one card, a chat model and a diffusion model ---------
+
+/** Headroom a diffusion model needs beyond its weights (activations, VAE). */
+export const IMAGE_VRAM_HEADROOM = 1_000_000_000;
+
+export interface VramContention {
+  /** Weights plus headroom the image model wants on the card. */
+  needBytes: number;
+  /** Free GPU memory when it could be measured. */
+  freeBytes: number | null;
+  measured: boolean;
+  resident: SdResidentModel[];
+}
+
+/**
+ * Whether starting `entry` now would fight a resident chat model for the card.
+ *
+ * This is the physical trap of §19 in docs/AI-BRIDGE.md: with ~9 GB of Ollama
+ * resident on a 12 GB card, sd-server's Vulkan backend gets no memory and falls
+ * back to the CPU — the same picture takes minutes instead of seconds. Nothing
+ * is wrong with either program; they simply do not fit together.
+ *
+ * Returns null when there is nothing to warn about: no measurement AND nothing
+ * resident, or a measurement that says the image model fits beside what is
+ * loaded. Without a measurement but with a model resident it warns, because
+ * being wrong costs the reader seconds and being silent costs them minutes.
+ */
+export function detectVramContention(
+  vram: SdVramReport | null | undefined,
+  entry: Pick<ImageCatalogModel, 'vramBytes'> | undefined,
+): VramContention | null {
+  if (!vram || !entry) return null;
+  if (!vram.resident.length) return null;
+  // No graphics memory figure at all means there is no card to fight over: on
+  // such a machine the image model was never going to use one either.
+  if (vram.totalBytes === null) return null;
+  const needBytes = entry.vramBytes + IMAGE_VRAM_HEADROOM;
+  if (vram.measured && vram.freeBytes !== null && vram.freeBytes >= needBytes) return null;
+  return { needBytes, freeBytes: vram.freeBytes, measured: vram.measured, resident: vram.resident };
+}
+
+// ---- LoRA ------------------------------------------------------------------
+
+/**
+ * What may name a LoRA. The server parses `<lora:NAME:WEIGHT>` out of the
+ * prompt with a `[^:]+` capture, so a colon is impossible and `<`/`>` would cut
+ * the token in half; anything else a file system allows is fine.
+ */
+export function isSdLoraName(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 96 && !/[<>:\r\n]/.test(value);
+}
+
+/** Weights outside this range are a typo, not an intention. */
+export function clampLoraWeight(weight: unknown): number {
+  const value = typeof weight === 'number' && Number.isFinite(weight) ? weight : 1;
+  return Math.round(Math.max(-2, Math.min(2, value)) * 100) / 100;
+}
+
+export function formatLoraToken(name: string, weight: number): string {
+  return `<lora:${name}:${clampLoraWeight(weight).toFixed(2)}>`;
+}
+
+/** Extensions stable-diffusion.cpp looks for when it resolves a LoRA name. */
+export const SD_LORA_EXTENSIONS = ['.safetensors', '.ckpt'] as const;
+
 export interface SdServerLaunch {
   /** Absolute path of each downloaded file, by role. */
   paths: Partial<Record<ImageFileRole, string>>;
@@ -105,6 +215,12 @@ export interface SdServerLaunch {
   /** Flash attention in the diffusion model: a memory saver on CUDA, not offered elsewhere. */
   flashAttention?: boolean;
   threads?: number;
+  /**
+   * Folder the server resolves `<lora:NAME:WEIGHT>` against. Passed ONLY when
+   * the folder actually holds a LoRA: a build that did not know the flag would
+   * refuse to start, and no reader who never touched LoRAs should ever meet it.
+   */
+  loraDir?: string;
 }
 
 /** Arguments for `sd-server` so that it serves exactly this model on loopback. */
@@ -130,6 +246,7 @@ export function buildSdServerArgs(entry: ImageCatalogModel, launch: SdServerLaun
   if (entry.defaults.scheduler) args.push('--scheduler', entry.defaults.scheduler);
   if (entry.family === 'flux') args.push('--guidance', '1.0');
   if (launch.offloadToCpu) args.push('--offload-to-cpu');
+  if (launch.loraDir) args.push('--lora-model-dir', launch.loraDir);
   if (launch.threads && launch.threads > 0) args.push('--threads', String(launch.threads));
   return args;
 }
@@ -138,8 +255,15 @@ export function buildSdServerArgs(entry: ImageCatalogModel, launch: SdServerLaun
 export function buildSdJobPayload(request: AiImageRequest, entry: ImageCatalogModel): Record<string, unknown> {
   const steps = request.steps ?? entry.defaults.steps;
   const cfg = request.guidance ?? entry.defaults.cfg;
+  // LoRA: stable-diffusion.cpp has no request field for it. The server reads
+  // `<lora:NAME:WEIGHT>` out of the prompt, resolves NAME inside the folder it
+  // was launched with (`--lora-model-dir`) and strips the token before the text
+  // is encoded — so appending here changes the weights, never the conditioning.
+  const loraTokens = (request.loras ?? [])
+    .filter((lora) => isSdLoraName(lora.name))
+    .map((lora) => formatLoraToken(lora.name, lora.weight));
   const payload: Record<string, unknown> = {
-    prompt: request.prompt,
+    prompt: loraTokens.length ? `${request.prompt} ${loraTokens.join(' ')}` : request.prompt,
     negative_prompt: request.negativePrompt ?? '',
     width: snap(request.width),
     height: snap(request.height),

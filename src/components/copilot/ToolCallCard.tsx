@@ -22,6 +22,9 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
+import VramWarning from '@/components/ai-settings/VramWarning';
+import { SCOPE_KEY } from '@/services/aiBridge/schema';
+import type { VramContention } from '@/services/aiRuntime/sdServer';
 import type { AiToolCallRecord } from '@/services/copilot/types';
 import { updateMessage } from '@/services/copilot/threads';
 
@@ -29,6 +32,12 @@ interface ToolCallCardProps {
   messageId: string;
   record: AiToolCallRecord;
   onApprove?: (approved: boolean) => void;
+  /**
+   * Set by the dock when this call is about to make a picture and a chat model
+   * is holding the graphics card — the same physics, and the same way out, that
+   * the Image Studio shows before its own Generate button.
+   */
+  vramContention?: VramContention | null;
 }
 
 function riskIcon(risk: string) {
@@ -39,7 +48,9 @@ function riskIcon(risk: string) {
 }
 
 function shortArgs(args: Record<string, unknown>): string {
-  const entries = Object.entries(args ?? {}).filter(([key]) => key !== 'projectId');
+  const entries = Object.entries(args ?? {}).filter(
+    ([key]) => key !== 'projectId' && key !== SCOPE_KEY,
+  );
   if (!entries.length) return '';
   return entries
     .map(([key, value]) => {
@@ -49,11 +60,15 @@ function shortArgs(args: Record<string, unknown>): string {
     .join(' · ');
 }
 
-export default function ToolCallCard({ messageId, record, onApprove }: ToolCallCardProps) {
+export default function ToolCallCard({ messageId, record, onApprove, vramContention }: ToolCallCardProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [undoing, setUndoing] = useState(false);
   const [undoError, setUndoError] = useState<string | null>(null);
+  // What the reversal could NOT put back. The record type has nowhere to keep
+  // it, so it lives here: the card is open when the button is pressed, which
+  // is the moment the user has to read it.
+  const [undoCaveat, setUndoCaveat] = useState<string | null>(null);
   const Icon = riskIcon(record.risk);
   const label = record.tool.replace(/^wh_/, '').replace(/_/g, ' ');
   const canUndo =
@@ -77,9 +92,11 @@ export default function ToolCallCard({ messageId, record, onApprove }: ToolCallC
     if (!bridge || typeof record.auditIndex !== 'number') return;
     setUndoing(true);
     setUndoError(null);
+    setUndoCaveat(null);
     try {
       const result = await bridge.undo(record.auditIndex);
       if (result.ok) {
+        setUndoCaveat((result.result as { caveat?: string } | undefined)?.caveat ?? null);
         await updateMessage(messageId, { toolCall: { ...record, undone: true } });
       } else {
         setUndoError(result.error ?? 'error');
@@ -119,6 +136,12 @@ export default function ToolCallCard({ messageId, record, onApprove }: ToolCallC
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </span>
       </button>
+
+      {vramContention && (
+        <div className="px-2.5 pb-2">
+          <VramWarning contention={vramContention} />
+        </div>
+      )}
 
       {record.state === 'proposed' && onApprove && (
         <div className="px-2.5 pb-2 space-y-1.5">
@@ -170,6 +193,9 @@ export default function ToolCallCard({ messageId, record, onApprove }: ToolCallC
             </button>
           )}
           {undoError && <p className="text-[11px] text-danger">{undoError}</p>}
+          {/* A partial reversal that said nothing was the worst of both: the
+              line reads "undone" and part of the change is still there. */}
+          {undoCaveat && <p className="text-[11px] text-accent-gold break-words">{undoCaveat}</p>}
         </div>
       )}
     </div>

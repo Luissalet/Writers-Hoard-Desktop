@@ -3,6 +3,8 @@ import Modal from '@/components/common/Modal';
 import ColorPicker from '@/components/common/ColorPicker';
 import IconPicker from '@/components/common/IconPicker';
 import { toast } from '@/components/common/toast';
+import { getModeConfig } from '@/config/projectPresets';
+import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { Project } from '@/types';
 
@@ -21,10 +23,14 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
   const [color, setColor] = useState(project.color || '#c4973b');
   const [icon, setIcon] = useState(project.icon ?? '');
   const [saving, setSaving] = useState(false);
+  const setShowEngineManager = useAppStore(s => s.setShowEngineManager);
 
-  const save = async () => {
+  const modeConfig = getModeConfig(project.mode);
+  const ModeIcon = modeConfig?.icon;
+
+  const save = async (): Promise<boolean> => {
     const nextTitle = title.trim();
-    if (!nextTitle || saving) return;
+    if (!nextTitle || saving) return false;
     setSaving(true);
     try {
       await onSave({
@@ -36,12 +42,27 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
         icon: icon || undefined,
       });
       onClose();
+      return true;
     } catch (error) {
       console.error('Project update failed', error);
       toast.error(t('project.edit.error'));
+      return false;
     } finally {
       setSaving(false);
     }
+  };
+
+  /**
+   * The preset itself is changed in the Engine Manager, because that is the
+   * only place that can show what switching it would add and — the part worth
+   * seeing before you agree to it — what it would switch off, by name.
+   *
+   * Edits in progress are saved on the way there rather than dropped: this is
+   * a navigation out of a form, and silently discarding a retitled project to
+   * go look at presets would be its own small betrayal.
+   */
+  const goToPresets = async () => {
+    if (await save()) setShowEngineManager(true);
   };
 
   return (
@@ -93,6 +114,30 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
             rows={4}
             className="w-full resize-none rounded-lg border border-border bg-elevated px-4 py-2.5 text-text-primary outline-none transition focus:border-accent-gold"
           />
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-sm text-text-muted">{t('project.edit.preset')}</label>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-elevated px-4 py-3">
+            <div className="flex min-w-0 items-center gap-3">
+              {ModeIcon && (
+                <ModeIcon size={20} style={{ color: modeConfig?.color }} className="flex-shrink-0" />
+              )}
+              <div className="min-w-0">
+                <p className="text-sm text-text-primary">{t(`modes.${project.mode}.name`)}</p>
+                <p className="text-xs text-text-muted">{t(`modes.${project.mode}.description`)}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void goToPresets()}
+              disabled={!title.trim() || saving}
+              className="flex-shrink-0 rounded-lg border border-accent-gold/40 px-3 py-1.5 text-sm font-medium text-accent-gold transition hover:bg-accent-gold/10 disabled:opacity-50"
+            >
+              {t('engines.preset.change')}
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs text-text-dim">{t('project.edit.presetHint')}</p>
         </div>
 
         <div className="flex gap-6">

@@ -119,7 +119,7 @@ registerBackupStrategy({
       if (writing) await db.writings.add(writing as never);
     }
     const snapshots = await readBackupJson<unknown[]>(zip, `${projectDir}/writings/_snapshots.json`);
-    if (snapshots?.length) await db.writingSnapshots.bulkAdd(snapshots as never[]);
+    if (snapshots?.length) await db.writingSnapshots.bulkPut(snapshots as never[]);
   },
 });
 

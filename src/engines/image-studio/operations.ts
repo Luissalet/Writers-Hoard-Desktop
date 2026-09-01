@@ -12,7 +12,8 @@ import { db } from '@/db';
 import type { ImageGenerationInfo, InspirationImage } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import { generateImage as gatewayGenerate, type ImageHandle } from '@/services/aiRuntime/client';
-import type { AiImageRequest, AiImageResult, AiRouteSelection } from '@/services/aiRuntime/types';
+import { formatLoraToken } from '@/services/aiRuntime/sdServer';
+import type { AiImageRequest, AiImageResult, AiLoraSelection, AiRouteSelection } from '@/services/aiRuntime/types';
 
 export const IMAGE_STUDIO_ENGINE_ID = 'image-studio';
 
@@ -42,6 +43,8 @@ export interface GenerateAndSaveOptions {
   /** img2img: reference image as a data URL, and its denoise strength (0..1). */
   initImage?: string;
   strength?: number;
+  /** LoRAs to apply. Only the managed local runtime can load them. */
+  loras?: AiLoraSelection[];
   collectionId?: string;
   tags?: string[];
 }
@@ -89,6 +92,7 @@ export function startGeneration(options: GenerateAndSaveOptions): ImageHandle {
     quality: options.quality,
     initImage: options.initImage,
     strength: options.strength,
+    loras: options.loras?.length ? options.loras : undefined,
   };
   return gatewayGenerate(request);
 }
@@ -123,7 +127,13 @@ export async function saveGenerated(
       imageData: dataUrl,
       thumbnailData: await makeThumbnail(dataUrl),
       tags: [...new Set(['generated', ...(options.tags ?? [])])],
-      notes: image.revisedPrompt ? `${options.prompt}\n\n(${image.revisedPrompt})` : options.prompt,
+      // The LoRA rides in the note, not in `generation.prompt`: the prompt stays
+      // the clean text the author wrote (and the one "reuse" pastes back), while
+      // the row still says which weights made this picture.
+      notes: [
+        image.revisedPrompt ? `${options.prompt}\n\n(${image.revisedPrompt})` : options.prompt,
+        ...(options.loras ?? []).map((lora) => formatLoraToken(lora.name, lora.weight)),
+      ].join(' '),
       createdAt: now,
       source: 'generated',
       generation,

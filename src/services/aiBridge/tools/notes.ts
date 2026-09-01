@@ -12,6 +12,7 @@ import { createNote, getNote, getNotes, updateNote } from '@/engines/notes/opera
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
   clampLimit,
   optBoolean,
@@ -90,6 +91,7 @@ export async function whUpdateNote(args: ToolArgs): Promise<unknown> {
   if (!existing) throw new BridgeError('not-found', `No note with id "${id}".`);
   if (existing.projectId !== GLOBAL_NOTES_SCOPE) {
     await assertEngineEnabled(existing.projectId, 'notes');
+    assertRowInScope(args, existing.projectId);
   }
 
   const changes: Partial<Note> = {};

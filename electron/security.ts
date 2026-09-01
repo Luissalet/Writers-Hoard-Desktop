@@ -12,6 +12,13 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'media:readLibraryFile': ['main'],
   'media:relocateLibrary': ['main'],
   'export:scriptToPdf': ['main'],
+  // Automatic backup. The main window builds the archive from the database it
+  // owns and hands main the finished bytes; main owns the directory, the file
+  // name and the rotation, and is the only side that touches the disk. The
+  // quick-note window holds no data and must never be able to write an
+  // archive — or to learn where the archives live.
+  'backup:writeArchive': ['main'],
+  'backup:revealFolder': ['main'],
   'capture:page': ['main'],
   'capture:cancel': ['main'],
   'ig:login': ['main'],
@@ -23,9 +30,26 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'quick-note:get-context': ['quick-note'],
   'quick-note:open': ['main'],
   'quick-note:submit': ['quick-note'],
+  // The main window is the only Dexie writer, so it is the only side that can
+  // truthfully say a relayed capture was persisted. `quick-note:ack` closes a
+  // request main opened with `webContents.send('quick-note:add')` and is what
+  // resolves the floating window's pending `quick-note:submit`. The floating
+  // window must never be able to acknowledge its own note — that is exactly
+  // the "Saved" that lost them.
+  'quick-note:ack': ['main'],
   'quick-note:close': ['quick-note'],
   'updates:check': ['main'],
   'updates:quitAndInstall': ['main'],
+  // Closing the window. `beforeunload` cannot ask this question in Electron —
+  // its preventDefault silently cancels the close and shows nothing — so main
+  // owns the veto and asks the renderer that owns the unsaved text.
+  // `shutdown:setWarning` is how main learns there is anything at risk at all
+  // (and, since main has no `t()`, the already-translated words to say about
+  // it); `shutdown:reply` answers the `shutdown:request` push. Only the main
+  // window holds documents: the quick-note window must never be able to hold
+  // the app's window open, nor to hand main the words it would show.
+  'shutdown:setWarning': ['main'],
+  'shutdown:reply': ['main'],
   'ollama:getStatus': ['main'],
   'ollama:start': ['main'],
   'ollama:downloadRuntime': ['main'],

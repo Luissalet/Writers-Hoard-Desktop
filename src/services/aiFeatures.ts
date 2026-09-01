@@ -8,6 +8,90 @@ import { stripHtml } from '@/utils/googleDocsHtmlCleaner';
 import { t } from '@/i18n/useTranslation';
 import type { AiConfig, ExtractedCharacter, ConsistencyIssue } from '@/types';
 
+// --------------------------------------------------------------------------
+// Shape guards for model-returned JSON
+// --------------------------------------------------------------------------
+// `parseJsonFromModel` only promises "this parsed" — a local model answering
+// `{"personajes": [...]}` instead of a bare array parses fine and used to reach
+// the UI as an object, which then blew up on `.map()`. Every guard below throws
+// a SyntaxError, which `safeAiCall` already maps to t('ai.unexpectedFormat').
+
+function requireArray(parsed: unknown): unknown[] {
+  if (!Array.isArray(parsed)) {
+    throw new SyntaxError('model output is not a JSON array');
+  }
+  return parsed;
+}
+
+function requireRecord(entry: unknown): Record<string, unknown> {
+  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+    throw new SyntaxError('model output array holds a non-object entry');
+  }
+  return entry as Record<string, unknown>;
+}
+
+function requireString(entry: Record<string, unknown>, key: string): string {
+  const value = entry[key];
+  if (typeof value !== 'string') {
+    throw new SyntaxError(`model output entry is missing the string field "${key}"`);
+  }
+  return value;
+}
+
+/** Absent/null becomes `[]`; anything else present must be an array of strings. */
+function optionalStringArray(entry: Record<string, unknown>, key: string): string[] {
+  const value = entry[key];
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new SyntaxError(`model output entry has a malformed "${key}" array`);
+  }
+  return value as string[];
+}
+
+/**
+ * Closed vocabularies (`rol`, `tipo`, `gravedad`) are unions in the types, and
+ * models do answer off-list ("antagonista"). Falling back to the least-claiming
+ * option keeps one odd word from sinking an otherwise usable batch.
+ */
+function oneOf<T extends string>(raw: string, allowed: readonly T[], fallback: T): T {
+  const needle = raw.trim().toLowerCase();
+  return allowed.find((option) => option === needle) ?? fallback;
+}
+
+const CHARACTER_ROLES = ['protagonista', 'secundario', 'mencionado'] as const;
+const ISSUE_TYPES = ['descripcion', 'continuidad', 'nombre', 'temporal', 'ubicacion'] as const;
+const ISSUE_SEVERITIES = ['alta', 'media', 'baja'] as const;
+
+function toExtractedCharacters(parsed: unknown): ExtractedCharacter[] {
+  return requireArray(parsed).map((raw) => {
+    const entry = requireRecord(raw);
+    const nombre = requireString(entry, 'nombre').trim();
+    if (!nombre) {
+      throw new SyntaxError('model output entry has an empty "nombre"');
+    }
+    return {
+      nombre,
+      descripcionFisica: requireString(entry, 'descripcionFisica'),
+      personalidad: requireString(entry, 'personalidad'),
+      relaciones: requireString(entry, 'relaciones'),
+      citasRelevantes: optionalStringArray(entry, 'citasRelevantes'),
+      rol: oneOf(requireString(entry, 'rol'), CHARACTER_ROLES, 'mencionado'),
+    };
+  });
+}
+
+function toConsistencyIssues(parsed: unknown): ConsistencyIssue[] {
+  return requireArray(parsed).map((raw) => {
+    const entry = requireRecord(raw);
+    return {
+      tipo: oneOf(requireString(entry, 'tipo'), ISSUE_TYPES, 'continuidad'),
+      descripcion: requireString(entry, 'descripcion'),
+      capitulos: optionalStringArray(entry, 'capitulos'),
+      gravedad: oneOf(requireString(entry, 'gravedad'), ISSUE_SEVERITIES, 'media'),
+    };
+  });
+}
+
 /**
  * Generate a narrative summary in Spanish
  */
@@ -57,8 +141,9 @@ Responde SOLO con el JSON array válido. Sin markdown, sin backticks, sin explic
 
   const response = await callAi(systemPrompt, plainText, config);
   // Tolerates fences, preambles and <think> leakage (local models); a
-  // SyntaxError still maps to ai.unexpectedFormat via safeAiCall.
-  return parseJsonFromModel<ExtractedCharacter[]>(response);
+  // SyntaxError still maps to ai.unexpectedFormat via safeAiCall. What parses
+  // is not necessarily the array we asked for, so the shape is checked too.
+  return toExtractedCharacters(parseJsonFromModel<unknown>(response));
 }
 
 /**
@@ -103,7 +188,7 @@ Si no encuentras inconsistencias, devuelve [].
 Responde SOLO con el JSON array válido.`;
 
   const response = await callAi(systemPrompt, combined, config);
-  return parseJsonFromModel<ConsistencyIssue[]>(response);
+  return toConsistencyIssues(parseJsonFromModel<unknown>(response));
 }
 
 /**

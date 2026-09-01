@@ -2,7 +2,7 @@
 // Storyboard Engine — Root Component
 // ============================================
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
@@ -10,6 +10,7 @@ import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import NewItemForm from '@/engines/_shared/components/NewItemForm';
 import { useAutoSelect, useEnsureDefault, ConfirmDialog } from '@/engines/_shared';
 import { useStoryboards, useStoryboardPanels, useStoryboardConnectors } from './hooks';
+import { getPanelCountsByStoryboard } from './operations';
 import { generateId } from '@/utils/idGenerator';
 import StoryboardView from './components/StoryboardView';
 import { useScenes } from '@/engines/dialog-scene/hooks';
@@ -25,6 +26,21 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
   const { items: panels, addItem: addPanel, editItem: updatePanel, removeItem: deletePanel, reorder: reorderPanels } = useStoryboardPanels(activeStoryboardId);
   const { items: connectors, addItem: addConnector, editItem: updateConnector, removeItem: deleteConnector } = useStoryboardConnectors(activeStoryboardId);
   const { items: scenes } = useScenes(projectId);
+
+  // Per-storyboard panel totals for the cards below. `panels` only ever holds
+  // the ACTIVE storyboard's panels, so counting it per card printed the same
+  // number on every card.
+  const [panelCounts, setPanelCounts] = useState<Record<string, number>>({});
+
+  const refreshPanelCounts = useCallback(() => {
+    let cancelled = false;
+    void getPanelCountsByStoryboard(projectId).then((counts) => {
+      if (!cancelled) setPanelCounts(counts);
+    });
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  useEffect(() => refreshPanelCounts(), [refreshPanelCounts, storyboards.length, panels.length]);
 
   useAutoSelect(storyboards, activeStoryboardId, setActiveStoryboardId);
 
@@ -143,7 +159,7 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <h4 className="font-semibold text-text-primary text-sm mb-1">{sb.title}</h4>
-                  <p className="text-text-muted text-xs">{panels.length} {t('storyboard.panels')} • {sb.columns} {t('storyboard.columns')}</p>
+                  <p className="text-text-muted text-xs">{panelCounts[sb.id] ?? 0} {t('storyboard.panels')} • {sb.columns} {t('storyboard.columns')}</p>
                 </div>
                 <button
                   onClick={(e) => {

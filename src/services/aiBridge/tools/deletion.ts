@@ -40,7 +40,7 @@ import { deleteWorldCascade, worldWaypointOps } from '@/engines/worldgen/operati
 import { atlasDivergenceOps, deleteAtlasPlace } from '@/engines/real-atlas/operations';
 import { t } from '@/i18n/useTranslation';
 import { requestBridgeConfirmation } from '../confirmation';
-import { BridgeError, optString, requireString, withAudit, type ToolArgs } from './shared';
+import { assertRowInScope, BridgeError, optString, requireString, withAudit, type ToolArgs } from './shared';
 
 interface DeletableType {
   /** Dexie table the row lives in, so its name can be shown before it goes. */
@@ -121,6 +121,9 @@ export async function whDelete(args: ToolArgs): Promise<unknown> {
   const row = (await db.table(spec.table).get(id)) as Record<string, unknown> | undefined;
   const label = t(`bridge.delete.type.${type}`);
   if (!row) throw new BridgeError('not-found', `No ${type} with id "${id}".`);
+  // Before the dialog, not after: a conversation pinned to one project must
+  // not even be able to put another project's row in front of the user.
+  assertRowInScope(args, typeof row.projectId === 'string' ? row.projectId : undefined);
   const name = describe(row, spec);
   const reason = optString(args, 'reason');
 

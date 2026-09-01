@@ -1,9 +1,11 @@
-import { Bot, ChevronRight, Globe } from 'lucide-react';
+import { useEffect } from 'react';
+import { BookOpen, Bot, ChevronRight, Globe } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Modal from '@/components/common/Modal';
 import { useLocaleStore, type Locale } from '@/stores/localeStore';
 import { useAiStore } from '@/stores/aiStore';
 import { useAiRuntimeStore } from '@/stores/aiRuntimeStore';
+import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
 
 interface SettingsModalProps {
@@ -16,6 +18,42 @@ const LANGUAGES: { id: Locale; label: string; flag: string }[] = [
   { id: 'en', label: 'English', flag: '🇬🇧' },
 ];
 
+/** A segmented control: three or fewer choices, all of them visible. */
+function Choice<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { id: T; label: string }[];
+  onChange: (next: T) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-xs text-text-muted">{label}</span>
+      <div className="flex items-center gap-0.5 p-0.5 rounded-lg border border-border bg-elevated">
+        {options.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => onChange(option.id)}
+            aria-pressed={value === option.id}
+            className={`px-2.5 py-1 rounded-md text-xs transition ${
+              value === option.id
+                ? 'bg-accent-gold/15 text-accent-gold font-medium'
+                : 'text-text-muted hover:text-text-primary'
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /**
  * General settings. Everything AI-related — connections by IP, local models,
  * defaults, the MCP port — lives on its own page (/settings/ai, in the
@@ -27,6 +65,13 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const { locale, setLocale } = useLocaleStore();
   const enabled = useAiStore((s) => s.config.enabled);
   const defaults = useAiRuntimeStore((s) => s.defaults);
+  const reading = useAppStore((s) => s.reading);
+  const setReading = useAppStore((s) => s.setReading);
+  const loadReading = useAppStore((s) => s.loadReading);
+
+  useEffect(() => {
+    void loadReading();
+  }, [loadReading]);
 
   return (
     <Modal open={open} onClose={onClose} title={t('settings.title')}>
@@ -55,6 +100,58 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                 </span>
               </button>
             ))}
+          </div>
+        </section>
+
+        <div className="border-t border-border" />
+
+        {/* ── Reading: how the manuscript is set, not the interface ── */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <BookOpen size={14} className="text-accent-gold" />
+            <h3 className="text-sm font-medium text-text-primary">{t('settings.reading')}</h3>
+          </div>
+          <p className="text-[10px] text-text-dim mb-3">{t('settings.reading.subtitle')}</p>
+          <div className="space-y-2">
+            <Choice
+              label={t('settings.reading.face')}
+              value={reading.face}
+              options={[
+                { id: 'serif', label: t('settings.reading.face.serif') },
+                { id: 'sans', label: t('settings.reading.face.sans') },
+                { id: 'mono', label: t('settings.reading.face.mono') },
+              ]}
+              onChange={(face) => void setReading({ face })}
+            />
+            <Choice
+              label={t('settings.reading.size')}
+              value={reading.size}
+              options={[
+                { id: 'small', label: t('settings.reading.size.small') },
+                { id: 'medium', label: t('settings.reading.size.medium') },
+                { id: 'large', label: t('settings.reading.size.large') },
+              ]}
+              onChange={(size) => void setReading({ size })}
+            />
+            <Choice
+              label={t('settings.reading.measure')}
+              value={reading.measure}
+              options={[
+                { id: 'narrow', label: t('settings.reading.measure.narrow') },
+                { id: 'wide', label: t('settings.reading.measure.wide') },
+              ]}
+              onChange={(measure) => void setReading({ measure })}
+            />
+          </div>
+          <div
+            data-reading-face={reading.face}
+            data-reading-size={reading.size}
+            data-reading-measure={reading.measure}
+            className="mt-3 px-4 py-3 rounded-lg border border-border bg-elevated"
+          >
+            <p className="wh-reading-sample text-text-primary">
+              {t('settings.reading.preview')}
+            </p>
           </div>
         </section>
 

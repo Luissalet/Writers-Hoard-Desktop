@@ -103,6 +103,16 @@ async function main() {
       }
       await new Promise(resolve => setTimeout(resolve, 50));
     }
+    const progress = await testWindow.webContents.executeJavaScript(
+      'window.__criticalProgress ?? null',
+    ).catch(() => null);
+    if (Array.isArray(progress)) {
+      for (const test of progress) console.log(`PASS ${test}`);
+      const at = await testWindow.webContents.executeJavaScript(
+        'window.__criticalStage ?? null',
+      ).catch(() => null);
+      console.log(`(${label} stopped answering after ${progress.length} test(s)${at ? `, at stage ${at}` : ''})`);
+    }
     throw new Error(`${label} timed out`);
   };
 

@@ -35,6 +35,10 @@ async function hasSessionCookie(): Promise<boolean> {
 /**
  * Export the Instagram partition's cookies to a Netscape cookies.txt.
  * Returns true if a logged-in session was found (and the file written).
+ *
+ * The `sessionid` in that file IS the account: it is written owner-only and
+ * the caller must `cleanupIgCookies()` in a finally once the child process it
+ * was written for has exited.
  */
 export async function exportIgCookies(): Promise<boolean> {
   const cookies = await igSession().cookies.get({ domain: 'instagram.com' });
@@ -51,8 +55,16 @@ export async function exportIgCookies(): Promise<boolean> {
       ),
     );
   }
-  await fs.writeFile(igCookiesPath(), lines.join('\n'), 'utf8');
+  await fs.writeFile(igCookiesPath(), lines.join('\n'), { encoding: 'utf8', mode: 0o600 });
+  // `mode` only applies when the file is created — an existing jar keeps
+  // whatever it had, so narrow it explicitly.
+  await fs.chmod(igCookiesPath(), 0o600).catch(() => undefined);
   return true;
+}
+
+/** Delete the exported cookie jar. Safe to call when it is not there. */
+export async function cleanupIgCookies(): Promise<void> {
+  await fs.rm(igCookiesPath(), { force: true }).catch(() => undefined);
 }
 
 /** Whether the app currently holds an Instagram session. */
@@ -67,11 +79,7 @@ export async function igLogout(): Promise<void> {
   } catch {
     /* ignore */
   }
-  try {
-    await fs.rm(igCookiesPath(), { force: true });
-  } catch {
-    /* ignore */
-  }
+  await cleanupIgCookies();
 }
 
 /**
@@ -98,7 +106,7 @@ export function openIgLogin(parent: BrowserWindow | null): Promise<{ connected: 
     const finish = async () => {
       if (settled) return;
       settled = true;
-      const connected = await exportIgCookies().catch(() => false);
+      const connected = await hasSessionCookie().catch(() => false);
       if (!win.isDestroyed()) win.close();
       resolve({ connected });
     };
@@ -114,7 +122,7 @@ export function openIgLogin(parent: BrowserWindow | null): Promise<{ connected: 
     win.on('closed', () => {
       if (settled) return;
       settled = true;
-      exportIgCookies()
+      hasSessionCookie()
         .then((connected) => resolve({ connected }))
         .catch(() => resolve({ connected: false }));
     });

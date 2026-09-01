@@ -11,9 +11,11 @@ import {
   Save,
 } from 'lucide-react';
 import Modal from '@/components/common/Modal';
+import PublishingPreviewPane from '@/components/project/PublishingPreviewPane';
 import { toast } from '@/components/common/toast';
 import { useTranslation } from '@/i18n/useTranslation';
 import { canExportPdf } from '@/engines/writings/manuscriptExport';
+import { publishingSectionWordCount } from '@/engines/writings/publishingDocument';
 import {
   defaultPublishingOrder,
   exportPublishingProfile,
@@ -43,6 +45,7 @@ export interface PublishingProfileModalProps {
 const fieldClass = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-gold';
 const secondaryButton = 'inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-primary transition hover:border-accent-gold hover:text-accent-gold disabled:opacity-50';
 const primaryButton = 'inline-flex items-center justify-center gap-2 rounded-lg bg-accent-gold px-3 py-2 text-sm font-semibold text-background transition hover:brightness-110 disabled:opacity-50';
+const bulkButton = 'inline-flex items-center justify-center rounded-lg border border-border px-2.5 py-1 text-xs text-text-muted transition hover:border-accent-gold hover:text-accent-gold disabled:opacity-40 disabled:hover:border-border disabled:hover:text-text-muted';
 
 function initialDraft(
   project: Pick<Project, 'id' | 'title'>,
@@ -108,7 +111,14 @@ export default function PublishingProfileModal({
   const resolution = resolvePublishingWritings(scopedWritings, draft);
   const selectedIds = new Set(draft.selectedWritingIds);
   const selectedCount = resolution.writings.length;
-  const totalWords = resolution.writings.reduce((sum, writing) => sum + (writing.wordCount || 0), 0);
+  // `publishingSectionWordCount`, not `writing.wordCount`: this line and the
+  // preview's estimate sit a few centimetres apart in the same dialog and both
+  // claim to count the same selection, so they have to use the one formula the
+  // exported title page adds up.
+  const totalWords = resolution.writings.reduce(
+    (sum, writing) => sum + publishingSectionWordCount(writing),
+    0,
+  );
   const invalidSelection = draft.selectionMode === 'selected' && selectedCount === 0;
   const invalidName = !draft.name.trim();
   const actionDisabled = busy !== null || invalidSelection || invalidName;
@@ -133,6 +143,23 @@ export default function PublishingProfileModal({
       if (selected.has(id)) selected.delete(id);
       else selected.add(id);
       return { ...current, selectedWritingIds: [...selected] };
+    });
+  };
+
+  /**
+   * Bulk selection. Sending a single chapter to a beta reader used to cost one
+   * uncheck per other writing in the project, because the quick profile seeds
+   * every non-idea writing and nothing here could clear it.
+   */
+  const applySelection = (keep: (selected: boolean) => boolean) => {
+    setDraft(current => {
+      const selected = new Set(current.selectedWritingIds);
+      return {
+        ...current,
+        selectedWritingIds: orderedWritings
+          .filter(writing => keep(selected.has(writing.id)))
+          .map(writing => writing.id),
+      };
     });
   };
 
@@ -294,6 +321,36 @@ export default function PublishingProfileModal({
             </p>
           )}
 
+          {/* Bulk selection. Disabled — never hidden — while the profile takes
+              every writing: the checkboxes below are inert in that mode too,
+              and a control that vanishes reads as a control that is missing. */}
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => applySelection(() => false)}
+              disabled={draft.selectionMode === 'all'}
+              className={bulkButton}
+            >
+              {t('projectTools.publishing.selectNone')}
+            </button>
+            <button
+              type="button"
+              onClick={() => applySelection(() => true)}
+              disabled={draft.selectionMode === 'all'}
+              className={bulkButton}
+            >
+              {t('projectTools.publishing.selectAll')}
+            </button>
+            <button
+              type="button"
+              onClick={() => applySelection(selected => !selected)}
+              disabled={draft.selectionMode === 'all'}
+              className={bulkButton}
+            >
+              {t('projectTools.publishing.selectInvert')}
+            </button>
+          </div>
+
           <div className="max-h-72 space-y-1.5 overflow-y-auto rounded-lg border border-border bg-background/40 p-2">
             {orderedWritings.length === 0 && (
               <p className="py-6 text-center text-sm text-text-dim">{t('projectTools.publishing.noWritings')}</p>
@@ -337,6 +394,13 @@ export default function PublishingProfileModal({
               .replace('{words}', totalWords.toLocaleString(locale))}
           </p>
         </section>
+
+        <PublishingPreviewPane
+          project={project}
+          profile={draft}
+          writings={scopedWritings}
+          titleOverride={titleOverride}
+        />
 
         <div className="flex flex-wrap gap-2 border-t border-border pt-4">
           {variant !== 'quick' && (

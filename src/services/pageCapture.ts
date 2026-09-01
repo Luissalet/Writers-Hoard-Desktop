@@ -91,11 +91,30 @@ export async function deleteSnapshotCapture(
 export async function runSnapshotCapture(
   snapshot: Pick<
     Snapshot,
-    'id' | 'url' | 'projectId' | 'title' | 'description' | 'author' | 'publishDate'
+    | 'id'
+    | 'url'
+    | 'projectId'
+    | 'title'
+    | 'description'
+    | 'author'
+    | 'publishDate'
+    | 'captureState'
+    | 'captureError'
   >,
   update: (id: string, changes: Partial<Snapshot>) => void | Promise<void>,
 ): Promise<void> {
   if (!isDesktop() || !window.electronAPI) return;
+
+  // `capture:page` answers "already capturing" the instant it sees a job for
+  // this snapshot still registered in main — which is exactly what a renderer
+  // reload leaves behind: main keeps working, and its completion reply is
+  // addressed to a webContents that no longer exists. This call starts nothing
+  // in that case, so the row has to go back to the state it was found in.
+  // Leaving the 'capturing' written below is what stranded a snapshot on
+  // "Archivando…" until the app was restarted, with no path back through
+  // Retry or Cancel.
+  const previousState = snapshot.captureState;
+  const previousError = snapshot.captureError;
 
   await update(snapshot.id, { captureState: 'capturing', captureError: undefined });
   try {
@@ -106,12 +125,22 @@ export async function runSnapshotCapture(
     });
 
     if (!res.ok) {
-      // User cancelled → back to link-only; duplicate request → leave as-is.
+      // User cancelled → back to link-only.
       if (res.error === 'cancelled') {
         await update(snapshot.id, { captureState: 'idle', captureError: undefined });
         return;
       }
-      if (res.error === 'already capturing') return;
+      // Duplicate request → this attempt changed nothing, so neither does the
+      // row: whatever it said before (including "never attempted") is restored,
+      // and it stays retryable. Once main's own job ends it releases the
+      // snapshot, and the next Retry starts a real capture.
+      if (res.error === 'already capturing') {
+        await update(snapshot.id, {
+          captureState: previousState,
+          captureError: previousError,
+        });
+        return;
+      }
       await update(snapshot.id, {
         captureState: 'error',
         captureError: res.error || 'capture failed',

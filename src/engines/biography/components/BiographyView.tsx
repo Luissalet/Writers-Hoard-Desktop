@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Plus, Filter } from 'lucide-react';
+import { Plus, Filter, BookUser } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
+import EmptyState from '@/components/common/EmptyState';
 import type { Biography, BiographyFact, BiographyCategory } from '../types';
 import { useBiographyFacts } from '../hooks';
 import { BIOGRAPHY_CATEGORIES } from '../types';
@@ -251,22 +252,19 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
       {viewMode === 'cards' ? (
         <div className="space-y-3">
           {filteredFacts.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-text-muted mb-3">
-                {selectedCategory
-                  ? `No facts in this category yet.`
-                  : `No facts yet. Create one to get started.`}
-              </p>
-              {filteredFacts.length === 0 && !selectedCategory && (
-                <button
-                  onClick={handleNewFact}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-accent-gold/10 text-accent-gold rounded-lg hover:bg-accent-gold/20 transition"
-                >
-                  <Plus size={16} />
-                  Create First Fact
-                </button>
-              )}
-            </div>
+            // A category filter with no hits is a filtering result, not a first
+            // run: the writer already knows what this engine is. Only the truly
+            // empty life gets the explanation and the button.
+            selectedCategory ? (
+              <p className="text-text-muted text-center py-12">{t('biography.noFactsInCategory')}</p>
+            ) : (
+              <EmptyState
+                icon={<BookUser size={40} />}
+                title={t('biography.noFacts.title')}
+                message={t('biography.noFacts.message')}
+                action={{ label: t('biography.createFirstFact'), onClick: handleNewFact }}
+              />
+            )
           ) : (
             <AnimatePresence>
               {filteredFacts.map(fact => (

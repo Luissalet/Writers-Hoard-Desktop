@@ -64,7 +64,7 @@ export default function ProgressChart({ stats, dailyGoal }: ProgressChartProps) 
                     className={`w-full rounded-t-md transition-all ${
                       isGoalMet
                         ? 'bg-gradient-to-t from-accent-gold to-accent-gold/80'
-                        : 'bg-gradient-to-t from-blue-400 to-blue-300'
+                        : 'bg-gradient-to-t from-accent-plum to-accent-plum-light'
                     }`}
                     style={{ height: `${barHeight}px` }}
                   />

@@ -10,14 +10,14 @@
 // model last asked for and is swapped on demand.
 
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Download, ExternalLink, Image as ImageIcon, Loader2, Square, Trash2, X, XCircle } from 'lucide-react';
+import { Check, CheckCircle2, Copy, Download, ExternalLink, Image as ImageIcon, Layers, Loader2, RefreshCw, Square, Trash2, X, XCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 import { useAiRuntimeStore } from '@/stores/aiRuntimeStore';
 import { useImageRuntimeStore } from '@/stores/imageRuntimeStore';
 import { LOCAL_IMAGE_CATALOG, type ImageCatalogModel } from '@/services/aiRuntime/imageCatalog';
 import { BUILTIN_SD_ID } from '@/services/aiRuntime/constants';
-import { computeImageFit, type SdBackend } from '@/services/aiRuntime/sdServer';
+import { computeImageFit, type SdBackend, type SdLoraFile } from '@/services/aiRuntime/sdServer';
 import { fitRank, formatBytes } from '@/services/aiRuntime/fit';
 import type { FitEstimate } from '@/services/aiRuntime/types';
 import FitBadge from './FitBadge';
@@ -35,6 +35,81 @@ function ProgressBar({ progress, indeterminate }: { progress: number; indetermin
 }
 
 const BACKEND_BYTES: Record<SdBackend, number> = { vulkan: 42_275_413, cuda12: 916_000_860, cpu: 21_195_454 };
+
+/**
+ * The LoRA folder, and what is in it.
+ *
+ * stable-diffusion.cpp offers no way to hand it a LoRA by path at request time:
+ * the server is launched pointing at ONE folder and resolves the names it finds
+ * in the prompt against it. So the contract with the reader is that folder —
+ * shown here, refreshed on demand, and read again on every generation.
+ */
+function LorasPanel({
+  dir,
+  loras,
+  supported,
+  onRefresh,
+}: {
+  dir: string;
+  loras: SdLoraFile[];
+  supported: boolean;
+  onRefresh: () => void;
+}) {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="space-y-2 rounded-lg border border-border px-4 py-3">
+      <div className="flex items-center gap-2">
+        <Layers size={13} className="text-accent-gold flex-shrink-0" />
+        <p className="text-sm text-text-primary font-medium">{t('settings.ai.loras.title')}</p>
+        <button
+          type="button"
+          onClick={onRefresh}
+          title={t('common.refresh')}
+          className="ml-auto p-1 rounded text-text-dim hover:text-accent-gold transition"
+        >
+          <RefreshCw size={12} />
+        </button>
+      </div>
+      <p className="text-[10px] text-text-dim">{t('settings.ai.loras.body')}</p>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 min-w-0 px-2 py-1.5 rounded bg-elevated text-[10px] text-text-muted break-all select-all">{dir}</code>
+        <button
+          type="button"
+          onClick={() => {
+            void navigator.clipboard
+              ?.writeText(dir)
+              .then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              })
+              .catch(() => undefined);
+          }}
+          title={t('settings.ai.loras.copyPath')}
+          className="p-1.5 rounded border border-border text-text-muted hover:text-accent-gold hover:border-accent-gold/40 transition flex-shrink-0"
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+        </button>
+      </div>
+      {!supported && (
+        <p className="text-[10px] text-warning">{t('settings.ai.loras.unsupported')}</p>
+      )}
+      {loras.length === 0 ? (
+        <p className="text-[10px] text-text-dim">{t('settings.ai.loras.empty')}</p>
+      ) : (
+        <ul className="space-y-1">
+          {loras.map((lora) => (
+            <li key={lora.fileName} className="flex items-center gap-2 text-[11px]">
+              <span className="font-mono text-text-primary truncate">{lora.name}</span>
+              <span className="ml-auto text-text-dim tabular-nums flex-shrink-0">{formatBytes(lora.sizeBytes)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-[10px] text-text-dim">{t('settings.ai.loras.note')}</p>
+    </div>
+  );
+}
 
 interface Row {
   entry: ImageCatalogModel;
@@ -276,6 +351,14 @@ export default function LocalImageModelsSection() {
           );
         })}
       </div>
+      {runtimeInstalled && (
+        <LorasPanel
+          dir={status?.lorasDir ?? ''}
+          loras={status?.loras ?? []}
+          supported={status?.lorasSupported !== false}
+          onRefresh={() => void refresh()}
+        />
+      )}
       <p className="text-[10px] text-text-dim">{t('settings.ai.imageModels.note')}</p>
 
       <ConfirmDialog

@@ -88,8 +88,10 @@ export default function ManualSnapshotModal({
           <button
             onClick={onCancel}
             className="p-1 hover:bg-elevated rounded-lg transition-colors"
+            title={t('common.close')}
+            aria-label={t('common.close')}
           >
-            <X size={20} className="text-muted" />
+            <X size={20} className="text-muted" aria-hidden="true" />
           </button>
         </div>
 

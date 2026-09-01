@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import GlobalSearch from '../common/GlobalSearch';
+import ShortcutsPanel from '../common/ShortcutsPanel';
 import { ToastHost } from '../common/toast';
 import BridgeConfirmHost from '../common/BridgeConfirmHost';
 import QuickNoteHost from '@/engines/notes/components/QuickNoteHost';
@@ -39,6 +40,9 @@ export default function MainLayout() {
       {/* Right-hand copilot; renders only inside a project (desktop). */}
       <CopilotDock />
       <GlobalSearch />
+      {/* The keyboard sheet. Mounted here rather than per page because the
+          key that opens it is bound to the window, like the palette's. */}
+      <ShortcutsPanel />
       <QuickNoteHost />
       <ToastHost />
       {/* Renders the confirmation an AI bridge deletion has to get past. */}

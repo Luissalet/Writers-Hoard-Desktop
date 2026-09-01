@@ -18,13 +18,19 @@
 // Dismissal key is per-project: `gs-checklist-dismissed:{projectId}`. This
 // means re-opening another essentials project still shows the checklist
 // until that project's own items complete or are dismissed.
+//
+// The two dismissal tests come FIRST and the project data is read from a child
+// that only mounts once they pass. WritingsView mounts this widget on every
+// visit to the Writings tab of every project, and reading the manuscript to
+// decide whether to render nothing is the most expensive way to render nothing.
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { liveQuery } from 'dexie';
 import { CheckCircle2, ChevronRight, Circle, X, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { db } from '@/db';
+import type { Project } from '@/types';
 import { useTranslation } from '@/i18n/useTranslation';
-import { useCodexEntries } from '@/engines/codex/hooks';
-import { useWritings } from '@/engines/writings/hooks';
 import { useProject } from '@/hooks/useProjects';
 import { updateProject } from '@/db/operations';
 import EditProjectModal from './EditProjectModal';
@@ -38,11 +44,7 @@ function dismissKey(projectId: string): string {
 }
 
 export default function GettingStartedChecklist({ projectId }: GettingStartedChecklistProps) {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
   const { project } = useProject(projectId);
-  const { items: codex } = useCodexEntries(projectId);
-  const { writings } = useWritings(projectId);
 
   const [dismissed, setDismissed] = useState<boolean>(() => {
     try {
@@ -51,14 +53,57 @@ export default function GettingStartedChecklist({ projectId }: GettingStartedChe
       return false;
     }
   });
+
+  const dismiss = useCallback(() => {
+    try {
+      localStorage.setItem(dismissKey(projectId), '1');
+    } catch {
+      /* ignore */
+    }
+    setDismissed(true);
+  }, [projectId]);
+
+  if (dismissed) return null;
+  // Only show in essentials-mode projects — other modes are for more
+  // experienced users who've picked their own toolkit.
+  if (project?.mode !== 'essentials') return null;
+
+  return <Checklist projectId={projectId} project={project} onDismiss={dismiss} />;
+}
+
+function Checklist({
+  projectId,
+  project,
+  onDismiss,
+}: {
+  projectId: string;
+  project: Project;
+  onDismiss: () => void;
+}) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
   const [editingProject, setEditingProject] = useState(false);
+  // Counts, not rows: the two data items only ask whether anything exists at
+  // all, and `count()` answers that from the projectId index alone.
+  const [progress, setProgress] = useState({ hasCodexEntry: false, hasWriting: false });
+
+  useEffect(() => {
+    const subscription = liveQuery(async () => ({
+      hasCodexEntry: (await db.codexEntries.where('projectId').equals(projectId).count()) > 0,
+      hasWriting: (await db.writings.where('projectId').equals(projectId).count()) > 0,
+    })).subscribe({
+      next: setProgress,
+      error: error => console.error('Getting started progress could not be read', error),
+    });
+    return () => subscription.unsubscribe();
+  }, [projectId]);
 
   // Cheap derivation — no manual useMemo (it made the compiler bail).
-  const hasDetails = Boolean(project?.description?.trim());
+  const hasDetails = Boolean(project.description?.trim());
   const items = [
     { id: 'details', label: t('gettingStarted.nameWorld'), done: hasDetails, action: () => setEditingProject(true) },
-    { id: 'character', label: t('gettingStarted.createCharacter'), done: codex.length > 0, action: () => navigate(`/project/${encodeURIComponent(projectId)}/codex`) },
-    { id: 'writing', label: t('gettingStarted.firstPage'), done: writings.length > 0, action: () => navigate(`/project/${encodeURIComponent(projectId)}/writings`) },
+    { id: 'character', label: t('gettingStarted.createCharacter'), done: progress.hasCodexEntry, action: () => navigate(`/project/${encodeURIComponent(projectId)}/codex`) },
+    { id: 'writing', label: t('gettingStarted.firstPage'), done: progress.hasWriting, action: () => navigate(`/project/${encodeURIComponent(projectId)}/writings`) },
   ];
 
   const allDone = items.every((i) => i.done);
@@ -67,37 +112,16 @@ export default function GettingStartedChecklist({ projectId }: GettingStartedChe
   // Auto-dismiss when all items complete — but only after a tick so the
   // user sees the "all ✓" state once.
   useEffect(() => {
-    if (!allDone || dismissed) return;
-    const id = window.setTimeout(() => {
-      try {
-        localStorage.setItem(dismissKey(projectId), '1');
-      } catch {
-        /* ignore */
-      }
-      setDismissed(true);
-    }, 1500);
+    if (!allDone) return;
+    const id = window.setTimeout(() => onDismiss(), 1500);
     return () => window.clearTimeout(id);
-  }, [allDone, dismissed, projectId]);
-
-  if (dismissed) return null;
-  // Only show in essentials-mode projects — other modes are for more
-  // experienced users who've picked their own toolkit.
-  if (project?.mode !== 'essentials') return null;
-
-  const handleDismiss = () => {
-    try {
-      localStorage.setItem(dismissKey(projectId), '1');
-    } catch {
-      /* ignore */
-    }
-    setDismissed(true);
-  };
+  }, [allDone, onDismiss]);
 
   return (
     <>
       <div className="relative rounded-xl border border-accent-gold/40 bg-accent-gold/5 p-4">
         <button
-          onClick={handleDismiss}
+          onClick={onDismiss}
           className="absolute top-3 right-3 p-1 rounded-md text-text-dim hover:text-text-primary hover:bg-elevated transition"
           title={t('common.dismiss')}
           aria-label={t('common.dismiss')}
@@ -135,7 +159,7 @@ export default function GettingStartedChecklist({ projectId }: GettingStartedChe
           ))}
         </ul>
       </div>
-      {editingProject && project && (
+      {editingProject && (
         <EditProjectModal
           project={project}
           onClose={() => setEditingProject(false)}

@@ -5,6 +5,7 @@ export { makeGraphHook } from './makeGraphHook';
 export { makeReadOnlyHook } from './makeReadOnlyHook';
 export { makeTableOps } from './makeTableOps';
 export { makeCascadeDeleteOp } from './makeCascadeDeleteOp';
+export { deleteEntityAnnotations } from './deleteEntityAnnotations';
 export { reorderItems } from './reorderItems';
 export { useAutoSelect } from './useAutoSelect';
 export { useDebouncedField } from './useDebouncedField';
@@ -30,6 +31,7 @@ export {
   makeSimpleBackupStrategy,
   sanitize as sanitizeBackupName,
   dataUrlToBlob,
+  preloadArchive,
   readImageAsDataUrl,
   readJson as readBackupJson,
   externalizeImage,

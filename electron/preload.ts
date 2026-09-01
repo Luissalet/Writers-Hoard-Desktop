@@ -57,6 +57,21 @@ interface DownloadToLibraryResult {
   error?: string;
 }
 
+/** Outcome of writing an automatic backup archive into userData. */
+interface BackupWriteResult {
+  ok: boolean;
+  /** Absolute path of the archive that now exists on disk. */
+  path?: string;
+  sizeBytes?: number;
+  /** How many older archives rotation removed after this write. */
+  removed?: number;
+  code?: 'invalid-name' | 'invalid-payload' | 'insufficient-space' | 'write-failed';
+  /** Bytes free on the target volume, when the write was skipped for space. */
+  freeBytes?: number;
+  requiredBytes?: number;
+  error?: string;
+}
+
 /** One post surfaced by `instagram.listCollection` — metadata only, nothing downloaded. Mirrors electron/media/gallerydl.ts. */
 interface CollectionItem {
   url: string;
@@ -113,6 +128,28 @@ interface QuickNotePayload {
   kind: 'note' | 'quote' | 'idea' | 'word';
   /** null → the project-less inbox. */
   projectId: string | null;
+}
+
+/**
+ * The same note as it reaches the main renderer, tagged so the renderer can
+ * tell main which capture it just finished writing.
+ */
+interface QuickNoteRelay extends QuickNotePayload {
+  requestId: string;
+}
+
+/** The main renderer's verdict on one relayed capture. */
+interface QuickNoteAck {
+  requestId: string;
+  ok: boolean;
+  /** Short machine-readable reason when `ok` is false. */
+  error?: string;
+}
+
+/** What the floating window gets back from `submit` — true only once written. */
+interface QuickNoteSubmitResult {
+  ok: boolean;
+  error?: string;
 }
 
 // ── Local AI (embedded Ollama) — mirrors electron/ollama.ts ─────────────────
@@ -233,6 +270,18 @@ interface AiBridgeUndoResult {
   code?: string;
 }
 
+/**
+ * Copy for the native dialog main shows when this renderer stops answering a
+ * close. Translated here and shipped over, because the main process has no
+ * `t()` and a second copy of the strings there would drift from the locales.
+ */
+interface ShutdownWarning {
+  title: string;
+  message: string;
+  closeAnyway: string;
+  keepOpen: string;
+}
+
 const api = {
   /** Always true when running inside the desktop shell. */
   isDesktop: true as const,
@@ -303,6 +352,27 @@ const api = {
       ipcRenderer.invoke('export:scriptToPdf', html, suggestedName),
   },
 
+  // Automatic backup — the one door that writes the renderer's own bytes to
+  // disk with no dialog and no transformation. Everything else here either
+  // asks the user where to put a file or reshapes what it writes, which is
+  // why an unattended archive was impossible before this.
+  backup: {
+    /**
+     * Write a finished archive into the app's backup folder inside userData,
+     * then keep only the `copies` most recent ones. The name is a suggestion:
+     * the main process sanitises it and owns the directory.
+     */
+    writeArchive: (
+      bytes: ArrayBuffer,
+      suggestedName: string,
+      copies: number,
+    ): Promise<BackupWriteResult> =>
+      ipcRenderer.invoke('backup:writeArchive', bytes, suggestedName, copies),
+    /** Open the backup folder in the OS file manager. */
+    revealFolder: (): Promise<{ ok: boolean; path?: string; error?: string }> =>
+      ipcRenderer.invoke('backup:revealFolder'),
+  },
+
   // Quick note capture. Two consumers share this namespace:
   //   • the main window — reports what project it's on, listens for captures
   //   • the floating capture window (quick-note.html) — reads the target,
@@ -318,18 +388,26 @@ const api = {
     /** Floating window → main process: the cached context (target + locale). */
     getContext: (): Promise<QuickNoteContext> => ipcRenderer.invoke('quick-note:get-context'),
     open: (): Promise<void> => ipcRenderer.invoke('quick-note:open'),
-    /** Floating window → main process: save this note. */
-    submit: (payload: QuickNotePayload): Promise<{ ok: boolean }> =>
+    /**
+     * Floating window → main process: save this note. Resolves `ok: true`
+     * only after the main renderer has reported the write done — never on the
+     * mere fact that the message was handed to a webContents.
+     */
+    submit: (payload: QuickNotePayload): Promise<QuickNoteSubmitResult> =>
       ipcRenderer.invoke('quick-note:submit', payload),
     /** Floating window → main process: dismiss without saving. */
     close: (): void => {
       ipcRenderer.send('quick-note:close');
     },
     /** Main window: a note arrived from the floating window. */
-    onCapture: (callback: (payload: QuickNotePayload) => void): (() => void) => {
-      const listener = (_e: unknown, payload: QuickNotePayload) => callback(payload);
+    onCapture: (callback: (payload: QuickNoteRelay) => void): (() => void) => {
+      const listener = (_e: unknown, payload: QuickNoteRelay) => callback(payload);
       ipcRenderer.on('quick-note:add', listener);
       return () => ipcRenderer.removeListener('quick-note:add', listener);
+    },
+    /** Main window → main process: that capture is written (or it isn't). */
+    ack: (ack: QuickNoteAck): void => {
+      ipcRenderer.send('quick-note:ack', ack);
     },
     /**
      * Main window: the global shortcut fired while the app was focused, so
@@ -339,6 +417,56 @@ const api = {
       const listener = () => callback();
       ipcRenderer.on('quick-note:open-inline', listener);
       return () => ipcRenderer.removeListener('quick-note:open-inline', listener);
+    },
+  },
+
+  // Closing the window while something is unsaved.
+  //
+  // `beforeunload` is the wrong lever in Electron: `preventDefault()` there
+  // cancels the close and shows nothing at all, so the X appears dead. Main
+  // owns the veto instead (see electron/main.ts) and asks here, because the
+  // renderer is the only side that knows whether a chapter is dirty and the
+  // only side that can flush it.
+  shutdown: {
+    /**
+     * Report unsaved work — and, because main has no `t()`, the already
+     * translated words for the native dialog it may have to show if this
+     * renderer stops answering. `null` clears it, which is also what tells
+     * main it may close instantly and skip the round trip entirely.
+     */
+    setWarning: (warning: ShutdownWarning | null): void => {
+      ipcRenderer.send('shutdown:setWarning', warning);
+    },
+    /** Main is trying to close the window and wants this renderer's answer. */
+    onRequest: (callback: (requestId: number) => void): (() => void) => {
+      const listener = (_e: unknown, requestId: number) => callback(requestId);
+      ipcRenderer.on('shutdown:request', listener);
+      return () => ipcRenderer.removeListener('shutdown:request', listener);
+    },
+    /**
+     * Answer one request. `proceed` closes the window; `false` means the
+     * question has been put to the writer on screen, which is what stops main
+     * from putting its own dialog on top of it.
+     */
+    reply: (requestId: number, proceed: boolean): void => {
+      ipcRenderer.send('shutdown:reply', { requestId, proceed });
+    },
+    /**
+     * Close the window now — the writer answered "close anyway" in the
+     * renderer's own dialog. Deliberately not tied to a request id: main may
+     * have stood down in the meantime, and a button that stops working because
+     * of that is the bug this whole channel exists to remove.
+     */
+    closeNow: (): void => {
+      ipcRenderer.send('shutdown:reply', { requestId: null, proceed: true });
+    },
+    /**
+     * The writer chose to stay. The round is over, so the next press of the X
+     * starts a fresh one — which means it retries the save rather than going
+     * straight to main's own dialog about a save nobody has re-attempted.
+     */
+    keepOpen: (): void => {
+      ipcRenderer.send('shutdown:reply', { requestId: null, proceed: false });
     },
   },
 

@@ -76,8 +76,10 @@ export default function SegmentCard({
                 onDelete(segment.id);
               }}
               className="p-1.5 hover:bg-elevated rounded text-red-400 hover:text-red-300 transition-colors"
+              title={t('common.delete')}
+              aria-label={t('common.delete')}
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 className="w-4 h-4" aria-hidden="true" />
             </button>
           )}
         </div>

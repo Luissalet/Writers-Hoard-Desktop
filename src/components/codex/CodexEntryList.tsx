@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { liveQuery } from 'dexie';
 import { Plus, Search, User, HelpCircle, Image as ImageIcon, X } from 'lucide-react';
+import { db } from '@/db';
+import { loadCodexAppearances, type CodexAppearance } from '@/services/projectIntelligence';
 import type { CodexEntry, CodexEntryType, InspirationImage } from '@/types';
 import Modal from '@/components/common/Modal';
 import CodexEntryForm from './CodexEntryForm';
@@ -14,13 +17,70 @@ import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from './co
 interface CodexEntryListProps {
   projectId: string;
   entries: CodexEntry[];
-  images?: InspirationImage[];
   onAdd: (entry: CodexEntry) => void;
   onEdit: (id: string, changes: Partial<CodexEntry>) => void;
   onDelete: (id: string) => void;
 }
 
-export default function CodexEntryList({ projectId, entries, images = [], onAdd, onEdit, onDelete }: CodexEntryListProps) {
+/**
+ * The images linked to ONE entry, read through the `*linkedEntryIds` multi-entry
+ * index when the detail modal opens. Taking the whole gallery as a prop held the
+ * Codex tab behind a spinner until every base64 payload in the project had been
+ * deserialised, to show a handful of thumbnails for a single record.
+ */
+function LinkedImages({
+  projectId,
+  entryId,
+  onOpen,
+}: {
+  projectId: string;
+  entryId: string;
+  onOpen: (src: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [images, setImages] = useState<InspirationImage[]>([]);
+  useEffect(() => {
+    const subscription = liveQuery(() =>
+      db.inspirationImages.where('linkedEntryIds').equals(entryId).toArray(),
+    ).subscribe({
+      next: rows => setImages(rows.filter(row => row.projectId === projectId)),
+      error: error => {
+        console.error('Linked codex images could not be loaded', error);
+        setImages([]);
+      },
+    });
+    return () => subscription.unsubscribe();
+  }, [projectId, entryId]);
+
+  if (images.length === 0) return null;
+  return (
+    <div>
+      <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
+        <ImageIcon size={14} className="text-accent-gold" />
+        {t('codex.gallery')} ({images.length})
+      </h4>
+      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+        {images.map(img => (
+          <button
+            key={img.id}
+            onClick={() => onOpen(img.imageData)}
+            className="aspect-square rounded-lg overflow-hidden border border-border hover:border-accent-gold/40 transition"
+          >
+            <img
+              src={img.thumbnailData ?? img.imageData}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="w-full h-full object-cover"
+            />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDelete }: CodexEntryListProps) {
   const { t } = useTranslation();
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -46,6 +106,34 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
     }
   }
   const [pendingDeleteEntry, setPendingDeleteEntry] = useState<CodexEntry | null>(null);
+
+  // Which chapters each character is named in. The scan reads every writing in
+  // the project, so it runs ONCE per visit to this tab and only once a character
+  // is actually opened — not on mount for a writer who came here for a location,
+  // and never per entry or per render. Holding the result in state is the guard:
+  // an index already here is an instant no-op, and `loadCodexAppearances` shares
+  // one scan between the two mounts StrictMode makes (tasks/lessons.md #19).
+  // Leaving the tab and coming back remounts this list, which is what picks up
+  // the chapters written in between.
+  const [appearanceScan, setAppearanceScan] = useState<{
+    projectId: string;
+    index: Map<string, CodexAppearance[]>;
+  } | null>(null);
+  const appearanceIndex = appearanceScan?.projectId === projectId ? appearanceScan.index : null;
+  const characterOpened = selectedEntry?.type === 'character';
+
+  useEffect(() => {
+    if (!characterOpened || appearanceIndex) return;
+    let cancelled = false;
+    loadCodexAppearances(projectId)
+      .then(index => {
+        if (!cancelled) setAppearanceScan({ projectId, index });
+      })
+      .catch(error => console.error('Codex appearances could not be scanned', error));
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, characterOpened, appearanceIndex]);
 
   const filtered = entries.filter(e => {
     const matchesSearch = e.title.toLowerCase().includes(search.toLowerCase());
@@ -200,35 +288,19 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
             )}
 
             {/* Linked Images Gallery */}
-            {(() => {
-              const entryImages = images.filter(img =>
-                (img.linkedEntryIds || []).includes(selectedEntry.id)
-              );
-              if (entryImages.length === 0) return null;
-              return (
-                <div>
-                  <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary mb-3">
-                    <ImageIcon size={14} className="text-accent-gold" />
-                    {t('codex.gallery')} ({entryImages.length})
-                  </h4>
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
-                    {entryImages.map(img => (
-                      <button
-                        key={img.id}
-                        onClick={() => setLightboxSrc(img.imageData)}
-                        className="aspect-square rounded-lg overflow-hidden border border-border hover:border-accent-gold/40 transition"
-                      >
-                        <img src={img.imageData} alt="" className="w-full h-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
+            <LinkedImages
+              projectId={projectId}
+              entryId={selectedEntry.id}
+              onOpen={setLightboxSrc}
+            />
 
             {/* Character web — arcs, relationships, scene appearances */}
             {selectedEntry.type === 'character' && (
-              <CharacterConnections projectId={projectId} entry={selectedEntry} />
+              <CharacterConnections
+                projectId={projectId}
+                entry={selectedEntry}
+                appearances={appearanceIndex?.get(selectedEntry.id)}
+              />
             )}
 
             {/* Annotation surface — margin notes + backlinks */}
@@ -279,8 +351,8 @@ export default function CodexEntryList({ projectId, entries, images = [], onAdd,
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-sm"
           onClick={() => setLightboxSrc(null)}
         >
-          <button className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition">
-            <X size={24} className="text-white" />
+          <button className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition" title={t('common.close')} aria-label={t('common.close')}>
+            <X size={24} className="text-white" aria-hidden="true" />
           </button>
           <img
             src={lightboxSrc}

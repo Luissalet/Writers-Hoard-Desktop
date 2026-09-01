@@ -124,8 +124,13 @@ registerBackupStrategy({
       return meta;
     };
 
-    // Uncategorized
-    const uncategorized = images.filter((img) => !img.collectionId);
+    // Uncategorized — and, defensively, any image whose album is not in this
+    // export: it belongs to no per-collection folder, and an image no folder
+    // claims is written to no images.json at all.
+    const albumIds = new Set(collections.map((col) => col.id));
+    const uncategorized = images.filter(
+      (img) => !img.collectionId || !albumIds.has(img.collectionId),
+    );
     if (uncategorized.length > 0) {
       const folder = `${projectDir}/gallery/unsorted`;
       const metas = uncategorized.map((img, i) => exportImage(img, folder, i));
@@ -188,7 +193,7 @@ registerBackupStrategy({
       zip,
       `${galleryFolder}collections.json`,
     );
-    if (collections?.length) await db.imageCollections.bulkAdd(collections as never[]);
+    if (collections?.length) await db.imageCollections.bulkPut(collections as never[]);
 
     // Every subfolder that has an images.json is an image folder
     const imgFolders = new Set<string>();
