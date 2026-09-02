@@ -22,6 +22,7 @@ import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import { DELETABLE, DELETABLE_TYPES } from '@/services/aiBridge/tools/deletion';
 import { undoAuditEntry } from '@/services/aiBridge/undo';
 import { BridgeError } from '@/services/aiBridge/tools/shared';
+import { applyProjectScope } from '@/services/aiRuntime/toolPolicy';
 import { deleteSeed } from '@/engines/seeds/operations';
 import { db } from '@/db';
 import {
@@ -478,6 +479,171 @@ async function testWriteBodyGuardsAndUndoFidelity(): Promise<void> {
   await db.projects.delete(projectId);
 }
 
+// ---------------------------------------------------------------------------
+// Cross-project scope: a copilot conversation opened in project A must not
+// reach a row of project B by id, whether to read it or to write it.
+// ---------------------------------------------------------------------------
+
+/**
+ * One handler addressed by an id of project B. `args` is what the model
+ * would send (no projectId: the scope travels in SCOPE_KEY). `heavy` marks
+ * the calls that would build a generated world on the happy path; those are
+ * only checked for the refusal, which fires before the world is opened.
+ */
+interface ScopeCase {
+  tool: string;
+  args: Record<string, unknown>;
+  heavy?: boolean;
+}
+
+/** A 1x1 PNG, enough for the vision path to decode and resize. */
+const TINY_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+/**
+ * Every bridge tool that loads a row by id refuses a copilot call scoped to
+ * another project, and answers the same call scoped to the row's own project.
+ *
+ * The call goes through `applyProjectScope` exactly as the copilot runtime
+ * does, so the test breaks if either the pin or the handler's check goes.
+ * Adding a handler is one line in CASES.
+ */
+export async function testCopilotScopeLeak(): Promise<void> {
+  const A = 'bridge-scope-a';
+  const B = 'bridge-scope-b';
+  const engines = [
+    'codex', 'dialog-scene', 'writings', 'character-arc', 'biography', 'board',
+    'real-atlas', 'worldgen', 'gallery', 'scrapper', 'outline', 'timeline', 'annotations',
+  ];
+  const now = Date.now();
+  for (const [id, title] of [[A, 'Scope A'], [B, 'Scope B']]) {
+    await db.projects.put({
+      id, title, mode: 'custom', type: 'idea', color: '#6b7280', description: '', status: 'draft',
+      enabledEngines: engines, engineOrder: engines, createdAt: now, updatedAt: now,
+    });
+  }
+
+  // Raw calls, as the bridge (no scope) would make them: the fixtures.
+  const raw = (tool: string, args: Record<string, unknown>): Promise<unknown> =>
+    TOOL_HANDLERS[tool](args);
+  const idOf = (result: unknown): string => String((result as { id: string }).id);
+  // The copilot path: pinned to `scope` the way the runtime pins a conversation.
+  const scoped = async (
+    tool: string,
+    args: Record<string, unknown>,
+    scope: string,
+  ): Promise<{ code: string; message: string }> => {
+    const spec = getBridgeTool(tool);
+    assert(spec, `no manifest entry for ${tool}`);
+    const verdict = applyProjectScope(spec, args, { origin: 'copilot', projectId: scope });
+    if (!verdict.ok) return { code: verdict.code, message: verdict.error };
+    try {
+      await TOOL_HANDLERS[tool](verdict.args);
+      return { code: '', message: '' };
+    } catch (err) {
+      if (err instanceof BridgeError) return { code: err.code, message: err.message };
+      return { code: 'other', message: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
+  // --- fixtures, all in B --------------------------------------------------
+  const placeId = idOf(await raw('wh_create_atlas_place', { projectId: B, name: 'Cádiz', lat: 36.53, lon: -6.29 }));
+  const placeId2 = idOf(await raw('wh_create_atlas_place', { projectId: B, name: 'Sevilla', lat: 37.39, lon: -5.99 }));
+  const divergenceId = idOf(await raw('wh_create_divergence', { projectId: B, title: 'El puente nunca cayó', placeId }));
+  const worldId = 'bridge-scope-world';
+  await db.generatedWorlds.put({
+    id: worldId, projectId: B, title: 'Mundo B', params: { seed: 7, width: 64 }, createdAt: now, updatedAt: now,
+  });
+  const waypointId = idOf(await raw('wh_add_waypoint', { worldId, name: 'Faro', u: 0.2, v: 0.4 }));
+  const codexId = idOf(await raw('wh_create_codex_entry', { projectId: B, title: 'Marta', type: 'character', content: 'Nació en el puerto.' }));
+  const writingId = idOf(await raw('wh_create_writing', { projectId: B, title: 'Capítulo 1', content: 'Llovía.' }));
+  const sceneId = idOf(await raw('wh_create_scene', { projectId: B, title: 'La azotea' }));
+  const arcId = idOf(await raw('wh_create_arc', { projectId: B, title: 'Caída de Marta' }));
+  const bioId = idOf(await raw('wh_create_biography', { projectId: B, subjectName: 'Marta' }));
+  const boardId = idOf(await raw('wh_create_board', { projectId: B, title: 'Tablero' }));
+  const cardId = idOf(await raw('wh_add_board_card', { boardId, title: 'Pista' }));
+  await db.boardNodes.update(cardId, { image: TINY_PNG });
+  const imageId = 'bridge-scope-image';
+  await db.inspirationImages.put({ id: imageId, projectId: B, imageData: TINY_PNG, tags: [], notes: '', createdAt: now });
+  const snapshotId = 'bridge-scope-snapshot';
+  await db.snapshots.put({
+    id: snapshotId, projectId: B, url: 'https://example.invalid/x', title: 'Recorte', source: 'url',
+    status: 'success', thumbnail: TINY_PNG, notes: '', tags: [], preservedAt: now, createdAt: now,
+  });
+  const outlineId = idOf(await raw('wh_create_outline', { projectId: B, title: 'Esquema' }));
+  const timelineId = idOf(await raw('wh_create_timeline', { projectId: B, title: 'Cronología' }));
+  await raw('wh_annotate', { projectId: B, engineId: 'writings', entityId: writingId, note: 'Revisar el tiempo verbal.' });
+
+  const CASES: ScopeCase[] = [
+    // real-atlas
+    { tool: 'wh_get_atlas_place', args: { id: placeId } },
+    { tool: 'wh_get_divergence', args: { id: divergenceId } },
+    { tool: 'wh_update_atlas_place', args: { id: placeId, description: 'Puerto' } },
+    { tool: 'wh_update_divergence', args: { id: divergenceId, reason: 'Porque sí' } },
+    { tool: 'wh_atlas_distance', args: { fromPlaceId: placeId, toPlaceId: placeId2 } },
+    { tool: 'wh_atlas_places_near', args: { placeId, radiusKm: 500 } },
+    // worldgen — everything goes through loadWorld, plus the waypoint update
+    { tool: 'wh_get_world', args: { worldId } },
+    { tool: 'wh_list_waypoints', args: { worldId } },
+    { tool: 'wh_list_place_links', args: { worldId } },
+    { tool: 'wh_add_waypoint', args: { worldId, name: 'Cala', u: 0.5, v: 0.5 } },
+    { tool: 'wh_update_waypoint', args: { id: waypointId, name: 'Faro viejo' } },
+    { tool: 'wh_add_place', args: { worldId, marker: 'landmark', landmark: 'volcano', x: 3, y: 3 } },
+    { tool: 'wh_rename_place', args: { worldId, key: 'settlement:1,1', name: 'Villa' } },
+    { tool: 'wh_move_place', args: { worldId, key: 'settlement:1,1', x: 2, y: 2 } },
+    { tool: 'wh_remove_place', args: { worldId, key: 'settlement:1,1' } },
+    { tool: 'wh_restore_place', args: { worldId, key: 'settlement:1,1' } },
+    { tool: 'wh_add_label', args: { worldId, x: 1, y: 1, text: 'Mar' } },
+    { tool: 'wh_list_places', args: { worldId }, heavy: true },
+    { tool: 'wh_find_place', args: { worldId, query: 'Villa' }, heavy: true },
+    { tool: 'wh_place_at', args: { worldId, x: 1, y: 1 }, heavy: true },
+    { tool: 'wh_world_summary', args: { worldId }, heavy: true },
+    { tool: 'wh_link_place', args: { worldId, key: 'settlement:1,1', targetType: 'codex-entry', targetId: codexId }, heavy: true },
+    // the rest of the by-id readers
+    { tool: 'wh_get_arc', args: { id: arcId } },
+    { tool: 'wh_get_biography', args: { id: bioId } },
+    { tool: 'wh_get_board', args: { id: boardId } },
+    { tool: 'wh_view_board_image', args: { id: cardId } },
+    { tool: 'wh_get_codex_entry', args: { id: codexId } },
+    { tool: 'wh_get_scene', args: { id: sceneId } },
+    { tool: 'wh_view_image', args: { id: imageId } },
+    { tool: 'wh_get_snapshot', args: { id: snapshotId } },
+    { tool: 'wh_view_snapshot_image', args: { id: snapshotId } },
+    { tool: 'wh_get_writing', args: { id: writingId } },
+    { tool: 'wh_list_writing_versions', args: { id: writingId } },
+    { tool: 'wh_list_beats', args: { outlineId } },
+    { tool: 'wh_list_events', args: { timelineId } },
+    { tool: 'wh_list_annotations', args: { engineId: 'writings', entityId: writingId } },
+  ];
+
+  try {
+    for (const { tool, args, heavy } of CASES) {
+      const fromA = await scoped(tool, args, A);
+      assert(
+        fromA.code === 'scope',
+        `${tool} scoped to A reached a row of B (got ${fromA.code || 'success'}${fromA.message ? `: ${fromA.message}` : ''})`,
+      );
+      if (heavy) continue;
+      const fromB = await scoped(tool, args, B);
+      assert(
+        fromB.code === '',
+        `${tool} scoped to B, the row's own project, failed with ${fromB.code}: ${fromB.message}`,
+      );
+    }
+  } finally {
+    for (const projectId of [A, B]) {
+      await Promise.all([
+        db.atlasPlaces, db.atlasDivergences, db.generatedWorlds, db.worldWaypoints, db.codexEntries,
+        db.writings, db.writingSnapshots, db.scenes, db.characterArcs, db.biographies,
+        db.boards, db.boardNodes, db.inspirationImages, db.snapshots, db.outlines, db.timelines,
+        db.annotations, db.entityLinks,
+      ].map((table) => table.where('projectId').equals(projectId).delete()));
+      await db.projects.delete(projectId);
+    }
+    await db.sceneCasts.where('sceneId').equals(sceneId).delete();
+  }
+}
+
 export async function testAiBridgeContracts(): Promise<string> {
   testManifestHandlerParity();
   testToolGroupSelection();
@@ -485,5 +651,6 @@ export async function testAiBridgeContracts(): Promise<string> {
   await testDeletionConfirmation();
   await testUndoRoundTrip();
   await testWriteBodyGuardsAndUndoFidelity();
-  return `AI bridge: ${BRIDGE_TOOLS.length} tools, group filter, Markdown, deny-by-default deletes, undo, blank-body refusal, lossless update undo`;
+  await testCopilotScopeLeak();
+  return `AI bridge: ${BRIDGE_TOOLS.length} tools, group filter, Markdown, deny-by-default deletes, undo, blank-body refusal, lossless update undo, cross-project scope`;
 }

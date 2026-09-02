@@ -109,6 +109,7 @@ export async function whListSnapshots(args: ToolArgs): Promise<unknown> {
 
 export async function whViewSnapshotImage(args: ToolArgs): Promise<unknown> {
   const snapshot = await mustGetSnapshot(requireString(args, 'id'));
+  assertRowInScope(args, snapshot.projectId);
   const images = imageSources(snapshot);
   if (!images.length) {
     throw new BridgeError(
@@ -316,6 +317,7 @@ export async function whDownloadSnapshotMedia(args: ToolArgs): Promise<unknown> 
 /** Read one clipping in full, notes as Markdown. */
 export async function whGetSnapshot(args: ToolArgs): Promise<unknown> {
   const snapshot = await mustGetSnapshot(requireString(args, 'id'));
+  assertRowInScope(args, snapshot.projectId);
   return {
     ...serializeSnapshot(snapshot),
     projectId: snapshot.projectId,

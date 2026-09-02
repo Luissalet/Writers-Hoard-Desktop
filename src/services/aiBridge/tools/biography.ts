@@ -64,6 +64,7 @@ export async function whGetBiography(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const bio = await getBiography(id);
   if (!bio) throw new BridgeError('not-found', `No biography with id "${id}".`);
+  assertRowInScope(args, bio.projectId);
   const facts = await getFacts(id);
   return {
     id: bio.id,

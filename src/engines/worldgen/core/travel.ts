@@ -135,6 +135,37 @@ const SEASON_HOURS: Record<Season, number> = {
   spring: 10, summer: 11, autumn: 9, winter: 7,
 };
 
+export interface StraightLineEstimate {
+  mode: TravelMode;
+  /** Hours on the move, at the mode's ROAD pace over the crow-flies distance. */
+  hours: number;
+  /** The daylight the season allows, so the caller can say it in days. */
+  hoursPerDay: number;
+}
+
+/**
+ * How long a straight line takes — the ruler's answer, not the planner's.
+ *
+ * The 2D ruler measures between any two points, so there is no route, no
+ * gradient and no surface to spend: the honest figure is the distance at the
+ * pace a made road allows, which is the OPTIMISTIC bound a real journey never
+ * beats. It lives here, next to `BASE_KMH`, so the ruler and the planner can
+ * never disagree about how fast a horse goes — the two are read side by side,
+ * and "9 days by the planner, 6 by the ruler" is a conversation the reader
+ * should be able to have by looking at the road fraction, not at two tables.
+ *
+ * Boats are left out: a river boat cannot follow a straight line at all, and a
+ * ship's straight line over land is not a crossing. The order is the order of
+ * the planner's mode list, so the two readouts stack the same way.
+ */
+export function straightLineEstimates(km: number, season: Season = 'summer'): StraightLineEstimate[] {
+  const d = Math.max(0, km);
+  const hoursPerDay = SEASON_HOURS[season];
+  return (['foot', 'horse', 'cart', 'ship'] as const).map((mode) => ({
+    mode, hours: d / BASE_KMH[mode].road, hoursPerDay,
+  }));
+}
+
 /**
  * How much slower the ground is than open grass.
  *

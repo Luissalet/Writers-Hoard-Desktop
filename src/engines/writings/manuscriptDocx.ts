@@ -21,11 +21,14 @@
 //   • bold and italic runs, as <strong>/<em>;
 //   • line breaks (<w:br/>) as <br>, tabs as spaces;
 //   • Quote / Cita paragraph styles, as <blockquote>;
-//   • tracked-change insertions (they are ordinary runs).
+//   • tracked-change insertions (they are ordinary runs);
+//   • footnotes and endnotes (`word/footnotes.xml`, `word/endnotes.xml`), as
+//     the app's own footnote references at the place of each `w:footnoteReference`
+//     — the note's paragraphs as plain text, in the reference's attribute.
 //
 // DROPPED — deliberately, each one noted at its branch below
 //   • images, shapes, charts, equations, fields (page numbers, TOC);
-//   • footnotes, endnotes, comments, headers and footers (separate zip parts);
+//   • comments, headers and footers (separate zip parts);
 //   • list numbering and bullets (a numbered paragraph imports as a paragraph);
 //   • fonts, colours, sizes, alignment, indentation, spacing;
 //   • underline, strike-through, sub/superscript, small caps;
@@ -40,6 +43,8 @@
 
 import type JSZip from 'jszip';
 import { countWords } from '@/utils/text';
+import { generateId } from '@/utils/idGenerator';
+import { footnoteRefHtml } from '@/components/editor/footnotes/footnoteModel';
 import { ManuscriptImportError, yieldToUi, type ManuscriptBlock } from './manuscriptImport';
 
 /** Paragraphs between two yields. Big enough to be cheap, small enough to be smooth. */
@@ -212,6 +217,10 @@ const OFF_RE = /w:val="(?:0|false|off)"/i;
  *   4  `<w:t …/>`           an empty text element
  *   5  `<w:t …>text</w:t>`  text (group 3)
  *   6  `<w:tab/>` `<w:br/>` `<w:noBreakHyphen/>`
+ *   7  `<w:footnoteReference w:id="n"/>`, `<w:endnoteReference …/>` — a note
+ *      (group 4 is `footnote` or `endnote`, group 5 the id). `w:footnoteRef`,
+ *      the marker inside a note's own body, is a different element and is
+ *      not matched.
  *
  * Read as a token stream with a stack rather than run-by-run because runs
  * NEST: a text box lives inside a run, carrying whole paragraphs with runs of
@@ -226,7 +235,7 @@ const OFF_RE = /w:val="(?:0|false|off)"/i;
  * `</w:t>` and swallow everything between.
  */
 const PARAGRAPH_TOKEN_RE =
-  /<w:r(?=[\s/>])[^>]*?(\/?)>|<\/w:r>|<w:rPr(?:\s[^>]*)?>([\s\S]*?)<\/w:rPr>|<w:t(?:\s[^>]*?)?\/>|<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:tab\s*\/>|<w:br(?:\s[^>]*)?\/?>|<w:noBreakHyphen\s*\/>/g;
+  /<w:r(?=[\s/>])[^>]*?(\/?)>|<\/w:r>|<w:rPr(?:\s[^>]*)?>([\s\S]*?)<\/w:rPr>|<w:t(?:\s[^>]*?)?\/>|<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:tab\s*\/>|<w:br(?:\s[^>]*)?\/?>|<w:noBreakHyphen\s*\/>|<w:(footnote|endnote)Reference\b[^>]*?w:id="([^"]*)"[^>]*\/>/g;
 
 /** A toggle property is on unless it says otherwise (`w:val="0"`). */
 function toggleOn(runProps: string, pattern: RegExp): boolean {
@@ -239,6 +248,14 @@ interface Inline {
   text: string;
   html: string;
 }
+
+/** The notes of the file, by Word's id, as plain text: one line per paragraph. */
+interface DocxNotes {
+  footnotes: Map<string, string>;
+  endnotes: Map<string, string>;
+}
+
+const NO_NOTES: DocxNotes = { footnotes: new Map(), endnotes: new Map() };
 
 interface RunState {
   bold: boolean;
@@ -254,7 +271,7 @@ const PLAIN: RunState = { bold: false, italic: false };
  * new run at every spell-check and revision boundary, so a bold clause can
  * arrive as five runs and must not leave as five `<strong>` elements.
  */
-function readParagraphText(inner: string): Inline {
+function readParagraphText(inner: string, notes: DocxNotes = NO_NOTES): Inline {
   const textParts: string[] = [];
   const htmlParts: string[] = [];
   const stack: RunState[] = [];
@@ -308,6 +325,12 @@ function readParagraphText(inner: string): Inline {
       emit('\n', '<br>', state);
     } else if (raw.startsWith('<w:noBreakHyphen')) {
       emit('-', '-', state);
+    } else if (token[4] !== undefined) {
+      // A note's body is not the paragraph's text (it is not counted, not a
+      // chapter title), so the text side gets nothing. A reference to a note
+      // the file does not hold is dropped, as Word itself would show nothing.
+      const body = (token[4] === 'endnote' ? notes.endnotes : notes.footnotes).get(token[5]);
+      if (body !== undefined) emit('', footnoteRefHtml(generateId(), body), state);
     }
 
     token = PARAGRAPH_TOKEN_RE.exec(inner);
@@ -341,6 +364,53 @@ function isQuote(styleId: string, styleName: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Notes
+// ---------------------------------------------------------------------------
+
+/**
+ * The notes of one part (`word/footnotes.xml` or `word/endnotes.xml`) by
+ * Word's id. Word keeps two typed notes of its own in every file — the
+ * separator rules, `w:type="separator"` and `"continuationSeparator"` — and
+ * those are not the writer's; a note with a type is skipped. The body is the
+ * note's paragraphs as text, one per line, read with the same scanner as the
+ * document so a note's nesting and entities are handled once.
+ */
+async function readNotes(zip: JSZip, part: string, tag: 'footnote' | 'endnote'): Promise<Map<string, string>> {
+  const notes = new Map<string, string>();
+  const entry = zip.file(part);
+  if (!entry) return notes;
+  let xml: string;
+  try {
+    xml = await entry.async('string');
+  } catch {
+    // A damaged notes part costs the notes, not the manuscript.
+    return notes;
+  }
+  const noteRe = new RegExp(`<w:${tag}\\b([^>]*)>([\\s\\S]*?)</w:${tag}>`, 'g');
+  let match = noteRe.exec(xml);
+  while (match !== null) {
+    const id = /w:id="([^"]*)"/.exec(match[1])?.[1];
+    if (id !== undefined && !/w:type="/.test(match[1])) {
+      const body = match[2];
+      const lines: string[] = [];
+      let cursor = 0;
+      while (cursor < body.length) {
+        const open = nextParagraphOpen(body, cursor);
+        if (open === -1) break;
+        const span = paragraphAt(body, open);
+        if (!span) break;
+        cursor = span.end;
+        const text = readParagraphText(span.inner).text.replace(/[\t\u00a0 ]+/g, ' ').trim();
+        if (text) lines.push(text);
+      }
+      notes.set(id, lines.join('\n'));
+    }
+    match = noteRe.exec(xml);
+  }
+  return notes;
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -370,6 +440,10 @@ export async function parseDocxBlocks(
   if (!entry) throw new ManuscriptImportError('invalid-docx');
 
   const styleNames = await readStyleNames(zip);
+  const notes: DocxNotes = {
+    footnotes: await readNotes(zip, 'word/footnotes.xml', 'footnote'),
+    endnotes: await readNotes(zip, 'word/endnotes.xml', 'endnote'),
+  };
 
   let xml: string;
   try {
@@ -410,7 +484,7 @@ export async function parseDocxBlocks(
     const outline = OUTLINE_RE.exec(props)?.[1] ?? '';
     const styleName = styleId ? styleNames.get(styleId) ?? '' : '';
 
-    const inline = readParagraphText(inner);
+    const inline = readParagraphText(inner, notes);
     const text = inline.text.replace(/[\t\u00a0 ]+/g, ' ').trim();
     // Empty paragraphs are Word's spacing, not the author's words: a blank
     // line between scenes is not content, and importing it would open every

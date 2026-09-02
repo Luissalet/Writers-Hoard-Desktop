@@ -33,6 +33,12 @@
 import { db } from '@/db';
 import { getSetting, PROJECT_SETTING_PREFIXES, updateSetting } from '@/db/operations';
 import { PROJECT_MODES } from '@/engines/_registry';
+import {
+  findNameAppearances,
+  indexNameCandidates,
+  tokenizeNameText,
+  type NameCandidate,
+} from '@/engines/_shared/nameAppearances';
 import { castKeyOf } from '@/engines/dialog-scene/importPersist';
 import { computeSeedStatus, type Payoff, type Seed } from '@/engines/seeds/types';
 import { shiftLocalDateKey, toLocalDateKey } from '@/engines/writing-stats/date';
@@ -303,26 +309,15 @@ export interface ProofreaderInput {
 // ---------------------------------------------------------------------------
 // Text scanning
 // ---------------------------------------------------------------------------
+//
+// The tokeniser and the one-pass matcher live in `_shared/nameAppearances`:
+// the Codex and the real atlas ask the same question of the same manuscript,
+// and one scanner means one answer. Names are matched whole, case- and
+// accent-insensitively («Jose» finds «José»); no plurals here, a character
+// is rarely pluralised and «Martas» would be somebody else.
 
-/** Split on everything that is not a letter, a digit or an in-word apostrophe. */
-const WORD_BOUNDARY = /[^\p{L}\p{N}'’]+/u;
-/** Quote marks that survived the split because they share a glyph with O'Brien. */
-const EDGE_APOSTROPHES = /^['’]+|['’]+$/g;
-
-function tokenize(text: string): string[] {
-  const tokens: string[] = [];
-  for (const raw of text.toLowerCase().split(WORD_BOUNDARY)) {
-    // «‘Marta’, she said» must still yield `marta`, while `o'brien` stays whole.
-    const token = raw.replace(EDGE_APOSTROPHES, '');
-    if (token) tokens.push(token);
-  }
-  return tokens;
-}
-
-export interface AppearanceCandidate {
-  entryId: string;
-  tokens: string[];
-}
+/** A codex character to look for, tokenised; the shared scanner's candidate. */
+export type AppearanceCandidate = NameCandidate;
 
 /**
  * Which codex characters are worth looking for in the prose.
@@ -338,7 +333,7 @@ export function buildAppearanceCandidates(
     if (entry.type !== 'character') continue;
     const trimmed = entry.title.trim();
     if (trimmed.length < MIN_APPEARANCE_TITLE_LENGTH) continue;
-    const tokens = tokenize(trimmed);
+    const tokens = tokenizeNameText(trimmed);
     if (tokens.length === 0) continue;
     if (tokens.length === 1) {
       if (tokens[0].length < MIN_APPEARANCE_TITLE_LENGTH) continue;
@@ -357,37 +352,7 @@ export function findAppearances(
   text: string,
   byFirstToken: ReadonlyMap<string, AppearanceCandidate[]>,
 ): Set<string> {
-  const appearances = new Set<string>();
-  if (byFirstToken.size === 0) return appearances;
-  const haystack = tokenize(text);
-  for (let index = 0; index < haystack.length; index += 1) {
-    const group = byFirstToken.get(haystack[index]);
-    if (!group) continue;
-    for (const candidate of group) {
-      if (appearances.has(candidate.entryId)) continue;
-      let matches = true;
-      for (let offset = 1; offset < candidate.tokens.length; offset += 1) {
-        if (haystack[index + offset] !== candidate.tokens[offset]) {
-          matches = false;
-          break;
-        }
-      }
-      if (matches) appearances.add(candidate.entryId);
-    }
-  }
-  return appearances;
-}
-
-function indexByFirstToken(
-  candidates: readonly AppearanceCandidate[],
-): Map<string, AppearanceCandidate[]> {
-  const index = new Map<string, AppearanceCandidate[]>();
-  for (const candidate of candidates) {
-    const group = index.get(candidate.tokens[0]);
-    if (group) group.push(candidate);
-    else index.set(candidate.tokens[0], [candidate]);
-  }
-  return index;
+  return findNameAppearances(text, byFirstToken);
 }
 
 // ---------------------------------------------------------------------------
@@ -442,7 +407,7 @@ export async function collectProofreaderInput(projectId: string): Promise<Proofr
 
   const sceneIds = scenes.map(scene => scene.id);
   const candidates = buildAppearanceCandidates(codexEntries);
-  const byFirstToken = indexByFirstToken(candidates);
+  const byFirstToken = indexNameCandidates(candidates);
 
   const writings: ProofreaderWritingRow[] = [];
   const blocks: ProofreaderBlockRow[] = [];

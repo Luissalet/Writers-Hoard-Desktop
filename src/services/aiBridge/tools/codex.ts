@@ -67,6 +67,7 @@ export async function whListCodex(args: ToolArgs): Promise<unknown> {
 
 export async function whGetCodexEntry(args: ToolArgs): Promise<unknown> {
   const entry = await mustGetEntry(requireString(args, 'id'));
+  assertRowInScope(args, entry.projectId);
   return {
     id: entry.id,
     projectId: entry.projectId,

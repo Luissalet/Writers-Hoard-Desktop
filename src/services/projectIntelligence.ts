@@ -7,9 +7,9 @@ import {
   buildAppearanceCandidates,
   findAppearances,
   localDaysBetween,
-  type AppearanceCandidate,
   type ProofreaderCodexRow,
 } from './proofreader';
+import { indexNameCandidates } from '@/engines/_shared/nameAppearances';
 import { countWords, stripHtml } from '@/utils/text';
 
 export type HealthSeverity = 'error' | 'warning' | 'info';
@@ -1173,14 +1173,8 @@ async function scanCodexAppearances(
   const candidates = buildAppearanceCandidates(codexRows);
   if (candidates.length === 0) return byEntry;
 
-  // `findAppearances` wants the candidates grouped by their first token; the
-  // proofreader keeps its own copy of this two-line index private.
-  const byFirstToken = new Map<string, AppearanceCandidate[]>();
-  for (const candidate of candidates) {
-    const group = byFirstToken.get(candidate.tokens[0]);
-    if (group) group.push(candidate);
-    else byFirstToken.set(candidate.tokens[0], [candidate]);
-  }
+  // `findAppearances` wants the candidates grouped by their first token.
+  const byFirstToken = indexNameCandidates(candidates);
 
   const scanned: Array<CodexAppearance & { createdAt: number; entryIds: Set<string> }> = [];
   await db.writings

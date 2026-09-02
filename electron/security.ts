@@ -40,6 +40,9 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'quick-note:close': ['quick-note'],
   'updates:check': ['main'],
   'updates:quitAndInstall': ['main'],
+  // Real atlas geocoding: the one place the app queries OpenStreetMap's
+  // Nominatim, opt-in per project. Only the main window holds the atlas.
+  'atlas:geocode': ['main'],
   // Closing the window. `beforeunload` cannot ask this question in Electron —
   // its preventDefault silently cancels the close and shows nothing — so main
   // owns the veto and asks the renderer that owns the unsaved text.

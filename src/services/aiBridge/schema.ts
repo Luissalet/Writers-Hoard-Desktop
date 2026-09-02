@@ -101,6 +101,10 @@ export const SCOPE_KEY = '__scopeProjectId';
 export const MARKDOWN_NOTE =
   'Markdown. Supported: headings (#..######), **bold**, *italic*, `code`, [links](url), ![images](url), - and 1. lists, > quotes, --- rules. Anything else is stored as plain paragraphs.';
 
+/** Manuscript pieces only: the footnote syntax the writings tools read and write. */
+export const FOOTNOTE_NOTE =
+  'Footnotes: `[^label]` in the prose plus a `[^label]: text` line after the body (later lines of one note indented four spaces). Keep the labels wh_get_writing gives you — they are the note ids.';
+
 /** Stamp a group onto a family of tools at assembly time. */
 export function grouped(group: BridgeToolGroup, tools: BridgeTool[]): BridgeTool[] {
   return tools.map((tool) => ({ ...tool, group }));

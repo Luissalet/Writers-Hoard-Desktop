@@ -290,6 +290,8 @@ export interface PublishingArtifactLabels extends CitationFormatLabels {
   bibliographyTitle: string;
   /** Optional so a caller that only cares about order need not supply one. */
   untitledLabel?: string;
+  /** Heading over a chapter's footnotes; optional for the same reason. */
+  notesLabel?: string;
 }
 
 export interface PublishingArtifacts {
@@ -429,11 +431,12 @@ function currentPublishingLabels(format: PublishingFormat): PublishingArtifactLa
     chapterLabel: t(`projectTools.publishing.chapterLabel.${format}`),
     bibliographyTitle: t('projectTools.research.bibliography'),
     untitledLabel: t('projectTools.publishing.untitled'),
+    notesLabel: t('writings.footnotes.endnotesTitle'),
   };
 }
 
 export function buildPublishingArtifacts(
-  project: Pick<Project, 'id' | 'title'>,
+  project: Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement'>,
   profile: PublishingProfile,
   writings: readonly Writing[],
   citations: readonly Citation[],
@@ -452,6 +455,9 @@ export function buildPublishingArtifacts(
     chapterLabel: labels.chapterLabel,
     untitledLabel: labels.untitledLabel,
     wordLabel: labels.wordLabel,
+    notesLabel: labels.notesLabel,
+    footnoteStyle: project.footnoteStyle,
+    footnotePlacement: project.footnotePlacement,
     locale: labels.locale,
     generatedAt: artifactOptions.generatedAt,
   };
@@ -481,8 +487,33 @@ export function buildPublishingArtifacts(
   };
 }
 
+/**
+ * The project with its footnote settings (marker style, placement), for a
+ * caller that only has the id and the title (the Writings compile shortcut,
+ * "export this writing"). Read from the row rather than asked of every
+ * caller, so the choices made in the footnotes panel reach every export
+ * the same way.
+ */
+async function withFootnoteStyle(
+  project: Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement'>,
+): Promise<Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement'>> {
+  if (project.footnoteStyle !== undefined && project.footnotePlacement !== undefined) return project;
+  try {
+    const row = await db.projects.get(project.id);
+    if (!row) return project;
+    return {
+      ...project,
+      footnoteStyle: project.footnoteStyle ?? row.footnoteStyle,
+      footnotePlacement: project.footnotePlacement ?? row.footnotePlacement,
+    };
+  } catch {
+    // Numbers per chapter, then — the defaults every exporter already assumes.
+    return project;
+  }
+}
+
 export async function exportPublishingProfile(
-  project: Pick<Project, 'id' | 'title'>,
+  project: Pick<Project, 'id' | 'title' | 'footnoteStyle' | 'footnotePlacement'>,
   profile: PublishingProfile,
   output: PublishingOutput,
   artifactOptions: { titleOverride?: string; generatedAt?: number } = {},
@@ -501,7 +532,7 @@ export async function exportPublishingProfile(
   }
   const citations = profile.includeBibliography ? await getCitations(project.id) : [];
   const artifacts = buildPublishingArtifacts(
-    project,
+    await withFootnoteStyle(project),
     profile,
     resolved.writings,
     citations,

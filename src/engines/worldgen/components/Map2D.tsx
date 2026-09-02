@@ -63,6 +63,13 @@ import {
   type FlyMark,
   type FlyTarget,
 } from '../core/camera';
+import {
+  cellDistanceKm, cellToLonLat, compassPoint, formatLatLon, measurePolyline, type CellPoint,
+} from '../core/measure';
+import { describeDuration, MODE_KEY, straightLineEstimates } from '../core/travel';
+import { keyboardNudge } from '../core/keyNav';
+import { legendFor } from '../cartography/legend';
+import { drawRuler, type RulerScreenLeg } from '../cartography/rulerOverlay';
 
 // La tabla completa vive en `core/biomeKeys.ts` (44 entradas): la copia local
 // se quedó en 17 cuando la revisión ecológica llevó `Biome` a 43 y el
@@ -224,6 +231,18 @@ interface Map2DProps {
    * polilínea en celdas del mundo: esta vista sabe proyectar las dos cosas.
    */
   annotations?: CartoAnnotations;
+  /**
+   * LA REGLA está en la mano.
+   *
+   * Cada clic añade un punto; la polilínea se mide en gran círculo sobre la
+   * esfera, y el readout de abajo dice cuánto es en total, hacia dónde va el
+   * último tramo y cuánto tardaría cada paso de `core/travel.ts` en línea
+   * recta. Retroceso quita el último punto, Esc los quita todos; apagar la
+   * regla también los borra — una medida no es una edición y no se guarda.
+   */
+  measuring?: boolean;
+  /** Esc with the ruler out and nothing measured puts the ruler away. */
+  onEndMeasure?: () => void;
 }
 
 interface ViewState {
@@ -832,6 +851,7 @@ export default function Map2D({
   tool, onEdit, onTool, onPickSettlement, onZoomTo,
   viewport, onViewportChange, flyTarget, flyMark = null, revision = 0, canonWorld, canonEdits,
   exportRef, savedRegions = [], activeRegionId = null, onOpenSavedRegion, annotations,
+  measuring = false, onEndMeasure,
 }: Map2DProps) {
   const { t } = useTranslation();
   /**
@@ -891,6 +911,36 @@ export default function Map2D({
    */
   const exportScale = useRef(0);
   const [hover, setHover] = useState<{ x: number; y: number; text: string } | null>(null);
+  /**
+   * The ruler's points, in world cells (x wrapped to [0, W)).
+   *
+   * State and not a ref, because the readout under the map is DOM and has to
+   * re-render when a point lands. Measured once per change, never per frame:
+   * `draw` only projects the answer.
+   */
+  const [rulerPts, setRulerPts] = useState<CellPoint[]>([]);
+  const rulerReading = measurePolyline(rulerPts, world.width, world.height);
+  const hasRuler = rulerPts.length > 0;
+  /** Where the pointer is while the ruler is out, for the rubber band. A ref:
+   *  it changes on every move and only the canvas reads it. */
+  const rulerCursor = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
+  // Putting the ruler away takes the measure with it (render-adjust, lesson
+  // #17): a line left behind by a tool that is no longer out is a line the
+  // reader cannot remove.
+  const [prevMeasuring, setPrevMeasuring] = useState(measuring);
+  if (prevMeasuring !== measuring) {
+    setPrevMeasuring(measuring);
+    if (!measuring) setRulerPts([]);
+  }
+  useEffect(() => { if (!measuring) rulerCursor.current = null; }, [measuring]);
+  /** The ruler's numbers, in the reader's letters: ONE formatter for the pills
+   *  on the canvas and the readout under it, so "12,5 km" cannot read "12.5"
+   *  three centimetres away. */
+  const cardinals = t('worldgen.measure.cardinals');
+  const decimal = t('worldgen.travel.dur.decimal');
+  const kmText = (km: number): string => (km >= 1
+    ? t('worldgen.paint.units.km').replace('{n}', (km >= 100 ? String(Math.round(km)) : km.toFixed(1)).replace('.', decimal))
+    : t('worldgen.paint.units.m').replace('{n}', String(Math.round(km * 1000))));
 
   /** Cells the pointer has crossed this stroke, and where the ring is drawn. */
   const stroke = useRef<Pt[] | null>(null);
@@ -2851,6 +2901,46 @@ export default function Map2D({
       }
     }
 
+    // ---- la regla -----------------------------------------------------------
+    /**
+     * Lo medido se dibuja en cada copia de la lámina; la goma hasta el puntero
+     * sólo en la copia en la que está el puntero, como la del lazo. Un tramo
+     * que cruza la costura se dibuja CORTO: el destino se proyecta en la misma
+     * copia y se corrige una lámina entera si el salto pasa de media — la
+     * misma cuenta que hace el composite regional con su ventana. Va a la
+     * exportación (es una marca del lector, como la ruta) menos la goma, que
+     * es del gesto.
+     */
+    if (rulerPts.length) {
+      const near = (x0: number, x1: number): number => {
+        if (!wraps) return x1;
+        while (x1 - x0 > mapW / 2) x1 -= mapW;
+        while (x1 - x0 < -mapW / 2) x1 += mapW;
+        return x1;
+      };
+      const last = rulerPts[rulerPts.length - 1];
+      const cur = exportScale.current ? null : rulerCursor.current;
+      for (const copyOx of copies) {
+        const verts = rulerPts.map((p) => toScreen(p.x / W, p.y / H, copyOx));
+        const legs: RulerScreenLeg[] = rulerReading.legs.map((leg, k) => {
+          const [x0, y0] = verts[k];
+          const [x1, y1] = verts[k + 1];
+          return { x0, y0, x1: near(x0, x1), y1, label: kmText(leg.km) };
+        });
+        let band: RulerScreenLeg | undefined;
+        if (cur) {
+          const [lx, ly] = verts[verts.length - 1];
+          if (!wraps || Math.abs(cur.x - lx) <= mapW / 2) {
+            band = {
+              x0: lx, y0: ly, x1: cur.x, y1: cur.y,
+              label: kmText(cellDistanceKm(last, { x: cur.cx, y: cur.cy }, W, H)),
+            };
+          }
+        }
+        drawRuler(ctx, { legs, vertices: verts.map(([x, y]) => ({ x, y })), band });
+      }
+    }
+
     // The frame is complete: what it drew is now what the pointer answers to.
     // LAST, after the frontier handles: the lasso's first corner is drawn over
     // the labels and is the only thing in this frame that a click can close.
@@ -3183,6 +3273,8 @@ export default function Map2D({
     // Las capas nuevas: sin esto una comarca recién guardada no aparece hasta
     // que algo mueva el mapa, y una ruta recién calculada tampoco.
     savedRegions, activeRegionId, annotations,
+    // Y la regla: cada punto que cae es un tramo más que dibujar.
+    rulerPts, measuring,
   ]);
 
   // ---- export -----------------------------------------------------------------
@@ -3397,6 +3489,32 @@ export default function Map2D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flyTarget?.token]);
 
+  /**
+   * Zoom by `factor` keeping the ground under screen point (mx, my) still.
+   *
+   * ONE homothety for the wheel and for the keyboard: `+`/`-` zoom about the
+   * middle of the canvas with the same clamps and the same report, so the two
+   * can never drift into "the wheel stops at the ceiling, the key overshoots
+   * it" — the kind of difference that makes a map feel broken without anybody
+   * being able to say what is wrong (lesson #58).
+   */
+  const zoomAbout = useCallback((mx: number, my: number, factor: number) => {
+    cancelFlight();
+    const view = viewRef.current;
+    const canvas = canvasRef.current;
+    if (!view || !canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const minScale = Math.min(rect.width / PW, rect.height / PH) * 0.5;
+    const newScale = Math.max(minScale, Math.min(maxScale, view.scale * factor));
+    const k = newScale / view.scale;
+    view.ox = mx - (mx - view.ox) * k;
+    view.oy = my - (my - view.oy) * k;
+    view.scale = newScale;
+    clampView(view, rect.width, rect.height, PW, PH, wraps);
+    scheduleDraw();
+    reportViewport();
+  }, [PW, PH, wraps, scheduleDraw, reportViewport, cancelFlight, maxScale]);
+
   // Wheel zoom — non-passive listener so preventDefault works.
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -3431,27 +3549,14 @@ export default function Map2D({
         setTool({ radius: km / kmPerCell });
         return;
       }
-      cancelFlight();
-      const view = viewRef.current;
-      if (!view) return;
       const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-      const factor = Math.exp(-e.deltaY * 0.0016);
-      const minScale = Math.min(rect.width / PW, rect.height / PH) * 0.5;
-      const newScale = Math.max(minScale, Math.min(maxScale, view.scale * factor));
-      const k = newScale / view.scale;
-      view.ox = mx - (mx - view.ox) * k;
-      view.oy = my - (my - view.oy) * k;
-      view.scale = newScale;
-      clampView(view, rect.width, rect.height, PW, PH, wraps);
-      scheduleDraw();
-      reportViewport();
+      zoomAbout(e.clientX - rect.left, e.clientY - rect.top, Math.exp(-e.deltaY * 0.0016));
     };
     canvas.addEventListener('wheel', onWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', onWheel);
     // `W` only moves when the world is a different size, which rebuilds every
     // layer anyway; re-subscribing the listener then costs nothing.
-  }, [PW, PH, W, wraps, scheduleDraw, reportViewport, cancelFlight, maxScale]);
+  }, [W, zoomAbout]);
 
   // ---- helpers -------------------------------------------------------------------
   const screenToMap = (sx: number, sy: number): { u: number; v: number } | null => {
@@ -3705,6 +3810,10 @@ export default function Map2D({
   // tool. Ctrl+Z goes to the world's own history, which is shared with 3D.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      // A modal over the map (a confirm dialog, a settings sheet) owns the
+      // keyboard while it is up: its Escape closes IT, and must not also
+      // abandon a lasso or undo a stroke underneath.
+      if (e.target instanceof HTMLElement && e.target.closest('[role="dialog"]')) return;
       if (e.code === 'Space') spaceRef.current = true;
       // NOT while the reader is typing. This listener is on `window` and calls
       // `preventDefault`, so Ctrl+Z in the Rótulo text box — or in any input on
@@ -3742,6 +3851,21 @@ export default function Map2D({
         abandonMove();
         return;
       }
+      /**
+       * La regla, antes que la cámara y con la misma lectura que el lazo:
+       * «deshaz el último paso», y gana el más cercano. Con puntos puestos,
+       * Retroceso quita el último y Esc los quita todos; sin puntos, las dos
+       * teclas vuelven a ser lo que eran (la vista anterior, soltar la diana).
+       */
+      if (measuring && tag !== 'BUTTON' && tag !== 'SELECT' && tag !== 'A') {
+        if (hasRuler && e.key === 'Backspace') { e.preventDefault(); setRulerPts((p) => p.slice(0, -1)); return; }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          // Twice: first the measure, then the tool.
+          if (hasRuler) setRulerPts([]); else onEndMeasure?.();
+          return;
+        }
+      }
       if (realmPoly.current && tag !== 'BUTTON' && tag !== 'SELECT' && tag !== 'A') {
         if (e.key === 'Enter') { e.preventDefault(); closeRealmPoly(); return; }
         if (e.key === 'Escape') { e.preventDefault(); abandonRealmPoly(); return; }
@@ -3766,6 +3890,36 @@ export default function Map2D({
       if (tag !== 'SELECT') {
         if (e.key === 'Home') { e.preventDefault(); flyHome(); return; }
         if (e.key === 'Backspace') { e.preventDefault(); goBack(); return; }
+      }
+      /**
+       * LAS FLECHAS Y +/−: la cámara desde el teclado.
+       *
+       * Sólo cuando el LIENZO tiene el foco — se lo da el propio clic sobre el
+       * mapa — y no en toda la ventana como Inicio: las flechas son de todo el
+       * mundo (una lista, un desplegable, la página que se desplaza), y
+       * robarlas mientras haya un mapa montado en algún sitio es romper el
+       * resto de la aplicación por ganar un atajo. Cuánto mueve cada pulsación
+       * lo dice `core/keyNav.ts`, que es donde se puede medir.
+       */
+      const canvas = canvasRef.current;
+      if (canvas && document.activeElement === canvas && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const rect = canvas.getBoundingClientRect();
+        const nudge = keyboardNudge(e.key, e.shiftKey, rect.width, rect.height);
+        const view = viewRef.current;
+        if (nudge && view) {
+          e.preventDefault();
+          if (nudge.zoom !== 1) {
+            zoomAbout(rect.width / 2, rect.height / 2, nudge.zoom);
+          } else {
+            cancelFlight();
+            view.ox += nudge.dx;
+            view.oy += nudge.dy;
+            clampView(view, rect.width, rect.height, PW, PH, wraps);
+            scheduleDraw();
+            reportViewport();
+          }
+          return;
+        }
       }
       if (e.ctrlKey || e.metaKey) {
         // One keymap for both views. They disagreed: here Ctrl+Shift+Z redid,
@@ -3794,7 +3948,10 @@ export default function Map2D({
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', blur);
     };
-  }, [closeRealmPoly, abandonRealmPoly, dropRealmCorner, abandonMove, flyHome, goBack]);
+  }, [
+    closeRealmPoly, abandonRealmPoly, dropRealmCorner, abandonMove, flyHome, goBack,
+    measuring, hasRuler, onEndMeasure, zoomAbout, cancelFlight, scheduleDraw, reportViewport, PW, PH, wraps,
+  ]);
 
   /** The nearest town to a screen point, within a screen-sized reach. */
   const settlementAt = (sx: number, sy: number): Settlement | null =>
@@ -3806,6 +3963,10 @@ export default function Map2D({
     if (!view) return;
     cancelFlight();
     (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+    // The click is what hands the keyboard to the map: from here the arrows
+    // and +/- move the camera (see the keydown listener). `preventScroll`, or
+    // a map inside a scrolling column jumps into view on every press.
+    e.currentTarget.focus({ preventScroll: true });
     negRef.current = e.ctrlKey || e.metaKey;
     /**
      * IS THIS GESTURE THE CAMERA? Decided once, here, with the modifiers.
@@ -4086,8 +4247,16 @@ export default function Map2D({
      * en `style` por evento invalida el estilo del lienzo sesenta veces por
      * segundo para dejarlo igual.
      */
-    const wantCursor = movableAt(sx, sy) ? 'move' : 'grab';
+    const wantCursor = measuring ? 'crosshair' : movableAt(sx, sy) ? 'move' : 'grab';
     if (e.currentTarget.style.cursor !== wantCursor) e.currentTarget.style.cursor = wantCursor;
+
+    // The ruler's rubber band follows the pointer from the last point put
+    // down; with no point yet there is nothing to stretch and nothing to draw.
+    if (measuring) {
+      const mm = screenToMap(sx, sy);
+      rulerCursor.current = mm ? { x: sx, y: sy, cx: mm.u * W, cy: mm.v * H } : null;
+      if (hasRuler) scheduleDraw();
+    }
 
     // Hover inspector
     const m = screenToMap(sx, sy);
@@ -4234,8 +4403,14 @@ export default function Map2D({
         `${Math.round(world.temperature[i])}°C`,
         `${Math.round(world.precipitation[i])} mm`,
       ];
+    // Where on the planet, in degrees: the one figure no view had. The same
+    // routine rotulates the ruler's points, so the two can be compared.
+    parts.push(formatLatLon(
+      cellToLonLat({ x: m.u * W, y: m.v * H }, W, H),
+      t('worldgen.measure.cardinals'), t('worldgen.travel.dur.decimal'),
+    ));
     // Clamp here (event handler) so render never touches the container ref.
-    const left = Math.min(sx + 12, rect.width - 210);
+    const left = Math.min(sx + 12, rect.width - 290);
     setHover({ x: left, y: sy + 14, text: parts.join(' · ') });
   };
 
@@ -4414,6 +4589,17 @@ export default function Map2D({
     // exactly as it did and something else has changed.
     if (panned) return;
     // It was a click.
+    /**
+     * With the ruler out, a click is a POINT and nothing else: not a pin, not
+     * a town's plan, not a saved region. The reader chose to measure, and a
+     * measure that opens a plan when it lands on a dot is one that cannot
+     * measure to a town — the one thing most worth measuring to.
+     */
+    if (measuring) {
+      const m = screenToMap(sx, sy);
+      if (m) setRulerPts((pts) => [...pts, { x: m.u * W, y: m.v * H }]);
+      return;
+    }
     const wp = waypointAt(sx, sy);
     if (wp) { onSelectWaypoint(wp.id); return; }
     // El nombre de una comarca guardada la abre — antes que el pueblo que
@@ -4456,6 +4642,24 @@ export default function Map2D({
       }
       if (closeRealmPoly()) return;
     }
+    /**
+     * With the ruler out, a double-click FINISHES the line where the lasso's
+     * finishes the ring, and for the same reason: its second click has already
+     * dropped a point on top of the first, and the reader clicked twice in one
+     * place meaning "here, and done", once. The duplicate goes; the zoom this
+     * gesture means everywhere else does not happen, because a camera jump in
+     * the middle of a measure is a measure the reader has to find again.
+     */
+    if (measuring) {
+      setRulerPts((pts) => {
+        const n = pts.length;
+        if (n >= 2 && Math.hypot(pts[n - 1].x - pts[n - 2].x, pts[n - 1].y - pts[n - 2].y) < 0.75) {
+          return pts.slice(0, -1);
+        }
+        return pts;
+      });
+      return;
+    }
     if (brushing || !onZoomTo) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const m = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
@@ -4496,12 +4700,33 @@ export default function Map2D({
    *  rótulo permanente tapaba media esquina inferior). */
   const [hintsOpen, setHintsOpen] = useState(false);
 
+  /**
+   * The ruler's readout: the total, the last leg's bearing, the crow-flies
+   * time at each pace, and where the last point is. Composed here, in the
+   * reader's language; the numbers come from `core/measure.ts` and the paces
+   * from `core/travel.ts`, so it says the same words as the journey panel.
+   */
+  const lastLeg = rulerReading.legs[rulerReading.legs.length - 1];
+  const lastPt = rulerPts[rulerPts.length - 1];
+  const paces = lastLeg
+    ? straightLineEstimates(rulerReading.totalKm)
+      .map((p) => `${t(MODE_KEY[p.mode])} ${describeDuration(p.hours, p.hoursPerDay, t)}`)
+      .join(' · ')
+    : '';
+
+  /** The key to the colours, for the views that are a ramp. Always on where
+   *  the view has one: a legend behind a switch is a legend nobody finds. */
+  const legend = legendFor(viewMode, t);
+
   return (
     <div ref={containerRef} className="absolute inset-0">
       <canvas
         ref={canvasRef}
-        className="block"
-        style={{ cursor: brushing ? 'crosshair' : 'grab', touchAction: 'none' }}
+        // Focusable, so the arrows and +/- have somewhere to go; no ring, the
+        // map's own frame is the ring. See the keydown listener.
+        tabIndex={0}
+        className="block outline-none"
+        style={{ cursor: brushing || measuring ? 'crosshair' : 'grab', touchAction: 'none' }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -4528,6 +4753,9 @@ export default function Map2D({
         onPointerLeave={() => {
           setHover(null);
           if (brushAt.current) { brushAt.current = null; scheduleDraw(); }
+          // A rubber band stretched to a pointer that is no longer over the
+          // map is a line to nowhere.
+          if (rulerCursor.current) { rulerCursor.current = null; scheduleDraw(); }
         }}
         onDoubleClick={handleDoubleClick}
         onContextMenu={(e) => e.preventDefault()}
@@ -4569,7 +4797,52 @@ export default function Map2D({
                 : `${t('worldgen.map.paintHint')}${wheelHint ? ` · ${wheelHint}` : ''}`)}
         </div>
       )}
-      {!refusal && !brushing && (
+      {legend && (
+        <div
+          data-testid="worldgen-legend"
+          // Above the scale bar (canvas, 24 px tall at 23 px from the bottom)
+          // and above the three-line hint box the ruler and the brushes print.
+          className="absolute left-2 bottom-[68px] pointer-events-none rounded-md border border-white/15 bg-[#0b0e14]/85 px-2 py-1.5 shadow-lg shadow-black/40 backdrop-blur-sm"
+        >
+          <div className="text-[9px] uppercase tracking-wide text-white/55 mb-1">{t(legend.titleKey)}</div>
+          <div className="h-2 w-44 rounded-sm" style={{ background: legend.gradient }} />
+          <div className="flex justify-between w-44 mt-0.5 text-[9px] text-white/75">
+            {legend.ticks.map((s) => <span key={s.value}>{s.label}</span>)}
+          </div>
+        </div>
+      )}
+      {measuring && !refusal && (
+        <div
+          data-testid="worldgen-ruler"
+          className="absolute bottom-2 left-2 max-w-[380px] px-2.5 py-1.5 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] leading-snug text-white shadow-lg shadow-black/50 backdrop-blur-sm pointer-events-none"
+        >
+          {lastLeg ? (
+            <>
+              <div className="font-semibold text-[#ffe9c2]">
+                {t(rulerReading.legs.length === 1 ? 'worldgen.measure.total.one' : 'worldgen.measure.total.many')
+                  .replace('{n}', kmText(rulerReading.totalKm))
+                  .replace('{legs}', String(rulerReading.legs.length))}
+                {' · '}
+                {t('worldgen.measure.bearing')
+                  .replace('{dir}', compassPoint(lastLeg.bearing, cardinals))
+                  .replace('{deg}', String(Math.round(lastLeg.bearing)))}
+              </div>
+              <div className="text-white/75">{t('worldgen.measure.pace').replace('{list}', paces)}</div>
+              <div className="text-white/45">
+                {formatLatLon(cellToLonLat(lastPt, W, H), cardinals, decimal)} · {t('worldgen.measure.keysHint')}
+              </div>
+            </>
+          ) : lastPt ? (
+            <>
+              <div>{t('worldgen.measure.next')}</div>
+              <div className="text-white/45">{formatLatLon(cellToLonLat(lastPt, W, H), cardinals, decimal)}</div>
+            </>
+          ) : (
+            <div>{t('worldgen.measure.start')}</div>
+          )}
+        </div>
+      )}
+      {!refusal && !brushing && !measuring && (
         <div className="absolute bottom-2 left-2 flex items-end gap-1.5">
           <button
             onClick={() => setHintsOpen((o) => !o)}
@@ -4588,6 +4861,7 @@ export default function Map2D({
                 {onPickSettlement ? ` · ${t('worldgen.mapHint.town')}` : ''}
               </span>
               <span className="block text-white/60">{t('worldgen.map.cameraHint')}</span>
+              <span className="block text-white/60">{t('worldgen.map.keysHint')}</span>
             </div>
           )}
         </div>

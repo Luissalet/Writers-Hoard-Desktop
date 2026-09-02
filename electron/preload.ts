@@ -26,6 +26,7 @@ import type {
 } from '@/services/aiRuntime/types';
 import type { CopilotEvent, CopilotRunRequest } from '@/services/aiRuntime/copilot';
 import type { SdBackend, SdOpResult, SdProgress, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
+import type { GeocodeResponse } from '@/engines/real-atlas/geocode';
 
 /** Result of a native "save file" flow. */
 interface SaveResult {
@@ -468,6 +469,14 @@ const api = {
     keepOpen: (): void => {
       ipcRenderer.send('shutdown:reply', { requestId: null, proceed: false });
     },
+  },
+
+  // ---- Real atlas ---------------------------------------------------------
+  // "Find coordinates" in the place editor: one Nominatim query, made from
+  // main (electron/atlasGeocode.ts) so the app keeps the usage policy.
+  atlas: {
+    geocode: (q: string, locale: string): Promise<GeocodeResponse> =>
+      ipcRenderer.invoke('atlas:geocode', { q, locale }),
   },
 
   updates: {

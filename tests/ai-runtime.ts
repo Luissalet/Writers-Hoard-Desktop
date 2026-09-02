@@ -13,6 +13,7 @@
 //   6. history replay from stored rows never starts with an orphan tool turn.
 
 import { BRIDGE_TOOLS, getBridgeTool } from '@/services/aiBridge/manifest';
+import { SCOPE_KEY } from '@/services/aiBridge/schema';
 import { computeFit, estimateKvCacheBytes, inferActiveParams, parseParameterSize, quantBitsFromLabel, withMeasuredSpeed } from '@/services/aiRuntime/fit';
 import { mergeSpeedSample, speedFromTiming } from '@/services/aiRuntime/metrics';
 import { pickBestChatModel, rankChatModels } from '@/services/aiRuntime/pickModel';
@@ -357,7 +358,22 @@ async function testExecutorEquivalence(): Promise<void> {
     { origin: 'copilot', projectId: 'p1', conversationId: 'thr-1', actionPolicy: 'allow', clientLabel: 'copilot' },
   );
   assert(viaBridge.ok && viaCopilot.ok, 'shared executor refused an allowed call');
-  assert(canonical(relays[0].args) === canonical(relays[1].args), 'bridge and copilot relayed different arguments');
+  // The TOOL sees the same call either way — that is the equivalence that
+  // matters. What differs is the envelope: a copilot call is pinned to its
+  // conversation's project, and carries that pin for the handler to check
+  // against any row it loads BY ID (an id in the arguments travels; a
+  // `projectId` beside it says nothing about the row that id names). A bridge
+  // call has no conversation and so no pin.
+  const withoutScope = (args: Record<string, unknown>) => {
+    const { [SCOPE_KEY]: _pin, ...rest } = args;
+    return rest;
+  };
+  assert(
+    canonical(withoutScope(relays[0].args)) === canonical(withoutScope(relays[1].args)),
+    'bridge and copilot relayed different arguments',
+  );
+  assert(relays[1].args[SCOPE_KEY] === 'p1', 'a copilot call reached the handler without its project pin');
+  assert(!(SCOPE_KEY in relays[0].args), 'a bridge call carried a project pin it has no conversation for');
   assert(relays[0].tool === relays[1].tool && relays[0].timeoutMs === relays[1].timeoutMs, 'bridge and copilot relayed differently');
   assert(!('__audit' in (viaBridge.result as object)) && !('__audit' in (viaCopilot.result as object)), 'audit envelope leaked to a caller');
   assert(viaBridge.auditIndex === 0 && viaCopilot.auditIndex === 1, 'audit indices not returned');

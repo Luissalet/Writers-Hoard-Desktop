@@ -23,7 +23,11 @@
 //     NODES are rewritten. Writing to `Text.data` cannot produce a tag: a
 //     replacement of `<b>` is serialised back as `&lt;b&gt;`, literal text,
 //     which is exactly what the writer typed. Attributes — including the
-//     base64 in `<img src="data:…">` — are never read and never written.
+//     base64 in `<img src="data:…">` — are never read and never written by
+//     the walk. The one attribute that IS prose, a footnote's body
+//     (`data-footnote`), is exposed as a plain-text field of its own and
+//     written back through the DOM by note id (`withFootnoteTexts`), so it
+//     goes through the same matcher and the same escaping as a text node.
 //
 //   • NOTHING IS WRITTEN UNTIL THE WRITER SAYS SO, AND THEN ALL AT ONCE. The
 //     scan streams rows through a Dexie cursor and keeps only occurrence
@@ -36,6 +40,10 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 
 import { db } from '@/db';
 import { findMatches, type MatchOptions } from '@/components/editor/findReplace';
+import {
+  extractFootnotesFromHtml,
+  withFootnoteTexts,
+} from '@/components/editor/footnotes/footnoteModel';
 import { foldedContains, foldSearchText } from '@/services/searchQuery';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { codexEntryOps } from '@/engines/codex/operations';
@@ -577,12 +585,43 @@ function untitled(): string {
 
 // --- writings ---------------------------------------------------------------
 
+/** Field id of one footnote's body: `footnote.<note id>`. */
+const FOOTNOTE_FIELD_PREFIX = 'footnote.';
+
+/**
+ * The chapter's notes as fields of their own. The walk over the body reads
+ * text nodes only, and a note is an attribute, so without this a character
+ * renamed everywhere would keep the old name in every footnote. Each note is
+ * a plain-text field — one piece, no formatting can split a match — labelled
+ * with the number the editor prints beside it.
+ */
+function footnoteFields(html: string): ReplaceField[] {
+  return extractFootnotesFromHtml(html).map((note) => ({
+    id: `${FOOTNOTE_FIELD_PREFIX}${note.id}`,
+    labelKey: 'projectReplace.field.footnote',
+    labelName: String(note.index),
+    html: false,
+    value: note.text,
+  }));
+}
+
+/** The rewritten note bodies in `values`, keyed by note id. */
+function footnoteValues(values: ReadonlyMap<string, string>): Map<string, string> {
+  const texts = new Map<string, string>();
+  for (const [id, value] of values) {
+    if (id.startsWith(FOOTNOTE_FIELD_PREFIX)) texts.set(id.slice(FOOTNOTE_FIELD_PREFIX.length), value);
+  }
+  return texts;
+}
+
 function writingTarget(row: Writing): ReplaceRowTarget {
+  const html = row.content ?? '';
   return {
     fields: [
       { id: 'title', labelKey: 'projectReplace.field.title', html: false, value: row.title ?? '' },
       { id: 'synopsis', labelKey: 'projectReplace.field.synopsis', html: false, value: row.synopsis ?? '' },
-      { id: 'content', labelKey: 'projectReplace.field.body', html: true, value: row.content ?? '' },
+      { id: 'content', labelKey: 'projectReplace.field.body', html: true, value: html },
+      ...footnoteFields(html),
     ],
     async commit(values) {
       const patch: Partial<Writing> = {};
@@ -590,8 +629,12 @@ function writingTarget(row: Writing): ReplaceRowTarget {
       // The app stores an empty synopsis as absent; a replacement that empties
       // one should not leave `''` behind where nothing else does.
       if (values.has('synopsis')) patch.synopsis = values.get('synopsis') || undefined;
-      if (values.has('content')) {
-        const content = values.get('content') ?? '';
+      // The body and its notes are one column. The prose rewrite, if any,
+      // comes first and never touches an attribute; the notes are then written
+      // back into it by id, so both land in a single write of `content`.
+      const notes = footnoteValues(values);
+      if (values.has('content') || notes.size > 0) {
+        const content = withFootnoteTexts(values.get('content') ?? html, notes);
         patch.content = content;
         patch.wordCount = countWords(content);
       }

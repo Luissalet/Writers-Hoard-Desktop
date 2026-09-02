@@ -21,6 +21,7 @@ import {
   arr,
   b,
   grouped,
+  FOOTNOTE_NOTE,
   inEngine,
   MARKDOWN_NOTE,
   n,
@@ -167,7 +168,7 @@ const WRITING_TOOLS: BridgeTool[] = [
   },
   {
     name: 'wh_get_writing',
-    description: 'Read one manuscript piece in full. The body comes back as Markdown.',
+    description: 'Read one manuscript piece in full. The body comes back as Markdown; footnotes appear as [^id] references with their "[^id]: text" definitions after the prose.',
     writes: false,
     schema: {
       type: 'object',
@@ -178,14 +179,14 @@ const WRITING_TOOLS: BridgeTool[] = [
   },
   {
     name: 'wh_create_writing',
-    description: `Create a new manuscript piece. ${MARKDOWN_NOTE}`,
+    description: `Create a new manuscript piece. ${MARKDOWN_NOTE} ${FOOTNOTE_NOTE}`,
     writes: true,
     schema: {
       type: 'object',
       properties: {
         projectId: PROJECT_ID,
         title: s('Title of the piece.'),
-        content: s(`Body. ${MARKDOWN_NOTE}`),
+        content: s(`Body. ${MARKDOWN_NOTE} ${FOOTNOTE_NOTE}`),
         synopsis: s('One-paragraph summary shown on the card.'),
         status: s('Default "draft".', { enum: ['idea', 'draft', 'finished'] }),
         chapter: n('Chapter number, for ordering.'),
@@ -205,7 +206,7 @@ const WRITING_TOOLS: BridgeTool[] = [
       properties: {
         id: s('Writing id.'),
         title: s('New title.'),
-        content: s(`Replacement body. ${MARKDOWN_NOTE}`),
+        content: s(`Replacement body. ${MARKDOWN_NOTE} ${FOOTNOTE_NOTE}`),
         synopsis: s('New synopsis.'),
         status: s('New status.', { enum: ['idea', 'draft', 'finished'] }),
         chapter: n('New chapter number.'),
@@ -224,7 +225,7 @@ const WRITING_TOOLS: BridgeTool[] = [
       type: 'object',
       properties: {
         id: s('Writing id.'),
-        content: s(`Markdown to append. ${MARKDOWN_NOTE}`),
+        content: s(`Markdown to append. ${MARKDOWN_NOTE} ${FOOTNOTE_NOTE}`),
       },
       required: ['id', 'content'],
       additionalProperties: false,

@@ -200,7 +200,9 @@ export function updateAtlasCells(
   }
 }
 
-const ELEV_STOPS: [number, [number, number, number]][] = [
+/** Land colour ramp by elevation in KILOMETRES. Exported for the legend: the
+ *  swatches the reader sees next to the map are these very stops, not a copy. */
+export const ELEV_STOPS: [number, [number, number, number]][] = [
   [0.0, hex('#5e8b58')],
   [0.4, hex('#8aa15e')],
   [0.9, hex('#c4b070')],
@@ -210,7 +212,7 @@ const ELEV_STOPS: [number, [number, number, number]][] = [
   [4.2, hex('#f0f2f3')],
 ];
 
-function rampColor(v: number, stops: [number, [number, number, number]][]): [number, number, number] {
+export function rampColor(v: number, stops: [number, [number, number, number]][]): [number, number, number] {
   if (v <= stops[0][0]) return stops[0][1];
   for (let s = 1; s < stops.length; s++) {
     if (v <= stops[s][0]) {
@@ -241,7 +243,8 @@ function renderElevation(world: WorldData, px: Uint8ClampedArray): void {
   }
 }
 
-const TEMP_STOPS: [number, [number, number, number]][] = [
+/** Colour ramp by temperature in °C (legend reads the same table). */
+export const TEMP_STOPS: [number, [number, number, number]][] = [
   [-30, hex('#274a76')],
   [-12, hex('#5d8fc0')],
   [0, hex('#a9c8d8')],
@@ -259,7 +262,8 @@ function renderTemperature(world: WorldData, px: Uint8ClampedArray): void {
   }
 }
 
-const RAIN_STOPS: [number, [number, number, number]][] = [
+/** Colour ramp by precipitation in mm/year (legend reads the same table). */
+export const RAIN_STOPS: [number, [number, number, number]][] = [
   [0, hex('#d9c493')],
   [350, hex('#c2bd7d')],
   [800, hex('#8fb56f')],
@@ -304,14 +308,20 @@ function renderPlates(world: WorldData, px: Uint8ClampedArray): void {
   }
 }
 
+/** The flow view's colour for a normalised accumulation in [0, 1]. Exported so
+ *  the legend's two ends are the render's own dark and bright, not a guess. */
+export function flowColor(flow: number): [number, number, number] {
+  const f = Math.pow(flow, 1.6);
+  return [34 + f * 96, 40 + f * 150, 48 + f * 200];
+}
+
 function renderFlow(world: WorldData, px: Uint8ClampedArray): void {
   const { width: W, height: H, elevation, flow } = world;
   for (let i = 0; i < W * H; i++) {
     if (elevation[i] <= 0) {
       put(px, i, 16, 26, 38);
     } else {
-      const f = Math.pow(flow[i], 1.6);
-      const r = 34 + f * 96, g = 40 + f * 150, b = 48 + f * 200;
+      const [r, g, b] = flowColor(flow[i]);
       put(px, i, r, g, b);
     }
   }

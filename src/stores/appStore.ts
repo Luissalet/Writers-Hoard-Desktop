@@ -4,12 +4,18 @@ import { getSetting, setSetting } from '@/db/operations';
 export type ReadingFace = 'serif' | 'sans' | 'mono';
 export type ReadingSize = 'small' | 'medium' | 'large';
 export type ReadingMeasure = 'narrow' | 'wide';
+/** `flow` is the continuous column; `page` sets the text on sheets with page breaks. */
+export type ReadingLayout = 'flow' | 'page';
+export type ReadingPageSize = 'a4' | 'letter';
 
 /** How the manuscript is set. Interface chrome is not affected. */
 export interface ReadingPreferences {
   face: ReadingFace;
   size: ReadingSize;
   measure: ReadingMeasure;
+  layout: ReadingLayout;
+  /** Only read in the `page` layout; kept so switching back restores it. */
+  pageSize: ReadingPageSize;
 }
 
 /**
@@ -24,12 +30,16 @@ const DEFAULT_READING: ReadingPreferences = {
   face: 'serif',
   size: 'medium',
   measure: 'wide',
+  layout: 'flow',
+  pageSize: 'a4',
 };
 
 const READING_KEY = 'ui_reading';
 const FACES: readonly ReadingFace[] = ['serif', 'sans', 'mono'];
 const SIZES: readonly ReadingSize[] = ['small', 'medium', 'large'];
 const MEASURES: readonly ReadingMeasure[] = ['narrow', 'wide'];
+const LAYOUTS: readonly ReadingLayout[] = ['flow', 'page'];
+const PAGE_SIZES: readonly ReadingPageSize[] = ['a4', 'letter'];
 
 function pick<T extends string>(allowed: readonly T[], value: unknown, fallback: T): T {
   return typeof value === 'string' && (allowed as readonly string[]).includes(value)
@@ -47,6 +57,8 @@ function parseReading(raw: string | undefined): ReadingPreferences {
       face: pick(FACES, record.face, DEFAULT_READING.face),
       size: pick(SIZES, record.size, DEFAULT_READING.size),
       measure: pick(MEASURES, record.measure, DEFAULT_READING.measure),
+      layout: pick(LAYOUTS, record.layout, DEFAULT_READING.layout),
+      pageSize: pick(PAGE_SIZES, record.pageSize, DEFAULT_READING.pageSize),
     };
   } catch {
     return DEFAULT_READING;

@@ -1,6 +1,10 @@
 import Dexie, { type Table } from 'dexie';
 import { db } from '@/db';
 import { stripHtml } from '@/utils/text';
+import {
+  FOOTNOTE_ID_ATTR,
+  renderFootnoteRefs,
+} from '@/components/editor/footnotes/footnoteModel';
 import { getAllEngines } from '@/engines/_registry';
 import { toLocalDateKey } from '@/engines/writing-stats/date';
 import { t } from '@/i18n/useTranslation';
@@ -116,6 +120,29 @@ function excerpt(plain: string, index: number, length: number): string {
 }
 
 /**
+ * A chapter's searchable text: its prose, then the body of each footnote on a
+ * line of its own, in document order.
+ *
+ * A note lives in a `data-footnote` attribute, which `stripHtml` throws away
+ * with the tag — rightly, for the word count, where a note is not prose. For
+ * the index it is the writer's own words, and "where did I mention the 1911
+ * survey" has to find a chapter that only says so in a note. The notes come
+ * last, so a chapter that says the word only in a note sits below one that
+ * says it in the prose (the body-early band in `scoreSearchMatch`), and the
+ * snippet, cut from `body`, then quotes the note itself. The references are
+ * removed through the DOM before the strip, so a note holding `>` cannot leak
+ * half of itself into the prose; a chapter without notes never pays for the
+ * parse.
+ */
+function writingSearchText(html: string): string {
+  if (!html.includes(FOOTNOTE_ID_ATTR)) return stripHtml(html);
+  const { html: prose, notes } = renderFootnoteRefs(html, () => '');
+  return [stripHtml(prose), ...notes.map(note => note.text.replace(/\s+/g, ' ').trim())]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
  * Stream one table and keep only the projected fields. The rows themselves are
  * never retained, so the base64 columns some of these tables carry (`avatar`,
  * `avatarOriginal`, `thumbnail`, `screenshotBase64`, `htmlContent`) never reach
@@ -155,7 +182,7 @@ const SLICES: Record<string, IndexSlice> = {
       projectId: writing.projectId,
       title: writing.title,
       subtitle: writing.status,
-      body: stripHtml(writing.content ?? ''),
+      body: writingSearchText(writing.content ?? ''),
       tags: writing.tags,
       status: writing.status,
       updatedAt: writing.updatedAt,

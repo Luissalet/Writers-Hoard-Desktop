@@ -1187,3 +1187,53 @@ verify:quick, críticos) y para lo que sólo existe allí: la GPU, el app en
 marcha, la vista abierta. Y cuando un harness falla, comprueba primero que el
 harness reproduce el entorno real (UA, módulos que se registran al importar)
 antes de tocar el código.
+
+## #61 — Un test que falla tras un cambio deliberado es una pregunta de contrato, no una caza de bugs
+
+**Qué pasó (2026-09-02).** La ronda 3 cambió cinco comportamientos a propósito y cinco tests se
+pusieron rojos. Ninguno era un fallo del código: el sanitizador ya no tira una nota que empieza por
+«data:», los anillos del mapa se desenrollan más allá de ±180 para que Fiji sea una figura y no una
+banda, una ventana de dos mundos de ancho dibuja dos copias, las columnas de teselas se dejan sin
+acotar para `wrapTileX`, y una llamada del copiloto lleva un pin de proyecto que la del puente no
+lleva. Cuatro de los cinco tests consagraban además la limitación que la ronda venía a quitar —
+uno lo decía por escrito: «Recorded here so the limitation is visible, not discovered».
+
+**Regla.** Ante un test rojo después de un cambio querido, primero decide de quién es la verdad. Si
+el código nuevo es el que manda, el test no se «ajusta» al número que salga: se REESCRIBE para
+enunciar el invariante que ahora rige, con el porqué en un comentario, y —esto es lo que salva -—
+añadiendo la comprobación de que el cambio no abrió la puerta que el código viejo guardaba (aquí:
+que un `data:image/svg+xml` dentro de un `<img>` sigue rechazado). Un test corregido a base de
+cambiar el número esperado no protege nada.
+
+**Y una señal.** Si el número que sale es MENOR que el esperado y el asunto es un recuento de
+palabras, no lo toques hasta contar a mano: nueve eran ocho más un pedazo de atributo que se colaba.
+
+## #62 — Vite recarga el renderer, no el preload: para probar algo que cruza el IPC hay que reiniciar
+
+**Qué pasó (2026-09-02).** Extraje la iteración 2 en la máquina de Luis con la app de desarrollo en
+marcha y fui a probar el botón «Buscar las coordenadas». No estaba. El código estaba bien: el botón
+sólo se dibuja si existe `window.electronAPI.atlas.geocode`, y eso lo expone el PRELOAD, que es un
+bundle del proceso principal. Vite había recargado el renderer con el botón dentro, pero Electron
+seguía con el `dist-electron/preload.cjs` viejo, sin ese puente. Diez minutos buscando un fallo que
+no existía.
+
+**Regla.** Un cambio en `electron/**` (main, preload, security) no llega por recarga en caliente:
+mata `dev-desktop.mjs` y relánzalo, y comprueba en su salida que `preload.cjs` cambió de tamaño. Antes
+de reiniciar la app del usuario, mira `IDLE_SECONDS`; si la instancia la levanté yo para probar, es
+mía y la reinicio sin más.
+
+## #63 — Un paquete «desde HEAD~1» no es «lo que falta en la otra máquina»
+
+**Qué pasó (2026-09-02, 23:38).** Abrí el Generador de Mundos en la app de Luis y Vite escupió
+«Failed to resolve import ../core/measure». Los ficheros nuevos de worldgen (regla, leyenda,
+teclado) NUNCA habían llegado a Windows: la ronda eran varios commits y mi `push.sh HEAD~1`
+empaquetaba sólo el último. Las puertas de Windows habían salido verdes porque el `Map2D.tsx`
+que las importaba tampoco había llegado aún; llegó en el commit siguiente, ya con los imports
+rotos, y esa vez no repetí las puertas allí. Ningún test lo vio: los tests corrían en el contenedor,
+donde todo estaba. Lo vio abrir la pestaña.
+
+**Regla.** El paquete se calcula desde el último commit que DE VERDAD aterrizó en la otra máquina
+(`push.sh` guarda ese hash y `--landed` lo avanza), nunca desde `HEAD~1`. Tras extraer, hash
+agregado de TODOS los ficheros del paquete a ambos lados, y las cuatro puertas EN WINDOWS otra vez
+— y después, la app abierta con los ojos, pestaña por pestaña. Un árbol verde aquí no dice nada de
+qué ficheros tiene el otro.

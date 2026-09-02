@@ -465,3 +465,382 @@ body {
 .copilot-md hr { border: 0; border-top: 1px solid var(--color-border); margin: 0.6rem 0; }
 .copilot-md strong { color: var(--color-text-primary); }
 .copilot-md img { max-width: 100%; border-radius: 6px; }
+
+/* --- footnotes --- */
+/* The reference is an empty <sup>; its number is this counter, so the editor,
+   the reading view and the persisted HTML agree on it without anyone writing
+   it down. Reset per prose body: the reader stacks several chapters in one
+   scroll, and each restarts at 1 as the exporters do. */
+.tiptap-editor .ProseMirror {
+  counter-reset: wh-footnote;
+}
+
+.tiptap-editor .ProseMirror sup.wh-footnote-ref {
+  counter-increment: wh-footnote;
+  display: inline-block;
+  min-width: 1.1em;
+  margin: 0 0.05em;
+  padding: 0 0.25em;
+  border-radius: 3px;
+  font-size: 0.68em;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+  vertical-align: 0.45em;
+  color: var(--color-accent-gold);
+  background: rgba(196, 151, 59, 0.14);
+  cursor: pointer;
+  user-select: none;
+}
+
+.tiptap-editor .ProseMirror sup.wh-footnote-ref::before {
+  content: counter(wh-footnote);
+}
+
+/* Marker styles. The attribute sits on an ancestor (the editor wrapper, the
+   reading view, the book), and `formatFootnoteMarker` in footnoteModel.ts
+   prints the same sequence for the exporters that have no CSS counters. */
+@counter-style wh-footnote-symbols {
+  system: symbolic;
+  symbols: '*' '†' '‡' '§' '‖' '¶';
+  /* No trailing period: "*." reads as a sentence end, "1." does not. */
+  suffix: ' ';
+}
+
+[data-footnote-style='symbols'] .tiptap-editor .ProseMirror sup.wh-footnote-ref::before,
+.tiptap-editor[data-footnote-style='symbols'] .ProseMirror sup.wh-footnote-ref::before {
+  content: counter(wh-footnote, wh-footnote-symbols);
+}
+
+[data-footnote-style='roman'] .tiptap-editor .ProseMirror sup.wh-footnote-ref::before,
+.tiptap-editor[data-footnote-style='roman'] .ProseMirror sup.wh-footnote-ref::before {
+  content: counter(wh-footnote, lower-roman);
+}
+
+[data-footnote-style='letters'] .tiptap-editor .ProseMirror sup.wh-footnote-ref::before,
+.tiptap-editor[data-footnote-style='letters'] .ProseMirror sup.wh-footnote-ref::before {
+  content: counter(wh-footnote, lower-alpha);
+}
+
+/* The lists that print the notes (reading view endnotes, page-mode feet)
+   follow the same style through `list-style-type`. */
+[data-footnote-style='symbols'] .wh-page-notes,
+.tiptap-editor[data-footnote-style='symbols'] .wh-page-notes {
+  list-style-type: wh-footnote-symbols;
+}
+[data-footnote-style='roman'] .wh-page-notes,
+.tiptap-editor[data-footnote-style='roman'] .wh-page-notes {
+  list-style-type: lower-roman;
+}
+[data-footnote-style='letters'] .wh-page-notes,
+.tiptap-editor[data-footnote-style='letters'] .wh-page-notes {
+  list-style-type: lower-alpha;
+}
+
+/* Specific enough to beat the prose `ol` rule above: the marker is printed
+   by the span, so the list must not print a decimal beside it. */
+.wh-endnotes ol.wh-endnotes-marked,
+.tiptap-editor .ProseMirror .wh-endnotes ol.wh-endnotes-marked {
+  list-style: none;
+  padding-left: 0;
+}
+.wh-endnote-marker {
+  display: inline-block;
+  min-width: 1.4em;
+  font-weight: 600;
+  color: var(--color-accent-gold);
+}
+
+.tiptap-editor .ProseMirror sup.wh-footnote-ref:hover {
+  background: rgba(196, 151, 59, 0.28);
+}
+
+.tiptap-editor .ProseMirror sup.wh-footnote-ref.ProseMirror-selectednode {
+  outline: 2px solid var(--color-accent-gold);
+  outline-offset: 1px;
+  background: rgba(196, 151, 59, 0.32);
+}
+
+/* Endnotes under a chapter in the reading view (`renderEndnotesHtml`). */
+.tiptap-editor .ProseMirror .wh-endnotes {
+  margin-top: 2em;
+  padding-top: 0.75em;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+}
+
+.tiptap-editor .ProseMirror .wh-endnotes h2 {
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+  margin: 0 0 0.6em;
+}
+
+.tiptap-editor .ProseMirror .wh-endnotes ol {
+  padding-left: 1.6em;
+  list-style: decimal;
+}
+
+.tiptap-editor .ProseMirror .wh-endnotes li {
+  margin: 0.25em 0;
+}
+
+.tiptap-editor .ProseMirror .wh-endnotes li::marker {
+  color: var(--color-accent-gold);
+  font-weight: 600;
+}
+
+/* --- book mode --- */
+/* The chapter heading node in the whole-book editor: the chapter's number on
+   the left in the app's titling face, the title itself set large in the
+   prose face, and the heading's own controls on the right, shown on hover.
+   The outer element is the node view (`.wh-chapter-heading`); inside it the
+   editable `h1` is the title. The first heading of the book carries no rule
+   above it — a rule with nothing above it is a stain, not a divider. */
+.tiptap-editor .ProseMirror .wh-chapter-heading {
+  position: relative;
+  margin: 2.4em 0 0.9em;
+  padding-top: 1.1em;
+  border-top: 1px solid var(--color-border);
+}
+
+.tiptap-editor .ProseMirror .wh-chapter-heading:first-child {
+  margin-top: 0.4em;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* On sheets every chapter opens a page (`break-before`), so the rule that
+   divides chapters in the flow has nothing to divide: the chapter sits a
+   third of the way down its fresh page, as a printed book sets it. */
+.tiptap-editor[data-editor-layout='page'] .ProseMirror .wh-chapter-heading {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 6em;
+}
+
+.tiptap-editor .ProseMirror .wh-chapter-heading__row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75em;
+}
+
+.tiptap-editor .ProseMirror .wh-chapter-heading__label {
+  flex: 0 0 auto;
+  font-family: var(--font-serif);
+  font-size: 0.7em;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-accent-gold);
+  user-select: none;
+}
+
+/* The title overrides the editor's generic h1 rule: a chapter title is set in
+   the prose face, but larger and in the page's own colour rather than gold —
+   the gold is already spent on the label beside it. */
+.tiptap-editor .ProseMirror h1.wh-chapter-heading__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-family: inherit;
+  font-size: 1.8em;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--color-text-primary);
+  position: relative;
+}
+
+/* An untitled chapter. The floated pseudo-element takes no height, so the
+   caret sits at the start of the line, over the hint. */
+.tiptap-editor .ProseMirror h1.wh-chapter-heading__title[data-empty]::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--color-text-dim);
+  font-weight: 400;
+  pointer-events: none;
+}
+
+.tiptap-editor .ProseMirror .wh-chapter-heading__actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15em;
+  align-self: center;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  user-select: none;
+}
+
+.tiptap-editor .ProseMirror .wh-chapter-heading:hover .wh-chapter-heading__actions,
+.tiptap-editor .ProseMirror .wh-chapter-heading:focus-within .wh-chapter-heading__actions {
+  opacity: 1;
+}
+
+.tiptap-editor .ProseMirror .wh-chapter-heading__grip {
+  display: inline-flex;
+  flex-direction: column;
+  margin-left: 0.25em;
+  border-left: 1px solid var(--color-border);
+  padding-left: 0.25em;
+}
+
+.tiptap-editor .ProseMirror .wh-chapter-heading__grip .wh-chapter-heading__button {
+  padding: 0 0.15em;
+  line-height: 1;
+}
+
+/* A page layout reads this attribute; the flow layout just leaves room. */
+[data-editor-layout='page'] .ProseMirror .wh-chapter-heading {
+  break-before: page;
+}
+
+/* --- page mode ---------------------------------------------------------------
+   The manuscript on sheets, as a word processor shows it: `.tiptap-editor`
+   carries `data-editor-layout="page"` and the PageLayout extension (see
+   src/components/editor/pageMode/) ends every page with a widget — foot,
+   band of desk, head of the next sheet. The GEOMETRY of all that (the flex
+   column, the sheet's size and padding, the heights of foot, band and head)
+   is the extension's own stylesheet, injected on mount, because the page
+   arithmetic depends on it. Here is only the look: the desk, the paper, black
+   on white for everything the dark theme paints light. */
+.tiptap-editor[data-editor-layout='page'] {
+  --wh-desk: #0b0b12;
+  --wh-paper: #fdfdfb;
+  --wh-ink: #1a1a1a;
+  --wh-ink-muted: #5c5c5c;
+  --wh-page-gap: 24px;
+}
+
+/* The desk: EditorContent's own div, the sheet's parent. A sheet is wider
+   than a narrow column, so the desk scrolls sideways rather than clipping. */
+.tiptap-editor[data-editor-layout='page'] > div:has(> .ProseMirror) {
+  background: var(--wh-desk);
+  overflow-x: auto;
+  padding: 24px 16px;
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror {
+  background: var(--wh-paper);
+  color: var(--wh-ink);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.6),
+    0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* The sheet is a flex column (see the extension's stylesheet), so vertical
+   margins no longer collapse: bottom-only margins keep the flow layout's
+   rhythm — 0.5em between paragraphs, 1.2em before a heading, 0.5em after. */
+.tiptap-editor[data-editor-layout='page'] .ProseMirror p {
+  margin: 0 0 0.5em;
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror h1,
+.tiptap-editor[data-editor-layout='page'] .ProseMirror h2,
+.tiptap-editor[data-editor-layout='page'] .ProseMirror h3 {
+  margin: 0.7em 0 0.5em;
+  color: var(--wh-ink);
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror a {
+  color: #4a3f8f;
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror blockquote {
+  border-left-color: #b0a68c;
+  color: var(--wh-ink-muted);
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror code {
+  background: #efefe9;
+  color: var(--wh-ink);
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror pre {
+  background: #f3f3ee;
+  color: var(--wh-ink);
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror hr {
+  border-color: #c9c9c2;
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror .is-editor-empty:first-child::before {
+  color: #a0a0a0;
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror .wh-find-match {
+  background: rgba(196, 151, 59, 0.35);
+  box-shadow: 0 0 0 1px rgba(196, 151, 59, 0.7);
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror .wh-find-current {
+  background: var(--color-accent-amber);
+  color: var(--wh-ink);
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror sup.wh-footnote-ref {
+  color: #4a3f8f;
+  background: rgba(74, 63, 143, 0.12);
+}
+
+/* The whole-book editor's chapter headings, on paper. */
+.tiptap-editor[data-editor-layout='page'] .ProseMirror .wh-chapter-heading {
+  border-top-color: #c9c9c2;
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror h1.wh-chapter-heading__title {
+  color: var(--wh-ink);
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror h1.wh-chapter-heading__title[data-empty]::before {
+  color: #a0a0a0;
+}
+
+.tiptap-editor[data-editor-layout='page'] .ProseMirror ::selection {
+  background: rgba(124, 92, 191, 0.25);
+}
+
+/* The page end. The widget is contenteditable=false and not selectable; the
+   caret at its position sits on the page that follows. */
+.tiptap-editor[data-editor-layout='page'] .wh-page-break {
+  font-family: var(--wh-face-sans);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--wh-ink-muted);
+  cursor: default;
+}
+
+.tiptap-editor[data-editor-layout='page'] .wh-page-foot {
+  background: var(--wh-paper);
+}
+
+.tiptap-editor[data-editor-layout='page'] .wh-page-notes {
+  border-top-color: #c9c9c2;
+  color: #333;
+  font-family: var(--wh-reading-font);
+  /* No list-style here: the marker style rules above (`data-footnote-style`)
+     decide it, and this rule comes later in the sheet. */
+}
+
+.tiptap-editor[data-editor-layout='page'] .wh-page-number {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #8a8a8a;
+}
+
+/* The band of desk between two sheets; the shadows draw the edge of each. */
+.tiptap-editor[data-editor-layout='page'] .wh-page-gap {
+  background: var(--wh-desk);
+  box-shadow:
+    inset 0 4px 6px -3px rgba(0, 0, 0, 0.9),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.tiptap-editor[data-editor-layout='page'] .wh-page-head {
+  background: var(--wh-paper);
+}

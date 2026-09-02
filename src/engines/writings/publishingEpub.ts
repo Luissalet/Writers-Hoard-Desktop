@@ -1,10 +1,32 @@
+import {
+  FOOTNOTE_ID_ATTR,
+  FOOTNOTE_REF_SELECTOR,
+  FOOTNOTE_TEXT_ATTR,
+  formatFootnoteMarker,
+  type ExtractedFootnote,
+} from '@/components/editor/footnotes/footnoteModel';
+import type { FootnoteMarkerStyle } from '@/types';
 import { xmlSafeText, type PublishingDocument } from './publishingDocument';
 
 const XHTML_TAGS = new Set([
-  'a', 'b', 'blockquote', 'br', 'code', 'del', 'div', 'em', 'h1', 'h2', 'h3',
+  'a', 'aside', 'b', 'blockquote', 'br', 'code', 'del', 'div', 'em', 'h1', 'h2', 'h3',
   'h4', 'h5', 'h6', 'hr', 'i', 'li', 'ol', 'p', 'pre', 's', 'span', 'strong',
   'sub', 'sup', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'u', 'ul',
 ]);
+
+/**
+ * Written onto each footnote reference before the chapter is serialised, so
+ * the reference can print its number without the walk carrying a counter.
+ * Per chapter, each chapter is its own XHTML file with its own notes, and a
+ * reader shows "3" beside the third note of the chapter, as the editor does;
+ * at the end of the book the numbers count on and every reference points
+ * into one shared notes file instead.
+ */
+const FOOTNOTE_NUMBER_ATTR = 'data-footnote-number';
+/** The file the reference's `href` points into; empty for the chapter's own. */
+const FOOTNOTE_FILE_ATTR = 'data-footnote-file';
+/** The one file that holds every note when they go at the end of the book. */
+const NOTES_HREF = 'notes.xhtml';
 
 // The characters XML cannot carry at all — C0 controls, non-characters, lone
 // surrogates — are dropped by `xmlSafeText`, which lives beside the IR because
@@ -25,6 +47,14 @@ function serializeXhtmlNode(node: Node): string {
   if (!(node instanceof Element)) return '';
   const sourceTag = node.tagName.toLowerCase();
   if (sourceTag === 'img') return '';
+  if (sourceTag === 'sup' && node.hasAttribute(FOOTNOTE_NUMBER_ATTR)) {
+    // EPUB 3's own footnote vocabulary: a reader that knows `noteref` shows
+    // the note in a pop-up and keeps the `aside` out of the flow.
+    const id = escapeXml(node.getAttribute(FOOTNOTE_ID_ATTR) ?? '');
+    const number = escapeXml(node.getAttribute(FOOTNOTE_NUMBER_ATTR) ?? '');
+    const file = escapeXml(node.getAttribute(FOOTNOTE_FILE_ATTR) ?? '');
+    return `<a epub:type="noteref" class="wh-noteref" href="${file}#fn-${id}" id="fnref-${id}"><sup>${number}</sup></a>`;
+  }
   if (!XHTML_TAGS.has(sourceTag)) {
     return [...node.childNodes].map(serializeXhtmlNode).join('');
   }
@@ -40,16 +70,68 @@ function serializeXhtmlNode(node: Node): string {
   return `<${tag}${attributes.join('')}>${[...node.childNodes].map(serializeXhtmlNode).join('')}</${tag}>`;
 }
 
-function toXhtmlFragment(html: string): string {
+function numberFootnotes(
+  root: ParentNode,
+  style: FootnoteMarkerStyle,
+  start: number,
+  file: string,
+): ExtractedFootnote[] {
+  const notes: ExtractedFootnote[] = [];
+  for (const element of root.querySelectorAll(FOOTNOTE_REF_SELECTOR)) {
+    const index = start + notes.length;
+    element.setAttribute(FOOTNOTE_NUMBER_ATTR, formatFootnoteMarker(index, style));
+    if (file) element.setAttribute(FOOTNOTE_FILE_ATTR, file);
+    notes.push({
+      id: element.getAttribute(FOOTNOTE_ID_ATTR) ?? '',
+      text: element.getAttribute(FOOTNOTE_TEXT_ATTR) ?? '',
+      index,
+    });
+  }
+  return notes;
+}
+
+/**
+ * One note as EPUB 3 marks it. `backFile` is the chapter file the reference
+ * lives in — empty when the aside sits in that same file, after the prose.
+ * An aside in the shared notes file is an `endnote`, not a `footnote`: the
+ * readers that pop notes up (Apple Books among them) hide a `footnote` aside
+ * from the flow altogether, which in a file made of nothing else would leave
+ * the reader a blank page titled "Notes". Both types pop up from a `noteref`.
+ */
+function footnoteAside(note: ExtractedFootnote, style: FootnoteMarkerStyle, backFile = ''): string {
+  const id = escapeXml(note.id);
+  const text = note.text.split(/\r?\n/).map(escapeXml).join('<br />');
+  const marker = escapeXml(formatFootnoteMarker(note.index, style));
+  const separator = style === 'numbers' ? '.' : '';
+  const type = backFile ? 'endnote' : 'footnote';
+  return `<aside epub:type="${type}" class="wh-footnote" id="fn-${id}"><p>${marker}${separator} ${text} <a href="${escapeXml(backFile)}#fnref-${id}">↩</a></p></aside>`;
+}
+
+/**
+ * The chapter's prose as XHTML with its notes numbered from `start`. With no
+ * `notesFile` the notes follow the prose as `aside`s in the same file; with
+ * one, they are handed back for that file and the references point into it
+ * (a cross-file `noteref` is valid EPUB 3, and the readers that pop notes up
+ * follow it just the same).
+ */
+function toXhtmlFragment(
+  html: string,
+  style: FootnoteMarkerStyle,
+  start = 1,
+  notesFile = '',
+): { xhtml: string; notes: ExtractedFootnote[] } {
   const parsed = new DOMParser().parseFromString(html, 'text/html');
-  return [...parsed.body.childNodes].map(serializeXhtmlNode).join('');
+  const notes = numberFootnotes(parsed.body, style, start, notesFile);
+  const body = [...parsed.body.childNodes].map(serializeXhtmlNode).join('');
+  if (notesFile) return { xhtml: body, notes };
+  return { xhtml: body + notes.map((note) => footnoteAside(note, style)).join(''), notes };
 }
 
 function xhtmlPage(document: PublishingDocument, title: string, body: string): string {
   const locale = escapeXml(document.locale);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${locale}" lang="${locale}">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${locale}" lang="${locale}">
 <head>
   <meta charset="UTF-8" />
   <title>${escapeXml(title)}</title>
@@ -88,16 +170,41 @@ export async function buildPublishingEpub(document: PublishingDocument): Promise
     navigation.push({ href, title: document.title });
   }
 
+  const bookNotes = document.footnotePlacement === 'book';
+  // Each chapter's notes, for the one notes file after the last chapter.
+  const notesBody: string[] = [];
+  let nextNumber = 1;
   document.sections.forEach((section, index) => {
     const id = `section-${index + 1}`;
     const href = `${id}.xhtml`;
     const synopsis = section.synopsis ? `<p class="synopsis">${escapeXml(section.synopsis)}</p>` : '';
-    const body = `<section><h1>${escapeXml(section.title)}</h1>${synopsis}${toXhtmlFragment(section.portableHtml)}</section>`;
+    const fragment = toXhtmlFragment(
+      section.portableHtml,
+      document.footnoteStyle,
+      bookNotes ? nextNumber : 1,
+      bookNotes ? NOTES_HREF : '',
+    );
+    if (bookNotes && fragment.notes.length > 0) {
+      nextNumber += fragment.notes.length;
+      notesBody.push(
+        `<h2>${escapeXml(section.title)}</h2>`
+        + fragment.notes.map((note) => footnoteAside(note, document.footnoteStyle, href)).join(''),
+      );
+    }
+    const body = `<section><h1>${escapeXml(section.title)}</h1>${synopsis}${fragment.xhtml}</section>`;
     zip.file(`EPUB/${href}`, xhtmlPage(document, section.title, body));
     manifest.push(`<item id="${id}" href="${href}" media-type="application/xhtml+xml" />`);
     spine.push(`<itemref idref="${id}" />`);
     navigation.push({ href, title: section.title });
   });
+
+  if (notesBody.length > 0) {
+    const body = `<section epub:type="endnotes" class="wh-endnotes"><h1>${escapeXml(document.notesLabel)}</h1>${notesBody.join('')}</section>`;
+    zip.file(`EPUB/${NOTES_HREF}`, xhtmlPage(document, document.notesLabel, body));
+    manifest.push(`<item id="notes" href="${NOTES_HREF}" media-type="application/xhtml+xml" />`);
+    spine.push('<itemref idref="notes" />');
+    navigation.push({ href: NOTES_HREF, title: document.notesLabel });
+  }
 
   if (document.bibliography.length > 0 && document.bibliographyTitle) {
     const href = 'bibliography.xhtml';
@@ -117,6 +224,11 @@ p { margin: 0 0 0.5em; }
 .synopsis { font-style: italic; text-align: center; margin-bottom: 2em; }
 blockquote { margin: 1em 2em; font-style: italic; }
 pre, code { font-family: monospace; }
+.wh-noteref { text-decoration: none; }
+.wh-footnote { margin-top: 1.5em; padding-top: 0.5em; border-top: 1px solid #999; font-size: 0.85em; }
+.wh-footnote + .wh-footnote { margin-top: 0; padding-top: 0; border-top: 0; }
+.wh-endnotes h2 { text-align: left; font-size: 1em; margin: 1.5em 0 0.5em; }
+.wh-endnotes .wh-footnote { margin-top: 0; padding-top: 0; border-top: 0; font-size: 1em; }
 table { border-collapse: collapse; }
 td, th { border: 1px solid #777; padding: 0.25em; }`);
 
