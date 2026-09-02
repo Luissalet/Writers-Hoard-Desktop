@@ -13,6 +13,14 @@
 import type { Writing } from '@/types';
 import { isDesktop } from '@/utils/platform';
 import {
+  renderBookEndnotesHtml,
+  renderEndnotesHtml,
+  renderFootnoteRefs,
+  formatFootnoteMarker,
+  type EndnoteGroup,
+  type ExtractedFootnote,
+} from '@/components/editor/footnotes/footnoteModel';
+import {
   composePublishingDocument,
   type PublishingDocument,
 } from './publishingDocument';
@@ -27,6 +35,8 @@ export interface CompileOptions {
   untitledLabel?: string;
   /** Localized label rendered beside the title-page word count. */
   wordLabel?: string;
+  /** Heading over a chapter's footnotes, e.g. "Notas" / "Notes". */
+  notesLabel?: string;
   /** BCP 47 locale used for dates and numbers in the exported document. */
   locale?: string;
   /** Injectable timestamp keeps artifact tests deterministic. */
@@ -47,8 +57,30 @@ function decodeEntities(s: string): string {
     .replace(/&quot;/gi, '"');
 }
 
-export function htmlToMarkdown(html: string): string {
-  let s = html.replace(/\r/g, '');
+/** A note's body as the text after `[^n]: ` — later lines indented as Markdown continues a footnote. */
+function markdownNoteText(text: string): string {
+  return text.split(/\r?\n/).join('\n    ');
+}
+
+/** The `[^n]: …` definitions of some notes, one per line. */
+function markdownFootnoteDefinitions(notes: readonly ExtractedFootnote[]): string {
+  return notes.map((note) => `[^${note.index}]: ${markdownNoteText(note.text)}`).join('\n');
+}
+
+/**
+ * One chapter's prose as Markdown, with its footnote references as `[^n]`
+ * and the notes handed back separately so the caller decides where the
+ * definitions go: after the chapter, or — numbered on from `start` — in one
+ * list at the end of the book.
+ */
+export function htmlToMarkdownParts(
+  html: string,
+  start = 1,
+): { prose: string; notes: ExtractedFootnote[] } {
+  // Footnotes first, while the references are still elements: the generic
+  // tag strip at the end would leave nothing of an empty <sup>.
+  const footnotes = renderFootnoteRefs(html, (note) => `[^${note.index}]`, start);
+  let s = footnotes.html.replace(/\r/g, '');
 
   // Inline marks first (so block regexes see clean text)
   s = s.replace(/<(strong|b)[^>]*>(.*?)<\/\1>/gis, '**$2**');
@@ -96,7 +128,16 @@ export function htmlToMarkdown(html: string): string {
   s = s.replace(/<[^>]+>/g, '');
   s = decodeEntities(s);
   s = s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-  return s;
+  return { prose: s, notes: footnotes.notes };
+}
+
+/**
+ * One chapter as Markdown. The numbers restart with the call, and the notes
+ * are listed after the prose the way Markdown footnotes are.
+ */
+export function htmlToMarkdown(html: string): string {
+  const { prose, notes } = htmlToMarkdownParts(html);
+  return notes.length > 0 ? `${prose}\n\n${markdownFootnoteDefinitions(notes)}` : prose;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,11 +154,31 @@ export function renderPublishingMarkdown(document: PublishingDocument): string {
     const date = new Date(document.generatedAt).toLocaleDateString(document.locale);
     parts.push(`# ${escapeHtml(document.title)}\n\n*${document.wordCount.toLocaleString(document.locale)} ${escapeHtml(document.wordLabel)} · ${escapeHtml(date)}*\n\n---`);
   }
+  // With the notes at the end of the book, the definitions of every chapter
+  // are held back and numbered on: Markdown footnote labels are per file,
+  // so two chapters both defining `[^1]` would be one definition lost.
+  const bookNotes = document.footnotePlacement === 'book';
+  const endnotes: EndnoteGroup[] = [];
+  let nextNumber = 1;
   for (const section of document.sections) {
     parts.push(`\n\n## ${escapeHtml(section.title)}\n`);
     if (section.synopsis) parts.push(`*${escapeHtml(section.synopsis)}*\n`);
-    parts.push(htmlToMarkdown(section.html));
+    if (bookNotes) {
+      const { prose, notes } = htmlToMarkdownParts(section.html, nextNumber);
+      nextNumber += notes.length;
+      endnotes.push({ title: section.title, notes });
+      parts.push(prose);
+    } else {
+      parts.push(htmlToMarkdown(section.html));
+    }
     parts.push('\n\n---');
+  }
+  if (bookNotes && endnotes.some((group) => group.notes.length > 0)) {
+    parts.push(`\n\n# ${escapeHtml(document.notesLabel)}\n`);
+    for (const group of endnotes) {
+      if (group.notes.length === 0) continue;
+      parts.push(`\n## ${escapeHtml(group.title)}\n\n${markdownFootnoteDefinitions(group.notes)}\n`);
+    }
   }
   if (document.bibliography.length > 0 && document.bibliographyTitle) {
     parts.push(`\n\n# ${escapeHtml(document.bibliographyTitle)}\n`);
@@ -132,16 +193,43 @@ export function buildManuscriptHtml(writings: Writing[], opts: CompileOptions): 
 
 export function renderPublishingHtml(document: PublishingDocument): string {
   const date = new Date(document.generatedAt).toLocaleDateString(document.locale);
+  // Numbers written into the file rather than left to a CSS counter: a mail
+  // client or a PDF viewer's text layer has no counters. Per chapter they
+  // restart and the notes follow the chapter they belong to; at the end of
+  // the book they count on, and every chapter's notes wait for the section
+  // after the last one. The ids and links are the same either way.
+  const bookNotes = document.footnotePlacement === 'book';
+  const bookGroups: EndnoteGroup[] = [];
+  let nextNumber = 1;
   const chapters = document.sections
-    .map(
-      (section) => `
+    .map((section) => {
+      const footnotes = renderFootnoteRefs(section.html, (note) => {
+        const id = escapeHtml(note.id);
+        const marker = escapeHtml(formatFootnoteMarker(note.index, document.footnoteStyle));
+        return `<sup class="wh-footnote-ref" id="fnref-${id}"><a href="#fn-${id}">${marker}</a></sup>`;
+      }, bookNotes ? nextNumber : 1);
+      let endnotes = '';
+      if (bookNotes) {
+        nextNumber += footnotes.notes.length;
+        bookGroups.push({ title: section.title, notes: footnotes.notes });
+      } else {
+        endnotes = renderEndnotesHtml(footnotes.notes, {
+          heading: document.notesLabel,
+          style: document.footnoteStyle,
+        });
+      }
+      return `
     <section class="chapter">
       <h1 class="chapter-title">${escapeHtml(section.title)}</h1>
       ${section.synopsis ? `<p class="synopsis">${escapeHtml(section.synopsis)}</p>` : ''}
-      <div class="content">${section.html}</div>
-    </section>`,
-    )
+      <div class="content">${footnotes.html}</div>
+      ${endnotes}
+    </section>`;
+    })
     .join('\n');
+  const bookEndnotes = bookNotes
+    ? renderBookEndnotesHtml(bookGroups, { heading: document.notesLabel, style: document.footnoteStyle })
+    : '';
   const bibliography = document.bibliography.length > 0 && document.bibliographyTitle
     ? `<section class="chapter bibliography"><h1 class="chapter-title">${escapeHtml(document.bibliographyTitle)}</h1>${document.bibliography.map(citation => `<p>${escapeHtml(citation)}</p>`).join('')}</section>`
     : '';
@@ -179,6 +267,19 @@ export function renderPublishingHtml(document: PublishingDocument): string {
   .content blockquote { margin: 1em 2em; font-style: italic; color: #444; }
   .content img { max-width: 100%; }
   .content a { color: #1a1a1a; }
+  .wh-footnote-ref { font-size: 0.7em; line-height: 1; vertical-align: super; }
+  .wh-footnote-ref a { color: #1a1a1a; text-decoration: none; }
+  .wh-endnotes ol.wh-endnotes-marked { list-style: none; padding-left: 0; }
+  .wh-endnote-marker { display: inline-block; min-width: 1.4em; font-weight: 600; }
+  .wh-endnotes { margin-top: 2em; padding-top: 0.6em; border-top: 1px solid #bbb; font-size: 10pt; color: #333; }
+  .wh-endnotes h2 { font-size: 9pt; letter-spacing: 0.08em; text-transform: uppercase; color: #666; margin: 0 0 0.6em; }
+  .wh-endnotes ol { padding-left: 1.6em; margin: 0; }
+  .wh-endnotes--book { page-break-before: always; border-top: 0; margin-top: 0; padding-top: 0; font-size: 11pt; }
+  .wh-endnotes--book h1 { font-size: 17pt; margin: 1.4em 0 1em; text-align: center; color: #1a1a1a; }
+  .wh-endnotes--book h2 { font-size: 11pt; letter-spacing: 0; text-transform: none; color: #1a1a1a; margin: 1.4em 0 0.5em; }
+  .wh-endnotes--book ol { margin-bottom: 0.6em; }
+  .wh-endnotes li { margin: 0 0 0.3em; }
+  .wh-endnote-back { color: #666; text-decoration: none; margin-left: 0.3em; }
   @media print { body { padding: 0; max-width: none; } }
 </style>
 </head>
@@ -192,6 +293,7 @@ export function renderPublishingHtml(document: PublishingDocument): string {
       : ''
   }
   ${chapters}
+  ${bookEndnotes}
   ${bibliography}
 </body>
 </html>`;

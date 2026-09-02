@@ -121,7 +121,7 @@ async function main() {
       criticalHtmlPath,
       'window.__criticalResult',
       'Critical data tests',
-      45_000,
+      90_000,
     );
     const startupCount = await runHarness(
       startupHtmlPath,

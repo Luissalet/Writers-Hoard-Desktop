@@ -113,6 +113,37 @@ import type { Writing } from '@/types';
 import type { Citation, PublishingProfile } from '@/types/projectTools';
 import type { ProofreaderInput, ProofreaderWritingRow } from '@/services/proofreader';
 import type { AiMessage } from '@/services/copilot/types';
+import { runFootnoteTests } from './footnotes';
+import { runFootnoteBridgeTests } from './footnotesBridge';
+import {
+  testWorldgenKeyboardCamera,
+  testWorldgenLegend,
+  testWorldgenRuler,
+  testWorldgenRulerOnMap,
+  testWorldgenRulerOverlayDraws,
+} from './worldgen-ux';
+import {
+  testPageModeInEditor,
+  testPageSizes,
+  testPaginationPureAtomicBlockMovesWhole,
+  testPaginationPureCutsBetweenLines,
+  testPaginationPureFitsExactly,
+  testPaginationPureForcedBreak,
+  testPaginationPureMargins,
+  testPaginationPureNotesPushALine,
+  testPaginationPureOversizedBlockOverflows,
+} from './pageMode';
+import {
+  testBookDiff,
+  testBookEditorAutosave,
+  testBookHeadingNode,
+  testBookHeadingView,
+  testBookFootnotesPanel,
+  testBookRoundTrip,
+  testBookSaveAgainstDexie,
+  testBookSplitEdges,
+} from './bookMode';
+import * as atlasMapTests from './atlasMap';
 
 registerFallbackAnchorAdapters();
 
@@ -4941,6 +4972,38 @@ async function run(): Promise<void> {
   await testExpiredSprintIsFiledAtItsScheduledEnd();
   await testProjectReplaceRewritesTextNodesOnly();
   await testCopilotRetryPlan();
+  // Ronda 3 (2026-09-02): footnotes, page mode, whole-book editor, atlas map.
+  passed.push(...(await runFootnoteTests()));
+  passed.push(...(await runFootnoteBridgeTests()));
+  testPageSizes();
+  testPaginationPureFitsExactly();
+  testPaginationPureCutsBetweenLines();
+  testPaginationPureOversizedBlockOverflows();
+  testPaginationPureNotesPushALine();
+  testPaginationPureAtomicBlockMovesWhole();
+  testPaginationPureMargins();
+  testPaginationPureForcedBreak();
+  passed.push('Page mode: pure pagination');
+  await testPageModeInEditor();
+  passed.push('Page mode: a real editor on A4 sheets');
+  testBookRoundTrip();
+  passed.push('Book: compose/split round trip');
+  testBookSplitEdges();
+  passed.push('Book: split keeps a prelude, and a bare h1 stays inside its chapter');
+  testBookDiff();
+  passed.push('Book: diff names updates, creates, missing and order');
+  testBookHeadingNode();
+  passed.push('Book: chapter heading node guards, splits and moves');
+  await testBookHeadingView();
+  passed.push('Book: chapter heading React view renders and drives the host');
+  await testBookSaveAgainstDexie();
+  passed.push('Book: save writes what moved and never deletes unconfirmed');
+  await testBookEditorAutosave();
+  passed.push('Book: the editor loads, autosaves, creates and merges chapters');
+  await testBookFootnotesPanel();
+  passed.push('Book: the footnotes panel lists the notes of the whole book and jumps to them');
+  for (const fn of Object.values(atlasMapTests)) await fn();
+  passed.push('Real atlas map: geometry, view state, basemap, prefs, mount');
   passed.push(await testAiBridgeContracts());
   passed.push(await testAiRuntimeContracts());
   passed.push(testWorldgenSpatialEntities());
@@ -4949,6 +5012,12 @@ async function run(): Promise<void> {
   passed.push('Worldgen regional identity, coordinates, cache, and cancellation');
   passed.push(testWorldgenDetailShader());
   passed.push(await testWorldgenBridgeAccess());
+  testWorldgenRuler();
+  testWorldgenLegend();
+  testWorldgenKeyboardCamera();
+  testWorldgenRulerOverlayDraws();
+  passed.push('Worldgen 2D: ruler maths, legend stops, keyboard camera, ruler overlay pixels');
+  passed.push(await testWorldgenRulerOnMap());
 }
 
 void run()

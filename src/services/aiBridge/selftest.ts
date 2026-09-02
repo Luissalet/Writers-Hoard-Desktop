@@ -25,6 +25,7 @@ import { generateId } from '@/utils/idGenerator';
 import type { Project } from '@/types';
 import { DEFAULT_PARAMS } from '@/engines/worldgen/core/types';
 import { BRIDGE_TOOLS } from './manifest';
+import { SCOPE_KEY } from './schema';
 import { TOOL_HANDLERS } from './tools';
 import { BridgeError, type ToolArgs } from './tools/shared';
 
@@ -553,6 +554,132 @@ async function runRealAtlasChecks(h: Harness, projectId: string): Promise<void> 
     } finally {
       await db.atlasPlaces.delete(foreignId);
     }
+  });
+
+  // Lisboa (38.7223, -9.1393) is already there; Madrid is created here, AFTER
+  // the reality check above counted one place with coordinates.
+  let madridId = '';
+  await h.step('real atlas: the distance Lisboa–Madrid is 502 km, bearing ENE, with travel times', async () => {
+    const madrid = await call('wh_create_atlas_place', {
+      projectId, name: 'Madrid', kind: 'city', lat: 40.4168, lon: -3.7038, realNotes: 'Checked.',
+    });
+    madridId = String(pick(madrid, 'id'));
+    const measured = await call('wh_atlas_distance', { fromPlaceId: cityId, toPlaceId: madridId });
+    const km = Number(pick(measured, 'km'));
+    expect(Math.abs(km - 502.4) < 5, `Lisboa–Madrid should be about 502 km, got ${km}`);
+    expect(pick(measured, 'compass') === 'ENE', `the bearing should read ENE, got ${String(pick(measured, 'compass'))}`);
+    const estimates = (pick(measured, 'estimates') ?? []) as Record<string, unknown>[];
+    const byMode = new Map(estimates.map((row) => [row.mode, row]));
+    expect(byMode.size === 6, 'six means of travel are promised');
+    expect(byMode.get('walk')?.days === 14, `on foot Lisboa–Madrid is 14 days in stages, got ${String(byMode.get('walk')?.days)}`);
+    expect(Number(byMode.get('car')?.hours) < Number(byMode.get('rail19')?.hours), 'a car should beat a 19th-century train');
+    expect(byMode.get('plane')?.days === undefined, 'a plane does not travel in daily stages');
+    expect(String(pick(measured, 'markdown')).includes('Lisboa → Madrid'), 'the markdown does not name the journey');
+    // Rossio has no coordinates: a measurable refusal, not a NaN.
+    let refused = '';
+    try {
+      await call('wh_atlas_distance', { fromPlaceId: cityId, toPlaceId: childId });
+    } catch (err) {
+      refused = err instanceof BridgeError ? err.code : 'crash';
+    }
+    expect(refused === 'bad-args', `a place without coordinates should be refused with bad-args, got ${refused || 'accepted'}`);
+  });
+
+  await h.step('real atlas: places near a point come nearest first, without the centre itself', async () => {
+    const near = await call('wh_atlas_places_near', { placeId: madridId, radiusKm: 600 });
+    const rows = (pick(near, 'places') ?? []) as Record<string, unknown>[];
+    expect(rows.length === 1 && rows[0].id === cityId, 'Lisboa should be the one place within 600 km of Madrid');
+    expect(Math.abs(Number(rows[0].km) - 502.4) < 5, 'the neighbour did not carry its distance');
+    expect(pick(near, 'origin', 'name') === 'Madrid', 'the origin place is not reported');
+    const none = await call('wh_atlas_places_near', { placeId: madridId, radiusKm: 100 });
+    expect(pick(none, 'total') === 0, 'a 100 km radius around Madrid should be empty');
+    // Raw coordinates: a point in the Tagus estuary, 10 km from Lisboa.
+    const fromPoint = await call('wh_atlas_places_near', { projectId, lat: 38.7, lon: -9.05, radiusKm: 20, limit: 1 });
+    const hits = (pick(fromPoint, 'places') ?? []) as Record<string, unknown>[];
+    expect(hits.length === 1 && hits[0].id === cityId && pick(fromPoint, 'origin') === undefined, 'a raw lat/lon centre did not find Lisboa');
+    let refused = '';
+    try {
+      await call('wh_atlas_places_near', { projectId, radiusKm: 20 });
+    } catch (err) {
+      refused = err instanceof BridgeError ? err.code : 'crash';
+    }
+    expect(refused === 'bad-args', `no centre at all should be bad-args, got ${refused || 'accepted'}`);
+  });
+
+  // A place of another project as the centre must not answer with that
+  // project's neighbours, whether the caller is pinned by the copilot's scope
+  // key or merely named a contradicting projectId. The foreign row is written
+  // straight to Dexie, as in the parent check above.
+  await h.step('real atlas: a foreign centre is refused, and placeId with lat/lon is two questions', async () => {
+    const foreignId = generateId('place');
+    const now = Date.now();
+    await db.atlasPlaces.add({
+      id: foreignId, projectId: 'selftest-foreign-project', name: 'Elsewhere', kind: 'city',
+      lat: 40.4, lon: -3.7, aliases: [], description: '', realNotes: '', sources: [], fictional: false, tags: [],
+      createdAt: now, updatedAt: now,
+    });
+    try {
+      const codes: string[] = [];
+      const probes: [string, ToolArgs][] = [
+        ['wh_atlas_places_near', { projectId, placeId: foreignId, radiusKm: 100 }],
+        ['wh_atlas_places_near', { [SCOPE_KEY]: projectId, placeId: foreignId, radiusKm: 100 }],
+        ['wh_atlas_distance', { [SCOPE_KEY]: projectId, fromPlaceId: foreignId, toPlaceId: foreignId }],
+      ];
+      for (const [tool, args] of probes) {
+        try {
+          await call(tool, args);
+          codes.push(`${tool}: accepted`);
+        } catch (err) {
+          codes.push(err instanceof BridgeError ? err.code : 'crash');
+        }
+      }
+      expect(codes.every((code) => code === 'scope'), `expected scope refusals, got ${codes.join(', ')}`);
+      let both = '';
+      try {
+        await call('wh_atlas_places_near', { projectId, placeId: madridId, lat: 38.7, lon: -9.05 });
+      } catch (err) {
+        both = err instanceof BridgeError ? err.code : 'crash';
+      }
+      expect(both === 'bad-args', `placeId together with lat/lon should be bad-args, got ${both || 'accepted'}`);
+    } finally {
+      await db.atlasPlaces.delete(foreignId);
+    }
+  });
+
+  // Routes live in a settings blob, so the create's audit line is an update
+  // of that row with the previous blob as `before` — what the generic undo
+  // puts back. Rossio has no coordinates: it must show up in `missing`, and
+  // the leg through it must not be measured.
+  await h.step('real atlas: a route totals its legs, skips a stop without coordinates, and is listed', async () => {
+    const created = await call('wh_create_atlas_route', {
+      projectId, name: 'Post road', placeIds: [cityId, madridId, cityId], mode: 'carriage',
+    });
+    expect(pick(created, 'created') === true, 'the create did not report created');
+    const km = Number(pick(created, 'km'));
+    expect(Math.abs(km - 2 * 502.4) < 10, `Lisboa–Madrid–Lisboa should be about 1005 km, got ${km}`);
+    expect(((pick(created, 'legs') ?? []) as unknown[]).length === 2, 'two legs were promised');
+    expect(pick(created, '__audit', 'kind') === 'update' && pick(created, '__audit', 'table') === 'settings', 'the audit line must be an update of the settings row');
+    expect(typeof pick(created, '__audit', 'before', 'value') === 'string', 'the audit did not record the previous routes blob');
+    const broken = await call('wh_create_atlas_route', { projectId, name: 'Via Rossio', placeIds: [cityId, childId, madridId] });
+    expect(((pick(broken, 'missing') ?? []) as string[]).includes(childId), 'a stop without coordinates should be reported as missing');
+    expect(((pick(broken, 'legs') ?? []) as unknown[]).length === 0, 'no leg can be measured through a stop without coordinates');
+    const listed = await call('wh_list_atlas_routes', { projectId });
+    const routes = (pick(listed, 'routes') ?? []) as Record<string, unknown>[];
+    expect(routes.length === 2 && routes[0].name === 'Post road' && routes[0].mode === 'carriage', 'the routes did not list in order with their mode');
+    expect((pick(routes[0], 'stops', 1, 'name')) === 'Madrid', 'stops should carry their names');
+    const codes: string[] = [];
+    for (const args of [
+      { projectId, name: 'Short', placeIds: [cityId] },
+      { projectId, name: 'Unknown', placeIds: [cityId, 'no-such-place'] },
+    ]) {
+      try {
+        await call('wh_create_atlas_route', args);
+        codes.push('accepted');
+      } catch (err) {
+        codes.push(err instanceof BridgeError ? err.code : 'crash');
+      }
+    }
+    expect(codes.join(',') === 'bad-args,not-found', `expected bad-args,not-found, got ${codes.join(',')}`);
   });
 }
 

@@ -75,6 +75,9 @@ export async function whListOutlines(args: ToolArgs): Promise<unknown> {
 export async function whListBeats(args: ToolArgs): Promise<unknown> {
   const outlineId = optString(args, 'outlineId');
   if (outlineId) {
+    const outline = await db.outlines.get(outlineId);
+    if (!outline) throw new BridgeError('not-found', `No outline with id "${outlineId}".`);
+    assertRowInScope(args, outline.projectId);
     const beats = await getBeats(outlineId);
     return { outlineId, beats: beats.map(serializeBeat) };
   }

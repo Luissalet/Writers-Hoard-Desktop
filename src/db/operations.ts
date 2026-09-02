@@ -510,6 +510,10 @@ export const PROJECT_SETTING_PREFIXES = {
   groundedAiPrivacy: 'project-tools.ai-privacy.',
   /** Written by `saveReadingPosition` in `engines/writings/readingPositionPersist.ts`. */
   readingPosition: 'writings.readingPosition.',
+  /** Written by `saveAtlasMapPrefs` in `engines/real-atlas/mapPrefs.ts`: the map's view and layer toggles. */
+  atlasMap: 'realAtlas.map.',
+  /** Written by `saveAtlasRoutes` in `engines/real-atlas/routes.ts`: the project's itineraries (also in its backup, via the engine's strategy). */
+  atlasRoutes: 'realAtlas.routes.',
 } as const;
 
 /** Every settings key the given project owns. */

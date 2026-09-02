@@ -60,6 +60,7 @@ import { downloadMedia, type MediaFormat } from './media/ytdlp';
 import { downloadGallery, listCollection, type CollectionItem } from './media/gallerydl';
 import { openIgLogin, igStatus, igLogout, exportIgCookies, cleanupIgCookies, igCookiesPath } from './media/igAuth';
 import { capturePage, type PageMeta } from './media/pageCapture';
+import { geocodePlace } from './atlasGeocode';
 import {
   isExactRendererDocumentUrl,
   isIpcChannelAllowedForRole,
@@ -1835,6 +1836,15 @@ function registerIpc(): void {
   ipcMain.handle('updates:check', (event) => {
     assertIpcSender(event, 'updates:check');
     return checkForUpdates(true);
+  });
+
+  // ---- Real atlas: geocoding through Nominatim -----------------------------
+  // Made from main so the app as a whole keeps Nominatim's one-request-a-second
+  // and identifying User-Agent (see electron/atlasGeocode.ts). The renderer
+  // asks only after the writer consented per project.
+  ipcMain.handle('atlas:geocode', (event, request: { q?: unknown; locale?: unknown } | undefined) => {
+    assertIpcSender(event, 'atlas:geocode');
+    return geocodePlace(request?.q, request?.locale);
   });
   ipcMain.handle('updates:quitAndInstall', (event) => {
     assertIpcSender(event, 'updates:quitAndInstall');

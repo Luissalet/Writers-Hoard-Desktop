@@ -1,4 +1,8 @@
-import type { Writing } from '@/types';
+import type { FootnoteMarkerStyle, FootnotePlacement, Writing } from '@/types';
+import {
+  normalizeFootnotePlacement,
+  normalizeFootnoteStyle,
+} from '@/components/editor/footnotes/footnoteModel';
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import { countWords } from '@/utils/text';
 
@@ -60,6 +64,18 @@ export interface PublishingDocument {
   includeTitlePage: boolean;
   wordLabel: string;
   wordCount: number;
+  /** Heading over a chapter's footnotes, in every format that prints one. */
+  notesLabel: string;
+  /** How the formats that print their own markers (HTML, PDF, EPUB) mark a note. */
+  footnoteStyle: FootnoteMarkerStyle;
+  /**
+   * `chapter`: each chapter prints its own notes, numbered from 1. `book`: one
+   * notes section after the last chapter, grouped by chapter, numbered
+   * continuously through the book — a reader sent to note 47 has to be able
+   * to find note 47, and every format numbers the same way so a DOCX and an
+   * EPUB of the same manuscript agree on which note that is.
+   */
+  footnotePlacement: FootnotePlacement;
   sections: PublishingDocumentSection[];
   bibliographyTitle?: string;
   bibliography: string[];
@@ -79,6 +95,12 @@ export interface PublishingDocumentOptions {
    */
   untitledLabel?: string;
   wordLabel?: string;
+  /** Heading over a chapter's footnotes. Defaults to English, like `wordLabel`. */
+  notesLabel?: string;
+  /** Marker style of the manuscript (`Project.footnoteStyle`); numbers when absent. */
+  footnoteStyle?: FootnoteMarkerStyle;
+  /** Where the notes go (`Project.footnotePlacement`); per chapter when absent. */
+  footnotePlacement?: FootnotePlacement;
   locale?: string;
   generatedAt?: number;
   bibliographyTitle?: string;
@@ -154,6 +176,9 @@ export function composePublishingDocument(
     generatedAt: options.generatedAt ?? Date.now(),
     includeTitlePage: options.includeTitlePage,
     wordLabel: xmlSafeText(options.wordLabel ?? 'words'),
+    notesLabel: xmlSafeText(options.notesLabel ?? 'Notes'),
+    footnoteStyle: normalizeFootnoteStyle(options.footnoteStyle),
+    footnotePlacement: normalizeFootnotePlacement(options.footnotePlacement),
     wordCount: sections.reduce((total, section) => total + section.wordCount, 0),
     sections,
     bibliographyTitle: options.bibliographyTitle ? xmlSafeText(options.bibliographyTitle) : undefined,

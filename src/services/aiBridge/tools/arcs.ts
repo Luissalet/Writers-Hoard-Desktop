@@ -77,6 +77,7 @@ export async function whGetArc(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const arc = await getArc(id);
   if (!arc) throw new BridgeError('not-found', `No character arc with id "${id}".`);
+  assertRowInScope(args, arc.projectId);
   const beats = await getBeats(id);
   return {
     ...serializeArc(arc),

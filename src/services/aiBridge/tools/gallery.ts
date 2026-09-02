@@ -77,6 +77,7 @@ export async function whListImages(args: ToolArgs): Promise<unknown> {
 
 export async function whViewImage(args: ToolArgs): Promise<unknown> {
   const image = await mustGetImage(requireString(args, 'id'));
+  assertRowInScope(args, image.projectId);
   const data = viewableData(image);
   if (!data) throw new BridgeError('no-image', 'That gallery entry has no image data stored.');
   const media = await toVisionJpeg(dataUrlToBlob(data));

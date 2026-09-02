@@ -1,5 +1,5 @@
 import { useEditor, EditorContent } from '@tiptap/react';
-import type { Editor } from '@tiptap/react';
+import type { AnyExtension, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -20,11 +20,15 @@ import {
   MessageSquarePlus,
   ImagePlus,
   Bot,
+  Superscript,
 } from 'lucide-react';
 import { askCopilotAbout, copilotAvailable } from '@/stores/copilotHandoffStore';
 import type { AnnotationAnchor } from '@/engines/annotations/types';
 import { useAppStore } from '@/stores/appStore';
 import FindReplaceBar from './FindReplaceBar';
+import FootnoteLayer from './footnotes/FootnoteLayer';
+import { createPageLayoutPlugin, pageLayoutKey, type PageLayoutOptions } from './pageMode/PageLayout';
+import type { FootnoteMarkerStyle } from '@/types';
 import {
   isFindShortcut,
   isReplaceShortcut,
@@ -46,10 +50,47 @@ import {
  * reports the result as if the writer had typed it, and the host saves the
  * wrong document's text over the right document's row.
  */
+export type EditorLayout = 'flow' | 'page';
+
 interface TiptapEditorProps {
   content: string;
   onChange: (html: string) => void;
   placeholder?: string;
+  /**
+   * Optional extra Tiptap extensions (footnotes, chapter headings). Read
+   * once, when the editor is built: a host that needs a different set must
+   * remount with a new `key`. An extension named `doc` replaces StarterKit's
+   * document node, so a host can say what the top level may hold.
+   */
+  extensions?: AnyExtension[];
+  /**
+   * Optional. Receives the editor instance once it exists (and `null` when it
+   * is destroyed), so a host can render its own controls — a footnotes panel,
+   * a chapter toolbar — against the live document.
+   */
+  onEditorReady?: (editor: Editor | null) => void;
+  /** Optional. Extra buttons rendered at the end of the toolbar's left group. */
+  toolbarExtra?: React.ReactNode;
+  /**
+   * `flow` (default) is the continuous editor; `page` sets the prose on
+   * fixed-size sheets. The wrapper carries it as `data-editor-layout`, and
+   * the editor itself registers the pagination plugin (see `pageLayout`).
+   */
+  layout?: EditorLayout;
+  /**
+   * What the page plugin needs when `layout` is `page`: the paper size, the
+   * notes to print at the foot of each sheet, the page number's text. The
+   * plugin is swapped on a live editor when the layout or the paper changes —
+   * not by remounting, which would drop the document, its undo history and
+   * whatever the writer had not saved yet. The two callbacks are read through
+   * a ref, so a host may pass fresh closures on every render.
+   */
+  pageLayout?: PageLayoutOptions;
+  /**
+   * How footnote references are marked (1 2 3, * † ‡, i ii iii, a b c). The
+   * wrapper carries it as `data-footnote-style` for the CSS counter styles.
+   */
+  footnoteStyle?: FootnoteMarkerStyle;
   /**
    * Optional. When provided, the editor renders a floating "Annotate"
    * button above any non-empty selection. Clicking it captures the
@@ -116,7 +157,19 @@ function ToolButton({ active, onClick, title, children }: {
   );
 }
 
-export default function TiptapEditor({ content, onChange, placeholder, onAnnotate, onGenerateImage }: TiptapEditorProps) {
+export default function TiptapEditor({
+  content,
+  onChange,
+  placeholder,
+  onAnnotate,
+  onGenerateImage,
+  extensions,
+  onEditorReady,
+  toolbarExtra,
+  layout = 'flow',
+  pageLayout,
+  footnoteStyle = 'numbers',
+}: TiptapEditorProps) {
   const { t } = useTranslation();
   const resolvedPlaceholder = placeholder ?? t('editor.placeholder');
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -126,11 +179,16 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
   const [findSession, setFindSession] = useState<FindSession | null>(null);
   const reading = useAppStore((s) => s.reading);
   const loadReading = useAppStore((s) => s.loadReading);
+  // A host that brings its own `doc` node (the book, whose top level holds
+  // chapters as well as blocks) takes StarterKit's out of the schema: two
+  // nodes of one name would both be registered, and the last one would win.
+  const ownDocument = extensions?.some((extension) => extension.name === 'doc') ?? false;
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ link: { openOnClick: false } }),
+      StarterKit.configure({ link: { openOnClick: false }, document: ownDocument ? false : undefined }),
       Image,
       Placeholder.configure({ placeholder: resolvedPlaceholder }),
+      ...(extensions ?? []),
     ],
     content,
     onUpdate: ({ editor }) => {
@@ -146,6 +204,42 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
   useEffect(() => {
     void loadReading();
   }, [loadReading]);
+
+  // Hand the instance to the host once it exists; `null` on the way out so the
+  // host never keeps a destroyed editor.
+  useEffect(() => {
+    if (!onEditorReady) return;
+    onEditorReady(editor);
+    return () => onEditorReady(null);
+  }, [editor, onEditorReady]);
+
+  // Page mode is a ProseMirror plugin registered on the live editor, the way
+  // the find bar registers its search plugin: the document, the history and
+  // the selection stay exactly as they are when the writer switches layout
+  // or paper. The plugin is rebuilt only for the paper size; the notes
+  // collector and the footer label are read through the ref, so the host's
+  // inline closures do not rebuild it on every render.
+  const pageLayoutRef = useRef(pageLayout);
+  useEffect(() => {
+    pageLayoutRef.current = pageLayout;
+  });
+  const pageSize = pageLayout?.pageSize ?? 'a4';
+  useEffect(() => {
+    if (!editor || layout !== 'page') return;
+    editor.registerPlugin(
+      createPageLayoutPlugin({
+        pageSize,
+        collectNotes: (doc) => pageLayoutRef.current?.collectNotes?.(doc) ?? [],
+        footerLabel: (page, total) =>
+          pageLayoutRef.current?.footerLabel?.(page, total) ?? `${page} / ${total}`,
+      }),
+    );
+    return () => {
+      // The plugin view's `destroy` takes the sheet's size attributes off the
+      // DOM with it; a destroyed editor has no state to reconfigure.
+      if (!editor.isDestroyed) editor.unregisterPlugin(pageLayoutKey);
+    };
+  }, [editor, layout, pageSize]);
 
   // Plain function on purpose: React Compiler memoizes it, and a manual
   // a manual memo here reported "existing memoization could not be preserved".
@@ -314,6 +408,11 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
 
   if (!editor) return null;
 
+  // The footnote button and its popover only make sense when the host built
+  // the editor with the footnote node (the book and the chapter do; a codex
+  // entry or a diary page does not).
+  const hasFootnotes = Boolean(editor.schema.nodes.footnote);
+
   // Inline URL form (replaces native prompt(), which blocks the JS thread
   // and misbehaves across the tab lifecycle — see tasks/lessons.md #12).
   const openLinkForm = () => {
@@ -342,6 +441,8 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
       data-reading-face={reading.face}
       data-reading-size={reading.size}
       data-reading-measure={reading.measure}
+      data-editor-layout={layout}
+      data-footnote-style={footnoteStyle}
       className="tiptap-editor relative border border-border rounded-lg overflow-hidden bg-elevated"
     >
       {/* Floating selection actions over a non-empty selection. */}
@@ -427,6 +528,16 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
         >
           <Search size={16} />
         </ToolButton>
+        {hasFootnotes && (
+          <ToolButton
+            active={editor.isActive('footnote')}
+            onClick={() => editor.chain().focus().insertFootnote().run()}
+            title={t('editor.insertFootnote')}
+          >
+            <Superscript size={16} />
+          </ToolButton>
+        )}
+        {toolbarExtra}
         <div className="flex-1" />
         <ToolButton onClick={() => editor.chain().focus().undo().run()}>
           <Undo2 size={16} />
@@ -483,6 +594,7 @@ export default function TiptapEditor({ content, onChange, placeholder, onAnnotat
 
       {/* Editor */}
       <EditorContent editor={editor} />
+      {hasFootnotes && <FootnoteLayer editor={editor} />}
     </div>
   );
 }

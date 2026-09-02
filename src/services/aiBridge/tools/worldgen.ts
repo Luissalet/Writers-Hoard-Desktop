@@ -58,6 +58,7 @@ import type { GeoDepth } from '@/engines/worldgen/core/settlements';
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
+  assertRowInScope,
   BridgeError,
   clampLimit,
   optEnum,
@@ -109,6 +110,7 @@ async function loadWorld(args: ToolArgs): Promise<GeneratedWorld> {
   const worldId = requireString(args, 'worldId');
   const world = await generatedWorldOps.getOne(worldId);
   if (!world) throw new BridgeError('not-found', `No generated world with id "${worldId}".`);
+  assertRowInScope(args, world.projectId);
   return world;
 }
 
@@ -585,6 +587,7 @@ export async function whUpdateWaypoint(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const waypoint = await worldWaypointOps.getOne(id);
   if (!waypoint) throw new BridgeError('not-found', `No world waypoint with id "${id}".`);
+  assertRowInScope(args, waypoint.projectId);
   await assertEngineEnabled(waypoint.projectId, ENGINE);
 
   const changes: Partial<WorldWaypoint> = {};

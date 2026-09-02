@@ -192,6 +192,16 @@ export const SHORTCUTS: readonly Shortcut[] = [
     source: 'src/components/editor/editorShortcuts.ts',
   },
   {
+    id: 'editor.footnote',
+    scope: 'editor',
+    // Word's own chord for a footnote. ⌘⌥F is "replace" on a Mac, so there
+    // the footnote takes Shift as well.
+    keys: ['Mod+Alt+F'],
+    macKeys: ['Mod+Alt+Shift+F'],
+    descriptionKey: 'shortcuts.editor.footnote',
+    source: 'src/components/editor/footnotes/FootnoteNode.ts',
+  },
+  {
     id: 'editor.save',
     scope: 'editor',
     keys: ['Mod+S'],
@@ -485,6 +495,20 @@ export const SHORTCUTS: readonly Shortcut[] = [
     source: 'src/engines/worldgen/components/Map2D.tsx',
   },
   {
+    id: 'world.keyPan',
+    scope: 'world',
+    keys: ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'],
+    descriptionKey: 'shortcuts.world.keyPan',
+    source: 'src/engines/worldgen/components/Map2D.tsx',
+  },
+  {
+    id: 'world.keyZoom',
+    scope: 'world',
+    keys: ['Plus', 'Minus'],
+    descriptionKey: 'shortcuts.world.keyZoom',
+    source: 'src/engines/worldgen/components/Map2D.tsx',
+  },
+  {
     id: 'world.brushSmaller',
     scope: 'world',
     keys: ['['],
@@ -585,6 +609,8 @@ const KEY_CAPS: Readonly<Record<string, KeyCap | undefined>> = {
   ArrowUp: { text: '↑' },
   ArrowDown: { text: '↓' },
   ArrowLeft: { text: '←' },
+  Plus: { text: '+' },
+  Minus: { text: '−' },
   ArrowRight: { text: '→' },
   Arrows: { text: '↑ ↓ ← →' },
 };
@@ -643,13 +669,18 @@ const PUNCTUATION_CODES: Readonly<Record<string, string | undefined>> = {
  * not ask for Shift must still fire when Shift is what produced the character,
  * or Ctrl+/ would be unreachable for them.
  */
-const SHIFT_MAY_PRODUCE: ReadonlySet<string> = new Set(['/', '[', ']']);
+const SHIFT_MAY_PRODUCE: ReadonlySet<string> = new Set(['/', '[', ']', 'Plus']);
 
 function matchesKey(event: KeyboardEvent, key: string): boolean {
   if (/^[A-Za-z]$/.test(key)) {
     return event.key.toLowerCase() === key.toLowerCase() || event.code === `Key${key.toUpperCase()}`;
   }
   if (key === 'Space') return event.key === ' ' || event.code === 'Space';
+  // Written as words, because `+` is also the chord separator: `'+'.split('+')`
+  // has no key in it at all. Both spellings of each, because the character a
+  // layout puts on that key varies (US: Shift+= gives +; ES: the key itself).
+  if (key === 'Plus') return event.key === '+' || event.key === '=' || event.code === 'Equal' || event.code === 'NumpadAdd';
+  if (key === 'Minus') return event.key === '-' || event.key === '_' || event.code === 'Minus' || event.code === 'NumpadSubtract';
   if (event.key === key) return true;
   return event.code === PUNCTUATION_CODES[key];
 }

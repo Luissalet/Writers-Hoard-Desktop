@@ -3,7 +3,7 @@ import { randomSeed } from '../randomSeed';
 import {
   Map as MapIcon, Box, Dices, Download, Waves, Flame, MapPin, Globe,
   Loader2, X, ChevronDown, Send, Mountain, ScrollText, Trees, Route, Landmark,
-  Signpost, Compass, Flag, Search, Home,
+  Signpost, Compass, Flag, Search, Home, Ruler,
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -254,10 +254,26 @@ export default function WorldView({
   const [exportOpen, setExportOpen] = useState(false);
   /** El localizador: Ctrl+F o la lupa, en las tres vistas. */
   const [locatorOpen, setLocatorOpen] = useState(false);
+  /**
+   * The ruler is out. A view state, not a brush: measuring writes nothing into
+   * the world, so it does not go through the paint tool or the edit list. While
+   * it is out the brush is put down (`tool` is withheld from the map), because
+   * a click has to mean ONE thing.
+   */
+  const [measuring, setMeasuring] = useState(false);
   // Declared up here with the rest of the view state rather than down in the
   // painting section, because whether a brush is out decides when the human
   // geography may be rebuilt — and that effect runs above it.
   const [tool, setTool] = useState<PaintTool>(DEFAULT_PAINT_TOOL);
+  // Picking a brush puts the ruler away (render-adjust, lesson #17): the
+  // reader who just chose Relieve wants to paint, and a brush that stays
+  // silent because a ruler nobody is looking at still holds the hand is the
+  // "nothing happens" failure the brush guard exists to prevent.
+  const [prevToolMode, setPrevToolMode] = useState(tool.mode);
+  if (prevToolMode !== tool.mode) {
+    setPrevToolMode(tool.mode);
+    if (tool.mode !== 'off' && measuring) setMeasuring(false);
+  }
   // Same reason: a stroke bumps this, and the geography effect has to notice.
   const [paintRev, setPaintRev] = useState(0);
   const [regionDetail, setRegionDetail] = useState<RegionData | null>(null);
@@ -1752,6 +1768,14 @@ export default function WorldView({
           {view === 'map' && (
             <OverlayToggle active={showGrid} onClick={() => setShowGrid(!showGrid)} icon={Globe} title={t('worldgen.overlay.grid')} />
           )}
+          {view === 'map' && (
+            <OverlayToggle
+              active={measuring}
+              onClick={() => setMeasuring((m) => !m)}
+              icon={Ruler}
+              title={t('worldgen.measure.button')}
+            />
+          )}
         </div>
 
         <div className="flex-1" />
@@ -1832,8 +1856,12 @@ export default function WorldView({
               showBorders={cartoLayers.borders === true}
               showFeatures={cartoLayers.labels !== false}
               roadFrom={roadFrom}
-              tool={paintable ? tool : undefined}
+              // The ruler puts the brush down: with both out, a click would
+              // have to be a stroke AND a point, and it can only be one.
+              tool={paintable && !measuring ? tool : undefined}
               onEdit={paintable ? applyEdit : undefined}
+              measuring={measuring}
+              onEndMeasure={() => setMeasuring(false)}
               onPickSettlement={pickSettlement}
               onZoomTo={zoomToPoint}
               viewport={viewport}

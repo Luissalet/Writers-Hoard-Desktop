@@ -1,4 +1,5 @@
 import type { Paragraph, ParagraphChild, Table } from 'docx';
+import { FOOTNOTE_REF_SELECTOR, FOOTNOTE_TEXT_ATTR } from '@/components/editor/footnotes/footnoteModel';
 import type { PublishingDocument } from './publishingDocument';
 
 type DocxModule = typeof import('docx');
@@ -24,6 +25,8 @@ interface BlockContext {
   nextInstance: { value: number };
   /** Inside a <blockquote>: indent and italicise the paragraphs it holds. */
   quoted: boolean;
+  /** Which kind of Word note a reference becomes. */
+  notes: Notes;
 }
 
 const BLOCK_TAGS = new Set([
@@ -33,9 +36,50 @@ const BLOCK_TAGS = new Set([
 
 const ROW_GROUP_TAGS = new Set(['thead', 'tbody', 'tfoot']);
 
+/**
+ * Written onto each footnote reference by `numberFootnotes` before the body
+ * is walked, so the inline pass can emit the reference run without carrying
+ * a counter through every call. The number is the note's id in the file:
+ * Word wants those unique across the document, so it counts on through the
+ * chapters rather than restarting with each.
+ *
+ * Whether the id is a footnote's or an endnote's is decided once per file
+ * (`Notes.kind`): `docx` writes real Word footnotes (`word/footnotes.xml`)
+ * or real Word endnotes (`word/endnotes.xml`), and Word itself numbers and
+ * places them — at the foot of the page, or after the last chapter. Word
+ * numbers footnotes continuously too; a writer who wants them restarting per
+ * chapter sets that in Word's footnote options, as they always have.
+ */
+const FOOTNOTE_NUMBER_ATTR = 'data-footnote-number';
+
+/** The notes of the whole file, by number, as the `docx` Document takes them. */
+type NoteBodies = Record<number, { children: Paragraph[] }>;
+
+interface Notes {
+  kind: 'footnotes' | 'endnotes';
+  bodies: NoteBodies;
+}
+
+function numberFootnotes(root: ParentNode, docx: DocxModule, notes: NoteBodies): void {
+  for (const element of root.querySelectorAll(FOOTNOTE_REF_SELECTOR)) {
+    const number = Object.keys(notes).length + 1;
+    element.setAttribute(FOOTNOTE_NUMBER_ATTR, String(number));
+    const lines = (element.getAttribute(FOOTNOTE_TEXT_ATTR) ?? '').split(/\r?\n/);
+    notes[number] = {
+      children: [new docx.Paragraph({
+        children: lines.map((line, index) => new docx.TextRun({
+          text: line,
+          break: index === 0 ? undefined : 1,
+        })),
+      })],
+    };
+  }
+}
+
 function inlineChildren(
   nodes: Iterable<Node>,
   docx: DocxModule,
+  notes: Notes,
   style: InlineStyle = {},
 ): ParagraphChild[] {
   const children: ParagraphChild[] = [];
@@ -73,6 +117,13 @@ function inlineChildren(
       continue;
     }
     if (tag === 'img' || tag === 'ul' || tag === 'ol') continue;
+    if (tag === 'sup' && node.hasAttribute(FOOTNOTE_NUMBER_ATTR)) {
+      const id = Number(node.getAttribute(FOOTNOTE_NUMBER_ATTR));
+      children.push(notes.kind === 'endnotes'
+        ? new docx.EndnoteReferenceRun(id)
+        : new docx.FootnoteReferenceRun(id));
+      continue;
+    }
     const nextStyle: InlineStyle = {
       ...style,
       bold: style.bold || tag === 'strong' || tag === 'b',
@@ -80,7 +131,7 @@ function inlineChildren(
       underline: style.underline || tag === 'u' || tag === 'a',
       monospace: style.monospace || tag === 'code',
     };
-    children.push(...inlineChildren(node.childNodes, docx, nextStyle));
+    children.push(...inlineChildren(node.childNodes, docx, notes, nextStyle));
   }
   return children;
 }
@@ -107,7 +158,7 @@ function blocksFromChildren(
     if (child instanceof Element && BLOCK_TAGS.has(child.tagName.toLowerCase())) {
       blocks.push(...paragraphsFromElement(child, docx, context));
     } else if (child.nodeType === 3 && child.textContent?.trim()) {
-      blocks.push(new docx.Paragraph({ children: inlineChildren([child], docx) }));
+      blocks.push(new docx.Paragraph({ children: inlineChildren([child], docx, context.notes) }));
     }
   }
   return blocks;
@@ -135,7 +186,7 @@ function listBlocks(
   const blocks: BlockChild[] = [];
   const items = [...element.children].filter(child => child.tagName.toLowerCase() === 'li');
   for (const item of items) {
-    const children = inlineChildren(item.childNodes, docx);
+    const children = inlineChildren(item.childNodes, docx, context.notes);
     if (children.length > 0) {
       blocks.push(new docx.Paragraph({
         children,
@@ -178,7 +229,7 @@ function cellBlocks(cell: Element, docx: DocxModule, context: BlockContext): Blo
   }
   // A cell may never be empty in OOXML: an empty paragraph is the empty cell.
   return [new docx.Paragraph({
-    children: inlineChildren(cell.childNodes, docx, { bold: header }),
+    children: inlineChildren(cell.childNodes, docx, context.notes, { bold: header }),
   })];
 }
 
@@ -230,7 +281,7 @@ function paragraphsFromElement(
   }
   if (/^h[1-6]$/.test(tag)) {
     return [new docx.Paragraph({
-      children: inlineChildren(element.childNodes, docx),
+      children: inlineChildren(element.childNodes, docx, context.notes),
       heading: headingFor(tag, docx),
       spacing: { before: 200, after: 100 },
     })];
@@ -240,13 +291,13 @@ function paragraphsFromElement(
       return blocksFromChildren(element, docx, { ...context, quoted: true });
     }
     return [new docx.Paragraph({
-      children: inlineChildren(element.childNodes, docx, { italics: true }),
+      children: inlineChildren(element.childNodes, docx, context.notes, { italics: true }),
       indent: { left: 720, right: 720 },
       spacing: { after: 120 },
     })];
   }
   if (tag === 'p' || tag === 'pre') {
-    const children = inlineChildren(element.childNodes, docx, {
+    const children = inlineChildren(element.childNodes, docx, context.notes, {
       italics: context.quoted,
       monospace: tag === 'pre',
       preformatted: tag === 'pre',
@@ -260,7 +311,7 @@ function paragraphsFromElement(
 
   const blocks = blocksFromChildren(element, docx, context);
   if (blocks.length === 0) {
-    const children = inlineChildren(element.childNodes, docx);
+    const children = inlineChildren(element.childNodes, docx, context.notes);
     if (children.length > 0) blocks.push(new docx.Paragraph({ children }));
   }
   return blocks;
@@ -270,15 +321,17 @@ function paragraphsFromHtml(
   html: string,
   docx: DocxModule,
   nextInstance: { value: number },
+  notes: Notes,
 ): BlockChild[] {
   const parsed = new DOMParser().parseFromString(html, 'text/html');
-  const context: BlockContext = { listLevel: 0, listInstance: 0, nextInstance, quoted: false };
+  numberFootnotes(parsed.body, docx, notes.bodies);
+  const context: BlockContext = { listLevel: 0, listInstance: 0, nextInstance, quoted: false, notes };
   const blocks: BlockChild[] = [];
   for (const child of parsed.body.childNodes) {
     if (child instanceof Element) {
       blocks.push(...paragraphsFromElement(child, docx, context));
     } else if (child.nodeType === 3 && child.textContent?.trim()) {
-      blocks.push(new docx.Paragraph({ children: inlineChildren([child], docx) }));
+      blocks.push(new docx.Paragraph({ children: inlineChildren([child], docx, context.notes) }));
     }
   }
   return blocks;
@@ -299,6 +352,10 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
   const docx = await import('docx');
   const children: BlockChild[] = [];
   const listInstances = { value: 0 };
+  const notes: Notes = {
+    kind: document.footnotePlacement === 'book' ? 'endnotes' : 'footnotes',
+    bodies: {},
+  };
   if (document.includeTitlePage) {
     children.push(
       new docx.Paragraph({
@@ -327,7 +384,7 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
         spacing: { after: 240 },
       }));
     }
-    children.push(...paragraphsFromHtml(section.portableHtml, docx, listInstances));
+    children.push(...paragraphsFromHtml(section.portableHtml, docx, listInstances, notes));
   });
   if (document.bibliography.length > 0 && document.bibliographyTitle) {
     children.push(new docx.Paragraph({
@@ -343,6 +400,10 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
   const file = new docx.Document({
     title: document.title,
     creator: 'Writers Hoard',
+    // Real Word footnotes (`word/footnotes.xml`) or endnotes
+    // (`word/endnotes.xml`), numbered and placed by Word itself.
+    footnotes: notes.kind === 'footnotes' ? notes.bodies : undefined,
+    endnotes: notes.kind === 'endnotes' ? notes.bodies : undefined,
     numbering: {
       config: [
         { reference: 'publishing-bullets', levels: numberingLevels(docx, false) },

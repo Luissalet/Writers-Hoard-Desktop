@@ -88,6 +88,7 @@ export async function whGetBoard(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const board = await getBoard(id);
   if (!board) throw new BridgeError('not-found', `No board with id "${id}".`);
+  assertRowInScope(args, board.projectId);
   const [nodes, edges] = await Promise.all([getBoardNodes(id), getBoardEdges(id)]);
   const nameOf = (nodeId: string): string =>
     nodes.find((node) => node.id === nodeId)?.title ?? nodeId;
@@ -268,6 +269,7 @@ export async function whViewBoardImage(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
   const node = await getBoardNode(id);
   if (!node) throw new BridgeError('not-found', `No board card with id "${id}".`);
+  assertRowInScope(args, node.projectId);
   if (!node.image?.startsWith('data:')) {
     throw new BridgeError('no-image', `The card "${node.title}" has no picture pinned to it.`);
   }

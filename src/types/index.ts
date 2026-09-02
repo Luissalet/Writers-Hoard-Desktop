@@ -6,6 +6,16 @@
 export type ProjectMode = 'essentials' | 'novelist' | 'realist' | 'biographer' | 'reporter' | 'playwright' | 'content-creator' | 'custom';
 
 // Project (Bubble)
+/** How footnote references are marked in the prose: 1 2 3, * † ‡, i ii iii, a b c. */
+export type FootnoteMarkerStyle = 'numbers' | 'symbols' | 'roman' | 'letters';
+/**
+ * Where the exports print the notes: after each chapter (the page's foot in
+ * page mode, a "Notes" section per chapter elsewhere), numbered from 1 in
+ * every chapter — or once, at the end of the book, grouped by chapter and
+ * numbered continuously so a note "47" can be found.
+ */
+export type FootnotePlacement = 'chapter' | 'book';
+
 export interface Project {
   id: string;
   title: string;
@@ -20,6 +30,10 @@ export interface Project {
   status: 'draft' | 'in-progress' | 'completed';
   enabledEngines: string[];             // Active engine IDs for this project
   engineOrder: string[];                // Tab ordering (user-customizable)
+  /** Footnote marker style for the whole manuscript; absent means numbers. */
+  footnoteStyle?: FootnoteMarkerStyle;
+  /** Footnotes per chapter or endnotes at the end of the book; absent means per chapter. */
+  footnotePlacement?: FootnotePlacement;
   createdAt: number;
   updatedAt: number;
 }

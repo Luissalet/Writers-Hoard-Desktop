@@ -15,14 +15,15 @@ import {
   WritingConflictError,
 } from '@/engines/writings/operations';
 import { listSnapshotMeta, restoreSnapshot, takeSnapshot } from '@/engines/writings/snapshots';
+import { extractFootnotesFromHtml } from '@/components/editor/footnotes/footnoteModel';
 import { countWords } from '@/utils/text';
 import { generateId } from '@/utils/idGenerator';
+import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
+import { markdownToTiptapHtml, tiptapHtmlToMarkdown } from '../markdown';
 import {
   assertEngineEnabled,
   assertRowInScope,
   BridgeError,
-  htmlFromMarkdown,
-  markdownFromHtml,
   optEnum,
   optNumber,
   optString,
@@ -35,6 +36,24 @@ import {
 } from './shared';
 
 const STATUSES = ['idea', 'draft', 'finished'] as const satisfies readonly WritingStatus[];
+
+/**
+ * The manuscript's own Markdown door, footnotes included.
+ *
+ * `shared.ts` has `htmlFromMarkdown`/`markdownFromHtml` for every other body
+ * in the app, and those deliberately leave `[^1]` as text: only the manuscript
+ * editor loads the footnote node, so a `<sup data-footnote>` written into a
+ * codex entry would be parsed away with its note. Here the node exists, and
+ * a note the writer took must reach the model and come back as a note — the
+ * same sanitizer gate on the way in, the same converter, one option more.
+ */
+function manuscriptHtmlFromMarkdown(markdown: string, reservedFootnoteIds?: readonly string[]): string {
+  return sanitizeRichHtml(markdownToTiptapHtml(markdown, { footnotes: true, reservedFootnoteIds }));
+}
+
+function manuscriptMarkdownFromHtml(html: string | undefined): string {
+  return html ? tiptapHtmlToMarkdown(html, { footnotes: true }) : '';
+}
 
 async function mustGetWriting(id: string): Promise<Writing> {
   const writing = await getWriting(id);
@@ -100,6 +119,7 @@ export async function whListWritings(args: ToolArgs): Promise<unknown> {
 
 export async function whGetWriting(args: ToolArgs): Promise<unknown> {
   const writing = await mustGetWriting(requireString(args, 'id'));
+  assertRowInScope(args, writing.projectId);
   return {
     id: writing.id,
     projectId: writing.projectId,
@@ -110,7 +130,7 @@ export async function whGetWriting(args: ToolArgs): Promise<unknown> {
     tags: writing.tags,
     wordCount: writing.wordCount,
     updatedAt: writing.updatedAt,
-    content: markdownFromHtml(writing.content),
+    content: manuscriptMarkdownFromHtml(writing.content),
   };
 }
 
@@ -118,7 +138,7 @@ export async function whCreateWriting(args: ToolArgs): Promise<unknown> {
   const projectId = await resolveProjectForEngine(args, 'writings');
   const title = requireString(args, 'title');
   const markdown = optString(args, 'content') ?? '';
-  const html = markdown ? htmlFromMarkdown(markdown) : '';
+  const html = markdown ? manuscriptHtmlFromMarkdown(markdown) : '';
   const now = Date.now();
   const writing: Writing = {
     id: generateId('writing'),
@@ -150,7 +170,7 @@ export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
   if (markdown !== undefined) {
     // Overwriting a body is the one destructive act left in this surface.
     await takeSnapshot(existing, 'pre-ai');
-    changes.content = htmlFromMarkdown(markdown);
+    changes.content = manuscriptHtmlFromMarkdown(markdown);
     changes.wordCount = countWords(changes.content);
   }
   const title = optString(args, 'title');
@@ -183,7 +203,14 @@ export async function whAppendWriting(args: ToolArgs): Promise<unknown> {
   const existing = await mustGetWriting(requireString(args, 'id'));
   await assertEngineEnabled(existing.projectId, 'writings');
   assertRowInScope(args, existing.projectId);
-  const addition = htmlFromMarkdown(requireString(args, 'content'));
+  // Only the addition is converted; the chapter's own bytes — its notes, their
+  // ids and their numbering — are appended to, never re-read or renumbered.
+  // The ids it already holds are reserved so a `[^1]` in the addition cannot
+  // collide with a note an earlier append created under that very label.
+  const addition = manuscriptHtmlFromMarkdown(
+    requireString(args, 'content'),
+    extractFootnotesFromHtml(existing.content ?? '').map((note) => note.id),
+  );
   await takeSnapshot(existing, 'pre-ai');
   const content = `${existing.content ?? ''}${addition}`;
   const wordCount = countWords(content);
@@ -204,6 +231,10 @@ export async function whAppendWriting(args: ToolArgs): Promise<unknown> {
 
 export async function whListWritingVersions(args: ToolArgs): Promise<unknown> {
   const id = requireString(args, 'id');
+  // Load the writing first: the snapshot list itself carries no projectId to
+  // check, and the id alone would page through another project's history.
+  const writing = await mustGetWriting(id);
+  assertRowInScope(args, writing.projectId);
   const snapshots = await listSnapshotMeta(id);
   return {
     writingId: id,

@@ -32,13 +32,25 @@ import {
   FileDown,
   FileType2,
   BookOpen,
+  BookOpenText,
+  AlignJustify,
+  File,
 } from 'lucide-react';
+import type { Editor } from '@tiptap/react';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { useNavigate } from 'react-router-dom';
-import type { Writing, WritingStatus } from '@/types';
+import type { FootnoteMarkerStyle, FootnotePlacement, Writing, WritingStatus } from '@/types';
 import type { PublishingProfile } from '@/types/projectTools';
 import { generateId } from '@/utils/idGenerator';
 import { countWords } from '@/utils/text';
 import TiptapEditor from '@/components/editor/TiptapEditor';
+import { FootnoteNode } from '@/components/editor/footnotes/FootnoteNode';
+import FootnotesPanel from '@/components/editor/footnotes/FootnotesPanel';
+import { collectFootnotes, normalizeFootnotePlacement, normalizeFootnoteStyle } from '@/components/editor/footnotes/footnoteModel';
+import type { PageLayoutOptions, PageNote } from '@/components/editor/pageMode/PageLayout';
+import { usePageCount } from '@/components/editor/pageMode/usePageCount';
+import { useAppStore } from '@/stores/appStore';
+import BookEditor from './BookEditor';
 import TagInput from '@/components/common/TagInput';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
@@ -56,7 +68,7 @@ import PublishingProfileModal from '@/components/project/PublishingProfileModal'
 import { takeSnapshot } from '../snapshots';
 import { generateImageFromSelection } from '../generateImageFromSelection';
 import { db } from '@/db';
-import { touchProject } from '@/db/operations';
+import { touchProject, updateProject } from '@/db/operations';
 import type { OutlineBeat } from '@/engines/outline/types';
 import { useProject } from '@/hooks/useProjects';
 import { useGoogleStore } from '@/stores/googleStore';
@@ -83,6 +95,7 @@ import {
 } from '../recoveryJournal';
 import {
   expectDeletedWriting,
+  getWriting,
   getWritingVersion,
   restoreDeletedWriting,
   takeLastDeletedWriting,
@@ -338,6 +351,17 @@ function reportSideEdit(err: unknown): void {
 }
 
 /** Debounce for the editor autosave (ms). */
+/**
+ * The footnotes of the open chapter, for the page layout to print at the foot
+ * of each sheet. The page plugin only knows positions; the footnote node is
+ * the host's business.
+ */
+const collectPageNotes = (doc: ProseMirrorNode): PageNote[] =>
+  collectFootnotes(doc).map((note) => ({ pos: note.pos, text: note.text }));
+
+/** The chapter editor's extensions. One array for the life of the module: the editor reads it once. */
+const CHAPTER_EDITOR_EXTENSIONS = [FootnoteNode];
+
 const AUTOSAVE_MS = 1200;
 /** Throttled journal writes protect active typing without blocking every keypress. */
 const RECOVERY_JOURNAL_MS = 250;
@@ -458,10 +482,35 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // was entered from there.
   const [reading, setReading] = useState(false);
   const [readingStartId, setReadingStartId] = useState<string | null>(null);
+  // The whole book as one document (BookEditor). A full return like reading.
+  const [bookMode, setBookMode] = useState(false);
+  // The live Tiptap instance of the open chapter, for the panels beside it
+  // (footnotes) and the page count. The setter is what TiptapEditor gets:
+  // it is stable, so its effect does not re-run per render.
+  const [liveEditor, setLiveEditor] = useState<Editor | null>(null);
+  // Flow or page, A4 or Letter: the writer's reading preferences (global).
+  const readingPrefs = useAppStore((s) => s.reading);
+  const setReadingPrefs = useAppStore((s) => s.setReading);
+  const pageCount = usePageCount(liveEditor);
 
   const { accessToken } = useGoogleStore();
   const { project } = useProject(projectId);
   const projectTitle = project?.title || t('writings.compile.untitledProject');
+  // Footnote marker style is a property of the manuscript, kept on the project row.
+  const footnoteStyle = normalizeFootnoteStyle(project?.footnoteStyle);
+  const handleFootnoteStyle = (style: FootnoteMarkerStyle) => {
+    void updateProject(projectId, { footnoteStyle: style }).catch((error) => {
+      toast.error(error instanceof Error ? error.message : String(error));
+    });
+  };
+  // Where the notes are printed on export: under each chapter, or as one
+  // "Notes" section at the end of the book. On the project row, like the style.
+  const footnotePlacement = normalizeFootnotePlacement(project?.footnotePlacement);
+  const handleFootnotePlacement = (placement: FootnotePlacement) => {
+    void updateProject(projectId, { footnotePlacement: placement }).catch((error) => {
+      toast.error(error instanceof Error ? error.message : String(error));
+    });
+  };
 
   // New writing form
   const [newTitle, setNewTitle] = useState('');
@@ -1347,6 +1396,34 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     setReadingStartId(null);
   }, []);
 
+  // The whole book from the editor: the open chapter is flushed and closed
+  // first, because the book loads every chapter from Dexie and edits it there.
+  const handleOpenBookFromEditor = useCallback(async () => {
+    const saved = await flushSave();
+    if (!saved) {
+      setPendingLeave(true);
+      return;
+    }
+    leaveEditor();
+    setBookMode(true);
+  }, [flushSave, leaveEditor]);
+
+  // From the row on disk, not from the list: the book flushed the chapter a
+  // moment ago, and the list is the refetch BEFORE that write — opening what
+  // it holds would put the pre-flush text in the editor and, 1.2 s later,
+  // write it back over the flush.
+  const handleBookOpenChapter = useCallback(async (id: string) => {
+    let target: Writing | undefined;
+    try {
+      target = await getWriting(id);
+    } catch (err) {
+      console.error('[writings] could not read the chapter to open', err);
+    }
+    target ??= writings.find((w) => w.id === id);
+    setBookMode(false);
+    if (target) handleOpenWriting(target);
+  }, [writings, handleOpenWriting]);
+
   const handleCreate = async () => {
     if (!newTitle.trim()) return;
     const writing: Writing = {
@@ -1444,6 +1521,9 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       chapterLabel: t('projectTools.publishing.chapterLabel.manuscript'),
       untitledLabel: t('projectTools.publishing.untitled'),
       wordLabel: t('writings.words'),
+      notesLabel: t('writings.footnotes.endnotesTitle'),
+      footnoteStyle,
+      footnotePlacement,
       locale,
     });
     if (result.ok) {
@@ -1465,7 +1545,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     }
     console.error('[writings] could not export the chapter', result.error);
     toast.error(result.error || t('projectTools.publishing.exportError'));
-  }, [locale, projectTitle, t, writings]);
+  }, [footnotePlacement, footnoteStyle, locale, projectTitle, t, writings]);
 
   const startChapterExport = useCallback((writing: Writing, output: ChapterExportOutput) => {
     setCardMenuId(null);
@@ -1695,6 +1775,20 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     />
   );
 
+  // ---- Whole book ----
+  if (bookMode) {
+    return (
+      <BookEditor
+        projectId={projectId}
+        writings={writings}
+        onRefresh={() => onRefresh?.()}
+        onClose={() => setBookMode(false)}
+        onOpenChapter={(id) => void handleBookOpenChapter(id)}
+        footnoteStyle={footnoteStyle}
+      />
+    );
+  }
+
   // ---- Reading View ----
   // A full return rather than an overlay on top of the list: the list behind it
   // would be a card per chapter — 400 of them on a finished manuscript — laid
@@ -1706,6 +1800,8 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         startId={readingStartId}
         onClose={handleReadingClose}
         onOpenInEditor={handleReadingOpenInEditor}
+        footnoteStyle={footnoteStyle}
+        footnotePlacement={footnotePlacement}
       />
     );
   }
@@ -1844,6 +1940,16 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     const StatusIcon = config.icon;
     const wc = countWords(editedContent);
     const exportTitle = editedTitle.trim() || openWriting.title.trim() || projectTitle;
+    // The page plugin is swapped on the live editor by TiptapEditor itself, so
+    // neither the layout nor the paper size is part of the key: switching
+    // them keeps the document, its history and the unsaved text.
+    const pageLayout: PageLayoutOptions = {
+      pageSize: readingPrefs.pageSize,
+      collectNotes: collectPageNotes,
+      footerLabel: (page, total) =>
+        t('editor.page.footer').replace('{page}', String(page)).replace('{total}', String(total)),
+    };
+    const pageMode = readingPrefs.layout === 'page';
 
     // The publishing studio seeded with this chapter and nothing else. Sending
     // one chapter to a beta reader through the manuscript export meant
@@ -1976,6 +2082,48 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             <BookOpen size={15} />
           </button>
 
+          {/* The whole book as one document, with this chapter among the rest. */}
+          <button
+            onClick={() => void handleOpenBookFromEditor()}
+            className="p-1.5 rounded-lg transition border text-text-muted border-border hover:text-text-primary hover:bg-elevated"
+            title={t('writings.book.hint')}
+          >
+            <BookOpenText size={15} />
+          </button>
+
+          {/* Continuous text or Word-style sheets. A reading preference, so it
+              follows the writer to every chapter and to the settings modal. */}
+          <div
+            className="flex items-center rounded-lg border border-border overflow-hidden"
+            title={t('editor.layout.hint')}
+            role="group"
+          >
+            <button
+              onClick={() => void setReadingPrefs({ layout: 'flow' })}
+              className={`p-1.5 transition ${
+                readingPrefs.layout === 'flow'
+                  ? 'text-accent-gold bg-accent-gold/10'
+                  : 'text-text-muted hover:text-text-primary hover:bg-elevated'
+              }`}
+              title={t('editor.layout.flow')}
+              aria-pressed={readingPrefs.layout === 'flow'}
+            >
+              <AlignJustify size={15} />
+            </button>
+            <button
+              onClick={() => void setReadingPrefs({ layout: 'page' })}
+              className={`p-1.5 transition ${
+                readingPrefs.layout === 'page'
+                  ? 'text-accent-gold bg-accent-gold/10'
+                  : 'text-text-muted hover:text-text-primary hover:bg-elevated'
+              }`}
+              title={t('editor.layout.page')}
+              aria-pressed={readingPrefs.layout === 'page'}
+            >
+              <File size={15} />
+            </button>
+          </div>
+
           {/* Export just this writing. The studio reads the saved rows from
               Dexie, so the flush has to land before it opens — same rule as
               version history. */}
@@ -2044,6 +2192,9 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             chapter. It is an input now — empty clears the number. */}
         <div className="flex items-center gap-4 text-xs text-text-muted">
           <span>{wc.toLocaleString()} {t('writings.words')}</span>
+          {readingPrefs.layout === 'page' && (
+            <span>{t('editor.page.count').replace('{n}', String(pageCount))}</span>
+          )}
           <ChapterNumberField
             key={openWriting.id}
             writing={openWriting}
@@ -2159,9 +2310,23 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             onChange={setEditedContent}
             placeholder={t('writings.startWriting')}
             onGenerateImage={(sel) => void generateImageFromSelection(projectId, sel)}
+            extensions={CHAPTER_EDITOR_EXTENSIONS}
+            onEditorReady={setLiveEditor}
+            layout={readingPrefs.layout}
+            pageLayout={pageLayout}
+            footnoteStyle={footnoteStyle}
           />
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
+          // A sheet is 794px wide (A4) or 816px (Letter): beside a 320px panel
+          // it only fits from 1440px up, so in page mode the panel goes
+          // underneath on anything narrower rather than squeezing the paper.
+          <div
+            className={`grid grid-cols-1 gap-4 items-start ${
+              pageMode
+                ? 'min-[1440px]:grid-cols-[minmax(0,1fr)_320px]'
+                : 'lg:grid-cols-[minmax(0,1fr)_320px]'
+            }`}
+          >
             <TiptapEditor
               key={openWriting.id}
               content={editedContent}
@@ -2169,15 +2334,33 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
               placeholder={t('writings.startWriting')}
               onAnnotate={(anchor) => setPendingAnchor(anchor)}
               onGenerateImage={(sel) => void generateImageFromSelection(projectId, sel)}
+              extensions={CHAPTER_EDITOR_EXTENSIONS}
+              onEditorReady={setLiveEditor}
+              layout={readingPrefs.layout}
+              pageLayout={pageLayout}
+              footnoteStyle={footnoteStyle}
             />
-            <AnnotationSurface
-              projectId={projectId}
-              engineId="writings"
-              entityId={openWriting.id}
-              layout="sidebar"
-              pendingAnchor={pendingAnchor}
-              onPendingAnchorConsumed={() => setPendingAnchor(null)}
-            />
+            <div
+              className={`space-y-5 ${
+                pageMode ? 'min-[1440px]:sticky min-[1440px]:top-4' : 'lg:sticky lg:top-4'
+              }`}
+            >
+              <FootnotesPanel
+                editor={liveEditor}
+                style={footnoteStyle}
+                onStyleChange={handleFootnoteStyle}
+                placement={footnotePlacement}
+                onPlacementChange={handleFootnotePlacement}
+              />
+              <AnnotationSurface
+                projectId={projectId}
+                engineId="writings"
+                entityId={openWriting.id}
+                layout="sidebar"
+                pendingAnchor={pendingAnchor}
+                onPendingAnchorConsumed={() => setPendingAnchor(null)}
+              />
+            </div>
           </div>
         )}
 
@@ -2244,7 +2427,11 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
 
     return focusMode ? (
       <div className="fixed inset-0 z-40 overflow-y-auto bg-deep">
-        <div className="max-w-3xl mx-auto px-6 py-6 space-y-4">{editorBody}</div>
+        {/* The reading column in flow; in page mode a sheet plus the desk's
+            padding, or the paper would be clipped by its own column. */}
+        <div className={`${pageMode ? 'max-w-[calc(816px+4rem)]' : 'max-w-3xl'} mx-auto px-6 py-6 space-y-4`}>
+          {editorBody}
+        </div>
       </div>
     ) : (
       <div className="space-y-4">{editorBody}</div>
@@ -2303,6 +2490,17 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         >
           <BookOpen size={16} />
           {t('writings.reading.button')}
+        </button>
+
+        {/* Every numbered chapter as one document. */}
+        <button
+          onClick={() => setBookMode(true)}
+          disabled={manuscriptOrder.length === 0}
+          className="flex items-center gap-1.5 px-3 py-2 border border-border text-text-muted text-sm rounded-lg hover:text-accent-gold hover:border-accent-gold/40 transition disabled:opacity-40 disabled:hover:text-text-muted disabled:hover:border-border"
+          title={t('writings.book.hint')}
+        >
+          <BookOpenText size={16} />
+          {t('writings.book.button')}
         </button>
 
         {/* The way in for a book that already exists — a .docx, a folder of

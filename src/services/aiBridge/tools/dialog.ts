@@ -85,6 +85,7 @@ export async function whListScenes(args: ToolArgs): Promise<unknown> {
 
 export async function whGetScene(args: ToolArgs): Promise<unknown> {
   const scene = await mustGetScene(requireString(args, 'id'));
+  assertRowInScope(args, scene.projectId);
   const [blocks, cast] = await Promise.all([getDialogBlocks(scene.id), getSceneCast(scene.id)]);
   return {
     id: scene.id,

@@ -25,6 +25,7 @@ import {
 import { resolveEntityInEngine } from '@/engines/_shared/entityResolverRegistry';
 import { generateId } from '@/utils/idGenerator';
 import {
+  assertRowInScope,
   BridgeError,
   optBoolean,
   optString,
@@ -60,6 +61,9 @@ export async function whListAnnotations(args: ToolArgs): Promise<unknown> {
   const rows = engineId && entityId
     ? await getAnnotationsForEntity(engineId, entityId)
     : await getAnnotationsForProject(resolveProjectId(args));
+  // The entity path is addressed by (engineId, entityId) alone, with no project
+  // in the query: an id from another project would list that project's notes.
+  for (const row of rows) assertRowInScope(args, row.projectId);
 
   // `isOrphaned` is a STORED field that only the app refreshes, and only when
   // someone opens the entity. A model that has just rewritten a chapter here
