@@ -18,6 +18,7 @@ import type {
 } from '@/services/aiRuntime/types';
 import type { CopilotEvent, CopilotRunRequest } from '@/services/aiRuntime/copilot';
 import type { SdBackend, SdOpResult, SdProgress, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
+import type { GeocodeResponse } from '@/engines/real-atlas/geocode';
 
 export interface SaveResult {
   ok: boolean;
@@ -365,6 +366,15 @@ export interface ElectronAPI {
     check: () => Promise<void>;
     quitAndInstall: () => Promise<void>;
     onDownloaded: (callback: () => void) => () => void;
+  };
+  /**
+   * Real atlas geocoding through Nominatim, made from main so the app keeps
+   * the usage policy (electron/atlasGeocode.ts). Absent on a desktop build
+   * whose preload predates it and on the web build, so the editor shows the
+   * button only when it is there.
+   */
+  atlas?: {
+    geocode: (q: string, locale: string) => Promise<GeocodeResponse>;
   };
   ollama: {
     getStatus: () => Promise<OllamaStatus>;

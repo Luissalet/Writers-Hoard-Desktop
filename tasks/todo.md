@@ -2423,3 +2423,148 @@ Cobertura nueva, ya en `tests/critical.browser.ts`
 copiloto no deja viva la vieja. La operación va dentro de un `Promise.race` con plazo, para que un
 cuelgue falle como aserción con nombre en vez de llevarse el arnés entero por delante. La suite pasa
 en 62 tests.
+
+# Ronda 3 — 2026-09-02: auditoría + 4 features del editor y del Atlas (bucle)
+
+**Encargo de Luis:** en bucle hasta nuevo aviso: auditoría → mejoras → features (propias y de
+proyectos parecidos) → implementar → probar como usuario por MCP/pantalla → deducir carencias →
+repetir. Ideas suyas: modo unificado (todos los capítulos en un documento, capítulos marcados con
+un formato de texto como en Word), modo página (como Word/OpenOffice), pies de página / notas
+finales (laterales en el editor normal, al pie en modo página), funciones de mapa en el Atlas,
+mejoras de worldgen.
+
+## Iteración 1 — plan
+
+- [ ] Auditoría adversarial por subagentes (real-atlas, puente/copiloto, editor+export, Electron).
+- [x] **Notas al pie** — nodo Tiptap `footnote` (`<sup data-footnote-id data-footnote>` — sobrevive
+      a DOMPurify porque `ALLOW_DATA_ATTR`), numeración por contador CSS (editor, lectura, HTML/PDF),
+      popover de edición al hacer clic, panel lateral «Notas» junto a las anotaciones, atajo
+      Ctrl+Alt+F y botón; exportación: Markdown `[^n]`, HTML/PDF notas finales por capítulo, DOCX
+      notas al pie reales (`FootnoteReferenceRun`), EPUB3 `epub:type="noteref"/"footnote"`.
+- [x] **Modo página** — extensión de paginación por decoraciones widget: mide los bloques, corta
+      donde la página se llena (también dentro de un párrafo, en el límite de línea), el widget
+      pinta pie (notas al pie de esa página + número), banda de escritorio y cabecera de la
+      siguiente; A4/Carta; preferencia en `ui_reading` (`layout`, `pageSize`); conmutador en la
+      cabecera del editor; el cálculo puro en `pagination.ts` con test.
+- [x] **Libro entero** — `BookEditor`: un solo documento con nodo `chapterHeading` (Título 1 de
+      Word) como frontera; compose/split puros (`bookDocument.ts`) con test de ida y vuelta;
+      autosave por capítulo con `updateWritingAtVersion`; «Capítulo» sobre un párrafo = nuevo
+      capítulo; fusión sólo explícita y con ConfirmDialog (borrado restaurable); rango de
+      capítulos para proyectos grandes; renumeración secuencial tras cambios estructurales.
+- [x] **Mapa del Atlas real** — pestaña «Mapa»: Mercator con base vectorial offline (países
+      110m en un chunk perezoso) y teselas OSM opcionales (img-src ya permite https:); chinchetas
+      (ficticio/real/con divergencias), clic para crear lugar con coordenadas, arrastrar para mover,
+      medir distancia (haversine) y tiempos de viaje por medio (a pie, caballo, carruaje, tren
+      s.XIX, coche, avión); `wh_atlas_distance` y `wh_atlas_places_near` en el puente.
+- [x] Integración (TiptapEditor/WritingsView), claves i18n de una pasada (104), puertas en contenedor
+      (tsc×2, lint, conformance, **101 críticos** bajo xvfb) y en Windows (tsc×2, lint, conformance).
+- [x] Formato de las llamadas de nota (petición de Luis a mitad): `Project.footnoteStyle`
+      (`numbers|symbols|roman|letters`), selector en el panel de notas, `@counter-style` en CSS
+      para editor/lectura/pies de página, `formatFootnoteMarker` para HTML/PDF/EPUB (Markdown y
+      DOCX se quedan con números: `[^n]` y Word numeran ellos).
+- [x] Prueba en vivo como usuario en la app de Luis (pantalla + puente) → carencias → iteración 2.
+
+## Iteración 1 — review (13:10)
+
+**Verificado en vivo** (proyecto «Prueba Atlas real (Claude)», 3 capítulos sembrados por el puente):
+insertar nota al pie desde la barra → popover → panel lateral «Notas al pie · 1» → selector de formato
+(`*, †, ‡`) → modo página (hoja A4, corte dentro de un párrafo, «Página 1 de 5», la nota al pie de su
+página con «*») → «Libro entero» con Cap. 1/2/3 en páginas, `# ` crea un capítulo nuevo que se
+guarda solo, se numera (3) y desplaza al siguiente (4), comprobado por `wh_list_writings` → Atlas:
+pestaña Mapa con base vectorial (Portugal/España rotulados), «Añadir lugar» clicando (Toledo, con
+coordenadas prellenadas), «Medir» Lisboa→Toledo 522 km ENE con tiempos por medio.
+
+**Tres fallos encontrados en la prueba y arreglados:**
+1. El pie de página imprimía las notas vacías: mi `collectPageNotes` leía `attrs['data-footnote']`
+   (el nombre del atributo HTML) en vez de `attrs.text` → ahora `collectFootnotes()` del modelo.
+2. «1 páginas» fijo: `useEditorState` de Tiptap cachea su instantánea hasta una transacción que él
+   haya VISTO, y la primera medición del plugin se despacha antes de que el host se suscriba →
+   `usePageCount` propio con `useSyncExternalStore` (probado con un arnés: 6 páginas = 6 cortes).
+3. `list-style: decimal` posterior en el CSS pisaba los estilos de marcador; `symbolic` imprimía «*.»
+   (sufijo por defecto) → `suffix: ' '`.
+
+**Retoques:** fuente de lectura en las notas al pie; el mapa con un solo lugar encajaba a zoom 12
+(la base 110m no tiene nada que dibujar ahí) → tope 7; tierra con `--color-elevated`; cartel «Medido…»
+tras medir; conmutador Continuo/Página y recuento de páginas en la cabecera del libro; el título de
+capítulo sin regla superior en hojas (abre página, un tercio abajo).
+
+**Carencias detectadas (para la iteración 2):**
+- El puente convierte los escritos a Markdown en ambos sentidos (`markdownFromHtml`/`htmlFromMarkdown`):
+  una nota al pie NO sobrevive a `wh_update_writing`/`wh_append_writing` ni se ve en `wh_get_writing`.
+  Hay que llevar `[^n]`/`[^n]: texto` a `services/aiBridge/markdown.ts`.
+- El índice de búsqueda no ve el texto de las notas (va en atributo).
+- Ctrl+Alt+F no llegó por Windows-MCP (AltGr); el test sintético sí pasa. Verificar con teclado real.
+- El libro entero no tiene panel de notas al pie ni anotaciones (el popover sí funciona).
+- Mapa: sin geocodificación (poner «Toledo» y obtener coordenadas), sin rutas/itinerarios.
+- Copia de seguridad automática a disco sigue sin existir (sólo aviso).
+- [ ] Worldgen: sólo si `git status` no enseña otra sesión viva; primero lo de arriba.
+
+## Iteración 2 — review (15:20)
+
+**Hecho:** los 21 hallazgos de la auditoría adversarial sobre las piezas nuevas del editor (los
+gordos: cambiar de Continuo a Página con cambios sin guardar los perdía porque la `key` remontaba el
+editor — ahora el plugin de paginación se registra y desregistra en vivo sobre el mismo editor;
+envolver un título de capítulo en una cita duplicaba prosa — `chapterHeading` es su propio grupo y el
+libro trae su propio nodo `doc`; Ctrl+Z tras fusionar creaba una fila nueva — `saveBook` reconoce el
+borrado pendiente y restaura; pegar notas duplicaba ids; el panel no veía `setContent`; un `<h1>`
+suelto se convertía en capítulo al primer autoguardado). Más: **notas al pie por el puente IA**
+(`[^id]` con sus definiciones en `wh_get/create/update/append_writing`), **búsqueda y reemplazo dentro
+de las notas**, **geocodificación** del Atlas (Nominatim desde el main, con consentimiento por proyecto
+y atribución ODbL) y **rutas** de varias paradas con distancia y tiempos por medio, y en **worldgen**
+regla de medir, leyenda de los modos temáticos y cámara por teclado.
+
+**109 tests críticos** (eran 101), tsc×2, lint y conformance verdes en contenedor y en Windows.
+
+**Cinco tests había que reescribirlos, no arreglarlos.** Afirmaban lo que la ronda acababa de cambiar
+a propósito, así que cada uno pasa a enunciar el invariante que ahora rige, con su porqué:
+- el sanitizador ya no se come una nota que empieza por «data:» (sólo mira atributos que son URL) —
+  y sigue rechazando un SVG en `data:` dentro de un `<img>`, que es lo que el gancho guardaba;
+- el export cuenta 8 palabras, no 9: la novena se escapaba de una nota por el patrón de etiquetas;
+- los anillos del mapa base se desenrollan más allá de ±180 a propósito (Fiji, Chukotka), así que el
+  invariante es «ningún salto de más de 180° entre vecinos», no «dentro de ±180»;
+- una ventana de dos mundos de ancho dibuja dos copias: contarlas dos veces es correcto;
+- las COLUMNAS de teselas se dejan sin acotar para `wrapTileX`; sólo las FILAS se acotan;
+- puente y copiloto deben pasar los mismos argumentos AL HERRAMIENTA; el pin de proyecto es un sobre
+  propio del origen, y ahora se comprueba aparte (el copiloto lo lleva, el puente no).
+
+**Verificado en vivo** (tras reiniciar la instancia de desarrollo: Vite recarga el renderer pero NO el
+preload, y el botón de geocodificación vive detrás de `window.electronAPI.atlas`): la nota escrita en
+el editor llega a la IA como `[^1]` con su definición; `wh_append_writing` añade un párrafo con su
+propia nota `[^ia]` y deja intacta la anterior; «Buscar las coordenadas» sobre Toledo pide
+consentimiento, devuelve cinco resultados reales y rellena coordenadas (39.85589, −4.02426) y país;
+la chincheta salta a su sitio real; «Rutas» → Lisboa → Toledo = 458 km con tiempos por medio.
+
+**Sigue abierto:** copia de seguridad automática a disco; panel de notas dentro del libro entero;
+worldgen verificado por test (incluido un `Map2D` montado de verdad) pero no por vista con GPU.
+
+## Iteración 3 — review (23:45)
+
+**Hecho:** notas **al final del libro** (`Project.footnotePlacement`; numeración continua; HTML/PDF
+una sección final por capítulos, Markdown definiciones al final, EPUB `notes.xhtml` en la spine con
+`noteref` cruzados, DOCX notas finales REALES de Word; lectura continua con `counter-reset`); **panel
+de notas en el libro entero** (x² en la cabecera; lista todo el libro y salta al capítulo); «**Aparece
+en: Cap. n**» en los lugares del Atlas (por nombre y alias; el chip abre el capítulo); **alcance por
+fila** en las 13 familias de herramientas del puente (una llamada del copiloto con un id de otro
+proyecto se rechaza); 9 arreglos de auditoría del Atlas/markdown (resultados de geocodificación
+atados al lugar, Enter en un botón del panel ya no cierra la ruta, topes de rutas, `finiteNumber`
+estricto, cuerpo acotado y sin redirecciones en Nominatim, centinela del puente en PUA, `\[^` literal,
+Esc quita la última parada, modales por encima del mapa de worldgen). **113 tests críticos** en
+contenedor y en Windows.
+
+**Probado por mí en la app, como usuario:** «Dónde van» → lectura con numeración continua (la nota
+del cap. 2 es «‡»); la IA añade una nota por el puente y el editor la recarga como «†» sin tocar
+nada; el panel del libro lista 3 notas y «Ir a la referencia» salta a la página 6 y abre el popover;
+«Aparece en: Cap. 4» y su chip abre el capítulo; geocodificación con «Resultados para «Toledo»»;
+worldgen: regla (7642 km · rumbo NE · jornadas), leyenda de elevación y lat/lon en el readout.
+
+**Tres fallos que sólo salieron usando la app:**
+1. La nota que la IA añadió a las 15:12 quedó como TEXTO (`\[^ia]`): ese append corrió con el
+   `markdown.ts` viejo (HMR parcial; reinicié a las 15:14). Reparado el capítulo; el append repetido
+   con la app reiniciada crea la nota de verdad.
+2. La lista de notas en lectura pintaba «3.» y «‡» a la vez: el `ol` de prosa pisaba mi regla.
+3. **Worldgen no cargaba** («Failed to resolve import ../core/measure»): sus ficheros nuevos nunca
+   llegaron a Windows por un `push.sh HEAD~1`. Paquete completo (106 ficheros, hash agregado igual
+   a ambos lados), `push.sh` corregido, lección #63.
+
+**Cosmético pendiente:** el cartel de la regla de worldgen tapa la barra de escala; el HUD de
+depuración de worldgen sigue encendido.

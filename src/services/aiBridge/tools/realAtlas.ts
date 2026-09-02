@@ -13,6 +13,7 @@
 // address does not linger as an empty string in backups.
 
 import { db } from '@/db';
+import { getSetting, PROJECT_SETTING_PREFIXES } from '@/db/operations';
 import {
   ATLAS_PLACE_KINDS,
   DIVERGENCE_CATEGORIES,
@@ -21,6 +22,27 @@ import {
   type DivergenceCategory,
 } from '@/engines/real-atlas/types';
 import { atlasDivergenceOps, atlasPlaceOps } from '@/engines/real-atlas/operations';
+import { findPlaceAppearances, toAppearanceWriting, type AppearanceWriting } from '@/engines/real-atlas/appearances';
+import {
+  bearingDeg,
+  compassPoint,
+  hasCoordinates,
+  haversineKm,
+  placesWithin,
+  TRAVEL_MODES,
+  travelEstimates,
+  type LonLat,
+} from '@/engines/real-atlas/geo';
+import {
+  atlasRoutesSettingId,
+  loadAtlasRoutes,
+  MAX_ROUTE_STOPS,
+  parseAtlasRoutes,
+  routeTotals,
+  saveAtlasRoutes,
+  serializeAtlasRoutes,
+  type AtlasRoute,
+} from '@/engines/real-atlas/routes';
 import { foldForSearch, matchRank } from '@/engines/worldgen/core/searchText';
 import { generateId } from '@/utils/idGenerator';
 import {
@@ -44,6 +66,9 @@ const ENGINE = 'real-atlas';
 
 /** Longest reality/fiction/reason text the list tool returns; the get tool is unabridged. */
 const LIST_TEXT_LIMIT = 300;
+/** Default and ceiling for wh_atlas_places_near. */
+const NEAR_DEFAULT_KM = 50;
+const NEAR_MAX_KM = 20_000;
 /** Names the reality check spells out before it says "+N more". */
 const REPORT_NAMES = 12;
 
@@ -69,10 +94,6 @@ function optTrimmed(args: ToolArgs, key: string): string | undefined {
 
 function clip(text: string): string {
   return text.length > LIST_TEXT_LIMIT ? `${text.slice(0, LIST_TEXT_LIMIT - 1)}…` : text;
-}
-
-function hasCoordinates(place: AtlasPlace): boolean {
-  return typeof place.lat === 'number' && typeof place.lon === 'number';
 }
 
 /**
@@ -164,6 +185,24 @@ async function loadPlace(id: string): Promise<AtlasPlace> {
   return place;
 }
 
+/**
+ * A place reached by id must belong to the caller's project: the copilot's
+ * scope (SCOPE_KEY) and, when the call also named a `projectId`, that one.
+ * The second check is what the read tools that take both needed — a
+ * `placeId` from project B with `projectId` A (or none) used to answer with
+ * B's rows, because the scope only ever travelled in `projectId`.
+ */
+function assertPlaceInScope(args: ToolArgs, place: AtlasPlace): void {
+  assertRowInScope(args, place.projectId);
+  const explicit = optTrimmed(args, 'projectId');
+  if (explicit && explicit !== place.projectId) {
+    throw new BridgeError(
+      'scope',
+      `The place "${place.name}" belongs to project "${place.projectId}", not to "${explicit}". Pass the place's own projectId, or leave projectId out.`,
+    );
+  }
+}
+
 async function loadDivergence(id: string): Promise<AtlasDivergence> {
   const row = await atlasDivergenceOps.getOne(id);
   if (!row) throw new BridgeError('not-found', `No divergence with id "${id}".`);
@@ -239,12 +278,23 @@ export async function whListAtlasPlaces(args: ToolArgs): Promise<unknown> {
   };
 }
 
+/** The project's manuscript as plain text, streamed so no row's HTML outlives its scan. */
+async function manuscriptText(projectId: string): Promise<AppearanceWriting[]> {
+  const rows: AppearanceWriting[] = [];
+  await db.writings.where('projectId').equals(projectId).each((row) => {
+    rows.push(toAppearanceWriting(row));
+  });
+  return rows;
+}
+
 export async function whGetAtlasPlace(args: ToolArgs): Promise<unknown> {
   const place = await loadPlace(requireString(args, 'id'));
-  const [parent, children, divergences] = await Promise.all([
+  assertRowInScope(args, place.projectId);
+  const [parent, children, divergences, writings] = await Promise.all([
     place.parentId ? atlasPlaceOps.getOne(place.parentId) : undefined,
     db.atlasPlaces.where('parentId').equals(place.id).toArray(),
     db.atlasDivergences.where('placeId').equals(place.id).toArray(),
+    manuscriptText(place.projectId),
   ]);
   return {
     ...place,
@@ -255,6 +305,9 @@ export async function whGetAtlasPlace(args: ToolArgs): Promise<unknown> {
     divergences: divergences
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map((row) => ({ id: row.id, title: row.title, category: row.category, since: row.since })),
+    // The chapters that name the place (name or alias, accents and plurals
+    // folded), in manuscript order — the editor's "appears in".
+    appearsIn: findPlaceAppearances([place.name, ...place.aliases], writings),
   };
 }
 
@@ -397,6 +450,7 @@ export async function whListDivergences(args: ToolArgs): Promise<unknown> {
 
 export async function whGetDivergence(args: ToolArgs): Promise<unknown> {
   const row = await loadDivergence(requireString(args, 'id'));
+  assertRowInScope(args, row.projectId);
   const place = row.placeId ? await atlasPlaceOps.getOne(row.placeId) : undefined;
   return { projectId: row.projectId, ...divergenceShape(row, place?.name, true) };
 }
@@ -484,6 +538,126 @@ export async function whUpdateDivergence(args: ToolArgs): Promise<unknown> {
 }
 
 // ---------------------------------------------------------------------------
+// Distances — "how far, and how long does my character take"
+// ---------------------------------------------------------------------------
+
+function round(value: number, decimals: number): number {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
+/** A place that can be measured from, or a refusal that names the gap. */
+function located(place: AtlasPlace, role: string): AtlasPlace & LonLat {
+  if (!hasCoordinates(place)) {
+    throw new BridgeError(
+      'bad-args',
+      `The ${role} place "${place.name}" has no coordinates, so there is nothing to measure from. Give it lat/lon with wh_update_atlas_place first.`,
+    );
+  }
+  return place;
+}
+
+const TRAVEL_LABELS = {
+  walk: 'on foot',
+  horse: 'on horseback',
+  carriage: 'by carriage',
+  rail19: 'by 19th-century train',
+  car: 'by car',
+  plane: 'by plane',
+} as const;
+
+function hoursText(hours: number): string {
+  if (hours < 1) return `${Math.round(hours * 60)} min`;
+  if (hours < 48) return `${round(hours, 1)} h`;
+  return `${round(hours / 24, 1)} days (${Math.round(hours)} h)`;
+}
+
+export async function whAtlasDistance(args: ToolArgs): Promise<unknown> {
+  const from = await loadPlace(requireString(args, 'fromPlaceId'));
+  assertPlaceInScope(args, from);
+  const to = await loadPlace(requireString(args, 'toPlaceId'));
+  assertPlaceInScope(args, to);
+  if (from.projectId !== to.projectId) {
+    throw new BridgeError('bad-args', 'Both places must belong to the same project.');
+  }
+  const a = located(from, 'origin');
+  const b = located(to, 'destination');
+
+  const km = haversineKm(a, b);
+  const bearing = bearingDeg(a, b);
+  const estimates = travelEstimates(km).map((estimate) => ({
+    mode: estimate.mode,
+    hours: round(estimate.hours, 1),
+    days: estimate.days,
+  }));
+  const lines = estimates.map((estimate) =>
+    `- ${TRAVEL_LABELS[estimate.mode]}: ${hoursText(estimate.hours)}${estimate.days !== undefined ? ` moving, ${estimate.days} day${estimate.days === 1 ? '' : 's'} in stages` : ''}`);
+  return {
+    from: { id: a.id, name: a.name, lat: a.lat, lon: a.lon },
+    to: { id: b.id, name: b.name, lat: b.lat, lon: b.lon },
+    km: round(km, 1),
+    bearingDeg: round(bearing, 1),
+    compass: compassPoint(bearing),
+    estimates,
+    markdown: [
+      `${a.name} → ${b.name}: ${round(km, 1)} km as the crow flies, bearing ${Math.round(bearing)}° (${compassPoint(bearing)}). Roads add a fifth or more.`,
+      ...lines,
+    ].join('\n'),
+  };
+}
+
+export async function whAtlasPlacesNear(args: ToolArgs): Promise<unknown> {
+  const placeId = optTrimmed(args, 'placeId');
+  const radiusKm = Math.min(NEAR_MAX_KM, Math.max(0, optNumber(args, 'radiusKm') ?? NEAR_DEFAULT_KM));
+  const limit = clampLimit(optNumber(args, 'limit'), 50, 500);
+
+  // One centre or the other: a placeId AND coordinates is two questions, and
+  // silently answering the first would hide a model's mistake.
+  const pair = coordinatePair(args);
+  if (placeId && pair) {
+    throw new BridgeError('bad-args', 'Pass either "placeId" or "lat"/"lon" as the centre, not both.');
+  }
+
+  let projectId: string;
+  let center: LonLat;
+  let origin: { id: string; name: string } | undefined;
+  if (placeId) {
+    const place = await loadPlace(placeId);
+    assertPlaceInScope(args, place);
+    projectId = place.projectId;
+    const at = located(place, 'centre');
+    center = { lon: at.lon, lat: at.lat };
+    origin = { id: place.id, name: place.name };
+  } else {
+    projectId = resolveProjectId(args);
+    if (!pair) throw new BridgeError('bad-args', 'Pass a "placeId" to search around, or both "lat" and "lon".');
+    center = pair;
+  }
+
+  const places = await atlasPlaceOps.getAll(projectId);
+  const hits = placesWithin(places, center, radiusKm).filter((hit) => hit.place.id !== origin?.id);
+  return {
+    projectId,
+    origin,
+    center,
+    radiusKm,
+    total: hits.length,
+    returned: Math.min(limit, hits.length),
+    places: hits.slice(0, limit).map((hit) => ({
+      id: hit.place.id,
+      name: hit.place.name,
+      kind: hit.place.kind,
+      lat: hit.place.lat,
+      lon: hit.place.lon,
+      fictional: hit.place.fictional,
+      km: round(hit.km, 1),
+      bearingDeg: round(bearingDeg(center, hit.place), 1),
+      compass: compassPoint(bearingDeg(center, hit.place)),
+    })),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Reality check — what the writer has not verified yet
 // ---------------------------------------------------------------------------
 
@@ -551,4 +725,89 @@ export async function whRealityCheck(args: ToolArgs): Promise<unknown> {
     },
     markdown: lines.join('\n'),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Routes — an ordered list of places, with the journey's totals
+// ---------------------------------------------------------------------------
+//
+// Routes are not a table: they are one JSON blob per project in `settings`
+// (engines/real-atlas/routes.ts says why). So the create tool's audit line
+// is an UPDATE of that settings row, with the previous blob as `before` —
+// which is exactly what the generic undo needs to put the list back, and
+// honest about what happened. There is no delete tool for routes here (the
+// panel has one, behind its dialog); wh_delete owns deletion, and a settings
+// blob is not a row it can address.
+
+function routeShape(route: AtlasRoute, places: AtlasPlace[]): Record<string, unknown> {
+  const names = new Map(places.map((place) => [place.id, place.name]));
+  const totals = routeTotals(route, places);
+  return {
+    id: route.id,
+    name: route.name,
+    mode: route.mode,
+    placeIds: route.placeIds,
+    stops: route.placeIds.map((id) => ({ id, name: names.get(id) })),
+    km: round(totals.km, 1),
+    legs: totals.legs.map((leg) => ({
+      fromId: leg.fromId,
+      toId: leg.toId,
+      km: round(leg.km, 1),
+      bearingDeg: round(leg.bearingDeg, 1),
+      compass: compassPoint(leg.bearingDeg),
+    })),
+    missing: totals.missing,
+    estimates: totals.estimates.map((estimate) => ({
+      mode: estimate.mode,
+      hours: round(estimate.hours, 1),
+      days: estimate.days,
+    })),
+  };
+}
+
+export async function whListAtlasRoutes(args: ToolArgs): Promise<unknown> {
+  const projectId = resolveProjectId(args);
+  const [routes, places] = await Promise.all([loadAtlasRoutes(projectId), atlasPlaceOps.getAll(projectId)]);
+  return {
+    projectId,
+    total: routes.length,
+    routes: routes.map((route) => routeShape(route, places)),
+  };
+}
+
+export async function whCreateAtlasRoute(args: ToolArgs): Promise<unknown> {
+  const projectId = await resolveProjectForEngine(args, ENGINE);
+  const name = requireString(args, 'name').trim();
+  // Not cleanList: a journey there and back names the same place twice.
+  const placeIds = (optStringArray(args, 'placeIds') ?? []).map((id) => id.trim()).filter(Boolean);
+  if (placeIds.length < 2) {
+    throw new BridgeError('bad-args', 'A route needs at least two place ids in "placeIds", in travelling order.');
+  }
+  if (placeIds.length > MAX_ROUTE_STOPS) {
+    throw new BridgeError('bad-args', `A route may have at most ${MAX_ROUTE_STOPS} stops.`);
+  }
+  const mode = optEnum(args, 'mode', TRAVEL_MODES);
+  const places = await atlasPlaceOps.getAll(projectId);
+  const known = new Set(places.map((place) => place.id));
+  const unknown = placeIds.filter((id) => !known.has(id));
+  if (unknown.length) {
+    throw new BridgeError('not-found', `No atlas place of this project with id ${unknown.map((id) => `"${id}"`).join(', ')}.`);
+  }
+
+  const previous = await getSetting(`${PROJECT_SETTING_PREFIXES.atlasRoutes}${projectId}`);
+  const routes = parseAtlasRoutes(previous);
+  const route: AtlasRoute = compact({ id: generateId('route'), name, placeIds, mode });
+  await saveAtlasRoutes(projectId, [...routes, route]);
+  const shape = routeShape(route, places);
+  return withAudit(
+    { ...shape, created: true },
+    {
+      projectId,
+      entityId: atlasRoutesSettingId(projectId),
+      table: 'settings',
+      kind: 'update',
+      summary: `created atlas route "${route.name}" (${placeIds.length} stops, ${round(routeTotals(route, places).km, 0)} km)`,
+      before: { value: previous ?? serializeAtlasRoutes([]) },
+    },
+  );
 }

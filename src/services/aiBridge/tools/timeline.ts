@@ -95,6 +95,9 @@ export async function whCreateTimeline(args: ToolArgs): Promise<unknown> {
 export async function whListEvents(args: ToolArgs): Promise<unknown> {
   const timelineId = optString(args, 'timelineId');
   if (timelineId) {
+    const timeline = await db.timelines.get(timelineId);
+    if (!timeline) throw new BridgeError('not-found', `No timeline with id "${timelineId}".`);
+    assertRowInScope(args, timeline.projectId);
     const events = await getTimelineEvents(timelineId);
     return { timelineId, events: events.map(serializeEvent) };
   }

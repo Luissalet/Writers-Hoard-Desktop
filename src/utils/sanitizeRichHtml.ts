@@ -2,11 +2,23 @@ import DOMPurify, { type Config } from 'dompurify';
 
 const SAFE_RASTER_DATA_URL = /^data:image\/(?:avif|bmp|gif|jpe?g|png|webp);base64,/i;
 
+/**
+ * The attributes a browser reads as a URL. Only these can carry a `data:`
+ * document anywhere; a footnote body, an `alt` or a `title` that happens to
+ * begin with the word "Data:" is text, and used to be thrown away with the
+ * rest.
+ */
+const URI_ATTRIBUTES = new Set([
+  'src', 'href', 'xlink:href', 'action', 'formaction', 'poster', 'background',
+  'cite', 'data', 'ping', 'srcset', 'longdesc', 'usemap',
+]);
+
 // DOMPurify intentionally permits data: URLs on image-like elements. Narrow
 // that exception so persisted SVG/XML documents cannot enter through <img>.
 DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
   if (
-    data.attrValue.trimStart().toLowerCase().startsWith('data:')
+    URI_ATTRIBUTES.has(data.attrName.toLowerCase())
+    && data.attrValue.trimStart().toLowerCase().startsWith('data:')
     && !(node.nodeName === 'IMG' && data.attrName === 'src' && SAFE_RASTER_DATA_URL.test(data.attrValue))
   ) {
     data.keepAttr = false;

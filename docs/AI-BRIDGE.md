@@ -116,6 +116,22 @@ usa **el proyecto que tengas abierto en la app**, que es lo que hace que
 | `wh_list_writing_versions` | no | |
 | `wh_restore_writing_version` | sí | Guarda versión antes de restaurar. |
 
+**Notas al pie.** El manuscrito las lleva en Markdown con la sintaxis de
+siempre: `[^etiqueta]` en la prosa y, al final del cuerpo, un bloque
+`[^etiqueta]: texto` (las líneas siguientes de una misma nota van con cuatro
+espacios). `wh_get_writing` usa como etiqueta el **id real** de cada nota
+(`[^mf3k2a_x9y8z7]`), y `wh_update_writing`/`wh_create_writing`/
+`wh_append_writing` aceptan cualquier etiqueta: si es segura
+(`[A-Za-z0-9_-]{1,40}`) y está libre se conserva como id — así una ida y
+vuelta por el modelo deja cada nota con el id que tenía —; si no, se genera
+uno nuevo. Una referencia sin definición es una nota vacía (la marca no se
+pierde); una definición sin referencia se ignora; dos referencias a la misma
+etiqueta son dos notas con el mismo texto. `wh_append_writing` sólo convierte
+lo añadido y nunca renumera ni toca las notas ya existentes (sus ids quedan
+reservados para que un `[^1]` nuevo no choque con ellos). El texto de la nota
+es texto plano: no se interpreta Markdown dentro. Sólo el manuscrito tiene
+nodo de nota; en codex, diario y biografía `[^1]` sigue siendo texto literal.
+
 **Codex**
 
 | Herramienta | Escribe | Notas |
@@ -199,7 +215,7 @@ Códigos de error que puede devolver: `app-closed`, `timeout`, `unknown-tool`,
 | `src/services/aiBridge/tools/*.ts` | Los handlers, uno por dominio, más `shared.ts` (coerción de argumentos, ámbito de proyecto, Markdown). |
 | `src/services/aiBridge/tools/index.ts` | Tabla nombre → handler. |
 | `src/services/aiBridge/dispatch.ts` | Escucha `aibridge:request` a nivel de módulo y responde. |
-| `src/services/aiBridge/markdown.ts` | Markdown → HTML de TipTap, sin dependencias. |
+| `src/services/aiBridge/markdown.ts` | Markdown ⇄ HTML de TipTap, sin dependencias; con `footnotes: true`, las notas al pie del manuscrito. |
 | `electron/aibridge/server.ts` | El puerto HTTP y su política de acceso. |
 | `electron/aibridge/rpc.ts` | El canal main→renderer con correlación por id. |
 | `electron/aibridge/state.ts` | Token, interruptores y registro de auditoría. |

@@ -4,6 +4,8 @@ import type { Writing } from '@/types';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useAppStore } from '@/stores/appStore';
 import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
+import { extractFootnotesFromHtml, renderEndnotesHtml } from '@/components/editor/footnotes/footnoteModel';
+import type { FootnoteMarkerStyle, FootnotePlacement } from '@/types';
 import {
   estimatePieceHeight,
   manuscriptProgress,
@@ -38,6 +40,9 @@ const RESUME_NOTE_MS = 6_000;
 interface ReadingPieceProps {
   piece: Writing;
   words: number;
+  footnoteStyle: FootnoteMarkerStyle;
+  /** The number of the piece's first note: 1, or one past the previous piece's last. */
+  footnoteStart: number;
   onOpenInEditor: (writing: Writing) => void;
 }
 
@@ -55,9 +60,31 @@ interface ReadingPieceProps {
  * chapter reads here exactly as it reads in the editor. There is no editor
  * behind it: no `contentEditable`, no TipTap instance, nothing that writes.
  */
-const ReadingPiece = memo(function ReadingPiece({ piece, words, onOpenInEditor }: ReadingPieceProps) {
+const ReadingPiece = memo(function ReadingPiece({
+  piece,
+  words,
+  footnoteStyle,
+  footnoteStart,
+  onOpenInEditor,
+}: ReadingPieceProps) {
   const { t, locale } = useTranslation();
   const column = { maxWidth: 'var(--wh-reading-measure)' };
+  // The chapter's footnotes, listed under its prose. The references keep
+  // their CSS numbers, the list its own, and both count in document order —
+  // from `footnoteStart`: the stylesheet resets the counter per prose body,
+  // and this inline reset outranks it, so a book whose notes count on
+  // through the chapters reads that way here too. No back-links: the
+  // sanitizer renames ids, and `handleProseClick` below swallows every
+  // in-page anchor anyway.
+  const endnotes = renderEndnotesHtml(
+    extractFootnotesFromHtml(piece.content).map((note) => ({ ...note, index: note.index + footnoteStart - 1 })),
+    {
+      heading: t('writings.footnotes.endnotesTitle'),
+      style: footnoteStyle,
+      backlinks: false,
+    },
+  );
+  const counter = footnoteStart > 1 ? { counterReset: `wh-footnote ${footnoteStart - 1}` } : undefined;
 
   return (
     <article data-piece-id={piece.id} className="px-6 pt-8 pb-2">
@@ -87,7 +114,7 @@ const ReadingPiece = memo(function ReadingPiece({ piece, words, onOpenInEditor }
 
       {piece.content.trim() ? (
         <div className="tiptap-editor mt-2">
-          <div className="ProseMirror" dangerouslySetInnerHTML={sanitizedHtml(piece.content)} />
+          <div className="ProseMirror" style={counter} dangerouslySetInnerHTML={sanitizedHtml(piece.content + endnotes)} />
         </div>
       ) : (
         <p className="mx-auto mt-4 text-sm italic text-text-dim" style={column}>
@@ -107,6 +134,15 @@ interface ReadingViewProps {
   startId?: string | null;
   onClose: () => void;
   onOpenInEditor: (writing: Writing) => void;
+  /** The manuscript's footnote marker style; numbers when absent. */
+  footnoteStyle?: FootnoteMarkerStyle;
+  /**
+   * Where the book puts its notes. The reader shows each chapter's notes
+   * under that chapter either way — it is one continuous scroll, and "the
+   * end of the book" is four hundred chapters down — but with `book` the
+   * numbers count on through the chapters as they will in the exports.
+   */
+  footnotePlacement?: FootnotePlacement;
 }
 
 /**
@@ -116,7 +152,14 @@ interface ReadingViewProps {
  * writes, and the single action it offers per piece hands the writing back to
  * the host to open in the editor.
  */
-export default function ReadingView({ pieces, startId, onClose, onOpenInEditor }: ReadingViewProps) {
+export default function ReadingView({
+  pieces,
+  startId,
+  onClose,
+  onOpenInEditor,
+  footnoteStyle = 'numbers',
+  footnotePlacement = 'chapter',
+}: ReadingViewProps) {
   const { t, locale } = useTranslation();
   const reading = useAppStore((s) => s.reading);
   const loadReading = useAppStore((s) => s.loadReading);
@@ -168,6 +211,19 @@ export default function ReadingView({ pieces, startId, onClose, onOpenInEditor }
 
   const words = useMemo(() => measureWords(pieces), [pieces]);
   const prefixes = useMemo(() => wordPrefixes(words), [words]);
+  // The first note number of each piece when the book numbers continuously.
+  // Cheap enough for the whole manuscript: `extractFootnotesFromHtml` tests
+  // for the attribute before it parses, so the chapters without notes — most
+  // of them — cost a substring search each.
+  const footnoteStarts = useMemo(() => {
+    const starts: number[] = [];
+    let next = 1;
+    for (const piece of pieces) {
+      starts.push(next);
+      if (footnotePlacement === 'book') next += extractFootnotesFromHtml(piece.content).length;
+    }
+    return starts;
+  }, [footnotePlacement, pieces]);
   const totalWords = prefixes[prefixes.length - 1] ?? 0;
 
   const heightOf = useCallback(
@@ -556,6 +612,7 @@ export default function ReadingView({ pieces, startId, onClose, onOpenInEditor }
       data-reading-face={reading.face}
       data-reading-size={reading.size}
       data-reading-measure={reading.measure}
+      data-footnote-style={footnoteStyle}
       role="dialog"
       aria-modal="true"
       aria-label={t('writings.reading.title')}
@@ -727,6 +784,8 @@ export default function ReadingView({ pieces, startId, onClose, onOpenInEditor }
               key={piece.id}
               piece={piece}
               words={words[pieceWindow.first + offset] ?? 0}
+              footnoteStyle={footnoteStyle}
+              footnoteStart={footnoteStarts[pieceWindow.first + offset] ?? 1}
               onOpenInEditor={onOpenInEditor}
             />
           ))}

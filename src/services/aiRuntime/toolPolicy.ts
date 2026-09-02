@@ -80,13 +80,16 @@ export type ScopeVerdict =
 /**
  * Pin a copilot call to its conversation's project.
  *
- * Tools whose schema takes `projectId` get it filled in when the model left it
- * out, and are refused when the model named a different one: a chat opened in
- * project A is not permission to write into project B. Tools addressed by an
- * entity id cannot be decided here — only the handler can say which project
- * the row belongs to — so the scope rides along in SCOPE_KEY and the handler
- * checks it against the loaded row (`assertRowInScope`). Without that, an id
- * from another project was all it took to write into one.
+ * Every call gets BOTH pins. `projectId` is filled in when the model left it
+ * out and refused when the model named a different one: a chat opened in
+ * project A is not permission to write into project B. SCOPE_KEY rides along
+ * for the handler to check against whatever row it loads by id
+ * (`assertRowInScope`), because a `projectId` in the arguments says nothing
+ * about a `placeId` or `parentId` next to it — ids travel, and a tool that
+ * takes both (wh_atlas_places_near) used to answer for the other project's
+ * row as long as `projectId` was absent or agreed with the conversation.
+ * Tools whose schema has no `projectId` ignore the extra key; those that
+ * resolve one read the pinned value, which is the point.
  */
 export function applyProjectScope(
   tool: BridgeTool,
@@ -95,16 +98,15 @@ export function applyProjectScope(
 ): ScopeVerdict {
   if (ctx.origin !== 'copilot' || !ctx.projectId) return { ok: true, args };
   const takesProject = Object.prototype.hasOwnProperty.call(tool.schema.properties, 'projectId');
-  if (!takesProject) return { ok: true, args: { ...args, [SCOPE_KEY]: ctx.projectId } };
   const given = args.projectId;
-  if (typeof given === 'string' && given && given !== ctx.projectId) {
+  if (takesProject && typeof given === 'string' && given && given !== ctx.projectId) {
     return {
       ok: false,
       code: 'scope',
       error: `This conversation belongs to project "${ctx.projectId}"; it cannot act on project "${given}". Ask the user to open that project and continue there.`,
     };
   }
-  return { ok: true, args: { ...args, projectId: ctx.projectId } };
+  return { ok: true, args: { ...args, projectId: ctx.projectId, [SCOPE_KEY]: ctx.projectId } };
 }
 
 export type ArgsVerdict =

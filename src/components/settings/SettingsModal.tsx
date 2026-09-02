@@ -142,6 +142,24 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
               ]}
               onChange={(measure) => void setReading({ measure })}
             />
+            <Choice
+              label={t('settings.reading.layout')}
+              value={reading.layout}
+              options={[
+                { id: 'flow', label: t('settings.reading.layout.flow') },
+                { id: 'page', label: t('settings.reading.layout.page') },
+              ]}
+              onChange={(layout) => void setReading({ layout })}
+            />
+            <Choice
+              label={t('settings.reading.pageSize')}
+              value={reading.pageSize}
+              options={[
+                { id: 'a4', label: t('settings.reading.pageSize.a4') },
+                { id: 'letter', label: t('settings.reading.pageSize.letter') },
+              ]}
+              onChange={(pageSize) => void setReading({ pageSize })}
+            />
           </div>
           <div
             data-reading-face={reading.face}

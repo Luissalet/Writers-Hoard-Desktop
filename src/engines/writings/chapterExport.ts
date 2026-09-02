@@ -35,7 +35,7 @@
 // serves "chapters 3 to 5, for Thursday's workshop" at no extra cost. The
 // chapter menu asks for one; nothing here assumes it.
 
-import type { Writing } from '@/types';
+import type { Writing, FootnoteMarkerStyle, FootnotePlacement } from '@/types';
 import { stripHtml } from '@/utils/text';
 import { compareManuscriptOrder, numberedInOrder } from './chapterOrder';
 import {
@@ -117,6 +117,16 @@ export interface ChapterExportOptions {
    * Spanish document the day somebody turns the page back on.
    */
   wordLabel: string;
+  /** Heading over a chapter's footnotes, e.g. "Notas" / "Notes". */
+  notesLabel?: string;
+  /** The manuscript's footnote marker style (`Project.footnoteStyle`). */
+  footnoteStyle?: FootnoteMarkerStyle;
+  /**
+   * Where the manuscript puts its notes (`Project.footnotePlacement`). A
+   * chapter sent on its own keeps the book's choice: with `book`, its notes
+   * still gather at the end of the file rather than under each chapter.
+   */
+  footnotePlacement?: FootnotePlacement;
   /** BCP 47 locale. Reaches the ePub as `xml:lang` and `dc:language`. */
   locale: string;
   /**
@@ -321,6 +331,9 @@ export function buildChapterExport(
     chapterLabel: options.chapterLabel,
     untitledLabel: options.untitledLabel,
     wordLabel: options.wordLabel,
+    notesLabel: options.notesLabel,
+    footnoteStyle: options.footnoteStyle,
+    footnotePlacement: options.footnotePlacement,
     locale: options.locale,
     generatedAt: options.generatedAt,
   });

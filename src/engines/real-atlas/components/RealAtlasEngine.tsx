@@ -8,10 +8,14 @@ import { generateId } from '@/utils/idGenerator';
 import { foldForSearch } from '@/engines/worldgen/core/searchText';
 import { useAtlasDivergences, useAtlasPlaces } from '../hooks';
 import { ATLAS_PLACE_KINDS, type AtlasDivergence, type AtlasPlace, type AtlasPlaceKind } from '../types';
-import PlaceEditor from './PlaceEditor';
+import type { LonLat } from '../geo';
+import PlaceEditor, { type CoordinatePick } from './PlaceEditor';
+import { nextPickSeq } from './picks';
 import DivergenceEditor from './DivergenceEditor';
+import AtlasMap, { type MapRequest } from './AtlasMap';
+import { divergenceCountLabel } from './labels';
 
-type Tab = 'places' | 'divergences';
+type Tab = 'places' | 'divergences' | 'map';
 type KindFilter = AtlasPlaceKind | 'all';
 interface PlaceRow { place: AtlasPlace; depth: number }
 
@@ -106,17 +110,31 @@ export default function RealAtlasEngine({ projectId }: EngineComponentProps) {
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<KindFilter>('all');
 
+  // The map is mounted the first time its tab opens and kept mounted (hidden)
+  // after that: its view, mode and loaded basemap survive a trip to the editor
+  // and back. Requests travel to it as {placeId, seq} so each is applied once.
+  const [mapVisited, setMapVisited] = useState(false);
+  const [pickRequest, setPickRequest] = useState<MapRequest | null>(null);
+  const [focusRequest, setFocusRequest] = useState<MapRequest | null>(null);
+  const [coordinatePick, setCoordinatePick] = useState<CoordinatePick | null>(null);
+  const openMap = () => {
+    setMapVisited(true);
+    setTab('map');
+  };
+
   // Deep link (?place=<id>) from backlinks and global search. Render-adjust with
   // an `applied` guard, same as codex: the parameter stays in the URL, so without
   // it every re-render would drag the author back to the linked row. The anchor
-  // adapter sends divergence ids through the same parameter.
+  // adapter sends divergence ids through the same parameter. With the map open
+  // the link centres and selects there instead of leaving for the list.
   const deepLinkedId = useDeepLinkParam('place');
   const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
   if (deepLinkedId && deepLinkedId !== appliedDeepLink) {
     if (places.items.some((p) => p.id === deepLinkedId)) {
       setAppliedDeepLink(deepLinkedId);
       setSelectedPlaceId(deepLinkedId);
-      setTab('places');
+      if (tab === 'map') setFocusRequest({ placeId: deepLinkedId, seq: (focusRequest?.seq ?? 0) + 1 });
+      else setTab('places');
     } else if (divergences.items.some((d) => d.id === deepLinkedId)) {
       setAppliedDeepLink(deepLinkedId);
       setSelectedDivergenceId(deepLinkedId);
@@ -131,13 +149,19 @@ export default function RealAtlasEngine({ projectId }: EngineComponentProps) {
   const selectedDivergence = divergences.items.find((d) => d.id === selectedDivergenceId) ?? null;
   if (selectedPlaceId && !selectedPlace && !places.loading) setSelectedPlaceId(null);
   if (selectedDivergenceId && !selectedDivergence && !divergences.loading) setSelectedDivergenceId(null);
+  // A pick is for the place it was made for, while that place is the one
+  // open: once the selection moves on it is dropped here, so the editor does
+  // not find it again when it remounts and re-apply it over a corrected value.
+  if (coordinatePick && coordinatePick.placeId !== selectedPlaceId) setCoordinatePick(null);
 
   const rows = useMemo(() => placeRows(places.items, query, kind), [places.items, query, kind]);
 
-  const createPlace = async () => {
+  /** A new row, from the list button (no coordinates) or from a click on the map (with them). */
+  const createPlace = async (at?: LonLat) => {
     const now = Date.now();
     const place: AtlasPlace = {
       id: generateId('place'), projectId, name: t('realAtlas.place.untitled'), kind: 'city', aliases: [],
+      ...(at ? { lat: Number(at.lat.toFixed(5)), lon: Number(at.lon.toFixed(5)) } : {}),
       description: '', realNotes: '', sources: [], fictional: false, tags: [], createdAt: now, updatedAt: now,
     };
     await places.addItem(place);
@@ -145,7 +169,41 @@ export default function RealAtlasEngine({ projectId }: EngineComponentProps) {
     setQuery('');
     setKind('all');
     setSelectedPlaceId(place.id);
+    setTab('places');
   };
+
+  const openPlaceEditor = (id: string) => {
+    setSelectedPlaceId(id);
+    setTab('places');
+  };
+
+  /** The editor asks for coordinates: the map takes over until the next click. */
+  const pickOnMap = (placeId: string) => {
+    setPickRequest({ placeId, seq: (pickRequest?.seq ?? 0) + 1 });
+    openMap();
+  };
+
+  /**
+   * The map answers a pick. Nothing is written: the coordinates go into the
+   * editor's draft, so typed work there is not overwritten and Save stays the
+   * one place a row changes from the editor.
+   */
+  const receivePick = (placeId: string, coords: LonLat) => {
+    setCoordinatePick({ placeId, lat: Number(coords.lat.toFixed(5)), lon: Number(coords.lon.toFixed(5)), seq: nextPickSeq() });
+    openPlaceEditor(placeId);
+  };
+
+  /** The editor's Save. The pick, if any, is in the row now (or was overridden by hand): either way it has been consumed. */
+  const savePlace = async (id: string, changes: Partial<AtlasPlace>) => {
+    await places.editItem(id, changes);
+    setCoordinatePick(null);
+  };
+
+  /** A drag, "place on the map" or its undo: a direct write, rounded to about a metre. */
+  const movePlace = (id: string, coords: LonLat | null) =>
+    places.editItem(id, coords
+      ? { lat: Number(coords.lat.toFixed(5)), lon: Number(coords.lon.toFixed(5)) }
+      : { lat: undefined, lon: undefined });
 
   const createDivergence = async (placeId?: string) => {
     const now = Date.now();
@@ -176,6 +234,7 @@ export default function RealAtlasEngine({ projectId }: EngineComponentProps) {
 
   const count = (key: string, n: number) => t(key).replace('{count}', String(n));
   const placeName = (id?: string) => places.items.find((p) => p.id === id)?.name;
+  const located = places.items.filter((p) => typeof p.lat === 'number' && typeof p.lon === 'number').length;
 
   return (
     <div className="space-y-4">
@@ -183,6 +242,7 @@ export default function RealAtlasEngine({ projectId }: EngineComponentProps) {
       <div role="tablist" className="flex border-b border-border">
         <TabButton active={tab === 'places'} label={t('realAtlas.tabs.places')} count={places.items.length} onClick={() => setTab('places')} />
         <TabButton active={tab === 'divergences'} label={t('realAtlas.tabs.divergences')} count={divergences.items.length} onClick={() => setTab('divergences')} />
+        <TabButton active={tab === 'map'} label={t('realAtlas.tabs.map')} count={located} onClick={openMap} />
       </div>
 
       {/* Both panels stay mounted and one is hidden: switching tabs (which the
@@ -244,19 +304,44 @@ export default function RealAtlasEngine({ projectId }: EngineComponentProps) {
             )}
             editor={selectedPlace && (
               <PlaceEditor
+                // One editor per place: a geocoding search still in flight
+                // for the previous selection must never land in this one.
+                key={selectedPlace.id}
                 projectId={projectId}
                 place={selectedPlace}
                 places={places.items}
                 divergences={divergences.items}
-                onSave={(changes) => places.editItem(selectedPlace.id, changes)}
+                onSave={(changes) => savePlace(selectedPlace.id, changes)}
                 onDelete={() => deletePlace(selectedPlace.id)}
                 onAddDivergence={() => void createDivergence(selectedPlace.id)}
                 onOpenDivergence={openDivergence}
+                onPickOnMap={() => pickOnMap(selectedPlace.id)}
+                coordinatePick={coordinatePick}
               />
             )}
           />
         )}
       </div>
+
+      {/* Full height minus the app chrome above the engine (header, intro, tabs),
+          the same way the board and worldgen canvases size themselves. */}
+      {mapVisited && (
+        <div role="tabpanel" hidden={tab !== 'map'} className="h-[calc(100vh-15rem)] min-h-[420px]">
+          <AtlasMap
+            projectId={projectId}
+            places={places.items}
+            divergences={divergences.items}
+            selectedPlaceId={selectedPlaceId}
+            onSelect={setSelectedPlaceId}
+            onEdit={openPlaceEditor}
+            onCreateAt={(coords) => void createPlace(coords)}
+            onMove={movePlace}
+            pickRequest={pickRequest}
+            onPick={receivePick}
+            focusRequest={focusRequest}
+          />
+        </div>
+      )}
 
       <div role="tabpanel" hidden={tab !== 'divergences'}>
         {divergences.items.length === 0 ? (
@@ -268,7 +353,7 @@ export default function RealAtlasEngine({ projectId }: EngineComponentProps) {
           />
         ) : (
           <Columns
-            count={count('realAtlas.divergences.count', divergences.items.length)}
+            count={divergenceCountLabel(t, divergences.items.length)}
             // No "pick a divergence" key exists; the tab's own hint reads naturally here.
             hint={t('realAtlas.divergences.emptyHint')}
             list={(

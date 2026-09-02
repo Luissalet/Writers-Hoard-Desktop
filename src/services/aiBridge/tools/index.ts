@@ -106,11 +106,15 @@ import {
   whWorldSummary,
 } from './worldgen';
 import {
+  whAtlasDistance,
+  whAtlasPlacesNear,
   whCreateAtlasPlace,
+  whCreateAtlasRoute,
   whCreateDivergence,
   whGetAtlasPlace,
   whGetDivergence,
   whListAtlasPlaces,
+  whListAtlasRoutes,
   whListDivergences,
   whRealityCheck,
   whUpdateAtlasPlace,
@@ -256,6 +260,10 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_get_divergence: whGetDivergence,
   wh_create_divergence: whCreateDivergence,
   wh_update_divergence: whUpdateDivergence,
+  wh_atlas_distance: whAtlasDistance,
+  wh_atlas_places_near: whAtlasPlacesNear,
+  wh_list_atlas_routes: whListAtlasRoutes,
+  wh_create_atlas_route: whCreateAtlasRoute,
   wh_reality_check: whRealityCheck,
   // Storyboard
   wh_list_storyboards: whListStoryboards,

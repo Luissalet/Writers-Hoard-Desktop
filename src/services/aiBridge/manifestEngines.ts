@@ -1056,7 +1056,7 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_get_atlas_place',
     description:
-      'Read one place in full: `description` (how the story uses it), `realNotes` (what is actually true there, as checked by the writer), `sources`, address, coordinates, era and tags, plus its parent place, the places it contains and the divergences anchored to it. Read this before writing about a place, and treat realNotes as the verified facts and description as the book\'s use of them.',
+      'Read one place in full: `description` (how the story uses it), `realNotes` (what is actually true there, as checked by the writer), `sources`, address, coordinates, era and tags, plus its parent place, the places it contains, the divergences anchored to it and `appearsIn` — the chapters whose prose names the place or one of its aliases (`{writingId, title, chapter}`, in manuscript order; accents, case and plurals do not matter). Read this before writing about a place, and treat realNotes as the verified facts and description as the book\'s use of them.',
     writes: false,
     schema: {
       type: 'object',
@@ -1191,6 +1191,71 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
         tags: arr('Replacement tag list.'),
       },
       required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_atlas_distance',
+    description:
+      'Great-circle distance between two places of the atlas, in km, with the initial compass bearing and how long the journey takes by six means: on foot (4.5 km/h, 36 km a day), on horseback (40 km a day in stages), by carriage (60 km a day), by mid-19th-century train (40 km/h), by car (90 km/h) and by plane (800 km/h plus two hours of airports). Staged modes report `days`; every mode reports `hours` moving. Use it to answer "how long does my character take" and to check that a chapter\'s timing is possible; real roads add a fifth or more, which the writer decides. Both places need coordinates. Nothing is written.',
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        fromPlaceId: s('Id of the place the journey starts from.'),
+        toPlaceId: s('Id of the destination place.'),
+      },
+      required: ['fromPlaceId', 'toPlaceId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_atlas_places_near',
+    description:
+      'The atlas places within `radiusKm` of a point, nearest first, each with its distance in km and compass bearing from the centre. Centre on a place (`placeId`, which is itself left out of the results) or on raw `lat`/`lon`. Default radius 50 km. Use it to find what the story has already placed around a scene, or which places a character could reach in a day. Nothing is written.',
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        placeId: s('Place to search around. Its own project is used, and it is excluded from the results.'),
+        lat: LAT,
+        lon: LON,
+        radiusKm: n('Radius in kilometres. Default 50, maximum 20000.'),
+        limit: n('Maximum places. Default 50, maximum 500.'),
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_list_atlas_routes',
+    description:
+      'The project\'s itineraries: each route is a named, ordered list of atlas places (a journey the story makes), with its stops, its great-circle length in km, each leg\'s distance and compass bearing, the ids of stops that have no coordinates (`missing`), and how long the whole journey takes by the six means wh_atlas_distance uses (hours moving, and days in stages for the staged ones). Use it to answer "how long is the road trip in chapter four" or to check an itinerary against the chapter order. Nothing is written.',
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: { projectId: PROJECT_ID },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_create_atlas_route',
+    description:
+      'Save an itinerary: a name and at least two atlas place ids of this project in travelling order (a place may recur, for a journey there and back). Optional `mode` records the means of travel the writer has in mind. Returns the route with its totals, as wh_list_atlas_routes reports them. Stops without coordinates are allowed but contribute no distance. Routes are edited, renamed and deleted from the map\'s Routes panel; there is no bridge tool to delete one. Undoable.',
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        name: s('Name of the route, e.g. "Lisboa to Madrid by post road".'),
+        placeIds: arr('Atlas place ids in travelling order, at least two.'),
+        mode: {
+          type: 'string',
+          enum: ['walk', 'horse', 'carriage', 'rail19', 'car', 'plane'],
+          description: 'Means of travel the writer has in mind for this journey, if any.',
+        },
+      },
+      required: ['name', 'placeIds'],
       additionalProperties: false,
     },
   },
