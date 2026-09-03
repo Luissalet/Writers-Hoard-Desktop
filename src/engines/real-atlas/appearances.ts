@@ -7,17 +7,22 @@
 // through the shared scanner (`_shared/nameAppearances`): whole words, case
 // and accents folded, plurals accepted («los Toledos»).
 //
-// The manuscript is read once per project and kept as folded plain text
-// (never the HTML, never the row): the editor then matches the name being
-// typed against those strings in memory, so a keystroke costs a scan of the
-// text and no Dexie read at all.
+// The manuscript is read per project and kept as folded TOKENS, never the
+// HTML and never the row: the editor then matches the name being typed
+// against those tokens in memory, so a keystroke costs a pass of map lookups
+// over the words and no Dexie read, no HTML stripping and no normalisation.
+// The tokens live in a module-level cache keyed by writing and `updatedAt`,
+// so a chapter is tokenised once per save however many pins are clicked
+// (the editor remounts per place) and however many callers ask — the engine
+// and the AI bridge share it.
 
 import { db } from '@/db';
+import type { Writing } from '@/types';
 import { compareManuscriptOrder } from '@/engines/writings/chapterOrder';
 import { stripHtml } from '@/utils/text';
 import { makeReadOnlyHook } from '@/engines/_shared/makeReadOnlyHook';
 import {
-  findNameAppearances,
+  findNameAppearancesInTokens,
   indexNameCandidates,
   tokenizeNameText,
   type NameCandidate,
@@ -30,7 +35,7 @@ export interface PlaceAppearance {
   chapter?: number;
 }
 
-/** A writing as the scan needs it: its text, and what orders and names it. */
+/** A writing as the scan needs it: its words, and what orders and names it. */
 export interface AppearanceWriting {
   id: string;
   title: string;
@@ -38,6 +43,8 @@ export interface AppearanceWriting {
   updatedAt: number;
   /** The prose without its markup. */
   text: string;
+  /** `text` through `tokenizeNameText`, computed once with it. */
+  tokens: readonly string[];
 }
 
 /** A name shorter than this says nothing about where a place is: «Ur» is in every «ursa». */
@@ -62,42 +69,91 @@ function candidatesFor(names: readonly string[]): NameCandidate[] {
 
 /**
  * The writings that name the place — by any of `names` — in manuscript order.
- * Pure: the hook below hands it the project's writings, the bridge hands it
- * the rows it read.
+ * Pure: the engine hands it the project's writings, the bridge hands it the
+ * rows it read. Nothing is touched when no name is worth looking for.
  */
 export function findPlaceAppearances(
   names: readonly string[],
   writings: readonly AppearanceWriting[],
 ): PlaceAppearance[] {
   const index = indexNameCandidates(candidatesFor(names));
-  if (index.size === 0) return [];
+  if (index.size === 0 || writings.length === 0) return [];
   return [...writings]
     .sort(compareManuscriptOrder)
-    .filter((row) => findNameAppearances(row.text, index, { plurals: true }).size > 0)
+    .filter((row) => findNameAppearancesInTokens(row.tokens, index, { plurals: true }).size > 0)
     .map((row) => ({ writingId: row.id, title: row.title, chapter: row.chapter }));
 }
 
-/** A row projected down to what the scan reads: the manuscript's markup and metadata stay behind. */
-export function toAppearanceWriting(row: {
-  id: string;
-  title: string;
-  chapter?: number;
-  updatedAt: number;
-  content: string;
-}): AppearanceWriting {
-  return { id: row.id, title: row.title, chapter: row.chapter, updatedAt: row.updatedAt, text: stripHtml(row.content) };
+/** What the scan reads from a row: the manuscript's markup and metadata stay behind. */
+export type AppearanceSource = Pick<Writing, 'id' | 'title' | 'chapter' | 'updatedAt' | 'content'>;
+
+/** A row projected down to text and tokens. Uncached: `cachedAppearanceWriting` is the one to call in a loop. */
+export function toAppearanceWriting(row: AppearanceSource): AppearanceWriting {
+  const text = stripHtml(row.content);
+  return { id: row.id, title: row.title, chapter: row.chapter, updatedAt: row.updatedAt, text, tokens: tokenizeNameText(text) };
 }
 
-/** The project's writings as plain text, read once and refreshed on writes that go around the editor. */
+// ---------------------------------------------------------------------------
+// The cache
+// ---------------------------------------------------------------------------
+
+/** One project's tokenised chapters, by writing id. */
+type ProjectCache = Map<string, AppearanceWriting>;
+
+const cache = new Map<string, ProjectCache>();
+
+/**
+ * The tokenised form of a row, reused while its `updatedAt` holds. Every
+ * save bumps `updatedAt`, so a stale entry cannot survive an edit; a title
+ * or chapter change alone bumps it too, which is why those are not compared.
+ */
+export function cachedAppearanceWriting(projectId: string, row: AppearanceSource): AppearanceWriting {
+  let project = cache.get(projectId);
+  if (!project) {
+    project = new Map();
+    cache.set(projectId, project);
+  }
+  const hit = project.get(row.id);
+  if (hit && hit.updatedAt === row.updatedAt) return hit;
+  const fresh = toAppearanceWriting(row);
+  project.set(row.id, fresh);
+  return fresh;
+}
+
+/**
+ * The project's manuscript as tokens, streamed so no row's HTML outlives its
+ * scan. Rows the cache still has are returned as they are; the project's
+ * cache is then trimmed to the rows that exist, so a deleted chapter does not
+ * linger.
+ */
+export async function loadAppearanceWritings(projectId: string): Promise<AppearanceWriting[]> {
+  const rows: AppearanceWriting[] = [];
+  await db.writings
+    .where('projectId')
+    .equals(projectId)
+    .each((row) => {
+      rows.push(cachedAppearanceWriting(projectId, row));
+    });
+  const project = cache.get(projectId);
+  if (project && project.size !== rows.length) {
+    const alive = new Set(rows.map((row) => row.id));
+    for (const id of [...project.keys()]) if (!alive.has(id)) project.delete(id);
+  }
+  return rows;
+}
+
+/** Forget a project's tokens (tests, and a project being deleted). */
+export function clearAppearanceCache(projectId?: string): void {
+  if (projectId === undefined) cache.clear();
+  else cache.delete(projectId);
+}
+
+/**
+ * The project's writings as tokens, read once per engine mount and refreshed
+ * on writes that go around the editor. Mounted by the engine, not by the
+ * place editor: the editor remounts per selected place, and the manuscript
+ * does not change because a different pin was clicked.
+ */
 export const useAppearanceWritings = makeReadOnlyHook<AppearanceWriting>({
-  fetchFn: async (projectId) => {
-    const rows: AppearanceWriting[] = [];
-    await db.writings
-      .where('projectId')
-      .equals(projectId)
-      .each((row) => {
-        rows.push(toAppearanceWriting(row));
-      });
-    return rows;
-  },
+  fetchFn: loadAppearanceWritings,
 });

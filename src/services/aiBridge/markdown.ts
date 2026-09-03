@@ -38,8 +38,8 @@
 import { htmlToMarkdown } from '@/engines/writings/manuscriptExport';
 import {
   FOOTNOTE_ID_ATTR,
-  FOOTNOTE_REF_SELECTOR,
   footnoteRefHtml,
+  footnoteRefsOutOfCode,
   isFootnoteLabel,
   renderFootnoteRefs,
 } from '@/components/editor/footnotes/footnoteModel';
@@ -387,18 +387,16 @@ function footnoteDefinition(label: string, text: string): string {
  *     or block is left alone: the parser never reads references there);
  *   • a reference inside `<code>` would come out as `` `c[^id]` `` and be
  *     code on the way back, the note gone. A note does not live inside code,
- *     so the reference is moved to just after the `</code>`.
+ *     so the reference is moved to just after the `</code>`
+ *     (`footnoteRefsOutOfCode`, which the manuscript exporter shares).
  *
  * On the DOM rather than the string: an attribute value (the note's own text)
  * may hold `[^` too, and must not be touched.
  */
 function prepareProseForFootnotes(html: string): string {
   const template = document.createElement('template');
-  template.innerHTML = html;
+  template.innerHTML = footnoteRefsOutOfCode(html);
   const root = template.content;
-  for (const ref of root.querySelectorAll(FOOTNOTE_REF_SELECTOR)) {
-    for (let code = ref.parentElement?.closest('code'); code; code = code.parentElement?.closest('code')) code.after(ref);
-  }
   const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const text = node as Text;

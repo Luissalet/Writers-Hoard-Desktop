@@ -34,7 +34,7 @@ import {
   Undo2,
   X,
 } from 'lucide-react';
-import type { FootnoteMarkerStyle, Writing } from '@/types';
+import type { FootnoteMarkerStyle, FootnotePlacement, Writing } from '@/types';
 import { db } from '@/db';
 import { updateProject } from '@/db/operations';
 import { countWords } from '@/utils/text';
@@ -185,6 +185,13 @@ interface BookEditorProps {
   onOpenChapter: (id: string) => void;
   /** The manuscript's footnote marker style; numbers when absent. */
   footnoteStyle?: FootnoteMarkerStyle;
+  /**
+   * Where the exports put the notes (`Project.footnotePlacement`). With
+   * `chapter` the book's numbers — in the prose and in the panel — start
+   * again at each chapter heading, as each exported chapter's do; with
+   * `book` they run on through the whole book.
+   */
+  footnotePlacement?: FootnotePlacement;
 }
 
 /** The book's footnotes, for the page layout to print at the foot of each sheet. */
@@ -272,6 +279,7 @@ export default function BookEditor({
   onClose,
   onOpenChapter,
   footnoteStyle = 'numbers',
+  footnotePlacement = 'chapter',
 }: BookEditorProps) {
   const { t, locale } = useTranslation();
   // Flow or Word-style sheets, from the writer's reading preferences. The
@@ -322,6 +330,11 @@ export default function BookEditor({
   // write the single-chapter editor makes, so both views change one thing.
   const handleFootnoteStyle = (style: FootnoteMarkerStyle) => {
     void updateProject(projectId, { footnoteStyle: style }).catch((error) => {
+      toast.error(error instanceof Error ? error.message : String(error));
+    });
+  };
+  const handleFootnotePlacement = (placement: FootnotePlacement) => {
+    void updateProject(projectId, { footnotePlacement: placement }).catch((error) => {
       toast.error(error instanceof Error ? error.message : String(error));
     });
   };
@@ -1295,6 +1308,10 @@ export default function BookEditor({
           className={`grid grid-cols-1 gap-4 items-start ${
             notesOpen ? 'xl:grid-cols-[minmax(0,1fr)_320px]' : ''
           }`}
+          // Read by the stylesheet: with `chapter`, every chapter heading
+          // resets the footnote counter, so the numbers in the prose restart
+          // where the exported chapters' do.
+          data-footnote-placement={footnotePlacement}
         >
           <TiptapEditor
             key={loaded.key}
@@ -1316,7 +1333,14 @@ export default function BookEditor({
           />
           {notesOpen && (
             <div className="xl:sticky xl:top-4" data-testid="book-notes-panel">
-              <FootnotesPanel editor={editor} style={footnoteStyle} onStyleChange={handleFootnoteStyle} />
+              <FootnotesPanel
+                editor={editor}
+                style={footnoteStyle}
+                onStyleChange={handleFootnoteStyle}
+                placement={footnotePlacement}
+                onPlacementChange={handleFootnotePlacement}
+                restartNumbersAt={footnotePlacement === 'chapter' ? CHAPTER_HEADING_NAME : undefined}
+              />
             </div>
           )}
         </div>

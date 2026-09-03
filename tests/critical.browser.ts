@@ -139,11 +139,13 @@ import {
   testBookHeadingNode,
   testBookHeadingView,
   testBookFootnotesPanel,
+  testBookFootnotesRestartPerChapter,
   testBookRoundTrip,
   testBookSaveAgainstDexie,
   testBookSplitEdges,
 } from './bookMode';
 import * as atlasMapTests from './atlasMap';
+import { testBridgeLinksStayInProject } from './aiBridgeScope';
 
 registerFallbackAnchorAdapters();
 
@@ -5001,11 +5003,14 @@ async function run(): Promise<void> {
   await testBookEditorAutosave();
   passed.push('Book: the editor loads, autosaves, creates and merges chapters');
   await testBookFootnotesPanel();
-  passed.push('Book: the footnotes panel lists the notes of the whole book and jumps to them');
+  await testBookFootnotesRestartPerChapter();
+  passed.push('Book: the footnotes panel lists the notes of the whole book, jumps to them and restarts per chapter');
   for (const fn of Object.values(atlasMapTests)) await fn();
   passed.push('Real atlas map: geometry, view state, basemap, prefs, mount');
   passed.push(await testAiBridgeContracts());
   passed.push(await testAiRuntimeContracts());
+  await testBridgeLinksStayInProject();
+  passed.push('AI bridge: every linked row id stays inside the project');
   passed.push(testWorldgenSpatialEntities());
   passed.push(testWorldgenSemanticZoom());
   await runRegionInfraTests();

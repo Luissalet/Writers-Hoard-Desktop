@@ -62,6 +62,7 @@ function initialDraft(
     name: variant === 'quick' ? project.title : '',
     format: 'manuscript',
     includeTitlePage: true,
+    includeToc: false,
     includeSynopsis: false,
     includeBibliography: false,
     citationStyle: 'apa',
@@ -272,6 +273,10 @@ export default function PublishingProfileModal({
           <label className="flex cursor-pointer items-center gap-2">
             <input type="checkbox" checked={draft.includeTitlePage} onChange={event => update('includeTitlePage', event.target.checked)} className="accent-accent-gold" />
             {t('projectTools.publishing.titlePage')}
+          </label>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" checked={draft.includeToc ?? false} onChange={event => update('includeToc', event.target.checked)} className="accent-accent-gold" />
+            {t('projectTools.publishing.includeToc')}
           </label>
           <label className="flex cursor-pointer items-center gap-2">
             <input type="checkbox" checked={draft.includeSynopsis} onChange={event => update('includeSynopsis', event.target.checked)} className="accent-accent-gold" />

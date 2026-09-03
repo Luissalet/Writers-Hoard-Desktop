@@ -532,12 +532,19 @@ export default function AtlasMap({
   };
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    // The shortcuts belong to the canvas itself. A key pressed on anything
-    // inside it — a button of the routes panel, the search box, a pin — is
-    // that thing's: Enter on "finish" used to finish the route here AND
-    // cancel the click, and Escape here would close a card the panel's own
-    // Escape had already handled.
-    if (e.target !== e.currentTarget) return;
+    // The shortcuts belong to the canvas and to its pins. A key pressed on the
+    // chrome — a button of the routes panel, the search box — is that thing's:
+    // Enter on "finish" used to finish the route here AND cancel the click,
+    // and Escape here would close a card the panel's own Escape had already
+    // handled. A pin is different: it is the map's own element and where the
+    // focus lands after a click or a Tab, so bailing out there took Escape,
+    // the zoom keys and the arrows away from the keyboard user. Only Enter and
+    // Space stay the pin's — they are its keyboard click (`onPinClick`).
+    const target = e.target instanceof Element ? e.target : null;
+    const onCanvas = e.target === e.currentTarget;
+    const onPin = !onCanvas && Boolean(target?.closest('[data-pin-id]'));
+    if (!onCanvas && !onPin) return;
+    if (onPin && (e.key === 'Enter' || e.key === ' ')) return;
     if (e.key === 'Escape') {
       // Building a route, Escape steps back one stop at a time — the way the
       // worldgen map's lasso does — and only leaves the mode once nothing is

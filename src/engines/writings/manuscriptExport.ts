@@ -13,6 +13,8 @@
 import type { Writing } from '@/types';
 import { isDesktop } from '@/utils/platform';
 import {
+  footnoteAnchors,
+  footnoteRefsOutOfCode,
   renderBookEndnotesHtml,
   renderEndnotesHtml,
   renderFootnoteRefs,
@@ -78,8 +80,10 @@ export function htmlToMarkdownParts(
   start = 1,
 ): { prose: string; notes: ExtractedFootnote[] } {
   // Footnotes first, while the references are still elements: the generic
-  // tag strip at the end would leave nothing of an empty <sup>.
-  const footnotes = renderFootnoteRefs(html, (note) => `[^${note.index}]`, start);
+  // tag strip at the end would leave nothing of an empty <sup>. A reference
+  // inside a code span is moved out of it first: `` `x[^1]` `` is code to a
+  // Markdown reader, and the note would be lost.
+  const footnotes = renderFootnoteRefs(footnoteRefsOutOfCode(html), (note) => `[^${note.index}]`, start);
   let s = footnotes.html.replace(/\r/g, '');
 
   // Inline marks first (so block regexes see clean text)
@@ -148,28 +152,54 @@ export function buildManuscriptMarkdown(writings: Writing[], opts: CompileOption
   return renderPublishingMarkdown(composePublishingDocument(writings, opts));
 }
 
+/**
+ * The anchor a Markdown renderer gives a heading, GitHub's way: lower case,
+ * punctuation dropped, spaces to hyphens, a numeric suffix on a repeat. Most
+ * renderers (GitHub, GitLab, pandoc near enough) agree on it, and it needs
+ * no inline HTML in the file, which some of them strip.
+ */
+function markdownHeadingSlug(title: string, taken: Map<string, number>): string {
+  const base = title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
+    .trim()
+    .replace(/ /g, '-');
+  const seen = taken.get(base) ?? 0;
+  taken.set(base, seen + 1);
+  return seen === 0 ? base : `${base}-${seen}`;
+}
+
 export function renderPublishingMarkdown(document: PublishingDocument): string {
   const parts: string[] = [];
   if (document.includeTitlePage) {
     const date = new Date(document.generatedAt).toLocaleDateString(document.locale);
     parts.push(`# ${escapeHtml(document.title)}\n\n*${document.wordCount.toLocaleString(document.locale)} ${escapeHtml(document.wordLabel)} · ${escapeHtml(date)}*\n\n---`);
   }
-  // With the notes at the end of the book, the definitions of every chapter
-  // are held back and numbered on: Markdown footnote labels are per file,
-  // so two chapters both defining `[^1]` would be one definition lost.
+  if (document.includeToc && document.sections.length > 0) {
+    const slugs = new Map<string, number>();
+    const entries = document.sections.map(
+      (section) => `- [${escapeHtml(section.title)}](#${markdownHeadingSlug(section.title, slugs)})`,
+    );
+    parts.push(`\n\n## ${escapeHtml(document.tocTitle)}\n\n${entries.join('\n')}\n\n---`);
+  }
+  // The labels count on through the whole file whatever the placement:
+  // Markdown footnote labels are per file, so two chapters both defining
+  // `[^1]` would be one definition lost — and a chapter's `[^1]` would point
+  // at the first chapter's note. Per chapter the definitions still follow
+  // their chapter; at the end of the book they gather under one heading.
   const bookNotes = document.footnotePlacement === 'book';
   const endnotes: EndnoteGroup[] = [];
   let nextNumber = 1;
   for (const section of document.sections) {
     parts.push(`\n\n## ${escapeHtml(section.title)}\n`);
     if (section.synopsis) parts.push(`*${escapeHtml(section.synopsis)}*\n`);
+    const { prose, notes } = htmlToMarkdownParts(section.html, nextNumber);
+    nextNumber += notes.length;
     if (bookNotes) {
-      const { prose, notes } = htmlToMarkdownParts(section.html, nextNumber);
-      nextNumber += notes.length;
       endnotes.push({ title: section.title, notes });
       parts.push(prose);
     } else {
-      parts.push(htmlToMarkdown(section.html));
+      parts.push(notes.length > 0 ? `${prose}\n\n${markdownFootnoteDefinitions(notes)}` : prose);
     }
     parts.push('\n\n---');
   }
@@ -191,42 +221,55 @@ export function buildManuscriptHtml(writings: Writing[], opts: CompileOptions): 
   return renderPublishingHtml(composePublishingDocument(writings, opts));
 }
 
+/** The fragment id of the n-th chapter's heading (1-based), for the contents list. */
+export function chapterAnchorId(n: number): string {
+  return `ch-${n}`;
+}
+
 export function renderPublishingHtml(document: PublishingDocument): string {
   const date = new Date(document.generatedAt).toLocaleDateString(document.locale);
   // Numbers written into the file rather than left to a CSS counter: a mail
   // client or a PDF viewer's text layer has no counters. Per chapter they
   // restart and the notes follow the chapter they belong to; at the end of
   // the book they count on, and every chapter's notes wait for the section
-  // after the last one. The ids and links are the same either way.
+  // after the last one. The ids and links are the same either way, and each
+  // carries the chapter's number: two chapters can hold a note with one id.
   const bookNotes = document.footnotePlacement === 'book';
   const bookGroups: EndnoteGroup[] = [];
   let nextNumber = 1;
   const chapters = document.sections
-    .map((section) => {
+    .map((section, at) => {
+      const scope = at + 1;
       const footnotes = renderFootnoteRefs(section.html, (note) => {
-        const id = escapeHtml(note.id);
+        const anchors = footnoteAnchors(note.id, scope);
         const marker = escapeHtml(formatFootnoteMarker(note.index, document.footnoteStyle));
-        return `<sup class="wh-footnote-ref" id="fnref-${id}"><a href="#fn-${id}">${marker}</a></sup>`;
+        return `<sup class="wh-footnote-ref" id="${escapeHtml(anchors.ref)}"><a href="#${escapeHtml(anchors.note)}">${marker}</a></sup>`;
       }, bookNotes ? nextNumber : 1);
       let endnotes = '';
       if (bookNotes) {
         nextNumber += footnotes.notes.length;
-        bookGroups.push({ title: section.title, notes: footnotes.notes });
+        bookGroups.push({ title: section.title, notes: footnotes.notes, scope });
       } else {
         endnotes = renderEndnotesHtml(footnotes.notes, {
           heading: document.notesLabel,
           style: document.footnoteStyle,
+          scope,
         });
       }
       return `
     <section class="chapter">
-      <h1 class="chapter-title">${escapeHtml(section.title)}</h1>
+      <h1 class="chapter-title" id="${chapterAnchorId(scope)}">${escapeHtml(section.title)}</h1>
       ${section.synopsis ? `<p class="synopsis">${escapeHtml(section.synopsis)}</p>` : ''}
       <div class="content">${footnotes.html}</div>
       ${endnotes}
     </section>`;
     })
     .join('\n');
+  const toc = document.includeToc && document.sections.length > 0
+    ? `<nav class="wh-toc"><h2>${escapeHtml(document.tocTitle)}</h2><ol>${document.sections
+      .map((section, at) => `<li><a href="#${chapterAnchorId(at + 1)}">${escapeHtml(section.title)}</a></li>`)
+      .join('')}</ol></nav>`
+    : '';
   const bookEndnotes = bookNotes
     ? renderBookEndnotesHtml(bookGroups, { heading: document.notesLabel, style: document.footnoteStyle })
     : '';
@@ -257,6 +300,11 @@ export function renderPublishingHtml(document: PublishingDocument): string {
   }
   .title-page h1 { font-size: 26pt; letter-spacing: 0.04em; margin-bottom: 0.4em; }
   .title-page .meta { color: #666; font-style: italic; }
+  .wh-toc { page-break-after: always; }
+  .wh-toc h2 { font-size: 17pt; margin: 1.4em 0 1em; text-align: center; }
+  .wh-toc ol { padding-left: 1.6em; }
+  .wh-toc li { margin: 0 0 0.4em; }
+  .wh-toc a { color: #1a1a1a; text-decoration: none; }
   .chapter { page-break-before: always; }
   .chapter:first-of-type { page-break-before: auto; }
   .chapter-title { font-size: 17pt; margin: 1.4em 0 1em; text-align: center; }
@@ -292,6 +340,7 @@ export function renderPublishingHtml(document: PublishingDocument): string {
   </div>`
       : ''
   }
+  ${toc}
   ${chapters}
   ${bookEndnotes}
   ${bibliography}

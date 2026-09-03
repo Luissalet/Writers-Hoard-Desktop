@@ -22,7 +22,7 @@ import {
   type DivergenceCategory,
 } from '@/engines/real-atlas/types';
 import { atlasDivergenceOps, atlasPlaceOps } from '@/engines/real-atlas/operations';
-import { findPlaceAppearances, toAppearanceWriting, type AppearanceWriting } from '@/engines/real-atlas/appearances';
+import { findPlaceAppearances, loadAppearanceWritings } from '@/engines/real-atlas/appearances';
 import {
   bearingDeg,
   compassPoint,
@@ -278,14 +278,8 @@ export async function whListAtlasPlaces(args: ToolArgs): Promise<unknown> {
   };
 }
 
-/** The project's manuscript as plain text, streamed so no row's HTML outlives its scan. */
-async function manuscriptText(projectId: string): Promise<AppearanceWriting[]> {
-  const rows: AppearanceWriting[] = [];
-  await db.writings.where('projectId').equals(projectId).each((row) => {
-    rows.push(toAppearanceWriting(row));
-  });
-  return rows;
-}
+/** Chapters listed under `appearsIn` before the answer says it is cut short. */
+const MAX_APPEARS_IN = 20;
 
 export async function whGetAtlasPlace(args: ToolArgs): Promise<unknown> {
   const place = await loadPlace(requireString(args, 'id'));
@@ -294,8 +288,10 @@ export async function whGetAtlasPlace(args: ToolArgs): Promise<unknown> {
     place.parentId ? atlasPlaceOps.getOne(place.parentId) : undefined,
     db.atlasPlaces.where('parentId').equals(place.id).toArray(),
     db.atlasDivergences.where('placeId').equals(place.id).toArray(),
-    manuscriptText(place.projectId),
+    // The engine's own token cache: unchanged chapters are not re-stripped.
+    loadAppearanceWritings(place.projectId),
   ]);
+  const appearsIn = findPlaceAppearances([place.name, ...place.aliases], writings);
   return {
     ...place,
     parent: parent ? { id: parent.id, name: parent.name } : undefined,
@@ -306,8 +302,10 @@ export async function whGetAtlasPlace(args: ToolArgs): Promise<unknown> {
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map((row) => ({ id: row.id, title: row.title, category: row.category, since: row.since })),
     // The chapters that name the place (name or alias, accents and plurals
-    // folded), in manuscript order — the editor's "appears in".
-    appearsIn: findPlaceAppearances([place.name, ...place.aliases], writings),
+    // folded), in manuscript order — the editor's "appears in". Capped: a
+    // place named in every chapter of a long book is a list, not an answer.
+    appearsIn: appearsIn.slice(0, MAX_APPEARS_IN),
+    appearsInTruncated: appearsIn.length > MAX_APPEARS_IN,
   };
 }
 

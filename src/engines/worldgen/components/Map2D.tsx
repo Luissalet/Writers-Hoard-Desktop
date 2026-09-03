@@ -89,7 +89,7 @@ const BRUSH_MAX_KM = 2500;
 /** HUD de depuración del suelo (TEMPORAL — lo pidió Luis el 2026-08-12 para
  *  cazar por qué el zoom se queda borroso en su máquina; quitar cuando el
  *  diagnóstico esté hecho: poner a false y borrar los bloques que lo leen). */
-const DEBUG_HUD = true;
+const DEBUG_HUD = false;
 
 /**
  * MEDIA CELDA AL SUR-ESTE, resuelta en la raíz (B6, cicatriz).
@@ -4801,8 +4801,10 @@ export default function Map2D({
         <div
           data-testid="worldgen-legend"
           // Above the scale bar (canvas, 24 px tall at 23 px from the bottom)
-          // and above the three-line hint box the ruler and the brushes print.
-          className="absolute left-2 bottom-[68px] pointer-events-none rounded-md border border-white/15 bg-[#0b0e14]/85 px-2 py-1.5 shadow-lg shadow-black/40 backdrop-blur-sm"
+          // and above the one-line hint box the brushes print; while the ruler
+          // is out its three-line reading sits over the scale bar too, so the
+          // legend climbs above it.
+          className={`absolute left-2 pointer-events-none rounded-md border border-white/15 bg-[#0b0e14]/85 px-2 py-1.5 shadow-lg shadow-black/40 backdrop-blur-sm ${measuring && !refusal ? 'bottom-[128px]' : 'bottom-[68px]'}`}
         >
           <div className="text-[9px] uppercase tracking-wide text-white/55 mb-1">{t(legend.titleKey)}</div>
           <div className="h-2 w-44 rounded-sm" style={{ background: legend.gradient }} />
@@ -4814,7 +4816,9 @@ export default function Map2D({
       {measuring && !refusal && (
         <div
           data-testid="worldgen-ruler"
-          className="absolute bottom-2 left-2 max-w-[380px] px-2.5 py-1.5 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] leading-snug text-white shadow-lg shadow-black/50 backdrop-blur-sm pointer-events-none"
+          // Above the scale bar: a reading of "2000 km" is worth little with the
+          // bar that says what 2000 km looks like hidden under it.
+          className="absolute bottom-[52px] left-2 max-w-[380px] px-2.5 py-1.5 rounded-md border border-white/20 bg-[#0b0e14]/92 text-[11px] leading-snug text-white shadow-lg shadow-black/50 backdrop-blur-sm pointer-events-none"
         >
           {lastLeg ? (
             <>

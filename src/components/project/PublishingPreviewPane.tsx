@@ -267,6 +267,20 @@ export default function PublishingPreviewPane({
               </div>
             )}
 
+            {/* The file's contents page, so ticking the box shows something
+                here and not only in the download. The listed pieces only:
+                the outline past the preview limit is counted below. */}
+            {preview.document.includeToc && (
+              <nav className="mb-6 border-b border-border pb-5" aria-label={preview.document.tocTitle}>
+                <h4 className="text-center text-base text-text-primary">{preview.document.tocTitle}</h4>
+                <ol className="mx-auto mt-2 max-w-md list-decimal pl-6 text-xs text-text-muted">
+                  {preview.pieces.map(piece => (
+                    <li key={`toc-${piece.id}`} className="mt-1">{piece.title}</li>
+                  ))}
+                </ol>
+              </nav>
+            )}
+
             {preview.pieces.map(piece => (
               <article key={piece.id} className="mb-6 last:mb-0">
                 <h4 className="text-center text-base text-text-primary">{piece.title}</h4>

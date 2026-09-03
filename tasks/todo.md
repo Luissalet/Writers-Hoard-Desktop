@@ -2568,3 +2568,42 @@ worldgen: regla (7642 km · rumbo NE · jornadas), leyenda de elevación y lat/l
 
 **Cosmético pendiente:** el cartel de la regla de worldgen tapa la barra de escala; el HUD de
 depuración de worldgen sigue encendido.
+
+## Iteración 4 — review (01:40, 3 sep)
+
+**Auditoría (agente de sólo lectura, 8 hallazgos) → arreglado todo:** anclajes de nota únicos por
+capítulo en HTML/PDF/EPUB (`fn-<sección>-<id>`, etiquetas Markdown continuas) — dos capítulos con
+`[^uno]` ya no se pisan; numeración por capítulo en el **libro entero** cuando las notas van
+«al pie / final de cada capítulo» (selector de colocación también en el panel del libro); nota
+dentro de `<code>` sale del código en Markdown; **índice de capítulos** en las exportaciones
+(`includeToc` del perfil; HTML `<nav class="wh-toc">` + `id="ch-N"`, Markdown lista, EPUB
+`toc.xhtml` en la spine, DOCX `TableOfContents` con `updateFields`); teclado del mapa del Atlas
+con el foco en un pin (Esc/+/−/flechas; Intro y Espacio siguen siendo del pin); `dualWithBlockId`
+y todos los `characterId`/`subjectId`/`entityA/B`/`linked*Id` del puente verificados con
+`requireLinkedRow`/`checkLinkedRow` (fila existe y del mismo proyecto → `not-found`/`scope`);
+«Aparece en» tokeniza el manuscrito una vez (cache por `updatedAt`, el editor del lugar ya no
+re-escanea por tecla); `wh_get_atlas_place.appearsIn` con tope 20 + `appearsInTruncated`.
+Cosmético: la lectura de la regla de worldgen encima de la barra de escala; HUD de depuración
+apagado. **117 tests críticos** en contenedor y en Windows; puertas verdes en ambos.
+
+**Probado por mí en la app, como usuario:** puente — evento con `linkedEntryId` inexistente →
+`not-found`, con una entrada propia → creado; Toledo devuelve `appearsInTruncated: false`.
+Libro entero — «Dónde van» → «por capítulo» y el panel pasa de «*, †, ‡» a «*, †, *».
+Mapa del Atlas — clic en Toledo, `-` aleja, `←` panea, `Esc` cierra la tarjeta con el foco
+aún en el pin. Compilar — casilla «Índice de capítulos», exportar HTML: el fichero trae el `nav`
+con los 4 capítulos y `ch-1..4`, y las notas `fn-1-…`/`fn-2-dos` con todos los `href` resueltos.
+Worldgen — regla con dos puntos: «10852 km · rumbo E» por encima de «2000 km».
+
+**Dos fallos que sólo salieron usando la app:**
+1. El marcador del cap. 2 seguía en «‡» con las notas por capítulo: `counter-reset` en la
+   cabecera bajo un `.ProseMirror` que ya reseteaba el mismo contador crea un contador anidado
+   (lección #64). Arreglo: `counter-reset: none` en el cuerpo cuando la colocación es por capítulo.
+2. La vista previa de «Compilar» no enseñaba el índice aunque la casilla estuviera marcada (sólo
+   el fichero lo llevaba); ahora la vista previa pinta el índice con los capítulos listados.
+
+**Fuera / notas:** en modo página del libro los números al pie de cada hoja siguen siendo
+continuos con colocación por capítulo (`PageNote` no lleva número; pendiente si se quiere);
+la cache de tokens no se purga al borrar un proyecto (`clearAppearanceCache` disponible).
+
+Por indicación de Luis (01:20): al cerrar esta iteración sin bug claro, **no** se abre otra
+auditoría; el bucle para aquí.

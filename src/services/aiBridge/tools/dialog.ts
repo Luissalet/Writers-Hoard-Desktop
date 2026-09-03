@@ -221,6 +221,15 @@ export async function whAddDialog(args: ToolArgs): Promise<unknown> {
   if (dualWith) {
     const partner = await db.dialogBlocks.get(dualWith);
     if (!partner) throw new BridgeError('not-found', `No dialog block with id "${dualWith}".`);
+    // Same scene, not merely same project: a dual group spans two adjacent
+    // blocks of one scene, and the editor pairs them by scene order.
+    assertRowInScope(args, partner.projectId);
+    if (partner.sceneId !== scene.id) {
+      throw new BridgeError(
+        'bad-args',
+        `Dialog block "${dualWith}" belongs to another scene; dual dialogue pairs two blocks of the same scene.`,
+      );
+    }
     dualGroupId = partner.dualGroupId ?? generateId('dual');
     if (!partner.dualGroupId) await updateDialogBlock(partner.id, { dualGroupId });
   }

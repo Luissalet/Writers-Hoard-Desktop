@@ -822,7 +822,11 @@ export async function testBookEditorAutosave(): Promise<void> {
 // ---------------------------------------------------------------------------
 // (g) undoing a merge: Ctrl+Z restores the row, the bar reloads once
 // ---------------------------------------------------------------------------
-async function mountBook(projectId: string, rows: Writing[]) {
+async function mountBook(
+  projectId: string,
+  rows: Writing[],
+  extra: { footnotePlacement?: 'chapter' | 'book' } = {},
+) {
   const { default: BookEditor } = await import('@/engines/writings/components/BookEditor');
   const host = document.createElement('div');
   document.body.appendChild(host);
@@ -835,6 +839,7 @@ async function mountBook(projectId: string, rows: Writing[]) {
         onRefresh: () => undefined,
         onClose: () => undefined,
         onOpenChapter: () => undefined,
+        ...extra,
       }),
     ),
   );
@@ -1004,6 +1009,77 @@ export async function testBookFootnotesPanel(): Promise<void> {
     assert(window.localStorage.getItem('writers-hoard:book:notesOpen') === '0', 'the closed state is remembered');
   } finally {
     book.unmount();
+    await db.writings.where('projectId').equals(projectId).delete();
+  }
+}
+
+/**
+ * With the notes placed per chapter, the book's numbers start again at each
+ * chapter heading: the wrapper says so for the stylesheet's counter, and the
+ * panel prints the chapter's number beside each note. At the end of the
+ * book they run on, and the panel offers the choice.
+ */
+export async function testBookFootnotesRestartPerChapter(): Promise<void> {
+  if (!db.isOpen()) await db.open();
+  const projectId = 'book-notes-restart-project';
+  await db.writings.where('projectId').equals(projectId).delete();
+  const ref = (id: string, text: string) =>
+    `<sup data-footnote-id="${id}" data-footnote="${text}" class="wh-footnote-ref"></sup>`;
+  const rows = [
+    { ...writing('r-one', 1, 'Uno', `<p>First${ref('r1', 'one-a')} chapter${ref('r2', 'one-b')}.</p>`), projectId },
+    { ...writing('r-two', 2, 'Dos', `<p>Second${ref('r3', 'two-a')} chapter.</p>`), projectId },
+  ];
+  await db.writings.bulkAdd(rows);
+  try {
+    window.localStorage.setItem('writers-hoard:book:notesOpen', '1');
+  } catch {
+    // The store is a convenience; the test does not depend on it.
+  }
+  const markers = (host: HTMLElement) =>
+    [...host.querySelectorAll<HTMLElement>('[data-testid="book-notes-panel"] li > span')].map((span) => span.textContent);
+  const collectedIndexes = (editor: Editor, restartAt?: string) =>
+    collectFootnotes(editor.state.doc, restartAt).map((note) => note.index).join(',');
+
+  const perChapter = await mountBook(projectId, rows, { footnotePlacement: 'chapter' });
+  try {
+    await until(() => perChapter.host.querySelectorAll('[data-testid="book-notes-panel"] li').length === 3, 'the panel to list the notes');
+    // The stylesheet's hook: the wrapper carries the placement, and the
+    // heading its rule resets on is a direct child of the prose body.
+    const wrapper = perChapter.host.querySelector('[data-footnote-placement]');
+    assert(wrapper?.getAttribute('data-footnote-placement') === 'chapter', 'the wrapper does not carry the placement');
+    assert(
+      perChapter.host.querySelectorAll("[data-footnote-placement='chapter'] .tiptap-editor .ProseMirror > .wh-chapter-heading").length === 2,
+      'the CSS rule that resets the counter would match no heading',
+    );
+    assert(markers(perChapter.host).join(',') === '1,2,1', `the panel does not restart per chapter: ${markers(perChapter.host).join(',')}`);
+    const editor = perChapter.liveEditor();
+    assert(collectedIndexes(editor, CHAPTER_HEADING_NAME) === '1,2,1' && collectedIndexes(editor) === '1,2,3', 'collectFootnotes does not restart at the heading');
+    // A note added ahead of the second chapter's renumbers the panel.
+    editor.commands.setTextSelection(insideParagraph(editor, 'Second'));
+    editor.commands.insertFootnote('two-new');
+    await until(() => markers(perChapter.host).join(',') === '1,2,1,2', 'the panel to renumber');
+    // The placement choice is offered here too, and writes the project row.
+    const select = [...perChapter.host.querySelectorAll<HTMLSelectElement>('[data-testid="book-notes-panel"] select')]
+      .find((element) => [...element.options].some((option) => option.value === 'book'));
+    assert(select && select.value === 'chapter', 'the panel does not offer the placement');
+  } finally {
+    perChapter.unmount();
+  }
+
+  const wholeBook = await mountBook(projectId, rows, { footnotePlacement: 'book' });
+  try {
+    // Three notes, or four when the first book's autosave landed the new one.
+    await until(() => wholeBook.host.querySelectorAll('[data-testid="book-notes-panel"] li').length >= 3, 'the panel to list the notes');
+    assert(wholeBook.host.querySelector('[data-footnote-placement]')?.getAttribute('data-footnote-placement') === 'book', 'the wrapper does not carry the book placement');
+    const shown = markers(wholeBook.host);
+    assert(shown.join(',') === shown.map((_, at) => String(at + 1)).join(','), `the panel restarts with the notes at the end of the book: ${shown.join(',')}`);
+  } finally {
+    wholeBook.unmount();
+    try {
+      window.localStorage.removeItem('writers-hoard:book:notesOpen');
+    } catch {
+      // Same store, same indifference.
+    }
     await db.writings.where('projectId').equals(projectId).delete();
   }
 }

@@ -119,20 +119,64 @@ export interface ExtractedFootnote {
   index: number;
 }
 
-/** Every footnote in the document, numbered in reading order. */
-export function collectFootnotes(doc: ProseMirrorNode): FootnoteRef[] {
+/**
+ * Every footnote in the document, numbered in reading order.
+ *
+ * `restartAt` names a top-level node type (the book editor's chapter heading)
+ * after which the numbers start again from 1 — what the reader sees when the
+ * notes go with each chapter — while the order of the list stays the
+ * document's. Without it, the numbers run on through the whole document.
+ */
+export function collectFootnotes(doc: ProseMirrorNode, restartAt?: string): FootnoteRef[] {
   const notes: FootnoteRef[] = [];
-  doc.descendants((node, pos) => {
+  let index = 0;
+  doc.descendants((node, pos, parent) => {
+    // Reset, then descend: a note in the heading's own title is the chapter's first.
+    if (restartAt && node.type.name === restartAt && parent === doc) index = 0;
     if (node.type.name !== FOOTNOTE_NODE_NAME) return true;
+    index += 1;
     notes.push({
       id: String(node.attrs.id ?? ''),
       text: String(node.attrs.text ?? ''),
       pos,
-      index: notes.length + 1,
+      index,
     });
     return false;
   });
   return notes;
+}
+
+/**
+ * The fragment ids of one note in an export: the note's own element and
+ * the reference that points at it. The note's id alone is not enough for a
+ * whole manuscript: the AI bridge uses the Markdown label as the id, so two
+ * chapters can both hold `[^uno]`, and two elements with one id means every
+ * link resolves to the first. `scope` — the chapter's number in the export —
+ * keeps them apart; a single chapter (the reading view) leaves it out.
+ */
+export function footnoteAnchors(id: string, scope?: number): { note: string; ref: string } {
+  const key = scope === undefined ? id : `${scope}-${id}`;
+  return { note: `fn-${key}`, ref: `fnref-${key}` };
+}
+
+/**
+ * The body with every reference that sits inside a `<code>` moved to just
+ * after it, byte for byte otherwise. A note does not live inside code — the
+ * editor refuses to insert one there — but a pasted or bridged body can
+ * carry one, and a Markdown writer that turned it into `` `x[^1]` `` would
+ * hand the reader a code span and no note at all.
+ */
+export function footnoteRefsOutOfCode(html: string): string {
+  if (!html.includes(FOOTNOTE_ID_ATTR) || !/<code[\s>]/i.test(html)) return html;
+  const body = parseFragment(html);
+  let moved = false;
+  for (const ref of body.querySelectorAll(FOOTNOTE_REF_SELECTOR)) {
+    for (let code = ref.parentElement?.closest('code'); code; code = code.parentElement?.closest('code')) {
+      code.after(ref);
+      moved = true;
+    }
+  }
+  return moved ? body.innerHTML : html;
 }
 
 /** Where one note is right now, or `null` when the document no longer holds it. */
@@ -279,6 +323,12 @@ export interface EndnotesOptions {
    * references do not (and whose sanitizer renames ids anyway).
    */
   backlinks?: boolean;
+  /**
+   * The chapter's number in the export, folded into every id and link
+   * (`footnoteAnchors`) so two chapters holding a note with one id do not
+   * collide. Left out by the reading view, which prints one chapter at a time.
+   */
+  scope?: number;
 }
 
 /**
@@ -293,14 +343,14 @@ function endnotesList(notes: readonly ExtractedFootnote[], options: EndnotesOpti
   const backlinks = options.backlinks ?? true;
   const items = notes
     .map((note) => {
-      const id = escapeFootnoteHtml(note.id);
+      const anchors = footnoteAnchors(note.id, options.scope);
       const back = backlinks
-        ? ` <a href="#fnref-${id}" class="wh-endnote-back" aria-label="${escapeFootnoteHtml(options.heading)} ${note.index}">↩</a>`
+        ? ` <a href="#${escapeFootnoteHtml(anchors.ref)}" class="wh-endnote-back" aria-label="${escapeFootnoteHtml(options.heading)} ${note.index}">↩</a>`
         : '';
       const marker = options.style && options.style !== 'numbers'
         ? `<span class="wh-endnote-marker">${escapeFootnoteHtml(formatFootnoteMarker(note.index, options.style))}</span> `
         : '';
-      return `<li id="fn-${id}">${marker}${footnoteTextHtml(note.text)}${back}</li>`;
+      return `<li id="${escapeFootnoteHtml(anchors.note)}">${marker}${footnoteTextHtml(note.text)}${back}</li>`;
     })
     .join('');
   const listClass = options.style && options.style !== 'numbers' ? ' class="wh-endnotes-marked"' : '';
@@ -324,6 +374,8 @@ export interface EndnoteGroup {
   title: string;
   /** Its notes, numbered on from the previous chapter's. */
   notes: readonly ExtractedFootnote[];
+  /** The chapter's number in the export, as its references were scoped (`footnoteAnchors`). */
+  scope?: number;
 }
 
 /**
@@ -340,7 +392,7 @@ export function renderBookEndnotesHtml(
   const chapters = groups.filter((group) => group.notes.length > 0);
   if (chapters.length === 0) return '';
   const body = chapters
-    .map((group) => `<h2>${escapeFootnoteHtml(group.title)}</h2>${endnotesList(group.notes, options)}`)
+    .map((group) => `<h2>${escapeFootnoteHtml(group.title)}</h2>${endnotesList(group.notes, { ...options, scope: group.scope ?? options.scope })}`)
     .join('');
   return `<section class="wh-endnotes wh-endnotes--book"><h1>${escapeFootnoteHtml(options.heading)}</h1>${body}</section>`;
 }

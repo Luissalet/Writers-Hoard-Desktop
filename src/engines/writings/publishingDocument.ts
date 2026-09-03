@@ -62,6 +62,14 @@ export interface PublishingDocument {
   locale: string;
   generatedAt: number;
   includeTitlePage: boolean;
+  /**
+   * A list of the chapters, after the title page and before the first: a
+   * `<nav>` of links in HTML, a list of links in Markdown, a page in the ePub
+   * spine, a Word table of contents in DOCX. Off unless the profile asks.
+   */
+  includeToc: boolean;
+  /** Heading over that list, e.g. "Contents" / "Índice". */
+  tocTitle: string;
   wordLabel: string;
   wordCount: number;
   /** Heading over a chapter's footnotes, in every format that prints one. */
@@ -86,6 +94,10 @@ export interface PublishingDocumentOptions {
   identifier?: string;
   projectTitle: string;
   includeTitlePage: boolean;
+  /** Print a list of the chapters before the first one. Off when absent. */
+  includeToc?: boolean;
+  /** Heading over the chapter list. Defaults to English, like `wordLabel`. */
+  tocTitle?: string;
   includeSynopsis: boolean;
   chapterLabel: string;
   /**
@@ -175,6 +187,8 @@ export function composePublishingDocument(
     locale: options.locale ?? 'en-US',
     generatedAt: options.generatedAt ?? Date.now(),
     includeTitlePage: options.includeTitlePage,
+    includeToc: options.includeToc ?? false,
+    tocTitle: xmlSafeText(options.tocTitle ?? 'Contents'),
     wordLabel: xmlSafeText(options.wordLabel ?? 'words'),
     notesLabel: xmlSafeText(options.notesLabel ?? 'Notes'),
     footnoteStyle: normalizeFootnoteStyle(options.footnoteStyle),

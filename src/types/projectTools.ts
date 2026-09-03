@@ -42,6 +42,8 @@ export interface PublishingProfile {
   name: string;
   format: PublishingFormat;
   includeTitlePage: boolean;
+  /** A list of the chapters before the first one. Missing on older profiles: off. */
+  includeToc?: boolean;
   includeSynopsis: boolean;
   includeBibliography: boolean;
   citationStyle: 'apa' | 'mla' | 'chicago';

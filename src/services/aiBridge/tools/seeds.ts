@@ -18,10 +18,12 @@ import {
   getSeeds,
   updateSeed,
 } from '@/engines/seeds/operations';
+import { db } from '@/db';
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
   assertRowInScope,
+  checkLinkedRow,
   BridgeError,
   optBoolean,
   optEnum,
@@ -87,8 +89,23 @@ export async function whListSeeds(args: ToolArgs): Promise<unknown> {
   };
 }
 
+/** The two places a seed or payoff may point at, checked against its project. */
+async function checkSeedLinks(
+  args: ToolArgs,
+  projectId: string,
+): Promise<{ linkedWritingId?: string; linkedSceneId?: string }> {
+  const linkedWritingId = optString(args, 'linkedWritingId') || undefined;
+  const linkedSceneId = optString(args, 'linkedSceneId') || undefined;
+  await Promise.all([
+    checkLinkedRow(db.writings, linkedWritingId, projectId, 'writing'),
+    checkLinkedRow(db.scenes, linkedSceneId, projectId, 'dialog scene'),
+  ]);
+  return { linkedWritingId, linkedSceneId };
+}
+
 export async function whCreateSeed(args: ToolArgs): Promise<unknown> {
   const projectId = await resolveProjectForEngine(args, 'seeds');
+  const links = await checkSeedLinks(args, projectId);
   const now = Date.now();
   const seed: Seed = {
     id: generateId('seed'),
@@ -98,8 +115,7 @@ export async function whCreateSeed(args: ToolArgs): Promise<unknown> {
     kind: optEnum(args, 'kind', KINDS) ?? 'foreshadow',
     status: 'planted',
     plantedAt: optPercent(args, 'plantedAt'),
-    linkedWritingId: optString(args, 'linkedWritingId'),
-    linkedSceneId: optString(args, 'linkedSceneId'),
+    ...links,
     locationLabel: optString(args, 'locationLabel'),
     tags: optStringArray(args, 'tags') ?? [],
     createdAt: now,
@@ -157,6 +173,7 @@ export async function whAddPayoff(args: ToolArgs): Promise<unknown> {
 
   const rawStrength = Math.round(optNumber(args, 'strength') ?? 3);
   const strength = Math.max(1, Math.min(5, rawStrength)) as Payoff['strength'];
+  const links = await checkSeedLinks(args, seed.projectId);
   const now = Date.now();
   const payoff: Payoff = {
     id: generateId('payoff'),
@@ -167,8 +184,7 @@ export async function whAddPayoff(args: ToolArgs): Promise<unknown> {
     description: optString(args, 'description') ?? '',
     paidAt: optPercent(args, 'paidAt'),
     strength,
-    linkedWritingId: optString(args, 'linkedWritingId'),
-    linkedSceneId: optString(args, 'linkedSceneId'),
+    ...links,
     locationLabel: optString(args, 'locationLabel'),
     createdAt: now,
     updatedAt: now,
