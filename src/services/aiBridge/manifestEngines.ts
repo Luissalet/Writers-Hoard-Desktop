@@ -1056,7 +1056,7 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_get_atlas_place',
     description:
-      'Read one place in full: `description` (how the story uses it), `realNotes` (what is actually true there, as checked by the writer), `sources`, address, coordinates, era and tags, plus its parent place, the places it contains, the divergences anchored to it and `appearsIn` — the chapters whose prose names the place or one of its aliases (`{writingId, title, chapter}`, in manuscript order; accents, case and plurals do not matter). Read this before writing about a place, and treat realNotes as the verified facts and description as the book\'s use of them.',
+      'Read one place in full: `description` (how the story uses it), `realNotes` (what is actually true there, as checked by the writer), `sources`, address, coordinates, era and tags, plus its parent place, the places it contains, the divergences anchored to it and `appearsIn` — the chapters whose prose names the place or one of its aliases (`{writingId, title, chapter}`, in manuscript order; accents, case and plurals do not matter; at most 20 chapters, and `appearsInTruncated: true` says there were more). Read this before writing about a place, and treat realNotes as the verified facts and description as the book\'s use of them.',
     writes: false,
     schema: {
       type: 'object',

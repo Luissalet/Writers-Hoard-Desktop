@@ -7,10 +7,12 @@
 
 import type { MapPin } from '@/types';
 import { mapPinOps, worldMapOps } from '@/engines/maps/operations';
+import { db } from '@/db';
 import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
   assertRowInScope,
+  checkLinkedRow,
   BridgeError,
   optEnum,
   optNumber,
@@ -61,6 +63,8 @@ export async function whAddMapPin(args: ToolArgs): Promise<unknown> {
   if (!map) throw new BridgeError('not-found', `No map with id "${mapId}".`);
   await assertEngineEnabled(map.projectId, 'maps');
   assertRowInScope(args, map.projectId);
+  const linkedEntryId = optString(args, 'linkedEntryId') || undefined;
+  await checkLinkedRow(db.codexEntries, linkedEntryId, map.projectId, 'codex entry');
   const pin: MapPin = {
     id: generateId('pin'),
     projectId: map.projectId,
@@ -72,7 +76,7 @@ export async function whAddMapPin(args: ToolArgs): Promise<unknown> {
       x: clampPercent(optNumber(args, 'x'), 50),
       y: clampPercent(optNumber(args, 'y'), 50),
     },
-    linkedEntryId: optString(args, 'linkedEntryId'),
+    linkedEntryId,
     description: optString(args, 'description'),
   };
   await mapPinOps.create(pin);
@@ -101,7 +105,10 @@ export async function whUpdateMapPin(args: ToolArgs): Promise<unknown> {
   const icon = optEnum(args, 'icon', ICONS);
   if (icon !== undefined) changes.icon = icon;
   const linkedEntryId = optString(args, 'linkedEntryId');
-  if (linkedEntryId !== undefined) changes.linkedEntryId = linkedEntryId;
+  if (linkedEntryId !== undefined) {
+    await checkLinkedRow(db.codexEntries, linkedEntryId, pin.projectId, 'codex entry');
+    changes.linkedEntryId = linkedEntryId;
+  }
   const x = optNumber(args, 'x');
   const y = optNumber(args, 'y');
   if (x !== undefined || y !== undefined) {

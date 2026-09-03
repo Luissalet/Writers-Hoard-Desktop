@@ -37,7 +37,15 @@ import {
 import { basemapPaths, largestRing, loadBasemap } from '@/engines/real-atlas/basemap';
 import { DEFAULT_ATLAS_MAP_PREFS, parseAtlasMapPrefs, serializeAtlasMapPrefs } from '@/engines/real-atlas/mapPrefs';
 import { matchPlaces } from '@/engines/real-atlas/search';
-import { findPlaceAppearances, toAppearanceWriting, type AppearanceWriting } from '@/engines/real-atlas/appearances';
+import {
+  cachedAppearanceWriting,
+  clearAppearanceCache,
+  findPlaceAppearances,
+  loadAppearanceWritings,
+  toAppearanceWriting,
+  type AppearanceWriting,
+} from '@/engines/real-atlas/appearances';
+import { db } from '@/db';
 import { parseNominatimResults } from '@/engines/real-atlas/geocode';
 import { MAX_ROUTE_NAME_LENGTH, MAX_ROUTES, parseAtlasRoutes } from '@/engines/real-atlas/routes';
 import { t } from '@/i18n/useTranslation';
@@ -503,6 +511,116 @@ export async function testAtlasMapRouteKeys(): Promise<void> {
   } finally {
     root.unmount();
     host.remove();
+  }
+}
+
+/**
+ * The keyboard with the focus on a pin, which is where it lands after a click
+ * or a Tab. The canvas's shortcuts must still work from there — Escape closes
+ * the card, the zoom keys zoom — while Enter stays the pin's own keyboard
+ * click and is not consumed by the map.
+ */
+export async function testAtlasMapPinKeys(): Promise<void> {
+  const [{ createRoot }, { createElement }, { default: AtlasMap }] = await Promise.all([
+    import('react-dom/client'),
+    import('react'),
+    import('@/engines/real-atlas/components/AtlasMap'),
+  ]);
+  const projectId = `atlas-pin-keys-${Date.now()}`;
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:0;top:0;width:800px;height:600px;';
+  document.body.appendChild(host);
+  const places = [place('lis', 'Lisboa', { ...LISBOA }), place('mad', 'Madrid', { ...MADRID })];
+  const selected: (string | null)[] = [];
+  const props = {
+    projectId, places, divergences: [], selectedPlaceId: null as string | null, onSelect: (id: string | null) => { selected.push(id); },
+    onEdit: () => {}, onCreateAt: () => {}, onMove: async () => {}, pickRequest: null, onPick: () => {}, focusRequest: null,
+  };
+  const root = createRoot(host);
+  const key = (target: Element, name: string) => target.dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }));
+  const pin = (name: string) => host.querySelector(`button[aria-label="${name}"]`) as HTMLButtonElement;
+  const card = () => host.querySelector('[role="dialog"]');
+  const gap = () => Math.abs(pin('Madrid').getBoundingClientRect().left - pin('Lisboa').getBoundingClientRect().left);
+  try {
+    root.render(createElement(AtlasMap, props));
+    await waitFor(() => host.querySelectorAll('button[aria-label="Madrid"]').length === 1, 'the pins');
+    // A keyboard click selects the pin and opens its card (the card only
+    // stays open once the parent has handed the selection back, so the
+    // parent's answer is rendered first).
+    root.render(createElement(AtlasMap, { ...props, selectedPlaceId: 'lis' }));
+    await waitFor(() => pin('Lisboa').getAttribute('aria-pressed') === 'true', 'the selection rendered');
+    pin('Lisboa').click();
+    await waitFor(() => selected.at(-1) === 'lis' && card() !== null, 'the place card');
+    pin('Lisboa').focus();
+    assert(document.activeElement === pin('Lisboa'), 'the pin should take the focus');
+
+    // Escape on the pin reaches the map: the card closes and the key is consumed.
+    assert(!key(pin('Lisboa'), 'Escape'), 'Escape on a pin should be consumed by the map');
+    await waitFor(() => card() === null, 'the card closed by Escape from the pin');
+
+    // The zoom keys on the pin zoom the map: the pins drift apart, then back.
+    const before = gap();
+    assert(!key(pin('Lisboa'), '+'), '"+" on a pin should be consumed by the map');
+    await waitFor(() => gap() > before * 1.5, 'the zoom in from the pin');
+    assert(!key(pin('Lisboa'), '-'), '"-" on a pin should be consumed by the map');
+    await waitFor(() => Math.abs(gap() - before) < 2, 'the zoom out from the pin');
+
+    // The arrows pan: the pin moves, and stays selected.
+    const left = pin('Lisboa').getBoundingClientRect().left;
+    assert(!key(pin('Lisboa'), 'ArrowRight'), 'an arrow on a pin should be consumed by the map');
+    await waitFor(() => pin('Lisboa').getBoundingClientRect().left < left - 40, 'the pan from the pin');
+    assert(pin('Lisboa').getAttribute('aria-pressed') === 'true', 'the pin must stay selected through the keys');
+
+    // Enter and Space are the pin's own keyboard click: not preventDefault-ed.
+    assert(key(pin('Lisboa'), 'Enter'), 'Enter on a pin must be left to the pin');
+    assert(key(pin('Lisboa'), ' '), 'Space on a pin must be left to the pin');
+  } finally {
+    root.unmount();
+    host.remove();
+  }
+}
+
+/**
+ * The manuscript is tokenised once per save: a row read twice with the same
+ * `updatedAt` comes back as the very same object, a bumped `updatedAt`
+ * replaces it, and the scan over cached rows finds what the plain one does.
+ */
+export async function testAtlasAppearanceCache(): Promise<void> {
+  const projectId = `atlas-appearance-cache-${Date.now()}`;
+  clearAppearanceCache(projectId);
+  const row = { id: 'w-cache', title: 'Chapter 1', chapter: 1, updatedAt: 10, content: '<p>Llegaron a <em>Toledo</em>.</p>' };
+  const first = cachedAppearanceWriting(projectId, row);
+  assert(first.tokens.join(' ') === 'llegaron a toledo', `the row is tokenised once: ${first.tokens.join(' ')}`);
+  assert(cachedAppearanceWriting(projectId, { ...row, content: '<p>ignored while updatedAt holds</p>' }) === first, 'the same updatedAt must return the cached object');
+  const edited = cachedAppearanceWriting(projectId, { ...row, updatedAt: 11, content: '<p>Llegaron a Sevilla.</p>' });
+  assert(edited !== first && edited.tokens.includes('sevilla'), 'a bumped updatedAt must retokenise');
+  assert(findPlaceAppearances(['Toledo'], [first]).length === 1 && findPlaceAppearances(['Toledo'], [edited]).length === 0, 'the scan reads the cached tokens');
+  assert(findPlaceAppearances(['Toledo'], [toAppearanceWriting(row)]).length === 1, 'the uncached projection still scans');
+
+  // Through Dexie: two loads share their rows, an edit replaces one, a delete drops it.
+  const now = Date.now();
+  const base = { projectId, status: 'draft' as const, tags: [], wordCount: 2, createdAt: now };
+  await db.writings.bulkPut([
+    { ...base, id: `${projectId}-1`, title: 'Uno', chapter: 1, updatedAt: now, content: '<p>Toledo al alba.</p>' },
+    { ...base, id: `${projectId}-2`, title: 'Dos', chapter: 2, updatedAt: now, content: '<p>Nada.</p>' },
+  ]);
+  try {
+    const loaded = await loadAppearanceWritings(projectId);
+    assert(loaded.length === 2, `two writings loaded, got ${loaded.length}`);
+    const again = await loadAppearanceWritings(projectId);
+    assert(again.every((row) => row === loaded.find((l) => l.id === row.id)), 'a second load must reuse every cached row');
+    assert(findPlaceAppearances(['Toledo'], again).map((a) => a.writingId).join() === `${projectId}-1`, 'the cached rows scan like fresh ones');
+    await db.writings.update(`${projectId}-2`, { content: '<p>Y Toledo otra vez.</p>', updatedAt: now + 1 });
+    const edited = await loadAppearanceWritings(projectId);
+    const one = loaded.find((l) => l.id === `${projectId}-1`);
+    assert(edited.find((l) => l.id === `${projectId}-1`) === one, 'the untouched row must stay cached');
+    assert(findPlaceAppearances(['Toledo'], edited).length === 2, 'the edited row must be rescanned');
+    await db.writings.delete(`${projectId}-2`);
+    const after = await loadAppearanceWritings(projectId);
+    assert(after.length === 1 && after[0] === one, 'a deleted row leaves; the survivor is still the cached object');
+  } finally {
+    await db.writings.where('projectId').equals(projectId).delete();
+    clearAppearanceCache(projectId);
   }
 }
 

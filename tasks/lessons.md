@@ -1237,3 +1237,29 @@ donde todo estaba. Lo vio abrir la pestaña.
 agregado de TODOS los ficheros del paquete a ambos lados, y las cuatro puertas EN WINDOWS otra vez
 — y después, la app abierta con los ojos, pestaña por pestaña. Un árbol verde aquí no dice nada de
 qué ficheros tiene el otro.
+
+## #64 — Un `counter-reset` en un hijo NO reinicia el contador que el padre ya posee (2026-09-03)
+
+**Qué pasó.** Para reiniciar la numeración de notas por capítulo en el libro entero puse
+`counter-reset: wh-footnote` en cada `.wh-chapter-heading`. El agente lo dio por bueno («no se
+puede verificar en el harness») y el test sólo comprobaba que el selector encontraba las cabeceras.
+En la app el marcador del capítulo 2 seguía siendo «‡»: `.ProseMirror` ya hacía `counter-reset`
+del mismo contador, y en css-lists-3 (como lo implementa Chromium) un reset en un hijo de un
+elemento que YA tiene ese contador crea un contador ANIDADO, visible sólo dentro del hijo — los
+hermanos siguientes siguen incrementando el del padre. Con el padre en `counter-reset: none`, la
+primera cabecera instancia el contador y los hermanos sí lo ven.
+
+**Regla.** Un contador CSS que deba reiniciarse «en cada hermano X» no puede tener también un
+`counter-reset` en el ancestro común. Y lo que un test no puede ver (contadores, `::marker`,
+`::before`) se mira en un navegador de verdad: un `page.setContent` de Playwright con diez líneas de
+HTML tarda un segundo y me habría ahorrado el paquete extra.
+
+## #65 — `git` sobre la carpeta montada deja un `index.lock` huérfano (2026-09-03)
+
+**Qué pasó.** Un `git status` lanzado desde el shell de la VM sobre `mnt/Writers hoard desktop`
+creó `.git/index.lock` y no pudo borrarlo («Operation not permitted»: el montaje no permite
+unlink). Git en Windows quedó bloqueado hasta que Luis lo pidió y lo quité con PowerShell.
+
+**Regla.** Nunca `git` (ni nada que cree y borre ficheros temporales) desde el shell de la VM sobre
+la carpeta montada: git va SIEMPRE por PowerShell (Desktop Commander). Si aparece
+«unable to unlink … index.lock», borrarlo en el acto desde Windows.

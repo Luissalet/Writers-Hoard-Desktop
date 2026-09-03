@@ -21,6 +21,7 @@ import { TEMPLATE_IDS } from '../manifest';
 import {
   assertEngineEnabled,
   assertRowInScope,
+  checkLinkedRow,
   BridgeError,
   optEnum,
   optNumber,
@@ -159,6 +160,15 @@ export async function whCreateBeat(args: ToolArgs): Promise<unknown> {
   }
   await assertEngineEnabled(outline.projectId, 'outline');
   assertRowInScope(args, outline.projectId);
+  const parentId = optString(args, 'parentId') || undefined;
+  const linkedWritingId = optString(args, 'linkedWritingId') || undefined;
+  const [parent] = await Promise.all([
+    checkLinkedRow(db.outlineBeats, parentId, outline.projectId, 'outline beat'),
+    checkLinkedRow(db.writings, linkedWritingId, outline.projectId, 'writing'),
+  ]);
+  if (parent && parent.outlineId !== outlineId) {
+    throw new BridgeError('bad-args', `The parent beat "${parentId}" belongs to another outline.`);
+  }
   const siblings = await getBeats(outlineId);
   const now = Date.now();
   const beat: OutlineBeat = {
@@ -167,12 +177,12 @@ export async function whCreateBeat(args: ToolArgs): Promise<unknown> {
     projectId: outline.projectId,
     order: optNumber(args, 'order') ?? siblings.length,
     level: optEnum(args, 'level', LEVELS) ?? 'beat',
-    parentId: optString(args, 'parentId'),
+    parentId,
     title: requireString(args, 'title'),
     description: optString(args, 'description') ?? '',
     storyPosition: optPercent(args, 'storyPosition'),
     status: optEnum(args, 'status', STATUSES) ?? 'empty',
-    linkedWritingId: optString(args, 'linkedWritingId'),
+    linkedWritingId,
     color: optString(args, 'color'),
     wordTarget: optNumber(args, 'wordTarget'),
     createdAt: now,
@@ -201,6 +211,7 @@ export async function whUpdateBeat(args: ToolArgs): Promise<unknown> {
     const value = optString(args, key);
     if (value !== undefined) changes[key] = value;
   });
+  await checkLinkedRow(db.writings, changes.linkedWritingId, existing.projectId, 'writing');
   const level = optEnum(args, 'level', LEVELS);
   if (level !== undefined) changes.level = level;
   const status = optEnum(args, 'status', STATUSES);

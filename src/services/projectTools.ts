@@ -292,6 +292,8 @@ export interface PublishingArtifactLabels extends CitationFormatLabels {
   untitledLabel?: string;
   /** Heading over a chapter's footnotes; optional for the same reason. */
   notesLabel?: string;
+  /** Heading over the chapter list; optional for the same reason. */
+  tocTitle?: string;
 }
 
 export interface PublishingArtifacts {
@@ -432,6 +434,7 @@ function currentPublishingLabels(format: PublishingFormat): PublishingArtifactLa
     bibliographyTitle: t('projectTools.research.bibliography'),
     untitledLabel: t('projectTools.publishing.untitled'),
     notesLabel: t('writings.footnotes.endnotesTitle'),
+    tocTitle: t('projectTools.publishing.tocTitle'),
   };
 }
 
@@ -451,6 +454,8 @@ export function buildPublishingArtifacts(
   const compileOptions = {
     projectTitle: documentTitle,
     includeTitlePage: profile.includeTitlePage,
+    includeToc: profile.includeToc ?? false,
+    tocTitle: labels.tocTitle,
     includeSynopsis: profile.includeSynopsis,
     chapterLabel: labels.chapterLabel,
     untitledLabel: labels.untitledLabel,

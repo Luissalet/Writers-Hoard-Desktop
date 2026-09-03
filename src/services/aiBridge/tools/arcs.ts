@@ -25,6 +25,7 @@ import {
   assertEngineEnabled,
   assertRowInScope,
   BridgeError,
+  checkLinkedRow,
   optEnum,
   optNumber,
   optPercent,
@@ -99,13 +100,11 @@ export async function whGetArc(args: ToolArgs): Promise<unknown> {
 
 export async function whCreateArc(args: ToolArgs): Promise<unknown> {
   const projectId = await resolveProjectForEngine(args, 'character-arc');
-  const characterId = optString(args, 'characterId');
+  const characterId = optString(args, 'characterId') || undefined;
   // The name is denormalised beside the id; resolve it now or the arc shows
-  // a blank subject forever.
-  const character = characterId ? await db.codexEntries.get(characterId) : undefined;
-  if (characterId && !character) {
-    throw new BridgeError('not-found', `No codex entry with id "${characterId}".`);
-  }
+  // a blank subject forever. Same project only: a character of another
+  // project would resolve to a name here and to nothing in the arc's own UI.
+  const character = await checkLinkedRow(db.codexEntries, characterId, projectId, 'codex entry');
   const now = Date.now();
   const arc: CharacterArc = {
     id: generateId('arc'),
@@ -136,6 +135,12 @@ export async function whAddArcBeat(args: ToolArgs): Promise<unknown> {
   if (!arc) throw new BridgeError('not-found', `No character arc with id "${arcId}".`);
   await assertEngineEnabled(arc.projectId, 'character-arc');
   assertRowInScope(args, arc.projectId);
+  const linkedBeatId = optString(args, 'linkedBeatId') || undefined;
+  const linkedSceneId = optString(args, 'linkedSceneId') || undefined;
+  await Promise.all([
+    checkLinkedRow(db.outlineBeats, linkedBeatId, arc.projectId, 'outline beat'),
+    checkLinkedRow(db.scenes, linkedSceneId, arc.projectId, 'dialog scene'),
+  ]);
   const siblings = await getBeats(arcId);
   const now = Date.now();
   const beat: ArcBeat = {
@@ -148,8 +153,8 @@ export async function whAddArcBeat(args: ToolArgs): Promise<unknown> {
     description: optString(args, 'description') ?? '',
     emotion: optString(args, 'emotion'),
     storyPosition: optPercent(args, 'storyPosition'),
-    linkedBeatId: optString(args, 'linkedBeatId'),
-    linkedSceneId: optString(args, 'linkedSceneId'),
+    linkedBeatId,
+    linkedSceneId,
     status: optEnum(args, 'status', STATUSES) ?? 'planning',
     createdAt: now,
     updatedAt: now,
@@ -177,6 +182,7 @@ export async function whUpdateArcBeat(args: ToolArgs): Promise<unknown> {
     const value = optString(args, key);
     if (value !== undefined) changes[key] = value;
   });
+  await checkLinkedRow(db.scenes, changes.linkedSceneId, existing.projectId, 'dialog scene');
   const stage = optEnum(args, 'stage', STAGES);
   if (stage !== undefined) changes.stage = stage;
   const status = optEnum(args, 'status', STATUSES);

@@ -196,7 +196,7 @@ const VIEWPORT_REPORT_MS = 180;
 /** HUD de depuración de la piel (TEMPORAL — Luis, 2026-08-12): añade a la
  *  línea de la piel el techo del plan, el estado del contrato consume y los
  *  contadores de sesión de la vía de teselas. Quitar tras el diagnóstico. */
-const DEBUG_HUD = true;
+const DEBUG_HUD = false;
 
 /**
  * Y UN SUELO DISTINTO PARA EL ENCUADRE HEREDADO.

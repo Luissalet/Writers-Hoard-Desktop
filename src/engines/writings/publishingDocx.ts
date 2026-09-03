@@ -1,4 +1,4 @@
-import type { Paragraph, ParagraphChild, Table } from 'docx';
+import type { Paragraph, ParagraphChild, Table, TableOfContents } from 'docx';
 import { FOOTNOTE_REF_SELECTOR, FOOTNOTE_TEXT_ATTR } from '@/components/editor/footnotes/footnoteModel';
 import type { PublishingDocument } from './publishingDocument';
 
@@ -350,7 +350,7 @@ function numberingLevels(docx: DocxModule, ordered: boolean) {
 /** Build a browser Blob; `docx` stays out of the initial renderer bundle. */
 export async function buildPublishingDocx(document: PublishingDocument): Promise<Blob> {
   const docx = await import('docx');
-  const children: BlockChild[] = [];
+  const children: (BlockChild | TableOfContents)[] = [];
   const listInstances = { value: 0 };
   const notes: Notes = {
     kind: document.footnotePlacement === 'book' ? 'endnotes' : 'footnotes',
@@ -368,6 +368,24 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
         text: `${document.wordCount.toLocaleString(document.locale)} ${document.wordLabel} · ${new Date(document.generatedAt).toLocaleDateString(document.locale)}`,
         alignment: docx.AlignmentType.CENTER,
       }),
+      new docx.Paragraph({ children: [new docx.PageBreak()] }),
+    );
+  }
+  // A real Word table of contents, fed by the chapter headings below (every
+  // one is HEADING_1; the prose's own headings start at HEADING_2, so they
+  // stay out of it). Word builds the entries itself — `updateFields` asks it
+  // to on opening, and LibreOffice does the same on demand — so the file
+  // carries no stale page numbers of ours.
+  const toc = document.includeToc && document.sections.length > 0;
+  if (toc) {
+    children.push(
+      new docx.Paragraph({
+        text: document.tocTitle,
+        heading: docx.HeadingLevel.TITLE,
+        alignment: docx.AlignmentType.CENTER,
+        spacing: { before: 400, after: 300 },
+      }),
+      new docx.TableOfContents(document.tocTitle, { hyperlink: true, headingStyleRange: '1-1' }),
       new docx.Paragraph({ children: [new docx.PageBreak()] }),
     );
   }
@@ -404,6 +422,7 @@ export async function buildPublishingDocx(document: PublishingDocument): Promise
     // (`word/endnotes.xml`), numbered and placed by Word itself.
     footnotes: notes.kind === 'footnotes' ? notes.bodies : undefined,
     endnotes: notes.kind === 'endnotes' ? notes.bodies : undefined,
+    features: toc ? { updateFields: true } : undefined,
     numbering: {
       config: [
         { reference: 'publishing-bullets', levels: numberingLevels(docx, false) },
