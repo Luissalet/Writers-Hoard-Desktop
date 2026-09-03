@@ -19,6 +19,7 @@ import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
   assertRowInScope,
+  checkLinkedRow,
   BridgeError,
   optNumber,
   optString,
@@ -80,6 +81,8 @@ export async function whAddStoryboardPanel(args: ToolArgs): Promise<unknown> {
   if (!board) throw new BridgeError('not-found', `No storyboard with id "${storyboardId}".`);
   await assertEngineEnabled(board.projectId, 'storyboard');
   assertRowInScope(args, board.projectId);
+  const linkedSceneId = optString(args, 'linkedSceneId') || undefined;
+  await checkLinkedRow(db.scenes, linkedSceneId, board.projectId, 'dialog scene');
   const siblings = await getPanels(storyboardId);
   const now = Date.now();
   const panel: StoryboardPanel = {
@@ -90,7 +93,7 @@ export async function whAddStoryboardPanel(args: ToolArgs): Promise<unknown> {
     subtitle: requireString(args, 'subtitle'),
     description: optString(args, 'description'),
     duration: optString(args, 'duration'),
-    linkedSceneId: optString(args, 'linkedSceneId'),
+    linkedSceneId,
     tags: optStringArray(args, 'tags') ?? [],
     createdAt: now,
     updatedAt: now,
@@ -118,6 +121,7 @@ export async function whUpdateStoryboardPanel(args: ToolArgs): Promise<unknown> 
     const value = optString(args, key);
     if (value !== undefined) changes[key] = value;
   });
+  await checkLinkedRow(db.scenes, changes.linkedSceneId, panel.projectId, 'dialog scene');
   const order = optNumber(args, 'order');
   if (order !== undefined) changes.order = order;
   const tags = optStringArray(args, 'tags');

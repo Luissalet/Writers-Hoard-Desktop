@@ -24,6 +24,7 @@ import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
   assertRowInScope,
+  checkLinkedRow,
   BridgeError,
   optEnum,
   optNumber,
@@ -117,6 +118,8 @@ export async function whCreateEvent(args: ToolArgs): Promise<unknown> {
   }
   await assertEngineEnabled(timeline.projectId, 'timeline');
   assertRowInScope(args, timeline.projectId);
+  const linkedEntryId = optString(args, 'linkedEntryId') || undefined;
+  await checkLinkedRow(db.codexEntries, linkedEntryId, timeline.projectId, 'codex entry');
   const siblings = await getTimelineEvents(timelineId);
   const now = Date.now();
   const event: TimelineEvent = {
@@ -133,7 +136,7 @@ export async function whCreateEvent(args: ToolArgs): Promise<unknown> {
     order: optNumber(args, 'order') ?? siblings.length,
     lane: optString(args, 'lane') ?? '',
     color: optString(args, 'color') ?? timeline.color ?? DEFAULT_COLOR,
-    linkedEntryId: optString(args, 'linkedEntryId'),
+    linkedEntryId,
     createdAt: now,
     updatedAt: now,
   };
@@ -162,6 +165,7 @@ export async function whUpdateEvent(args: ToolArgs): Promise<unknown> {
   };
   (['title', 'description', 'date', 'realDate', 'realDateEnd', 'lane', 'color', 'linkedEntryId'] as const)
     .forEach(assignString);
+  await checkLinkedRow(db.codexEntries, changes.linkedEntryId, existing.projectId, 'codex entry');
   const dateMode = optEnum(args, 'dateMode', DATE_MODES);
   if (dateMode !== undefined) changes.dateMode = dateMode;
   const eventType = optEnum(args, 'eventType', EVENT_TYPES);

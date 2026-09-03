@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Prueba Atlas real (Claude)</title>
+<style>
+  @page { margin: 2.2cm 2cm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 12pt;
+    line-height: 1.65;
+    color: #1a1a1a;
+    max-width: 42em;
+    margin: 0 auto;
+    padding: 1em;
+  }
+  .title-page {
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    min-height: 80vh; text-align: center; page-break-after: always;
+  }
+  .title-page h1 { font-size: 26pt; letter-spacing: 0.04em; margin-bottom: 0.4em; }
+  .title-page .meta { color: #666; font-style: italic; }
+  .wh-toc { page-break-after: always; }
+  .wh-toc h2 { font-size: 17pt; margin: 1.4em 0 1em; text-align: center; }
+  .wh-toc ol { padding-left: 1.6em; }
+  .wh-toc li { margin: 0 0 0.4em; }
+  .wh-toc a { color: #1a1a1a; text-decoration: none; }
+  .chapter { page-break-before: always; }
+  .chapter:first-of-type { page-break-before: auto; }
+  .chapter-title { font-size: 17pt; margin: 1.4em 0 1em; text-align: center; }
+  .synopsis { font-style: italic; color: #555; text-align: center; margin-bottom: 2em; }
+  .content p { margin: 0 0 0.15em; text-indent: 1.6em; }
+  .content p:first-of-type { text-indent: 0; }
+  .content h2 { font-size: 14pt; margin: 1.4em 0 0.6em; }
+  .content blockquote { margin: 1em 2em; font-style: italic; color: #444; }
+  .content img { max-width: 100%; }
+  .content a { color: #1a1a1a; }
+  .wh-footnote-ref { font-size: 0.7em; line-height: 1; vertical-align: super; }
+  .wh-footnote-ref a { color: #1a1a1a; text-decoration: none; }
+  .wh-endnotes ol.wh-endnotes-marked { list-style: none; padding-left: 0; }
+  .wh-endnote-marker { display: inline-block; min-width: 1.4em; font-weight: 600; }
+  .wh-endnotes { margin-top: 2em; padding-top: 0.6em; border-top: 1px solid #bbb; font-size: 10pt; color: #333; }
+  .wh-endnotes h2 { font-size: 9pt; letter-spacing: 0.08em; text-transform: uppercase; color: #666; margin: 0 0 0.6em; }
+  .wh-endnotes ol { padding-left: 1.6em; margin: 0; }
+  .wh-endnotes--book { page-break-before: always; border-top: 0; margin-top: 0; padding-top: 0; font-size: 11pt; }
+  .wh-endnotes--book h1 { font-size: 17pt; margin: 1.4em 0 1em; text-align: center; color: #1a1a1a; }
+  .wh-endnotes--book h2 { font-size: 11pt; letter-spacing: 0; text-transform: none; color: #1a1a1a; margin: 1.4em 0 0.5em; }
+  .wh-endnotes--book ol { margin-bottom: 0.6em; }
+  .wh-endnotes li { margin: 0 0 0.3em; }
+  .wh-endnote-back { color: #666; text-decoration: none; margin-left: 0.3em; }
+  @media print { body { padding: 0; max-width: none; } }
+</style>
+</head>
+<body>
+  <div class="title-page">
+    <h1>Prueba Atlas real (Claude)</h1>
+    <p class="meta">1942 palabras · 3/9/2026</p>
+  </div>
+  <nav class="wh-toc"><h2>Índice</h2><ol><li><a href="#ch-1">Capítulo 1 — Cap. de prueba 1</a></li><li><a href="#ch-2">Capítulo 2 — Cap. de prueba 2</a></li><li><a href="#ch-3">Capítulo 3 — Capítulo nuevo desde el libro</a></li><li><a href="#ch-4">Capítulo 4 — Cap. de prueba 3</a></li></ol></nav>
+  
+    <section class="chapter">
+      <h1 class="chapter-title" id="ch-1">Capítulo 1 — Cap. de prueba 1</h1>
+      
+      <div class="content"><p>El primer capítulo empieza aquí y sigue con prosa.<sup class="wh-footnote-ref" id="fnref-1-mtjza75d_1r1ntc"><a href="#fn-1-mtjza75d_1r1ntc">*</a></sup></p><p>Párrafo 1. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 2. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 3. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 4. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 5. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 6. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 7. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 8. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 9. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 10. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 11. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 12. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 13. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 14. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 15. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 16. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 17. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 18. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 19. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 20. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 21. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 22. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 23. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 24. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 25. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 26. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 27. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 28. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 29. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 30. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Y cierra con una frase final.</p><p>Un párrafo añadido por la IA<sup class="wh-footnote-ref" id="fnref-1-ia"><a href="#fn-1-ia">†</a></sup> al final del capítulo.</p></div>
+      <section class="wh-endnotes"><h2>Notas</h2><ol class="wh-endnotes-marked"><li id="fn-1-mtjza75d_1r1ntc"><span class="wh-endnote-marker">*</span> El estaño es una metáfora, no un metal. <a href="#fnref-1-mtjza75d_1r1ntc" class="wh-endnote-back" aria-label="Notas 1">↩</a></li><li id="fn-1-ia"><span class="wh-endnote-marker">†</span> Nota escrita por el puente, no por el editor. <a href="#fnref-1-ia" class="wh-endnote-back" aria-label="Notas 2">↩</a></li></ol></section>
+    </section>
+
+    <section class="chapter">
+      <h1 class="chapter-title" id="ch-2">Capítulo 2 — Cap. de prueba 2</h1>
+      
+      <div class="content"><h2>Una sección</h2><p>Segundo capítulo.</p><p>Frase con nota de la IA<sup class="wh-footnote-ref" id="fnref-2-dos"><a href="#fn-2-dos">*</a></sup>.</p></div>
+      <section class="wh-endnotes"><h2>Notas</h2><ol class="wh-endnotes-marked"><li id="fn-2-dos"><span class="wh-endnote-marker">*</span> Nota añadida tras el reinicio. <a href="#fnref-2-dos" class="wh-endnote-back" aria-label="Notas 1">↩</a></li></ol></section>
+    </section>
+
+    <section class="chapter">
+      <h1 class="chapter-title" id="ch-3">Capítulo 3 — Capítulo nuevo desde el libro</h1>
+      
+      <div class="content"><p>Párrafo 1. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 2. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 3. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 4. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 5. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 6. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 7. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 8. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 9. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 10. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 11. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p><p>Párrafo 12. La ciudad dormía bajo una luz de estaño, y el río, que nadie había visto crecer, arrastraba las últimas hojas del otoño hacia un mar que sólo existía en los mapas antiguos. Nadie hablaba de la torre, aunque todos la miraban al pasar.</p></div>
+      
+    </section>
+
+    <section class="chapter">
+      <h1 class="chapter-title" id="ch-4">Capítulo 4 — Cap. de prueba 3</h1>
+      
+      <div class="content"><p>Tercer capítulo, corto, sin notas.</p><blockquote><p>Una cita.</p></blockquote><p></p><p>Al amanecer llegaron a Toledo por el puente de Alcántara.</p></div>
+      
+    </section>
+  
+  
+</body>
+</html>

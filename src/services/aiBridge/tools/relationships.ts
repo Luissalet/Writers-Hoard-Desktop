@@ -23,6 +23,7 @@ import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
   assertRowInScope,
+  requireLinkedRow,
   BridgeError,
   optBoolean,
   optEnum,
@@ -68,11 +69,13 @@ export async function whListRelationships(args: ToolArgs): Promise<unknown> {
   return { projectId, entityId: entityId ?? null, relationships: rows.map(serialize) };
 }
 
-/** Resolve a codex id to its title, so the denormalised name is never blank. */
-async function nameOf(id: string): Promise<string> {
-  const entry = await db.codexEntries.get(id);
-  if (!entry) throw new BridgeError('not-found', `No codex entry with id "${id}".`);
-  return entry.title;
+/**
+ * Resolve a codex id to its title, so the denormalised name is never blank.
+ * Same project only: the relationships engine draws its graph from the
+ * project's codex, so an entry from elsewhere would be a dangling node.
+ */
+async function nameOf(id: string, projectId: string): Promise<string> {
+  return (await requireLinkedRow(db.codexEntries, id, projectId, 'codex entry')).title;
 }
 
 export async function whCreateRelationship(args: ToolArgs): Promise<unknown> {
@@ -82,7 +85,10 @@ export async function whCreateRelationship(args: ToolArgs): Promise<unknown> {
   if (entityAId === entityBId) {
     throw new BridgeError('bad-args', 'A character cannot have a relationship with themselves.');
   }
-  const [entityAName, entityBName] = await Promise.all([nameOf(entityAId), nameOf(entityBId)]);
+  const [entityAName, entityBName] = await Promise.all([
+    nameOf(entityAId, projectId),
+    nameOf(entityBId, projectId),
+  ]);
 
   const intensity = optNumber(args, 'intensity') ?? 0;
   if (intensity < -5 || intensity > 5) {

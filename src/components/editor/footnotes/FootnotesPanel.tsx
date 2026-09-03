@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Editor } from '@tiptap/react';
+import type { Transaction } from '@tiptap/pm/state';
 import { Plus, Trash2, LocateFixed, Superscript } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { shortcutCaps } from '@/components/common/shortcuts';
@@ -8,6 +9,7 @@ import type { FootnoteMarkerStyle, FootnotePlacement } from '@/types';
 import {
   FOOTNOTE_MARKER_STYLES,
   FOOTNOTE_PLACEMENTS,
+  collectFootnotes,
   findFootnote,
   formatFootnoteMarker,
   type FootnoteRef,
@@ -37,6 +39,51 @@ interface FootnotesPanelProps {
   placement?: FootnotePlacement;
   /** When given, the header offers the placement choice. */
   onPlacementChange?: (placement: FootnotePlacement) => void;
+  /**
+   * A top-level node type after which the printed numbers start again from
+   * 1 — the book editor's chapter heading, when the notes go with each
+   * chapter. The list itself keeps the document's order either way.
+   */
+  restartNumbersAt?: string;
+}
+
+/**
+ * The number each note prints, in the order `useFootnotes` lists them,
+ * when the numbering restarts at a node type; empty (and free) otherwise.
+ * By position rather than by id, because in a whole book two chapters can
+ * hold a note with one id. Beside `useFootnotes` rather than inside it: the
+ * plain list is refreshed only when an id or a text changes, which is right
+ * for the rows, but a heading inserted between two notes changes nothing in
+ * that list and everything in the numbers.
+ */
+function useRestartedNumbers(editor: Editor | null, restartAt: string | undefined): number[] {
+  const compute = (): number[] =>
+    editor && restartAt ? collectFootnotes(editor.state.doc, restartAt).map((note) => note.index) : [];
+  const [numbers, setNumbers] = useState<number[]>(compute);
+  // A new editor or a change of rule resets the list during render — the
+  // sanctioned shape for state derived from a prop.
+  const [source, setSource] = useState({ editor, restartAt });
+  if (source.editor !== editor || source.restartAt !== restartAt) {
+    setSource({ editor, restartAt });
+    setNumbers(compute());
+  }
+
+  useEffect(() => {
+    if (!editor || !restartAt) return;
+    const refresh = ({ transaction }: { transaction: Transaction }) => {
+      if (!transaction.docChanged) return;
+      const next = collectFootnotes(editor.state.doc, restartAt).map((note) => note.index);
+      setNumbers((current) =>
+        current.length === next.length && current.every((n, at) => n === next[at]) ? current : next,
+      );
+    };
+    editor.on('transaction', refresh);
+    return () => {
+      editor.off('transaction', refresh);
+    };
+  }, [editor, restartAt]);
+
+  return numbers;
 }
 
 /**
@@ -52,7 +99,18 @@ function shortcutLabel(t: (key: string) => string): string {
 
 // Module scope, like `ToolButton` in TiptapEditor: a component created inside
 // another remounts its field on every render and drops the caret.
-function FootnoteRow({ editor, note, style }: { editor: Editor; note: FootnoteRef; style: FootnoteMarkerStyle }) {
+function FootnoteRow({
+  editor,
+  note,
+  style,
+  number,
+}: {
+  editor: Editor;
+  note: FootnoteRef;
+  style: FootnoteMarkerStyle;
+  /** What the row prints; the document-wide index unless the numbering restarts. */
+  number: number;
+}) {
   const { t } = useTranslation();
   const fieldRef = useRef<HTMLTextAreaElement>(null);
 
@@ -72,14 +130,14 @@ function FootnoteRow({ editor, note, style }: { editor: Editor; note: FootnoteRe
   return (
     <li className="flex items-start gap-2 rounded-lg border border-border bg-elevated/60 p-2">
       <span className="mt-1.5 w-5 flex-shrink-0 text-right text-[11px] font-semibold tabular-nums text-accent-gold">
-        {formatFootnoteMarker(note.index, style)}
+        {formatFootnoteMarker(number, style)}
       </span>
       <textarea
         ref={fieldRef}
         value={note.text}
         rows={1}
         placeholder={t('writings.footnotes.placeholder')}
-        aria-label={`${t('writings.footnotes.note')} ${note.index}`}
+        aria-label={`${t('writings.footnotes.note')} ${number}`}
         onChange={(event) => editor.commands.setFootnoteText(note.id, event.target.value)}
         className="min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-sm leading-snug text-text-primary outline-none rounded focus:bg-deep/60 transition"
       />
@@ -113,9 +171,11 @@ export default function FootnotesPanel({
   onStyleChange,
   placement = 'chapter',
   onPlacementChange,
+  restartNumbersAt,
 }: FootnotesPanelProps) {
   const { t } = useTranslation();
   const notes = useFootnotes(editor);
+  const restarted = useRestartedNumbers(editor, restartNumbersAt);
   if (!editor) return null;
 
   const add = () => editor.chain().focus().insertFootnote().run();
@@ -193,8 +253,14 @@ export default function FootnotesPanel({
 
       {notes.length > 0 && (
         <ol className="space-y-1.5">
-          {notes.map((note) => (
-            <FootnoteRow key={note.id} editor={editor} note={note} style={style} />
+          {notes.map((note, at) => (
+            <FootnoteRow
+              key={note.id}
+              editor={editor}
+              note={note}
+              style={style}
+              number={restarted[at] ?? note.index}
+            />
           ))}
         </ol>
       )}

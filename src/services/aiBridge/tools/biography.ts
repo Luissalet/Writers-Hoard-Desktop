@@ -20,6 +20,7 @@ import { generateId } from '@/utils/idGenerator';
 import {
   assertEngineEnabled,
   assertRowInScope,
+  checkLinkedRow,
   BridgeError,
   EMPTY_CONTENT,
   htmlFromMarkdown,
@@ -88,11 +89,8 @@ export async function whGetBiography(args: ToolArgs): Promise<unknown> {
 
 export async function whCreateBiography(args: ToolArgs): Promise<unknown> {
   const projectId = await resolveProjectForEngine(args, 'biography');
-  const subjectId = optString(args, 'subjectId');
-  const subject = subjectId ? await db.codexEntries.get(subjectId) : undefined;
-  if (subjectId && !subject) {
-    throw new BridgeError('not-found', `No codex entry with id "${subjectId}".`);
-  }
+  const subjectId = optString(args, 'subjectId') || undefined;
+  const subject = await checkLinkedRow(db.codexEntries, subjectId, projectId, 'codex entry');
   const now = Date.now();
   const bio: Biography = {
     id: generateId('bio'),

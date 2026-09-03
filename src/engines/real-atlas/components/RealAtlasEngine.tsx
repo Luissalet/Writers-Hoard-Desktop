@@ -10,6 +10,7 @@ import { useAtlasDivergences, useAtlasPlaces } from '../hooks';
 import { ATLAS_PLACE_KINDS, type AtlasDivergence, type AtlasPlace, type AtlasPlaceKind } from '../types';
 import type { LonLat } from '../geo';
 import PlaceEditor, { type CoordinatePick } from './PlaceEditor';
+import { useAppearanceWritings } from '../appearances';
 import { nextPickSeq } from './picks';
 import DivergenceEditor from './DivergenceEditor';
 import AtlasMap, { type MapRequest } from './AtlasMap';
@@ -104,6 +105,9 @@ export default function RealAtlasEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
   const places = useAtlasPlaces(projectId);
   const divergences = useAtlasDivergences(projectId);
+  // The manuscript, tokenised for "appears in". Held here rather than in the
+  // place editor, which remounts on every pin and would reread it each time.
+  const appearanceWritings = useAppearanceWritings(projectId);
   const [tab, setTab] = useState<Tab>('places');
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [selectedDivergenceId, setSelectedDivergenceId] = useState<string | null>(null);
@@ -311,6 +315,7 @@ export default function RealAtlasEngine({ projectId }: EngineComponentProps) {
                 place={selectedPlace}
                 places={places.items}
                 divergences={divergences.items}
+                writings={appearanceWritings.items}
                 onSave={(changes) => savePlace(selectedPlace.id, changes)}
                 onDelete={() => deletePlace(selectedPlace.id)}
                 onAddDivergence={() => void createDivergence(selectedPlace.id)}

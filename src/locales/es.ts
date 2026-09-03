@@ -4094,6 +4094,8 @@ const es = {
   'realAtlas.place.chapterShort': 'Cap. {n}',
   'realAtlas.routes.tooMany': 'Una ruta puede tener como mucho {max} paradas.',
   'realAtlas.geocode.resultsFor': 'Resultados para «{query}»',
+  'projectTools.publishing.includeToc': 'Índice de capítulos',
+  'projectTools.publishing.tocTitle': 'Índice',
 } as const;
 
 export default es;

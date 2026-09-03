@@ -1785,6 +1785,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         onClose={() => setBookMode(false)}
         onOpenChapter={(id) => void handleBookOpenChapter(id)}
         footnoteStyle={footnoteStyle}
+        footnotePlacement={footnotePlacement}
       />
     );
   }

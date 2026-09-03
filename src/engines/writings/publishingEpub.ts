@@ -2,6 +2,7 @@ import {
   FOOTNOTE_ID_ATTR,
   FOOTNOTE_REF_SELECTOR,
   FOOTNOTE_TEXT_ATTR,
+  footnoteAnchors,
   formatFootnoteMarker,
   type ExtractedFootnote,
 } from '@/components/editor/footnotes/footnoteModel';
@@ -25,8 +26,16 @@ const XHTML_TAGS = new Set([
 const FOOTNOTE_NUMBER_ATTR = 'data-footnote-number';
 /** The file the reference's `href` points into; empty for the chapter's own. */
 const FOOTNOTE_FILE_ATTR = 'data-footnote-file';
+/**
+ * The chapter's number, folded into the note's ids (`footnoteAnchors`): the
+ * shared notes file holds every chapter's asides, and two chapters can hold
+ * a note with one id — the AI bridge uses the Markdown label as the id.
+ */
+const FOOTNOTE_SCOPE_ATTR = 'data-footnote-scope';
 /** The one file that holds every note when they go at the end of the book. */
 const NOTES_HREF = 'notes.xhtml';
+/** The printed contents page, when the profile asks for one (`nav.xhtml` is the reader's own). */
+const TOC_HREF = 'toc.xhtml';
 
 // The characters XML cannot carry at all — C0 controls, non-characters, lone
 // surrogates — are dropped by `xmlSafeText`, which lives beside the IR because
@@ -50,10 +59,13 @@ function serializeXhtmlNode(node: Node): string {
   if (sourceTag === 'sup' && node.hasAttribute(FOOTNOTE_NUMBER_ATTR)) {
     // EPUB 3's own footnote vocabulary: a reader that knows `noteref` shows
     // the note in a pop-up and keeps the `aside` out of the flow.
-    const id = escapeXml(node.getAttribute(FOOTNOTE_ID_ATTR) ?? '');
+    const anchors = footnoteAnchors(
+      node.getAttribute(FOOTNOTE_ID_ATTR) ?? '',
+      Number(node.getAttribute(FOOTNOTE_SCOPE_ATTR)),
+    );
     const number = escapeXml(node.getAttribute(FOOTNOTE_NUMBER_ATTR) ?? '');
     const file = escapeXml(node.getAttribute(FOOTNOTE_FILE_ATTR) ?? '');
-    return `<a epub:type="noteref" class="wh-noteref" href="${file}#fn-${id}" id="fnref-${id}"><sup>${number}</sup></a>`;
+    return `<a epub:type="noteref" class="wh-noteref" href="${file}#${escapeXml(anchors.note)}" id="${escapeXml(anchors.ref)}"><sup>${number}</sup></a>`;
   }
   if (!XHTML_TAGS.has(sourceTag)) {
     return [...node.childNodes].map(serializeXhtmlNode).join('');
@@ -75,11 +87,13 @@ function numberFootnotes(
   style: FootnoteMarkerStyle,
   start: number,
   file: string,
+  scope: number,
 ): ExtractedFootnote[] {
   const notes: ExtractedFootnote[] = [];
   for (const element of root.querySelectorAll(FOOTNOTE_REF_SELECTOR)) {
     const index = start + notes.length;
     element.setAttribute(FOOTNOTE_NUMBER_ATTR, formatFootnoteMarker(index, style));
+    element.setAttribute(FOOTNOTE_SCOPE_ATTR, String(scope));
     if (file) element.setAttribute(FOOTNOTE_FILE_ATTR, file);
     notes.push({
       id: element.getAttribute(FOOTNOTE_ID_ATTR) ?? '',
@@ -98,13 +112,18 @@ function numberFootnotes(
  * from the flow altogether, which in a file made of nothing else would leave
  * the reader a blank page titled "Notes". Both types pop up from a `noteref`.
  */
-function footnoteAside(note: ExtractedFootnote, style: FootnoteMarkerStyle, backFile = ''): string {
-  const id = escapeXml(note.id);
+function footnoteAside(
+  note: ExtractedFootnote,
+  style: FootnoteMarkerStyle,
+  scope: number,
+  backFile = '',
+): string {
+  const anchors = footnoteAnchors(note.id, scope);
   const text = note.text.split(/\r?\n/).map(escapeXml).join('<br />');
   const marker = escapeXml(formatFootnoteMarker(note.index, style));
   const separator = style === 'numbers' ? '.' : '';
   const type = backFile ? 'endnote' : 'footnote';
-  return `<aside epub:type="${type}" class="wh-footnote" id="fn-${id}"><p>${marker}${separator} ${text} <a href="${escapeXml(backFile)}#fnref-${id}">↩</a></p></aside>`;
+  return `<aside epub:type="${type}" class="wh-footnote" id="${escapeXml(anchors.note)}"><p>${marker}${separator} ${text} <a href="${escapeXml(backFile)}#${escapeXml(anchors.ref)}">↩</a></p></aside>`;
 }
 
 /**
@@ -117,14 +136,15 @@ function footnoteAside(note: ExtractedFootnote, style: FootnoteMarkerStyle, back
 function toXhtmlFragment(
   html: string,
   style: FootnoteMarkerStyle,
+  scope: number,
   start = 1,
   notesFile = '',
 ): { xhtml: string; notes: ExtractedFootnote[] } {
   const parsed = new DOMParser().parseFromString(html, 'text/html');
-  const notes = numberFootnotes(parsed.body, style, start, notesFile);
+  const notes = numberFootnotes(parsed.body, style, start, notesFile, scope);
   const body = [...parsed.body.childNodes].map(serializeXhtmlNode).join('');
   if (notesFile) return { xhtml: body, notes };
-  return { xhtml: body + notes.map((note) => footnoteAside(note, style)).join(''), notes };
+  return { xhtml: body + notes.map((note) => footnoteAside(note, style, scope)).join(''), notes };
 }
 
 function xhtmlPage(document: PublishingDocument, title: string, body: string): string {
@@ -170,6 +190,22 @@ export async function buildPublishingEpub(document: PublishingDocument): Promise
     navigation.push({ href, title: document.title });
   }
 
+  // The chapter list as a page of its own in the spine, after the title
+  // page and before the first chapter — a reader that shows the `nav`
+  // document in a side panel does not print it in the flow, and a writer who
+  // asked for a contents page expects to turn to one.
+  if (document.includeToc && document.sections.length > 0) {
+    const href = TOC_HREF;
+    const entries = document.sections
+      .map((section, index) => `<li><a href="section-${index + 1}.xhtml">${escapeXml(section.title)}</a></li>`)
+      .join('');
+    const body = `<nav class="wh-toc"><h1>${escapeXml(document.tocTitle)}</h1><ol>${entries}</ol></nav>`;
+    zip.file(`EPUB/${href}`, xhtmlPage(document, document.tocTitle, body));
+    manifest.push(`<item id="toc" href="${href}" media-type="application/xhtml+xml" />`);
+    spine.push('<itemref idref="toc" />');
+    navigation.push({ href, title: document.tocTitle });
+  }
+
   const bookNotes = document.footnotePlacement === 'book';
   // Each chapter's notes, for the one notes file after the last chapter.
   const notesBody: string[] = [];
@@ -181,6 +217,7 @@ export async function buildPublishingEpub(document: PublishingDocument): Promise
     const fragment = toXhtmlFragment(
       section.portableHtml,
       document.footnoteStyle,
+      index + 1,
       bookNotes ? nextNumber : 1,
       bookNotes ? NOTES_HREF : '',
     );
@@ -188,7 +225,7 @@ export async function buildPublishingEpub(document: PublishingDocument): Promise
       nextNumber += fragment.notes.length;
       notesBody.push(
         `<h2>${escapeXml(section.title)}</h2>`
-        + fragment.notes.map((note) => footnoteAside(note, document.footnoteStyle, href)).join(''),
+        + fragment.notes.map((note) => footnoteAside(note, document.footnoteStyle, index + 1, href)).join(''),
       );
     }
     const body = `<section><h1>${escapeXml(section.title)}</h1>${synopsis}${fragment.xhtml}</section>`;
@@ -224,6 +261,8 @@ p { margin: 0 0 0.5em; }
 .synopsis { font-style: italic; text-align: center; margin-bottom: 2em; }
 blockquote { margin: 1em 2em; font-style: italic; }
 pre, code { font-family: monospace; }
+.wh-toc ol { list-style: none; padding-left: 0; }
+.wh-toc li { margin: 0 0 0.5em; }
 .wh-noteref { text-decoration: none; }
 .wh-footnote { margin-top: 1.5em; padding-top: 0.5em; border-top: 1px solid #999; font-size: 0.85em; }
 .wh-footnote + .wh-footnote { margin-top: 0; padding-top: 0; border-top: 0; }

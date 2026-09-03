@@ -5,6 +5,7 @@
 // Argument coercion, project scoping, Markdown conversion and the audit
 // envelope. Handlers stay short enough to read at a glance.
 
+import type { Table } from 'dexie';
 import { db } from '@/db';
 import { useAppStore } from '@/stores/appStore';
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
@@ -217,6 +218,49 @@ export function assertRowInScope(args: ToolArgs, rowProjectId: string | undefine
     'scope',
     `This conversation belongs to project "${scope}"; it cannot act on project "${rowProjectId}". Ask the user to open that project and continue there.`,
   );
+}
+
+/**
+ * Resolve a row another row is about to point at — an arc's character, a
+ * beat's scene, a pin's codex entry — and refuse it unless it exists AND
+ * lives in `projectId`.
+ *
+ * `assertRowInScope` only protects the row a tool loads by id; the ids it
+ * then stores INSIDE that row were written verbatim, so a copilot pinned to
+ * project A could link its arc to a character of project B (the reference
+ * would render as nothing there, and be a leak on export). Every link is a
+ * reference into the same project, so the check is the same everywhere.
+ * Returns the row so callers that denormalise a name need no second read.
+ */
+export async function requireLinkedRow<T extends { projectId: string }>(
+  table: Table<T, string>,
+  id: string,
+  projectId: string,
+  what: string,
+): Promise<T> {
+  const row = await table.get(id);
+  if (!row) throw new BridgeError('not-found', `No ${what} with id "${id}".`);
+  if (row.projectId !== projectId) {
+    throw new BridgeError(
+      'scope',
+      `The ${what} "${id}" belongs to project "${row.projectId}", not to project "${projectId}"; a link cannot cross projects.`,
+    );
+  }
+  return row;
+}
+
+/**
+ * `requireLinkedRow` for an optional id: undefined (or an empty string, which
+ * the update tools use to unlink) passes through without a read.
+ */
+export async function checkLinkedRow<T extends { projectId: string }>(
+  table: Table<T, string>,
+  id: string | undefined,
+  projectId: string,
+  what: string,
+): Promise<T | undefined> {
+  if (!id) return undefined;
+  return requireLinkedRow(table, id, projectId, what);
 }
 
 /**

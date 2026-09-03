@@ -4094,6 +4094,8 @@ const en = {
   'realAtlas.place.chapterShort': 'Ch. {n}',
   'realAtlas.routes.tooMany': 'A route can have at most {max} stops.',
   'realAtlas.geocode.resultsFor': 'Results for “{query}”',
+  'projectTools.publishing.includeToc': 'Table of contents',
+  'projectTools.publishing.tocTitle': 'Contents',
 } as const;
 
 export default en;

@@ -475,6 +475,23 @@ body {
   counter-reset: wh-footnote;
 }
 
+/* The whole-book editor stacks every chapter in one body. With the notes
+   placed per chapter (`BookEditor` puts the attribute on its wrapper) each
+   chapter heading opens a fresh counter for the siblings after it, so the
+   numbers restart where the exported chapters' do; at the end of the book
+   they run on. */
+[data-footnote-placement='chapter'] .tiptap-editor .ProseMirror > .wh-chapter-heading {
+  counter-reset: wh-footnote;
+}
+/* A reset on a child of an element that already resets the same counter
+   makes a NESTED counter, scoped to that child alone (css-lists-3, as Chromium
+   implements it): the siblings after the heading would keep counting the
+   body's. So the body must not own the counter here; the first heading
+   instantiates it, and the book always opens with one. */
+[data-footnote-placement='chapter'] .tiptap-editor .ProseMirror {
+  counter-reset: none;
+}
+
 .tiptap-editor .ProseMirror sup.wh-footnote-ref {
   counter-increment: wh-footnote;
   display: inline-block;

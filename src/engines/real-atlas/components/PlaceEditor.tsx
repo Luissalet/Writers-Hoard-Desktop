@@ -5,7 +5,7 @@ import TagInput from '@/components/common/TagInput';
 import { toast } from '@/components/common/toast';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { getAnchorAdapter, navigateTo } from '@/engines/_shared/anchoring';
-import { findPlaceAppearances, MIN_APPEARANCE_NAME_LENGTH, useAppearanceWritings } from '../appearances';
+import { findPlaceAppearances, MIN_APPEARANCE_NAME_LENGTH, type AppearanceWriting } from '../appearances';
 import { ATLAS_PLACE_KINDS, type AtlasDivergence, type AtlasPlace, type AtlasPlaceKind } from '../types';
 import { GEOCODE_MAX_QUERY_LENGTH, parseNominatimResults, type GeocodeHit } from '../geocode';
 import { loadAtlasMapPrefs, saveAtlasMapPrefs } from '../mapPrefs';
@@ -127,12 +127,13 @@ function useSettled(value: string, delayMs: number): string {
 /**
  * The chapters that name the place, each one a jump to the chapter — the
  * Codex's "appears in", for a place. Name and aliases; the name only once it
- * has rested and is long enough to mean something.
+ * has rested and is long enough to mean something. The manuscript arrives
+ * already tokenised from the engine (`useAppearanceWritings` there), so a
+ * scan here is map lookups over words, not a read of the writings table.
  */
-function AppearsIn({ projectId, name, aliases }: { projectId: string; name: string; aliases: string[] }) {
+function AppearsIn({ projectId, name, aliases, writings }: { projectId: string; name: string; aliases: string[]; writings: readonly AppearanceWriting[] }) {
   const { t } = useTranslation();
   const settledName = useSettled(name, APPEARANCE_DEBOUNCE_MS);
-  const { items: writings } = useAppearanceWritings(projectId);
   // A key rather than the array: a fresh `aliases` array with the same
   // names must not rescan the manuscript.
   const names = [settledName.trim().length >= MIN_APPEARANCE_NAME_LENGTH ? settledName : '', ...aliases].filter(Boolean);
@@ -214,6 +215,8 @@ export interface CoordinatePick {
 interface PlaceEditorProps {
   projectId: string;
   place: AtlasPlace;
+  /** The manuscript as tokens, held by the engine so the editor's remounts do not reread it. */
+  writings: readonly AppearanceWriting[];
   /** Every place of the project: the parent picker needs the siblings. */
   places: AtlasPlace[];
   /** Every divergence of the project; the editor picks out this place's. */
@@ -228,7 +231,7 @@ interface PlaceEditorProps {
 }
 
 export default function PlaceEditor({
-  projectId, place, places, divergences, onSave, onDelete, onAddDivergence, onOpenDivergence, onPickOnMap, coordinatePick,
+  projectId, place, places, divergences, writings, onSave, onDelete, onAddDivergence, onOpenDivergence, onPickOnMap, coordinatePick,
 }: PlaceEditorProps) {
   const { t, locale } = useTranslation();
   const untitled = t('realAtlas.place.untitled');
@@ -360,7 +363,7 @@ export default function PlaceEditor({
           <TagInput tags={draft.aliases} onChange={(aliases) => patch({ aliases })} placeholder={t('realAtlas.place.aliasesPlaceholder')} />
         </Field>
         <div className="sm:col-span-2">
-          <AppearsIn projectId={projectId} name={draft.name} aliases={draft.aliases} />
+          <AppearsIn projectId={projectId} name={draft.name} aliases={draft.aliases} writings={writings} />
         </div>
         <Field label={t('realAtlas.place.country')}>
           <input value={draft.country} onChange={(e) => patch({ country: e.target.value })} className={inputClass} />

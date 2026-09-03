@@ -82,10 +82,24 @@ export function findNameAppearances(
   index: NameIndex,
   options: NameMatchOptions = {},
 ): Set<string> {
+  if (index.size === 0) return new Set();
+  return findNameAppearancesInTokens(tokenizeNameText(text), index, options);
+}
+
+/**
+ * The same scan over a text already tokenised with `tokenizeNameText`. For a
+ * caller that asks the same chapters about different names — the atlas, as
+ * the writer types a place's name — the tokenisation is the expensive half
+ * and can be done once and kept; the lookups are all that is left to pay.
+ */
+export function findNameAppearancesInTokens(
+  haystack: readonly string[],
+  index: NameIndex,
+  options: NameMatchOptions = {},
+): Set<string> {
   const found = new Set<string>();
   if (index.size === 0) return found;
   const plurals = options.plurals === true;
-  const haystack = tokenizeNameText(text);
   for (let at = 0; at < haystack.length; at += 1) {
     const word = haystack[at];
     // A one-word name in the plural has no first-token entry under its
