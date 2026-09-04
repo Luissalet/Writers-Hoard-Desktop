@@ -4384,6 +4384,7 @@ const es = {
   'imageStudio.scheduler.bongTangent': 'Una planificación con forma de tangente venida de la comunidad; se lleva bien con los samplers res_*.',
   'imageStudio.scheduler.ltx2': 'La planificación que espera el modelo LTX-2.',
   'visualRef.action.useSeed': 'Usar esta semilla',
+  'imageStudio.prompt.wildcardExample': 'Una tirada posible: la semilla se lanza al generar:',
 } as const;
 
 export default es;

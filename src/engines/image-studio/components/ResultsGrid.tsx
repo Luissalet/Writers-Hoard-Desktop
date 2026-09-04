@@ -41,6 +41,12 @@ export interface ResultsGridProps {
   seedAction: (image: InspirationImage) => Availability;
 }
 
+/** What an X/Y/Z cell varied, read defensively off the stored row. */
+function gridLabel(image: InspirationImage): string | undefined {
+  const info = image.generation as (typeof image.generation & { gridLabel?: string }) | undefined;
+  return typeof info?.gridLabel === 'string' ? info.gridLabel : undefined;
+}
+
 /** One action button: never hidden, and never disabled without saying why. */
 function Action({
   icon: Icon, label, availability, onClick, active,
@@ -101,6 +107,13 @@ export default function ResultsGrid({
                     <img src={image.thumbnailData ?? image.imageData} alt="" className="w-full aspect-square object-cover" />
                   </button>
                   <div className="p-1.5 space-y-1">
+                    {/* The X/Y/Z label goes above the provenance: in a grid it
+                        is the only thing the writer is reading. */}
+                    {gridLabel(image) && (
+                      <p className="text-[9px] text-accent-gold font-mono truncate" title={gridLabel(image)}>
+                        {gridLabel(image)}
+                      </p>
+                    )}
                     <p className="text-[9px] text-text-dim font-mono truncate">
                       {image.generation?.modelId}
                       {image.generation?.seed !== undefined ? ` · #${image.generation.seed}` : ''}
