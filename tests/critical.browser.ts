@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import Dexie from 'dexie';
 import { db } from '@/db';
 import '@/engines/timeline';
 import '@/engines/gallery';
@@ -174,15 +175,66 @@ function assert(condition: unknown, message: string): asserts condition {
 
 async function testMigration(): Promise<void> {
   await db.delete();
+
+  // A migration that loses a writer's rows is unforgivable, so prove it does
+  // not rather than assert the version number and hope. Create the database at
+  // the PREVIOUS version, put rows in it, then let the real schema upgrade it
+  // and read them back. Asserting only `verno` would pass just as happily for
+  // a version that dropped every store and recreated it empty.
+  const previous = new Dexie('WritersHoardDB');
+  previous.version(29).stores({
+    projects: 'id, type, parentId, status, updatedAt',
+    writings: 'id, projectId, status, *tags, updatedAt, googleDocId',
+    inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
+    visualRefs: 'id, projectId, codexEntryId, kind, updatedAt',
+  });
+  await previous.open();
+  assert(previous.verno === 29, `the fixture must be created at v29, got v${previous.verno}`);
+  const madeAt = Date.now();
+  await previous.table('projects').add({
+    id: 'legacy-project', type: 'novel', title: 'Antes de las recetas', status: 'active',
+    createdAt: madeAt, updatedAt: madeAt,
+  });
+  await previous.table('writings').add({
+    id: 'legacy-writing', projectId: 'legacy-project', title: 'Capitulo uno', status: 'draft',
+    content: '<p>un faro</p>', wordCount: 2, tags: [], createdAt: madeAt, updatedAt: madeAt,
+  });
+  await previous.table('inspirationImages').add({
+    id: 'legacy-image', projectId: 'legacy-project', title: 'El faro', dataUrl: 'data:image/png;base64,AA',
+    tags: [], linkedEntryIds: [], createdAt: madeAt, source: 'generated',
+    generation: { prompt: 'un faro', connectionId: 'builtin-sd', modelId: 'sd15-q8', width: 512, height: 512, createdAt: madeAt },
+  });
+  previous.close();
+
   await db.open();
-  assert(db.verno === 29, `expected schema v29, received v${db.verno}`);
+  assert(db.verno === 30, `expected schema v30, received v${db.verno}`);
+  assert((await db.projects.get('legacy-project'))?.title === 'Antes de las recetas', 'the upgrade lost a project row');
+  assert((await db.writings.get('legacy-writing'))?.content === '<p>un faro</p>', 'the upgrade lost a writing row');
+  const carried = await db.inspirationImages.get('legacy-image');
+  assert(carried?.generation?.prompt === 'un faro', 'the upgrade lost a generated image and its provenance');
+  assert(carried?.generation?.recipeId === undefined, 'a row written before recipes existed must simply have no recipe, not a fabricated one');
+  // The new table arrives empty and usable in the same breath.
+  assert((await db.imageRecipes.count()) === 0, 'the recipes table must arrive empty');
+  await db.imageRecipes.add({
+    version: 1, id: 'recipe-1', projectId: 'legacy-project', createdAt: madeAt, updatedAt: madeAt,
+    prompt: { positive: 'un faro', resolvedPositive: 'un faro rojo' },
+    model: { id: 'sd15-q8' }, loras: [], sampling: { sampler: 'euler_a', steps: 20, cfg: 7 },
+    seed: { seed: 3 }, size: { width: 512, height: 512 }, inputs: {}, passes: [{ kind: 'base' }],
+    backend: { kind: 'sdcpp', connectionId: 'builtin-sd' }, hash: 'f'.repeat(64),
+  });
+  assert((await db.imageRecipes.where('projectId').equals('legacy-project').count()) === 1, 'the recipes table must be queryable by project');
+  await db.imageRecipes.clear();
+  await db.projects.delete('legacy-project');
+  await db.writings.delete('legacy-writing');
+  await db.inspirationImages.delete('legacy-image');
+
   for (const table of [
     'entityLinks', 'citations', 'publishingProfiles', 'conversionReceipts',
     'boards', 'boardNodes', 'boardEdges', 'boardLayers', 'boardViews',
     'canonTiles', 'renderedTiles',
     'aiThreads', 'aiMessages', 'aiProjectSettings',
     'atlasPlaces', 'atlasDivergences',
-    'visualRefs',
+    'visualRefs', 'imageRecipes',
   ]) {
     assert(db.tables.some(row => row.name === table), `missing migrated table ${table}`);
   }
@@ -194,7 +246,7 @@ async function testMigration(): Promise<void> {
   ]) {
     assert(!db.tables.some(row => row.name === retired), `retired table ${retired} still exists`);
   }
-  passed.push('Dexie migration v29');
+  passed.push('Dexie migration v30: rows written at v29 survive the upgrade');
 }
 
 async function seedBackupFixture(projectId: string): Promise<string[]> {
