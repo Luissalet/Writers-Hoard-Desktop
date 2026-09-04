@@ -4264,6 +4264,7 @@ const es = {
   'imageStudio.reason.noSubseed': 'stable-diffusion.cpp no tiene semilla de variación. Aproximarla volviendo a añadir ruido haría otra imagen y la llamaría variación, así que no se ofrece.',
   'imageStudio.reason.noPassthrough': 'La petición va tipada hasta el servidor, así que no hay dónde meter JSON en crudo.',
   'imageStudio.reason.upscaleInHires': 'Esta compilación no tiene un trabajo de escalado aparte. Real-ESRGAN sí se alcanza, pero como escalador de la pasada hires.',
+  'imageStudio.reason.noDetailer': 'Esta compilación no tiene pasada de detalle de caras o manos. El runtime que trae no la implementa, así que no hay nada que activar.',
   'imageStudio.reason.noUpscaler': 'No hay ningún escalador instalado. Añade uno en Ajustes de IA → modelos de imagen locales.',
   'imageStudio.reason.oneHiresPass': 'La petición tiene sitio para una pasada hires, así que la segunda se rechaza en vez de fundirse con la primera.',
   'imageStudio.reason.noMaskEditor': 'La petición sí puede llevar una máscara; el estudio todavía no tiene dónde pintarla.',

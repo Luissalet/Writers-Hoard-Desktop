@@ -227,17 +227,19 @@ export function testStudioRefusalsAreSpecific(): void {
   assert(guided.sampler.enabled, 'the local sampler is live now that the request carries one');
   assert(!remote.sampler.enabled, 'a remote images endpoint was offered a sampler it cannot use');
   assert(remote.sampler.reasonKey === 'visualRef.reason.serverChoosesSampler', 'the remote refusal named the wrong cause');
-  assert(!guided.clipSkip.enabled && guided.clipSkip.reasonKey === 'imageStudio.reason.noRequestField',
-    'CLIP-skip must say the request has no field for it, not that the model cannot do it');
+  // CLIP-skip's field landed, so "the request has no field" would now be a lie.
+  // The only honest refusal left for it is a model with no CLIP stack, and a
+  // guided SDXL is not that — it must simply be offered.
+  assert(guided.clipSkip.enabled, 'CLIP-skip is on the request now and was still refused');
   assert(guided.variationSeed.reasonKey === 'imageStudio.reason.noSubseed',
     'the variation seed must say sd.cpp has none, not that it is coming');
   assert(guided.rawJson.reasonKey === 'imageStudio.reason.noPassthrough', 'raw JSON named the wrong cause');
 
   const reasons = new Set([
-    distilled.cfg.reasonKey, remote.sampler.reasonKey, guided.clipSkip.reasonKey,
+    distilled.cfg.reasonKey, remote.sampler.reasonKey,
     guided.variationSeed.reasonKey, guided.rawJson.reasonKey,
   ]);
-  assert(reasons.size === 5, 'two refusals share a reason, so one of them is saying something untrue');
+  assert(reasons.size === 4, 'two refusals share a reason, so one of them is saying something untrue');
 }
 
 export async function testStudioPanelShowsTheReason(): Promise<void> {
@@ -247,7 +249,7 @@ export async function testStudioPanelShowsTheReason(): Promise<void> {
     // The refusal is IN THE TEXT. A `title` satisfies a unit test and fails a
     // reader who never hovers, and fails every touch screen outright.
     assert(text.includes(translate('visualRef.reason.cfgFixed')), 'the fixed-guidance reason was not on the page');
-    assert(text.includes(translate('imageStudio.reason.noRequestField')), 'the "no field yet" reason was not on the page');
+    assert(text.includes(translate('imageStudio.reason.noDetailer')), 'the missing detailer reason was not on the page');
     assert(text.includes(translate('imageStudio.reason.noSubseed')), 'the missing variation seed was not explained');
 
     // Present AND disabled — not removed. A vanished slider teaches "this app
@@ -412,7 +414,7 @@ export function testStudioPassChain(): void {
   // capability went, not with a shrug.
   assert(passAvailability('upscale', LOCAL_SUPPORT).reasonKey === 'imageStudio.reason.upscaleInHires',
     'the upscale pass must say that ESRGAN lives in the hires pass here');
-  assert(passAvailability('detail', LOCAL_SUPPORT).reasonKey === 'imageStudio.reason.noRequestField',
+  assert(passAvailability('detail', LOCAL_SUPPORT).reasonKey === 'imageStudio.reason.noDetailer',
     'the detailer must say the request has no field for it yet');
   assert(passAvailability('hires', { ...LOCAL_SUPPORT, upscalers: [] }).reasonKey === 'imageStudio.reason.noUpscaler',
     'a hires pass with no upscaler installed must say so');

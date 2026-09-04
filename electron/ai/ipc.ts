@@ -227,7 +227,13 @@ export function registerAiIpc({ assertIpcSender, window }: AiIpcDeps): void {
     if (!isRecord(input) || typeof input.name !== 'string' || typeof input.baseUrl !== 'string') {
       return { ok: false, code: 'bad-url', error: 'Invalid connection.' };
     }
-    const kind = input.kind === 'ollama' ? 'ollama' : 'openai-compatible';
+    // Every kind a user can create has to survive this line. It used to
+    // collapse anything unrecognised to openai-compatible, which silently
+    // turned a ComfyUI connection into one that talks the wrong protocol to
+    // the right port and fails with a confusing error.
+    const kind = input.kind === 'ollama' ? 'ollama'
+      : input.kind === 'comfyui' ? 'comfyui'
+      : 'openai-compatible';
     const result = await saveConnection({
       id: typeof input.id === 'string' ? input.id : undefined,
       name: input.name,

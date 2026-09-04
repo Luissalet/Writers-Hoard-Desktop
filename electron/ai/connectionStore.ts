@@ -38,7 +38,11 @@ export function isBuiltinConnectionId(id: string): boolean {
 interface StoredConnection {
   id: string;
   name: string;
-  kind: 'openai-compatible' | 'ollama';
+  // The kinds a person can create and that therefore get written to disk.
+  // `sdcpp` is deliberately not here: that connection is synthesised for the
+  // managed runtime and never persisted, so a stored row can never point at a
+  // server the app is supposed to be supervising itself.
+  kind: 'openai-compatible' | 'ollama' | 'comfyui';
   baseUrl: string;
   enabled: boolean;
   modelTypes: AiModelType[];
