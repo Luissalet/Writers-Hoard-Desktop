@@ -320,7 +320,13 @@ export function parseA1111Parameters(text: string): {
     promptLines.push(lines[i]);
   }
   if (settingsLine >= 0) {
-    for (const pair of lines[settingsLine].split(',')) {
+    // stable-diffusion.cpp appends `, SDCPP: {…}` to this line, and that JSON
+    // is full of commas. Splitting through it would fill `fields` with
+    // fragments like `{"schema"` and could shadow a real key; the structured
+    // record is read separately by `readSdcppRecord`.
+    const sdcpp = lines[settingsLine].lastIndexOf(', SDCPP: ');
+    const settings = sdcpp >= 0 ? lines[settingsLine].slice(0, sdcpp) : lines[settingsLine];
+    for (const pair of settings.split(',')) {
       const colon = pair.indexOf(':');
       if (colon < 1) continue;
       const key = pair.slice(0, colon).trim();
