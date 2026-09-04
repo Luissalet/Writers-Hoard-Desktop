@@ -24,6 +24,7 @@ interface WidenedGenerationInfo {
   scheduler?: string;
   loras?: { name: string; weight: number }[];
   visualRefIds?: string[];
+  composer?: { subjects: string; scene: string; style: string };
 }
 
 /** Common aspect presets, all multiples of 64 as diffusion models prefer. */
@@ -108,6 +109,8 @@ export interface GenerateAndSaveOptions {
   controlNets?: { image: string; weight: number }[];
   /** The visual references this generation was resolved from, for the recipe. */
   visualRefIds?: string[];
+  /** The composer's slots as typed, so «iterate on this» can put them back. */
+  composer?: { subjects: string; scene: string; style: string };
   collectionId?: string;
   tags?: string[];
 }
@@ -203,6 +206,7 @@ export async function saveGenerated(
       scheduler: options.scheduler,
       loras: options.loras?.length ? options.loras.map((lora) => ({ name: lora.name, weight: lora.weight })) : undefined,
       visualRefIds: options.visualRefIds?.length ? options.visualRefIds : undefined,
+      composer: options.composer,
     };
     const row: InspirationImage = {
       id: generateId('img'),

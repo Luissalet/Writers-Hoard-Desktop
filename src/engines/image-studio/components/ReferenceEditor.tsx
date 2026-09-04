@@ -22,6 +22,7 @@ import {
   useAppearanceWritings,
   type PlaceAppearance,
 } from '@/engines/real-atlas/appearances';
+import { useDebouncedField } from '@/engines/_shared';
 import { makeThumbnail } from '../operations';
 import {
   addControlImage,
@@ -51,6 +52,12 @@ export default function ReferenceEditor({
   projectId, visual, entries, onChange, onReload, onExportDataset,
 }: ReferenceEditorProps) {
   const { t } = useTranslation();
+  // Debounced, not written per keystroke: a Dexie write plus a full reload on
+  // every letter reinstates the older string mid-word and moves the caret.
+  const name = useDebouncedField(visual.name, (next) => onChange({ name: next }));
+  const fragment = useDebouncedField(visual.promptFragment ?? '', (next) => onChange({ promptFragment: next }));
+  const negative = useDebouncedField(visual.negativeFragment ?? '', (next) => onChange({ negativeFragment: next }));
+  const trigger = useDebouncedField(visual.triggerWord ?? '', (next) => onChange({ triggerWord: next }));
   const [images, setImages] = useState<InspirationImage[]>([]);
   const [picking, setPicking] = useState(false);
   const [galleryRows, setGalleryRows] = useState<InspirationImage[]>([]);
@@ -112,8 +119,9 @@ export default function ReferenceEditor({
         <label className="block">
           <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.name')}</span>
           <input
-            value={visual.name}
-            onChange={(event) => onChange({ name: event.target.value })}
+            value={name.value}
+            onChange={(event) => name.onChange(event.target.value)}
+            onBlur={name.onBlur}
             className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
           />
         </label>
@@ -164,16 +172,17 @@ export default function ReferenceEditor({
       <label className="block">
         <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.fragment')}</span>
         <textarea
-          value={visual.promptFragment ?? ''}
-          onChange={(event) => onChange({ promptFragment: event.target.value })}
+          value={fragment.value}
+          onChange={(event) => fragment.onChange(event.target.value)}
+          onBlur={fragment.onBlur}
           rows={3}
           placeholder={t(`visualRef.editor.fragmentPlaceholder.${visual.dialect}`)}
           className="w-full resize-y px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
         />
-        {entry && !visual.promptFragment && (
+        {entry && !fragment.value && (
           <button
             type="button"
-            onClick={() => onChange({ promptFragment: stripHtml(entry.fields.physicalDescription ?? entry.content).slice(0, 400) })}
+            onClick={() => fragment.onChange(stripHtml(entry.fields.physicalDescription ?? entry.content).slice(0, 400))}
             className="mt-1 inline-flex items-center gap-1 text-[10px] text-accent-gold hover:underline"
           >
             <Wand2 size={10} />
@@ -186,16 +195,18 @@ export default function ReferenceEditor({
         <label className="block">
           <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.negative')}</span>
           <input
-            value={visual.negativeFragment ?? ''}
-            onChange={(event) => onChange({ negativeFragment: event.target.value })}
+            value={negative.value}
+            onChange={(event) => negative.onChange(event.target.value)}
+            onBlur={negative.onBlur}
             className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
           />
         </label>
         <label className="block">
           <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.trigger')}</span>
           <input
-            value={visual.triggerWord ?? ''}
-            onChange={(event) => onChange({ triggerWord: event.target.value })}
+            value={trigger.value}
+            onChange={(event) => trigger.onChange(event.target.value)}
+            onBlur={trigger.onBlur}
             placeholder={t('visualRef.editor.triggerPlaceholder')}
             className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] font-mono text-text-primary outline-none focus:border-accent-gold"
           />
