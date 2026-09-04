@@ -12,6 +12,11 @@
 // as shipped; ./imageFit.ts turns it into the perfecto / bien / justo /
 // no cabe badge against the detected GPU. The knobs (`defaults`) are what the
 // server is asked for when the user leaves the studio's fields on automatic.
+//
+// Companions (below) are the second kind of asset: not a model the server is
+// launched to serve, but a file it is pointed at — a ControlNet the context is
+// built with, an ESRGAN the hires pass upscales through. They live in their
+// own folders, they are pinned the same way, and they are useless on their own.
 
 export type ImageModelFamily = 'sd1' | 'sdxl' | 'flux';
 
@@ -43,7 +48,19 @@ export interface ImageCatalogModel {
     cfg: number;
     sampler: string;
     scheduler?: string;
+    /**
+     * `sample_params.guidance.distilled_guidance`. Left unset the family rule
+     * applies (1 for FLUX, 3.5 elsewhere), which is right for the step-distilled
+     * models but wrong for FLUX Kontext dev, which wants about 2.5.
+     */
+    distilledGuidance?: number;
   };
+  /**
+   * The model conditions on `ref_images`. Only the Kontext-style editing models
+   * do; every other model silently ignores the array, so the studio must not
+   * offer reference images for them.
+   */
+  refImages?: boolean;
   /** i18n key suffix for the one-line pitch: `settings.ai.imageCatalog.<key>` */
   pitchKey: string;
   recommended?: boolean;
@@ -132,7 +149,137 @@ export const LOCAL_IMAGE_CATALOG: readonly ImageCatalogModel[] = [
     defaults: { steps: 4, cfg: 1, sampler: 'euler' },
     pitchKey: 'flux-schnell-q4',
   }),
+  model({
+    id: 'flux-kontext-dev-q4',
+    label: 'FLUX.1 Kontext dev (Q4)',
+    family: 'flux',
+    license: 'FLUX.1 [dev] Non-Commercial License',
+    licenseUrl: `${HF}/black-forest-labs/FLUX.1-Kontext-dev/blob/main/LICENSE.md`,
+    files: [
+      file('diffusion', 'QuantStack/FLUX.1-Kontext-dev-GGUF', 'flux1-kontext-dev-Q4_0.gguf', 6_797_337_888, '859f06ce2b492a2a88b675ed55fed97a2d57d43b9d9aeffb5b6d4ce3b155259e'),
+      // The dev autoencoder and text encoders are byte-identical to the schnell
+      // ones already pinned above — same sizes, same digests — so a reader who
+      // has both models downloads these four files once.
+      file('vae', 'second-state/FLUX.1-dev-GGUF', 'ae.safetensors', 335_304_388, 'afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38'),
+      file('clip_l', 'second-state/FLUX.1-dev-GGUF', 'clip_l.safetensors', 246_144_152, '660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd'),
+      file('t5xxl', 'second-state/FLUX.1-dev-GGUF', 't5xxl-Q8_0.gguf', 5_199_794_784, 'fc07757bf7ad40eaf612acc7ed0c0a7ab71189979e0b8b4d14601017baca22de'),
+    ],
+    nativeWidth: 1024,
+    nativeHeight: 1024,
+    vramBytes: 13_200_000_000,
+    // Kontext dev is not step-distilled: it wants real steps and a distilled
+    // guidance around 2.5, while `cfg` stays at 1 as for every FLUX.
+    defaults: { steps: 20, cfg: 1, sampler: 'euler', distilledGuidance: 2.5 },
+    pitchKey: 'flux-kontext-dev-q4',
+    refImages: true,
+  }),
 ];
+
+/**
+ * Where a companion file has to sit for the runtime to find it.
+ *
+ * `controlnet` is passed to the server as `--control-net <file>`: it is a
+ * context option, so the server must be restarted to change it. `upscaler`
+ * files are scanned out of `--hires-upscalers-dir` by stem, and named back in
+ * a request as `hires.upscaler`.
+ */
+export type ImageCompanionKind = 'controlnet' | 'upscaler';
+
+export interface ImageCompanionAsset {
+  id: string;
+  label: string;
+  kind: ImageCompanionKind;
+  /** Base models this file is trained against; empty means "any". */
+  families: readonly ImageModelFamily[];
+  license: string;
+  licenseUrl: string;
+  fileName: string;
+  url: string;
+  sizeBytes: number;
+  sha256: string;
+  /** i18n key suffix: `settings.ai.imageCompanions.<key>` */
+  pitchKey: string;
+}
+
+function companion(entry: Omit<ImageCompanionAsset, 'url'> & { repo: string }): ImageCompanionAsset {
+  const { repo, ...rest } = entry;
+  return { ...rest, url: `${HF}/${repo}/resolve/main/${rest.fileName}` };
+}
+
+/**
+ * ControlNet v1.1 checkpoints and one ESRGAN, all ungated on Hugging Face and
+ * all in formats this pinned build reads: the ControlNet loader strips the
+ * `control_model.` prefix these .pth files carry, and the ESRGAN loader maps
+ * RRDBNet tensor names (`conv_first`, `body.N.rdbK.convM`, `conv_up1/2`)
+ * straight through.
+ *
+ * Only SD1 ControlNets are listed. The SDXL and FLUX ControlNets in the wild
+ * are a zoo of incompatible layouts, and one that loads but conditions wrongly
+ * is worse than one that is absent.
+ */
+export const LOCAL_IMAGE_COMPANIONS: readonly ImageCompanionAsset[] = [
+  companion({
+    id: 'controlnet-sd15-openpose',
+    label: 'ControlNet 1.1 — OpenPose',
+    kind: 'controlnet',
+    families: ['sd1'],
+    license: 'OpenRAIL',
+    licenseUrl: `${HF}/lllyasviel/ControlNet-v1-1`,
+    repo: 'lllyasviel/ControlNet-v1-1',
+    fileName: 'control_v11p_sd15_openpose.pth',
+    sizeBytes: 1_445_235_707,
+    sha256: 'db97becd92cd19aff71352a60e93c2508decba3dee64f01f686727b9b406a9dd',
+    pitchKey: 'controlnet-sd15-openpose',
+  }),
+  companion({
+    id: 'controlnet-sd15-canny',
+    label: 'ControlNet 1.1 — Canny',
+    kind: 'controlnet',
+    families: ['sd1'],
+    license: 'OpenRAIL',
+    licenseUrl: `${HF}/lllyasviel/ControlNet-v1-1`,
+    repo: 'lllyasviel/ControlNet-v1-1',
+    fileName: 'control_v11p_sd15_canny.pth',
+    sizeBytes: 1_445_234_681,
+    sha256: 'f99cfe4c70910e38e3fece9918a4979ed7d3dcf9b81cee293e1755363af5406a',
+    pitchKey: 'controlnet-sd15-canny',
+  }),
+  companion({
+    id: 'controlnet-sd15-depth',
+    label: 'ControlNet 1.1 — Depth',
+    kind: 'controlnet',
+    families: ['sd1'],
+    license: 'OpenRAIL',
+    licenseUrl: `${HF}/lllyasviel/ControlNet-v1-1`,
+    repo: 'lllyasviel/ControlNet-v1-1',
+    fileName: 'control_v11f1p_sd15_depth.pth',
+    sizeBytes: 1_445_235_365,
+    sha256: '761077ffe369fe8cf16ae353f8226bd4ca29805b161052f82c0170c7b50f1d99',
+    pitchKey: 'controlnet-sd15-depth',
+  }),
+  companion({
+    id: 'realesrgan-x4',
+    label: 'Real-ESRGAN ×4',
+    kind: 'upscaler',
+    families: [],
+    license: 'BSD-3-Clause',
+    licenseUrl: `${HF}/ai-forever/Real-ESRGAN`,
+    repo: 'ai-forever/Real-ESRGAN',
+    fileName: 'RealESRGAN_x4.pth',
+    sizeBytes: 67_040_989,
+    sha256: 'aa00f09ad753d88576b21ed977e97d634976377031b178acc3b5b238df463400',
+    pitchKey: 'realesrgan-x4',
+  }),
+];
+
+export function imageCompanionAsset(id: string): ImageCompanionAsset | undefined {
+  return LOCAL_IMAGE_COMPANIONS.find((c) => c.id === id);
+}
+
+/** Companions of one kind, in catalogue order. */
+export function imageCompanionsOfKind(kind: ImageCompanionKind): ImageCompanionAsset[] {
+  return LOCAL_IMAGE_COMPANIONS.filter((c) => c.kind === kind);
+}
 
 export function imageCatalogEntry(id: string): ImageCatalogModel | undefined {
   return LOCAL_IMAGE_CATALOG.find((m) => m.id === id);
