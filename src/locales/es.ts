@@ -4385,6 +4385,8 @@ const es = {
   'imageStudio.scheduler.ltx2': 'La planificación que espera el modelo LTX-2.',
   'visualRef.action.useSeed': 'Usar esta semilla',
   'imageStudio.prompt.wildcardExample': 'Una tirada posible: la semilla se lanza al generar:',
+  'imageStudio.pass.padding': 'Margen alrededor del recorte',
+  'imageStudio.pass.maskBlur': 'Desenfoque de la máscara',
 } as const;
 
 export default es;
