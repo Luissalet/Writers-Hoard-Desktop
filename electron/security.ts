@@ -104,6 +104,9 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'sd:downloadModel': ['main'],
   'sd:cancelDownload': ['main'],
   'sd:deleteModel': ['main'],
+  'sd:downloadCompanion': ['main'],
+  'sd:cancelCompanionDownload': ['main'],
+  'sd:deleteCompanion': ['main'],
   'sd:stop': ['main'],
   'forge:spawn': ['main'],
   // The shared preload requests this synchronously while both trusted windows
