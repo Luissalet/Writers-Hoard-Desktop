@@ -17,7 +17,15 @@ import { app, net } from 'electron';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { imageCatalogEntry, LOCAL_IMAGE_CATALOG, type ImageCatalogModel, type ImageFileRole } from '@/services/aiRuntime/imageCatalog';
+import {
+  imageCatalogEntry,
+  imageCompanionAsset,
+  LOCAL_IMAGE_CATALOG,
+  LOCAL_IMAGE_COMPANIONS,
+  type ImageCatalogModel,
+  type ImageCompanionKind,
+  type ImageFileRole,
+} from '@/services/aiRuntime/imageCatalog';
 import {
   buildSdServerArgs,
   computeImageFit,
@@ -26,6 +34,7 @@ import {
   SD_SERVER_PORT,
   SD_SERVER_URL,
   type SdBackend,
+  type SdCompanionFile,
   type SdInstalledModel,
   type SdLoraFile,
   type SdOpResult,
@@ -47,7 +56,7 @@ import {
 
 // ── Types live in src/services/aiRuntime/sdServer.ts (shared with the renderer)
 
-export type { SdInstalledModel, SdLoraFile, SdOpResult, SdProgress, SdRuntimeState, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
+export type { SdCompanionFile, SdInstalledModel, SdLoraFile, SdOpResult, SdProgress, SdRuntimeState, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
 
 // ── Paths ───────────────────────────────────────────────────────────────────
 
@@ -59,11 +68,19 @@ const stagingDir = (): string => path.join(aiDir(), 'sd-staging');
 const modelsRoot = (): string => path.join(aiDir(), 'image-models');
 /**
  * Where LoRAs live. stable-diffusion.cpp has no way to load one by path at
- * request time: it resolves `<lora:NAME:WEIGHT>` from the prompt against the
- * single folder the server was launched with, so the app owns one folder and
- * the reader drops files into it. Never downloaded, never backed up.
+ * request time: it resolves `lora[].path` against its own listing of the single
+ * folder the server was launched with, so the app owns one folder and the
+ * reader drops files into it. Never backed up — re-downloadable by design.
  */
 const lorasDir = (): string => path.join(aiDir(), 'loras');
+/**
+ * ControlNets and hires upscalers. Both are launch arguments rather than
+ * request fields, which is why they get folders of their own rather than
+ * riding along with the model they are used with.
+ */
+const controlNetsDir = (): string => path.join(aiDir(), 'controlnets');
+const upscalersDir = (): string => path.join(aiDir(), 'upscalers');
+const companionDir = (kind: ImageCompanionKind): string => (kind === 'controlnet' ? controlNetsDir() : upscalersDir());
 const modelDir = (id: string): string => path.join(modelsRoot(), id);
 const modelReceiptPath = (id: string): string => path.join(modelDir(id), 'writers-hoard-model.json');
 
@@ -84,6 +101,12 @@ let installAbort: AbortController | null = null;
 let modelAbort: { id: string; controller: AbortController } | null = null;
 let cachedModels: SdInstalledModel[] = [];
 let cachedLoras: SdLoraFile[] = [];
+let cachedCompanions: SdCompanionFile[] = [];
+/** File name of the ControlNet the live server was built with, or null. */
+let serverControlNet: string | null = null;
+/** Which ControlNet the next launch should use; null means none. */
+let wantedControlNet: string | null = null;
+let companionAbort: { id: string; controller: AbortController } | null = null;
 /** Whether the live server was launched with `--lora-model-dir`. */
 let serverHasLoraDir = false;
 /**
@@ -104,6 +127,8 @@ export function initSdRuntime(sink: (channel: string, payload: unknown) => void)
   // be there to be opened — an instruction pointing at a path that does not
   // exist is not an instruction.
   void fs.mkdir(lorasDir(), { recursive: true }).catch(() => undefined);
+  void fs.mkdir(controlNetsDir(), { recursive: true }).catch(() => undefined);
+  void fs.mkdir(upscalersDir(), { recursive: true }).catch(() => undefined);
 }
 
 function pushLog(line: string): void {
@@ -140,6 +165,11 @@ function snapshot(): SdRuntimeStatus {
     lorasDir: lorasDir(),
     lorasSupported: !loraLaunchRefused,
     vram: cachedVramReport(),
+    companions: cachedCompanions,
+    controlNetsDir: controlNetsDir(),
+    upscalersDir: upscalersDir(),
+    loadedControlNet: serverReady ? serverControlNet : null,
+    downloadingCompanion: companionAbort?.id ?? null,
   };
 }
 
@@ -445,6 +475,128 @@ async function refreshLoras(): Promise<void> {
   cachedLoras = out;
 }
 
+/** Extensions the runtime's model loader reads for a ControlNet or an upscaler. */
+const COMPANION_EXTENSIONS = ['.safetensors', '.gguf', '.pth', '.pt'] as const;
+
+/**
+ * ControlNets and upscalers on disk. Read on every status pass for the same
+ * reason the LoRA folder is: a reader who drops a file in with the app open
+ * expects to see it without restarting anything.
+ */
+async function refreshCompanions(): Promise<void> {
+  const out: SdCompanionFile[] = [];
+  for (const kind of ['controlnet', 'upscaler'] as const) {
+    const dir = companionDir(kind);
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const extension = COMPANION_EXTENSIONS.find((ext) => entry.name.toLowerCase().endsWith(ext));
+      if (!extension) continue;
+      const stat = await fs.stat(path.join(dir, entry.name)).catch(() => null);
+      if (!stat) continue;
+      const catalogued = LOCAL_IMAGE_COMPANIONS.find((c) => c.kind === kind && c.fileName === entry.name);
+      out.push({
+        kind,
+        catalogId: catalogued?.id ?? null,
+        name: entry.name.slice(0, entry.name.length - extension.length),
+        fileName: entry.name,
+        sizeBytes: stat.size,
+      });
+    }
+  }
+  out.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+  cachedCompanions = out;
+}
+
+/** Only pass `--hires-upscalers-dir` when a model is actually in it. */
+function installedUpscalers(): SdCompanionFile[] {
+  return cachedCompanions.filter((c) => c.kind === 'upscaler');
+}
+
+function controlNetFile(fileName: string | null): SdCompanionFile | null {
+  if (!fileName) return null;
+  return cachedCompanions.find((c) => c.kind === 'controlnet' && c.fileName === fileName) ?? null;
+}
+
+/**
+ * Download a ControlNet or an upscaler into its folder, pinned exactly as a
+ * model is: right size, right digest, or it does not land.
+ */
+export async function downloadSdCompanion(id: string): Promise<SdOpResult> {
+  const asset = imageCompanionAsset(id);
+  if (!asset) return { ok: false, error: 'unknown-companion' };
+  if (companionAbort) return { ok: false, error: 'busy' };
+  const controller = new AbortController();
+  companionAbort = { id, controller };
+  emit('sd:status', snapshot());
+  const dir = companionDir(asset.kind);
+  const target = path.join(dir, asset.fileName);
+  try {
+    try {
+      await assertDiskSpace(app.getPath('userData'), asset.sizeBytes * 1.1);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'no-space:8' };
+    }
+    await fs.mkdir(dir, { recursive: true });
+    if (!(await verifyFile(target, asset.sizeBytes, asset.sha256))) {
+      progress({ kind: 'model', id, phase: 'downloading', receivedBytes: 0, totalBytes: asset.sizeBytes, fileIndex: 0, fileCount: 1 });
+      await downloadVerified(
+        { url: asset.url, target, sizeBytes: asset.sizeBytes, sha256: asset.sha256 },
+        {
+          signal: controller.signal,
+          onProgress: (p) => progress({ kind: 'model', id, phase: 'downloading', receivedBytes: p.receivedBytes, totalBytes: asset.sizeBytes, fileIndex: 0, fileCount: 1 }),
+        },
+      );
+    }
+    await refreshCompanions();
+    return { ok: true };
+  } catch (err) {
+    if (controller.signal.aborted || (err instanceof DownloadError && err.code === 'cancelled')) {
+      return { ok: false, error: 'cancelled' };
+    }
+    return { ok: false, error: err instanceof Error ? err.message : 'download failed' };
+  } finally {
+    companionAbort = null;
+    emit('sd:status', snapshot());
+  }
+}
+
+export function cancelSdCompanionDownload(id: string): void {
+  if (companionAbort?.id === id) companionAbort.controller.abort();
+}
+
+export async function deleteSdCompanion(id: string): Promise<SdOpResult> {
+  const asset = imageCompanionAsset(id);
+  if (!asset) return { ok: false, error: 'unknown-companion' };
+  if (companionAbort?.id === id) return { ok: false, error: 'busy' };
+  // The live server holds an open handle on the ControlNet it was built with;
+  // stop it first or the delete fails on Windows and half-succeeds elsewhere.
+  if (serverControlNet === asset.fileName) await stopSdServer();
+  await fs.rm(path.join(companionDir(asset.kind), asset.fileName), { force: true }).catch(() => undefined);
+  await refreshCompanions();
+  emit('sd:status', snapshot());
+  return { ok: true };
+}
+
+/** ControlNets and upscalers on disk, as the studio lists them. */
+export function installedSdCompanions(): SdCompanionFile[] {
+  return cachedCompanions;
+}
+
+/**
+ * The LoRA file name behind a display name. The server resolves `lora[].path`
+ * against its own listing of the folder, and that listing keeps the extension —
+ * so a request built from the name alone would be refused outright.
+ */
+export function sdLoraFileName(name: string): string | null {
+  return cachedLoras.find((lora) => lora.name === name)?.fileName ?? null;
+}
+
 export async function downloadSdModel(id: string): Promise<SdOpResult> {
   const entry = imageCatalogEntry(id);
   if (!entry) return { ok: false, error: 'unknown-model' };
@@ -697,12 +849,19 @@ async function spawnServer(entry: ImageCatalogModel, allowLoras = true): Promise
   // meet that. Empty folder → byte-identical command line to before.
   const withLoras = allowLoras && wantsLoraDir();
   if (withLoras) await fs.mkdir(lorasDir(), { recursive: true }).catch(() => undefined);
+  // ControlNet is a CONTEXT option: the model is baked into the process at
+  // startup and no request can change it. Which one this server is holding is
+  // therefore part of its identity — see ensureSdServer.
+  const controlNet = controlNetFile(wantedControlNet);
+  const withUpscalers = installedUpscalers().length > 0;
   const args = buildSdServerArgs(entry, {
     paths,
     port: SD_SERVER_PORT,
     offloadToCpu: fit.placement === 'split',
     flashAttention: backend === 'cuda12',
     loraDir: withLoras ? lorasDir() : undefined,
+    controlNetPath: controlNet ? path.join(controlNetsDir(), controlNet.fileName) : undefined,
+    hiresUpscalersDir: withUpscalers ? upscalersDir() : undefined,
   });
   setState('starting');
   progress({ kind: 'model', id: entry.id, phase: 'starting', receivedBytes: 0, totalBytes: 0, fileIndex: 0, fileCount: 0 });
@@ -715,6 +874,7 @@ async function spawnServer(entry: ImageCatalogModel, allowLoras = true): Promise
   serverReady = false;
   loadedModelId = entry.id;
   serverHasLoraDir = withLoras;
+  serverControlNet = controlNet?.fileName ?? null;
   // A failure to spawn at all (missing/non-executable binary) fires 'error' but
   // never 'exit', so without this the startup loop would poll for four minutes.
   let spawnFailed: string | null = null;
@@ -727,6 +887,7 @@ async function spawnServer(entry: ImageCatalogModel, allowLoras = true): Promise
       serverChild = null;
       serverReady = false;
       loadedModelId = null;
+      serverControlNet = null;
     }
   });
   child.on('exit', (code) => {
@@ -735,6 +896,7 @@ async function spawnServer(entry: ImageCatalogModel, allowLoras = true): Promise
       serverChild = null;
       serverReady = false;
       loadedModelId = null;
+      serverControlNet = null;
     }
     if (wasLive) setState('error', `sd-server exited (code ${code ?? '?'})\n${logTail(6)}`);
   });
@@ -772,7 +934,17 @@ export function touchSdServer(): void {
 }
 
 /** Make sure the server is up with `modelId` loaded; swaps models when needed. */
-export function ensureSdServer(modelId: string): Promise<SdOpResult> {
+export interface EnsureSdServerOptions {
+  /**
+   * Catalogue id or file name of the ControlNet this job needs. Passing a
+   * different one than the running server holds restarts it, because the model
+   * is a context option; passing nothing leaves whichever one is loaded alone
+   * so a plain job never pays for a restart.
+   */
+  controlNet?: string | null;
+}
+
+export function ensureSdServer(modelId: string, options: EnsureSdServerOptions = {}): Promise<SdOpResult> {
   const run = ensureChain.then(async (): Promise<SdOpResult> => {
     const entry = imageCatalogEntry(modelId);
     if (!entry) return { ok: false, error: 'unknown-model' };
@@ -789,7 +961,24 @@ export function ensureSdServer(modelId: string): Promise<SdOpResult> {
     // the first generation after a folder goes from empty to non-empty (or back)
     // restarts the server instead of silently ignoring the LoRA.
     await refreshLoras();
-    if (serverChild && serverReady && loadedModelId === modelId && serverHasLoraDir === wantsLoraDir() && (await probeServer())) {
+    await refreshCompanions();
+    if (options.controlNet !== undefined) {
+      const asset = options.controlNet ? imageCompanionAsset(options.controlNet) : null;
+      const fileName = asset?.fileName ?? options.controlNet ?? null;
+      if (options.controlNet && !controlNetFile(fileName)) return { ok: false, error: 'controlnet-missing' };
+      wantedControlNet = fileName;
+    } else if (wantedControlNet && !controlNetFile(wantedControlNet)) {
+      // The file was deleted under a running server; do not keep asking for it.
+      wantedControlNet = null;
+    }
+    if (
+      serverChild &&
+      serverReady &&
+      loadedModelId === modelId &&
+      serverHasLoraDir === wantsLoraDir() &&
+      serverControlNet === (controlNetFile(wantedControlNet)?.fileName ?? null) &&
+      (await probeServer())
+    ) {
       return { ok: true };
     }
     await stopSdServer();
@@ -836,6 +1025,7 @@ export async function stopSdServer(): Promise<void> {
   serverReady = false;
   loadedModelId = null;
   serverHasLoraDir = false;
+  serverControlNet = null;
   if (child?.pid != null) {
     killSdProcess(child.pid);
     await new Promise((r) => setTimeout(r, 300));
@@ -877,6 +1067,7 @@ export async function getSdRuntimeStatus(): Promise<SdRuntimeStatus> {
   await refreshInstalled();
   await refreshModels();
   await refreshLoras();
+  await refreshCompanions();
   await findOrphanServer();
   if (serverChild && serverReady) {
     if (!(await probeServer())) {
