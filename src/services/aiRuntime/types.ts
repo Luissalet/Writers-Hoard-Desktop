@@ -7,6 +7,10 @@
 // by the tests. Nothing in this folder may touch `window`, `db` or `electron`;
 // that is what lets one type describe a request on both sides of the IPC.
 
+// Type-only, and therefore erased: `recipe.ts` imports `AiImageRequest` from
+// here, so a value import either way would be a real cycle.
+import type { Recipe } from './recipe';
+
 /**
  * Wire protocol a connection speaks. `sdcpp` is the managed local image
  * server (stable-diffusion.cpp) — never user-created, always the builtin.
@@ -395,6 +399,15 @@ export interface AiGeneratedImage {
    * the server clamped or substituted something.
    */
   parameters?: string;
+  /**
+   * The recipe for this exact image, already written into its PNG.
+   *
+   * Per image rather than per result because a batch is seeded seed, seed+1, …
+   * and a recipe that named the wrong seed would reproduce a different picture
+   * than the one it is attached to. `base64` already carries the same record in
+   * a `writershoard` chunk, so a file exported from the Gallery keeps it.
+   */
+  recipe?: Recipe;
 }
 
 export interface AiImageResult {
