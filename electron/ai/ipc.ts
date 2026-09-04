@@ -33,9 +33,12 @@ import {
   setSecret,
 } from './connectionStore';
 import {
+  cancelSdCompanionDownload,
   cancelSdModelDownload,
   cancelSdRuntimeInstall,
+  deleteSdCompanion,
   deleteSdModel,
+  downloadSdCompanion,
   downloadSdModel,
   getSdRuntimeStatus,
   initSdRuntime,
@@ -382,6 +385,29 @@ export function registerAiIpc({ assertIpcSender, window }: AiIpcDeps): void {
     assertIpcSender(event, 'sd:deleteModel');
     if (typeof id !== 'string' || !SD_ID_RE.test(id)) return { ok: false, error: 'unknown-model' };
     const result = await deleteSdModel(id);
+    invalidateModels(BUILTIN_SD_ID);
+    return result;
+  });
+  // Companions — a ControlNet or an ESRGAN. They are pinned, downloaded and
+  // deleted exactly as a model is, and share its id shape, because they are
+  // the same kind of asset: a file the app fetches by digest into a folder it
+  // owns. The only difference is that a request never names one — the server
+  // is LAUNCHED with it — which is why installing one can cost a restart.
+  ipcMain.handle('sd:downloadCompanion', async (event, id: unknown) => {
+    assertIpcSender(event, 'sd:downloadCompanion');
+    if (typeof id !== 'string' || !SD_ID_RE.test(id)) return { ok: false, error: 'unknown-companion' };
+    const result = await downloadSdCompanion(id);
+    invalidateModels(BUILTIN_SD_ID);
+    return result;
+  });
+  ipcMain.handle('sd:cancelCompanionDownload', (event, id: unknown) => {
+    assertIpcSender(event, 'sd:cancelCompanionDownload');
+    if (typeof id === 'string') cancelSdCompanionDownload(id);
+  });
+  ipcMain.handle('sd:deleteCompanion', async (event, id: unknown) => {
+    assertIpcSender(event, 'sd:deleteCompanion');
+    if (typeof id !== 'string' || !SD_ID_RE.test(id)) return { ok: false, error: 'unknown-companion' };
+    const result = await deleteSdCompanion(id);
     invalidateModels(BUILTIN_SD_ID);
     return result;
   });

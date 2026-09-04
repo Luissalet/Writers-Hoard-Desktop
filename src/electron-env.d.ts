@@ -448,6 +448,14 @@ export interface ElectronAPI {
     downloadModel: (id: string) => Promise<SdOpResult>;
     cancelDownload: (id: string) => Promise<void>;
     deleteModel: (id: string) => Promise<SdOpResult>;
+    /**
+     * ControlNets and upscalers. Pinned and fetched exactly as a model is; the
+     * difference is that installing one can change the server's launch profile
+     * and so cost a restart — see `SdRuntimeStatus.profile`.
+     */
+    downloadCompanion: (id: string) => Promise<SdOpResult>;
+    cancelCompanionDownload: (id: string) => Promise<void>;
+    deleteCompanion: (id: string) => Promise<SdOpResult>;
     stop: () => Promise<SdRuntimeStatus>;
     onStatus: (callback: (status: SdRuntimeStatus) => void) => () => void;
     onProgress: (callback: (progress: SdProgress) => void) => () => void;

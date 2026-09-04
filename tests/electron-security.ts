@@ -146,7 +146,10 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
   assert(isCurrentSdRuntimeReceipt({ version: vulkan.version, backend: 'vulkan', sha256s: vulkan.assets.map((a) => a.sha256) }, vulkan), 'current sd receipt rejected');
   assert(!isCurrentSdRuntimeReceipt({ version: vulkan.version, backend: 'cuda12', sha256s: vulkan.assets.map((a) => a.sha256) }, vulkan), 'sd receipt for another backend accepted');
   assert(!isCurrentSdRuntimeReceipt({ version: 'old', backend: 'vulkan', sha256s: ['0'.repeat(64)] }, vulkan), 'stale sd receipt accepted');
-  for (const channel of ['sd:status', 'sd:installRuntime', 'sd:downloadModel', 'sd:deleteModel', 'sd:stop']) {
+  for (const channel of [
+    'sd:status', 'sd:installRuntime', 'sd:downloadModel', 'sd:deleteModel', 'sd:stop',
+    'sd:downloadCompanion', 'sd:cancelCompanionDownload', 'sd:deleteCompanion',
+  ]) {
     assert(isIpcChannelAllowedForRole(channel, 'main'), `${channel} has no trusted renderer`);
     assert(!isIpcChannelAllowedForRole(channel, 'quick-note'), `quick-note can drive the image runtime through ${channel}`);
   }
