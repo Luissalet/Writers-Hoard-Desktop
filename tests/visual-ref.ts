@@ -446,7 +446,10 @@ export async function testVisualRefMigrationKeepsRows(): Promise<void> {
   legacy.close();
 
   await db.open();
-  assert(db.verno === 29, `the upgrade landed on v${db.verno}, not 29`);
+  // The current schema, whatever it has reached: the point of this test is
+  // that a v28 database still arrives with its rows, however many additive
+  // versions have been laid on top since.
+  assert(db.verno === 30, `the upgrade landed on v${db.verno}, not 30`);
   // The whole point: an additive version that loses a row is unforgivable in a
   // writing app, and nothing in v29 reads or rewrites an existing table.
   assert((await db.projects.get(PROJECT))?.title === 'Old book', 'the v29 upgrade lost a project');

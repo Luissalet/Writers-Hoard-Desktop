@@ -23,13 +23,28 @@ import {
   buildSdServerArgs,
   clampControlStrength,
   computeImageFit,
+  formatExtraSampleArgs,
+  isSdCacheMode,
   isSdSampler,
   isSdScheduler,
   SD_BUILTIN_HIRES_UPSCALERS,
   SD_CONTROL_STRENGTH_DEFAULT,
+  SD_MAX_STEPS,
   SD_SERVER_PORT,
   snap,
 } from '@/services/aiRuntime/sdServer';
+import {
+  canonicalJson,
+  checkRecipeReplay,
+  diffRecipes,
+  recipeEnvelope,
+  recipeHash,
+  RECIPE_ENVELOPE_KIND,
+  recipeToRequest,
+  recoverRecipe,
+  requestToRecipe,
+  sha256Hex,
+} from '@/services/aiRuntime/recipe';
 import {
   PARAMETERS_KEYWORD,
   parseA1111Parameters,
@@ -253,7 +268,9 @@ function testLocalImageRuntime(): void {
   assert(payload.width === 512 && payload.height === 704 && payload.seed === -1 && payload.batch_count === 2, 'payload geometry');
   assert(payload.sample_params.sample_steps === 20 && payload.sample_params.sample_method === 'euler_a' && payload.sample_params.guidance.txt_cfg === 7, 'payload defaults');
   const custom = buildSdJobPayload({ connectionId: 'builtin-sd', modelId: 'sd15-q8', prompt: 'x', width: 512, height: 512, n: 9, seed: 42, steps: 500, guidance: 3 }, sd15) as typeof payload;
-  assert(custom.seed === 42 && custom.batch_count === 4 && custom.sample_params.sample_steps === 150 && custom.sample_params.guidance.txt_cfg === 3, 'payload clamps');
+  // 100, not 150: routes_sdcpp.cpp resolves with strict = true, which clamps
+  // sample_steps to 1..100. Sending 150 got a 100-step picture labelled 150.
+  assert(custom.seed === 42 && custom.batch_count === 4 && custom.sample_params.sample_steps === 100 && custom.sample_params.guidance.txt_cfg === 3, 'payload clamps');
   assert(snap(100) === 256 && snap(3000) === 2048 && snap(1000) === 1024, 'snap');
   // img2img: init_image + strength ride at the top level (sd-server schema); a
   // plain txt2img call carries neither, and strength clamps into [0,1].
@@ -714,16 +731,295 @@ function testPromptAndHistory(): void {
   assert(dangling.length === 1 && dangling[0].role === 'user', 'a trailing unanswered tool request was replayed');
 }
 
+/**
+ * The widened request surface. Every key asserted here was read out of
+ * `SDGenerationParams::from_json_str` (examples/common/common.cpp) at the
+ * pinned commit and cross-checked against `make_img_gen_defaults_json`
+ * (examples/server/routes_sdcpp.cpp), which is the server's own statement of
+ * the same schema. A key the server does not read costs nothing at request
+ * time and everything afterwards: the job succeeds, so the studio reports a
+ * setting that never reached the model.
+ */
+function testSdParameterSurface(): void {
+  const sd15 = imageCatalogEntry('sd15-q8');
+  assert(sd15, 'the SD1.5 catalogue entry went missing');
+  const base = { connectionId: 'c', modelId: 'sd15-q8', prompt: 'a lighthouse', width: 512, height: 512, n: 1 };
+
+  // THE compatibility guarantee: a request naming none of the new fields
+  // produces the whole payload it produced before they existed, byte for byte.
+  // Pinned as literal JSON rather than as a spot check, because the failure
+  // this guards against is a key quietly appearing for every reader who never
+  // asked for one.
+  assert(
+    JSON.stringify(buildSdJobPayload(base, sd15)) ===
+      '{"prompt":"a lighthouse","negative_prompt":"","width":512,"height":512,"seed":-1,"batch_count":1,' +
+      '"sample_params":{"sample_method":"euler_a","sample_steps":20,"guidance":{"txt_cfg":7,"distilled_guidance":3.5}},' +
+      '"output_format":"png","embed_image_metadata":true}',
+    'a request with none of the new fields must produce the payload it always did',
+  );
+  const loaded = {
+    ...base, seed: 7, steps: 30, guidance: 6, negativePrompt: 'blur', n: 2, sampler: 'heun', scheduler: 'karras',
+    initImage: 'data:1', strength: 0.4, maskImage: 'data:2', controlImage: 'data:3', controlStrength: 0.6,
+    loras: [{ name: 'x', weight: 0.5, fileName: 'x.safetensors' }],
+    hiresFix: { upscaler: 'Latent', scale: 2, steps: 10, denoisingStrength: 0.5, tileSize: 128 },
+  };
+  assert(
+    JSON.stringify(buildSdJobPayload(loaded, sd15)) ===
+      '{"prompt":"a lighthouse","negative_prompt":"blur","width":512,"height":512,"seed":7,"batch_count":2,' +
+      '"sample_params":{"sample_method":"heun","sample_steps":30,"guidance":{"txt_cfg":6,"distilled_guidance":3.5},"scheduler":"karras"},' +
+      '"output_format":"png","embed_image_metadata":true,"lora":[{"path":"x.safetensors","multiplier":0.5}],' +
+      '"init_image":"data:1","strength":0.4,"mask_image":"data:2","control_image":"data:3","control_strength":0.6,' +
+      '"hires":{"enabled":true,"upscaler":"Latent","scale":2,"steps":10,"denoising_strength":0.5,"upscale_tile_size":128}}',
+    'a request using only the fields that already worked must be unchanged too',
+  );
+
+  // Absent unless asked for. This is the other half of the guarantee: the keys
+  // exist, and they stay off the wire until somebody sets one.
+  const bare = buildSdJobPayload(base, sd15) as Record<string, unknown>;
+  for (const key of ['clip_skip', 'cache_mode', 'cache_option', 'vae_tiling_params']) {
+    assert(!(key in bare), `${key} must be absent when nothing asked for it`);
+  }
+  const bareSample = bare.sample_params as Record<string, unknown>;
+  for (const key of ['eta', 'flow_shift', 'shifted_timestep', 'custom_sigmas', 'extra_sample_args']) {
+    assert(!(key in bareSample), `sample_params.${key} must be absent when nothing asked for it`);
+  }
+  assert(!('img_cfg' in (bareSample.guidance as Record<string, unknown>)), 'img_cfg must be absent when nothing asked for it');
+  assert(!('slg' in (bareSample.guidance as Record<string, unknown>)), 'slg must be absent when nothing asked for it');
+
+  // clip_skip: the runtime spells "unspecified" as <= 0, so 0 must not be sent
+  // as though it were a choice.
+  assert((buildSdJobPayload({ ...base, clipSkip: 2 }, sd15) as Record<string, unknown>).clip_skip === 2, 'clip_skip not sent');
+  assert(!('clip_skip' in (buildSdJobPayload({ ...base, clipSkip: 0 }, sd15) as Record<string, unknown>)), 'clip_skip 0 means unspecified and must not be sent');
+
+  // eta / flow_shift / shifted_timestep are INSIDE sample_params. At the top
+  // level the parser never looks for them.
+  const inner = buildSdJobPayload({ ...base, eta: 0.7, flowShift: 3, shiftedTimestep: 250 }, sd15) as Record<string, unknown>;
+  const innerSample = inner.sample_params as Record<string, unknown>;
+  assert(innerSample.eta === 0.7 && innerSample.flow_shift === 3 && innerSample.shifted_timestep === 250, 'eta/flow_shift/shifted_timestep must ride inside sample_params');
+  assert(!('eta' in inner) && !('flow_shift' in inner), 'those three must NOT also appear at the top level, where nothing reads them');
+
+  // Custom sigmas replace the scheduler rather than tuning it.
+  const sigmas = buildSdJobPayload({ ...base, scheduler: 'karras', customSigmas: [14.6, 7.1, 2.4, 0] }, sd15) as { sample_params: Record<string, unknown> };
+  assert(Array.isArray(sigmas.sample_params.custom_sigmas) && !('scheduler' in sigmas.sample_params), 'custom sigmas must replace the scheduler, not sit beside it');
+  const badSigmas = buildSdJobPayload({ ...base, customSigmas: [1, Number.NaN] }, sd15) as { sample_params: Record<string, unknown> };
+  assert(!('custom_sigmas' in badSigmas.sample_params), 'a sigma array with a NaN would poison the denoising loop and must not be sent');
+
+  // Skip-Layer Guidance, under the nesting the parser actually walks.
+  const slgPayload = buildSdJobPayload({ ...base, skipLayerGuidance: { layers: [7, 8, 9], layerStart: 0.01, layerEnd: 0.2, scale: 2.5 } }, sd15) as { sample_params: { guidance: Record<string, unknown> } };
+  const slg = slgPayload.sample_params.guidance.slg as Record<string, unknown>;
+  assert(JSON.stringify(slg.layers) === '[7,8,9]' && slg.layer_start === 0.01 && slg.layer_end === 0.2 && slg.scale === 2.5, 'slg must sit under sample_params.guidance.slg');
+  const noLayers = buildSdJobPayload({ ...base, skipLayerGuidance: { layers: [], scale: 2 } }, sd15) as { sample_params: { guidance: Record<string, unknown> } };
+  assert(!('slg' in noLayers.sample_params.guidance), 'SLG without a layer list must not be sent: the runtime default is an SD3-shaped guess');
+
+  // Adaptive Projected Guidance travels as a key=value STRING, not an object.
+  assert(formatExtraSampleArgs({ apgEta: 0.6, apgMomentum: -0.5, slgUncond: true }) === 'apg_eta=0.6,apg_momentum=-0.5,slg_uncond=true', 'extra sample args must serialise to the key=value line the runtime parses');
+  assert(formatExtraSampleArgs({}) === '' && formatExtraSampleArgs(undefined) === '', 'nothing to say must produce nothing');
+  assert(formatExtraSampleArgs({ apgEta: Number.NaN }) === '', 'parse_strict_float rejects trailing text, so a NaN must be dropped rather than written');
+  const apg = buildSdJobPayload({ ...base, extraSampleArgs: { apgEta: 0.6, apgNormThreshold: 15 } }, sd15) as { sample_params: Record<string, unknown> };
+  assert(apg.sample_params.extra_sample_args === 'apg_eta=0.6,apg_norm_threshold=15', 'APG must reach the server as extra_sample_args');
+
+  // hires: the long spelling. `target_w`/`target_h` are the CLI's and would be
+  // ignored without a word.
+  const hires = buildSdJobPayload({ ...base, hiresFix: { upscaler: 'Lanczos', scale: 2, targetWidth: 1024, targetHeight: 1536, customSigmas: [10, 5, 0] } }, sd15) as { hires: Record<string, unknown> };
+  assert(hires.hires.target_width === 1024 && hires.hires.target_height === 1536, 'hires must use target_width/target_height');
+  assert(!('target_w' in hires.hires) && !('target_h' in hires.hires), 'the CLI spelling must never be sent');
+  assert(JSON.stringify(hires.hires.custom_sigmas) === '[10,5,0]', 'the hires pass takes its own sigma schedule');
+
+  // Steps clamp to what strict resolution allows, so the recipe records what
+  // the runtime actually did.
+  assert(SD_MAX_STEPS === 100, 'strict resolution clamps sample_steps to 1..100');
+  assert((buildSdJobPayload({ ...base, steps: 150 }, sd15) as { sample_params: { sample_steps: number } }).sample_params.sample_steps === 100, 'steps above the strict ceiling must be clamped here, not silently by the server');
+
+  // Inference cache: an invalid mode is refused by the server outright, unlike
+  // an invalid sampler name, so it must never leave.
+  assert(isSdCacheMode('easycache') && isSdCacheMode('cache-dit') && !isSdCacheMode('EasyCache') && !isSdCacheMode('nonesuch'), 'cache mode table');
+  const cached = buildSdJobPayload({ ...base, cacheMode: 'easycache', cacheOption: 'threshold=0.15' }, sd15) as Record<string, unknown>;
+  assert(cached.cache_mode === 'easycache' && cached.cache_option === 'threshold=0.15', 'cache mode not sent');
+  assert(!('cache_mode' in (buildSdJobPayload({ ...base, cacheMode: 'nonesuch' }, sd15) as Record<string, unknown>)), 'an unknown cache mode would have the server refuse the whole job');
+  assert(!('cache_mode' in (buildSdJobPayload({ ...base, cacheMode: 'disabled' }, sd15) as Record<string, unknown>)), 'disabled is the default and is not worth a key');
+
+  // Tiled VAE.
+  const tiled = buildSdJobPayload({ ...base, vaeTiling: { tileSizeX: 256, tileSizeY: 256, targetOverlap: 0.25 } }, sd15) as { vae_tiling_params: Record<string, unknown> };
+  assert(tiled.vae_tiling_params.enabled === true && tiled.vae_tiling_params.tile_size_x === 256 && tiled.vae_tiling_params.target_overlap === 0.25, 'vae_tiling_params not sent under its own names');
+
+  // Fields that LOOK available and are not. None of these strings occurs
+  // anywhere in the runtime's source at the pinned commit, so each would have
+  // been accepted and dropped, and the studio would have claimed it worked.
+  const everything = buildSdJobPayload(
+    { ...base, clipSkip: 2, eta: 0.5, cacheMode: 'ucache', skipLayerGuidance: { layers: [7] }, extraSampleArgs: { apgEta: 1 },
+      hiresFix: { upscaler: 'Latent', scale: 2, targetWidth: 1024, targetHeight: 1024 }, vaeTiling: { enabled: true } },
+    sd15,
+  );
+  const wire = JSON.stringify(everything);
+  for (const absent of ['ad_model', 'ad_prompt', 'ad_negative_prompt', 'extra_ad_args', 'ip_adapter', 'guidance_schedule', 'photo_maker', 'pulid']) {
+    assert(!wire.includes(absent), `${absent} does not exist at the pinned commit and must never be sent`);
+  }
+}
+
+/** The recipe: identity, round trip, comparison and honest replay. */
+function testRecipe(): void {
+  const request = {
+    connectionId: 'builtin-sd', modelId: 'sd15-q8', prompt: 'a {colour} lighthouse', negativePrompt: 'blur',
+    width: 512, height: 768, n: 1, seed: 99, steps: 28, guidance: 6.5, sampler: 'dpm++2m', scheduler: 'karras',
+    clipSkip: 2, eta: 0.4, skipLayerGuidance: { layers: [7, 8, 9], scale: 2.5 },
+    extraSampleArgs: { apgEta: 0.6 }, controlStrength: 0.55, controlNetModel: 'controlnet-sd15-openpose',
+    loras: [{ name: 'sombra', weight: 0.8, fileName: 'sombra.safetensors' }],
+    hiresFix: { upscaler: 'Latent', scale: 2, steps: 12, denoisingStrength: 0.45 },
+  };
+  const recipe = requestToRecipe(request, {
+    id: 'r1', createdAt: 1000, seed: 99, rngMode: 'cuda',
+    resolvedPrompt: 'a red lighthouse',
+    model: { label: 'SD 1.5', sha256: 'a'.repeat(64) },
+    loraAssets: { sombra: { sha256: 'b'.repeat(64) } },
+    backendKind: 'sdcpp', backendVersion: 'master-709-92a3b73',
+    controlImageId: 'img-control', refImageIds: ['img-a', 'img-b'],
+  });
+
+  // The written text and the text that reached the encoder are both kept: with
+  // only one of them the recipe reproduces the dice, or loses the intent.
+  assert(recipe.prompt.positive === 'a {colour} lighthouse' && recipe.prompt.resolvedPositive === 'a red lighthouse', 'a recipe must keep both the written and the resolved prompt');
+  assert(recipe.model.sha256 === 'a'.repeat(64) && recipe.loras[0].sha256 === 'b'.repeat(64), 'assets must be identified by digest, not only by name');
+  assert(recipe.seed.seed === 99 && recipe.seed.rngMode === 'cuda', 'the same integer seed gives another picture under another RNG');
+  assert(recipe.passes.length === 2 && recipe.passes[1].kind === 'hires', 'the pass chain must record the second pass');
+  assert(recipe.inputs.refImages?.length === 2 && recipe.inputs.controlImage?.imageId === 'img-control', 'image inputs ride as Gallery ids, never as bytes');
+  assert(!JSON.stringify(recipe).includes('data:'), 'a recipe must never carry image bytes');
+
+  // Round trip: recipe -> request -> recipe reaches the same settings hash.
+  const replayed = recipeToRequest(recipe);
+  assert(replayed.prompt === 'a red lighthouse', 'a replay must send the resolved text, not the wildcard');
+  assert(replayed.seed === 99 && replayed.steps === 28 && replayed.sampler === 'dpm++2m' && replayed.scheduler === 'karras', 'a replay must carry the sampling settings');
+  assert(replayed.hiresFix?.upscaler === 'Latent' && replayed.loras?.[0].fileName === 'sombra.safetensors', 'a replay must carry the pass chain and the LoRAs');
+  const again = requestToRecipe(replayed, {
+    id: 'r2', createdAt: 9999, seed: 99, rngMode: 'cuda',
+    resolvedPrompt: 'a red lighthouse',
+    model: { label: 'SD 1.5', sha256: 'a'.repeat(64) },
+    loraAssets: { sombra: { sha256: 'b'.repeat(64) } },
+    backendKind: 'sdcpp', backendVersion: 'master-709-92a3b73',
+    controlImageId: 'img-control', refImageIds: ['img-a', 'img-b'],
+  });
+  // The written prompt is the only thing a replay cannot recover: it sent the
+  // resolved text, so that is what the second recipe records as written.
+  assert(again.sampling.steps === recipe.sampling.steps && again.seed.seed === recipe.seed.seed && again.size.height === 768, 'the round trip lost a setting');
+
+  // The hash is the identity of the settings, not of the row.
+  assert(recipeHash({ ...recipe, id: 'other', createdAt: 5, hash: 'stale' }) === recipeHash(recipe), 'the row id and timestamp must not change the hash');
+  const reordered = JSON.parse(JSON.stringify({
+    size: recipe.size, backend: recipe.backend, passes: recipe.passes, inputs: recipe.inputs,
+    seed: recipe.seed, sampling: recipe.sampling, loras: recipe.loras, model: recipe.model,
+    prompt: recipe.prompt, createdAt: recipe.createdAt, id: recipe.id, version: recipe.version,
+  })) as typeof recipe;
+  assert(recipeHash(reordered) === recipeHash(recipe), 'the hash must be stable across key order');
+  assert(recipeHash({ ...recipe, sampling: { ...recipe.sampling, steps: 29 } }) !== recipeHash(recipe), 'one more step is a different picture and must be a different hash');
+  assert(recipeHash({ ...recipe, seed: { ...recipe.seed, seed: 100 } }) !== recipeHash(recipe), 'a different seed must be a different hash');
+  assert(/^[0-9a-f]{64}$/.test(recipeHash(recipe)), 'the hash must be a SHA-256 in lower-case hex');
+  // A known vector, so a bug in the digest cannot bless its own output.
+  assert(sha256Hex('abc') === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad', 'SHA-256 disagrees with the published vector for "abc"');
+  assert(sha256Hex('') === 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'SHA-256 disagrees with the published vector for the empty string');
+  // A key present as `undefined` and a key that is missing are the same
+  // absence, or the same settings would hash two ways.
+  assert(canonicalJson({ a: 1, b: undefined }) === canonicalJson({ a: 1 }), 'an explicit undefined must canonicalise away');
+  assert(canonicalJson({ b: 2, a: 1 }) === canonicalJson({ a: 1, b: 2 }), 'canonical JSON must sort its keys');
+  assert(canonicalJson([1, 2]) !== canonicalJson([2, 1]), 'array order is meaningful and must survive canonicalisation');
+
+  // The diff names what changed, by path.
+  const changed = { ...recipe, sampling: { ...recipe.sampling, steps: 40, cfg: 8 } };
+  const diff = diffRecipes(recipe, changed);
+  assert(!diff.identical && diff.changes.length === 2, 'the diff must report exactly the two changed fields');
+  const paths = diff.changes.map((c) => c.path).sort();
+  assert(paths[0] === 'sampling.cfg' && paths[1] === 'sampling.steps', `the diff must name the fields, got ${paths.join(',')}`);
+  const stepChange = diff.changes.find((c) => c.path === 'sampling.steps');
+  assert(stepChange?.before === 28 && stepChange.after === 40, 'the diff must carry both values');
+  assert(diffRecipes(recipe, { ...recipe, id: 'z', createdAt: 7 }).identical, 'the same settings stored twice must compare identical');
+
+  // Replay never substitutes: it reports.
+  const missing = checkRecipeReplay(recipe, { installedModelIds: ['flux-schnell-q4'], installedLoraFileNames: [] });
+  assert(!missing.ok && missing.missingModel === 'sd15-q8', 'a missing model must be named, never swapped');
+  assert(missing.suggestedModels.includes('flux-schnell-q4'), 'the nearest installed model is offered, not applied');
+  assert(missing.missingLoras.includes('sombra'), 'a missing LoRA must be named too');
+  const present = checkRecipeReplay(recipe, { installedModelIds: ['sd15-q8'], installedLoraFileNames: ['sombra.safetensors'] });
+  assert(present.ok && present.suggestedModels.length === 0, 'a replayable recipe must not offer alternatives');
+}
+
+/** A PNG the app has never seen gives its recipe back, whoever wrote it. */
+function testRecipeRoundTripThroughPng(): void {
+  const recipe = requestToRecipe(
+    { connectionId: 'builtin-sd', modelId: 'sd15-q8', prompt: 'un faro', width: 512, height: 512, n: 1, seed: 3, steps: 20, guidance: 7, sampler: 'euler_a' },
+    { id: 'r9', createdAt: 5, seed: 3, resolvedPrompt: 'un faro rojo' },
+  );
+  const a1111 = 'un faro rojo\nSteps: 20, CFG scale: 7.000000, Seed: 3, Size: 512x512, Model: sd15-q8, RNG: cuda, Sampler: euler_a karras';
+  const png = writePngMetadata(tinyPng(), { parameters: a1111, writersHoard: recipeEnvelope(recipe) });
+
+  // Both chunks survive together: ours for the studio, A1111's for every other
+  // tool the reader might open the file in.
+  const read = readPngMetadata(png);
+  assert(read.parameters === a1111, 'the A1111 line must round-trip beside ours');
+  const ours = recoverRecipe(read, { parseParameters: parseA1111Parameters, readRecord: readSdcppRecord });
+  assert(ours?.source === 'writers-hoard', 'our own envelope must win when it is there');
+  assert(recipeHash(ours.recipe) === recipeHash(recipe), 'our record must come back identical');
+  assert(ours.recipe.prompt.resolvedPositive === 'un faro rojo' && ours.recipe.prompt.positive === 'un faro', 'the resolved prompt must survive the file');
+
+  // Without our chunk it falls back to the flat line, and says so.
+  const foreign = recoverRecipe({ parameters: a1111 }, { parseParameters: parseA1111Parameters, readRecord: readSdcppRecord });
+  assert(foreign?.source === 'a1111', 'a foreign PNG must fall back to the A1111 line');
+  assert(foreign.recipe.sampling.sampler === 'euler_a' && foreign.recipe.sampling.scheduler === 'karras', 'the A1111 "Sampler" field carries the scheduler after a space');
+  assert(foreign.recipe.sampling.steps === 20 && foreign.recipe.sampling.cfg === 7 && foreign.recipe.seed.seed === 3, 'the flat line must still yield the settings it does carry');
+  assert(foreign.recipe.size.width === 512 && foreign.recipe.size.height === 512, 'Size must be read as a size');
+
+  // The runtime's own JSON is richer than the flat line, and is preferred.
+  const sdcppTail = ', SDCPP: ' + JSON.stringify({
+    schema: 'sdcpp.image.params/v1',
+    prompt: { positive: 'un faro', negative: 'borroso' },
+    sampling: { sample_method: 'heun', scheduler: 'exponential', sample_steps: 33, guidance: { txt_cfg: 5.5, distilled_guidance: 3.5 } },
+    seed: 42, width: 640, height: 384, clip_skip: -1, models: { model: 'sd15-q8.gguf' },
+    loras: [{ name: 'sombra', multiplier: 0.7, is_high_noise: false }],
+    generator: { name: 'stable-diffusion.cpp', version: 'master-709' },
+  });
+  const withRecord = recoverRecipe(
+    { parameters: 'un faro\nSteps: 33, Seed: 42, Sampler: heun, Version: stable-diffusion.cpp' + sdcppTail },
+    { parseParameters: parseA1111Parameters, readRecord: readSdcppRecord },
+  );
+  assert(withRecord?.source === 'sdcpp', "the runtime's structured record must beat the flat line");
+  assert(withRecord.recipe.sampling.sampler === 'heun' && withRecord.recipe.sampling.scheduler === 'exponential' && withRecord.recipe.sampling.cfg === 5.5, 'the sdcpp record must yield the sampling block');
+  assert(withRecord.recipe.loras[0].id === 'sombra' && withRecord.recipe.loras[0].weight === 0.7, 'the sdcpp record must yield the LoRA list');
+  assert(withRecord.recipe.sampling.clipSkip === undefined, 'clip_skip <= 0 means unspecified and must not become a setting');
+  assert(withRecord.recipe.prompt.negative === 'borroso', 'the sdcpp record must yield the negative prompt');
+
+  // That JSON tail is full of commas; splitting the settings line through it
+  // used to fill the field map with fragments.
+  const parsed = parseA1111Parameters('un faro\nSteps: 33, Seed: 42, Sampler: heun, Version: stable-diffusion.cpp' + sdcppTail);
+  assert(parsed.fields.Steps === '33' && parsed.fields.Seed === '42', 'the real fields must still parse');
+  assert(!Object.keys(parsed.fields).some((k) => k.includes('{') || k.includes('"')), 'no JSON fragment may leak into the flat field map');
+
+  // Nothing at all is a perfectly good answer, and never an exception.
+  assert(recoverRecipe({}, { parseParameters: parseA1111Parameters, readRecord: readSdcppRecord }) === null, 'a PNG that says nothing must read back as nothing');
+  assert(recoverRecipe({ parameters: '' }, { parseParameters: parseA1111Parameters, readRecord: readSdcppRecord }) === null, 'an empty parameters string is not a recipe');
+  assert(Object.keys(readPngMetadata(tinyPng())).length === 0, 'a PNG with no text chunks must read back empty');
+  // Somebody else's `writershoard` chunk must not be mistaken for ours.
+  const alien = readPngMetadata(writePngMetadata(tinyPng(), { writersHoard: { kind: 'somebody-else', payload: 1 } }));
+  assert(recoverRecipe(alien, { parseParameters: parseA1111Parameters, readRecord: readSdcppRecord }) === null, "another tool's chunk of the same name must not be read as a recipe");
+  // A truncated envelope must not take the reader down with it.
+  let survived = true;
+  try {
+    recoverRecipe({ writersHoard: { kind: RECIPE_ENVELOPE_KIND, version: 1, recipe: { version: 1 } } }, { parseParameters: parseA1111Parameters, readRecord: readSdcppRecord });
+  } catch {
+    survived = false;
+  }
+  assert(survived, 'a half-written envelope must be refused, not thrown on');
+}
+
 export async function testAiRuntimeContracts(): Promise<string> {
   testUrlPolicy();
   testHardwareFit();
   testMeasuredSpeedAndPicker();
   testLocalImageRuntime();
   testSdRequestSurface();
+  testSdParameterSurface();
   testPngMetadata();
+  testRecipe();
+  testRecipeRoundTripThroughPng();
   testToolSelection();
   testPolicy();
   await testExecutorEquivalence();
   testPromptAndHistory();
-  return 'AI runtime: URL policy, hardware fit, measured speed + picker, local image runtime, sd-server request surface, PNG generation metadata, tool selection, permissions/scope, executor equivalence bridge≡copilot, history replay';
+  return 'AI runtime: URL policy, hardware fit, measured speed + picker, local image runtime, sd-server request surface, widened sd-server parameter surface, PNG generation metadata, recipe identity/round-trip/diff, recipe recovery from a foreign PNG, tool selection, permissions/scope, executor equivalence bridge≡copilot, history replay';
 }
