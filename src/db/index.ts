@@ -38,6 +38,7 @@ import type {
 } from '@/types/projectTools';
 import { legacyLinksToSnapshots } from '@/engines/scrapper/legacyLinks';
 import type { AiMessage, AiProjectSettings, AiThread } from '@/services/copilot/types';
+import type { VisualRef } from '@/types/visualRef';
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -96,6 +97,7 @@ export class WritersHoardDB extends Dexie {
   aiThreads!: Table<AiThread>;
   aiMessages!: Table<AiMessage>;
   aiProjectSettings!: Table<AiProjectSettings>;
+  visualRefs!: Table<VisualRef>;
 
   constructor() {
     super('WritersHoardDB');
@@ -806,6 +808,22 @@ export class WritersHoardDB extends Dexie {
     this.version(28).stores({
       atlasPlaces: 'id, projectId, parentId, kind, name',
       atlasDivergences: 'id, projectId, placeId, category',
+    });
+
+    // v29: visual references — the character bible behind the image studio.
+    // One row per character, place, object or style the writer wants to look
+    // the same twice: the words that describe her, the dialect they are
+    // written in, the ids of her reference images, a hero seed, a preset and
+    // (once one exists) a trained LoRA. Additive and inert: no existing row is
+    // read or rewritten, so a database that has never seen the studio simply
+    // gains an empty table.
+    //
+    // Only IDS of Gallery rows live here, never image bytes — the pictures
+    // stay in `inspirationImages`, where Gallery's backup strategy and the AI
+    // bridge already know how to find them, and a reference that accumulates
+    // twenty-five images stays a few hundred bytes.
+    this.version(29).stores({
+      visualRefs: 'id, projectId, codexEntryId, kind, updatedAt',
     });
   }
 }
