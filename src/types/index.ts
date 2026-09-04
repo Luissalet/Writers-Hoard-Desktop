@@ -166,6 +166,14 @@ export interface InspirationImage {
   generation?: ImageGenerationInfo;
 }
 
+/**
+ * Everything needed to make this picture again.
+ *
+ * The rule for this record: if a field changes the image and is not here, then
+ * "Iterate" and "Compare recipes" are guessing, and a guess presented as
+ * provenance is worse than a blank. Every field added after the first version
+ * is optional, so rows written before it still read.
+ */
 export interface ImageGenerationInfo {
   prompt: string;
   negativePrompt?: string;
@@ -177,6 +185,42 @@ export interface ImageGenerationInfo {
   quality?: string;
   steps?: number;
   createdAt: number;
+  /** Text guidance (`cfg_scale`). Without it the same seed gives another picture. */
+  cfg?: number;
+  sampler?: string;
+  scheduler?: string;
+  /**
+   * The LoRAs as a list. They used to ride inside the prompt as a
+   * `<lora:name:weight>` string, which no query could read and no second run
+   * could reproduce exactly.
+   */
+  loras?: { name: string; weight: number; fileName?: string }[];
+  /** SHA-256 of the weights file, so a renamed or re-quantised model is caught. */
+  modelSha256?: string;
+  /** Which runtime made it — `local-sd`, `openai`, an Automatic1111, … */
+  backend?: string;
+  /** Version string of that runtime, when it has one (the sd.cpp release tag). */
+  runtimeVersion?: string;
+  /** Gallery ids of the images that conditioned this one, in the order sent. */
+  refImageIds?: string[];
+  /** Gallery id of the img2img seed image, and how far the model was let move. */
+  initImageId?: string;
+  strength?: number;
+  /** Gallery id of the inpainting mask. */
+  maskImageId?: string;
+  /** Gallery id of the ControlNet hint, the ControlNet used, and its weight. */
+  controlImageId?: string;
+  controlNetModel?: string;
+  controlStrength?: number;
+  /** The second pass, when there was one. */
+  hiresUpscaler?: string;
+  hiresScale?: number;
+  /**
+   * The A1111 `parameters` line the runtime embedded in the PNG, verbatim.
+   * The fields above are the queryable form; this is the escape hatch for
+   * everything a future runtime records that this shape has no room for.
+   */
+  parameters?: string;
 }
 
 // Writings
