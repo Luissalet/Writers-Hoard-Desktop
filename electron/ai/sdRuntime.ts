@@ -459,8 +459,9 @@ function wantsLoraDir(): boolean {
 /**
  * What is in the LoRA folder right now. Cheap enough to run on every status
  * read: the reader drops a file in with the app open and expects to see it.
- * A name the server's `<lora:NAME:WEIGHT>` parser could not round-trip is
- * skipped rather than offered and silently ignored at generation time.
+ * A file whose name the Gallery note could not round-trip (`isSdLoraName`) is
+ * skipped rather than offered: the wire format takes any name, but a LoRA the
+ * studio cannot write down afterwards is one the reader cannot reproduce.
  */
 async function refreshLoras(): Promise<void> {
   const dir = lorasDir();
