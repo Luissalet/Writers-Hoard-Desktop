@@ -15,6 +15,7 @@
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import {
+  DETAIL_DENOISE_DEFAULT,
   HIRES_DENOISE_SAFE_MAX,
   PASS_KINDS,
   addPass,
@@ -184,28 +185,66 @@ export default function PassChainEditor({
                 </div>
               )}
 
+              {/* Every knob a detailer pass has, shown in full even while the
+                  whole pass is refused: an expert who has used ADetailer needs
+                  to see the shape of what is coming, not a placeholder. */}
               {pass.kind === 'detail' && (
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <label className="block">
+                      <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.detector')}</span>
+                      <select
+                        value={pass.detector ?? 'face'}
+                        disabled={refused}
+                        onChange={(event) => onChange(updatePass(passes, pass.id, { detector: event.target.value }))}
+                        className={FIELD_CLASS}
+                      >
+                        {DETECTORS.map((name) => (
+                          <option key={name} value={name}>{t(`imageStudio.detector.${name}`)}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.confidence')}</span>
+                      <input
+                        value={String(pass.confidence ?? 0.3)}
+                        disabled={refused}
+                        onChange={(event) => onChange(updatePass(passes, pass.id, { confidence: Number(event.target.value) }))}
+                        className={MONO_FIELD_CLASS}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.padding')}</span>
+                      <input
+                        value={String(pass.padding ?? 32)}
+                        disabled={refused}
+                        onChange={(event) => onChange(updatePass(passes, pass.id, { padding: Number(event.target.value) }))}
+                        className={MONO_FIELD_CLASS}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.maskBlur')}</span>
+                      <input
+                        value={String(pass.maskBlur ?? 4)}
+                        disabled={refused}
+                        onChange={(event) => onChange(updatePass(passes, pass.id, { maskBlur: Number(event.target.value) }))}
+                        className={MONO_FIELD_CLASS}
+                      />
+                    </label>
+                  </div>
+                  <DenoiseSlider
+                    value={pass.denoise ?? DETAIL_DENOISE_DEFAULT}
+                    disabled={refused}
+                    onChange={(denoise) => onChange(updatePass(passes, pass.id, { denoise }))}
+                  />
                   <label className="block">
-                    <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.detector')}</span>
-                    <select
-                      value={pass.detector ?? 'face'}
-                      disabled={refused}
-                      onChange={(event) => onChange(updatePass(passes, pass.id, { detector: event.target.value }))}
-                      className={FIELD_CLASS}
-                    >
-                      {DETECTORS.map((name) => (
-                        <option key={name} value={name}>{t(`imageStudio.detector.${name}`)}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.confidence')}</span>
+                    <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.prompt')}</span>
                     <input
-                      value={String(pass.confidence ?? 0.3)}
+                      value={pass.prompt ?? ''}
                       disabled={refused}
-                      onChange={(event) => onChange(updatePass(passes, pass.id, { confidence: Number(event.target.value) }))}
-                      className={MONO_FIELD_CLASS}
+                      placeholder={t('imageStudio.pass.promptPlaceholder')}
+                      onChange={(event) => onChange(updatePass(passes, pass.id, { prompt: event.target.value }))}
+                      className={FIELD_CLASS}
                     />
                   </label>
                 </div>

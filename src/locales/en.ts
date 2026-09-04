@@ -4385,6 +4385,8 @@ const en = {
   'imageStudio.scheduler.ltx2': 'The schedule the LTX-2 model expects.',
   'visualRef.action.useSeed': 'Use this seed',
   'imageStudio.prompt.wildcardExample': 'One possible roll — the seed is rolled when you generate:',
+  'imageStudio.pass.padding': 'Padding around the crop',
+  'imageStudio.pass.maskBlur': 'Mask blur',
 } as const;
 
 export default en;
