@@ -40,6 +40,8 @@ export interface ParametersColumnProps {
   visibility: ParameterVisibility;
   value: ParametersState;
   onChange: (changes: Partial<ParametersState>) => void;
+  /** False when no image model is chosen: changes what a refused field means. */
+  hasModel: boolean;
   /** Whether the reference in the composer actually has a hero seed to lock to. */
   hasHeroSeed: boolean;
   nativeSize?: { width: number; height: number };
@@ -51,12 +53,21 @@ function fieldClass(enabled: boolean): string {
 }
 
 export default function ParametersColumn({
-  route, onRoute, visibility, value, onChange, hasHeroSeed, nativeSize,
+  route, onRoute, visibility, value, onChange, hasModel, hasHeroSeed, nativeSize,
 }: ParametersColumnProps) {
   const { t } = useTranslation();
-  const cfgReason = visibility.cfg ? undefined : t('visualRef.reason.cfgFixed');
-  const samplerReason = visibility.sampler ? undefined : t('visualRef.reason.serverChoosesSampler');
-  const schedulerReason = visibility.scheduler ? undefined : t('visualRef.reason.serverChoosesSampler');
+  // With no model chosen, every field is refused for the same reason, and it is
+  // not "this model runs at a fixed guidance" — saying that about a model the
+  // writer has not picked is the kind of confident wrong answer that makes a
+  // panel untrustworthy.
+  const noModel = t('visualRef.reason.noModel');
+  const refused = (available: boolean, reason: string): string | undefined => {
+    if (available) return undefined;
+    return hasModel ? reason : noModel;
+  };
+  const cfgReason = refused(visibility.cfg, t('visualRef.reason.cfgFixed'));
+  const samplerReason = refused(visibility.sampler, t('visualRef.reason.serverChoosesSampler'));
+  const schedulerReason = refused(visibility.scheduler, t('visualRef.reason.serverChoosesSampler'));
 
   return (
     <div className="space-y-3">
@@ -93,7 +104,7 @@ export default function ParametersColumn({
           <input
             value={value.steps}
             disabled={!visibility.steps}
-            title={visibility.steps ? undefined : t('visualRef.reason.noModel')}
+            title={visibility.steps ? undefined : noModel}
             onChange={(event) => onChange({ steps: event.target.value.replace(/[^\d]/g, '') })}
             placeholder={t('imageStudio.stepsPlaceholder')}
             className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] font-mono text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
