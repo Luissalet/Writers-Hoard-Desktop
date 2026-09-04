@@ -292,18 +292,95 @@ export interface AiImageRequest {
   controlStrength?: number;
   /** Inpainting mask as a data URL: white is repainted. Needs `initImage`. */
   maskImage?: string;
-  /** Second pass at a larger size. `upscaler` is a name the runtime offers. */
+  /**
+   * Second pass at a larger size. `upscaler` is either one of the built-in
+   * names or the stem — no extension — of a model in the upscalers folder;
+   * the server resolves an unknown name as a file and refuses the job when it
+   * cannot find one.
+   */
   hiresFix?: {
     upscaler: string;
     scale: number;
     steps?: number;
     denoisingStrength?: number;
     tileSize?: number;
+    /** Exact output size, overriding `scale`. Sent as `target_width`/`target_height`. */
+    targetWidth?: number;
+    targetHeight?: number;
+    /** Sigma schedule for the second pass alone. */
+    customSigmas?: number[];
   };
   /** Sampler name; unknown names are dropped rather than sent. */
   sampler?: string;
   /** Scheduler name; unknown names are dropped rather than sent. */
   scheduler?: string;
+  /**
+   * Sigma schedule given outright. It REPLACES the scheduler rather than
+   * tuning it, so naming both is meaningless and the scheduler is dropped.
+   */
+  customSigmas?: number[];
+  /** Layers of the text encoder to stop short of. Unset means the model's own. */
+  clipSkip?: number;
+  /** Ancestral noise (`sample_params.eta`). Only the ancestral samplers read it. */
+  eta?: number;
+  /** Timestep shift for the flow-matching models (`sample_params.flow_shift`). */
+  flowShift?: number;
+  /** `sample_params.shifted_timestep`, for the models that take one. */
+  shiftedTimestep?: number;
+  /**
+   * `guidance.distilled_guidance`. Overrides the catalogue default, which is
+   * otherwise the only thing that ever sets it.
+   */
+  distilledGuidance?: number;
+  /** `guidance.img_cfg`: how hard an instruction-edit model holds the input image. */
+  imageGuidance?: number;
+  /**
+   * Skip-Layer Guidance. `layers` is required because the runtime's own
+   * default ({7, 8, 9}) is a SD3-shaped guess, and applying it to another
+   * architecture degrades the image rather than improving it.
+   */
+  skipLayerGuidance?: {
+    layers: number[];
+    layerStart?: number;
+    layerEnd?: number;
+    scale?: number;
+  };
+  /**
+   * Extra sampler arguments — Adaptive Projected Guidance among them. They
+   * travel as one `key=value` string; see `formatExtraSampleArgs`.
+   */
+  extraSampleArgs?: SdExtraSampleArgsInput;
+  /** Inference cache mode, e.g. `easycache`. An invalid one is refused by the server. */
+  cacheMode?: string;
+  /** `key=value` options for that cache mode. */
+  cacheOption?: string;
+  /** Tile geometry for the VAE decode. Tiling itself is already on at launch. */
+  vaeTiling?: {
+    enabled?: boolean;
+    tileSizeX?: number;
+    tileSizeY?: number;
+    targetOverlap?: number;
+    relSizeX?: number;
+    relSizeY?: number;
+  };
+}
+
+/**
+ * The structured form of `sample_params.extra_sample_args`. Declared here
+ * rather than imported so this module stays free of every other one; the
+ * serializer that owns the wire spelling is `formatExtraSampleArgs` in
+ * ./sdServer.ts, and the two are pinned together by the tests.
+ */
+export interface SdExtraSampleArgsInput {
+  apgEta?: number;
+  apgMomentum?: number;
+  apgNormThreshold?: number;
+  apgNormThresholdSmoothing?: number;
+  slgUncond?: boolean;
+  noiseClipStd?: number;
+  noiseScaleStart?: number;
+  noiseScaleEnd?: number;
+  gamma?: number;
 }
 
 export interface AiGeneratedImage {
