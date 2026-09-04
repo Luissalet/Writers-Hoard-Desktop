@@ -39,6 +39,7 @@ import type {
 import { legacyLinksToSnapshots } from '@/engines/scrapper/legacyLinks';
 import type { AiMessage, AiProjectSettings, AiThread } from '@/services/copilot/types';
 import type { VisualRef } from '@/types/visualRef';
+import type { ImageRecipeRow } from '@/services/aiRuntime/recipe';
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -98,6 +99,7 @@ export class WritersHoardDB extends Dexie {
   aiMessages!: Table<AiMessage>;
   aiProjectSettings!: Table<AiProjectSettings>;
   visualRefs!: Table<VisualRef>;
+  imageRecipes!: Table<ImageRecipeRow>;
 
   constructor() {
     super('WritersHoardDB');
@@ -824,6 +826,26 @@ export class WritersHoardDB extends Dexie {
     // twenty-five images stays a few hundred bytes.
     this.version(29).stores({
       visualRefs: 'id, projectId, codexEntryId, kind, updatedAt',
+    });
+
+    // v30: image recipes — the record that lets a picture be made again two
+    // years later. One row per generation: the written prompt AND the text
+    // after wildcards resolved, every sampler parameter, the model and each
+    // LoRA identified by SHA-256 rather than by name, the seed and RNG mode,
+    // the Gallery ids of any init/mask/control/reference images, and the pass
+    // chain. See services/aiRuntime/recipe.ts for the shape and why each part
+    // is in it.
+    //
+    // Additive and inert, exactly like v29: no existing row is read, rewritten
+    // or re-keyed, so a database that has never generated an image simply
+    // gains an empty table and every Gallery row that predates this keeps
+    // whatever provenance it already had in `inspirationImages.generation`.
+    //
+    // `hash` is indexed because it is the identity of the SETTINGS rather than
+    // of the row: it is what "have I already made this exact picture" and
+    // "show me every image from this recipe" both ask.
+    this.version(30).stores({
+      imageRecipes: 'id, projectId, imageId, hash, createdAt',
     });
   }
 }
