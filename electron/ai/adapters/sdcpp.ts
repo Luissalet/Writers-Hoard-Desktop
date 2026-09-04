@@ -116,9 +116,15 @@ async function generateImage(_ctx: AdapterContext, req: AiImageRequest, signal: 
     // looking like a success.
     return { ok: false, code: 'bad-request', error: `"${entry.label}" does not take reference images. Use a Kontext model for those.` };
   }
-  // A ControlNet is chosen at launch, so this may restart the server; passing
-  // `null` when the job has no hint means a plain job never triggers one.
-  const started = await ensureSdServer(req.modelId, { controlNet: req.controlImage ? req.controlNetModel ?? null : undefined });
+  if (req.controlImage && !req.controlNetModel) {
+    // A control image reaches a server built without a ControlNet and is
+    // dropped on the floor — sd.cpp returns early when `control_net` is null.
+    // The job would succeed and the hint would have done nothing.
+    return { ok: false, code: 'bad-request', error: 'A control image needs a ControlNet. Choose one in AI settings → Local image models.' };
+  }
+  // A ControlNet is chosen at launch, so naming one may restart the server;
+  // leaving it unset means a job with no hint never causes a restart.
+  const started = await ensureSdServer(req.modelId, req.controlNetModel ? { controlNet: req.controlNetModel } : {});
   if (!started.ok) {
     const message =
       started.error === 'runtime-missing'
