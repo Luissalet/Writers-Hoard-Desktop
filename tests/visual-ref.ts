@@ -48,6 +48,7 @@ import {
   setCanonicalImage,
 } from '@/engines/image-studio/refs';
 import ImageStudioEngine from '@/engines/image-studio/ImageStudioEngine';
+import { t as translate } from '@/i18n/useTranslation';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -530,6 +531,18 @@ export async function testVisualRefNoBackendUi(): Promise<void> {
 
     const disabled = [...host.querySelectorAll('button')].filter((button) => button.disabled);
     assert(disabled.length > 0, 'nothing was disabled with no backend — the studio pretended it could generate');
+    // And the reason is the right one, in the writer's language: "no image
+    // model is connected", not a generic shrug and not a claim about a model
+    // they have not chosen.
+    const noModelReason = translate('visualRef.reason.noModel');
+    assert(
+      disabled.some((button) => (button.getAttribute('title') ?? '') === noModelReason),
+      'no disabled control blamed the missing image model',
+    );
+    assert(text.includes(noModelReason), 'the missing image model was never said out loud on the page');
+    // The reference set the writer built is on the page whatever the backend
+    // does — that is the whole claim of the no-backend state.
+    assert(host.querySelector('img[src^="data:image/png"]'), 'the uploaded portrait was not shown');
     // Hiding an action teaches the writer the feature does not exist. Every
     // disabled control has to carry the reason it is disabled.
     for (const button of disabled) {
