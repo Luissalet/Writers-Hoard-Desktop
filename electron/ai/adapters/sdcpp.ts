@@ -19,9 +19,17 @@ import type {
 } from '@/services/aiRuntime/types';
 import { imageCatalogEntry } from '@/services/aiRuntime/imageCatalog';
 import { buildSdJobPayload, SD_SERVER_URL } from '@/services/aiRuntime/sdServer';
+import { readPngMetadata } from '@/services/imageMetadata';
 import { AdapterError, errorFromException, parseJsonSafe, readBounded, request, requestJson } from './http';
 import type { AdapterContext, ProviderAdapter } from './types';
-import { ensureSdServer, installedSdCatalogEntries, isSdRuntimeInstalled, getSdRuntimeStatus, touchSdServer } from '../sdRuntime';
+import {
+  ensureSdServer,
+  installedSdCatalogEntries,
+  isSdRuntimeInstalled,
+  getSdRuntimeStatus,
+  sdLoraFileName,
+  touchSdServer,
+} from '../sdRuntime';
 
 const MAX_IMAGE_BYTES = 24 * 1024 * 1024;
 const POLL_MS = 500;
@@ -83,7 +91,11 @@ function decode(b64: string): AiGeneratedImage {
   if (bytes.length > MAX_IMAGE_BYTES) throw new AdapterError('bad-response', 'The image is larger than 24 MB.');
   const png = bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
   if (!png) throw new AdapterError('bad-response', 'The server returned data that is not a PNG image.');
-  return { base64: b64, mimeType: 'image/png' };
+  // The job asked for embedded metadata; read the runtime's own account of the
+  // settings back out. A PNG without it reads empty rather than throwing, so an
+  // older or differently-built server costs the caller nothing.
+  const { parameters } = readPngMetadata(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+  return { base64: b64, mimeType: 'image/png', ...(parameters ? { parameters } : {}) };
 }
 
 async function cancelJob(jobId: string): Promise<void> {
@@ -97,14 +109,25 @@ async function cancelJob(jobId: string): Promise<void> {
 async function generateImage(_ctx: AdapterContext, req: AiImageRequest, signal: AbortSignal): Promise<AiImageResult> {
   const entry = imageCatalogEntry(req.modelId);
   if (!entry) return { ok: false, code: 'model-missing', error: `"${req.modelId}" is not a local image model.` };
-  const started = await ensureSdServer(req.modelId);
+  if (req.refImages?.length && !entry.refImages) {
+    // Refusing here rather than sending the array: the server accepts
+    // `ref_images` for any model and conditions on them for none but the
+    // Kontext-style ones, so a picture that ignored them would come back
+    // looking like a success.
+    return { ok: false, code: 'bad-request', error: `"${entry.label}" does not take reference images. Use a Kontext model for those.` };
+  }
+  // A ControlNet is chosen at launch, so this may restart the server; passing
+  // `null` when the job has no hint means a plain job never triggers one.
+  const started = await ensureSdServer(req.modelId, { controlNet: req.controlImage ? req.controlNetModel ?? null : undefined });
   if (!started.ok) {
     const message =
       started.error === 'runtime-missing'
         ? 'The local image runtime is not installed. Download it in AI settings → Local image models.'
         : started.error === 'model-missing'
           ? `"${entry.label}" is not downloaded. Download it in AI settings → Local image models.`
-          : `The local image server could not start: ${started.error ?? 'unknown'}`;
+          : started.error === 'controlnet-missing'
+            ? 'That ControlNet is not installed. Download it in AI settings → Local image models.'
+            : `The local image server could not start: ${started.error ?? 'unknown'}`;
     return { ok: false, code: 'unreachable', error: message };
   }
   if (signal.aborted) return { ok: false, code: 'cancelled', error: 'Cancelled.' };
@@ -115,8 +138,17 @@ async function generateImage(_ctx: AdapterContext, req: AiImageRequest, signal: 
   const seed = req.seed ?? Math.floor(Math.random() * 2_147_483_647);
   let jobId: string | null = null;
   try {
+    // The server resolves `lora[].path` against its own listing of the LoRA
+    // folder, which keys files by name WITH the extension. The renderer only
+    // knows the display name, so the file name is attached here, where the
+    // folder was just scanned. An unresolvable one is refused rather than sent:
+    // the server would reject the whole request with "invalid generation
+    // parameters", which says nothing about which LoRA went missing.
+    const loras = req.loras?.map((lora) => ({ ...lora, fileName: lora.fileName ?? sdLoraFileName(lora.name) ?? undefined }));
+    const missing = loras?.find((lora) => !lora.fileName);
+    if (missing) return { ok: false, code: 'bad-request', error: `The LoRA "${missing.name}" is no longer in the LoRA folder.` };
     const accepted = await requestJson<JobAccepted>(`${SD_SERVER_URL}/sdcpp/v1/img_gen`, {
-      body: buildSdJobPayload({ ...req, seed }, entry),
+      body: buildSdJobPayload({ ...req, seed, ...(loras ? { loras } : {}) }, entry),
       signal,
       connectTimeoutMs: 30_000,
     });
