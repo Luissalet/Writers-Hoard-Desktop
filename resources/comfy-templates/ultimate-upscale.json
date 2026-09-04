@@ -1,0 +1,394 @@
+{
+  "id": "ultimate-upscale",
+  "label": "Ultimate SD Upscale",
+  "description": "Tiled image-to-image upscaling: chess tiling, low denoise and seam fixing, so a finished illustration gains resolution without gaining a second face.",
+  "requires": [
+    "CheckpointLoaderSimple",
+    "CLIPTextEncode",
+    "LoadImage",
+    "SaveImage",
+    "UpscaleModelLoader",
+    "UltimateSDUpscale"
+  ],
+  "bindings": {
+    "checkpoint": {
+      "title": "Checkpoint",
+      "node": "1",
+      "input": "ckpt_name",
+      "kind": "choice"
+    },
+    "prompt": {
+      "title": "Positive",
+      "node": "2",
+      "input": "text",
+      "kind": "text"
+    },
+    "negative": {
+      "title": "Negative",
+      "node": "3",
+      "input": "text",
+      "kind": "text"
+    },
+    "filenamePrefix": {
+      "title": "Output",
+      "node": "7",
+      "input": "filename_prefix",
+      "kind": "text"
+    },
+    "lora.1.name": {
+      "title": "LoRA 1",
+      "node": "10",
+      "input": "lora_name",
+      "kind": "choice"
+    },
+    "lora.1.model": {
+      "title": "LoRA 1",
+      "node": "10",
+      "input": "strength_model",
+      "kind": "number"
+    },
+    "lora.1.clip": {
+      "title": "LoRA 1",
+      "node": "10",
+      "input": "strength_clip",
+      "kind": "number"
+    },
+    "lora.2.name": {
+      "title": "LoRA 2",
+      "node": "11",
+      "input": "lora_name",
+      "kind": "choice"
+    },
+    "lora.2.model": {
+      "title": "LoRA 2",
+      "node": "11",
+      "input": "strength_model",
+      "kind": "number"
+    },
+    "lora.2.clip": {
+      "title": "LoRA 2",
+      "node": "11",
+      "input": "strength_clip",
+      "kind": "number"
+    },
+    "lora.3.name": {
+      "title": "LoRA 3",
+      "node": "12",
+      "input": "lora_name",
+      "kind": "choice"
+    },
+    "lora.3.model": {
+      "title": "LoRA 3",
+      "node": "12",
+      "input": "strength_model",
+      "kind": "number"
+    },
+    "lora.3.clip": {
+      "title": "LoRA 3",
+      "node": "12",
+      "input": "strength_clip",
+      "kind": "number"
+    },
+    "lora.4.name": {
+      "title": "LoRA 4",
+      "node": "13",
+      "input": "lora_name",
+      "kind": "choice"
+    },
+    "lora.4.model": {
+      "title": "LoRA 4",
+      "node": "13",
+      "input": "strength_model",
+      "kind": "number"
+    },
+    "lora.4.clip": {
+      "title": "LoRA 4",
+      "node": "13",
+      "input": "strength_clip",
+      "kind": "number"
+    },
+    "sourceImage": {
+      "title": "Source",
+      "node": "70",
+      "input": "image",
+      "kind": "image"
+    },
+    "upscaleModel": {
+      "title": "Upscale Model",
+      "node": "90",
+      "input": "model_name",
+      "kind": "choice"
+    },
+    "upscaleBy": {
+      "title": "Upscale",
+      "node": "91",
+      "input": "upscale_by",
+      "kind": "number"
+    },
+    "seed": {
+      "title": "Upscale",
+      "node": "91",
+      "input": "seed",
+      "kind": "seed"
+    },
+    "steps": {
+      "title": "Upscale",
+      "node": "91",
+      "input": "steps",
+      "kind": "number"
+    },
+    "cfg": {
+      "title": "Upscale",
+      "node": "91",
+      "input": "cfg",
+      "kind": "number"
+    },
+    "samplerName": {
+      "title": "Upscale",
+      "node": "91",
+      "input": "sampler_name",
+      "kind": "choice"
+    },
+    "scheduler": {
+      "title": "Upscale",
+      "node": "91",
+      "input": "scheduler",
+      "kind": "choice"
+    },
+    "denoise": {
+      "title": "Upscale",
+      "node": "91",
+      "input": "denoise",
+      "kind": "number"
+    },
+    "tileWidth": {
+      "title": "Upscale",
+      "node": "91",
+      "input": "tile_width",
+      "kind": "number"
+    },
+    "tileHeight": {
+      "title": "Upscale",
+      "node": "91",
+      "input": "tile_height",
+      "kind": "number"
+    }
+  },
+  "slots": {
+    "lora": [
+      {
+        "remove": [
+          "10"
+        ],
+        "passthrough": [
+          {
+            "node": "10",
+            "output": 0,
+            "input": "model"
+          },
+          {
+            "node": "10",
+            "output": 1,
+            "input": "clip"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "11"
+        ],
+        "passthrough": [
+          {
+            "node": "11",
+            "output": 0,
+            "input": "model"
+          },
+          {
+            "node": "11",
+            "output": 1,
+            "input": "clip"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "12"
+        ],
+        "passthrough": [
+          {
+            "node": "12",
+            "output": 0,
+            "input": "model"
+          },
+          {
+            "node": "12",
+            "output": 1,
+            "input": "clip"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "13"
+        ],
+        "passthrough": [
+          {
+            "node": "13",
+            "output": 0,
+            "input": "model"
+          },
+          {
+            "node": "13",
+            "output": 1,
+            "input": "clip"
+          }
+        ]
+      }
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "_meta": {
+        "title": "Checkpoint"
+      },
+      "inputs": {
+        "ckpt_name": ""
+      }
+    },
+    "10": {
+      "class_type": "LoraLoader",
+      "_meta": {
+        "title": "LoRA 1"
+      },
+      "inputs": {
+        "model": ["1", 0],
+        "clip": ["1", 1],
+        "lora_name": "",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    },
+    "11": {
+      "class_type": "LoraLoader",
+      "_meta": {
+        "title": "LoRA 2"
+      },
+      "inputs": {
+        "model": ["10", 0],
+        "clip": ["10", 1],
+        "lora_name": "",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    },
+    "12": {
+      "class_type": "LoraLoader",
+      "_meta": {
+        "title": "LoRA 3"
+      },
+      "inputs": {
+        "model": ["11", 0],
+        "clip": ["11", 1],
+        "lora_name": "",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    },
+    "13": {
+      "class_type": "LoraLoader",
+      "_meta": {
+        "title": "LoRA 4"
+      },
+      "inputs": {
+        "model": ["12", 0],
+        "clip": ["12", 1],
+        "lora_name": "",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    },
+    "2": {
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "Positive"
+      },
+      "inputs": {
+        "text": "",
+        "clip": ["13", 1]
+      }
+    },
+    "3": {
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "Negative"
+      },
+      "inputs": {
+        "text": "",
+        "clip": ["13", 1]
+      }
+    },
+    "7": {
+      "class_type": "SaveImage",
+      "_meta": {
+        "title": "Output"
+      },
+      "inputs": {
+        "images": ["91", 0],
+        "filename_prefix": "WritersHoard/wh"
+      }
+    },
+    "70": {
+      "class_type": "LoadImage",
+      "_meta": {
+        "title": "Source"
+      },
+      "inputs": {
+        "image": ""
+      }
+    },
+    "90": {
+      "class_type": "UpscaleModelLoader",
+      "_meta": {
+        "title": "Upscale Model"
+      },
+      "inputs": {
+        "model_name": ""
+      }
+    },
+    "91": {
+      "class_type": "UltimateSDUpscale",
+      "_meta": {
+        "title": "Upscale"
+      },
+      "inputs": {
+        "image": ["70", 0],
+        "model": ["13", 0],
+        "positive": ["2", 0],
+        "negative": ["3", 0],
+        "vae": ["1", 2],
+        "upscale_by": 2.0,
+        "seed": 0,
+        "steps": 20,
+        "cfg": 6.0,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "denoise": 0.2,
+        "upscale_model": ["90", 0],
+        "mode_type": "Chess",
+        "tile_width": 512,
+        "tile_height": 512,
+        "mask_blur": 8,
+        "tile_padding": 32,
+        "seam_fix_mode": "Half Tile",
+        "seam_fix_denoise": 1.0,
+        "seam_fix_width": 64,
+        "seam_fix_mask_blur": 8,
+        "seam_fix_padding": 16,
+        "force_uniform_tiles": true,
+        "tiled_decode": false,
+        "batch_size": 1
+      }
+    }
+  }
+}
