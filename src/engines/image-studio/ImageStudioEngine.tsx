@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GitCompare, ImagePlus, Loader2, Settings2, Sparkles, Square, XCircle } from 'lucide-react';
+import { GitCompare, Grid3x3, ImagePlus, Loader2, Settings2, Sparkles, Square, XCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 import type { EngineComponentProps } from '@/engines/_types';
@@ -28,6 +28,8 @@ import { useAiRuntimeStore } from '@/stores/aiRuntimeStore';
 import { useImageRuntimeStore } from '@/stores/imageRuntimeStore';
 import type { AiRouteSelection } from '@/services/aiRuntime/types';
 import type { ImageHandle } from '@/services/aiRuntime/client';
+import { SD_BUILTIN_HIRES_UPSCALERS } from '@/services/aiRuntime/sdServer';
+import { imageCatalogEntry } from '@/services/aiRuntime/imageCatalog';
 import { getProjectSettings, saveProjectSettings } from '@/services/copilot/threads';
 import { toast } from '@/components/common/toast';
 import {
@@ -40,13 +42,34 @@ import {
   type ResolverModel,
 } from '@/services/visualRef';
 import {
-  IMAGE_SIZE_PRESETS,
   REQUEST_SUPPORTS,
   deleteGeneratedImage,
   listGeneratedImages,
   saveGenerated,
   startGeneration,
 } from './operations';
+import {
+  bucketsForFamily,
+  defaultBucket,
+  defaultsForModel,
+  mergeStack,
+  newChain,
+  parsePassChain,
+  planRun,
+  readStudioPrefs,
+  rollSeed,
+  seedsForBatch,
+  stackFromReferences,
+  studioCapabilities,
+  wildcardFilesFromRefs,
+  writeStudioPrefs,
+  type DefaultsSource,
+  type LoraStackEntry,
+  type PassSupportInput,
+  type StudioLevel,
+  type StudioPass,
+  type XyzCell,
+} from './studio';
 import {
   addToReferenceSet,
   createVisualRef,
@@ -57,7 +80,7 @@ import {
   setCanonicalImage,
   updateVisualRef,
 } from './refs';
-import { AVAILABLE, blocked, parameterVisibility, studioResolverModel, type Availability } from './studioModel';
+import { AVAILABLE, blocked, isManagedLocalRoute, studioResolverModel, type Availability } from './studioModel';
 import CastColumn from './components/CastColumn';
 import ParametersColumn, { type ParametersState } from './components/ParametersColumn';
 import ReferenceEditor from './components/ReferenceEditor';
@@ -65,16 +88,23 @@ import ResolvedPrompt from './components/ResolvedPrompt';
 import ResultsGrid, { type ResultBatch } from './components/ResultsGrid';
 import CompareDialog from './components/CompareDialog';
 import DatasetExportDialog from './components/DatasetExportDialog';
+import PromptCraftBar from './components/PromptCraftBar';
+import { onWeightKeyDown } from './components/weightKeys';
+import XyzPlotDialog from './components/XyzPlotDialog';
 
 const INITIAL_PARAMETERS: ParametersState = {
-  sizePreset: 'square',
+  sizePreset: '1024x1024',
+  customWidth: '',
+  customHeight: '',
   steps: '',
   cfg: '',
   sampler: '',
   scheduler: '',
+  clipSkip: '',
   seedMode: 'explore',
   manualSeed: '',
   batch: 1,
+  batchSeedMode: 'incremental',
 };
 
 /** Variations are a batch of six: enough to see a trend, few enough to look at. */
@@ -97,15 +127,6 @@ const ABSENT_MODEL: ResolverModel = {
   supportsInitImage: false,
 };
 
-/**
- * A seed for an unrepeatable run. At module scope on purpose: the dice belong
- * outside the component (React's purity rule) and outside the resolver (which
- * has to be reproducible), so this is the one place in the studio that rolls.
- */
-function rollSeed(): number {
-  return Math.floor(Math.random() * 2_147_483_647);
-}
-
 export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -122,6 +143,16 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
   const [scene, setScene] = useState('');
   const [style, setStyle] = useState('');
   const [parameters, setParameters] = useState<ParametersState>(INITIAL_PARAMETERS);
+
+  // The studio's own state: the level, the chain and the stack. Kept together
+  // so that the one place they are persisted is the one place they change.
+  const [level, setLevel] = useState<StudioLevel>('simple');
+  const [passes, setPasses] = useState<StudioPass[]>(() => newChain());
+  const [loraManual, setLoraManual] = useState<LoraStackEntry[]>([]);
+  const [showAllSamplers, setShowAllSamplers] = useState(false);
+  const [appliedDefaults, setAppliedDefaults] = useState<DefaultsSource | null>(null);
+  const [beforeDefaults, setBeforeDefaults] = useState<ParametersState | null>(null);
+  const [plotting, setPlotting] = useState(false);
 
   const [route, setRoute] = useState<AiRouteSelection | undefined>(undefined);
   const [handle, setHandle] = useState<ImageHandle | null>(null);
@@ -167,6 +198,11 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
       if (!live) return;
       setEntries(codex);
       if (settings.imageRoute) setRoute(settings.imageRoute);
+      const prefs = readStudioPrefs(projectId);
+      setLevel(prefs.level);
+      setPasses(prefs.passChain);
+      setShowAllSamplers(prefs.showAllSamplers);
+      setParameters((current) => ({ ...current, batchSeedMode: prefs.batchSeedMode }));
       reloadImages();
       void runtime.loadConnections();
       void runtime.loadDefaults();
@@ -190,13 +226,61 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
     }),
     [effectiveRoute, descriptor, sdStatus?.lorasSupported, cfgOverride],
   );
-  const visibility = useMemo(() => parameterVisibility(model, REQUEST_SUPPORTS), [model]);
-  const nativeSize = descriptor?.nativeWidth && descriptor.nativeHeight
-    ? { width: descriptor.nativeWidth, height: descriptor.nativeHeight }
-    : undefined;
-  const size = parameters.sizePreset === 'native' && nativeSize
-    ? nativeSize
-    : IMAGE_SIZE_PRESETS.find((preset) => preset.id === parameters.sizePreset) ?? IMAGE_SIZE_PRESETS[0];
+  const managedLocal = isManagedLocalRoute(effectiveRoute);
+  const family = model?.family;
+  const capabilities = useMemo(
+    () => studioCapabilities({
+      model,
+      supports: REQUEST_SUPPORTS,
+      managedLocal,
+      loraCount: sdStatus?.loras?.length ?? 0,
+    }),
+    [model, managedLocal, sdStatus?.loras?.length],
+  );
+  const nativeSize = useMemo(
+    () => (descriptor?.nativeWidth && descriptor.nativeHeight
+      ? { width: descriptor.nativeWidth, height: descriptor.nativeHeight }
+      : undefined),
+    [descriptor],
+  );
+  const size = useMemo(() => {
+    if (parameters.sizePreset === 'native' && nativeSize) return nativeSize;
+    if (parameters.sizePreset === 'custom') {
+      const width = Number(parameters.customWidth) || defaultBucket(family).width;
+      const height = Number(parameters.customHeight) || defaultBucket(family).height;
+      return { width, height };
+    }
+    const buckets = bucketsForFamily(family);
+    return buckets.find((bucket) => bucket.id === parameters.sizePreset) ?? defaultBucket(family);
+  }, [parameters.sizePreset, parameters.customWidth, parameters.customHeight, nativeSize, family]);
+
+  // Upscalers the server will resolve: the names every build knows without a
+  // file, plus whatever is actually sitting in the upscalers folder. Offering
+  // one it cannot find makes it refuse the whole request.
+  const upscalers = useMemo(() => [
+    ...SD_BUILTIN_HIRES_UPSCALERS,
+    ...(sdStatus?.companions ?? []).filter((file) => file.kind === 'upscaler').map((file) => file.name),
+  ], [sdStatus?.companions]);
+  const passSupport: PassSupportInput = useMemo(
+    () => ({ supports: REQUEST_SUPPORTS, managedLocal, upscalers }),
+    [managedLocal, upscalers],
+  );
+
+  /** The level, the chain and the batch mode are remembered per project. */
+  const persist = useCallback((changes: Partial<{
+    level: StudioLevel;
+    passChain: StudioPass[];
+    showAllSamplers: boolean;
+    batchSeedMode: ParametersState['batchSeedMode'];
+  }>) => {
+    writeStudioPrefs(projectId, {
+      level,
+      passChain: passes,
+      showAllSamplers,
+      batchSeedMode: parameters.batchSeedMode,
+      ...changes,
+    });
+  }, [projectId, level, passes, showAllSamplers, parameters.batchSeedMode]);
 
   // --- the resolution -------------------------------------------------------
   const mentions = useMemo(() => parseMentions(subjects, refs), [subjects, refs]);
@@ -212,6 +296,18 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
     () => resolve(mentions.refs, [mentions.rest, scene].filter(Boolean).join(', '), style, previewModel, resolveOptions),
     [mentions.refs, mentions.rest, scene, style, previewModel, resolveOptions],
   );
+
+  // References own their LoRAs; the stack adds the writer's own on top and
+  // drops duplicates, because a file loaded twice is not loaded twice as hard —
+  // the last multiplier wins and the reference silently loses its weight.
+  const loraStack = useMemo(
+    () => mergeStack(stackFromReferences(resolved.loras, refs), loraManual),
+    [resolved.loras, refs, loraManual],
+  );
+  // Wildcard lists are the project's own reusable fragments: this engine owns
+  // one table and it is not a wildcard store, so `__lighting__` reads the
+  // reference called "lighting" rather than a file nobody can see.
+  const wildcardFiles = useMemo(() => wildcardFilesFromRefs(refs), [refs]);
 
   const selectedRef = refs.find((row) => row.id === selectedRefId) ?? null;
   const heroRef = mentions.refs.find((row) => typeof row.heroSeed === 'number') ?? null;
@@ -239,36 +335,98 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
     : blocked('visualRef.reason.compareCount');
 
   // --- generating -----------------------------------------------------------
-  const runGeneration = async (override?: { seeds?: number[]; prompt?: string; negative?: string }) => {
+
+  /** A field the model cannot honour is never sent, whatever is in the box. */
+  const numeric = (text: string): number | undefined => (text.trim() ? Number(text) : undefined);
+
+  /**
+   * Everything one run needs, in one place.
+   *
+   * The composer's preview, the X/Y/Z plot and "vary this one" all go through
+   * this and then through `planRun`, because a preview built by a second code
+   * path is a preview of something else — and the resolved-prompt disclosure
+   * only means anything if what it shows is what is sent.
+   */
+  const planFor = (input: {
+    seed: number;
+    wildcardSeed?: number;
+    prompt?: string;
+    negative?: string;
+    cell?: XyzCell;
+    references?: { identity: string[]; control: { image: string; weight: number }[] };
+    refImageIds?: string[];
+    controlImageId?: string;
+    tags?: string[];
+  }) => {
+    const cell = input.cell?.overrides;
+    const chain = cell?.hiresDenoise === undefined
+      ? passes
+      : passes.map((pass) => (pass.kind === 'hires' ? { ...pass, denoise: cell.hiresDenoise } : pass));
+    return {
+      projectId,
+      route: effectiveRoute as AiRouteSelection,
+      resolved: {
+        ...resolved,
+        prompt: input.prompt ?? resolved.prompt,
+        negativePrompt: input.negative ?? resolved.negativePrompt,
+      },
+      composer: { subjects, scene, style },
+      width: size.width,
+      height: size.height,
+      seed: cell?.seed ?? input.seed,
+      wildcardSeed: input.wildcardSeed,
+      n: 1,
+      steps: cell?.steps ?? numeric(parameters.steps),
+      cfg: capabilities.cfg.enabled ? cell?.cfg ?? numeric(parameters.cfg) : undefined,
+      sampler: capabilities.sampler.enabled ? (cell?.sampler ?? (parameters.sampler || undefined)) : undefined,
+      scheduler: capabilities.scheduler.enabled ? (cell?.scheduler ?? (parameters.scheduler || undefined)) : undefined,
+      clipSkip: capabilities.clipSkip.enabled ? cell?.clipSkip ?? numeric(parameters.clipSkip) : undefined,
+      passes: chain,
+      passSupport,
+      loraStack,
+      wildcardFiles,
+      referenceImages: input.references?.identity,
+      controlNets: input.references?.control,
+      refImageIds: input.refImageIds,
+      controlImageId: input.controlImageId,
+      visualRefIds: mentions.refs.map((row) => row.id),
+      promptSuffix: cell?.promptSuffix,
+      tags: input.tags,
+    };
+  };
+
+  const runGeneration = async (override?: {
+    seeds?: number[];
+    prompt?: string;
+    negative?: string;
+    /** One X/Y/Z cell: what this run changes about the recipe on screen. */
+    cell?: XyzCell;
+    tags?: string[];
+  }) => {
     if (!model || !effectiveRoute || busy) return;
     setError(null);
     // The dice are rolled HERE, not in the resolver: a pure resolver is what
     // makes a recipe reproducible and a diff meaningful.
-    const seeds = override?.seeds
-      ?? (resolved.seedMode === 'explore' ? [rollSeed()] : [resolved.seed ?? rollSeed()]);
+    const base = resolved.seedMode === 'explore' ? rollSeed() : resolved.seed ?? rollSeed();
+    const seeds = override?.seeds ?? seedsForBatch(base, parameters.batch, parameters.batchSeedMode);
     const references = await resolveReferenceData();
-    const options = {
-      projectId,
-      route: effectiveRoute,
-      prompt: override?.prompt ?? resolved.prompt,
-      negativePrompt: override?.negative ?? resolved.negativePrompt,
-      width: size.width,
-      height: size.height,
-      n: override?.seeds ? 1 : parameters.batch,
-      steps: parameters.steps.trim() ? Number(parameters.steps) : undefined,
-      guidance: visibility.cfg && parameters.cfg.trim() ? Number(parameters.cfg) : undefined,
-      sampler: parameters.sampler || undefined,
-      scheduler: parameters.scheduler || undefined,
-      loras: resolved.loras.length
-        ? resolved.loras.map((lora) => ({ name: lora.fileName, weight: lora.weight }))
-        : undefined,
-      referenceImages: references.identity,
-      controlNets: references.control,
-      visualRefIds: mentions.refs.map((row) => row.id),
-      composer: { subjects, scene, style },
-    };
-    for (const seed of seeds) {
-      const request = { ...options, seed };
+    const refImageIds = resolved.referenceImages.filter((row) => row.role !== 'pose').map((row) => row.imageId);
+    const controlImageId = resolved.referenceImages.find((row) => row.role === 'pose')?.imageId;
+
+    for (const [index, seed] of seeds.entries()) {
+      const request = planRun(planFor({
+        seed,
+        // A fixed-seed batch varies only the wording: same noise, different
+        // wildcard picks, which is the only way that mode is worth having.
+        wildcardSeed: parameters.batchSeedMode === 'fixed' ? seed + index : seed,
+        prompt: override?.prompt,
+        negative: override?.negative,
+        cell: override?.cell,
+        references,
+        refImageIds,
+        controlImageId,
+        tags: override?.tags,
+      })).options;
       const started = startGeneration(request);
       setHandle(started);
       try {
@@ -282,6 +440,19 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
     }
     reloadImages();
   };
+
+  /**
+   * The prompt as it will actually be sent, resolved against the seed on
+   * screen. Shown under the composer so a wildcard is never a surprise: a
+   * recipe holding an unresolved `{a|b|c}` is not a recipe.
+   */
+  const preview = useMemo(
+    () => (effectiveRoute
+      ? planRun(planFor({ seed: resolved.seed ?? 0 }))
+      : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [resolved, parameters, passes, loraStack, wildcardFiles, size, effectiveRoute, capabilities],
+  );
 
   /** Turn the resolved image ids into the bytes the request would carry. */
   const resolveReferenceData = async (): Promise<{ identity: string[]; control: { image: string; weight: number }[] }> => {
@@ -303,6 +474,9 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
   const iterate = (image: InspirationImage) => {
     if (!image.generation) return;
     const recipe = readRecipe(image.generation);
+    // Read defensively: these ride on the row whether or not the shared type
+    // has grown a field for them, the same way `readRecipe` reads the rest.
+    const stored = image.generation as typeof image.generation & { passChain?: string; clipSkip?: number };
     // The model this was made with may be gone. Say so — never quietly pick the
     // nearest installed one, because then every stored recipe reproduces by
     // luck and the writer stops being able to trust any of them.
@@ -332,9 +506,14 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
       cfg: recipe.cfg === undefined ? '' : String(recipe.cfg),
       sampler: recipe.sampler ?? '',
       scheduler: recipe.scheduler ?? '',
+      clipSkip: stored.clipSkip === undefined ? '' : String(stored.clipSkip),
       seedMode: recipe.seed === undefined ? 'explore' : 'manual',
       manualSeed: recipe.seed === undefined ? '' : String(recipe.seed),
     }));
+    // The chain is part of the recipe: a picture made with a hires pass that
+    // comes back without one is not the same picture, and the writer would be
+    // iterating on something they never made.
+    if (stored.passChain) setPasses(parsePassChain(stored.passChain));
     setPane('composer');
   };
 
@@ -346,6 +525,52 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
       prompt: recipe?.prompt,
       negative: recipe?.negativePrompt,
     });
+  };
+
+  /**
+   * Re-point the knobs to this model's working point, and SAY so.
+   *
+   * Applied on the switch itself rather than in an effect: a writer who picks
+   * a model has asked for this, and the same change arriving invisibly on a
+   * background load would move a value they had just tuned by hand.
+   */
+  const applyDefaults = (next: AiRouteSelection) => {
+    const catalog = imageCatalogEntry(next.modelId);
+    const nextDescriptor = runtime.modelsByConnection[next.connectionId]?.models
+      .find((candidate) => candidate.id === next.modelId);
+    const defaults = defaultsForModel({
+      modelId: next.modelId,
+      family: nextDescriptor?.family ?? catalog?.family,
+      catalog,
+    });
+    setBeforeDefaults(parameters);
+    setAppliedDefaults(defaults.source);
+    setParameters((current) => ({
+      ...current,
+      sizePreset: defaults.bucketId,
+      steps: String(defaults.steps),
+      cfg: String(defaults.cfg),
+      sampler: defaults.sampler,
+      scheduler: defaults.scheduler ?? '',
+      clipSkip: defaults.clipSkip === undefined ? '' : String(defaults.clipSkip),
+    }));
+  };
+
+  const undoDefaults = () => {
+    if (beforeDefaults) setParameters(beforeDefaults);
+    setAppliedDefaults(null);
+    setBeforeDefaults(null);
+  };
+
+  /** One X/Y/Z cell per run, tagged so the grid can be found again in Gallery. */
+  const runPlot = async (cells: XyzCell[]) => {
+    // One seed for the whole plot: a grid whose cells each rolled their own
+    // noise shows the seed, not the axis, and is worth nothing. A seed axis
+    // overrides this per cell, which is the one time it should differ.
+    const seed = resolved.seed ?? rollSeed();
+    for (const cell of cells) {
+      await runGeneration({ seeds: [seed], cell, tags: ['xyz'] });
+    }
   };
 
   const batches: ResultBatch[] = useMemo(() => {
@@ -447,10 +672,19 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
             ))}
             <button
               type="button"
+              onClick={() => setPlotting(true)}
+              title={t('imageStudio.xyz.title')}
+              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] border border-border text-text-dim hover:text-accent-gold transition"
+            >
+              <Grid3x3 size={11} />
+              {t('imageStudio.xyz.title')}
+            </button>
+            <button
+              type="button"
               onClick={() => setComparing(true)}
               disabled={!compareAction.enabled}
               title={compareAction.enabled ? t('visualRef.action.compare') : t(compareAction.reasonKey ?? '')}
-              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] border border-border text-text-dim hover:text-accent-gold transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] border border-border text-text-dim hover:text-accent-gold transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <GitCompare size={11} />
               {t('visualRef.action.compare')} ({compareIds.length})
@@ -474,6 +708,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
                   <textarea
                     value={subjects}
                     onChange={(event) => setSubjects(event.target.value)}
+                    onKeyDown={(event) => onWeightKeyDown(event, setSubjects)}
                     onDrop={(event) => {
                       const name = event.dataTransfer.getData('text/plain');
                       if (!name) return;
@@ -496,6 +731,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
                     <input
                       value={scene}
                       onChange={(event) => setScene(event.target.value)}
+                      onKeyDown={(event) => onWeightKeyDown(event, setScene)}
                       placeholder={t('visualRef.composer.scenePlaceholder')}
                       className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
                     />
@@ -505,12 +741,25 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
                     <input
                       value={style}
                       onChange={(event) => setStyle(event.target.value)}
+                      onKeyDown={(event) => onWeightKeyDown(event, setStyle)}
                       placeholder={t('visualRef.composer.stylePlaceholder')}
                       className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
                     />
                   </label>
                 </div>
                 <ResolvedPrompt resolved={resolved} />
+                <PromptCraftBar
+                  prompt={preview?.options.prompt ?? resolved.prompt}
+                  wildcards={preview?.wildcards}
+                  unresolvedWildcards={preview?.unresolvedWildcards}
+                />
+                {/* A pass that is switched on and cannot run is said out loud
+                    here, next to the button that would have run it. */}
+                {preview?.refusedPasses.map((refusal) => (
+                  <p key={refusal.id} className="text-[10px] text-accent-amber">
+                    {t(`imageStudio.pass.${refusal.kind}`)}: {t(refusal.reasonKey)}
+                  </p>
+                ))}
                 <div className="flex items-center gap-2">
                   {busy && (
                     <button
@@ -555,6 +804,11 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
                   ))}
                   onIterate={iterate}
                   onVariations={variations}
+                  onUseSeed={(image) => {
+                    const seed = image.generation?.seed;
+                    if (seed === undefined) return;
+                    setParameters((current) => ({ ...current, seedMode: 'manual', manualSeed: String(seed) }));
+                  }}
                   onPinSeed={(image) => {
                     const seed = image.generation?.seed;
                     if (!selectedRef || seed === undefined) return;
@@ -593,18 +847,49 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
             onRoute={(next) => {
               setRoute(next ?? undefined);
               void saveProjectSettings(projectId, { imageRoute: next ?? undefined });
+              if (next && next.modelId !== effectiveRoute?.modelId) applyDefaults(next);
             }}
-            visibility={visibility}
+            level={level}
+            onLevel={(next) => { setLevel(next); persist({ level: next }); }}
+            capabilities={capabilities}
             value={parameters}
-            onChange={(changes) => setParameters((current) => ({ ...current, ...changes }))}
-            hasModel={model !== null}
-            hasHeroSeed={heroRef !== null}
+            onChange={(changes) => {
+              setParameters((current) => ({ ...current, ...changes }));
+              if (changes.batchSeedMode) persist({ batchSeedMode: changes.batchSeedMode });
+            }}
+            family={family}
             nativeSize={nativeSize}
+            size={size}
+            appliedDefaults={appliedDefaults}
+            onUndoDefaults={undoDefaults}
+            onReapplyDefaults={() => { if (effectiveRoute) applyDefaults(effectiveRoute); }}
+            showAllSamplers={showAllSamplers}
+            onShowAllSamplers={(next) => { setShowAllSamplers(next); persist({ showAllSamplers: next }); }}
+            hasHeroSeed={heroRef !== null}
+            passes={passes}
+            onPasses={(next) => { setPasses(next); persist({ passChain: next }); }}
+            passSupport={passSupport}
+            upscalers={upscalers}
+            loraStack={loraStack}
+            loraManual={loraManual}
+            onLoraManual={setLoraManual}
+            availableLoras={sdStatus?.loras ?? []}
+            lorasDir={sdStatus?.lorasDir}
+            resolvedPrompt={preview?.options.prompt ?? resolved.prompt}
           />
         </aside>
       </div>
 
       <CompareDialog open={comparing} images={compareImages} onClose={() => setComparing(false)} />
+
+      <XyzPlotDialog
+        open={plotting}
+        onClose={() => setPlotting(false)}
+        capabilities={capabilities}
+        canGenerate={generateAction.enabled}
+        generateReasonKey={generateAction.reasonKey}
+        onRun={(cells) => { void runPlot(cells); }}
+      />
 
       {selectedRef && (
         <DatasetExportDialog

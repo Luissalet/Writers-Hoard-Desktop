@@ -1,166 +1,302 @@
 // ============================================================================
-// Parameters — the knobs, and the ones this model cannot turn
+// Parameters — three levels, and the ones this model cannot turn
 // ============================================================================
 //
-// The studio used to hide the cfg slider for FLUX by name. That instinct is
-// right and the special case is not, so what decides here is
-// `parameterVisibility(model)`: a field is offered when the chosen model can
-// honour it and refused when it cannot.
+// What decides here is `studioCapabilities(...)`: a field is offered when the
+// chosen model, the backend and the request shape can all honour it, and
+// refused when any of them cannot — with the reason that actually applies, not
+// the nearest one. "No model is connected", "this model runs at a fixed
+// guidance" and "the request has no field for this yet" are three different
+// facts and the writer can act on each of them differently.
 //
-// Refused, not removed. The same contract that asks the fields to answer to the
-// model also says a feature that cannot run must stay visible and disabled with
-// a reason — hiding it teaches the writer that this program has no cfg slider,
-// and they never find out that the distilled model they picked is the reason.
+// Refused, never removed. A vanished CFG slider teaches "this app has no CFG"
+// instead of "the model you picked has a fixed one", and the writer goes
+// looking for another program.
 
-import { Dices, Lock, LockOpen } from 'lucide-react';
+import { Dices, Lock, LockOpen, RotateCcw } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import ModelRoutePicker from '@/components/ai-settings/ModelRoutePicker';
+import type { SdLoraFile } from '@/services/aiRuntime/sdServer';
 import type { AiRouteSelection } from '@/services/aiRuntime/types';
 import type { SeedMode } from '@/services/visualRef';
-import type { ParameterVisibility } from '../studioModel';
-import { IMAGE_SIZE_PRESETS } from '../operations';
-
-const SAMPLERS = ['euler', 'euler_a', 'heun', 'dpm++2m', 'dpm++2s_a', 'lcm'] as const;
-const SCHEDULERS = ['discrete', 'karras', 'exponential', 'ays'] as const;
+import {
+  CURATED_SAMPLERS,
+  CURATED_SCHEDULERS,
+  allSamplers,
+  allSchedulers,
+  bucketsForFamily,
+  isFieldAtLevel,
+  isOffBucket,
+  samplerKey,
+  type BatchSeedMode,
+  type DefaultsSource,
+  type LoraStackEntry,
+  type PassSupportInput,
+  type StudioCapabilities,
+  type StudioLevel,
+  type StudioPass,
+} from '../studio';
+import LevelSwitcher from './LevelSwitcher';
+import LoraStack from './LoraStack';
+import ParameterField, { FIELD_CLASS, MONO_FIELD_CLASS } from './ParameterField';
+import PassChainEditor from './PassChainEditor';
 
 export interface ParametersState {
+  /** A bucket id ("1024x1024"), `native`, or `custom`. */
   sizePreset: string;
+  customWidth: string;
+  customHeight: string;
   steps: string;
   cfg: string;
   sampler: string;
   scheduler: string;
+  clipSkip: string;
   seedMode: SeedMode;
   manualSeed: string;
   batch: number;
+  batchSeedMode: BatchSeedMode;
 }
 
 export interface ParametersColumnProps {
   route?: AiRouteSelection;
   onRoute: (route: AiRouteSelection | null) => void;
-  visibility: ParameterVisibility;
+  level: StudioLevel;
+  onLevel: (level: StudioLevel) => void;
+  capabilities: StudioCapabilities;
   value: ParametersState;
   onChange: (changes: Partial<ParametersState>) => void;
-  /** False when no image model is chosen: changes what a refused field means. */
-  hasModel: boolean;
-  /** Whether the reference in the composer actually has a hero seed to lock to. */
-  hasHeroSeed: boolean;
+  /** Checkpoint family, which decides the buckets and the working point. */
+  family?: string;
   nativeSize?: { width: number; height: number };
+  /** The size the base pass will actually run at, after the preset is resolved. */
+  size: { width: number; height: number };
+  /** Which rule last re-pointed the knobs, so the panel can say why and undo it. */
+  appliedDefaults: DefaultsSource | null;
+  onUndoDefaults: () => void;
+  onReapplyDefaults: () => void;
+  showAllSamplers: boolean;
+  onShowAllSamplers: (value: boolean) => void;
+  /** Whether any reference in this prompt has a hero seed to lock to. */
+  hasHeroSeed: boolean;
+
+  passes: StudioPass[];
+  onPasses: (passes: StudioPass[]) => void;
+  passSupport: PassSupportInput;
+  upscalers: readonly string[];
+
+  loraStack: readonly LoraStackEntry[];
+  loraManual: readonly LoraStackEntry[];
+  onLoraManual: (entries: LoraStackEntry[]) => void;
+  availableLoras: readonly SdLoraFile[];
+  lorasDir?: string | null;
+  resolvedPrompt: string;
 }
 
-/** A field the model cannot honour: still there, still labelled, not usable. */
-function fieldClass(enabled: boolean): string {
-  return enabled ? '' : 'opacity-45';
-}
-
-export default function ParametersColumn({
-  route, onRoute, visibility, value, onChange, hasModel, hasHeroSeed, nativeSize,
-}: ParametersColumnProps) {
+export default function ParametersColumn(props: ParametersColumnProps) {
   const { t } = useTranslation();
-  // With no model chosen, every field is refused for the same reason, and it is
-  // not "this model runs at a fixed guidance" — saying that about a model the
-  // writer has not picked is the kind of confident wrong answer that makes a
-  // panel untrustworthy.
-  const noModel = t('visualRef.reason.noModel');
-  const refused = (available: boolean, reason: string): string | undefined => {
-    if (available) return undefined;
-    return hasModel ? reason : noModel;
-  };
-  const cfgReason = refused(visibility.cfg, t('visualRef.reason.cfgFixed'));
-  const samplerReason = refused(visibility.sampler, t('visualRef.reason.serverChoosesSampler'));
-  const schedulerReason = refused(visibility.scheduler, t('visualRef.reason.serverChoosesSampler'));
+  const {
+    route, onRoute, level, onLevel, capabilities, value, onChange, family, nativeSize, size,
+    appliedDefaults, onUndoDefaults, onReapplyDefaults, showAllSamplers, onShowAllSamplers, hasHeroSeed,
+  } = props;
+
+  const buckets = bucketsForFamily(family);
+  const offBucket = isOffBucket(family, size.width, size.height);
+  const samplers = showAllSamplers ? allSamplers() : CURATED_SAMPLERS;
+  const schedulers = showAllSamplers ? allSchedulers() : CURATED_SCHEDULERS;
+  const at = (field: Parameters<typeof isFieldAtLevel>[0]) => isFieldAtLevel(field, level);
 
   return (
     <div className="space-y-3">
       <h3 className="text-xs font-semibold text-text-primary">{t('visualRef.params.title')}</h3>
 
-      <label className="block">
-        <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.model')}</span>
-        <ModelRoutePicker type="image" value={route} onChange={onRoute} allowNone={false} />
-      </label>
+      <LevelSwitcher value={level} onChange={onLevel} />
 
-      <label className="block">
-        <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.size')}</span>
+      <ParameterField label={t('imageStudio.model')} state={capabilities.model}>
+        <ModelRoutePicker type="image" value={route} onChange={onRoute} allowNone={false} />
+      </ParameterField>
+
+      {!appliedDefaults && at('steps') && capabilities.model.enabled && route && (
+        <button
+          type="button"
+          onClick={onReapplyDefaults}
+          className="inline-flex items-center gap-1 text-[10px] text-text-dim hover:text-accent-gold transition"
+        >
+          <RotateCcw size={10} />
+          {t('imageStudio.why.reapply')}
+        </button>
+      )}
+
+      {appliedDefaults && at('steps') && (
+        <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/5 px-2 py-1.5 space-y-1">
+          {/* Silent retuning is worse than no retuning: the writer changes model,
+              their steps value moves, and they never learn that it did. */}
+          <p className="text-[10px] text-text-muted">{t(`imageStudio.why.${appliedDefaults}`)}</p>
+          <button
+            type="button"
+            onClick={onUndoDefaults}
+            className="inline-flex items-center gap-1 text-[10px] text-accent-gold hover:underline"
+          >
+            <RotateCcw size={10} />
+            {t('imageStudio.why.undo')}
+          </button>
+        </div>
+      )}
+
+      <ParameterField
+        label={t('imageStudio.size')}
+        state={capabilities.size}
+        hint={offBucket ? undefined : `${size.width}×${size.height}`}
+      >
         <select
           value={value.sizePreset}
+          disabled={!capabilities.size.enabled}
           onChange={(event) => onChange({ sizePreset: event.target.value })}
-          className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold"
+          className={FIELD_CLASS}
         >
           {nativeSize && (
             <option value="native">
               {t('imageStudio.size.native')} · {nativeSize.width}×{nativeSize.height}
             </option>
           )}
-          {IMAGE_SIZE_PRESETS.map((preset) => (
-            <option key={preset.id} value={preset.id}>
-              {t(`imageStudio.size.${preset.labelKey}`)} · {preset.width}×{preset.height}
+          {buckets.map((bucket) => (
+            <option key={bucket.id} value={bucket.id}>
+              {bucket.ratio} · {bucket.width}×{bucket.height}
             </option>
           ))}
+          {at('sigmas') && <option value="custom">{t('imageStudio.size.custom')}</option>}
         </select>
-      </label>
+      </ParameterField>
 
-      <div className="grid grid-cols-2 gap-2">
-        <label className={`block ${fieldClass(visibility.steps)}`}>
-          <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.steps')}</span>
-          <input
-            value={value.steps}
-            disabled={!visibility.steps}
-            title={visibility.steps ? undefined : noModel}
-            onChange={(event) => onChange({ steps: event.target.value.replace(/[^\d]/g, '') })}
-            placeholder={t('imageStudio.stepsPlaceholder')}
-            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] font-mono text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
-          />
-        </label>
-        <label className={`block ${fieldClass(visibility.cfg)}`}>
-          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.params.cfg')}</span>
-          <input
-            value={value.cfg}
-            disabled={!visibility.cfg}
-            title={cfgReason}
-            onChange={(event) => onChange({ cfg: event.target.value.replace(/[^\d.]/g, '') })}
-            placeholder={t('visualRef.params.cfgPlaceholder')}
-            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] font-mono text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
-          />
-        </label>
-      </div>
-      {cfgReason && <p className="text-[10px] text-accent-amber">{cfgReason}</p>}
+      {/* Most "why does this look wrong" is an off-bucket size: the duplicated
+          heads and stretched torsos are what a model does outside the aspect
+          ratios its weights were trained on. */}
+      {offBucket && <p className="text-[10px] text-accent-amber">{t('imageStudio.size.offBucket')}</p>}
 
-      <div className="grid grid-cols-2 gap-2">
-        <label className={`block ${fieldClass(visibility.sampler)}`}>
-          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.params.sampler')}</span>
+      {value.sizePreset === 'custom' && at('sigmas') && (
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block">
+            <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.size.width')}</span>
+            <input
+              value={value.customWidth}
+              onChange={(event) => onChange({ customWidth: event.target.value.replace(/[^\d]/g, '') })}
+              className={MONO_FIELD_CLASS}
+            />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.size.height')}</span>
+            <input
+              value={value.customHeight}
+              onChange={(event) => onChange({ customHeight: event.target.value.replace(/[^\d]/g, '') })}
+              className={MONO_FIELD_CLASS}
+            />
+          </label>
+        </div>
+      )}
+
+      {at('steps') && (
+        <div className="grid grid-cols-2 gap-2">
+          <ParameterField label={t('imageStudio.steps')} state={capabilities.steps}>
+            <input
+              value={value.steps}
+              disabled={!capabilities.steps.enabled}
+              onChange={(event) => onChange({ steps: event.target.value.replace(/[^\d]/g, '') })}
+              placeholder={t('imageStudio.stepsPlaceholder')}
+              className={MONO_FIELD_CLASS}
+            />
+          </ParameterField>
+          <ParameterField label={t('visualRef.params.cfg')} state={capabilities.cfg}>
+            <input
+              value={value.cfg}
+              disabled={!capabilities.cfg.enabled}
+              onChange={(event) => onChange({ cfg: event.target.value.replace(/[^\d.]/g, '') })}
+              placeholder={t('visualRef.params.cfgPlaceholder')}
+              className={MONO_FIELD_CLASS}
+            />
+          </ParameterField>
+        </div>
+      )}
+
+      {at('sampler') && (
+        <ParameterField
+          label={t('visualRef.params.sampler')}
+          state={capabilities.sampler}
+          hint={value.sampler ? t(`imageStudio.sampler.${samplerKey(value.sampler)}`) : undefined}
+        >
           <select
             value={value.sampler}
-            disabled={!visibility.sampler}
-            title={samplerReason}
+            disabled={!capabilities.sampler.enabled}
             onChange={(event) => onChange({ sampler: event.target.value })}
-            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
+            className={FIELD_CLASS}
           >
             <option value="">{t('visualRef.params.auto')}</option>
-            {SAMPLERS.map((sampler) => <option key={sampler} value={sampler}>{sampler}</option>)}
+            {samplers.map((entry) => (
+              <option key={entry.id} value={entry.id} title={t(`imageStudio.sampler.${entry.key}`)}>
+                {entry.id}
+              </option>
+            ))}
           </select>
-        </label>
-        <label className={`block ${fieldClass(visibility.scheduler)}`}>
-          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.params.scheduler')}</span>
+        </ParameterField>
+      )}
+
+      {at('scheduler') && (
+        <ParameterField
+          label={t('visualRef.params.scheduler')}
+          state={capabilities.scheduler}
+          hint={value.scheduler ? t(`imageStudio.scheduler.${samplerKey(value.scheduler)}`) : undefined}
+        >
           <select
             value={value.scheduler}
-            disabled={!visibility.scheduler}
-            title={schedulerReason}
+            disabled={!capabilities.scheduler.enabled}
             onChange={(event) => onChange({ scheduler: event.target.value })}
-            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
+            className={FIELD_CLASS}
           >
             <option value="">{t('visualRef.params.auto')}</option>
-            {SCHEDULERS.map((scheduler) => <option key={scheduler} value={scheduler}>{scheduler}</option>)}
+            {schedulers.map((entry) => (
+              <option key={entry.id} value={entry.id} title={t(`imageStudio.scheduler.${entry.key}`)}>
+                {entry.id}
+              </option>
+            ))}
           </select>
-        </label>
-      </div>
+        </ParameterField>
+      )}
 
-      <div>
-        <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.seed')}</span>
+      {at('allSamplers') && (
+        <label className="flex items-center gap-1.5 text-[10px] text-text-muted">
+          <input
+            type="checkbox"
+            checked={showAllSamplers}
+            disabled={!capabilities.allSamplers.enabled}
+            onChange={(event) => onShowAllSamplers(event.target.checked)}
+            className="accent-accent-gold disabled:cursor-not-allowed"
+          />
+          {t('imageStudio.sampler.showAll')}
+        </label>
+      )}
+
+      {at('clipSkip') && (
+        <ParameterField
+          label={t('imageStudio.clipSkip')}
+          state={capabilities.clipSkip}
+          hint={t('imageStudio.clipSkip.hint')}
+        >
+          <input
+            value={value.clipSkip}
+            disabled={!capabilities.clipSkip.enabled}
+            onChange={(event) => onChange({ clipSkip: event.target.value.replace(/[^\d]/g, '') })}
+            placeholder="1"
+            className={MONO_FIELD_CLASS}
+          />
+        </ParameterField>
+      )}
+
+      <ParameterField label={t('imageStudio.seed')} state={capabilities.seed} as="div">
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => onChange({ seedMode: value.seedMode === 'lock' ? 'explore' : 'lock' })}
             disabled={!hasHeroSeed && value.seedMode !== 'lock'}
             title={hasHeroSeed ? t('visualRef.params.lockSeed') : t('visualRef.reason.noHeroSeed')}
+            aria-label={hasHeroSeed ? t('visualRef.params.lockSeed') : t('visualRef.reason.noHeroSeed')}
             className={`p-1.5 rounded-lg border transition disabled:opacity-40 disabled:cursor-not-allowed ${
               value.seedMode === 'lock'
                 ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold'
@@ -171,6 +307,7 @@ export default function ParametersColumn({
           </button>
           <input
             value={value.manualSeed}
+            aria-label={t('imageStudio.seed')}
             onChange={(event) => onChange({ manualSeed: event.target.value.replace(/[^\d]/g, ''), seedMode: 'manual' })}
             placeholder={t('imageStudio.seedPlaceholder')}
             className="flex-1 min-w-0 px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] font-mono text-text-primary outline-none focus:border-accent-gold"
@@ -179,6 +316,7 @@ export default function ParametersColumn({
             type="button"
             onClick={() => onChange({ seedMode: 'explore', manualSeed: '' })}
             title={t('visualRef.params.exploreSeed')}
+            aria-label={t('visualRef.params.exploreSeed')}
             className={`p-1.5 rounded-lg border transition ${
               value.seedMode === 'explore'
                 ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold'
@@ -189,18 +327,109 @@ export default function ParametersColumn({
           </button>
         </div>
         <p className="text-[10px] text-text-dim mt-1">{t(`visualRef.params.seedMode.${value.seedMode}`)}</p>
+      </ParameterField>
+
+      <div className="grid grid-cols-2 gap-2">
+        <ParameterField label={t('visualRef.params.batch')} state={capabilities.batch}>
+          <select
+            value={value.batch}
+            disabled={!capabilities.batch.enabled}
+            onChange={(event) => onChange({ batch: Number(event.target.value) })}
+            className={FIELD_CLASS}
+          >
+            {[1, 2, 3, 4, 6, 8].map((count) => <option key={count} value={count}>{count}</option>)}
+          </select>
+        </ParameterField>
+        <ParameterField
+          label={t('imageStudio.batchSeed')}
+          state={capabilities.batch}
+          hint={t(`imageStudio.batchSeed.${value.batchSeedMode}.what`)}
+        >
+          <select
+            value={value.batchSeedMode}
+            disabled={!capabilities.batch.enabled}
+            onChange={(event) => onChange({ batchSeedMode: event.target.value as BatchSeedMode })}
+            className={FIELD_CLASS}
+          >
+            <option value="incremental">{t('imageStudio.batchSeed.incremental')}</option>
+            <option value="fixed">{t('imageStudio.batchSeed.fixed')}</option>
+          </select>
+        </ParameterField>
       </div>
 
-      <label className="block">
-        <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.params.batch')}</span>
-        <select
-          value={value.batch}
-          onChange={(event) => onChange({ batch: Number(event.target.value) })}
-          className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold"
+      {at('loraStack') && (
+        <LoraStack
+          stack={props.loraStack}
+          manual={props.loraManual}
+          onChangeManual={props.onLoraManual}
+          available={props.availableLoras}
+          state={capabilities.loraStack}
+          prompt={props.resolvedPrompt}
+          lorasDir={props.lorasDir}
+        />
+      )}
+
+      {at('passChain') && (
+        capabilities.passChain.enabled ? (
+          <PassChainEditor
+            passes={props.passes}
+            onChange={props.onPasses}
+            support={props.passSupport}
+            upscalers={props.upscalers}
+            baseWidth={size.width}
+            baseHeight={size.height}
+          />
+        ) : (
+          <ParameterField label={t('imageStudio.chain.title')} state={capabilities.passChain} as="div">
+            <p className="text-[10px] text-text-dim">{t('imageStudio.chain.what')}</p>
+          </ParameterField>
+        )
+      )}
+
+      {at('inpaint') && (
+        // The request can carry a mask; the studio has nowhere to paint one yet.
+        // That is a different sentence from "this model cannot inpaint", and the
+        // writer is owed the true one.
+        <ParameterField
+          label={t('imageStudio.inpaint')}
+          state={capabilities.inpaint.enabled
+            ? { enabled: false, reasonKey: 'imageStudio.reason.noMaskEditor' }
+            : capabilities.inpaint}
+          as="div"
         >
-          {[1, 2, 3, 4].map((count) => <option key={count} value={count}>{count}</option>)}
-        </select>
-      </label>
+          <p className="text-[10px] text-text-dim">{t('imageStudio.inpaint.what')}</p>
+        </ParameterField>
+      )}
+
+      {at('sigmas') && (
+        <div className="space-y-2 pt-1 border-t border-border/60">
+          <h4 className="text-[10px] text-text-muted">{t('imageStudio.expert.title')}</h4>
+          <ExpertField label={t('imageStudio.sigmas')} state={capabilities.sigmas} placeholder="0.03, 0.1, 0.5, 1.2" />
+          <ExpertField label={t('imageStudio.slg')} state={capabilities.slg} placeholder="7, 8, 9" />
+          <ExpertField label={t('imageStudio.apg')} state={capabilities.apg} placeholder="eta 1.0" />
+          <ExpertField label={t('imageStudio.cacheMode')} state={capabilities.cacheMode} placeholder="none" />
+          <ExpertField label={t('imageStudio.variationSeed')} state={capabilities.variationSeed} placeholder="0.00" />
+          <ExpertField label={t('imageStudio.rawJson')} state={capabilities.rawJson} placeholder="{ }" />
+        </div>
+      )}
     </div>
+  );
+}
+
+/**
+ * An Expert knob the request cannot carry yet.
+ *
+ * Rendered as a real, disabled input rather than as a line of prose, because
+ * the point is that the writer can SEE the control they are looking for and
+ * read why it is not usable — which is what tells them it is coming rather
+ * than absent.
+ */
+function ExpertField({
+  label, state, placeholder,
+}: { label: string; state: { enabled: boolean; reasonKey?: string }; placeholder: string }) {
+  return (
+    <ParameterField label={label} state={state}>
+      <input value="" readOnly disabled placeholder={placeholder} className={MONO_FIELD_CLASS} />
+    </ParameterField>
   );
 }
