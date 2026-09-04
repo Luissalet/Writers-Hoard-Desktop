@@ -597,6 +597,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
             visibility={visibility}
             value={parameters}
             onChange={(changes) => setParameters((current) => ({ ...current, ...changes }))}
+            hasModel={model !== null}
             hasHeroSeed={heroRef !== null}
             nativeSize={nativeSize}
           />
