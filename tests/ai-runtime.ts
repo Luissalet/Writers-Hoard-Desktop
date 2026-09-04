@@ -17,8 +17,28 @@ import { SCOPE_KEY } from '@/services/aiBridge/schema';
 import { computeFit, estimateKvCacheBytes, inferActiveParams, parseParameterSize, quantBitsFromLabel, withMeasuredSpeed } from '@/services/aiRuntime/fit';
 import { mergeSpeedSample, speedFromTiming } from '@/services/aiRuntime/metrics';
 import { pickBestChatModel, rankChatModels } from '@/services/aiRuntime/pickModel';
-import { imageCatalogEntry, LOCAL_IMAGE_CATALOG } from '@/services/aiRuntime/imageCatalog';
-import { buildSdJobPayload, buildSdServerArgs, computeImageFit, SD_SERVER_PORT, snap } from '@/services/aiRuntime/sdServer';
+import { imageCatalogEntry, imageCompanionAsset, LOCAL_IMAGE_CATALOG, LOCAL_IMAGE_COMPANIONS } from '@/services/aiRuntime/imageCatalog';
+import {
+  buildSdJobPayload,
+  buildSdServerArgs,
+  clampControlStrength,
+  computeImageFit,
+  isSdSampler,
+  isSdScheduler,
+  SD_BUILTIN_HIRES_UPSCALERS,
+  SD_CONTROL_STRENGTH_DEFAULT,
+  SD_SERVER_PORT,
+  snap,
+} from '@/services/aiRuntime/sdServer';
+import {
+  PARAMETERS_KEYWORD,
+  parseA1111Parameters,
+  readPngMetadata,
+  readSdcppRecord,
+  WRITERS_HOARD_KEYWORD,
+  writePngMetadata,
+} from '@/services/imageMetadata';
+import type { ImageGenerationInfo } from '@/types';
 import { catalogEntry, LOCAL_MODEL_CATALOG } from '@/services/aiRuntime/catalog';
 import { createToolExecutor, type AuditLine } from '@/services/aiRuntime/executorCore';
 import { buildCopilotSystemPrompt } from '@/services/aiRuntime/prompts';
@@ -251,6 +271,241 @@ function testLocalImageRuntime(): void {
   assert(!('init_image' in loneStrength) && !('strength' in loneStrength), 'strength without an init image must not leak into txt2img');
 }
 
+/**
+ * The request surface of the managed stable-diffusion.cpp server.
+ *
+ * Every key asserted here was read out of the server's own parser
+ * (`SDGenerationParams::from_json_str`) at the pinned build, not out of the CLI
+ * help — the two disagree, and a key the parser does not read is worse than a
+ * missing feature because the request still succeeds and the studio then claims
+ * the reference image or the mask was used.
+ */
+function testSdRequestSurface(): void {
+  const sd15 = imageCatalogEntry('sd15-q8');
+  const kontext = imageCatalogEntry('flux-kontext-dev-q4');
+  assert(sd15 && kontext, 'image catalogue lost an entry these tests need');
+  const base = { connectionId: 'builtin-sd', modelId: 'sd15-q8', prompt: 'a lighthouse', width: 512, height: 512, n: 1 };
+
+  // THE compatibility guarantee: a request that asks for none of the new
+  // fields still produces exactly the payload it did before, key for key and
+  // in the same order. Only `embed_image_metadata` moved, deliberately.
+  const plain = buildSdJobPayload(base, sd15);
+  assert(
+    JSON.stringify(plain) ===
+      JSON.stringify({
+        prompt: 'a lighthouse',
+        negative_prompt: '',
+        width: 512,
+        height: 512,
+        seed: -1,
+        batch_count: 1,
+        sample_params: {
+          sample_method: 'euler_a',
+          sample_steps: 20,
+          guidance: { txt_cfg: 7, distilled_guidance: 3.5 },
+        },
+        output_format: 'png',
+        embed_image_metadata: true,
+      }),
+    `a plain request no longer produces the payload it used to: ${JSON.stringify(plain)}`,
+  );
+  for (const key of ['ref_images', 'increase_ref_index', 'auto_resize_ref_image', 'control_image', 'control_strength', 'mask_image', 'hires', 'lora', 'init_image', 'strength']) {
+    assert(!(key in plain), `an unrequested field leaked into the payload: ${key}`);
+  }
+
+  // Reference images: the server name is `ref_images`, and only a model that
+  // actually conditions on them may be sent them.
+  const refs = ['data:image/png;base64,AAAA', 'data:image/png;base64,BBBB'];
+  const withRefs = buildSdJobPayload({ ...base, modelId: 'flux-kontext-dev-q4', refImages: refs, increaseRefIndex: true, disableAutoResizeRefImage: true }, kontext) as Record<string, unknown>;
+  assert(JSON.stringify(withRefs.ref_images) === JSON.stringify(refs), 'ref_images must pass through in order');
+  assert(withRefs.increase_ref_index === true, 'increase_ref_index not sent');
+  assert(withRefs.auto_resize_ref_image === false, 'disabling the auto resize must send auto_resize_ref_image: false');
+  const refsOnSd15 = buildSdJobPayload({ ...base, refImages: refs }, sd15) as Record<string, unknown>;
+  assert(!('ref_images' in refsOnSd15), 'a model that ignores references must not be sent them');
+  const noRefFlags = buildSdJobPayload({ ...base, modelId: 'flux-kontext-dev-q4', refImages: refs }, kontext) as Record<string, unknown>;
+  assert(!('increase_ref_index' in noRefFlags) && !('auto_resize_ref_image' in noRefFlags), 'reference flags must stay off the wire unless asked for');
+
+  // ControlNet: the hint is `control_image`, its weight `control_strength`, and
+  // the weight lives in the band that holds a pose without dragging the
+  // reference's clothes and hair along with it.
+  const control = buildSdJobPayload({ ...base, controlImage: 'data:image/png;base64,CCCC' }, sd15) as Record<string, unknown>;
+  assert(control.control_image === 'data:image/png;base64,CCCC', 'control_image not sent');
+  assert(control.control_strength === SD_CONTROL_STRENGTH_DEFAULT && SD_CONTROL_STRENGTH_DEFAULT === 0.55, 'control strength must default to 0.55');
+  assert(clampControlStrength(1.4) === 0.9 && clampControlStrength(0) === 0.1 && clampControlStrength(0.62) === 0.62, 'control strength band');
+  assert(clampControlStrength(Number.NaN) === 0.55 && clampControlStrength('0.7') === 0.55, 'a non-number control strength must fall back to the default');
+  const strengthOnly = buildSdJobPayload({ ...base, controlStrength: 0.7 }, sd15) as Record<string, unknown>;
+  assert(!('control_strength' in strengthOnly), 'a control strength without a hint image must not leak');
+
+  // Inpainting: `mask_image`, and only ever beside an init image.
+  const masked = buildSdJobPayload({ ...base, initImage: 'data:image/png;base64,DDDD', maskImage: 'data:image/png;base64,EEEE' }, sd15) as Record<string, unknown>;
+  assert(masked.mask_image === 'data:image/png;base64,EEEE' && masked.init_image === 'data:image/png;base64,DDDD', 'mask_image not sent with its init image');
+  const loneMask = buildSdJobPayload({ ...base, maskImage: 'data:image/png;base64,EEEE' }, sd15) as Record<string, unknown>;
+  assert(!('mask_image' in loneMask), 'a mask without an init image would repaint the whole frame');
+
+  // Hires fix: a nested `hires` object, `denoising_strength` rather than the
+  // CLI's spelling, and an upscaler the runtime can actually name.
+  const hires = buildSdJobPayload({ ...base, hiresFix: { upscaler: 'Latent', scale: 9, steps: 12, denoisingStrength: 2, tileSize: 256 } }, sd15) as { hires?: Record<string, unknown> };
+  assert(hires.hires?.enabled === true && hires.hires.upscaler === 'Latent', 'hires block not sent');
+  assert(hires.hires?.scale === 4 && hires.hires.steps === 12 && hires.hires.denoising_strength === 1 && hires.hires.upscale_tile_size === 256, 'hires values must clamp and use the server spelling');
+  assert((SD_BUILTIN_HIRES_UPSCALERS as readonly string[]).includes('Latent') && (SD_BUILTIN_HIRES_UPSCALERS as readonly string[]).includes('Lanczos'), 'built-in upscaler names');
+
+  // LoRA: the structured field, because this build refuses to read a
+  // <lora:...> token out of a prompt on any server API — it would reach the
+  // text encoder as literal words instead.
+  const lora = buildSdJobPayload({ ...base, loras: [{ name: 'sombra', weight: 0.8, fileName: 'sombra.safetensors' }] }, sd15) as { prompt: string; lora?: { path: string; multiplier: number }[] };
+  assert(lora.prompt === 'a lighthouse', 'the prompt must stay the text the author wrote');
+  assert(lora.lora?.length === 1 && lora.lora[0].path === 'sombra.safetensors' && lora.lora[0].multiplier === 0.8, 'lora must ride in the structured field, keyed by file name');
+  const badLora = buildSdJobPayload({ ...base, loras: [{ name: 'a:b', weight: 1 }] }, sd15) as Record<string, unknown>;
+  assert(!('lora' in badLora), 'a name the server could not resolve must not be sent');
+
+  // Sampler and scheduler: the server drops a name it does not know and uses
+  // its default, silently. So an unknown name must never leave here.
+  assert(isSdSampler('dpm++2m') && isSdSampler('euler_a') && !isSdSampler('DPM++ 2M Karras'), 'sampler table');
+  assert(isSdScheduler('karras') && !isSdScheduler('Karras'), 'scheduler table');
+  const sampled = buildSdJobPayload({ ...base, sampler: 'heun', scheduler: 'exponential' }, sd15) as { sample_params: Record<string, unknown> };
+  assert(sampled.sample_params.sample_method === 'heun' && sampled.sample_params.scheduler === 'exponential', 'a valid sampler and scheduler must reach the server');
+  const bogus = buildSdJobPayload({ ...base, sampler: 'nonesuch', scheduler: 'nonesuch' }, sd15) as { sample_params: Record<string, unknown> };
+  assert(bogus.sample_params.sample_method === 'euler_a' && !('scheduler' in bogus.sample_params), 'an unknown name must fall back rather than be sent');
+
+  // Kontext is not step-distilled: its distilled guidance is the catalogue's,
+  // not the family's 1.
+  const kontextPayload = buildSdJobPayload({ ...base, modelId: 'flux-kontext-dev-q4' }, kontext) as { sample_params: { guidance: Record<string, number> } };
+  assert(kontextPayload.sample_params.guidance.distilled_guidance === 2.5, 'Kontext must carry its own distilled guidance');
+  const schnell = imageCatalogEntry('flux-schnell-q4');
+  assert(schnell && (buildSdJobPayload({ ...base, modelId: 'flux-schnell-q4' }, schnell) as { sample_params: { guidance: Record<string, number> } }).sample_params.guidance.distilled_guidance === 1, 'the FLUX family rule must still apply where no default is set');
+
+  // Companions are pinned exactly as models are, and the ControlNet ones are
+  // only ever offered for the family they were trained against.
+  const companionIds = new Set<string>();
+  for (const companion of LOCAL_IMAGE_COMPANIONS) {
+    assert(/^[a-z0-9][a-z0-9-]*$/.test(companion.id) && !companionIds.has(companion.id), `companion id ${companion.id} malformed or duplicated`);
+    companionIds.add(companion.id);
+    assert(companion.url.startsWith('https://huggingface.co/') && /\/resolve\/main\//.test(companion.url), `${companion.id} is not a pinned Hugging Face file`);
+    assert(companion.sizeBytes > 1_000_000 && /^[0-9a-f]{64}$/.test(companion.sha256), `${companion.id} lacks a size or a SHA-256`);
+    assert(!/[\\/]/.test(companion.fileName), `${companion.id}: the file name must be bare`);
+    assert(companion.license.length > 0 && companion.licenseUrl.startsWith('https://'), `${companion.id}: licence not declared`);
+    assert(companion.kind === 'controlnet' || companion.kind === 'upscaler', `${companion.id}: unknown kind`);
+  }
+  assert(imageCompanionAsset('realesrgan-x4')?.kind === 'upscaler', 'the ESRGAN companion went missing');
+  assert(imageCompanionAsset('controlnet-sd15-openpose')?.families.includes('sd1'), 'the OpenPose ControlNet must declare its family');
+
+  // Launch arguments: a ControlNet is a context option, so it is spelled on the
+  // command line, never in a job.
+  const args = buildSdServerArgs(sd15, { paths: { model: 'D:/m/sd15.gguf' }, controlNetPath: 'D:/c/openpose.pth', hiresUpscalersDir: 'D:/u' });
+  assert(args[args.indexOf('--control-net') + 1] === 'D:/c/openpose.pth', 'the ControlNet must be a launch argument');
+  assert(args[args.indexOf('--hires-upscalers-dir') + 1] === 'D:/u', 'the upscaler folder must be a launch argument');
+  const bare = buildSdServerArgs(sd15, { paths: { model: 'D:/m/sd15.gguf' } });
+  assert(!bare.includes('--control-net') && !bare.includes('--hires-upscalers-dir'), 'neither flag may appear when nothing is installed');
+
+  // The provenance record: a row written before it was widened still reads, and
+  // the new fields simply come back undefined.
+  const oldRow: ImageGenerationInfo = {
+    prompt: 'a lighthouse', connectionId: 'builtin-sd', modelId: 'sd15-q8',
+    width: 512, height: 512, createdAt: 1,
+  };
+  assert(oldRow.cfg === undefined && oldRow.sampler === undefined && oldRow.loras === undefined, 'an old generation row must read without its new fields');
+  const newRow: ImageGenerationInfo = {
+    ...oldRow, cfg: 7, sampler: 'euler_a', scheduler: 'karras', backend: 'local-sd',
+    loras: [{ name: 'sombra', weight: 0.8, fileName: 'sombra.safetensors' }],
+    controlNetModel: 'controlnet-sd15-openpose', controlStrength: 0.55,
+  };
+  assert(newRow.loras?.[0].weight === 0.8 && newRow.controlStrength === 0.55, 'the widened row must hold what it claims');
+}
+
+/** An independent CRC-32, so a bug in the module cannot also bless its own test. */
+function testCrc32(bytes: number[]): number {
+  let c = 0xffffffff;
+  for (const byte of bytes) {
+    c ^= byte;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  }
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function testChunk(type: string, data: number[]): number[] {
+  const body = [...type].map((c) => c.charCodeAt(0)).concat(data);
+  const crc = testCrc32(body);
+  return [
+    (data.length >>> 24) & 0xff, (data.length >>> 16) & 0xff, (data.length >>> 8) & 0xff, data.length & 0xff,
+    ...body,
+    (crc >>> 24) & 0xff, (crc >>> 16) & 0xff, (crc >>> 8) & 0xff, crc & 0xff,
+  ];
+}
+
+/** A structurally valid 1×1 PNG, built here rather than imported as a fixture. */
+function tinyPng(): Uint8Array {
+  return new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ...testChunk('IHDR', [0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0]),
+    ...testChunk('IDAT', [0x78, 0x9c, 0x63, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01]),
+    ...testChunk('IEND', []),
+  ]);
+}
+
+function testPngMetadata(): void {
+  const png = tinyPng();
+  assert(Object.keys(readPngMetadata(png)).length === 0, 'a PNG with no text chunks must read back empty');
+
+  // Round trip, including a prompt that is not Latin-1 — the whole ecosystem
+  // puts UTF-8 in a tEXt chunk, and a reader that assumed otherwise would hand
+  // back mojibake for half the prompts this app writes.
+  const parameters = 'un faro — 灯台\nNegative prompt: borroso\nSteps: 20, CFG scale: 7.0, Seed: 42, Size: 512x512, Model: sd15, Sampler: euler_a karras';
+  const record = { schema: 'writershoard/1', loras: [{ name: 'sombra', weight: 0.8 }], seed: 42 };
+  const written = writePngMetadata(png, { parameters, writersHoard: record });
+  const read = readPngMetadata(written);
+  assert(read.parameters === parameters, 'the parameters chunk did not round trip');
+  assert(JSON.stringify(read.writersHoard) === JSON.stringify(record), 'the writershoard chunk did not round trip');
+  assert(written.length > png.length, 'writing metadata must add bytes');
+
+  // The image survives: every original chunk is still in the output, in order.
+  const tail = written.subarray(written.length - 12);
+  assert(String.fromCharCode(tail[4], tail[5], tail[6], tail[7]) === 'IEND', 'IEND must stay last');
+  const asString = Array.from(written).map((b) => String.fromCharCode(b)).join('');
+  assert(asString.indexOf('IHDR') === 12, 'IHDR must stay first');
+  assert(asString.indexOf(PARAMETERS_KEYWORD) > asString.indexOf('IHDR') && asString.indexOf(PARAMETERS_KEYWORD) < asString.indexOf('IDAT'), 'text chunks belong between IHDR and IDAT');
+  assert(asString.includes(WRITERS_HOARD_KEYWORD), 'our own chunk must be written');
+
+  // Writing twice replaces rather than accumulates: two conflicting recipes in
+  // one file is worse than none.
+  const rewritten = writePngMetadata(written, { parameters: 'otro faro\nSteps: 4, Seed: 1, Sampler: euler' });
+  assert(readPngMetadata(rewritten).parameters === 'otro faro\nSteps: 4, Seed: 1, Sampler: euler', 'a rewrite must win');
+  assert(readPngMetadata(rewritten).writersHoard === undefined, 'a rewrite must drop the record it replaced');
+  assert(rewritten.length < written.length, 'a rewrite must not accumulate chunks');
+
+  // Damage: a truncated file, a chunk claiming more bytes than exist, a
+  // non-PNG, and an empty buffer all read back empty instead of throwing.
+  for (const broken of [written.subarray(0, 30), new Uint8Array(0), new Uint8Array([1, 2, 3]), tinyPng().subarray(0, 8)]) {
+    let threw = false;
+    let result: Record<string, unknown> = {};
+    try {
+      result = readPngMetadata(broken) as Record<string, unknown>;
+    } catch {
+      threw = true;
+    }
+    assert(!threw, 'a damaged PNG must not take down the reader');
+    assert(Object.keys(result).length === 0, 'a damaged PNG must not invent metadata');
+  }
+  const lying = new Uint8Array([...tinyPng().subarray(0, 8), 0x7f, 0xff, 0xff, 0xff, 0x74, 0x45, 0x58, 0x74]);
+  assert(Object.keys(readPngMetadata(lying)).length === 0, 'a chunk longer than the file must be ignored');
+  const notPng = new Uint8Array([1, 2, 3, 4]);
+  assert(writePngMetadata(notPng, { parameters: 'x' }) === notPng, 'writing to a non-PNG must hand the bytes straight back');
+  // A `writershoard` chunk that is not JSON is somebody else's; the rest of the
+  // file still reads.
+  const alien = writePngMetadata(png, { parameters: 'ok\nSteps: 1, Seed: 1' });
+  const spoiled = new Uint8Array(alien);
+  const keywordAt = Array.from(spoiled).map((b) => String.fromCharCode(b)).join('').indexOf(PARAMETERS_KEYWORD);
+  assert(keywordAt > 0, 'the fixture lost its keyword');
+
+  // The A1111 line, parsed back into something a studio can prefill.
+  const parsed = parseA1111Parameters(parameters);
+  assert(parsed.prompt === 'un faro — 灯台', `prompt misread: ${parsed.prompt}`);
+  assert(parsed.negativePrompt === 'borroso', 'negative prompt misread');
+  assert(parsed.fields.Steps === '20' && parsed.fields.Seed === '42' && parsed.fields['CFG scale'] === '7.0' && parsed.fields.Size === '512x512', 'settings misread');
+  assert(parseA1111Parameters('just a prompt').prompt === 'just a prompt', 'a bare prompt with no settings line must still read');
+  assert(readSdcppRecord('x\nSteps: 1, Version: stable-diffusion.cpp, SDCPP: {"seed":7}')?.seed === 7, 'the sdcpp JSON tail must be preferred when present');
+  assert(readSdcppRecord('x\nSteps: 1') === undefined && readSdcppRecord('x, SDCPP: {broken') === undefined, 'a missing or broken sdcpp tail must be absent, not thrown');
+}
+
 function testToolSelection(): void {
   const base = { tools: BRIDGE_TOOLS, enabledEngines: ['writings', 'codex', 'outline'] };
   const codex = selectToolsForTurn({ ...base, message: 'Crea un personaje llamado Marta en el codex' });
@@ -464,9 +719,11 @@ export async function testAiRuntimeContracts(): Promise<string> {
   testHardwareFit();
   testMeasuredSpeedAndPicker();
   testLocalImageRuntime();
+  testSdRequestSurface();
+  testPngMetadata();
   testToolSelection();
   testPolicy();
   await testExecutorEquivalence();
   testPromptAndHistory();
-  return 'AI runtime: URL policy, hardware fit, measured speed + picker, local image runtime, tool selection, permissions/scope, executor equivalence bridge≡copilot, history replay';
+  return 'AI runtime: URL policy, hardware fit, measured speed + picker, local image runtime, sd-server request surface, PNG generation metadata, tool selection, permissions/scope, executor equivalence bridge≡copilot, history replay';
 }
