@@ -209,6 +209,10 @@ export const LOCAL_DETECT_TARGETS: ReadonlyArray<{
   label: string;
 }> = [
   { port: 11434, kind: 'ollama', label: 'Ollama' },
+  // ComfyUI's default. Probing it returns real models, because the adapter
+  // reads /object_info rather than a model list endpoint — so autodetection
+  // finds a running install without the user knowing its port.
+  { port: 8188, kind: 'comfyui', label: 'ComfyUI' },
   { port: 1234, kind: 'openai-compatible', label: 'LM Studio' },
   { port: 8080, kind: 'openai-compatible', label: 'llama.cpp' },
   { port: 8000, kind: 'openai-compatible', label: 'vLLM' },

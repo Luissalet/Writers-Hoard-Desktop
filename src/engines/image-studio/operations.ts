@@ -105,9 +105,12 @@ export const REQUEST_SUPPORTS: {
   hiresFix: FieldOnRequest<'hiresFix'>;
   clipSkip: FieldOnRequest<'clipSkip'>;
   detailer: FieldOnRequest<'detailer'>;
-  sigmas: FieldOnRequest<'sigmas'>;
-  slg: FieldOnRequest<'slg'>;
-  apg: FieldOnRequest<'apg'>;
+  // The studio's names and the request's names are not the same words. Point
+  // each check at the field the request actually declares, or this stops being
+  // a compile-time fact and becomes a comment that happens to be true.
+  sigmas: FieldOnRequest<'customSigmas'>;
+  slg: FieldOnRequest<'skipLayerGuidance'>;
+  apg: FieldOnRequest<'extraSampleArgs'>;
   cacheMode: FieldOnRequest<'cacheMode'>;
 } = {
   guidance: true,
@@ -120,12 +123,16 @@ export const REQUEST_SUPPORTS: {
   controlImage: true,
   maskImage: true,
   hiresFix: true,
-  clipSkip: false,
+  clipSkip: true,
+  sigmas: true,
+  slg: true,
+  apg: true,
+  cacheMode: true,
+  // The one that is NOT waiting on plumbing. The pinned runtime has no native
+  // detailer pass at all: `ad_model`, `ad_prompt` and `extra_ad_args` occur
+  // nowhere in the parser, the CLI, or the public header at commit 92a3b73.
+  // Flipping this would offer a control the server discards in silence.
   detailer: false,
-  sigmas: false,
-  slg: false,
-  apg: false,
-  cacheMode: false,
 };
 
 export type RequestSupportMap = typeof REQUEST_SUPPORTS;

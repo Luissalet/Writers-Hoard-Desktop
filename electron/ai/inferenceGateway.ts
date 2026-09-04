@@ -38,6 +38,7 @@ import {
 import { ollamaAdapter } from './adapters/ollama';
 import { openAiCompatibleAdapter } from './adapters/openAiCompatible';
 import { sdcppAdapter } from './adapters/sdcpp';
+import { comfyuiAdapter } from './adapters/comfyui';
 import { getAllModelMetrics, recordModelUsage } from './modelMetrics';
 import { invalidateVramReport } from './vramRoom';
 import type { AdapterContext, ProviderAdapter } from './adapters/types';
@@ -60,6 +61,7 @@ let sequence = 0;
 
 function adapterFor(connection: AiConnectionSummary): ProviderAdapter {
   if (connection.kind === 'sdcpp') return sdcppAdapter;
+  if (connection.kind === 'comfyui') return comfyuiAdapter;
   return connection.kind === 'ollama' ? ollamaAdapter : openAiCompatibleAdapter;
 }
 
