@@ -7,7 +7,7 @@
 // server is launched with for a given model, and the body of a generation
 // job on its native async API. Main runs it; the tests pin it.
 
-import type { AiImageRequest, FitEstimate, HardwareProfile } from './types';
+import type { AiImageRequest, FitEstimate, HardwareProfile, SdExtraSampleArgsInput } from './types';
 import type { ImageCatalogModel, ImageCompanionKind, ImageFileRole } from './imageCatalog';
 import { primaryGpuBytes } from './fit';
 
@@ -210,9 +210,13 @@ export function detectVramContention(
 // ---- LoRA ------------------------------------------------------------------
 
 /**
- * What may name a LoRA. The server parses `<lora:NAME:WEIGHT>` out of the
- * prompt with a `[^:]+` capture, so a colon is impossible and `<`/`>` would cut
- * the token in half; anything else a file system allows is fine.
+ * What may name a LoRA.
+ *
+ * The colon and the angle brackets are refused because `formatLoraToken`
+ * writes the `<lora:NAME:WEIGHT>` notation into the Gallery note, and a name
+ * carrying either would produce a note no reader could parse back. The wire
+ * format does not care — the server takes the name in a JSON string field —
+ * so this is a display constraint, not a protocol one.
  */
 export function isSdLoraName(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 96 && !/[<>:\r\n]/.test(value);
@@ -277,6 +281,108 @@ export function isSdSampler(value: unknown): value is string {
 export function isSdScheduler(value: unknown): value is string {
   return typeof value === 'string' && (SD_SCHEDULERS as readonly string[]).includes(value);
 }
+
+/**
+ * Inference-cache modes (`cache_mode`), from `initialize_cache_params` in
+ * examples/common/common.cpp. Unlike a sampler name, an unknown one here is
+ * NOT dropped: the function returns false and the server refuses the whole
+ * job. Validating is the difference between an unavailable feature and a
+ * generation that fails with "invalid generation parameters".
+ */
+export const SD_CACHE_MODES = [
+  'disabled', 'easycache', 'ucache', 'dbcache', 'taylorseer', 'cache-dit', 'spectrum',
+] as const;
+
+export function isSdCacheMode(value: unknown): value is string {
+  return typeof value === 'string' && (SD_CACHE_MODES as readonly string[]).includes(value);
+}
+
+/**
+ * `sample_params.extra_sample_args` is a STRING, not an object — the server
+ * reads it with `is_string()` and hands it to `parse_key_value_args`
+ * (src/core/util.cpp), which splits on `,` or `;` and trims each `key=value`.
+ *
+ * Only the keys below exist at the pinned build; the parsers ignore anything
+ * else without complaint, which is why the studio must not invent one.
+ * Adaptive Projected Guidance takes the four `apg_*` keys, Skip-Layer Guidance
+ * takes `slg_uncond`, `noise_*` belong to `lcm` and `gamma` to `euler_ge`.
+ */
+export type SdExtraSampleArgs = SdExtraSampleArgsInput;
+
+const EXTRA_SAMPLE_ARG_KEYS: ReadonlyArray<readonly [keyof SdExtraSampleArgs, string]> = [
+  ['apgEta', 'apg_eta'],
+  ['apgMomentum', 'apg_momentum'],
+  ['apgNormThreshold', 'apg_norm_threshold'],
+  ['apgNormThresholdSmoothing', 'apg_norm_threshold_smoothing'],
+  ['slgUncond', 'slg_uncond'],
+  ['noiseClipStd', 'noise_clip_std'],
+  ['noiseScaleStart', 'noise_scale_start'],
+  ['noiseScaleEnd', 'noise_scale_end'],
+  ['gamma', 'gamma'],
+];
+
+/**
+ * The `key=value` line for those arguments, or '' when there is nothing to say.
+ *
+ * A comma is the separator, so no value may contain one; every value here is a
+ * number or a bool, so none can. `parse_strict_float` rejects a value with any
+ * trailing text, which is why a non-finite number is dropped rather than
+ * written as "NaN" — the server would log a warning and ignore that one key,
+ * leaving the studio claiming a setting that never applied.
+ */
+export function formatExtraSampleArgs(args: SdExtraSampleArgs | undefined): string {
+  if (!args) return '';
+  const parts: string[] = [];
+  for (const [key, wire] of EXTRA_SAMPLE_ARG_KEYS) {
+    const value = args[key];
+    if (typeof value === 'boolean') parts.push(`${wire}=${value ? 'true' : 'false'}`);
+    else if (typeof value === 'number' && Number.isFinite(value)) parts.push(`${wire}=${value}`);
+  }
+  return parts.join(',');
+}
+
+/**
+ * A custom sigma array the server will accept: finite, descending-ish numbers.
+ * The runtime reads `custom_sigmas` as a plain float array and uses it INSTEAD
+ * of the scheduler, so an array with a NaN in it would poison the whole
+ * denoising loop rather than fall back.
+ */
+export function isSdSigmaArray(value: unknown): value is number[] {
+  return (
+    Array.isArray(value) &&
+    value.length >= 2 &&
+    value.length <= 1000 &&
+    value.every((n) => typeof n === 'number' && Number.isFinite(n) && n >= 0)
+  );
+}
+
+/**
+ * Skip-layer indices. The server reads `slg.layers` as `std::vector<int>`;
+ * a non-integer would be a JSON type error and cost the whole request.
+ */
+export function isSdLayerArray(value: unknown): value is number[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.length <= 64 &&
+    value.every((n) => typeof n === 'number' && Number.isInteger(n) && n >= 0 && n < 1000)
+  );
+}
+
+/**
+ * Steps the server will honour verbatim.
+ *
+ * routes_sdcpp.cpp calls `resolve_and_validate(…, strict = true)`, and strict
+ * clamps `sample_steps` to 1..100. Clamping to the same number here is what
+ * makes a recipe true: asking for 150 and recording 150 would describe a
+ * picture the runtime actually made with 100, and every later replay of that
+ * recipe would quietly disagree with the image beside it.
+ *
+ * `batch_count` has a protocol ceiling of 8 under the same clamp. The studio
+ * keeps its own lower ceiling of 4 — a product choice about how long a writer
+ * should wait, not a protocol limit — so it is deliberately not raised here.
+ */
+export const SD_MAX_STEPS = 100;
 
 /**
  * ControlNet strength, clamped to the band practitioners actually work in.
@@ -362,14 +468,39 @@ export function buildSdServerArgs(entry: ImageCatalogModel, launch: SdServerLaun
  * (`SDGenerationParams::from_json_str`, examples/common/common.cpp at the
  * pinned build). Keys it does not read are worse than useless: the request
  * still succeeds, so the studio would report a reference image or a mask that
- * never reached the model. Two fields that LOOK available were left out for
- * exactly that reason — `upscale_repeats`, which the server parses and only
- * the CLI acts on, and PhotoMaker's identity images, which have no request
- * field at all and are loaded from a directory by the CLI alone.
+ * never reached the model.
+ *
+ * What is deliberately NOT here, having been looked for and not found at this
+ * commit — each one would have been accepted by the server and silently
+ * dropped, and the studio would have claimed it worked:
+ *
+ *  - ADetailer (`ad_model`, `ad_prompt`, `extra_ad_args`): the strings do not
+ *    occur anywhere in the runtime's source. There is no detect-and-inpaint
+ *    pass to drive.
+ *  - IP-Adapter (`ip_adapter_image`, `ip_adapter_strength`): likewise absent.
+ *  - `guidance_schedule`: not a key any parser reads.
+ *  - PhotoMaker and PuLID: `SDGenerationParams` has the fields, but
+ *    `from_json_str` never reads them — they are set from the command line
+ *    only, so they belong to the runtime profile, not to a job.
+ *  - `upscale_repeats`: parsed here, acted on by the CLI alone.
  */
 export function buildSdJobPayload(request: AiImageRequest, entry: ImageCatalogModel): Record<string, unknown> {
   const steps = request.steps ?? entry.defaults.steps;
   const cfg = request.guidance ?? entry.defaults.cfg;
+  const guidance: Record<string, unknown> = {
+    txt_cfg: cfg,
+    distilled_guidance: request.distilledGuidance ?? entry.defaults.distilledGuidance ?? (entry.family === 'flux' ? 1 : 3.5),
+  };
+  const sampleParams: Record<string, unknown> = {
+    sample_method: isSdSampler(request.sampler) ? request.sampler : entry.defaults.sampler,
+    sample_steps: Math.max(1, Math.min(SD_MAX_STEPS, Math.floor(steps))),
+    guidance,
+    ...(isSdScheduler(request.scheduler)
+      ? { scheduler: request.scheduler }
+      : entry.defaults.scheduler
+        ? { scheduler: entry.defaults.scheduler }
+        : {}),
+  };
   const payload: Record<string, unknown> = {
     prompt: request.prompt,
     negative_prompt: request.negativePrompt ?? '',
@@ -377,19 +508,7 @@ export function buildSdJobPayload(request: AiImageRequest, entry: ImageCatalogMo
     height: snap(request.height),
     seed: request.seed === undefined ? -1 : request.seed,
     batch_count: Math.max(1, Math.min(4, Math.floor(request.n || 1))),
-    sample_params: {
-      sample_method: isSdSampler(request.sampler) ? request.sampler : entry.defaults.sampler,
-      sample_steps: Math.max(1, Math.min(150, Math.floor(steps))),
-      guidance: {
-        txt_cfg: cfg,
-        distilled_guidance: entry.defaults.distilledGuidance ?? (entry.family === 'flux' ? 1 : 3.5),
-      },
-      ...(isSdScheduler(request.scheduler)
-        ? { scheduler: request.scheduler }
-        : entry.defaults.scheduler
-          ? { scheduler: entry.defaults.scheduler }
-          : {}),
-    },
+    sample_params: sampleParams,
     output_format: 'png',
     // On, so every PNG carries the settings that made it. The server writes an
     // A1111-compatible `parameters` tEXt chunk (see src/services/imageMetadata.ts),
@@ -441,12 +560,89 @@ export function buildSdJobPayload(request: AiImageRequest, entry: ImageCatalogMo
       enabled: true,
       upscaler: hires.upscaler,
       scale: Math.max(1, Math.min(4, hires.scale)),
-      ...(hires.steps && hires.steps > 0 ? { steps: Math.min(150, Math.floor(hires.steps)) } : {}),
+      ...(hires.steps && hires.steps > 0 ? { steps: Math.min(SD_MAX_STEPS, Math.floor(hires.steps)) } : {}),
       ...(typeof hires.denoisingStrength === 'number'
         ? { denoising_strength: Math.max(0, Math.min(1, hires.denoisingStrength)) }
         : {}),
       ...(hires.tileSize && hires.tileSize > 0 ? { upscale_tile_size: Math.floor(hires.tileSize) } : {}),
+      // `target_width` / `target_height`, NOT the CLI's `target_w` / `target_h`.
+      // The server reads the long spelling and would ignore the short one
+      // without a word, leaving the studio to report a resolution the second
+      // pass never rendered at.
+      ...(hires.targetWidth && hires.targetHeight
+        ? { target_width: snap(hires.targetWidth), target_height: snap(hires.targetHeight) }
+        : {}),
+      ...(isSdSigmaArray(hires.customSigmas) ? { custom_sigmas: hires.customSigmas } : {}),
     };
+  }
+
+  // ---- everything below is read by `from_json_str` and was previously unsent -
+
+  // CLIP-skip. The server's "unspecified" is <= 0, so only a real layer count
+  // is worth sending; 0 would be indistinguishable from not asking.
+  if (typeof request.clipSkip === 'number' && Number.isInteger(request.clipSkip) && request.clipSkip > 0) {
+    payload.clip_skip = request.clipSkip;
+  }
+
+  // `eta`, `flow_shift` and `shifted_timestep` live INSIDE `sample_params`.
+  // At the top level the parser never looks for them and the request would
+  // succeed having ignored all three.
+  if (typeof request.eta === 'number' && Number.isFinite(request.eta)) sampleParams.eta = request.eta;
+  if (typeof request.flowShift === 'number' && Number.isFinite(request.flowShift)) sampleParams.flow_shift = request.flowShift;
+  if (typeof request.shiftedTimestep === 'number' && Number.isInteger(request.shiftedTimestep)) {
+    sampleParams.shifted_timestep = request.shiftedTimestep;
+  }
+  // Custom sigmas REPLACE the scheduler rather than tune it, so the scheduler
+  // key is dropped: leaving both is not an error, but it would make the recipe
+  // read as though a schedule that had no effect was the one in force.
+  if (isSdSigmaArray(request.customSigmas)) {
+    sampleParams.custom_sigmas = request.customSigmas;
+    delete sampleParams.scheduler;
+  }
+  const extraSampleArgs = formatExtraSampleArgs(request.extraSampleArgs);
+  if (extraSampleArgs) sampleParams.extra_sample_args = extraSampleArgs;
+
+  // Image guidance: only the instruction-edit models read it, but the field is
+  // parsed for every model, so sending it costs nothing where it is ignored.
+  if (typeof request.imageGuidance === 'number' && Number.isFinite(request.imageGuidance)) {
+    guidance.img_cfg = request.imageGuidance;
+  }
+  // Skip-Layer Guidance. `layers` is the only part with no usable default —
+  // the runtime ships {7,8,9} — so the block is sent only when a layer list
+  // makes it meaningful, and `scale` 0 disables it however it is spelled.
+  const slg = request.skipLayerGuidance;
+  if (slg && isSdLayerArray(slg.layers)) {
+    guidance.slg = {
+      layers: slg.layers,
+      ...(typeof slg.layerStart === 'number' && Number.isFinite(slg.layerStart) ? { layer_start: slg.layerStart } : {}),
+      ...(typeof slg.layerEnd === 'number' && Number.isFinite(slg.layerEnd) ? { layer_end: slg.layerEnd } : {}),
+      ...(typeof slg.scale === 'number' && Number.isFinite(slg.scale) ? { scale: slg.scale } : {}),
+    };
+  }
+
+  // Inference cache: a wrong `cache_mode` is refused outright by the server
+  // (`initialize_cache_params` returns false), unlike a wrong sampler name.
+  if (isSdCacheMode(request.cacheMode) && request.cacheMode !== 'disabled') {
+    payload.cache_mode = request.cacheMode;
+    if (typeof request.cacheOption === 'string' && request.cacheOption.length) {
+      payload.cache_option = request.cacheOption;
+    }
+  }
+
+  // Tiled VAE, for a decode that would otherwise not fit on the card. The
+  // launch line already passes `--vae-tiling`, so this block is how a job
+  // overrides the tile geometry rather than how tiling is turned on.
+  const tiling = request.vaeTiling;
+  if (tiling) {
+    const params: Record<string, unknown> = { enabled: tiling.enabled !== false };
+    if (tiling.tileSizeX && tiling.tileSizeX > 0) params.tile_size_x = Math.floor(tiling.tileSizeX);
+    if (tiling.tileSizeY && tiling.tileSizeY > 0) params.tile_size_y = Math.floor(tiling.tileSizeY);
+    if (typeof tiling.targetOverlap === 'number' && Number.isFinite(tiling.targetOverlap)) {
+      params.target_overlap = tiling.targetOverlap;
+    }
+    if (typeof tiling.relSizeX === 'number' && Number.isFinite(tiling.relSizeX)) params.rel_size_x = tiling.relSizeX;
+    if (typeof tiling.relSizeY === 'number' && Number.isFinite(tiling.relSizeY)) params.rel_size_y = tiling.relSizeY;
+    payload.vae_tiling_params = params;
   }
   return payload;
 }
