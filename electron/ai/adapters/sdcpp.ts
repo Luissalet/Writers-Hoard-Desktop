@@ -19,7 +19,8 @@ import type {
 } from '@/services/aiRuntime/types';
 import { imageCatalogEntry } from '@/services/aiRuntime/imageCatalog';
 import { buildSdJobPayload, SD_SERVER_URL } from '@/services/aiRuntime/sdServer';
-import { readPngMetadata } from '@/services/imageMetadata';
+import { readPngMetadata, writePngMetadata } from '@/services/imageMetadata';
+import { recipeEnvelope, requestToRecipe, type Recipe, type RecipeContext } from '@/services/aiRuntime/recipe';
 import { AdapterError, errorFromException, parseJsonSafe, readBounded, request, requestJson } from './http';
 import type { AdapterContext, ProviderAdapter } from './types';
 import {
@@ -28,8 +29,13 @@ import {
   isSdRuntimeInstalled,
   getSdRuntimeStatus,
   sdLoraFileName,
+  sdLoraSha256,
+  sdModelAssets,
+  sdServerProfile,
   touchSdServer,
 } from '../sdRuntime';
+import { sdRuntimeProfileHash } from '@/services/aiRuntime/sdServer';
+import { randomUUID } from 'node:crypto';
 
 const MAX_IMAGE_BYTES = 24 * 1024 * 1024;
 const POLL_MS = 500;
@@ -86,7 +92,7 @@ interface JobStatus {
   error?: { code?: string; message?: string } | null;
 }
 
-function decode(b64: string): AiGeneratedImage {
+function decode(b64: string, recipe: Recipe | null): AiGeneratedImage {
   const bytes = Buffer.from(b64, 'base64');
   if (bytes.length > MAX_IMAGE_BYTES) throw new AdapterError('bad-response', 'The image is larger than 24 MB.');
   const png = bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
@@ -94,8 +100,55 @@ function decode(b64: string): AiGeneratedImage {
   // The job asked for embedded metadata; read the runtime's own account of the
   // settings back out. A PNG without it reads empty rather than throwing, so an
   // older or differently-built server costs the caller nothing.
-  const { parameters } = readPngMetadata(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
-  return { base64: b64, mimeType: 'image/png', ...(parameters ? { parameters } : {}) };
+  const view = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const { parameters } = readPngMetadata(view);
+  if (!recipe) return { base64: b64, mimeType: 'image/png', ...(parameters ? { parameters } : {}) };
+  // Our own record goes in BESIDE the runtime's `parameters` line, never
+  // instead of it: the A1111 line is what every other tool in this ecosystem
+  // reads, and a file that left Writers Hoard without it would be illegible
+  // everywhere the writer took it.
+  const stamped = writePngMetadata(view, {
+    ...(parameters !== undefined ? { parameters } : {}),
+    writersHoard: recipeEnvelope(recipe),
+  });
+  return {
+    base64: Buffer.from(stamped).toString('base64'),
+    mimeType: 'image/png',
+    ...(parameters ? { parameters } : {}),
+    recipe,
+  };
+}
+
+/**
+ * What the request alone cannot say: which files were actually loaded, and
+ * which server they were loaded into.
+ *
+ * Returns null when the model is not in the catalogue's installed set, because
+ * a recipe that could not name the weights it used is not worth writing —
+ * a reader replaying it would have no way to tell a faithful replay from a
+ * substitution.
+ */
+async function recipeContext(
+  req: AiImageRequest,
+  loras: AiImageRequest['loras'],
+): Promise<Omit<RecipeContext, 'id' | 'seed'> | null> {
+  const assets = sdModelAssets(req.modelId);
+  if (!assets) return null;
+  const profile = sdServerProfile();
+  const loraAssets: NonNullable<RecipeContext['loraAssets']> = {};
+  for (const lora of loras ?? []) {
+    if (!lora.fileName) continue;
+    const sha256 = await sdLoraSha256(lora.fileName);
+    loraAssets[lora.name] = { fileName: lora.fileName, ...(sha256 ? { sha256 } : {}) };
+  }
+  const status = await getSdRuntimeStatus();
+  return {
+    model: { label: assets.label, family: assets.family, sha256: assets.sha256, files: assets.files.map((file) => ({ id: file.role, fileName: file.fileName, sha256: file.sha256, sizeBytes: file.sizeBytes })) },
+    loraAssets,
+    backendKind: 'sdcpp',
+    backendVersion: status.version,
+    ...(profile ? { runtimeProfileHash: sdRuntimeProfileHash(profile) } : {}),
+  };
 }
 
 async function cancelJob(jobId: string): Promise<void> {
@@ -201,11 +254,23 @@ async function generateImage(_ctx: AdapterContext, req: AiImageRequest, signal: 
       if (!job) continue;
       if (job.status === 'completed') {
         const images: AiGeneratedImage[] = [];
+        // The digests are read once for the whole batch: they identify the
+        // files that were loaded, which cannot change while the job runs.
+        const context = await recipeContext(req, loras);
         for (const item of job.result?.images ?? []) {
           if (!item.b64_json) continue;
-          const image = decode(item.b64_json);
-          // sd.cpp seeds a batch as seed, seed+1, … in index order.
-          image.seed = typeof item.seed === 'number' ? item.seed : seed + (typeof item.index === 'number' ? item.index : images.length);
+          // sd.cpp seeds a batch as seed, seed+1, … in index order, so each
+          // image gets its OWN recipe: one naming the batch's first seed would
+          // reproduce a different picture than the one it is attached to.
+          const imageSeed = typeof item.seed === 'number' ? item.seed : seed + (typeof item.index === 'number' ? item.index : images.length);
+          const recipe = context
+            ? requestToRecipe(
+                { ...req, ...(loras ? { loras } : {}) },
+                { ...context, id: randomUUID(), seed: imageSeed, ...(images.length ? { batchIndex: images.length } : {}) },
+              )
+            : null;
+          const image = decode(item.b64_json, recipe);
+          image.seed = imageSeed;
           images.push(image);
         }
         if (!images.length) throw new AdapterError('bad-response', 'The server finished the job without images.');
