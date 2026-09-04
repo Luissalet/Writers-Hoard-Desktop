@@ -1,0 +1,768 @@
+{
+  "id": "regional",
+  "label": "Regional prompting",
+  "description": "A scene prompt plus up to four masked regions, each with its own prompt \u2014 a two-character scene without the two characters bleeding into each other.",
+  "requires": [
+    "CheckpointLoaderSimple",
+    "CLIPTextEncode",
+    "EmptyLatentImage",
+    "KSampler",
+    "VAEDecode",
+    "SaveImage",
+    "LoadImageMask",
+    "ConditioningSetMask",
+    "ConditioningCombine"
+  ],
+  "bindings": {
+    "checkpoint": {
+      "title": "Checkpoint",
+      "node": "1",
+      "input": "ckpt_name",
+      "kind": "choice"
+    },
+    "prompt": {
+      "title": "Positive",
+      "node": "2",
+      "input": "text",
+      "kind": "text"
+    },
+    "negative": {
+      "title": "Negative",
+      "node": "3",
+      "input": "text",
+      "kind": "text"
+    },
+    "width": {
+      "title": "Latent",
+      "node": "4",
+      "input": "width",
+      "kind": "number"
+    },
+    "height": {
+      "title": "Latent",
+      "node": "4",
+      "input": "height",
+      "kind": "number"
+    },
+    "batchSize": {
+      "title": "Latent",
+      "node": "4",
+      "input": "batch_size",
+      "kind": "number"
+    },
+    "seed": {
+      "title": "Sampler",
+      "node": "5",
+      "input": "seed",
+      "kind": "seed"
+    },
+    "steps": {
+      "title": "Sampler",
+      "node": "5",
+      "input": "steps",
+      "kind": "number"
+    },
+    "cfg": {
+      "title": "Sampler",
+      "node": "5",
+      "input": "cfg",
+      "kind": "number"
+    },
+    "samplerName": {
+      "title": "Sampler",
+      "node": "5",
+      "input": "sampler_name",
+      "kind": "choice"
+    },
+    "scheduler": {
+      "title": "Sampler",
+      "node": "5",
+      "input": "scheduler",
+      "kind": "choice"
+    },
+    "denoise": {
+      "title": "Sampler",
+      "node": "5",
+      "input": "denoise",
+      "kind": "number"
+    },
+    "filenamePrefix": {
+      "title": "Output",
+      "node": "7",
+      "input": "filename_prefix",
+      "kind": "text"
+    },
+    "lora.1.name": {
+      "title": "LoRA 1",
+      "node": "10",
+      "input": "lora_name",
+      "kind": "choice"
+    },
+    "lora.1.model": {
+      "title": "LoRA 1",
+      "node": "10",
+      "input": "strength_model",
+      "kind": "number"
+    },
+    "lora.1.clip": {
+      "title": "LoRA 1",
+      "node": "10",
+      "input": "strength_clip",
+      "kind": "number"
+    },
+    "lora.2.name": {
+      "title": "LoRA 2",
+      "node": "11",
+      "input": "lora_name",
+      "kind": "choice"
+    },
+    "lora.2.model": {
+      "title": "LoRA 2",
+      "node": "11",
+      "input": "strength_model",
+      "kind": "number"
+    },
+    "lora.2.clip": {
+      "title": "LoRA 2",
+      "node": "11",
+      "input": "strength_clip",
+      "kind": "number"
+    },
+    "lora.3.name": {
+      "title": "LoRA 3",
+      "node": "12",
+      "input": "lora_name",
+      "kind": "choice"
+    },
+    "lora.3.model": {
+      "title": "LoRA 3",
+      "node": "12",
+      "input": "strength_model",
+      "kind": "number"
+    },
+    "lora.3.clip": {
+      "title": "LoRA 3",
+      "node": "12",
+      "input": "strength_clip",
+      "kind": "number"
+    },
+    "lora.4.name": {
+      "title": "LoRA 4",
+      "node": "13",
+      "input": "lora_name",
+      "kind": "choice"
+    },
+    "lora.4.model": {
+      "title": "LoRA 4",
+      "node": "13",
+      "input": "strength_model",
+      "kind": "number"
+    },
+    "lora.4.clip": {
+      "title": "LoRA 4",
+      "node": "13",
+      "input": "strength_clip",
+      "kind": "number"
+    },
+    "region.1.prompt": {
+      "title": "Region 1 Prompt",
+      "node": "40",
+      "input": "text",
+      "kind": "text"
+    },
+    "region.1.mask": {
+      "title": "Region 1 Mask",
+      "node": "30",
+      "input": "image",
+      "kind": "image"
+    },
+    "region.1.strength": {
+      "title": "Region 1 Mask Apply",
+      "node": "50",
+      "input": "strength",
+      "kind": "number"
+    },
+    "region.2.prompt": {
+      "title": "Region 2 Prompt",
+      "node": "41",
+      "input": "text",
+      "kind": "text"
+    },
+    "region.2.mask": {
+      "title": "Region 2 Mask",
+      "node": "31",
+      "input": "image",
+      "kind": "image"
+    },
+    "region.2.strength": {
+      "title": "Region 2 Mask Apply",
+      "node": "51",
+      "input": "strength",
+      "kind": "number"
+    },
+    "region.3.prompt": {
+      "title": "Region 3 Prompt",
+      "node": "42",
+      "input": "text",
+      "kind": "text"
+    },
+    "region.3.mask": {
+      "title": "Region 3 Mask",
+      "node": "32",
+      "input": "image",
+      "kind": "image"
+    },
+    "region.3.strength": {
+      "title": "Region 3 Mask Apply",
+      "node": "52",
+      "input": "strength",
+      "kind": "number"
+    },
+    "region.4.prompt": {
+      "title": "Region 4 Prompt",
+      "node": "43",
+      "input": "text",
+      "kind": "text"
+    },
+    "region.4.mask": {
+      "title": "Region 4 Mask",
+      "node": "33",
+      "input": "image",
+      "kind": "image"
+    },
+    "region.4.strength": {
+      "title": "Region 4 Mask Apply",
+      "node": "53",
+      "input": "strength",
+      "kind": "number"
+    }
+  },
+  "slots": {
+    "lora": [
+      {
+        "remove": [
+          "10"
+        ],
+        "passthrough": [
+          {
+            "node": "10",
+            "output": 0,
+            "input": "model"
+          },
+          {
+            "node": "10",
+            "output": 1,
+            "input": "clip"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "11"
+        ],
+        "passthrough": [
+          {
+            "node": "11",
+            "output": 0,
+            "input": "model"
+          },
+          {
+            "node": "11",
+            "output": 1,
+            "input": "clip"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "12"
+        ],
+        "passthrough": [
+          {
+            "node": "12",
+            "output": 0,
+            "input": "model"
+          },
+          {
+            "node": "12",
+            "output": 1,
+            "input": "clip"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "13"
+        ],
+        "passthrough": [
+          {
+            "node": "13",
+            "output": 0,
+            "input": "model"
+          },
+          {
+            "node": "13",
+            "output": 1,
+            "input": "clip"
+          }
+        ]
+      }
+    ],
+    "guidance": [
+      {
+        "remove": [
+          "20"
+        ],
+        "passthrough": [
+          {
+            "node": "20",
+            "output": 0,
+            "input": "model"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "21"
+        ],
+        "passthrough": [
+          {
+            "node": "21",
+            "output": 0,
+            "input": "model"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "22"
+        ],
+        "passthrough": [
+          {
+            "node": "22",
+            "output": 0,
+            "input": "model"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "23"
+        ],
+        "passthrough": [
+          {
+            "node": "23",
+            "output": 0,
+            "input": "model"
+          }
+        ]
+      }
+    ],
+    "region": [
+      {
+        "remove": [
+          "30",
+          "40",
+          "50",
+          "60"
+        ],
+        "passthrough": [
+          {
+            "node": "60",
+            "output": 0,
+            "input": "conditioning_1"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "31",
+          "41",
+          "51",
+          "61"
+        ],
+        "passthrough": [
+          {
+            "node": "61",
+            "output": 0,
+            "input": "conditioning_1"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "32",
+          "42",
+          "52",
+          "62"
+        ],
+        "passthrough": [
+          {
+            "node": "62",
+            "output": 0,
+            "input": "conditioning_1"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "33",
+          "43",
+          "53",
+          "63"
+        ],
+        "passthrough": [
+          {
+            "node": "63",
+            "output": 0,
+            "input": "conditioning_1"
+          }
+        ]
+      }
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "_meta": {
+        "title": "Checkpoint"
+      },
+      "inputs": {
+        "ckpt_name": ""
+      }
+    },
+    "10": {
+      "class_type": "LoraLoader",
+      "_meta": {
+        "title": "LoRA 1"
+      },
+      "inputs": {
+        "model": ["1", 0],
+        "clip": ["1", 1],
+        "lora_name": "",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    },
+    "11": {
+      "class_type": "LoraLoader",
+      "_meta": {
+        "title": "LoRA 2"
+      },
+      "inputs": {
+        "model": ["10", 0],
+        "clip": ["10", 1],
+        "lora_name": "",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    },
+    "12": {
+      "class_type": "LoraLoader",
+      "_meta": {
+        "title": "LoRA 3"
+      },
+      "inputs": {
+        "model": ["11", 0],
+        "clip": ["11", 1],
+        "lora_name": "",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    },
+    "13": {
+      "class_type": "LoraLoader",
+      "_meta": {
+        "title": "LoRA 4"
+      },
+      "inputs": {
+        "model": ["12", 0],
+        "clip": ["12", 1],
+        "lora_name": "",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    },
+    "20": {
+      "class_type": "PerturbedAttentionGuidance",
+      "_meta": {
+        "title": "Guidance PAG"
+      },
+      "inputs": {
+        "model": ["13", 0],
+        "scale": 3.0
+      }
+    },
+    "21": {
+      "class_type": "SelfAttentionGuidance",
+      "_meta": {
+        "title": "Guidance SAG"
+      },
+      "inputs": {
+        "model": ["20", 0],
+        "scale": 0.5,
+        "blur_sigma": 2.0
+      }
+    },
+    "22": {
+      "class_type": "FreeU_V2",
+      "_meta": {
+        "title": "Guidance FreeU"
+      },
+      "inputs": {
+        "model": ["21", 0],
+        "b1": 1.3,
+        "b2": 1.4,
+        "s1": 0.9,
+        "s2": 0.2
+      }
+    },
+    "23": {
+      "class_type": "RescaleCFG",
+      "_meta": {
+        "title": "Guidance RescaleCFG"
+      },
+      "inputs": {
+        "model": ["22", 0],
+        "multiplier": 0.7
+      }
+    },
+    "2": {
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "Positive"
+      },
+      "inputs": {
+        "text": "",
+        "clip": ["13", 1]
+      }
+    },
+    "3": {
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "Negative"
+      },
+      "inputs": {
+        "text": "",
+        "clip": ["13", 1]
+      }
+    },
+    "4": {
+      "class_type": "EmptyLatentImage",
+      "_meta": {
+        "title": "Latent"
+      },
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    "5": {
+      "class_type": "KSampler",
+      "_meta": {
+        "title": "Sampler"
+      },
+      "inputs": {
+        "model": ["23", 0],
+        "seed": 0,
+        "steps": 25,
+        "cfg": 6.0,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "positive": ["63", 0],
+        "negative": ["3", 0],
+        "latent_image": ["4", 0],
+        "denoise": 1.0
+      }
+    },
+    "6": {
+      "class_type": "VAEDecode",
+      "_meta": {
+        "title": "Decode"
+      },
+      "inputs": {
+        "samples": ["5", 0],
+        "vae": ["1", 2]
+      }
+    },
+    "7": {
+      "class_type": "SaveImage",
+      "_meta": {
+        "title": "Output"
+      },
+      "inputs": {
+        "images": ["6", 0],
+        "filename_prefix": "WritersHoard/wh"
+      }
+    },
+    "30": {
+      "class_type": "LoadImageMask",
+      "_meta": {
+        "title": "Region 1 Mask"
+      },
+      "inputs": {
+        "image": "",
+        "channel": "red"
+      }
+    },
+    "40": {
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "Region 1 Prompt"
+      },
+      "inputs": {
+        "text": "",
+        "clip": ["13", 1]
+      }
+    },
+    "50": {
+      "class_type": "ConditioningSetMask",
+      "_meta": {
+        "title": "Region 1 Mask Apply"
+      },
+      "inputs": {
+        "conditioning": ["40", 0],
+        "mask": ["30", 0],
+        "strength": 1.0,
+        "set_cond_area": "default"
+      }
+    },
+    "60": {
+      "class_type": "ConditioningCombine",
+      "_meta": {
+        "title": "Region 1 Combine"
+      },
+      "inputs": {
+        "conditioning_1": ["2", 0],
+        "conditioning_2": ["50", 0]
+      }
+    },
+    "31": {
+      "class_type": "LoadImageMask",
+      "_meta": {
+        "title": "Region 2 Mask"
+      },
+      "inputs": {
+        "image": "",
+        "channel": "red"
+      }
+    },
+    "41": {
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "Region 2 Prompt"
+      },
+      "inputs": {
+        "text": "",
+        "clip": ["13", 1]
+      }
+    },
+    "51": {
+      "class_type": "ConditioningSetMask",
+      "_meta": {
+        "title": "Region 2 Mask Apply"
+      },
+      "inputs": {
+        "conditioning": ["41", 0],
+        "mask": ["31", 0],
+        "strength": 1.0,
+        "set_cond_area": "default"
+      }
+    },
+    "61": {
+      "class_type": "ConditioningCombine",
+      "_meta": {
+        "title": "Region 2 Combine"
+      },
+      "inputs": {
+        "conditioning_1": ["60", 0],
+        "conditioning_2": ["51", 0]
+      }
+    },
+    "32": {
+      "class_type": "LoadImageMask",
+      "_meta": {
+        "title": "Region 3 Mask"
+      },
+      "inputs": {
+        "image": "",
+        "channel": "red"
+      }
+    },
+    "42": {
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "Region 3 Prompt"
+      },
+      "inputs": {
+        "text": "",
+        "clip": ["13", 1]
+      }
+    },
+    "52": {
+      "class_type": "ConditioningSetMask",
+      "_meta": {
+        "title": "Region 3 Mask Apply"
+      },
+      "inputs": {
+        "conditioning": ["42", 0],
+        "mask": ["32", 0],
+        "strength": 1.0,
+        "set_cond_area": "default"
+      }
+    },
+    "62": {
+      "class_type": "ConditioningCombine",
+      "_meta": {
+        "title": "Region 3 Combine"
+      },
+      "inputs": {
+        "conditioning_1": ["61", 0],
+        "conditioning_2": ["52", 0]
+      }
+    },
+    "33": {
+      "class_type": "LoadImageMask",
+      "_meta": {
+        "title": "Region 4 Mask"
+      },
+      "inputs": {
+        "image": "",
+        "channel": "red"
+      }
+    },
+    "43": {
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "Region 4 Prompt"
+      },
+      "inputs": {
+        "text": "",
+        "clip": ["13", 1]
+      }
+    },
+    "53": {
+      "class_type": "ConditioningSetMask",
+      "_meta": {
+        "title": "Region 4 Mask Apply"
+      },
+      "inputs": {
+        "conditioning": ["43", 0],
+        "mask": ["33", 0],
+        "strength": 1.0,
+        "set_cond_area": "default"
+      }
+    },
+    "63": {
+      "class_type": "ConditioningCombine",
+      "_meta": {
+        "title": "Region 4 Combine"
+      },
+      "inputs": {
+        "conditioning_1": ["62", 0],
+        "conditioning_2": ["53", 0]
+      }
+    }
+  }
+}
