@@ -3123,6 +3123,13 @@ const en = {
   'settings.ai.imageCatalog.dreamshaper-xl-turbo': 'SDXL at 1024 px in 6-8 steps: far more quality and detail if your GPU has 10 GB or more.',
   'settings.ai.imageCatalog.sdxl-turbo': 'SDXL sketches in 1-4 steps: the fastest option at medium resolution. Non-commercial licence only.',
   'settings.ai.imageCatalog.flux-schnell-q4': 'FLUX.1 schnell in 4 steps with very faithful text and composition; four files and 12 GB of VRAM or a split with RAM.',
+  'settings.ai.imageCatalog.flux-kontext-dev-q4': 'The editing model: give it one or more reference images and it keeps the same character across new scenes. Four files, and it shares three of them with FLUX schnell. Non-commercial licence only.',
+  'settings.ai.imageCompanions.title': 'ControlNets and upscalers',
+  'settings.ai.imageCompanions.note': 'Extras the image server is pointed at rather than models it runs. A ControlNet is chosen when the server starts, so switching one restarts it.',
+  'settings.ai.imageCompanions.controlnet-sd15-openpose': 'Hold a pose: give it a skeleton and the figure takes that stance. For SD 1.5 models.',
+  'settings.ai.imageCompanions.controlnet-sd15-canny': 'Hold a shape: give it an edge drawing and the picture follows those lines. For SD 1.5 models.',
+  'settings.ai.imageCompanions.controlnet-sd15-depth': 'Hold a space: give it a depth map and the scene keeps that layout. For SD 1.5 models.',
+  'settings.ai.imageCompanions.realesrgan-x4': 'Four times the resolution on the second pass, for printing a portrait or a map at size.',
   'settings.ai.kind.sdcpp': 'Local (sd.cpp)',
 
   'settings.ai.catalog.qwen3.5-9b': 'The sweet spot for 12 GB of VRAM: tools, vision and 256K context.',
