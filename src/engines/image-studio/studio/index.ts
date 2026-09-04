@@ -98,5 +98,8 @@ export {
 } from './xyz';
 export type { AxisField, XyzAxis, XyzCell, XyzOverrides } from './xyz';
 
+export { planRun } from './run';
+export type { RunInput, RunPlan } from './run';
+
 export { DEFAULT_STUDIO_PREFS, readStudioPrefs, writeStudioPrefs } from './prefs';
 export type { StudioPrefs } from './prefs';
