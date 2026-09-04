@@ -44,6 +44,7 @@ export interface ResolutionStep {
     | 'referenceImage'
     | 'photoMaker'
     | 'noCanonical'
+    | 'canonicalUnused'
     | 'fragment'
     | 'dialectAdapted'
     | 'scene'
@@ -200,6 +201,13 @@ function resolveSubject(
     strategy = 'photomaker';
     out.referenceImages.push({ imageId: ref.canonicalImageId, refId: ref.id, role: 'face' });
     out.steps.push({ code: 'photoMaker', refId: ref.id, refName: ref.name });
+  }
+
+  // A portrait the writer marked "this is her" and nothing can carry has to be
+  // said out loud. Falling through to the words alone without a word about it
+  // is how a writer concludes the portrait does something when it does not.
+  if (strategy === 'prompt-only' && ref.canonicalImageId) {
+    out.steps.push({ code: 'canonicalUnused', refId: ref.id, refName: ref.name });
   }
 
   // Always, whatever carried the face: the words still describe her.

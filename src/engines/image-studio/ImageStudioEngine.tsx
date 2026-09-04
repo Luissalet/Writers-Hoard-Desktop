@@ -1,254 +1,386 @@
 // ============================================================================
-// Image studio — the engine tab
+// Image studio — three columns, not a chat log
 // ============================================================================
 //
-// Prompt, model, size, variants → generate through the gateway → every result
-// lands in Gallery with its provenance and shows up here as a strip of recent
-// generations. Options a server cannot honour are not faked: the studio only
-// sends what was set, and a strict server simply ignores nothing.
+// Cast on the left, composer and results in the middle, parameters on the
+// right. The chat metaphor is actively wrong for this work: it hides the
+// parameters behind the prose, it makes history unbrowsable, and it has nowhere
+// to put a reference that accumulates. What makes a character look the same in
+// chapter 30 as in chapter 1 is not a better sentence; it is a resolver that
+// applies the same LoRA, the same portrait, the same seed and the same words
+// every time, and shows the writer exactly what it did.
+//
+// The state this opens in for a writer with no image model installed is not an
+// error state. It is the visual bible: the cast, the portraits, the fragments,
+// the chapters each character appears in. Generation is what is missing, and it
+// says so — visibly, in the place the button lives.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Copy, Dices, ImagePlus, Layers, Loader2, RefreshCw, Settings2, Sparkles, Square, Trash2, XCircle } from 'lucide-react';
+import { GitCompare, ImagePlus, Loader2, Settings2, Sparkles, Square, XCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 import type { EngineComponentProps } from '@/engines/_types';
-import type { InspirationImage } from '@/types';
+import type { CodexEntry, InspirationImage } from '@/types';
+import type { VisualRef } from '@/types/visualRef';
+import { db } from '@/db';
 import { useAiRuntimeStore } from '@/stores/aiRuntimeStore';
 import { useImageRuntimeStore } from '@/stores/imageRuntimeStore';
-import { useImageHandoffStore } from '@/stores/imageHandoffStore';
-import { BUILTIN_SD_ID } from '@/services/aiRuntime/constants';
-import ModelRoutePicker from '@/components/ai-settings/ModelRoutePicker';
-import VramWarning from '@/components/ai-settings/VramWarning';
-import GalleryLightbox from '@/components/gallery/GalleryLightbox';
-import { toast } from '@/components/common/toast';
-import { detectVramContention } from '@/services/aiRuntime/sdServer';
-import { imageCatalogEntry } from '@/services/aiRuntime/imageCatalog';
 import type { AiRouteSelection } from '@/services/aiRuntime/types';
 import type { ImageHandle } from '@/services/aiRuntime/client';
 import { getProjectSettings, saveProjectSettings } from '@/services/copilot/threads';
+import { toast } from '@/components/common/toast';
+import {
+  mentionToken,
+  parseMentions,
+  readRecipe,
+  resolve,
+  variationSeeds,
+  type ResolveOptions,
+  type ResolverModel,
+} from '@/services/visualRef';
 import {
   IMAGE_SIZE_PRESETS,
+  REQUEST_SUPPORTS,
   deleteGeneratedImage,
   listGeneratedImages,
-  makeThumbnail,
   saveGenerated,
   startGeneration,
 } from './operations';
+import {
+  addToReferenceSet,
+  createVisualRef,
+  deleteVisualRef,
+  listVisualRefs,
+  loadRefImages,
+  pinHeroSeed,
+  setCanonicalImage,
+  updateVisualRef,
+} from './refs';
+import { AVAILABLE, blocked, parameterVisibility, studioResolverModel, type Availability } from './studioModel';
+import CastColumn from './components/CastColumn';
+import ParametersColumn, { type ParametersState } from './components/ParametersColumn';
+import ReferenceEditor from './components/ReferenceEditor';
+import ResolvedPrompt from './components/ResolvedPrompt';
+import ResultsGrid, { type ResultBatch } from './components/ResultsGrid';
+import CompareDialog from './components/CompareDialog';
+import DatasetExportDialog from './components/DatasetExportDialog';
 
-const QUALITIES = ['auto', 'low', 'medium', 'high'] as const;
+const INITIAL_PARAMETERS: ParametersState = {
+  sizePreset: 'square',
+  steps: '',
+  cfg: '',
+  sampler: '',
+  scheduler: '',
+  seedMode: 'explore',
+  manualSeed: '',
+  batch: 1,
+};
+
+/** Variations are a batch of six: enough to see a trend, few enough to look at. */
+const VARIATION_COUNT = 6;
+
+/**
+ * The model the disclosure resolves against when nothing is installed. The
+ * writer still gets to see what their reference WOULD send: the disclosure is
+ * the teaching surface, and withholding it until a backend exists teaches
+ * nothing at all.
+ */
+const ABSENT_MODEL: ResolverModel = {
+  connectionId: '',
+  modelId: '',
+  dialect: 'prose',
+  supportsLora: false,
+  supportsReferenceImages: false,
+  supportsPhotoMaker: false,
+  supportsControlNet: false,
+  supportsInitImage: false,
+};
+
+/**
+ * A seed for an unrepeatable run. At module scope on purpose: the dice belong
+ * outside the component (React's purity rule) and outside the resolver (which
+ * has to be reproducible), so this is the one place in the studio that rolls.
+ */
+function rollSeed(): number {
+  return Math.floor(Math.random() * 2_147_483_647);
+}
 
 export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const runtime = useAiRuntimeStore();
+  const sdStatus = useImageRuntimeStore((state) => state.status);
+
+  const [refs, setRefs] = useState<VisualRef[]>([]);
+  const [entries, setEntries] = useState<CodexEntry[]>([]);
+  const [selectedRefId, setSelectedRefId] = useState<string | null>(null);
+  const [pane, setPane] = useState<'composer' | 'reference'>('composer');
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+
+  const [subjects, setSubjects] = useState('');
+  const [scene, setScene] = useState('');
+  const [style, setStyle] = useState('');
+  const [parameters, setParameters] = useState<ParametersState>(INITIAL_PARAMETERS);
+
   const [route, setRoute] = useState<AiRouteSelection | undefined>(undefined);
-  const [prompt, setPrompt] = useState('');
-  const [negative, setNegative] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  // 'native' follows the model's training resolution when it reports one.
-  const [preset, setPreset] = useState('native');
-  const [quality, setQuality] = useState<(typeof QUALITIES)[number]>('auto');
-  const [count, setCount] = useState(1);
-  const [seed, setSeed] = useState<string>('');
-  const [steps, setSteps] = useState<string>('');
   const [handle, setHandle] = useState<ImageHandle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [images, setImages] = useState<InspirationImage[]>([]);
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
-  const [lightbox, setLightbox] = useState<number | null>(null);
-  // A prompt handed over from another engine, queued to generate once a route is
-  // resolved (defaults load async, so the route may not be ready on first paint).
-  const [autoGenPrompt, setAutoGenPrompt] = useState<string | null>(null);
-  // img2img: a reference image (data URL) and its denoise strength.
-  const [initImage, setInitImage] = useState<string | null>(null);
-  const [strength, setStrength] = useState(0.6);
-  // LoRA: one of the files present in the runtime's folder, with its weight.
-  const [loraName, setLoraName] = useState('');
-  const [loraWeight, setLoraWeight] = useState(0.8);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [comparing, setComparing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportImages, setExportImages] = useState<InspirationImage[]>([]);
+  const [pendingDiscard, setPendingDiscard] = useState<InspirationImage | null>(null);
+  const [pendingRefDelete, setPendingRefDelete] = useState<VisualRef | null>(null);
 
-  const reload = useCallback(() => {
+  const reloadRefs = useCallback(async () => {
+    const rows = await listVisualRefs(projectId);
+    setRefs(rows);
+    const portraitIds = rows.map((row) => row.canonicalImageId).filter((id): id is string => Boolean(id));
+    if (portraitIds.length === 0) {
+      setThumbnails({});
+      return;
+    }
+    const portraits = await db.inspirationImages.bulkGet(portraitIds);
+    setThumbnails(Object.fromEntries(
+      portraits
+        .filter((row): row is InspirationImage => Boolean(row))
+        .map((row) => [row.id, row.thumbnailData ?? row.imageData]),
+    ));
+  }, [projectId]);
+
+  const reloadImages = useCallback(() => {
     void listGeneratedImages(projectId).then(setImages);
   }, [projectId]);
 
   useEffect(() => {
-    reload();
-    void runtime.loadConnections();
-    void runtime.loadDefaults();
-    void getProjectSettings(projectId).then((settings) => {
+    let live = true;
+    void (async () => {
+      // Everything is set after an await on purpose: a synchronous setState
+      // inside an effect cascades a second render before the first has painted.
+      const [codex, settings] = await Promise.all([
+        db.codexEntries.where('projectId').equals(projectId).toArray(),
+        getProjectSettings(projectId),
+        reloadRefs(),
+      ]);
+      if (!live) return;
+      setEntries(codex);
       if (settings.imageRoute) setRoute(settings.imageRoute);
-    });
+      reloadImages();
+      void runtime.loadConnections();
+      void runtime.loadDefaults();
+    })();
+    return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  // --- the model, and what it can honour ------------------------------------
   const effectiveRoute = route ?? runtime.defaults.image;
-  const connection = runtime.connections.find((c) => c.id === effectiveRoute?.connectionId);
-  const routeModel = effectiveRoute ? runtime.modelsByConnection[effectiveRoute.connectionId]?.models.find((m) => m.id === effectiveRoute.modelId) : undefined;
-  const nativeSize = routeModel?.nativeWidth && routeModel.nativeHeight ? { width: routeModel.nativeWidth, height: routeModel.nativeHeight } : null;
-  // img2img is offered for local Stable Diffusion models; FLUX does not do
-  // classic denoise-strength img2img, so the reference slot stays hidden for it.
-  const supportsImg2img = routeModel?.family === 'sd1' || routeModel?.family === 'sdxl';
-  const presetValue = preset === 'native' && !nativeSize ? 'square' : preset;
-  const size = presetValue === 'native' && nativeSize ? nativeSize : IMAGE_SIZE_PRESETS.find((p) => p.id === presetValue) ?? IMAGE_SIZE_PRESETS[0];
+  const descriptor = effectiveRoute
+    ? runtime.modelsByConnection[effectiveRoute.connectionId]?.models.find((model) => model.id === effectiveRoute.modelId)
+    : undefined;
+  const cfgOverride = parameters.cfg.trim() ? Number(parameters.cfg) : undefined;
+  const model = useMemo(
+    () => studioResolverModel({
+      route: effectiveRoute,
+      descriptor,
+      runtimeLorasSupported: sdStatus?.lorasSupported,
+      cfgOverride,
+    }),
+    [effectiveRoute, descriptor, sdStatus?.lorasSupported, cfgOverride],
+  );
+  const visibility = useMemo(() => parameterVisibility(model, REQUEST_SUPPORTS), [model]);
+  const nativeSize = descriptor?.nativeWidth && descriptor.nativeHeight
+    ? { width: descriptor.nativeWidth, height: descriptor.nativeHeight }
+    : undefined;
+  const size = parameters.sizePreset === 'native' && nativeSize
+    ? nativeSize
+    : IMAGE_SIZE_PRESETS.find((preset) => preset.id === parameters.sizePreset) ?? IMAGE_SIZE_PRESETS[0];
+
+  // --- the resolution -------------------------------------------------------
+  const mentions = useMemo(() => parseMentions(subjects, refs), [subjects, refs]);
+  const resolveOptions: ResolveOptions = useMemo(() => ({
+    seedMode: parameters.seedMode,
+    manualSeed: parameters.manualSeed.trim() ? Number(parameters.manualSeed) : undefined,
+  }), [parameters.seedMode, parameters.manualSeed]);
+  // Resolved against a nameless placeholder model when nothing is installed, so
+  // the writer can still see what their reference WOULD send. The disclosure is
+  // the teaching surface; withholding it until a model exists teaches nothing.
+  const previewModel = useMemo(() => model ?? ABSENT_MODEL, [model]);
+  const resolved = useMemo(
+    () => resolve(mentions.refs, [mentions.rest, scene].filter(Boolean).join(', '), style, previewModel, resolveOptions),
+    [mentions.refs, mentions.rest, scene, style, previewModel, resolveOptions],
+  );
+
+  const selectedRef = refs.find((row) => row.id === selectedRefId) ?? null;
+  const heroRef = mentions.refs.find((row) => typeof row.heroSeed === 'number') ?? null;
   const busy = handle !== null;
-  // The managed image server loads the weights on the first request: say so
-  // instead of showing a bare spinner for half a minute.
-  const sdStatus = useImageRuntimeStore((s) => s.status);
-  const refreshSdRuntime = useImageRuntimeStore((s) => s.refresh);
-  const localServerState = sdStatus?.state;
-  const isLocalRoute = effectiveRoute?.connectionId === BUILTIN_SD_ID;
-  const loadingLocalModel = busy && isLocalRoute && localServerState === 'starting';
-  // LoRAs and the VRAM warning only mean anything for the managed local server:
-  // a remote image API neither loads LoRA files from this disk nor competes for
-  // this graphics card.
-  const loras = useMemo(
-    () => (isLocalRoute && sdStatus?.lorasSupported !== false ? sdStatus?.loras ?? [] : []),
-    [isLocalRoute, sdStatus?.loras, sdStatus?.lorasSupported],
+
+  // --- availability, with reasons -------------------------------------------
+  const generateAction: Availability = !model
+    ? blocked('visualRef.reason.noModel')
+    : busy
+      ? blocked('visualRef.reason.busy')
+      : !resolved.prompt.trim()
+        ? blocked('visualRef.reason.noPrompt')
+        : AVAILABLE;
+  const refActions: Availability = selectedRef ? AVAILABLE : blocked('visualRef.reason.noRefSelected');
+  const seedAction = useCallback(
+    (image: InspirationImage): Availability => {
+      if (!selectedRef) return blocked('visualRef.reason.noRefSelected');
+      if (image.generation?.seed === undefined) return blocked('visualRef.reason.noSeedRecorded');
+      return AVAILABLE;
+    },
+    [selectedRef],
   );
-  const activeLora = loraName ? loras.find((lora) => lora.name === loraName) : undefined;
-  const contention = useMemo(
-    () => (isLocalRoute && effectiveRoute ? detectVramContention(sdStatus?.vram, imageCatalogEntry(effectiveRoute.modelId)) : null),
-    [isLocalRoute, effectiveRoute, sdStatus?.vram],
-  );
+  const compareAction: Availability = compareIds.length >= 2 && compareIds.length <= 4
+    ? AVAILABLE
+    : blocked('visualRef.reason.compareCount');
 
-  // Ask main who is holding the card whenever the local runtime becomes the
-  // route: the answer is what the warning is drawn from, and it is measured
-  // there (nvidia-smi + Ollama's /api/ps), never here. Re-asked on a slow beat
-  // because the card can change hands with this tab open — a copilot answer in
-  // the dock leaves its model resident — and a warning nobody refreshes is a
-  // warning nobody can trust. Main memoises the measurement, so this is one
-  // reading, not a poll of the driver.
-  useEffect(() => {
-    if (!isLocalRoute) return undefined;
-    void refreshSdRuntime();
-    const timer = setInterval(() => void refreshSdRuntime(), 20_000);
-    return () => clearInterval(timer);
-  }, [isLocalRoute, refreshSdRuntime]);
-  const hasImageModels = useMemo(
-    () => runtime.connections.some((c) => c.enabled && (runtime.modelsByConnection[c.id]?.models ?? []).some((m) => m.type === 'image')),
-    [runtime.connections, runtime.modelsByConnection],
-  );
-
-  const chooseRoute = (next: AiRouteSelection | null) => {
-    setRoute(next ?? undefined);
-    void saveProjectSettings(projectId, { imageRoute: next ?? undefined });
-  };
-
-  const handleReferenceFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // let the same file be picked again after a remove
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      toast.error(t('imageStudio.reference.notImage'));
-      return;
-    }
-    if (file.size > 20 * 1024 * 1024) {
-      toast.error(t('imageStudio.reference.tooLarge'));
-      return;
-    }
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(new Error('read failed'));
-      reader.readAsDataURL(file);
-    }).catch(() => null);
-    if (!dataUrl) {
-      toast.error(t('imageStudio.reference.notImage'));
-      return;
-    }
-    // Bound the payload, and require a decodable raster: a successful thumbnail
-    // proves the image decoded (an SVG or corrupt file yields undefined). The
-    // server resizes to the target anyway.
-    const bounded = await makeThumbnail(dataUrl, 1024);
-    if (!bounded) {
-      toast.error(t('imageStudio.reference.notImage'));
-      return;
-    }
-    setInitImage(bounded);
-  };
-
-  const generate = async (override?: { prompt?: string; negative?: string; seed?: number; width?: number; height?: number }) => {
-    const text = (override?.prompt ?? prompt).trim();
-    if (!text || !effectiveRoute || busy) return;
+  // --- generating -----------------------------------------------------------
+  const runGeneration = async (override?: { seeds?: number[]; prompt?: string; negative?: string }) => {
+    if (!model || !effectiveRoute || busy) return;
     setError(null);
+    // The dice are rolled HERE, not in the resolver: a pure resolver is what
+    // makes a recipe reproducible and a diff meaningful.
+    const seeds = override?.seeds
+      ?? (resolved.seedMode === 'explore' ? [rollSeed()] : [resolved.seed ?? rollSeed()]);
+    const references = await resolveReferenceData();
     const options = {
       projectId,
       route: effectiveRoute,
-      prompt: text,
-      negativePrompt: (override?.negative ?? negative).trim() || undefined,
-      width: override?.width ?? size.width,
-      height: override?.height ?? size.height,
-      n: count,
-      seed: override?.seed ?? (seed.trim() ? Number(seed) : undefined),
-      steps: steps.trim() ? Number(steps) : undefined,
-      quality: quality === 'auto' ? undefined : quality,
-      initImage: supportsImg2img && initImage ? initImage : undefined,
-      strength: supportsImg2img && initImage ? strength : undefined,
-      loras: activeLora ? [{ name: activeLora.name, weight: loraWeight }] : undefined,
+      prompt: override?.prompt ?? resolved.prompt,
+      negativePrompt: override?.negative ?? resolved.negativePrompt,
+      width: size.width,
+      height: size.height,
+      n: override?.seeds ? 1 : parameters.batch,
+      steps: parameters.steps.trim() ? Number(parameters.steps) : undefined,
+      guidance: visibility.cfg && parameters.cfg.trim() ? Number(parameters.cfg) : undefined,
+      sampler: parameters.sampler || undefined,
+      scheduler: parameters.scheduler || undefined,
+      loras: resolved.loras.length
+        ? resolved.loras.map((lora) => ({ name: lora.fileName, weight: lora.weight }))
+        : undefined,
+      referenceImages: references.identity,
+      controlNets: references.control,
+      visualRefIds: mentions.refs.map((row) => row.id),
     };
-    const started = startGeneration(options);
-    setHandle(started);
-    try {
-      const result = await started.result;
-      const saved = await saveGenerated(options, result);
-      if (!saved.ok) {
-        if (saved.code !== 'cancelled') setError(saved.error ?? t('imageStudio.error.generic'));
-      } else {
-        toast.success(t('imageStudio.saved').replace('{count}', String(saved.images.length)));
-        reload();
+    for (const seed of seeds) {
+      const request = { ...options, seed };
+      const started = startGeneration(request);
+      setHandle(started);
+      try {
+        const saved = await saveGenerated(request, await started.result);
+        if (!saved.ok && saved.code !== 'cancelled') setError(saved.error ?? t('imageStudio.error.generic'));
+      } catch (caught) {
+        setError(t('imageStudio.error.saveFailed').replace('{error}', caught instanceof Error ? caught.message : String(caught)));
+      } finally {
+        setHandle(null);
       }
-    } catch (err) {
-      // A rejected write (quota, most often) used to vanish: the spinner just
-      // stopped, `error` stayed null, and the author paid for the generation
-      // again to see the same nothing.
-      setError(
-        t('imageStudio.error.saveFailed').replace(
-          '{error}',
-          err instanceof Error ? err.message : String(err),
-        ),
-      );
-    } finally {
-      setHandle(null);
-      // The generation just changed who is on the card (the image server took
-      // it, and main may have asked a chat model to step off): re-read it so the
-      // warning reflects the machine and not the last minute.
-      if (isLocalRoute) void refreshSdRuntime();
     }
+    reloadImages();
   };
 
-  // Drain a prompt handed over from another engine (e.g. a text selection in
-  // Escritos): pre-fill it, and queue a generation if it asked for one.
-  // Subscribing (not a mount-only effect) so a second hand-off that arrives
-  // while the studio is already open is picked up too, not stranded in the store.
-  const pendingHandoff = useImageHandoffStore((s) => s.pending);
-  useEffect(() => {
-    if (!pendingHandoff) return;
-    const handoff = useImageHandoffStore.getState().take();
-    if (!handoff) return;
-    if (handoff.prompt) setPrompt(handoff.prompt);
-    if (handoff.initImage) setInitImage(handoff.initImage);
-    if (handoff.autoGenerate && handoff.prompt) setAutoGenPrompt(handoff.prompt);
-  }, [pendingHandoff]);
+  /** Turn the resolved image ids into the bytes the request would carry. */
+  const resolveReferenceData = async (): Promise<{ identity: string[]; control: { image: string; weight: number }[] }> => {
+    if (resolved.referenceImages.length === 0) return { identity: [], control: [] };
+    const rows = await db.inspirationImages.bulkGet(resolved.referenceImages.map((image) => image.imageId));
+    const identity: string[] = [];
+    const control: { image: string; weight: number }[] = [];
+    resolved.referenceImages.forEach((reference, index) => {
+      const row = rows[index];
+      if (!row) return;
+      const data = row.imageDataOriginal ?? row.imageData;
+      if (reference.role === 'pose') control.push({ image: data, weight: reference.weight ?? 0.55 });
+      else identity.push(data);
+    });
+    return { identity, control };
+  };
 
-  // Fire the queued generation once a route is resolved and nothing is running.
-  useEffect(() => {
-    if (autoGenPrompt === null || !effectiveRoute || busy) return;
-    const queued = autoGenPrompt;
-    setAutoGenPrompt(null);
-    void generate({ prompt: queued });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoGenPrompt, effectiveRoute, busy]);
+  // --- actions on a result --------------------------------------------------
+  const iterate = (image: InspirationImage) => {
+    if (!image.generation) return;
+    const recipe = readRecipe(image.generation);
+    // The model this was made with may be gone. Say so — never quietly pick the
+    // nearest installed one, because then every stored recipe reproduces by
+    // luck and the writer stops being able to trust any of them.
+    if (recipe.modelId !== effectiveRoute?.modelId) {
+      const installed = runtime.connections
+        .flatMap((connection) => runtime.modelsByConnection[connection.id]?.models ?? [])
+        .some((candidate) => candidate.id === recipe.modelId);
+      // Named, never substituted. The selected model is offered as the nearest
+      // thing available — as an offer the writer can see and refuse, not as a
+      // swap made behind their back, which would make every stored recipe
+      // reproduce by luck and none of them worth keeping.
+      const current = effectiveRoute?.modelId ?? '—';
+      toast.info(
+        (installed ? t('visualRef.iterate.otherModel') : t('visualRef.iterate.modelGone'))
+          .replace('{model}', recipe.modelId)
+          .replace('{current}', current),
+      );
+    }
+    setScene('');
+    setStyle('');
+    setSubjects(recipe.prompt);
+    setParameters((current) => ({
+      ...current,
+      steps: recipe.steps === undefined ? '' : String(recipe.steps),
+      cfg: recipe.cfg === undefined ? '' : String(recipe.cfg),
+      sampler: recipe.sampler ?? '',
+      scheduler: recipe.scheduler ?? '',
+      seedMode: recipe.seed === undefined ? 'explore' : 'manual',
+      manualSeed: recipe.seed === undefined ? '' : String(recipe.seed),
+    }));
+    setPane('composer');
+  };
+
+  const variations = (image: InspirationImage) => {
+    const recipe = image.generation ? readRecipe(image.generation) : null;
+    const base = recipe?.seed ?? rollSeed();
+    void runGeneration({
+      seeds: variationSeeds(base, VARIATION_COUNT),
+      prompt: recipe?.prompt,
+      negative: recipe?.negativePrompt,
+    });
+  };
+
+  const batches: ResultBatch[] = useMemo(() => {
+    const grouped = new Map<number, InspirationImage[]>();
+    for (const image of images) {
+      const at = image.generation?.createdAt ?? image.createdAt;
+      const bucket = grouped.get(at);
+      if (bucket) bucket.push(image);
+      else grouped.set(at, [image]);
+    }
+    return [...grouped.entries()]
+      .sort((left, right) => right[0] - left[0])
+      .map(([at, rows]) => ({ at, images: rows }));
+  }, [images]);
+
+  const compareImages = images.filter((image) => compareIds.includes(image.id));
+
+  const openExport = async () => {
+    if (!selectedRef) return;
+    const rows = await loadRefImages(selectedRef);
+    setExportImages(rows.filter((row) => selectedRef.referenceImageIds.includes(row.id)));
+    setExporting(true);
+  };
+
+  const hasImageModels = runtime.connections.some(
+    (connection) => connection.enabled
+      && (runtime.modelsByConnection[connection.id]?.models ?? []).some((candidate) => candidate.type === 'image'),
+  );
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-serif font-bold text-accent-gold flex items-center gap-2">
             <Sparkles size={18} />
             {t('engines.image-studio.name')}
           </h2>
-          <p className="text-xs text-text-muted mt-0.5">{t('imageStudio.intro')}</p>
+          <p className="text-xs text-text-muted mt-0.5">{t('visualRef.intro')}</p>
         </div>
         <button
           type="button"
@@ -261,329 +393,251 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
       </div>
 
       {!hasImageModels && runtime.connectionsLoaded && (
-        <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/5 px-4 py-3 text-xs text-text-muted space-y-2">
+        <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/5 px-4 py-3 text-xs text-text-muted space-y-1">
           <p className="text-text-primary">{t('imageStudio.noModels.title')}</p>
-          <p>{t('imageStudio.noModels.body')}</p>
-          <button
-            type="button"
-            onClick={() => navigate('/settings/ai')}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-accent-gold/15 text-accent-gold hover:bg-accent-gold/25 transition"
-          >
-            <Settings2 size={12} />
-            {t('imageStudio.noModels.cta')}
-          </button>
+          {/* Not an error. The cast, the portraits and the fragments below are
+              the point of this tab even when nothing can generate. */}
+          <p>{t('visualRef.noModels.stillUseful')}</p>
         </div>
       )}
 
-      <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
-        <div>
-          <label className="block text-[11px] text-text-muted mb-1">{t('imageStudio.model')}</label>
-          <ModelRoutePicker type="image" value={effectiveRoute} onChange={chooseRoute} allowNone={false} />
-          {connection && (
-            <p className="text-[10px] text-text-dim mt-1">
-              {connection.name} · {t(`settings.ai.locality.${connection.locality}`)}
-            </p>
-          )}
-        </div>
-        <div>
-          <label className="block text-[11px] text-text-muted mb-1">{t('imageStudio.prompt')}</label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            rows={3}
-            placeholder={t('imageStudio.promptPlaceholder')}
-            className="w-full resize-y rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-gold transition"
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,15rem)] gap-4">
+        <aside className="lg:border-r lg:border-border/60 lg:pr-4">
+          <CastColumn
+            refs={refs}
+            thumbnails={thumbnails}
+            selectedId={selectedRefId}
+            onSelect={(id) => { setSelectedRefId(id); setPane('reference'); }}
+            onInsert={(ref) => {
+              setSelectedRefId(ref.id);
+              setSubjects((current) => (current ? `${current} ${mentionToken(ref)}` : mentionToken(ref)));
+              setPane('composer');
+            }}
+            onCreate={(name) => {
+              void createVisualRef(projectId, name).then(async (created) => {
+                await reloadRefs();
+                setSelectedRefId(created.id);
+                setPane('reference');
+              });
+            }}
+            onDelete={setPendingRefDelete}
           />
-        </div>
-        {supportsImg2img && (
-          <div className="rounded-lg border border-border/60 bg-elevated/40 p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-text-muted flex items-center gap-1.5">
-                <ImagePlus size={12} />
-                {t('imageStudio.reference.label')}
-              </span>
-              {initImage && (
-                <button
-                  type="button"
-                  onClick={() => setInitImage(null)}
-                  className="flex items-center gap-1 text-[10px] text-text-dim hover:text-danger transition"
-                >
-                  <XCircle size={11} />
-                  {t('imageStudio.reference.remove')}
-                </button>
-              )}
-            </div>
-            {initImage ? (
-              <div className="flex items-center gap-3">
-                <img src={initImage} alt="" className="w-16 h-16 rounded border border-border object-cover flex-shrink-0" />
-                <label className="flex-1 min-w-0 text-[11px] text-text-muted">
-                  <span className="flex items-center justify-between">
-                    <span>{t('imageStudio.reference.strength')}</span>
-                    <span className="font-mono tabular-nums text-text-dim">{strength.toFixed(2)}</span>
-                  </span>
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={0.95}
-                    step={0.05}
-                    value={strength}
-                    onChange={(e) => setStrength(Number(e.target.value))}
-                    className="w-full accent-accent-gold"
-                  />
-                  <span className="block text-[10px] text-text-dim">{t('imageStudio.reference.strengthHint')}</span>
-                </label>
-              </div>
-            ) : (
+        </aside>
+
+        <section className="min-w-0 space-y-3">
+          <div className="flex items-center gap-1.5">
+            {(['composer', 'reference'] as const).map((tab) => (
               <button
+                key={tab}
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full rounded-lg border border-dashed border-border px-3 py-3 text-[11px] text-text-dim hover:text-text-primary hover:border-accent-gold/40 transition"
+                onClick={() => setPane(tab)}
+                disabled={tab === 'reference' && !selectedRef}
+                title={tab === 'reference' && !selectedRef ? t('visualRef.reason.noRefSelected') : t(`visualRef.pane.${tab}`)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] border transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                  pane === tab
+                    ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold'
+                    : 'border-border text-text-dim hover:text-text-primary'
+                }`}
               >
-                {t('imageStudio.reference.drop')}
+                {t(`visualRef.pane.${tab}`)}
               </button>
-            )}
-            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleReferenceFile} />
-          </div>
-        )}
-        {isLocalRoute && loras.length > 0 && (
-          <div className="rounded-lg border border-border/60 bg-elevated/40 p-3 space-y-2">
-            <span className="text-[11px] text-text-muted flex items-center gap-1.5">
-              <Layers size={12} />
-              {t('imageStudio.lora.label')}
-            </span>
-            <div className="flex items-center gap-3 flex-wrap">
-              <select
-                value={loraName}
-                onChange={(e) => setLoraName(e.target.value)}
-                className="px-2 py-1.5 bg-elevated border border-border rounded-lg text-xs text-text-primary outline-none focus:border-accent-gold"
-              >
-                <option value="">{t('imageStudio.lora.none')}</option>
-                {loras.map((lora) => (
-                  <option key={lora.name} value={lora.name}>
-                    {lora.name}
-                  </option>
-                ))}
-              </select>
-              {activeLora && (
-                <label className="flex-1 min-w-[10rem] text-[11px] text-text-muted">
-                  <span className="flex items-center justify-between">
-                    <span>{t('imageStudio.lora.weight')}</span>
-                    <span className="font-mono tabular-nums text-text-dim">{loraWeight.toFixed(2)}</span>
-                  </span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1.5}
-                    step={0.05}
-                    value={loraWeight}
-                    onChange={(e) => setLoraWeight(Number(e.target.value))}
-                    className="w-full accent-accent-gold"
-                  />
-                </label>
-              )}
-            </div>
-            <p className="text-[10px] text-text-dim">{t('imageStudio.lora.hint')}</p>
-          </div>
-        )}
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-[11px] text-text-muted">
-            {t('imageStudio.size')}
-            <select value={presetValue} onChange={(e) => setPreset(e.target.value)} className="px-2 py-1.5 bg-elevated border border-border rounded-lg text-xs text-text-primary outline-none focus:border-accent-gold">
-              {nativeSize && (
-                <option value="native">
-                  {t('imageStudio.size.native')} · {nativeSize.width}×{nativeSize.height}
-                </option>
-              )}
-              {IMAGE_SIZE_PRESETS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {t(`imageStudio.size.${p.labelKey}`)} · {p.width}×{p.height}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2 text-[11px] text-text-muted">
-            {t('imageStudio.quality')}
-            <select value={quality} onChange={(e) => setQuality(e.target.value as (typeof QUALITIES)[number])} className="px-2 py-1.5 bg-elevated border border-border rounded-lg text-xs text-text-primary outline-none focus:border-accent-gold">
-              {QUALITIES.map((q) => (
-                <option key={q} value={q}>
-                  {t(`imageStudio.quality.${q}`)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2 text-[11px] text-text-muted">
-            {t('imageStudio.variants')}
-            <select value={count} onChange={(e) => setCount(Number(e.target.value))} className="px-2 py-1.5 bg-elevated border border-border rounded-lg text-xs text-text-primary outline-none focus:border-accent-gold">
-              {[1, 2, 3, 4].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button type="button" onClick={() => setShowAdvanced((v) => !v)} className="text-[11px] text-text-dim hover:text-text-primary transition ml-auto">
-            {showAdvanced ? t('imageStudio.advanced.hide') : t('imageStudio.advanced.show')}
-          </button>
-        </div>
-        {showAdvanced && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <label className="block sm:col-span-1">
-              <span className="block text-[11px] text-text-muted mb-1">{t('imageStudio.negative')}</span>
-              <input value={negative} onChange={(e) => setNegative(e.target.value)} placeholder={t('imageStudio.negativePlaceholder')} className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition" />
-            </label>
-            <label className="block">
-              <span className="block text-[11px] text-text-muted mb-1 flex items-center gap-1">
-                {t('imageStudio.seed')}
-                <button type="button" onClick={() => setSeed(String(Math.floor(Math.random() * 2_147_483_647)))} title={t('imageStudio.randomSeed')} className="text-text-dim hover:text-accent-gold">
-                  <Dices size={11} />
-                </button>
-              </span>
-              <input value={seed} onChange={(e) => setSeed(e.target.value.replace(/[^\d]/g, ''))} placeholder={t('imageStudio.seedPlaceholder')} className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition font-mono" />
-            </label>
-            <label className="block">
-              <span className="block text-[11px] text-text-muted mb-1">{t('imageStudio.steps')}</span>
-              <input value={steps} onChange={(e) => setSteps(e.target.value.replace(/[^\d]/g, ''))} placeholder={t('imageStudio.stepsPlaceholder')} className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition font-mono" />
-            </label>
-            <p className="sm:col-span-3 text-[10px] text-text-dim">{t('imageStudio.advanced.note')}</p>
-            {isLocalRoute && loras.length === 0 && (
-              <p className="sm:col-span-3 text-[10px] text-text-dim">{t('imageStudio.lora.empty')}</p>
-            )}
-          </div>
-        )}
-        {contention && !busy && (
-          <VramWarning
-            contention={contention}
-            onProceed={() => void generate()}
-            proceedDisabled={!prompt.trim() || !effectiveRoute}
-          />
-        )}
-        <div className="flex items-center gap-2">
-          {busy ? (
-            <>
-              <span className="flex items-center gap-2 text-xs text-text-muted">
-                <Loader2 size={14} className="animate-spin text-accent-gold" />
-                {loadingLocalModel ? t('imageStudio.loadingLocalModel') : t('imageStudio.generating')}
-              </span>
-              <button type="button" onClick={() => handle?.cancel()} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border text-text-muted hover:text-danger hover:border-danger/40 transition">
-                <Square size={12} />
-                {t('common.cancel')}
-              </button>
-            </>
-          ) : (
+            ))}
             <button
               type="button"
-              onClick={() => void generate()}
-              disabled={!prompt.trim() || !effectiveRoute}
-              className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-gold text-deep text-sm font-semibold hover:bg-accent-amber transition disabled:opacity-40"
+              onClick={() => setComparing(true)}
+              disabled={!compareAction.enabled}
+              title={compareAction.enabled ? t('visualRef.action.compare') : t(compareAction.reasonKey ?? '')}
+              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] border border-border text-text-dim hover:text-accent-gold transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <ImagePlus size={14} />
-              {t('imageStudio.generate')}
+              <GitCompare size={11} />
+              {t('visualRef.action.compare')} ({compareIds.length})
             </button>
-          )}
-        </div>
-        {error && (
-          <div className="flex items-start gap-2 px-3 py-2 bg-danger/10 text-danger text-xs rounded-lg">
-            <XCircle size={14} className="mt-0.5 flex-shrink-0" />
-            <span className="break-words">{error}</span>
           </div>
-        )}
-      </div>
 
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm text-text-primary font-medium">{t('imageStudio.recent')}</h3>
-          <button type="button" onClick={reload} className="p-1 text-text-dim hover:text-accent-gold transition" title={t('common.refresh')}>
-            <RefreshCw size={12} />
-          </button>
-        </div>
-        {images.length === 0 ? (
-          <p className="text-xs text-text-dim">{t('imageStudio.recentEmpty')}</p>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {images.map((image, index) => (
-              <div key={image.id} className="group relative rounded-lg overflow-hidden border border-border bg-elevated">
-                <button type="button" onClick={() => setLightbox(index)} className="block w-full">
-                  <img src={image.thumbnailData ?? image.imageData} alt="" className="w-full aspect-square object-cover" />
-                </button>
-                <div className="p-2 space-y-1">
-                  <p className="text-[10px] text-text-muted line-clamp-2" title={image.generation?.prompt}>
-                    {image.generation?.prompt ?? image.notes}
+          {pane === 'reference' && selectedRef ? (
+            <ReferenceEditor
+              projectId={projectId}
+              visual={selectedRef}
+              entries={entries}
+              onChange={(changes) => { void updateVisualRef(selectedRef.id, changes).then(reloadRefs); }}
+              onReload={() => { void reloadRefs(); }}
+              onExportDataset={() => { void openExport(); }}
+            />
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-lg border border-border bg-surface p-3 space-y-2.5">
+                <label className="block">
+                  <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.composer.subjects')}</span>
+                  <textarea
+                    value={subjects}
+                    onChange={(event) => setSubjects(event.target.value)}
+                    onDrop={(event) => {
+                      const name = event.dataTransfer.getData('text/plain');
+                      if (!name) return;
+                      event.preventDefault();
+                      setSubjects((current) => (current ? `${current} ${mentionToken({ name })}` : mentionToken({ name })));
+                    }}
+                    rows={2}
+                    placeholder={t('visualRef.composer.subjectsPlaceholder')}
+                    className="w-full resize-y px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
+                  />
+                </label>
+                {mentions.unknown.length > 0 && (
+                  <p className="text-[10px] text-accent-amber">
+                    {t('visualRef.composer.unknownMention').replace('{names}', mentions.unknown.join(', '))}
                   </p>
-                  <p className="text-[9px] text-text-dim font-mono truncate">
-                    {image.generation?.modelId} · {image.generation?.width}×{image.generation?.height}
-                    {image.generation?.seed !== undefined ? ` · #${image.generation.seed}` : ''}
-                  </p>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPrompt(image.generation?.prompt ?? image.notes);
-                        setNegative(image.generation?.negativePrompt ?? '');
-                        if (image.generation?.seed !== undefined) setSeed(String(image.generation.seed));
-                      }}
-                      title={t('imageStudio.reuse')}
-                      className="p-1 rounded text-text-dim hover:text-accent-gold transition"
-                    >
-                      <Copy size={11} />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy || !effectiveRoute}
-                      onClick={() =>
-                        void generate({
-                          prompt: image.generation?.prompt ?? image.notes,
-                          negative: image.generation?.negativePrompt ?? '',
-                          width: image.generation?.width,
-                          height: image.generation?.height,
-                        })
-                      }
-                      title={t('imageStudio.regenerate')}
-                      className="p-1 rounded text-text-dim hover:text-accent-gold transition disabled:opacity-40"
-                    >
-                      <RefreshCw size={11} />
-                    </button>
-                    {supportsImg2img && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setInitImage(image.imageDataOriginal ?? image.imageData);
-                          window.scrollTo({ top: 0, behavior: 'smooth' });
-                        }}
-                        title={t('imageStudio.useAsReference')}
-                        className="p-1 rounded text-text-dim hover:text-accent-gold transition"
-                      >
-                        <ImagePlus size={11} />
-                      </button>
-                    )}
-                    <button type="button" onClick={() => setPendingDelete(image.id)} title={t('common.delete')} className="ml-auto p-1 rounded text-text-dim hover:text-danger transition">
-                      <Trash2 size={11} />
-                    </button>
-                  </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.composer.scene')}</span>
+                    <input
+                      value={scene}
+                      onChange={(event) => setScene(event.target.value)}
+                      placeholder={t('visualRef.composer.scenePlaceholder')}
+                      className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.composer.style')}</span>
+                    <input
+                      value={style}
+                      onChange={(event) => setStyle(event.target.value)}
+                      placeholder={t('visualRef.composer.stylePlaceholder')}
+                      className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
+                    />
+                  </label>
                 </div>
+                <ResolvedPrompt resolved={resolved} />
+                <div className="flex items-center gap-2">
+                  {busy && (
+                    <button
+                      type="button"
+                      onClick={() => handle?.cancel()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border text-text-muted hover:text-danger hover:border-danger/40 transition"
+                    >
+                      <Square size={12} />
+                      {t('common.cancel')}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void runGeneration()}
+                    disabled={!generateAction.enabled}
+                    title={generateAction.enabled ? t('imageStudio.generate') : t(generateAction.reasonKey ?? '')}
+                    aria-label={generateAction.enabled ? t('imageStudio.generate') : t(generateAction.reasonKey ?? '')}
+                    className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-gold text-deep text-sm font-semibold hover:bg-accent-amber transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {busy ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}
+                    {t('imageStudio.generate')}
+                  </button>
+                </div>
+                {!generateAction.enabled && (
+                  <p className="text-[10px] text-accent-amber">{t(generateAction.reasonKey ?? '')}</p>
+                )}
+                {error && (
+                  <div className="flex items-start gap-2 px-3 py-2 bg-danger/10 text-danger text-xs rounded-lg">
+                    <XCircle size={14} className="mt-0.5 flex-shrink-0" />
+                    <span className="break-words">{error}</span>
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
-        )}
+
+              <div>
+                <h3 className="text-[11px] text-text-primary font-medium mb-1.5">{t('visualRef.results.title')}</h3>
+                <ResultsGrid
+                  batches={batches}
+                  compareIds={compareIds}
+                  onToggleCompare={(id) => setCompareIds((current) => (
+                    current.includes(id) ? current.filter((other) => other !== id) : [...current, id].slice(-4)
+                  ))}
+                  onIterate={iterate}
+                  onVariations={variations}
+                  onPinSeed={(image) => {
+                    const seed = image.generation?.seed;
+                    if (!selectedRef || seed === undefined) return;
+                    void pinHeroSeed(selectedRef.id, seed).then(reloadRefs);
+                    toast.success(t('visualRef.action.pinnedSeed').replace('{seed}', String(seed)));
+                  }}
+                  onCanonical={(image) => {
+                    if (!selectedRef) return;
+                    void setCanonicalImage(selectedRef.id, image.id).then(reloadRefs);
+                    toast.success(t('visualRef.action.canonicalSet').replace('{name}', selectedRef.name));
+                  }}
+                  onAddToSet={(image) => {
+                    if (!selectedRef) return;
+                    void addToReferenceSet(selectedRef.id, image.id).then(reloadRefs);
+                    toast.success(t('visualRef.action.addedToSet').replace('{name}', selectedRef.name));
+                  }}
+                  onKeep={(image) => {
+                    const tags = image.tags.includes('keep')
+                      ? image.tags.filter((tag) => tag !== 'keep')
+                      : [...image.tags, 'keep'];
+                    void db.inspirationImages.update(image.id, { tags }).then(reloadImages);
+                  }}
+                  onDiscard={setPendingDiscard}
+                  refActions={refActions}
+                  generateAction={generateAction}
+                  seedAction={seedAction}
+                />
+              </div>
+            </div>
+          )}
+        </section>
+
+        <aside className="lg:border-l lg:border-border/60 lg:pl-4">
+          <ParametersColumn
+            route={effectiveRoute}
+            onRoute={(next) => {
+              setRoute(next ?? undefined);
+              void saveProjectSettings(projectId, { imageRoute: next ?? undefined });
+            }}
+            visibility={visibility}
+            value={parameters}
+            onChange={(changes) => setParameters((current) => ({ ...current, ...changes }))}
+            hasHeroSeed={heroRef !== null}
+            nativeSize={nativeSize}
+          />
+        </aside>
       </div>
 
-      {lightbox !== null && images[lightbox] && (
-        <GalleryLightbox
-          image={images[lightbox]}
-          linkedEntries={[]}
-          onClose={() => setLightbox(null)}
+      <CompareDialog open={comparing} images={compareImages} onClose={() => setComparing(false)} />
+
+      {selectedRef && (
+        <DatasetExportDialog
+          open={exporting}
+          visual={selectedRef}
+          entry={entries.find((row) => row.id === selectedRef.codexEntryId)}
+          images={exportImages}
+          onClose={() => setExporting(false)}
         />
       )}
 
       <ConfirmDialog
-        open={pendingDelete !== null}
+        open={pendingDiscard !== null}
         destructive
         message={t('gallery.deleteImageConfirm')}
         onConfirm={() => {
-          const id = pendingDelete;
-          setPendingDelete(null);
-          if (id) void deleteGeneratedImage(id).then(reload);
+          const image = pendingDiscard;
+          setPendingDiscard(null);
+          if (image) void deleteGeneratedImage(image.id).then(reloadImages);
         }}
-        onCancel={() => setPendingDelete(null)}
+        onCancel={() => setPendingDiscard(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingRefDelete !== null}
+        destructive
+        message={t('visualRef.cast.deleteConfirm')}
+        onConfirm={() => {
+          const ref = pendingRefDelete;
+          setPendingRefDelete(null);
+          if (!ref) return;
+          void deleteVisualRef(ref.id).then(() => {
+            if (selectedRefId === ref.id) setSelectedRefId(null);
+            void reloadRefs();
+          });
+        }}
+        onCancel={() => setPendingRefDelete(null)}
       />
     </div>
   );
