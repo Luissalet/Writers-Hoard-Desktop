@@ -221,6 +221,17 @@ export interface ImageGenerationInfo {
    * everything a future runtime records that this shape has no room for.
    */
   parameters?: string;
+  /**
+   * Row id in `imageRecipes`, and the hash of the settings it holds.
+   *
+   * The fields above stay because they are what a list view queries and what a
+   * row written before recipes existed still has; the recipe is the complete
+   * account, including the resolved prompt, the asset digests and the pass
+   * chain. The hash is duplicated here so "every image made from this recipe"
+   * is one index lookup rather than a join.
+   */
+  recipeId?: string;
+  recipeHash?: string;
 }
 
 // Writings
