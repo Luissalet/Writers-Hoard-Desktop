@@ -111,6 +111,17 @@ const INITIAL_PARAMETERS: ParametersState = {
 const VARIATION_COUNT = 6;
 
 /**
+ * The stamp every picture of one press shares, so the results grid groups them.
+ *
+ * At module scope for the same reason the dice are: the clock is impure, and a
+ * component that reads it in its own body is a component React is allowed to
+ * render twice and get two answers from.
+ */
+function batchStamp(): number {
+  return Date.now();
+}
+
+/**
  * The model the disclosure resolves against when nothing is installed. The
  * writer still gets to see what their reference WOULD send: the disclosure is
  * the teaching surface, and withholding it until a backend exists teaches
@@ -356,6 +367,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
     references?: { identity: string[]; control: { image: string; weight: number }[] };
     refImageIds?: string[];
     controlImageId?: string;
+    stamp?: number;
     tags?: string[];
   }) => {
     const cell = input.cell?.overrides;
@@ -391,6 +403,8 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
       controlImageId: input.controlImageId,
       visualRefIds: mentions.refs.map((row) => row.id),
       promptSuffix: cell?.promptSuffix,
+      stamp: input.stamp,
+      gridLabel: input.cell?.coords.map((coord) => `${t(`imageStudio.xyz.field.${coord.field}`)} ${coord.value}`).join(' · '),
       tags: input.tags,
     };
   };
@@ -401,6 +415,8 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
     negative?: string;
     /** One X/Y/Z cell: what this run changes about the recipe on screen. */
     cell?: XyzCell;
+    /** Shared by every picture the writer asked for in one press. */
+    stamp?: number;
     tags?: string[];
   }) => {
     if (!model || !effectiveRoute || busy) return;
@@ -410,6 +426,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
     const base = resolved.seedMode === 'explore' ? rollSeed() : resolved.seed ?? rollSeed();
     const seeds = override?.seeds ?? seedsForBatch(base, parameters.batch, parameters.batchSeedMode);
     const references = await resolveReferenceData();
+    const stamp = override?.stamp ?? batchStamp();
     const refImageIds = resolved.referenceImages.filter((row) => row.role !== 'pose').map((row) => row.imageId);
     const controlImageId = resolved.referenceImages.find((row) => row.role === 'pose')?.imageId;
 
@@ -425,6 +442,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
         references,
         refImageIds,
         controlImageId,
+        stamp,
         tags: override?.tags,
       })).options;
       const started = startGeneration(request);
@@ -568,8 +586,11 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
     // noise shows the seed, not the axis, and is worth nothing. A seed axis
     // overrides this per cell, which is the one time it should differ.
     const seed = resolved.seed ?? rollSeed();
+    // One stamp for the whole plot: a grid whose cells arrive as separate
+    // batches is a column of single pictures, not a grid.
+    const stamp = batchStamp();
     for (const cell of cells) {
-      await runGeneration({ seeds: [seed], cell, tags: ['xyz'] });
+      await runGeneration({ seeds: [seed], cell, stamp, tags: ['xyz'] });
     }
   };
 
@@ -752,6 +773,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
                   prompt={preview?.options.prompt ?? resolved.prompt}
                   wildcards={preview?.wildcards}
                   unresolvedWildcards={preview?.unresolvedWildcards}
+                  seedKnown={resolved.seed !== undefined}
                 />
                 {/* A pass that is switched on and cannot run is said out loud
                     here, next to the button that would have run it. */}

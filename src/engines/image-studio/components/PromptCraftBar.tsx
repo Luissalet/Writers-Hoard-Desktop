@@ -30,9 +30,15 @@ export interface PromptCraftBarProps {
   /** The picks a preview resolution made, so the writer sees what they will get. */
   wildcards?: readonly WildcardPick[];
   unresolvedWildcards?: readonly string[];
+  /**
+   * Whether the seed these picks came from is the one that will run. In explore
+   * mode it is not — the dice are rolled at generate time — so the preview is
+   * one possible roll and must not claim to be the outcome.
+   */
+  seedKnown?: boolean;
 }
 
-export default function PromptCraftBar({ prompt, wildcards, unresolvedWildcards }: PromptCraftBarProps) {
+export default function PromptCraftBar({ prompt, wildcards, unresolvedWildcards, seedKnown }: PromptCraftBarProps) {
   const { t } = useTranslation();
   const tokens = estimateTokens(prompt);
   const spans = weightedSpans(prompt);
@@ -72,7 +78,7 @@ export default function PromptCraftBar({ prompt, wildcards, unresolvedWildcards 
 
       {hasWildcards(prompt) && wildcards && wildcards.length > 0 && (
         <p className="text-[10px] text-text-dim">
-          {t('imageStudio.prompt.wildcardPreview')}
+          {t(seedKnown ? 'imageStudio.prompt.wildcardPreview' : 'imageStudio.prompt.wildcardExample')}
           {' '}
           <span className="font-mono">
             {wildcards.map((pick) => `${pick.token} → ${pick.choice}`).join(' · ')}

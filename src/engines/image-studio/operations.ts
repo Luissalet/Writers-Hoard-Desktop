@@ -27,6 +27,8 @@ interface WidenedGenerationInfo {
   composer?: { subjects: string; scene: string; style: string };
   /** CLIP layers skipped. An SD1 anime checkpoint is a different picture at −2. */
   clipSkip?: number;
+  /** What this cell of an X/Y/Z grid varied, for the label under the picture. */
+  gridLabel?: string;
   /** The pass chain as it ran, serialised. See `studio/passes`. */
   passChain?: string;
   /** The wildcard picks, so a prompt with `{a|b}` in it can still be reproduced. */
@@ -177,6 +179,17 @@ export interface GenerateAndSaveOptions {
   /** The chain as it ran, serialised, and the wildcard picks that fixed the text. */
   passChain?: string;
   wildcards?: { token: string; choice: string }[];
+  /**
+   * The stamp every picture of ONE batch shares.
+   *
+   * The results grid groups by it, and a batch of four issued as four calls
+   * would otherwise land as four batches of one — the grid would say the
+   * writer pressed generate four times, which is not what happened and makes
+   * a contact sheet impossible to read.
+   */
+  stamp?: number;
+  /** "steps 30 · cfg 7": what this cell of an X/Y/Z grid varied. */
+  gridLabel?: string;
   collectionId?: string;
   tags?: string[];
 }
@@ -270,6 +283,9 @@ export async function saveGenerated(
   }
   const rows: InspirationImage[] = [];
   const now = Date.now();
+  // One stamp for the whole batch, so the grid groups the pictures of one
+  // press together however many calls it took to make them.
+  const stamp = options.stamp ?? now;
   for (const image of result.images) {
     const dataUrl = `data:${image.mimeType};base64,${image.base64}`;
     const generation: ImageGenerationInfo & Partial<WidenedGenerationInfo> = {
@@ -282,7 +298,7 @@ export async function saveGenerated(
       height: options.height,
       quality: options.quality,
       steps: options.steps,
-      createdAt: now,
+      createdAt: stamp,
       // Written whether or not `ImageGenerationInfo` has grown these yet: an
       // extra key on a stored row is harmless, and a recipe that cannot say
       // what cfg it ran at cannot be iterated on honestly. `readRecipe` reads
@@ -295,6 +311,7 @@ export async function saveGenerated(
       composer: options.composer,
       clipSkip: options.clipSkip,
       passChain: options.passChain,
+      gridLabel: options.gridLabel,
       wildcards: options.wildcards?.length ? options.wildcards : undefined,
       refImageIds: options.refImageIds?.length ? options.refImageIds : undefined,
       controlImageId: options.controlImageId,

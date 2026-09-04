@@ -116,6 +116,7 @@ import type { Citation, PublishingProfile } from '@/types/projectTools';
 import type { ProofreaderInput, ProofreaderWritingRow } from '@/services/proofreader';
 import type { AiMessage } from '@/services/copilot/types';
 import { runVisualRefTests } from './visual-ref';
+import { runImageStudioTests } from './image-studio';
 import { runFootnoteTests } from './footnotes';
 import { runFootnoteBridgeTests } from './footnotesBridge';
 import {
@@ -5081,6 +5082,8 @@ async function run(): Promise<void> {
   passed.push(await testWorldgenRulerOnMap());
   stage('visual references');
   passed.push(...await runVisualRefTests());
+  stage('image studio');
+  passed.push(...await runImageStudioTests());
 }
 
 void run()
