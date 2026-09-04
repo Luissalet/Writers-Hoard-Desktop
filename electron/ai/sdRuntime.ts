@@ -15,6 +15,7 @@
 
 import { app, net } from 'electron';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
@@ -554,6 +555,28 @@ function launchProfile(
   };
 }
 
+/**
+ * SHA-256 of a file on disk, or null when it cannot be read.
+ *
+ * Only used for LoRAs, which are dropped in by the reader and therefore have
+ * no catalogue digest to borrow. Streamed rather than read whole: a LoRA is
+ * usually tens of megabytes but nothing stops one being much larger.
+ */
+async function fileSha256(file: string): Promise<string | null> {
+  try {
+    const digest = createHash('sha256');
+    const handle = await fs.open(file, 'r');
+    try {
+      for await (const chunk of handle.createReadStream()) digest.update(chunk as Buffer);
+    } finally {
+      await handle.close();
+    }
+    return digest.digest('hex');
+  } catch {
+    return null;
+  }
+}
+
 /** Only pass `--hires-upscalers-dir` when a model is actually in it. */
 function installedUpscalers(): SdCompanionFile[] {
   return cachedCompanions.filter((c) => c.kind === 'upscaler');
@@ -634,6 +657,58 @@ export function installedSdCompanions(): SdCompanionFile[] {
  * against its own listing of the folder, and that listing keeps the extension —
  * so a request built from the name alone would be refused outright.
  */
+/**
+ * The digests of the files a model is made of, for a recipe to record.
+ *
+ * Taken from the catalogue rather than re-hashed: the download gate refuses
+ * any byte that does not match (`downloadVerified`), and `refreshModels` only
+ * reports a model installed when the receipt on disk carries those same
+ * digests for every file. So the catalogue digest IS the digest of the file on
+ * disk, and re-reading several gigabytes to learn it again would cost a minute
+ * to arrive at the same string.
+ *
+ * `sha256` is one digest standing for the whole set, because a FLUX model is
+ * a diffusion model plus a VAE plus two text encoders and a recipe that
+ * recorded only the first would replay against the wrong encoder without
+ * noticing.
+ */
+export interface SdModelAssets {
+  id: string;
+  label: string;
+  family: string;
+  sha256: string;
+  files: Array<{ role: ImageFileRole; fileName: string; sizeBytes: number; sha256: string }>;
+}
+
+export function sdModelAssets(id: string): SdModelAssets | null {
+  const entry = imageCatalogEntry(id);
+  if (!entry) return null;
+  if (!cachedModels.some((model) => model.id === id)) return null;
+  const files = entry.files.map((file) => ({
+    role: file.role,
+    fileName: file.fileName,
+    sizeBytes: file.sizeBytes,
+    sha256: file.sha256,
+  }));
+  return {
+    id: entry.id,
+    label: entry.label,
+    family: entry.family,
+    sha256: createHash('sha256').update(files.map((file) => `${file.role}:${file.sha256}`).join('\n')).digest('hex'),
+    files,
+  };
+}
+
+/** The digest of a LoRA file on disk, for a recipe to identify it by. */
+export function sdLoraSha256(fileName: string): Promise<string | null> {
+  return fileSha256(path.join(lorasDir(), fileName));
+}
+
+/** The launch identity of the live server, for a recipe to record. */
+export function sdServerProfile(): SdRuntimeProfile | null {
+  return serverReady ? serverProfile : null;
+}
+
 export function sdLoraFileName(name: string): string | null {
   return cachedLoras.find((lora) => lora.name === name)?.fileName ?? null;
 }
