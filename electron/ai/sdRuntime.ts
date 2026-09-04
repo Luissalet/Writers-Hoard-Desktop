@@ -967,8 +967,15 @@ export function ensureSdServer(modelId: string, options: EnsureSdServerOptions =
       const fileName = asset?.fileName ?? options.controlNet ?? null;
       if (options.controlNet && !controlNetFile(fileName)) return { ok: false, error: 'controlnet-missing' };
       wantedControlNet = fileName;
-    } else if (wantedControlNet && !controlNetFile(wantedControlNet)) {
-      // The file was deleted under a running server; do not keep asking for it.
+    } else if (serverChild && serverReady) {
+      // A job with no opinion about ControlNet leaves a running server exactly
+      // as it is: restarting it to drop a ControlNet costs a model reload and
+      // buys nothing, since a job that sends no control image is unaffected.
+      wantedControlNet = serverControlNet;
+    } else {
+      // A cold start is different: nothing is loaded yet, so loading a
+      // ControlNet this job never asked for would spend a gigabyte of the card
+      // on nothing.
       wantedControlNet = null;
     }
     if (
