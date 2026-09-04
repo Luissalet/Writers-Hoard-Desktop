@@ -292,6 +292,16 @@ export function testVisualRefRecipes(): void {
     cfg: 7, sampler: 'euler', loras: [{ name: 'elena-v3', weight: 0.8 }],
   } as Parameters<typeof readRecipe>[0]);
   assert(widened.cfg === 7 && widened.sampler === 'euler', 'the widened fields were not read');
+  // The slots as typed, which is what «iterate on this» puts back: the
+  // resolved prompt cannot be re-entered, because `@Elena` has already become
+  // her trigger word and her description by the time it is written down.
+  const withSlots = readRecipe({
+    prompt: 'elena_ohwx, a tall woman, in the rain', connectionId: 'c', modelId: 'm',
+    width: 512, height: 512, createdAt: 1,
+    composer: { subjects: '@Elena', scene: 'in the rain', style: 'oil painting' },
+  } as Parameters<typeof readRecipe>[0]);
+  assert(withSlots.composer?.subjects === '@Elena', 'the composer slots were not read back');
+  assert(before.composer === undefined, 'an older row was given composer slots it never had');
   assert(widened.loras.length === 1, 'the widened LoRA list was not read');
   assert(before.cfg === undefined && before.loras.length === 0, 'absent widened fields were invented');
 

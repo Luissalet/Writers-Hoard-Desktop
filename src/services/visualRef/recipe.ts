@@ -30,6 +30,8 @@ interface WidenedGenerationInfo {
   loras?: { name: string; weight: number }[];
   /** The visual refs that were resolved into this generation. */
   visualRefIds?: string[];
+  /** The composer's own slots, so «iterate on this» can put them back. */
+  composer?: { subjects: string; scene: string; style: string };
 }
 
 export interface Recipe {
@@ -47,6 +49,13 @@ export interface Recipe {
   scheduler?: string;
   loras: { name: string; weight: number }[];
   visualRefIds: string[];
+  /**
+   * What the writer actually typed, slot by slot. The resolved prompt alone
+   * cannot be put back in the composer: `@Elena` has already become her
+   * trigger word and her description by then, and re-generating from that text
+   * would apply neither the LoRA nor the portrait a second time.
+   */
+  composer?: { subjects: string; scene: string; style: string };
   createdAt: number;
 }
 
@@ -83,7 +92,14 @@ export function readRecipe(info: ImageGenerationInfo): Recipe {
     visualRefIds: Array.isArray(wide.visualRefIds)
       ? wide.visualRefIds.filter((id): id is string => typeof id === 'string')
       : [],
-  createdAt: info.createdAt,
+    composer: wide.composer && typeof wide.composer === 'object'
+      ? {
+        subjects: String(wide.composer.subjects ?? ''),
+        scene: String(wide.composer.scene ?? ''),
+        style: String(wide.composer.style ?? ''),
+      }
+      : undefined,
+    createdAt: info.createdAt,
   };
 }
 
