@@ -232,6 +232,15 @@ export interface AiCompleteResult {
 export interface AiLoraSelection {
   name: string;
   weight: number;
+  /**
+   * The file name with its extension. stable-diffusion.cpp resolves
+   * `lora[].path` against its own listing of `--lora-model-dir`, and that
+   * listing is keyed by the relative path INCLUDING the extension — a stem
+   * alone resolves to nothing and the server rejects the whole request. The
+   * main-process adapter fills this in from the folder it just scanned, so a
+   * caller that only knows the display name still works.
+   */
+  fileName?: string;
 }
 
 export interface AiImageRequest {
@@ -253,6 +262,48 @@ export interface AiImageRequest {
   strength?: number;
   /** LoRAs to apply, by name and weight. Local runtime only; ignored elsewhere. */
   loras?: AiLoraSelection[];
+
+  // -- Local stable-diffusion.cpp only. Every field below maps to a key the
+  // server's own parser reads (`SDGenerationParams::from_json_str`); a remote
+  // provider adapter ignores them.
+
+  /**
+   * Reference images as data URLs, in order — the server's `ref_images`.
+   * Only a Kontext-style model conditions on them (`ImageCatalogModel.refImages`);
+   * everything else accepts the array and quietly ignores it.
+   */
+  refImages?: string[];
+  /**
+   * Index the references by position so the prompt can say "the first image".
+   * Off by default, which is how the runtime behaves without it.
+   */
+  increaseRefIndex?: boolean;
+  /** Keep reference images at their own size instead of resizing them to the output. */
+  disableAutoResizeRefImage?: boolean;
+  /** ControlNet hint image (pose skeleton, edge map, depth map) as a data URL. */
+  controlImage?: string;
+  /**
+   * Catalogue id of the ControlNet the server should be holding. It is a
+   * context option, not a request field: naming a different one restarts the
+   * server, so it is only worth setting alongside `controlImage`.
+   */
+  controlNetModel?: string;
+  /** How hard the hint pulls, 0..1. See `clampControlStrength` for the band. */
+  controlStrength?: number;
+  /** Inpainting mask as a data URL: white is repainted. Needs `initImage`. */
+  maskImage?: string;
+  /** Second pass at a larger size. `upscaler` is a name the runtime offers. */
+  hiresFix?: {
+    upscaler: string;
+    scale: number;
+    steps?: number;
+    denoisingStrength?: number;
+    tileSize?: number;
+  };
+  /** Sampler name; unknown names are dropped rather than sent. */
+  sampler?: string;
+  /** Scheduler name; unknown names are dropped rather than sent. */
+  scheduler?: string;
 }
 
 export interface AiGeneratedImage {
@@ -260,6 +311,13 @@ export interface AiGeneratedImage {
   mimeType: string;
   seed?: number;
   revisedPrompt?: string;
+  /**
+   * The A1111 `parameters` line the runtime embedded in the file, read back out
+   * of the PNG. It is the runtime's own account of what it did, which is worth
+   * more than the app's account of what it asked for — the two differ whenever
+   * the server clamped or substituted something.
+   */
+  parameters?: string;
 }
 
 export interface AiImageResult {
