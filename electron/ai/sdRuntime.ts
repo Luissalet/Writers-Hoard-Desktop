@@ -30,10 +30,12 @@ import {
   buildSdServerArgs,
   computeImageFit,
   isSdLoraName,
+  sdRuntimeProfileHash,
   SD_LORA_EXTENSIONS,
   SD_SERVER_PORT,
   SD_SERVER_URL,
   type SdBackend,
+  type SdRuntimeProfile,
   type SdCompanionFile,
   type SdInstalledModel,
   type SdLoraFile,
@@ -42,6 +44,7 @@ import {
   type SdRuntimeState,
   type SdRuntimeStatus,
 } from '@/services/aiRuntime/sdServer';
+import type { FitEstimate } from '@/services/aiRuntime/types';
 import { readBounded } from './adapters/http';
 import { downloadVerified, DownloadError, verifyFile } from './download';
 import { detectHardware } from './hardware';
@@ -56,7 +59,7 @@ import {
 
 // ── Types live in src/services/aiRuntime/sdServer.ts (shared with the renderer)
 
-export type { SdCompanionFile, SdInstalledModel, SdLoraFile, SdOpResult, SdProgress, SdRuntimeState, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
+export type { SdCompanionFile, SdInstalledModel, SdLoraFile, SdOpResult, SdProgress, SdRuntimeProfile, SdRuntimeState, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
 
 // ── Paths ───────────────────────────────────────────────────────────────────
 
@@ -95,6 +98,15 @@ let serverChild: ChildProcess | null = null;
 let orphanPid: number | null = null;
 let orphanChecked = false;
 let loadedModelId: string | null = null;
+/**
+ * The launch-time identity of the live server: model, ControlNet, folders,
+ * memory placement, flash attention. Every one of those is a command-line
+ * choice no request can change, so this is what decides whether the next job
+ * can be served by the process that is already up or needs a new one. It is
+ * ONE record rather than a field per flag so that adding a launch flag without
+ * adding it here is a visible omission rather than a silent one.
+ */
+let serverProfile: SdRuntimeProfile | null = null;
 let serverReady = false;
 let ensureChain: Promise<unknown> = Promise.resolve();
 let installAbort: AbortController | null = null;
@@ -102,13 +114,9 @@ let modelAbort: { id: string; controller: AbortController } | null = null;
 let cachedModels: SdInstalledModel[] = [];
 let cachedLoras: SdLoraFile[] = [];
 let cachedCompanions: SdCompanionFile[] = [];
-/** File name of the ControlNet the live server was built with, or null. */
-let serverControlNet: string | null = null;
 /** Which ControlNet the next launch should use; null means none. */
 let wantedControlNet: string | null = null;
 let companionAbort: { id: string; controller: AbortController } | null = null;
-/** Whether the live server was launched with `--lora-model-dir`. */
-let serverHasLoraDir = false;
 /**
  * Set only after this runtime build has been seen to refuse `--lora-model-dir`
  * and to start fine without it. Until that happens the flag is offered; after
@@ -168,8 +176,10 @@ function snapshot(): SdRuntimeStatus {
     companions: cachedCompanions,
     controlNetsDir: controlNetsDir(),
     upscalersDir: upscalersDir(),
-    loadedControlNet: serverReady ? serverControlNet : null,
+    loadedControlNet: serverReady ? serverProfile?.controlNet ?? null : null,
     downloadingCompanion: companionAbort?.id ?? null,
+    profile: serverReady ? serverProfile : null,
+    profileHash: serverReady && serverProfile ? sdRuntimeProfileHash(serverProfile) : null,
   };
 }
 
@@ -513,6 +523,37 @@ async function refreshCompanions(): Promise<void> {
   cachedCompanions = out;
 }
 
+/**
+ * The profile this machine would launch with right now.
+ *
+ * Both `spawnServer` and `ensureSdServer` call it, which is the point: the
+ * decision "does this job need a restart" and the decision "what flags do we
+ * start with" are then literally the same computation, and cannot drift apart.
+ *
+ * `allowLoras` is false only on the retry after a build has refused
+ * `--lora-model-dir`, so that the retry's profile honestly describes the
+ * process it is about to start.
+ */
+function launchProfile(
+  entry: ImageCatalogModel,
+  backend: SdBackend | null,
+  fit: FitEstimate,
+  allowLoras: boolean,
+): SdRuntimeProfile {
+  return {
+    modelId: entry.id,
+    controlNet: controlNetFile(wantedControlNet)?.fileName ?? null,
+    loraDir: allowLoras && wantsLoraDir(),
+    // Not previously part of the server's identity, so an upscaler installed
+    // while the server was up did not get `--hires-upscalers-dir` until some
+    // unrelated change happened to restart it — and a hires pass naming that
+    // model was refused in the meantime.
+    upscalersDir: installedUpscalers().length > 0,
+    offloadToCpu: fit.placement === 'split',
+    flashAttention: backend === 'cuda12',
+  };
+}
+
 /** Only pass `--hires-upscalers-dir` when a model is actually in it. */
 function installedUpscalers(): SdCompanionFile[] {
   return cachedCompanions.filter((c) => c.kind === 'upscaler');
@@ -576,7 +617,7 @@ export async function deleteSdCompanion(id: string): Promise<SdOpResult> {
   if (companionAbort?.id === id) return { ok: false, error: 'busy' };
   // The live server holds an open handle on the ControlNet it was built with;
   // stop it first or the delete fails on Windows and half-succeeds elsewhere.
-  if (serverControlNet === asset.fileName) await stopSdServer();
+  if (serverProfile?.controlNet === asset.fileName) await stopSdServer();
   await fs.rm(path.join(companionDir(asset.kind), asset.fileName), { force: true }).catch(() => undefined);
   await refreshCompanions();
   emit('sd:status', snapshot());
@@ -847,21 +888,17 @@ async function spawnServer(entry: ImageCatalogModel, allowLoras = true): Promise
   // Only when a LoRA is actually there: a build that did not know the flag
   // would refuse to start, and the reader who never touched LoRAs must never
   // meet that. Empty folder → byte-identical command line to before.
-  const withLoras = allowLoras && wantsLoraDir();
-  if (withLoras) await fs.mkdir(lorasDir(), { recursive: true }).catch(() => undefined);
-  // ControlNet is a CONTEXT option: the model is baked into the process at
-  // startup and no request can change it. Which one this server is holding is
-  // therefore part of its identity — see ensureSdServer.
-  const controlNet = controlNetFile(wantedControlNet);
-  const withUpscalers = installedUpscalers().length > 0;
+  const profile = launchProfile(entry, backend, fit, allowLoras);
+  if (profile.loraDir) await fs.mkdir(lorasDir(), { recursive: true }).catch(() => undefined);
+  const controlNet = controlNetFile(profile.controlNet);
   const args = buildSdServerArgs(entry, {
     paths,
     port: SD_SERVER_PORT,
-    offloadToCpu: fit.placement === 'split',
-    flashAttention: backend === 'cuda12',
-    loraDir: withLoras ? lorasDir() : undefined,
+    offloadToCpu: profile.offloadToCpu,
+    flashAttention: profile.flashAttention,
+    loraDir: profile.loraDir ? lorasDir() : undefined,
     controlNetPath: controlNet ? path.join(controlNetsDir(), controlNet.fileName) : undefined,
-    hiresUpscalersDir: withUpscalers ? upscalersDir() : undefined,
+    hiresUpscalersDir: profile.upscalersDir ? upscalersDir() : undefined,
   });
   setState('starting');
   progress({ kind: 'model', id: entry.id, phase: 'starting', receivedBytes: 0, totalBytes: 0, fileIndex: 0, fileCount: 0 });
@@ -873,8 +910,7 @@ async function spawnServer(entry: ImageCatalogModel, allowLoras = true): Promise
   orphanPid = null;
   serverReady = false;
   loadedModelId = entry.id;
-  serverHasLoraDir = withLoras;
-  serverControlNet = controlNet?.fileName ?? null;
+  serverProfile = profile;
   // A failure to spawn at all (missing/non-executable binary) fires 'error' but
   // never 'exit', so without this the startup loop would poll for four minutes.
   let spawnFailed: string | null = null;
@@ -887,7 +923,7 @@ async function spawnServer(entry: ImageCatalogModel, allowLoras = true): Promise
       serverChild = null;
       serverReady = false;
       loadedModelId = null;
-      serverControlNet = null;
+      serverProfile = null;
     }
   });
   child.on('exit', (code) => {
@@ -896,7 +932,7 @@ async function spawnServer(entry: ImageCatalogModel, allowLoras = true): Promise
       serverChild = null;
       serverReady = false;
       loadedModelId = null;
-      serverControlNet = null;
+      serverProfile = null;
     }
     if (wasLive) setState('error', `sd-server exited (code ${code ?? '?'})\n${logTail(6)}`);
   });
@@ -971,19 +1007,24 @@ export function ensureSdServer(modelId: string, options: EnsureSdServerOptions =
       // A job with no opinion about ControlNet leaves a running server exactly
       // as it is: restarting it to drop a ControlNet costs a model reload and
       // buys nothing, since a job that sends no control image is unaffected.
-      wantedControlNet = serverControlNet;
+      wantedControlNet = serverProfile?.controlNet ?? null;
     } else {
       // A cold start is different: nothing is loaded yet, so loading a
       // ControlNet this job never asked for would spend a gigabyte of the card
       // on nothing.
       wantedControlNet = null;
     }
+    // One comparison for every launch choice there is. A profile that matches
+    // means the live process can serve this job; anything else costs a restart,
+    // and the studio was told the price by `sdProfileRestartReasons` before it
+    // asked.
+    const hardware = await detectHardware(false);
+    const wanted = launchProfile(entry, installedBackend, computeImageFit(hardware, entry), true);
     if (
       serverChild &&
       serverReady &&
-      loadedModelId === modelId &&
-      serverHasLoraDir === wantsLoraDir() &&
-      serverControlNet === (controlNetFile(wantedControlNet)?.fileName ?? null) &&
+      serverProfile &&
+      sdRuntimeProfileHash(serverProfile) === sdRuntimeProfileHash(wanted) &&
       (await probeServer())
     ) {
       return { ok: true };
@@ -1031,8 +1072,7 @@ export async function stopSdServer(): Promise<void> {
   serverChild = null;
   serverReady = false;
   loadedModelId = null;
-  serverHasLoraDir = false;
-  serverControlNet = null;
+  serverProfile = null;
   if (child?.pid != null) {
     killSdProcess(child.pid);
     await new Promise((r) => setTimeout(r, 300));

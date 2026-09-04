@@ -31,7 +31,10 @@ import {
   SD_CONTROL_STRENGTH_DEFAULT,
   SD_MAX_STEPS,
   SD_SERVER_PORT,
+  sdProfileRestartReasons,
+  sdRuntimeProfileHash,
   snap,
+  type SdRuntimeProfile,
 } from '@/services/aiRuntime/sdServer';
 import {
   canonicalJson,
@@ -1007,6 +1010,68 @@ function testRecipeRoundTripThroughPng(): void {
   assert(survived, 'a half-written envelope must be refused, not thrown on');
 }
 
+/**
+ * The runtime profile: which changes cost a restart, and which do not.
+ *
+ * `ensureSdServer` decides whether the live process can serve the next job by
+ * comparing exactly these hashes, so this is that decision under test rather
+ * than a model of it.
+ */
+function testSdRuntimeProfile(): void {
+  const running: SdRuntimeProfile = {
+    modelId: 'sd15-q8', controlNet: null, loraDir: false,
+    upscalersDir: false, offloadToCpu: false, flashAttention: false,
+  };
+  assert(/^[0-9a-f]{64}$/.test(sdRuntimeProfileHash(running)), 'a profile hash must be a SHA-256 in lower-case hex');
+
+  // Same choices, however the object was built: no restart.
+  const rebuilt: SdRuntimeProfile = {
+    flashAttention: false, offloadToCpu: false, upscalersDir: false,
+    loraDir: false, controlNet: null, modelId: 'sd15-q8',
+  };
+  assert(sdRuntimeProfileHash(rebuilt) === sdRuntimeProfileHash(running), 'the same launch choices must hash the same whatever order they were written in');
+  assert(sdProfileRestartReasons(running, rebuilt).length === 0, 'an unchanged profile must not cost a restart');
+
+  // Every launch flag is part of the identity, and each one alone is enough.
+  const changes: Array<[Partial<SdRuntimeProfile>, string]> = [
+    [{ modelId: 'flux-schnell-q4' }, 'model'],
+    [{ controlNet: 'openpose.pth' }, 'control-net'],
+    [{ loraDir: true }, 'lora-folder'],
+    [{ upscalersDir: true }, 'upscaler-folder'],
+    [{ offloadToCpu: true }, 'memory-placement'],
+    [{ flashAttention: true }, 'flash-attention'],
+  ];
+  for (const [patch, reason] of changes) {
+    const wanted = { ...running, ...patch };
+    assert(sdRuntimeProfileHash(wanted) !== sdRuntimeProfileHash(running), `changing ${reason} must change the profile hash`);
+    const reasons = sdProfileRestartReasons(running, wanted);
+    assert(reasons.length === 1 && reasons[0] === reason, `changing ${reason} must be reported as exactly that, got ${reasons.join(',')}`);
+  }
+  // Two at once are both named, so the reader is told the whole price.
+  const both = sdProfileRestartReasons(running, { ...running, modelId: 'flux-schnell-q4', controlNet: 'openpose.pth' });
+  assert(both.length === 2 && both.includes('model') && both.includes('control-net'), 'both changes must be named');
+  // Nothing is running yet, so nothing is being reloaded: a cold start is not
+  // a restart and must not be announced as one.
+  assert(sdProfileRestartReasons(null, running).length === 0, 'a cold start costs no restart');
+
+  // The profile and the command line must describe the same process: a flag
+  // that appears without a field would take effect only by accident, when
+  // something else happened to restart the server.
+  const sd15 = imageCatalogEntry('sd15-q8');
+  assert(sd15, 'the SD1.5 catalogue entry went missing');
+  const full = buildSdServerArgs(sd15, {
+    paths: { model: 'D:/m/sd15.gguf' }, offloadToCpu: true, flashAttention: true,
+    loraDir: 'D:/l', controlNetPath: 'D:/c/openpose.pth', hiresUpscalersDir: 'D:/u',
+  });
+  for (const flag of ['--offload-to-cpu', '--diffusion-fa', '--lora-model-dir', '--control-net', '--hires-upscalers-dir']) {
+    assert(full.includes(flag), `${flag} is a launch choice and must appear when its profile field is set`);
+  }
+  const none = buildSdServerArgs(sd15, { paths: { model: 'D:/m/sd15.gguf' } });
+  for (const flag of ['--offload-to-cpu', '--diffusion-fa', '--lora-model-dir', '--control-net', '--hires-upscalers-dir']) {
+    assert(!none.includes(flag), `${flag} must be absent when its profile field is not set`);
+  }
+}
+
 export async function testAiRuntimeContracts(): Promise<string> {
   testUrlPolicy();
   testHardwareFit();
@@ -1017,9 +1082,10 @@ export async function testAiRuntimeContracts(): Promise<string> {
   testPngMetadata();
   testRecipe();
   testRecipeRoundTripThroughPng();
+  testSdRuntimeProfile();
   testToolSelection();
   testPolicy();
   await testExecutorEquivalence();
   testPromptAndHistory();
-  return 'AI runtime: URL policy, hardware fit, measured speed + picker, local image runtime, sd-server request surface, widened sd-server parameter surface, PNG generation metadata, recipe identity/round-trip/diff, recipe recovery from a foreign PNG, tool selection, permissions/scope, executor equivalence bridge≡copilot, history replay';
+  return 'AI runtime: URL policy, hardware fit, measured speed + picker, local image runtime, sd-server request surface, widened sd-server parameter surface, PNG generation metadata, recipe identity/round-trip/diff, recipe recovery from a foreign PNG, runtime profile restart cost, tool selection, permissions/scope, executor equivalence bridge≡copilot, history replay';
 }
