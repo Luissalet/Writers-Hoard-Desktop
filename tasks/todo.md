@@ -64,9 +64,7 @@ Same pinned runtime: stable-diffusion.cpp `master-709-92a3b73`
 
 ## Step 0 — re-establish the field names from the parser, not the docs
 
-`examples/server/api.md` and `docs/api.md` do NOT exist at this commit, so the
-earlier pass's citation of `api.md` could not have been read there. Everything
-below was taken from source fetched at the pinned SHA:
+Everything below was taken from source fetched at the pinned SHA:
 
 - `examples/common/common.cpp` — `SDGenerationParams::from_json_str`, the
   parser that decides which keys have an effect. THE authority.
@@ -79,6 +77,13 @@ below was taken from source fetched at the pinned SHA:
 - `src/core/util.cpp`, `src/runtime/guidance.cpp` — the `extra_sample_args`
   key=value grammar and the APG keys.
 - `thirdparty/stb_image_write.h` — the PNG `tEXt` keyword.
+
+`examples/server/api.md` exists at this commit and agrees with the parser on
+every field this contract touches. It is still not the authority, and the
+reason is visible in it: `sample_params.extra_sample_args` is read by
+`from_json_str` and documented nowhere in `api.md`. The docs are incomplete
+rather than wrong, which is exactly the failure mode that costs a feature
+rather than causing a bug — so the parser stays the source of truth.
 
 ## Plan
 
