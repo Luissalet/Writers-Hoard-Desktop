@@ -1,0 +1,588 @@
+{
+  "id": "inpaint",
+  "label": "Inpaint (only masked)",
+  "description": "Repaints the masked area at full model resolution and composites it back \u2014 the crop/scale/composite that keeps a small fix from being rendered at postage-stamp detail.",
+  "requires": [
+    "CheckpointLoaderSimple",
+    "CLIPTextEncode",
+    "KSampler",
+    "VAEDecode",
+    "SaveImage",
+    "LoadImage",
+    "ImageCrop",
+    "ImageScale",
+    "ImageToMask",
+    "VAEEncodeForInpaint",
+    "ImageCompositeMasked"
+  ],
+  "bindings": {
+    "checkpoint": {
+      "title": "Checkpoint",
+      "node": "1",
+      "input": "ckpt_name",
+      "kind": "choice"
+    },
+    "prompt": {
+      "title": "Positive",
+      "node": "2",
+      "input": "text",
+      "kind": "text"
+    },
+    "negative": {
+      "title": "Negative",
+      "node": "3",
+      "input": "text",
+      "kind": "text"
+    },
+    "seed": {
+      "title": "Sampler",
+      "node": "5",
+      "input": "seed",
+      "kind": "seed"
+    },
+    "steps": {
+      "title": "Sampler",
+      "node": "5",
+      "input": "steps",
+      "kind": "number"
+    },
+    "cfg": {
+      "title": "Sampler",
+      "node": "5",
+      "input": "cfg",
+      "kind": "number"
+    },
+    "samplerName": {
+      "title": "Sampler",
+      "node": "5",
+      "input": "sampler_name",
+      "kind": "choice"
+    },
+    "scheduler": {
+      "title": "Sampler",
+      "node": "5",
+      "input": "scheduler",
+      "kind": "choice"
+    },
+    "denoise": {
+      "title": "Sampler",
+      "node": "5",
+      "input": "denoise",
+      "kind": "number"
+    },
+    "filenamePrefix": {
+      "title": "Output",
+      "node": "7",
+      "input": "filename_prefix",
+      "kind": "text"
+    },
+    "lora.1.name": {
+      "title": "LoRA 1",
+      "node": "10",
+      "input": "lora_name",
+      "kind": "choice"
+    },
+    "lora.1.model": {
+      "title": "LoRA 1",
+      "node": "10",
+      "input": "strength_model",
+      "kind": "number"
+    },
+    "lora.1.clip": {
+      "title": "LoRA 1",
+      "node": "10",
+      "input": "strength_clip",
+      "kind": "number"
+    },
+    "lora.2.name": {
+      "title": "LoRA 2",
+      "node": "11",
+      "input": "lora_name",
+      "kind": "choice"
+    },
+    "lora.2.model": {
+      "title": "LoRA 2",
+      "node": "11",
+      "input": "strength_model",
+      "kind": "number"
+    },
+    "lora.2.clip": {
+      "title": "LoRA 2",
+      "node": "11",
+      "input": "strength_clip",
+      "kind": "number"
+    },
+    "lora.3.name": {
+      "title": "LoRA 3",
+      "node": "12",
+      "input": "lora_name",
+      "kind": "choice"
+    },
+    "lora.3.model": {
+      "title": "LoRA 3",
+      "node": "12",
+      "input": "strength_model",
+      "kind": "number"
+    },
+    "lora.3.clip": {
+      "title": "LoRA 3",
+      "node": "12",
+      "input": "strength_clip",
+      "kind": "number"
+    },
+    "lora.4.name": {
+      "title": "LoRA 4",
+      "node": "13",
+      "input": "lora_name",
+      "kind": "choice"
+    },
+    "lora.4.model": {
+      "title": "LoRA 4",
+      "node": "13",
+      "input": "strength_model",
+      "kind": "number"
+    },
+    "lora.4.clip": {
+      "title": "LoRA 4",
+      "node": "13",
+      "input": "strength_clip",
+      "kind": "number"
+    },
+    "sourceImage": {
+      "title": "Source",
+      "node": "70",
+      "input": "image",
+      "kind": "image"
+    },
+    "maskImage": {
+      "title": "Mask Source",
+      "node": "71",
+      "input": "image",
+      "kind": "image"
+    },
+    "crop.x": {
+      "title": "Crop Source",
+      "node": "72",
+      "input": "x",
+      "kind": "number"
+    },
+    "crop.y": {
+      "title": "Crop Source",
+      "node": "72",
+      "input": "y",
+      "kind": "number"
+    },
+    "crop.width": {
+      "title": "Crop Source",
+      "node": "72",
+      "input": "width",
+      "kind": "number"
+    },
+    "crop.height": {
+      "title": "Crop Source",
+      "node": "72",
+      "input": "height",
+      "kind": "number"
+    },
+    "cropMask.x": {
+      "title": "Crop Mask",
+      "node": "74",
+      "input": "x",
+      "kind": "number"
+    },
+    "cropMask.y": {
+      "title": "Crop Mask",
+      "node": "74",
+      "input": "y",
+      "kind": "number"
+    },
+    "cropMask.width": {
+      "title": "Crop Mask",
+      "node": "74",
+      "input": "width",
+      "kind": "number"
+    },
+    "cropMask.height": {
+      "title": "Crop Mask",
+      "node": "74",
+      "input": "height",
+      "kind": "number"
+    },
+    "work.width": {
+      "title": "Scale Source",
+      "node": "73",
+      "input": "width",
+      "kind": "number"
+    },
+    "work.height": {
+      "title": "Scale Source",
+      "node": "73",
+      "input": "height",
+      "kind": "number"
+    },
+    "workMask.width": {
+      "title": "Scale Mask",
+      "node": "75",
+      "input": "width",
+      "kind": "number"
+    },
+    "workMask.height": {
+      "title": "Scale Mask",
+      "node": "75",
+      "input": "height",
+      "kind": "number"
+    },
+    "back.width": {
+      "title": "Scale Back",
+      "node": "78",
+      "input": "width",
+      "kind": "number"
+    },
+    "back.height": {
+      "title": "Scale Back",
+      "node": "78",
+      "input": "height",
+      "kind": "number"
+    },
+    "paste.x": {
+      "title": "Composite",
+      "node": "79",
+      "input": "x",
+      "kind": "number"
+    },
+    "paste.y": {
+      "title": "Composite",
+      "node": "79",
+      "input": "y",
+      "kind": "number"
+    },
+    "growMaskBy": {
+      "title": "Encode",
+      "node": "77",
+      "input": "grow_mask_by",
+      "kind": "number"
+    }
+  },
+  "slots": {
+    "lora": [
+      {
+        "remove": [
+          "10"
+        ],
+        "passthrough": [
+          {
+            "node": "10",
+            "output": 0,
+            "input": "model"
+          },
+          {
+            "node": "10",
+            "output": 1,
+            "input": "clip"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "11"
+        ],
+        "passthrough": [
+          {
+            "node": "11",
+            "output": 0,
+            "input": "model"
+          },
+          {
+            "node": "11",
+            "output": 1,
+            "input": "clip"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "12"
+        ],
+        "passthrough": [
+          {
+            "node": "12",
+            "output": 0,
+            "input": "model"
+          },
+          {
+            "node": "12",
+            "output": 1,
+            "input": "clip"
+          }
+        ]
+      },
+      {
+        "remove": [
+          "13"
+        ],
+        "passthrough": [
+          {
+            "node": "13",
+            "output": 0,
+            "input": "model"
+          },
+          {
+            "node": "13",
+            "output": 1,
+            "input": "clip"
+          }
+        ]
+      }
+    ]
+  },
+  "graph": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "_meta": {
+        "title": "Checkpoint"
+      },
+      "inputs": {
+        "ckpt_name": ""
+      }
+    },
+    "10": {
+      "class_type": "LoraLoader",
+      "_meta": {
+        "title": "LoRA 1"
+      },
+      "inputs": {
+        "model": ["1", 0],
+        "clip": ["1", 1],
+        "lora_name": "",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    },
+    "11": {
+      "class_type": "LoraLoader",
+      "_meta": {
+        "title": "LoRA 2"
+      },
+      "inputs": {
+        "model": ["10", 0],
+        "clip": ["10", 1],
+        "lora_name": "",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    },
+    "12": {
+      "class_type": "LoraLoader",
+      "_meta": {
+        "title": "LoRA 3"
+      },
+      "inputs": {
+        "model": ["11", 0],
+        "clip": ["11", 1],
+        "lora_name": "",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    },
+    "13": {
+      "class_type": "LoraLoader",
+      "_meta": {
+        "title": "LoRA 4"
+      },
+      "inputs": {
+        "model": ["12", 0],
+        "clip": ["12", 1],
+        "lora_name": "",
+        "strength_model": 1.0,
+        "strength_clip": 1.0
+      }
+    },
+    "2": {
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "Positive"
+      },
+      "inputs": {
+        "text": "",
+        "clip": ["13", 1]
+      }
+    },
+    "3": {
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "Negative"
+      },
+      "inputs": {
+        "text": "",
+        "clip": ["13", 1]
+      }
+    },
+    "5": {
+      "class_type": "KSampler",
+      "_meta": {
+        "title": "Sampler"
+      },
+      "inputs": {
+        "model": ["13", 0],
+        "seed": 0,
+        "steps": 25,
+        "cfg": 6.0,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "positive": ["2", 0],
+        "negative": ["3", 0],
+        "latent_image": ["77", 0],
+        "denoise": 1.0
+      }
+    },
+    "6": {
+      "class_type": "VAEDecode",
+      "_meta": {
+        "title": "Decode"
+      },
+      "inputs": {
+        "samples": ["5", 0],
+        "vae": ["1", 2]
+      }
+    },
+    "7": {
+      "class_type": "SaveImage",
+      "_meta": {
+        "title": "Output"
+      },
+      "inputs": {
+        "images": ["79", 0],
+        "filename_prefix": "WritersHoard/wh"
+      }
+    },
+    "70": {
+      "class_type": "LoadImage",
+      "_meta": {
+        "title": "Source"
+      },
+      "inputs": {
+        "image": ""
+      }
+    },
+    "71": {
+      "class_type": "LoadImage",
+      "_meta": {
+        "title": "Mask Source"
+      },
+      "inputs": {
+        "image": ""
+      }
+    },
+    "72": {
+      "class_type": "ImageCrop",
+      "_meta": {
+        "title": "Crop Source"
+      },
+      "inputs": {
+        "image": ["70", 0],
+        "width": 512,
+        "height": 512,
+        "x": 0,
+        "y": 0
+      }
+    },
+    "73": {
+      "class_type": "ImageScale",
+      "_meta": {
+        "title": "Scale Source"
+      },
+      "inputs": {
+        "image": ["72", 0],
+        "upscale_method": "lanczos",
+        "width": 1024,
+        "height": 1024,
+        "crop": "disabled"
+      }
+    },
+    "74": {
+      "class_type": "ImageCrop",
+      "_meta": {
+        "title": "Crop Mask"
+      },
+      "inputs": {
+        "image": ["71", 0],
+        "width": 512,
+        "height": 512,
+        "x": 0,
+        "y": 0
+      }
+    },
+    "75": {
+      "class_type": "ImageScale",
+      "_meta": {
+        "title": "Scale Mask"
+      },
+      "inputs": {
+        "image": ["74", 0],
+        "upscale_method": "bilinear",
+        "width": 1024,
+        "height": 1024,
+        "crop": "disabled"
+      }
+    },
+    "76": {
+      "class_type": "ImageToMask",
+      "_meta": {
+        "title": "Work Mask"
+      },
+      "inputs": {
+        "image": ["75", 0],
+        "channel": "red"
+      }
+    },
+    "77": {
+      "class_type": "VAEEncodeForInpaint",
+      "_meta": {
+        "title": "Encode"
+      },
+      "inputs": {
+        "pixels": ["73", 0],
+        "vae": ["1", 2],
+        "mask": ["76", 0],
+        "grow_mask_by": 6
+      }
+    },
+    "78": {
+      "class_type": "ImageScale",
+      "_meta": {
+        "title": "Scale Back"
+      },
+      "inputs": {
+        "image": ["6", 0],
+        "upscale_method": "lanczos",
+        "width": 512,
+        "height": 512,
+        "crop": "disabled"
+      }
+    },
+    "80": {
+      "class_type": "ImageToMask",
+      "_meta": {
+        "title": "Paste Mask"
+      },
+      "inputs": {
+        "image": ["74", 0],
+        "channel": "red"
+      }
+    },
+    "79": {
+      "class_type": "ImageCompositeMasked",
+      "_meta": {
+        "title": "Composite"
+      },
+      "inputs": {
+        "destination": ["70", 0],
+        "source": ["78", 0],
+        "x": 0,
+        "y": 0,
+        "resize_source": false,
+        "mask": ["80", 0]
+      }
+    }
+  }
+}
