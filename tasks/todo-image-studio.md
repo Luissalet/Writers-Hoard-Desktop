@@ -11,29 +11,29 @@ Not mine: `src/services/aiRuntime/**`, `electron/**`, `src/types/**`, `src/db/**
 
 ## Plan
 
-- [ ] S-0  Widen `REQUEST_SUPPORTS` to every field the studio wants to send, and
+- [x] S-0  Widen `REQUEST_SUPPORTS` to every field the studio wants to send, and
       flip the two the runtime branch has already landed (`sampler`, `scheduler`).
       Wire `refImages` / `controlImage` / `maskImage` / `hiresFix` through
       `startGeneration` — today they are built and dropped.
-- [ ] S-1  Three levels of disclosure (Simple / Studio / Expert), remembered per
+- [x] S-1  Three levels of disclosure (Simple / Studio / Expert), remembered per
       project. Every parameter belongs to exactly one level.
-- [ ] S-2  A per-model capability descriptor: one place that says, per field,
+- [x] S-2  A per-model capability descriptor: one place that says, per field,
       enabled or refused AND why. `parameterVisibility` becomes a view of it.
-- [ ] S-3  Curated samplers and schedulers over the runtime's real vocabulary,
+- [x] S-3  Curated samplers and schedulers over the runtime's real vocabulary,
       each with the one line that says what it is FOR, plus "show all" at Expert.
-- [ ] S-4  Family-aware defaults applied on model switch, with the "why" visible
+- [x] S-4  Family-aware defaults applied on model switch, with the "why" visible
       and a one-click undo.
-- [ ] S-5  Resolution buckets per family; an off-bucket size is named as one.
-- [ ] S-6  The pass chain as a first-class editable list: base → hires → detail
+- [x] S-5  Resolution buckets per family; an off-bucket size is named as one.
+- [x] S-6  The pass chain as a first-class editable list: base → hires → detail
       → upscale, reorderable, each pass with its own prompt, denoise and toggle.
-- [ ] S-7  The LoRA stack: N LoRAs, weights, toggles, search, trigger words.
-- [ ] S-8  Seed discipline: lock, from image, incremental vs fixed batch.
-- [ ] S-9  Prompt craft: A1111 weighting on a selection, a token estimate with
+- [x] S-7  The LoRA stack: N LoRAs, weights, toggles, search, trigger words.
+- [x] S-8  Seed discipline: lock, from image, incremental vs fixed batch.
+- [x] S-9  Prompt craft: A1111 weighting on a selection, a token estimate with
       chunk boundaries, client-side wildcards, a fragment palette.
-- [ ] S-10 X/Y/Z plot: 1–3 axes, a job matrix, a labelled grid.
-- [ ] S-11 Tests in `tests/image-studio.ts`, wired into `critical.browser.ts`.
+- [x] S-10 X/Y/Z plot: 1–3 axes, a job matrix, a labelled grid.
+- [x] S-11 Tests in `tests/image-studio.ts`, wired into `critical.browser.ts`.
       The no-backend state is tested FIRST.
-- [ ] S-12 `tsc` (renderer + electron), lint, conformance.
+- [x] S-12 `tsc` (renderer + electron), lint, conformance.
 
 ## Rules this work is held to
 
@@ -46,4 +46,60 @@ Not mine: `src/services/aiRuntime/**`, `electron/**`, `src/types/**`, `src/db/**
 
 ## Review
 
-(filled in at the end)
+All twelve items shipped. `npm run conformance` passes with 4 212 locale keys;
+both typechecks are clean apart from the pre-existing `BoardCanvas.tsx` error;
+`eslint src/engines/image-studio tests/image-studio.ts` is clean; the critical
+harness runs 143 tests including the fifteen new ones.
+
+### What went live today rather than waiting
+
+The support table earned its keep on the first day: `sampler` and `scheduler`
+had landed on `AiImageRequest`, so the two `false` entries stopped compiling
+and named their own lines. Flipping them turned the sampler and scheduler
+pickers from decoration into controls.
+
+Four more fields turned out to be carried by the request already and were
+being built and dropped on the floor between the studio and the gateway:
+`refImages`, `controlImage` + `controlStrength`, `maskImage` and `hiresFix`.
+The identity references a writer had pinned and the pose they had chosen were
+never reaching the server. They do now.
+
+Still waiting on the runtime branch, all of them visible and disabled with the
+sentence «the request has no field for this yet»: CLIP-skip, the detailer
+pass, custom sigmas, SLG, APG and the inference cache.
+
+### Two refusals that are not "not yet"
+
+- The **variation seed** says stable-diffusion.cpp has no subseed. The usual
+  approximation — re-noising the latent by hand — makes a different picture
+  and calls it a variation.
+- The **upscale pass** says this build has no standalone upscale job and that
+  Real-ESRGAN is reachable through the hires pass instead. `upscale_repeats`
+  is parsed by the server and then read only by the CLI.
+
+Neither is hidden, because a writer who has read about either needs to find
+out where it went rather than conclude the program has never heard of it.
+
+### Two bugs the tests found
+
+- A batch of four was issued as four calls and landed in the results grid as
+  four batches of one, so the grid claimed the writer had pressed generate
+  four times. Every picture of one press now shares a stamp.
+- An X/Y/Z plot did the same for every cell, which turned a grid into a column
+  of single pictures. One stamp per plot, one seed per plot, and each cell's
+  axis values ride on the row so the grid is labelled.
+
+### Not built, and why
+
+- **A wildcard file store and a drag-to-compose fragment palette.** This
+  engine owns exactly one table and adding another means a Dexie version in
+  `src/db/**`, which belongs to another contract. Reusable prompt blocks are
+  visual references of kind `style` instead: they compose through `@mention`
+  and are addressable as `__name__` wildcards, with no schema change and no
+  second place for the same idea to live.
+- **A mask editor.** The request can carry `maskImage`; there is nowhere in
+  the studio to paint one. The inpainting control says exactly that, which is
+  a different sentence from "this model cannot inpaint".
+- **Prompt scheduling and BREAK.** sd.cpp implements neither. They are not
+  offered, and the composer now names them when it sees one typed, because a
+  writer who has read an A1111 tutorial will type both.
