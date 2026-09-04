@@ -265,6 +265,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
       referenceImages: references.identity,
       controlNets: references.control,
       visualRefIds: mentions.refs.map((row) => row.id),
+      composer: { subjects, scene, style },
     };
     for (const seed of seeds) {
       const request = { ...options, seed };
@@ -320,9 +321,11 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
           .replace('{current}', current),
       );
     }
-    setScene('');
-    setStyle('');
-    setSubjects(recipe.prompt);
+    // The slots as they were typed when the recipe carries them; the resolved
+    // prompt only as a fallback for rows made before the studio recorded them.
+    setSubjects(recipe.composer?.subjects ?? recipe.prompt);
+    setScene(recipe.composer?.scene ?? '');
+    setStyle(recipe.composer?.style ?? '');
     setParameters((current) => ({
       ...current,
       steps: recipe.steps === undefined ? '' : String(recipe.steps),
