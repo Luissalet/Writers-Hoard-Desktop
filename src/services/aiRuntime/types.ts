@@ -15,7 +15,7 @@ import type { Recipe } from './recipe';
  * Wire protocol a connection speaks. `sdcpp` is the managed local image
  * server (stable-diffusion.cpp) — never user-created, always the builtin.
  */
-export type AiConnectionKind = 'openai-compatible' | 'ollama' | 'sdcpp';
+export type AiConnectionKind = 'openai-compatible' | 'ollama' | 'sdcpp' | 'comfyui';
 
 export type AiModelType = 'chat' | 'image';
 

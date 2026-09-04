@@ -210,9 +210,13 @@ export function passAvailability(kind: PassKind, input: PassSupportInput): Field
     return { enabled: false, reasonKey: 'imageStudio.reason.upscaleInHires' };
   }
   if (kind === 'detail') {
+    // Not "not yet" either: at the pinned commit `ad_model`, `ad_prompt` and
+    // `extra_ad_args` appear nowhere in the parser, the CLI or the public
+    // header. There is no native detailer to wait for, so saying the request
+    // lacks a field would promise a release that is not coming.
     return input.supports.detailer
       ? { enabled: true }
-      : { enabled: false, reasonKey: 'imageStudio.reason.noRequestField' };
+      : { enabled: false, reasonKey: 'imageStudio.reason.noDetailer' };
   }
   if (!input.supports.hiresFix) return { enabled: false, reasonKey: 'imageStudio.reason.noRequestField' };
   if (!input.managedLocal) return { enabled: false, reasonKey: 'visualRef.reason.serverChoosesSampler' };

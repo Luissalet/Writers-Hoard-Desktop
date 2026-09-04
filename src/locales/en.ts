@@ -4264,6 +4264,7 @@ const en = {
   'imageStudio.reason.noSubseed': 'stable-diffusion.cpp has no variation seed. Approximating one by re-noising would make a different picture and call it a variation, so it is not offered.',
   'imageStudio.reason.noPassthrough': 'The request is typed all the way to the server, so there is nowhere for raw JSON to go.',
   'imageStudio.reason.upscaleInHires': 'This build has no separate upscale job. Real-ESRGAN is reachable, but as the hires pass’s upscaler.',
+  'imageStudio.reason.noDetailer': 'This build has no face or hand detail pass. The runtime it ships does not implement one, so there is nothing to switch on.',
   'imageStudio.reason.noUpscaler': 'No upscaler is installed. Add one in AI settings → local image models.',
   'imageStudio.reason.oneHiresPass': 'The request has room for one hires pass, so a second one is refused rather than merged into the first.',
   'imageStudio.reason.noMaskEditor': 'The request can carry a mask; the studio has nowhere to paint one yet.',
