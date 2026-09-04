@@ -464,13 +464,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
    * screen. Shown under the composer so a wildcard is never a surprise: a
    * recipe holding an unresolved `{a|b|c}` is not a recipe.
    */
-  const preview = useMemo(
-    () => (effectiveRoute
-      ? planRun(planFor({ seed: resolved.seed ?? 0 }))
-      : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [resolved, parameters, passes, loraStack, wildcardFiles, size, effectiveRoute, capabilities],
-  );
+  const preview = effectiveRoute ? planRun(planFor({ seed: resolved.seed ?? 0 })) : null;
 
   /** Turn the resolved image ids into the bytes the request would carry. */
   const resolveReferenceData = async (): Promise<{ identity: string[]; control: { image: string; weight: number }[] }> => {
