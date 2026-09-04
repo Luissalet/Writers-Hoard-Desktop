@@ -610,6 +610,9 @@ const api = {
     downloadModel: (id: string): Promise<SdOpResult> => ipcRenderer.invoke('sd:downloadModel', id),
     cancelDownload: (id: string): Promise<void> => ipcRenderer.invoke('sd:cancelDownload', id),
     deleteModel: (id: string): Promise<SdOpResult> => ipcRenderer.invoke('sd:deleteModel', id),
+    downloadCompanion: (id: string): Promise<SdOpResult> => ipcRenderer.invoke('sd:downloadCompanion', id),
+    cancelCompanionDownload: (id: string): Promise<void> => ipcRenderer.invoke('sd:cancelCompanionDownload', id),
+    deleteCompanion: (id: string): Promise<SdOpResult> => ipcRenderer.invoke('sd:deleteCompanion', id),
     stop: (): Promise<SdRuntimeStatus> => ipcRenderer.invoke('sd:stop'),
     onStatus: (callback: (status: SdRuntimeStatus) => void): (() => void) => {
       const listener = (_e: unknown, status: SdRuntimeStatus) => callback(status);
