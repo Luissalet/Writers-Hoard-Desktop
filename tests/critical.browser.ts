@@ -68,6 +68,7 @@ import { testWorldgenSpatialEntities } from './worldgen-spatial-entities';
 import { testWorldgenSemanticZoom } from './worldgen-semantic-zoom';
 import { testAiBridgeContracts } from './ai-bridge';
 import { testAiRuntimeContracts } from './ai-runtime';
+import { testComfyBackend } from './comfy';
 import { runRegionInfraTests } from './worldgen-region-infra.test';
 import { testWorldgenDetailShader } from './worldgen-rendering';
 import { testWorldgenBridgeAccess } from './worldgen-bridge';
@@ -5063,6 +5064,7 @@ async function run(): Promise<void> {
   passed.push('Real atlas map: geometry, view state, basemap, prefs, mount');
   passed.push(await testAiBridgeContracts());
   passed.push(await testAiRuntimeContracts());
+  passed.push(await testComfyBackend());
   await testBridgeLinksStayInProject();
   passed.push('AI bridge: every linked row id stays inside the project');
   passed.push(testWorldgenSpatialEntities());
