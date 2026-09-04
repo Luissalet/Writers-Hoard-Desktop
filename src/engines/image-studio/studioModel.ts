@@ -61,47 +61,13 @@ export function studioResolverModel(input: StudioModelInput): ResolverModel | nu
 }
 
 /**
- * Which parameter fields the chosen model can honour.
+ * Whether the route points at the app's own stable-diffusion.cpp server.
  *
- * The existing studio already hides the cfg slider for FLUX; this generalises
- * that instinct instead of special-casing the next family by hand. A field that
- * is shown and does nothing is worse than no field: the writer turns it, sees
- * no change, and concludes the whole panel is decorative.
+ * The distinction the capability descriptor turns on: a remote
+ * `/v1/images/generations` endpoint takes a prompt and a size, so every
+ * diffusion knob is decoration against one, and saying "this model runs at a
+ * fixed guidance" about it would be a confident wrong answer.
  */
-export interface ParameterVisibility {
-  cfg: boolean;
-  sampler: boolean;
-  scheduler: boolean;
-  steps: boolean;
-  seed: boolean;
-}
-
-/** Which resolved fields the request can actually carry (see `operations.ts`). */
-export interface RequestSupport {
-  sampler: boolean;
-  scheduler: boolean;
-}
-
-export function parameterVisibility(
-  model: ResolverModel | null,
-  supports: RequestSupport,
-): ParameterVisibility {
-  if (!model) {
-    return { cfg: false, sampler: false, scheduler: false, steps: false, seed: false };
-  }
-  const guided = model.cfg === undefined || model.cfg > 1;
-  return {
-    // A distilled model runs at a fixed guidance; the slider would be a lie.
-    // The negative prompt follows the same rule, but it is not decided here:
-    // it belongs to the reference, and the resolver refuses it out loud in the
-    // disclosure so the writer sees WHICH model dropped it and why.
-    cfg: guided,
-    // Samplers and schedulers are a local-diffusion concept, AND the request
-    // has to be able to carry them. Both halves matter: the second is why the
-    // knobs are refused today rather than turned into a value the gateway drops.
-    sampler: supports.sampler && (model.supportsLora || model.supportsInitImage),
-    scheduler: supports.scheduler && (model.family === 'sdxl' || model.family === 'sd1'),
-    steps: true,
-    seed: true,
-  };
+export function isManagedLocalRoute(route?: AiRouteSelection): boolean {
+  return route?.connectionId === BUILTIN_SD_ID;
 }

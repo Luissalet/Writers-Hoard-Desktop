@@ -11,7 +11,7 @@
 // reason it cannot. A writer who never sees "Make this the canonical portrait"
 // because no reference is selected concludes the studio cannot do it.
 
-import { Copy, Layers, RefreshCw, Star, Trash2, Anchor, GitCompare, Plus } from 'lucide-react';
+import { Copy, Dices, Layers, RefreshCw, Star, Trash2, Anchor, GitCompare, Plus } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { InspirationImage } from '@/types';
 import type { Availability } from '../studioModel';
@@ -28,6 +28,8 @@ export interface ResultsGridProps {
   onToggleCompare: (id: string) => void;
   onIterate: (image: InspirationImage) => void;
   onVariations: (image: InspirationImage) => void;
+  /** Put this picture's seed in the composer without touching anything else. */
+  onUseSeed: (image: InspirationImage) => void;
   onPinSeed: (image: InspirationImage) => void;
   onCanonical: (image: InspirationImage) => void;
   onAddToSet: (image: InspirationImage) => void;
@@ -68,7 +70,7 @@ function Action({
 }
 
 export default function ResultsGrid({
-  batches, compareIds, onToggleCompare, onIterate, onVariations, onPinSeed,
+  batches, compareIds, onToggleCompare, onIterate, onVariations, onUseSeed, onPinSeed,
   onCanonical, onAddToSet, onKeep, onDiscard, refActions, generateAction, seedAction,
 }: ResultsGridProps) {
   const { t } = useTranslation();
@@ -107,6 +109,14 @@ export default function ResultsGrid({
                       <Action icon={Star} label={t('visualRef.action.keep')} availability={{ enabled: true }} onClick={() => onKeep(image)} active={kept} />
                       <Action icon={Copy} label={t('visualRef.action.iterate')} availability={{ enabled: true }} onClick={() => onIterate(image)} />
                       <Action icon={RefreshCw} label={t('visualRef.action.variations')} availability={generateAction} onClick={() => onVariations(image)} />
+                      <Action
+                        icon={Dices}
+                        label={t('visualRef.action.useSeed')}
+                        availability={image.generation?.seed === undefined
+                          ? { enabled: false, reasonKey: 'visualRef.reason.noSeedRecorded' }
+                          : { enabled: true }}
+                        onClick={() => onUseSeed(image)}
+                      />
                       <Action icon={Anchor} label={t('visualRef.action.pinSeed')} availability={seedAction(image)} onClick={() => onPinSeed(image)} />
                       <Action icon={Layers} label={t('visualRef.action.canonical')} availability={refActions} onClick={() => onCanonical(image)} />
                       <Action icon={Plus} label={t('visualRef.action.addToSet')} availability={refActions} onClick={() => onAddToSet(image)} />
