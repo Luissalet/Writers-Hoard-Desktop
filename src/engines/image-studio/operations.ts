@@ -17,6 +17,15 @@ import type { AiImageRequest, AiImageResult, AiLoraSelection, AiRouteSelection }
 
 export const IMAGE_STUDIO_ENGINE_ID = 'image-studio';
 
+/** The same widening, on the row this writes. See `services/visualRef/recipe`. */
+interface WidenedGenerationInfo {
+  cfg?: number;
+  sampler?: string;
+  scheduler?: string;
+  loras?: { name: string; weight: number }[];
+  visualRefIds?: string[];
+}
+
 /** Common aspect presets, all multiples of 64 as diffusion models prefer. */
 export const IMAGE_SIZE_PRESETS: ReadonlyArray<{ id: string; width: number; height: number; labelKey: string }> = [
   { id: 'square', width: 1024, height: 1024, labelKey: 'square' },
@@ -28,6 +37,51 @@ export const IMAGE_SIZE_PRESETS: ReadonlyArray<{ id: string; width: number; heig
   { id: 'banner', width: 1792, height: 1024, labelKey: 'banner' },
   { id: 'small', width: 512, height: 512, labelKey: 'small' },
 ];
+
+/**
+ * Fields the AI-runtime branch is adding to `AiImageRequest`. Declared here as
+ * optional so the studio can write them today: an intersection with them is
+ * legal whether or not the real request type has grown them yet.
+ */
+interface WidenedImageRequest {
+  sampler?: string;
+  scheduler?: string;
+  /** Identity/face reference images, as data URLs, in attachment order. */
+  referenceImages?: string[];
+  /** ControlNet conditioning: a pinned pose and how hard to hold it. */
+  controlNets?: { image: string; weight: number }[];
+}
+
+/**
+ * Whether a given field is ALREADY on `AiImageRequest`.
+ *
+ * This is the feature detection, and it maintains itself. Today `sampler` is
+ * not on the request, so `FieldOnRequest<'sampler'>` is `false` and the table
+ * below must say `false`; the parameters column reads it and refuses the field
+ * with a reason instead of offering a knob whose value is dropped on the way to
+ * the server. The day the runtime branch adds `sampler`, this type flips to
+ * `true`, the `false` below stops compiling, and whoever merges is told exactly
+ * which line to change — which is the opposite of a comment that goes stale.
+ */
+type FieldOnRequest<K extends string> = K extends keyof AiImageRequest ? true : false;
+
+export const REQUEST_SUPPORTS: {
+  guidance: FieldOnRequest<'guidance'>;
+  loras: FieldOnRequest<'loras'>;
+  initImage: FieldOnRequest<'initImage'>;
+  sampler: FieldOnRequest<'sampler'>;
+  scheduler: FieldOnRequest<'scheduler'>;
+  referenceImages: FieldOnRequest<'referenceImages'>;
+  controlNets: FieldOnRequest<'controlNets'>;
+} = {
+  guidance: true,
+  loras: true,
+  initImage: true,
+  sampler: false,
+  scheduler: false,
+  referenceImages: false,
+  controlNets: false,
+};
 
 export interface GenerateAndSaveOptions {
   projectId: string;
@@ -45,6 +99,15 @@ export interface GenerateAndSaveOptions {
   strength?: number;
   /** LoRAs to apply. Only the managed local runtime can load them. */
   loras?: AiLoraSelection[];
+  /** Guidance scale. Ignored by a distilled model, which runs at a fixed one. */
+  guidance?: number;
+  sampler?: string;
+  scheduler?: string;
+  /** Identity references, as data URLs, in the order the prompt names them. */
+  referenceImages?: string[];
+  controlNets?: { image: string; weight: number }[];
+  /** The visual references this generation was resolved from, for the recipe. */
+  visualRefIds?: string[];
   collectionId?: string;
   tags?: string[];
 }
@@ -79,7 +142,7 @@ export async function makeThumbnail(dataUrl: string, maxEdge = 320): Promise<str
 }
 
 export function startGeneration(options: GenerateAndSaveOptions): ImageHandle {
-  const request: AiImageRequest = {
+  const request: AiImageRequest & Partial<WidenedImageRequest> = {
     connectionId: options.route.connectionId,
     modelId: options.route.modelId,
     prompt: options.prompt,
@@ -93,7 +156,19 @@ export function startGeneration(options: GenerateAndSaveOptions): ImageHandle {
     initImage: options.initImage,
     strength: options.strength,
     loras: options.loras?.length ? options.loras : undefined,
+    guidance: options.guidance,
   };
+  // Only set what the request can carry. A field written here that the gateway
+  // does not know is dropped between the studio and the server without a word,
+  // and the parameters column would go on showing a knob that does nothing.
+  if (REQUEST_SUPPORTS.sampler && options.sampler) request.sampler = options.sampler;
+  if (REQUEST_SUPPORTS.scheduler && options.scheduler) request.scheduler = options.scheduler;
+  if (REQUEST_SUPPORTS.referenceImages && options.referenceImages?.length) {
+    request.referenceImages = options.referenceImages;
+  }
+  if (REQUEST_SUPPORTS.controlNets && options.controlNets?.length) {
+    request.controlNets = options.controlNets;
+  }
   return gatewayGenerate(request);
 }
 
@@ -108,7 +183,7 @@ export async function saveGenerated(
   const now = Date.now();
   for (const image of result.images) {
     const dataUrl = `data:${image.mimeType};base64,${image.base64}`;
-    const generation: ImageGenerationInfo = {
+    const generation: ImageGenerationInfo & Partial<WidenedGenerationInfo> = {
       prompt: options.prompt,
       negativePrompt: options.negativePrompt || undefined,
       connectionId: options.route.connectionId,
@@ -119,6 +194,15 @@ export async function saveGenerated(
       quality: options.quality,
       steps: options.steps,
       createdAt: now,
+      // Written whether or not `ImageGenerationInfo` has grown these yet: an
+      // extra key on a stored row is harmless, and a recipe that cannot say
+      // what cfg it ran at cannot be iterated on honestly. `readRecipe` reads
+      // them back defensively for exactly the same reason.
+      cfg: options.guidance,
+      sampler: options.sampler,
+      scheduler: options.scheduler,
+      loras: options.loras?.length ? options.loras.map((lora) => ({ name: lora.name, weight: lora.weight })) : undefined,
+      visualRefIds: options.visualRefIds?.length ? options.visualRefIds : undefined,
     };
     const row: InspirationImage = {
       id: generateId('img'),

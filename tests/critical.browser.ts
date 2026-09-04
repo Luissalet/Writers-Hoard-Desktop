@@ -113,6 +113,7 @@ import type { Writing } from '@/types';
 import type { Citation, PublishingProfile } from '@/types/projectTools';
 import type { ProofreaderInput, ProofreaderWritingRow } from '@/services/proofreader';
 import type { AiMessage } from '@/services/copilot/types';
+import { runVisualRefTests } from './visual-ref';
 import { runFootnoteTests } from './footnotes';
 import { runFootnoteBridgeTests } from './footnotesBridge';
 import {
@@ -174,13 +175,14 @@ function assert(condition: unknown, message: string): asserts condition {
 async function testMigration(): Promise<void> {
   await db.delete();
   await db.open();
-  assert(db.verno === 28, `expected schema v28, received v${db.verno}`);
+  assert(db.verno === 29, `expected schema v29, received v${db.verno}`);
   for (const table of [
     'entityLinks', 'citations', 'publishingProfiles', 'conversionReceipts',
     'boards', 'boardNodes', 'boardEdges', 'boardLayers', 'boardViews',
     'canonTiles', 'renderedTiles',
     'aiThreads', 'aiMessages', 'aiProjectSettings',
     'atlasPlaces', 'atlasDivergences',
+    'visualRefs',
   ]) {
     assert(db.tables.some(row => row.name === table), `missing migrated table ${table}`);
   }
@@ -192,7 +194,7 @@ async function testMigration(): Promise<void> {
   ]) {
     assert(!db.tables.some(row => row.name === retired), `retired table ${retired} still exists`);
   }
-  passed.push('Dexie migration v28');
+  passed.push('Dexie migration v29');
 }
 
 async function seedBackupFixture(projectId: string): Promise<string[]> {
@@ -5023,6 +5025,8 @@ async function run(): Promise<void> {
   testWorldgenRulerOverlayDraws();
   passed.push('Worldgen 2D: ruler maths, legend stops, keyboard camera, ruler overlay pixels');
   passed.push(await testWorldgenRulerOnMap());
+  stage('visual references');
+  passed.push(...await runVisualRefTests());
 }
 
 void run()
