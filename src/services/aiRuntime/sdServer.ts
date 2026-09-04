@@ -10,6 +10,8 @@
 import type { AiImageRequest, FitEstimate, HardwareProfile, SdExtraSampleArgsInput } from './types';
 import type { ImageCatalogModel, ImageCompanionKind, ImageFileRole } from './imageCatalog';
 import { primaryGpuBytes } from './fit';
+// The profile hash is stored in recipes, so it uses the same digest they do.
+import { sha256Hex } from './recipe';
 
 // ---- Runtime status, as main reports it and the settings page shows it -----
 
@@ -107,6 +109,13 @@ export interface SdRuntimeStatus {
   loadedControlNet?: string | null;
   /** Catalogue companion id being downloaded, if any. */
   downloadingCompanion?: string | null;
+  /**
+   * The launch-time identity of the running server, and its hash. The studio
+   * compares a profile it is about to ask for against this one to tell the
+   * reader, before they commit, whether their change reloads the model.
+   */
+  profile?: SdRuntimeProfile | null;
+  profileHash?: string | null;
 }
 
 export interface SdProgress {
@@ -400,6 +409,87 @@ export const SD_CONTROL_STRENGTH_MAX = 0.9;
 export function clampControlStrength(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return SD_CONTROL_STRENGTH_DEFAULT;
   return Math.max(SD_CONTROL_STRENGTH_MIN, Math.min(SD_CONTROL_STRENGTH_MAX, value));
+}
+
+// ---- The runtime profile ---------------------------------------------------
+//
+// ControlNet, the LoRA folder, the upscalers folder, memory placement and
+// flash attention are all decided on the COMMAND LINE. No request can change
+// one, so the set of them is the identity of the running process, exactly as
+// the loaded model is — and changing any of them costs the same restart that
+// changing the model costs.
+//
+// Making that a named thing rather than a growing list of comparisons is what
+// keeps the two halves honest: a launch flag added to `buildSdServerArgs`
+// without a field here would be a flag that silently fails to take effect
+// until something else happens to restart the server.
+
+export interface SdRuntimeProfile {
+  /** Catalogue id of the weights the server is launched to serve. */
+  modelId: string;
+  /** File name of the ControlNet built into the context, or null for none. */
+  controlNet: string | null;
+  /** Whether `--lora-model-dir` is passed. */
+  loraDir: boolean;
+  /** Whether `--hires-upscalers-dir` is passed. */
+  upscalersDir: boolean;
+  /** Weights streamed from RAM (`--offload-to-cpu`). */
+  offloadToCpu: boolean;
+  /** `--diffusion-fa`. */
+  flashAttention: boolean;
+}
+
+/** Why a profile change costs a restart, in terms a reader can be shown. */
+export type SdProfileChangeReason =
+  | 'model'
+  | 'control-net'
+  | 'lora-folder'
+  | 'upscaler-folder'
+  | 'memory-placement'
+  | 'flash-attention';
+
+/**
+ * A stable identity for a set of launch choices.
+ *
+ * Stored in recipes, so it has to survive the app being rebuilt: the fields are
+ * listed explicitly and in a fixed order rather than serialised off the object,
+ * which would make the hash depend on key insertion order.
+ */
+export function sdRuntimeProfileHash(profile: SdRuntimeProfile): string {
+  return sha256Hex(
+    [
+      `model=${profile.modelId}`,
+      `controlnet=${profile.controlNet ?? ''}`,
+      `lora=${profile.loraDir ? 1 : 0}`,
+      `upscalers=${profile.upscalersDir ? 1 : 0}`,
+      `offload=${profile.offloadToCpu ? 1 : 0}`,
+      `fa=${profile.flashAttention ? 1 : 0}`,
+    ].join('\n'),
+  );
+}
+
+/**
+ * What would have to be reloaded to go from one profile to the other, or an
+ * empty list when nothing would.
+ *
+ * This exists so the cost can be shown BEFORE it is paid. A writer who ticks a
+ * checkbox and then waits forty seconds with no explanation concludes the app
+ * is broken; a writer told "this reloads the model, about forty seconds" waits
+ * happily. The studio calls this on the profile it is about to ask for.
+ */
+export function sdProfileRestartReasons(
+  current: SdRuntimeProfile | null | undefined,
+  wanted: SdRuntimeProfile,
+): SdProfileChangeReason[] {
+  if (!current) return [];
+  const reasons: SdProfileChangeReason[] = [];
+  if (current.modelId !== wanted.modelId) reasons.push('model');
+  if (current.controlNet !== wanted.controlNet) reasons.push('control-net');
+  if (current.loraDir !== wanted.loraDir) reasons.push('lora-folder');
+  if (current.upscalersDir !== wanted.upscalersDir) reasons.push('upscaler-folder');
+  if (current.offloadToCpu !== wanted.offloadToCpu) reasons.push('memory-placement');
+  if (current.flashAttention !== wanted.flashAttention) reasons.push('flash-attention');
+  return reasons;
 }
 
 export interface SdServerLaunch {
