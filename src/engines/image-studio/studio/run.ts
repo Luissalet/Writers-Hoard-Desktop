@@ -56,6 +56,10 @@ export interface RunInput {
   visualRefIds?: string[];
   /** Appended to the prompt: the X/Y/Z prompt axis, and nothing else. */
   promptSuffix?: string;
+  /** Shared by every picture of one batch, so the grid groups them. */
+  stamp?: number;
+  /** "steps 30 · cfg 7": what this cell of an X/Y/Z grid varied. */
+  gridLabel?: string;
   tags?: string[];
 }
 
@@ -109,6 +113,8 @@ export function planRun(input: RunInput): RunPlan {
       composer: input.composer,
       passChain: serializePassChain(input.passes),
       wildcards: prompt.picks.length ? prompt.picks : undefined,
+      stamp: input.stamp,
+      gridLabel: input.gridLabel,
       tags: input.tags,
     },
     refusedPasses: chain.refused,

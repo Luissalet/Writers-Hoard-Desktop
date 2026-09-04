@@ -4384,6 +4384,7 @@ const en = {
   'imageStudio.scheduler.bongTangent': 'A tangent-shaped schedule from the community, at home with the res_* samplers.',
   'imageStudio.scheduler.ltx2': 'The schedule the LTX-2 model expects.',
   'visualRef.action.useSeed': 'Use this seed',
+  'imageStudio.prompt.wildcardExample': 'One possible roll — the seed is rolled when you generate:',
 } as const;
 
 export default en;
