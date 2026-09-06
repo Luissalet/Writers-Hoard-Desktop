@@ -127,3 +127,126 @@ declares only `serverBinary`; no CLI binary name is pinned for any platform and
 guessing one would be inventing a file name. It is also unnecessary — 
 `readPngMetadata` + `readSdcppRecord` + `recoverRecipe` read a foreign PNG in
 pure TypeScript, with no process to spawn and no runtime install required.
+
+---
+
+# Auditoría integral — 2026-09-06
+
+## Plan
+
+- [x] A1 Mapear arquitectura, superficies críticas y estado de verificaciones.
+- [x] A2 Auditar lógica, persistencia, IPC, seguridad y manejo de errores.
+- [x] A3 Auditar interfaz, accesibilidad, rendimiento percibido e i18n.
+- [x] A4 Reproducir y validar los defectos de mayor impacto.
+- [x] A5 Priorizar bugs y proponer features con coste/beneficio.
+
+## Review
+
+Auditoría de solo lectura completada. No se modificó código funcional.
+
+Puertas ejecutadas:
+
+- `npm run verify:quick`: OK (renderer, Electron, lint y conformidad).
+- `npm run test:critical`: OK (146 pruebas).
+- `npm run audit:security`: FALLA por dos vulnerabilidades moderadas
+  (`@tiptap/core` y `@humanfs/node`).
+- Arranque y recorrido visual en navegador: OK, con warning reproducido de
+  cobertura de backup para `imageRecipes`.
+
+Hallazgos principales:
+
+- P0: la migración v24 elimina las tablas Yarn/Brainstorm sin migrar sus filas
+  a Board.
+- P1: `saveGenerated` descarta la receta exacta devuelta por el runtime y nunca
+  escribe `imageRecipes`; además esa tabla no entra en los backups.
+- P1: la importación genérica acepta filas de otro `projectId` y puede pisar
+  datos de un proyecto ajeno al ZIP.
+- P1: deshacer una conversión borra también todo el trabajo posterior.
+- P1: Google Docs puede sobrescribir una edición concurrente sin conservarla.
+- P1: el modal común no implementa el contrato accesible de un diálogo y el
+  token `text-dim` no cumple contraste AA.
+- P2: autosaves asíncronos no observados, cachés Worldgen huérfanas, backups no
+  transaccionales, movimiento no reducible y listas/medios sin límites.
+
+Prioridad sugerida: migración y backups → escrituras con conflicto/undo →
+dependencias de seguridad → diálogo/accesibilidad → escalabilidad de medios.
+
+---
+
+# Informe de remediación integral para Claude — 2026-09-06
+
+## Plan
+
+- [x] C1 Consolidar todos los hallazgos verificados en un único briefing ejecutable.
+- [x] C2 Definir fases, dependencias, alcance y criterios de aceptación por problema.
+- [x] C3 Incluir estrategia de pruebas, migración segura, rollback y límites de implementación.
+- [x] C4 Revisar referencias de código y evitar instrucciones ambiguas o destructivas.
+- [x] C5 Entregar el informe Markdown y registrar su revisión final.
+
+## Review
+
+Creado `docs/INFORME_REMEDIACION_INTEGRAL_CLAUDE.md`: briefing autónomo en
+español con estado inicial, definición global de terminado, siete fases
+ordenadas por riesgo, criterios de aceptación, matriz completa de defectos,
+features derivadas, estrategia de pruebas, gates y restricciones de seguridad.
+
+Revisión cruzada completada para datos/lógica, Electron/seguridad y UI/UX. Se
+añadieron las precisiones detectadas: hash semántico de recetas, estados
+discriminados de snapshots y Google Docs, recibos legacy conservadores,
+carreras de stores, migración v21 por proyecto, política de `Origin: null`,
+preflight CORS, clasificación de overlays, contraste computado y protocolo
+reproducible de rendimiento. No se modificó código funcional.
+
+Añadido también el baseline ejecutivo de salud de interfaz (10/20), su desglose
+por áreas y el objetivo verificable de repetir la misma rúbrica tras las fases
+de accesibilidad y rendimiento.
+
+Validación documental:
+
+- Todas las rutas de código primarias citadas existen.
+- `git diff --check`: sin errores.
+- Los archivos ajenos en `_stage/` se conservaron intactos.
+
+---
+
+# Ampliación del informe — features de usuario — 2026-09-06
+
+## Plan
+
+- [x] F1 Inventariar las capacidades actuales para evitar propuestas duplicadas.
+- [x] F2 Mantener protocolo de entrega, compatibilidad, recuperación y release.
+- [x] F3 Sustituir la dirección comercial por exploración y desarrollo creativo.
+- [x] F4 Definir MVP, valor, dependencias y criterios de éxito por feature creativa.
+- [x] F5 Revisar la ampliación y registrar el resultado.
+- [x] F6 Incorporar Judge y la biblioteca de referencias propuesta por el usuario.
+- [x] F7 Añadir modos creativos derivados de Judge y Table Read sin crear módulos redundantes.
+
+## Review
+
+La primera ampliación se descartó tras la corrección del usuario: orientaba el
+producto hacia publicación, pitches, envíos y feedback comercial. Esos bloques
+se retiraron, junto con el contexto competitivo que los motivaba.
+
+La Fase 8 ahora define Writers Hoard como laboratorio para capturar, expandir,
+conectar, tensionar, ramificar y desarrollar ideas antes de promoverlas a canon.
+Incluye Mesa de ideas, ramas «qué pasaría si», mapa causal, cámara de presión de
+personajes, reglas del mundo, conocimiento/secretos, continuidad, motivos,
+lentes narrativas, variantes de escena, arqueología de ideas y universo
+compartido. Se documentaron primitivas comunes para evitar nuevos silos:
+kernel de ramas, relaciones causales, eje narrativo, procedencia e identidad de
+serie. El Centro de salud y el protocolo de entrega/recuperación permanecen.
+
+La corrección de dirección quedó registrada en `tasks/lessons.md` como regla
+#66. No se modificó código funcional ni archivos bajo `src/`.
+
+Añadida como prioridad A0 la feature **Judge**: botón en el sidepanel de
+Writings, biblioteca personal de documentos/lentes, crítica grounded contra
+referencias y otros capítulos, citas dobles, detección de resultados obsoletos,
+privacidad local/remote opt-in, resultados navegables y aplicación mediante
+diff + snapshot. El mismo núcleo queda previsto para el copiloto interno y los
+agentes externos, sin exponerles acceso general a archivos privados.
+
+Judge se amplió como una única superficie con los modos `Judge`, `Questions`,
+`Reader` y `Story State`, más Lens Duel y Devil's Advocate. Question Garden se
+plantea como vista derivada sobre Board/Notes y Table Read como extensión de la
+lectura crítica para Dialog Scene, evitando siete módulos o almacenes nuevos.

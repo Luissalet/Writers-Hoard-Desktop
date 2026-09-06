@@ -1263,3 +1263,16 @@ unlink). Git en Windows quedó bloqueado hasta que Luis lo pidió y lo quité co
 **Regla.** Nunca `git` (ni nada que cree y borre ficheros temporales) desde el shell de la VM sobre
 la carpeta montada: git va SIEMPRE por PowerShell (Desktop Commander). Si aparece
 «unable to unlink … index.lock», borrarlo en el acto desde Windows.
+
+## #66 — Las features deben reforzar el propósito creativo del producto, no copiar su mercado (2026-09-06)
+
+**Qué pasó.** Al ampliar una auditoría con ideas de producto, convertí referencias de otras
+herramientas de escritura en una hoja de ruta de pitches, envíos, beta readers y procesos
+editoriales. El usuario aclaró que Writers Hoard está centrado en explorar ideas y desarrollarlas,
+no en construir un flujo comercial alrededor del manuscrito.
+
+**Regla.** Antes de proponer features, nombra el trabajo central del producto y evalúa cada idea
+contra él. Para Writers Hoard, prioriza pensamiento divergente y convergente, hipótesis, conexiones,
+ramas, consecuencias, canon, tensión y transformación de ideas en estructura y escenas. No añadas
+CRM, envíos, colaboración comercial o paridad competitiva salvo petición explícita. Las referencias
+de mercado pueden validar una necesidad, pero nunca deben sustituir la dirección propia del producto.
