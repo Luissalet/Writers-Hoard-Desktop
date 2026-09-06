@@ -1,0 +1,253 @@
+From 107e911ee41ee97fcd1ca84bcc3a0888143af2b7 Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 01:52:06 +0000
+Subject: [PATCH 30/36] The samplers went live, and the reference images stop
+ being dropped
+
+The support table did its job: sampler and scheduler landed on the request,
+the two false entries stopped compiling and named their own lines. Widened it
+to every field the studio wants to send, and wired the four the request has
+been able to carry all along - ref images, the control hint, the mask and the
+hires pass were being built and thrown away between here and the gateway.
+---
+ src/engines/image-studio/operations.ts | 152 ++++++++++++++++++++-----
+ 1 file changed, 124 insertions(+), 28 deletions(-)
+
+diff --git a/src/engines/image-studio/operations.ts b/src/engines/image-studio/operations.ts
+index 98fb5f2..c7b70f2 100644
+--- a/src/engines/image-studio/operations.ts
++++ b/src/engines/image-studio/operations.ts
+@@ -25,6 +25,12 @@ interface WidenedGenerationInfo {
+   loras?: { name: string; weight: number }[];
+   visualRefIds?: string[];
+   composer?: { subjects: string; scene: string; style: string };
++  /** CLIP layers skipped. An SD1 anime checkpoint is a different picture at −2. */
++  clipSkip?: number;
++  /** The pass chain as it ran, serialised. See `studio/passes`. */
++  passChain?: string;
++  /** The wildcard picks, so a prompt with `{a|b}` in it can still be reproduced. */
++  wildcards?: { token: string; choice: string }[];
+ }
+ 
+ /** Common aspect presets, all multiples of 64 as diffusion models prefer. */
+@@ -40,29 +46,46 @@ export const IMAGE_SIZE_PRESETS: ReadonlyArray<{ id: string; width: number; heig
+ ];
+ 
+ /**
+- * Fields the AI-runtime branch is adding to `AiImageRequest`. Declared here as
+- * optional so the studio can write them today: an intersection with them is
+- * legal whether or not the real request type has grown them yet.
++ * Fields the studio wants to send that `AiImageRequest` has no room for yet.
++ * Declared here as optional so the studio can be written against them today:
++ * an intersection with them is legal whether or not the real request type has
++ * grown them, and the table below is what decides whether one is ever set.
+  */
+ interface WidenedImageRequest {
+-  sampler?: string;
+-  scheduler?: string;
+-  /** Identity/face reference images, as data URLs, in attachment order. */
+-  referenceImages?: string[];
+-  /** ControlNet conditioning: a pinned pose and how hard to hold it. */
+-  controlNets?: { image: string; weight: number }[];
++  /** CLIP layers to skip. −2 is the anime-checkpoint convention on SD1. */
++  clipSkip?: number;
++  /** The face/hand pass: detect, crop, re-diffuse, paste back. */
++  detailer?: {
++    detector: string;
++    prompt?: string;
++    denoisingStrength?: number;
++    padding?: number;
++    maskBlur?: number;
++    confidence?: number;
++  };
++  /** A hand-written sigma schedule, replacing the scheduler's. */
++  sigmas?: number[];
++  /** Skip-layer guidance: which layers to skip, and over which part of the run. */
++  slg?: { layers: number[]; scale: number; start: number; end: number };
++  /** Adaptive projected guidance. */
++  apg?: { eta: number; normThreshold: number; momentum: number };
++  /** Inference cache mode, trading a little fidelity for a lot of speed. */
++  cacheMode?: string;
+ }
+ 
+ /**
+  * Whether a given field is ALREADY on `AiImageRequest`.
+  *
+- * This is the feature detection, and it maintains itself. Today `sampler` is
+- * not on the request, so `FieldOnRequest<'sampler'>` is `false` and the table
+- * below must say `false`; the parameters column reads it and refuses the field
+- * with a reason instead of offering a knob whose value is dropped on the way to
+- * the server. The day the runtime branch adds `sampler`, this type flips to
+- * `true`, the `false` below stops compiling, and whoever merges is told exactly
+- * which line to change — which is the opposite of a comment that goes stale.
++ * This is the feature detection, and it maintains itself. A field the request
++ * cannot carry is written here as `false`; the parameters column reads it and
++ * refuses the knob with a reason instead of offering one whose value is dropped
++ * on the way to the server. The day the runtime branch adds the field, this
++ * type flips to `true`, the `false` below stops compiling, and whoever merges
++ * is told exactly which line to change — which is the opposite of a comment
++ * that goes stale.
++ *
++ * It has already earned its keep once: `sampler` and `scheduler` landed on the
++ * request, these two lines stopped compiling, and the samplers went live.
+  */
+ type FieldOnRequest<K extends string> = K extends keyof AiImageRequest ? true : false;
+ 
+@@ -70,20 +93,50 @@ export const REQUEST_SUPPORTS: {
+   guidance: FieldOnRequest<'guidance'>;
+   loras: FieldOnRequest<'loras'>;
+   initImage: FieldOnRequest<'initImage'>;
++  strength: FieldOnRequest<'strength'>;
+   sampler: FieldOnRequest<'sampler'>;
+   scheduler: FieldOnRequest<'scheduler'>;
+-  referenceImages: FieldOnRequest<'referenceImages'>;
+-  controlNets: FieldOnRequest<'controlNets'>;
++  /** The runtime named it `refImages`, not `referenceImages`. */
++  refImages: FieldOnRequest<'refImages'>;
++  controlImage: FieldOnRequest<'controlImage'>;
++  maskImage: FieldOnRequest<'maskImage'>;
++  hiresFix: FieldOnRequest<'hiresFix'>;
++  clipSkip: FieldOnRequest<'clipSkip'>;
++  detailer: FieldOnRequest<'detailer'>;
++  sigmas: FieldOnRequest<'sigmas'>;
++  slg: FieldOnRequest<'slg'>;
++  apg: FieldOnRequest<'apg'>;
++  cacheMode: FieldOnRequest<'cacheMode'>;
+ } = {
+   guidance: true,
+   loras: true,
+   initImage: true,
+-  sampler: false,
+-  scheduler: false,
+-  referenceImages: false,
+-  controlNets: false,
++  strength: true,
++  sampler: true,
++  scheduler: true,
++  refImages: true,
++  controlImage: true,
++  maskImage: true,
++  hiresFix: true,
++  clipSkip: false,
++  detailer: false,
++  sigmas: false,
++  slg: false,
++  apg: false,
++  cacheMode: false,
+ };
+ 
++export type RequestSupportMap = typeof REQUEST_SUPPORTS;
++
++/** A second pass at a larger size, as the request carries it. */
++export interface HiresPassRequest {
++  upscaler: string;
++  scale: number;
++  steps?: number;
++  denoisingStrength?: number;
++  tileSize?: number;
++}
++
+ export interface GenerateAndSaveOptions {
+   projectId: string;
+   route: AiRouteSelection;
+@@ -98,19 +151,32 @@ export interface GenerateAndSaveOptions {
+   /** img2img: reference image as a data URL, and its denoise strength (0..1). */
+   initImage?: string;
+   strength?: number;
++  /** Inpainting mask as a data URL: white is repainted. Needs `initImage`. */
++  maskImage?: string;
+   /** LoRAs to apply. Only the managed local runtime can load them. */
+   loras?: AiLoraSelection[];
+   /** Guidance scale. Ignored by a distilled model, which runs at a fixed one. */
+   guidance?: number;
+   sampler?: string;
+   scheduler?: string;
++  /** CLIP layers to skip; refused until the request grows a field for it. */
++  clipSkip?: number;
+   /** Identity references, as data URLs, in the order the prompt names them. */
+   referenceImages?: string[];
++  /** ControlNet conditioning: a pinned pose and how hard to hold it. */
+   controlNets?: { image: string; weight: number }[];
++  /** The second pass, when the chain has an enabled hires pass. */
++  hires?: HiresPassRequest;
+   /** The visual references this generation was resolved from, for the recipe. */
+   visualRefIds?: string[];
++  /** Gallery ids of the conditioning images, so the row can point back at them. */
++  refImageIds?: string[];
++  controlImageId?: string;
+   /** The composer's slots as typed, so «iterate on this» can put them back. */
+   composer?: { subjects: string; scene: string; style: string };
++  /** The chain as it ran, serialised, and the wildcard picks that fixed the text. */
++  passChain?: string;
++  wildcards?: { token: string; choice: string }[];
+   collectionId?: string;
+   tags?: string[];
+ }
+@@ -144,7 +210,15 @@ export async function makeThumbnail(dataUrl: string, maxEdge = 320): Promise<str
+   }
+ }
+ 
+-export function startGeneration(options: GenerateAndSaveOptions): ImageHandle {
++/**
++ * The options as they go on the wire.
++ *
++ * Exported because the studio needs to be able to SHOW what it is about to
++ * send without sending it — the X/Y/Z preview and the resolved-prompt
++ * disclosure both read this, and a preview built by a second code path is a
++ * preview of something else.
++ */
++export function buildImageRequest(options: GenerateAndSaveOptions): AiImageRequest {
+   const request: AiImageRequest & Partial<WidenedImageRequest> = {
+     connectionId: options.route.connectionId,
+     modelId: options.route.modelId,
+@@ -166,13 +240,25 @@ export function startGeneration(options: GenerateAndSaveOptions): ImageHandle {
+   // and the parameters column would go on showing a knob that does nothing.
+   if (REQUEST_SUPPORTS.sampler && options.sampler) request.sampler = options.sampler;
+   if (REQUEST_SUPPORTS.scheduler && options.scheduler) request.scheduler = options.scheduler;
+-  if (REQUEST_SUPPORTS.referenceImages && options.referenceImages?.length) {
+-    request.referenceImages = options.referenceImages;
++  if (REQUEST_SUPPORTS.refImages && options.referenceImages?.length) {
++    request.refImages = options.referenceImages;
+   }
+-  if (REQUEST_SUPPORTS.controlNets && options.controlNets?.length) {
+-    request.controlNets = options.controlNets;
++  // One hint image, not an array: `--control-net` builds the context with a
++  // single ControlNet, so a second pose has nowhere to go and pretending
++  // otherwise would drop it silently.
++  const control = options.controlNets?.[0];
++  if (REQUEST_SUPPORTS.controlImage && control) {
++    request.controlImage = control.image;
++    request.controlStrength = control.weight;
+   }
+-  return gatewayGenerate(request);
++  if (REQUEST_SUPPORTS.maskImage && options.maskImage) request.maskImage = options.maskImage;
++  if (REQUEST_SUPPORTS.hiresFix && options.hires) request.hiresFix = options.hires;
++  if (REQUEST_SUPPORTS.clipSkip && options.clipSkip !== undefined) request.clipSkip = options.clipSkip;
++  return request;
++}
++
++export function startGeneration(options: GenerateAndSaveOptions): ImageHandle {
++  return gatewayGenerate(buildImageRequest(options));
+ }
+ 
+ export async function saveGenerated(
+@@ -207,6 +293,16 @@ export async function saveGenerated(
+       loras: options.loras?.length ? options.loras.map((lora) => ({ name: lora.name, weight: lora.weight })) : undefined,
+       visualRefIds: options.visualRefIds?.length ? options.visualRefIds : undefined,
+       composer: options.composer,
++      clipSkip: options.clipSkip,
++      passChain: options.passChain,
++      wildcards: options.wildcards?.length ? options.wildcards : undefined,
++      refImageIds: options.refImageIds?.length ? options.refImageIds : undefined,
++      controlImageId: options.controlImageId,
++      controlStrength: options.controlNets?.[0]?.weight,
++      strength: options.strength,
++      hiresUpscaler: options.hires?.upscaler,
++      hiresScale: options.hires?.scale,
++      parameters: image.parameters,
+     };
+     const row: InspirationImage = {
+       id: generateId('img'),
+-- 
+2.43.0
+

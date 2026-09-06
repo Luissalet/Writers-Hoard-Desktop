@@ -1,0 +1,69 @@
+From 535145194b10f8ddd935c11d9266596c2211a3ee Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 00:49:59 +0000
+Subject: [PATCH 07/36] Refuse a control image that no ControlNet would ever
+ read
+
+sd.cpp returns early when the context has no ControlNet, so a hint sent to
+a server built without one is dropped and the job still reports success.
+Ask for the ControlNet by name or do not send a hint.
+
+A cold start no longer loads whichever ControlNet the last job wanted: on
+a 12 GB card that is a gigabyte spent on nothing. A running server is
+still left alone, so a plain job never pays for a restart.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RmpuZqpQrFjas3Ajv22pKb
+---
+ electron/ai/adapters/sdcpp.ts | 12 +++++++++---
+ electron/ai/sdRuntime.ts      | 11 +++++++++--
+ 2 files changed, 18 insertions(+), 5 deletions(-)
+
+diff --git a/electron/ai/adapters/sdcpp.ts b/electron/ai/adapters/sdcpp.ts
+index 6d43dfc..9683982 100644
+--- a/electron/ai/adapters/sdcpp.ts
++++ b/electron/ai/adapters/sdcpp.ts
+@@ -116,9 +116,15 @@ async function generateImage(_ctx: AdapterContext, req: AiImageRequest, signal:
+     // looking like a success.
+     return { ok: false, code: 'bad-request', error: `"${entry.label}" does not take reference images. Use a Kontext model for those.` };
+   }
+-  // A ControlNet is chosen at launch, so this may restart the server; passing
+-  // `null` when the job has no hint means a plain job never triggers one.
+-  const started = await ensureSdServer(req.modelId, { controlNet: req.controlImage ? req.controlNetModel ?? null : undefined });
++  if (req.controlImage && !req.controlNetModel) {
++    // A control image reaches a server built without a ControlNet and is
++    // dropped on the floor — sd.cpp returns early when `control_net` is null.
++    // The job would succeed and the hint would have done nothing.
++    return { ok: false, code: 'bad-request', error: 'A control image needs a ControlNet. Choose one in AI settings → Local image models.' };
++  }
++  // A ControlNet is chosen at launch, so naming one may restart the server;
++  // leaving it unset means a job with no hint never causes a restart.
++  const started = await ensureSdServer(req.modelId, req.controlNetModel ? { controlNet: req.controlNetModel } : {});
+   if (!started.ok) {
+     const message =
+       started.error === 'runtime-missing'
+diff --git a/electron/ai/sdRuntime.ts b/electron/ai/sdRuntime.ts
+index 0ef1c4b..31982bb 100644
+--- a/electron/ai/sdRuntime.ts
++++ b/electron/ai/sdRuntime.ts
+@@ -967,8 +967,15 @@ export function ensureSdServer(modelId: string, options: EnsureSdServerOptions =
+       const fileName = asset?.fileName ?? options.controlNet ?? null;
+       if (options.controlNet && !controlNetFile(fileName)) return { ok: false, error: 'controlnet-missing' };
+       wantedControlNet = fileName;
+-    } else if (wantedControlNet && !controlNetFile(wantedControlNet)) {
+-      // The file was deleted under a running server; do not keep asking for it.
++    } else if (serverChild && serverReady) {
++      // A job with no opinion about ControlNet leaves a running server exactly
++      // as it is: restarting it to drop a ControlNet costs a model reload and
++      // buys nothing, since a job that sends no control image is unaffected.
++      wantedControlNet = serverControlNet;
++    } else {
++      // A cold start is different: nothing is loaded yet, so loading a
++      // ControlNet this job never asked for would spend a gigabyte of the card
++      // on nothing.
+       wantedControlNet = null;
+     }
+     if (
+-- 
+2.43.0
+

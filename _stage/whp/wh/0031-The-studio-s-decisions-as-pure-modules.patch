@@ -1,0 +1,1752 @@
+From 84b91753d41c2466deeb16489f5bc1617bdb2588 Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 02:00:43 +0000
+Subject: [PATCH 31/36] The studio's decisions, as pure modules
+
+Three disclosure levels, one capability descriptor that says per field whether
+a knob can be turned and which of the three possible reasons refuses it, the
+curated samplers over the runtime's own vocabulary, family working points with
+their reason, training buckets, the pass chain, the LoRA stack, client-side
+wildcards, A1111 weighting, seed batching and the X/Y/Z matrix.
+
+No Dexie, no components, no IPC: every one of these is a function of its
+arguments, which is what lets the panel above them be tested by reading text
+off a rendered page instead of by generating pictures.
+---
+ src/engines/image-studio/studio/buckets.ts    |  88 ++++++
+ .../image-studio/studio/capabilities.ts       | 138 +++++++++
+ .../image-studio/studio/familyDefaults.ts     | 102 +++++++
+ src/engines/image-studio/studio/index.ts      | 102 +++++++
+ src/engines/image-studio/studio/levels.ts     |  72 +++++
+ src/engines/image-studio/studio/loraStack.ts  | 125 ++++++++
+ src/engines/image-studio/studio/passes.ts     | 277 ++++++++++++++++++
+ src/engines/image-studio/studio/prefs.ts      |  73 +++++
+ .../image-studio/studio/promptCraft.ts        | 172 +++++++++++
+ src/engines/image-studio/studio/samplers.ts   | 100 +++++++
+ src/engines/image-studio/studio/seeds.ts      |  39 +++
+ src/engines/image-studio/studio/wildcards.ts  | 173 +++++++++++
+ src/engines/image-studio/studio/xyz.ts        | 167 +++++++++++
+ 13 files changed, 1628 insertions(+)
+ create mode 100644 src/engines/image-studio/studio/buckets.ts
+ create mode 100644 src/engines/image-studio/studio/capabilities.ts
+ create mode 100644 src/engines/image-studio/studio/familyDefaults.ts
+ create mode 100644 src/engines/image-studio/studio/index.ts
+ create mode 100644 src/engines/image-studio/studio/levels.ts
+ create mode 100644 src/engines/image-studio/studio/loraStack.ts
+ create mode 100644 src/engines/image-studio/studio/passes.ts
+ create mode 100644 src/engines/image-studio/studio/prefs.ts
+ create mode 100644 src/engines/image-studio/studio/promptCraft.ts
+ create mode 100644 src/engines/image-studio/studio/samplers.ts
+ create mode 100644 src/engines/image-studio/studio/seeds.ts
+ create mode 100644 src/engines/image-studio/studio/wildcards.ts
+ create mode 100644 src/engines/image-studio/studio/xyz.ts
+
+diff --git a/src/engines/image-studio/studio/buckets.ts b/src/engines/image-studio/studio/buckets.ts
+new file mode 100644
+index 0000000..29c1775
+--- /dev/null
++++ b/src/engines/image-studio/studio/buckets.ts
+@@ -0,0 +1,88 @@
++// ============================================================================
++// Resolution buckets — the sizes the weights were actually trained at
++// ============================================================================
++//
++// Most «why does this look wrong» is an off-bucket size. A model trained on
++// 1024-area buckets asked for 900×700 produces the duplicated heads, the
++// stretched torsos and the mushy edges that a writer will read as "this model
++// is bad". A free width/height box invites exactly that, so the picker offers
++// the trained buckets first and NAMES an off-bucket size as one rather than
++// quietly generating it.
++//
++// Every number is a multiple of 64: the latent grid is the image divided by
++// eight, and anything else the server rounds on its own terms.
++
++export interface ResolutionBucket {
++  id: string;
++  width: number;
++  height: number;
++  /** "3:2", "16:9" — a numeral, the same in every language, so not a locale key. */
++  ratio: string;
++}
++
++function bucket(width: number, height: number, ratio: string): ResolutionBucket {
++  return { id: `${width}x${height}`, width, height, ratio };
++}
++
++/** SD 1.x: a 512-area family. Above about 768 it starts duplicating subjects. */
++const SD1_BUCKETS: readonly ResolutionBucket[] = [
++  bucket(512, 512, '1:1'),
++  bucket(512, 768, '2:3'),
++  bucket(768, 512, '3:2'),
++  bucket(576, 832, '9:13'),
++  bucket(832, 576, '13:9'),
++  bucket(640, 640, '1:1'),
++];
++
++/** The SDXL training buckets, as published. Everything is ~1 megapixel. */
++const SDXL_BUCKETS: readonly ResolutionBucket[] = [
++  bucket(1024, 1024, '1:1'),
++  bucket(1152, 896, '4:3'),
++  bucket(896, 1152, '3:4'),
++  bucket(1216, 832, '3:2'),
++  bucket(832, 1216, '2:3'),
++  bucket(1344, 768, '16:9'),
++  bucket(768, 1344, '9:16'),
++  bucket(1536, 640, '21:9'),
++  bucket(640, 1536, '9:21'),
++];
++
++/** Flux is trained around 1024 and tolerates more, but the 1-Mpx set is home. */
++const FLUX_BUCKETS: readonly ResolutionBucket[] = [
++  bucket(1024, 1024, '1:1'),
++  bucket(1152, 896, '4:3'),
++  bucket(896, 1152, '3:4'),
++  bucket(1216, 832, '3:2'),
++  bucket(832, 1216, '2:3'),
++  bucket(1344, 768, '16:9'),
++  bucket(768, 1344, '9:16'),
++];
++
++/** With no family reported, offer the 1-Mpx set and say nothing about training. */
++const GENERIC_BUCKETS: readonly ResolutionBucket[] = FLUX_BUCKETS;
++
++export function bucketsForFamily(family: string | undefined): readonly ResolutionBucket[] {
++  if (family === 'sd1') return SD1_BUCKETS;
++  if (family === 'sdxl') return SDXL_BUCKETS;
++  if (family === 'flux') return FLUX_BUCKETS;
++  return GENERIC_BUCKETS;
++}
++
++export function findBucket(family: string | undefined, width: number, height: number): ResolutionBucket | undefined {
++  return bucketsForFamily(family).find((entry) => entry.width === width && entry.height === height);
++}
++
++/**
++ * Whether a size is off-bucket for this family. Only meaningful when the family
++ * is known: calling an unknown model's size "off-bucket" is a guess dressed as
++ * a warning, and the writer cannot act on it.
++ */
++export function isOffBucket(family: string | undefined, width: number, height: number): boolean {
++  if (!family) return false;
++  return findBucket(family, width, height) === undefined;
++}
++
++/** The bucket a family opens on — square, the safest thing to be wrong about. */
++export function defaultBucket(family: string | undefined): ResolutionBucket {
++  return bucketsForFamily(family)[0];
++}
+diff --git a/src/engines/image-studio/studio/capabilities.ts b/src/engines/image-studio/studio/capabilities.ts
+new file mode 100644
+index 0000000..0463677
+--- /dev/null
++++ b/src/engines/image-studio/studio/capabilities.ts
+@@ -0,0 +1,138 @@
++// ============================================================================
++// What this model, this backend and this request shape can actually honour
++// ============================================================================
++//
++// The studio used to hide the cfg slider for FLUX by name. The instinct was
++// right and the special case was not, so there is one descriptor now and every
++// control reads it. Adding a family or a runtime field means adding a rule
++// here, not another `if (modelId.includes('flux'))` somewhere in a component.
++//
++// Three things can refuse a knob, and they are NOT the same refusal:
++//
++//   1. no model is chosen at all,
++//   2. the model runs at a fixed guidance / is not a local diffusion model,
++//   3. the request type has no field to carry it yet.
++//
++// Saying (2) when the truth is (3) teaches the writer that their model cannot
++// do CLIP-skip, when in fact the app cannot ask for it. Each refusal names
++// itself, which is why `reasonKey` exists instead of one `unavailable`.
++
++import type { ResolverModel } from '@/services/visualRef';
++import type { RequestSupportMap } from '../operations';
++import type { StudioField } from './levels';
++
++/** A control's state. Never `hidden`: a vanished control teaches a falsehood. */
++export interface FieldState {
++  enabled: boolean;
++  /** A locale key, never a sentence. Present whenever `enabled` is false. */
++  reasonKey?: string;
++}
++
++export type StudioCapabilities = Record<StudioField, FieldState>;
++
++export interface CapabilityInput {
++  model: ResolverModel | null;
++  supports: RequestSupportMap;
++  /**
++   * True only for the app's own stable-diffusion.cpp server. A remote
++   * `/v1/images/generations` endpoint takes a prompt and a size and nothing
++   * else, so every diffusion knob below is decoration against one.
++   */
++  managedLocal: boolean;
++  /** LoRA files the runtime found in its folder. */
++  loraCount?: number;
++}
++
++const OK: FieldState = { enabled: true };
++
++function no(reasonKey: string): FieldState {
++  return { enabled: false, reasonKey };
++}
++
++/**
++ * Guidance above 1 means classifier-free guidance is running, which is what
++ * gives a negative prompt a branch to steer with. A distilled model at cfg 1
++ * encodes the negative text and throws it away.
++ */
++function isGuided(model: ResolverModel): boolean {
++  return model.cfg === undefined || model.cfg > 1;
++}
++
++/** CLIP-skip means nothing where the conditioning is not a CLIP text stack. */
++function conditionsOnClip(model: ResolverModel): boolean {
++  return model.family === 'sd1' || model.family === 'sdxl' || model.family === undefined;
++}
++
++export function studioCapabilities(input: CapabilityInput): StudioCapabilities {
++  const { model, supports, managedLocal } = input;
++  // With no model chosen every field is refused for the same reason, and it is
++  // not "this model runs at a fixed guidance" — saying that about a model the
++  // writer has not picked is the kind of confident wrong answer that makes a
++  // whole panel untrustworthy.
++  if (!model) {
++    const noModel = no('visualRef.reason.noModel');
++    const all = {} as StudioCapabilities;
++    for (const field of Object.keys(FIELD_DEFAULTS) as StudioField[]) all[field] = noModel;
++    // The model picker is the way OUT of this state; refusing it would trap
++    // the writer in the reason it is showing.
++    all.model = OK;
++    return all;
++  }
++
++  const guided = isGuided(model);
++  const localDiffusion = managedLocal
++    ? OK
++    : no('visualRef.reason.serverChoosesSampler');
++  // «The request has no field for this yet» is a different sentence from «this
++  // model cannot do it», and the writer deserves the true one: one is a wait,
++  // the other is a limit of their hardware.
++  const pending = no('imageStudio.reason.noRequestField');
++
++  return {
++    model: OK,
++    size: OK,
++    batch: OK,
++    seed: OK,
++
++    steps: OK,
++    cfg: guided ? OK : no('visualRef.reason.cfgFixed'),
++    sampler: supports.sampler ? localDiffusion : pending,
++    scheduler: supports.scheduler ? localDiffusion : pending,
++    clipSkip: !supports.clipSkip
++      ? pending
++      : !conditionsOnClip(model)
++        ? no('imageStudio.reason.noClipStack')
++        : localDiffusion,
++    negativePrompt: guided ? OK : no('visualRef.reason.cfgFixed'),
++    loraStack: model.supportsLora ? OK : no('imageStudio.reason.noLoraSupport'),
++    passChain: supports.hiresFix ? localDiffusion : pending,
++    inpaint: !supports.maskImage
++      ? pending
++      : !model.supportsInitImage
++        ? no('imageStudio.reason.noInitImage')
++        : localDiffusion,
++
++    allSamplers: supports.sampler ? localDiffusion : pending,
++    // Not "not yet": stable-diffusion.cpp has no subseed at all, and the usual
++    // approximation — re-noising the latent by hand — makes a DIFFERENT picture
++    // and calls it a variation. Refused on purpose, and it says which.
++    variationSeed: no('imageStudio.reason.noSubseed'),
++    sigmas: supports.sigmas ? localDiffusion : pending,
++    slg: supports.slg ? localDiffusion : pending,
++    apg: supports.apg ? localDiffusion : pending,
++    cacheMode: supports.cacheMode ? localDiffusion : pending,
++    // The gateway takes a typed request, so there is nowhere for arbitrary JSON
++    // to go. Shown and refused rather than left out, because an expert who has
++    // used A1111 will look for it and needs to know it is not hiding.
++    rawJson: no('imageStudio.reason.noPassthrough'),
++  };
++}
++
++/** Every field, so the no-model branch can refuse them all without listing them twice. */
++const FIELD_DEFAULTS: Record<StudioField, true> = {
++  model: true, size: true, batch: true, seed: true,
++  steps: true, cfg: true, sampler: true, scheduler: true, clipSkip: true,
++  negativePrompt: true, loraStack: true, passChain: true, inpaint: true,
++  allSamplers: true, variationSeed: true, sigmas: true, slg: true, apg: true,
++  cacheMode: true, rawJson: true,
++};
+diff --git a/src/engines/image-studio/studio/familyDefaults.ts b/src/engines/image-studio/studio/familyDefaults.ts
+new file mode 100644
+index 0000000..d646458
+--- /dev/null
++++ b/src/engines/image-studio/studio/familyDefaults.ts
+@@ -0,0 +1,102 @@
++// ============================================================================
++// The numbers a family wants, applied on model switch — and the reason why
++// ============================================================================
++//
++// Every checkpoint family has a working point that its community converged on,
++// and getting it wrong is the difference between "this model is bad" and "this
++// model is good". SDXL at cfg 1 is grey mush; Flux at cfg 7 is a burned mess;
++// a Turbo checkpoint at 30 steps is four seconds wasted per image for no gain.
++//
++// So switching model re-points the knobs — and SAYS SO, in one line, with an
++// undo. Silent retuning is worse than no retuning: the writer changes model,
++// their carefully found steps value moves, and they never learn that it did.
++
++import type { ImageCatalogModel } from '@/services/aiRuntime/imageCatalog';
++import { defaultBucket } from './buckets';
++
++/** Which rule produced these numbers. The UI shows the matching one-liner. */
++export type DefaultsSource = 'catalog' | 'distilled' | 'flux' | 'sdxl' | 'sd1Anime' | 'sd1' | 'generic';
++
++export interface FamilyDefaults {
++  steps: number;
++  cfg: number;
++  sampler: string;
++  scheduler?: string;
++  /** What CLIP-skip WOULD be. Shown even where the request cannot carry it yet. */
++  clipSkip?: number;
++  /** Bucket id from `buckets.ts`, e.g. "1024x1024". */
++  bucketId: string;
++  source: DefaultsSource;
++}
++
++/**
++ * A step-distilled checkpoint runs at 4–8 steps and cfg 1, and running one at
++ * SDXL's numbers produces a worse image four times more slowly. The id is the
++ * only signal here — no server reports "I am distilled" — so this reads the
++ * names the ecosystem actually publishes under.
++ */
++export function isDistilled(modelId: string, catalog?: Pick<ImageCatalogModel, 'defaults'>): boolean {
++  if (catalog && catalog.defaults.steps <= 10 && catalog.defaults.cfg <= 2) return true;
++  return /turbo|lightning|hyper|lcm|schnell|dmd|flash/i.test(modelId);
++}
++
++/** Anime SD1 checkpoints are trained with the last CLIP layer discarded. */
++function isAnimeSd1(modelId: string): boolean {
++  return /anime|anything|abyss|counterfeit|meina|pastel|cetus|aom|orange|waifu|booru|illustrious|pony/i.test(modelId);
++}
++
++export interface DefaultsInput {
++  modelId: string;
++  family?: string;
++  /** The curated catalogue entry, when this is a model the app downloaded. */
++  catalog?: Pick<ImageCatalogModel, 'family' | 'defaults'>;
++}
++
++/**
++ * The working point for this model. The catalogue entry wins where there is
++ * one — it was measured against these exact weights, and a family rule is a
++ * generalisation over hundreds of checkpoints — but the family still supplies
++ * whatever the catalogue leaves unsaid.
++ */
++export function defaultsForModel(input: DefaultsInput): FamilyDefaults {
++  const family = input.family ?? input.catalog?.family;
++  const bucketId = defaultBucket(family).id;
++  const base = familyRule(input.modelId, family, bucketId, input.catalog);
++  const catalog = input.catalog?.defaults;
++  if (!catalog) return base;
++  return {
++    ...base,
++    steps: catalog.steps,
++    cfg: catalog.cfg,
++    sampler: catalog.sampler,
++    scheduler: catalog.scheduler ?? base.scheduler,
++    source: 'catalog',
++  };
++}
++
++function familyRule(
++  modelId: string,
++  family: string | undefined,
++  bucketId: string,
++  catalog?: Pick<ImageCatalogModel, 'defaults'>,
++): FamilyDefaults {
++  // Distilled first: it cuts across every family, and a Turbo SDXL wants the
++  // Turbo numbers, not SDXL's.
++  if (isDistilled(modelId, catalog)) {
++    return { steps: 6, cfg: 1, sampler: 'euler', scheduler: 'simple', bucketId, source: 'distilled' };
++  }
++  if (family === 'flux') {
++    // Flux is guidance-distilled: txt_cfg stays at 1 and the picture is steered
++    // by `distilled_guidance` (3.5), which the runtime sets from the catalogue.
++    return { steps: 20, cfg: 1, sampler: 'euler', scheduler: 'simple', bucketId, source: 'flux' };
++  }
++  if (family === 'sdxl') {
++    return { steps: 30, cfg: 6, sampler: 'dpm++2m', scheduler: 'karras', bucketId, source: 'sdxl' };
++  }
++  if (family === 'sd1') {
++    return isAnimeSd1(modelId)
++      ? { steps: 25, cfg: 7, sampler: 'dpm++2m', scheduler: 'karras', clipSkip: 2, bucketId, source: 'sd1Anime' }
++      : { steps: 25, cfg: 7, sampler: 'dpm++2m', scheduler: 'karras', clipSkip: 1, bucketId, source: 'sd1' };
++  }
++  return { steps: 25, cfg: 6, sampler: 'euler', scheduler: 'discrete', bucketId, source: 'generic' };
++}
+diff --git a/src/engines/image-studio/studio/index.ts b/src/engines/image-studio/studio/index.ts
+new file mode 100644
+index 0000000..c496705
+--- /dev/null
++++ b/src/engines/image-studio/studio/index.ts
+@@ -0,0 +1,102 @@
++// The studio's decisions, gathered. Everything here is pure: no Dexie, no DOM
++// beyond `localStorage`, no IPC. The components do the rendering; these decide
++// what there is to render and whether it can run.
++
++export {
++  FIELD_LEVEL,
++  STUDIO_LEVELS,
++  fieldsAtLevel,
++  isFieldAtLevel,
++  isStudioLevel,
++} from './levels';
++export type { StudioField, StudioLevel } from './levels';
++
++export { studioCapabilities } from './capabilities';
++export type { CapabilityInput, FieldState, StudioCapabilities } from './capabilities';
++
++export {
++  CURATED_SAMPLERS,
++  CURATED_SCHEDULERS,
++  allSamplers,
++  allSchedulers,
++  isKnownSampler,
++  isKnownScheduler,
++  samplerKey,
++} from './samplers';
++export type { SamplerEntry } from './samplers';
++
++export {
++  bucketsForFamily,
++  defaultBucket,
++  findBucket,
++  isOffBucket,
++} from './buckets';
++export type { ResolutionBucket } from './buckets';
++
++export { defaultsForModel, isDistilled } from './familyDefaults';
++export type { DefaultsSource, FamilyDefaults } from './familyDefaults';
++
++export {
++  DETAIL_DENOISE_DEFAULT,
++  HIRES_DENOISE_DEFAULT,
++  HIRES_DENOISE_SAFE_MAX,
++  PASS_KINDS,
++  addPass,
++  chainOutputSize,
++  chainToRequest,
++  defaultPass,
++  movePass,
++  newChain,
++  normalizeChain,
++  parsePassChain,
++  passAvailability,
++  removePass,
++  serializePassChain,
++  togglePass,
++  updatePass,
++} from './passes';
++export type { ChainRequest, PassKind, PassSupportInput, StudioPass } from './passes';
++
++export {
++  LORA_WEIGHT_MAX,
++  LORA_WEIGHT_MIN,
++  loraStem,
++  makeManualEntry,
++  mergeStack,
++  missingTriggers,
++  stackFromReferences,
++  stackToSelections,
++} from './loraStack';
++export type { LoraStackEntry } from './loraStack';
++
++export { hasWildcards, resolveWildcards, wildcardFilesFromRefs } from './wildcards';
++export type { WildcardPick, WildcardResolution } from './wildcards';
++
++export {
++  TOKENS_PER_CHUNK,
++  WEIGHT_MAX,
++  WEIGHT_MIN,
++  WEIGHT_STEP,
++  adjustWeight,
++  estimateTokens,
++  unsupportedSyntax,
++  weightedSpans,
++} from './promptCraft';
++export type { TokenEstimate, WeightEdit, WeightedSpan } from './promptCraft';
++
++export { SEED_MAX, parseSeed, rollSeed, seedsForBatch } from './seeds';
++export type { BatchSeedMode } from './seeds';
++
++export {
++  AXIS_FIELDS,
++  AXIS_REQUIRES,
++  XYZ_MAX_CELLS,
++  buildXyzMatrix,
++  parseAxisValues,
++  xyzRequestedCells,
++  xyzShape,
++} from './xyz';
++export type { AxisField, XyzAxis, XyzCell, XyzOverrides } from './xyz';
++
++export { DEFAULT_STUDIO_PREFS, readStudioPrefs, writeStudioPrefs } from './prefs';
++export type { StudioPrefs } from './prefs';
+diff --git a/src/engines/image-studio/studio/levels.ts b/src/engines/image-studio/studio/levels.ts
+new file mode 100644
+index 0000000..b0a85c2
+--- /dev/null
++++ b/src/engines/image-studio/studio/levels.ts
+@@ -0,0 +1,72 @@
++// ============================================================================
++// Three levels of disclosure, not two
++// ============================================================================
++//
++// Simple is what the studio has always been: prompt, cast, size, count. Expert
++// is where the research and the raw-JSON crowd live. The level that was missing
++// is the one in between — sampler, scheduler, CFG, steps, CLIP-skip, the LoRA
++// stack, the pass chain — and it is where nearly all of the value is, because
++// it is the vocabulary of every tutorial a writer will ever read about this.
++//
++// Two levels force a choice between "hide the controls" and "show all 44
++// samplers". Three lets Studio be complete without being a research console.
++
++/** Every knob the studio can offer, whether or not this model can turn it. */
++export type StudioField =
++  // Simple
++  | 'model' | 'size' | 'batch' | 'seed'
++  // Studio
++  | 'steps' | 'cfg' | 'sampler' | 'scheduler' | 'clipSkip' | 'negativePrompt'
++  | 'loraStack' | 'passChain' | 'inpaint'
++  // Expert
++  | 'allSamplers' | 'variationSeed' | 'sigmas' | 'slg' | 'apg' | 'cacheMode' | 'rawJson';
++
++export type StudioLevel = 'simple' | 'studio' | 'expert';
++
++export const STUDIO_LEVELS: readonly StudioLevel[] = ['simple', 'studio', 'expert'];
++
++const RANK: Record<StudioLevel, number> = { simple: 0, studio: 1, expert: 2 };
++
++/**
++ * The level a field FIRST appears at. A higher level shows everything a lower
++ * one does: Expert is Studio plus the research knobs, never a different panel.
++ * Making Expert a separate set is how UIs end up with a control that exists at
++ * exactly one level and cannot be found from either neighbour.
++ */
++export const FIELD_LEVEL: Record<StudioField, StudioLevel> = {
++  model: 'simple',
++  size: 'simple',
++  batch: 'simple',
++  seed: 'simple',
++
++  steps: 'studio',
++  cfg: 'studio',
++  sampler: 'studio',
++  scheduler: 'studio',
++  clipSkip: 'studio',
++  negativePrompt: 'studio',
++  loraStack: 'studio',
++  passChain: 'studio',
++  inpaint: 'studio',
++
++  allSamplers: 'expert',
++  variationSeed: 'expert',
++  sigmas: 'expert',
++  slg: 'expert',
++  apg: 'expert',
++  cacheMode: 'expert',
++  rawJson: 'expert',
++};
++
++export function isFieldAtLevel(field: StudioField, level: StudioLevel): boolean {
++  return RANK[FIELD_LEVEL[field]] <= RANK[level];
++}
++
++/** The fields a level shows, in declaration order. */
++export function fieldsAtLevel(level: StudioLevel): StudioField[] {
++  return (Object.keys(FIELD_LEVEL) as StudioField[]).filter((field) => isFieldAtLevel(field, level));
++}
++
++export function isStudioLevel(value: unknown): value is StudioLevel {
++  return typeof value === 'string' && (STUDIO_LEVELS as readonly string[]).includes(value);
++}
+diff --git a/src/engines/image-studio/studio/loraStack.ts b/src/engines/image-studio/studio/loraStack.ts
+new file mode 100644
+index 0000000..609becd
+--- /dev/null
++++ b/src/engines/image-studio/studio/loraStack.ts
+@@ -0,0 +1,125 @@
++// ============================================================================
++// The LoRA stack — N of them, with their weights and their trigger words
++// ============================================================================
++//
++// One LoRA at a time was the hard ceiling, and character fidelity IS LoRAs: a
++// character LoRA plus a style LoRA plus a detail LoRA is the ordinary case, not
++// an exotic one. The request has carried an array all along.
++//
++// The trigger word is shown next to every entry because a LoRA whose trigger
++// the writer cannot see is a LoRA they will use wrong — the token is what the
++// weights were fused onto, and without it in the prompt a correctly loaded LoRA
++// does approximately nothing, which reads as "the LoRA is broken".
++
++import { clampLoraWeight, isSdLoraName } from '@/services/aiRuntime/sdServer';
++import type { AiLoraSelection } from '@/services/aiRuntime/types';
++import type { ResolvedLora } from '@/services/visualRef';
++import type { VisualRef } from '@/types/visualRef';
++
++export interface LoraStackEntry {
++  /** The name with its extension: what `lora[].path` resolves against. */
++  fileName: string;
++  /** The stem, which is what the writer recognises. */
++  name: string;
++  weight: number;
++  enabled: boolean;
++  /**
++   * A reference owns its LoRA — the resolver put it there and the reference
++   * editor is where its weight is changed. A manual one belongs to this
++   * generation only. Mixing the two silently would let the panel appear to
++   * change a character's LoRA weight for good.
++   */
++  source: 'reference' | 'manual';
++  refId?: string;
++  refName?: string;
++  /** The token the LoRA answers to, when anything knows it. */
++  trigger?: string;
++}
++
++export const LORA_WEIGHT_MIN = -2;
++export const LORA_WEIGHT_MAX = 2;
++
++export function loraStem(fileName: string): string {
++  return fileName.replace(/\.(safetensors|ckpt)$/i, '');
++}
++
++/**
++ * The entries the resolver produced, with each reference's trigger word
++ * attached. These are shown at the top of the stack and are not editable here:
++ * their weight lives on the reference, where it survives the session.
++ */
++export function stackFromReferences(
++  resolved: readonly ResolvedLora[],
++  refs: readonly VisualRef[],
++): LoraStackEntry[] {
++  return resolved.map((lora) => {
++    const ref = refs.find((row) => row.id === lora.refId);
++    return {
++      fileName: lora.fileName,
++      name: loraStem(lora.fileName),
++      weight: lora.weight,
++      enabled: true,
++      source: 'reference' as const,
++      refId: lora.refId,
++      refName: ref?.name,
++      trigger: ref?.triggerWord?.trim() || undefined,
++    };
++  });
++}
++
++/**
++ * Reference LoRAs first, then the manual ones, with duplicates dropped.
++ *
++ * A file loaded twice is not loaded twice as hard: stable-diffusion.cpp applies
++ * the last multiplier it reads for a path, so a duplicate silently overrides
++ * the reference's weight. Dropping it here keeps the reference in charge of its
++ * own character.
++ */
++export function mergeStack(
++  fromReferences: readonly LoraStackEntry[],
++  manual: readonly LoraStackEntry[],
++): LoraStackEntry[] {
++  const seen = new Set(fromReferences.map((entry) => entry.fileName.toLowerCase()));
++  const extra = manual.filter((entry) => {
++    const key = entry.fileName.toLowerCase();
++    if (seen.has(key)) return false;
++    seen.add(key);
++    return true;
++  });
++  return [...fromReferences, ...extra];
++}
++
++/** What goes on the wire: the enabled entries the server can name. */
++export function stackToSelections(stack: readonly LoraStackEntry[]): AiLoraSelection[] {
++  return stack
++    .filter((entry) => entry.enabled && isSdLoraName(entry.name))
++    .map((entry) => ({
++      name: entry.name,
++      fileName: entry.fileName,
++      weight: clampLoraWeight(entry.weight),
++    }));
++}
++
++/**
++ * Trigger words that are enabled but missing from the prompt.
++ *
++ * Not inserted automatically: the resolver already places a reference's trigger
++ * first, and a second copy pushed in by this panel would dilute it. This is
++ * what the UI warns with.
++ */
++export function missingTriggers(stack: readonly LoraStackEntry[], prompt: string): string[] {
++  const haystack = prompt.toLowerCase();
++  return stack
++    .filter((entry) => entry.enabled && entry.trigger && !haystack.includes(entry.trigger.toLowerCase()))
++    .map((entry) => entry.trigger as string);
++}
++
++export function makeManualEntry(fileName: string, weight = 0.8): LoraStackEntry {
++  return {
++    fileName,
++    name: loraStem(fileName),
++    weight: clampLoraWeight(weight),
++    enabled: true,
++    source: 'manual',
++  };
++}
+diff --git a/src/engines/image-studio/studio/passes.ts b/src/engines/image-studio/studio/passes.ts
+new file mode 100644
+index 0000000..3ff4473
+--- /dev/null
++++ b/src/engines/image-studio/studio/passes.ts
+@@ -0,0 +1,277 @@
++// ============================================================================
++// The pass chain — base → hires → detail → upscale, as a list you can edit
++// ============================================================================
++//
++// Every expert result anyone has ever posted is a chain, not a single call:
++// a base generation, a second pass at a larger size, a face pass, sometimes an
++// upscale. Modelling it as three unrelated checkboxes scattered down a panel
++// hides the one thing that actually explains the result — the ORDER, and what
++// each pass was allowed to change.
++//
++// A list makes "why does this one look better" answerable, it maps onto both
++// backends (sd.cpp does the first two in one job; a node graph does all four),
++// and it is the mental model every tutorial in the field already uses.
++//
++// Denoise is the parameter this whole file exists to make visible. At 0.3–0.5
++// a second pass adds detail to the picture you had; at 0.7 it generates a
++// different picture at a larger size and throws yours away. The default is 0.4
++// and the band is drawn in the UI, because nothing else about a second pass
++// matters half as much.
++
++import { generateId } from '@/utils/idGenerator';
++import type { HiresPassRequest, RequestSupportMap } from '../operations';
++import type { FieldState } from './capabilities';
++
++export type PassKind = 'base' | 'hires' | 'detail' | 'upscale';
++
++export const PASS_KINDS: readonly PassKind[] = ['base', 'hires', 'detail', 'upscale'];
++
++/** Below this a second pass sharpens; above it, it reimagines. */
++export const HIRES_DENOISE_DEFAULT = 0.4;
++export const HIRES_DENOISE_SAFE_MAX = 0.55;
++export const DETAIL_DENOISE_DEFAULT = 0.45;
++
++export interface StudioPass {
++  id: string;
++  kind: PassKind;
++  enabled: boolean;
++  /** Overrides the base prompt for this pass alone. Empty means "reuse it". */
++  prompt?: string;
++  /** 0..1. How far this pass is allowed to move from what it was handed. */
++  denoise?: number;
++  steps?: number;
++  /** hires and upscale: the multiplier on the base size. */
++  scale?: number;
++  /** A name from `hires_upscaler_to_str`, or the stem of a file on disk. */
++  upscaler?: string;
++  /** detail: which detector finds the region to repaint. */
++  detector?: string;
++  padding?: number;
++  maskBlur?: number;
++  confidence?: number;
++}
++
++export function defaultPass(kind: PassKind, id = generateId('pass')): StudioPass {
++  switch (kind) {
++    case 'base':
++      return { id, kind, enabled: true };
++    case 'hires':
++      return {
++        id,
++        kind,
++        enabled: true,
++        scale: 1.5,
++        steps: 15,
++        denoise: HIRES_DENOISE_DEFAULT,
++        upscaler: 'Latent',
++      };
++    case 'detail':
++      return {
++        id,
++        kind,
++        enabled: true,
++        detector: 'face',
++        denoise: DETAIL_DENOISE_DEFAULT,
++        padding: 32,
++        maskBlur: 4,
++        confidence: 0.3,
++      };
++    case 'upscale':
++      return { id, kind, enabled: true, scale: 2, upscaler: 'Lanczos', denoise: 0 };
++  }
++}
++
++/** A new chain: the base pass alone, which is what "generate" has always meant. */
++export function newChain(): StudioPass[] {
++  return [defaultPass('base')];
++}
++
++/**
++ * Base first, exactly one of it, and never disabled.
++ *
++ * Not a style rule: a chain whose base pass is off or second has nothing to
++ * hand its second pass, so it would produce no image and the writer would have
++ * no way to tell that from a backend failure.
++ */
++export function normalizeChain(passes: readonly StudioPass[]): StudioPass[] {
++  const base = passes.find((pass) => pass.kind === 'base') ?? defaultPass('base');
++  const rest = passes.filter((pass) => pass.kind !== 'base' && pass !== base);
++  return [{ ...base, enabled: true }, ...rest];
++}
++
++export function addPass(passes: readonly StudioPass[], kind: PassKind): StudioPass[] {
++  return normalizeChain([...passes, defaultPass(kind)]);
++}
++
++export function removePass(passes: readonly StudioPass[], id: string): StudioPass[] {
++  return normalizeChain(passes.filter((pass) => pass.kind === 'base' || pass.id !== id));
++}
++
++export function togglePass(passes: readonly StudioPass[], id: string): StudioPass[] {
++  return normalizeChain(passes.map((pass) => (
++    pass.id === id && pass.kind !== 'base' ? { ...pass, enabled: !pass.enabled } : pass
++  )));
++}
++
++export function updatePass(
++  passes: readonly StudioPass[],
++  id: string,
++  changes: Partial<Omit<StudioPass, 'id' | 'kind'>>,
++): StudioPass[] {
++  return normalizeChain(passes.map((pass) => (pass.id === id ? { ...pass, ...changes } : pass)));
++}
++
++/** Move one pass by `delta` places. The base pass stays where it is. */
++export function movePass(passes: readonly StudioPass[], id: string, delta: number): StudioPass[] {
++  const list = [...passes];
++  const from = list.findIndex((pass) => pass.id === id);
++  if (from < 0 || list[from].kind === 'base') return normalizeChain(list);
++  // Clamped to index 1: swapping past the base would put a second pass first.
++  const to = Math.max(1, Math.min(list.length - 1, from + delta));
++  if (to === from) return normalizeChain(list);
++  const [moved] = list.splice(from, 1);
++  list.splice(to, 0, moved);
++  return normalizeChain(list);
++}
++
++// ---- round trip -------------------------------------------------------------
++//
++// A chain is recorded on the row that a generation produced, so "iterate on
++// this" can put the whole chain back and a comparison can diff it. That means
++// it has to survive JSON in both directions with its ids intact — a chain that
++// comes back with new ids reorders differently and diffs as entirely changed.
++
++export function serializePassChain(passes: readonly StudioPass[]): string {
++  return JSON.stringify(normalizeChain(passes));
++}
++
++function numberIn(value: unknown, min: number, max: number): number | undefined {
++  return typeof value === 'number' && Number.isFinite(value)
++    ? Math.max(min, Math.min(max, value))
++    : undefined;
++}
++
++/** Read a stored chain back. Anything unrecognised is dropped, never guessed. */
++export function parsePassChain(text: string | undefined): StudioPass[] {
++  if (!text) return newChain();
++  let raw: unknown;
++  try {
++    raw = JSON.parse(text);
++  } catch {
++    return newChain();
++  }
++  if (!Array.isArray(raw)) return newChain();
++  const passes: StudioPass[] = [];
++  for (const entry of raw) {
++    if (!entry || typeof entry !== 'object') continue;
++    const row = entry as Record<string, unknown>;
++    const kind = row.kind;
++    if (typeof kind !== 'string' || !(PASS_KINDS as readonly string[]).includes(kind)) continue;
++    passes.push({
++      id: typeof row.id === 'string' && row.id ? row.id : generateId('pass'),
++      kind: kind as PassKind,
++      enabled: row.enabled !== false,
++      prompt: typeof row.prompt === 'string' && row.prompt ? row.prompt : undefined,
++      denoise: numberIn(row.denoise, 0, 1),
++      steps: numberIn(row.steps, 1, 150),
++      scale: numberIn(row.scale, 1, 4),
++      upscaler: typeof row.upscaler === 'string' && row.upscaler ? row.upscaler : undefined,
++      detector: typeof row.detector === 'string' && row.detector ? row.detector : undefined,
++      padding: numberIn(row.padding, 0, 256),
++      maskBlur: numberIn(row.maskBlur, 0, 64),
++      confidence: numberIn(row.confidence, 0, 1),
++    });
++  }
++  return normalizeChain(passes);
++}
++
++// ---- what the backend can honour -------------------------------------------
++
++export interface PassSupportInput {
++  supports: RequestSupportMap;
++  /** True only for the app's own stable-diffusion.cpp server. */
++  managedLocal: boolean;
++  /** Upscaler names the runtime will resolve: the builtins plus installed files. */
++  upscalers: readonly string[];
++}
++
++/**
++ * Whether a pass of this kind can run at all. Refused kinds still appear in
++ * the "add a pass" menu, disabled, carrying this reason — a writer who has read
++ * about ADetailer has to be able to find out that it is coming, rather than
++ * conclude this app has never heard of it.
++ */
++export function passAvailability(kind: PassKind, input: PassSupportInput): FieldState {
++  if (kind === 'base') return { enabled: true };
++  if (kind === 'upscale') {
++    // This build has no standalone upscale job: `upscale_repeats` is parsed and
++    // then read only by the CLI. ESRGAN is reachable, but through the hires
++    // pass, so the honest answer is to say where it went.
++    return { enabled: false, reasonKey: 'imageStudio.reason.upscaleInHires' };
++  }
++  if (kind === 'detail') {
++    return input.supports.detailer
++      ? { enabled: true }
++      : { enabled: false, reasonKey: 'imageStudio.reason.noRequestField' };
++  }
++  if (!input.supports.hiresFix) return { enabled: false, reasonKey: 'imageStudio.reason.noRequestField' };
++  if (!input.managedLocal) return { enabled: false, reasonKey: 'visualRef.reason.serverChoosesSampler' };
++  if (input.upscalers.length === 0) return { enabled: false, reasonKey: 'imageStudio.reason.noUpscaler' };
++  return { enabled: true };
++}
++
++export interface ChainRequest {
++  hires?: HiresPassRequest;
++  /** Passes that are on but cannot run, and why. Shown, never swallowed. */
++  refused: { id: string; kind: PassKind; reasonKey: string }[];
++}
++
++/**
++ * The chain as the request can carry it.
++ *
++ * One hires block, because that is what `SDGenerationParams` has room for: a
++ * second enabled hires pass is REFUSED out loud rather than merged into the
++ * first, since merging would generate at a scale nobody asked for.
++ */
++export function chainToRequest(passes: readonly StudioPass[], input: PassSupportInput): ChainRequest {
++  const refused: ChainRequest['refused'] = [];
++  let hires: HiresPassRequest | undefined;
++  for (const pass of normalizeChain(passes)) {
++    if (!pass.enabled || pass.kind === 'base') continue;
++    const availability = passAvailability(pass.kind, input);
++    if (!availability.enabled) {
++      refused.push({ id: pass.id, kind: pass.kind, reasonKey: availability.reasonKey ?? 'visualRef.reason.unavailable' });
++      continue;
++    }
++    if (pass.kind === 'hires') {
++      if (hires) {
++        refused.push({ id: pass.id, kind: pass.kind, reasonKey: 'imageStudio.reason.oneHiresPass' });
++        continue;
++      }
++      hires = {
++        upscaler: pass.upscaler ?? 'Latent',
++        scale: pass.scale ?? 1.5,
++        steps: pass.steps,
++        denoisingStrength: pass.denoise ?? HIRES_DENOISE_DEFAULT,
++      };
++    }
++  }
++  return { hires, refused };
++}
++
++/**
++ * The size the chain ends at, so the panel can show it before anything runs.
++ * Counts only the passes that will actually run: promising 2048 px from an
++ * upscale pass this backend cannot perform is exactly the silent lie the whole
++ * refusal machinery exists to prevent.
++ */
++export function chainOutputSize(
++  passes: readonly StudioPass[],
++  width: number,
++  height: number,
++  input: PassSupportInput,
++): { width: number; height: number } {
++  const { hires } = chainToRequest(passes, input);
++  const scale = hires?.scale ?? 1;
++  return { width: Math.round(width * scale), height: Math.round(height * scale) };
++}
+diff --git a/src/engines/image-studio/studio/prefs.ts b/src/engines/image-studio/studio/prefs.ts
+new file mode 100644
+index 0000000..8f87796
+--- /dev/null
++++ b/src/engines/image-studio/studio/prefs.ts
+@@ -0,0 +1,73 @@
++// ============================================================================
++// What the studio remembers about a project
++// ============================================================================
++//
++// The disclosure level is per project because a writer's projects are not the
++// same kind of work: the illustrated one is a Studio project and the one they
++// are only drafting is a Simple one, and having to re-pick the level on every
++// visit is how a three-level panel becomes a two-level annoyance.
++//
++// This is browser storage, not Dexie, on purpose. It is a view preference, it
++// does not belong in a backup, and this engine owns exactly one table — which
++// is `visualRefs`, the part a writer built by hand over months. A remembered
++// panel level is not that.
++
++import type { StudioPass } from './passes';
++import { newChain, parsePassChain, serializePassChain } from './passes';
++import { isStudioLevel, type StudioLevel } from './levels';
++import type { BatchSeedMode } from './seeds';
++
++export interface StudioPrefs {
++  level: StudioLevel;
++  passChain: StudioPass[];
++  batchSeedMode: BatchSeedMode;
++  /** Expert's "show every sampler the runtime knows". */
++  showAllSamplers: boolean;
++}
++
++export const DEFAULT_STUDIO_PREFS: StudioPrefs = {
++  level: 'simple',
++  passChain: newChain(),
++  batchSeedMode: 'incremental',
++  showAllSamplers: false,
++};
++
++function key(projectId: string): string {
++  return `wh.imageStudio.${projectId}`;
++}
++
++/**
++ * Storage can throw, not just return null: a private window, a browser with
++ * site data blocked, and the packaged app's first run before the profile
++ * exists all raise on access. A studio that will not open because it could not
++ * remember a dropdown is a worse failure than forgetting the dropdown.
++ */
++export function readStudioPrefs(projectId: string): StudioPrefs {
++  try {
++    const raw = window.localStorage.getItem(key(projectId));
++    if (!raw) return { ...DEFAULT_STUDIO_PREFS, passChain: newChain() };
++    const stored = JSON.parse(raw) as Record<string, unknown>;
++    return {
++      level: isStudioLevel(stored.level) ? stored.level : DEFAULT_STUDIO_PREFS.level,
++      passChain: parsePassChain(typeof stored.passChain === 'string' ? stored.passChain : undefined),
++      batchSeedMode: stored.batchSeedMode === 'fixed' ? 'fixed' : 'incremental',
++      showAllSamplers: stored.showAllSamplers === true,
++    };
++  } catch {
++    return { ...DEFAULT_STUDIO_PREFS, passChain: newChain() };
++  }
++}
++
++export function writeStudioPrefs(projectId: string, prefs: StudioPrefs): void {
++  try {
++    window.localStorage.setItem(key(projectId), JSON.stringify({
++      level: prefs.level,
++      passChain: serializePassChain(prefs.passChain),
++      batchSeedMode: prefs.batchSeedMode,
++      showAllSamplers: prefs.showAllSamplers,
++    }));
++  } catch {
++    // Nothing to do and nothing worth telling the writer: the studio works
++    // exactly as well, it just opens on Simple next time.
++  }
++}
+diff --git a/src/engines/image-studio/studio/promptCraft.ts b/src/engines/image-studio/studio/promptCraft.ts
+new file mode 100644
+index 0000000..72cf0fc
+--- /dev/null
++++ b/src/engines/image-studio/studio/promptCraft.ts
+@@ -0,0 +1,172 @@
++// ============================================================================
++// Prompt craft — the parts of it that are free, and that sd.cpp actually does
++// ============================================================================
++//
++// stable-diffusion.cpp reads A1111 attention: `(word:1.2)` scales a span,
++// `(word)` is 1.1 and `[word]` is 1/1.1. So weighting is real here and worth a
++// keyboard shortcut, in the same way a novelist expects ctrl+B to be real.
++//
++// Two things this file deliberately does NOT offer, because the runtime cannot
++// do either and offering them would produce a silently different image:
++//
++//   * prompt scheduling — `[a:b:0.4]` is parsed by A1111 and by ComfyUI, and
++//     ignored here. A writer who typed it would get "a:b:0.4" encoded as words.
++//   * BREAK — there is no chunk separator in this parser.
++//
++// The token count is an ESTIMATE and says so in the UI. The real tokeniser
++// lives in the server, and a number presented as exact that is off by three
++// would be worse than a number labelled as approximate: chunk boundaries are
++// where a prompt silently changes meaning, and a writer needs to know roughly
++// where they fall, not to be lied to precisely.
++
++export const WEIGHT_STEP = 0.1;
++export const WEIGHT_MIN = 0.1;
++export const WEIGHT_MAX = 2;
++
++/** CLIP takes 77 tokens per chunk; two are the start and end markers. */
++export const TOKENS_PER_CHUNK = 75;
++
++export interface WeightEdit {
++  text: string;
++  /** The selection to restore, so holding ctrl+↑ keeps working on the same span. */
++  start: number;
++  end: number;
++}
++
++function round(weight: number): number {
++  return Math.round(weight * 100) / 100;
++}
++
++/** The word under the caret, when nothing is selected. */
++function expandToWord(text: string, start: number, end: number): { start: number; end: number } {
++  if (start !== end) return { start, end };
++  let left = start;
++  let right = end;
++  while (left > 0 && /[^\s,()[\]]/.test(text[left - 1])) left -= 1;
++  while (right < text.length && /[^\s,()[\]]/.test(text[right])) right += 1;
++  return { start: left, end: right };
++}
++
++/**
++ * Nudge the weight of the selection by `delta`.
++ *
++ * Wrapping an already-wrapped span again is the mistake this avoids: pressing
++ * ctrl+↑ three times must give `(word:1.3)`, never `(((word)))`, which the
++ * parser reads as 1.33 and which nobody can then edit by hand.
++ */
++export function adjustWeight(text: string, selStart: number, selEnd: number, delta: number): WeightEdit | null {
++  const { start, end } = expandToWord(text, selStart, selEnd);
++  const inner = text.slice(start, end).trim();
++  if (!inner) return null;
++
++  // Already `(inner:w)` around the selection? Then this is an edit, not a wrap.
++  const before = text.slice(0, start);
++  const after = text.slice(end);
++  const open = /\($/.exec(before);
++  const close = /^:(\d+(?:\.\d+)?)\)/.exec(after);
++  if (open && close) {
++    const weight = round(Math.max(WEIGHT_MIN, Math.min(WEIGHT_MAX, Number(close[1]) + delta)));
++    const head = before.slice(0, before.length - 1);
++    const tail = after.slice(close[0].length);
++    if (weight === 1) {
++      // Back to neutral: take the parentheses off rather than leave `(x:1)`,
++      // which is noise the writer then has to read past forever.
++      return { text: `${head}${inner}${tail}`, start: head.length, end: head.length + inner.length };
++    }
++    const replaced = `${head}(${inner}:${weight.toFixed(2).replace(/0$/, '')})${tail}`;
++    return { text: replaced, start: head.length + 1, end: head.length + 1 + inner.length };
++  }
++
++  const weight = round(Math.max(WEIGHT_MIN, Math.min(WEIGHT_MAX, 1 + delta)));
++  if (weight === 1) return null;
++  const head = text.slice(0, start);
++  const tail = text.slice(end);
++  const wrapped = `${head}(${inner}:${weight.toFixed(2).replace(/0$/, '')})${tail}`;
++  return { text: wrapped, start: head.length + 1, end: head.length + 1 + inner.length };
++}
++
++export interface WeightedSpan {
++  text: string;
++  weight: number;
++  start: number;
++  end: number;
++}
++
++/**
++ * Every weighted span in the prompt, so the composer can show what is emphasised
++ * without the writer having to read parentheses. `(x)` is 1.1 and `[x]` is its
++ * reciprocal, which is what this parser does too.
++ */
++export function weightedSpans(prompt: string): WeightedSpan[] {
++  const spans: WeightedSpan[] = [];
++  const explicit = /\(([^()]+):(\d+(?:\.\d+)?)\)/g;
++  for (const match of prompt.matchAll(explicit)) {
++    spans.push({
++      text: match[1],
++      weight: Number(match[2]),
++      start: match.index ?? 0,
++      end: (match.index ?? 0) + match[0].length,
++    });
++  }
++  const implicit = /\(([^():]+)\)|\[([^[\]:]+)\]/g;
++  for (const match of prompt.matchAll(implicit)) {
++    const isBracket = match[0].startsWith('[');
++    spans.push({
++      text: isBracket ? match[2] : match[1],
++      weight: isBracket ? round(1 / 1.1) : 1.1,
++      start: match.index ?? 0,
++      end: (match.index ?? 0) + match[0].length,
++    });
++  }
++  return spans.sort((left, right) => left.start - right.start);
++}
++
++export interface TokenEstimate {
++  tokens: number;
++  chunks: number;
++  /** Where the estimate says a chunk boundary falls, as a token index. */
++  boundaries: number[];
++  /** Always true. The real count is the server's, and this one says so. */
++  approximate: true;
++}
++
++/**
++ * A rough CLIP token count.
++ *
++ * BPE splits long or unusual words into several tokens, so a word is counted as
++ * one token per four characters, and every comma and parenthesis costs one.
++ * That lands within a few tokens of the real count on ordinary prompts, which
++ * is all this is for: knowing whether the prompt has crossed into a second
++ * chunk, where everything after the boundary is encoded separately and stops
++ * interacting with what came before.
++ */
++export function estimateTokens(prompt: string): TokenEstimate {
++  const text = prompt.trim();
++  if (!text) return { tokens: 0, chunks: 0, boundaries: [], approximate: true };
++  let tokens = 0;
++  for (const word of text.split(/\s+/)) {
++    const letters = word.replace(/[^A-Za-z0-9À-ɏ]/g, '');
++    const marks = word.length - letters.length;
++    tokens += Math.max(1, Math.ceil(letters.length / 4)) + marks;
++  }
++  const chunks = Math.max(1, Math.ceil(tokens / TOKENS_PER_CHUNK));
++  const boundaries: number[] = [];
++  for (let index = 1; index < chunks; index += 1) boundaries.push(index * TOKENS_PER_CHUNK);
++  return { tokens, chunks, boundaries, approximate: true };
++}
++
++/**
++ * Syntax this runtime does NOT implement, found in the prompt.
++ *
++ * A writer who has read an A1111 tutorial WILL type `[cat:dog:0.4]` and BREAK.
++ * Both reach the text encoder here as literal words, so the composer says so
++ * rather than letting them wonder why the trick everyone recommends does
++ * nothing.
++ */
++export function unsupportedSyntax(prompt: string): string[] {
++  const found: string[] = [];
++  if (/\[[^\]]+:[^\]]+:\d*\.?\d+\]/.test(prompt)) found.push('scheduling');
++  if (/\bBREAK\b/.test(prompt)) found.push('break');
++  if (/<lora:[^>]+>/i.test(prompt)) found.push('loraToken');
++  return found;
++}
+diff --git a/src/engines/image-studio/studio/samplers.ts b/src/engines/image-studio/studio/samplers.ts
+new file mode 100644
+index 0000000..d3982e2
+--- /dev/null
++++ b/src/engines/image-studio/studio/samplers.ts
+@@ -0,0 +1,100 @@
++// ============================================================================
++// The samplers, curated — and the sentence that says what each one is FOR
++// ============================================================================
++//
++// A dropdown of eighteen names is a worse product than a dropdown of eight,
++// because the writer has no way to choose between `res_2s` and `ipndm_v` and
++// will therefore never touch either. So Studio offers a curated subset and
++// Expert offers the whole vocabulary the runtime knows.
++//
++// Two rules hold this file together:
++//
++//   * Every name here comes from `SD_SAMPLERS` / `SD_SCHEDULERS`, which are the
++//     runtime's own `sample_method_to_str` tables. A name the server does not
++//     recognise is DROPPED and the request succeeds with the default quietly in
++//     its place — a picture made with the wrong sampler and labelled with the
++//     right one, which the Gallery would then repeat forever. The guard below
++//     is not defensive coding; it is the difference between a recipe and a lie.
++//
++//   * Every entry carries a one-line explanation, because this is exactly the
++//     vocabulary a novelist does not have and cannot acquire from a dropdown.
++
++import { SD_SAMPLERS, SD_SCHEDULERS } from '@/services/aiRuntime/sdServer';
++
++export interface SamplerEntry {
++  /** The name on the wire, exactly as the server's parser spells it. */
++  id: string;
++  /** Locale key suffix: `imageStudio.sampler.<key>`. */
++  key: string;
++}
++
++/**
++ * The eight that cover what a writer actually needs: a deterministic reference,
++ * an ancestral one, the SDXL workhorse and its v2, an ancestral 2S, the CFG++
++ * reparameterisation, a distilled-checkpoint sampler and a modern multistep.
++ */
++const CURATED_SAMPLER_IDS: ReadonlyArray<[id: string, key: string]> = [
++  ['euler', 'euler'],
++  ['euler_a', 'eulerA'],
++  ['heun', 'heun'],
++  ['dpm++2m', 'dpmpp2m'],
++  ['dpm++2mv2', 'dpmpp2mv2'],
++  ['dpm++2s_a', 'dpmpp2sA'],
++  ['euler_cfg_pp', 'eulerCfgPp'],
++  ['lcm', 'lcm'],
++];
++
++const CURATED_SCHEDULER_IDS: ReadonlyArray<[id: string, key: string]> = [
++  ['discrete', 'discrete'],
++  ['karras', 'karras'],
++  ['exponential', 'exponential'],
++  ['simple', 'simple'],
++  ['sgm_uniform', 'sgmUniform'],
++  ['ays', 'ays'],
++];
++
++/** A name the runtime cannot parse never reaches a dropdown. */
++function known(pairs: ReadonlyArray<[string, string]>, vocabulary: readonly string[]): SamplerEntry[] {
++  return pairs
++    .filter(([id]) => vocabulary.includes(id))
++    .map(([id, key]) => ({ id, key }));
++}
++
++export const CURATED_SAMPLERS: readonly SamplerEntry[] = known(CURATED_SAMPLER_IDS, SD_SAMPLERS);
++export const CURATED_SCHEDULERS: readonly SamplerEntry[] = known(CURATED_SCHEDULER_IDS, SD_SCHEDULERS);
++
++/** Everything the runtime parses, curated ones first so the list stays readable. */
++export function allSamplers(): SamplerEntry[] {
++  const curated = CURATED_SAMPLERS.map((entry) => entry.id);
++  return [
++    ...CURATED_SAMPLERS,
++    ...SD_SAMPLERS.filter((id) => !curated.includes(id)).map((id) => ({ id, key: samplerKey(id) })),
++  ];
++}
++
++export function allSchedulers(): SamplerEntry[] {
++  const curated = CURATED_SCHEDULERS.map((entry) => entry.id);
++  return [
++    ...CURATED_SCHEDULERS,
++    ...SD_SCHEDULERS.filter((id) => !curated.includes(id)).map((id) => ({ id, key: samplerKey(id) })),
++  ];
++}
++
++/**
++ * Locale-key suffix for a name that is not in the curated table. `++` and `_`
++ * are not key material, so they are folded the same way every time rather than
++ * by a lookup that would have to be kept in step with the runtime's tables.
++ */
++export function samplerKey(id: string): string {
++  return id
++    .replace(/\+\+/g, 'pp')
++    .replace(/_(\w)/g, (_all, letter: string) => letter.toUpperCase());
++}
++
++export function isKnownSampler(id: string): boolean {
++  return (SD_SAMPLERS as readonly string[]).includes(id);
++}
++
++export function isKnownScheduler(id: string): boolean {
++  return (SD_SCHEDULERS as readonly string[]).includes(id);
++}
+diff --git a/src/engines/image-studio/studio/seeds.ts b/src/engines/image-studio/studio/seeds.ts
+new file mode 100644
+index 0000000..504899b
+--- /dev/null
++++ b/src/engines/image-studio/studio/seeds.ts
+@@ -0,0 +1,39 @@
++// ============================================================================
++// Seed discipline
++// ============================================================================
++//
++// A seed is the only promise the whole studio makes: same recipe, same number,
++// same picture. Everything here exists to keep that promise legible — which
++// number is being used, whether a batch walks or repeats it, and where a
++// number came from.
++
++/** Every server here treats the seed as an unsigned 31-bit integer. */
++export const SEED_MAX = 2_147_483_647;
++
++/**
++ * Whether a batch walks the seed or repeats it.
++ *
++ * `incremental` is what "give me four" means: four different pictures of the
++ * same idea. `fixed` is what a comparison means: the same noise while one other
++ * knob moves, which is the only way to see what that knob did.
++ */
++export type BatchSeedMode = 'incremental' | 'fixed';
++
++export function rollSeed(random: () => number = Math.random): number {
++  return Math.floor(random() * SEED_MAX);
++}
++
++export function seedsForBatch(base: number, count: number, mode: BatchSeedMode): number[] {
++  const total = Math.max(1, Math.floor(count));
++  if (mode === 'fixed') return Array.from({ length: total }, () => base);
++  // Wrapped rather than clamped: a base near the ceiling would otherwise give a
++  // batch of identical seeds and look like the runtime ignored the count.
++  return Array.from({ length: total }, (_unused, index) => (base + index) % (SEED_MAX + 1));
++}
++
++export function parseSeed(text: string): number | undefined {
++  const digits = text.replace(/[^\d]/g, '');
++  if (!digits) return undefined;
++  const value = Number(digits);
++  return Number.isFinite(value) ? Math.min(SEED_MAX, value) : undefined;
++}
+diff --git a/src/engines/image-studio/studio/wildcards.ts b/src/engines/image-studio/studio/wildcards.ts
+new file mode 100644
+index 0000000..2597337
+--- /dev/null
++++ b/src/engines/image-studio/studio/wildcards.ts
+@@ -0,0 +1,173 @@
++// ============================================================================
++// Wildcards, resolved HERE — because a recipe holding `{a|b|c}` is not a recipe
++// ============================================================================
++//
++// `{red|blue|green}` and `__hair__` are resolved client-side, before anything
++// is sent, and the RESOLVED text is what goes in the request and what is stored
++// on the row. The alternative — letting a server expand them — produces a
++// stored prompt that reproduces a different picture every time it is run, which
++// quietly destroys the one promise a seed makes.
++//
++// The picks are seeded from the generation's own seed, so the same seed with
++// the same prompt makes the same choices. A batch of four with incrementing
++// seeds therefore explores the wildcards as well as the noise, which is what a
++// writer means by "give me four".
++
++/** One `{…}` or `__file__` that was replaced, and what it became. */
++export interface WildcardPick {
++  token: string;
++  choice: string;
++}
++
++export interface WildcardResolution {
++  text: string;
++  picks: WildcardPick[];
++  /** `__names__` with no list behind them. Left in the text, and said out loud. */
++  unresolved: string[];
++}
++
++/** Deterministic, so the same seed reproduces the same prompt. */
++function makeRandom(seed: number): () => number {
++  let state = (seed >>> 0) || 1;
++  return () => {
++    state = (state + 0x6d2b79f5) >>> 0;
++    let t = Math.imul(state ^ (state >>> 15), 1 | state);
++    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
++    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
++  };
++}
++
++/** Split on `|` at brace depth zero, so `{a|{b|c}}` has two options, not three. */
++function splitOptions(body: string): string[] {
++  const options: string[] = [];
++  let depth = 0;
++  let current = '';
++  for (const char of body) {
++    if (char === '{') depth += 1;
++    if (char === '}') depth -= 1;
++    if (char === '|' && depth === 0) {
++      options.push(current);
++      current = '';
++      continue;
++    }
++    current += char;
++  }
++  options.push(current);
++  return options;
++}
++
++/** The innermost `{…}`: no braces inside, so its options are already literal. */
++function findInnermostGroup(text: string): { start: number; end: number } | null {
++  const start = text.lastIndexOf('{');
++  if (start < 0) return null;
++  const end = text.indexOf('}', start);
++  if (end < 0) return null;
++  return { start, end };
++}
++
++/** Deep enough for a nested list of lists; short enough that a cycle terminates. */
++const MAX_ROUNDS = 64;
++
++const FILE_TOKEN = /__([A-Za-z0-9_-]+)__/g;
++
++export function hasWildcards(text: string): boolean {
++  return /\{[^{}]*\|/.test(text) || /__[A-Za-z0-9_-]+__/.test(text);
++}
++
++/**
++ * Resolve every wildcard in `text`.
++ *
++ * `files` maps a wildcard name to its lines. A name with no list is LEFT IN
++ * PLACE, exactly as written, and reported: deleting it would send a prompt the
++ * writer never wrote, and expanding it to nothing would silently drop whatever
++ * it was carrying. The composer shows the unresolved names in the warning tone
++ * so the prompt is fixed before it is spent on a generation.
++ */
++export function resolveWildcards(
++  text: string,
++  seed: number,
++  files: Readonly<Record<string, readonly string[]>> = {},
++): WildcardResolution {
++  const random = makeRandom(seed);
++  const picks: WildcardPick[] = [];
++  const unresolved = new Set<string>();
++  let out = text;
++
++  for (let round = 0; round < MAX_ROUNDS; round += 1) {
++    const group = findInnermostGroup(out);
++    if (group) {
++      const token = out.slice(group.start, group.end + 1);
++      const options = splitOptions(out.slice(group.start + 1, group.end)).map((option) => option.trim());
++      const choice = options.length ? options[Math.floor(random() * options.length)] : '';
++      picks.push({ token, choice });
++      out = out.slice(0, group.start) + choice + out.slice(group.end + 1);
++      continue;
++    }
++    const replacement = replaceFirstKnownFile(out, files, random, picks, unresolved);
++    if (!replacement) break;
++    out = replacement;
++  }
++
++  return { text: tidy(out), picks, unresolved: [...unresolved] };
++}
++
++/**
++ * Replace the first `__name__` that has a list, recording every name that does
++ * not. Scanning past the unknown ones rather than rewriting them is what keeps
++ * an unresolved wildcard identical to what the writer typed.
++ */
++function replaceFirstKnownFile(
++  text: string,
++  files: Readonly<Record<string, readonly string[]>>,
++  random: () => number,
++  picks: WildcardPick[],
++  unresolved: Set<string>,
++): string | null {
++  FILE_TOKEN.lastIndex = 0;
++  let match = FILE_TOKEN.exec(text);
++  while (match) {
++    const [token, name] = match;
++    const lines = files[name.toLowerCase()] ?? files[name];
++    if (lines && lines.length > 0) {
++      const choice = lines[Math.floor(random() * lines.length)];
++      picks.push({ token, choice });
++      return text.slice(0, match.index) + choice + text.slice(match.index + token.length);
++    }
++    unresolved.add(name);
++    match = FILE_TOKEN.exec(text);
++  }
++  return null;
++}
++
++/** An option that expanded to nothing leaves ", ," behind; nobody typed that. */
++function tidy(text: string): string {
++  return text
++    .replace(/\s{2,}/g, ' ')
++    .replace(/\s+,/g, ',')
++    .replace(/,(\s*,)+/g, ',')
++    .replace(/^[\s,]+|[\s,]+$/g, '');
++}
++
++/**
++ * Wildcard lists built from the project's own style references.
++ *
++ * There is no wildcard-file table to read — this engine owns exactly one table
++ * and it is not this — so the lists a writer can name are the reusable prompt
++ * blocks they have already built as references. `__lighting__` picks one line
++ * of the reference called "lighting".
++ */
++export function wildcardFilesFromRefs(
++  refs: readonly { name: string; promptFragment?: string }[],
++): Record<string, string[]> {
++  const files: Record<string, string[]> = {};
++  for (const ref of refs) {
++    const fragment = ref.promptFragment?.trim();
++    if (!fragment) continue;
++    const key = ref.name.trim().toLowerCase().replace(/\s+/g, '_');
++    if (!key) continue;
++    // One line per option: a fragment written as a paragraph is one option, and
++    // splitting it on commas would turn a description into a lottery.
++    files[key] = fragment.split('\n').map((line) => line.trim()).filter(Boolean);
++  }
++  return files;
++}
+diff --git a/src/engines/image-studio/studio/xyz.ts b/src/engines/image-studio/studio/xyz.ts
+new file mode 100644
+index 0000000..c85331d
+--- /dev/null
++++ b/src/engines/image-studio/studio/xyz.ts
+@@ -0,0 +1,167 @@
++// ============================================================================
++// X/Y/Z plot — how a writer finds out what the knobs do
++// ============================================================================
++//
++// Pick up to three fields, give each a list of values, and the studio runs the
++// product of them and lays the results out in a labelled grid. It is the single
++// cheapest thing in this whole contract: pure client orchestration over the
++// same generate call, so it works identically on every backend, and it teaches
++// more about steps and CFG in one run than any amount of prose.
++//
++// Nothing here runs anything. It builds the matrix, and it is tested by
++// checking the matrix — a plot that spends twenty minutes of GPU time to be
++// tested is a plot nobody tests.
++
++import type { StudioField } from './levels';
++
++export type AxisField = 'steps' | 'cfg' | 'sampler' | 'scheduler' | 'seed' | 'clipSkip' | 'hiresDenoise' | 'promptSuffix';
++
++/** Which capability an axis needs, so a refused knob cannot become an axis. */
++export const AXIS_REQUIRES: Record<AxisField, StudioField> = {
++  steps: 'steps',
++  cfg: 'cfg',
++  sampler: 'sampler',
++  scheduler: 'scheduler',
++  seed: 'seed',
++  clipSkip: 'clipSkip',
++  hiresDenoise: 'passChain',
++  promptSuffix: 'model',
++};
++
++export const AXIS_FIELDS: readonly AxisField[] = Object.keys(AXIS_REQUIRES) as AxisField[];
++
++const NUMERIC_AXES: readonly AxisField[] = ['steps', 'cfg', 'seed', 'clipSkip', 'hiresDenoise'];
++
++export interface XyzAxis {
++  field: AxisField;
++  values: string[];
++}
++
++/**
++ * A run that has not happened yet: which cell of the grid it is, and what it
++ * changes about the base recipe.
++ */
++export interface XyzCell {
++  index: number;
++  /** Position in the grid, X first. Used to lay the contact sheet out. */
++  x: number;
++  y: number;
++  z: number;
++  /** The label under the picture: "steps 30 · cfg 7". */
++  coords: { field: AxisField; value: string }[];
++  overrides: XyzOverrides;
++}
++
++export interface XyzOverrides {
++  steps?: number;
++  cfg?: number;
++  sampler?: string;
++  scheduler?: string;
++  seed?: number;
++  clipSkip?: number;
++  hiresDenoise?: number;
++  /** Appended to the prompt, so a prompt axis does not have to retype it. */
++  promptSuffix?: string;
++}
++
++/**
++ * A run of this many pictures is minutes of GPU time per cell on a laptop. The
++ * cap is here rather than in the dialog so that the honest refusal and the
++ * matrix that produced it cannot drift apart.
++ */
++export const XYZ_MAX_CELLS = 64;
++
++/**
++ * Parse "20, 30, 40" or a range: "20-40 (10)" is 20, 30, 40.
++ *
++ * Ranges only for numeric axes: "euler-lcm (2)" is not a range, it is a writer
++ * typing a sampler name with a hyphen in it, and turning that into arithmetic
++ * would be a small betrayal.
++ */
++export function parseAxisValues(field: AxisField, raw: string): string[] {
++  const text = raw.trim();
++  if (!text) return [];
++  const numeric = NUMERIC_AXES.includes(field);
++  const range = numeric ? /^(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)\s*(?:\(\s*(\d+(?:\.\d+)?)\s*\))?$/.exec(text) : null;
++  if (range) {
++    const from = Number(range[1]);
++    const to = Number(range[2]);
++    const step = Number(range[3] ?? (to >= from ? 1 : -1)) || 1;
++    const values: string[] = [];
++    const direction = to >= from ? 1 : -1;
++    for (let value = from; direction > 0 ? value <= to : value >= to; value += step * direction) {
++      values.push(String(Math.round(value * 1000) / 1000));
++      if (values.length >= XYZ_MAX_CELLS) break;
++    }
++    return values;
++  }
++  return text.split(',').map((value) => value.trim()).filter(Boolean);
++}
++
++function overrideFor(field: AxisField, value: string): XyzOverrides {
++  switch (field) {
++    case 'steps': return { steps: Math.max(1, Math.round(Number(value))) };
++    case 'cfg': return { cfg: Number(value) };
++    case 'sampler': return { sampler: value };
++    case 'scheduler': return { scheduler: value };
++    case 'seed': return { seed: Math.max(0, Math.round(Number(value))) };
++    case 'clipSkip': return { clipSkip: Math.round(Number(value)) };
++    case 'hiresDenoise': return { hiresDenoise: Number(value) };
++    case 'promptSuffix': return { promptSuffix: value };
++  }
++}
++
++/**
++ * The product of the axes, X varying fastest.
++ *
++ * X fastest is not arbitrary: it is what makes the first axis a ROW, which is
++ * how every grid anyone has ever posted is read, and reading a grid whose axes
++ * are transposed from the labels is worse than having no labels.
++ */
++export function buildXyzMatrix(axes: readonly XyzAxis[]): XyzCell[] {
++  const active = axes.filter((axis) => axis.values.length > 0);
++  if (active.length === 0) return [];
++  const [x, y, z] = active;
++  const cells: XyzCell[] = [];
++  const zValues = z?.values ?? [''];
++  const yValues = y?.values ?? [''];
++  for (let zi = 0; zi < zValues.length; zi += 1) {
++    for (let yi = 0; yi < yValues.length; yi += 1) {
++      for (let xi = 0; xi < x.values.length; xi += 1) {
++        if (cells.length >= XYZ_MAX_CELLS) return cells;
++        const coords: XyzCell['coords'] = [{ field: x.field, value: x.values[xi] }];
++        if (y) coords.push({ field: y.field, value: y.values[yi] });
++        if (z) coords.push({ field: z.field, value: z.values[zi] });
++        cells.push({
++          index: cells.length,
++          x: xi,
++          y: yi,
++          z: zi,
++          coords,
++          overrides: coords.reduce<XyzOverrides>(
++            (all, coord) => ({ ...all, ...overrideFor(coord.field, coord.value) }),
++            {},
++          ),
++        });
++      }
++    }
++  }
++  return cells;
++}
++
++/** How many cells the axes ask for, before the cap is applied. */
++export function xyzRequestedCells(axes: readonly XyzAxis[]): number {
++  return axes
++    .filter((axis) => axis.values.length > 0)
++    .reduce((total, axis) => total * axis.values.length, 1);
++}
++
++/** The grid's shape, so the contact sheet can be laid out before anything runs. */
++export function xyzShape(axes: readonly XyzAxis[]): { columns: number; rows: number; sheets: number } {
++  const active = axes.filter((axis) => axis.values.length > 0);
++  return {
++    columns: active[0]?.values.length ?? 0,
++    rows: active[1]?.values.length ?? 1,
++    sheets: active[2]?.values.length ?? 1,
++  };
++}
+-- 
+2.43.0
+

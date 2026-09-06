@@ -1,0 +1,1037 @@
+From a825494c4601035e7ffc7617ba1ee932dc0c86ca Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 02:50:29 +0000
+Subject: [PATCH 28/36] Test the ComfyUI backend against a fixture and a fake
+ server
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+There is no ComfyUI here, so the live round trip is unexercised. Everything
+that does not need one is covered: every shipped template parses, every
+binding resolves, and every node class and input name it uses exists in an
+/object_info fixture built from ComfyUI's own node definitions — which is
+the check an invented class or input cannot survive.
+
+Then the behaviour that would rot silently: node ids identical across two
+submissions of one recipe, and unchanged when a region is added; pruning
+that reconnects the chain instead of leaving a dangling link; a missing node
+pack reported by pack name and never submitted; a missing model offering the
+nearest installed file; and submit to progress to history to bytes against a
+fake server, with a socket, without one, when the socket drops, when the
+finish event arrives while the poll it should shorten is still in flight,
+when the prompt is rejected, and when the user cancels.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RmpuZqpQrFjas3Ajv22pKb
+---
+ tests/comfy.ts            | 811 ++++++++++++++++++++++++++++++++++++++
+ tests/comfyFixture.ts     | 157 ++++++++
+ tests/critical.browser.ts |   2 +
+ 3 files changed, 970 insertions(+)
+ create mode 100644 tests/comfy.ts
+ create mode 100644 tests/comfyFixture.ts
+
+diff --git a/tests/comfy.ts b/tests/comfy.ts
+new file mode 100644
+index 0000000..d2abcc6
+--- /dev/null
++++ b/tests/comfy.ts
+@@ -0,0 +1,811 @@
++// ============================================================================
++// Critical test — the Bench: ComfyUI as the power backend
++// ============================================================================
++//
++// There is no ComfyUI in this environment, so what is proved here is
++// everything that does not need one: that every shipped template is a valid
++// API-format graph whose node classes and input names exist in ComfyUI's own
++// definitions, that bindings resolve by title and fall back to id, that node
++// ids never move between two submissions of the same recipe (ComfyUI's
++// execution cache is keyed on them), that a missing node pack is reported by
++// pack name and never submitted, and that submit → progress → history → bytes
++// works end to end against a fake server, including when the WebSocket dies.
++
++import txt2imgAsset from '../resources/comfy-templates/txt2img.json';
++import hiresAsset from '../resources/comfy-templates/hires.json';
++import regionalAsset from '../resources/comfy-templates/regional.json';
++import inpaintAsset from '../resources/comfy-templates/inpaint.json';
++import upscaleAsset from '../resources/comfy-templates/ultimate-upscale.json';
++import detailerAsset from '../resources/comfy-templates/detailer.json';
++import controlnetAsset from '../resources/comfy-templates/multi-controlnet.json';
++import {
++  adoptWorkflow,
++  bytesToBase64,
++  buildGraph,
++  checkTemplate,
++  chooseTemplateId,
++  classesUsed,
++  comfySamplerName,
++  comfySchedulerName,
++  createComfyClient,
++  createTemplateRegistry,
++  danglingLinks,
++  discoverInputs,
++  indexObjectInfo,
++  isLink,
++  inputSpec,
++  missingModelMessage,
++  multipartBody,
++  parseDataUrl,
++  planSlots,
++  planSubmission,
++  readComfyExtras,
++  readProgressEvent,
++  resolveBinding,
++  resolveModelName,
++  suggestMapping,
++  webSocketUrl,
++  type ComfyFetch,
++  type ComfyGraph,
++  type ComfyProgress,
++  type ComfyRecipe,
++  type ComfySocketFactory,
++  type ComfySocketHandlers,
++} from '@/services/aiRuntime/comfy';
++import {
++  CHECKPOINTS,
++  CONTROLNETS,
++  DETECTORS,
++  LORAS,
++  UPSCALE_MODELS,
++  comfyObjectInfoFixture,
++} from './comfyFixture';
++
++const ASSETS = [txt2imgAsset, hiresAsset, regionalAsset, inpaintAsset, upscaleAsset, detailerAsset, controlnetAsset];
++
++function assert(condition: unknown, message: string): asserts condition {
++  if (!condition) throw new Error(message);
++}
++
++/** Key-order-independent JSON, so two equal graphs compare equal. */
++function canonical(value: unknown): string {
++  return JSON.stringify(value, (_key, entry) =>
++    entry && typeof entry === 'object' && !Array.isArray(entry)
++      ? Object.fromEntries(Object.entries(entry as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)))
++      : entry,
++  );
++}
++
++const REGISTRY = createTemplateRegistry(ASSETS);
++const INFO = indexObjectInfo(comfyObjectInfoFixture());
++
++function baseRecipe(overrides: Partial<ComfyRecipe> = {}): ComfyRecipe {
++  return {
++    templateId: 'txt2img',
++    checkpoint: CHECKPOINTS[0],
++    prompt: 'a lantern-lit alley',
++    negativePrompt: 'blurry',
++    width: 1024,
++    height: 1024,
++    batchSize: 1,
++    seed: 12345,
++    steps: 25,
++    cfg: 6,
++    samplerName: 'dpmpp_2m',
++    scheduler: 'karras',
++    denoise: 1,
++    filenamePrefix: 'WritersHoard/wh',
++    loras: [],
++    guidance: 'none',
++    ...overrides,
++  };
++}
++
++// ---------------------------------------------------------------------------
++// 1. Every shipped template parses and is a real ComfyUI graph
++// ---------------------------------------------------------------------------
++
++function testTemplatesAreReal(): void {
++  assert(REGISTRY.rejected.length === 0, `a shipped template did not parse: index ${REGISTRY.rejected.join(', ')}`);
++  assert(REGISTRY.all.length === ASSETS.length, 'the registry lost a template');
++
++  for (const template of REGISTRY.all) {
++    const titles = Object.values(template.graph).map((node) => node._meta?.title);
++    assert(titles.every((title) => typeof title === 'string' && title), `${template.id}: a node has no title to bind by`);
++    assert(new Set(titles).size === titles.length, `${template.id}: two nodes share a title, so a binding is ambiguous`);
++    assert(danglingLinks(template.graph).length === 0, `${template.id}: ships with a broken link`);
++
++    for (const [nodeId, node] of Object.entries(template.graph)) {
++      // The class name must be one ComfyUI actually defines. This is the check
++      // that a template invented a node class cannot survive.
++      assert(INFO.classes[node.class_type], `${template.id}: node ${nodeId} uses unknown class "${node.class_type}"`);
++      for (const [input, value] of Object.entries(node.inputs)) {
++        const spec = inputSpec(INFO, node.class_type, input);
++        assert(spec, `${template.id}: ${node.class_type} has no input "${input}"`);
++        if (isLink(value)) continue;
++        // A literal combo value must be an option ComfyUI offers, unless a
++        // binding overwrites it — those are placeholders for a model name.
++        const bound = Object.values(template.bindings).some(
++          (binding) => binding.input === input && (binding.node === nodeId || binding.title === node._meta?.title),
++        );
++        if (spec.options && !bound) {
++          assert(spec.options.includes(String(value)), `${template.id}: ${node.class_type}.${input} = "${String(value)}" is not an option`);
++        }
++      }
++    }
++
++    for (const [key, binding] of Object.entries(template.bindings)) {
++      const resolved = resolveBinding(template.graph, binding);
++      assert(resolved.ok, `${template.id}: binding "${key}" does not resolve (${resolved.ok ? '' : resolved.reason})`);
++    }
++
++    // Availability against a complete install must be clean for all of them.
++    const availability = checkTemplate(template, INFO);
++    assert(availability.ok, `${template.id}: unavailable against a complete install — ${availability.message}`);
++  }
++}
++
++// ---------------------------------------------------------------------------
++// 2. Bindings resolve by title first, by id second
++// ---------------------------------------------------------------------------
++
++function testBindingResolution(): void {
++  const graph: ComfyGraph = {
++    '5': { class_type: 'KSampler', _meta: { title: 'Old Sampler' }, inputs: { seed: 0 } },
++    '9': { class_type: 'KSampler', _meta: { title: 'Sampler' }, inputs: { seed: 0 } },
++  };
++  // A re-exported workflow renumbers nodes; the title is what survives, so it
++  // must beat a stale id rather than the other way round.
++  const byTitle = resolveBinding(graph, { title: 'Sampler', node: '5', input: 'seed' });
++  assert(byTitle.ok && byTitle.node === '9', 'a binding did not prefer the title over the id');
++
++  const byId = resolveBinding(graph, { title: 'Nothing Called This', node: '5', input: 'seed' });
++  assert(byId.ok && byId.node === '5', 'a binding did not fall back to the node id');
++
++  const nowhere = resolveBinding(graph, { title: 'Nothing', node: '404', input: 'seed' });
++  assert(!nowhere.ok && /no node/.test(nowhere.reason), 'an unresolvable binding did not say so');
++
++  const wrongInput = resolveBinding(graph, { node: '9', input: 'not_an_input' });
++  assert(!wrongInput.ok && /has no input/.test(wrongInput.reason), 'a binding to a missing input was accepted');
++
++  // Two nodes with the same title resolve to the same one every time.
++  const ambiguous: ComfyGraph = {
++    '2': { class_type: 'CLIPTextEncode', _meta: { title: 'Positive' }, inputs: { text: '' } },
++    '1': { class_type: 'CLIPTextEncode', _meta: { title: 'Positive' }, inputs: { text: '' } },
++  };
++  const first = resolveBinding(ambiguous, { title: 'Positive', input: 'text' });
++  const second = resolveBinding(ambiguous, { title: 'Positive', input: 'text' });
++  assert(first.ok && second.ok && first.node === second.node && first.node === '1', 'a duplicate title resolved non-deterministically');
++}
++
++// ---------------------------------------------------------------------------
++// 3. Node ids are stable across submissions — the execution cache depends on it
++// ---------------------------------------------------------------------------
++
++function testNodeIdsAreStable(): void {
++  const template = REGISTRY.byId('regional');
++  assert(template, 'the regional template is missing');
++  const recipe = baseRecipe({
++    templateId: 'regional',
++    guidance: 'coherent',
++    loras: [{ name: LORAS[0], weight: 0.8 }, { name: LORAS[1], weight: 0.6 }],
++    regions: [
++      { prompt: 'Mara, left', mask: 'writers-hoard/left.png', strength: 1 },
++      { prompt: 'Aldo, right', mask: 'writers-hoard/right.png', strength: 1 },
++    ],
++  });
++  const first = buildGraph(template, recipe);
++  const second = buildGraph(template, { ...recipe });
++  assert(first.ok && second.ok, 'the regional recipe did not build');
++  assert(canonical(first.graph) === canonical(second.graph), 'two builds of one recipe produced different graphs');
++
++  const ids = Object.keys(first.graph).sort();
++  const templateIds = new Set(Object.keys(template.graph));
++  assert(ids.every((id) => templateIds.has(id)), 'the build invented a node id that is not in the template');
++
++  // A third region reuses the first two regions' ids: adding one must not
++  // renumber what was already cached.
++  const wider = buildGraph(template, {
++    ...recipe,
++    regions: [...(recipe.regions ?? []), { prompt: 'a cat', mask: 'writers-hoard/cat.png', strength: 0.9 }],
++  });
++  assert(wider.ok, 'a three-region recipe did not build');
++  for (const id of ids) {
++    assert(wider.graph[id], `adding a region dropped node ${id}`);
++  }
++  // And the ones that were already there keep the same class and title.
++  for (const id of ids) {
++    assert(wider.graph[id].class_type === first.graph[id].class_type, `node ${id} changed class when a region was added`);
++  }
++}
++
++// ---------------------------------------------------------------------------
++// 4. Pruning: unused occurrences are removed, and the chain closes over them
++// ---------------------------------------------------------------------------
++
++function testPruning(): void {
++  const template = REGISTRY.byId('txt2img');
++  assert(template, 'txt2img is missing');
++
++  const bare = buildGraph(template, baseRecipe());
++  assert(bare.ok, 'the bare recipe did not build');
++  assert(!Object.keys(bare.graph).some((id) => ['10', '11', '12', '13', '20', '21', '22', '23'].includes(id)), 'an unused LoRA or guidance node survived');
++  const sampler = bare.graph['5'];
++  assert(isLink(sampler.inputs.model) && sampler.inputs.model[0] === '1', 'with no LoRA and no guidance the sampler must read the checkpoint');
++  assert(isLink(bare.graph['2'].inputs.clip) && bare.graph['2'].inputs.clip[0] === '1', 'the text encoder must fall back to the checkpoint CLIP');
++  assert(danglingLinks(bare.graph).length === 0, 'pruning left a dangling link');
++
++  const twoLoras = buildGraph(template, baseRecipe({ loras: [{ name: LORAS[0], weight: 1 }, { name: LORAS[1], weight: 0.5 }] }));
++  assert(twoLoras.ok, 'a two-LoRA recipe did not build');
++  assert(twoLoras.graph['10'] && twoLoras.graph['11'] && !twoLoras.graph['12'], 'the LoRA chain was not trimmed to two');
++  assert(isLink(twoLoras.graph['5'].inputs.model) && (twoLoras.graph['5'].inputs.model as [string, number])[0] === '11', 'the sampler did not follow the shortened LoRA chain');
++  assert(twoLoras.graph['10'].inputs.lora_name === LORAS[0], 'the first LoRA name was not bound');
++  assert(twoLoras.graph['11'].inputs.strength_model === 0.5, 'the second LoRA weight was not bound');
++
++  // Guidance presets keep a named subset of the chain and nothing else.
++  const coherent = buildGraph(template, baseRecipe({ guidance: 'coherent' }));
++  assert(coherent.ok && coherent.graph['20'] && !coherent.graph['21'] && !coherent.graph['22'] && !coherent.graph['23'], 'the Coherent preset kept the wrong nodes');
++  assert(coherent.graph['20'].class_type === 'PerturbedAttentionGuidance', 'Coherent must be perturbed-attention guidance');
++  const detailed = buildGraph(template, baseRecipe({ guidance: 'detailed' }));
++  assert(detailed.ok && !detailed.graph['20'] && detailed.graph['21'] && detailed.graph['22'] && !detailed.graph['23'], 'the Detailed preset kept the wrong nodes');
++  assert(isLink(detailed.graph['21'].inputs.model) && (detailed.graph['21'].inputs.model as [string, number])[0] === '1', 'a kept guidance node did not close over the removed ones');
++  const distilled = buildGraph(template, baseRecipe({ guidance: 'distilled-negatives' }));
++  assert(distilled.ok && distilled.graph['23'] && !distilled.graph['20'], 'the distilled preset kept the wrong nodes');
++
++  // planSlots is what decides all of that, and it must never exceed the
++  // occurrences a template actually ships.
++  const plan = planSlots(template, baseRecipe({ loras: Array.from({ length: 9 }, () => ({ name: LORAS[0], weight: 1 })) }));
++  assert(plan.lora.length === 4, 'more LoRAs were planned than the template has slots for');
++}
++
++// ---------------------------------------------------------------------------
++// 5. Degradation: a missing pack is named, and nothing is submitted
++// ---------------------------------------------------------------------------
++
++function testMissingPackIsNamed(): void {
++  const withoutImpact = indexObjectInfo(comfyObjectInfoFixture({ omit: ['FaceDetailer', 'UltralyticsDetectorProvider'] }));
++  const template = REGISTRY.byId('detailer');
++  assert(template, 'the detailer template is missing');
++  const availability = checkTemplate(template, withoutImpact);
++  assert(!availability.ok, 'a template whose pack is missing reported itself available');
++  assert(/ComfyUI-Impact-Pack/.test(availability.message), 'the remedy did not name ComfyUI-Impact-Pack');
++  assert(/ComfyUI-Impact-Subpack/.test(availability.message), 'the remedy did not name ComfyUI-Impact-Subpack');
++  assert(!/FaceDetailer/.test(availability.message), 'the user was shown a raw node class name');
++
++  const recipe = baseRecipe({
++    templateId: 'detailer',
++    sourceImage: 'writers-hoard/source.png',
++    detail: [{ detector: DETECTORS[0], prompt: 'her face', denoise: 0.4 }],
++  });
++  const plan = planSubmission(REGISTRY, withoutImpact, recipe);
++  assert(!plan.ok, 'a plan against a ComfyUI without the pack was allowed to submit');
++  assert(!plan.ok && /ComfyUI-Impact-Pack/.test(plan.error), 'the refusal did not name the pack');
++
++  // A recipe that carries something the chosen template has nowhere to put
++  // must be refused, not quietly rendered without it.
++  const regionsOnATemplateWithout = planSubmission(REGISTRY, INFO, baseRecipe({
++    templateId: 'txt2img',
++    regions: [{ prompt: 'left', mask: 'writers-hoard/left.png', strength: 1 }],
++  }));
++  assert(!regionsOnATemplateWithout.ok && /masked regions/.test(regionsOnATemplateWithout.error), 'regions were silently dropped');
++  const maskWithoutAnInpaint = planSubmission(REGISTRY, INFO, baseRecipe({ templateId: 'txt2img', maskImage: 'writers-hoard/mask.png' }));
++  assert(!maskWithoutAnInpaint.ok && /mask/.test(maskWithoutAnInpaint.error), 'a mask was silently dropped');
++  const controlsOnRegional = planSubmission(REGISTRY, INFO, baseRecipe({
++    templateId: 'regional',
++    regions: [{ prompt: 'left', mask: 'writers-hoard/left.png', strength: 1 }],
++    controls: [{ model: CONTROLNETS[0], image: 'writers-hoard/pose.png', strength: 1, startPercent: 0, endPercent: 1 }],
++  }));
++  assert(!controlsOnRegional.ok && /ControlNets/.test(controlsOnRegional.error), 'combining regions and ControlNets was not refused');
++
++  // A core class missing means the install is old, not that a pack is needed.
++  const ancient = indexObjectInfo(comfyObjectInfoFixture({ omit: ['ConditioningSetMask'] }));
++  const regional = REGISTRY.byId('regional');
++  assert(regional, 'the regional template is missing');
++  const old = checkTemplate(regional, ancient);
++  assert(!old.ok && /Update ComfyUI/.test(old.message), 'a missing core node did not read as an out-of-date ComfyUI');
++
++  // Guidance nodes are optional, so a build without them must still refuse
++  // explicitly rather than quietly dropping the preset the user picked.
++  const noPag = indexObjectInfo(comfyObjectInfoFixture({ omit: ['PerturbedAttentionGuidance'] }));
++  const guided = planSubmission(REGISTRY, noPag, baseRecipe({ guidance: 'coherent' }));
++  assert(!guided.ok && /PerturbedAttentionGuidance|Update ComfyUI/.test(guided.error), 'a missing guidance node was silently ignored');
++  const ungui = planSubmission(REGISTRY, noPag, baseRecipe({ guidance: 'none' }));
++  assert(ungui.ok, 'a recipe that does not use guidance was refused for a missing guidance node');
++}
++
++// ---------------------------------------------------------------------------
++// 6. A model a recipe names but the install does not have
++// ---------------------------------------------------------------------------
++
++function testMissingModels(): void {
++  const plan = planSubmission(REGISTRY, INFO, baseRecipe({ checkpoint: 'not-installed.safetensors' }));
++  assert(!plan.ok && plan.code === 'model-missing', 'a missing checkpoint was not refused');
++  assert(!plan.ok && /not-installed\.safetensors/.test(plan.error), 'the refusal did not say which checkpoint');
++
++  // The same file in a different folder is the common case, and the nearest
++  // match must be offered rather than substituted.
++  const nearby = resolveModelName('juggernautXL_v9.safetensors', CHECKPOINTS);
++  assert(nearby.exact === null && nearby.nearest === CHECKPOINTS[0], 'the same file in another folder was not recognised');
++  const exact = resolveModelName(CHECKPOINTS[1], CHECKPOINTS);
++  assert(exact.exact === CHECKPOINTS[1], 'an installed checkpoint was not matched exactly');
++  const nonsense = resolveModelName('zzz-unrelated-thing.safetensors', CHECKPOINTS);
++  assert(nonsense.nearest === null, 'an unrelated name was offered as a substitute');
++  assert(/nearest one installed/.test(missingModelMessage('checkpoint', 'juggernautXL_v9.safetensors', CHECKPOINTS)), 'the nearest match was not offered');
++
++  const lora = planSubmission(REGISTRY, INFO, baseRecipe({ loras: [{ name: 'ghost.safetensors', weight: 1 }] }));
++  assert(!lora.ok && /ghost\.safetensors/.test(lora.error), 'a missing LoRA was not named');
++
++  const control = planSubmission(REGISTRY, INFO, baseRecipe({
++    templateId: 'multi-controlnet',
++    controls: [{ model: 'missing-cn.safetensors', image: 'writers-hoard/pose.png', strength: 0.8, startPercent: 0, endPercent: 0.7 }],
++  }));
++  assert(!control.ok && /missing-cn/.test(control.error), 'a missing ControlNet was not named');
++}
++
++// ---------------------------------------------------------------------------
++// 7. The graphs the harder templates produce
++// ---------------------------------------------------------------------------
++
++function testHarderTemplates(): void {
++  const controlnet = REGISTRY.byId('multi-controlnet');
++  assert(controlnet, 'multi-controlnet is missing');
++  const stacked = buildGraph(controlnet, baseRecipe({
++    templateId: 'multi-controlnet',
++    controls: [
++      { model: CONTROLNETS[0], image: 'writers-hoard/pose.png', strength: 0.9, startPercent: 0, endPercent: 0.7 },
++      { model: CONTROLNETS[1], image: 'writers-hoard/depth.png', strength: 0.5, startPercent: 0.1, endPercent: 0.9 },
++    ],
++  }));
++  assert(stacked.ok, 'a two-ControlNet recipe did not build');
++  assert(stacked.graph['151'] && stacked.graph['152'] && !stacked.graph['153'], 'the ControlNet chain was not trimmed to two');
++  assert(isLink(stacked.graph['5'].inputs.positive) && (stacked.graph['5'].inputs.positive as [string, number])[0] === '152', 'the sampler did not read the last kept ControlNet');
++  assert(isLink(stacked.graph['5'].inputs.negative) && (stacked.graph['5'].inputs.negative as [string, number])[1] === 1, 'the negative must come from the ControlNet second output');
++  assert(stacked.graph['152'].inputs.end_percent === 0.9, 'a ControlNet end percent was not bound');
++
++  const inpaint = REGISTRY.byId('inpaint');
++  assert(inpaint, 'inpaint is missing');
++  const masked = buildGraph(inpaint, baseRecipe({
++    templateId: 'inpaint',
++    sourceImage: 'writers-hoard/source.png',
++    maskImage: 'writers-hoard/mask.png',
++    crop: { x: 240, y: 130, width: 384, height: 384 },
++    workWidth: 1024,
++    workHeight: 1024,
++    growMaskBy: 6,
++  }));
++  assert(masked.ok, 'an inpaint recipe did not build');
++  // "Only masked" is four numbers that must agree: cut here, work at this
++  // size, scale back to the cut, paste it where it came from.
++  assert(masked.graph['72'].inputs.x === 240 && masked.graph['74'].inputs.x === 240, 'the source and mask crops disagree');
++  assert(masked.graph['73'].inputs.width === 1024 && masked.graph['75'].inputs.width === 1024, 'the work size was not applied to both crops');
++  assert(masked.graph['78'].inputs.width === 384 && masked.graph['78'].inputs.height === 384, 'the result was not scaled back to the crop');
++  assert(masked.graph['79'].inputs.x === 240 && masked.graph['79'].inputs.y === 130, 'the composite pastes in the wrong place');
++
++  const upscale = REGISTRY.byId('ultimate-upscale');
++  assert(upscale, 'ultimate-upscale is missing');
++  const tiled = buildGraph(upscale, baseRecipe({
++    templateId: 'ultimate-upscale',
++    sourceImage: 'writers-hoard/source.png',
++    upscale: { model: UPSCALE_MODELS[0], by: 2, denoise: 0.2, tileWidth: 512, tileHeight: 512 },
++  }));
++  assert(tiled.ok, 'an upscale recipe did not build');
++  assert(tiled.graph['91'].inputs.denoise === 0.2, 'Ultimate SD Upscale must ship at denoise 0.2');
++  assert(tiled.graph['91'].inputs.mode_type === 'Chess', 'Ultimate SD Upscale must ship in chess mode');
++  assert(tiled.graph['91'].inputs.seam_fix_mode === 'Half Tile', 'Ultimate SD Upscale must ship with seam fixing on');
++
++  const detailer = REGISTRY.byId('detailer');
++  assert(detailer, 'detailer is missing');
++  const twoStages = buildGraph(detailer, baseRecipe({
++    templateId: 'detailer',
++    sourceImage: 'writers-hoard/source.png',
++    detail: [
++      { detector: DETECTORS[0], prompt: 'her face', denoise: 0.4 },
++      { detector: DETECTORS[1], prompt: 'her hands', denoise: 0.35 },
++    ],
++  }));
++  assert(twoStages.ok, 'a two-stage detail chain did not build');
++  assert(twoStages.graph['101'] && twoStages.graph['111'] && !twoStages.graph['121'], 'the detail chain was not trimmed to two stages');
++  assert(isLink(twoStages.graph['7'].inputs.images) && (twoStages.graph['7'].inputs.images as [string, number])[0] === '111', 'the output did not follow the shortened detail chain');
++  assert(twoStages.graph['101'].inputs.segm_detector_opt === undefined, 'a bbox detector must not be wired to the segmentation input');
++
++  const segm = buildGraph(detailer, baseRecipe({
++    templateId: 'detailer',
++    sourceImage: 'writers-hoard/source.png',
++    detail: [{ detector: DETECTORS[2], prompt: 'the figure', denoise: 0.4 }],
++  }));
++  assert(segm.ok, 'a segmentation detail stage did not build');
++  const wired = segm.graph['101'].inputs.segm_detector_opt;
++  assert(isLink(wired) && wired[0] === '100' && wired[1] === 1, 'a segm detector was not wired to the segmentation input');
++
++  const hires = REGISTRY.byId('hires');
++  assert(hires, 'hires is missing');
++  const twoPass = buildGraph(hires, baseRecipe({ templateId: 'hires', hires: { width: 1536, height: 1536, steps: 12, denoise: 0.45 } }));
++  assert(twoPass.ok, 'a hires recipe did not build');
++  assert(twoPass.graph['8'].inputs.width === 1536 && twoPass.graph['9'].inputs.denoise === 0.45, 'the hires pass was not bound');
++  assert(isLink(twoPass.graph['6'].inputs.samples) && (twoPass.graph['6'].inputs.samples as [string, number])[0] === '9', 'the decode must read the second pass');
++
++  for (const built of [stacked, masked, tiled, twoStages, segm, twoPass]) {
++    assert(built.ok && danglingLinks(built.graph).length === 0, 'a built graph has a dangling link');
++    assert(built.ok && classesUsed(built.graph).every((className) => INFO.classes[className]), 'a built graph uses a class ComfyUI does not define');
++  }
++}
++
++// ---------------------------------------------------------------------------
++// 8. Choosing a template, reading extras, translating sampler names
++// ---------------------------------------------------------------------------
++
++function testPlanningSurface(): void {
++  assert(chooseTemplateId({ regions: 0, controls: 0, detailStages: 0, hasSource: false, hasMask: false, wantsUpscale: false, wantsHires: false }) === 'txt2img', 'a plain request is not txt2img');
++  assert(chooseTemplateId({ regions: 2, controls: 0, detailStages: 0, hasSource: false, hasMask: false, wantsUpscale: false, wantsHires: false }) === 'regional', 'regions did not choose the regional template');
++  assert(chooseTemplateId({ regions: 0, controls: 0, detailStages: 0, hasSource: true, hasMask: true, wantsUpscale: false, wantsHires: false }) === 'inpaint', 'a source plus a mask is not an inpaint');
++  assert(chooseTemplateId({ regions: 0, controls: 0, detailStages: 0, hasSource: true, hasMask: false, wantsUpscale: true, wantsHires: false }) === 'ultimate-upscale', 'an upscale was not chosen');
++  assert(chooseTemplateId({ regions: 0, controls: 0, detailStages: 2, hasSource: true, hasMask: false, wantsUpscale: false, wantsHires: false }) === 'detailer', 'a detail chain was not chosen');
++  assert(chooseTemplateId({ regions: 0, controls: 0, detailStages: 0, hasSource: false, hasMask: false, wantsUpscale: false, wantsHires: true }) === 'hires', 'a hires request was not chosen');
++  // An upscale with nothing to upscale must not silently become an upscale.
++  assert(chooseTemplateId({ regions: 0, controls: 0, detailStages: 0, hasSource: false, hasMask: false, wantsUpscale: true, wantsHires: false }) === 'txt2img', 'an upscale with no source was chosen anyway');
++
++  // Extras are read defensively: a region with no mask is not a region.
++  const extras = readComfyExtras({
++    comfy: {
++      guidance: 'coherent',
++      regions: [
++        { prompt: 'left', maskDataUrl: 'data:image/png;base64,AAA=', strength: 3 },
++        { prompt: 'no mask here' },
++      ],
++      controls: [{ model: CONTROLNETS[0], imageDataUrl: 'data:image/png;base64,AAA=', startPercent: 0.8, endPercent: 0.2 }],
++      detail: [{ prompt: 'nothing to detect' }],
++      upscale: { model: UPSCALE_MODELS[0], by: 99 },
++    },
++  });
++  assert(extras.guidance === 'coherent', 'a valid guidance preset was dropped');
++  assert(extras.regions.length === 1, 'a region without a mask was kept');
++  assert(extras.detail.length === 0, 'a detail stage without a detector was kept');
++  assert(extras.controls[0].startPercent === 0.2 && extras.controls[0].endPercent === 0.8, 'a reversed percent range was not put back in order');
++  assert(extras.upscale?.by === 4, 'an out-of-range upscale factor was not clamped');
++  assert(readComfyExtras({}).guidance === 'none', 'a request with no extras did not read as none');
++  assert(readComfyExtras({ comfy: { guidance: 'nonsense' } }).guidance === 'none', 'an unknown guidance preset was accepted');
++
++  // The app's sampler names are stable-diffusion.cpp's; ComfyUI's are not.
++  const samplers = ['euler', 'euler_ancestral', 'dpmpp_2m', 'dpmpp_2s_ancestral'];
++  assert(comfySamplerName('euler_a', samplers) === 'euler_ancestral', 'euler_a was not translated');
++  assert(comfySamplerName('dpm++2m', samplers) === 'dpmpp_2m', 'dpm++2m was not translated');
++  assert(comfySamplerName('dpmpp_2m', samplers) === 'dpmpp_2m', 'a name that is already ComfyUI-s was changed');
++  assert(comfySamplerName('tcd', samplers) === 'euler', 'a sampler this build does not have did not fall back');
++  assert(comfySchedulerName('discrete', ['normal', 'karras']) === 'normal', 'the discrete scheduler was not translated');
++  assert(comfySchedulerName('karras', ['normal', 'karras']) === 'karras', 'karras was not kept');
++  assert(comfySchedulerName('bong_tangent', ['normal', 'karras']) === 'normal', 'an unknown scheduler did not fall back');
++}
++
++// ---------------------------------------------------------------------------
++// 9. Bring your own workflow
++// ---------------------------------------------------------------------------
++
++function testBringYourOwnWorkflow(): void {
++  const template = REGISTRY.byId('txt2img');
++  assert(template, 'txt2img is missing');
++  const found = discoverInputs(template.graph, INFO);
++  const has = (nodeClass: string, input: string): boolean => found.some((entry) => entry.classType === nodeClass && entry.input === input);
++  assert(has('CLIPTextEncode', 'text') && has('KSampler', 'seed') && has('CheckpointLoaderSimple', 'ckpt_name'), 'the input listing missed an obvious input');
++  assert(!found.some((entry) => entry.input === 'clip'), 'a linked input was offered as mappable');
++  assert(found.find((entry) => entry.classType === 'KSampler' && entry.input === 'seed')?.kind === 'seed', 'a seed was not recognised as one');
++
++  const mapping = suggestMapping(found);
++  assert(mapping.prompt?.node === '2', 'the positive prompt was not guessed');
++  assert(mapping.negative?.node === '3', 'the negative prompt was not guessed');
++  assert(mapping.seed?.node === '5' && mapping.checkpoint?.node === '1', 'the seed or the checkpoint was not guessed');
++
++  const adopted = adoptWorkflow(template.graph, mapping, { id: 'mine', label: 'My workflow' });
++  assert(adopted.ok, 'a valid workflow was rejected');
++  assert(adopted.ok && adopted.template.bindings.prompt.title === 'Positive', 'the adopted binding did not keep the node title');
++  const built = adopted.ok ? buildGraph(adopted.template, baseRecipe({ templateId: 'mine' })) : null;
++  assert(built?.ok, 'an adopted workflow did not build');
++  assert(built?.ok && built.graph['2'].inputs.text === 'a lantern-lit alley', 'the adopted workflow did not take the prompt');
++
++  const noOutput = adoptWorkflow({ '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'x' } } }, {}, { id: 'x', label: 'x' });
++  assert(!noOutput.ok && /Save Image/.test(noOutput.error), 'a workflow with no output node was accepted');
++  const notAGraph = adoptWorkflow({ nodes: [], links: [] }, {}, { id: 'x', label: 'x' });
++  assert(!notAGraph.ok && /API format/.test(notAGraph.error), 'a UI-format workflow was not rejected with the export hint');
++}
++
++// ---------------------------------------------------------------------------
++// 10. The transport, against a fake ComfyUI
++// ---------------------------------------------------------------------------
++
++const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
++
++interface FakeServer {
++  fetch: ComfyFetch;
++  calls: string[];
++  submitted: ComfyGraph | null;
++  ready: boolean;
++  readyAfterHistoryCalls: number;
++  rejectPrompt: string | null;
++  /** Fires while the first /history call is in flight. */
++  onFirstHistory: (() => void) | null;
++}
++
++function createFakeServer(): FakeServer {
++  const server: FakeServer = {
++    calls: [],
++    submitted: null,
++    ready: false,
++    readyAfterHistoryCalls: 0,
++    rejectPrompt: null,
++    onFirstHistory: null,
++    fetch: async () => new Response(null, { status: 500 }),
++  };
++  let historyCalls = 0;
++  server.fetch = async (url, init) => {
++    const path = url.replace('http://127.0.0.1:8188', '');
++    server.calls.push(`${init?.method ?? 'GET'} ${path.split('?')[0]}`);
++    if (path.startsWith('/object_info')) {
++      return new Response(JSON.stringify(comfyObjectInfoFixture()), { status: 200 });
++    }
++    if (path.startsWith('/system_stats')) {
++      return new Response(JSON.stringify({ system: { ram_total: 32e9, ram_free: 20e9, comfyui_version: '0.3.0' }, devices: [{ name: 'cuda:0 RTX 4070 Ti', vram_total: 12.8e9, vram_free: 11e9 }] }), { status: 200 });
++    }
++    if (path.startsWith('/upload/image')) {
++      return new Response(JSON.stringify({ name: 'wh-abc.png', subfolder: 'writers-hoard', type: 'input' }), { status: 200 });
++    }
++    if (path.startsWith('/prompt')) {
++      if (server.rejectPrompt) {
++        return new Response(
++          JSON.stringify({
++            error: { type: 'prompt_outputs_failed_validation', message: 'Prompt outputs failed validation' },
++            node_errors: { '1': { errors: [{ type: 'value_not_in_list', message: 'Value not in list', details: server.rejectPrompt }] } },
++          }),
++          { status: 400 },
++        );
++      }
++      server.submitted = JSON.parse(String(init?.body)).prompt as ComfyGraph;
++      return new Response(JSON.stringify({ prompt_id: 'p1', number: 1, node_errors: {} }), { status: 200 });
++    }
++    if (path.startsWith('/history/')) {
++      historyCalls += 1;
++      if (historyCalls === 1) server.onFirstHistory?.();
++      if (server.readyAfterHistoryCalls && historyCalls >= server.readyAfterHistoryCalls) server.ready = true;
++      if (!server.ready) return new Response('{}', { status: 200 });
++      return new Response(
++        JSON.stringify({
++          p1: {
++            outputs: { '7': { images: [{ filename: 'wh_00001_.png', subfolder: 'WritersHoard', type: 'output' }] } },
++            status: { status_str: 'success', completed: true },
++          },
++        }),
++        { status: 200 },
++      );
++    }
++    if (path.startsWith('/view')) {
++      return new Response(PNG_BYTES, { status: 200 });
++    }
++    if (path.startsWith('/interrupt') || path.startsWith('/queue')) return new Response('', { status: 200 });
++    return new Response('nope', { status: 404 });
++  };
++  return server;
++}
++
++function scriptedSocket(script: (handlers: ComfySocketHandlers) => void): ComfySocketFactory {
++  return (_url, handlers) => {
++    setTimeout(() => script(handlers), 0);
++    return { close: () => undefined };
++  };
++}
++
++async function testTransportRoundTrip(): Promise<void> {
++  const server = createFakeServer();
++  const progress: ComfyProgress[] = [];
++  const client = createComfyClient({
++    baseUrl: 'http://127.0.0.1:8188/',
++    clientId: 'client-1',
++    fetch: server.fetch,
++    // A long poll interval: if the run only finishes because the socket woke
++    // it, this test proves the socket is doing its job.
++    pollIntervalMs: 30_000,
++    openSocket: scriptedSocket((handlers) => {
++      handlers.onMessage(JSON.stringify({ type: 'progress', data: { value: 5, max: 20, prompt_id: 'p1', node: '5' } }));
++      handlers.onMessage(JSON.stringify({ type: 'progress', data: { value: 20, max: 20, prompt_id: 'p1', node: '5' } }));
++      // An event for someone else's submission must not end ours.
++      handlers.onMessage(JSON.stringify({ type: 'executing', data: { node: null, prompt_id: 'someone-else' } }));
++      server.ready = true;
++      handlers.onMessage(JSON.stringify({ type: 'executing', data: { node: null, prompt_id: 'p1' } }));
++    }),
++  });
++
++  const info = await client.objectInfo();
++  assert(info.classes.KSampler, 'the fake /object_info did not come back indexed');
++
++  const template = REGISTRY.byId('txt2img');
++  assert(template, 'txt2img is missing');
++  const plan = planSubmission(REGISTRY, info, baseRecipe());
++  assert(plan.ok, 'the plan against the fake server failed');
++  const promptId = await client.submit(plan.graph);
++  assert(promptId === 'p1', 'the prompt id did not come back');
++  assert(server.submitted && canonical(server.submitted) === canonical(plan.graph), 'the graph on the wire is not the graph that was built');
++
++  const entry = await client.awaitResult(promptId, { onProgress: (event) => progress.push(event) });
++  assert(progress.length >= 2 && progress[0].fraction === 0.25 && progress[1].fraction === 1, 'progress did not arrive as fractions');
++  const refs = Object.values(entry.outputs).flatMap((output) => output.images ?? []);
++  assert(refs.length === 1 && refs[0].filename === 'wh_00001_.png', 'the history did not name the output file');
++  const bytes = await client.view(refs[0]);
++  assert(bytes.length === PNG_BYTES.length && bytes[1] === 0x50, 'the image bytes did not come back');
++  assert(bytesToBase64(bytes) === bytesToBase64(PNG_BYTES), 'the base64 conversion is not faithful');
++  // Nothing may have been polled more than twice: the socket ended the wait.
++  const historyCalls = server.calls.filter((call) => call.startsWith('GET /history/')).length;
++  assert(historyCalls <= 2, `the socket did not shorten the wait (${historyCalls} history polls)`);
++
++  const stats = await client.systemStats();
++  assert(stats.devices[0]?.vramFree === 11e9, 'the VRAM report did not come back');
++}
++
++async function testAnEarlyWakeIsNotLost(): Promise<void> {
++  // "The queue item finished" routinely arrives while the poll it should
++  // shorten is still in flight. An edge-triggered wake would be dropped there
++  // and the run would sit out a whole poll interval for nothing, so the wake
++  // has to latch. A sleep that is never called is the proof.
++  const server = createFakeServer();
++  let sleeps = 0;
++  let handlers: ComfySocketHandlers | null = null;
++  server.onFirstHistory = () => {
++    // Ready only from the SECOND poll, so the first one must come back empty
++    // and the wake has to survive until the wait that follows it.
++    server.readyAfterHistoryCalls = 2;
++    handlers?.onMessage(JSON.stringify({ type: 'execution_success', data: { prompt_id: 'p1' } }));
++  };
++  const client = createComfyClient({
++    baseUrl: 'http://127.0.0.1:8188',
++    clientId: 'client-7',
++    fetch: server.fetch,
++    pollIntervalMs: 30_000,
++    sleep: () => {
++      sleeps += 1;
++      return Promise.resolve();
++    },
++    openSocket: (_url, incoming) => {
++      handlers = incoming;
++      return { close: () => undefined };
++    },
++  });
++  const entry = await client.awaitResult('p1', {});
++  assert(Object.keys(entry.outputs).length === 1, 'the run did not finish');
++  assert(sleeps === 0, 'a wake that arrived mid-poll was lost, so the run waited for nothing');
++}
++
++async function testPollingWhenTheSocketIsGone(): Promise<void> {
++  // No socket at all: an older runtime, or a proxy that eats WebSockets.
++  const server = createFakeServer();
++  server.readyAfterHistoryCalls = 3;
++  const noSocket = createComfyClient({
++    baseUrl: 'http://127.0.0.1:8188',
++    clientId: 'client-2',
++    fetch: server.fetch,
++    pollIntervalMs: 1,
++    sleep: () => Promise.resolve(),
++  });
++  const entry = await noSocket.awaitResult('p1', {});
++  assert(Object.keys(entry.outputs).length === 1, 'polling did not reach the outputs');
++  assert(server.calls.filter((call) => call.startsWith('GET /history/')).length >= 3, 'the poll did not actually run');
++
++  // A socket that opens and immediately dies must degrade to the same poll.
++  const dropped = createFakeServer();
++  dropped.readyAfterHistoryCalls = 2;
++  const client = createComfyClient({
++    baseUrl: 'http://127.0.0.1:8188',
++    clientId: 'client-3',
++    fetch: dropped.fetch,
++    pollIntervalMs: 1,
++    sleep: () => Promise.resolve(),
++    openSocket: (_url, handlers) => {
++      setTimeout(() => handlers.onClose(), 0);
++      return { close: () => undefined };
++    },
++  });
++  const second = await client.awaitResult('p1', {});
++  assert(Object.keys(second.outputs).length === 1, 'a dropped socket did not fall back to polling');
++}
++
++async function testCancelAndFailure(): Promise<void> {
++  const server = createFakeServer();
++  const controller = new AbortController();
++  const client = createComfyClient({
++    baseUrl: 'http://127.0.0.1:8188',
++    clientId: 'client-4',
++    fetch: server.fetch,
++    pollIntervalMs: 1,
++    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
++  });
++  setTimeout(() => controller.abort('cancelled'), 5);
++  let cancelled = false;
++  try {
++    await client.awaitResult('p1', { signal: controller.signal });
++  } catch (err) {
++    cancelled = err instanceof Error && /Cancelled/.test(err.message);
++  }
++  assert(cancelled, 'an aborted wait did not end as cancelled');
++
++  await client.cancel('p1');
++  assert(server.calls.includes('POST /interrupt'), 'cancel did not interrupt the running job');
++  // A job that has not started yet is not interrupted by /interrupt: it has to
++  // come out of the queue, or it starts a minute later as if nothing happened.
++  assert(server.calls.includes('POST /queue'), 'cancel did not remove the job from the queue');
++
++  // A rejected prompt must name the node and the reason.
++  server.rejectPrompt = "ckpt_name: 'ghost.safetensors' not in (list of length 2)";
++  let rejection = '';
++  try {
++    await client.submit({ '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'ghost.safetensors' } } });
++  } catch (err) {
++    rejection = err instanceof Error ? err.message : '';
++  }
++  assert(/node 1/.test(rejection) && /ghost\.safetensors/.test(rejection), `a rejected prompt was not explained: ${rejection}`);
++
++  // An execution error on the socket ends the wait rather than hanging to the
++  // timeout with a progress bar that never moves.
++  const failing = createFakeServer();
++  const failClient = createComfyClient({
++    baseUrl: 'http://127.0.0.1:8188',
++    clientId: 'client-5',
++    fetch: failing.fetch,
++    pollIntervalMs: 50,
++    openSocket: scriptedSocket((handlers) => {
++      handlers.onMessage(JSON.stringify({ type: 'execution_error', data: { prompt_id: 'p1', node_id: '5', exception_message: 'CUDA out of memory' } }));
++    }),
++  });
++  let failure = '';
++  try {
++    await failClient.awaitResult('p1', {});
++  } catch (err) {
++    failure = err instanceof Error ? err.message : '';
++  }
++  assert(/CUDA out of memory/.test(failure), `an execution error was not surfaced: ${failure}`);
++}
++
++async function testUploads(): Promise<void> {
++  const server = createFakeServer();
++  const client = createComfyClient({ baseUrl: 'http://127.0.0.1:8188', clientId: 'client-6', fetch: server.fetch });
++  const uploaded = await client.uploadImage({ bytes: PNG_BYTES, fileName: 'wh-1.png', contentType: 'image/png' });
++  assert(uploaded.name === 'wh-abc.png' && uploaded.subfolder === 'writers-hoard', 'the upload result was not read');
++
++  const { contentType, body } = multipartBody(
++    [{ name: 'type', value: 'input' }, { name: 'image', fileName: 'a.png', contentType: 'image/png', bytes: PNG_BYTES }],
++    'BOUNDARY',
++  );
++  const text = new TextDecoder('latin1').decode(body);
++  assert(contentType === 'multipart/form-data; boundary=BOUNDARY', 'the multipart content type is wrong');
++  assert(text.includes('Content-Disposition: form-data; name="type"'), 'a multipart field is missing');
++  assert(text.includes('filename="a.png"') && text.includes('Content-Type: image/png'), 'the multipart file part is malformed');
++  assert(text.endsWith('--BOUNDARY--\r\n'), 'the multipart body is not terminated');
++
++  const parsed = parseDataUrl('data:image/png;base64,iVBORw0KGgo=');
++  assert(parsed && parsed.contentType === 'image/png' && parsed.bytes[0] === 0x89, 'a data URL did not decode');
++  assert(parseDataUrl('not a data url') === null, 'a bad data URL was accepted');
++
++  assert(webSocketUrl('http://127.0.0.1:8188/', 'abc') === 'ws://127.0.0.1:8188/ws?clientId=abc', 'the WebSocket URL is wrong');
++  assert(webSocketUrl('https://comfy.example.com', 'abc').startsWith('wss://'), 'https did not become wss');
++
++  // Both progress shapes ComfyUI has shipped reduce to the same fraction.
++  const old = readProgressEvent('progress', { value: 3, max: 12, node: '5' });
++  assert(old?.fraction === 0.25, 'the legacy progress event was not read');
++  const modern = readProgressEvent('progress_state', {
++    prompt_id: 'p1',
++    nodes: { '5': { value: 3, max: 12, state: 'running' }, '6': { value: 0, max: 0, state: 'pending' } },
++  });
++  assert(modern?.fraction === 0.25 && modern.node === '5', 'the progress_state event was not read');
++}
++
++export async function testComfyBackend(): Promise<string> {
++  testTemplatesAreReal();
++  testBindingResolution();
++  testNodeIdsAreStable();
++  testPruning();
++  testMissingPackIsNamed();
++  testMissingModels();
++  testHarderTemplates();
++  testPlanningSurface();
++  testBringYourOwnWorkflow();
++  await testTransportRoundTrip();
++  await testAnEarlyWakeIsNotLost();
++  await testPollingWhenTheSocketIsGone();
++  await testCancelAndFailure();
++  await testUploads();
++  return 'ComfyUI backend: templates are real graphs, bindings resolve by title then id, node ids are stable across submissions, slots prune and reconnect, a missing pack is named and never submitted, a missing model offers the nearest, and submit → progress → history → bytes works with a socket, without one, and when cancelled';
++}
+diff --git a/tests/comfyFixture.ts b/tests/comfyFixture.ts
+new file mode 100644
+index 0000000..ed78cff
+--- /dev/null
++++ b/tests/comfyFixture.ts
+@@ -0,0 +1,157 @@
++// ============================================================================
++// Test fixture — a ComfyUI /object_info document
++// ============================================================================
++//
++// Hand-built from ComfyUI's own node definitions (comfyanonymous/ComfyUI
++// nodes.py and comfy_extras/*.py, ssitu/ComfyUI_UltimateSDUpscale usdu_nodes.py,
++// ltdrdata/ComfyUI-Impact-Pack and -Subpack), NOT captured from a running
++// server — there is none in this environment. Its job is to fail the test
++// suite the moment a template names a node class or an input that ComfyUI does
++// not define, which is the mistake that turns into a 400 on submit.
++
++type Spec = string | string[];
++
++function node(required: Record<string, Spec>, optional: Record<string, Spec> = {}): unknown {
++  const wrap = (specs: Record<string, Spec>): Record<string, unknown> =>
++    Object.fromEntries(Object.entries(specs).map(([name, spec]) => [name, [spec, {}]]));
++  return { input: { required: wrap(required), optional: wrap(optional) }, output: [], output_name: [] };
++}
++
++export const SAMPLER_NAMES = ['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'dpm_2', 'dpmpp_2s_ancestral', 'dpmpp_2m', 'dpmpp_2m_sde', 'ddim', 'lcm', 'ipndm', 'ipndm_v', 'res_multistep', 'er_sde', 'gradient_estimation', 'uni_pc'];
++export const SCHEDULER_NAMES = ['simple', 'sgm_uniform', 'karras', 'exponential', 'ddim_uniform', 'beta', 'normal', 'linear_quadratic', 'kl_optimal'];
++
++export const CHECKPOINTS = ['sdxl/juggernautXL_v9.safetensors', 'illustriousXL_v01.safetensors'];
++export const LORAS = ['style/inkwash.safetensors', 'character/mara.safetensors'];
++export const CONTROLNETS = ['xl/openpose.safetensors', 'xl/depth.safetensors', 'xl/lineart.safetensors'];
++export const UPSCALE_MODELS = ['4x-UltraSharp.pth', 'RealESRGAN_x4plus.pth'];
++export const DETECTORS = ['bbox/face_yolov8m.pt', 'bbox/hand_yolov8s.pt', 'segm/person_yolov8m-seg.pt'];
++export const INPUT_IMAGES = ['example.png'];
++
++const IMAGE_SCALE_METHODS = ['nearest-exact', 'bilinear', 'area', 'bicubic', 'lanczos'];
++const LATENT_SCALE_METHODS = ['nearest-exact', 'bilinear', 'area', 'bicubic', 'bislerp'];
++const CROP_METHODS = ['disabled', 'center'];
++const CHANNELS = ['red', 'green', 'blue', 'alpha'];
++
++export function comfyObjectInfoFixture(options: { omit?: string[] } = {}): Record<string, unknown> {
++  const classes: Record<string, unknown> = {
++    CheckpointLoaderSimple: node({ ckpt_name: CHECKPOINTS }),
++    LoraLoader: node({ model: 'MODEL', clip: 'CLIP', lora_name: LORAS, strength_model: 'FLOAT', strength_clip: 'FLOAT' }),
++    CLIPTextEncode: node({ text: 'STRING', clip: 'CLIP' }),
++    EmptyLatentImage: node({ width: 'INT', height: 'INT', batch_size: 'INT' }),
++    KSampler: node({
++      model: 'MODEL',
++      seed: 'INT',
++      steps: 'INT',
++      cfg: 'FLOAT',
++      sampler_name: SAMPLER_NAMES,
++      scheduler: SCHEDULER_NAMES,
++      positive: 'CONDITIONING',
++      negative: 'CONDITIONING',
++      latent_image: 'LATENT',
++      denoise: 'FLOAT',
++    }),
++    VAEDecode: node({ samples: 'LATENT', vae: 'VAE' }),
++    SaveImage: node({ images: 'IMAGE', filename_prefix: 'STRING' }),
++    PreviewImage: node({ images: 'IMAGE' }),
++    LatentUpscale: node({ samples: 'LATENT', upscale_method: LATENT_SCALE_METHODS, width: 'INT', height: 'INT', crop: CROP_METHODS }),
++    LoadImage: node({ image: INPUT_IMAGES }),
++    LoadImageMask: node({ image: INPUT_IMAGES, channel: ['alpha', 'red', 'green', 'blue'] }),
++    ConditioningSetMask: node({ conditioning: 'CONDITIONING', mask: 'MASK', strength: 'FLOAT', set_cond_area: ['default', 'mask bounds'] }),
++    ConditioningCombine: node({ conditioning_1: 'CONDITIONING', conditioning_2: 'CONDITIONING' }),
++    ImageCrop: node({ image: 'IMAGE', width: 'INT', height: 'INT', x: 'INT', y: 'INT' }),
++    ImageScale: node({ image: 'IMAGE', upscale_method: IMAGE_SCALE_METHODS, width: 'INT', height: 'INT', crop: CROP_METHODS }),
++    ImageToMask: node({ image: 'IMAGE', channel: CHANNELS }),
++    VAEEncodeForInpaint: node({ pixels: 'IMAGE', vae: 'VAE', mask: 'MASK', grow_mask_by: 'INT' }),
++    ImageCompositeMasked: node(
++      { destination: 'IMAGE', source: 'IMAGE', x: 'INT', y: 'INT', resize_source: 'BOOLEAN' },
++      { mask: 'MASK' },
++    ),
++    ControlNetLoader: node({ control_net_name: CONTROLNETS }),
++    ControlNetApplyAdvanced: node(
++      {
++        positive: 'CONDITIONING',
++        negative: 'CONDITIONING',
++        control_net: 'CONTROL_NET',
++        image: 'IMAGE',
++        strength: 'FLOAT',
++        start_percent: 'FLOAT',
++        end_percent: 'FLOAT',
++      },
++      { vae: 'VAE' },
++    ),
++    UpscaleModelLoader: node({ model_name: UPSCALE_MODELS }),
++    ImageUpscaleWithModel: node({ upscale_model: 'UPSCALE_MODEL', image: 'IMAGE' }),
++    UltimateSDUpscale: node({
++      image: 'IMAGE',
++      model: 'MODEL',
++      positive: 'CONDITIONING',
++      negative: 'CONDITIONING',
++      vae: 'VAE',
++      upscale_by: 'FLOAT',
++      seed: 'INT',
++      steps: 'INT',
++      cfg: 'FLOAT',
++      sampler_name: SAMPLER_NAMES,
++      scheduler: SCHEDULER_NAMES,
++      denoise: 'FLOAT',
++      upscale_model: 'UPSCALE_MODEL',
++      mode_type: ['Linear', 'Chess', 'None'],
++      tile_width: 'INT',
++      tile_height: 'INT',
++      mask_blur: 'INT',
++      tile_padding: 'INT',
++      seam_fix_mode: ['None', 'Band Pass', 'Half Tile', 'Half Tile + Intersections'],
++      seam_fix_denoise: 'FLOAT',
++      seam_fix_width: 'INT',
++      seam_fix_mask_blur: 'INT',
++      seam_fix_padding: 'INT',
++      force_uniform_tiles: 'BOOLEAN',
++      tiled_decode: 'BOOLEAN',
++      batch_size: 'INT',
++    }),
++    UltralyticsDetectorProvider: node({ model_name: DETECTORS }),
++    SAMLoader: node({ model_name: ['sam_vit_b_01ec64.pth'], device_mode: ['AUTO', 'Prefer GPU', 'CPU'] }),
++    FaceDetailer: node(
++      {
++        image: 'IMAGE',
++        model: 'MODEL',
++        clip: 'CLIP',
++        vae: 'VAE',
++        guide_size: 'FLOAT',
++        guide_size_for: 'BOOLEAN',
++        max_size: 'FLOAT',
++        seed: 'INT',
++        steps: 'INT',
++        cfg: 'FLOAT',
++        sampler_name: SAMPLER_NAMES,
++        scheduler: SCHEDULER_NAMES,
++        positive: 'CONDITIONING',
++        negative: 'CONDITIONING',
++        denoise: 'FLOAT',
++        feather: 'INT',
++        noise_mask: 'BOOLEAN',
++        force_inpaint: 'BOOLEAN',
++        bbox_threshold: 'FLOAT',
++        bbox_dilation: 'INT',
++        bbox_crop_factor: 'FLOAT',
++        sam_detection_hint: ['center-1', 'horizontal-2', 'vertical-2', 'rect-4', 'diamond-4', 'mask-area', 'mask-points', 'mask-point-bbox', 'none'],
++        sam_dilation: 'INT',
++        sam_threshold: 'FLOAT',
++        sam_bbox_expansion: 'INT',
++        sam_mask_hint_threshold: 'FLOAT',
++        sam_mask_hint_use_negative: ['False', 'Small', 'Outter'],
++        drop_size: 'INT',
++        bbox_detector: 'BBOX_DETECTOR',
++        wildcard: 'STRING',
++        cycle: 'INT',
++      },
++      { sam_model_opt: 'SAM_MODEL', segm_detector_opt: 'SEGM_DETECTOR', detailer_hook: 'DETAILER_HOOK' },
++    ),
++    PerturbedAttentionGuidance: node({ model: 'MODEL', scale: 'FLOAT' }),
++    SelfAttentionGuidance: node({ model: 'MODEL', scale: 'FLOAT', blur_sigma: 'FLOAT' }),
++    FreeU_V2: node({ model: 'MODEL', b1: 'FLOAT', b2: 'FLOAT', s1: 'FLOAT', s2: 'FLOAT' }),
++    RescaleCFG: node({ model: 'MODEL', multiplier: 'FLOAT' }),
++  };
++  for (const name of options.omit ?? []) delete classes[name];
++  return classes;
++}
+diff --git a/tests/critical.browser.ts b/tests/critical.browser.ts
+index 2897ea6..0bb82f7 100644
+--- a/tests/critical.browser.ts
++++ b/tests/critical.browser.ts
+@@ -68,6 +68,7 @@ import { testWorldgenSpatialEntities } from './worldgen-spatial-entities';
+ import { testWorldgenSemanticZoom } from './worldgen-semantic-zoom';
+ import { testAiBridgeContracts } from './ai-bridge';
+ import { testAiRuntimeContracts } from './ai-runtime';
++import { testComfyBackend } from './comfy';
+ import { runRegionInfraTests } from './worldgen-region-infra.test';
+ import { testWorldgenDetailShader } from './worldgen-rendering';
+ import { testWorldgenBridgeAccess } from './worldgen-bridge';
+@@ -5063,6 +5064,7 @@ async function run(): Promise<void> {
+   passed.push('Real atlas map: geometry, view state, basemap, prefs, mount');
+   passed.push(await testAiBridgeContracts());
+   passed.push(await testAiRuntimeContracts());
++  passed.push(await testComfyBackend());
+   await testBridgeLinksStayInProject();
+   passed.push('AI bridge: every linked row id stays inside the project');
+   passed.push(testWorldgenSpatialEntities());
+-- 
+2.43.0
+

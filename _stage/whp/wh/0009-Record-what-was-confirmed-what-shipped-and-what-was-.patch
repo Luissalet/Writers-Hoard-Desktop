@@ -1,0 +1,2669 @@
+From 8d364f6c9553af6474a0483cd6b3d1efd1fa3007 Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 00:51:35 +0000
+Subject: [PATCH 09/36] Record what was confirmed, what shipped and what was
+ left out
+
+---
+ tasks/todo.md | 2637 +------------------------------------------------
+ 1 file changed, 42 insertions(+), 2595 deletions(-)
+
+diff --git a/tasks/todo.md b/tasks/todo.md
+index 9a12fc7..764afd0 100644
+--- a/tasks/todo.md
++++ b/tasks/todo.md
+@@ -1,2609 +1,56 @@
+-# Black-screen startup regression — 2026-07-27
++# Contract W-A — expose the image runtime we already ship
+ 
+-## Follow-up: stale Vite instance / port drift
++Pinned runtime: stable-diffusion.cpp `master-709-92a3b73`
++= commit `92a3b73cdba6d17efa30689e43857a30582c8b33`.
+ 
+-- [x] Identify the process and source actually served after the error persisted.
+-- [x] Confirm Vite had moved from configured port `5174` to `5175`.
+-- [x] Replace the fixed-port Electron wait/load sequence with one coordinated launcher.
+-- [x] Verify `dev:desktop` uses Vite's resolved URL and mounts the current renderer.
+-- [x] Run release verification and refresh project knowledge.
++## Step 0 — establish the real server field names (done)
+ 
+-### Finding
++Source of truth, read at that exact commit:
+ 
+-The source fix was present both on disk and in the renderer served at `5175`.
+-The old launcher nevertheless waited for and loaded hard-coded port `5174`.
+-When an older Vite process occupied `5174`, the new server automatically moved
+-to `5175` while Electron connected to the older renderer, preserving the exact
+-pre-fix `lazy` initialization error.
+-
+-### Review
+-
+-Fixed at the launcher boundary. With ports `5174` and `5175` deliberately
+-occupied, `dev:desktop` selected `5176`; Electron established its renderer
+-connection to `5176`, and that server exposed the corrected engine module.
+-Closing the Electron process also closed the coordinated Vite instance. The
+-release gate passes all types, lint, conformance, six critical browser/startup
+-scenarios, production builds, and bundle budgets. The external project-graph
+-files configured by the update skill are absent in this desktop environment,
+-so `docs/PROJECT_KNOWLEDGE.md` remains the durable updated graph.
+-
+----
+-
+-- [x] Capture the renderer exception and identify the module initialization fault.
+-- [x] Move every React `lazy` import before its first use.
+-- [x] Add a complete renderer-startup smoke test with page/console error capture.
+-- [x] Run quick/release verification and a real development-mode startup check.
+-- [x] Refresh project knowledge and confirm no commit or push was created.
+-
+-## Review
+-
+-Fixed. The DevTools Autofill protocol warnings were unrelated; all 22 engine
+-indexes used `lazy` before the corresponding React import. Imports now precede
+-execution, conformance rejects that ordering error, and the isolated Electron
+-suite mounts both the complete bundled renderer and the actual Vite development
+-renderer. `npm run verify:release` passes all six browser scenarios plus types,
+-lint, conformance, production builds, and bundle budgets.
+-
+----
+-
+-# Full stability, UX, engine, and feature roadmap — implementation
+-
+-**Started:** 2026-07-27
+-**Constraint:** leave every change uncommitted and unpushed for user review.
+-
+-## Phase 1 — Trust and data safety
+-
+-- [x] Make every engine backup strategy complete, including child-only tables.
+-- [x] Make ZIP export/import fail closed with structured completeness reports.
+-- [x] Preflight archives before mutation and make restore atomic or rollback-safe.
+-- [x] Add Scrapper external-asset inventory, missing-file reconciliation, and explicit backup semantics.
+-- [x] Repair Writings autosave with a serialized awaited save queue and recovery journal.
+-- [x] Add ownership-aware deletion coverage for child rows, caches, and native assets.
+-- [x] Reconcile interrupted media/page-capture jobs at startup.
+-- [x] Use local calendar dates for Writing Stats.
+-- [x] Make entity identity and deep navigation project-aware.
+-- [x] Add storage/load errors and retry states to shared hooks.
+-- [x] Add automated backup, migration, autosave, cascade, and navigation tests.
+-- [x] Add reliable quick/release verification commands and CI gates.
+-- [x] Pin downloaded helper binaries and document supported packaging targets.
+-
+-## Phase 2 — Consistent experience and performance
+-
+-- [x] Heal invalid/disabled engine routes and zero-engine states.
+-- [x] Standardize engine dashboards, modals, keyboard behavior, and error/loading UI.
+-- [x] Add Project Health diagnostics and repair actions.
+-- [x] Add a Project Cockpit for recent work, inbox, goals, failures, and unresolved items.
+-- [x] Centralize one-time initialization and reactive data invalidation.
+-- [x] Lazy-load engine UI and add practical bundle/performance budgets.
+-- [x] Replace full-table global search scans with a project-aware search index.
+-- [x] Add visible backup, save, storage, and native-job progress/status.
+-
+-## Phase 3 — Cross-engine workflows and engine upgrades
+-
+-- [x] Build a canonical project-aware Entity Hub with backlinks and delete impact.
+-- [x] Build the Outline Beat ↔ Scene ↔ Writing narrative spine.
+-- [x] Canonicalize Codex/Relationships and generic entity references.
+-- [x] Expand annotation adapters/surfaces across linkable engines.
+-- [x] Expose dormant Seed, Arc, Map, Gallery, Biography, and Video links.
+-- [x] Add Notes/Diary promotion and research-to-draft actions.
+-- [x] Make Gallery the shared asset source for visual engines.
+-- [x] Add typed cross-engine converters with preview, provenance, and undo.
+-- [x] Add engine conformance checks for schema, locale, backup, resolver, and lifecycle coverage.
+-
+-## Phase 4 — New product capabilities
+-
+-- [x] Add Story Intelligence analytical views.
+-- [x] Add reusable project templates and recipes.
+-- [x] Add research citations and bibliography export.
+-- [x] Expand publishing profiles for manuscript, screenplay, research, biography, and video.
+-- [x] Add a managed external asset vault with relocation and repair.
+-- [x] Add project-grounded AI with citations and privacy controls.
+-- [x] Add secure browser/OS capture integrations.
+-
+-## Final verification and handoff
+-
+-- [x] Run renderer and Electron typechecks.
+-- [x] Run shipping-code lint and automated tests.
+-- [x] Run production renderer/Electron builds and critical desktop smoke flows.
+-- [x] Update this review and `docs/PROJECT_KNOWLEDGE.md`; the configured external graph files were unavailable, so the repository knowledge document is the durable fallback.
+-- [x] Confirm no commit or push was created.
+-
+-## Review
+-
+-Implemented and release-verified.
+-
+-- Trust: complete parent-aware backup strategies, read-only archive preflight,
+-  structured failures, transactional restore rollback, explicit Scrapper
+-  external-asset semantics, serialized autosave with a recovery journal, and
+-  ownership-aware deletion/reconciliation.
+-- Experience: project-aware navigation, route healing, per-engine failure
+-  boundaries, shared hook retry states, storage persistence feedback, lazy
+-  engine chunks, an invalidation-aware search index, and a Project Cockpit with
+-  health checks and safe repairs.
+-- Workflows: canonical project entity links/backlinks, editable
+-  Outline-to-Scene-to-Writing spine, fallback anchors for searchable engines,
+-  Gallery asset reuse, promotion/conversion provenance with undo, citations,
+-  templates, publishing profiles, asset relocation/audit, and opt-in grounded
+-  AI with source IDs and privacy controls.
+-- Quality: helper binaries are version/checksum pinned, the shipping-lint
+-  baseline is empty, conformance covers 22 engines and paired locales, CI runs
+-  the critical Electron tests, and renderer bundle limits are enforced.
+-- Verification: `npm run verify:release` passed, including renderer/Electron
+-  typechecks, zero-fingerprint shipping lint, engine conformance, six isolated
+-  Chromium/IndexedDB and renderer-startup scenarios, production renderer/Electron builds,
+-  and the post-build bundle budget.
+-
+----
+-
+-# Project exploration and knowledge refresh — 2026-07-27
+-
+-- [x] Inventory the repository, instructions, and accumulated lessons.
+-- [x] Map runtime entry points, routing, layout, and engine architecture.
+-- [x] Map domain entities, Dexie schema, state, services, and cross-engine flows.
+-- [x] Map Electron IPC, media integration, build, packaging, and release workflow.
+-- [x] Assess verification coverage, active worktree state, and high-risk areas.
+-- [x] Persist a current project knowledge map for future tasks.
+-- [x] Cross-check the map against the current source and document the review.
+-
+-## Review
+-
+-- Added `docs/PROJECT_KNOWLEDGE.md`, a current-state map of the runtime,
+-  routes, source layout, 22-engine catalog, Dexie v22/46-table persistence
+-  layer, shared registries, major workflows, Electron boundary, extension
+-  checklist, and verification commands.
+-- The map is explicitly based on the current dirty worktree, including the
+-  in-progress Notes/quick-note and Links-to-Scrapper migration. No existing
+-  source change was overwritten or reformatted.
+-- Highest-priority finding: structured ZIP backup is not a reliable full
+-  round-trip. Timeline still assumes a removed legacy path; some generic
+-  strategies list child tables without `projectId`; per-engine errors continue
+-  silently; Scrapper disk assets are not included. No behavior was changed in
+-  this exploration task.
+-- Other recorded priorities: writing last-save durability, uneven cascades and
+-  soft-reference cleanup, project-less/wrong-project global navigation, UTC
+-  writing-stat day boundaries, missing automated tests, incomplete CI gates,
+-  and unpinned external binaries.
+-- Static cross-check: 22 registered engines, 46 typed Dexie tables, 20 engine
+-  entity resolvers, six actual engine anchor adapters, and 21 engines with
+-  backup registration; every engine appears in the catalog.
+-- Verification: renderer TypeScript passed (`tsc -b --noEmit`); Electron
+-  TypeScript passed (`tsc -p electron/tsconfig.json`). Repository-wide ESLint
+-  ran and reported 40 errors / 11 warnings, including active Worldgen code and
+-  archived `_stage`, `_to_delete`, and harness files. These are pre-existing
+-  code/tooling findings; this task changed only Markdown.
+-- The project-graph skill's configured `/sessions/.../.auto-memory` files are
+-  not present in this desktop workspace. The durable in-repository knowledge
+-  document is the safe fallback for future tasks.
+-
+----
+-
+-# Scrapper (Recortes) — descargar el vídeo a local y reproducirlo en el recorte
+-
+-**Date:** 2026-06-24 · Target: **Writers hoard desktop** (Electron, repo primario)
+-
+-## Problema
+-Hoy, al pegar un enlace de Instagram/Twitter/YouTube en Recortes, el recorte guarda **solo el enlace** (metadata + tags). El `SnapshotDetail` muestra la URL y, para YouTube, un `<iframe>` al CDN — nunca descarga el archivo ni lo reproduce desde disco. El usuario quiere: **pego enlace → se descarga el vídeo a local → aparece reproducible en el recorte**.
+-
+-## Lo que ya existe (verificado)
+-- `electron/media/ytdlp.ts` → `downloadMedia(url, 'video'|'audio')` ya descarga a un tempdir y devuelve `{ filePath, filename, sizeBytes, cleanup }`. Plataformas: YouTube, X (Twitter), Instagram, Audiomack.
+-- `electron/media/server.ts` → HTTP `:8765` que hace stream del archivo y luego `cleanup()` (lo borra). No persiste.
+-- `electron/main.ts` → patrón IPC `ipcMain.handle` + `app.getPath('userData')`. **No** hay protocolo custom para servir archivos al renderer (sandbox + `file://`).
+-- `src/engines/scrapper/types.ts` → `Snapshot` sin campos de media local. Índice Dexie `snapshots: 'id, projectId, source, status, createdAt'` → **los campos nuevos no van indexados ⇒ sin migración de versión** (lección #9: no inventar storage de más).
+-- `SnapshotDetail.tsx` / `SnapshotCard.tsx` → render del recorte; `useSnapshots` (makeEntityHook) para CRUD.
+-- `src/utils/platform.ts` → `isDesktop()` para gatear features de escritorio.
+-- Electron **^33.2.1** ⇒ `protocol.handle()` disponible (sirve `file://` vía `net.fetch`, con Range/seeking gratis). Sin meta-CSP en `index.html` que estorbe.
+-
+-## Decisiones de producto (confirmadas con el usuario)
+-- **Descarga automática al capturar** un enlace de plataforma soportada (en segundo plano; reproductor aparece al terminar).
+-- **Formato: vídeo con audio (mp4).**
+-
+-## Decisiones técnicas
+-- **Reproducir local** vía protocolo privilegiado **`wh-media://`** (no blob-en-memoria): `<video controls src="wh-media://media/<projectId>/<file>">`. Soporta seeking y no carga el archivo entero en RAM. (Matiz vs lección #14: el flujo browser-native blob es para descargas one-off de la página media-downloader; aquí es "guardado gestionado y repetido en carpeta de la app", donde el IPC/protocolo nativo es lo correcto.)
+-- **Guardar gestionado** en `<userData>/scrapper-media/<projectId>/<snapshotId>.<ext>` (lo posee la app; se puede limpiar al borrar el recorte). Descarga vía **IPC en main process** (el archivo nunca pasa por el renderer ni por IndexedDB).
+-- **Sin migración Dexie** (campos no indexados).
+-
+-## Plan (checkable)
+-- [ ] 1. **Electron — protocolo + IPC** (`electron/main.ts`):
+-  - `protocol.registerSchemesAsPrivileged([{ scheme: 'wh-media', privileges: { standard, secure, supportFetchAPI, stream } }])` antes de `app.whenReady`.
+-  - Tras ready: `protocol.handle('wh-media', …)` → resuelve a `<userData>/scrapper-media/…`, **valida que la ruta resuelta queda dentro de esa carpeta** (anti path-traversal), devuelve `net.fetch(pathToFileURL(abs))`.
+-  - IPC `media:downloadToLibrary({ url, format, projectId, snapshotId })` → `downloadMedia()` → copia a `scrapper-media/<projectId>/<snapshotId>.<ext>` → `cleanup()` temp → `{ ok, relPath, filename, sizeBytes, kind, error? }`.
+-  - IPC `media:deleteLibraryFile(relPath)` (limpieza al borrar; ruta validada).
+-- [ ] 2. **Bridge** (`electron/preload.ts` + `src/electron-env.d.ts`): exponer `media.downloadToLibrary` y `media.deleteLibraryFile` con tipos.
+-- [ ] 3. **Tipo Snapshot** (`src/engines/scrapper/types.ts`): `localMediaPath?`, `mediaFilename?`, `mediaSizeBytes?`, `mediaKind?: 'video'|'audio'`, `downloadState?: 'idle'|'downloading'|'done'|'error'`, `downloadError?`.
+-- [ ] 4. **Servicio renderer** (`src/services/` p. ej. `scrapperMedia.ts`): `canDownload(source)`, `downloadSnapshotMedia({url,format,projectId,snapshotId})` (gate `isDesktop()`), `snapshotMediaUrl(relPath)` → `wh-media://media/<relPath>`.
+-- [ ] 5. **Auto-descarga al capturar** (`ScrapperEngine.tsx` ArchiveMode): al crear un recorte de fuente descargable en desktop → set `downloadState:'downloading'` → disparar descarga en background → `editSnapshot(id, { localMediaPath, mediaFilename, mediaSizeBytes, mediaKind, downloadState:'done' })` o `{ downloadState:'error', downloadError }`. No bloquea la UI.
+-- [ ] 6. **Reproductor + estado** (`SnapshotDetail.tsx`): si `downloadState==='downloading'` → spinner "Descargando vídeo…"; si `localMediaPath` → `<video controls>` (o `<audio>`); si `'error'` → aviso + botón **Reintentar**. Mantener `<iframe>` YouTube como fallback solo si no hay archivo local. Indicador de estado en `SnapshotCard.tsx`.
+-- [ ] 7. **Limpieza al borrar**: en el borrado del recorte, si hay `localMediaPath` → `deleteLibraryFile`.
+-- [ ] 8. **i18n** (`locales/en.ts` + `locales/es.ts`): claves `scrapper.downloading`, `downloadFailed`, `retryDownload`, `localVideo`, etc. Backfill en **ambos** locales (lección #11). Sin native prompts (lección #12).
+-- [ ] 9. **Verificación** (lección #1): `npx tsc -b --noEmit` (renderer) + `npm run typecheck:electron` + `npm run lint`. Si aparecen errores de truncación JSX en masa → comprobar mount stale por `stat` antes de tocar nada (lección #13). **Sin commit** — se deja para revisión (feedback: no-autocommit).
+-
+-## Riesgos / notas
+-- Descargas grandes: la auto-descarga puede tardar/ocupar espacio; el estado `downloading` y el botón Reintentar lo cubren. (Futuro: ajuste para desactivar auto-descarga, o límite de tamaño.)
+-- Backups (`zipBackup`): los vídeos NO se incluyen por ahora (pueden ser cientos de MB). Anotar como decisión; reconsiderar con externalización de assets.
+-- Web build (no Electron): `isDesktop()` falso ⇒ se mantiene el comportamiento actual (solo enlace). Sin regresión.
+-
+-## Review (2026-06-24)
+-
+-### Archivos nuevos (1)
+-1. `src/services/scrapperMedia.ts` — `canDownloadMedia(source)`, `downloadSnapshotMedia()` (IPC), `deleteSnapshotMedia()`, `snapshotMediaUrl(relPath)` → `wh-media://media/…`, y `runSnapshotDownload(snapshot, update, format)` (ciclo completo descargando→done/error; nunca lanza).
+-
+-### Archivos modificados (8)
+-1. `electron/main.ts` — esquema privilegiado `wh-media://` + `protocol.handle` (sirve `<userData>/scrapper-media` vía `net.fetch(file://)`, con guarda anti path-traversal `resolveLibraryPath`); IPC `media:downloadToLibrary` (downloadMedia → copia a `<projectId>/<snapshotId>.<ext>` → cleanup) y `media:deleteLibraryFile`.
+-2. `electron/preload.ts` — `media.downloadToLibrary` + `media.deleteLibraryFile` (+ `DownloadToLibraryResult`).
+-3. `src/electron-env.d.ts` — tipos de los dos métodos nuevos.
+-4. `src/engines/scrapper/types.ts` — `Snapshot`: localMediaPath, mediaFilename, mediaSizeBytes, mediaKind, downloadState, downloadError (sin migración Dexie).
+-5. `src/engines/scrapper/components/ScrapperEngine.tsx` — `handleCapture` (auto-descarga tras persistir) + `handleDelete` (limpia el archivo).
+-6. `src/engines/scrapper/components/SnapshotDetail.tsx` — reproductor `<video>/<audio>` (wh-media://) + estados descargando/error+reintentar; YouTube embed como fallback.
+-7. `src/engines/scrapper/components/SnapshotCard.tsx` — indicador de estado (descargando / reproducible / error).
+-8. `src/locales/en.ts` + `es.ts` — 4 claves `scrapper.*` en ambos locales.
+-
+-### Verificación
+-- ✅ Revisión cruzada por subagente vía Read tool (archivos reales) + node_modules: APIs de Electron 33 (`registerSchemesAsPrivileged`/`protocol.handle`/`net.fetch`/`Response` global con @types/node) correctas; iconos lucide 0.575 existen; firmas preload↔electron-env.d.ts↔scrapperMedia coherentes; ternario JSX balanceado; sin imports sin usar; paridad de claves locales 4/4. **Sin defectos.**
+-- ⚠️ **tsc/lint NO ejecutados**: el mount bash del sandbox volvió a quedar stale/corrupto a mitad de sesión (lección #13: `main.ts` visto con fecha del 19-jun, `package.json` leído como JSON corrupto). No se actuó sobre esos falsos errores.
+-- ▶️ **Acción del usuario (Windows):** `npx tsc -b --noEmit` · `npm run typecheck:electron` · `npm run lint`; luego `npm run dev:desktop` y probar: pegar un reel de Instagram en Recortes → ver "Descargando…" → reproductor al terminar; borrar → archivo eliminado de `<userData>/scrapper-media`.
+-- 🚫 Sin commit (no-autocommit) — para revisión.
+-
+-### Notas
+-- Requiere el binario yt-dlp (`npm run fetch:bin`) — ya parte del flujo desktop existente.
+-- 100% desktop: sin ramas web ni inclusión en backups (por decisión del usuario).
+-
+-## Update — blindaje CPU/procesos (2026-06-24)
+-
+-**Motivo:** al guardar un reel, pico de CPU (ffmpeg muxando) y riesgo de procesos huérfanos si se cierra la app a media descarga. (Nota: el "97%" que se vio era un pico transitorio; en Detalles, System Idle Process 79% = CPU al ~21%.)
+-
+-**Cambios:**
+-- `electron/media/ytdlp.ts` — `downloadMedia(url, format, signal?)`; `runProcess` baja prioridad (`os.setPriority` BELOW_NORMAL), escucha `AbortSignal` y, al abortar, mata el **árbol** de procesos (`taskkill /pid <pid> /T /F` en Windows — mata yt-dlp **y** su ffmpeg hijo), y rechaza con `'cancelled'`.
+-- `electron/main.ts` — `activeDownloads: Map<snapshotId, AbortController>`; **cola de concurrencia 1** (`enqueueDownload`) para no spawnear descargas en paralelo; guard anti-duplicado; IPC `media:cancelDownload`; `abortAllDownloads()` en `will-quit` (no quedan huérfanos al cerrar).
+-- `electron/preload.ts` + `src/electron-env.d.ts` — `media.cancelDownload(snapshotId)`.
+-- `src/services/scrapperMedia.ts` — `cancelSnapshotDownload()`; `runSnapshotDownload` trata `'cancelled'` (→ `idle`) y `'already downloading'` (no-op) sin marcar error.
+-- `src/engines/scrapper/components/SnapshotDetail.tsx` — botón **Cancelar** mientras descarga.
+-- `src/locales/en.ts` + `es.ts` — `scrapper.cancelDownload`.
+-
+-**Verificación:** revisión vía Read (APIs Node/Electron: `os.setPriority`/`os.constants.priority`, `AbortController`/`AbortSignal.addEventListener`, `taskkill`; cola sin fugas; tipos preload↔d.ts↔servicio; paridad locales 5/5). El mount bash siguió stale → **correr en Windows** `npx tsc -b --noEmit` · `npm run typecheck:electron` · `npm run lint`. Sin commit.
+-
+-## Update — miniaturas de vídeo en las tarjetas (2026-06-24)
+-
+-**Motivo:** la tarjeta solo mostraba la URL; no se distingue qué reel es.
+-**Cambio:** `src/engines/scrapper/components/SnapshotCard.tsx` — si hay `localMediaPath` (vídeo), la tarjeta muestra un `<video muted preload="metadata">` con el fotograma a `#t=0.5` como miniatura + overlay `PlayCircle`; fallback al `thumbnail` base64 (entradas manuales). Reutiliza `snapshotMediaUrl` y el archivo ya descargado → **cubre también los recortes existentes** sin tocar backend ni almacenar pósters. Sin commit.
+-
+-**Ajuste (a petición):** mostrar la miniatura **entera en cualquier formato** (vertical/horizontal/cuadrado) → contenedor `h-56` con fondo neutro + `object-contain` (antes recortaba con `object-cover`/`aspect-[9/16]`). Grid a `grid-cols-2 md:3 lg:4`.
+-
+-## Update — etiquetas (UX) (2026-06-24)
+-
+-- **Guardado fiable:** `TagInput` confirma la etiqueta en curso en `onBlur` (antes solo con Enter → se perdía al pulsar Hecho).
+-- **Separación por coma:** teclear o pegar `,` divide en varias etiquetas (`commitInput` hace split).
+-- **El modal ya no se cierra al guardar:** `ScrapperEngine` ArchiveMode mostraba el spinner global en cada refresh y desmontaba el modal → ahora `loading && snapshots.length === 0` (solo carga inicial). Ver lección #16.
+-- **Autocompletado:** `TagInput` recibe `suggestions`; dropdown (hacia arriba, `onMouseDown` para no perder foco) con las etiquetas existentes que coinciden, navegable con flechas/Enter/Escape. `ScrapperEngine` computa `allTags` (únicas del proyecto) → `SnapshotCard` → `SnapshotDetail` → `TagInput`.
+-- **Búsqueda por etiquetas:** `filteredSnapshots` ahora incluye `s.tags.some(...)` además de título/url/notas/texto.
+-- **Autocompletado en el buscador:** el input de búsqueda muestra el mismo dropdown de etiquetas (reutiliza `allTags`, excluye el término exacto para cerrarse al elegir); al seleccionar, `setSearchQuery(tag)` filtra por ella.
+-- **Campo Descripción:** nuevo `description?: string` en `Snapshot` + textarea en `SnapshotDetail` (guardado `onBlur`) **encima de Notas** + claves `scrapper.description(.Placeholder)` en ambos locales.
+-- **Autorrelleno desde el reel:** al descargar, `yt-dlp --write-info-json` → `ytdlp.ts` lee el sidecar y devuelve `MediaMetadata` (description/uploader/uploadDate/title); el bridge (`DownloadToLibraryResult`) lo propaga; `runSnapshotDownload` rellena `description` (caption), `author` y `publishDate` (YYYYMMDD→ISO) **solo si están vacíos** (no pisa ediciones del usuario). Best-effort, y solo en descargas **nuevas** (no retroactivo a recortes ya guardados). NOTA: cambios en `electron/` requieren reiniciar `dev:desktop` (rebuild del main), no basta `Ctrl+R`.
+-- **Descripción legible:** el textarea de Descripción auto-crece con el contenido (`useRef`+`useEffect`, cap 360px, luego scroll) + `leading-relaxed`. Solo renderer (basta `Ctrl+R`).
+-
+-## Update — fotos y carruseles de Instagram (gallery-dl) (2026-06-24)
+-
+-**Motivo:** yt-dlp solo baja vídeos ("There is no video in this post"); fotos/carruseles requieren login.
+-**Enfoque:** para Instagram, `downloadToLibrary` intenta yt-dlp (vídeo, anónimo); si falla → **gallery-dl** con `--cookies-from-browser` (prueba Firefox/Chrome/Edge/Brave/…) y baja la foto o el carrusel a `scrapper-media/<projectId>/<snapshotId>/`.
+-
+-**Archivos:** `scripts/fetch-ytdlp.mjs` (baja también gallery-dl); `electron/media/gallerydl.ts` (NUEVO — prueba navegadores, `-D`+`--write-metadata`, lista imágenes/vídeos, extrae description/uploader/date, prioridad baja+cancelación+tree-kill); `ytdlp.ts` exporta `killProcessTree`; `main.ts` (fallback yt-dlp→gallery-dl, `items[]`+`kind 'image'`, `deleteLibraryFile` recursivo); bridge `MediaItemRef`+`items[]`; `types.ts` (`mediaItems[]`, `mediaKind 'image'`); `scrapperMedia.ts` (mapea items, `deleteSnapshotMedia(snapshot)` deriva archivo/carpeta); `MediaGallery.tsx` (NUEVO — carrusel); `SnapshotDetail.tsx` (usa galería); `SnapshotCard.tsx` (miniatura 1er item + badge nº).
+-
+-**Verificación:** subagente vía Read (A–H) → sin errores de tipos/lint; bridge coincide a 3 bandas; `mediaItems` persiste en Dexie.
+-
+-**Prueba en Windows (no testeable en sandbox):** (1) `npm run fetch:bin` (baja gallery-dl); (2) reiniciar `npm run dev:desktop` (rebuild del main); (3) **Instagram logueado** en Firefox/Chrome/Edge/Brave; (4) capturar un post de fotos/carrusel.
+-
+-**Riesgos:** depende de cookies del navegador; si ninguno tiene sesión IG → error claro. Carrusel mixto (vídeo+foto): si yt-dlp baja el vídeo, no se llega a gallery-dl. Sin commit.
+-
+-## Update — login de Instagram embebido (2026-06-24)
+-
+-**Motivo:** depender de cookies de un navegador externo es frágil; mejor sesión propia en la app.
+-**Enfoque:** ventana de Instagram embebida (NO usuario/contraseña). El usuario inicia sesión normal (2FA incluido) en una `BrowserWindow` con `partition: 'persist:instagram'`; al detectar `sessionid` se exportan las cookies a Netscape `cookies.txt` en userData. yt-dlp y gallery-dl reciben `--cookies <file>` (gallery-dl mantiene `--cookies-from-browser` como respaldo). La contraseña nunca toca el código.
+-
+-**Archivos:** `electron/media/igAuth.ts` (NUEVO — `openIgLogin`/`exportIgCookies`/`igStatus`/`igLogout`/`igCookiesPath`, UA de Chrome); `ytdlp.ts`+`gallerydl.ts` aceptan `cookiesFile`; `main.ts` (refresca cookies antes de cada descarga, IPC `ig:login`/`ig:status`/`ig:logout`); bridge `instagram` en preload/env; `InstagramConnect.tsx` (NUEVO — botón Conectar/Desconectar con estado) en la cabecera de Recortes.
+-
+-**Verificación:** subagente vía Read + electron.d.ts (A–H) → APIs `session`/`cookies`/`BrowserWindow` correctas, bridge coincide, JSX balanceado, sin errores.
+-
+-**Prueba en Windows:** (1) `npm run fetch:bin`; (2) reiniciar `npm run dev:desktop`; (3) en Recortes → **Conectar Instagram** → iniciar sesión en la ventana → queda "Instagram ✓"; (4) capturar un post de fotos. **No testeable en sandbox** (login real). Riesgo: IG puede pedir verificación/captcha en el webview. Sin commit.
+-
+-Verificación: revisión cruzada por subagente vía Read (flujo de tipos `tagSuggestions?`, `React.KeyboardEvent` en scope, JSX balanceado, paridad de locales, autocomplete y filtro) → sin errores. Mount stale → typecheck/lint en Windows. Sin commit.
+-
+----
+-
+-# Full Audit — 2026-07-11
+-
+-Auditoría completa + mejoras en 5 oleadas (continúa la sesión del audit anterior que quedó a medias por el mount stale). **Verificación esta vez vía Desktop Commander (shell real de Windows)**: `tsc` renderer **0 errores**, `tsc` electron **0 errores**, ESLint **71 problemas → 0 errores / 2 warnings** (preexistentes e intencionados: `useEnsureDefault`, `GoogleDocsPicker`), paridad de locales **931/931**.
+-
+-## Oleada 0 — verificación de la sesión anterior
+-- Fixes de factories (`makeEntityHook` + race guards) y migraciones timeline/writings de la sesión anterior: **compilan limpio** (el mount saboteó su verificación, no su código).
+-- `RelationshipsEngine.tsx:138` (error de tipo preexistente): `onDelete` ahora es `(id) => void` (abre ConfirmDialog, no promesa).
+-
+-## Oleada 1 — bugs y pérdida de datos (CRÍTICOS)
+-1. **`deleteProject` reescrito genérico** (`db/operations.ts`): antes borraba solo las 13 tablas originales y dejaba huérfanas ~25 tablas de engines (fugaban a búsqueda global y backlinks para siempre). Ahora barre TODA tabla con índice `projectId` (cubre engines futuros) + hijos sin índice (`yarnEdges`, `sceneCasts`, `storyboardConnectors`, `brainstormConnections`, `annotationReferences`) vía padres. También limpia la carpeta de media descargada (`cleanupProjectMedia`).
+-2. **Borrar proyecto pedía 0 confirmaciones** (un clic en el icono papelera = proyecto entero fuera). Ahora `ConfirmDialog` destructivo con nombre del proyecto + toast.
+-3. **Editor de Writings: autosave completo.** Antes: cambiar de engine por la sidebar descartaba TODO lo no guardado. Ahora: autosave con debounce 1.2s, flush en unmount/Back/Ctrl+S/beforeunload, indicador Guardado/Sin guardar, sesión de escritura registrada (ver Oleada 4).
+-4. Confirmaciones añadidas: borrar writing, borrar entrada de codex.
+-5. Diario: **Back guarda** si hay cambios (antes descartaba en silencio); entrada nueva y vacía no crea basura.
+-6. `useProjects`/`useProject` con guards del factory (el dashboard ya no parpadea el spinner al recolorear).
+-7. `dialog-scene/hooks` migrado al factory (cast + beats); `annotations/hooks` con seq/mounted guards (notas de A ya no aparecen en B al cambiar rápido).
+-8. **Sistema de toasts** (`components/common/toast.tsx` + host en MainLayout) y **eliminados los 8 `alert()`/`prompt()` nativos** (Dashboard ×4, TiptapEditor, FactEditor, ManualSnapshotModal, SprintTimer) — la clase exacta del data-loss del Timeline (lección #12).
+-9. `AiToolbar`: `useState` condicional (crash real si se activaba la IA con el panel montado) → hoisted.
+-10. `TiptapEditor`: `ToolButton` a module scope (los botones se remontaban en cada tecla); link por formulario inline, no `prompt()`.
+-11. `GoalSetter`: mutaba los goals de props en sitio → objetos nuevos; ids via `generateId`; reskin dark.
+-12. Electron: **IPC `fs:readFile/writeFile` eliminados** (path arbitrario sin validación, 0 callers — pura superficie de ataque); **CORS del media server restringido** (antes `*`: cualquier web podía lanzar yt-dlp local); **persistencia de ventana** (tamaño/posición/maximizado en `window-state.json`, con sanity check multi-monitor).
+-13. Import/export: `importFullDatabase` legacy limpia TODAS las tablas (antes 15 → huérfanos tras restore); export de proyecto de la sidebar ahora es **ZIP completo por registry** (el JSON antiguo perdía ~25 tablas silenciosamente); import de proyecto acepta `.zip` con semántica restore-in-place (borra copia local + reimporta con ids originales).
+-
+-## Oleada 2 — redundancia
+-- `src/utils/text.ts`: `countWords`/`stripHtml` únicos (había 4 implementaciones con 2 algoritmos que **daban cuentas distintas**; `split(' ')` contaba mal espacios múltiples). Adoptado en writings, googleDocsHtmlCleaner, chronometry, pov-audit, diary EntryCard, biography FactCard/NarrativeView.
+-- 6 archivos muertos borrados (`useCodexEntries`, `useGallery`, `useMaps`, `useExternalLinks`, `useDownloadFolder`, `cropImage`) — por fin, vía shell real.
+-- `writing-stats` completo al sistema de tokens (era el único engine en tema claro) + i18n de SprintTimer/GoalSetter.
+-- ids ad-hoc → `generateId` (ConnectorEditor, GoalSetter).
+-
+-## Oleada 3 — UX (integrada en las demás)
+-- Crear writing/entrada de codex **abre lo creado** (antes te dejaba en la lista a buscarlo).
+-- **Ctrl+S** guarda, **Esc** sale del modo concentración; **modo concentración** (oculta AI toolbar + margen, columna centrada).
+-- Toasts de éxito/error en import/export/borrados.
+-- Codex: tipos traducidos (el shadowing de `t` en el filtro renderizaba claves en inglés), filtro "Todos".
+-
+-## Oleada 4 — features nuevas
+-1. **Compilar manuscrito** (`writings` → botón "Compilar"): selección/orden de escritos, portada y sinopsis opcionales → **Markdown / HTML imprimible / PDF real** (reusa el pipeline `export:scriptToPdf` de Electron). `manuscriptExport.ts` incluye conversor HTML→MD afinado al output de Tiptap.
+-2. **Export Fountain** (`dialog-scene` → botón "Fountain"): guion completo en el formato estándar que abren Final Draft/Highland/Fade In — slug/action/dialog/parenthetical/transiciones/dual dialogue (`^`)/notas `[[…]]`/escenas OMITTED. Cierra el residual del Dialog Engine feedback.
+-3. **Historial de versiones de writings** (Dexie **v18**, tabla `writingSnapshots`): snapshot automático al abrir cada sesión de edición + manuales + pre-restore (restaurar es reversible); poda a 25; UI con preview/restaurar/borrar; incluido en backup ZIP y en el cascade de borrado. TiptapEditor ahora sincroniza contenido externo (restore) sin pelear con el cursor.
+-4. **La escritura real alimenta writing-stats** (`services/writingActivity.ts`): el flush del autosave acumula palabras+tiempo en una sesión `freewrite` diaria por proyecto — antes solo contaba el sprint timer y escribir horas en el editor no movía metas/racha.
+-
+-## Oleada 5 — interconectividad
+-1. **Red del personaje** en el detalle de codex (`CharacterConnections.tsx`): arcos, relaciones (con emoji del tipo) y escenas donde aparece, con salto a cada engine. Antes esos vínculos existían en datos pero eran invisibles desde el personaje.
+-2. **Búsqueda global por CONTENIDO** (`useGlobalSearch`): además de títulos, busca dentro de writings/codex/diario/diálogos con snippet «…contexto…» (filtro barato sobre HTML crudo, stripHtml solo en matches); debounce 160ms; deduplicado contra matches de título.
+-3. **Fallback de navegación** en Cmd+K: engines sin anchor-adapter ahora navegan a su pestaña del proyecto (antes el clic no hacía nada).
+-4. i18n del indicador de beats vinculados en escenas.
+-
+-## Lint: 71 → 0 errores
+-Incluye: render-adjust pattern en ColorPicker/IconPicker/GlobalSearch/ScriptAutocomplete/ConnectorEditor/VideoPlanView/MarginPanel; `useHydratedList` con estado vacío derivado; memos manuales que hacían bail-out del compiler eliminados (InspirationGallery, GettingStartedChecklist, PovAudit `NO_ROWS`); disables documentados solo para falsos positivos (Date.now() en handlers ×4, resolveIcon, module-singleton del toast, constantes de guion).
+-
+-## Pendientes sugeridos (no bloqueantes)
+-- Seeds: picker de `linkedWritingId` (metadato aún sin UI).
+-- Timeline events ↔ escenas (campo + picker).
+-- Montar `AnnotationSurface` en más engines (timeline, dialog-scene, outline, diary).
+-- Migrar los 6 dashboards forked a `CollectionDashboard` extendido (`renderThumbnail`/`getSubtitle`).
+-- Esc/backdrop en los modales hand-rolled restantes (BeatEditor, FactEditor, SegmentEditor, BrainstormItemEditor) o migrarlos a `<Modal>`.
+-- `@`-menciones en Tiptap hacia codex (extensión Mention).
+-
+-**▶️ Prueba manual sugerida:** `npm run dev:desktop` → (1) borrar un proyecto de prueba (confirma + toast, sin huérfanos); (2) escribir en un writing, navegar fuera sin guardar y volver (texto intacto), Ctrl+S, historial→restaurar; (3) Compilar→PDF; (4) Recortes→Fountain en un proyecto con escenas; (5) Cmd+K buscando una frase escrita dentro de un capítulo. 🚫 **Sin commit** (no-autocommit) — todo queda para revisión.
+-
+----
+-
+-# Worldgen multiscale world — full implementation
+-
+-**Started:** 2026-07-27
+-**Constraint:** preserve the current dirty worktree and leave all changes uncommitted/unpushed.
+-
+-## Specification
+-
+-- A generated spatial feature keeps one deterministic identity across the world,
+-  regional sheet, 2D map, 3D map, Atlas, reloads, and render resolutions.
+-- Generated terrain and regional tiles remain derived/cacheable. Persistence
+-  stores only saved region definitions and compact user overrides.
+-- Rename, hide/remove, restore, move, and symbol/style changes resolve through
+-  one shared entity model before any renderer sees a feature.
+-- 2D and 3D use the same selection contract and inspector; renderer-specific
+-  copies of editing logic are not allowed.
+-- Dynamic resolution is split into screen DPR, mesh density, and semantic data
+-  detail. Increasing the base world grid is not the close-range LOD strategy.
+-- Regional generation is cancellable and runs outside the renderer thread
+-  before it is driven automatically by viewport changes.
+-- Existing serialized worlds and edits remain readable.
+-
+-## Phase 1 — Spatial identity and editing
+-
+-- [x] Add first-class landmark and regional-place edit targets with backward-compatible serialization.
+-- [x] Add deterministic spatial keys and one resolved spatial-entity model.
+-- [x] Apply landmark overrides consistently in Atlas, 2D, 3D, and regional views.
+-- [x] Add shared selection/inspector UI with rename, symbol/style, move, hide, restore, and linking entry point.
+-- [x] Add generated-landmark hit testing and placement tools in 2D.
+-- [x] Render and select the same landmarks in 3D.
+-
+-## Phase 2 — Saved regions and regional generation
+-
+-- [x] Add lightweight saved-region definitions to world persistence.
+-- [x] Make regional sheets renameable, bookmarkable, searchable, and reopenable.
+-- [x] Give regional places resolution-independent source keys.
+-- [x] Fix margin-aware regional pointer conversion.
+-- [x] Add selection/editing for regional places.
+-- [x] Move regional generation to a cancellable worker with an LRU cache.
+-
+-## Phase 3 — Multiscale rendering
+-
+-- [x] Introduce a parent-owned world viewport shared by 2D, 3D, and regional sheets.
+-- [x] Add semantic zoom tiers and progressive regional overlays to 2D.
+-- [x] Feed close-range regional elevation/surface data into 3D.
+-- [x] Add adaptive DPR/mesh quality with frame-budget hysteresis.
+-- [x] Preserve focus and selected spatial entity when switching views.
+-
+-## Phase 4 — Cross-engine place foundation
+-
+-- [x] Expose Worldgen spatial entities through project-aware entity resolution.
+-- [x] Add exact reveal actions for 2D, 3D, and regional sheets.
+-- [x] Let the Maps engine consume live Worldgen-backed maps/places without breaking uploaded maps.
+-- [x] Add reusable entity-link affordances for Codex, scenes, writings, and timeline consumers.
+-
+-## Verification and review
+-
+-- [x] Add regression tests for landmark edit persistence and regional identity.
+-- [x] Add cancellation/cache tests for regional generation.
+-- [x] Run renderer and Electron typechecks.
+-- [x] Run shipping lint, conformance, and critical tests.
+-- [x] Run production builds and the real renderer-startup smoke test.
+-- [x] Review the complete diff for accidental overlap with pre-existing work.
+-- [x] Refresh the project knowledge graph and document results here.
+-- [x] Confirm no commit or push was created.
+-
+-## Review
+-
+-- Google Maps-style semantic zoom now moves through planetary, continental,
+-  regional, and local tiers with hysteresis, feature visibility rules, label
+-  budgets, deterministic decluttering, and progressive regional overlays.
+-- Global landmarks and generated regional places share deterministic identities
+-  and sparse overrides for rename, move, symbol/style, label visibility, hide,
+-  and restore across Atlas, 2D, 3D, and regional sheets.
+-- Saved regions persist as lightweight bookmarks; regional data is generated in
+-  a cancellable worker, cached with an LRU, and blended into 2D and 3D without
+-  blocking or replacing the last usable view.
+-- Worldgen locations resolve through project search/navigation, link to Codex,
+-  scenes, writings, and timeline events, and synchronize into provenance-aware
+-  Maps records without changing uploaded maps.
+-- Release verification passed after implementation: renderer/Electron
+-  typechecks, shipping lint, 22-engine conformance, 11 critical browser/WebGL
+-  tests, production renderer/Electron builds, and bundle budgets.
+-- Manual validation exposed and fixed a cold-route race: `ProjectDetail`
+-  previously rejected `/worldgen` while the project hook still held its initial
+-  empty engine list, silently replacing the route with `/overview`. The startup
+-  harness now seeds a persisted project/world and asserts the real lazy
+-  Worldgen route remains mounted after asynchronous hydration.
+-- The configured session-memory graph path was unavailable on this Windows
+-  host, so the repository's current-state architecture companion
+-  `docs/PROJECT_KNOWLEDGE.md` was refreshed with the same Worldgen and Maps
+-  invariants.
+-- The worktree was reviewed with `git diff --check`; all work remains uncommitted
+-  and unpushed for user review.
+-
+----
+-
+-# Worldgen close-zoom 3D blackout
+-
+-**Started:** 2026-07-27
+-
+-- [x] Reproduce and profile the close-zoom transition in the real World3D path.
+-- [x] Fix camera/LOD/detail synchronization so close zoom cannot render black.
+-- [x] Bound expensive work triggered by wheel and regional-detail updates.
+-- [x] Add a regression test for close camera distances and repeated zoom events.
+-- [x] Run the full release gate and document the verified result.
+-
+-## Review
+-
+-- The blackout was a CPU/GPU terrain mismatch: regional elevation displaced
+-  vertices in the shader, but camera clearance still sampled only base terrain.
+-  The shared CPU sampler now reproduces the regional blend and keeps plane and
+-  globe cameras outside the rendered surface.
+-- Close interaction keeps one stable mesh preset, bounds automatic adaptation
+-  to DPR, caps projected labels, throttles viewport propagation, and waits for a
+-  settled, padded viewport before requesting regional detail.
+-- WebGL context loss stops the 3D frame pump and presents the functional 2D
+-  sculptor instead of leaving a black viewport.
+-- The regression suite now traverses 32 decreasing camera distances, verifies
+-  finite UV windows and terrain clearance, checks seam-wrapped detail, prevents
+-  redundant geometry rebuilds, reads back visible WebGL pixels, and starts the
+-  real Vite regional worker.
+-- `npm run verify:release` passes: renderer and Electron typechecks, shipping
+-  lint, 22-engine conformance, 12 critical browser/WebGL tests, production
+-  renderer/Electron builds, and bundle budgets.
+-- The configured session-memory graph directory is unavailable on this host;
+-  `docs/PROJECT_KNOWLEDGE.md` was updated as the repository architecture
+-  companion. No commit or push was created.
+-
+-# Worldgen: one world, one camera, one zoom — Google-Maps rework
+-
+-**Started:** 2026-08-01 · **Approval:** full P4 + "magnum opus" mandate
+-**Constraint:** working tree only (no commits/pushes on this machine); every
+-increment individually verified in the container gate (tsc app + eslint 0
+-warnings) plus numeric harnesses and eyeballed PNGs before delivery.
+-
+-## P0 — ride-alongs
+-
+-- [x] CartoMap dropped-settle fix (pending-render ref, rAF finally re-run).
+-- [x] Baseline harness: PNGs + timings for carta/satellite/region/3D (A/B reference).
+-
+-## P1 — one camera + navigation
+-
+-- [x] `core/camera.ts`: single EARTH_KM=40075 (view-side only; region noise keeps
+-      its frozen 40030.17), viewport⇄carta conversions, clamps, `flightAt`
+-      (log-span, parabolic bow, seam short-way), `doubleClickTarget`.
+-- [x] Carta adopts the shared `WorldViewport` (adopt/report, 180 ms debounce,
+-      echo-break epsilon); wheel/pointerdown cancel flights.
+-- [x] Double-click = animated zoom-to-point in all three views.
+-- [x] Region modal off the navigation path: sheet = export/bookmark, "volar aquí".
+-
+-## P2 — scale-canonical region engine
+-
+-- [x] `region/tiles.ts`: canon pinned to the world grid (128@2048 ≈ 152.7 m/cell),
+-      supertile 4×4 world cells (~78 km), 640² grid (512² interior + 64 apron),
+-      exact origins, x-wrap.
+-- [x] Origin-seeded RNGs dead (abbey → wrapped 1/256-lattice hash — also fixed a
+-      latent `i += 3` stride bug; render RNG → tile id).
+-- [x] `region/tileClient.ts`: nearest-first cover, ≤1024² composites, interior-only
+-      cell-exact copy, stream/track remap, dedup.
+-- [x] Verified: byte-equal regen per id, overlap equality across request shapes,
+-      A/B canon-vs-today PNGs, ms/MB recorded.
+-
+-## P3 — resolution-independent edits + live painting
+-
+-- [x] Serialization 1/256 cell (identity on legacy quarter-grid points; corpus
+-      replay byte-identical at L0).
+-- [x] Canon edit replay: worker gets PRISTINE elevation + edit list, re-applies
+-      sculpt ops at canon res (`region/canonEdits.ts`) — no double application.
+-- [x] Live stroke preview in 2D (all tools) and 3D trail preview; sub-cell radii
+-      legal (km-labelled slider, min 0.125 cell).
+-- [x] Painted rivers carved at canon; biome cover overlay honours eraser contract.
+-
+-## P4 — display-tile pyramid (slice 1 + tramo 2 in progress)
+-
+-- [x] `cartography/tiles.ts` + `tileStore.ts`: 256 px tiles z2–z8, worker-rendered
+-      (OffscreenCanvas), parent-fallback compositor in CartoMap gestures —
+-      blurry-then-sharp, never blocking. Labels/furniture stay screen-space.
+-- [x] World-anchored paper grain: `PaperOptions.anchor` samples the level's
+-      virtual whole-sheet coordinates; vignette skipped for tiles. Tonal step
+-      across joins measured Δ mean luminance **0.00** (was a visible band).
+-- [x] Position-keyed ink: wobble noise hashed from WORLD position (coast +
+-      lakes), paper tooth hashed from virtual-sheet pixel, tone lattice
+-      phase-aligned to the level. New harness assert: a tile is pixel-equal to
+-      its half of a monolithic render — 0.005/0.012 mean |Δ| (residue is
+-      Skia clip-AA on edge-crossing glyphs, documented; every LOGIC leak
+-      measures 0.000 exactly).
+-- [x] Culling: coast X+Y, lakes, river bbox, road bbox, windowed borders
+-      (O(view) instead of O(grid)) — borders+roads tile cost 34→17 ms.
+-      Relief/forest cull pads now cover the tallest glyph (edge-pop fix).
+-- [x] DEEP ZOOM GROUNDWORK (the renderer side): the pliego renderer now inks
+-      identically in any window over the same ground — vegetation on a global
+-      hash lattice (position + private per-symbol shape streams), furrows by
+-      parcel centroid, buildings by place identity, fixed contour interval
+-      per level, dash phase carried through window cuts, window-cut chains
+-      exempt from speckle culls, cartouche off tiles, paper level-anchored.
+-      Plus `region/composeWindow.ts`: exact canon-lattice window composer
+-      (with fields/hedges/dykes; streams/ways smoothed once in cell space
+-      before clipping). Root-cause bonus: chain stitching in contours.ts was
+-      forward-only and split chains at scan-order seeds — now bidirectional,
+-      which also removes latent split-kinks from every pliego/carta line.
+-      Measured: two overlapping windows, shared ground mean |Δ| **0.001**
+-      (was 2.262), one hot pixel; 2×2 mosaic seam == off-seam; 120-195 ms
+-      per 256px tile with canon warm; pliego A/B clean (line realization
+-      only). Harness: harness-p4/deep-tiles.ts.
+-- [x] Deep zoom WIRED (region/deepTile.ts + worker branch + CartoMap):
+-      z10-z12 tiles draw the canon countryside pliego-style — canon supertile
+-      LRU (cap 3) per worker session, exact-window compose, strokes re-applied
+-      at canon over the PRISTINE world (CartoMap gets canonWorld/canonEdits
+-      from WorldView's canonSource; carta levels keep the edited raster).
+-      MAX_TILE_Z=12 (~38 m/px), contour ladder 100/50/25 m per level, camera
+-      cap derived from the ladder (z12 with canon behind it, z9 without —
+-      the camera stops where the data stops). Verified on the SHIPPING
+-      renderDeepTile: adjacent z11 tiles join, cache reuse, 220-250 ms warm;
+-      window-identity 0.001 remains the hard proof. Style handover at z9/z10
+-      = the existing parent-fallback fade (carta blurs up, sheet sharpens in).
+-- [x] Deep zoom polish: regional place NAMES ride the tile replies (interior-
+-      only, no dedup needed) and are lettered live under their buildings
+-      (declutter budget 64, town/village/rest type ramp); world settlement
+-      MARKS stand down at deep z. Verified end-to-end in deep-tiles §4
+-      ("Majada de Iesgiring" reported with world coords).
+-- [x] Pool session AFFINITY: a busy session matching the requested world is
+-      waited for, never duplicated (a z10 burst used to clone a second 80 MB
+-      world and regenerate the same canon ground twice); two different worlds
+-      still coexist under the cap. pool-test: 1 spawn per 14-burst, warm
+-      reuse on return.
+-- [x] SATELLITE WINDOW (Map2D atlas): past 2.5× the settled view renders one
+-      pixel per screen pixel — bilinear fields, per-pixel hillshade, sub-cell
+-      coastline, land colours never bleed ocean blue. Kills the 28× nearest-
+-      neighbour cliff on the primary painting surface. Identity at 1:1 vs the
+-      cell raster: mean |Δ| 0.07. (satwin-test + satwin-live in Chromium.)
+-- [x] LIVE TERRAIN SCULPT on the satellite: terrain/land strokes run the same
+-      SculptGesture as 3D/sculptor — ground deforms under the brush per move
+-      (palette dirty-rect + sharp-window subrect on the same sample lattice),
+-      rollback-then-commit on release. Chromium: corridor Δ20.4 mid-drag,
+-      exactly one edit.
+-- [x] LIVE BIOME PAINT on the satellite: restore-then-restamp per move with
+-      EXACTLY applyEdits' overlay rules (filterFor/restriction shared);
+-      biome-parity.ts proves live≡replay cell-exact (0/2239). Rollback
+-      residue 0.00 in Chromium. Eraser keeps the polyline preview (only the
+-      session knows the pre-overlay biome). Live paths arm only when a fresh
+-      sharp window can show them — everywhere else the classic preview stays.
+-- [ ] Sub-canon stream meanders (L2+ amplification, future).
+-- [ ] Placement budget caps per tile (only if profiling asks).
+-- [x] LIVE LETTERING: labels + settlement marks are screen entities drawn on
+-      EVERY frame (gesture and settle) through one `drawLettering` path — the
+-      tiles, the whole-world blit and the settled sheet no longer bake type,
+-      so names move with the ground, never pop on settle, never double under
+-      a zoomed blit, and marks stop stretching under ancestor fallback.
+-      Browser-verified (labels-live.mjs): mid-gesture ink density ≥ settled;
+-      overlay costs 3.2 ms/frame (assert < 8). Explicit quarter-octave bucket
+-      cache + `nextSemanticTier` hysteresis: deferred until a profile shows
+-      the per-frame solve mattering (it re-solves stably today).
+-- [x] Satellite sharpness for Map2D — via the settled WINDOW render (above),
+-      no tile pyramid needed for the 2D after all.
+-- [ ] Delete `glsymbols.ts` (zero importers).
+-
+-## P5 — 3D real close-up
+-
+-- [x] Root cause of the "noise": vertex aliasing (mesh point-sampling the 150 m
+-      canon field) — band-limited via `uDetailDisp`; per-pixel resolvability gate
+-      picks the lighting texel; micro detail relief-gated and deferred below
+-      canon; canon albedo (`regionAlbedoCanvas`) gutter-blended at close range.
+-- [ ] Perf gate ON THIS MACHINE: wheel-descent + orbit sweep, p95 ≤ 33 ms
+-      sustained, no frame > 120 ms. Fallback ladder ends at raising
+-      `MIN_SPAN_KM` in `core/camera.ts` (the agreed "scrap" outcome).
+-
+-## Hotfixes (user-reported, fixed + regression-guarded)
+-
+-- [x] TDZ mount crash ("Cannot access 'session' before initialization"): ref
+-      moved above the memo; permanent WorldView mount smoke added (the gap was
+-      harnesses never mounted WorldView itself).
+-- [x] "Render process gone" after regenerate: unbounded worker spawn (~80 MB
+-      world clone each) → hard session cap 2 + FIFO waiters + idle eviction;
+-      burst of 14 → peak 2.
+-- [x] Strokes surviving regenerate: same seed keeps strokes (parameter tweaks),
+-      NEW seed clears the edit list and persists `[]`.
+-- [x] Frankenworld one-frame mismatch: sessionWorld ref gate in canonSource.
+-- [x] Pool "reuse inefficiency" was a test artifact: harness fake geography
+-      lacked `languages.living`, so every spawn threw and nulls passed a lax
+-      assert. Fake fixed, assert hardened; pool proven (2 spawns / 14 requests).
+-
+-## Pending decisions / on-device work
+-
+-- [ ] `npm run verify:release` + 32-distance 3D regression suite on this machine.
+-- [ ] 2D-view convergence (Luis deciding): recommendation = keep 2D for now
+-      (distortion-free brush, projections, WebGL fallback); converge later via
+-      ortho top-down mode in World3D.
+-- Minor: 2D live terrain sculpt via windowed renderBaseRect; live biome channel
+-  via SculptSurface.patch; canon biome overlay ignores slope filter
+-  (documented); painted river names only when matching a named world river.
+-
+----
+-
+-# Worldgen 2D: zoom continuo con terreno, caminos y ciudades
+-
+-**Started:** 2026-08-14
+-**Mandate:** prioridad absoluta a funcionamiento tipo Google Maps; se permite
+-reemplazar la arquitectura actual. Preservar el trabajo local no relacionado y
+-dejar los cambios sin commit/push salvo petición expresa.
+-
+-## Especificación verificable
+-
+-- [x] Una sola cámara (`centro + zoom`) gobierna cobertura, resolución y
+-      transformación de todas las capas 2D.
+-- [x] Al cruzar cualquier nivel de zoom nunca aparece un hueco: se conservan el
+-      raster base, la ventana nítida y los antepasados residentes hasta que
+-      llega la tesela ideal.
+-- [x] El terreno se solicita por el plan visible vigente, priorizado desde el
+-      centro, sin sesiones huérfanas ni peticiones bloqueadas para siempre.
+-- [x] Ríos, caminos y ciudades usan las mismas coordenadas mundiales y la misma
+-      transformación que el terreno; no dependen del contenido efímero de una
+-      tesela para seguir visibles.
+-- [x] El zoom lejano conserva generalización y decluttering; el zoom cercano
+-      añade detalle sin cambiar identidades ni desplazar geometría.
+-- [x] El mapa queda inactivo cuando converge: cero cola/vuelo permanente y cero
+-      renacimientos en reposo.
+-
+-## Plan
+-
+-- [x] Diagnosticar capturas, log y flujo cámara → cobertura → servicio → tienda
+-      → composición → lettering.
+-- [x] Contrastar el código actual con `INVESTIGACION-MAPAS.md` y fijar el diseño
+-      mínimo de referencia.
+-- [x] Sustituir el transporte con estado restante por una granja/cola estable
+-      orientada a contenido y al plan visible.
+-- [x] Unificar la composición de terreno, caminos y asentamientos en el mismo
+-      sistema de coordenadas y ciclo de render.
+-- [x] Añadir regresiones de zoom quieto, zoom continuo, retención, caminos y
+-      ciudades, incluyendo la vía real del navegador.
+-- [x] Verificar typecheck, lint dirigido, bancos worldgen, arranque real y las
+-      capas cartográficas en varios niveles de zoom.
+-- [x] Actualizar arquitectura y esta revisión con resultados medidos.
+-- [ ] Refrescar el grafo de memoria de la aplicación: bloqueado porque la ruta
+-      de sesión indicada por la habilidad (`/sessions/festive-cool-keller/...`)
+-      no existe en este entorno y no hay copia local que actualizar.
+-
+-## Review
+-
+-- Causa directa del `0/N`: React StrictMode desmontaba el efecto y dejaba a
+-  `Map2D` reutilizando un `DisplayTileStore` ya desechado; cada bitmap que
+-  llegaba se cerraba. El almacén pertenece ahora al efecto que lo destruye.
+-- Un nuevo plan cancela trabajo obsoleto de **todos** los niveles; el 3D declara
+-  suelo y nitidez juntos. El zoom ya no deja una procesión de niveles viejos
+-  delante de la cámara actual.
+-- Identidad y persistencia son por contenido de mundo + geografía + profundidad
+-  + ediciones. Las escrituras tardías ya no pueden reemplazar otra versión.
+-- Las metateselas canon compartidas se construyen en *single-flight* global y
+-  el disco se consulta antes de ocupar un worker. En el log original, 130
+-  construcciones eran sólo 53 únicas (77 repetidas, 61 % de desperdicio).
+-- Contrato de capas 2D: teselas = terreno/agua/campos; pantalla = carreteras,
+-  ciudades principales/rótulos y río de respaldo. La tesela exacta sustituye
+-  el río de respaldo cuando llega, pero una carga nunca deja el mapa sin él.
+-- Pruebas nuevas verdes: plan/retención StrictMode, contrato de capas, tinta de
+-  ríos, carreteras en todos los niveles y canon compartido (cada metatesela se
+-  genera una sola vez). También pasan `verify:quick`, las 12 pruebas críticas
+-  y el build de producción.
+-- La previsualización local del Browser integrado se abrió, pero ese entorno no
+-  ejecutó los scripts de la página; la validación dinámica se realizó con los
+-  bancos Chromium/TypeScript del proyecto y el arranque Vite de la suite crítica.
+-- Cambios deliberadamente sin rama, commit, staging ni push.
+-
+----
+-
+-# Worldgen 2D: continuidad visual, ciudades, bosques y arranque
+-
+-**Started:** 2026-08-14
+-
+-## Especificación verificable
+-
+-- [x] La costa, ríos, relieve y biomas conservan la misma silueta al cambiar de
+-      nivel; acercarse añade detalle, no sustituye el territorio por otro.
+-- [x] Las ciudades visibles se representan físicamente con su huella urbana y
+-      edificios sin requerir clic, hover ni otra interacción.
+-- [x] Los bosques cercanos no exponen bordes de celda ni bandas rectangulares
+-      entre teselas.
+-- [x] La primera entrada a 2D pinta inmediatamente un estado de carga y mantiene
+-      respuesta visual mientras se preparan los datos pesados.
+-
+-## Plan
+-
+-- [x] Medir el nuevo log y localizar cada cambio de fuente cartográfica.
+-- [x] Unificar el contrato de LOD para que todas las escalas deriven de la misma
+-      geografía y sólo cambie su filtrado/detalle.
+-- [x] Hacer que la tinta urbana sea una capa visible estable y deduplicada.
+-- [x] Suavizar la máscara forestal en coordenadas mundiales, con continuidad de
+-      borde entre teselas.
+-- [x] Añadir el estado inicial de carga antes de cualquier trabajo síncrono.
+-- [x] Añadir regresiones y verificar navegador, bancos, typecheck y build.
+-- [x] Documentar resultados y actualizar el grafo del proyecto si está disponible.
+-
+-## Review
+-
+-- El log nuevo probó que el transporte estaba sano (830 teselas entregadas,
+-  cero errores) y que el supuesto “freeze de teselas” era un cálculo de
+-  geografía de 26,86 s ejecutado en callbacks del hilo visual. Ahora vive en un
+-  worker, se deduplica y conserva la geografía anterior mientras recalcula.
+-- Una sola costa sirve atlas, satélite y canon. La comparación dibujada queda
+-  en 99,9 % de IoU atlas→satélite y 99,8 % satélite→canon; el desacuerdo es
+-  0,07 % y 0,06 %. El canon medido discrepa 0,0 % del agua mundial.
+-- La ciudad estaba desplazada media celda: a z17 eran 5.434 px. El ancla común
+-  corrige marcador, mancha, lugar y plano. El banco encuentra tinta urbana a
+-  z10/z12/z14/z16 y plano de calles a z16 sin interacción.
+-- La máscara forestal y las copas comparten deformación mundial. La prueba
+-  cercana registra 5.669 px vegetales y 21 px de variación p10–p90 en el borde,
+-  en lugar de una arista de celda.
+-- Navegador real: primera entrada 2D en 700 ms, spinner visible inmediatamente,
+-  resultado completo (120 ruinas) y cero errores tras terminar. La primera
+-  prueba descubrió y permitió corregir la familia lingüística no clonable del
+-  worker; se repitió desde una sesión limpia.
+-- Verificación verde: `verify:quick`, `test:critical` (12/12), build de
+-  producción, presupuesto informativo, contratos de capas, servicio de
+-  teselas, caminos, ciudades, cohesión LOD y cliente de geografía.
+-- El refresco del grafo se intentó al final, pero la ruta obligatoria de la
+-  habilidad (`/sessions/festive-cool-keller/mnt/.auto-memory`) no existe en
+-  este entorno; la arquitectura local sí queda actualizada.
+-- Sin rama, commit, staging ni push.
+-
+----
+-
+-# Worldgen 2D: jerarquía física de los ríos
+-
+-**Started:** 2026-08-14
+-
+-## Especificación verificable
+-
+-- [x] Un río mundial conserva en el canon profundo la misma categoría de
+-      anchura que tenía en el mapa lejano.
+-- [x] Los afluentes y arroyos locales siguen siendo estrechos: heredar la
+-      magnitud mundial no engorda por error cualquier cauce que confluya con él.
+-- [x] La diferencia entre un río principal y un arroyo se mantiene legible en
+-      varios niveles de zoom, usando metros reales más un mínimo perceptivo.
+-
+-## Plan
+-
+-- [x] Trazar la pérdida de caudal mundo → canon → tinta y fijar un único
+-      contrato físico.
+-- [x] Propagar la magnitud mundial sólo por el tronco que realmente coincide
+-      con el río original.
+-- [x] Invalidar canon y entintado incompatibles y añadir una regresión de
+-      jerarquía multizoom.
+-- [x] Verificar bancos, tipos, build y navegador real.
+-- [x] Documentar el resultado y refrescar el grafo si está disponible.
+-
+-## Review
+-
+-- La pérdida no era subjetiva: para un mundo 2048, el río máximo pasaba de
+-  2.220 m en la vista mundial a unos 20 m en canon (111× más estrecho); caudales
+-  medios perdían entre 200× y 427× al renormalizarse por metatesela.
+-- `riverScale.ts` fija una ley física compartida. Cada tronco canon transporta
+-  el `worldFlow` original y una clave por contenido; los cauces locales siguen
+-  midiendo por su propia cuenca.
+-- En confluencias gana el candidato de mayor caudal, se exige solape mayoritario
+-  y una clave sólo puede tener un ganador. El banco real encontró un único
+-  tronco de 2.220 m y 16.378 cauces locales, sin contagios ni duplicados.
+-- La relación principal/arroyo se mantiene a 1.000, 100 y 10 m/px. El mismo
+-  banco prueba igualdad exacta entre anchura mundial y profunda.
+-- Se invalidaron canon (v3) y entintado (v4). La ida y vuelta real de un canon
+-  de 21,47 MB preserva todos los streams byte a byte y es estable al recodificar.
+-- Verificación verde: `verify:quick`, `test:critical` (12/12), build de
+-  producción, typecheck, banco de jerarquía y banco de persistencia. El Browser
+-  integrado cargó 12/12 teselas profundas a z16 sin huecos ni errores.
+-- El grafo de memoria no pudo actualizar su catálogo: la ruta obligatoria de la
+-  habilidad (`/sessions/festive-cool-keller/mnt/.auto-memory`) no está montada
+-  en este entorno. El contrato sí queda recogido en `ARQUITECTURA-TESELAS.md`.
+-- Cambios locales sobre `main`, sin rama, commit, staging ni push.
+-
+----
+-
+-# Worldgen 2D: cartografía fluvial y urbana sin artefactos
+-
+-**Started:** 2026-08-14
+-
+-## Especificación verificable
+-
+-- [x] Un río principal conserva jerarquía sin ocupar kilómetros de anchura ni
+-      mostrar orillas matemáticamente lisas en primer plano.
+-- [x] Los cauces locales no producen familias de líneas horizontales/verticales
+-      largas ni segmentos rectos nacidos en límites de tesela.
+-- [x] Un río que cruza la costura cilíndrica levanta el lápiz: nunca aparece una
+-      línea horizontal que atraviese el mundo lejano.
+-- [x] Las ciudades mantienen edificios, calles, muralla y barrios sin una
+-      silueta clara opaca que tape el terreno circundante.
++- `examples/server/api.md` — the native `sdcpp` request schema.
++- `examples/common/common.cpp` `SDGenerationParams::from_json_str` — the
++  parser that actually decides which keys have an effect.
++- `examples/server/routes_sdcpp.cpp` — how img_gen requests are parsed.
++- `examples/server/async_jobs.cpp` — what `embed_image_metadata` does.
++- `src/stable-diffusion.cpp` — the sampler / scheduler / hires-upscaler name
++  tables the server validates against.
+ 
+ ## Plan
+ 
+-- [x] Medir anchuras, discontinuidades y rectitud en las cuatro rutas de dibujo.
+-- [x] Sustituir el trazo uniforme del tronco por una escala plausible con orilla
+-      determinista en coordenadas mundiales.
+-- [x] Cortar correctamente la costura y filtrar hidrología local degenerada.
+-- [x] Integrar el plano urbano con el albedo en vez de rellenar toda su huella.
+-- [x] Añadir regresiones y verificar navegador, bancos, tipos y build.
+-- [x] Documentar resultados, actualizar el grafo si existe y limpiar temporales.
++- [x] W-A1 Confirm every server field name against the parser, not the CLI.
++- [x] W-A2 Widen `AiImageRequest` + `buildSdJobPayload` (additive).
++- [x] W-A2b Fix the LoRA path: this build does NOT parse `<lora:…>` from a
++      server request. Move to the structured `lora[]` field.
++- [x] W-A3 `embed_image_metadata: true` + `src/services/imageMetadata.ts`.
++- [x] W-A4 Widen `ImageGenerationInfo` so a row can reproduce its image.
++- [x] W-A5 Catalogue: FLUX.1-Kontext-dev Q4 + ControlNet / ESRGAN companions,
++      each pinned by size and SHA-256.
++- [x] Launch side: `--control-net`, `--hires-upscalers-dir`.
++- [x] Tests in `tests/ai-runtime.ts` (the harness this repo actually runs).
++- [x] `npx tsc --noEmit` (renderer + electron) and the linter.
+ 
+ ## Review
+ 
+-- La anchura mundial deja de ser lineal y constante: usa caudal por celda y una
+-  curva convexa de 24–700 m. A corta distancia se rellena un polígono de orillas
+-  asimétricas, determinista y estable al cambiar de zoom; en vista lejana sólo
+-  queda un mínimo cartográfico jerarquizado.
+-- La hidrología D8 regional vuelve a ser estrictamente local. Se eliminó la
+-  segunda inyección del caudal mundial, se corrigió la herencia de cuenca en
+-  confluencias, se añadieron desempates de pendiente y se descartan rayas
+-  cardinales degeneradas.
+-- La costura se detecta en las celdas fuente, no en píxeles de una vista. El
+-  atlas completo ya no puede unir extremos del cilindro con una línea azul.
+-- El plano de una ciudad conserva edificios, calles, bloques y muralla, pero no
+-  rellena su Voronoi con pergamino ni tintes de barrio. `tile-ink` registra 0 px
+-  de suelo claro opaco en z10, z12, z14 y z16.
+-- Verificación: navegador real en z2 y z15; `river-width`, `river-hierarchy`,
+-  `tile-ink`, `map2d-layer-contract`, `satellite-handoff`,
+-  `satellite-lod-cohesion` y `canon-persist` verdes; `verify:quick`, 12 pruebas
+-  críticas y build de producción verdes.
+-
+----
+-
+-# Worldgen 2D: continuidad real del tronco fluvial
+-
+-**Started:** 2026-08-14
+-
+-## Especificación verificable
+-
+-- [x] Mientras cargan teselas profundas, el terreno de respaldo no contiene
+-      ríos rasterizados que se conviertan en manchas al ampliarse.
+-- [x] El río vectorial provisional conserva recorrido y grosor legibles.
+-- [x] La tesela cargada dibuja exactamente el mismo tronco mundial, no un cauce
+-      local cercano al que una heurística haya prestado su magnitud.
+-- [x] La transición provisional → exacta no desplaza, corta ni sustituye el río.
+-
+-## Plan
+-
+-- [x] Trazar las dos capas visibles en las capturas y cuantificar su desacuerdo.
+-- [x] Separar el terreno raster de toda tinta fluvial ampliable.
+-- [x] Hacer del vector mundial recortado la geometría autoritativa del tronco
+-      dentro del canon; la hidrología local sólo añade tributarios.
+-- [x] Añadir regresiones de recorrido, clipping y carga.
+-- [x] Verificar navegador, bancos, tipos y build; documentar el resultado.
+-
+-## Review
+-
+-- Las capturas contenían dos defectos independientes. El respaldo era el raster
+-  mundial de ríos estirado con suavizado al ampliar, de ahí la mancha azul
+-  gigante; la línea final era un cauce D8 local que coincidía por casualidad con
+-  el tronco y reclamaba antes su clave y caudal.
+-- El atlas equirectangular dibuja ahora una única capa vectorial mundial después
+-  de todo el terreno. Las teselas y sus ancestros no hornean troncos ampliables;
+-  el canon sólo añade arroyos locales bajo esa capa.
+-- El canon recibe directamente la polilínea tallada del mundo. Se eliminó la
+-  inferencia por proximidad y la composición no vuelve a suavizar el tronco.
+-  La regresión real compara todos sus puntos, no sólo identidad o anchura:
+-  16.380 cauces = 1 tronco mundial exacto + 16.379 locales, principal de 2.220 m.
+-- Navegador real a z10 (68 px/celda): con 0/20 teselas el río ya era nítido y
+-  con 20/20 conservó el mismo recorrido; ninguna entrega tardía lo sustituyó.
+-  La costa cambió sólo de nivel de detalle bajo la capa fluvial.
+-- Persistencia verde: canon de 21,52 MB, 6.427 streams idénticos tras
+-  encode/decode y recodificación byte-estable. Handoff de costa: 99,9 % de IoU
+-  atlas→satélite y 99,8 % satélite→canon.
+-- Verificación verde: `verify:quick`, `test:critical` (12/12), build de
+-  producción, bancos de jerarquía fluvial, contrato de capas, persistencia,
+-  tinta profunda, handoff satélite y cohesión LOD.
+-- El refresco del grafo se intentó al final, pero la ruta exigida por la
+-  habilidad (`/sessions/festive-cool-keller/mnt/.auto-memory`) no está montada
+-  en este entorno; el contrato vigente queda actualizado en
+-  `ARQUITECTURA-TESELAS.md`.
+-- Cambios locales sobre `main`, sin rama, commit, staging ni push.
+-# Worldgen 2D: ciudades conscientes de la geografía
+-
+-**Started:** 2026-08-14
+-
+-## Especificación verificable
+-
+-- [x] El mapa y el plano modal usan el mismo contexto de costa y ríos alrededor
+-      del asentamiento; una ciudad costera no deja de serlo al abrirla.
+-- [x] Ningún edificio, parcela o tramo de muralla queda debajo del agua. Los
+-      cruces deliberados se representan como puentes y el agua pasa por debajo.
+-- [x] Una ciudad ribereña decide de forma determinista entre ocupar una orilla o
+-      ambas según tamaño y accesibilidad; si usa ambas, crea conexiones válidas.
+-- [x] La silueta urbana y sus accesos responden a la línea de costa, la dirección
+-      del cauce y el suelo edificable, sin tapar ni inventar geografía.
+-- [x] La composición es estable entre teselas y niveles de zoom.
+-
+-## Plan
+-
+-- [x] Auditar coordenadas, generador y orden de capas de ciudad/agua.
+-- [x] Crear un contexto hidrográfico local compartido por mapa y plano modal.
+-- [x] Restringir parcelas/muralla y derivar puentes, puertas y frente de agua.
+-- [x] Separar las fases de tinta: agua, tejido urbano e infraestructura superior.
+-- [x] Añadir regresiones geométricas/de píxel y probar el caso en navegador.
+-- [x] Documentar, actualizar el grafo disponible y limpiar temporales.
+-
+-## Review
+-
+-- Corregido el desfase de media celda que entregaba al plano costas, cauces y
+-  relieve situados varios kilómetros respecto a su ancla visible.
+-- El ancho fluvial físico y los accesos deciden ahora entre ciudad de una orilla
+-  o ciudad de cruce. En una sola orilla se recortan suelo urbano, muralla y
+-  caminos; en cruce, las calles que atraviesan el agua generan puentes.
+-- La composición de calle queda en terreno/ciudad → agua autoritativa →
+-  puentes y embarcaderos. Durante la carga el agua puede ocultar temporalmente
+-  un puente, pero una carretera nunca vuelve a aparecer como calzada ficticia.
+-- `harness/city-ground-context.ts`: 61 comprobaciones verdes sobre mundos reales
+-  y un cruce mayor; igualdad exacta mapa/modal, caché, costa y ocupación seca.
+-- `harness/city-quality.ts`: 32 comprobaciones verdes; `tile-ink.ts`: ciudad,
+-  caminos y plano urbano presentes en z10/z12/z14/z16, sin relleno opaco.
+-- Validación visual en el navegador integrado sobre Brias (capital de estuario,
+-  266 m, un camino): casco y muralla en la margen servida, litoral conservado y
+-  carretera detenida en el agua. Consola sin avisos ni errores.
+-- `npm run verify:release` verde: tipos renderer/Electron, lint, conformidad de
+-  21 motores, 12 pruebas críticas, build de escritorio y presupuesto de bundles.
+-- Arquitectura actualizada en `tasks/ARQUITECTURA-TESELAS.md`. La habilidad del
+-  grafo se evaluó al cierre; no hubo altas, bajas o renombres de motores ni
+-  cambios de stores, DB, rutas, servicios o dependencias que exigieran tocar su
+-  catálogo externo.
+-- Trabajo local sobre `main`, sin rama, staging, commit ni push.
+-
+----
+-# Worldgen 2D: la ciudad consciente, segunda pasada
+-
+-**Started:** 2026-08-15
+-
+-Las ciudades ya recibían su contexto (pasada del 14) pero el resultado «iba
+-regular». Medido sobre el mundo por defecto del banco, ANTES de tocar nada:
+-
+-- 32 ciudades con cauce medido · **32 en modo orilla · CERO puentes en todo el
+-  planeta**. La rama de cruce era código muerto.
+-- **78 m de media** entre la casa más cercana y su propia orilla. Ninguna de las
+-  32 tenía frente de agua, muelle ni almacenes al río.
+-- Casco desplazado hasta **0,9 R0** del ancla del atlas.
+-- El plano de recorte de la orilla se alejaba hasta **13,7 u (55 m)** del cauce
+-  real en un río curvo.
+-- El canal del plano se abría de **0,6× a 1,38×** su ancho a lo largo del
+-  pueblo, mientras `Map2D` repinta encima el vector del mundo de ancho CONSTANTE.
+-
+-## Especificación verificable
+-
+-- [x] Una ciudad fluvial se asoma a su río: primera fachada a menos de 14 u de
+-      la orilla, con muelle y molino.
+-- [x] Un mundo con ríos tiene ciudades de cruce, y cada una levanta su puente.
+-- [x] El cauce del plano tiene el mismo ancho que el vector del mapa (±12 %).
+-- [x] El emplazamiento no cambia según haya llegado o no la geografía humana.
+-- [x] Una ciudad amurallada conserva su muralla tras el recorte de orilla, y
+-      `radius` describe todo el plano.
+-- [x] La caché de planos va por CONTENIDO, no por identidad de objeto.
+-
+-## Plan
+-
+-- [x] Medir el estado real con sondas nuevas (`city-bank-probe`, `city-look`,
+-      `city-one`) sobre el mundo por defecto, no sobre un caso de laboratorio.
+-- [x] Separar CANAL (hidrológico) de RIBERA (urbano) en `generate.ts`.
+-- [x] Recortar la orilla por el cauce con signo, no por su plano medio.
+-- [x] Criterio de cruce por luz de vano en metros + absorción por el casco.
+-- [x] Podar el componente conexo DESPUÉS del recorte, y también sin costa.
+-- [x] Canal de ancho constante; tablero de puente que apea en tierra.
+-- [x] Embarcadero de barca donde el camino muere en el agua.
+-- [x] Caché por `worldContentKey` + `geographyContentKey`; `tileCoverage` en vez
+-      de `tilePlanDebug`; un solo pase de río a escala de calle.
+-- [x] Regresiones nuevas en `city-ground-context.ts` y bancos verdes.
+-
+-## Review — los números, después
+-
+-| medida | antes | después |
+-| --- | --- | --- |
+-| hueco casa→orilla (media, 32 ciudades) | 78 m | **18 m** |
+-| ciudades de cruce / con cauce | 0 / 32 | **7 / 32** |
+-| puentes en el mundo | 0 | **20** |
+-| muelles y embarcaderos | 18 | **55** |
+-| desfase plano de corte ↔ cauce | hasta 55 m | **0** (campo con signo) |
+-| ancho del canal a lo largo del pueblo | 0,60–1,38× | **0,965–1,035×** |
+-| suelo urbano sellado (`gate-pinch-probe`) | 7,0 % | **6,5 %** |
+-| fachada a espacio público (`city-quality`) | 92,4 % (peor 89,6) | 92,3 % (**peor 90,0**) |
+-
+-- `harness/city-quality.ts`: **32/32 en verde**, incluidos «0 vados de 14
+-  cruces» y el determinismo byte a byte.
+-- `harness/city-ground-context.ts`: **75/75 en verde** (eran 61). Nuevas: la
+-  ciudad se asoma a su río, ancho de canal igual al del atlas, muralla y radio
+-  tras el recorte, emplazamiento independiente de la geografía humana, caché por
+-  contenido en sus dos caras, y «un mundo con ríos tiene cruces».
+-- `tile-ink`, `map2d-layer-contract`, `display-tile-plan`, `road-overlay`,
+-  `satellite-handoff`, `satellite-lod-cohesion`, `river-hierarchy`,
+-  `geography-client`, `tile-service`, `places-policy`, `gate-blind-probe`,
+-  `gate-pinch-probe`, `city-shape`: todos en verde.
+-- `npx tsc -p tsconfig.app.json`: cero errores en `worldgen`. `eslint` sobre los
+-  ficheros tocados: mismo recuento que antes de la pasada (ruido preexistente
+-  del plugin de React, no de este trabajo).
+-- Trabajo local sobre `main`, sin rama, staging, commit ni push.
+-
+----
+-
+-## Revisión de Luis (2026-08-15, misma tarde)
+-
+-Tres preguntas suyas, las tres con causa real:
+-
+-**1 · «¿Por qué "río" añade un foso? Eso debería ser "foso".»** El foso se echaba
+-a suertes (0,66) al final de la fábrica militar, o sea por detrás del río, del
+-litoral y del bucle de torres —que gasta un número de sorteos que depende de la
+-LONGITUD del anillo—. Todo el plano sale de un hilo de números en orden de
+-llamada, así que el interruptor «Río» barajaba el hilo entero. Medido: movía el
+-foso en **61 de 120** planos, y lo AÑADÍA en **38 de 200**, que es imposible por
+-geometría (el agua sólo puede quitar perímetro donde cavar). Ahora el foso
+-decide con su propio hilo (`city:moat`) y es un parámetro suyo (`moat?: boolean`)
+-con interruptor propio en la ficha. El sorteo del hilo principal se sigue
+-gastando donde estaba, a propósito: quitarlo desplazaba barrios, plazas y casas
+-y bajaba la fachada del 92,3 % al 89,3 % sin que nada estuviera peor, sólo
+-distinto. **Poner río añade foso: 0 de 200.**
+-
+-**2 · «¿Por qué hay murallas en el agua del río?»** El lienzo se clipaba contra
+-el mar pero nunca contra el cauce: en una ciudad de cruce salían **11 de 41**
+-vértices de sillería plantados en mitad del canal. Una muralla que cruza su río
+-se cierra con una PUERTA DE AGUA —dos torres y la cadena entre ellas—, no con
+-piedra sobre el agua. `Fortification.wet` marca los vértices mojados; el anillo
+-sigue entero en el modelo (puertas, avenidas y radio se calculan sobre él) y el
+-dibujante se salta ese tramo y sus almenas, con torre en la última piedra seca
+-de cada orilla.
+-
+-**3 · «Ni río ni costa deberían ser opciones; lo otro depende de dónde la
+-coloques.»** Tiene razón y era una contradicción a un clic: se le podía apagar el
+-río a una ciudad fluvial y ponerle mar a una de tierra adentro, y el plano
+-contradecía el mapa. Fuera los interruptores de **Río** y **Costa**; dentro
+-**Catedral** (`cathedral?: boolean`) y **Foso**. Lo que se elige es lo que mandó
+-construir su señor; el emplazamiento lo pone el atlas.
+-
+-Y lo que preguntaba de arrastrar el pueblo YA funciona: mover Quliiti nueve
+-celdas cambia `río=true costa=true modo=crossing` → `río=false costa=false
+-modo=bank`, porque `cityParamsFor` re-mide el suelo desde `settlementCellCenter`
+-y la caché de planos va por `geographyContentKey`. La edición existe
+-(`kind: 'move'` en `core/edits.ts`).
+-
+-- `city-quality`: **32/32 en verde** (fachada 92,3 %, peor ciudad 90,0 %).
+-- `city-ground-context`: **83/83 en verde** (eran 75). Nuevas: puerta de agua con
+-  torre en cada orilla, «poner río nunca añade foso», el foso se fuerza y se
+-  quita sin mover una manzana ni una casa ni una calle, y la catedral es una
+-  decisión del pueblo.
+-
+-## Mover deja de ser el gesto por defecto (Luis, 2026-08-15)
+-
+-**Síntoma:** «cada vez que clico se puede arrastrar una ciudad, ruina, letrero…
+-No paro de moverlas sin querer al moverme por el mapa.»
+-
+-**Causa:** `movableAt` no pedía modo ninguno. Bastaba con que el puntero cayera a
+-menos de diez píxeles de un pueblo, una ruina o un rótulo para que el arrastre se
+-lo llevara en vez de desplazar el mapa. El comentario que lo defendía decía que
+-«no hace falta ningún modo, el impacto es de diez píxeles»: falso en cuanto el
+-mapa se llena: la mitad de su superficie son topónimos y puntos. Y cada arrastre
+-accidental es una edición `kind: 'move'` guardada, que sobrevive a cerrar el
+-mundo.
+-
+-**Arreglo:** mover es ahora su propia herramienta — `PaintMode` `'move'`,
+-«Mover», en el grupo de Punto junto a Punto, Camino y Frontera. `movableAt`
+-devuelve `null` con cualquier otra herramienta, y de ahí cuelga todo lo demás:
+-el cursor de mover, el fantasma que sigue la mano y el `drop`. `brushing` la
+-excluye —mover no deja tinta— así que sobre suelo vacío el arrastre sigue siendo
+-la cámara y con la herramienta puesta el mapa se sigue pudiendo pasear.
+-
+-- `PaintMode` += `'move'`; botón en `GROUPS` (grupo Punto).
+-- `Map2D`: guarda en `movableAt`, `brushing` excluye `move`, rótulo de ayuda
+-  propio en la barra inferior (`worldgen.map.moveToolHint`).
+-- La chuleta del «?» ya no promete el gesto a secas: ahora dice «con la
+-  herramienta Mover».
+-- i18n es/en en paridad: `paint.mode.move`, `paint.mode.move.hint`,
+-  `map.moveToolHint`, y `map.moveHint` reescrito.
+-
+-
+----
+-
+-# Worldgen: el paquete de NAVEGACIÓN — buscar, acercarse al cursor, bajar a la calle
+-
+-**Started:** 2026-08-15 · **Cerrado, mirado y verificado:** 2026-08-16
+-
+-El mapa ya sabía dibujar el mundo, pero no dejaba MOVERSE por él. Cuatro
+-carencias del mismo tipo, y ninguna daba error: se buscaba mal, la rueda del 3D
+-acercaba al centro de la pantalla mientras la del 2D acercaba al cursor, nada
+-en pantalla decía a qué escala estabas mirando, y el 3D no bajaba hasta la
+-calle aunque el 2D sí bajaba desde hacía semanas.
+-
+-## Especificación verificable
+-
+-- [x] «rio» encuentra «Río Sombrío» y «canada» encuentra «Cañada Honda»: la
+-      consulta y el nombre se pliegan los DOS, no sólo uno.
+-- [x] La aldea que se llama «Vado» va por delante de la capital «Gran Vado
+-      Real», que sólo lo contiene.
+-- [x] Con la caja vacía el buscador ya ofrece algo: lo importante que hay
+-      alrededor de la cámara, con su distancia en km.
+-- [x] La rueda del 3D no mueve el punto señalado — medido en píxeles con una
+-      `PerspectiveCamera` de verdad, no a ojo.
+-- [x] En el globo lo mismo, que no es el mismo problema: ahí hay que acercarse
+-      Y girar el planeta a la vez.
+-- [x] Acercar y alejar lo mismo devuelve la cámara exactamente donde estaba.
+-- [x] En el tope de acercamiento el gesto se consume y no pasa nada: no se cae
+-      al acercamiento por el centro justo cuando más se notaría.
+-- [x] El HUD del 3D dice la escala y dónde cae el norte, y se lee sobre mar,
+-      nieve, desierto y bosque.
+-- [x] En el globo no se dibuja brújula, y hay una demostración de por qué.
+-- [x] Pinchar una ciudad BAJA hasta ella; el plano modal pasa a ser la acción
+-      secundaria de editarla.
+-- [x] Bajando de verdad se ven las calles: por debajo de 5 m/px, con margen.
+-- [x] Toda clave de idioma que el código PIDE existe, y la guarda lo comprueba.
+-
+-## Plan
+-
+-- [x] Sacar las tres cuentas a módulos puros y sin React —`core/searchText.ts`,
+-      `core/zoomAnchor.ts`, `cartography/screenFurniture.ts`— para poder
+-      medirlas: ninguna de las tres se comprueba mirando una captura.
+-- [x] Bancos numéricos: `harness/screen-navigation.ts` y `harness/descent-3d.ts`.
+-- [x] Sondas visuales: `harness/screen-furniture-look.ts` y `descent-look.ts`.
+-- [x] Cablearlas en `LocatorPanel`, `World3D`, `Map2D`, `CartoMap`, `WorldView`,
+-      `AtlasPanel` y `CityPlanView`.
+-- [x] Guarda de conformidad para las claves de idioma que se piden y no existen.
+-- [x] Mirar los PNG, correr `verify:quick`, y dejarlo sin commitear.
+-
+-## Review
+-
+-### 1 · El localizador dejó de ser una lista y pasó a ser un buscador
+-
+-El emparejado era `name.toLocaleLowerCase('es').includes(q)`, sin normalizar, en
+-un motor cuyo gazetteer es prosa castellana **por diseño**: 9 de las 94
+-plantillas de `core/naming.ts` llevan tilde o eñe, y no están repartidas al
+-azar — son **2 de las 4 del RÍO** y **2 de las 4 del OCÉANO**. Traducido:
+-teclear «rio» no encontraba la mitad de los ríos con nombre del mundo.
+-
+-- `foldForSearch` (NFD + barrido de U+0300–U+036F + minúsculas de «es») se
+-  aplica a los dos lados. El nombre plegado se guarda en el `LocatorHit`: se
+-  paga una vez por sitio, no una por tecla.
+-- `matchRank` devuelve 0 si el nombre EMPIEZA por lo tecleado, 1 si empieza una
+-  palabra, 2 si cae dentro, −1 si no encaja. El orden es rango → importancia →
+-  nombre más corto. Antes se ordenaba sólo por importancia, y eso dejaba la
+-  aldea cuyo nombre tecleaste entero por debajo de la capital que lo contiene.
+-- **Con la caja vacía, «cerca de aquí»**: los 8 mejores del atlas alrededor de
+-  `atU/atV`, con `score = d / (0,35 + max(0, importancia))`. El peso DIVIDE a la
+-  distancia en vez de sumarse, así una capital a 300 km puede ganarle a una
+-  aldea a 80 sin que se cuele ninguna del otro hemisferio. La distancia envuelve
+-  este-oeste (`min(dx, width − dx)`): sin eso, un pueblo a diez celdas del
+-  meridiano salía a un mundo entero.
+-- De paso, un fallo de mostrador: `KIND_KEY` era una tabla de CUATRO clases y el
+-  atlas produce SEIS, así que un hito salía en la lista rotulado «landmark», en
+-  inglés y en crudo. Ahora la clave se compone (`worldgen.atlas.kind.${kind}`);
+-  comprobado a mano hoy que las seis existen en los dos locales.
+-- `atU`/`atV` viajan como dos números sueltos y no como un `{u,v}`: un objeto
+-  construido en el JSX del padre estrena identidad en cada dibujo y la lista de
+-  cercanía recorre el atlas entero.
+-
+-### 2 · La rueda anclada al cursor, en el plano y en el globo
+-
+-En 2D la rueda ancla la celda bajo el puntero; en 3D acercaba al centro de la
+-pantalla, que es el comportamiento nativo de `OrbitControls`. Dos vistas de la
+-MISMA cámara compartida comportándose distinto es de las cosas que hacen que un
+-3D «se sienta roto» sin que nadie sepa señalar qué falla.
+-
+-- **Plano** (`anchoredDolly`): homotecia de centro el punto del terreno bajo el
+-  cursor. Al escalar cámara y punto de mira por el mismo factor, el vector
+-  cámara→mira sólo cambia de módulo —la orientación se conserva exacta— y la
+-  cámara se mueve por la recta que pasa por el ancla —el ancla vuelve al mismo
+-  píxel—. No es una aproximación afinada a ojo: sale de la geometría. El factor
+-  se recorta contra los topes ANTES de aplicarlo; recortar la posición después
+-  rompería la homotecia justo al llegar al suelo, que es cuando más se nota.
+-- El ancla se saca del RAYO y no de `scenePos(celda)`, porque `pickCell` envuelve
+-  la celda a `[0, ancho)` y el plano se repite este-oeste: cerca de la costura,
+-  `scenePos` teletransportaba la cámara.
+-- **Globo** (`anchoredGlobeDolly`): ahí el punto de mira es el centro del planeta
+-  y no se puede tocar, así que la homotecia no vale — hay que acercarse Y girar,
+-  que es lo que hace Google Earth. Sale una ecuación de segundo grado con la
+-  base de cámara dentro, y se resuelve por punto fijo. **64 vueltas, no 6**: la
+-  convergencia es lineal con razón ≈ 0,74, y con seis quedaban 3e-3 de
+-  normalizada ≈ 5 px de 1600 — por encima del listón, así que se caía al
+-  respaldo y la rueda volvía a ser la de antes SIN decirlo. Al final se
+-  reproyecta el ancla y se mide: si el error pasa de 5e-4 normalizadas (0,4 px),
+-  respaldo. Fe no, comprobación.
+-- El gesto se consume siempre que haya ancla, incluso si la cámara no se movió
+-  por estar en el tope. Y si se movió, cancela el vuelo animado en curso: un
+-  vuelo y una rueda son dos manos en el mismo volante, y gana la del lector.
+-- Medido en `harness/screen-navigation.ts` con una `PerspectiveCamera` real y el
+-  mismo `lookAt` que hace `OrbitControls.update()`: **deriva 0,00000 px** en los
+-  cuatro encuadres (centro, esquina, cámara girada 40°, casi a ras de suelo),
+-  giro 1e-14 grados, y volver a alejar deja la cámara a 3,66e-15 de donde
+-  estaba. En el globo, deriva 0,0000 px en los cuatro casos con 18,5 % de
+-  acercamiento por golpe.
+-
+-### 3 · El mobiliario de pantalla: escala, aguja y diana
+-
+-El 3D no tenía ninguno: nada decía si mirabas quinientos kilómetros de suelo o
+-cinco, y sin escala un valle y un continente son la misma mancha verde con un
+-río. Vive en `cartography/screenFurniture.ts`, fuera de `furniture.ts` —aquello
+-es tinta sobre pergamino a resolución de impresión; esto es una chapa legible
+-sobre cualquier terreno, en píxeles de CSS y redibujada cada fotograma— y sus
+-rutinas son PURAS: reciben contexto y números, nunca el mundo ni `t()`.
+-
+-- La barra elige la longitud 1-2-5 más larga que QUEPA en 150 px. El 2D pasa a
+-  usar la misma rutina; su versión anterior cogía la más corta que llegara a
+-  150 px y podía estirarse a ~300, o sea crecer hacia el centro del mapa tapando
+-  mapa. Cambio de comportamiento deliberado, no refactor neutro.
+-- Se ancla a la izquierda en 2D y a la derecha en 3D, y la razón no es estética:
+-  cada vista tiene ocupada una esquina distinta (el chivato de teselas, el reloj
+-  de fotograma). Anclada a la derecha además no da tirones — la barra cambia de
+-  anchura en cada muesca y es el número el que se queda quieto.
+-- **En el globo no hay brújula, y está demostrado**: el orbitador clava «arriba»
+-  en +Y, así que el eje Y de cámara es la tangente del meridiano del punto
+-  mirado, o sea el norte, y su proyección cae siempre en la vertical. El banco
+-  lo comprueba contra una cámara real desde cuatro posiciones: `northOnGlobe`
+-  devuelve (0, −1) exacto en las cuatro. Una aguja que sólo puede señalar hacia
+-  arriba es decoración.
+-- **Mirado, no sólo medido** (`harness/out/screen-furniture.png`, generado hoy
+-  en esta máquina): la chapa oscura se lee sobre las cuatro franjas —mar, nieve,
+-  desierto, bosque—, la letra N con su halo propio se ve también sobre la nieve
+-  (era el fallo que el propio comentario del fichero documenta haber cazado
+-  así), y la diana de dos anillos con cuatro tics no se confunde ni con la
+-  chincheta triangular del lector ni con el disco ámbar con halo de una capital,
+-  que son las dos cosas a las que más se podía parecer.
+-
+-### 4 · El descenso: el 3D ya llega a la calle
+-
+-- `MIN_3D_SPAN_KM` sale de `World3D.tsx` y se muda a `core/camera.ts` —una
+-  constante dentro de un `.tsx` no se puede medir sin montar React, y ésta ES
+-  una medida— y pasa de **10 a 2 km**.
+-- El techo de verdad estaba escondido en otro sitio: `MIN_UV_WINDOW` valía
+-  `0,0005`, que son **20 km de suelo**, más ancho que el propio suelo de
+-  acercamiento vigente. Es decir, la ventana de la piel era un tope MÁS
+-  ESTRICTO que el documentado, y el comentario que decía «a 10 km el plan pide
+-  z15-z16, 2,4-5 m/px» describía algo que no podía ocurrir. Ahora vale `5e-6`
+-  (≈200 m), deliberadamente por debajo de cualquier ventana que la vista vaya a
+-  pedir: el tope queda donde se puede leer y medir.
+-- La escalera, medida con las funciones reales (`harness/descent-3d.ts`), contra
+-  el umbral de 5 m/px al que `region/townPlan.ts` empieza a dibujar calles:
+-
+-  | vano | z de la piel | m/px | ¿calles? |
+-  | --- | --- | --- | --- |
+-  | 25 km | z13 | 19,11 | no |
+-  | 20 km | z14 | 9,55 | no ← el techo viejo |
+-  | 10 km | z15 | 4,78 | sí |
+-  | 4 km | z16 | 2,39 | sí |
+-  | 2 km | z17 | 1,19 | sí ← el suelo nuevo, 4,2× por debajo |
+-  | 1 km | z18 | 0,60 | sí ← el fondo de la pirámide |
+-
+-- **Por qué no se baja hasta los 0,25 km del contrato general**: el vértice
+-  calcula `w = uUVMin + uv·uUVSize` en float32, y cerca de u = 0,5 el escalón de
+-  un ulp son **2,39 m**. A 2 km de vano eso es 1,9 px de 1600 —invisible—; a
+-  0,25 km son 15 px y la piel se parte en bandas. Bajar más no es cambiar una
+-  constante: es mover la cuenta del vértice a un marco local.
+-- El `clearance` del orbitador estaba calibrado para el suelo viejo:
+-  `max(near·4, 0,035)` son unos 6 km fijos, que con un suelo de 2 km habrían
+-  dejado la cámara mirando desde 6 km de altura un pueblo de 250 m — anulando el
+-  descenso sin fallar en ningún sitio. Pasa a `max(near·4, min(0,035, orbitDist))`:
+-  por encima del suelo viejo el comportamiento es idéntico, por debajo escala
+-  con la distancia real de órbita.
+-- **Mirado** (`harness/out/descent-look.png`, Fauthar, capital, 26.839 hab.,
+-  dibujado con la MISMA `drawTownPlans` que usan las teselas): a 9,55 m/px el
+-  panel es **hierba vacía** —eso era lo que se veía antes—; a 4,78 aparece el
+-  casco amurallado entero; a 2,39 las manzanas y las calles; a 1,19 y 0,60 los
+-  edificios uno a uno, la plaza mayor y la catedral.
+-
+-### 5 · Pinchar una ciudad ya no abre un modal: baja hasta ella
+-
+-Petición de Luis: «el modal de la ciudad no lo veo necesariamente, pero sí como
+-una acción secundaria para editar la ciudad».
+-
+-- `descendToTown` pide un vano de `max(0,5 km, 3 × radio del plano)` — unos
+-  2,2 km para una capital y 0,6 para una aldea. Un fijo de 2 km habría dejado la
+-  aldea como una mota.
+-- Es un gesto de dos tiempos: si la cámara YA está a esa escala y sobre ese
+-  pueblo (1,5× de holgura en el vano y el radio del plano en ambos ejes, con
+-  envoltura este-oeste), el mismo clic abre el plano. Si no, baja.
+-- Desde «carta» cambia primero a «map», porque la Carta se planta en z12
+-  (~38 m/px) y ahí no hay calles que enseñar.
+-- La **diana de llegada** (`FlyMark`, en celdas de mundo) se dibuja en las tres
+-  vistas, con `rank −2` y primera en la lista de amontonamiento: es lo que el
+-  lector fue a buscar, así que nunca la descarta un topónimo vecino. Se limpia
+-  con Esc, y sola por histéresis: primero hay que ARMARLA acercándose a ≤0,75×
+-  del vano visible y sólo desde armada se desarma al alejarse a >1,2× — medir
+-  «¿estás lejos?» desde el principio la habría borrado en el despegue.
+-- El Índice gana el botón «Plano» (`onEditPlan`), que empareja por clave
+-  posicional y no por identidad de objeto: ya se demostró que la identidad no
+-  sobrevive a dos pasadas de geografía. Y la lámina de ciudad gana «Bajar al
+-  mapa, a sus calles», el camino de vuelta.
+-- Los cuatro rótulos de ayuda que prometían «abrir su plano» dicen ahora
+-  «bajar»; el del 3D dice además que la rueda acerca al cursor.
+-
+-### 6 · La guarda de claves de idioma, y el agujero que tenía
+-
+-La paridad es/en sólo compara los dos ficheros ENTRE SÍ: una clave que no está
+-en ninguno de los dos los deja igual de incompletos y pasaba. Y `t()` devuelve
+-la clave cuando no la encuentra, así que el fallo no es una excepción sino texto
+-de programador en la cara del lector. La guarda nueva encontró **5 claves
+-fantasma de 1.395**: las tres del localizador (su caja de búsqueda decía
+-literalmente «worldgen.locator.placeholder»), la del botón de ayuda del 2D y una
+-del selector de iconos. Ninguna había fallado nunca en ningún banco.
+-
+-**Añadido hoy (2026-08-16), y es lo único que he tocado de código:** la guarda
+-buscaba `\bt\(` y `World3D.tsx` importa `t as translate` —porque ya tiene una
+-`t` del hook dentro del componente—, así que sus llamadas eran invisibles.
+-Medido: **288 de las 1.683 llamadas literales de `src/`, el 17 %**, y justo el
+-17 % que dibuja el HUD nuevo. El nombre local se lee ahora del PROPIO `import`
+-en vez de mantener aquí una lista de alias, que es la clase de lista que se
+-queda vieja sin que nadie se entere. Comprobado antes de tocar nada que la
+-ampliación no destapa ninguna clave rota: **0 fantasmas** con el barrido
+-extendido, así que es blindaje, no una reparación. Si no lo quieres, son cinco
+-líneas en `scripts/check-conformance.mjs`.
+-
+-### Verificación
+-
+-- `npx tsx --tsconfig tsconfig.app.json harness/screen-navigation.ts` — **TODO
+-  VERDE** (localizador, rueda anclada en plano y globo, norte del globo, escala
+-  y brújula).
+-- `npx tsx --tsconfig tsconfig.app.json harness/descent-3d.ts` — **TODO VERDE**
+-  (11 varas, más la tabla de la escalera).
+-- Las dos sondas visuales generadas y MIRADAS en esta máquina.
+-- `npm run verify:quick` — verde: tipos del renderer, tipos de Electron, lint
+-  de envío con 0 huellas de la línea base, conformidad de **21 motores, 41
+-  tablas y 2.061 claves** con 0 avisos.
+-- Nota de proceso: los bancos necesitan `--tsconfig tsconfig.app.json` para que
+-  `tsx` resuelva el alias `@/`; sin él, cualquiera que importe `region/` muere
+-  con `ERR_MODULE_NOT_FOUND`. Los que sólo tocan módulos puros corren sin nada.
+-
+-### Lo que queda anotado y NO hecho
+-
+-1. **El ángulo de aproximación.** `near·4 = dist` obliga a mirar desde unos 58°
+-   sobre el horizonte. El suelo de distancia ya permitiría bajarlo, pero es un
+-   cambio de tacto en una vista que ya diste por buena. Anotado por el propio
+-   autor en `World3D.tsx`, y sigue anotado.
+-2. **`nearby[i]?.d` en `LocatorPanel`** está acoplado por POSICIÓN a `shown`.
+-   Hoy coinciden porque `shown` se deriva de `nearby`, pero es un invariante
+-   implícito entre dos arrays con nombres distintos: si alguien filtra uno de
+-   los dos, las distancias se desalinean en silencio, sin error de compilación
+-   ni excepción. Llevar la distancia dentro del propio elemento lo cierra.
+-3. **El `0,35` del score de cercanía** no tiene justificación escrita. Funciona,
+-   pero es indistinguible de haberse afinado a ojo.
+-4. **La guarda sólo ve claves LITERALES.** `t(\`worldgen.atlas.kind.${kind}\`)`
+-   sigue fuera de su alcance por construcción — resolverlo pediría ejecutar la
+-   aplicación. Comprobado a mano hoy que las seis clases del atlas tienen su
+-   rótulo en los dos locales; la próxima clave compuesta que se escriba no
+-   tendrá esa red.
+-5. `_to_delete/tsconfig.check-2026-08-15.json` sigue en el árbol y git lo ve.
+-
+-Trabajo local sobre `main`: **sin rama, sin staging, sin commit y sin push**,
+-para tu revisión.
+-
+-### Aviso: OTRA MANO en el árbol mientras se cerraba esto (2026-08-16, 19:55)
+-
+-El acta de arriba es fiel a lo que se midió, pero el árbol ha cambiado DEBAJO
+-mientras se escribía, y conviene que conste con hora:
+-
+-- **19:2x** — `verify:quick` verde sobre los 19 ficheros del paquete de
+-  navegación. Ese es el estado que certifica todo lo anterior.
+-- **19:39** — aparece un `.gitattributes` nuevo (`* text=auto eol=lf`), sin
+-  seguimiento, con una nota sobre 181 ficheros y 22.000 líneas de CRLF.
+-- **19:44** — `CartoMap.tsx` y `Map2D.tsx` se vuelven a tocar y estrenan
+-  `import { worldFamilyKey } from '../region/contentIdentity'`. Ese símbolo NO
+-  existe: `contentIdentity.ts` sigue como en HEAD y sólo exporta
+-  `geographyContentKey`, `worldContentKey` y `mapSourceKey`.
+-- **19:52** — `verify:quick` ROJO, cuatro errores de tipos, los cuatro de ese
+-  símbolo (`TS2305` en los dos imports, `TS2554` en las dos llamadas, que pasan
+-  dos argumentos a algo que espera uno).
+-
+-O sea: hay un trabajo distinto EN CURSO —caché de teselas con generación por
+-«familia de mundo»— a medio escribir encima de éste. No es del paquete de
+-navegación y no se ha tocado nada suyo para arreglarlo: quien lo esté
+-escribiendo tiene que añadir `worldFamilyKey` a `region/contentIdentity.ts`. Se
+-deja tal cual para no pisarle el trabajo a nadie.
+-
+-
+----
+-
+-# Worldgen 2D: los dos remates de §19.2 — el fantasma y el snap a píxel
+-
+-**Started y cerrado:** 2026-08-16
+-
+-> **Para quien escribió la nota de arriba:** sí, el trabajo en curso era éste, y
+-> ya está entero. `worldFamilyKey` está puesto en `region/contentIdentity.ts`
+-> (con `worldContentKey` reescrito EN TÉRMINOS de él, para que no puedan
+-> divergir; la cadena que produce es byte a byte la de antes). Gracias por no
+-> tocarlo.
+-
+-Lo que quedaba del 2D tras el descenso, por valor/esfuerzo, eran los dos
+-primeros puntos de §19.2 de `INVESTIGACION-MAPAS.md`. Los dos viven en
+-`cartography/tileStore.ts`.
+-
+-## El problema, medido antes de tocar nada
+-
+-- `setGeneration` **vaciaba** el almacén en cada cambio de clave de contenido —y
+-  una pincelada ES un cambio de clave. Cerraba las teselas vivas Y sus
+-  antepasados, así que tras cada trazo no quedaba ni el cuarto borroso de un
+-  padre: quedaba el raster del mundo entero que `Map2D` blitea debajo, ampliado
+-  unas treinta veces. Ese es el parpadeo que Luis veía. Está fotografiado en
+-  `harness/out/tile-ghost-look.png`, primer cuadro.
+-- El destino de cada `drawImage` iba en coma flotante con medio píxel de solape
+-  (`sw + 0.5`) para tapar costuras. Con la cámara quieta, un mapa que ya no se
+-  mueve se seguía remuestreando sobre medios píxeles.
+-
+-## Especificación verificable
+-
+-- [x] Tras una pincelada, el suelo sigue tapado por la tinta ANTERIOR — mismo
+-      sitio, misma resolución— hasta que llega la nueva.
+-- [x] La tinta nueva entra fundiéndose, de 0 a 1 en 250 ms.
+-- [x] Otro planeta NO deja fantasma: se vacía como siempre.
+-- [x] El fantasma no cuenta como tesela exacta: el aviso «N de M» sigue diciendo
+-      la verdad y el nivel se sigue re-pidiendo.
+-- [x] Ni un mapa de bits se queda sin cerrar, ni siquiera los que no caben.
+-- [x] Con la cámara quieta el destino es entero y los bordes casan sin costura
+-      NI solape.
+-- [x] En cuanto la vista se mueve, se deja de redondear.
+-- [x] Un consumidor que no pida fantasma se comporta exactamente como antes.
+-
+-## Lo que se hizo
+-
+-- **`cartography/tileStore.ts`** — `setGeneration(gen, family?)`. Con `family`
+-  igual, la generación que se va se DEGRADA a fantasma (`demote`) en vez de
+-  cerrarse; sin `family` (el valor por defecto es `gen`) el comportamiento es el
+-  de siempre, así que `World3D` no cambia una coma. `draw` compone en orden
+-  tesela viva → fantasma del mismo suelo → antepasado vivo → antepasado
+-  fantasma, funde por reloj inyectable y se pide sus propios cuadros mientras
+-  algo esté a medio fundir (`pumpFade`).
+-- **El reposo se detecta solo**: `draw` compara el cuadro con el anterior. Sirve
+-  para el arrastre, la rueda, el vuelo del localizador y el cambio de tamaño —
+-  más de lo que ningún componente sabe contar de sí mismo— y no hizo falta
+-  cambiar ninguna firma.
+-- **Los anchos por diferencia de BORDES** (`round(nx) - round(sx)`), no
+-  `round(ancho)`: el borde derecho de una tesela y el izquierdo de la siguiente
+-  salen de la misma expresión sobre el mismo número, así que son el mismo
+-  entero. Sobra el `+ 0.5`.
+-- **`region/contentIdentity.ts`** — `worldFamilyKey` (el suelo, sin la revisión).
+-- **`Map2D.tsx`** y **`CartoMap.tsx`** — una línea cada uno: pasan la familia.
+-
+-## Review — los números
+-
+-| medida | antes | después |
+-| --- | --- | --- |
+-| lo que se ve tras una pincelada | raster del mundo ×30 | la tinta anterior, nítida |
+-| tinta nueva | aparece de golpe | fundido 0 → 1 en 250 ms |
+-| memoria del fantasma | — | tope 96 teselas (~25 MB sobre los ~84 del almacén) |
+-| destino en reposo | fraccionario + 0,5 px de solape | entero, bordes exactos |
+-| nitidez a 1:1 (gradiente medio) | 13,66 | **16,63 (+21,7 %)** |
+-
+-**La ganancia del snap NO es uniforme, y eso también es el resultado.** Barrido
+-de escalas (`harness/tile-ghost-look.ts`): 1,00 → **+21,7 %**; 0,98 → −0,1 %;
+-0,90 → +0,4 %; 0,75 → **+22,4 %**; 0,60 → −1,0 %; 0,50 → −25,1 %. A 1:1
+-redondear convierte un remuestreo bilineal en una copia; en las escalas
+-intermedias manda el filtro de minificación y da igual; en reducción fuerte el
+-gradiente BAJA, que ahí no es perder detalle sino perder moaré. `levelFor` deja
+-la tesela entre 128 y 256 px, así que el caso bueno es el borde de nivel — donde
+-el mapa se queda cada vez que la rueda hace tope.
+-
+-- **`harness/tile-ghost-fade.ts`** (NUEVO): **20 varas en verde**, y 155 mapas de
+-  bits nacidos con 155 cerrados — cero fugas. Incluye la vara que distingue el
+-  camino bueno del respaldo (otro planeta no deja fantasma) y la que comprueba
+-  que sin `family` el comportamiento es el viejo.
+-- **`harness/tile-ghost-look.ts`** (NUEVO): la sonda visual, con el barrido.
+-- Verdes sin tocar: `display-tile-plan`, `tile-service`, `map2d-layer-contract`,
+-  `road-overlay`, `river-hierarchy`, `tile-ink`, `screen-navigation`,
+-  `descent-3d`.
+-- **`tile-retention` con `BANCO_ANCHO=2048 BANCO_LEGADO=1`** —el caso real de
+-  Luis, Chromium de verdad, bajada con la rueda— en VERDE: 3/3 coordenadas de
+-  z11 entregadas, ninguna renace, **reposo mudo con 1 solo cambio de generación
+-  en toda la bajada**, y la segunda visita sirvió 5 teselas del disco.
+-- `npx tsc -p` sobre lo tocado con el tsconfig del proyecto: **0 errores, 8,2 s**.
+-  `eslint` sobre `tileStore.ts` y `contentIdentity.ts`: **0**.
+-- Trabajo local sobre `main`, sin rama, staging, commit ni push.
+-
+-## Y una limpieza que no era del 2D pero bloqueaba el commit
+-
+-El árbol de trabajo estaba convertido a CRLF: `git status` enseñaba **193
+-ficheros modificados** cuando los reales eran **12**. Los otros 181 eran 22.000
+-líneas de puro fin de línea, y un `git add -A` habría enterrado el descenso y la
+-navegación bajo ellas para siempre. Se añadió **`.gitattributes`** con
+-`* text=auto eol=lf` (y `binary` para png/jpg/ico/icns/tgz/webp): el diff pasó a
+-enseñar sólo lo que de verdad cambió, en el acto.
+-
+-
+----
+-
+-# Worldgen 3D: EL MARCO LOCAL — de 2 km a 250 m
+-
+-**Started y cerrado:** 2026-08-16
+-
+-La tercera meta del proyecto es FlowScape: una vista 3D a la que se pueda BAJAR.
+-El 15 se abrió el descenso y se quedó en 2 km de vano, y el comentario de
+-`MIN_3D_SPAN_KM` decía exactamente por qué: no era prudencia, era ARITMÉTICA. El
+-plano de calles se dibuja desde 5 m/px y a 2 km la piel da 1,19 — o sea que las
+-calles ya salían; lo que no aguantaba era la coma flotante.
+-
+-## El problema, medido antes de tocar nada
+-
+-Dos escalones, y **los dos del mismo tamaño** — que es la parte que importa:
+-
+-1. **La uv del vértice.** `w = uUVMin + uv * uUVSize` en `highp float`. Cerca de
+-   u = 0,5 el ULP de un float32 es 2⁻²⁴, que en un mundo de 40.075 km son
+-   **2,389 m**. Y el fragmento remataba la faena restando `vUV - uZoomMin` —dos
+-   números de ~0,5 para dar ~1e-8—, una cancelación catastrófica de manual justo
+-   en la cuenta de la que sale el plano de calles.
+-2. **La matriz.** `modelViewMatrix * p` restaba dos números de ~96 unidades de
+-   escena para dar ~1e-3: ULP de **1,274 m**. Arreglar sólo el primero habría
+-   movido el tope de 2 km a 1 y ahí se habría quedado.
+-
+-A 0,25 km de vano eso son **8,9 píxeles por salto** en una pantalla de 1400: el
+-plano de calles se deshace en moteado. Está fotografiado en
+-`harness/out/descent-look-3d.png`, fila de arriba.
+-
+-## Especificación verificable
+-
+-- [x] Bajar a 250 m no cambia lo que se ve: el cuadro a 0,25 km es el mismo que
+-      a 2 km, sólo más cerca.
+-- [x] Un valor distinto por píxel de pantalla, en la piel Y en la geometría, a
+-      los cuatro vanos.
+-- [x] Los dos escalones caben mil veces dentro de un píxel.
+-- [x] El globo no cambia ni un bit.
+-- [x] En el suelo nuevo la piel sigue entintando calles, con margen.
+-- [x] `MIN_UV_WINDOW` deja de ser el tope escondido, y con margen de sobra.
+-
+-## Lo que se hizo
+-
+-- **`sculpt/scene3d.ts`, vértice** — `vLocal = (uv - 0.5) * uUVSize`, que es
+-  pequeño y por tanto exacto, y sale hacia el fragmento. La uv absoluta se queda
+-  sólo para MUESTREAR, donde un téxel son veinte kilómetros y 2,4 m de error es
+-  1e-4 de téxel. La posición del PLANO se calcula ya en local.
+-- **El pivote** — `setWindow` muda `mesh.position` al centro de la ventana. Así
+-  la resta grande la hace three.js al componer `modelViewMatrix` en la CPU, en
+-  doble precisión, y al shader le llega ya pequeña.
+-- **`uZoomRel`** — el centro de la ventana de la malla menos la esquina de la
+-  piel, restado en la CPU en float64 y con la costura resuelta ahí (el `round`
+-  por píxel desaparece). El fragmento hace `(uZoomRel + vLocal) / uZoomSize`.
+-- **Las derivadas** — `dFdx(vWorld)` daba **cero** a 250 m (la diferencia entre
+-  dos píxeles vecinos es 1,5e-9 sobre un número de 96): con ella `pxUnits` se
+-  iba al mínimo, `resolvable` a uno y el marco tangente a un determinante nulo.
+-  Un cero silencioso. Ahora salen de `vLocal` y `vElev`.
+-- **El GLOBO no se toca**: `uPivot` vale cero allí y la rama del vértice es
+-  literalmente `placeAt`. A escala de planeta no hay nada que arreglar, y una
+-  esfera no tiene marco local barato.
+-- **`MIN_UV_WINDOW`: 5e-6 → 1e-6** (200 m → 40 m). Con el suelo en 250 m, los
+-  200 dejaban un 25 % de holgura: volvía a ser el tope escondido, un poco más
+-  abajo.
+-- **`MIN_3D_SPAN_KM`: 2 → `MIN_SPAN_KM`** (0,25 km), escrito como la constante y
+-  no como el número, para que no puedan separarse.
+-
+-## Review — los números
+-
+-| medida | antes | después |
+-| --- | --- | --- |
+-| escalón de la uv del vértice | 2,389 m | **9,11 µm** |
+-| escalón de la matriz | 1,274 m | **9,72 µm** |
+-| píxeles por salto a 0,25 km (piel y geometría) | 8,9 | **1,00** |
+-| los dos escalones, en píxeles de pantalla | 13,4 y 7,1 | **5,1e-5 y 5,4e-5** |
+-| el cuadro se mueve al bajar a 0,25 km (luma) | 6,3 | **1,3** |
+-| suelo del 3D | 2 km | **0,25 km** (el del contrato) |
+-| la piel en el suelo nuevo | — | z18 · **0,60 m/px** (el plano dibuja desde 5) |
+-
+-- **`harness/descent-precision.ts`** (NUEVO, todo verde): la misma cuenta del
+-  vértice ejecutada en float32 con `Math.fround`, antes y después, más el ULP
+-  real — que es la medida que no depende de cuántas muestras tome el banco.
+-- **`harness/descent-look-3d.ts` + `-run.mjs`** (NUEVO, 4/4 verde): el shader
+-  REAL en un Chromium con swiftshader. El «antes» no se simula: se parchean en
+-  el material LAS DOS LÍNEAS que cambiaron y se devuelve la malla al origen.
+-- **`harness/descent-3d.ts`**: actualizado. Sus dos varas que decían «a 0,25 km
+-  el escalón son 15 px, por eso el suelo no baja ahí» eran verdad hasta hoy;
+-  ahora retratan el problema resuelto y apuntan al banco nuevo.
+-- `npx tsc -p` con el tsconfig del proyecto sobre `scene3d`, `camera`, `World3D`
+-  y `WorldView`: **0 errores, 10,5 s**. `eslint`: **0**.
+-- Verdes sin tocar: `screen-navigation`, `tile-ghost-fade`, `display-tile-plan`,
+-  `map2d-layer-contract`, `river-hierarchy`.
+-- Trabajo local sobre `main`, sin rama, staging, commit ni push.
+-
+-## Lo que queda del 3D
+-
+-El ÁNGULO de órbita. `near·4 = dist` obliga a mirar desde unos 58° sobre el
+-horizonte en cuanto te acercas, así que la órbita no rasa aunque la piel ya lo
+-permita. Sigue anotado y sin hacer: es un cambio de tacto en una vista que Luis
+-dio por buena, y para ir a ras de suelo está el PASEO.
+-
+-## Y un banco que llevaba dos días midiendo humo
+-
+-`views-smoke-run.mjs` empaquetaba `region.worker.ts` y `worldgen.worker.ts`,
+-pero **no `geography.worker.ts`** — que existe desde el 2026-08-14, cuando la
+-geografía humana se mudó a su propio obrero. Resultado: `worldview-map` y
+-`worldview-carta` salían en ROJO con «geography worker failed», y las otras
+-quince en verde. Un fallo del banco, no de las vistas, del tipo que se acaba
+-leyendo como «esas dos vistas están rotas, ya se verá».
+-
+-Tres líneas en el corredor. Ahora **17/17 en verde**, y las dos vistas curadas
+-además dibujan MÁS (bordes 4,90 % → 6,51 % en el mapa, 10,27 % → 11,14 % en la
+-carta): la geografía humana llega de verdad, que es lo que el banco creía estar
+-midiendo desde hace dos días.
+-
+-
+----
+-
+-# Worldgen: la ciudad estaba a seis pantallas de la diana
+-
+-**Started y cerrado:** 2026-08-17 · **Lo reportó Luis:** «cuando pulso la
+-ciudad, se centra en un sitio diferente», con captura.
+-
+-## El diagnóstico salió de la captura, no del código
+-
+-En la imagen, la diana de llegada caía **siempre al noroeste** del punto de la
+-ciudad. Eso no es un desajuste cualquiera: el noroeste es exactamente donde está
+-la ESQUINA de una celda respecto a su CENTRO. Con eso ya había dónde mirar.
+-
+-`descendToTown` volaba a `s.x, s.y` a secas y ponía ahí la diana, mientras que
+-**todo lo que DIBUJA un pueblo** —el punto del mapa, su blanco de pinchado, la
+-tesela que decide si lo pinta, el plano de la ciudad— usa
+-`settlementCellCenter`, que es la celda **+0,5**. Media celda de un mundo de
+-2048 son **9,8 km**. A vista de continente son dos píxeles, y por eso el fallo
+-sobrevivió a todos los bancos verdes; pero el vuelo pide **2,17 km** de vano
+-para una capital, así que al llegar la ciudad estaba a **6,4 pantallas** y la
+-diana marcaba campo vacío.
+-
+-Y tenía una segunda cara que nadie había notado: «ya estás ahí» —la condición
+-que hace que el SEGUNDO clic abra la lámina de la ciudad— también se medía
+-contra la esquina. Medido: **154 de 154 poblaciones no contaban NUNCA como
+-alcanzadas**. El segundo clic no podía llegar jamás.
+-
+-## Lo que se hizo
+-
+-- **`region/townPlan.ts` gana `townFrame(s, world)` y `alreadyAtTown(...)`.** La
+-  cuenta sale de `WorldView.tsx` porque **dentro de un `.tsx` no tiene banco
+-  posible sin montar React**, y por eso llevaba ahí desde que existe el gesto
+-  sin que ninguna vara pudiera verla. Ahora el vuelo, la diana y el «ya estás
+-  ahí» salen del MISMO centro, que es el mismo que dibuja el mapa.
+-- **`WorldView.descendToTown`** pasa a ser cuatro líneas que piden el encuadre y
+-  lo obedecen.
+-
+-## Review — los números (`harness/town-descent.ts`, NUEVO, 8/8 verde)
+-
+-Sobre las **154 poblaciones** de un mundo real de 2048 (una celda = 19,6 km):
+-
+-| vara | resultado |
+-| --- | --- |
+-| el vuelo apunta al mismo punto que el mapa dibuja | desfase máximo **0 celdas** |
+-| la diana cae sobre el punto | desfase máximo **0 celdas** |
+-| con la cuenta vieja, el error | **13,8 km con un vano de 2,17 = 6,4 pantallas (8.943 px)** |
+-| la firma del fallo | la esquina cae **9,8 km al oeste y 9,8 al norte** del centro |
+-| «ya estás ahí» con la cuenta nueva | **154 de 154** |
+-| «ya estás ahí» con la vieja | **0 de 154** |
+-| el vecino más cercano no se confunde con éste | 0 confusiones (par más apretado, 526 km) |
+-| el vano por rango | capital 2,17 · ciudad 1,48 · villa 0,97 · aldea 0,63 km |
+-
+-- `tsc` con el tsconfig del proyecto sobre `WorldView`, `townPlan` y `Map2D`:
+-  **0 errores**. `eslint`: **0**.
+-- Regresión sin tocar: `city-ground-context` **83/83**, `tile-ink` verde en
+-  z10/z12/z14/z16 con plano de calles presente.
+-- Trabajo local sobre `main`, sin rama, staging, commit ni push.
+-
+-## Una vara que salía verde sin comprobar nada
+-
+-La primera versión de «el pueblo vecino no cuenta como éste» filtraba por
+-«vecinos a menos de cuatro radios». Con radios de menos de un kilómetro y
+-pueblos a veinte, eso da **cero pares**: verde sin haber mirado nada. Ahora va
+-contra el vecino MÁS CERCANO de cada pueblo, sin filtro.
+-
+----
+-
+-# Los tres paquetes post-auditoría: anclajes, cosecha LEVE y guiones — 2026-08-21
+-
+-Sesión sobre la lista que quedó viva tras cerrar el §7 de la auditoría del
+-16-08. Tres paquetes elegidos por Luis: AnchorAdapters para biography y
+-character-arc, la cosecha de LEVE entera, e importar Fountain/FDX + ciclado
+-de tipo con Tab en dialog-scene. **Nada commiteado**, 29 ficheros tocados
+-(26 editados + 3 nuevos).
+-
+-## Plan ejecutado
+-
+-- [x] LEVE 1 — `SprintTimer`: textarea de notas opcional; `WritingSession.notes`
+-      por fin tiene quien lo escriba (el centinela `notes === 'editor'` de
+-      `writingActivity.ts` queda documentado al lado).
+-- [x] LEVE 2 — `VideoSegment.speakerId` ELIMINADO del tipo (cero usos, sin
+-      índice, sin migración; los ZIP viejos importan igual).
+-- [x] LEVE 3 — `outline.wordTarget` por fin se LEE: chip `{escritas}/{objetivo}`
+-      en la fila de `BeatList` usando el `wordCount` del escrito enlazado (verde
+-      al llegar). `OutlineBeat.tags` ELIMINADO (nadie lo escribía ni leía).
+-- [x] LEVE 4 — selector de color por relación (`ColorPicker` + botón de volver
+-      al color del tipo); la vista de lista prefiere `r.color ?? cfg.color`.
+-- [x] LEVE 5 — `ArcBeat.status` editable: select en `BeatRow` calcado del de
+-      estado del arco (`ARC_STATUS_CONFIG`, cero claves nuevas).
+-- [x] LEVE 6a — `FactSource.entityId` por fin se escribe: `LinkSelect` de
+-      capturas del Scrapper en `FactEditor` (visible sólo con tipo Captura);
+-      la fuente muestra el título de la captura enlazada. `FactEditor` recibe
+-      `projectId` nuevo desde `BiographyView`.
+-- [x] LEVE 6b — el export narrativo de biografía usa `downloadTextFile` (el
+-      blob artesanal no revocaba su object URL).
+-- [x] LEVE 7 — pie de foto editable en `GalleryLightbox` (`gallery.notes` se
+-      buscaba y mostraba pero no había dónde escribirlo); el lightbox
+-      re-resuelve la imagen desde `images` para no quedarse congelado.
+-- [x] LEVE 8a — las conexiones del timeline por fin se EDITAN: `editConnection`
+-      cableado (existía sin llamador), menú contextual con etiqueta, estilo
+-      (continuo/discontinuo/punteado) y color — el dibujante ya sabía pintarlo
+-      todo.
+-- [x] LEVE 8b — renombrar línea temporal: `onEditTimeline` destructurado (llegaba
+-      y se ignoraba); clic en la etiqueta del carril abre modal de nombre +
+-      descripción.
+-- [x] LEVE 9 — `GoogleDocsPicker` se desmonta al cerrar (render condicional,
+-      patrón FactEditor/PanelEditor); ya no conserva búsqueda ni selección.
+-- [x] LEVE 10 — `assertBackupCoverage` ahora itera `db.tables` (el universo
+-      real) en vez de las tablas declaradas por motores: las 4 de project-tools
+-      quedan vigiladas y cualquier tabla futura sin respaldo salta. Lista
+-      explícita `DERIVED_CACHE_TABLES` (worldSnapshots, canonTiles,
+-      renderedTiles) para las cachés regenerables.
+-- [x] ANCLAJES — biography y character-arc con `AnchorAdapter` explícito
+-      (entity-only; los dos sondean sus dos tablas, chip localizado
+-      `annotations.chipLabel.*`, y navegación real: un fact lleva a su
+-      biografía, un beat a su arco). OJO: ya aparecían en el selector por el
+-      adaptador de RESPALDO (`registerFallbackAdapters`) — lo que faltaba era
+-      chip traducido, URL viva y la MITAD RECEPTORA: `useDeepLinkParam('bio')`
+-      en `BiographyEngine` y `useDeepLinkParam('arc')` en `CharacterArcEngine`
+-      (patrón render-adjust con guarda, como codex). Montado
+-      `<AnnotationSurface layout="stack">` en `BiographyView` y en `ArcEditor`.
+-- [x] IMPORTAR GUIONES — tres ficheros nuevos en dialog-scene:
+-      `importPersist.ts` (contratos + `importScript`: transacción con
+-      `bulkAdd`, APPEND-ONLY tras las escenas existentes, `#N#` ⇒
+-      `isLocked: true` porque el motor renumera en cada gesto, un `SceneCast`
+-      por nombre canónico —extensiones `(V.O.)` fuera de la identidad,
+-      `(CONT'D)` eliminado— y `characterId` del códice estampado en cast y
+-      bloques, que alimenta el Cockpit), `fountainImport.ts` (parser puro,
+-      inverso del exportador: título-page/boneyard/`===` fuera, sinopsis a
+-      descripción, secciones a nota, OMITTED, `#N#`, `>`/`TO:`, `[[notas]]`
+-      multilínea, `!`, `@`, cues con `^` dual y paréntesis inicial al campo,
+-      `*línea*` a acotación; pérdidas documentadas en cabecera: los slugs
+-      exportados vuelven como límite de escena) y `fdxImport.ts` (DOMParser
+-      XML sin dependencias; Shot→slug, Cast List→nota, dual por contenedor y
+-      por atributo best-effort, `Number`→número). Botón Importar en
+-      `SceneListView` FUERA de la guarda `scenes.length > 0`, detección por
+-      extensión + sniff `<FinalDraft`, prop nueva `onImported` ⇒
+-      `autoNumberScenes` + `refresh` sin timer.
+-- [x] TAB — ciclado de tipo de bloque en el editor: `dialog → action →
+-      stage-direction → transition → slug → note` (Shift+Tab inverso),
+-      saltando `dialog` si el bloque no tiene nombre (evita la cabecera vacía)
+-      y sin tocar los duales. Convive con el autocompletado por
+-      `e.defaultPrevented` (su listener nativo va antes); `flush()` del campo
+-      antes del cambio de tipo (cero teclas perdidas) y refocus por efecto en
+-      `[block.type]` — la instancia sobrevive (key = block.id), sólo cambia el
+-      textarea.
+-- [x] i18n — 18 pares nuevos en en/es: `dialogScene.import.*` (8),
+-      `annotations.chipLabel.{biography,character-arc}`,
+-      `timeline.{connectionLabel,renameTimeline,style.*}`,
+-      `relationships.{color,colorReset}`, `gallery.imageNotes`.
+-- [x] Test — `testScriptImportRoundTrip` en `tests/critical.browser.ts`:
+-      helpers de cue, round-trip `buildFountain → parseFountain` (heading+
+-      número, paréntesis, dual, acotación, transición, nota, OMITTED, slug
+-      como límite, descripción como acción, `(V.O.)`), FDX inline (runs de
+-      texto, fusión de Dialogue consecutivos, CONT'D, Shot/Transition) y
+-      persistencia real (`importScript`: recuentos, candado del número,
+-      estampado del códice) con limpieza.
+-
+-## Review — verificación
+-
+-En la máquina real (Desktop Commander, shell Windows): `tsc -b --noEmit`
+-(renderer, 12s, verde con --verbose enseñando la build), tsc de Electron
+-verde, `check-lint.mjs` verde con 0 huellas, `check-conformance.mjs` verde
+-(21 motores, 41 tablas, **2.335 claves**), y `npx electron
+-scripts/run-critical-tests.cjs` **13/13 PASS** incluido el test nuevo.
+-También todo verde antes en el sandbox (npm ci --ignore-scripts).
+-
+-**Aviso de herramienta**: en esta máquina, `npm run X 2>&1 | Out-String` en
+-PowerShell devuelve exit 1 falso y se traga la salida del hijo — los portones
+-hay que lanzarlos con `npx`/`node` directos.
+-
+-## Lo que queda (después de esto)
+-
+-- `AiToolbar.tsx`: 6 cadenas en español fijo (Luis lo dejó fuera a propósito).
+-- Sin UI aún: `Payoff` ya tiene sus tres selectores… (cerrado el 16-08); nada
+-  más pendiente de la auditoría.
+-- Ideas apuntadas, no pedidas: modo reemplazo/merge en el import, export FDX,
+-  crear entradas de códice para hablantes desconocidos al importar, ciclado
+-  Tab dentro de duales.
+-
+----
+-
+-# IA local de un botón: Ollama portable embebido + Qwen — 2026-08-21 (tarde)
+-
+-Petición de Luis: «darle y que descargue un modelo tocho gratuito local».
+-15 ficheros (2 nuevos, 12 editados, 1 borrado), **sin commitear**.
+-
+-## Lo que hay
+-
+-- [x] **`electron/ollama.ts`** (nuevo): el main gestiona un Ollama portable —
+-      descarga el zip standalone oficial (CLI + CUDA) a `userData` con progreso
+-      vía `net.fetch` en streaming, extrae con `tar.exe` (fallback
+-      `Expand-Archive`), y arranca `ollama serve` como hijo vigilado en el
+-      puerto fijo **11500** (`OLLAMA_MODELS` propio, keep_alive 30m, flash
+-      attention). Si hay un Ollama del sistema en 11434, lo adopta y no
+-      descarga nada (`external`). Pull de modelos por `/api/pull` NDJSON con
+-      progreso agregado por capas (Σcompleted/Σtotal, monótono, ≤10 ev/s) y
+-      cancelación (Ollama reanuda solo). Chat por **`/api/chat` nativo** (no
+-      `/v1`: sin `options` el contexto sería 4096 y truncaría manuscritos) con
+-      `num_ctx 32768`, `think: false` (retry sin el campo si el servidor es
+-      viejo), timeout 10 min. Guardas de disco con `fs.statfs` (zip×2.5,
+-      modelo×1.2 → error `no-space:N`). Árbol de procesos matado en
+-      `will-quit` (lección #15). TODO el HTTP a Ollama vive en el main: el
+-      renderer empaquetado es `file://` y el CORS de Ollama rechaza origen
+-      null (pendiente conocido de `desktop-transition.md`).
+-- [x] **IPC**: namespace `ollama` (8 invokes + 3 eventos push — los primeros
+-      canales de progreso de la app), duplicado a mano en `preload.ts` y
+-      `src/electron-env.d.ts` como siempre.
+-- [x] **Proveedor**: `AiConfig.provider: 'proxy' | 'local'` + `localModel`
+-      (2 claves Dexie nuevas; default `proxy` → nadie nota nada). `callAi`
+-      ramifica; `LocalAiError` → clave `ai.localNotReady` vía `safeAiCall`.
+-- [x] **`src/services/aiText.ts`** (nuevo, puro): `sanitizeModelText` (bloques
+-      `<think>` cerrados/truncados/huérfanos) y `parseJsonFromModel` (fence →
+-      texto → recorte primer-corchete-a-último; `SyntaxError` para mantener el
+-      mapeo a `ai.unexpectedFormat`). Sustituye los dos `JSON.parse` frágiles
+-      de `aiFeatures.ts`; `callAi` sanea SIEMPRE (inofensivo con Claude).
+-- [x] **Catálogo** (`config/ai.ts`): `qwen3.5:35b-a3b` (~20 GB, el tocho, MoE
+-      3B activos) y `qwen3.5:9b` (~6,6 GB, entero en la 4070 Ti). Tamaños
+-      espejados en `KNOWN_MODEL_BYTES` del main (mantener en sincronía).
+-- [x] **UI** (`SettingsModal`): selector de proveedor + panel local por estado
+-      — CTA «Descargar motor de IA local (~1,5 GB)» → barra estilo worldgen
+-      con fase/GB/cancelar → «IA local activa»; tarjetas de modelo con
+-      Descargar/progreso/Usar/Borrar (ConfirmDialog), modelos extra de un
+-      Ollama externo listados aparte. `aiStore`: eventos suscritos a nivel de
+-      MÓDULO con guarda en window (StrictMode, lección #19).
+-- [x] **Borrado**: `AiSettings.tsx` (fork muerto de la UI, cero importadores)
+-      eliminado vía Desktop Commander.
+-- [x] **i18n**: 32 pares nuevos es/en. **Test**: `testAiTextParsing` (9
+-      asserts) en `tests/critical.browser.ts`.
+-
+-## Review — verificación
+-
+-Sandbox y máquina real (npx/node directos, lección #37): tsc renderer
+-`--force` verde, tsc electron verde, lint 0 huellas, conformidad
+-**2.367 claves**, `run-critical-tests` **14/14 PASS**. E2E manual pendiente
+-de Luis (es literalmente el botón): descargar motor → pull del 9B → resumen/
+-personajes; luego el 35B. Nada descargado en su máquina sin que él lo pida.
+-
+-## Notas para el futuro
+-
+-- El zip del runtime no reanuda (v1); los pulls de modelos sí (Ollama).
+-- `settings.ai.local.*` y los códigos de error del main (`no-space:N`,
+-  `runtime-missing`, `model-missing`, `busy`, `cancelled`) están mapeados en
+-  `aiStore.localErrorText`.
+-- Ideas no pedidas: streaming de tokens, runtime embebido mac/linux, GGUF
+-  propios, enrutado por función (resumen→9b, consistencia→35b).
+-
+----
+-
+-# Auditoría integral de app y siguientes pasos — 2026-08-24
+-
+-## Plan
+-
+-- [x] Revisar el estado real del producto, la documentación y las lecciones previas.
+-- [x] Auditar arquitectura, deuda técnica, seguridad, rendimiento y cobertura de pruebas.
+-- [x] Probar los flujos principales de la aplicación y evaluar la experiencia de uso.
+-- [x] Inventariar capacidades existentes para no proponer funciones duplicadas.
+-- [x] Priorizar hallazgos e ideas por impacto, riesgo y esfuerzo.
+-- [x] Definir un roadmap de siguientes pasos con criterios verificables.
+-
+-## Review
+-
+-### Diagnóstico
+-
+-La aplicación ya tiene una propuesta de producto extraordinariamente amplia:
+-21 motores, escritura con recuperación e historial, captura e investigación,
+-Worldgen, búsqueda transversal, salud del proyecto, publicación e IA local y
+-remota. El siguiente salto no es añadir otro motor, sino hacer que todos los
+-motores se comporten como una sola aplicación y cerrar el perímetro de
+-seguridad antes de publicar.
+-
+-### Bloqueantes antes de publicar
+-
+-- Cerrar la cadena HTML no saneado → renderer → capacidades nativas: CSP
+-  estricta, sanitización con allowlist, validación runtime de backups/IPC y
+-  comprobación central del remitente de cada canal.
+-- Fijar versión y SHA-256 del runtime descargable de Ollama antes de extraerlo
+-  o ejecutarlo; nunca usar `releases/latest/download` para un binario nativo.
+-- Corregir la validación de rutas de la biblioteca (`.` y `..`), la colisión
+-  destructiva al importar un proyecto y la promesa confusa de «backup
+-  completo» cuando los activos de Scrapper no viajan dentro del ZIP.
+-- Actualizar Electron y React Router de forma controlada, resolver los avisos
+-  de dependencias y añadir firma de código al flujo de publicación.
+-
+-### Prioridad de producto
+-
+-- Reparar deep links y «Trabajo reciente» para abrir el elemento exacto.
+-- Hacer útil la IA grounded: búsqueda semántica/híbrida, más fuentes y un solo
+-  modelo de consentimiento que distinga proveedor local de remoto.
+-- Corregir 100 % falsos en proyectos vacíos, traducir Cockpit/Tools y agrupar
+-  sus 11 pestañas.
+-- Llevar promoción a borrador, citas y reparaciones al contexto donde nacen;
+-  convertir el onboarding en pasos navegables y específicos por modo.
+-- Unificar Compilar y Publicación en perfiles reutilizables.
+-
+-### Roadmap recomendado
+-
+-1. **Seguridad de release:** CSP/sanitización/IPC, hash de Ollama, rutas,
+-   dependencias y firma.
+-2. **Cohesión inmediata:** deep links, métricas N/A, i18n, edición de proyecto,
+-   acciones contextuales y onboarding.
+-3. **Flujo editorial:** Cockpit reorganizado, centro de comandos `Ctrl+K`,
+-   Compilar/Publicar unificados y backups portables.
+-4. **Diferenciación:** copiloto de continuidad local-first, columna narrativa
+-   navegable y pipeline DOCX/ePub/FDX.
+-
+-### Verificación
+-
+-- TypeScript renderer y Electron: verde.
+-- Lint de envío: 0 huellas.
+-- Conformidad: 21 motores, 41 tablas, 2.367 claves, 0 avisos.
+-- Pruebas críticas: 14/14 PASS.
+-- Build de producción y bundle Electron: verdes.
+-- Presupuestos informativos superados: entry 1.686,9 kB, World3D 709,9 kB y
+-  total 4.571,0 kB; el script no falla salvo con `WH_BUNDLE_STRICT=1`.
+-- Auditoría de producción: 5 avisos (4 altos y 1 moderado), sin críticos.
+-- Prueba manual a 1280×720 completada; el proyecto temporal fue eliminado al
+-  terminar y el servidor local de auditoría quedó cerrado.
+-
+----
+-
+-# Sprint 0 de seguridad previo a distribución — 2026-08-24
+-
+-## Plan
+-
+-- [x] Añadir CSP compatible con web/Electron y sanear todo HTML persistido que
+-      llega a superficies con `dangerouslySetInnerHTML`.
+-- [x] Validar el remitente de IPC y limitar la navegación de producción a la
+-      URL exacta del renderer empaquetado.
+-- [x] Fijar y verificar por SHA-256 el runtime descargable de Ollama antes de
+-      extraer o ejecutar ningún binario.
+-- [x] Rechazar segmentos `.`/`..` y demostrar la contención de destinos de la
+-      biblioteca nativa con pruebas adversariales.
+-- [x] Detectar colisiones al importar proyectos y exigir cancelar o reemplazar;
+-      «importar como copia» queda visible pero deshabilitado hasta poder
+-      reasignar con seguridad todas las referencias internas.
+-- [x] Añadir cobertura de regresión para HTML hostil, hash incorrecto, rutas y
+-      colisiones de importación.
+-- [x] Ejecutar typechecks, lint, conformance, pruebas críticas, startup real y
+-      build de producción.
+-- [x] Actualizar la documentación arquitectónica y ejecutar el mantenimiento del
+-      grafo; la memoria externa indicada por la habilidad no está montada en
+-      este entorno, por lo que `docs/PROJECT_KNOWLEDGE.md` queda como fallback
+-      versionado y actualizado.
+-
+-## Review
+-
+-- CSP sin `unsafe-inline` para scripts y saneador DOMPurify central aplicado a
+-  las cinco superficies actuales de HTML persistido. Se conserva la excepción
+-  explícita de Google Identity y `style-src 'unsafe-inline'` por los estilos
+-  dinámicos de la interfaz.
+-- IPC con política por canal/ventana, top frame y URL exacta; navegación de
+-  producción cerrada al documento interno. Se eliminaron además cinco canales
+-  sin llamadores, incluida la consulta de existencia de rutas
+-  arbitrarias.
+-- Biblioteca nativa contenida léxicamente y por `realpath`, incluidos escapes
+-  mediante symlink. Segmentos `.` y `..` rechazados.
+-- Ollama fijado a `v0.32.15`: 1.460.302.386 bytes y SHA-256
+-  `a1d11d46a944f9c7521f5e9a3a5db51cd3365401da627d96c204698fc6914ff9`,
+-  contrastados con la API y el `sha256sum.txt` oficiales. La descarga se hashea
+-  en staging antes de extraer y el runtime instalado exige recibo coincidente.
+-- La importación de proyecto previsualiza colisiones sin escribir; una colisión
+-  no autorizada aborta antes de la primera mutación. La sustitución explícita se
+-  vuelve a validar dentro de la transacción.
+-- Dependencias actualizadas a Electron 43.4.1, electron-builder 26.15.3, Vite
+-  7.3.6, React Router 7.18.2 y esbuild 0.28.2. `npm audit`: **0 avisos**.
+-- Publicación Windows bloqueada si faltan `WIN_CSC_LINK` y
+-  `WIN_CSC_KEY_PASSWORD`, con `forceCodeSigning=true`. El paquete local de
+-  desarrollo sigue sin firma, como se espera; falta aportar el certificado en
+-  los secrets del repositorio para publicar.
+-- Verificación final: ambos typechecks verdes; lint 0 huellas; conformidad 21
+-  motores, 41 tablas y 2.374 claves; **20/20 pruebas críticas**; build web y
+-  Electron verdes; `electron-builder --dir` verde; startup del paquete real
+-  verde con perfil temporal aislado. Presupuestos informativos: entry 1.693,5
+-  kB, lazy máximo 709,9 kB y total 4.607,3 kB.
+-- La habilidad `update-project-graph` se ejecutó al final, pero sus ficheros de
+-  memoria (`/sessions/festive-cool-keller/mnt/.auto-memory/*`) no existen en
+-  este host Windows ni tienen réplica local accesible. Se actualizó en su lugar
+-  `docs/PROJECT_KNOWLEDGE.md`; queda pendiente sincronizar la memoria externa
+-  cuando el montaje vuelva a estar disponible.
+-
+----
+-
+-# Sprint 1 de cohesión inmediata — 2026-08-24
+-
+-## Plan
+-
+-- [x] Hacer que cada elemento de «Trabajo reciente» abra su entidad exacta y
+-      mantener un fallback seguro para motores sin navegación profunda.
+-- [x] Representar como no aplicables las coberturas sin denominador y distinguir
+-      un proyecto vacío de un proyecto comprobado sin incidencias.
+-- [x] Permitir editar desde el proyecto sus datos básicos sin recrearlo.
+-- [x] Traducir las superficies visibles de Cockpit/Tools incluidas en este
+-      sprint y evitar que el selector de idioma deje textos mezclados.
+-- [x] Convertir los pasos iniciales en acciones navegables y útiles, con
+-      destino coherente con el modo y los motores activos del proyecto.
+-- [x] Añadir cobertura de regresión y ejecutar typechecks, lint, conformidad,
+-      pruebas críticas, startup real y build de producción.
+-- [x] Documentar el resultado y refrescar el conocimiento del proyecto.
+-
+-## Review
+-
+-- «Trabajo reciente» conserva el ID de la entidad y abre el escrito, entrada de
+-  Códice, nota, escena, entrada de diario o captura exactos. Los motores sin
+-  adaptador conservan la apertura segura a nivel de motor. La selección de
+-  capturas del Scrapper queda además centralizada, reparando el clic de lista.
+-- Las coberturas sin denominador devuelven `null` y se muestran como `N/D`; un
+-  proyecto vacío queda en estado `not-applicable`, separado de `clean` e
+-  `issues`.
+-- Se añadió edición de título, tipo, estado, descripción, color e icono desde el
+-  propio proyecto. El onboarding abre esa edición o navega a Códice/Escritos y
+-  progresa con datos reales.
+-- Cockpit, Tools, plantillas, nombres de motores, tarjetas y controles de tipo y
+-  estado usan el catálogo común ES/EN. Conformidad: 21 motores, 41 tablas y
+-  2.588 claves de idioma, sin avisos.
+-- Verificación final: ambos typechecks verdes; lint de envío con 0 huellas;
+-  **22/22 pruebas críticas**; arranque Vite y build web/Electron verdes;
+-  `npm audit` con 0 vulnerabilidades. La prueba visual creó, editó, recorrió y
+-  eliminó un proyecto temporal, y terminó sin errores en consola.
+-- El presupuesto de bundle sigue siendo informativo y queda como siguiente
+-  frente de optimización: entry 1.731,8 kB, World3D 709,9 kB y total 4.645,8
+-  kB.
+-- La habilidad `update-project-graph` se ejecutó al cierre. No hay cambios de
+-  topología que trasladar a la memoria externa (sin motores, tablas, stores,
+-  rutas registradas ni servicios añadidos/eliminados); el contrato funcional
+-  sí quedó actualizado en `docs/PROJECT_KNOWLEDGE.md`.
+-
+----
+-
+-# Sprint 2 de flujo editorial — 2026-08-24
+-
+-## Plan
+-
+-- [x] Reagrupar las once vistas del Cockpit en cuatro flujos comprensibles,
+-      conservar cada vista existente y reflejar la selección en una URL
+-      compartible y restaurable.
+-- [x] Convertir `Ctrl+K` en un centro de comandos: acciones contextuales del
+-      proyecto cuando está vacío, filtrado conjunto de acciones y contenido,
+-      navegación por teclado y semántica accesible.
+-- [x] Permitir abrir desde comandos la revisión, la edición del proyecto, sus
+-      motores y el estudio de publicación sin introducir estados paralelos.
+-- [x] Unificar Compilar y Publicar sobre los perfiles existentes, incluyendo
+-      selección y orden de escritos, opciones de portada/sinopsis/bibliografía,
+-      formato, estilo de citas y exportación Markdown/HTML/PDF.
+-- [x] Mantener compatibles los perfiles antiguos y confirmar que los perfiles
+-      nuevos viajan en backups sin una migración innecesaria de Dexie.
+-- [x] Completar ES/EN y añadir regresiones para grupos, comandos, enlaces de
+-      consulta y normalización/orden de perfiles.
+-- [x] Ejecutar typechecks, lint, conformidad, pruebas críticas, arranque real,
+-      prueba visual y build de producción.
+-- [x] Documentar el contrato final y ejecutar `update-project-graph`.
+-
+-## Review
+-
+-- Las once vistas del Cockpit se conservan y ahora forman cuatro flujos:
+-  Supervisar, Desarrollar, Producir y Preparar/publicar. `?panel=` permite
+-  compartir, recargar y recorrer la selección con el historial del navegador.
+-- `Ctrl+K` es un centro de comandos accesible y contextual: proyectos/notas,
+-  resumen, revisión, edición, publicación, motores habilitados en su orden y
+-  gestión de motores; el filtrado conjunto admite texto sin tildes.
+-- Compilar y Publicar usan el mismo estudio. Los perfiles guardan selección y
+-  orden explícitos, portada, sinopsis, bibliografía y citas, y producen
+-  Markdown/HTML/PDF desde una composición saneada común. Los perfiles antiguos
+-  se normalizan sin migración y los campos nuevos viajan en el backup existente.
+-- La prueba visual creó y eliminó proyectos, escritos y perfiles efímeros;
+-  comprobó los cuatro flujos, comandos contextuales, guardado/borrado seguro y
+-  el estudio compartido. Durante la prueba se detectó y corrigió una tarjeta de
+-  escrito con botones anidados; la repetición no generó errores nuevos de React.
+-- Verificación: typechecks renderer/Electron verdes; lint de envío con 0
+-  huellas; conformidad con 21 motores, 41 tablas y 2.663 claves de idioma, sin
+-  avisos; **24/24 pruebas críticas**; build web/Electron verde.
+-- El presupuesto de bundle sigue siendo el frente no bloqueante principal:
+-  entry 1.792,9 kB, World3D 709,9 kB y total 4.671,9 kB frente a límites
+-  informativos de 1.600/700/4.100 kB.
+-- `update-project-graph` se ejecutó al cierre. La memoria externa configurada en
+-  `/sessions/festive-cool-keller/mnt/.auto-memory/` no está montada en este
+-  entorno; el nuevo servicio `commandCenter` y los contratos del Cockpit y de
+-  publicación quedaron reflejados en `docs/PROJECT_KNOWLEDGE.md` como fuente
+-  local verificable.
+-
+----
+-
+-# Sprint 3 de diferenciación y rendimiento — 2026-08-24
+-
+-## Plan
+-
+-- [x] Reducir el chunk inicial por debajo de 1.600 kB mediante separación real
+-      de rutas y dependencias, sin maquillar el presupuesto ni retrasar el
+-      registro de motores necesario para búsqueda, backups y navegación.
+-- [x] Evitar que el registro de Worldgen arrastre al inicio todo el sistema de
+-      edición del planeta cuando solo necesita leer nombres persistidos.
+-- [x] Introducir una representación editorial común para que Markdown, HTML,
+-      PDF, DOCX y ePub compartan selección, orden, saneado, idioma y bibliografía.
+-- [x] Añadir exportación DOCX y ePub desde el estudio, con descarga binaria
+-      diferida y sin peticiones remotas implícitas para imágenes.
+-- [x] Convertir la Columna narrativa en una cola determinista de señales de
+-      continuidad: beat incompleto, semilla pendiente y payoff invertido.
+-- [x] Hacer navegables el beat, escrito, escena y semilla exactos; conservar
+-      `panel=spine&beat=...` en recarga e historial y degradar IDs inválidos.
+-- [x] Completar ES/EN y regresiones de archivos portables, señales, deep links y
+-      límites de bundle.
+-- [x] Ejecutar typechecks, lint, conformidad, pruebas críticas, build, presupuesto
+-      y prueba visual real; documentar y actualizar el grafo del proyecto.
+-
+-## Review
+-
+-- La entrada inicial bajó de 1.792,9 a **906,2 kB** (-49 %). Dashboard,
+-  ProjectDetail, NotesInbox y MediaDownloader son rutas diferidas; el catálogo
+-  Lucide completo queda en un chunk de 446,8 kB que solo se carga al abrir el
+-  selector o resolver un icono antiguo. El registro temprano de motores se
+-  mantiene y Worldgen lee renombres sin cargar replay ni escultura.
+-- `PublishingDocument` es la representación editorial común para Markdown,
+-  HTML, PDF, DOCX y EPUB 3. DOCX/ePub se construyen bajo demanda, respetan orden,
+-  estilos básicos, idioma y bibliografía, omiten todas las imágenes y no hacen
+-  peticiones remotas. Sus ZIP internos, manifiestos, spine y contenido saneado
+-  se verifican en la suite crítica.
+-- La Columna narrativa deriva localmente beats sin escena/escrito válidos,
+-  semillas no cortadas sin payoff y payoffs estrictamente anteriores a su
+-  planteamiento conocido. Las señales son estables y accionables, los enlaces
+-  aterrizan en beat/escrito/escena/semilla y `panel=spine&beat=...` restaura
+-  scroll y foco; IDs inválidos se eliminan sin romper la vista.
+-- La prueba visual creó un proyecto con un icono fuera del catálogo inicial,
+-  generó DOCX/ePub, recorrió una señal hasta su beat exacto, comprobó la
+-  restauración de foco y eliminó todos los datos temporales. Durante la prueba se
+-  detectó y corrigió una carrera de foco cancelado por una re-renderización.
+-- Verificación final: typechecks renderer/Electron, lint de envío y conformidad
+-  verdes; **27/27 pruebas críticas**; build web/Electron correcto; `npm audit`
+-  con 0 vulnerabilidades y `git diff --check` limpio. Quedan avisos informativos
+-  en World3D (710,6 kB) y total JS (5.130,8 kB), aunque el objetivo de entrada
+-  ya está holgadamente cumplido.
+-- `update-project-graph` se ejecutó al cierre. Sus tres archivos externos bajo
+-  `/sessions/festive-cool-keller/mnt/.auto-memory/` no están montados en esta
+-  sesión; rutas, publicación, continuidad, Worldgen y presupuestos sí quedaron
+-  actualizados en `docs/PROJECT_KNOWLEDGE.md` como fuente local verificable.
+-- Seguimiento pequeño: el límite de 1.600 kB para la entrada inicial ya es una
+-  barrera real de release. Se verificó que el bundle actual pasa con 906,2 kB y
+-  que una regresión simulada devuelve error; World3D y el total siguen como
+-  avisos hasta abordar sus propios frentes.
+-- Seguimiento pequeño: TipTap configura ahora el enlace incluido en StarterKit
+-  en vez de registrar una segunda extensión `link`; desaparece así la
+-  advertencia al abrir escritos sin cambiar el comportamiento del editor.
+-- Seguimiento pequeño: Sidebar usa el `toast` ya presente en el paquete inicial
+-  y mantiene solo el backup ZIP como importación diferida. El build confirma que
+-  desapareció el aviso de importación estática/dinámica contradictoria.
+-- Seguimiento pequeño: Character Arc importa `createBeat` por la misma vía
+-  estática que sus hooks. El build de producción termina ahora sin advertencias
+-  de Vite por módulos importados simultáneamente de forma estática y dinámica.
+-- Seguimiento pequeño: los contadores del Esquema y sus plantillas distinguen
+-  singular y plural; ya muestran `1 beat` y `2 beats` en lugar de `1 beats`.
+-
+----
+-
+-# Plan de integración de IA nativa — 2026-08-30
+-
+-## Plan
+-
+-- [x] Mapear la integración MCP/IA, el shell, la navegación, la persistencia y
+-      los límites Electron/renderer actuales de Writer's Hoard.
+-- [x] Mapear en Odysseus la conexión por IP, catálogo y descarga de modelos,
+-      estimación de compatibilidad del hardware, chat y generación de imagen.
+-- [x] Separar las piezas reutilizables de las que deben rediseñarse para los
+-      contratos, seguridad y experiencia de Writer's Hoard.
+-- [x] Diseñar la arquitectura objetivo y las migraciones de datos sin romper la
+-      operación local-first ni la compatibilidad con el MCP externo.
+-- [x] Definir un único núcleo de herramientas compartido por el copiloto interno,
+-      MCP stdio y la API local, sin duplicar handlers ni políticas de seguridad.
+-- [x] Descomponer la implementación en fases, paquetes delegables, dependencias,
+-      criterios de aceptación, pruebas, riesgos y puertas de salida.
+-- [x] Contrastar el plan final con símbolos y rutas reales de ambas codebases y
+-      documentar las decisiones abiertas que requieran validación de producto.
+-
+-## Review
+-
+-- El plan completo quedó publicado en `docs/PLAN-IA-NATIVA.md`, con arquitectura
+-  objetivo, contratos, persistencia, seguridad, fases 0–7, 17 paquetes para
+-  agentes, hotspots de integración, matriz de pruebas y Definition of Done.
+-- Se conserva el MCP actual como interfaz externa y se extrae un coordinador de
+-  tools compartido con el copiloto; el chat interno no depende de activar el
+-  puerto loopback ni crea handlers paralelos.
+-- Se detectó un prerrequisito concreto: `wh_get_context` consulta
+-  `currentProjectId`, pero el código actual no llama `setCurrentProject`; la Fase
+-  0 lo fija y lo cubre antes de construir el dock.
+-- Odysseus aporta patrones de endpoints, caché/backoff, HW Fit e imagen. Su
+-  Cookbook no se traslada en bloque por su acoplamiento a Python/shell/SSH/Docker
+-  y se exige decidir la compatibilidad de licencia AGPL antes de copiar código.
+-- Solo se modificaron documentación y task tracking; no procede ejecutar
+-  `update-project-graph` porque no cambió ningún archivo bajo `src/`.
+-
+----
+-
+-# Implementación de la IA nativa — 2026-08-31
+-
+-Fases 0, 1, 2, 3, 4 y 6A del plan, implementadas y probadas en vivo (sesión
+-nocturna con el PC cedido, sin commitear). El detalle por paquete, decisiones,
+-verificación y fallos está en `tasks/todo-ai-bridge.md` → «Fase 9», y la
+-documentación en `docs/AI-BRIDGE.md` §18.
+-
+-- [x] Fase 0 — un solo ejecutor de herramientas (puente ≡ copiloto), `wh_get_context` con proyecto abierto.
+-- [x] Fase 1 — pasarela de inferencia en main: conexiones por IP/URL, claves cifradas, adaptadores OpenAI/Ollama.
+-- [x] Fase 2 — «Ajustes de IA» en la barra lateral: conexiones, modelos locales con veredicto de hardware, valores por defecto.
+-- [x] Fase 3 — copiloto en panel derecho por proyecto con permisos por tarjeta y deshacer.
+-- [x] Fase 4 — funciones clásicas de IA por la pasarela; migración de los ajustes antiguos.
+-- [x] Fase 6A — Estudio de imagen contra `/v1/images/generations` + `wh_generate_image`.
+-- [x] Fase 6B — runtime local de difusión (stable-diffusion.cpp fijado, catálogo verificado, `sd-server` gestionado) — «Fase 10» en `tasks/todo-ai-bridge.md`.
+-- [x] Velocidad medida (tok/s) en el veredicto y «Usar el mejor modelo local».
+-- [ ] Fase 7 — pendiente.
+-
+-## 2026-08-31 (mañana) — Worldgen MCP, mejoras pendientes, Atlas real
+-
+-### Parte 2 — Worldgen MCP para desarrollo continuo por IA
+-Diseño: el puente no exponía NADA de worldgen. Los lugares no son filas (se
+-derivan del relieve); las ediciones son un blob JSON que la vista lee UNA vez.
+-Principio: **un solo escritor**. Si la vista está abierta, ella aplica las
+-ediciones externas (mismo camino que un trazo: `applyEditGroup`); si no, el
+-puente escribe en Dexie. Undo del puente = restaurar el blob (grueso, con
+-aviso); la vista detecta el cambio externo por la prop y recarga.
+-
+-- [x] `core/liveWorlds.ts`: registro worldId → {apply, snapshot} de la vista abierta
+-- [x] WorldView: registrar/desregistrar al crear sesión; efecto de recarga ante cambio externo de `world.edits`
+-- [x] `bridgeAccess.ts` (en vez de headless.ts + externalEdits.ts): `openWorldForReading`
+-      (vivo → réplica privada de la instantánea con caché → forja en 2º plano + `pending`)
+-      y `applyWorldEdits` → {before, delivered:'view'|'row'}
+-- [x] `tools/worldgen.ts` + `WORLDGEN_TOOLS`: 17 herramientas (list/get worlds, list/find
+-      places, place_at, summary, add/rename/move/remove/restore place, add label,
+-      waypoints, link place, list links)
+-- [x] Registro: BRIDGE_ENGINE_IDS, TOOL_HANDLERS, ENGINE_KEYWORDS.worldgen, DELETABLE
+-      (generated-world, world-waypoint), instrucciones, i18n, exención del test retirada
+-- [x] `deleteWorldCascade` se lleva también enlaces de lugares y teselas renderizadas
+-- [x] Tests: paridad manifest↔handler (106/106), `tests/worldgen-bridge.ts` (forja real
+-      128 celdas, lectura privada, escritura fila/vista, anuncio de cambio, undo, cascade),
+-      autotest 31/31, verify:quick + 35 críticos en Windows
+-- [x] Verificación en vivo (mundo real «mundo 2», 2048 celdas): lectura sin abrir (638 ms
+-      places / 12 s full la 1ª vez), `wh_add_place` → `delivered:'view'` y aparece en el
+-      índice de la vista, `wh_rename_place` en vivo, undo por `/api/undo` recarga la vista
+-      abierta; el mundo de Luis quedó como estaba (10 ediciones)
+-- [x] Hallazgo colateral: NINGUNA vista se refrescaba tras una escritura del puente/copiloto
+-      (los hooks refetch sólo tras sus propias escrituras) → evento `wh:data-changed`
+-      (`engines/_shared/dataChanged.ts`) emitido por `runBridgeTool` tras cada escritura y
+-      undo; `makeEntityHook`/`makeGraphHook`/`makeReadOnlyHook` refetch al oírlo
+-- [x] `toolSelection`: dentro de un motor, primero las herramientas que nombra el mensaje
+-      (worldgen tiene 17 y la tapa es 16)
+-
+-### Parte 1 — Mejoras pendientes
+-- [x] Liberar VRAM del modelo de texto entre texto→imagen: `releaseAfter` en `AiChatRequest`
+-      (Ollama `keep_alive: 0` sólo cuando la ruta de imagen es el runtime local) + `vramRoom.ts`
+-      en main: antes de arrancar sd-server, si la VRAM libre medida no da para el modelo de
+-      imagen, descarga los modelos residentes de los Ollama LOCALES (`/api/ps` → `keep_alive 0`)
+-      y espera a que se vayan
+-- [x] "Usar como referencia" (img2img): desde el lightbox de la Galería (hand-off con `initImage`)
+-      y desde cada resultado del Estudio
+-- [x] Ollama: fallback de velocidad por reloj de pared (`speedFromTiming`, marcado `approximate`)
+-- [x] Descargas: un `.part` completo y correcto se adopta sin red; el 206 sólo cuenta como
+-      reanudación si `Content-Range` empieza exactamente donde acaba el fichero (test)
+-- [x] Índice de auditoría estable ante rotación: sidecar `audit.offset`, numeración continua,
+-      `audit.jsonl.1` sigue siendo legible por número (test); `run-critical-tests.cjs` ahora
+-      externaliza `electron` en el bundle nativo (antes `app` era undefined en esos tests)
+-- [ ] LoRA en el Estudio — pospuesto (necesita un fichero LoRA para probarlo; no hay descargas
+-      sin permiso)
+-- [x] `scripts/fake-image-server.mjs`: proceso de pruebas en :8101 detenido; el script queda
+-
+-### Parte 3 — Atlas real (mundo real / real con cambios)
+-Decisión: motor aparte `real-atlas` (filas con autoridad: lugares con lat/lon y datos
+-comprobados + divergencias deliberadas), MÁS un preset «Realista» que lo trae por defecto
+-con el kit del novelista. No es un preset de worldgen: allí los lugares se derivan del
+-relieve; aquí son hechos que el autor afirma.
+-- [x] Tipos (`types.ts`), Dexie v28 (`atlasPlaces`, `atlasDivergences`), operaciones
+-      (`deleteAtlasPlace` desancla divergencias y sube hijos), hooks
+-- [x] Registro: motor, resolver (`atlas-place`, `divergence`), adaptador de anclaje, backup
+-      simple JSON, índice de búsqueda del proyecto, modo `realist` + sugerido en novelista,
+-      biógrafo y periodista, 90 claves es/en
+-- [x] UI (`components/`): pestañas Lugares/Divergencias, lista con búsqueda plegada y filtro
+-      por tipo, árbol padre→hijo, editor de lugar (coordenadas validadas, OSM, padre sin
+-      ciclos, ficticio, en la historia / datos comprobados / fuentes / etiquetas), divergencias
+-      del lugar, editor de divergencia, deep link `?place=`, borradores que sobreviven al
+-      refresco, ConfirmDialog
+-- [x] Puente: `tools/realAtlas.ts` + `REAL_ATLAS_TOOLS` (9 herramientas: list/get/create/update
+-      de lugares y divergencias, `wh_reality_check`), grupo `visual`, `BRIDGE_ENGINE_IDS`,
+-      `wh_delete` (atlas-place, divergence), `DELETABLE`, `ENGINE_KEYWORDS['real-atlas']`,
+-      párrafo en `BRIDGE_INSTRUCTIONS`, autotest (5 pasos + 2 sondas de búsqueda + guardias).
+-      Puertas: tsc ×2, lint, conformance, críticos (115 herramientas), autotest 36/36
+-- [x] Verificación en vivo en la máquina de Luis: proyecto «Prueba Atlas real (Claude)» creado
+-      con el preset Realista (la tarjeta muestra Atlas real entre los motores incluidos); estado
+-      vacío; `wh_create_atlas_place` (Lisboa, coords, alias) + `wh_create_divergence` por el
+-      puente aparecen EN VIVO en la vista abierta; editor completo (chips de alias, OSM, época,
+-      datos comprobados, divergencias del lugar, notas al margen); edición desde la UI leída de
+-      vuelta por `wh_get_atlas_place`; `wh_reality_check`; y el copiloto (qwen3-coder:30b) elige
+-      solo `list atlas places` → `list divergences` → `reality check` y responde en castellano
+-- [ ] Luis: confirmar el diseño (o pedir cambios); borrar el proyecto de prueba cuando quiera;
+-      LoRA sigue pendiente
+-
+-## RESUELTO (2026-09-01) — restaurar un ZIP de proyecto se colgaba para siempre
+-
+-`importProjectZip(archive, { replaceProjectIds })` se colgaba —sin error y sin timeout— y no sólo
+-con `ai-assistant/aiProjectSettings.json`: se colgaba con la PRIMERA fila de cualquier motor que el
+-archivo trajera. La sospecha de la clave primaria *inbound* era falsa. Todas las tablas del esquema
+-guardan su clave dentro de la fila; lo único raro de `aiProjectSettings` es que esa clave se llama
+-`projectId` y no `id`. Era la primera escritura que llegaba a intentarse, nada más: un proyecto que
+-sólo ha abierto el copiloto no tiene ningún otro dato que exportar, y `ai-assistant` es la última
+-estrategia registrada.
+-
+-**Primera causa (de tres).** JSZip bombea cada `async()` por su propio `setImmediate`, así que una sola
+-lectura devuelve el control al bucle de eventos. Dexie arrastra la zona de una transacción (`PSD`)
+-únicamente a través de MICROtareas —los ecos de `newScope`, con `ZONE_ECHO_LIMIT`—, de modo que el
+-código que reanuda después de esa lectura ya está FUERA de la transacción del restore. El `bulkPut`
+-siguiente encuentra `PSD.trans` vacío, cae por `tempTransaction` y abre una SEGUNDA transacción
+-`readwrite` sobre el mismo almacén. IndexedDB la encola detrás de la primera; la primera no puede
+-confirmar hasta que la estrategia devuelva; y ninguna de las dos avanza jamás. `Dexie.waitFor` no
+-provocaba este primer interbloqueo, pero es lo que lo volvía mudo: su bucle de giro
+-(`store.get(-Infinity).onsuccess = spin`) mantiene viva la primera transacción exactamente el
+-tiempo que dure el abrazo, y su `timeout` interno de 60 s llegaba después de los 45 s del arnés —de
+-ahí el «sin timeout». Resultó ser además la SEGUNDA causa por su cuenta; ver más abajo.
+-
+-Los dos tests que recorrían este camino no lo veían porque sus proyectos de prueba son una fila
+-`projects` pelada: sin datos de motor en el archivo, ninguna estrategia escribe nada, y la
+-transacción pasa de largo.
+-
+-**El arreglo.**
+-
+-- `preloadArchive(zip)` (`engines/_shared/backupRegistry.ts`) descomprime el archivo entero ANTES de
+-  abrir la transacción; `readBackupJson` e `internalizeImage` sirven desde memoria y ya no ceden el
+-  control, así que la zona llega intacta hasta las escrituras y el restore sigue siendo una sola
+-  transacción: un fallo a mitad lo deshace todo, como antes. Si alguien añade una entrada al zip
+-  después del preload, el lector lo dice con un error en lugar de colgarse.
+-- La estrategia `ai-assistant` ya no reescribe el zip al importar: limpia los campos de confianza
+-  (`defaultPolicy`, `remoteConsent`, `policy`) sobre las FILAS. Reescribir una entrada del archivo
+-  en pleno restore creaba justo la entrada que el preload no había visto —y, de paso, un restore
+-  mutaba el archivo de quien lo llamó.
+-- `clearProjectForRestore` vuelve a barrer también la tabla cuya clave primaria es `projectId`
+-  (lección #44). Confiar en que la fila del archivo pisara la local sólo funciona si el archivo trae
+-  fila: uno exportado antes de que existiera el copiloto no la trae, y el proyecto restaurado
+-  heredaba las rutas de modelo y el permiso de su instancia anterior.
+-
+-**Y un segundo cuelgue debajo del primero.** Con el preload puesto, el restore llegaba entero hasta
+-la primera estrategia con filas que escribir y se volvía a colgar. El rastro de marcadores, tomado
+-en el renderer vivo, lo deja sin ambigüedad:
+-
+-```
+-in:codex:TX > out:codex:ok > in:writings:TX > out:writings:ok
+-in:timeline:TX > tl:counts:1/0/0        ← y nada más
+-```
+-
+-La transacción seguía viva (`TX` en todas las estrategias, ni un solo `NOTX`), y
+-`await db.timelines.bulkPut(unaFila)` **ni resolvía ni rechazaba**.
+-
+-**La causa era el propio `Dexie.waitFor`.** Ese envoltorio existe para mantener abierta una
+-transacción mientras se espera una promesa que Dexie no controla, y lo hace girando sobre una
+-lectura de mentira y aparcando en una cola las operaciones emitidas dentro de su ámbito, para que
+-las vacíe el giro. Para algunos almacenes esa cola no se vacía nunca. Y peor: una estrategia que
+-RECHAZABA dentro de ese ámbito tampoco propagaba nada —el giro simplemente no terminaba—, así que un
+-`ConstraintError` corriente se presentaba como un restore parado para siempre, sin error y sin
+-timeout. De ahí que el fallo pasara un mes sin nombre, y de ahí que la hipótesis de la clave
+-primaria *inbound* pareciera encajar: `aiProjectSettings` era, en el proyecto de la reproducción, la
+-primera tabla con filas que escribir.
+-
+-Con el preload ya nada necesita mantenerse abierto: ninguna estrategia cede el control al bucle de
+-eventos, así que la zona de la transacción llega intacta a las veintitrés. `importStrategy` llama
+-ahora a `strategy.importProject(...)` directamente. Comprobado, no supuesto: sin el envoltorio,
+-todas las estrategias ven `Dexie.currentTransaction`, y el restore que se colgaba para siempre
+-devuelve **en 47 ms** sobre el proyecto de prueba en la app en marcha, con los recuentos intactos
+-(11 escritos, 3 hitos, 1 semilla, 1 pago, 2 entradas de códice).
+-
+-**Un tercer defecto, del mismo tamaño y hasta ahora invisible.** Nueve motores escriben su propia
+-estrategia a mano y las dieciocho escrituras usaban `bulkAdd`, no `bulkPut`: sólo el ayudante
+-compartido `makeSimpleBackupStrategy` se había corregido. Una fila superviviente abortaba el restore
+-entero con `ConstraintError` — que, por lo de arriba, se veía como un cuelgue. Ya usan todas
+-`bulkPut`, así que restaurar dos veces escribe lo mismo dos veces y no cambia nada.
+-
+-Sigue en pie la mitigación anterior: las estrategias restauran con `bulkPut` en vez de `bulkAdd`,
+-así que una fila superviviente ya no aborta el restore entero con `ConstraintError`.
+-
+-Cobertura nueva, ya en `tests/critical.browser.ts`
+-(`testProjectRestoreCarriesEngineRows`): restaura un archivo que trae `diaryEntries` y
+-`aiProjectSettings`, comprueba que los campos de confianza no viajan y que un archivo sin fila de
+-copiloto no deja viva la vieja. La operación va dentro de un `Promise.race` con plazo, para que un
+-cuelgue falle como aserción con nombre en vez de llevarse el arnés entero por delante. La suite pasa
+-en 62 tests.
+-
+-# Ronda 3 — 2026-09-02: auditoría + 4 features del editor y del Atlas (bucle)
+-
+-**Encargo de Luis:** en bucle hasta nuevo aviso: auditoría → mejoras → features (propias y de
+-proyectos parecidos) → implementar → probar como usuario por MCP/pantalla → deducir carencias →
+-repetir. Ideas suyas: modo unificado (todos los capítulos en un documento, capítulos marcados con
+-un formato de texto como en Word), modo página (como Word/OpenOffice), pies de página / notas
+-finales (laterales en el editor normal, al pie en modo página), funciones de mapa en el Atlas,
+-mejoras de worldgen.
+-
+-## Iteración 1 — plan
+-
+-- [ ] Auditoría adversarial por subagentes (real-atlas, puente/copiloto, editor+export, Electron).
+-- [x] **Notas al pie** — nodo Tiptap `footnote` (`<sup data-footnote-id data-footnote>` — sobrevive
+-      a DOMPurify porque `ALLOW_DATA_ATTR`), numeración por contador CSS (editor, lectura, HTML/PDF),
+-      popover de edición al hacer clic, panel lateral «Notas» junto a las anotaciones, atajo
+-      Ctrl+Alt+F y botón; exportación: Markdown `[^n]`, HTML/PDF notas finales por capítulo, DOCX
+-      notas al pie reales (`FootnoteReferenceRun`), EPUB3 `epub:type="noteref"/"footnote"`.
+-- [x] **Modo página** — extensión de paginación por decoraciones widget: mide los bloques, corta
+-      donde la página se llena (también dentro de un párrafo, en el límite de línea), el widget
+-      pinta pie (notas al pie de esa página + número), banda de escritorio y cabecera de la
+-      siguiente; A4/Carta; preferencia en `ui_reading` (`layout`, `pageSize`); conmutador en la
+-      cabecera del editor; el cálculo puro en `pagination.ts` con test.
+-- [x] **Libro entero** — `BookEditor`: un solo documento con nodo `chapterHeading` (Título 1 de
+-      Word) como frontera; compose/split puros (`bookDocument.ts`) con test de ida y vuelta;
+-      autosave por capítulo con `updateWritingAtVersion`; «Capítulo» sobre un párrafo = nuevo
+-      capítulo; fusión sólo explícita y con ConfirmDialog (borrado restaurable); rango de
+-      capítulos para proyectos grandes; renumeración secuencial tras cambios estructurales.
+-- [x] **Mapa del Atlas real** — pestaña «Mapa»: Mercator con base vectorial offline (países
+-      110m en un chunk perezoso) y teselas OSM opcionales (img-src ya permite https:); chinchetas
+-      (ficticio/real/con divergencias), clic para crear lugar con coordenadas, arrastrar para mover,
+-      medir distancia (haversine) y tiempos de viaje por medio (a pie, caballo, carruaje, tren
+-      s.XIX, coche, avión); `wh_atlas_distance` y `wh_atlas_places_near` en el puente.
+-- [x] Integración (TiptapEditor/WritingsView), claves i18n de una pasada (104), puertas en contenedor
+-      (tsc×2, lint, conformance, **101 críticos** bajo xvfb) y en Windows (tsc×2, lint, conformance).
+-- [x] Formato de las llamadas de nota (petición de Luis a mitad): `Project.footnoteStyle`
+-      (`numbers|symbols|roman|letters`), selector en el panel de notas, `@counter-style` en CSS
+-      para editor/lectura/pies de página, `formatFootnoteMarker` para HTML/PDF/EPUB (Markdown y
+-      DOCX se quedan con números: `[^n]` y Word numeran ellos).
+-- [x] Prueba en vivo como usuario en la app de Luis (pantalla + puente) → carencias → iteración 2.
+-
+-## Iteración 1 — review (13:10)
+-
+-**Verificado en vivo** (proyecto «Prueba Atlas real (Claude)», 3 capítulos sembrados por el puente):
+-insertar nota al pie desde la barra → popover → panel lateral «Notas al pie · 1» → selector de formato
+-(`*, †, ‡`) → modo página (hoja A4, corte dentro de un párrafo, «Página 1 de 5», la nota al pie de su
+-página con «*») → «Libro entero» con Cap. 1/2/3 en páginas, `# ` crea un capítulo nuevo que se
+-guarda solo, se numera (3) y desplaza al siguiente (4), comprobado por `wh_list_writings` → Atlas:
+-pestaña Mapa con base vectorial (Portugal/España rotulados), «Añadir lugar» clicando (Toledo, con
+-coordenadas prellenadas), «Medir» Lisboa→Toledo 522 km ENE con tiempos por medio.
+-
+-**Tres fallos encontrados en la prueba y arreglados:**
+-1. El pie de página imprimía las notas vacías: mi `collectPageNotes` leía `attrs['data-footnote']`
+-   (el nombre del atributo HTML) en vez de `attrs.text` → ahora `collectFootnotes()` del modelo.
+-2. «1 páginas» fijo: `useEditorState` de Tiptap cachea su instantánea hasta una transacción que él
+-   haya VISTO, y la primera medición del plugin se despacha antes de que el host se suscriba →
+-   `usePageCount` propio con `useSyncExternalStore` (probado con un arnés: 6 páginas = 6 cortes).
+-3. `list-style: decimal` posterior en el CSS pisaba los estilos de marcador; `symbolic` imprimía «*.»
+-   (sufijo por defecto) → `suffix: ' '`.
+-
+-**Retoques:** fuente de lectura en las notas al pie; el mapa con un solo lugar encajaba a zoom 12
+-(la base 110m no tiene nada que dibujar ahí) → tope 7; tierra con `--color-elevated`; cartel «Medido…»
+-tras medir; conmutador Continuo/Página y recuento de páginas en la cabecera del libro; el título de
+-capítulo sin regla superior en hojas (abre página, un tercio abajo).
+-
+-**Carencias detectadas (para la iteración 2):**
+-- El puente convierte los escritos a Markdown en ambos sentidos (`markdownFromHtml`/`htmlFromMarkdown`):
+-  una nota al pie NO sobrevive a `wh_update_writing`/`wh_append_writing` ni se ve en `wh_get_writing`.
+-  Hay que llevar `[^n]`/`[^n]: texto` a `services/aiBridge/markdown.ts`.
+-- El índice de búsqueda no ve el texto de las notas (va en atributo).
+-- Ctrl+Alt+F no llegó por Windows-MCP (AltGr); el test sintético sí pasa. Verificar con teclado real.
+-- El libro entero no tiene panel de notas al pie ni anotaciones (el popover sí funciona).
+-- Mapa: sin geocodificación (poner «Toledo» y obtener coordenadas), sin rutas/itinerarios.
+-- Copia de seguridad automática a disco sigue sin existir (sólo aviso).
+-- [ ] Worldgen: sólo si `git status` no enseña otra sesión viva; primero lo de arriba.
+-
+-## Iteración 2 — review (15:20)
+-
+-**Hecho:** los 21 hallazgos de la auditoría adversarial sobre las piezas nuevas del editor (los
+-gordos: cambiar de Continuo a Página con cambios sin guardar los perdía porque la `key` remontaba el
+-editor — ahora el plugin de paginación se registra y desregistra en vivo sobre el mismo editor;
+-envolver un título de capítulo en una cita duplicaba prosa — `chapterHeading` es su propio grupo y el
+-libro trae su propio nodo `doc`; Ctrl+Z tras fusionar creaba una fila nueva — `saveBook` reconoce el
+-borrado pendiente y restaura; pegar notas duplicaba ids; el panel no veía `setContent`; un `<h1>`
+-suelto se convertía en capítulo al primer autoguardado). Más: **notas al pie por el puente IA**
+-(`[^id]` con sus definiciones en `wh_get/create/update/append_writing`), **búsqueda y reemplazo dentro
+-de las notas**, **geocodificación** del Atlas (Nominatim desde el main, con consentimiento por proyecto
+-y atribución ODbL) y **rutas** de varias paradas con distancia y tiempos por medio, y en **worldgen**
+-regla de medir, leyenda de los modos temáticos y cámara por teclado.
+-
+-**109 tests críticos** (eran 101), tsc×2, lint y conformance verdes en contenedor y en Windows.
+-
+-**Cinco tests había que reescribirlos, no arreglarlos.** Afirmaban lo que la ronda acababa de cambiar
+-a propósito, así que cada uno pasa a enunciar el invariante que ahora rige, con su porqué:
+-- el sanitizador ya no se come una nota que empieza por «data:» (sólo mira atributos que son URL) —
+-  y sigue rechazando un SVG en `data:` dentro de un `<img>`, que es lo que el gancho guardaba;
+-- el export cuenta 8 palabras, no 9: la novena se escapaba de una nota por el patrón de etiquetas;
+-- los anillos del mapa base se desenrollan más allá de ±180 a propósito (Fiji, Chukotka), así que el
+-  invariante es «ningún salto de más de 180° entre vecinos», no «dentro de ±180»;
+-- una ventana de dos mundos de ancho dibuja dos copias: contarlas dos veces es correcto;
+-- las COLUMNAS de teselas se dejan sin acotar para `wrapTileX`; sólo las FILAS se acotan;
+-- puente y copiloto deben pasar los mismos argumentos AL HERRAMIENTA; el pin de proyecto es un sobre
+-  propio del origen, y ahora se comprueba aparte (el copiloto lo lleva, el puente no).
+-
+-**Verificado en vivo** (tras reiniciar la instancia de desarrollo: Vite recarga el renderer pero NO el
+-preload, y el botón de geocodificación vive detrás de `window.electronAPI.atlas`): la nota escrita en
+-el editor llega a la IA como `[^1]` con su definición; `wh_append_writing` añade un párrafo con su
+-propia nota `[^ia]` y deja intacta la anterior; «Buscar las coordenadas» sobre Toledo pide
+-consentimiento, devuelve cinco resultados reales y rellena coordenadas (39.85589, −4.02426) y país;
+-la chincheta salta a su sitio real; «Rutas» → Lisboa → Toledo = 458 km con tiempos por medio.
+-
+-**Sigue abierto:** copia de seguridad automática a disco; panel de notas dentro del libro entero;
+-worldgen verificado por test (incluido un `Map2D` montado de verdad) pero no por vista con GPU.
+-
+-## Iteración 3 — review (23:45)
+-
+-**Hecho:** notas **al final del libro** (`Project.footnotePlacement`; numeración continua; HTML/PDF
+-una sección final por capítulos, Markdown definiciones al final, EPUB `notes.xhtml` en la spine con
+-`noteref` cruzados, DOCX notas finales REALES de Word; lectura continua con `counter-reset`); **panel
+-de notas en el libro entero** (x² en la cabecera; lista todo el libro y salta al capítulo); «**Aparece
+-en: Cap. n**» en los lugares del Atlas (por nombre y alias; el chip abre el capítulo); **alcance por
+-fila** en las 13 familias de herramientas del puente (una llamada del copiloto con un id de otro
+-proyecto se rechaza); 9 arreglos de auditoría del Atlas/markdown (resultados de geocodificación
+-atados al lugar, Enter en un botón del panel ya no cierra la ruta, topes de rutas, `finiteNumber`
+-estricto, cuerpo acotado y sin redirecciones en Nominatim, centinela del puente en PUA, `\[^` literal,
+-Esc quita la última parada, modales por encima del mapa de worldgen). **113 tests críticos** en
+-contenedor y en Windows.
+-
+-**Probado por mí en la app, como usuario:** «Dónde van» → lectura con numeración continua (la nota
+-del cap. 2 es «‡»); la IA añade una nota por el puente y el editor la recarga como «†» sin tocar
+-nada; el panel del libro lista 3 notas y «Ir a la referencia» salta a la página 6 y abre el popover;
+-«Aparece en: Cap. 4» y su chip abre el capítulo; geocodificación con «Resultados para «Toledo»»;
+-worldgen: regla (7642 km · rumbo NE · jornadas), leyenda de elevación y lat/lon en el readout.
+-
+-**Tres fallos que sólo salieron usando la app:**
+-1. La nota que la IA añadió a las 15:12 quedó como TEXTO (`\[^ia]`): ese append corrió con el
+-   `markdown.ts` viejo (HMR parcial; reinicié a las 15:14). Reparado el capítulo; el append repetido
+-   con la app reiniciada crea la nota de verdad.
+-2. La lista de notas en lectura pintaba «3.» y «‡» a la vez: el `ol` de prosa pisaba mi regla.
+-3. **Worldgen no cargaba** («Failed to resolve import ../core/measure»): sus ficheros nuevos nunca
+-   llegaron a Windows por un `push.sh HEAD~1`. Paquete completo (106 ficheros, hash agregado igual
+-   a ambos lados), `push.sh` corregido, lección #63.
+-
+-**Cosmético pendiente:** el cartel de la regla de worldgen tapa la barra de escala; el HUD de
+-depuración de worldgen sigue encendido.
+-
+-## Iteración 4 — review (01:40, 3 sep)
+-
+-**Auditoría (agente de sólo lectura, 8 hallazgos) → arreglado todo:** anclajes de nota únicos por
+-capítulo en HTML/PDF/EPUB (`fn-<sección>-<id>`, etiquetas Markdown continuas) — dos capítulos con
+-`[^uno]` ya no se pisan; numeración por capítulo en el **libro entero** cuando las notas van
+-«al pie / final de cada capítulo» (selector de colocación también en el panel del libro); nota
+-dentro de `<code>` sale del código en Markdown; **índice de capítulos** en las exportaciones
+-(`includeToc` del perfil; HTML `<nav class="wh-toc">` + `id="ch-N"`, Markdown lista, EPUB
+-`toc.xhtml` en la spine, DOCX `TableOfContents` con `updateFields`); teclado del mapa del Atlas
+-con el foco en un pin (Esc/+/−/flechas; Intro y Espacio siguen siendo del pin); `dualWithBlockId`
+-y todos los `characterId`/`subjectId`/`entityA/B`/`linked*Id` del puente verificados con
+-`requireLinkedRow`/`checkLinkedRow` (fila existe y del mismo proyecto → `not-found`/`scope`);
+-«Aparece en» tokeniza el manuscrito una vez (cache por `updatedAt`, el editor del lugar ya no
+-re-escanea por tecla); `wh_get_atlas_place.appearsIn` con tope 20 + `appearsInTruncated`.
+-Cosmético: la lectura de la regla de worldgen encima de la barra de escala; HUD de depuración
+-apagado. **117 tests críticos** en contenedor y en Windows; puertas verdes en ambos.
++See the closing report. Shipped only fields confirmed in the parser;
++PhotoMaker and `upscale_repeats` were confirmed inert on the server and were
++deliberately left out.
+ 
+-**Probado por mí en la app, como usuario:** puente — evento con `linkedEntryId` inexistente →
+-`not-found`, con una entrada propia → creado; Toledo devuelve `appearsInTruncated: false`.
+-Libro entero — «Dónde van» → «por capítulo» y el panel pasa de «*, †, ‡» a «*, †, *».
+-Mapa del Atlas — clic en Toledo, `-` aleja, `←` panea, `Esc` cierra la tarjeta con el foco
+-aún en el pin. Compilar — casilla «Índice de capítulos», exportar HTML: el fichero trae el `nav`
+-con los 4 capítulos y `ch-1..4`, y las notas `fn-1-…`/`fn-2-dos` con todos los `href` resueltos.
+-Worldgen — regla con dos puntos: «10852 km · rumbo E» por encima de «2000 km».
++## What shipped, and what did not
+ 
+-**Dos fallos que sólo salieron usando la app:**
+-1. El marcador del cap. 2 seguía en «‡» con las notas por capítulo: `counter-reset` en la
+-   cabecera bajo un `.ProseMirror` que ya reseteaba el mismo contador crea un contador anidado
+-   (lección #64). Arreglo: `counter-reset: none` en el cuerpo cuando la colocación es por capítulo.
+-2. La vista previa de «Compilar» no enseñaba el índice aunque la casilla estuviera marcada (sólo
+-   el fichero lo llevaba); ahora la vista previa pinta el índice con los capítulos listados.
++Confirmed in `SDGenerationParams::from_json_str` and shipped:
++`ref_images`, `increase_ref_index`, `auto_resize_ref_image`, `control_image`,
++`control_strength`, `mask_image`, `hires.*`, `lora[].path` / `[].multiplier`,
++`embed_image_metadata`, `sample_params.sample_method` / `.scheduler`.
+ 
+-**Fuera / notas:** en modo página del libro los números al pie de cada hoja siguen siendo
+-continuos con colocación por capítulo (`PageNote` no lleva número; pendiente si se quiere);
+-la cache de tokens no se purga al borrar un proyecto (`clearAppearanceCache` disponible).
++Confirmed inert on the server and therefore NOT shipped:
++- PhotoMaker identity images — no request field exists; `pm_id_images` is
++  filled only by `examples/cli/main.cpp`.
++- `upscale_repeats` — parsed into the struct, then read only by the CLI.
++  ESRGAN is reachable through `hires.upscaler` instead.
++- A per-request ControlNet model — `--control-net` is a context option, so it
++  is a launch argument and a change restarts the server.
+ 
+-Por indicación de Luis (01:20): al cerrar esta iteración sin bug claro, **no** se abre otra
+-auditoría; el bucle para aquí.
++The renderer-facing IPC for installing companions is deliberately not wired:
++`electron/ai/ipc.ts` belongs to the studio work, not to this contract. The
++main-process entry points are `downloadSdCompanion`, `cancelSdCompanionDownload`,
++`deleteSdCompanion` and `installedSdCompanions`.
+-- 
+2.43.0
+

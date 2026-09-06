@@ -1,0 +1,2136 @@
+From 9a9e59b9c8d61ce14b38d30dfa72e9dba141f583 Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 02:50:17 +0000
+Subject: [PATCH 26/36] Add the ComfyUI binding layer and its transport
+
+The binding layer, not a node editor: a template is a graph plus a manifest,
+and a recipe is written into it through declared bindings that resolve by
+node title first and node id second, which is the documented fix for the
+brittleness a re-exported workflow otherwise causes. Occurrences a recipe
+does not use are deleted and the chain closed over them, so node ids never
+move and ComfyUI's execution cache survives between submissions.
+
+Everything a recipe could be refused for lives in one place: a template
+whose node pack is missing is reported by pack name, a model this install
+does not have is reported with the nearest one it does, and a recipe
+carrying something the chosen template cannot express is refused instead of
+rendered without it. None of them reach /prompt.
+
+The transport speaks ComfyUI's legacy HTTP and WebSocket API, which every
+install has with nothing extra installed. It takes its fetch and its socket
+as arguments so it stays free of Electron and can be tested against a fake
+server; a socket that never opens or that drops falls back to polling
+/history, which is the authority on completion either way.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RmpuZqpQrFjas3Ajv22pKb
+---
+ src/services/aiRuntime/comfy/bindings.ts   | 151 ++++++
+ src/services/aiRuntime/comfy/build.ts      | 260 ++++++++++
+ src/services/aiRuntime/comfy/byow.ts       | 158 ++++++
+ src/services/aiRuntime/comfy/capability.ts |  48 ++
+ src/services/aiRuntime/comfy/client.ts     | 529 +++++++++++++++++++++
+ src/services/aiRuntime/comfy/index.ts      |  17 +
+ src/services/aiRuntime/comfy/match.ts      |  61 +++
+ src/services/aiRuntime/comfy/nodePacks.ts  |  54 +++
+ src/services/aiRuntime/comfy/objectInfo.ts | 101 ++++
+ src/services/aiRuntime/comfy/plan.ts       | 114 +++++
+ src/services/aiRuntime/comfy/request.ts    | 177 +++++++
+ src/services/aiRuntime/comfy/samplers.ts   |  57 +++
+ src/services/aiRuntime/comfy/template.ts   | 128 +++++
+ src/services/aiRuntime/comfy/types.ts      | 137 ++++++
+ 14 files changed, 1992 insertions(+)
+ create mode 100644 src/services/aiRuntime/comfy/bindings.ts
+ create mode 100644 src/services/aiRuntime/comfy/build.ts
+ create mode 100644 src/services/aiRuntime/comfy/byow.ts
+ create mode 100644 src/services/aiRuntime/comfy/capability.ts
+ create mode 100644 src/services/aiRuntime/comfy/client.ts
+ create mode 100644 src/services/aiRuntime/comfy/index.ts
+ create mode 100644 src/services/aiRuntime/comfy/match.ts
+ create mode 100644 src/services/aiRuntime/comfy/nodePacks.ts
+ create mode 100644 src/services/aiRuntime/comfy/objectInfo.ts
+ create mode 100644 src/services/aiRuntime/comfy/plan.ts
+ create mode 100644 src/services/aiRuntime/comfy/request.ts
+ create mode 100644 src/services/aiRuntime/comfy/samplers.ts
+ create mode 100644 src/services/aiRuntime/comfy/template.ts
+ create mode 100644 src/services/aiRuntime/comfy/types.ts
+
+diff --git a/src/services/aiRuntime/comfy/bindings.ts b/src/services/aiRuntime/comfy/bindings.ts
+new file mode 100644
+index 0000000..367e8bb
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/bindings.ts
+@@ -0,0 +1,151 @@
++// ============================================================================
++// ComfyUI — the binding layer (never a node editor)
++// ============================================================================
++//
++// Two rules earn this file its existence:
++//
++//  1. Resolve a binding BY TITLE first, by node id second. ComfyUI renumbers
++//     nodes whenever a workflow is re-exported, so an id-only binding breaks
++//     the moment the user re-saves a template — the brittleness every ComfyUI
++//     integration hits. Titles survive.
++//
++//  2. Node ids are NEVER regenerated. ComfyUI's execution cache is keyed on
++//     them, so a fresh id per submission turns every run into a cold run while
++//     the graph still looks correct. Templates ship with literal ids and every
++//     operation here preserves them; dropping an unused occurrence rewires the
++//     links instead of renumbering what is left.
++
++import type { ComfyGraph, ComfyLink, ComfyInputValue, ComfyNode, ComfySlotInstance, ComfyTemplate } from './types';
++
++export type BindingResolution =
++  | { ok: true; node: string; input: string }
++  | { ok: false; reason: string };
++
++export function isLink(value: ComfyInputValue): value is ComfyLink {
++  return Array.isArray(value) && value.length === 2 && typeof value[0] === 'string' && typeof value[1] === 'number';
++}
++
++/** Deep copy that keeps links as fresh arrays, so a build never edits the asset. */
++export function cloneGraph(graph: ComfyGraph): ComfyGraph {
++  const out: ComfyGraph = {};
++  for (const [id, node] of Object.entries(graph)) {
++    const inputs: Record<string, ComfyInputValue> = {};
++    for (const [name, value] of Object.entries(node.inputs)) {
++      inputs[name] = isLink(value) ? [value[0], value[1]] : value;
++    }
++    const copy: ComfyNode = { class_type: node.class_type, inputs };
++    if (node._meta?.title !== undefined) copy._meta = { title: node._meta.title };
++    out[id] = copy;
++  }
++  return out;
++}
++
++/**
++ * Lowest id wins when two nodes share a title. Deterministic beats clever: a
++ * duplicate title is an authoring mistake the template test catches, and a
++ * build that silently picked a different node on each run would be worse than
++ * one that always picks the same wrong node.
++ */
++export function findNodeByTitle(graph: ComfyGraph, title: string): string | null {
++  const matches = Object.keys(graph).filter((id) => graph[id]._meta?.title === title);
++  if (matches.length === 0) return null;
++  return matches.sort((a, b) => a.localeCompare(b, 'en'))[0];
++}
++
++export function resolveBinding(graph: ComfyGraph, binding: { title?: string; node?: string; input: string }): BindingResolution {
++  const byTitle = binding.title ? findNodeByTitle(graph, binding.title) : null;
++  const id = byTitle ?? (binding.node && graph[binding.node] ? binding.node : null);
++  if (!id) {
++    const named = binding.title ? `titled "${binding.title}"` : `with id "${binding.node ?? '?'}"`;
++    return { ok: false, reason: `no node ${named} in this graph` };
++  }
++  if (!(binding.input in graph[id].inputs)) {
++    return { ok: false, reason: `node "${id}" (${graph[id].class_type}) has no input "${binding.input}"` };
++  }
++  return { ok: true, node: id, input: binding.input };
++}
++
++export type ApplyFailure = { key: string; reason: string };
++
++/**
++ * Write bound values into a copy of the graph. A value for a key the template
++ * does not declare is a caller bug and is reported, not ignored: silently
++ * dropping "seed" would produce a picture nobody asked for.
++ */
++export function applyBindings(
++  template: ComfyTemplate,
++  graph: ComfyGraph,
++  values: Record<string, ComfyInputValue | undefined>,
++): { graph: ComfyGraph; failures: ApplyFailure[] } {
++  const next = cloneGraph(graph);
++  const failures: ApplyFailure[] = [];
++  for (const [key, value] of Object.entries(values)) {
++    if (value === undefined) continue;
++    const binding = template.bindings[key];
++    if (!binding) {
++      failures.push({ key, reason: 'the template declares no such input' });
++      continue;
++    }
++    const resolved = resolveBinding(next, binding);
++    if (!resolved.ok) {
++      failures.push({ key, reason: resolved.reason });
++      continue;
++    }
++    next[resolved.node].inputs[resolved.input] = value;
++  }
++  return { graph: next, failures };
++}
++
++/** Every link in the graph that points at `[node, output]`, repointed. */
++function repoint(graph: ComfyGraph, from: ComfyLink, to: ComfyInputValue): void {
++  for (const node of Object.values(graph)) {
++    for (const [name, value] of Object.entries(node.inputs)) {
++      if (isLink(value) && value[0] === from[0] && value[1] === from[1]) {
++        node.inputs[name] = isLink(to) ? [to[0], to[1]] : to;
++      }
++    }
++  }
++}
++
++/**
++ * Keep only the listed occurrences of a slot and remove the rest. Dropping is
++ * done from the last occurrence backwards so a chain collapses one link at a
++ * time: each removed node's consumers are repointed at whatever fed the input
++ * its output passes through, which for a LoRA chain, a region combine or a
++ * ControlNet apply is exactly the upstream node.
++ *
++ * A dropped occurrence is DELETED, not orphaned: ComfyUI validates the
++ * class_type of every node in a prompt, reachable or not, so an orphan whose
++ * pack is missing would still fail the whole submission.
++ */
++export function pruneSlot(graph: ComfyGraph, instances: readonly ComfySlotInstance[], keep: readonly number[]): void {
++  const kept = new Set(keep);
++  for (let index = instances.length - 1; index >= 0; index -= 1) {
++    if (kept.has(index)) continue;
++    const instance = instances[index];
++    for (const pass of instance.passthrough ?? []) {
++      const node = graph[pass.node];
++      if (!node) continue;
++      const source = node.inputs[pass.input];
++      if (source === undefined) continue;
++      repoint(graph, [pass.node, pass.output], source);
++    }
++    for (const id of instance.remove) delete graph[id];
++  }
++}
++
++/** Links that point at a node the graph no longer holds. Always empty in a good build. */
++export function danglingLinks(graph: ComfyGraph): string[] {
++  const bad: string[] = [];
++  for (const [id, node] of Object.entries(graph)) {
++    for (const [name, value] of Object.entries(node.inputs)) {
++      if (isLink(value) && !graph[value[0]]) bad.push(`${id}.${name} → ${value[0]}`);
++    }
++  }
++  return bad;
++}
++
++/** Node classes the graph actually uses — what the capability check must cover. */
++export function classesUsed(graph: ComfyGraph): string[] {
++  return [...new Set(Object.values(graph).map((node) => node.class_type))].sort();
++}
+diff --git a/src/services/aiRuntime/comfy/build.ts b/src/services/aiRuntime/comfy/build.ts
+new file mode 100644
+index 0000000..a24e448
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/build.ts
+@@ -0,0 +1,260 @@
++// ============================================================================
++// ComfyUI — recipe into graph
++// ============================================================================
++//
++// The whole point of the Bench: a recipe declares intent, and this turns it
++// into a graph ComfyUI will accept. Nothing here invents a node — it prunes
++// the occurrences the recipe does not use out of a shipped template and writes
++// values through the declared bindings.
++//
++// Node ids come from the template asset and are never regenerated, because
++// ComfyUI's execution cache is keyed on them: the same recipe submitted twice
++// must produce byte-identical ids or every run is a cold run.
++
++import { applyBindings, cloneGraph, danglingLinks, pruneSlot, resolveBinding } from './bindings';
++import type { ComfyGraph, ComfyGuidancePreset, ComfyInputValue, ComfyRecipe, ComfyTemplate } from './types';
++
++/**
++ * Which nodes of the guidance chain each preset keeps. The chain is authored
++ * once, in the template; a preset is a subset of it, so a writer chooses
++ * "Coherent" and never a PAG scale.
++ */
++const GUIDANCE_INSTANCES: Record<ComfyGuidancePreset, number[]> = {
++  none: [],
++  coherent: [0],
++  detailed: [1, 2],
++  'distilled-negatives': [3],
++};
++
++export const GUIDANCE_PRESETS: ReadonlyArray<{ id: ComfyGuidancePreset; label: string; note: string }> = [
++  { id: 'none', label: 'Off', note: 'The model as it is.' },
++  {
++    id: 'coherent',
++    label: 'Coherent',
++    note: 'Perturbed-attention guidance: fewer melted limbs and broken structures. Roughly doubles the time per step.',
++  },
++  {
++    id: 'detailed',
++    label: 'Detailed',
++    note: 'FreeU plus self-attention guidance: sharper texture and small detail. Slower, and can over-sharpen flat art.',
++  },
++  {
++    id: 'distilled-negatives',
++    label: 'Distilled-model negatives',
++    note: 'Rescales CFG so a negative prompt still bites on a distilled or turbo checkpoint instead of burning the image.',
++  },
++];
++
++function range(count: number): number[] {
++  return Array.from({ length: Math.max(0, count) }, (_value, index) => index);
++}
++
++/** Which occurrence of each slot the recipe actually uses. */
++export function planSlots(template: ComfyTemplate, recipe: ComfyRecipe): Record<string, number[]> {
++  const plan: Record<string, number[]> = {};
++  for (const [name, instances] of Object.entries(template.slots ?? {})) {
++    const limit = instances.length;
++    switch (name) {
++      case 'lora':
++        plan[name] = range(Math.min(recipe.loras.length, limit));
++        break;
++      case 'guidance':
++        plan[name] = GUIDANCE_INSTANCES[recipe.guidance].filter((index) => index < limit);
++        break;
++      case 'region':
++        plan[name] = range(Math.min(recipe.regions?.length ?? 0, limit));
++        break;
++      case 'control':
++        plan[name] = range(Math.min(recipe.controls?.length ?? 0, limit));
++        break;
++      case 'detail':
++        plan[name] = range(Math.min(recipe.detail?.length ?? 0, limit));
++        break;
++      default:
++        // An unknown slot is kept whole: dropping occurrences of something
++        // this build does not understand would quietly change the picture.
++        plan[name] = range(limit);
++        break;
++    }
++  }
++  return plan;
++}
++
++function collect(template: ComfyTemplate, recipe: ComfyRecipe, plan: Record<string, number[]>): Record<string, ComfyInputValue> {
++  const values: Record<string, ComfyInputValue> = {};
++  const put = (key: string, value: ComfyInputValue | undefined): void => {
++    if (value === undefined) return;
++    if (!(key in template.bindings)) return;
++    values[key] = value;
++  };
++
++  put('checkpoint', recipe.checkpoint);
++  put('prompt', recipe.prompt);
++  put('negative', recipe.negativePrompt);
++  put('width', recipe.width);
++  put('height', recipe.height);
++  put('batchSize', recipe.batchSize);
++  put('seed', recipe.seed);
++  put('steps', recipe.steps);
++  put('cfg', recipe.cfg);
++  put('samplerName', recipe.samplerName);
++  put('scheduler', recipe.scheduler);
++  put('denoise', recipe.denoise);
++  put('filenamePrefix', recipe.filenamePrefix);
++  put('sourceImage', recipe.sourceImage);
++  put('maskImage', recipe.maskImage);
++  put('growMaskBy', recipe.growMaskBy);
++
++  for (const index of plan.lora ?? []) {
++    const lora = recipe.loras[index];
++    const slot = index + 1;
++    put(`lora.${slot}.name`, lora.name);
++    put(`lora.${slot}.model`, lora.weight);
++    put(`lora.${slot}.clip`, lora.weight);
++  }
++  for (const index of plan.region ?? []) {
++    const region = (recipe.regions ?? [])[index];
++    const slot = index + 1;
++    put(`region.${slot}.prompt`, region.prompt);
++    put(`region.${slot}.mask`, region.mask);
++    put(`region.${slot}.strength`, region.strength);
++  }
++  for (const index of plan.control ?? []) {
++    const control = (recipe.controls ?? [])[index];
++    const slot = index + 1;
++    put(`control.${slot}.model`, control.model);
++    put(`control.${slot}.image`, control.image);
++    put(`control.${slot}.strength`, control.strength);
++    put(`control.${slot}.start`, control.startPercent);
++    put(`control.${slot}.end`, control.endPercent);
++  }
++  for (const index of plan.detail ?? []) {
++    const stage = (recipe.detail ?? [])[index];
++    const slot = index + 1;
++    put(`detail.${slot}.detector`, stage.detector);
++    put(`detail.${slot}.prompt`, stage.prompt);
++    put(`detail.${slot}.denoise`, stage.denoise);
++    put(`detail.${slot}.seed`, recipe.seed + index);
++    put(`detail.${slot}.steps`, recipe.steps);
++    put(`detail.${slot}.cfg`, recipe.cfg);
++    put(`detail.${slot}.samplerName`, recipe.samplerName);
++    put(`detail.${slot}.scheduler`, recipe.scheduler);
++  }
++
++  const crop = recipe.crop;
++  if (crop) {
++    // The same rectangle is written into four nodes: cut the source, cut the
++    // mask, scale the result back, and paste it where it came from. Deriving
++    // them here keeps "only masked" a property of the recipe rather than four
++    // numbers a caller has to keep consistent.
++    put('crop.x', crop.x);
++    put('crop.y', crop.y);
++    put('crop.width', crop.width);
++    put('crop.height', crop.height);
++    put('cropMask.x', crop.x);
++    put('cropMask.y', crop.y);
++    put('cropMask.width', crop.width);
++    put('cropMask.height', crop.height);
++    put('back.width', crop.width);
++    put('back.height', crop.height);
++    put('paste.x', crop.x);
++    put('paste.y', crop.y);
++    put('work.width', recipe.workWidth ?? crop.width);
++    put('work.height', recipe.workHeight ?? crop.height);
++    put('workMask.width', recipe.workWidth ?? crop.width);
++    put('workMask.height', recipe.workHeight ?? crop.height);
++  }
++
++  if (recipe.hires) {
++    put('hiresWidth', recipe.hires.width);
++    put('hiresHeight', recipe.hires.height);
++    put('hiresSeed', recipe.seed);
++    put('hiresSteps', recipe.hires.steps);
++    put('hiresCfg', recipe.cfg);
++    put('hiresSamplerName', recipe.samplerName);
++    put('hiresScheduler', recipe.scheduler);
++    put('hiresDenoise', recipe.hires.denoise);
++  }
++
++  if (recipe.upscale) {
++    put('upscaleModel', recipe.upscale.model);
++    put('upscaleBy', recipe.upscale.by);
++    put('denoise', recipe.upscale.denoise);
++    put('tileWidth', recipe.upscale.tileWidth);
++    put('tileHeight', recipe.upscale.tileHeight);
++  }
++
++  return values;
++}
++
++/**
++ * A detector file under `segm/` produces a real segmentation mask on the
++ * provider's second output; a `bbox/` one produces a placeholder there that
++ * the detailer cannot use. So the optional input is wired only for the first
++ * case — connecting it unconditionally is how "segmentation-refined" turns
++ * into a run-time failure on the common setup.
++ */
++function wireSegmentation(graph: ComfyGraph, template: ComfyTemplate, recipe: ComfyRecipe, plan: Record<string, number[]>): void {
++  for (const index of plan.detail ?? []) {
++    const stage = (recipe.detail ?? [])[index];
++    if (!stage || !stage.detector.startsWith('segm/')) continue;
++    const detectorBinding = template.bindings[`detail.${index + 1}.detector`];
++    const workerBinding = template.bindings[`detail.${index + 1}.denoise`];
++    if (!detectorBinding || !workerBinding) continue;
++    const detector = resolveBinding(graph, detectorBinding);
++    const worker = resolveBinding(graph, workerBinding);
++    if (!detector.ok || !worker.ok) continue;
++    graph[worker.node].inputs.segm_detector_opt = [detector.node, 1];
++  }
++}
++
++export type BuildResult = { ok: true; graph: ComfyGraph } | { ok: false; error: string };
++
++export function buildGraph(template: ComfyTemplate, recipe: ComfyRecipe): BuildResult {
++  const plan = planSlots(template, recipe);
++  const graph = cloneGraph(template.graph);
++  for (const [name, instances] of Object.entries(template.slots ?? {})) {
++    pruneSlot(graph, instances, plan[name] ?? []);
++  }
++  const { graph: bound, failures } = applyBindings(template, graph, collect(template, recipe, plan));
++  if (failures.length) {
++    const first = failures[0];
++    return { ok: false, error: `Template "${template.id}" cannot take "${first.key}": ${first.reason}.` };
++  }
++  wireSegmentation(bound, template, recipe, plan);
++  const dangling = danglingLinks(bound);
++  if (dangling.length) {
++    return { ok: false, error: `Template "${template.id}" left a broken link after pruning: ${dangling[0]}.` };
++  }
++  return { ok: true, graph: bound };
++}
++
++// ---------------------------------------------------------------------------
++// Choosing a template
++// ---------------------------------------------------------------------------
++
++export interface ComfyIntent {
++  regions: number;
++  controls: number;
++  detailStages: number;
++  hasSource: boolean;
++  hasMask: boolean;
++  wantsUpscale: boolean;
++  wantsHires: boolean;
++}
++
++/**
++ * One recipe, one template. The order is by how much of the request would be
++ * thrown away by choosing something else: an upscale or a detail pass needs
++ * the source image it was given, an inpaint needs its mask, and regions are
++ * the reason someone picked this backend at all.
++ */
++export function chooseTemplateId(intent: ComfyIntent): string {
++  if (intent.wantsUpscale && intent.hasSource) return 'ultimate-upscale';
++  if (intent.detailStages > 0 && intent.hasSource) return 'detailer';
++  if (intent.hasSource && intent.hasMask) return 'inpaint';
++  if (intent.regions > 0) return 'regional';
++  if (intent.controls > 0) return 'multi-controlnet';
++  if (intent.wantsHires) return 'hires';
++  return 'txt2img';
++}
+diff --git a/src/services/aiRuntime/comfy/byow.ts b/src/services/aiRuntime/comfy/byow.ts
+new file mode 100644
+index 0000000..c8be8c9
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/byow.ts
+@@ -0,0 +1,158 @@
++// ============================================================================
++// ComfyUI — bring your own workflow
++// ============================================================================
++//
++// A power user exports an API-format workflow from ComfyUI and drops it into
++// the project. The app reads /object_info, lists the literal inputs the graph
++// exposes, and lets them point app concepts — the prompt, the seed, a
++// reference image — at node inputs. That is the whole feature: the binding
++// resolver already exists, so this adds a listing and a guess, and no canvas.
++
++import { isLink } from './bindings';
++import { inputSpec, type ComfyObjectInfo } from './objectInfo';
++import { parseGraph } from './template';
++import type { ComfyBinding, ComfyBindingKind, ComfyGraph, ComfyInputValue, ComfyTemplate } from './types';
++
++export interface DiscoveredInput {
++  node: string;
++  title: string;
++  classType: string;
++  input: string;
++  kind: ComfyBindingKind;
++  value: ComfyInputValue;
++  /** Combo inputs carry their option list, which is what the folder holds. */
++  options?: string[];
++}
++
++const SEED_NAMES = new Set(['seed', 'noise_seed']);
++const IMAGE_INPUTS = new Set(['image']);
++
++function inferKind(classType: string, input: string, type: string, options: string[] | undefined): ComfyBindingKind | null {
++  if (options) return IMAGE_INPUTS.has(input) && /LoadImage/.test(classType) ? 'image' : 'choice';
++  if (type === 'STRING') return 'text';
++  if (type === 'BOOLEAN') return 'boolean';
++  if (type === 'INT') return SEED_NAMES.has(input) ? 'seed' : 'number';
++  if (type === 'FLOAT') return 'number';
++  return null;
++}
++
++/** Every literal input of the graph that a recipe could sensibly drive. */
++export function discoverInputs(graph: ComfyGraph, info: ComfyObjectInfo): DiscoveredInput[] {
++  const found: DiscoveredInput[] = [];
++  for (const id of Object.keys(graph).sort((a, b) => a.localeCompare(b, 'en'))) {
++    const node = graph[id];
++    for (const [input, value] of Object.entries(node.inputs)) {
++      // A linked input is produced by another node: driving it from a recipe
++      // would mean cutting the link, which is graph editing, not binding.
++      if (isLink(value)) continue;
++      const spec = inputSpec(info, node.class_type, input);
++      if (!spec) continue;
++      const kind = inferKind(node.class_type, input, spec.type, spec.options);
++      if (!kind) continue;
++      found.push({
++        node: id,
++        title: node._meta?.title ?? node.class_type,
++        classType: node.class_type,
++        input,
++        kind,
++        value,
++        ...(spec.options ? { options: spec.options } : {}),
++      });
++    }
++  }
++  return found;
++}
++
++export type ComfyConcept = 'prompt' | 'negative' | 'seed' | 'width' | 'height' | 'batchSize' | 'checkpoint' | 'reference';
++
++export type ComfyMapping = Partial<Record<ComfyConcept, { node: string; input: string }>>;
++
++function pick(inputs: readonly DiscoveredInput[], match: (input: DiscoveredInput) => boolean): DiscoveredInput | undefined {
++  return inputs.find(match);
++}
++
++/** A first guess the user corrects, not a decision made behind their back. */
++export function suggestMapping(inputs: readonly DiscoveredInput[]): ComfyMapping {
++  const texts = inputs.filter((entry) => entry.classType === 'CLIPTextEncode' && entry.input === 'text');
++  const positive = pick(texts, (entry) => /pos/i.test(entry.title)) ?? texts[0];
++  const negative = pick(texts, (entry) => /neg/i.test(entry.title)) ?? texts.find((entry) => entry !== positive);
++  const mapping: ComfyMapping = {};
++  const set = (concept: ComfyConcept, entry: DiscoveredInput | undefined): void => {
++    if (entry) mapping[concept] = { node: entry.node, input: entry.input };
++  };
++  set('prompt', positive);
++  set('negative', negative);
++  set('seed', pick(inputs, (entry) => entry.kind === 'seed'));
++  set('width', pick(inputs, (entry) => entry.classType === 'EmptyLatentImage' && entry.input === 'width'));
++  set('height', pick(inputs, (entry) => entry.classType === 'EmptyLatentImage' && entry.input === 'height'));
++  set('batchSize', pick(inputs, (entry) => entry.classType === 'EmptyLatentImage' && entry.input === 'batch_size'));
++  set('checkpoint', pick(inputs, (entry) => entry.classType === 'CheckpointLoaderSimple' && entry.input === 'ckpt_name'));
++  set('reference', pick(inputs, (entry) => entry.kind === 'image'));
++  return mapping;
++}
++
++/** Concept names are the binding keys the builder already writes. */
++const CONCEPT_KEYS: Record<ComfyConcept, string> = {
++  prompt: 'prompt',
++  negative: 'negative',
++  seed: 'seed',
++  width: 'width',
++  height: 'height',
++  batchSize: 'batchSize',
++  checkpoint: 'checkpoint',
++  reference: 'sourceImage',
++};
++
++const CONCEPT_KINDS: Record<ComfyConcept, ComfyBindingKind> = {
++  prompt: 'text',
++  negative: 'text',
++  seed: 'seed',
++  width: 'number',
++  height: 'number',
++  batchSize: 'number',
++  checkpoint: 'choice',
++  reference: 'image',
++};
++
++export type AdoptResult = { ok: true; template: ComfyTemplate } | { ok: false; error: string };
++
++/**
++ * Turn a user's workflow into a template. It binds by node id AND by the
++ * node's own title, so a user who re-exports the workflow after renumbering
++ * keeps their mapping as long as they left the titles alone.
++ */
++export function adoptWorkflow(raw: unknown, mapping: ComfyMapping, meta: { id: string; label: string }): AdoptResult {
++  const graph = parseGraph(raw);
++  if (!graph) return { ok: false, error: 'That file is not a ComfyUI workflow in API format. In ComfyUI, use Workflow → Export (API).' };
++  const outputs = Object.values(graph).filter((node) => node.class_type === 'SaveImage' || node.class_type === 'PreviewImage');
++  if (outputs.length === 0) {
++    return { ok: false, error: 'That workflow has no Save Image or Preview Image node, so nothing would come back from it.' };
++  }
++  const bindings: Record<string, ComfyBinding> = {};
++  for (const [concept, target] of Object.entries(mapping) as Array<[ComfyConcept, { node: string; input: string }]>) {
++    const node = graph[target.node];
++    if (!node) return { ok: false, error: `The workflow has no node "${target.node}" to map ${concept} onto.` };
++    if (!(target.input in node.inputs)) {
++      return { ok: false, error: `Node "${target.node}" (${node.class_type}) has no input "${target.input}".` };
++    }
++    const title = node._meta?.title;
++    bindings[CONCEPT_KEYS[concept]] = {
++      ...(title ? { title } : {}),
++      node: target.node,
++      input: target.input,
++      kind: CONCEPT_KINDS[concept],
++    };
++  }
++  return {
++    ok: true,
++    template: {
++      id: meta.id,
++      label: meta.label,
++      description: 'Your own workflow.',
++      requires: [...new Set(Object.values(graph).map((node) => node.class_type))].sort(),
++      bindings,
++      slots: {},
++      graph,
++    },
++  };
++}
+diff --git a/src/services/aiRuntime/comfy/capability.ts b/src/services/aiRuntime/comfy/capability.ts
+new file mode 100644
+index 0000000..7def553
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/capability.ts
+@@ -0,0 +1,48 @@
++// ============================================================================
++// ComfyUI — per-template capability check
++// ============================================================================
++//
++// Runs once against /object_info at connect time. A template whose node
++// classes are not all installed is greyed out with the name of the pack that
++// provides them; it is never submitted, because a prompt ComfyUI rejects on
++// validation is worse than a feature the user can see is unavailable.
++
++import { hasClass, type ComfyObjectInfo } from './objectInfo';
++import { joinNames, packsForClasses } from './nodePacks';
++import type { ComfyTemplate } from './types';
++
++export interface TemplateAvailability {
++  templateId: string;
++  ok: boolean;
++  /** Node classes this ComfyUI does not have. */
++  missing: string[];
++  /** Packs that would provide them, when they come from a pack. */
++  packs: Array<{ pack: string; url: string }>;
++  /** A sentence to show the user. Empty when the template is available. */
++  message: string;
++}
++
++export function checkTemplate(template: ComfyTemplate, info: ComfyObjectInfo): TemplateAvailability {
++  const missing = template.requires.filter((className) => !hasClass(info, className));
++  if (missing.length === 0) {
++    return { templateId: template.id, ok: true, missing: [], packs: [], message: '' };
++  }
++  const packs = packsForClasses(missing);
++  const fromPacks = new Set(packs.flatMap((pack) => [pack.pack]));
++  const core = missing.filter((className) => packsForClasses([className]).length === 0);
++  const parts: string[] = [];
++  if (packs.length) parts.push(`${template.label} needs ${joinNames([...fromPacks])}.`);
++  if (core.length) {
++    // A core class this ComfyUI lacks means the install is older than the
++    // template, not that a pack is missing — saying "install a pack" there
++    // would send the user looking for something that does not exist.
++    parts.push(
++      `${template.label} uses ${joinNames(core)}, which this ComfyUI does not provide. Update ComfyUI.`,
++    );
++  }
++  return { templateId: template.id, ok: false, missing, packs, message: parts.join(' ') };
++}
++
++export function checkTemplates(templates: readonly ComfyTemplate[], info: ComfyObjectInfo): TemplateAvailability[] {
++  return templates.map((template) => checkTemplate(template, info));
++}
+diff --git a/src/services/aiRuntime/comfy/client.ts b/src/services/aiRuntime/comfy/client.ts
+new file mode 100644
+index 0000000..f08da39
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/client.ts
+@@ -0,0 +1,529 @@
++// ============================================================================
++// ComfyUI — the legacy HTTP + WebSocket transport
++// ============================================================================
++//
++// Every documented route this needs exists in ComfyUI's own server.py and has
++// for years, which is why it is the transport that works against a manual
++// checkout, a portable build and ComfyUI Desktop alike, with nothing extra
++// installed:
++//
++//   POST /prompt           {prompt, client_id} → {prompt_id}
++//   GET  /ws?clientId=     progress / executing / execution_error
++//   GET  /history/{id}     outputs → filenames
++//   GET  /view?filename=…  the bytes
++//   POST /upload/image     references and masks
++//   GET  /object_info      installed node classes and model folders
++//   GET  /system_stats     VRAM
++//   POST /interrupt        cancel what is running
++//   POST /queue {delete}   cancel what is only queued
++//
++// Transport is injected rather than imported so this file stays free of
++// Electron and of the DOM: the adapter passes `net.fetch` and a real
++// WebSocket, the tests pass a fake server. A v2 transport slots in by
++// implementing the same small surface.
++
++import type { AiErrorCode } from '../types';
++import { indexObjectInfo, type ComfyObjectInfo } from './objectInfo';
++import type { ComfyGraph } from './types';
++
++export class ComfyError extends Error {
++  code: AiErrorCode;
++
++  constructor(code: AiErrorCode, message: string) {
++    super(message);
++    this.name = 'ComfyError';
++    this.code = code;
++  }
++}
++
++export interface ComfyRequestInit {
++  method?: 'GET' | 'POST';
++  headers?: Record<string, string>;
++  body?: string | Uint8Array;
++  signal?: AbortSignal;
++}
++
++export type ComfyFetch = (url: string, init?: ComfyRequestInit) => Promise<Response>;
++
++export interface ComfySocketHandlers {
++  onMessage: (data: string) => void;
++  onClose: () => void;
++}
++
++export interface ComfySocket {
++  close: () => void;
++}
++
++export type ComfySocketFactory = (url: string, handlers: ComfySocketHandlers) => ComfySocket | null;
++
++export interface ComfyProgress {
++  /** 0..1 across the whole submission, as far as the server has said. */
++  fraction: number;
++  value: number;
++  max: number;
++  /** The node currently running, for a label. */
++  node: string | null;
++}
++
++export interface ComfyImageRef {
++  filename: string;
++  subfolder: string;
++  type: string;
++}
++
++export interface ComfyHistoryEntry {
++  outputs: Record<string, { images?: ComfyImageRef[] }>;
++  status?: { status_str?: string; completed?: boolean; messages?: unknown };
++}
++
++export interface ComfyUploadResult {
++  name: string;
++  subfolder: string;
++  type: string;
++}
++
++export interface ComfySystemStats {
++  ramTotal: number;
++  ramFree: number;
++  version?: string;
++  devices: Array<{ name: string; vramTotal: number; vramFree: number }>;
++}
++
++export interface ComfyClientOptions {
++  baseUrl: string;
++  clientId: string;
++  fetch: ComfyFetch;
++  openSocket?: ComfySocketFactory;
++  /** How often /history is asked when nothing wakes us. */
++  pollIntervalMs?: number;
++  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
++  now?: () => number;
++}
++
++const MAX_JSON_BYTES = 32 * 1024 * 1024;
++const MAX_IMAGE_BYTES = 24 * 1024 * 1024;
++
++function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
++  return new Promise((resolve) => {
++    const timer = setTimeout(resolve, ms);
++    signal?.addEventListener(
++      'abort',
++      () => {
++        clearTimeout(timer);
++        resolve();
++      },
++      { once: true },
++    );
++  });
++}
++
++/**
++ * Wakes a pending wait early — the WebSocket's whole job. The wake LATCHES:
++ * "the queue item finished" routinely arrives while the poll it should shorten
++ * is still in flight, and an edge-triggered waker would drop it and sit out a
++ * whole poll interval for nothing.
++ */
++function createWaker(): { wake: () => void; wait: (ms: number, sleep: ComfyClientOptions['sleep'], signal?: AbortSignal) => Promise<void> } {
++  let pending: (() => void) | null = null;
++  let signalled = false;
++  return {
++    wake(): void {
++      signalled = true;
++      const resolve = pending;
++      pending = null;
++      resolve?.();
++    },
++    wait(ms, sleep, signal): Promise<void> {
++      if (signalled) {
++        signalled = false;
++        return Promise.resolve();
++      }
++      const timed = (sleep ?? defaultSleep)(ms, signal);
++      const woken = new Promise<void>((resolve) => {
++        pending = resolve;
++      });
++      return Promise.race([timed, woken]).then(() => {
++        signalled = false;
++      });
++    },
++  };
++}
++
++export function bytesToBase64(bytes: Uint8Array): string {
++  let binary = '';
++  // 8 KB at a time: String.fromCharCode with a whole multi-megabyte image
++  // spread into the arguments blows the call stack.
++  for (let offset = 0; offset < bytes.length; offset += 8192) {
++    binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
++  }
++  return btoa(binary);
++}
++
++export type MultipartPart =
++  | { name: string; value: string }
++  | { name: string; fileName: string; contentType: string; bytes: Uint8Array };
++
++/**
++ * /upload/image is the one route that is not JSON. The body is built by hand
++ * rather than with FormData so it does not depend on which fetch
++ * implementation the adapter injected.
++ */
++export function multipartBody(parts: readonly MultipartPart[], boundary: string): { contentType: string; body: Uint8Array } {
++  const encoder = new TextEncoder();
++  const chunks: Uint8Array[] = [];
++  for (const part of parts) {
++    if ('value' in part) {
++      chunks.push(encoder.encode(`--${boundary}\r\nContent-Disposition: form-data; name="${part.name}"\r\n\r\n${part.value}\r\n`));
++      continue;
++    }
++    chunks.push(
++      encoder.encode(
++        `--${boundary}\r\nContent-Disposition: form-data; name="${part.name}"; filename="${part.fileName}"\r\n` +
++          `Content-Type: ${part.contentType}\r\n\r\n`,
++      ),
++    );
++    chunks.push(part.bytes);
++    chunks.push(encoder.encode('\r\n'));
++  }
++  chunks.push(encoder.encode(`--${boundary}--\r\n`));
++  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
++  const body = new Uint8Array(total);
++  let offset = 0;
++  for (const chunk of chunks) {
++    body.set(chunk, offset);
++    offset += chunk.length;
++  }
++  return { contentType: `multipart/form-data; boundary=${boundary}`, body };
++}
++
++export function webSocketUrl(baseUrl: string, clientId: string): string {
++  const base = baseUrl.replace(/\/+$/, '');
++  const ws = base.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
++  return `${ws}/ws?clientId=${encodeURIComponent(clientId)}`;
++}
++
++function readNumber(value: unknown): number {
++  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
++}
++
++/** Both progress shapes ComfyUI has shipped, reduced to one fraction. */
++export function readProgressEvent(type: string, data: unknown): ComfyProgress | null {
++  const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : null;
++  if (!record) return null;
++  if (type === 'progress') {
++    const value = readNumber(record.value);
++    const max = readNumber(record.max);
++    return { value, max, fraction: max > 0 ? Math.min(1, value / max) : 0, node: typeof record.node === 'string' ? record.node : null };
++  }
++  if (type === 'progress_state') {
++    const nodes = record.nodes && typeof record.nodes === 'object' ? (record.nodes as Record<string, unknown>) : {};
++    let value = 0;
++    let max = 0;
++    let running: string | null = null;
++    for (const [id, raw] of Object.entries(nodes)) {
++      const entry = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
++      if (!entry) continue;
++      value += readNumber(entry.value);
++      max += readNumber(entry.max);
++      if (entry.state === 'running') running = id;
++    }
++    return { value, max, fraction: max > 0 ? Math.min(1, value / max) : 0, node: running };
++  }
++  return null;
++}
++
++export interface ComfyClient {
++  objectInfo(signal?: AbortSignal): Promise<ComfyObjectInfo>;
++  systemStats(signal?: AbortSignal): Promise<ComfySystemStats>;
++  uploadImage(input: { bytes: Uint8Array; fileName: string; contentType: string; subfolder?: string; signal?: AbortSignal }): Promise<ComfyUploadResult>;
++  submit(graph: ComfyGraph, signal?: AbortSignal): Promise<string>;
++  history(promptId: string, signal?: AbortSignal): Promise<ComfyHistoryEntry | null>;
++  view(ref: ComfyImageRef, signal?: AbortSignal): Promise<Uint8Array>;
++  cancel(promptId: string): Promise<void>;
++  awaitResult(
++    promptId: string,
++    options: { signal?: AbortSignal; onProgress?: (progress: ComfyProgress) => void; timeoutMs?: number },
++  ): Promise<ComfyHistoryEntry>;
++}
++
++export function createComfyClient(options: ComfyClientOptions): ComfyClient {
++  const base = options.baseUrl.replace(/\/+$/, '');
++  const sleep = options.sleep ?? defaultSleep;
++  const now = options.now ?? (() => Date.now());
++  const pollIntervalMs = options.pollIntervalMs ?? 1000;
++
++  const call = async (path: string, init: ComfyRequestInit = {}): Promise<Response> => {
++    let res: Response;
++    try {
++      res = await options.fetch(`${base}${path}`, init);
++    } catch (err) {
++      if (init.signal?.aborted) throw new ComfyError('cancelled', 'Cancelled.');
++      throw new ComfyError('unreachable', `Could not reach ComfyUI at ${base}: ${err instanceof Error ? err.message : String(err)}`);
++    }
++    return res;
++  };
++
++  const json = async <T>(path: string, init: ComfyRequestInit = {}): Promise<T> => {
++    const res = await call(path, init);
++    const text = await readBoundedText(res, MAX_JSON_BYTES);
++    if (!res.ok) throw httpError(res.status, path, text);
++    try {
++      return JSON.parse(text) as T;
++    } catch {
++      throw new ComfyError('bad-response', `ComfyUI answered ${path} with something that is not JSON.`);
++    }
++  };
++
++  const historyOf = async (promptId: string, signal?: AbortSignal): Promise<ComfyHistoryEntry | null> => {
++    const raw = await json<Record<string, unknown>>(`/history/${encodeURIComponent(promptId)}`, { signal });
++    const entry = raw[promptId];
++    if (!entry || typeof entry !== 'object') return null;
++    const record = entry as Record<string, unknown>;
++    const outputs: ComfyHistoryEntry['outputs'] = {};
++    const rawOutputs = record.outputs && typeof record.outputs === 'object' ? (record.outputs as Record<string, unknown>) : {};
++    for (const [nodeId, value] of Object.entries(rawOutputs)) {
++      const images = (value as { images?: unknown })?.images;
++      if (!Array.isArray(images)) continue;
++      outputs[nodeId] = {
++        images: images
++          .filter((image): image is Record<string, unknown> => Boolean(image) && typeof image === 'object')
++          .map((image) => ({
++            filename: typeof image.filename === 'string' ? image.filename : '',
++            subfolder: typeof image.subfolder === 'string' ? image.subfolder : '',
++            type: typeof image.type === 'string' ? image.type : 'output',
++          }))
++          .filter((image) => image.filename),
++      };
++    }
++    const status = record.status && typeof record.status === 'object' ? (record.status as ComfyHistoryEntry['status']) : undefined;
++    return { outputs, ...(status ? { status } : {}) };
++  };
++
++  return {
++    async objectInfo(signal) {
++      return indexObjectInfo(await json<unknown>('/object_info', { signal }));
++    },
++
++    async systemStats(signal) {
++      const raw = await json<Record<string, unknown>>('/system_stats', { signal });
++      const system = (raw.system && typeof raw.system === 'object' ? raw.system : {}) as Record<string, unknown>;
++      const devices = Array.isArray(raw.devices) ? raw.devices : [];
++      return {
++        ramTotal: readNumber(system.ram_total),
++        ramFree: readNumber(system.ram_free),
++        ...(typeof system.comfyui_version === 'string' ? { version: system.comfyui_version } : {}),
++        devices: devices.map((device) => {
++          const entry = (device && typeof device === 'object' ? device : {}) as Record<string, unknown>;
++          return {
++            name: typeof entry.name === 'string' ? entry.name : 'device',
++            vramTotal: readNumber(entry.vram_total),
++            vramFree: readNumber(entry.vram_free),
++          };
++        }),
++      };
++    },
++
++    async uploadImage({ bytes, fileName, contentType, subfolder, signal }) {
++      const boundary = `writershoard${now().toString(36)}${Math.floor(Math.random() * 1e9).toString(36)}`;
++      const { contentType: bodyType, body } = multipartBody(
++        [
++          { name: 'image', fileName, contentType, bytes },
++          { name: 'type', value: 'input' },
++          { name: 'subfolder', value: subfolder ?? 'writers-hoard' },
++          // Overwriting keeps the input folder from growing a copy per run and,
++          // more importantly, keeps the file NAME stable — a new name on every
++          // submission changes a node input and throws away ComfyUI's cache.
++          { name: 'overwrite', value: 'true' },
++        ],
++        boundary,
++      );
++      const res = await call('/upload/image', { method: 'POST', headers: { 'Content-Type': bodyType }, body, signal });
++      const text = await readBoundedText(res, 1 << 20);
++      if (!res.ok) throw httpError(res.status, '/upload/image', text);
++      let parsed: Record<string, unknown>;
++      try {
++        parsed = JSON.parse(text) as Record<string, unknown>;
++      } catch {
++        throw new ComfyError('bad-response', 'ComfyUI did not answer the upload with JSON.');
++      }
++      const name = typeof parsed.name === 'string' ? parsed.name : null;
++      if (!name) throw new ComfyError('bad-response', 'ComfyUI accepted the upload without naming the file.');
++      const folder = typeof parsed.subfolder === 'string' ? parsed.subfolder : '';
++      return {
++        name,
++        subfolder: folder,
++        type: typeof parsed.type === 'string' ? parsed.type : 'input',
++      };
++    },
++
++    async submit(graph, signal) {
++      const res = await call('/prompt', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ prompt: graph, client_id: options.clientId }),
++        signal,
++      });
++      const text = await readBoundedText(res, 4 << 20);
++      if (!res.ok) throw promptRejection(res.status, text);
++      let parsed: Record<string, unknown>;
++      try {
++        parsed = JSON.parse(text) as Record<string, unknown>;
++      } catch {
++        throw new ComfyError('bad-response', 'ComfyUI did not answer /prompt with JSON.');
++      }
++      const id = parsed.prompt_id;
++      if (typeof id !== 'string' || !id) throw new ComfyError('bad-response', 'ComfyUI accepted the prompt without returning an id.');
++      return id;
++    },
++
++    history: historyOf,
++
++    async view(ref, signal) {
++      const query = `filename=${encodeURIComponent(ref.filename)}&subfolder=${encodeURIComponent(ref.subfolder)}&type=${encodeURIComponent(ref.type)}`;
++      const res = await call(`/view?${query}`, { signal });
++      if (!res.ok) throw httpError(res.status, '/view', await readBoundedText(res, 4096));
++      return new Uint8Array(await readBounded(res, MAX_IMAGE_BYTES));
++    },
++
++    async cancel(promptId) {
++      // Two calls because a submission can be in either of two places: running
++      // (interrupt) or still queued behind another one (delete). Sending only
++      // the first leaves a cancelled job to start a minute later.
++      try {
++        await call('/interrupt', {
++          method: 'POST',
++          headers: { 'Content-Type': 'application/json' },
++          body: JSON.stringify({ prompt_id: promptId }),
++        });
++      } catch {
++        // the server may already be gone; cancelling is best effort
++      }
++      try {
++        await call('/queue', {
++          method: 'POST',
++          headers: { 'Content-Type': 'application/json' },
++          body: JSON.stringify({ delete: [promptId] }),
++        });
++      } catch {
++        // same
++      }
++    },
++
++    async awaitResult(promptId, { signal, onProgress, timeoutMs }) {
++      const deadline = now() + (timeoutMs ?? 20 * 60_000);
++      const waker = createWaker();
++      let socketFailure: string | null = null;
++      const socket = options.openSocket?.(webSocketUrl(base, options.clientId), {
++        onMessage(data) {
++          const parsed = safeParse(data);
++          if (!parsed) return;
++          const { type, data: payload } = parsed;
++          const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
++          // Events for another client's submission must not end ours.
++          if (typeof record.prompt_id === 'string' && record.prompt_id !== promptId) return;
++          const progress = readProgressEvent(type, payload);
++          if (progress && onProgress) onProgress(progress);
++          if (type === 'execution_error') {
++            socketFailure = typeof record.exception_message === 'string' ? record.exception_message : 'ComfyUI failed to run the workflow.';
++            waker.wake();
++            return;
++          }
++          // `executing` with a null node is how ComfyUI has always said "queue
++          // item finished"; `execution_success` is the newer event for the same
++          // moment. Either one only wakes the poll: /history is the authority.
++          if ((type === 'executing' && record.node === null) || type === 'execution_success') waker.wake();
++        },
++        onClose() {
++          socketAlive = false;
++        },
++      }) ?? null;
++      // A factory that declines (no WebSocket in this runtime) is the same
++      // situation as a socket that dropped: poll, and do not wait on an event
++      // that will never come.
++      let socketAlive = Boolean(socket);
++
++      try {
++        for (;;) {
++          if (signal?.aborted) throw new ComfyError('cancelled', 'Cancelled.');
++          const entry = await historyOf(promptId, signal);
++          if (entry) {
++            if (entry.status?.status_str === 'error') {
++              throw new ComfyError('server-error', socketFailure ?? 'ComfyUI failed to run the workflow.');
++            }
++            return entry;
++          }
++          if (socketFailure) throw new ComfyError('server-error', socketFailure);
++          if (now() > deadline) throw new ComfyError('timeout', 'ComfyUI did not finish the image in time.');
++          // A dropped socket is not a failed generation: fall back to the poll
++          // interval and keep asking /history until the deadline.
++          await waker.wait(socketAlive ? pollIntervalMs : Math.min(pollIntervalMs, 1000), sleep, signal);
++        }
++      } finally {
++        socket?.close();
++      }
++    },
++  };
++}
++
++function safeParse(data: string): { type: string; data: unknown } | null {
++  try {
++    const parsed = JSON.parse(data) as { type?: unknown; data?: unknown };
++    if (typeof parsed.type !== 'string') return null;
++    return { type: parsed.type, data: parsed.data };
++  } catch {
++    return null;
++  }
++}
++
++async function readBounded(res: Response, limit: number): Promise<ArrayBuffer> {
++  // Checking the declared length first means a wrong address that answers with
++  // something enormous is refused before it is in memory, not after.
++  const declared = Number(res.headers.get('content-length') ?? '');
++  if (Number.isFinite(declared) && declared > limit) {
++    throw new ComfyError('bad-response', `ComfyUI answered with more than ${Math.round(limit / 1e6)} MB.`);
++  }
++  const buffer = await res.arrayBuffer();
++  if (buffer.byteLength > limit) throw new ComfyError('bad-response', `ComfyUI answered with more than ${Math.round(limit / 1e6)} MB.`);
++  return buffer;
++}
++
++async function readBoundedText(res: Response, limit: number): Promise<string> {
++  return new TextDecoder().decode(await readBounded(res, limit));
++}
++
++function httpError(status: number, path: string, body: string): ComfyError {
++  if (status === 401 || status === 403) return new ComfyError('unauthorized', `ComfyUI refused the request to ${path} (HTTP ${status}).`);
++  if (status === 404) return new ComfyError('bad-request', `ComfyUI has no ${path} route (HTTP 404). Check the address in AI settings.`);
++  return new ComfyError('server-error', `ComfyUI answered ${path} with HTTP ${status}: ${body.slice(0, 200)}`);
++}
++
++/**
++ * A rejected /prompt is the failure mode that matters most: it is what a
++ * template with a bad node or an uninstalled model produces, and ComfyUI
++ * reports it per node. Naming the node and the reason turns a wall of JSON
++ * into something a user can act on.
++ */
++function promptRejection(status: number, body: string): ComfyError {
++  let parsed: Record<string, unknown> | null = null;
++  try {
++    parsed = JSON.parse(body) as Record<string, unknown>;
++  } catch {
++    parsed = null;
++  }
++  const error = parsed?.error && typeof parsed.error === 'object' ? (parsed.error as Record<string, unknown>) : null;
++  const head = typeof error?.message === 'string' ? error.message : `ComfyUI rejected the workflow (HTTP ${status}).`;
++  const nodeErrors = parsed?.node_errors && typeof parsed.node_errors === 'object' ? (parsed.node_errors as Record<string, unknown>) : {};
++  const details: string[] = [];
++  for (const [nodeId, value] of Object.entries(nodeErrors)) {
++    const entry = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
++    const errors = Array.isArray(entry?.errors) ? entry.errors : [];
++    for (const item of errors) {
++      const record = item && typeof item === 'object' ? (item as Record<string, unknown>) : null;
++      const message = typeof record?.message === 'string' ? record.message : 'rejected';
++      const detail = typeof record?.details === 'string' && record.details ? ` (${record.details})` : '';
++      details.push(`node ${nodeId}: ${message}${detail}`);
++    }
++  }
++  const suffix = details.length ? ` — ${details.slice(0, 3).join('; ')}` : '';
++  return new ComfyError('bad-request', `${head}${suffix}`);
++}
+diff --git a/src/services/aiRuntime/comfy/index.ts b/src/services/aiRuntime/comfy/index.ts
+new file mode 100644
+index 0000000..e15e6f1
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/index.ts
+@@ -0,0 +1,17 @@
++// ============================================================================
++// ComfyUI — the Bench's binding layer, one import
++// ============================================================================
++
++export * from './bindings';
++export * from './build';
++export * from './byow';
++export * from './capability';
++export * from './client';
++export * from './match';
++export * from './nodePacks';
++export * from './objectInfo';
++export * from './template';
++export * from './types';
++export * from './request';
++export * from './samplers';
++export * from './plan';
+diff --git a/src/services/aiRuntime/comfy/match.ts b/src/services/aiRuntime/comfy/match.ts
+new file mode 100644
+index 0000000..f076365
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/match.ts
+@@ -0,0 +1,61 @@
++// ============================================================================
++// ComfyUI — naming a model the server does not have
++// ============================================================================
++//
++// A recipe carries the checkpoint or LoRA the writer chose on the machine that
++// made it. On another install the file may sit in a subfolder, carry a
++// different extension or be absent. Substituting silently is the one thing
++// that must not happen: a picture generated with a different model is not the
++// picture the recipe describes. So the caller is told which name is missing
++// and what the nearest installed file is, and chooses.
++
++function normalise(name: string): string {
++  return name.toLowerCase().replace(/\\/g, '/').replace(/\.(safetensors|ckpt|pt|pth|sft|bin)$/i, '');
++}
++
++function stem(name: string): string {
++  const path = normalise(name);
++  const slash = path.lastIndexOf('/');
++  return slash === -1 ? path : path.slice(slash + 1);
++}
++
++function tokens(name: string): string[] {
++  return stem(name).split(/[^a-z0-9]+/).filter(Boolean);
++}
++
++/** Exact match first, then same file name in another folder, then token overlap. */
++export function resolveModelName(wanted: string, installed: readonly string[]): { exact: string | null; nearest: string | null } {
++  if (installed.includes(wanted)) return { exact: wanted, nearest: wanted };
++  const sameStem = installed.find((candidate) => stem(candidate) === stem(wanted));
++  if (sameStem) return { exact: null, nearest: sameStem };
++  const wantedTokens = new Set(tokens(wanted));
++  let best: string | null = null;
++  let bestScore = 0;
++  for (const candidate of installed) {
++    const candidateTokens = tokens(candidate);
++    if (candidateTokens.length === 0) continue;
++    let shared = 0;
++    for (const token of candidateTokens) if (wantedTokens.has(token)) shared += 1;
++    const score = shared / Math.max(wantedTokens.size, candidateTokens.length);
++    if (score > bestScore) {
++      bestScore = score;
++      best = candidate;
++    }
++  }
++  // Below a third of the tokens in common the "nearest" file is noise, and
++  // offering noise as a substitute is how a recipe quietly renders wrong.
++  return { exact: null, nearest: bestScore >= 0.34 ? best : null };
++}
++
++export function missingModelMessage(kind: string, wanted: string, installed: readonly string[]): string {
++  const { nearest } = resolveModelName(wanted, installed);
++  const head = `This ComfyUI has no ${kind} called "${wanted}".`;
++  if (nearest) return `${head} The nearest one installed there is "${nearest}".`;
++  if (installed.length === 0) return `${head} Its ${kind} folder is empty.`;
++  return `${head} Nothing installed there resembles it.`;
++}
++
++/** First installed name matching a pattern — how a detail stage finds its detector. */
++export function firstMatching(installed: readonly string[], pattern: RegExp): string | null {
++  return installed.find((candidate) => pattern.test(candidate)) ?? null;
++}
+diff --git a/src/services/aiRuntime/comfy/nodePacks.ts b/src/services/aiRuntime/comfy/nodePacks.ts
+new file mode 100644
+index 0000000..ad08aa5
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/nodePacks.ts
+@@ -0,0 +1,54 @@
++// ============================================================================
++// ComfyUI — which pack provides which node class
++// ============================================================================
++//
++// A missing node class must never reach the user as a raw class name. Every
++// class a shipped template needs that is NOT part of ComfyUI itself is listed
++// here with the pack that provides it, so a capability check can say "Detail
++// pass needs ComfyUI-Impact-Pack and ComfyUI-Impact-Subpack" instead of
++// "UltralyticsDetectorProvider".
++
++export interface ComfyNodePack {
++  pack: string;
++  url: string;
++}
++
++const PACK_BY_CLASS: Record<string, ComfyNodePack> = {
++  UltimateSDUpscale: {
++    pack: 'ComfyUI_UltimateSDUpscale',
++    url: 'https://github.com/ssitu/ComfyUI_UltimateSDUpscale',
++  },
++  FaceDetailer: {
++    pack: 'ComfyUI-Impact-Pack',
++    url: 'https://github.com/ltdrdata/ComfyUI-Impact-Pack',
++  },
++  SAMLoader: {
++    pack: 'ComfyUI-Impact-Pack',
++    url: 'https://github.com/ltdrdata/ComfyUI-Impact-Pack',
++  },
++  UltralyticsDetectorProvider: {
++    pack: 'ComfyUI-Impact-Subpack',
++    url: 'https://github.com/ltdrdata/ComfyUI-Impact-Subpack',
++  },
++};
++
++export function packForClass(className: string): ComfyNodePack | null {
++  return PACK_BY_CLASS[className] ?? null;
++}
++
++/** Distinct pack names for a set of missing classes, in a stable order. */
++export function packsForClasses(classNames: readonly string[]): ComfyNodePack[] {
++  const seen = new Map<string, ComfyNodePack>();
++  for (const name of classNames) {
++    const pack = packForClass(name);
++    if (pack && !seen.has(pack.pack)) seen.set(pack.pack, pack);
++  }
++  return [...seen.values()];
++}
++
++/** English list: "a", "a and b", "a, b and c". */
++export function joinNames(names: readonly string[]): string {
++  if (names.length === 0) return '';
++  if (names.length === 1) return names[0];
++  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
++}
+diff --git a/src/services/aiRuntime/comfy/objectInfo.ts b/src/services/aiRuntime/comfy/objectInfo.ts
+new file mode 100644
+index 0000000..135ef37
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/objectInfo.ts
+@@ -0,0 +1,101 @@
++// ============================================================================
++// ComfyUI — /object_info, read as capability data
++// ============================================================================
++//
++// One GET answers three questions the Bench needs: which node classes this
++// install has (so a template can be greyed out with a remedy instead of
++// failing on submit), which files are in the model folders (checkpoints,
++// LoRAs, ControlNets, upscalers, detectors) and which sampler/scheduler names
++// this build accepts. Everything is read defensively: /object_info is a large
++// document assembled from third-party code, and one malformed entry must not
++// cost the whole listing.
++
++/** A combo input arrives as its option list; everything else as a type name. */
++export interface ComfyInputSpec {
++  type: string;
++  options?: string[];
++}
++
++export interface ComfyClassInfo {
++  name: string;
++  required: Record<string, ComfyInputSpec>;
++  optional: Record<string, ComfyInputSpec>;
++}
++
++export interface ComfyObjectInfo {
++  classes: Record<string, ComfyClassInfo>;
++}
++
++function readInputGroup(raw: unknown): Record<string, ComfyInputSpec> {
++  const out: Record<string, ComfyInputSpec> = {};
++  if (!raw || typeof raw !== 'object') return out;
++  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
++    if (!Array.isArray(value) || value.length === 0) continue;
++    const head = value[0];
++    if (Array.isArray(head)) {
++      out[name] = { type: 'COMBO', options: head.filter((o): o is string => typeof o === 'string') };
++    } else if (typeof head === 'string') {
++      out[name] = { type: head };
++    }
++  }
++  return out;
++}
++
++export function indexObjectInfo(raw: unknown): ComfyObjectInfo {
++  const classes: Record<string, ComfyClassInfo> = {};
++  if (!raw || typeof raw !== 'object') return { classes };
++  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
++    if (!value || typeof value !== 'object') continue;
++    const input = (value as { input?: unknown }).input;
++    const group = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
++    classes[name] = {
++      name,
++      required: readInputGroup(group.required),
++      optional: readInputGroup(group.optional),
++    };
++  }
++  return { classes };
++}
++
++export function hasClass(info: ComfyObjectInfo, className: string): boolean {
++  return Object.prototype.hasOwnProperty.call(info.classes, className);
++}
++
++export function inputSpec(info: ComfyObjectInfo, className: string, input: string): ComfyInputSpec | null {
++  const entry = info.classes[className];
++  if (!entry) return null;
++  return entry.required[input] ?? entry.optional[input] ?? null;
++}
++
++/** The option list of a combo input — the installed files, in practice. */
++export function comboOptions(info: ComfyObjectInfo, className: string, input: string): string[] {
++  return inputSpec(info, className, input)?.options ?? [];
++}
++
++export function listCheckpoints(info: ComfyObjectInfo): string[] {
++  return comboOptions(info, 'CheckpointLoaderSimple', 'ckpt_name');
++}
++
++export function listLoras(info: ComfyObjectInfo): string[] {
++  return comboOptions(info, 'LoraLoader', 'lora_name');
++}
++
++export function listControlNets(info: ComfyObjectInfo): string[] {
++  return comboOptions(info, 'ControlNetLoader', 'control_net_name');
++}
++
++export function listUpscaleModels(info: ComfyObjectInfo): string[] {
++  return comboOptions(info, 'UpscaleModelLoader', 'model_name');
++}
++
++export function listDetectors(info: ComfyObjectInfo): string[] {
++  return comboOptions(info, 'UltralyticsDetectorProvider', 'model_name');
++}
++
++export function listSamplers(info: ComfyObjectInfo): string[] {
++  return comboOptions(info, 'KSampler', 'sampler_name');
++}
++
++export function listSchedulers(info: ComfyObjectInfo): string[] {
++  return comboOptions(info, 'KSampler', 'scheduler');
++}
+diff --git a/src/services/aiRuntime/comfy/plan.ts b/src/services/aiRuntime/comfy/plan.ts
+new file mode 100644
+index 0000000..1d1c3dd
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/plan.ts
+@@ -0,0 +1,114 @@
++// ============================================================================
++// ComfyUI — everything that must be true before a prompt is submitted
++// ============================================================================
++//
++// Degradation is a requirement, not a courtesy, so it lives in one pure
++// function the adapter calls and the tests exercise: a template whose node
++// pack is missing is refused with the pack's name, a model a recipe names but
++// this install does not have is refused with the nearest thing installed, and
++// neither ever reaches /prompt. A workflow ComfyUI rejects on validation is
++// worse than a feature the user can see is unavailable.
++
++import { buildGraph } from './build';
++import { classesUsed } from './bindings';
++import { checkTemplate } from './capability';
++import { missingModelMessage } from './match';
++import { joinNames, packsForClasses } from './nodePacks';
++import {
++  hasClass,
++  listCheckpoints,
++  listControlNets,
++  listDetectors,
++  listLoras,
++  listUpscaleModels,
++  type ComfyObjectInfo,
++} from './objectInfo';
++import type { TemplateRegistry } from './template';
++import type { AiErrorCode } from '../types';
++import type { ComfyGraph, ComfyRecipe, ComfyTemplate } from './types';
++
++export type PlanResult =
++  | { ok: true; template: ComfyTemplate; graph: ComfyGraph }
++  | { ok: false; code: AiErrorCode; error: string };
++
++export function missingClassMessage(missing: readonly string[]): string {
++  const packs = packsForClasses(missing);
++  if (packs.length) {
++    return `This needs ${joinNames(packs.map((pack) => pack.pack))}. Install it with ComfyUI Manager and restart ComfyUI.`;
++  }
++  return `This ComfyUI does not provide ${joinNames(missing)}. Update ComfyUI.`;
++}
++
++/**
++ * A recipe carrying something the chosen template has nowhere to put. It is an
++ * error rather than a shrug: rendering a two-character scene without its
++ * regions, or an inpaint without its mask, gives back a picture that looks
++ * finished and is not the one that was asked for.
++ */
++function unusedFeature(template: ComfyTemplate, recipe: ComfyRecipe): string | null {
++  const slot = (name: string): boolean => Boolean(template.slots?.[name]?.length);
++  const binding = (key: string): boolean => key in template.bindings;
++  if (recipe.regions?.length && !slot('region')) return `"${template.label}" cannot take masked regions. Use the regional prompting template.`;
++  if (recipe.controls?.length && !slot('control')) return `"${template.label}" cannot take ControlNets. Use the multi-ControlNet template.`;
++  if (recipe.detail?.length && !slot('detail')) return `"${template.label}" cannot take a detail pass. Use the detail template.`;
++  if (recipe.loras.length && !slot('lora')) return `"${template.label}" cannot take LoRAs.`;
++  if (recipe.guidance !== 'none' && !slot('guidance')) return `"${template.label}" has no guidance presets; set guidance to off.`;
++  if (recipe.upscale && !binding('upscaleModel')) return `"${template.label}" is not a tiled upscale. Use the Ultimate SD Upscale template.`;
++  if (recipe.hires && !binding('hiresWidth')) return `"${template.label}" has no second pass, so the hires settings would be ignored. Turn them off, or upscale the result afterwards.`;
++  if (recipe.crop && !binding('crop.x')) return `"${template.label}" repaints the whole picture, so the "only masked" area would be ignored.`;
++  if (recipe.sourceImage && !binding('sourceImage')) return `"${template.label}" does not take a source image.`;
++  if (recipe.maskImage && !binding('maskImage')) return `"${template.label}" does not take a mask.`;
++  return null;
++}
++
++export function planSubmission(registry: TemplateRegistry, info: ComfyObjectInfo, recipe: ComfyRecipe): PlanResult {
++  const template = registry.byId(recipe.templateId);
++  if (!template) {
++    return { ok: false, code: 'bad-request', error: `There is no ComfyUI template called "${recipe.templateId}".` };
++  }
++  const availability = checkTemplate(template, info);
++  if (!availability.ok) return { ok: false, code: 'bad-request', error: availability.message };
++
++  const unused = unusedFeature(template, recipe);
++  if (unused) return { ok: false, code: 'bad-request', error: unused };
++
++  const checkpoints = listCheckpoints(info);
++  if (!checkpoints.includes(recipe.checkpoint)) {
++    return { ok: false, code: 'model-missing', error: missingModelMessage('checkpoint', recipe.checkpoint, checkpoints) };
++  }
++  const loras = listLoras(info);
++  for (const lora of recipe.loras) {
++    if (!loras.includes(lora.name)) {
++      return { ok: false, code: 'model-missing', error: missingModelMessage('LoRA', lora.name, loras) };
++    }
++  }
++  const controlNets = listControlNets(info);
++  for (const control of recipe.controls ?? []) {
++    if (!controlNets.includes(control.model)) {
++      return { ok: false, code: 'model-missing', error: missingModelMessage('ControlNet', control.model, controlNets) };
++    }
++  }
++  const detectors = listDetectors(info);
++  for (const stage of recipe.detail ?? []) {
++    if (!detectors.includes(stage.detector)) {
++      return { ok: false, code: 'model-missing', error: missingModelMessage('detector', stage.detector, detectors) };
++    }
++  }
++  if (recipe.upscale) {
++    const upscalers = listUpscaleModels(info);
++    if (!upscalers.includes(recipe.upscale.model)) {
++      return { ok: false, code: 'model-missing', error: missingModelMessage('upscale model', recipe.upscale.model, upscalers) };
++    }
++  }
++
++  const built = buildGraph(template, recipe);
++  if (!built.ok) return { ok: false, code: 'bad-request', error: built.error };
++
++  // The template's own `requires` covers the graph it ships with; this covers
++  // what the recipe kept — a guidance preset or a detail pass can bring in a
++  // class the minimum graph never touches.
++  const missing = classesUsed(built.graph).filter((className) => !hasClass(info, className));
++  if (missing.length) return { ok: false, code: 'bad-request', error: missingClassMessage(missing) };
++
++  return { ok: true, template, graph: built.graph };
++}
+diff --git a/src/services/aiRuntime/comfy/request.ts b/src/services/aiRuntime/comfy/request.ts
+new file mode 100644
+index 0000000..70daa51
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/request.ts
+@@ -0,0 +1,177 @@
++// ============================================================================
++// ComfyUI — reading an image request
++// ============================================================================
++//
++// `AiImageRequest` is shared with the Studio and describes what the bundled
++// runtime can do. Everything the Bench adds — masked regions, a ControlNet
++// stack, a detail chain, a tiled upscale, a guidance preset — arrives on an
++// optional `comfy` property and is read here defensively, so the adapter
++// compiles and behaves whether or not the shared type has been widened yet.
++// A malformed extra is dropped, never guessed at: a region with no mask is not
++// a region.
++
++import type { AiImageRequest } from '../types';
++import type { ComfyIntent } from './build';
++import type { ComfyCropRect, ComfyGuidancePreset } from './types';
++
++const GUIDANCE: ReadonlySet<string> = new Set(['none', 'coherent', 'detailed', 'distilled-negatives']);
++
++/** A picture the app holds, as a data URL, before it is uploaded to ComfyUI. */
++export interface ComfyRegionInput {
++  prompt: string;
++  maskDataUrl: string;
++  strength: number;
++}
++
++export interface ComfyControlInput {
++  model: string;
++  imageDataUrl: string;
++  strength: number;
++  startPercent: number;
++  endPercent: number;
++}
++
++export interface ComfyDetailInput {
++  detector: string;
++  prompt: string;
++  denoise: number;
++}
++
++export interface ComfyExtras {
++  templateId?: string;
++  guidance: ComfyGuidancePreset;
++  regions: ComfyRegionInput[];
++  controls: ComfyControlInput[];
++  detail: ComfyDetailInput[];
++  upscale?: { model: string; by: number; denoise: number; tileWidth: number; tileHeight: number };
++  crop?: ComfyCropRect;
++  workWidth?: number;
++  workHeight?: number;
++}
++
++function record(value: unknown): Record<string, unknown> | null {
++  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
++}
++
++function str(value: unknown, fallback = ''): string {
++  return typeof value === 'string' ? value : fallback;
++}
++
++function num(value: unknown, fallback: number): number {
++  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
++}
++
++function clamp(value: number, low: number, high: number): number {
++  return Math.min(high, Math.max(low, value));
++}
++
++export function readComfyExtras(request: unknown): ComfyExtras {
++  const extras = record(record(request)?.comfy);
++  const empty: ComfyExtras = { guidance: 'none', regions: [], controls: [], detail: [] };
++  if (!extras) return empty;
++
++  const templateId = typeof extras.templateId === 'string' ? extras.templateId : undefined;
++  const guidance = typeof extras.guidance === 'string' && GUIDANCE.has(extras.guidance)
++    ? (extras.guidance as ComfyGuidancePreset)
++    : 'none';
++
++  const regions: ComfyRegionInput[] = [];
++  for (const entry of Array.isArray(extras.regions) ? extras.regions : []) {
++    const item = record(entry);
++    const maskDataUrl = str(item?.maskDataUrl);
++    if (!item || !maskDataUrl) continue;
++    regions.push({ prompt: str(item.prompt), maskDataUrl, strength: clamp(num(item.strength, 1), 0, 10) });
++  }
++
++  const controls: ComfyControlInput[] = [];
++  for (const entry of Array.isArray(extras.controls) ? extras.controls : []) {
++    const item = record(entry);
++    const model = str(item?.model);
++    const imageDataUrl = str(item?.imageDataUrl);
++    if (!item || !model || !imageDataUrl) continue;
++    const start = clamp(num(item.startPercent, 0), 0, 1);
++    const end = clamp(num(item.endPercent, 1), 0, 1);
++    controls.push({
++      model,
++      imageDataUrl,
++      strength: clamp(num(item.strength, 1), 0, 10),
++      startPercent: Math.min(start, end),
++      endPercent: Math.max(start, end),
++    });
++  }
++
++  const detail: ComfyDetailInput[] = [];
++  for (const entry of Array.isArray(extras.detail) ? extras.detail : []) {
++    const item = record(entry);
++    const detector = str(item?.detector);
++    if (!item || !detector) continue;
++    detail.push({ detector, prompt: str(item.prompt), denoise: clamp(num(item.denoise, 0.5), 0.0001, 1) });
++  }
++
++  const upscaleRaw = record(extras.upscale);
++  const upscale = upscaleRaw && str(upscaleRaw.model)
++    ? {
++        model: str(upscaleRaw.model),
++        by: clamp(num(upscaleRaw.by, 2), 0.05, 4),
++        denoise: clamp(num(upscaleRaw.denoise, 0.2), 0, 1),
++        tileWidth: clamp(num(upscaleRaw.tileWidth, 512), 64, 4096),
++        tileHeight: clamp(num(upscaleRaw.tileHeight, 512), 64, 4096),
++      }
++    : undefined;
++
++  const cropRaw = record(extras.crop);
++  const crop = cropRaw
++    ? {
++        x: Math.max(0, Math.round(num(cropRaw.x, 0))),
++        y: Math.max(0, Math.round(num(cropRaw.y, 0))),
++        width: Math.max(1, Math.round(num(cropRaw.width, 0))),
++        height: Math.max(1, Math.round(num(cropRaw.height, 0))),
++      }
++    : undefined;
++
++  return {
++    ...(templateId ? { templateId } : {}),
++    guidance,
++    regions: regions.slice(0, 4),
++    controls: controls.slice(0, 3),
++    detail: detail.slice(0, 3),
++    ...(upscale ? { upscale } : {}),
++    ...(crop ? { crop } : {}),
++    ...(typeof extras.workWidth === 'number' ? { workWidth: Math.round(extras.workWidth) } : {}),
++    ...(typeof extras.workHeight === 'number' ? { workHeight: Math.round(extras.workHeight) } : {}),
++  };
++}
++
++export function intentFromRequest(request: AiImageRequest, extras: ComfyExtras): ComfyIntent {
++  return {
++    regions: extras.regions.length,
++    controls: extras.controls.length || (request.controlImage ? 1 : 0),
++    detailStages: extras.detail.length,
++    hasSource: Boolean(request.initImage),
++    hasMask: Boolean(request.maskImage),
++    wantsUpscale: Boolean(extras.upscale),
++    wantsHires: Boolean(request.hiresFix),
++  };
++}
++
++/** `data:image/png;base64,…` split into a media type and its bytes. */
++export function parseDataUrl(value: string): { contentType: string; bytes: Uint8Array } | null {
++  const match = /^data:([^;,]+);base64,(.*)$/s.exec(value);
++  if (!match) return null;
++  try {
++    const binary = atob(match[2]);
++    const bytes = new Uint8Array(binary.length);
++    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
++    return { contentType: match[1], bytes };
++  } catch {
++    return null;
++  }
++}
++
++/** File extension for an uploaded reference, so ComfyUI can read it back. */
++export function extensionFor(contentType: string): string {
++  if (/png/i.test(contentType)) return 'png';
++  if (/jpe?g/i.test(contentType)) return 'jpg';
++  if (/webp/i.test(contentType)) return 'webp';
++  return 'png';
++}
+diff --git a/src/services/aiRuntime/comfy/samplers.ts b/src/services/aiRuntime/comfy/samplers.ts
+new file mode 100644
+index 0000000..91b30d6
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/samplers.ts
+@@ -0,0 +1,57 @@
++// ============================================================================
++// ComfyUI — sampler and scheduler names
++// ============================================================================
++//
++// The app's sampler names are stable-diffusion.cpp's; ComfyUI's k-diffusion
++// names are different words for mostly the same algorithms. A recipe made on
++// the Studio has to mean the same thing on the Bench, so it is translated —
++// and then checked against what THIS build offers, because both projects add
++// samplers and a name ComfyUI does not know is rejected at validation with a
++// combo error that says nothing useful.
++
++const SAMPLER_TRANSLATION: Record<string, string> = {
++  euler: 'euler',
++  euler_a: 'euler_ancestral',
++  heun: 'heun',
++  dpm2: 'dpm_2',
++  'dpm++2s_a': 'dpmpp_2s_ancestral',
++  'dpm++2m': 'dpmpp_2m',
++  'dpm++2mv2': 'dpmpp_2m',
++  ipndm: 'ipndm',
++  ipndm_v: 'ipndm_v',
++  lcm: 'lcm',
++  ddim_trailing: 'ddim',
++  res_multistep: 'res_multistep',
++  er_sde: 'er_sde',
++  euler_cfg_pp: 'euler_cfg_pp',
++  euler_a_cfg_pp: 'euler_ancestral_cfg_pp',
++  euler_ge: 'gradient_estimation',
++};
++
++const SCHEDULER_TRANSLATION: Record<string, string> = {
++  discrete: 'normal',
++  karras: 'karras',
++  exponential: 'exponential',
++  sgm_uniform: 'sgm_uniform',
++  simple: 'simple',
++  kl_optimal: 'kl_optimal',
++};
++
++function choose(candidates: readonly string[], offered: readonly string[], fallback: string): string {
++  for (const candidate of candidates) {
++    if (offered.includes(candidate)) return candidate;
++  }
++  if (offered.includes(fallback)) return fallback;
++  return offered[0] ?? fallback;
++}
++
++/** `name` may already be a ComfyUI name — a user's own workflow uses those. */
++export function comfySamplerName(name: string | undefined, offered: readonly string[]): string {
++  const translated = name ? SAMPLER_TRANSLATION[name] : undefined;
++  return choose([translated, name].filter((entry): entry is string => Boolean(entry)), offered, 'euler');
++}
++
++export function comfySchedulerName(name: string | undefined, offered: readonly string[]): string {
++  const translated = name ? SCHEDULER_TRANSLATION[name] : undefined;
++  return choose([translated, name].filter((entry): entry is string => Boolean(entry)), offered, 'normal');
++}
+diff --git a/src/services/aiRuntime/comfy/template.ts b/src/services/aiRuntime/comfy/template.ts
+new file mode 100644
+index 0000000..790f540
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/template.ts
+@@ -0,0 +1,128 @@
++// ============================================================================
++// ComfyUI — reading a template asset
++// ============================================================================
++//
++// Templates ship as JSON so they can be inspected, diffed and (for a power
++// user) copied straight into ComfyUI. That means they are parsed, not trusted:
++// a malformed asset must be reported as one bad template, never as a crash
++// that takes the whole backend with it. The same parser reads a workflow the
++// user drops into the project, which is what makes "bring your own" cheap.
++
++import type { ComfyGraph, ComfyInputValue, ComfyNode, ComfySlotInstance, ComfyTemplate } from './types';
++
++const BINDING_KINDS = new Set(['text', 'number', 'boolean', 'choice', 'image', 'seed']);
++
++function asRecord(value: unknown): Record<string, unknown> | null {
++  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
++}
++
++function parseInputValue(value: unknown): ComfyInputValue | undefined {
++  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || value === null) {
++    return value;
++  }
++  if (Array.isArray(value) && value.length === 2 && typeof value[0] === 'string' && typeof value[1] === 'number') {
++    return [value[0], value[1]];
++  }
++  return undefined;
++}
++
++export function parseGraph(raw: unknown): ComfyGraph | null {
++  const record = asRecord(raw);
++  if (!record) return null;
++  const graph: ComfyGraph = {};
++  for (const [id, value] of Object.entries(record)) {
++    const node = asRecord(value);
++    const classType = node?.class_type;
++    if (!node || typeof classType !== 'string' || !classType) return null;
++    const inputs = asRecord(node.inputs) ?? {};
++    const parsed: Record<string, ComfyInputValue> = {};
++    for (const [name, input] of Object.entries(inputs)) {
++      const clean = parseInputValue(input);
++      if (clean === undefined) return null;
++      parsed[name] = clean;
++    }
++    const built: ComfyNode = { class_type: classType, inputs: parsed };
++    const title = asRecord(node._meta)?.title;
++    if (typeof title === 'string') built._meta = { title };
++    graph[id] = built;
++  }
++  return Object.keys(graph).length ? graph : null;
++}
++
++function parseSlots(raw: unknown): Record<string, ComfySlotInstance[]> | null {
++  const record = asRecord(raw);
++  if (!record) return {};
++  const slots: Record<string, ComfySlotInstance[]> = {};
++  for (const [name, value] of Object.entries(record)) {
++    if (!Array.isArray(value)) return null;
++    const instances: ComfySlotInstance[] = [];
++    for (const entry of value) {
++      const item = asRecord(entry);
++      const remove = item?.remove;
++      if (!Array.isArray(remove) || !remove.every((id): id is string => typeof id === 'string')) return null;
++      const passthroughRaw = item?.passthrough;
++      const passthrough: ComfySlotInstance['passthrough'] = [];
++      if (passthroughRaw !== undefined) {
++        if (!Array.isArray(passthroughRaw)) return null;
++        for (const pass of passthroughRaw) {
++          const item2 = asRecord(pass);
++          if (!item2 || typeof item2.node !== 'string' || typeof item2.output !== 'number' || typeof item2.input !== 'string') {
++            return null;
++          }
++          passthrough.push({ node: item2.node, output: item2.output, input: item2.input });
++        }
++      }
++      instances.push({ remove, passthrough });
++    }
++    slots[name] = instances;
++  }
++  return slots;
++}
++
++export function parseTemplate(raw: unknown): ComfyTemplate | null {
++  const record = asRecord(raw);
++  if (!record) return null;
++  const { id, label, description } = record;
++  if (typeof id !== 'string' || typeof label !== 'string' || typeof description !== 'string') return null;
++  const requires = record.requires;
++  if (!Array.isArray(requires) || !requires.every((entry): entry is string => typeof entry === 'string')) return null;
++  const bindingsRaw = asRecord(record.bindings);
++  if (!bindingsRaw) return null;
++  const bindings: ComfyTemplate['bindings'] = {};
++  for (const [key, value] of Object.entries(bindingsRaw)) {
++    const binding = asRecord(value);
++    if (!binding || typeof binding.input !== 'string' || typeof binding.kind !== 'string') return null;
++    if (!BINDING_KINDS.has(binding.kind)) return null;
++    if (typeof binding.title !== 'string' && typeof binding.node !== 'string') return null;
++    bindings[key] = {
++      ...(typeof binding.title === 'string' ? { title: binding.title } : {}),
++      ...(typeof binding.node === 'string' ? { node: binding.node } : {}),
++      input: binding.input,
++      kind: binding.kind as ComfyTemplate['bindings'][string]['kind'],
++    };
++  }
++  const graph = parseGraph(record.graph);
++  if (!graph) return null;
++  const slots = parseSlots(record.slots);
++  if (!slots) return null;
++  return { id, label, description, requires, bindings, slots, graph };
++}
++
++export interface TemplateRegistry {
++  all: ComfyTemplate[];
++  byId(id: string): ComfyTemplate | null;
++  /** Assets that did not parse, by index — reported, never silently dropped. */
++  rejected: number[];
++}
++
++export function createTemplateRegistry(assets: readonly unknown[]): TemplateRegistry {
++  const all: ComfyTemplate[] = [];
++  const rejected: number[] = [];
++  assets.forEach((asset, index) => {
++    const template = parseTemplate(asset);
++    if (template) all.push(template);
++    else rejected.push(index);
++  });
++  const index = new Map(all.map((template) => [template.id, template]));
++  return { all, rejected, byId: (id) => index.get(id) ?? null };
++}
+diff --git a/src/services/aiRuntime/comfy/types.ts b/src/services/aiRuntime/comfy/types.ts
+new file mode 100644
+index 0000000..c56ef70
+--- /dev/null
++++ b/src/services/aiRuntime/comfy/types.ts
+@@ -0,0 +1,137 @@
++// ============================================================================
++// ComfyUI — graph, template and recipe contracts (pure data)
++// ============================================================================
++//
++// The Bench renders a recipe by binding it into a ComfyUI template. Nothing
++// here touches the network, the DOM or Node: the same types describe a
++// template asset on disk, the graph the adapter submits and the fixture the
++// tests replay, which is what lets the whole binding layer be tested without a
++// ComfyUI instance.
++
++/** A link: the id of the producing node and the index of its output. */
++export type ComfyLink = [string, number];
++
++export type ComfyInputValue = string | number | boolean | ComfyLink | null;
++
++export interface ComfyNode {
++  class_type: string;
++  inputs: Record<string, ComfyInputValue>;
++  /**
++   * ComfyUI copies the node's title here when it exports API format. Bindings
++   * resolve by title first, so a template survives a re-export that renumbers
++   * every node.
++   */
++  _meta?: { title?: string };
++}
++
++/** API-format prompt: node id → node. Ids are strings, and they are stable. */
++export type ComfyGraph = Record<string, ComfyNode>;
++
++export type ComfyBindingKind = 'text' | 'number' | 'boolean' | 'choice' | 'image' | 'seed';
++
++export interface ComfyBinding {
++  /** `_meta.title` of the target node. Tried first. */
++  title?: string;
++  /** Node id, used when no node carries the title. */
++  node?: string;
++  input: string;
++  kind: ComfyBindingKind;
++}
++
++/**
++ * One optional occurrence of a repeatable feature (a LoRA, a region, a
++ * ControlNet, a detail pass). `remove` is every node that belongs to it;
++ * `passthrough` says which input each of its outputs collapses to when the
++ * occurrence is dropped, so removing it rewires the graph instead of leaving
++ * a dangling link.
++ */
++export interface ComfySlotInstance {
++  remove: string[];
++  passthrough?: Array<{ node: string; output: number; input: string }>;
++}
++
++export interface ComfyTemplate {
++  id: string;
++  label: string;
++  description: string;
++  /** Node classes this graph cannot run without. Checked against /object_info. */
++  requires: string[];
++  bindings: Record<string, ComfyBinding>;
++  slots?: Record<string, ComfySlotInstance[]>;
++  graph: ComfyGraph;
++}
++
++// ---------------------------------------------------------------------------
++// The recipe, as the Bench sees it
++// ---------------------------------------------------------------------------
++
++/**
++ * Named guidance presets. The raw node parameters are baked into the template
++ * assets on purpose: a writer picks "Coherent", never a PAG scale.
++ */
++export type ComfyGuidancePreset = 'none' | 'coherent' | 'detailed' | 'distilled-negatives';
++
++/** A masked region. `mask` is the name /upload/image returned for the mask. */
++export interface ComfyRegion {
++  prompt: string;
++  mask: string;
++  strength: number;
++}
++
++export interface ComfyControl {
++  /** ControlNet file name as /object_info lists it. */
++  model: string;
++  /** Uploaded hint image (pose, depth, lineart) — already preprocessed. */
++  image: string;
++  strength: number;
++  startPercent: number;
++  endPercent: number;
++}
++
++export interface ComfyDetailStage {
++  /** Ultralytics detector as /object_info lists it, e.g. "bbox/face_yolov8m.pt". */
++  detector: string;
++  prompt: string;
++  denoise: number;
++}
++
++/** The rectangle an "only masked" inpaint works in, in source pixels. */
++export interface ComfyCropRect {
++  x: number;
++  y: number;
++  width: number;
++  height: number;
++}
++
++export interface ComfyRecipe {
++  templateId: string;
++  checkpoint: string;
++  prompt: string;
++  negativePrompt: string;
++  width: number;
++  height: number;
++  batchSize: number;
++  seed: number;
++  steps: number;
++  cfg: number;
++  samplerName: string;
++  scheduler: string;
++  denoise: number;
++  filenamePrefix: string;
++  loras: Array<{ name: string; weight: number }>;
++  guidance: ComfyGuidancePreset;
++  regions?: ComfyRegion[];
++  controls?: ComfyControl[];
++  detail?: ComfyDetailStage[];
++  /** Uploaded source image name, for inpaint / upscale / detail. */
++  sourceImage?: string;
++  /** Uploaded mask image name (white repaints), for inpaint. */
++  maskImage?: string;
++  growMaskBy?: number;
++  /** "Only masked": the rect to cut out, and the size it is worked at. */
++  crop?: ComfyCropRect;
++  workWidth?: number;
++  workHeight?: number;
++  hires?: { width: number; height: number; steps: number; denoise: number };
++  upscale?: { model: string; by: number; denoise: number; tileWidth: number; tileHeight: number };
++}
+-- 
+2.43.0
+

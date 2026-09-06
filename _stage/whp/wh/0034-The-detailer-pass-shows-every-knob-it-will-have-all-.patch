@@ -1,0 +1,141 @@
+From 9332165a63cc7afa76540189648fa4de59ca513d Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 02:46:27 +0000
+Subject: [PATCH 34/36] The detailer pass shows every knob it will have, all of
+ them refused
+
+Padding, mask blur, its own denoise and its own prompt were in the model and
+not on the screen. An expert who has used ADetailer looks for exactly those
+four, and a pass card that shows two of them reads as a different feature.
+---
+ .../components/PassChainEditor.tsx            | 75 ++++++++++++++-----
+ src/locales/en.ts                             |  2 +
+ src/locales/es.ts                             |  2 +
+ 3 files changed, 61 insertions(+), 18 deletions(-)
+
+diff --git a/src/engines/image-studio/components/PassChainEditor.tsx b/src/engines/image-studio/components/PassChainEditor.tsx
+index ef1d5eb..ea7f663 100644
+--- a/src/engines/image-studio/components/PassChainEditor.tsx
++++ b/src/engines/image-studio/components/PassChainEditor.tsx
+@@ -15,6 +15,7 @@
+ import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
+ import { useTranslation } from '@/i18n/useTranslation';
+ import {
++  DETAIL_DENOISE_DEFAULT,
+   HIRES_DENOISE_SAFE_MAX,
+   PASS_KINDS,
+   addPass,
+@@ -184,28 +185,66 @@ export default function PassChainEditor({
+                 </div>
+               )}
+ 
++              {/* Every knob a detailer pass has, shown in full even while the
++                  whole pass is refused: an expert who has used ADetailer needs
++                  to see the shape of what is coming, not a placeholder. */}
+               {pass.kind === 'detail' && (
+-                <div className="grid grid-cols-2 gap-1.5">
+-                  <label className="block">
+-                    <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.detector')}</span>
+-                    <select
+-                      value={pass.detector ?? 'face'}
+-                      disabled={refused}
+-                      onChange={(event) => onChange(updatePass(passes, pass.id, { detector: event.target.value }))}
+-                      className={FIELD_CLASS}
+-                    >
+-                      {DETECTORS.map((name) => (
+-                        <option key={name} value={name}>{t(`imageStudio.detector.${name}`)}</option>
+-                      ))}
+-                    </select>
+-                  </label>
++                <div className="space-y-1.5">
++                  <div className="grid grid-cols-2 gap-1.5">
++                    <label className="block">
++                      <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.detector')}</span>
++                      <select
++                        value={pass.detector ?? 'face'}
++                        disabled={refused}
++                        onChange={(event) => onChange(updatePass(passes, pass.id, { detector: event.target.value }))}
++                        className={FIELD_CLASS}
++                      >
++                        {DETECTORS.map((name) => (
++                          <option key={name} value={name}>{t(`imageStudio.detector.${name}`)}</option>
++                        ))}
++                      </select>
++                    </label>
++                    <label className="block">
++                      <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.confidence')}</span>
++                      <input
++                        value={String(pass.confidence ?? 0.3)}
++                        disabled={refused}
++                        onChange={(event) => onChange(updatePass(passes, pass.id, { confidence: Number(event.target.value) }))}
++                        className={MONO_FIELD_CLASS}
++                      />
++                    </label>
++                    <label className="block">
++                      <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.padding')}</span>
++                      <input
++                        value={String(pass.padding ?? 32)}
++                        disabled={refused}
++                        onChange={(event) => onChange(updatePass(passes, pass.id, { padding: Number(event.target.value) }))}
++                        className={MONO_FIELD_CLASS}
++                      />
++                    </label>
++                    <label className="block">
++                      <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.maskBlur')}</span>
++                      <input
++                        value={String(pass.maskBlur ?? 4)}
++                        disabled={refused}
++                        onChange={(event) => onChange(updatePass(passes, pass.id, { maskBlur: Number(event.target.value) }))}
++                        className={MONO_FIELD_CLASS}
++                      />
++                    </label>
++                  </div>
++                  <DenoiseSlider
++                    value={pass.denoise ?? DETAIL_DENOISE_DEFAULT}
++                    disabled={refused}
++                    onChange={(denoise) => onChange(updatePass(passes, pass.id, { denoise }))}
++                  />
+                   <label className="block">
+-                    <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.confidence')}</span>
++                    <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.prompt')}</span>
+                     <input
+-                      value={String(pass.confidence ?? 0.3)}
++                      value={pass.prompt ?? ''}
+                       disabled={refused}
+-                      onChange={(event) => onChange(updatePass(passes, pass.id, { confidence: Number(event.target.value) }))}
+-                      className={MONO_FIELD_CLASS}
++                      placeholder={t('imageStudio.pass.promptPlaceholder')}
++                      onChange={(event) => onChange(updatePass(passes, pass.id, { prompt: event.target.value }))}
++                      className={FIELD_CLASS}
+                     />
+                   </label>
+                 </div>
+diff --git a/src/locales/en.ts b/src/locales/en.ts
+index 39c0c59..38d626f 100644
+--- a/src/locales/en.ts
++++ b/src/locales/en.ts
+@@ -4385,6 +4385,8 @@ const en = {
+   'imageStudio.scheduler.ltx2': 'The schedule the LTX-2 model expects.',
+   'visualRef.action.useSeed': 'Use this seed',
+   'imageStudio.prompt.wildcardExample': 'One possible roll — the seed is rolled when you generate:',
++  'imageStudio.pass.padding': 'Padding around the crop',
++  'imageStudio.pass.maskBlur': 'Mask blur',
+ } as const;
+ 
+ export default en;
+diff --git a/src/locales/es.ts b/src/locales/es.ts
+index 7934a31..8ecf14b 100644
+--- a/src/locales/es.ts
++++ b/src/locales/es.ts
+@@ -4385,6 +4385,8 @@ const es = {
+   'imageStudio.scheduler.ltx2': 'La planificación que espera el modelo LTX-2.',
+   'visualRef.action.useSeed': 'Usar esta semilla',
+   'imageStudio.prompt.wildcardExample': 'Una tirada posible: la semilla se lanza al generar:',
++  'imageStudio.pass.padding': 'Margen alrededor del recorte',
++  'imageStudio.pass.maskBlur': 'Desenfoque de la máscara',
+ } as const;
+ 
+ export default es;
+-- 
+2.43.0
+

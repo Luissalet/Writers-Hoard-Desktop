@@ -1,0 +1,81 @@
+From cb22d6499b3a28d7fc50cd627f64f69c77b7b5da Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 01:14:10 +0000
+Subject: [PATCH 14/36] A refused parameter says the real reason, not the
+ nearest one
+
+With no model chosen every field is refused, and the reason is not that
+this model runs at a fixed guidance. Saying that about a model the writer
+has not picked yet is a confident wrong answer, and one of those is enough
+to make a whole panel untrustworthy.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RmpuZqpQrFjas3Ajv22pKb
+---
+ .../image-studio/ImageStudioEngine.tsx        |  1 +
+ .../components/ParametersColumn.tsx           | 21 ++++++++++++++-----
+ 2 files changed, 17 insertions(+), 5 deletions(-)
+
+diff --git a/src/engines/image-studio/ImageStudioEngine.tsx b/src/engines/image-studio/ImageStudioEngine.tsx
+index 9507290..a42cca5 100644
+--- a/src/engines/image-studio/ImageStudioEngine.tsx
++++ b/src/engines/image-studio/ImageStudioEngine.tsx
+@@ -597,6 +597,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+             visibility={visibility}
+             value={parameters}
+             onChange={(changes) => setParameters((current) => ({ ...current, ...changes }))}
++            hasModel={model !== null}
+             hasHeroSeed={heroRef !== null}
+             nativeSize={nativeSize}
+           />
+diff --git a/src/engines/image-studio/components/ParametersColumn.tsx b/src/engines/image-studio/components/ParametersColumn.tsx
+index a731a52..4ed30ba 100644
+--- a/src/engines/image-studio/components/ParametersColumn.tsx
++++ b/src/engines/image-studio/components/ParametersColumn.tsx
+@@ -40,6 +40,8 @@ export interface ParametersColumnProps {
+   visibility: ParameterVisibility;
+   value: ParametersState;
+   onChange: (changes: Partial<ParametersState>) => void;
++  /** False when no image model is chosen: changes what a refused field means. */
++  hasModel: boolean;
+   /** Whether the reference in the composer actually has a hero seed to lock to. */
+   hasHeroSeed: boolean;
+   nativeSize?: { width: number; height: number };
+@@ -51,12 +53,21 @@ function fieldClass(enabled: boolean): string {
+ }
+ 
+ export default function ParametersColumn({
+-  route, onRoute, visibility, value, onChange, hasHeroSeed, nativeSize,
++  route, onRoute, visibility, value, onChange, hasModel, hasHeroSeed, nativeSize,
+ }: ParametersColumnProps) {
+   const { t } = useTranslation();
+-  const cfgReason = visibility.cfg ? undefined : t('visualRef.reason.cfgFixed');
+-  const samplerReason = visibility.sampler ? undefined : t('visualRef.reason.serverChoosesSampler');
+-  const schedulerReason = visibility.scheduler ? undefined : t('visualRef.reason.serverChoosesSampler');
++  // With no model chosen, every field is refused for the same reason, and it is
++  // not "this model runs at a fixed guidance" — saying that about a model the
++  // writer has not picked is the kind of confident wrong answer that makes a
++  // panel untrustworthy.
++  const noModel = t('visualRef.reason.noModel');
++  const refused = (available: boolean, reason: string): string | undefined => {
++    if (available) return undefined;
++    return hasModel ? reason : noModel;
++  };
++  const cfgReason = refused(visibility.cfg, t('visualRef.reason.cfgFixed'));
++  const samplerReason = refused(visibility.sampler, t('visualRef.reason.serverChoosesSampler'));
++  const schedulerReason = refused(visibility.scheduler, t('visualRef.reason.serverChoosesSampler'));
+ 
+   return (
+     <div className="space-y-3">
+@@ -93,7 +104,7 @@ export default function ParametersColumn({
+           <input
+             value={value.steps}
+             disabled={!visibility.steps}
+-            title={visibility.steps ? undefined : t('visualRef.reason.noModel')}
++            title={visibility.steps ? undefined : noModel}
+             onChange={(event) => onChange({ steps: event.target.value.replace(/[^\d]/g, '') })}
+             placeholder={t('imageStudio.stepsPlaceholder')}
+             className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] font-mono text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
+-- 
+2.43.0
+

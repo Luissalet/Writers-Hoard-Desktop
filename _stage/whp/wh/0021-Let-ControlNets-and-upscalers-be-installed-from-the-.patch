@@ -1,0 +1,146 @@
+From 42c81a295bfdcb469dad54d6470308095b1139d0 Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 02:19:54 +0000
+Subject: [PATCH 21/36] Let ControlNets and upscalers be installed from the UI
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A previous pass added downloadable companions and the runtime functions
+to fetch, cancel and delete them, but no IPC channel reached them, so
+nothing outside the main process could call any of it.
+
+Three channels following the model-download pattern exactly: the same
+id shape, the same sender assertion, the same model-cache invalidation
+afterwards. Wiring an IPC channel in this app means four places —
+the handler, the fail-closed role allowlist in electron/security.ts, the
+preload bridge and the renderer's declaration — and a channel missing
+any one of them is unusable, so all four are here.
+
+The IPC role test now covers the new channels: trusted for the main
+renderer, refused for quick-note, like every other channel that can
+spend the user's disk and bandwidth.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RmpuZqpQrFjas3Ajv22pKb
+---
+ electron/ai/ipc.ts         | 26 ++++++++++++++++++++++++++
+ electron/preload.ts        |  3 +++
+ electron/security.ts       |  3 +++
+ src/electron-env.d.ts      |  8 ++++++++
+ tests/electron-security.ts |  5 ++++-
+ 5 files changed, 44 insertions(+), 1 deletion(-)
+
+diff --git a/electron/ai/ipc.ts b/electron/ai/ipc.ts
+index 4b6bd96..a61f8c2 100644
+--- a/electron/ai/ipc.ts
++++ b/electron/ai/ipc.ts
+@@ -33,9 +33,12 @@ import {
+   setSecret,
+ } from './connectionStore';
+ import {
++  cancelSdCompanionDownload,
+   cancelSdModelDownload,
+   cancelSdRuntimeInstall,
++  deleteSdCompanion,
+   deleteSdModel,
++  downloadSdCompanion,
+   downloadSdModel,
+   getSdRuntimeStatus,
+   initSdRuntime,
+@@ -385,6 +388,29 @@ export function registerAiIpc({ assertIpcSender, window }: AiIpcDeps): void {
+     invalidateModels(BUILTIN_SD_ID);
+     return result;
+   });
++  // Companions — a ControlNet or an ESRGAN. They are pinned, downloaded and
++  // deleted exactly as a model is, and share its id shape, because they are
++  // the same kind of asset: a file the app fetches by digest into a folder it
++  // owns. The only difference is that a request never names one — the server
++  // is LAUNCHED with it — which is why installing one can cost a restart.
++  ipcMain.handle('sd:downloadCompanion', async (event, id: unknown) => {
++    assertIpcSender(event, 'sd:downloadCompanion');
++    if (typeof id !== 'string' || !SD_ID_RE.test(id)) return { ok: false, error: 'unknown-companion' };
++    const result = await downloadSdCompanion(id);
++    invalidateModels(BUILTIN_SD_ID);
++    return result;
++  });
++  ipcMain.handle('sd:cancelCompanionDownload', (event, id: unknown) => {
++    assertIpcSender(event, 'sd:cancelCompanionDownload');
++    if (typeof id === 'string') cancelSdCompanionDownload(id);
++  });
++  ipcMain.handle('sd:deleteCompanion', async (event, id: unknown) => {
++    assertIpcSender(event, 'sd:deleteCompanion');
++    if (typeof id !== 'string' || !SD_ID_RE.test(id)) return { ok: false, error: 'unknown-companion' };
++    const result = await deleteSdCompanion(id);
++    invalidateModels(BUILTIN_SD_ID);
++    return result;
++  });
+   ipcMain.handle('sd:stop', async (event) => {
+     assertIpcSender(event, 'sd:stop');
+     await stopSdServer();
+diff --git a/electron/preload.ts b/electron/preload.ts
+index 8722393..e676871 100644
+--- a/electron/preload.ts
++++ b/electron/preload.ts
+@@ -610,6 +610,9 @@ const api = {
+     downloadModel: (id: string): Promise<SdOpResult> => ipcRenderer.invoke('sd:downloadModel', id),
+     cancelDownload: (id: string): Promise<void> => ipcRenderer.invoke('sd:cancelDownload', id),
+     deleteModel: (id: string): Promise<SdOpResult> => ipcRenderer.invoke('sd:deleteModel', id),
++    downloadCompanion: (id: string): Promise<SdOpResult> => ipcRenderer.invoke('sd:downloadCompanion', id),
++    cancelCompanionDownload: (id: string): Promise<void> => ipcRenderer.invoke('sd:cancelCompanionDownload', id),
++    deleteCompanion: (id: string): Promise<SdOpResult> => ipcRenderer.invoke('sd:deleteCompanion', id),
+     stop: (): Promise<SdRuntimeStatus> => ipcRenderer.invoke('sd:stop'),
+     onStatus: (callback: (status: SdRuntimeStatus) => void): (() => void) => {
+       const listener = (_e: unknown, status: SdRuntimeStatus) => callback(status);
+diff --git a/electron/security.ts b/electron/security.ts
+index 2441277..06edd14 100644
+--- a/electron/security.ts
++++ b/electron/security.ts
+@@ -104,6 +104,9 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
+   'sd:downloadModel': ['main'],
+   'sd:cancelDownload': ['main'],
+   'sd:deleteModel': ['main'],
++  'sd:downloadCompanion': ['main'],
++  'sd:cancelCompanionDownload': ['main'],
++  'sd:deleteCompanion': ['main'],
+   'sd:stop': ['main'],
+   'forge:spawn': ['main'],
+   // The shared preload requests this synchronously while both trusted windows
+diff --git a/src/electron-env.d.ts b/src/electron-env.d.ts
+index 9b8a6b9..82478e9 100644
+--- a/src/electron-env.d.ts
++++ b/src/electron-env.d.ts
+@@ -448,6 +448,14 @@ export interface ElectronAPI {
+     downloadModel: (id: string) => Promise<SdOpResult>;
+     cancelDownload: (id: string) => Promise<void>;
+     deleteModel: (id: string) => Promise<SdOpResult>;
++    /**
++     * ControlNets and upscalers. Pinned and fetched exactly as a model is; the
++     * difference is that installing one can change the server's launch profile
++     * and so cost a restart — see `SdRuntimeStatus.profile`.
++     */
++    downloadCompanion: (id: string) => Promise<SdOpResult>;
++    cancelCompanionDownload: (id: string) => Promise<void>;
++    deleteCompanion: (id: string) => Promise<SdOpResult>;
+     stop: () => Promise<SdRuntimeStatus>;
+     onStatus: (callback: (status: SdRuntimeStatus) => void) => () => void;
+     onProgress: (callback: (progress: SdProgress) => void) => () => void;
+diff --git a/tests/electron-security.ts b/tests/electron-security.ts
+index a3a15da..d38a164 100644
+--- a/tests/electron-security.ts
++++ b/tests/electron-security.ts
+@@ -146,7 +146,10 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
+   assert(isCurrentSdRuntimeReceipt({ version: vulkan.version, backend: 'vulkan', sha256s: vulkan.assets.map((a) => a.sha256) }, vulkan), 'current sd receipt rejected');
+   assert(!isCurrentSdRuntimeReceipt({ version: vulkan.version, backend: 'cuda12', sha256s: vulkan.assets.map((a) => a.sha256) }, vulkan), 'sd receipt for another backend accepted');
+   assert(!isCurrentSdRuntimeReceipt({ version: 'old', backend: 'vulkan', sha256s: ['0'.repeat(64)] }, vulkan), 'stale sd receipt accepted');
+-  for (const channel of ['sd:status', 'sd:installRuntime', 'sd:downloadModel', 'sd:deleteModel', 'sd:stop']) {
++  for (const channel of [
++    'sd:status', 'sd:installRuntime', 'sd:downloadModel', 'sd:deleteModel', 'sd:stop',
++    'sd:downloadCompanion', 'sd:cancelCompanionDownload', 'sd:deleteCompanion',
++  ]) {
+     assert(isIpcChannelAllowedForRole(channel, 'main'), `${channel} has no trusted renderer`);
+     assert(!isIpcChannelAllowedForRole(channel, 'quick-note'), `quick-note can drive the image runtime through ${channel}`);
+   }
+-- 
+2.43.0
+

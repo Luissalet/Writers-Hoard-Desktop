@@ -1,0 +1,3791 @@
+From f2561d37add06623982d7b9719f172fa522fa316 Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 02:50:06 +0000
+Subject: [PATCH 25/36] Add the ComfyUI workflow templates the Bench binds into
+
+Seven API-format graphs: text to image with a LoRA stack and a guidance
+chain, two-pass hires, regional prompting with up to four masked regions,
+only-masked inpaint, Ultimate SD Upscale, a face/eyes/hands detail chain
+and a three-deep ControlNet stack.
+
+Each carries its own manifest: the node classes it cannot run without, the
+typed inputs a recipe binds to (by node title first, node id second), and
+the optional occurrences that are pruned out when a recipe does not use
+them. Node ids are literal and never regenerated, because ComfyUI's
+execution cache is keyed on them.
+
+Every class name and input name was checked against ComfyUI's own node
+definitions rather than written from memory.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RmpuZqpQrFjas3Ajv22pKb
+---
+ resources/comfy-templates/detailer.json       | 637 +++++++++++++++
+ resources/comfy-templates/hires.json          | 543 +++++++++++++
+ resources/comfy-templates/inpaint.json        | 588 ++++++++++++++
+ .../comfy-templates/multi-controlnet.json     | 714 ++++++++++++++++
+ resources/comfy-templates/regional.json       | 768 ++++++++++++++++++
+ resources/comfy-templates/txt2img.json        |  64 ++
+ .../comfy-templates/ultimate-upscale.json     | 394 +++++++++
+ 7 files changed, 3708 insertions(+)
+ create mode 100644 resources/comfy-templates/detailer.json
+ create mode 100644 resources/comfy-templates/hires.json
+ create mode 100644 resources/comfy-templates/inpaint.json
+ create mode 100644 resources/comfy-templates/multi-controlnet.json
+ create mode 100644 resources/comfy-templates/regional.json
+ create mode 100644 resources/comfy-templates/txt2img.json
+ create mode 100644 resources/comfy-templates/ultimate-upscale.json
+
+diff --git a/resources/comfy-templates/detailer.json b/resources/comfy-templates/detailer.json
+new file mode 100644
+index 0000000..b2272e1
+--- /dev/null
++++ b/resources/comfy-templates/detailer.json
+@@ -0,0 +1,637 @@
++{
++  "id": "detailer",
++  "label": "Detail pass (face, eyes, hands)",
++  "description": "Detects and re-renders the parts a diffusion model gets wrong at small scale, in order: face, then eyes, then hands.",
++  "requires": [
++    "CheckpointLoaderSimple",
++    "CLIPTextEncode",
++    "LoadImage",
++    "SaveImage",
++    "FaceDetailer",
++    "UltralyticsDetectorProvider"
++  ],
++  "bindings": {
++    "checkpoint": {
++      "title": "Checkpoint",
++      "node": "1",
++      "input": "ckpt_name",
++      "kind": "choice"
++    },
++    "negative": {
++      "title": "Negative",
++      "node": "3",
++      "input": "text",
++      "kind": "text"
++    },
++    "filenamePrefix": {
++      "title": "Output",
++      "node": "7",
++      "input": "filename_prefix",
++      "kind": "text"
++    },
++    "lora.1.name": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.1.model": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.1.clip": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.2.name": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.2.model": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.2.clip": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.3.name": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.3.model": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.3.clip": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.4.name": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.4.model": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.4.clip": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "sourceImage": {
++      "title": "Source",
++      "node": "70",
++      "input": "image",
++      "kind": "image"
++    },
++    "detail.1.detector": {
++      "title": "Face Detector",
++      "node": "100",
++      "input": "model_name",
++      "kind": "choice"
++    },
++    "detail.1.prompt": {
++      "title": "Face Prompt",
++      "node": "102",
++      "input": "text",
++      "kind": "text"
++    },
++    "detail.1.denoise": {
++      "title": "Face Detail",
++      "node": "101",
++      "input": "denoise",
++      "kind": "number"
++    },
++    "detail.1.seed": {
++      "title": "Face Detail",
++      "node": "101",
++      "input": "seed",
++      "kind": "seed"
++    },
++    "detail.1.steps": {
++      "title": "Face Detail",
++      "node": "101",
++      "input": "steps",
++      "kind": "number"
++    },
++    "detail.1.cfg": {
++      "title": "Face Detail",
++      "node": "101",
++      "input": "cfg",
++      "kind": "number"
++    },
++    "detail.1.samplerName": {
++      "title": "Face Detail",
++      "node": "101",
++      "input": "sampler_name",
++      "kind": "choice"
++    },
++    "detail.1.scheduler": {
++      "title": "Face Detail",
++      "node": "101",
++      "input": "scheduler",
++      "kind": "choice"
++    },
++    "detail.2.detector": {
++      "title": "Eyes Detector",
++      "node": "110",
++      "input": "model_name",
++      "kind": "choice"
++    },
++    "detail.2.prompt": {
++      "title": "Eyes Prompt",
++      "node": "112",
++      "input": "text",
++      "kind": "text"
++    },
++    "detail.2.denoise": {
++      "title": "Eyes Detail",
++      "node": "111",
++      "input": "denoise",
++      "kind": "number"
++    },
++    "detail.2.seed": {
++      "title": "Eyes Detail",
++      "node": "111",
++      "input": "seed",
++      "kind": "seed"
++    },
++    "detail.2.steps": {
++      "title": "Eyes Detail",
++      "node": "111",
++      "input": "steps",
++      "kind": "number"
++    },
++    "detail.2.cfg": {
++      "title": "Eyes Detail",
++      "node": "111",
++      "input": "cfg",
++      "kind": "number"
++    },
++    "detail.2.samplerName": {
++      "title": "Eyes Detail",
++      "node": "111",
++      "input": "sampler_name",
++      "kind": "choice"
++    },
++    "detail.2.scheduler": {
++      "title": "Eyes Detail",
++      "node": "111",
++      "input": "scheduler",
++      "kind": "choice"
++    },
++    "detail.3.detector": {
++      "title": "Hands Detector",
++      "node": "120",
++      "input": "model_name",
++      "kind": "choice"
++    },
++    "detail.3.prompt": {
++      "title": "Hands Prompt",
++      "node": "122",
++      "input": "text",
++      "kind": "text"
++    },
++    "detail.3.denoise": {
++      "title": "Hands Detail",
++      "node": "121",
++      "input": "denoise",
++      "kind": "number"
++    },
++    "detail.3.seed": {
++      "title": "Hands Detail",
++      "node": "121",
++      "input": "seed",
++      "kind": "seed"
++    },
++    "detail.3.steps": {
++      "title": "Hands Detail",
++      "node": "121",
++      "input": "steps",
++      "kind": "number"
++    },
++    "detail.3.cfg": {
++      "title": "Hands Detail",
++      "node": "121",
++      "input": "cfg",
++      "kind": "number"
++    },
++    "detail.3.samplerName": {
++      "title": "Hands Detail",
++      "node": "121",
++      "input": "sampler_name",
++      "kind": "choice"
++    },
++    "detail.3.scheduler": {
++      "title": "Hands Detail",
++      "node": "121",
++      "input": "scheduler",
++      "kind": "choice"
++    }
++  },
++  "slots": {
++    "lora": [
++      {
++        "remove": [
++          "10"
++        ],
++        "passthrough": [
++          {
++            "node": "10",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "10",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "11"
++        ],
++        "passthrough": [
++          {
++            "node": "11",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "11",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "12"
++        ],
++        "passthrough": [
++          {
++            "node": "12",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "12",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "13"
++        ],
++        "passthrough": [
++          {
++            "node": "13",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "13",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      }
++    ],
++    "detail": [
++      {
++        "remove": [
++          "100",
++          "101",
++          "102"
++        ],
++        "passthrough": [
++          {
++            "node": "101",
++            "output": 0,
++            "input": "image"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "110",
++          "111",
++          "112"
++        ],
++        "passthrough": [
++          {
++            "node": "111",
++            "output": 0,
++            "input": "image"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "120",
++          "121",
++          "122"
++        ],
++        "passthrough": [
++          {
++            "node": "121",
++            "output": 0,
++            "input": "image"
++          }
++        ]
++      }
++    ]
++  },
++  "graph": {
++    "1": {
++      "class_type": "CheckpointLoaderSimple",
++      "_meta": {
++        "title": "Checkpoint"
++      },
++      "inputs": {
++        "ckpt_name": ""
++      }
++    },
++    "10": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 1"
++      },
++      "inputs": {
++        "model": ["1", 0],
++        "clip": ["1", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "11": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 2"
++      },
++      "inputs": {
++        "model": ["10", 0],
++        "clip": ["10", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "12": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 3"
++      },
++      "inputs": {
++        "model": ["11", 0],
++        "clip": ["11", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "13": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 4"
++      },
++      "inputs": {
++        "model": ["12", 0],
++        "clip": ["12", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "3": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Negative"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "7": {
++      "class_type": "SaveImage",
++      "_meta": {
++        "title": "Output"
++      },
++      "inputs": {
++        "images": ["121", 0],
++        "filename_prefix": "WritersHoard/wh"
++      }
++    },
++    "70": {
++      "class_type": "LoadImage",
++      "_meta": {
++        "title": "Source"
++      },
++      "inputs": {
++        "image": ""
++      }
++    },
++    "100": {
++      "class_type": "UltralyticsDetectorProvider",
++      "_meta": {
++        "title": "Face Detector"
++      },
++      "inputs": {
++        "model_name": ""
++      }
++    },
++    "102": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Face Prompt"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "101": {
++      "class_type": "FaceDetailer",
++      "_meta": {
++        "title": "Face Detail"
++      },
++      "inputs": {
++        "image": ["70", 0],
++        "model": ["13", 0],
++        "clip": ["13", 1],
++        "vae": ["1", 2],
++        "guide_size": 512,
++        "guide_size_for": true,
++        "max_size": 1024,
++        "seed": 0,
++        "steps": 20,
++        "cfg": 6.0,
++        "sampler_name": "euler",
++        "scheduler": "normal",
++        "positive": ["102", 0],
++        "negative": ["3", 0],
++        "denoise": 0.5,
++        "feather": 5,
++        "noise_mask": true,
++        "force_inpaint": true,
++        "bbox_threshold": 0.5,
++        "bbox_dilation": 10,
++        "bbox_crop_factor": 3.0,
++        "sam_detection_hint": "center-1",
++        "sam_dilation": 0,
++        "sam_threshold": 0.93,
++        "sam_bbox_expansion": 0,
++        "sam_mask_hint_threshold": 0.7,
++        "sam_mask_hint_use_negative": "False",
++        "drop_size": 10,
++        "bbox_detector": ["100", 0],
++        "wildcard": "",
++        "cycle": 1
++      }
++    },
++    "110": {
++      "class_type": "UltralyticsDetectorProvider",
++      "_meta": {
++        "title": "Eyes Detector"
++      },
++      "inputs": {
++        "model_name": ""
++      }
++    },
++    "112": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Eyes Prompt"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "111": {
++      "class_type": "FaceDetailer",
++      "_meta": {
++        "title": "Eyes Detail"
++      },
++      "inputs": {
++        "image": ["101", 0],
++        "model": ["13", 0],
++        "clip": ["13", 1],
++        "vae": ["1", 2],
++        "guide_size": 512,
++        "guide_size_for": true,
++        "max_size": 1024,
++        "seed": 0,
++        "steps": 20,
++        "cfg": 6.0,
++        "sampler_name": "euler",
++        "scheduler": "normal",
++        "positive": ["112", 0],
++        "negative": ["3", 0],
++        "denoise": 0.5,
++        "feather": 5,
++        "noise_mask": true,
++        "force_inpaint": true,
++        "bbox_threshold": 0.5,
++        "bbox_dilation": 10,
++        "bbox_crop_factor": 3.0,
++        "sam_detection_hint": "center-1",
++        "sam_dilation": 0,
++        "sam_threshold": 0.93,
++        "sam_bbox_expansion": 0,
++        "sam_mask_hint_threshold": 0.7,
++        "sam_mask_hint_use_negative": "False",
++        "drop_size": 10,
++        "bbox_detector": ["110", 0],
++        "wildcard": "",
++        "cycle": 1
++      }
++    },
++    "120": {
++      "class_type": "UltralyticsDetectorProvider",
++      "_meta": {
++        "title": "Hands Detector"
++      },
++      "inputs": {
++        "model_name": ""
++      }
++    },
++    "122": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Hands Prompt"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "121": {
++      "class_type": "FaceDetailer",
++      "_meta": {
++        "title": "Hands Detail"
++      },
++      "inputs": {
++        "image": ["111", 0],
++        "model": ["13", 0],
++        "clip": ["13", 1],
++        "vae": ["1", 2],
++        "guide_size": 512,
++        "guide_size_for": true,
++        "max_size": 1024,
++        "seed": 0,
++        "steps": 20,
++        "cfg": 6.0,
++        "sampler_name": "euler",
++        "scheduler": "normal",
++        "positive": ["122", 0],
++        "negative": ["3", 0],
++        "denoise": 0.5,
++        "feather": 5,
++        "noise_mask": true,
++        "force_inpaint": true,
++        "bbox_threshold": 0.5,
++        "bbox_dilation": 10,
++        "bbox_crop_factor": 3.0,
++        "sam_detection_hint": "center-1",
++        "sam_dilation": 0,
++        "sam_threshold": 0.93,
++        "sam_bbox_expansion": 0,
++        "sam_mask_hint_threshold": 0.7,
++        "sam_mask_hint_use_negative": "False",
++        "drop_size": 10,
++        "bbox_detector": ["120", 0],
++        "wildcard": "",
++        "cycle": 1
++      }
++    }
++  }
++}
+diff --git a/resources/comfy-templates/hires.json b/resources/comfy-templates/hires.json
+new file mode 100644
+index 0000000..b40e91d
+--- /dev/null
++++ b/resources/comfy-templates/hires.json
+@@ -0,0 +1,543 @@
++{
++  "id": "hires",
++  "label": "Two-pass hires",
++  "description": "A first pass at the model's native size, a latent upscale, and a second low-denoise pass at the target size.",
++  "requires": [
++    "CheckpointLoaderSimple",
++    "CLIPTextEncode",
++    "EmptyLatentImage",
++    "KSampler",
++    "VAEDecode",
++    "SaveImage",
++    "LatentUpscale"
++  ],
++  "bindings": {
++    "checkpoint": {
++      "title": "Checkpoint",
++      "node": "1",
++      "input": "ckpt_name",
++      "kind": "choice"
++    },
++    "prompt": {
++      "title": "Positive",
++      "node": "2",
++      "input": "text",
++      "kind": "text"
++    },
++    "negative": {
++      "title": "Negative",
++      "node": "3",
++      "input": "text",
++      "kind": "text"
++    },
++    "width": {
++      "title": "Latent",
++      "node": "4",
++      "input": "width",
++      "kind": "number"
++    },
++    "height": {
++      "title": "Latent",
++      "node": "4",
++      "input": "height",
++      "kind": "number"
++    },
++    "batchSize": {
++      "title": "Latent",
++      "node": "4",
++      "input": "batch_size",
++      "kind": "number"
++    },
++    "seed": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "seed",
++      "kind": "seed"
++    },
++    "steps": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "steps",
++      "kind": "number"
++    },
++    "cfg": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "cfg",
++      "kind": "number"
++    },
++    "samplerName": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "sampler_name",
++      "kind": "choice"
++    },
++    "scheduler": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "scheduler",
++      "kind": "choice"
++    },
++    "denoise": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "denoise",
++      "kind": "number"
++    },
++    "filenamePrefix": {
++      "title": "Output",
++      "node": "7",
++      "input": "filename_prefix",
++      "kind": "text"
++    },
++    "lora.1.name": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.1.model": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.1.clip": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.2.name": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.2.model": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.2.clip": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.3.name": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.3.model": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.3.clip": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.4.name": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.4.model": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.4.clip": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "hiresWidth": {
++      "title": "Hires Upscale",
++      "node": "8",
++      "input": "width",
++      "kind": "number"
++    },
++    "hiresHeight": {
++      "title": "Hires Upscale",
++      "node": "8",
++      "input": "height",
++      "kind": "number"
++    },
++    "hiresSeed": {
++      "title": "Hires Sampler",
++      "node": "9",
++      "input": "seed",
++      "kind": "seed"
++    },
++    "hiresSteps": {
++      "title": "Hires Sampler",
++      "node": "9",
++      "input": "steps",
++      "kind": "number"
++    },
++    "hiresCfg": {
++      "title": "Hires Sampler",
++      "node": "9",
++      "input": "cfg",
++      "kind": "number"
++    },
++    "hiresSamplerName": {
++      "title": "Hires Sampler",
++      "node": "9",
++      "input": "sampler_name",
++      "kind": "choice"
++    },
++    "hiresScheduler": {
++      "title": "Hires Sampler",
++      "node": "9",
++      "input": "scheduler",
++      "kind": "choice"
++    },
++    "hiresDenoise": {
++      "title": "Hires Sampler",
++      "node": "9",
++      "input": "denoise",
++      "kind": "number"
++    }
++  },
++  "slots": {
++    "lora": [
++      {
++        "remove": [
++          "10"
++        ],
++        "passthrough": [
++          {
++            "node": "10",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "10",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "11"
++        ],
++        "passthrough": [
++          {
++            "node": "11",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "11",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "12"
++        ],
++        "passthrough": [
++          {
++            "node": "12",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "12",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "13"
++        ],
++        "passthrough": [
++          {
++            "node": "13",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "13",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      }
++    ],
++    "guidance": [
++      {
++        "remove": [
++          "20"
++        ],
++        "passthrough": [
++          {
++            "node": "20",
++            "output": 0,
++            "input": "model"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "21"
++        ],
++        "passthrough": [
++          {
++            "node": "21",
++            "output": 0,
++            "input": "model"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "22"
++        ],
++        "passthrough": [
++          {
++            "node": "22",
++            "output": 0,
++            "input": "model"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "23"
++        ],
++        "passthrough": [
++          {
++            "node": "23",
++            "output": 0,
++            "input": "model"
++          }
++        ]
++      }
++    ]
++  },
++  "graph": {
++    "1": {
++      "class_type": "CheckpointLoaderSimple",
++      "_meta": {
++        "title": "Checkpoint"
++      },
++      "inputs": {
++        "ckpt_name": ""
++      }
++    },
++    "10": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 1"
++      },
++      "inputs": {
++        "model": ["1", 0],
++        "clip": ["1", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "11": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 2"
++      },
++      "inputs": {
++        "model": ["10", 0],
++        "clip": ["10", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "12": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 3"
++      },
++      "inputs": {
++        "model": ["11", 0],
++        "clip": ["11", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "13": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 4"
++      },
++      "inputs": {
++        "model": ["12", 0],
++        "clip": ["12", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "20": {
++      "class_type": "PerturbedAttentionGuidance",
++      "_meta": {
++        "title": "Guidance PAG"
++      },
++      "inputs": {
++        "model": ["13", 0],
++        "scale": 3.0
++      }
++    },
++    "21": {
++      "class_type": "SelfAttentionGuidance",
++      "_meta": {
++        "title": "Guidance SAG"
++      },
++      "inputs": {
++        "model": ["20", 0],
++        "scale": 0.5,
++        "blur_sigma": 2.0
++      }
++    },
++    "22": {
++      "class_type": "FreeU_V2",
++      "_meta": {
++        "title": "Guidance FreeU"
++      },
++      "inputs": {
++        "model": ["21", 0],
++        "b1": 1.3,
++        "b2": 1.4,
++        "s1": 0.9,
++        "s2": 0.2
++      }
++    },
++    "23": {
++      "class_type": "RescaleCFG",
++      "_meta": {
++        "title": "Guidance RescaleCFG"
++      },
++      "inputs": {
++        "model": ["22", 0],
++        "multiplier": 0.7
++      }
++    },
++    "2": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Positive"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "3": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Negative"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "4": {
++      "class_type": "EmptyLatentImage",
++      "_meta": {
++        "title": "Latent"
++      },
++      "inputs": {
++        "width": 1024,
++        "height": 1024,
++        "batch_size": 1
++      }
++    },
++    "5": {
++      "class_type": "KSampler",
++      "_meta": {
++        "title": "Sampler"
++      },
++      "inputs": {
++        "model": ["23", 0],
++        "seed": 0,
++        "steps": 25,
++        "cfg": 6.0,
++        "sampler_name": "euler",
++        "scheduler": "normal",
++        "positive": ["2", 0],
++        "negative": ["3", 0],
++        "latent_image": ["4", 0],
++        "denoise": 1.0
++      }
++    },
++    "6": {
++      "class_type": "VAEDecode",
++      "_meta": {
++        "title": "Decode"
++      },
++      "inputs": {
++        "samples": ["9", 0],
++        "vae": ["1", 2]
++      }
++    },
++    "7": {
++      "class_type": "SaveImage",
++      "_meta": {
++        "title": "Output"
++      },
++      "inputs": {
++        "images": ["6", 0],
++        "filename_prefix": "WritersHoard/wh"
++      }
++    },
++    "8": {
++      "class_type": "LatentUpscale",
++      "_meta": {
++        "title": "Hires Upscale"
++      },
++      "inputs": {
++        "samples": ["5", 0],
++        "upscale_method": "bislerp",
++        "width": 1536,
++        "height": 1536,
++        "crop": "disabled"
++      }
++    },
++    "9": {
++      "class_type": "KSampler",
++      "_meta": {
++        "title": "Hires Sampler"
++      },
++      "inputs": {
++        "model": ["23", 0],
++        "seed": 0,
++        "steps": 15,
++        "cfg": 6.0,
++        "sampler_name": "euler",
++        "scheduler": "normal",
++        "positive": ["2", 0],
++        "negative": ["3", 0],
++        "latent_image": ["8", 0],
++        "denoise": 0.5
++      }
++    }
++  }
++}
+diff --git a/resources/comfy-templates/inpaint.json b/resources/comfy-templates/inpaint.json
+new file mode 100644
+index 0000000..6a8c0a8
+--- /dev/null
++++ b/resources/comfy-templates/inpaint.json
+@@ -0,0 +1,588 @@
++{
++  "id": "inpaint",
++  "label": "Inpaint (only masked)",
++  "description": "Repaints the masked area at full model resolution and composites it back \u2014 the crop/scale/composite that keeps a small fix from being rendered at postage-stamp detail.",
++  "requires": [
++    "CheckpointLoaderSimple",
++    "CLIPTextEncode",
++    "KSampler",
++    "VAEDecode",
++    "SaveImage",
++    "LoadImage",
++    "ImageCrop",
++    "ImageScale",
++    "ImageToMask",
++    "VAEEncodeForInpaint",
++    "ImageCompositeMasked"
++  ],
++  "bindings": {
++    "checkpoint": {
++      "title": "Checkpoint",
++      "node": "1",
++      "input": "ckpt_name",
++      "kind": "choice"
++    },
++    "prompt": {
++      "title": "Positive",
++      "node": "2",
++      "input": "text",
++      "kind": "text"
++    },
++    "negative": {
++      "title": "Negative",
++      "node": "3",
++      "input": "text",
++      "kind": "text"
++    },
++    "seed": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "seed",
++      "kind": "seed"
++    },
++    "steps": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "steps",
++      "kind": "number"
++    },
++    "cfg": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "cfg",
++      "kind": "number"
++    },
++    "samplerName": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "sampler_name",
++      "kind": "choice"
++    },
++    "scheduler": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "scheduler",
++      "kind": "choice"
++    },
++    "denoise": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "denoise",
++      "kind": "number"
++    },
++    "filenamePrefix": {
++      "title": "Output",
++      "node": "7",
++      "input": "filename_prefix",
++      "kind": "text"
++    },
++    "lora.1.name": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.1.model": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.1.clip": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.2.name": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.2.model": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.2.clip": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.3.name": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.3.model": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.3.clip": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.4.name": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.4.model": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.4.clip": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "sourceImage": {
++      "title": "Source",
++      "node": "70",
++      "input": "image",
++      "kind": "image"
++    },
++    "maskImage": {
++      "title": "Mask Source",
++      "node": "71",
++      "input": "image",
++      "kind": "image"
++    },
++    "crop.x": {
++      "title": "Crop Source",
++      "node": "72",
++      "input": "x",
++      "kind": "number"
++    },
++    "crop.y": {
++      "title": "Crop Source",
++      "node": "72",
++      "input": "y",
++      "kind": "number"
++    },
++    "crop.width": {
++      "title": "Crop Source",
++      "node": "72",
++      "input": "width",
++      "kind": "number"
++    },
++    "crop.height": {
++      "title": "Crop Source",
++      "node": "72",
++      "input": "height",
++      "kind": "number"
++    },
++    "cropMask.x": {
++      "title": "Crop Mask",
++      "node": "74",
++      "input": "x",
++      "kind": "number"
++    },
++    "cropMask.y": {
++      "title": "Crop Mask",
++      "node": "74",
++      "input": "y",
++      "kind": "number"
++    },
++    "cropMask.width": {
++      "title": "Crop Mask",
++      "node": "74",
++      "input": "width",
++      "kind": "number"
++    },
++    "cropMask.height": {
++      "title": "Crop Mask",
++      "node": "74",
++      "input": "height",
++      "kind": "number"
++    },
++    "work.width": {
++      "title": "Scale Source",
++      "node": "73",
++      "input": "width",
++      "kind": "number"
++    },
++    "work.height": {
++      "title": "Scale Source",
++      "node": "73",
++      "input": "height",
++      "kind": "number"
++    },
++    "workMask.width": {
++      "title": "Scale Mask",
++      "node": "75",
++      "input": "width",
++      "kind": "number"
++    },
++    "workMask.height": {
++      "title": "Scale Mask",
++      "node": "75",
++      "input": "height",
++      "kind": "number"
++    },
++    "back.width": {
++      "title": "Scale Back",
++      "node": "78",
++      "input": "width",
++      "kind": "number"
++    },
++    "back.height": {
++      "title": "Scale Back",
++      "node": "78",
++      "input": "height",
++      "kind": "number"
++    },
++    "paste.x": {
++      "title": "Composite",
++      "node": "79",
++      "input": "x",
++      "kind": "number"
++    },
++    "paste.y": {
++      "title": "Composite",
++      "node": "79",
++      "input": "y",
++      "kind": "number"
++    },
++    "growMaskBy": {
++      "title": "Encode",
++      "node": "77",
++      "input": "grow_mask_by",
++      "kind": "number"
++    }
++  },
++  "slots": {
++    "lora": [
++      {
++        "remove": [
++          "10"
++        ],
++        "passthrough": [
++          {
++            "node": "10",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "10",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "11"
++        ],
++        "passthrough": [
++          {
++            "node": "11",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "11",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "12"
++        ],
++        "passthrough": [
++          {
++            "node": "12",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "12",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "13"
++        ],
++        "passthrough": [
++          {
++            "node": "13",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "13",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      }
++    ]
++  },
++  "graph": {
++    "1": {
++      "class_type": "CheckpointLoaderSimple",
++      "_meta": {
++        "title": "Checkpoint"
++      },
++      "inputs": {
++        "ckpt_name": ""
++      }
++    },
++    "10": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 1"
++      },
++      "inputs": {
++        "model": ["1", 0],
++        "clip": ["1", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "11": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 2"
++      },
++      "inputs": {
++        "model": ["10", 0],
++        "clip": ["10", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "12": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 3"
++      },
++      "inputs": {
++        "model": ["11", 0],
++        "clip": ["11", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "13": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 4"
++      },
++      "inputs": {
++        "model": ["12", 0],
++        "clip": ["12", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "2": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Positive"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "3": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Negative"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "5": {
++      "class_type": "KSampler",
++      "_meta": {
++        "title": "Sampler"
++      },
++      "inputs": {
++        "model": ["13", 0],
++        "seed": 0,
++        "steps": 25,
++        "cfg": 6.0,
++        "sampler_name": "euler",
++        "scheduler": "normal",
++        "positive": ["2", 0],
++        "negative": ["3", 0],
++        "latent_image": ["77", 0],
++        "denoise": 1.0
++      }
++    },
++    "6": {
++      "class_type": "VAEDecode",
++      "_meta": {
++        "title": "Decode"
++      },
++      "inputs": {
++        "samples": ["5", 0],
++        "vae": ["1", 2]
++      }
++    },
++    "7": {
++      "class_type": "SaveImage",
++      "_meta": {
++        "title": "Output"
++      },
++      "inputs": {
++        "images": ["79", 0],
++        "filename_prefix": "WritersHoard/wh"
++      }
++    },
++    "70": {
++      "class_type": "LoadImage",
++      "_meta": {
++        "title": "Source"
++      },
++      "inputs": {
++        "image": ""
++      }
++    },
++    "71": {
++      "class_type": "LoadImage",
++      "_meta": {
++        "title": "Mask Source"
++      },
++      "inputs": {
++        "image": ""
++      }
++    },
++    "72": {
++      "class_type": "ImageCrop",
++      "_meta": {
++        "title": "Crop Source"
++      },
++      "inputs": {
++        "image": ["70", 0],
++        "width": 512,
++        "height": 512,
++        "x": 0,
++        "y": 0
++      }
++    },
++    "73": {
++      "class_type": "ImageScale",
++      "_meta": {
++        "title": "Scale Source"
++      },
++      "inputs": {
++        "image": ["72", 0],
++        "upscale_method": "lanczos",
++        "width": 1024,
++        "height": 1024,
++        "crop": "disabled"
++      }
++    },
++    "74": {
++      "class_type": "ImageCrop",
++      "_meta": {
++        "title": "Crop Mask"
++      },
++      "inputs": {
++        "image": ["71", 0],
++        "width": 512,
++        "height": 512,
++        "x": 0,
++        "y": 0
++      }
++    },
++    "75": {
++      "class_type": "ImageScale",
++      "_meta": {
++        "title": "Scale Mask"
++      },
++      "inputs": {
++        "image": ["74", 0],
++        "upscale_method": "bilinear",
++        "width": 1024,
++        "height": 1024,
++        "crop": "disabled"
++      }
++    },
++    "76": {
++      "class_type": "ImageToMask",
++      "_meta": {
++        "title": "Work Mask"
++      },
++      "inputs": {
++        "image": ["75", 0],
++        "channel": "red"
++      }
++    },
++    "77": {
++      "class_type": "VAEEncodeForInpaint",
++      "_meta": {
++        "title": "Encode"
++      },
++      "inputs": {
++        "pixels": ["73", 0],
++        "vae": ["1", 2],
++        "mask": ["76", 0],
++        "grow_mask_by": 6
++      }
++    },
++    "78": {
++      "class_type": "ImageScale",
++      "_meta": {
++        "title": "Scale Back"
++      },
++      "inputs": {
++        "image": ["6", 0],
++        "upscale_method": "lanczos",
++        "width": 512,
++        "height": 512,
++        "crop": "disabled"
++      }
++    },
++    "80": {
++      "class_type": "ImageToMask",
++      "_meta": {
++        "title": "Paste Mask"
++      },
++      "inputs": {
++        "image": ["74", 0],
++        "channel": "red"
++      }
++    },
++    "79": {
++      "class_type": "ImageCompositeMasked",
++      "_meta": {
++        "title": "Composite"
++      },
++      "inputs": {
++        "destination": ["70", 0],
++        "source": ["78", 0],
++        "x": 0,
++        "y": 0,
++        "resize_source": false,
++        "mask": ["80", 0]
++      }
++    }
++  }
++}
+diff --git a/resources/comfy-templates/multi-controlnet.json b/resources/comfy-templates/multi-controlnet.json
+new file mode 100644
+index 0000000..3f258fa
+--- /dev/null
++++ b/resources/comfy-templates/multi-controlnet.json
+@@ -0,0 +1,714 @@
++{
++  "id": "multi-controlnet",
++  "label": "Multi-ControlNet",
++  "description": "Up to three ControlNets stacked \u2014 pose, depth, lineart \u2014 each with its own strength and start/end percent. Hint images are supplied already preprocessed.",
++  "requires": [
++    "CheckpointLoaderSimple",
++    "CLIPTextEncode",
++    "EmptyLatentImage",
++    "KSampler",
++    "VAEDecode",
++    "SaveImage",
++    "LoadImage",
++    "ControlNetLoader",
++    "ControlNetApplyAdvanced"
++  ],
++  "bindings": {
++    "checkpoint": {
++      "title": "Checkpoint",
++      "node": "1",
++      "input": "ckpt_name",
++      "kind": "choice"
++    },
++    "prompt": {
++      "title": "Positive",
++      "node": "2",
++      "input": "text",
++      "kind": "text"
++    },
++    "negative": {
++      "title": "Negative",
++      "node": "3",
++      "input": "text",
++      "kind": "text"
++    },
++    "width": {
++      "title": "Latent",
++      "node": "4",
++      "input": "width",
++      "kind": "number"
++    },
++    "height": {
++      "title": "Latent",
++      "node": "4",
++      "input": "height",
++      "kind": "number"
++    },
++    "batchSize": {
++      "title": "Latent",
++      "node": "4",
++      "input": "batch_size",
++      "kind": "number"
++    },
++    "seed": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "seed",
++      "kind": "seed"
++    },
++    "steps": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "steps",
++      "kind": "number"
++    },
++    "cfg": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "cfg",
++      "kind": "number"
++    },
++    "samplerName": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "sampler_name",
++      "kind": "choice"
++    },
++    "scheduler": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "scheduler",
++      "kind": "choice"
++    },
++    "denoise": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "denoise",
++      "kind": "number"
++    },
++    "filenamePrefix": {
++      "title": "Output",
++      "node": "7",
++      "input": "filename_prefix",
++      "kind": "text"
++    },
++    "lora.1.name": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.1.model": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.1.clip": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.2.name": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.2.model": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.2.clip": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.3.name": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.3.model": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.3.clip": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.4.name": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.4.model": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.4.clip": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "control.1.model": {
++      "title": "Control 1 Model",
++      "node": "141",
++      "input": "control_net_name",
++      "kind": "choice"
++    },
++    "control.1.image": {
++      "title": "Control 1 Hint",
++      "node": "131",
++      "input": "image",
++      "kind": "image"
++    },
++    "control.1.strength": {
++      "title": "Control 1",
++      "node": "151",
++      "input": "strength",
++      "kind": "number"
++    },
++    "control.1.start": {
++      "title": "Control 1",
++      "node": "151",
++      "input": "start_percent",
++      "kind": "number"
++    },
++    "control.1.end": {
++      "title": "Control 1",
++      "node": "151",
++      "input": "end_percent",
++      "kind": "number"
++    },
++    "control.2.model": {
++      "title": "Control 2 Model",
++      "node": "142",
++      "input": "control_net_name",
++      "kind": "choice"
++    },
++    "control.2.image": {
++      "title": "Control 2 Hint",
++      "node": "132",
++      "input": "image",
++      "kind": "image"
++    },
++    "control.2.strength": {
++      "title": "Control 2",
++      "node": "152",
++      "input": "strength",
++      "kind": "number"
++    },
++    "control.2.start": {
++      "title": "Control 2",
++      "node": "152",
++      "input": "start_percent",
++      "kind": "number"
++    },
++    "control.2.end": {
++      "title": "Control 2",
++      "node": "152",
++      "input": "end_percent",
++      "kind": "number"
++    },
++    "control.3.model": {
++      "title": "Control 3 Model",
++      "node": "143",
++      "input": "control_net_name",
++      "kind": "choice"
++    },
++    "control.3.image": {
++      "title": "Control 3 Hint",
++      "node": "133",
++      "input": "image",
++      "kind": "image"
++    },
++    "control.3.strength": {
++      "title": "Control 3",
++      "node": "153",
++      "input": "strength",
++      "kind": "number"
++    },
++    "control.3.start": {
++      "title": "Control 3",
++      "node": "153",
++      "input": "start_percent",
++      "kind": "number"
++    },
++    "control.3.end": {
++      "title": "Control 3",
++      "node": "153",
++      "input": "end_percent",
++      "kind": "number"
++    }
++  },
++  "slots": {
++    "lora": [
++      {
++        "remove": [
++          "10"
++        ],
++        "passthrough": [
++          {
++            "node": "10",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "10",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "11"
++        ],
++        "passthrough": [
++          {
++            "node": "11",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "11",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "12"
++        ],
++        "passthrough": [
++          {
++            "node": "12",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "12",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "13"
++        ],
++        "passthrough": [
++          {
++            "node": "13",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "13",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      }
++    ],
++    "guidance": [
++      {
++        "remove": [
++          "20"
++        ],
++        "passthrough": [
++          {
++            "node": "20",
++            "output": 0,
++            "input": "model"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "21"
++        ],
++        "passthrough": [
++          {
++            "node": "21",
++            "output": 0,
++            "input": "model"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "22"
++        ],
++        "passthrough": [
++          {
++            "node": "22",
++            "output": 0,
++            "input": "model"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "23"
++        ],
++        "passthrough": [
++          {
++            "node": "23",
++            "output": 0,
++            "input": "model"
++          }
++        ]
++      }
++    ],
++    "control": [
++      {
++        "remove": [
++          "131",
++          "141",
++          "151"
++        ],
++        "passthrough": [
++          {
++            "node": "151",
++            "output": 0,
++            "input": "positive"
++          },
++          {
++            "node": "151",
++            "output": 1,
++            "input": "negative"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "132",
++          "142",
++          "152"
++        ],
++        "passthrough": [
++          {
++            "node": "152",
++            "output": 0,
++            "input": "positive"
++          },
++          {
++            "node": "152",
++            "output": 1,
++            "input": "negative"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "133",
++          "143",
++          "153"
++        ],
++        "passthrough": [
++          {
++            "node": "153",
++            "output": 0,
++            "input": "positive"
++          },
++          {
++            "node": "153",
++            "output": 1,
++            "input": "negative"
++          }
++        ]
++      }
++    ]
++  },
++  "graph": {
++    "1": {
++      "class_type": "CheckpointLoaderSimple",
++      "_meta": {
++        "title": "Checkpoint"
++      },
++      "inputs": {
++        "ckpt_name": ""
++      }
++    },
++    "10": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 1"
++      },
++      "inputs": {
++        "model": ["1", 0],
++        "clip": ["1", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "11": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 2"
++      },
++      "inputs": {
++        "model": ["10", 0],
++        "clip": ["10", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "12": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 3"
++      },
++      "inputs": {
++        "model": ["11", 0],
++        "clip": ["11", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "13": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 4"
++      },
++      "inputs": {
++        "model": ["12", 0],
++        "clip": ["12", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "20": {
++      "class_type": "PerturbedAttentionGuidance",
++      "_meta": {
++        "title": "Guidance PAG"
++      },
++      "inputs": {
++        "model": ["13", 0],
++        "scale": 3.0
++      }
++    },
++    "21": {
++      "class_type": "SelfAttentionGuidance",
++      "_meta": {
++        "title": "Guidance SAG"
++      },
++      "inputs": {
++        "model": ["20", 0],
++        "scale": 0.5,
++        "blur_sigma": 2.0
++      }
++    },
++    "22": {
++      "class_type": "FreeU_V2",
++      "_meta": {
++        "title": "Guidance FreeU"
++      },
++      "inputs": {
++        "model": ["21", 0],
++        "b1": 1.3,
++        "b2": 1.4,
++        "s1": 0.9,
++        "s2": 0.2
++      }
++    },
++    "23": {
++      "class_type": "RescaleCFG",
++      "_meta": {
++        "title": "Guidance RescaleCFG"
++      },
++      "inputs": {
++        "model": ["22", 0],
++        "multiplier": 0.7
++      }
++    },
++    "2": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Positive"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "3": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Negative"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "4": {
++      "class_type": "EmptyLatentImage",
++      "_meta": {
++        "title": "Latent"
++      },
++      "inputs": {
++        "width": 1024,
++        "height": 1024,
++        "batch_size": 1
++      }
++    },
++    "5": {
++      "class_type": "KSampler",
++      "_meta": {
++        "title": "Sampler"
++      },
++      "inputs": {
++        "model": ["23", 0],
++        "seed": 0,
++        "steps": 25,
++        "cfg": 6.0,
++        "sampler_name": "euler",
++        "scheduler": "normal",
++        "positive": ["153", 0],
++        "negative": ["153", 1],
++        "latent_image": ["4", 0],
++        "denoise": 1.0
++      }
++    },
++    "6": {
++      "class_type": "VAEDecode",
++      "_meta": {
++        "title": "Decode"
++      },
++      "inputs": {
++        "samples": ["5", 0],
++        "vae": ["1", 2]
++      }
++    },
++    "7": {
++      "class_type": "SaveImage",
++      "_meta": {
++        "title": "Output"
++      },
++      "inputs": {
++        "images": ["6", 0],
++        "filename_prefix": "WritersHoard/wh"
++      }
++    },
++    "131": {
++      "class_type": "LoadImage",
++      "_meta": {
++        "title": "Control 1 Hint"
++      },
++      "inputs": {
++        "image": ""
++      }
++    },
++    "141": {
++      "class_type": "ControlNetLoader",
++      "_meta": {
++        "title": "Control 1 Model"
++      },
++      "inputs": {
++        "control_net_name": ""
++      }
++    },
++    "151": {
++      "class_type": "ControlNetApplyAdvanced",
++      "_meta": {
++        "title": "Control 1"
++      },
++      "inputs": {
++        "positive": ["2", 0],
++        "negative": ["3", 0],
++        "control_net": ["141", 0],
++        "image": ["131", 0],
++        "strength": 1.0,
++        "start_percent": 0.0,
++        "end_percent": 1.0
++      }
++    },
++    "132": {
++      "class_type": "LoadImage",
++      "_meta": {
++        "title": "Control 2 Hint"
++      },
++      "inputs": {
++        "image": ""
++      }
++    },
++    "142": {
++      "class_type": "ControlNetLoader",
++      "_meta": {
++        "title": "Control 2 Model"
++      },
++      "inputs": {
++        "control_net_name": ""
++      }
++    },
++    "152": {
++      "class_type": "ControlNetApplyAdvanced",
++      "_meta": {
++        "title": "Control 2"
++      },
++      "inputs": {
++        "positive": ["151", 0],
++        "negative": ["151", 1],
++        "control_net": ["142", 0],
++        "image": ["132", 0],
++        "strength": 1.0,
++        "start_percent": 0.0,
++        "end_percent": 1.0
++      }
++    },
++    "133": {
++      "class_type": "LoadImage",
++      "_meta": {
++        "title": "Control 3 Hint"
++      },
++      "inputs": {
++        "image": ""
++      }
++    },
++    "143": {
++      "class_type": "ControlNetLoader",
++      "_meta": {
++        "title": "Control 3 Model"
++      },
++      "inputs": {
++        "control_net_name": ""
++      }
++    },
++    "153": {
++      "class_type": "ControlNetApplyAdvanced",
++      "_meta": {
++        "title": "Control 3"
++      },
++      "inputs": {
++        "positive": ["152", 0],
++        "negative": ["152", 1],
++        "control_net": ["143", 0],
++        "image": ["133", 0],
++        "strength": 1.0,
++        "start_percent": 0.0,
++        "end_percent": 1.0
++      }
++    }
++  }
++}
+diff --git a/resources/comfy-templates/regional.json b/resources/comfy-templates/regional.json
+new file mode 100644
+index 0000000..d5ff5df
+--- /dev/null
++++ b/resources/comfy-templates/regional.json
+@@ -0,0 +1,768 @@
++{
++  "id": "regional",
++  "label": "Regional prompting",
++  "description": "A scene prompt plus up to four masked regions, each with its own prompt \u2014 a two-character scene without the two characters bleeding into each other.",
++  "requires": [
++    "CheckpointLoaderSimple",
++    "CLIPTextEncode",
++    "EmptyLatentImage",
++    "KSampler",
++    "VAEDecode",
++    "SaveImage",
++    "LoadImageMask",
++    "ConditioningSetMask",
++    "ConditioningCombine"
++  ],
++  "bindings": {
++    "checkpoint": {
++      "title": "Checkpoint",
++      "node": "1",
++      "input": "ckpt_name",
++      "kind": "choice"
++    },
++    "prompt": {
++      "title": "Positive",
++      "node": "2",
++      "input": "text",
++      "kind": "text"
++    },
++    "negative": {
++      "title": "Negative",
++      "node": "3",
++      "input": "text",
++      "kind": "text"
++    },
++    "width": {
++      "title": "Latent",
++      "node": "4",
++      "input": "width",
++      "kind": "number"
++    },
++    "height": {
++      "title": "Latent",
++      "node": "4",
++      "input": "height",
++      "kind": "number"
++    },
++    "batchSize": {
++      "title": "Latent",
++      "node": "4",
++      "input": "batch_size",
++      "kind": "number"
++    },
++    "seed": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "seed",
++      "kind": "seed"
++    },
++    "steps": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "steps",
++      "kind": "number"
++    },
++    "cfg": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "cfg",
++      "kind": "number"
++    },
++    "samplerName": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "sampler_name",
++      "kind": "choice"
++    },
++    "scheduler": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "scheduler",
++      "kind": "choice"
++    },
++    "denoise": {
++      "title": "Sampler",
++      "node": "5",
++      "input": "denoise",
++      "kind": "number"
++    },
++    "filenamePrefix": {
++      "title": "Output",
++      "node": "7",
++      "input": "filename_prefix",
++      "kind": "text"
++    },
++    "lora.1.name": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.1.model": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.1.clip": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.2.name": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.2.model": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.2.clip": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.3.name": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.3.model": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.3.clip": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.4.name": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.4.model": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.4.clip": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "region.1.prompt": {
++      "title": "Region 1 Prompt",
++      "node": "40",
++      "input": "text",
++      "kind": "text"
++    },
++    "region.1.mask": {
++      "title": "Region 1 Mask",
++      "node": "30",
++      "input": "image",
++      "kind": "image"
++    },
++    "region.1.strength": {
++      "title": "Region 1 Mask Apply",
++      "node": "50",
++      "input": "strength",
++      "kind": "number"
++    },
++    "region.2.prompt": {
++      "title": "Region 2 Prompt",
++      "node": "41",
++      "input": "text",
++      "kind": "text"
++    },
++    "region.2.mask": {
++      "title": "Region 2 Mask",
++      "node": "31",
++      "input": "image",
++      "kind": "image"
++    },
++    "region.2.strength": {
++      "title": "Region 2 Mask Apply",
++      "node": "51",
++      "input": "strength",
++      "kind": "number"
++    },
++    "region.3.prompt": {
++      "title": "Region 3 Prompt",
++      "node": "42",
++      "input": "text",
++      "kind": "text"
++    },
++    "region.3.mask": {
++      "title": "Region 3 Mask",
++      "node": "32",
++      "input": "image",
++      "kind": "image"
++    },
++    "region.3.strength": {
++      "title": "Region 3 Mask Apply",
++      "node": "52",
++      "input": "strength",
++      "kind": "number"
++    },
++    "region.4.prompt": {
++      "title": "Region 4 Prompt",
++      "node": "43",
++      "input": "text",
++      "kind": "text"
++    },
++    "region.4.mask": {
++      "title": "Region 4 Mask",
++      "node": "33",
++      "input": "image",
++      "kind": "image"
++    },
++    "region.4.strength": {
++      "title": "Region 4 Mask Apply",
++      "node": "53",
++      "input": "strength",
++      "kind": "number"
++    }
++  },
++  "slots": {
++    "lora": [
++      {
++        "remove": [
++          "10"
++        ],
++        "passthrough": [
++          {
++            "node": "10",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "10",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "11"
++        ],
++        "passthrough": [
++          {
++            "node": "11",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "11",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "12"
++        ],
++        "passthrough": [
++          {
++            "node": "12",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "12",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "13"
++        ],
++        "passthrough": [
++          {
++            "node": "13",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "13",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      }
++    ],
++    "guidance": [
++      {
++        "remove": [
++          "20"
++        ],
++        "passthrough": [
++          {
++            "node": "20",
++            "output": 0,
++            "input": "model"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "21"
++        ],
++        "passthrough": [
++          {
++            "node": "21",
++            "output": 0,
++            "input": "model"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "22"
++        ],
++        "passthrough": [
++          {
++            "node": "22",
++            "output": 0,
++            "input": "model"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "23"
++        ],
++        "passthrough": [
++          {
++            "node": "23",
++            "output": 0,
++            "input": "model"
++          }
++        ]
++      }
++    ],
++    "region": [
++      {
++        "remove": [
++          "30",
++          "40",
++          "50",
++          "60"
++        ],
++        "passthrough": [
++          {
++            "node": "60",
++            "output": 0,
++            "input": "conditioning_1"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "31",
++          "41",
++          "51",
++          "61"
++        ],
++        "passthrough": [
++          {
++            "node": "61",
++            "output": 0,
++            "input": "conditioning_1"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "32",
++          "42",
++          "52",
++          "62"
++        ],
++        "passthrough": [
++          {
++            "node": "62",
++            "output": 0,
++            "input": "conditioning_1"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "33",
++          "43",
++          "53",
++          "63"
++        ],
++        "passthrough": [
++          {
++            "node": "63",
++            "output": 0,
++            "input": "conditioning_1"
++          }
++        ]
++      }
++    ]
++  },
++  "graph": {
++    "1": {
++      "class_type": "CheckpointLoaderSimple",
++      "_meta": {
++        "title": "Checkpoint"
++      },
++      "inputs": {
++        "ckpt_name": ""
++      }
++    },
++    "10": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 1"
++      },
++      "inputs": {
++        "model": ["1", 0],
++        "clip": ["1", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "11": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 2"
++      },
++      "inputs": {
++        "model": ["10", 0],
++        "clip": ["10", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "12": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 3"
++      },
++      "inputs": {
++        "model": ["11", 0],
++        "clip": ["11", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "13": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 4"
++      },
++      "inputs": {
++        "model": ["12", 0],
++        "clip": ["12", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "20": {
++      "class_type": "PerturbedAttentionGuidance",
++      "_meta": {
++        "title": "Guidance PAG"
++      },
++      "inputs": {
++        "model": ["13", 0],
++        "scale": 3.0
++      }
++    },
++    "21": {
++      "class_type": "SelfAttentionGuidance",
++      "_meta": {
++        "title": "Guidance SAG"
++      },
++      "inputs": {
++        "model": ["20", 0],
++        "scale": 0.5,
++        "blur_sigma": 2.0
++      }
++    },
++    "22": {
++      "class_type": "FreeU_V2",
++      "_meta": {
++        "title": "Guidance FreeU"
++      },
++      "inputs": {
++        "model": ["21", 0],
++        "b1": 1.3,
++        "b2": 1.4,
++        "s1": 0.9,
++        "s2": 0.2
++      }
++    },
++    "23": {
++      "class_type": "RescaleCFG",
++      "_meta": {
++        "title": "Guidance RescaleCFG"
++      },
++      "inputs": {
++        "model": ["22", 0],
++        "multiplier": 0.7
++      }
++    },
++    "2": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Positive"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "3": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Negative"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "4": {
++      "class_type": "EmptyLatentImage",
++      "_meta": {
++        "title": "Latent"
++      },
++      "inputs": {
++        "width": 1024,
++        "height": 1024,
++        "batch_size": 1
++      }
++    },
++    "5": {
++      "class_type": "KSampler",
++      "_meta": {
++        "title": "Sampler"
++      },
++      "inputs": {
++        "model": ["23", 0],
++        "seed": 0,
++        "steps": 25,
++        "cfg": 6.0,
++        "sampler_name": "euler",
++        "scheduler": "normal",
++        "positive": ["63", 0],
++        "negative": ["3", 0],
++        "latent_image": ["4", 0],
++        "denoise": 1.0
++      }
++    },
++    "6": {
++      "class_type": "VAEDecode",
++      "_meta": {
++        "title": "Decode"
++      },
++      "inputs": {
++        "samples": ["5", 0],
++        "vae": ["1", 2]
++      }
++    },
++    "7": {
++      "class_type": "SaveImage",
++      "_meta": {
++        "title": "Output"
++      },
++      "inputs": {
++        "images": ["6", 0],
++        "filename_prefix": "WritersHoard/wh"
++      }
++    },
++    "30": {
++      "class_type": "LoadImageMask",
++      "_meta": {
++        "title": "Region 1 Mask"
++      },
++      "inputs": {
++        "image": "",
++        "channel": "red"
++      }
++    },
++    "40": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Region 1 Prompt"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "50": {
++      "class_type": "ConditioningSetMask",
++      "_meta": {
++        "title": "Region 1 Mask Apply"
++      },
++      "inputs": {
++        "conditioning": ["40", 0],
++        "mask": ["30", 0],
++        "strength": 1.0,
++        "set_cond_area": "default"
++      }
++    },
++    "60": {
++      "class_type": "ConditioningCombine",
++      "_meta": {
++        "title": "Region 1 Combine"
++      },
++      "inputs": {
++        "conditioning_1": ["2", 0],
++        "conditioning_2": ["50", 0]
++      }
++    },
++    "31": {
++      "class_type": "LoadImageMask",
++      "_meta": {
++        "title": "Region 2 Mask"
++      },
++      "inputs": {
++        "image": "",
++        "channel": "red"
++      }
++    },
++    "41": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Region 2 Prompt"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "51": {
++      "class_type": "ConditioningSetMask",
++      "_meta": {
++        "title": "Region 2 Mask Apply"
++      },
++      "inputs": {
++        "conditioning": ["41", 0],
++        "mask": ["31", 0],
++        "strength": 1.0,
++        "set_cond_area": "default"
++      }
++    },
++    "61": {
++      "class_type": "ConditioningCombine",
++      "_meta": {
++        "title": "Region 2 Combine"
++      },
++      "inputs": {
++        "conditioning_1": ["60", 0],
++        "conditioning_2": ["51", 0]
++      }
++    },
++    "32": {
++      "class_type": "LoadImageMask",
++      "_meta": {
++        "title": "Region 3 Mask"
++      },
++      "inputs": {
++        "image": "",
++        "channel": "red"
++      }
++    },
++    "42": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Region 3 Prompt"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "52": {
++      "class_type": "ConditioningSetMask",
++      "_meta": {
++        "title": "Region 3 Mask Apply"
++      },
++      "inputs": {
++        "conditioning": ["42", 0],
++        "mask": ["32", 0],
++        "strength": 1.0,
++        "set_cond_area": "default"
++      }
++    },
++    "62": {
++      "class_type": "ConditioningCombine",
++      "_meta": {
++        "title": "Region 3 Combine"
++      },
++      "inputs": {
++        "conditioning_1": ["61", 0],
++        "conditioning_2": ["52", 0]
++      }
++    },
++    "33": {
++      "class_type": "LoadImageMask",
++      "_meta": {
++        "title": "Region 4 Mask"
++      },
++      "inputs": {
++        "image": "",
++        "channel": "red"
++      }
++    },
++    "43": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Region 4 Prompt"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "53": {
++      "class_type": "ConditioningSetMask",
++      "_meta": {
++        "title": "Region 4 Mask Apply"
++      },
++      "inputs": {
++        "conditioning": ["43", 0],
++        "mask": ["33", 0],
++        "strength": 1.0,
++        "set_cond_area": "default"
++      }
++    },
++    "63": {
++      "class_type": "ConditioningCombine",
++      "_meta": {
++        "title": "Region 4 Combine"
++      },
++      "inputs": {
++        "conditioning_1": ["62", 0],
++        "conditioning_2": ["53", 0]
++      }
++    }
++  }
++}
+diff --git a/resources/comfy-templates/txt2img.json b/resources/comfy-templates/txt2img.json
+new file mode 100644
+index 0000000..ac1b1f0
+--- /dev/null
++++ b/resources/comfy-templates/txt2img.json
+@@ -0,0 +1,64 @@
++{
++  "id": "txt2img",
++  "label": "Text to image",
++  "description": "Checkpoint, up to four LoRAs, one sampler pass. The baseline every other template is built from.",
++  "requires": ["CheckpointLoaderSimple", "CLIPTextEncode", "EmptyLatentImage", "KSampler", "VAEDecode", "SaveImage"],
++  "bindings": {
++    "checkpoint": { "title": "Checkpoint", "node": "1", "input": "ckpt_name", "kind": "choice" },
++    "prompt": { "title": "Positive", "node": "2", "input": "text", "kind": "text" },
++    "negative": { "title": "Negative", "node": "3", "input": "text", "kind": "text" },
++    "width": { "title": "Latent", "node": "4", "input": "width", "kind": "number" },
++    "height": { "title": "Latent", "node": "4", "input": "height", "kind": "number" },
++    "batchSize": { "title": "Latent", "node": "4", "input": "batch_size", "kind": "number" },
++    "seed": { "title": "Sampler", "node": "5", "input": "seed", "kind": "seed" },
++    "steps": { "title": "Sampler", "node": "5", "input": "steps", "kind": "number" },
++    "cfg": { "title": "Sampler", "node": "5", "input": "cfg", "kind": "number" },
++    "samplerName": { "title": "Sampler", "node": "5", "input": "sampler_name", "kind": "choice" },
++    "scheduler": { "title": "Sampler", "node": "5", "input": "scheduler", "kind": "choice" },
++    "denoise": { "title": "Sampler", "node": "5", "input": "denoise", "kind": "number" },
++    "filenamePrefix": { "title": "Output", "node": "7", "input": "filename_prefix", "kind": "text" },
++    "lora.1.name": { "title": "LoRA 1", "node": "10", "input": "lora_name", "kind": "choice" },
++    "lora.1.model": { "title": "LoRA 1", "node": "10", "input": "strength_model", "kind": "number" },
++    "lora.1.clip": { "title": "LoRA 1", "node": "10", "input": "strength_clip", "kind": "number" },
++    "lora.2.name": { "title": "LoRA 2", "node": "11", "input": "lora_name", "kind": "choice" },
++    "lora.2.model": { "title": "LoRA 2", "node": "11", "input": "strength_model", "kind": "number" },
++    "lora.2.clip": { "title": "LoRA 2", "node": "11", "input": "strength_clip", "kind": "number" },
++    "lora.3.name": { "title": "LoRA 3", "node": "12", "input": "lora_name", "kind": "choice" },
++    "lora.3.model": { "title": "LoRA 3", "node": "12", "input": "strength_model", "kind": "number" },
++    "lora.3.clip": { "title": "LoRA 3", "node": "12", "input": "strength_clip", "kind": "number" },
++    "lora.4.name": { "title": "LoRA 4", "node": "13", "input": "lora_name", "kind": "choice" },
++    "lora.4.model": { "title": "LoRA 4", "node": "13", "input": "strength_model", "kind": "number" },
++    "lora.4.clip": { "title": "LoRA 4", "node": "13", "input": "strength_clip", "kind": "number" }
++  },
++  "slots": {
++    "lora": [
++      { "remove": ["10"], "passthrough": [{ "node": "10", "output": 0, "input": "model" }, { "node": "10", "output": 1, "input": "clip" }] },
++      { "remove": ["11"], "passthrough": [{ "node": "11", "output": 0, "input": "model" }, { "node": "11", "output": 1, "input": "clip" }] },
++      { "remove": ["12"], "passthrough": [{ "node": "12", "output": 0, "input": "model" }, { "node": "12", "output": 1, "input": "clip" }] },
++      { "remove": ["13"], "passthrough": [{ "node": "13", "output": 0, "input": "model" }, { "node": "13", "output": 1, "input": "clip" }] }
++    ],
++    "guidance": [
++      { "remove": ["20"], "passthrough": [{ "node": "20", "output": 0, "input": "model" }] },
++      { "remove": ["21"], "passthrough": [{ "node": "21", "output": 0, "input": "model" }] },
++      { "remove": ["22"], "passthrough": [{ "node": "22", "output": 0, "input": "model" }] },
++      { "remove": ["23"], "passthrough": [{ "node": "23", "output": 0, "input": "model" }] }
++    ]
++  },
++  "graph": {
++    "1": { "class_type": "CheckpointLoaderSimple", "_meta": { "title": "Checkpoint" }, "inputs": { "ckpt_name": "" } },
++    "10": { "class_type": "LoraLoader", "_meta": { "title": "LoRA 1" }, "inputs": { "model": ["1", 0], "clip": ["1", 1], "lora_name": "", "strength_model": 1.0, "strength_clip": 1.0 } },
++    "11": { "class_type": "LoraLoader", "_meta": { "title": "LoRA 2" }, "inputs": { "model": ["10", 0], "clip": ["10", 1], "lora_name": "", "strength_model": 1.0, "strength_clip": 1.0 } },
++    "12": { "class_type": "LoraLoader", "_meta": { "title": "LoRA 3" }, "inputs": { "model": ["11", 0], "clip": ["11", 1], "lora_name": "", "strength_model": 1.0, "strength_clip": 1.0 } },
++    "13": { "class_type": "LoraLoader", "_meta": { "title": "LoRA 4" }, "inputs": { "model": ["12", 0], "clip": ["12", 1], "lora_name": "", "strength_model": 1.0, "strength_clip": 1.0 } },
++    "20": { "class_type": "PerturbedAttentionGuidance", "_meta": { "title": "Guidance PAG" }, "inputs": { "model": ["13", 0], "scale": 3.0 } },
++    "21": { "class_type": "SelfAttentionGuidance", "_meta": { "title": "Guidance SAG" }, "inputs": { "model": ["20", 0], "scale": 0.5, "blur_sigma": 2.0 } },
++    "22": { "class_type": "FreeU_V2", "_meta": { "title": "Guidance FreeU" }, "inputs": { "model": ["21", 0], "b1": 1.3, "b2": 1.4, "s1": 0.9, "s2": 0.2 } },
++    "23": { "class_type": "RescaleCFG", "_meta": { "title": "Guidance RescaleCFG" }, "inputs": { "model": ["22", 0], "multiplier": 0.7 } },
++    "2": { "class_type": "CLIPTextEncode", "_meta": { "title": "Positive" }, "inputs": { "text": "", "clip": ["13", 1] } },
++    "3": { "class_type": "CLIPTextEncode", "_meta": { "title": "Negative" }, "inputs": { "text": "", "clip": ["13", 1] } },
++    "4": { "class_type": "EmptyLatentImage", "_meta": { "title": "Latent" }, "inputs": { "width": 1024, "height": 1024, "batch_size": 1 } },
++    "5": { "class_type": "KSampler", "_meta": { "title": "Sampler" }, "inputs": { "model": ["23", 0], "seed": 0, "steps": 25, "cfg": 6.0, "sampler_name": "euler", "scheduler": "normal", "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["4", 0], "denoise": 1.0 } },
++    "6": { "class_type": "VAEDecode", "_meta": { "title": "Decode" }, "inputs": { "samples": ["5", 0], "vae": ["1", 2] } },
++    "7": { "class_type": "SaveImage", "_meta": { "title": "Output" }, "inputs": { "images": ["6", 0], "filename_prefix": "WritersHoard/wh" } }
++  }
++}
+diff --git a/resources/comfy-templates/ultimate-upscale.json b/resources/comfy-templates/ultimate-upscale.json
+new file mode 100644
+index 0000000..3c1eca4
+--- /dev/null
++++ b/resources/comfy-templates/ultimate-upscale.json
+@@ -0,0 +1,394 @@
++{
++  "id": "ultimate-upscale",
++  "label": "Ultimate SD Upscale",
++  "description": "Tiled image-to-image upscaling: chess tiling, low denoise and seam fixing, so a finished illustration gains resolution without gaining a second face.",
++  "requires": [
++    "CheckpointLoaderSimple",
++    "CLIPTextEncode",
++    "LoadImage",
++    "SaveImage",
++    "UpscaleModelLoader",
++    "UltimateSDUpscale"
++  ],
++  "bindings": {
++    "checkpoint": {
++      "title": "Checkpoint",
++      "node": "1",
++      "input": "ckpt_name",
++      "kind": "choice"
++    },
++    "prompt": {
++      "title": "Positive",
++      "node": "2",
++      "input": "text",
++      "kind": "text"
++    },
++    "negative": {
++      "title": "Negative",
++      "node": "3",
++      "input": "text",
++      "kind": "text"
++    },
++    "filenamePrefix": {
++      "title": "Output",
++      "node": "7",
++      "input": "filename_prefix",
++      "kind": "text"
++    },
++    "lora.1.name": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.1.model": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.1.clip": {
++      "title": "LoRA 1",
++      "node": "10",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.2.name": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.2.model": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.2.clip": {
++      "title": "LoRA 2",
++      "node": "11",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.3.name": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.3.model": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.3.clip": {
++      "title": "LoRA 3",
++      "node": "12",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "lora.4.name": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "lora_name",
++      "kind": "choice"
++    },
++    "lora.4.model": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "strength_model",
++      "kind": "number"
++    },
++    "lora.4.clip": {
++      "title": "LoRA 4",
++      "node": "13",
++      "input": "strength_clip",
++      "kind": "number"
++    },
++    "sourceImage": {
++      "title": "Source",
++      "node": "70",
++      "input": "image",
++      "kind": "image"
++    },
++    "upscaleModel": {
++      "title": "Upscale Model",
++      "node": "90",
++      "input": "model_name",
++      "kind": "choice"
++    },
++    "upscaleBy": {
++      "title": "Upscale",
++      "node": "91",
++      "input": "upscale_by",
++      "kind": "number"
++    },
++    "seed": {
++      "title": "Upscale",
++      "node": "91",
++      "input": "seed",
++      "kind": "seed"
++    },
++    "steps": {
++      "title": "Upscale",
++      "node": "91",
++      "input": "steps",
++      "kind": "number"
++    },
++    "cfg": {
++      "title": "Upscale",
++      "node": "91",
++      "input": "cfg",
++      "kind": "number"
++    },
++    "samplerName": {
++      "title": "Upscale",
++      "node": "91",
++      "input": "sampler_name",
++      "kind": "choice"
++    },
++    "scheduler": {
++      "title": "Upscale",
++      "node": "91",
++      "input": "scheduler",
++      "kind": "choice"
++    },
++    "denoise": {
++      "title": "Upscale",
++      "node": "91",
++      "input": "denoise",
++      "kind": "number"
++    },
++    "tileWidth": {
++      "title": "Upscale",
++      "node": "91",
++      "input": "tile_width",
++      "kind": "number"
++    },
++    "tileHeight": {
++      "title": "Upscale",
++      "node": "91",
++      "input": "tile_height",
++      "kind": "number"
++    }
++  },
++  "slots": {
++    "lora": [
++      {
++        "remove": [
++          "10"
++        ],
++        "passthrough": [
++          {
++            "node": "10",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "10",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "11"
++        ],
++        "passthrough": [
++          {
++            "node": "11",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "11",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "12"
++        ],
++        "passthrough": [
++          {
++            "node": "12",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "12",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      },
++      {
++        "remove": [
++          "13"
++        ],
++        "passthrough": [
++          {
++            "node": "13",
++            "output": 0,
++            "input": "model"
++          },
++          {
++            "node": "13",
++            "output": 1,
++            "input": "clip"
++          }
++        ]
++      }
++    ]
++  },
++  "graph": {
++    "1": {
++      "class_type": "CheckpointLoaderSimple",
++      "_meta": {
++        "title": "Checkpoint"
++      },
++      "inputs": {
++        "ckpt_name": ""
++      }
++    },
++    "10": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 1"
++      },
++      "inputs": {
++        "model": ["1", 0],
++        "clip": ["1", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "11": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 2"
++      },
++      "inputs": {
++        "model": ["10", 0],
++        "clip": ["10", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "12": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 3"
++      },
++      "inputs": {
++        "model": ["11", 0],
++        "clip": ["11", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "13": {
++      "class_type": "LoraLoader",
++      "_meta": {
++        "title": "LoRA 4"
++      },
++      "inputs": {
++        "model": ["12", 0],
++        "clip": ["12", 1],
++        "lora_name": "",
++        "strength_model": 1.0,
++        "strength_clip": 1.0
++      }
++    },
++    "2": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Positive"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "3": {
++      "class_type": "CLIPTextEncode",
++      "_meta": {
++        "title": "Negative"
++      },
++      "inputs": {
++        "text": "",
++        "clip": ["13", 1]
++      }
++    },
++    "7": {
++      "class_type": "SaveImage",
++      "_meta": {
++        "title": "Output"
++      },
++      "inputs": {
++        "images": ["91", 0],
++        "filename_prefix": "WritersHoard/wh"
++      }
++    },
++    "70": {
++      "class_type": "LoadImage",
++      "_meta": {
++        "title": "Source"
++      },
++      "inputs": {
++        "image": ""
++      }
++    },
++    "90": {
++      "class_type": "UpscaleModelLoader",
++      "_meta": {
++        "title": "Upscale Model"
++      },
++      "inputs": {
++        "model_name": ""
++      }
++    },
++    "91": {
++      "class_type": "UltimateSDUpscale",
++      "_meta": {
++        "title": "Upscale"
++      },
++      "inputs": {
++        "image": ["70", 0],
++        "model": ["13", 0],
++        "positive": ["2", 0],
++        "negative": ["3", 0],
++        "vae": ["1", 2],
++        "upscale_by": 2.0,
++        "seed": 0,
++        "steps": 20,
++        "cfg": 6.0,
++        "sampler_name": "euler",
++        "scheduler": "normal",
++        "denoise": 0.2,
++        "upscale_model": ["90", 0],
++        "mode_type": "Chess",
++        "tile_width": 512,
++        "tile_height": 512,
++        "mask_blur": 8,
++        "tile_padding": 32,
++        "seam_fix_mode": "Half Tile",
++        "seam_fix_denoise": 1.0,
++        "seam_fix_width": 64,
++        "seam_fix_mask_blur": 8,
++        "seam_fix_padding": 16,
++        "force_uniform_tiles": true,
++        "tiled_decode": false,
++        "batch_size": 1
++      }
++    }
++  }
++}
+-- 
+2.43.0
+

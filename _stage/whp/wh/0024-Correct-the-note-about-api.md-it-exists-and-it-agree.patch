@@ -1,0 +1,56 @@
+From 125c441fc0c8661ab7f7200e66b82d32956d07ff Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 02:35:13 +0000
+Subject: [PATCH 24/36] Correct the note about api.md: it exists, and it agrees
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+I claimed examples/server/api.md was absent at the pinned commit. It is
+there, and on every field this contract touches it says the same thing
+the parser does — a third independent confirmation rather than a
+contradiction.
+
+It is still not the authority, and the reason is visible in it:
+sample_params.extra_sample_args is read by from_json_str and documented
+nowhere in api.md. The docs are incomplete rather than wrong, which is
+the failure mode that quietly costs a feature instead of causing a bug.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RmpuZqpQrFjas3Ajv22pKb
+---
+ tasks/todo.md | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/tasks/todo.md b/tasks/todo.md
+index e8de9a7..81026e6 100644
+--- a/tasks/todo.md
++++ b/tasks/todo.md
+@@ -64,9 +64,7 @@ Same pinned runtime: stable-diffusion.cpp `master-709-92a3b73`
+ 
+ ## Step 0 — re-establish the field names from the parser, not the docs
+ 
+-`examples/server/api.md` and `docs/api.md` do NOT exist at this commit, so the
+-earlier pass's citation of `api.md` could not have been read there. Everything
+-below was taken from source fetched at the pinned SHA:
++Everything below was taken from source fetched at the pinned SHA:
+ 
+ - `examples/common/common.cpp` — `SDGenerationParams::from_json_str`, the
+   parser that decides which keys have an effect. THE authority.
+@@ -80,6 +78,13 @@ below was taken from source fetched at the pinned SHA:
+   key=value grammar and the APG keys.
+ - `thirdparty/stb_image_write.h` — the PNG `tEXt` keyword.
+ 
++`examples/server/api.md` exists at this commit and agrees with the parser on
++every field this contract touches. It is still not the authority, and the
++reason is visible in it: `sample_params.extra_sample_args` is read by
++`from_json_str` and documented nowhere in `api.md`. The docs are incomplete
++rather than wrong, which is exactly the failure mode that costs a feature
++rather than causing a bug — so the parser stays the source of truth.
++
+ ## Plan
+ 
+ - [x] S1-1 Widen the payload to everything `from_json_str` reads.
+-- 
+2.43.0
+

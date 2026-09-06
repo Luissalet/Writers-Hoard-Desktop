@@ -1,0 +1,230 @@
+From 7e6326d2df1eb471240748f1f7f8933797c5e54d Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 01:11:18 +0000
+Subject: [PATCH 12/36] Iterate puts back what was typed, not what was sent
+
+The resolved prompt cannot be re-entered into the composer: by the time it
+is written down, @Elena has already become her trigger word and her
+description, so generating from that text would apply neither the LoRA nor
+the portrait a second time. The recipe now carries the three slots as the
+writer typed them, and older rows fall back to the prompt as before.
+
+The reference editor's text fields are debounced too. They were writing to
+Dexie and reloading the whole cast on every keystroke, which is the exact
+shape of the dropped-character bug useDebouncedField was written for.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RmpuZqpQrFjas3Ajv22pKb
+---
+ .../image-studio/ImageStudioEngine.tsx        |  9 ++++--
+ .../components/ReferenceEditor.tsx            | 31 +++++++++++++------
+ src/engines/image-studio/operations.ts        |  4 +++
+ src/services/visualRef/recipe.ts              | 18 ++++++++++-
+ tests/visual-ref.ts                           | 10 ++++++
+ 5 files changed, 58 insertions(+), 14 deletions(-)
+
+diff --git a/src/engines/image-studio/ImageStudioEngine.tsx b/src/engines/image-studio/ImageStudioEngine.tsx
+index 5104b51..9507290 100644
+--- a/src/engines/image-studio/ImageStudioEngine.tsx
++++ b/src/engines/image-studio/ImageStudioEngine.tsx
+@@ -265,6 +265,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+       referenceImages: references.identity,
+       controlNets: references.control,
+       visualRefIds: mentions.refs.map((row) => row.id),
++      composer: { subjects, scene, style },
+     };
+     for (const seed of seeds) {
+       const request = { ...options, seed };
+@@ -320,9 +321,11 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+           .replace('{current}', current),
+       );
+     }
+-    setScene('');
+-    setStyle('');
+-    setSubjects(recipe.prompt);
++    // The slots as they were typed when the recipe carries them; the resolved
++    // prompt only as a fallback for rows made before the studio recorded them.
++    setSubjects(recipe.composer?.subjects ?? recipe.prompt);
++    setScene(recipe.composer?.scene ?? '');
++    setStyle(recipe.composer?.style ?? '');
+     setParameters((current) => ({
+       ...current,
+       steps: recipe.steps === undefined ? '' : String(recipe.steps),
+diff --git a/src/engines/image-studio/components/ReferenceEditor.tsx b/src/engines/image-studio/components/ReferenceEditor.tsx
+index d5d8d21..5e92b2a 100644
+--- a/src/engines/image-studio/components/ReferenceEditor.tsx
++++ b/src/engines/image-studio/components/ReferenceEditor.tsx
+@@ -22,6 +22,7 @@ import {
+   useAppearanceWritings,
+   type PlaceAppearance,
+ } from '@/engines/real-atlas/appearances';
++import { useDebouncedField } from '@/engines/_shared';
+ import { makeThumbnail } from '../operations';
+ import {
+   addControlImage,
+@@ -51,6 +52,12 @@ export default function ReferenceEditor({
+   projectId, visual, entries, onChange, onReload, onExportDataset,
+ }: ReferenceEditorProps) {
+   const { t } = useTranslation();
++  // Debounced, not written per keystroke: a Dexie write plus a full reload on
++  // every letter reinstates the older string mid-word and moves the caret.
++  const name = useDebouncedField(visual.name, (next) => onChange({ name: next }));
++  const fragment = useDebouncedField(visual.promptFragment ?? '', (next) => onChange({ promptFragment: next }));
++  const negative = useDebouncedField(visual.negativeFragment ?? '', (next) => onChange({ negativeFragment: next }));
++  const trigger = useDebouncedField(visual.triggerWord ?? '', (next) => onChange({ triggerWord: next }));
+   const [images, setImages] = useState<InspirationImage[]>([]);
+   const [picking, setPicking] = useState(false);
+   const [galleryRows, setGalleryRows] = useState<InspirationImage[]>([]);
+@@ -112,8 +119,9 @@ export default function ReferenceEditor({
+         <label className="block">
+           <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.name')}</span>
+           <input
+-            value={visual.name}
+-            onChange={(event) => onChange({ name: event.target.value })}
++            value={name.value}
++            onChange={(event) => name.onChange(event.target.value)}
++            onBlur={name.onBlur}
+             className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
+           />
+         </label>
+@@ -164,16 +172,17 @@ export default function ReferenceEditor({
+       <label className="block">
+         <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.fragment')}</span>
+         <textarea
+-          value={visual.promptFragment ?? ''}
+-          onChange={(event) => onChange({ promptFragment: event.target.value })}
++          value={fragment.value}
++          onChange={(event) => fragment.onChange(event.target.value)}
++          onBlur={fragment.onBlur}
+           rows={3}
+           placeholder={t(`visualRef.editor.fragmentPlaceholder.${visual.dialect}`)}
+           className="w-full resize-y px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
+         />
+-        {entry && !visual.promptFragment && (
++        {entry && !fragment.value && (
+           <button
+             type="button"
+-            onClick={() => onChange({ promptFragment: stripHtml(entry.fields.physicalDescription ?? entry.content).slice(0, 400) })}
++            onClick={() => fragment.onChange(stripHtml(entry.fields.physicalDescription ?? entry.content).slice(0, 400))}
+             className="mt-1 inline-flex items-center gap-1 text-[10px] text-accent-gold hover:underline"
+           >
+             <Wand2 size={10} />
+@@ -186,16 +195,18 @@ export default function ReferenceEditor({
+         <label className="block">
+           <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.negative')}</span>
+           <input
+-            value={visual.negativeFragment ?? ''}
+-            onChange={(event) => onChange({ negativeFragment: event.target.value })}
++            value={negative.value}
++            onChange={(event) => negative.onChange(event.target.value)}
++            onBlur={negative.onBlur}
+             className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
+           />
+         </label>
+         <label className="block">
+           <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.trigger')}</span>
+           <input
+-            value={visual.triggerWord ?? ''}
+-            onChange={(event) => onChange({ triggerWord: event.target.value })}
++            value={trigger.value}
++            onChange={(event) => trigger.onChange(event.target.value)}
++            onBlur={trigger.onBlur}
+             placeholder={t('visualRef.editor.triggerPlaceholder')}
+             className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] font-mono text-text-primary outline-none focus:border-accent-gold"
+           />
+diff --git a/src/engines/image-studio/operations.ts b/src/engines/image-studio/operations.ts
+index 71fa1ab..98fb5f2 100644
+--- a/src/engines/image-studio/operations.ts
++++ b/src/engines/image-studio/operations.ts
+@@ -24,6 +24,7 @@ interface WidenedGenerationInfo {
+   scheduler?: string;
+   loras?: { name: string; weight: number }[];
+   visualRefIds?: string[];
++  composer?: { subjects: string; scene: string; style: string };
+ }
+ 
+ /** Common aspect presets, all multiples of 64 as diffusion models prefer. */
+@@ -108,6 +109,8 @@ export interface GenerateAndSaveOptions {
+   controlNets?: { image: string; weight: number }[];
+   /** The visual references this generation was resolved from, for the recipe. */
+   visualRefIds?: string[];
++  /** The composer's slots as typed, so «iterate on this» can put them back. */
++  composer?: { subjects: string; scene: string; style: string };
+   collectionId?: string;
+   tags?: string[];
+ }
+@@ -203,6 +206,7 @@ export async function saveGenerated(
+       scheduler: options.scheduler,
+       loras: options.loras?.length ? options.loras.map((lora) => ({ name: lora.name, weight: lora.weight })) : undefined,
+       visualRefIds: options.visualRefIds?.length ? options.visualRefIds : undefined,
++      composer: options.composer,
+     };
+     const row: InspirationImage = {
+       id: generateId('img'),
+diff --git a/src/services/visualRef/recipe.ts b/src/services/visualRef/recipe.ts
+index 767c9d8..7e4ed67 100644
+--- a/src/services/visualRef/recipe.ts
++++ b/src/services/visualRef/recipe.ts
+@@ -30,6 +30,8 @@ interface WidenedGenerationInfo {
+   loras?: { name: string; weight: number }[];
+   /** The visual refs that were resolved into this generation. */
+   visualRefIds?: string[];
++  /** The composer's own slots, so «iterate on this» can put them back. */
++  composer?: { subjects: string; scene: string; style: string };
+ }
+ 
+ export interface Recipe {
+@@ -47,6 +49,13 @@ export interface Recipe {
+   scheduler?: string;
+   loras: { name: string; weight: number }[];
+   visualRefIds: string[];
++  /**
++   * What the writer actually typed, slot by slot. The resolved prompt alone
++   * cannot be put back in the composer: `@Elena` has already become her
++   * trigger word and her description by then, and re-generating from that text
++   * would apply neither the LoRA nor the portrait a second time.
++   */
++  composer?: { subjects: string; scene: string; style: string };
+   createdAt: number;
+ }
+ 
+@@ -83,7 +92,14 @@ export function readRecipe(info: ImageGenerationInfo): Recipe {
+     visualRefIds: Array.isArray(wide.visualRefIds)
+       ? wide.visualRefIds.filter((id): id is string => typeof id === 'string')
+       : [],
+-  createdAt: info.createdAt,
++    composer: wide.composer && typeof wide.composer === 'object'
++      ? {
++        subjects: String(wide.composer.subjects ?? ''),
++        scene: String(wide.composer.scene ?? ''),
++        style: String(wide.composer.style ?? ''),
++      }
++      : undefined,
++    createdAt: info.createdAt,
+   };
+ }
+ 
+diff --git a/tests/visual-ref.ts b/tests/visual-ref.ts
+index 9908d35..629ac33 100644
+--- a/tests/visual-ref.ts
++++ b/tests/visual-ref.ts
+@@ -292,6 +292,16 @@ export function testVisualRefRecipes(): void {
+     cfg: 7, sampler: 'euler', loras: [{ name: 'elena-v3', weight: 0.8 }],
+   } as Parameters<typeof readRecipe>[0]);
+   assert(widened.cfg === 7 && widened.sampler === 'euler', 'the widened fields were not read');
++  // The slots as typed, which is what «iterate on this» puts back: the
++  // resolved prompt cannot be re-entered, because `@Elena` has already become
++  // her trigger word and her description by the time it is written down.
++  const withSlots = readRecipe({
++    prompt: 'elena_ohwx, a tall woman, in the rain', connectionId: 'c', modelId: 'm',
++    width: 512, height: 512, createdAt: 1,
++    composer: { subjects: '@Elena', scene: 'in the rain', style: 'oil painting' },
++  } as Parameters<typeof readRecipe>[0]);
++  assert(withSlots.composer?.subjects === '@Elena', 'the composer slots were not read back');
++  assert(before.composer === undefined, 'an older row was given composer slots it never had');
+   assert(widened.loras.length === 1, 'the widened LoRA list was not read');
+   assert(before.cfg === undefined && before.loras.length === 0, 'absent widened fields were invented');
+ 
+-- 
+2.43.0
+

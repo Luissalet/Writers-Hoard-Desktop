@@ -1,0 +1,1637 @@
+From 395b78dd8eeb0153fbaa6a3884d30c1d650031dd Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 00:34:37 +0000
+Subject: [PATCH 10/36] Visual references: the object, the resolver and the
+ table behind them
+
+A character reference accumulates. On day one it is a name, three words and
+a photograph; on day thirty it is twenty-five curated images, a hero seed, a
+preset that works and a trained LoRA. Every field is optional and the
+resolver uses whatever is there, which is what makes the object useful with
+no image backend installed at all.
+
+The resolver is pure on purpose: no clock, no dice, no Dexie. The caller
+rolls the explore seed, so two calls with the same arguments give the same
+result and a recipe diff means something. It also explains itself, step by
+step, because a writer who cannot see what was sent cannot learn the tool.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RmpuZqpQrFjas3Ajv22pKb
+---
+ src/db/index.ts                    |  18 ++
+ src/engines/image-studio/index.ts  |  30 ++-
+ src/engines/image-studio/refs.ts   | 137 +++++++++++++
+ src/services/visualRef/captions.ts | 101 ++++++++++
+ src/services/visualRef/dataset.ts  | 259 ++++++++++++++++++++++++
+ src/services/visualRef/dialect.ts  |  83 ++++++++
+ src/services/visualRef/index.ts    |  35 ++++
+ src/services/visualRef/mentions.ts |  60 ++++++
+ src/services/visualRef/model.ts    | 135 +++++++++++++
+ src/services/visualRef/recipe.ts   | 168 ++++++++++++++++
+ src/services/visualRef/resolve.ts  | 312 +++++++++++++++++++++++++++++
+ src/types/visualRef.ts             | 108 ++++++++++
+ tasks/todo-visual-refs.md          |  26 +++
+ 13 files changed, 1466 insertions(+), 6 deletions(-)
+ create mode 100644 src/engines/image-studio/refs.ts
+ create mode 100644 src/services/visualRef/captions.ts
+ create mode 100644 src/services/visualRef/dataset.ts
+ create mode 100644 src/services/visualRef/dialect.ts
+ create mode 100644 src/services/visualRef/index.ts
+ create mode 100644 src/services/visualRef/mentions.ts
+ create mode 100644 src/services/visualRef/model.ts
+ create mode 100644 src/services/visualRef/recipe.ts
+ create mode 100644 src/services/visualRef/resolve.ts
+ create mode 100644 src/types/visualRef.ts
+ create mode 100644 tasks/todo-visual-refs.md
+
+diff --git a/src/db/index.ts b/src/db/index.ts
+index 2fb186c..3d1a2e2 100644
+--- a/src/db/index.ts
++++ b/src/db/index.ts
+@@ -38,6 +38,7 @@ import type {
+ } from '@/types/projectTools';
+ import { legacyLinksToSnapshots } from '@/engines/scrapper/legacyLinks';
+ import type { AiMessage, AiProjectSettings, AiThread } from '@/services/copilot/types';
++import type { VisualRef } from '@/types/visualRef';
+ 
+ export class WritersHoardDB extends Dexie {
+   projects!: Table<Project>;
+@@ -96,6 +97,7 @@ export class WritersHoardDB extends Dexie {
+   aiThreads!: Table<AiThread>;
+   aiMessages!: Table<AiMessage>;
+   aiProjectSettings!: Table<AiProjectSettings>;
++  visualRefs!: Table<VisualRef>;
+ 
+   constructor() {
+     super('WritersHoardDB');
+@@ -807,6 +809,22 @@ export class WritersHoardDB extends Dexie {
+       atlasPlaces: 'id, projectId, parentId, kind, name',
+       atlasDivergences: 'id, projectId, placeId, category',
+     });
++
++    // v29: visual references — the character bible behind the image studio.
++    // One row per character, place, object or style the writer wants to look
++    // the same twice: the words that describe her, the dialect they are
++    // written in, the ids of her reference images, a hero seed, a preset and
++    // (once one exists) a trained LoRA. Additive and inert: no existing row is
++    // read or rewritten, so a database that has never seen the studio simply
++    // gains an empty table.
++    //
++    // Only IDS of Gallery rows live here, never image bytes — the pictures
++    // stay in `inspirationImages`, where Gallery's backup strategy and the AI
++    // bridge already know how to find them, and a reference that accumulates
++    // twenty-five images stays a few hundred bytes.
++    this.version(29).stores({
++      visualRefs: 'id, projectId, codexEntryId, kind, updatedAt',
++    });
+   }
+ }
+ 
+diff --git a/src/engines/image-studio/index.ts b/src/engines/image-studio/index.ts
+index 1431c2c..bf4002b 100644
+--- a/src/engines/image-studio/index.ts
++++ b/src/engines/image-studio/index.ts
+@@ -4,14 +4,22 @@ import { lazy } from 'react';
+ // Image studio — engine registration
+ // ============================================
+ //
+-// Tableless engine: generated pictures are Gallery rows (`inspirationImages`)
+-// with `source: 'generated'` and their provenance, so Gallery's backup
+-// strategy already carries them and `wh_list_images` already lists them. The
+-// studio adds the making, not another store.
++// Generated pictures are Gallery rows (`inspirationImages`) with
++// `source: 'generated'` and their provenance, so Gallery's backup strategy
++// already carries them and `wh_list_images` already lists them. The studio adds
++// the making, not another picture store.
++//
++// It owns exactly one table, and it is not pictures: `visualRefs`, the
++// accumulating description of a character, place, object or style — the words,
++// the dialect they are written in, the ids of her reference images, a hero
++// seed, a preset, a trained LoRA. It has to survive a backup because it is the
++// part the writer built by hand over months; the pictures can be regenerated,
++// the judgement about which one is her cannot.
+ 
+ import { Sparkles } from 'lucide-react';
+ import type { EngineDefinition } from '@/engines/_types';
+ import { registerEngine } from '@/engines/_registry';
++import { makeSimpleBackupStrategy, registerBackupStrategy } from '@/engines/_shared';
+ const ImageStudioEngine = lazy(() => import('./ImageStudioEngine'));
+ 
+ const imageStudioEngine: EngineDefinition = {
+@@ -20,11 +28,21 @@ const imageStudioEngine: EngineDefinition = {
+   description: 'Generate reference images with a local or connected model; results land in Gallery',
+   icon: Sparkles,
+   category: 'creative',
+-  // No tables — Gallery owns the rows.
+-  tables: {},
++  tables: {
++    visualRefs: 'id, projectId, codexEntryId, kind, updatedAt',
++  },
+   component: ImageStudioEngine,
+ };
+ 
+ registerEngine(imageStudioEngine);
+ 
++// Plain JSON: a reference row holds ids and text, never image bytes, so there
++// is nothing here to externalise. The pictures ride in Gallery's own strategy
++// with their ids intact, which is what keeps these references pointing at the
++// right faces after a restore.
++registerBackupStrategy(makeSimpleBackupStrategy({
++  engineId: 'image-studio',
++  tables: ['visualRefs'],
++}));
++
+ export { imageStudioEngine };
+diff --git a/src/engines/image-studio/refs.ts b/src/engines/image-studio/refs.ts
+new file mode 100644
+index 0000000..65e8bbf
+--- /dev/null
++++ b/src/engines/image-studio/refs.ts
+@@ -0,0 +1,137 @@
++// ============================================================================
++// Visual references — the store, and the actions that make one accumulate
++// ============================================================================
++//
++// The rows live in `visualRefs`; the pictures they point at live in
++// `inspirationImages`, where Gallery already owns them. That split is the
++// reason a reference stays cheap: twenty-five curated images of a character
++// add twenty-five ids here, not twenty-five megabytes.
++//
++// Every action below is one click in the composer — pin this seed, make this
++// the canonical portrait, add this to the reference set — and each one is the
++// difference between a picture the writer liked and a picture the writer can
++// use again.
++
++import { db } from '@/db';
++import type { InspirationImage } from '@/types';
++import type { PromptDialect, VisualRef, VisualRefKind } from '@/types/visualRef';
++import { emptyVisualRef } from '@/types/visualRef';
++import { generateId } from '@/utils/idGenerator';
++
++export async function listVisualRefs(projectId: string): Promise<VisualRef[]> {
++  const rows = await db.visualRefs.where('projectId').equals(projectId).toArray();
++  return rows.sort((a, b) => a.name.localeCompare(b.name));
++}
++
++export async function getVisualRef(id: string): Promise<VisualRef | undefined> {
++  return db.visualRefs.get(id);
++}
++
++export async function createVisualRef(
++  projectId: string,
++  name: string,
++  kind: VisualRefKind = 'character',
++  dialect: PromptDialect = 'prose',
++  codexEntryId?: string,
++): Promise<VisualRef> {
++  const row = emptyVisualRef(generateId('vref'), projectId, name.trim(), Date.now(), kind, dialect);
++  if (codexEntryId) row.codexEntryId = codexEntryId;
++  await db.visualRefs.add(row);
++  return row;
++}
++
++export async function updateVisualRef(id: string, changes: Partial<VisualRef>): Promise<void> {
++  await db.visualRefs.update(id, { ...changes, updatedAt: Date.now() });
++}
++
++export async function deleteVisualRef(id: string): Promise<void> {
++  // The Gallery rows this pointed at are NOT deleted: they are the writer's
++  // pictures, and they were in the Gallery before any reference named them.
++  await db.visualRefs.delete(id);
++}
++
++/** The Gallery rows a reference points at, in the order the reference lists them. */
++export async function loadRefImages(ref: VisualRef): Promise<InspirationImage[]> {
++  const ids = [
++    ...ref.referenceImageIds,
++    ...(ref.sheetImageIds ?? []),
++    ...(ref.controlImageIds ?? []),
++    ...(ref.canonicalImageId ? [ref.canonicalImageId] : []),
++  ];
++  if (ids.length === 0) return [];
++  const unique = [...new Set(ids)];
++  const rows = await db.inspirationImages.bulkGet(unique);
++  const byId = new Map(rows.filter((row): row is InspirationImage => Boolean(row)).map((row) => [row.id, row]));
++  return unique.map((id) => byId.get(id)).filter((row): row is InspirationImage => Boolean(row));
++}
++
++/** One image id, added to a list on the reference without duplicating it. */
++async function addTo(
++  refId: string,
++  field: 'referenceImageIds' | 'sheetImageIds' | 'controlImageIds',
++  imageId: string,
++): Promise<void> {
++  const ref = await db.visualRefs.get(refId);
++  if (!ref) return;
++  const current = ref[field] ?? [];
++  if (current.includes(imageId)) return;
++  await updateVisualRef(refId, { [field]: [...current, imageId] } as Partial<VisualRef>);
++}
++
++async function removeFrom(
++  refId: string,
++  field: 'referenceImageIds' | 'sheetImageIds' | 'controlImageIds',
++  imageId: string,
++): Promise<void> {
++  const ref = await db.visualRefs.get(refId);
++  if (!ref) return;
++  const current = ref[field] ?? [];
++  if (!current.includes(imageId)) return;
++  const next = current.filter((id) => id !== imageId);
++  const changes: Partial<VisualRef> = { [field]: next } as Partial<VisualRef>;
++  // A canonical portrait that is no longer in the reference set would still be
++  // sent to every edit model: the culling action has to cull it everywhere.
++  if (field === 'referenceImageIds' && ref.canonicalImageId === imageId) changes.canonicalImageId = undefined;
++  await updateVisualRef(refId, changes);
++}
++
++/** The culling action: one click turns a good generation into training data. */
++export function addToReferenceSet(refId: string, imageId: string): Promise<void> {
++  return addTo(refId, 'referenceImageIds', imageId);
++}
++
++export function removeFromReferenceSet(refId: string, imageId: string): Promise<void> {
++  return removeFrom(refId, 'referenceImageIds', imageId);
++}
++
++export function addSheetImage(refId: string, imageId: string): Promise<void> {
++  return addTo(refId, 'sheetImageIds', imageId);
++}
++
++/** The pose bank: a picture kept because of how the body is arranged in it. */
++export function addControlImage(refId: string, imageId: string): Promise<void> {
++  return addTo(refId, 'controlImageIds', imageId);
++}
++
++export function removeControlImage(refId: string, imageId: string): Promise<void> {
++  return removeFrom(refId, 'controlImageIds', imageId);
++}
++
++/** "This is her." Also adds the image to the reference set if it was not in it. */
++export async function setCanonicalImage(refId: string, imageId: string): Promise<void> {
++  const ref = await db.visualRefs.get(refId);
++  if (!ref) return;
++  const referenceImageIds = ref.referenceImageIds.includes(imageId)
++    ? ref.referenceImageIds
++    : [...ref.referenceImageIds, imageId];
++  await updateVisualRef(refId, { canonicalImageId: imageId, referenceImageIds });
++}
++
++/** Pin the seed that produced her best likeness. */
++export function pinHeroSeed(refId: string, seed: number): Promise<void> {
++  return updateVisualRef(refId, { heroSeed: seed });
++}
++
++export function clearHeroSeed(refId: string): Promise<void> {
++  return updateVisualRef(refId, { heroSeed: undefined });
++}
+diff --git a/src/services/visualRef/captions.ts b/src/services/visualRef/captions.ts
+new file mode 100644
+index 0000000..9d164d8
+--- /dev/null
++++ b/src/services/visualRef/captions.ts
+@@ -0,0 +1,101 @@
++// ============================================================================
++// Drafting a training caption from what the book already says
++// ============================================================================
++//
++// The counter-intuitive rule every LoRA practitioner converges on: caption what
++// you do NOT want baked into the trigger word. Anything named in the caption
++// becomes detachable — the model learns "this word means the hat", so the hat
++// can be removed later. Anything the caption is SILENT about is absorbed into
++// the trigger word itself and comes back in every generation.
++//
++// So: name the glasses, the hat, the hairstyle, the coat, the pose, the
++// background. Say nothing about eye colour, face shape or complexion — those
++// are the person, and they are what the trigger word is for.
++//
++// A writing app has an unfair advantage here, which is the entire reason this
++// file exists: the codex entry already describes the character in prose, and
++// nobody had to type it twice.
++
++/** Words that mark a clause as describing something detachable. */
++const DETACHABLE: Readonly<Record<string, readonly string[]>> = {
++  eyewear: ['glasses', 'spectacles', 'sunglasses', 'monocle', 'goggles', 'gafas', 'lentes', 'anteojos', 'monoculo'],
++  headwear: ['hat', 'cap', 'hood', 'helmet', 'crown', 'veil', 'headscarf', 'sombrero', 'gorra', 'capucha', 'casco', 'corona', 'velo', 'panuelo'],
++  hair: ['ponytail', 'braid', 'braids', 'bun', 'updo', 'fringe', 'bangs', 'short hair', 'long hair', 'coleta', 'trenza', 'trenzas', 'mono', 'flequillo', 'pelo corto', 'pelo largo', 'melena'],
++  clothing: ['coat', 'cloak', 'dress', 'gown', 'armour', 'armor', 'uniform', 'shirt', 'jacket', 'robe', 'boots', 'gloves', 'apron', 'scarf', 'abrigo', 'capa', 'vestido', 'armadura', 'uniforme', 'camisa', 'chaqueta', 'tunica', 'botas', 'guantes', 'delantal', 'bufanda'],
++  pose: ['standing', 'sitting', 'seated', 'kneeling', 'running', 'walking', 'portrait', 'close-up', 'full body', 'from behind', 'de pie', 'sentada', 'sentado', 'arrodillada', 'corriendo', 'caminando', 'retrato', 'primer plano', 'cuerpo entero', 'de espaldas'],
++  background: ['forest', 'city', 'street', 'indoors', 'outdoors', 'night', 'snow', 'rain', 'desert', 'ship', 'tavern', 'bosque', 'ciudad', 'calle', 'interior', 'exterior', 'noche', 'nieve', 'lluvia', 'desierto', 'barco', 'taberna'],
++  expression: ['smiling', 'frowning', 'crying', 'laughing', 'shouting', 'sonriendo', 'llorando', 'riendo', 'gritando', 'ceno fruncido'],
++};
++
++/**
++ * Words that mean the clause is describing the PERSON. A clause containing one
++ * of these is dropped from the caption on purpose: captioning her eye colour
++ * teaches the model that the eye colour is optional, and the trained character
++ * then comes back with different eyes in half the generations.
++ */
++const FUSED: readonly string[] = [
++  'eyes', 'eye colour', 'eye color', 'iris', 'freckles', 'complexion', 'skin', 'jaw', 'jawline',
++  'cheekbones', 'nose', 'face shape', 'scar', 'birthmark', 'mole',
++  'ojos', 'pecas', 'tez', 'piel', 'mandibula', 'pomulos', 'nariz', 'cicatriz', 'lunar',
++];
++
++/** Lower case, accents folded: the form every keyword test is made in. */
++function fold(text: string): string {
++  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
++}
++
++/** Split prose into the short phrases a caption is made of. */
++function clauses(text: string): string[] {
++  return text
++    .split(/[.;\n\r,]+/)
++    .map((clause) => clause.replace(/\s+/g, ' ').trim())
++    .filter((clause) => clause.length >= 3 && clause.length <= 90);
++}
++
++function hasAny(folded: string, words: readonly string[]): string | undefined {
++  return words.find((word) => folded.includes(word));
++}
++
++export interface DraftedCaption {
++  /** The caption text, trigger word first. */
++  caption: string;
++  /** The detachable phrases that were kept, in order. */
++  kept: string[];
++  /** Words found and deliberately left out, so the UI can say why. */
++  omitted: string[];
++}
++
++/** How many detachable phrases one caption carries before it stops helping. */
++export const MAX_CAPTION_PHRASES = 8;
++
++/**
++ * Draft one image's caption from the character's prose. Pure.
++ *
++ * `trigger` goes first and is never omitted — a caption whose trigger word is
++ * buried mid-sentence trains a token the writer then cannot summon.
++ */
++export function draftCaption(trigger: string, sources: readonly string[]): DraftedCaption {
++  const kept: string[] = [];
++  const omitted: string[] = [];
++  const seen = new Set<string>();
++  for (const source of sources) {
++    for (const clause of clauses(source)) {
++      const folded = fold(clause);
++      const fused = hasAny(folded, FUSED);
++      if (fused) {
++        if (!omitted.includes(fused)) omitted.push(fused);
++        continue;
++      }
++      const detachable = Object.values(DETACHABLE).some((words) => hasAny(folded, words) !== undefined);
++      if (!detachable) continue;
++      const key = folded;
++      if (seen.has(key)) continue;
++      seen.add(key);
++      kept.push(clause);
++      if (kept.length >= MAX_CAPTION_PHRASES) break;
++    }
++    if (kept.length >= MAX_CAPTION_PHRASES) break;
++  }
++  const token = trigger.trim();
++  return { caption: [token, ...kept].filter(Boolean).join(', '), kept, omitted };
++}
+diff --git a/src/services/visualRef/dataset.ts b/src/services/visualRef/dataset.ts
+new file mode 100644
+index 0000000..57e536a
+--- /dev/null
++++ b/src/services/visualRef/dataset.ts
+@@ -0,0 +1,259 @@
++// ============================================================================
++// The dataset export — 5% of the work, 60% of the LoRA's value
++// ============================================================================
++//
++// Writers Hoard deliberately does NOT train. Training is multi-hour,
++// VRAM-hostile, dependency-hostile, the recipe changes every quarter, and
++// picking the checkpoint that actually looks like her is a human judgement made
++// by eye. An app that shipped a trainer would ship a stale one.
++//
++// What it can do — and what nobody else can do as well, because only a writing
++// app has the character's prose — is prepare the folder: the images, a caption
++// beside each one drafted from the codex entry, and a config file for the
++// trainer the writer already uses. Then get out of the way and say "open this
++// in AI Toolkit".
++//
++// Everything here is pure: it returns a description of files. Writing them is
++// the caller's job, which is what makes the whole shape testable without a disk.
++
++import type { VisualRef } from '@/types/visualRef';
++
++export interface DatasetTextFile {
++  path: string;
++  text: string;
++}
++
++export interface DatasetImageFile {
++  path: string;
++  /** The Gallery row's data URL; the caller turns it into bytes. */
++  dataUrl: string;
++  imageId: string;
++}
++
++export interface DatasetBundle {
++  /** The folder everything sits under, named after the reference. */
++  folder: string;
++  /** The trigger word this dataset trains. */
++  trigger: string;
++  images: DatasetImageFile[];
++  captions: DatasetTextFile[];
++  configs: DatasetTextFile[];
++  readme: DatasetTextFile;
++}
++
++export interface DatasetItem {
++  imageId: string;
++  dataUrl: string;
++  /** The caption for this image, already drafted or edited by the writer. */
++  caption: string;
++}
++
++export interface DatasetOptions {
++  ref: Pick<VisualRef, 'name' | 'triggerWord' | 'lora'>;
++  items: readonly DatasetItem[];
++  /** Base checkpoint the writer intends to train against. */
++  baseModel?: string;
++  /** Square training resolution. 1024 for SDXL/FLUX, 512 for SD 1.5. */
++  resolution?: number;
++  steps?: number;
++}
++
++/** A filesystem-safe, lower-case, ASCII-ish name. Never empty. */
++export function slugify(name: string): string {
++  const slug = name
++    .normalize('NFD')
++    .replace(/[\u0300-\u036f]/g, '')
++    .toLowerCase()
++    .replace(/[^a-z0-9]+/g, '-')
++    .replace(/^-+|-+$/g, '');
++  return slug || 'reference';
++}
++
++/** `image/png` → `png`, and anything unrecognised → `png`. */
++function extensionOf(dataUrl: string): string {
++  const match = /^data:image\/([a-z0-9.+-]+);base64,/i.exec(dataUrl);
++  if (!match) return 'png';
++  const raw = match[1].toLowerCase();
++  return raw === 'jpeg' ? 'jpg' : raw;
++}
++
++/** The trigger word a dataset trains: the ref's own, or one made from its name. */
++export function datasetTrigger(ref: Pick<VisualRef, 'name' | 'triggerWord'>): string {
++  const explicit = ref.triggerWord?.trim();
++  if (explicit) return explicit;
++  // A made-up token, not the plain name: `elena` also means every other Elena
++  // the base model ever saw, and training onto it fights the prior instead of
++  // carving a new one.
++  return `${slugify(ref.name).replace(/-/g, '')}_ohwx`;
++}
++
++// ---------------------------------------------------------------------------
++// Trainer configs
++// ---------------------------------------------------------------------------
++
++/**
++ * ai-toolkit (ostris) job file. `folder_path` is relative to the config, so the
++ * whole folder can be moved anywhere and still train.
++ */
++export function buildAiToolkitYaml(options: DatasetOptions, trigger: string, name: string): string {
++  const resolution = options.resolution ?? 1024;
++  const steps = options.steps ?? 2000;
++  const base = options.baseModel ?? 'black-forest-labs/FLUX.1-dev';
++  return [
++    '---',
++    'job: extension',
++    'config:',
++    `  name: ${name}`,
++    '  process:',
++    '    - type: sd_trainer',
++    '      training_folder: output',
++    '      device: cuda:0',
++    `      trigger_word: "${trigger}"`,
++    '      network:',
++    '        type: lora',
++    '        linear: 16',
++    '        linear_alpha: 16',
++    '      save:',
++    '        dtype: float16',
++    '        save_every: 250',
++    '        max_step_saves_to_keep: 4',
++    '      datasets:',
++    '        - folder_path: dataset',
++    '          caption_ext: txt',
++    '          caption_dropout_rate: 0.05',
++    '          shuffle_tokens: false',
++    '          cache_latents_to_disk: true',
++    `          resolution: [${resolution}]`,
++    '      train:',
++    '        batch_size: 1',
++    `        steps: ${steps}`,
++    '        gradient_accumulation_steps: 1',
++    '        train_unet: true',
++    '        train_text_encoder: false',
++    '        gradient_checkpointing: true',
++    '        noise_scheduler: flowmatch',
++    '        optimizer: adamw8bit',
++    '        lr: 0.0001',
++    '        dtype: bf16',
++    '      model:',
++    `        name_or_path: "${base}"`,
++    '        quantize: true',
++    '      sample:',
++    '        sampler: flowmatch',
++    '        sample_every: 250',
++    `        width: ${resolution}`,
++    `        height: ${resolution}`,
++    '        prompts:',
++    `          - "${trigger}, standing in a doorway"`,
++    `          - "${trigger}, close portrait, side light"`,
++    '        neg: ""',
++    '        seed: 42',
++    '        walk_seed: true',
++    '        guidance_scale: 4',
++    '        sample_steps: 20',
++    'meta:',
++    `  name: "${name}"`,
++    "  version: '1.0'",
++    '',
++  ].join('\n');
++}
++
++/** musubi-tuner dataset config. Paths relative, same reason. */
++export function buildMusubiToml(options: DatasetOptions, trigger: string): string {
++  const resolution = options.resolution ?? 1024;
++  return [
++    '# musubi-tuner dataset config',
++    `# trigger word: ${trigger}`,
++    '',
++    '[general]',
++    `resolution = [${resolution}, ${resolution}]`,
++    'caption_extension = ".txt"',
++    'batch_size = 1',
++    'enable_bucket = true',
++    'bucket_no_upscale = false',
++    '',
++    '[[datasets]]',
++    'image_directory = "dataset"',
++    'cache_directory = "cache"',
++    'num_repeats = 1',
++    '',
++  ].join('\n');
++}
++
++function buildReadme(options: DatasetOptions, trigger: string, count: number): string {
++  return [
++    `Training set for ${options.ref.name}`,
++    '='.repeat(`Training set for ${options.ref.name}`.length),
++    '',
++    `${count} image(s), one .txt caption beside each, in dataset/.`,
++    `Trigger word: ${trigger}`,
++    '',
++    'How the captions are written, and why',
++    '-------------------------------------',
++    'Caption what you do NOT want baked in. Every word a caption names becomes',
++    'detachable: the model learns that the word means the hat, so the hat can be',
++    'taken off later. Anything the captions stay silent about is absorbed into the',
++    'trigger word and comes back in every generation.',
++    '',
++    'So the drafted captions name the glasses, the hat, the hairstyle, the coat,',
++    'the pose and the background — and say nothing about eye colour, face shape or',
++    'complexion, which are the person and belong to the trigger word.',
++    '',
++    'Read them before training. They were drafted from the codex entry, which',
++    'describes the character as the book does, not as a dataset does.',
++    '',
++    'Training it',
++    '-----------',
++    'AI Toolkit (ostris): open ai-toolkit.yaml as the job file.',
++    'musubi-tuner: pass musubi-tuner.toml as the dataset config.',
++    '',
++    'Pick the checkpoint by eye. The last one is rarely the best one; look for',
++    'the step where she is recognisable but still takes direction.',
++    '',
++  ].join('\n');
++}
++
++/**
++ * The whole folder as a description. Images keep their Gallery id in the file
++ * name so a retrained LoRA can be traced back to exactly what it saw.
++ */
++export function buildDataset(options: DatasetOptions): DatasetBundle {
++  const name = slugify(options.ref.name);
++  const trigger = datasetTrigger(options.ref);
++  const folder = `${name}-lora`;
++  const images: DatasetImageFile[] = [];
++  const captions: DatasetTextFile[] = [];
++  options.items.forEach((item, index) => {
++    const stem = `${String(index + 1).padStart(3, '0')}_${item.imageId}`;
++    images.push({
++      path: `${folder}/dataset/${stem}.${extensionOf(item.dataUrl)}`,
++      dataUrl: item.dataUrl,
++      imageId: item.imageId,
++    });
++    // The trainer pairs an image with its caption BY STEM, so the two names
++    // must differ only in extension. Getting this wrong trains on empty
++    // captions and the failure is invisible until the LoRA behaves oddly.
++    captions.push({ path: `${folder}/dataset/${stem}.txt`, text: `${item.caption.trim()}\n` });
++  });
++  return {
++    folder,
++    trigger,
++    images,
++    captions,
++    configs: [
++      { path: `${folder}/ai-toolkit.yaml`, text: buildAiToolkitYaml(options, trigger, name) },
++      { path: `${folder}/musubi-tuner.toml`, text: buildMusubiToml(options, trigger) },
++    ],
++    readme: { path: `${folder}/README.txt`, text: buildReadme(options, trigger, options.items.length) },
++  };
++}
++
++/** Every file in the bundle, text and binary, in a stable order. */
++export function datasetPaths(bundle: DatasetBundle): string[] {
++  return [
++    ...bundle.images.map((file) => file.path),
++    ...bundle.captions.map((file) => file.path),
++    ...bundle.configs.map((file) => file.path),
++    bundle.readme.path,
++  ].sort();
++}
+diff --git a/src/services/visualRef/dialect.ts b/src/services/visualRef/dialect.ts
+new file mode 100644
+index 0000000..8f034de
+--- /dev/null
++++ b/src/services/visualRef/dialect.ts
+@@ -0,0 +1,83 @@
++// ============================================================================
++// Tag dialect and prose dialect, and the join between them
++// ============================================================================
++//
++// Two families of base model read two different languages. A booru-tagged base
++// (SD 1.5, SDXL, Illustrious, Pony) was trained on `1girl, red coat, rain,
++// cinematic lighting`; a prose base (Flux, Qwen, Z-Image) was trained on «A
++// woman in a red coat stands in the rain.» Feed either one the other's text and
++// it still generates something — which is exactly why this is worth writing
++// down: the failure is quiet. The picture is merely worse, and the writer
++// blames the model.
++//
++// Nothing here invents words. The conversion is punctuation and nothing else:
++// a fragment's meaning belongs to the writer, and a resolver that rewrote it
++// would make the "resolved prompt" disclosure a lie.
++
++import type { PromptDialect } from '@/types/visualRef';
++
++/** Sentence enders, kept out of the result: `.` `;` `!` `?` and their pairs. */
++const SENTENCE_BREAK = /[.;!?]+(?:\s+|$)/;
++
++/** Split a prose fragment into the clauses a tag base can read as tags. */
++export function proseToTags(text: string): string {
++  return text
++    .split(SENTENCE_BREAK)
++    .flatMap((sentence) => sentence.split(','))
++    .map((part) => part.trim())
++    .filter(Boolean)
++    .join(', ');
++}
++
++/** A tag list as one prose clause. The tags keep their order and their words. */
++export function tagsToProse(text: string): string {
++  const tags = text
++    .split(',')
++    .map((part) => part.trim())
++    .filter(Boolean);
++  if (tags.length === 0) return '';
++  return `${tags.join(', ')}.`;
++}
++
++/** `text`, written in `from`, rendered for a model that reads `to`. */
++export function adaptDialect(text: string, from: PromptDialect, to: PromptDialect): string {
++  const trimmed = text.trim();
++  if (!trimmed) return '';
++  if (from === to) return trimmed;
++  return from === 'prose' ? proseToTags(trimmed) : tagsToProse(trimmed);
++}
++
++/**
++ * Join the pieces of a prompt the way `dialect` expects them.
++ *
++ * Tags are commas all the way down. Prose is sentences, and a piece that
++ * already ends in its own punctuation does not get a second full stop —
++ * «in the rain.. cinematic» is the kind of detail that costs a generation.
++ */
++export function joinInDialect(parts: readonly string[], dialect: PromptDialect): string {
++  const pieces = parts.map((part) => part.trim()).filter(Boolean);
++  if (pieces.length === 0) return '';
++  if (dialect === 'tags') return pieces.join(', ');
++  return pieces
++    .map((piece) => (/[.!?;:,]$/.test(piece) ? piece : `${piece}.`))
++    .join(' ')
++    .trim();
++}
++
++/**
++ * The dialect a base family reads. Unknown families answer 'prose': a remote
++ * API almost always wants a sentence, and a sentence sent to a tag model is
++ * the less damaging of the two mistakes.
++ */
++export function dialectForFamily(family: string | undefined): PromptDialect {
++  switch ((family ?? '').toLowerCase()) {
++    case 'sd1':
++    case 'sdxl':
++    case 'illustrious':
++    case 'pony':
++    case 'noobai':
++      return 'tags';
++    default:
++      return 'prose';
++  }
++}
+diff --git a/src/services/visualRef/index.ts b/src/services/visualRef/index.ts
+new file mode 100644
+index 0000000..98d11fe
+--- /dev/null
++++ b/src/services/visualRef/index.ts
+@@ -0,0 +1,35 @@
++// The visual-reference services, gathered. Everything here is pure: no Dexie,
++// no DOM, no IPC. The engine does the I/O; these decide what it should be.
++
++export { adaptDialect, dialectForFamily, joinInDialect, proseToTags, tagsToProse } from './dialect';
++export { absentResolverModel, describeResolverModel } from './model';
++export type { DescribeModelOptions, ResolverModel } from './model';
++export {
++  NEGATIVE_PROMPT_MIN_CFG,
++  POSE_CONTROL_WEIGHT,
++  resolve,
++} from './resolve';
++export type {
++  IdentityStrategy,
++  ResolutionStep,
++  ResolveOptions,
++  ResolvedGeneration,
++  ResolvedLora,
++  ResolvedReferenceImage,
++  SeedMode,
++} from './resolve';
++export { mentionToken, parseMentions } from './mentions';
++export type { ParsedMentions } from './mentions';
++export { checkRecipeModel, diffRecipes, readRecipe, variationSeeds } from './recipe';
++export type { Recipe, RecipeDifference } from './recipe';
++export { MAX_CAPTION_PHRASES, draftCaption } from './captions';
++export type { DraftedCaption } from './captions';
++export {
++  buildAiToolkitYaml,
++  buildDataset,
++  buildMusubiToml,
++  datasetPaths,
++  datasetTrigger,
++  slugify,
++} from './dataset';
++export type { DatasetBundle, DatasetImageFile, DatasetItem, DatasetOptions, DatasetTextFile } from './dataset';
+diff --git a/src/services/visualRef/mentions.ts b/src/services/visualRef/mentions.ts
+new file mode 100644
+index 0000000..5f84e5e
+--- /dev/null
++++ b/src/services/visualRef/mentions.ts
+@@ -0,0 +1,60 @@
++// ============================================================================
++// `@Elena` — turning what the writer typed into the refs it names
++// ============================================================================
++//
++// The cast column inserts these by drag, but the writer will type them too, and
++// a mention that silently resolves to nothing is the worst outcome: the
++// generation runs, the character is absent, and nothing says why. So the parser
++// reports what it could NOT match as well as what it could, and the composer
++// shows the unknown names.
++
++import type { VisualRef } from '@/types/visualRef';
++
++/** `@` followed by letters, digits, `_`, `-`, and inner spaces inside `{}`. */
++const MENTION = /@(?:\{([^}]+)\}|([\p{L}\p{N}_-]+))/gu;
++
++export interface ParsedMentions {
++  /** The refs named, in the order they appear, each at most once. */
++  refs: VisualRef[];
++  /** Names that matched nothing, so the composer can say so. */
++  unknown: string[];
++  /** The subject text with every mention removed — what is left to say. */
++  rest: string;
++}
++
++function fold(name: string): string {
++  return name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
++}
++
++/** The refs a subjects slot names. Pure; case and accents are folded. */
++export function parseMentions(text: string, available: readonly VisualRef[]): ParsedMentions {
++  const byName = new Map<string, VisualRef>();
++  for (const ref of available) {
++    const key = fold(ref.name);
++    // First writer wins: two refs sharing a name is the user's problem to fix,
++    // but it must not make the mention resolve differently on each keystroke.
++    if (key && !byName.has(key)) byName.set(key, ref);
++  }
++  const refs: VisualRef[] = [];
++  const seen = new Set<string>();
++  const unknown: string[] = [];
++  const rest = text.replace(MENTION, (_match, braced: string | undefined, bare: string | undefined) => {
++    const raw = (braced ?? bare ?? '').trim();
++    const hit = byName.get(fold(raw));
++    if (!hit) {
++      if (raw && !unknown.includes(raw)) unknown.push(raw);
++      return '';
++    }
++    if (!seen.has(hit.id)) {
++      seen.add(hit.id);
++      refs.push(hit);
++    }
++    return '';
++  });
++  return { refs, unknown, rest: rest.replace(/\s{2,}/g, ' ').replace(/^[\s,]+|[\s,]+$/g, '') };
++}
++
++/** The token the cast column inserts. Braced when the name has a space in it. */
++export function mentionToken(ref: Pick<VisualRef, 'name'>): string {
++  return /[\s]/.test(ref.name) ? `@{${ref.name}}` : `@${ref.name}`;
++}
+diff --git a/src/services/visualRef/model.ts b/src/services/visualRef/model.ts
+new file mode 100644
+index 0000000..8223a0a
+--- /dev/null
++++ b/src/services/visualRef/model.ts
+@@ -0,0 +1,135 @@
++// ============================================================================
++// What the chosen model can actually honour
++// ============================================================================
++//
++// The resolver must never assume a capability. A LoRA offered against a model
++// that cannot load one, a negative prompt shown next to a distilled model that
++// ignores it, a ControlNet slot on a server with no ControlNet — each of those
++// teaches the writer something false about the tool, and a false model of the
++// tool is worse than a missing feature.
++//
++// So capabilities are DETECTED, once, here, and the resolver is handed the
++// answer. Some of them can be detected today; others are waiting on fields the
++// AI-runtime branch is adding. Every one of those is read as optional, so this
++// file compiles against today's types and simply says `true` more often once
++// the wider shapes land.
++
++import type { AiCapability, AiModelDescriptor } from '@/services/aiRuntime/types';
++import type { ImageCatalogModel } from '@/services/aiRuntime/imageCatalog';
++import type { PromptDialect } from '@/types/visualRef';
++import { dialectForFamily } from './dialect';
++
++/**
++ * Capabilities the AI-runtime branch is expected to report, none of which
++ * exist yet. Declared as optional here rather than waited for: the resolver
++ * needs to be written and tested now, and every one of these reads `false`
++ * until the day the runtime starts answering.
++ */
++interface WidenedModelDescriptor {
++  /** Reference/identity adapters the server can run for this model. */
++  identityAdapters?: string[];
++  /** ControlNet preprocessors the server has weights for. */
++  controlNets?: string[];
++  /** LoRA loading, reported per model rather than per server. */
++  lorasSupported?: boolean;
++  /** Guidance the model is actually run at; a distilled model reports 1. */
++  cfg?: number;
++  /** The weights' content hash, so a stored recipe can tell that they changed. */
++  fileHash?: string;
++}
++
++/** Everything the resolver is allowed to know about the destination model. */
++export interface ResolverModel {
++  connectionId: string;
++  modelId: string;
++  /** 'sd1' | 'sdxl' | 'flux' | whatever a server reports. Drives LoRA matching. */
++  family?: string;
++  /** The dialect this base reads; fragments are adapted into it. */
++  dialect: PromptDialect;
++  /**
++   * The guidance the generation will run at. `undefined` means nobody knows,
++   * which is treated as "negatives are honoured" — a remote API almost always
++   * does, and the alternative is silently dropping the writer's negative text.
++   */
++  cfg?: number;
++  /** Can load LoRA files. Only the managed local server does today. */
++  supportsLora: boolean;
++  /** Takes an input image as an instruction subject ("the person in image 1"). */
++  supportsReferenceImages: boolean;
++  /** Has a PhotoMaker-style face adapter. */
++  supportsPhotoMaker: boolean;
++  /** Has ControlNet weights for a pose. */
++  supportsControlNet: boolean;
++  /** img2img denoise, which is not identity but is worth not confusing with it. */
++  supportsInitImage: boolean;
++  fileHash?: string;
++}
++
++export interface DescribeModelOptions {
++  /** The curated catalogue entry, when this is a model the app downloaded. */
++  catalog?: Pick<ImageCatalogModel, 'family' | 'defaults'>;
++  /** The managed local server's LoRA answer: `false` only once it has refused. */
++  runtimeLorasSupported?: boolean;
++  /** True when the route points at the app's own image server. */
++  isManagedLocalRuntime?: boolean;
++  /** Guidance the user set by hand, which beats every default. */
++  cfgOverride?: number;
++}
++
++function has(capabilities: readonly AiCapability[] | undefined, wanted: AiCapability): boolean {
++  return Array.isArray(capabilities) && capabilities.includes(wanted);
++}
++
++/**
++ * Fold a model descriptor, the catalogue and the runtime's own report into the
++ * one shape the resolver reads. Pure: everything it needs is an argument.
++ */
++export function describeResolverModel(
++  descriptor: Pick<AiModelDescriptor, 'connectionId' | 'id' | 'family' | 'capabilities'>,
++  options: DescribeModelOptions = {},
++): ResolverModel {
++  const widened = descriptor as typeof descriptor & Partial<WidenedModelDescriptor>;
++  const family = descriptor.family ?? options.catalog?.family;
++  const cfg = options.cfgOverride
++    ?? (typeof widened.cfg === 'number' ? widened.cfg : undefined)
++    ?? options.catalog?.defaults.cfg;
++  const identityAdapters = Array.isArray(widened.identityAdapters) ? widened.identityAdapters : [];
++  const controlNets = Array.isArray(widened.controlNets) ? widened.controlNets : [];
++  // A managed local model can load LoRA files unless this runtime build has
++  // been seen to refuse the folder flag; a remote endpoint never can.
++  const supportsLora = options.isManagedLocalRuntime === true
++    ? (widened.lorasSupported ?? options.runtimeLorasSupported ?? true)
++    : false;
++  return {
++    connectionId: descriptor.connectionId,
++    modelId: descriptor.id,
++    family,
++    dialect: dialectForFamily(family),
++    cfg,
++    supportsLora,
++    supportsReferenceImages: has(descriptor.capabilities, 'image-editing'),
++    supportsPhotoMaker: identityAdapters.some((name) => name.toLowerCase().includes('photomaker')),
++    supportsControlNet: controlNets.length > 0,
++    // Classic denoise-strength img2img is an SD thing; FLUX does not do it.
++    supportsInitImage: family === 'sd1' || family === 'sdxl',
++    fileHash: typeof widened.fileHash === 'string' ? widened.fileHash : undefined,
++  };
++}
++
++/**
++ * A model that exists only as a name — what a stored recipe leaves behind when
++ * its weights have been deleted. The resolver can still run against it; the UI
++ * is what must say the model is gone rather than quietly picking another.
++ */
++export function absentResolverModel(connectionId: string, modelId: string): ResolverModel {
++  return {
++    connectionId,
++    modelId,
++    dialect: 'prose',
++    supportsLora: false,
++    supportsReferenceImages: false,
++    supportsPhotoMaker: false,
++    supportsControlNet: false,
++    supportsInitImage: false,
++  };
++}
+diff --git a/src/services/visualRef/recipe.ts b/src/services/visualRef/recipe.ts
+new file mode 100644
+index 0000000..767c9d8
+--- /dev/null
++++ b/src/services/visualRef/recipe.ts
+@@ -0,0 +1,168 @@
++// ============================================================================
++// A recipe — everything a picture was made from, and how two of them differ
++// ============================================================================
++//
++// «Iterate on this» and «Compare» both need the same thing: the full set of
++// knobs behind one generated image, read back out of the Gallery row. The
++// recipe diff is the part a chat log structurally cannot show — «steps 20→30 ·
++// seed changed · LoRA 0.8→1.0» is how a writer learns what the knobs do, and a
++// stream of pictures with their prompts underneath never teaches it.
++//
++// The AI-runtime branch is widening `ImageGenerationInfo` with cfg, sampler,
++// scheduler, a model hash and the LoRAs. Every one of them is read here as
++// optional and feature-detected, so this compiles against today's shape and
++// starts diffing more the day the wider one lands.
++
++import type { ImageGenerationInfo } from '@/types';
++
++/**
++ * The fields the AI-runtime branch is adding to `ImageGenerationInfo`. Declared
++ * as an intersection rather than waited for: `ImageGenerationInfo & Partial<T>`
++ * is legal whether or not the real type has grown them yet, so nothing here
++ * needs an `unknown` cast and nothing breaks on the merge.
++ */
++interface WidenedGenerationInfo {
++  cfg?: number;
++  sampler?: string;
++  scheduler?: string;
++  /** Content hash of the weights: what tells a recipe its model changed. */
++  modelHash?: string;
++  loras?: { name: string; weight: number }[];
++  /** The visual refs that were resolved into this generation. */
++  visualRefIds?: string[];
++}
++
++export interface Recipe {
++  prompt: string;
++  negativePrompt?: string;
++  connectionId: string;
++  modelId: string;
++  modelHash?: string;
++  seed?: number;
++  width: number;
++  height: number;
++  steps?: number;
++  cfg?: number;
++  sampler?: string;
++  scheduler?: string;
++  loras: { name: string; weight: number }[];
++  visualRefIds: string[];
++  createdAt: number;
++}
++
++function numberOrUndefined(value: unknown): number | undefined {
++  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
++}
++
++function stringOrUndefined(value: unknown): string | undefined {
++  return typeof value === 'string' && value ? value : undefined;
++}
++
++/** Read a Gallery row's provenance as a recipe. Absent fields stay absent. */
++export function readRecipe(info: ImageGenerationInfo): Recipe {
++  const wide = info as ImageGenerationInfo & Partial<WidenedGenerationInfo>;
++  return {
++    prompt: info.prompt,
++    negativePrompt: stringOrUndefined(info.negativePrompt),
++    connectionId: info.connectionId,
++    modelId: info.modelId,
++    modelHash: stringOrUndefined(wide.modelHash),
++    seed: numberOrUndefined(info.seed),
++    width: info.width,
++    height: info.height,
++    steps: numberOrUndefined(info.steps),
++    cfg: numberOrUndefined(wide.cfg),
++    sampler: stringOrUndefined(wide.sampler),
++    scheduler: stringOrUndefined(wide.scheduler),
++    loras: Array.isArray(wide.loras)
++      ? wide.loras.filter((lora) => typeof lora?.name === 'string').map((lora) => ({
++        name: lora.name,
++        weight: numberOrUndefined(lora.weight) ?? 1,
++      }))
++      : [],
++    visualRefIds: Array.isArray(wide.visualRefIds)
++      ? wide.visualRefIds.filter((id): id is string => typeof id === 'string')
++      : [],
++  createdAt: info.createdAt,
++  };
++}
++
++/** One difference between two recipes, ready to be shown under a comparison. */
++export interface RecipeDifference {
++  field: string;
++  /** Absent when the field was unset on that side. */
++  before?: string;
++  after?: string;
++}
++
++const SCALAR_FIELDS = ['steps', 'cfg', 'sampler', 'scheduler', 'width', 'height', 'seed', 'modelId'] as const;
++
++function show(value: unknown): string | undefined {
++  if (value === undefined || value === null || value === '') return undefined;
++  return String(value);
++}
++
++/**
++ * What changed between two recipes. Prompts are compared whole rather than
++ * word by word: a partial prompt diff reads as a rewrite even when only a
++ * comma moved, and the composer already shows both prompts in full.
++ */
++export function diffRecipes(before: Recipe, after: Recipe): RecipeDifference[] {
++  const differences: RecipeDifference[] = [];
++  for (const field of SCALAR_FIELDS) {
++    const left = show(before[field]);
++    const right = show(after[field]);
++    if (left !== right) differences.push({ field, before: left, after: right });
++  }
++  if (before.prompt.trim() !== after.prompt.trim()) {
++    differences.push({ field: 'prompt', before: before.prompt, after: after.prompt });
++  }
++  if ((before.negativePrompt ?? '').trim() !== (after.negativePrompt ?? '').trim()) {
++    differences.push({ field: 'negativePrompt', before: before.negativePrompt, after: after.negativePrompt });
++  }
++  const names = new Set([...before.loras, ...after.loras].map((lora) => lora.name));
++  for (const name of [...names].sort()) {
++    const left = before.loras.find((lora) => lora.name === name);
++    const right = after.loras.find((lora) => lora.name === name);
++    const leftWeight = left ? left.weight.toFixed(2) : undefined;
++    const rightWeight = right ? right.weight.toFixed(2) : undefined;
++    if (leftWeight !== rightWeight) {
++      differences.push({ field: `lora:${name}`, before: leftWeight, after: rightWeight });
++    }
++  }
++  return differences;
++}
++
++/**
++ * Whether the weights a recipe was made with are still the ones installed.
++ *
++ * `'gone'` means the model id is not installed at all; `'changed'` means the id
++ * is there but the file behind it is not the same one. Both must be SAID, never
++ * worked around: silently generating with the nearest model destroys the
++ * meaning of every recipe the writer has stored, because the next one that
++ * reproduces will do so by luck.
++ */
++export function checkRecipeModel(
++  recipe: Recipe,
++  installed: readonly { id: string; fileHash?: string }[],
++): 'ok' | 'gone' | 'changed' {
++  const match = installed.find((model) => model.id === recipe.modelId);
++  if (!match) return 'gone';
++  if (recipe.modelHash && match.fileHash && recipe.modelHash !== match.fileHash) return 'changed';
++  return 'ok';
++}
++
++/** Seeds for a batch of variations: the recipe's seed, then ±1, ±2, … */
++export function variationSeeds(seed: number, count: number): number[] {
++  const seeds: number[] = [];
++  for (let offset = 0; seeds.length < count; offset += 1) {
++    if (offset === 0) seeds.push(seed);
++    else {
++      // Seeds are unsigned on every server here; stepping below zero would be
++      // silently clamped to a repeat of 0 and the batch would show duplicates.
++      if (seeds.length < count) seeds.push(seed + offset);
++      if (seeds.length < count && seed - offset >= 0) seeds.push(seed - offset);
++    }
++  }
++  return seeds.slice(0, count);
++}
+diff --git a/src/services/visualRef/resolve.ts b/src/services/visualRef/resolve.ts
+new file mode 100644
+index 0000000..241319d
+--- /dev/null
++++ b/src/services/visualRef/resolve.ts
+@@ -0,0 +1,312 @@
++// ============================================================================
++// The resolver — [@Elena] + [scene] + [style] → one generation
++// ============================================================================
++//
++// This, not the prompt box, is the product. A chat box cannot have a resolver:
++// it has one string, so every layer a writer builds up — the LoRA, the
++// canonical portrait, the fragment, the hero seed, the pinned pose — has to be
++// retyped into that string by hand, in the right order, every time. That is the
++// lottery this replaces.
++//
++// Two properties are load-bearing:
++//
++//   * It is PURE. No clock, no dice, no Dexie, no `window`. The caller rolls
++//     the explore seed and hands it in. Two calls with the same arguments
++//     return the same object, which is what makes a recipe diff meaningful and
++//     what lets the whole order below be tested branch by branch.
++//
++//   * It EXPLAINS ITSELF. Every decision appends a step, and the composer shows
++//     the steps under a "resolved prompt" disclosure. A writer who cannot see
++//     what was sent cannot learn the tool, and a silently rewritten prompt
++//     destroys the meaning of a seed: the same number stops reproducing the
++//     same picture and the writer has no way to find out why.
++
++import type { PromptDialect, VisualRef } from '@/types/visualRef';
++import { adaptDialect, joinInDialect } from './dialect';
++import type { ResolverModel } from './model';
++
++/** The working band for a pinned pose. 0.4–0.7 holds the pose; 0.9 overcooks
++ *  it and drags the reference's clothing along with the skeleton. */
++export const POSE_CONTROL_WEIGHT = 0.55;
++
++/** Guidance at or below this ignores the negative prompt entirely. */
++export const NEGATIVE_PROMPT_MIN_CFG = 1;
++
++/** How each subject's identity is being carried, in the order the rules try. */
++export type IdentityStrategy = 'lora' | 'reference-image' | 'photomaker' | 'prompt-only';
++
++/** One line of the disclosure. `code` names the rule; the UI translates it. */
++export interface ResolutionStep {
++  code:
++    | 'lora'
++    | 'loraFamilyMismatch'
++    | 'loraUnsupported'
++    | 'referenceImage'
++    | 'photoMaker'
++    | 'noCanonical'
++    | 'fragment'
++    | 'dialectAdapted'
++    | 'scene'
++    | 'style'
++    | 'negative'
++    | 'negativeIgnored'
++    | 'pose'
++    | 'poseUnsupported'
++    | 'seedHero'
++    | 'seedManual'
++    | 'seedExplore';
++  /** The reference this step is about, when it is about one. */
++  refId?: string;
++  refName?: string;
++  /** Values the translated line interpolates, e.g. `{ weight: '0.80' }`. */
++  values?: Record<string, string>;
++}
++
++/** A reference image the request must carry, and what it is there for. */
++export interface ResolvedReferenceImage {
++  imageId: string;
++  refId: string;
++  role: 'identity' | 'face' | 'pose';
++  /** ControlNet strength, for `role: 'pose'`. */
++  weight?: number;
++}
++
++export interface ResolvedLora {
++  fileName: string;
++  weight: number;
++  refId: string;
++}
++
++export type SeedMode = 'lock' | 'explore' | 'manual';
++
++export interface ResolveOptions {
++  seedMode: SeedMode;
++  /** Used when `seedMode` is 'manual'. */
++  manualSeed?: number;
++  /**
++   * Used when `seedMode` is 'explore'. The caller rolls it, not the resolver:
++   * a resolver that reached for `Math.random()` could not be diffed against
++   * itself, and every test of every other branch would inherit the noise.
++   */
++  exploreSeed?: number;
++  /** The ref whose pinned pose to apply, and which of its poses. */
++  pose?: { refId: string; imageId: string };
++}
++
++export interface ResolvedGeneration {
++  /** Exactly the text that will be sent, trigger words first. */
++  prompt: string;
++  /** Absent when the model cannot honour negatives — never silently dropped. */
++  negativePrompt?: string;
++  seed?: number;
++  seedMode: SeedMode;
++  loras: ResolvedLora[];
++  referenceImages: ResolvedReferenceImage[];
++  /** How each subject's identity ended up being carried, by ref id. */
++  strategies: Record<string, IdentityStrategy>;
++  /** The dialect everything was written into: the model's. */
++  dialect: PromptDialect;
++  /** The disclosure, in the order the rules fired. */
++  steps: ResolutionStep[];
++}
++
++function fragmentFor(
++  ref: VisualRef,
++  model: ResolverModel,
++  steps: ResolutionStep[],
++): string {
++  const fragment = ref.promptFragment?.trim();
++  if (!fragment) return '';
++  const adapted = adaptDialect(fragment, ref.dialect, model.dialect);
++  steps.push({ code: 'fragment', refId: ref.id, refName: ref.name });
++  if (ref.dialect !== model.dialect) {
++    steps.push({
++      code: 'dialectAdapted',
++      refId: ref.id,
++      refName: ref.name,
++      values: { from: ref.dialect, to: model.dialect },
++    });
++  }
++  return adapted;
++}
++
++/**
++ * Decide how one subject's identity is carried, in the order the contract
++ * fixes: a matching LoRA, else a reference image, else a face adapter, else
++ * the words alone. Appends its own steps; returns the text it contributes.
++ */
++function resolveSubject(
++  ref: VisualRef,
++  model: ResolverModel,
++  out: {
++    loras: ResolvedLora[];
++    referenceImages: ResolvedReferenceImage[];
++    strategies: Record<string, IdentityStrategy>;
++    steps: ResolutionStep[];
++  },
++): string[] {
++  const parts: string[] = [];
++  const lora = ref.lora;
++  let strategy: IdentityStrategy = 'prompt-only';
++
++  if (lora) {
++    if (!model.supportsLora) {
++      out.steps.push({ code: 'loraUnsupported', refId: ref.id, refName: ref.name });
++    } else if (model.family && lora.baseFamily !== model.family) {
++      // Across families a LoRA is not weak, it is wrong: the weights address
++      // layers that do not mean the same thing in the other architecture.
++      out.steps.push({
++        code: 'loraFamilyMismatch',
++        refId: ref.id,
++        refName: ref.name,
++        values: { loraFamily: lora.baseFamily, modelFamily: model.family },
++      });
++    } else {
++      strategy = 'lora';
++      out.loras.push({ fileName: lora.fileName, weight: lora.weight, refId: ref.id });
++      out.steps.push({
++        code: 'lora',
++        refId: ref.id,
++        refName: ref.name,
++        values: { file: lora.fileName, weight: lora.weight.toFixed(2) },
++      });
++      // The trigger word goes FIRST, before anything else this ref adds: the
++      // token is what the LoRA was fused onto, and burying it behind a scene
++      // description is the single most common reason a trained LoRA "does
++      // nothing".
++      if (ref.triggerWord?.trim()) parts.push(ref.triggerWord.trim());
++    }
++  }
++
++  if (strategy === 'prompt-only' && model.supportsReferenceImages) {
++    if (ref.canonicalImageId) {
++      strategy = 'reference-image';
++      out.referenceImages.push({ imageId: ref.canonicalImageId, refId: ref.id, role: 'identity' });
++      out.steps.push({
++        code: 'referenceImage',
++        refId: ref.id,
++        refName: ref.name,
++        values: { index: String(out.referenceImages.length) },
++      });
++      // An edit model is instructed, not described: it needs to be told which
++      // image the subject is in, and the ordinal must match the attachment.
++      parts.push(`the person in image ${out.referenceImages.length}`);
++    } else {
++      out.steps.push({ code: 'noCanonical', refId: ref.id, refName: ref.name });
++    }
++  }
++
++  if (strategy === 'prompt-only' && model.supportsPhotoMaker && ref.canonicalImageId) {
++    strategy = 'photomaker';
++    out.referenceImages.push({ imageId: ref.canonicalImageId, refId: ref.id, role: 'face' });
++    out.steps.push({ code: 'photoMaker', refId: ref.id, refName: ref.name });
++  }
++
++  // Always, whatever carried the face: the words still describe her.
++  const fragment = fragmentFor(ref, model, out.steps);
++  if (fragment) parts.push(fragment);
++  // A ref with nothing but a name still names her — that is the whole point of
++  // an object where every field is optional.
++  if (parts.length === 0 && ref.name.trim()) parts.push(ref.name.trim());
++
++  out.strategies[ref.id] = strategy;
++  return parts;
++}
++
++/**
++ * The one entry point. `refs` are the subjects in the order the writer put them
++ * in the composer; `scene` and `style` are the free-text slots.
++ */
++export function resolve(
++  refs: readonly VisualRef[],
++  scene: string,
++  style: string,
++  model: ResolverModel,
++  options: ResolveOptions,
++): ResolvedGeneration {
++  const loras: ResolvedLora[] = [];
++  const referenceImages: ResolvedReferenceImage[] = [];
++  const strategies: Record<string, IdentityStrategy> = {};
++  const steps: ResolutionStep[] = [];
++  const out = { loras, referenceImages, strategies, steps };
++
++  const parts: string[] = [];
++  for (const ref of refs) parts.push(...resolveSubject(ref, model, out));
++
++  const sceneText = scene.trim();
++  if (sceneText) {
++    parts.push(sceneText);
++    steps.push({ code: 'scene' });
++  }
++  const styleText = style.trim();
++  if (styleText) {
++    parts.push(styleText);
++    steps.push({ code: 'style' });
++  }
++
++  // --- negatives -----------------------------------------------------------
++  // A distilled model runs at cfg 1, where classifier-free guidance has no
++  // negative branch to steer with: the text is encoded and thrown away. Showing
++  // the field working would teach the writer that their negative prompt did
++  // something, and they would go on writing longer ones.
++  const negativeParts = refs
++    .map((ref) => {
++      const negative = ref.negativeFragment?.trim();
++      return negative ? adaptDialect(negative, ref.dialect, model.dialect) : '';
++    })
++    .filter(Boolean);
++  const negativesHonoured = model.cfg === undefined || model.cfg > NEGATIVE_PROMPT_MIN_CFG;
++  let negativePrompt: string | undefined;
++  if (negativeParts.length > 0) {
++    if (negativesHonoured) {
++      negativePrompt = joinInDialect(negativeParts, model.dialect);
++      steps.push({ code: 'negative' });
++    } else {
++      steps.push({ code: 'negativeIgnored', values: { cfg: String(model.cfg) } });
++    }
++  }
++
++  // --- pinned pose ---------------------------------------------------------
++  if (options.pose) {
++    const pinned = options.pose;
++    if (model.supportsControlNet) {
++      referenceImages.push({
++        imageId: pinned.imageId,
++        refId: pinned.refId,
++        role: 'pose',
++        weight: POSE_CONTROL_WEIGHT,
++      });
++      steps.push({ code: 'pose', refId: pinned.refId, values: { weight: POSE_CONTROL_WEIGHT.toFixed(2) } });
++    } else {
++      steps.push({ code: 'poseUnsupported', refId: pinned.refId });
++    }
++  }
++
++  // --- seed ----------------------------------------------------------------
++  let seed: number | undefined;
++  if (options.seedMode === 'lock') {
++    const hero = refs.find((ref) => typeof ref.heroSeed === 'number');
++    if (hero) {
++      seed = hero.heroSeed;
++      steps.push({ code: 'seedHero', refId: hero.id, refName: hero.name, values: { seed: String(hero.heroSeed) } });
++    }
++  } else if (options.seedMode === 'manual') {
++    seed = options.manualSeed;
++    if (seed !== undefined) steps.push({ code: 'seedManual', values: { seed: String(seed) } });
++  } else {
++    seed = options.exploreSeed;
++    steps.push({ code: 'seedExplore', values: seed === undefined ? undefined : { seed: String(seed) } });
++  }
++
++  return {
++    prompt: joinInDialect(parts, model.dialect),
++    negativePrompt,
++    seed,
++    seedMode: options.seedMode,
++    loras,
++    referenceImages,
++    strategies,
++    dialect: model.dialect,
++    steps,
++  };
++}
+diff --git a/src/types/visualRef.ts b/src/types/visualRef.ts
+new file mode 100644
+index 0000000..35677b0
+--- /dev/null
++++ b/src/types/visualRef.ts
+@@ -0,0 +1,108 @@
++// ============================================================================
++// Visual references — the object that accumulates
++// ============================================================================
++//
++// A character who is recognisably the same person in chapter 30 as in chapter 1
++// is not the product of one lucky prompt; it is the product of layers that
++// build up over months. On day 1 a reference is three words and a photograph
++// the writer found. On day 30 it is twenty-five curated images, a seed that
++// works, a preset, and a LoRA trained from the folder this file can export.
++//
++// So EVERY field below except identity is optional, and the resolver uses
++// whatever happens to be there. That is what makes the object useful with no
++// image backend installed at all — as a visual bible — and what lets the
++// generation side grow underneath it without a migration.
++
++/** What the reference stands for. Style refs carry no face; they carry a look. */
++export type VisualRefKind = 'character' | 'place' | 'object' | 'style';
++
++/**
++ * Which language the fragments are written in.
++ *
++ * Not decoration. Tag-conditioned bases (SDXL, Illustrious, Pony) were trained
++ * on comma-separated boorus; prose-conditioned bases (Flux, Qwen, Z-Image) were
++ * trained on sentences. A fragment written for one reads badly to the other —
++ * a tag salad confuses a T5 encoder and a paragraph dilutes a CLIP one — so the
++ * dialect travels with the text and the resolver adapts it at the join.
++ */
++export type PromptDialect = 'tags' | 'prose';
++
++/**
++ * A LoRA trained on this reference. `baseFamily` is the checkpoint family it
++ * was trained against ('sd1' | 'sdxl' | 'flux' | whatever a server reports):
++ * a LoRA is only meaningful over its own family, and applying one across
++ * families produces the noise that makes writers give up on LoRAs.
++ */
++export interface VisualRefLora {
++  fileName: string;
++  weight: number;
++  baseFamily: string;
++  /** Which images it was trained from, so a retrain can start from the same set. */
++  trainedFromImageIds?: string[];
++  trainedAt?: number;
++}
++
++/** The knobs that were found to work for this reference, kept so they can be reused. */
++export interface VisualRefPreset {
++  modelId: string;
++  steps: number;
++  cfg: number;
++  sampler?: string;
++  scheduler?: string;
++  width: number;
++  height: number;
++}
++
++export interface VisualRef {
++  id: string;
++  projectId: string;
++  /** The codex character/place this belongs to, when it belongs to one. */
++  codexEntryId?: string;
++  kind: VisualRefKind;
++  name: string;
++
++  /** The words that describe her, in `dialect`. */
++  promptFragment?: string;
++  negativeFragment?: string;
++  /** The LoRA's token once one is trained; goes first in the prompt. */
++  triggerWord?: string;
++  dialect: PromptDialect;
++
++  /** Gallery image ids. The bytes stay in `inspirationImages`; this holds ids. */
++  referenceImageIds: string[];
++  /** "This is her" — the one image an edit model or PhotoMaker is handed. */
++  canonicalImageId?: string;
++  /** Turnarounds and expression sheets: reference material, not the portrait. */
++  sheetImageIds?: string[];
++
++  lora?: VisualRefLora;
++  /** The seed that produced her best likeness, reused when identity is locked. */
++  heroSeed?: number;
++  /** Reusable poses: a pose bank the writer builds up, ControlNet or not. */
++  controlImageIds?: string[];
++  preset?: VisualRefPreset;
++
++  createdAt: number;
++  updatedAt: number;
++}
++
++/** A brand-new reference: a name and a dialect, nothing else. */
++export function emptyVisualRef(
++  id: string,
++  projectId: string,
++  name: string,
++  now: number,
++  kind: VisualRefKind = 'character',
++  dialect: PromptDialect = 'prose',
++): VisualRef {
++  return {
++    id,
++    projectId,
++    kind,
++    name,
++    dialect,
++    referenceImageIds: [],
++    createdAt: now,
++    updatedAt: now,
++  };
++}
+diff --git a/tasks/todo-visual-refs.md b/tasks/todo-visual-refs.md
+new file mode 100644
+index 0000000..b150691
+--- /dev/null
++++ b/tasks/todo-visual-refs.md
+@@ -0,0 +1,26 @@
++# Visual references — the character who looks the same in chapter 30
++
++Branch `wh-visualref`. Contract W-B.
++
++## Plan
++
++- [ ] `src/types/visualRef.ts` — `VisualRef` (every field optional but id/name/kind/dialect),
++      the resolver's input/output shapes.
++- [ ] Dexie v29 — `visualRefs` table, additive, with the version comment the file
++      already uses for every other version.
++- [ ] `src/services/visualRef/resolve.ts` — the pure resolver. No I/O, no clock,
++      no dice: the caller rolls the seed and hands it in, so the same inputs
++      always give the same `ResolvedGeneration` and a test can diff two.
++- [ ] `src/services/visualRef/dialect.ts` — tag ↔ prose adaptation.
++- [ ] `src/services/visualRef/mentions.ts` — `@Name` → ref, pure.
++- [ ] `src/services/visualRef/dataset.ts` — captions drafted from the codex entry,
++      the image/caption pairs, the ai-toolkit YAML and the musubi-tuner TOML.
++- [ ] `src/engines/image-studio/` — refs CRUD, backup strategy, the three-column
++      composer, the resolved-prompt disclosure, the actions.
++- [ ] Locale keys, en + es.
++- [ ] Tests in `tests/visual-ref.ts`, run from the critical harness.
++
++## Order of work
++
++The no-backend state first: a ref with a name, a fragment and an uploaded
++portrait must be useful before a single pixel is generated.
+-- 
+2.43.0
+

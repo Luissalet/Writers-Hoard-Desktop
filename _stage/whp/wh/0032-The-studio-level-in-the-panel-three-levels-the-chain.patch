@@ -1,0 +1,2595 @@
+From c853b3c3f9ef72252fc93e231d14762dd7359efb Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 02:17:45 +0000
+Subject: [PATCH 32/36] The studio level, in the panel: three levels, the
+ chain, the stack, the plot
+
+The parameters column now reads the capability descriptor instead of a
+hand-written visibility table, so every control says which of the three
+possible reasons refuses it and says it in the text rather than in a tooltip
+nobody hovers.
+
+New in the panel: the level switcher remembered per project, resolution
+buckets per family with an off-bucket warning, the working point applied on
+model switch with its reason and an undo, the pass chain as an editable list
+with the denoise band drawn, the LoRA stack with trigger words, batch seed
+mode, the prompt craft bar (weights, token estimate, wildcard picks and the
+two A1111 tricks this runtime does not implement), and the X/Y/Z plot.
+---
+ .../image-studio/ImageStudioEngine.tsx        | 385 ++++++++++++++--
+ .../image-studio/components/LevelSwitcher.tsx |  44 ++
+ .../image-studio/components/LoraStack.tsx     | 174 +++++++
+ .../components/ParameterField.tsx             |  48 ++
+ .../components/ParametersColumn.tsx           | 429 ++++++++++++++----
+ .../components/PassChainEditor.tsx            | 289 ++++++++++++
+ .../components/PromptCraftBar.tsx             |  96 ++++
+ .../image-studio/components/ResultsGrid.tsx   |  14 +-
+ .../image-studio/components/XyzPlotDialog.tsx | 161 +++++++
+ .../image-studio/components/weightKeys.ts     |  33 ++
+ src/engines/image-studio/studio/index.ts      |   3 +
+ src/engines/image-studio/studio/run.ts        | 118 +++++
+ src/engines/image-studio/studioModel.ts       |  48 +-
+ src/locales/en.ts                             | 143 ++++++
+ src/locales/es.ts                             | 143 ++++++
+ 15 files changed, 1935 insertions(+), 193 deletions(-)
+ create mode 100644 src/engines/image-studio/components/LevelSwitcher.tsx
+ create mode 100644 src/engines/image-studio/components/LoraStack.tsx
+ create mode 100644 src/engines/image-studio/components/ParameterField.tsx
+ create mode 100644 src/engines/image-studio/components/PassChainEditor.tsx
+ create mode 100644 src/engines/image-studio/components/PromptCraftBar.tsx
+ create mode 100644 src/engines/image-studio/components/XyzPlotDialog.tsx
+ create mode 100644 src/engines/image-studio/components/weightKeys.ts
+ create mode 100644 src/engines/image-studio/studio/run.ts
+
+diff --git a/src/engines/image-studio/ImageStudioEngine.tsx b/src/engines/image-studio/ImageStudioEngine.tsx
+index a42cca5..587b2ae 100644
+--- a/src/engines/image-studio/ImageStudioEngine.tsx
++++ b/src/engines/image-studio/ImageStudioEngine.tsx
+@@ -17,7 +17,7 @@
+ 
+ import { useCallback, useEffect, useMemo, useState } from 'react';
+ import { useNavigate } from 'react-router-dom';
+-import { GitCompare, ImagePlus, Loader2, Settings2, Sparkles, Square, XCircle } from 'lucide-react';
++import { GitCompare, Grid3x3, ImagePlus, Loader2, Settings2, Sparkles, Square, XCircle } from 'lucide-react';
+ import { useTranslation } from '@/i18n/useTranslation';
+ import { ConfirmDialog } from '@/engines/_shared';
+ import type { EngineComponentProps } from '@/engines/_types';
+@@ -28,6 +28,8 @@ import { useAiRuntimeStore } from '@/stores/aiRuntimeStore';
+ import { useImageRuntimeStore } from '@/stores/imageRuntimeStore';
+ import type { AiRouteSelection } from '@/services/aiRuntime/types';
+ import type { ImageHandle } from '@/services/aiRuntime/client';
++import { SD_BUILTIN_HIRES_UPSCALERS } from '@/services/aiRuntime/sdServer';
++import { imageCatalogEntry } from '@/services/aiRuntime/imageCatalog';
+ import { getProjectSettings, saveProjectSettings } from '@/services/copilot/threads';
+ import { toast } from '@/components/common/toast';
+ import {
+@@ -40,13 +42,34 @@ import {
+   type ResolverModel,
+ } from '@/services/visualRef';
+ import {
+-  IMAGE_SIZE_PRESETS,
+   REQUEST_SUPPORTS,
+   deleteGeneratedImage,
+   listGeneratedImages,
+   saveGenerated,
+   startGeneration,
+ } from './operations';
++import {
++  bucketsForFamily,
++  defaultBucket,
++  defaultsForModel,
++  mergeStack,
++  newChain,
++  parsePassChain,
++  planRun,
++  readStudioPrefs,
++  rollSeed,
++  seedsForBatch,
++  stackFromReferences,
++  studioCapabilities,
++  wildcardFilesFromRefs,
++  writeStudioPrefs,
++  type DefaultsSource,
++  type LoraStackEntry,
++  type PassSupportInput,
++  type StudioLevel,
++  type StudioPass,
++  type XyzCell,
++} from './studio';
+ import {
+   addToReferenceSet,
+   createVisualRef,
+@@ -57,7 +80,7 @@ import {
+   setCanonicalImage,
+   updateVisualRef,
+ } from './refs';
+-import { AVAILABLE, blocked, parameterVisibility, studioResolverModel, type Availability } from './studioModel';
++import { AVAILABLE, blocked, isManagedLocalRoute, studioResolverModel, type Availability } from './studioModel';
+ import CastColumn from './components/CastColumn';
+ import ParametersColumn, { type ParametersState } from './components/ParametersColumn';
+ import ReferenceEditor from './components/ReferenceEditor';
+@@ -65,16 +88,23 @@ import ResolvedPrompt from './components/ResolvedPrompt';
+ import ResultsGrid, { type ResultBatch } from './components/ResultsGrid';
+ import CompareDialog from './components/CompareDialog';
+ import DatasetExportDialog from './components/DatasetExportDialog';
++import PromptCraftBar from './components/PromptCraftBar';
++import { onWeightKeyDown } from './components/weightKeys';
++import XyzPlotDialog from './components/XyzPlotDialog';
+ 
+ const INITIAL_PARAMETERS: ParametersState = {
+-  sizePreset: 'square',
++  sizePreset: '1024x1024',
++  customWidth: '',
++  customHeight: '',
+   steps: '',
+   cfg: '',
+   sampler: '',
+   scheduler: '',
++  clipSkip: '',
+   seedMode: 'explore',
+   manualSeed: '',
+   batch: 1,
++  batchSeedMode: 'incremental',
+ };
+ 
+ /** Variations are a batch of six: enough to see a trend, few enough to look at. */
+@@ -97,15 +127,6 @@ const ABSENT_MODEL: ResolverModel = {
+   supportsInitImage: false,
+ };
+ 
+-/**
+- * A seed for an unrepeatable run. At module scope on purpose: the dice belong
+- * outside the component (React's purity rule) and outside the resolver (which
+- * has to be reproducible), so this is the one place in the studio that rolls.
+- */
+-function rollSeed(): number {
+-  return Math.floor(Math.random() * 2_147_483_647);
+-}
+-
+ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+   const { t } = useTranslation();
+   const navigate = useNavigate();
+@@ -123,6 +144,16 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+   const [style, setStyle] = useState('');
+   const [parameters, setParameters] = useState<ParametersState>(INITIAL_PARAMETERS);
+ 
++  // The studio's own state: the level, the chain and the stack. Kept together
++  // so that the one place they are persisted is the one place they change.
++  const [level, setLevel] = useState<StudioLevel>('simple');
++  const [passes, setPasses] = useState<StudioPass[]>(() => newChain());
++  const [loraManual, setLoraManual] = useState<LoraStackEntry[]>([]);
++  const [showAllSamplers, setShowAllSamplers] = useState(false);
++  const [appliedDefaults, setAppliedDefaults] = useState<DefaultsSource | null>(null);
++  const [beforeDefaults, setBeforeDefaults] = useState<ParametersState | null>(null);
++  const [plotting, setPlotting] = useState(false);
++
+   const [route, setRoute] = useState<AiRouteSelection | undefined>(undefined);
+   const [handle, setHandle] = useState<ImageHandle | null>(null);
+   const [error, setError] = useState<string | null>(null);
+@@ -167,6 +198,11 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+       if (!live) return;
+       setEntries(codex);
+       if (settings.imageRoute) setRoute(settings.imageRoute);
++      const prefs = readStudioPrefs(projectId);
++      setLevel(prefs.level);
++      setPasses(prefs.passChain);
++      setShowAllSamplers(prefs.showAllSamplers);
++      setParameters((current) => ({ ...current, batchSeedMode: prefs.batchSeedMode }));
+       reloadImages();
+       void runtime.loadConnections();
+       void runtime.loadDefaults();
+@@ -190,13 +226,61 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+     }),
+     [effectiveRoute, descriptor, sdStatus?.lorasSupported, cfgOverride],
+   );
+-  const visibility = useMemo(() => parameterVisibility(model, REQUEST_SUPPORTS), [model]);
+-  const nativeSize = descriptor?.nativeWidth && descriptor.nativeHeight
+-    ? { width: descriptor.nativeWidth, height: descriptor.nativeHeight }
+-    : undefined;
+-  const size = parameters.sizePreset === 'native' && nativeSize
+-    ? nativeSize
+-    : IMAGE_SIZE_PRESETS.find((preset) => preset.id === parameters.sizePreset) ?? IMAGE_SIZE_PRESETS[0];
++  const managedLocal = isManagedLocalRoute(effectiveRoute);
++  const family = model?.family;
++  const capabilities = useMemo(
++    () => studioCapabilities({
++      model,
++      supports: REQUEST_SUPPORTS,
++      managedLocal,
++      loraCount: sdStatus?.loras?.length ?? 0,
++    }),
++    [model, managedLocal, sdStatus?.loras?.length],
++  );
++  const nativeSize = useMemo(
++    () => (descriptor?.nativeWidth && descriptor.nativeHeight
++      ? { width: descriptor.nativeWidth, height: descriptor.nativeHeight }
++      : undefined),
++    [descriptor],
++  );
++  const size = useMemo(() => {
++    if (parameters.sizePreset === 'native' && nativeSize) return nativeSize;
++    if (parameters.sizePreset === 'custom') {
++      const width = Number(parameters.customWidth) || defaultBucket(family).width;
++      const height = Number(parameters.customHeight) || defaultBucket(family).height;
++      return { width, height };
++    }
++    const buckets = bucketsForFamily(family);
++    return buckets.find((bucket) => bucket.id === parameters.sizePreset) ?? defaultBucket(family);
++  }, [parameters.sizePreset, parameters.customWidth, parameters.customHeight, nativeSize, family]);
++
++  // Upscalers the server will resolve: the names every build knows without a
++  // file, plus whatever is actually sitting in the upscalers folder. Offering
++  // one it cannot find makes it refuse the whole request.
++  const upscalers = useMemo(() => [
++    ...SD_BUILTIN_HIRES_UPSCALERS,
++    ...(sdStatus?.companions ?? []).filter((file) => file.kind === 'upscaler').map((file) => file.name),
++  ], [sdStatus?.companions]);
++  const passSupport: PassSupportInput = useMemo(
++    () => ({ supports: REQUEST_SUPPORTS, managedLocal, upscalers }),
++    [managedLocal, upscalers],
++  );
++
++  /** The level, the chain and the batch mode are remembered per project. */
++  const persist = useCallback((changes: Partial<{
++    level: StudioLevel;
++    passChain: StudioPass[];
++    showAllSamplers: boolean;
++    batchSeedMode: ParametersState['batchSeedMode'];
++  }>) => {
++    writeStudioPrefs(projectId, {
++      level,
++      passChain: passes,
++      showAllSamplers,
++      batchSeedMode: parameters.batchSeedMode,
++      ...changes,
++    });
++  }, [projectId, level, passes, showAllSamplers, parameters.batchSeedMode]);
+ 
+   // --- the resolution -------------------------------------------------------
+   const mentions = useMemo(() => parseMentions(subjects, refs), [subjects, refs]);
+@@ -213,6 +297,18 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+     [mentions.refs, mentions.rest, scene, style, previewModel, resolveOptions],
+   );
+ 
++  // References own their LoRAs; the stack adds the writer's own on top and
++  // drops duplicates, because a file loaded twice is not loaded twice as hard —
++  // the last multiplier wins and the reference silently loses its weight.
++  const loraStack = useMemo(
++    () => mergeStack(stackFromReferences(resolved.loras, refs), loraManual),
++    [resolved.loras, refs, loraManual],
++  );
++  // Wildcard lists are the project's own reusable fragments: this engine owns
++  // one table and it is not a wildcard store, so `__lighting__` reads the
++  // reference called "lighting" rather than a file nobody can see.
++  const wildcardFiles = useMemo(() => wildcardFilesFromRefs(refs), [refs]);
++
+   const selectedRef = refs.find((row) => row.id === selectedRefId) ?? null;
+   const heroRef = mentions.refs.find((row) => typeof row.heroSeed === 'number') ?? null;
+   const busy = handle !== null;
+@@ -239,36 +335,98 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+     : blocked('visualRef.reason.compareCount');
+ 
+   // --- generating -----------------------------------------------------------
+-  const runGeneration = async (override?: { seeds?: number[]; prompt?: string; negative?: string }) => {
+-    if (!model || !effectiveRoute || busy) return;
+-    setError(null);
+-    // The dice are rolled HERE, not in the resolver: a pure resolver is what
+-    // makes a recipe reproducible and a diff meaningful.
+-    const seeds = override?.seeds
+-      ?? (resolved.seedMode === 'explore' ? [rollSeed()] : [resolved.seed ?? rollSeed()]);
+-    const references = await resolveReferenceData();
+-    const options = {
++
++  /** A field the model cannot honour is never sent, whatever is in the box. */
++  const numeric = (text: string): number | undefined => (text.trim() ? Number(text) : undefined);
++
++  /**
++   * Everything one run needs, in one place.
++   *
++   * The composer's preview, the X/Y/Z plot and "vary this one" all go through
++   * this and then through `planRun`, because a preview built by a second code
++   * path is a preview of something else — and the resolved-prompt disclosure
++   * only means anything if what it shows is what is sent.
++   */
++  const planFor = (input: {
++    seed: number;
++    wildcardSeed?: number;
++    prompt?: string;
++    negative?: string;
++    cell?: XyzCell;
++    references?: { identity: string[]; control: { image: string; weight: number }[] };
++    refImageIds?: string[];
++    controlImageId?: string;
++    tags?: string[];
++  }) => {
++    const cell = input.cell?.overrides;
++    const chain = cell?.hiresDenoise === undefined
++      ? passes
++      : passes.map((pass) => (pass.kind === 'hires' ? { ...pass, denoise: cell.hiresDenoise } : pass));
++    return {
+       projectId,
+-      route: effectiveRoute,
+-      prompt: override?.prompt ?? resolved.prompt,
+-      negativePrompt: override?.negative ?? resolved.negativePrompt,
++      route: effectiveRoute as AiRouteSelection,
++      resolved: {
++        ...resolved,
++        prompt: input.prompt ?? resolved.prompt,
++        negativePrompt: input.negative ?? resolved.negativePrompt,
++      },
++      composer: { subjects, scene, style },
+       width: size.width,
+       height: size.height,
+-      n: override?.seeds ? 1 : parameters.batch,
+-      steps: parameters.steps.trim() ? Number(parameters.steps) : undefined,
+-      guidance: visibility.cfg && parameters.cfg.trim() ? Number(parameters.cfg) : undefined,
+-      sampler: parameters.sampler || undefined,
+-      scheduler: parameters.scheduler || undefined,
+-      loras: resolved.loras.length
+-        ? resolved.loras.map((lora) => ({ name: lora.fileName, weight: lora.weight }))
+-        : undefined,
+-      referenceImages: references.identity,
+-      controlNets: references.control,
++      seed: cell?.seed ?? input.seed,
++      wildcardSeed: input.wildcardSeed,
++      n: 1,
++      steps: cell?.steps ?? numeric(parameters.steps),
++      cfg: capabilities.cfg.enabled ? cell?.cfg ?? numeric(parameters.cfg) : undefined,
++      sampler: capabilities.sampler.enabled ? (cell?.sampler ?? (parameters.sampler || undefined)) : undefined,
++      scheduler: capabilities.scheduler.enabled ? (cell?.scheduler ?? (parameters.scheduler || undefined)) : undefined,
++      clipSkip: capabilities.clipSkip.enabled ? cell?.clipSkip ?? numeric(parameters.clipSkip) : undefined,
++      passes: chain,
++      passSupport,
++      loraStack,
++      wildcardFiles,
++      referenceImages: input.references?.identity,
++      controlNets: input.references?.control,
++      refImageIds: input.refImageIds,
++      controlImageId: input.controlImageId,
+       visualRefIds: mentions.refs.map((row) => row.id),
+-      composer: { subjects, scene, style },
++      promptSuffix: cell?.promptSuffix,
++      tags: input.tags,
+     };
+-    for (const seed of seeds) {
+-      const request = { ...options, seed };
++  };
++
++  const runGeneration = async (override?: {
++    seeds?: number[];
++    prompt?: string;
++    negative?: string;
++    /** One X/Y/Z cell: what this run changes about the recipe on screen. */
++    cell?: XyzCell;
++    tags?: string[];
++  }) => {
++    if (!model || !effectiveRoute || busy) return;
++    setError(null);
++    // The dice are rolled HERE, not in the resolver: a pure resolver is what
++    // makes a recipe reproducible and a diff meaningful.
++    const base = resolved.seedMode === 'explore' ? rollSeed() : resolved.seed ?? rollSeed();
++    const seeds = override?.seeds ?? seedsForBatch(base, parameters.batch, parameters.batchSeedMode);
++    const references = await resolveReferenceData();
++    const refImageIds = resolved.referenceImages.filter((row) => row.role !== 'pose').map((row) => row.imageId);
++    const controlImageId = resolved.referenceImages.find((row) => row.role === 'pose')?.imageId;
++
++    for (const [index, seed] of seeds.entries()) {
++      const request = planRun(planFor({
++        seed,
++        // A fixed-seed batch varies only the wording: same noise, different
++        // wildcard picks, which is the only way that mode is worth having.
++        wildcardSeed: parameters.batchSeedMode === 'fixed' ? seed + index : seed,
++        prompt: override?.prompt,
++        negative: override?.negative,
++        cell: override?.cell,
++        references,
++        refImageIds,
++        controlImageId,
++        tags: override?.tags,
++      })).options;
+       const started = startGeneration(request);
+       setHandle(started);
+       try {
+@@ -283,6 +441,19 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+     reloadImages();
+   };
+ 
++  /**
++   * The prompt as it will actually be sent, resolved against the seed on
++   * screen. Shown under the composer so a wildcard is never a surprise: a
++   * recipe holding an unresolved `{a|b|c}` is not a recipe.
++   */
++  const preview = useMemo(
++    () => (effectiveRoute
++      ? planRun(planFor({ seed: resolved.seed ?? 0 }))
++      : null),
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++    [resolved, parameters, passes, loraStack, wildcardFiles, size, effectiveRoute, capabilities],
++  );
++
+   /** Turn the resolved image ids into the bytes the request would carry. */
+   const resolveReferenceData = async (): Promise<{ identity: string[]; control: { image: string; weight: number }[] }> => {
+     if (resolved.referenceImages.length === 0) return { identity: [], control: [] };
+@@ -303,6 +474,9 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+   const iterate = (image: InspirationImage) => {
+     if (!image.generation) return;
+     const recipe = readRecipe(image.generation);
++    // Read defensively: these ride on the row whether or not the shared type
++    // has grown a field for them, the same way `readRecipe` reads the rest.
++    const stored = image.generation as typeof image.generation & { passChain?: string; clipSkip?: number };
+     // The model this was made with may be gone. Say so — never quietly pick the
+     // nearest installed one, because then every stored recipe reproduces by
+     // luck and the writer stops being able to trust any of them.
+@@ -332,9 +506,14 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+       cfg: recipe.cfg === undefined ? '' : String(recipe.cfg),
+       sampler: recipe.sampler ?? '',
+       scheduler: recipe.scheduler ?? '',
++      clipSkip: stored.clipSkip === undefined ? '' : String(stored.clipSkip),
+       seedMode: recipe.seed === undefined ? 'explore' : 'manual',
+       manualSeed: recipe.seed === undefined ? '' : String(recipe.seed),
+     }));
++    // The chain is part of the recipe: a picture made with a hires pass that
++    // comes back without one is not the same picture, and the writer would be
++    // iterating on something they never made.
++    if (stored.passChain) setPasses(parsePassChain(stored.passChain));
+     setPane('composer');
+   };
+ 
+@@ -348,6 +527,52 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+     });
+   };
+ 
++  /**
++   * Re-point the knobs to this model's working point, and SAY so.
++   *
++   * Applied on the switch itself rather than in an effect: a writer who picks
++   * a model has asked for this, and the same change arriving invisibly on a
++   * background load would move a value they had just tuned by hand.
++   */
++  const applyDefaults = (next: AiRouteSelection) => {
++    const catalog = imageCatalogEntry(next.modelId);
++    const nextDescriptor = runtime.modelsByConnection[next.connectionId]?.models
++      .find((candidate) => candidate.id === next.modelId);
++    const defaults = defaultsForModel({
++      modelId: next.modelId,
++      family: nextDescriptor?.family ?? catalog?.family,
++      catalog,
++    });
++    setBeforeDefaults(parameters);
++    setAppliedDefaults(defaults.source);
++    setParameters((current) => ({
++      ...current,
++      sizePreset: defaults.bucketId,
++      steps: String(defaults.steps),
++      cfg: String(defaults.cfg),
++      sampler: defaults.sampler,
++      scheduler: defaults.scheduler ?? '',
++      clipSkip: defaults.clipSkip === undefined ? '' : String(defaults.clipSkip),
++    }));
++  };
++
++  const undoDefaults = () => {
++    if (beforeDefaults) setParameters(beforeDefaults);
++    setAppliedDefaults(null);
++    setBeforeDefaults(null);
++  };
++
++  /** One X/Y/Z cell per run, tagged so the grid can be found again in Gallery. */
++  const runPlot = async (cells: XyzCell[]) => {
++    // One seed for the whole plot: a grid whose cells each rolled their own
++    // noise shows the seed, not the axis, and is worth nothing. A seed axis
++    // overrides this per cell, which is the one time it should differ.
++    const seed = resolved.seed ?? rollSeed();
++    for (const cell of cells) {
++      await runGeneration({ seeds: [seed], cell, tags: ['xyz'] });
++    }
++  };
++
+   const batches: ResultBatch[] = useMemo(() => {
+     const grouped = new Map<number, InspirationImage[]>();
+     for (const image of images) {
+@@ -445,12 +670,21 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+                 {t(`visualRef.pane.${tab}`)}
+               </button>
+             ))}
++            <button
++              type="button"
++              onClick={() => setPlotting(true)}
++              title={t('imageStudio.xyz.title')}
++              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] border border-border text-text-dim hover:text-accent-gold transition"
++            >
++              <Grid3x3 size={11} />
++              {t('imageStudio.xyz.title')}
++            </button>
+             <button
+               type="button"
+               onClick={() => setComparing(true)}
+               disabled={!compareAction.enabled}
+               title={compareAction.enabled ? t('visualRef.action.compare') : t(compareAction.reasonKey ?? '')}
+-              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] border border-border text-text-dim hover:text-accent-gold transition disabled:opacity-40 disabled:cursor-not-allowed"
++              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] border border-border text-text-dim hover:text-accent-gold transition disabled:opacity-40 disabled:cursor-not-allowed"
+             >
+               <GitCompare size={11} />
+               {t('visualRef.action.compare')} ({compareIds.length})
+@@ -474,6 +708,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+                   <textarea
+                     value={subjects}
+                     onChange={(event) => setSubjects(event.target.value)}
++                    onKeyDown={(event) => onWeightKeyDown(event, setSubjects)}
+                     onDrop={(event) => {
+                       const name = event.dataTransfer.getData('text/plain');
+                       if (!name) return;
+@@ -496,6 +731,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+                     <input
+                       value={scene}
+                       onChange={(event) => setScene(event.target.value)}
++                      onKeyDown={(event) => onWeightKeyDown(event, setScene)}
+                       placeholder={t('visualRef.composer.scenePlaceholder')}
+                       className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
+                     />
+@@ -505,12 +741,25 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+                     <input
+                       value={style}
+                       onChange={(event) => setStyle(event.target.value)}
++                      onKeyDown={(event) => onWeightKeyDown(event, setStyle)}
+                       placeholder={t('visualRef.composer.stylePlaceholder')}
+                       className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
+                     />
+                   </label>
+                 </div>
+                 <ResolvedPrompt resolved={resolved} />
++                <PromptCraftBar
++                  prompt={preview?.options.prompt ?? resolved.prompt}
++                  wildcards={preview?.wildcards}
++                  unresolvedWildcards={preview?.unresolvedWildcards}
++                />
++                {/* A pass that is switched on and cannot run is said out loud
++                    here, next to the button that would have run it. */}
++                {preview?.refusedPasses.map((refusal) => (
++                  <p key={refusal.id} className="text-[10px] text-accent-amber">
++                    {t(`imageStudio.pass.${refusal.kind}`)}: {t(refusal.reasonKey)}
++                  </p>
++                ))}
+                 <div className="flex items-center gap-2">
+                   {busy && (
+                     <button
+@@ -555,6 +804,11 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+                   ))}
+                   onIterate={iterate}
+                   onVariations={variations}
++                  onUseSeed={(image) => {
++                    const seed = image.generation?.seed;
++                    if (seed === undefined) return;
++                    setParameters((current) => ({ ...current, seedMode: 'manual', manualSeed: String(seed) }));
++                  }}
+                   onPinSeed={(image) => {
+                     const seed = image.generation?.seed;
+                     if (!selectedRef || seed === undefined) return;
+@@ -593,19 +847,50 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+             onRoute={(next) => {
+               setRoute(next ?? undefined);
+               void saveProjectSettings(projectId, { imageRoute: next ?? undefined });
++              if (next && next.modelId !== effectiveRoute?.modelId) applyDefaults(next);
+             }}
+-            visibility={visibility}
++            level={level}
++            onLevel={(next) => { setLevel(next); persist({ level: next }); }}
++            capabilities={capabilities}
+             value={parameters}
+-            onChange={(changes) => setParameters((current) => ({ ...current, ...changes }))}
+-            hasModel={model !== null}
+-            hasHeroSeed={heroRef !== null}
++            onChange={(changes) => {
++              setParameters((current) => ({ ...current, ...changes }));
++              if (changes.batchSeedMode) persist({ batchSeedMode: changes.batchSeedMode });
++            }}
++            family={family}
+             nativeSize={nativeSize}
++            size={size}
++            appliedDefaults={appliedDefaults}
++            onUndoDefaults={undoDefaults}
++            onReapplyDefaults={() => { if (effectiveRoute) applyDefaults(effectiveRoute); }}
++            showAllSamplers={showAllSamplers}
++            onShowAllSamplers={(next) => { setShowAllSamplers(next); persist({ showAllSamplers: next }); }}
++            hasHeroSeed={heroRef !== null}
++            passes={passes}
++            onPasses={(next) => { setPasses(next); persist({ passChain: next }); }}
++            passSupport={passSupport}
++            upscalers={upscalers}
++            loraStack={loraStack}
++            loraManual={loraManual}
++            onLoraManual={setLoraManual}
++            availableLoras={sdStatus?.loras ?? []}
++            lorasDir={sdStatus?.lorasDir}
++            resolvedPrompt={preview?.options.prompt ?? resolved.prompt}
+           />
+         </aside>
+       </div>
+ 
+       <CompareDialog open={comparing} images={compareImages} onClose={() => setComparing(false)} />
+ 
++      <XyzPlotDialog
++        open={plotting}
++        onClose={() => setPlotting(false)}
++        capabilities={capabilities}
++        canGenerate={generateAction.enabled}
++        generateReasonKey={generateAction.reasonKey}
++        onRun={(cells) => { void runPlot(cells); }}
++      />
++
+       {selectedRef && (
+         <DatasetExportDialog
+           open={exporting}
+diff --git a/src/engines/image-studio/components/LevelSwitcher.tsx b/src/engines/image-studio/components/LevelSwitcher.tsx
+new file mode 100644
+index 0000000..c251e94
+--- /dev/null
++++ b/src/engines/image-studio/components/LevelSwitcher.tsx
+@@ -0,0 +1,44 @@
++// ============================================================================
++// Simple · Studio · Expert
++// ============================================================================
++//
++// Three, not two. Two levels force a choice between hiding the controls and
++// showing a research console, and the level that was missing is the one nearly
++// every writer actually wants: the sampler, the steps, the CFG and the LoRA
++// stack — the vocabulary of every tutorial they will ever read — without the
++// sigma schedule.
++
++import { useTranslation } from '@/i18n/useTranslation';
++import { STUDIO_LEVELS, type StudioLevel } from '../studio';
++
++export interface LevelSwitcherProps {
++  value: StudioLevel;
++  onChange: (level: StudioLevel) => void;
++}
++
++export default function LevelSwitcher({ value, onChange }: LevelSwitcherProps) {
++  const { t } = useTranslation();
++  return (
++    <div>
++      <div className="flex items-center gap-1" role="group" aria-label={t('imageStudio.level.title')}>
++        {STUDIO_LEVELS.map((level) => (
++          <button
++            key={level}
++            type="button"
++            onClick={() => onChange(level)}
++            aria-pressed={value === level}
++            title={t(`imageStudio.level.${level}.what`)}
++            className={`flex-1 px-2 py-1 rounded-lg text-[10px] border transition ${
++              value === level
++                ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold'
++                : 'border-border text-text-dim hover:text-text-primary'
++            }`}
++          >
++            {t(`imageStudio.level.${level}`)}
++          </button>
++        ))}
++      </div>
++      <p className="mt-1 text-[10px] text-text-dim">{t(`imageStudio.level.${value}.what`)}</p>
++    </div>
++  );
++}
+diff --git a/src/engines/image-studio/components/LoraStack.tsx b/src/engines/image-studio/components/LoraStack.tsx
+new file mode 100644
+index 0000000..cccc82e
+--- /dev/null
++++ b/src/engines/image-studio/components/LoraStack.tsx
+@@ -0,0 +1,174 @@
++// ============================================================================
++// The LoRA stack — N of them, their weights, and their trigger words
++// ============================================================================
++//
++// One at a time was the ceiling, and character fidelity is LoRAs: a character
++// LoRA plus a style LoRA plus a detail LoRA is the ordinary case. The request
++// has carried an array all along.
++//
++// The trigger word sits next to each entry because a LoRA whose trigger the
++// writer cannot see is a LoRA they will use wrong — the token is what the
++// weights were fused onto, and a correctly loaded LoRA whose trigger never
++// reaches the prompt does approximately nothing, which reads as "broken".
++
++import { useMemo, useState } from 'react';
++import { Search, Trash2 } from 'lucide-react';
++import { useTranslation } from '@/i18n/useTranslation';
++import type { SdLoraFile } from '@/services/aiRuntime/sdServer';
++import {
++  LORA_WEIGHT_MAX,
++  LORA_WEIGHT_MIN,
++  loraStem,
++  makeManualEntry,
++  missingTriggers,
++  type FieldState,
++  type LoraStackEntry,
++} from '../studio';
++import ParameterField, { FIELD_CLASS } from './ParameterField';
++
++export interface LoraStackProps {
++  /** References first, then the writer's own — already merged and de-duplicated. */
++  stack: readonly LoraStackEntry[];
++  /** Only the manual half is editable here; a reference owns its own LoRA. */
++  manual: readonly LoraStackEntry[];
++  onChangeManual: (entries: LoraStackEntry[]) => void;
++  available: readonly SdLoraFile[];
++  state: FieldState;
++  /** The resolved prompt, so a trigger word that never made it in can be named. */
++  prompt: string;
++  lorasDir?: string | null;
++}
++
++export default function LoraStack({
++  stack, manual, onChangeManual, available, state, prompt, lorasDir,
++}: LoraStackProps) {
++  const { t } = useTranslation();
++  const [query, setQuery] = useState('');
++
++  const used = useMemo(() => new Set(stack.map((entry) => entry.fileName.toLowerCase())), [stack]);
++  const matches = useMemo(() => {
++    const needle = query.trim().toLowerCase();
++    return available
++      .filter((file) => !used.has(file.fileName.toLowerCase()))
++      .filter((file) => !needle || file.name.toLowerCase().includes(needle))
++      .slice(0, 8);
++  }, [available, used, query]);
++
++  const missing = missingTriggers(stack, prompt);
++
++  return (
++    <ParameterField label={t('imageStudio.lora.stack')} state={state} as="div">
++      <div className="space-y-1.5">
++        {stack.length === 0 && (
++          <p className="text-[10px] text-text-dim">
++            {available.length === 0 ? t('imageStudio.lora.empty') : t('imageStudio.lora.stackEmpty')}
++          </p>
++        )}
++
++        {stack.map((entry) => {
++          const fromRef = entry.source === 'reference';
++          return (
++            <div
++              key={entry.fileName}
++              className={`rounded-lg border px-2 py-1.5 space-y-1 ${
++                entry.enabled ? 'border-border bg-elevated' : 'border-border/60 bg-elevated/40'
++              }`}
++            >
++              <div className="flex items-center gap-1.5">
++                <input
++                  type="checkbox"
++                  checked={entry.enabled}
++                  disabled={!state.enabled || fromRef}
++                  aria-label={entry.name}
++                  title={fromRef ? t('imageStudio.lora.ownedByRef').replace('{name}', entry.refName ?? '') : entry.name}
++                  onChange={() => onChangeManual(manual.map((row) => (
++                    row.fileName === entry.fileName ? { ...row, enabled: !row.enabled } : row
++                  )))}
++                  className="accent-accent-gold disabled:cursor-not-allowed"
++                />
++                <span className="flex-1 min-w-0 truncate text-[11px] text-text-primary" title={entry.fileName}>
++                  {entry.name}
++                </span>
++                <input
++                  type="number"
++                  step={0.05}
++                  min={LORA_WEIGHT_MIN}
++                  max={LORA_WEIGHT_MAX}
++                  value={entry.weight}
++                  disabled={!state.enabled || fromRef}
++                  aria-label={t('imageStudio.lora.weight')}
++                  onChange={(event) => onChangeManual(manual.map((row) => (
++                    row.fileName === entry.fileName ? { ...row, weight: Number(event.target.value) } : row
++                  )))}
++                  className="w-16 px-1.5 py-0.5 bg-elevated border border-border rounded text-[10px] font-mono text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
++                />
++                <button
++                  type="button"
++                  disabled={fromRef}
++                  onClick={() => onChangeManual(manual.filter((row) => row.fileName !== entry.fileName))}
++                  title={fromRef ? t('imageStudio.lora.ownedByRef').replace('{name}', entry.refName ?? '') : t('imageStudio.lora.remove')}
++                  aria-label={fromRef ? t('imageStudio.lora.ownedByRef').replace('{name}', entry.refName ?? '') : t('imageStudio.lora.remove')}
++                  className="p-0.5 rounded text-text-dim hover:text-danger disabled:opacity-30 disabled:cursor-not-allowed"
++                >
++                  <Trash2 size={11} />
++                </button>
++              </div>
++              <p className="text-[9px] text-text-dim font-mono truncate">
++                {entry.trigger
++                  ? `${t('imageStudio.lora.trigger')}: ${entry.trigger}`
++                  : t('imageStudio.lora.noTrigger')}
++                {fromRef && entry.refName ? ` · ${entry.refName}` : ''}
++              </p>
++            </div>
++          );
++        })}
++
++        {missing.length > 0 && (
++          <p className="text-[10px] text-accent-amber">
++            {t('imageStudio.lora.triggerMissing').replace('{words}', missing.join(', '))}
++          </p>
++        )}
++
++        <label className="block">
++          <span className="sr-only">{t('imageStudio.lora.search')}</span>
++          <span className="relative block">
++            <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-dim" />
++            <input
++              value={query}
++              disabled={!state.enabled || available.length === 0}
++              onChange={(event) => setQuery(event.target.value)}
++              placeholder={t('imageStudio.lora.search')}
++              className={`${FIELD_CLASS} pl-6`}
++            />
++          </span>
++        </label>
++
++        {matches.length > 0 && (
++          <div className="flex flex-wrap gap-1">
++            {matches.map((file) => (
++              <button
++                key={file.fileName}
++                type="button"
++                disabled={!state.enabled}
++                onClick={() => {
++                  onChangeManual([...manual, makeManualEntry(file.fileName)]);
++                  setQuery('');
++                }}
++                title={file.fileName}
++                className="px-1.5 py-0.5 rounded border border-border text-[10px] text-text-dim hover:text-accent-gold hover:border-accent-gold/30 transition disabled:opacity-40 disabled:cursor-not-allowed"
++              >
++                {loraStem(file.name)}
++              </button>
++            ))}
++          </div>
++        )}
++
++        {available.length === 0 && lorasDir && (
++          <p className="text-[10px] text-text-dim break-all">
++            {t('imageStudio.lora.folder').replace('{path}', lorasDir)}
++          </p>
++        )}
++      </div>
++    </ParameterField>
++  );
++}
+diff --git a/src/engines/image-studio/components/ParameterField.tsx b/src/engines/image-studio/components/ParameterField.tsx
+new file mode 100644
+index 0000000..d1fc0a3
+--- /dev/null
++++ b/src/engines/image-studio/components/ParameterField.tsx
+@@ -0,0 +1,48 @@
++// ============================================================================
++// One parameter — and, when it cannot be turned, the reason in the text
++// ============================================================================
++//
++// The house rule this component exists to make unbreakable: a parameter the
++// model cannot honour is visible and disabled with a reason, never hidden. A
++// vanished CFG slider teaches "this app has no CFG"; a disabled one with a line
++// under it teaches "the model you picked runs at a fixed guidance", which is a
++// fact the writer can act on by picking another model.
++//
++// The reason goes in the TEXT, not only in a `title`. A tooltip is invisible to
++// a reader who never hovers, invisible on a touch screen, and invisible to the
++// test that checks this rule is being followed.
++
++import type { ReactNode } from 'react';
++import { useTranslation } from '@/i18n/useTranslation';
++import type { FieldState } from '../studio';
++
++export interface ParameterFieldProps {
++  label: string;
++  state: FieldState;
++  children: ReactNode;
++  /** A line the writer needs whether or not the field is usable. */
++  hint?: string;
++  /** Renders as a `div` when the control inside is a group of buttons. */
++  as?: 'label' | 'div';
++}
++
++export default function ParameterField({ label, state, children, hint, as = 'label' }: ParameterFieldProps) {
++  const { t } = useTranslation();
++  const Wrapper = as;
++  const reason = state.enabled ? undefined : t(state.reasonKey ?? 'visualRef.reason.unavailable');
++  return (
++    <Wrapper className={`block ${state.enabled ? '' : 'opacity-60'}`}>
++      <span className="block text-[10px] text-text-muted mb-1">{label}</span>
++      {children}
++      {reason && <p className="mt-1 text-[10px] text-accent-amber">{reason}</p>}
++      {hint && <p className="mt-1 text-[10px] text-text-dim">{hint}</p>}
++    </Wrapper>
++  );
++}
++
++/** The class every input in this panel wears, so one disabled state is enough. */
++export const FIELD_CLASS =
++  'w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary '
++  + 'outline-none focus:border-accent-gold disabled:cursor-not-allowed disabled:opacity-70';
++
++export const MONO_FIELD_CLASS = `${FIELD_CLASS} font-mono`;
+diff --git a/src/engines/image-studio/components/ParametersColumn.tsx b/src/engines/image-studio/components/ParametersColumn.tsx
+index 4ed30ba..dbcf3f7 100644
+--- a/src/engines/image-studio/components/ParametersColumn.tsx
++++ b/src/engines/image-studio/components/ParametersColumn.tsx
+@@ -1,166 +1,302 @@
+ // ============================================================================
+-// Parameters — the knobs, and the ones this model cannot turn
++// Parameters — three levels, and the ones this model cannot turn
+ // ============================================================================
+ //
+-// The studio used to hide the cfg slider for FLUX by name. That instinct is
+-// right and the special case is not, so what decides here is
+-// `parameterVisibility(model)`: a field is offered when the chosen model can
+-// honour it and refused when it cannot.
++// What decides here is `studioCapabilities(...)`: a field is offered when the
++// chosen model, the backend and the request shape can all honour it, and
++// refused when any of them cannot — with the reason that actually applies, not
++// the nearest one. "No model is connected", "this model runs at a fixed
++// guidance" and "the request has no field for this yet" are three different
++// facts and the writer can act on each of them differently.
+ //
+-// Refused, not removed. The same contract that asks the fields to answer to the
+-// model also says a feature that cannot run must stay visible and disabled with
+-// a reason — hiding it teaches the writer that this program has no cfg slider,
+-// and they never find out that the distilled model they picked is the reason.
++// Refused, never removed. A vanished CFG slider teaches "this app has no CFG"
++// instead of "the model you picked has a fixed one", and the writer goes
++// looking for another program.
+ 
+-import { Dices, Lock, LockOpen } from 'lucide-react';
++import { Dices, Lock, LockOpen, RotateCcw } from 'lucide-react';
+ import { useTranslation } from '@/i18n/useTranslation';
+ import ModelRoutePicker from '@/components/ai-settings/ModelRoutePicker';
++import type { SdLoraFile } from '@/services/aiRuntime/sdServer';
+ import type { AiRouteSelection } from '@/services/aiRuntime/types';
+ import type { SeedMode } from '@/services/visualRef';
+-import type { ParameterVisibility } from '../studioModel';
+-import { IMAGE_SIZE_PRESETS } from '../operations';
+-
+-const SAMPLERS = ['euler', 'euler_a', 'heun', 'dpm++2m', 'dpm++2s_a', 'lcm'] as const;
+-const SCHEDULERS = ['discrete', 'karras', 'exponential', 'ays'] as const;
++import {
++  CURATED_SAMPLERS,
++  CURATED_SCHEDULERS,
++  allSamplers,
++  allSchedulers,
++  bucketsForFamily,
++  isFieldAtLevel,
++  isOffBucket,
++  samplerKey,
++  type BatchSeedMode,
++  type DefaultsSource,
++  type LoraStackEntry,
++  type PassSupportInput,
++  type StudioCapabilities,
++  type StudioLevel,
++  type StudioPass,
++} from '../studio';
++import LevelSwitcher from './LevelSwitcher';
++import LoraStack from './LoraStack';
++import ParameterField, { FIELD_CLASS, MONO_FIELD_CLASS } from './ParameterField';
++import PassChainEditor from './PassChainEditor';
+ 
+ export interface ParametersState {
++  /** A bucket id ("1024x1024"), `native`, or `custom`. */
+   sizePreset: string;
++  customWidth: string;
++  customHeight: string;
+   steps: string;
+   cfg: string;
+   sampler: string;
+   scheduler: string;
++  clipSkip: string;
+   seedMode: SeedMode;
+   manualSeed: string;
+   batch: number;
++  batchSeedMode: BatchSeedMode;
+ }
+ 
+ export interface ParametersColumnProps {
+   route?: AiRouteSelection;
+   onRoute: (route: AiRouteSelection | null) => void;
+-  visibility: ParameterVisibility;
++  level: StudioLevel;
++  onLevel: (level: StudioLevel) => void;
++  capabilities: StudioCapabilities;
+   value: ParametersState;
+   onChange: (changes: Partial<ParametersState>) => void;
+-  /** False when no image model is chosen: changes what a refused field means. */
+-  hasModel: boolean;
+-  /** Whether the reference in the composer actually has a hero seed to lock to. */
+-  hasHeroSeed: boolean;
++  /** Checkpoint family, which decides the buckets and the working point. */
++  family?: string;
+   nativeSize?: { width: number; height: number };
+-}
++  /** The size the base pass will actually run at, after the preset is resolved. */
++  size: { width: number; height: number };
++  /** Which rule last re-pointed the knobs, so the panel can say why and undo it. */
++  appliedDefaults: DefaultsSource | null;
++  onUndoDefaults: () => void;
++  onReapplyDefaults: () => void;
++  showAllSamplers: boolean;
++  onShowAllSamplers: (value: boolean) => void;
++  /** Whether any reference in this prompt has a hero seed to lock to. */
++  hasHeroSeed: boolean;
+ 
+-/** A field the model cannot honour: still there, still labelled, not usable. */
+-function fieldClass(enabled: boolean): string {
+-  return enabled ? '' : 'opacity-45';
++  passes: StudioPass[];
++  onPasses: (passes: StudioPass[]) => void;
++  passSupport: PassSupportInput;
++  upscalers: readonly string[];
++
++  loraStack: readonly LoraStackEntry[];
++  loraManual: readonly LoraStackEntry[];
++  onLoraManual: (entries: LoraStackEntry[]) => void;
++  availableLoras: readonly SdLoraFile[];
++  lorasDir?: string | null;
++  resolvedPrompt: string;
+ }
+ 
+-export default function ParametersColumn({
+-  route, onRoute, visibility, value, onChange, hasModel, hasHeroSeed, nativeSize,
+-}: ParametersColumnProps) {
++export default function ParametersColumn(props: ParametersColumnProps) {
+   const { t } = useTranslation();
+-  // With no model chosen, every field is refused for the same reason, and it is
+-  // not "this model runs at a fixed guidance" — saying that about a model the
+-  // writer has not picked is the kind of confident wrong answer that makes a
+-  // panel untrustworthy.
+-  const noModel = t('visualRef.reason.noModel');
+-  const refused = (available: boolean, reason: string): string | undefined => {
+-    if (available) return undefined;
+-    return hasModel ? reason : noModel;
+-  };
+-  const cfgReason = refused(visibility.cfg, t('visualRef.reason.cfgFixed'));
+-  const samplerReason = refused(visibility.sampler, t('visualRef.reason.serverChoosesSampler'));
+-  const schedulerReason = refused(visibility.scheduler, t('visualRef.reason.serverChoosesSampler'));
++  const {
++    route, onRoute, level, onLevel, capabilities, value, onChange, family, nativeSize, size,
++    appliedDefaults, onUndoDefaults, onReapplyDefaults, showAllSamplers, onShowAllSamplers, hasHeroSeed,
++  } = props;
++
++  const buckets = bucketsForFamily(family);
++  const offBucket = isOffBucket(family, size.width, size.height);
++  const samplers = showAllSamplers ? allSamplers() : CURATED_SAMPLERS;
++  const schedulers = showAllSamplers ? allSchedulers() : CURATED_SCHEDULERS;
++  const at = (field: Parameters<typeof isFieldAtLevel>[0]) => isFieldAtLevel(field, level);
+ 
+   return (
+     <div className="space-y-3">
+       <h3 className="text-xs font-semibold text-text-primary">{t('visualRef.params.title')}</h3>
+ 
+-      <label className="block">
+-        <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.model')}</span>
++      <LevelSwitcher value={level} onChange={onLevel} />
++
++      <ParameterField label={t('imageStudio.model')} state={capabilities.model}>
+         <ModelRoutePicker type="image" value={route} onChange={onRoute} allowNone={false} />
+-      </label>
++      </ParameterField>
++
++      {!appliedDefaults && at('steps') && capabilities.model.enabled && route && (
++        <button
++          type="button"
++          onClick={onReapplyDefaults}
++          className="inline-flex items-center gap-1 text-[10px] text-text-dim hover:text-accent-gold transition"
++        >
++          <RotateCcw size={10} />
++          {t('imageStudio.why.reapply')}
++        </button>
++      )}
++
++      {appliedDefaults && at('steps') && (
++        <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/5 px-2 py-1.5 space-y-1">
++          {/* Silent retuning is worse than no retuning: the writer changes model,
++              their steps value moves, and they never learn that it did. */}
++          <p className="text-[10px] text-text-muted">{t(`imageStudio.why.${appliedDefaults}`)}</p>
++          <button
++            type="button"
++            onClick={onUndoDefaults}
++            className="inline-flex items-center gap-1 text-[10px] text-accent-gold hover:underline"
++          >
++            <RotateCcw size={10} />
++            {t('imageStudio.why.undo')}
++          </button>
++        </div>
++      )}
+ 
+-      <label className="block">
+-        <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.size')}</span>
++      <ParameterField
++        label={t('imageStudio.size')}
++        state={capabilities.size}
++        hint={offBucket ? undefined : `${size.width}×${size.height}`}
++      >
+         <select
+           value={value.sizePreset}
++          disabled={!capabilities.size.enabled}
+           onChange={(event) => onChange({ sizePreset: event.target.value })}
+-          className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold"
++          className={FIELD_CLASS}
+         >
+           {nativeSize && (
+             <option value="native">
+               {t('imageStudio.size.native')} · {nativeSize.width}×{nativeSize.height}
+             </option>
+           )}
+-          {IMAGE_SIZE_PRESETS.map((preset) => (
+-            <option key={preset.id} value={preset.id}>
+-              {t(`imageStudio.size.${preset.labelKey}`)} · {preset.width}×{preset.height}
++          {buckets.map((bucket) => (
++            <option key={bucket.id} value={bucket.id}>
++              {bucket.ratio} · {bucket.width}×{bucket.height}
+             </option>
+           ))}
++          {at('sigmas') && <option value="custom">{t('imageStudio.size.custom')}</option>}
+         </select>
+-      </label>
++      </ParameterField>
+ 
+-      <div className="grid grid-cols-2 gap-2">
+-        <label className={`block ${fieldClass(visibility.steps)}`}>
+-          <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.steps')}</span>
+-          <input
+-            value={value.steps}
+-            disabled={!visibility.steps}
+-            title={visibility.steps ? undefined : noModel}
+-            onChange={(event) => onChange({ steps: event.target.value.replace(/[^\d]/g, '') })}
+-            placeholder={t('imageStudio.stepsPlaceholder')}
+-            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] font-mono text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
+-          />
+-        </label>
+-        <label className={`block ${fieldClass(visibility.cfg)}`}>
+-          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.params.cfg')}</span>
+-          <input
+-            value={value.cfg}
+-            disabled={!visibility.cfg}
+-            title={cfgReason}
+-            onChange={(event) => onChange({ cfg: event.target.value.replace(/[^\d.]/g, '') })}
+-            placeholder={t('visualRef.params.cfgPlaceholder')}
+-            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] font-mono text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
+-          />
+-        </label>
+-      </div>
+-      {cfgReason && <p className="text-[10px] text-accent-amber">{cfgReason}</p>}
++      {/* Most "why does this look wrong" is an off-bucket size: the duplicated
++          heads and stretched torsos are what a model does outside the aspect
++          ratios its weights were trained on. */}
++      {offBucket && <p className="text-[10px] text-accent-amber">{t('imageStudio.size.offBucket')}</p>}
+ 
+-      <div className="grid grid-cols-2 gap-2">
+-        <label className={`block ${fieldClass(visibility.sampler)}`}>
+-          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.params.sampler')}</span>
++      {value.sizePreset === 'custom' && at('sigmas') && (
++        <div className="grid grid-cols-2 gap-2">
++          <label className="block">
++            <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.size.width')}</span>
++            <input
++              value={value.customWidth}
++              onChange={(event) => onChange({ customWidth: event.target.value.replace(/[^\d]/g, '') })}
++              className={MONO_FIELD_CLASS}
++            />
++          </label>
++          <label className="block">
++            <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.size.height')}</span>
++            <input
++              value={value.customHeight}
++              onChange={(event) => onChange({ customHeight: event.target.value.replace(/[^\d]/g, '') })}
++              className={MONO_FIELD_CLASS}
++            />
++          </label>
++        </div>
++      )}
++
++      {at('steps') && (
++        <div className="grid grid-cols-2 gap-2">
++          <ParameterField label={t('imageStudio.steps')} state={capabilities.steps}>
++            <input
++              value={value.steps}
++              disabled={!capabilities.steps.enabled}
++              onChange={(event) => onChange({ steps: event.target.value.replace(/[^\d]/g, '') })}
++              placeholder={t('imageStudio.stepsPlaceholder')}
++              className={MONO_FIELD_CLASS}
++            />
++          </ParameterField>
++          <ParameterField label={t('visualRef.params.cfg')} state={capabilities.cfg}>
++            <input
++              value={value.cfg}
++              disabled={!capabilities.cfg.enabled}
++              onChange={(event) => onChange({ cfg: event.target.value.replace(/[^\d.]/g, '') })}
++              placeholder={t('visualRef.params.cfgPlaceholder')}
++              className={MONO_FIELD_CLASS}
++            />
++          </ParameterField>
++        </div>
++      )}
++
++      {at('sampler') && (
++        <ParameterField
++          label={t('visualRef.params.sampler')}
++          state={capabilities.sampler}
++          hint={value.sampler ? t(`imageStudio.sampler.${samplerKey(value.sampler)}`) : undefined}
++        >
+           <select
+             value={value.sampler}
+-            disabled={!visibility.sampler}
+-            title={samplerReason}
++            disabled={!capabilities.sampler.enabled}
+             onChange={(event) => onChange({ sampler: event.target.value })}
+-            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
++            className={FIELD_CLASS}
+           >
+             <option value="">{t('visualRef.params.auto')}</option>
+-            {SAMPLERS.map((sampler) => <option key={sampler} value={sampler}>{sampler}</option>)}
++            {samplers.map((entry) => (
++              <option key={entry.id} value={entry.id} title={t(`imageStudio.sampler.${entry.key}`)}>
++                {entry.id}
++              </option>
++            ))}
+           </select>
+-        </label>
+-        <label className={`block ${fieldClass(visibility.scheduler)}`}>
+-          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.params.scheduler')}</span>
++        </ParameterField>
++      )}
++
++      {at('scheduler') && (
++        <ParameterField
++          label={t('visualRef.params.scheduler')}
++          state={capabilities.scheduler}
++          hint={value.scheduler ? t(`imageStudio.scheduler.${samplerKey(value.scheduler)}`) : undefined}
++        >
+           <select
+             value={value.scheduler}
+-            disabled={!visibility.scheduler}
+-            title={schedulerReason}
++            disabled={!capabilities.scheduler.enabled}
+             onChange={(event) => onChange({ scheduler: event.target.value })}
+-            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
++            className={FIELD_CLASS}
+           >
+             <option value="">{t('visualRef.params.auto')}</option>
+-            {SCHEDULERS.map((scheduler) => <option key={scheduler} value={scheduler}>{scheduler}</option>)}
++            {schedulers.map((entry) => (
++              <option key={entry.id} value={entry.id} title={t(`imageStudio.scheduler.${entry.key}`)}>
++                {entry.id}
++              </option>
++            ))}
+           </select>
++        </ParameterField>
++      )}
++
++      {at('allSamplers') && (
++        <label className="flex items-center gap-1.5 text-[10px] text-text-muted">
++          <input
++            type="checkbox"
++            checked={showAllSamplers}
++            disabled={!capabilities.allSamplers.enabled}
++            onChange={(event) => onShowAllSamplers(event.target.checked)}
++            className="accent-accent-gold disabled:cursor-not-allowed"
++          />
++          {t('imageStudio.sampler.showAll')}
+         </label>
+-      </div>
++      )}
+ 
+-      <div>
+-        <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.seed')}</span>
++      {at('clipSkip') && (
++        <ParameterField
++          label={t('imageStudio.clipSkip')}
++          state={capabilities.clipSkip}
++          hint={t('imageStudio.clipSkip.hint')}
++        >
++          <input
++            value={value.clipSkip}
++            disabled={!capabilities.clipSkip.enabled}
++            onChange={(event) => onChange({ clipSkip: event.target.value.replace(/[^\d]/g, '') })}
++            placeholder="1"
++            className={MONO_FIELD_CLASS}
++          />
++        </ParameterField>
++      )}
++
++      <ParameterField label={t('imageStudio.seed')} state={capabilities.seed} as="div">
+         <div className="flex items-center gap-1.5">
+           <button
+             type="button"
+             onClick={() => onChange({ seedMode: value.seedMode === 'lock' ? 'explore' : 'lock' })}
+             disabled={!hasHeroSeed && value.seedMode !== 'lock'}
+             title={hasHeroSeed ? t('visualRef.params.lockSeed') : t('visualRef.reason.noHeroSeed')}
++            aria-label={hasHeroSeed ? t('visualRef.params.lockSeed') : t('visualRef.reason.noHeroSeed')}
+             className={`p-1.5 rounded-lg border transition disabled:opacity-40 disabled:cursor-not-allowed ${
+               value.seedMode === 'lock'
+                 ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold'
+@@ -171,6 +307,7 @@ export default function ParametersColumn({
+           </button>
+           <input
+             value={value.manualSeed}
++            aria-label={t('imageStudio.seed')}
+             onChange={(event) => onChange({ manualSeed: event.target.value.replace(/[^\d]/g, ''), seedMode: 'manual' })}
+             placeholder={t('imageStudio.seedPlaceholder')}
+             className="flex-1 min-w-0 px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] font-mono text-text-primary outline-none focus:border-accent-gold"
+@@ -179,6 +316,7 @@ export default function ParametersColumn({
+             type="button"
+             onClick={() => onChange({ seedMode: 'explore', manualSeed: '' })}
+             title={t('visualRef.params.exploreSeed')}
++            aria-label={t('visualRef.params.exploreSeed')}
+             className={`p-1.5 rounded-lg border transition ${
+               value.seedMode === 'explore'
+                 ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold'
+@@ -189,18 +327,109 @@ export default function ParametersColumn({
+           </button>
+         </div>
+         <p className="text-[10px] text-text-dim mt-1">{t(`visualRef.params.seedMode.${value.seedMode}`)}</p>
++      </ParameterField>
++
++      <div className="grid grid-cols-2 gap-2">
++        <ParameterField label={t('visualRef.params.batch')} state={capabilities.batch}>
++          <select
++            value={value.batch}
++            disabled={!capabilities.batch.enabled}
++            onChange={(event) => onChange({ batch: Number(event.target.value) })}
++            className={FIELD_CLASS}
++          >
++            {[1, 2, 3, 4, 6, 8].map((count) => <option key={count} value={count}>{count}</option>)}
++          </select>
++        </ParameterField>
++        <ParameterField
++          label={t('imageStudio.batchSeed')}
++          state={capabilities.batch}
++          hint={t(`imageStudio.batchSeed.${value.batchSeedMode}.what`)}
++        >
++          <select
++            value={value.batchSeedMode}
++            disabled={!capabilities.batch.enabled}
++            onChange={(event) => onChange({ batchSeedMode: event.target.value as BatchSeedMode })}
++            className={FIELD_CLASS}
++          >
++            <option value="incremental">{t('imageStudio.batchSeed.incremental')}</option>
++            <option value="fixed">{t('imageStudio.batchSeed.fixed')}</option>
++          </select>
++        </ParameterField>
+       </div>
+ 
+-      <label className="block">
+-        <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.params.batch')}</span>
+-        <select
+-          value={value.batch}
+-          onChange={(event) => onChange({ batch: Number(event.target.value) })}
+-          className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold"
++      {at('loraStack') && (
++        <LoraStack
++          stack={props.loraStack}
++          manual={props.loraManual}
++          onChangeManual={props.onLoraManual}
++          available={props.availableLoras}
++          state={capabilities.loraStack}
++          prompt={props.resolvedPrompt}
++          lorasDir={props.lorasDir}
++        />
++      )}
++
++      {at('passChain') && (
++        capabilities.passChain.enabled ? (
++          <PassChainEditor
++            passes={props.passes}
++            onChange={props.onPasses}
++            support={props.passSupport}
++            upscalers={props.upscalers}
++            baseWidth={size.width}
++            baseHeight={size.height}
++          />
++        ) : (
++          <ParameterField label={t('imageStudio.chain.title')} state={capabilities.passChain} as="div">
++            <p className="text-[10px] text-text-dim">{t('imageStudio.chain.what')}</p>
++          </ParameterField>
++        )
++      )}
++
++      {at('inpaint') && (
++        // The request can carry a mask; the studio has nowhere to paint one yet.
++        // That is a different sentence from "this model cannot inpaint", and the
++        // writer is owed the true one.
++        <ParameterField
++          label={t('imageStudio.inpaint')}
++          state={capabilities.inpaint.enabled
++            ? { enabled: false, reasonKey: 'imageStudio.reason.noMaskEditor' }
++            : capabilities.inpaint}
++          as="div"
+         >
+-          {[1, 2, 3, 4].map((count) => <option key={count} value={count}>{count}</option>)}
+-        </select>
+-      </label>
++          <p className="text-[10px] text-text-dim">{t('imageStudio.inpaint.what')}</p>
++        </ParameterField>
++      )}
++
++      {at('sigmas') && (
++        <div className="space-y-2 pt-1 border-t border-border/60">
++          <h4 className="text-[10px] text-text-muted">{t('imageStudio.expert.title')}</h4>
++          <ExpertField label={t('imageStudio.sigmas')} state={capabilities.sigmas} placeholder="0.03, 0.1, 0.5, 1.2" />
++          <ExpertField label={t('imageStudio.slg')} state={capabilities.slg} placeholder="7, 8, 9" />
++          <ExpertField label={t('imageStudio.apg')} state={capabilities.apg} placeholder="eta 1.0" />
++          <ExpertField label={t('imageStudio.cacheMode')} state={capabilities.cacheMode} placeholder="none" />
++          <ExpertField label={t('imageStudio.variationSeed')} state={capabilities.variationSeed} placeholder="0.00" />
++          <ExpertField label={t('imageStudio.rawJson')} state={capabilities.rawJson} placeholder="{ }" />
++        </div>
++      )}
+     </div>
+   );
+ }
++
++/**
++ * An Expert knob the request cannot carry yet.
++ *
++ * Rendered as a real, disabled input rather than as a line of prose, because
++ * the point is that the writer can SEE the control they are looking for and
++ * read why it is not usable — which is what tells them it is coming rather
++ * than absent.
++ */
++function ExpertField({
++  label, state, placeholder,
++}: { label: string; state: { enabled: boolean; reasonKey?: string }; placeholder: string }) {
++  return (
++    <ParameterField label={label} state={state}>
++      <input value="" readOnly disabled placeholder={placeholder} className={MONO_FIELD_CLASS} />
++    </ParameterField>
++  );
++}
+diff --git a/src/engines/image-studio/components/PassChainEditor.tsx b/src/engines/image-studio/components/PassChainEditor.tsx
+new file mode 100644
+index 0000000..ef1d5eb
+--- /dev/null
++++ b/src/engines/image-studio/components/PassChainEditor.tsx
+@@ -0,0 +1,289 @@
++// ============================================================================
++// The pass chain, as a list you can reorder — not three unrelated checkboxes
++// ============================================================================
++//
++// base → hires → detail → upscale. Every result anyone posts is a chain, and
++// laying it out as a list is what makes "why does this one look better"
++// answerable: the order is visible, each pass says what it was allowed to
++// change, and the whole thing rides on the recipe so it can be put back.
++//
++// The denoise slider carries the discipline in the UI, because it is the single
++// parameter that decides whether a second pass adds detail to your picture or
++// generates a different one at a larger size. The band is drawn; the sentence
++// under it changes as the number crosses it.
++
++import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
++import { useTranslation } from '@/i18n/useTranslation';
++import {
++  HIRES_DENOISE_SAFE_MAX,
++  PASS_KINDS,
++  addPass,
++  chainOutputSize,
++  movePass,
++  passAvailability,
++  removePass,
++  togglePass,
++  updatePass,
++  type PassKind,
++  type PassSupportInput,
++  type StudioPass,
++} from '../studio';
++import { FIELD_CLASS, MONO_FIELD_CLASS } from './ParameterField';
++
++export interface PassChainEditorProps {
++  passes: StudioPass[];
++  onChange: (passes: StudioPass[]) => void;
++  support: PassSupportInput;
++  /** Upscaler names offered in the picker: the builtins plus installed files. */
++  upscalers: readonly string[];
++  baseWidth: number;
++  baseHeight: number;
++}
++
++/** Detectors an ADetailer pass would offer. Named now so the refusal is concrete. */
++const DETECTORS = ['face', 'hand', 'person', 'eyes'] as const;
++
++export default function PassChainEditor({
++  passes, onChange, support, upscalers, baseWidth, baseHeight,
++}: PassChainEditorProps) {
++  const { t } = useTranslation();
++  const output = chainOutputSize(passes, baseWidth, baseHeight, support);
++
++  return (
++    <div className="space-y-2">
++      <div className="flex items-baseline gap-2">
++        <h4 className="text-[10px] text-text-muted">{t('imageStudio.chain.title')}</h4>
++        <span className="ml-auto text-[10px] font-mono text-text-dim">
++          {output.width}×{output.height}
++        </span>
++      </div>
++
++      <ol className="space-y-1.5">
++        {passes.map((pass, index) => {
++          const availability = passAvailability(pass.kind, support);
++          const refused = !availability.enabled;
++          const reason = refused ? t(availability.reasonKey ?? 'visualRef.reason.unavailable') : undefined;
++          return (
++            <li
++              key={pass.id}
++              className={`rounded-lg border px-2 py-1.5 space-y-1.5 ${
++                pass.enabled && !refused ? 'border-border bg-elevated' : 'border-border/60 bg-elevated/40'
++              }`}
++            >
++              <div className="flex items-center gap-1.5">
++                <span className="font-mono text-[10px] text-text-dim tabular-nums">{index + 1}</span>
++                <button
++                  type="button"
++                  disabled={pass.kind === 'base' || refused}
++                  onClick={() => onChange(togglePass(passes, pass.id))}
++                  title={reason ?? t(`imageStudio.pass.${pass.kind}.what`)}
++                  aria-pressed={pass.enabled}
++                  className={`px-1.5 py-0.5 rounded text-[10px] border transition disabled:cursor-not-allowed ${
++                    pass.enabled && !refused
++                      ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold'
++                      : 'border-border text-text-dim'
++                  }`}
++                >
++                  {t(`imageStudio.pass.${pass.kind}`)}
++                </button>
++                <span className="flex-1 min-w-0 truncate text-[10px] text-text-dim">
++                  {t(`imageStudio.pass.${pass.kind}.what`)}
++                </span>
++                <button
++                  type="button"
++                  disabled={pass.kind === 'base' || index <= 1}
++                  onClick={() => onChange(movePass(passes, pass.id, -1))}
++                  title={t('imageStudio.chain.moveUp')}
++                  aria-label={t('imageStudio.chain.moveUp')}
++                  className="p-0.5 rounded text-text-dim hover:text-accent-gold disabled:opacity-30 disabled:cursor-not-allowed"
++                >
++                  <ArrowUp size={11} />
++                </button>
++                <button
++                  type="button"
++                  disabled={pass.kind === 'base' || index === passes.length - 1}
++                  onClick={() => onChange(movePass(passes, pass.id, 1))}
++                  title={t('imageStudio.chain.moveDown')}
++                  aria-label={t('imageStudio.chain.moveDown')}
++                  className="p-0.5 rounded text-text-dim hover:text-accent-gold disabled:opacity-30 disabled:cursor-not-allowed"
++                >
++                  <ArrowDown size={11} />
++                </button>
++                <button
++                  type="button"
++                  disabled={pass.kind === 'base'}
++                  onClick={() => onChange(removePass(passes, pass.id))}
++                  title={pass.kind === 'base' ? t('imageStudio.chain.baseKept') : t('imageStudio.chain.remove')}
++                  aria-label={pass.kind === 'base' ? t('imageStudio.chain.baseKept') : t('imageStudio.chain.remove')}
++                  className="p-0.5 rounded text-text-dim hover:text-danger disabled:opacity-30 disabled:cursor-not-allowed"
++                >
++                  <Trash2 size={11} />
++                </button>
++              </div>
++
++              {reason && <p className="text-[10px] text-accent-amber">{reason}</p>}
++
++              {pass.kind === 'base' && (
++                <p className="text-[10px] text-text-dim font-mono">{baseWidth}×{baseHeight}</p>
++              )}
++
++              {pass.kind === 'hires' && pass.enabled && (
++                <div className="space-y-1.5">
++                  <div className="grid grid-cols-2 gap-1.5">
++                    <label className="block">
++                      <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.upscaler')}</span>
++                      <select
++                        value={pass.upscaler ?? ''}
++                        disabled={refused}
++                        onChange={(event) => onChange(updatePass(passes, pass.id, { upscaler: event.target.value }))}
++                        className={FIELD_CLASS}
++                      >
++                        {upscalers.map((name) => <option key={name} value={name}>{name}</option>)}
++                      </select>
++                    </label>
++                    <label className="block">
++                      <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.scale')}</span>
++                      <select
++                        value={String(pass.scale ?? 1.5)}
++                        disabled={refused}
++                        onChange={(event) => onChange(updatePass(passes, pass.id, { scale: Number(event.target.value) }))}
++                        className={FIELD_CLASS}
++                      >
++                        {['1.25', '1.5', '2', '2.5', '3'].map((scale) => (
++                          <option key={scale} value={scale}>×{scale}</option>
++                        ))}
++                      </select>
++                    </label>
++                  </div>
++                  <label className="block">
++                    <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.steps')}</span>
++                    <input
++                      value={pass.steps === undefined ? '' : String(pass.steps)}
++                      disabled={refused}
++                      onChange={(event) => onChange(updatePass(passes, pass.id, {
++                        steps: event.target.value ? Number(event.target.value.replace(/[^\d]/g, '')) : undefined,
++                      }))}
++                      className={MONO_FIELD_CLASS}
++                    />
++                  </label>
++                  <DenoiseSlider
++                    value={pass.denoise ?? 0.4}
++                    disabled={refused}
++                    onChange={(denoise) => onChange(updatePass(passes, pass.id, { denoise }))}
++                  />
++                  <label className="block">
++                    <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.prompt')}</span>
++                    <input
++                      value={pass.prompt ?? ''}
++                      disabled={refused}
++                      placeholder={t('imageStudio.pass.promptPlaceholder')}
++                      onChange={(event) => onChange(updatePass(passes, pass.id, { prompt: event.target.value }))}
++                      className={FIELD_CLASS}
++                    />
++                  </label>
++                </div>
++              )}
++
++              {pass.kind === 'detail' && (
++                <div className="grid grid-cols-2 gap-1.5">
++                  <label className="block">
++                    <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.detector')}</span>
++                    <select
++                      value={pass.detector ?? 'face'}
++                      disabled={refused}
++                      onChange={(event) => onChange(updatePass(passes, pass.id, { detector: event.target.value }))}
++                      className={FIELD_CLASS}
++                    >
++                      {DETECTORS.map((name) => (
++                        <option key={name} value={name}>{t(`imageStudio.detector.${name}`)}</option>
++                      ))}
++                    </select>
++                  </label>
++                  <label className="block">
++                    <span className="block text-[9px] text-text-muted">{t('imageStudio.pass.confidence')}</span>
++                    <input
++                      value={String(pass.confidence ?? 0.3)}
++                      disabled={refused}
++                      onChange={(event) => onChange(updatePass(passes, pass.id, { confidence: Number(event.target.value) }))}
++                      className={MONO_FIELD_CLASS}
++                    />
++                  </label>
++                </div>
++              )}
++            </li>
++          );
++        })}
++      </ol>
++
++      <div className="flex items-center gap-1 flex-wrap">
++        <span className="text-[10px] text-text-dim inline-flex items-center gap-1">
++          <Plus size={10} />
++          {t('imageStudio.chain.add')}
++        </span>
++        {PASS_KINDS.filter((kind) => kind !== 'base').map((kind) => {
++          const availability = passAvailability(kind, support);
++          const reason = availability.enabled
++            ? t(`imageStudio.pass.${kind}.what`)
++            : t(availability.reasonKey ?? 'visualRef.reason.unavailable');
++          return (
++            <button
++              key={kind}
++              type="button"
++              disabled={!availability.enabled}
++              onClick={() => onChange(addPass(passes, kind as PassKind))}
++              title={reason}
++              aria-label={reason}
++              className="px-1.5 py-0.5 rounded border border-border text-[10px] text-text-dim hover:text-accent-gold hover:border-accent-gold/30 transition disabled:opacity-40 disabled:cursor-not-allowed"
++            >
++              {t(`imageStudio.pass.${kind}`)}
++            </button>
++          );
++        })}
++      </div>
++      {/* The refusals belong next to the button that would have added the pass,
++          not in a console: a writer who has read about ADetailer needs to find
++          out here that it is coming, rather than conclude it does not exist. */}
++      {PASS_KINDS.filter((kind) => kind !== 'base' && !passAvailability(kind, support).enabled).map((kind) => (
++        <p key={kind} className="text-[10px] text-accent-amber">
++          {t(`imageStudio.pass.${kind}`)}: {t(passAvailability(kind, support).reasonKey ?? 'visualRef.reason.unavailable')}
++        </p>
++      ))}
++    </div>
++  );
++}
++
++/**
++ * Denoise, with the band drawn and the consequence named.
++ *
++ * A number between 0 and 1 tells a novelist nothing. "Adds detail to this
++ * picture" and "generates a different picture at a larger size" tell them
++ * exactly what they are choosing between, which is the whole decision.
++ */
++function DenoiseSlider({
++  value, disabled, onChange,
++}: { value: number; disabled: boolean; onChange: (value: number) => void }) {
++  const { t } = useTranslation();
++  const safe = value <= HIRES_DENOISE_SAFE_MAX;
++  return (
++    <div>
++      <div className="flex items-baseline gap-2">
++        <span className="text-[9px] text-text-muted">{t('imageStudio.pass.denoise')}</span>
++        <span className="ml-auto font-mono text-[10px] text-text-primary">{value.toFixed(2)}</span>
++      </div>
++      <input
++        type="range"
++        min={0}
++        max={1}
++        step={0.05}
++        value={value}
++        disabled={disabled}
++        aria-label={t('imageStudio.pass.denoise')}
++        onChange={(event) => onChange(Number(event.target.value))}
++        className="w-full accent-accent-gold disabled:cursor-not-allowed"
++      />
++      <p className={`text-[10px] ${safe ? 'text-text-dim' : 'text-accent-amber'}`}>
++        {t(safe ? 'imageStudio.pass.denoise.adds' : 'imageStudio.pass.denoise.reimagines')}
++      </p>
++    </div>
++  );
++}
+diff --git a/src/engines/image-studio/components/PromptCraftBar.tsx b/src/engines/image-studio/components/PromptCraftBar.tsx
+new file mode 100644
+index 0000000..0427455
+--- /dev/null
++++ b/src/engines/image-studio/components/PromptCraftBar.tsx
+@@ -0,0 +1,96 @@
++// ============================================================================
++// What the prompt actually says — weights, length, wildcards, and the traps
++// ============================================================================
++//
++// Three facts a writer cannot get from a text box, all of them free:
++//
++//   * which words are emphasised, and by how much;
++//   * roughly how long the prompt is, and whether it has crossed into a second
++//     CLIP chunk, where everything after the boundary is encoded separately and
++//     stops interacting with what came before;
++//   * that `[cat:dog:0.4]` and BREAK are not implemented by this runtime and
++//     will be encoded as literal words.
++//
++// The last one matters most. A writer who has read an A1111 tutorial WILL type
++// prompt scheduling, and a silently different image is worse than an absent
++// feature — so the trap is named, at the moment it is typed.
++
++import { useTranslation } from '@/i18n/useTranslation';
++import {
++  estimateTokens,
++  hasWildcards,
++  unsupportedSyntax,
++  weightedSpans,
++  type WildcardPick,
++} from '../studio';
++
++export interface PromptCraftBarProps {
++  /** The resolved prompt: what will actually be encoded, not what was typed. */
++  prompt: string;
++  /** The picks a preview resolution made, so the writer sees what they will get. */
++  wildcards?: readonly WildcardPick[];
++  unresolvedWildcards?: readonly string[];
++}
++
++export default function PromptCraftBar({ prompt, wildcards, unresolvedWildcards }: PromptCraftBarProps) {
++  const { t } = useTranslation();
++  const tokens = estimateTokens(prompt);
++  const spans = weightedSpans(prompt);
++  const traps = unsupportedSyntax(prompt);
++
++  return (
++    <div className="space-y-1">
++      <div className="flex items-center gap-2 flex-wrap text-[10px] text-text-dim">
++        <span className="font-mono">
++          {t('imageStudio.prompt.tokens').replace('{count}', String(tokens.tokens))}
++        </span>
++        {tokens.chunks > 1 && (
++          <span className="text-accent-amber">
++            {t('imageStudio.prompt.chunks').replace('{count}', String(tokens.chunks))}
++          </span>
++        )}
++        <span className="ml-auto">{t('imageStudio.prompt.weightKeys')}</span>
++      </div>
++
++      {spans.length > 0 && (
++        <div className="flex flex-wrap gap-1">
++          {spans.map((span) => (
++            <span
++              key={`${span.start}-${span.text}`}
++              title={t('imageStudio.prompt.weighted')}
++              className={`px-1 py-0.5 rounded text-[9px] font-mono border ${
++                span.weight >= 1
++                  ? 'border-accent-gold/40 text-accent-gold'
++                  : 'border-border text-text-dim'
++              }`}
++            >
++              {span.text} ×{span.weight.toFixed(2)}
++            </span>
++          ))}
++        </div>
++      )}
++
++      {hasWildcards(prompt) && wildcards && wildcards.length > 0 && (
++        <p className="text-[10px] text-text-dim">
++          {t('imageStudio.prompt.wildcardPreview')}
++          {' '}
++          <span className="font-mono">
++            {wildcards.map((pick) => `${pick.token} → ${pick.choice}`).join(' · ')}
++          </span>
++        </p>
++      )}
++
++      {unresolvedWildcards && unresolvedWildcards.length > 0 && (
++        <p className="text-[10px] text-accent-amber">
++          {t('imageStudio.prompt.wildcardUnknown').replace('{names}', unresolvedWildcards.join(', '))}
++        </p>
++      )}
++
++      {traps.map((trap) => (
++        <p key={trap} className="text-[10px] text-accent-amber">
++          {t(`imageStudio.prompt.unsupported.${trap}`)}
++        </p>
++      ))}
++    </div>
++  );
++}
+diff --git a/src/engines/image-studio/components/ResultsGrid.tsx b/src/engines/image-studio/components/ResultsGrid.tsx
+index 34da9db..48570b9 100644
+--- a/src/engines/image-studio/components/ResultsGrid.tsx
++++ b/src/engines/image-studio/components/ResultsGrid.tsx
+@@ -11,7 +11,7 @@
+ // reason it cannot. A writer who never sees "Make this the canonical portrait"
+ // because no reference is selected concludes the studio cannot do it.
+ 
+-import { Copy, Layers, RefreshCw, Star, Trash2, Anchor, GitCompare, Plus } from 'lucide-react';
++import { Copy, Dices, Layers, RefreshCw, Star, Trash2, Anchor, GitCompare, Plus } from 'lucide-react';
+ import { useTranslation } from '@/i18n/useTranslation';
+ import type { InspirationImage } from '@/types';
+ import type { Availability } from '../studioModel';
+@@ -28,6 +28,8 @@ export interface ResultsGridProps {
+   onToggleCompare: (id: string) => void;
+   onIterate: (image: InspirationImage) => void;
+   onVariations: (image: InspirationImage) => void;
++  /** Put this picture's seed in the composer without touching anything else. */
++  onUseSeed: (image: InspirationImage) => void;
+   onPinSeed: (image: InspirationImage) => void;
+   onCanonical: (image: InspirationImage) => void;
+   onAddToSet: (image: InspirationImage) => void;
+@@ -68,7 +70,7 @@ function Action({
+ }
+ 
+ export default function ResultsGrid({
+-  batches, compareIds, onToggleCompare, onIterate, onVariations, onPinSeed,
++  batches, compareIds, onToggleCompare, onIterate, onVariations, onUseSeed, onPinSeed,
+   onCanonical, onAddToSet, onKeep, onDiscard, refActions, generateAction, seedAction,
+ }: ResultsGridProps) {
+   const { t } = useTranslation();
+@@ -107,6 +109,14 @@ export default function ResultsGrid({
+                       <Action icon={Star} label={t('visualRef.action.keep')} availability={{ enabled: true }} onClick={() => onKeep(image)} active={kept} />
+                       <Action icon={Copy} label={t('visualRef.action.iterate')} availability={{ enabled: true }} onClick={() => onIterate(image)} />
+                       <Action icon={RefreshCw} label={t('visualRef.action.variations')} availability={generateAction} onClick={() => onVariations(image)} />
++                      <Action
++                        icon={Dices}
++                        label={t('visualRef.action.useSeed')}
++                        availability={image.generation?.seed === undefined
++                          ? { enabled: false, reasonKey: 'visualRef.reason.noSeedRecorded' }
++                          : { enabled: true }}
++                        onClick={() => onUseSeed(image)}
++                      />
+                       <Action icon={Anchor} label={t('visualRef.action.pinSeed')} availability={seedAction(image)} onClick={() => onPinSeed(image)} />
+                       <Action icon={Layers} label={t('visualRef.action.canonical')} availability={refActions} onClick={() => onCanonical(image)} />
+                       <Action icon={Plus} label={t('visualRef.action.addToSet')} availability={refActions} onClick={() => onAddToSet(image)} />
+diff --git a/src/engines/image-studio/components/XyzPlotDialog.tsx b/src/engines/image-studio/components/XyzPlotDialog.tsx
+new file mode 100644
+index 0000000..d036d1a
+--- /dev/null
++++ b/src/engines/image-studio/components/XyzPlotDialog.tsx
+@@ -0,0 +1,161 @@
++// ============================================================================
++// X/Y/Z plot — the cheapest teaching surface in the whole studio
++// ============================================================================
++//
++// Pick up to three fields, give each a list of values, and the studio runs the
++// product and lays the results out labelled. It is pure client orchestration
++// over the same generate call, so it behaves identically on every backend, and
++// one run of it teaches more about steps and CFG than any amount of prose.
++//
++// The matrix is shown BEFORE anything runs, with the number of pictures and the
++// time that implies, because the difference between a 9-cell plot and a 64-cell
++// plot on a laptop is the difference between a coffee and an afternoon.
++
++import { useMemo, useState } from 'react';
++import { Grid3x3 } from 'lucide-react';
++import { useTranslation } from '@/i18n/useTranslation';
++import Modal from '@/components/common/Modal';
++import {
++  AXIS_FIELDS,
++  AXIS_REQUIRES,
++  XYZ_MAX_CELLS,
++  buildXyzMatrix,
++  parseAxisValues,
++  xyzRequestedCells,
++  type AxisField,
++  type StudioCapabilities,
++  type XyzAxis,
++  type XyzCell,
++} from '../studio';
++import { FIELD_CLASS } from './ParameterField';
++
++export interface XyzPlotDialogProps {
++  open: boolean;
++  onClose: () => void;
++  capabilities: StudioCapabilities;
++  onRun: (cells: XyzCell[]) => void;
++  /** False when nothing can generate: the plot is still readable, not runnable. */
++  canGenerate: boolean;
++  generateReasonKey?: string;
++}
++
++interface AxisDraft {
++  field: AxisField | '';
++  raw: string;
++}
++
++const EMPTY: AxisDraft[] = [{ field: 'steps', raw: '' }, { field: '', raw: '' }, { field: '', raw: '' }];
++
++export default function XyzPlotDialog({
++  open, onClose, capabilities, onRun, canGenerate, generateReasonKey,
++}: XyzPlotDialogProps) {
++  const { t } = useTranslation();
++  const [drafts, setDrafts] = useState<AxisDraft[]>(EMPTY);
++
++  const axes: XyzAxis[] = useMemo(
++    () => drafts
++      .filter((draft): draft is { field: AxisField; raw: string } => draft.field !== '')
++      .map((draft) => ({ field: draft.field, values: parseAxisValues(draft.field, draft.raw) })),
++    [drafts],
++  );
++  const cells = useMemo(() => buildXyzMatrix(axes), [axes]);
++  const requested = xyzRequestedCells(axes);
++  const capped = requested > XYZ_MAX_CELLS;
++
++  const setDraft = (index: number, changes: Partial<AxisDraft>) => {
++    setDrafts((current) => current.map((draft, at) => (at === index ? { ...draft, ...changes } : draft)));
++  };
++
++  return (
++    <Modal open={open} onClose={onClose} title={t('imageStudio.xyz.title')} wide>
++      <div className="space-y-3">
++        <p className="text-[11px] text-text-muted">{t('imageStudio.xyz.intro')}</p>
++
++        {drafts.map((draft, index) => (
++          <div key={index} className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 items-start">
++            <select
++              value={draft.field}
++              aria-label={t(`imageStudio.xyz.axis.${index}`)}
++              onChange={(event) => setDraft(index, { field: event.target.value as AxisField | '' })}
++              className={FIELD_CLASS}
++            >
++              <option value="">{t('imageStudio.xyz.axisNone')}</option>
++              {AXIS_FIELDS.map((field) => {
++                const state = capabilities[AXIS_REQUIRES[field]];
++                return (
++                  <option
++                    key={field}
++                    value={field}
++                    disabled={!state.enabled}
++                    title={state.enabled ? undefined : t(state.reasonKey ?? 'visualRef.reason.unavailable')}
++                  >
++                    {t(`imageStudio.xyz.field.${field}`)}
++                    {state.enabled ? '' : ` — ${t(state.reasonKey ?? 'visualRef.reason.unavailable')}`}
++                  </option>
++                );
++              })}
++            </select>
++            <div>
++              <input
++                value={draft.raw}
++                disabled={draft.field === ''}
++                placeholder={t('imageStudio.xyz.valuesPlaceholder')}
++                onChange={(event) => setDraft(index, { raw: event.target.value })}
++                className={FIELD_CLASS}
++              />
++              {draft.field !== '' && (
++                <p className="mt-1 text-[10px] text-text-dim font-mono">
++                  {parseAxisValues(draft.field, draft.raw).join(' · ') || '—'}
++                </p>
++              )}
++            </div>
++          </div>
++        ))}
++
++        <div className="rounded-lg border border-border bg-elevated px-3 py-2 space-y-1">
++          <p className="text-[11px] text-text-primary">
++            {t('imageStudio.xyz.count').replace('{count}', String(cells.length))}
++          </p>
++          {capped && (
++            <p className="text-[10px] text-accent-amber">
++              {t('imageStudio.xyz.capped')
++                .replace('{requested}', String(requested))
++                .replace('{max}', String(XYZ_MAX_CELLS))}
++            </p>
++          )}
++          {cells.length > 0 && (
++            <p className="text-[10px] text-text-dim font-mono break-words">
++              {cells.slice(0, 6).map((cell) => cell.coords.map((coord) => `${coord.field} ${coord.value}`).join(' · ')).join('  |  ')}
++              {cells.length > 6 ? ' …' : ''}
++            </p>
++          )}
++        </div>
++
++        {!canGenerate && generateReasonKey && (
++          <p className="text-[10px] text-accent-amber">{t(generateReasonKey)}</p>
++        )}
++
++        <div className="flex items-center gap-2">
++          <button
++            type="button"
++            onClick={onClose}
++            className="px-3 py-1.5 text-xs rounded-lg border border-border text-text-muted hover:text-text-primary transition"
++          >
++            {t('common.cancel')}
++          </button>
++          <button
++            type="button"
++            disabled={!canGenerate || cells.length === 0}
++            title={canGenerate ? t('imageStudio.xyz.run') : t(generateReasonKey ?? 'visualRef.reason.unavailable')}
++            aria-label={canGenerate ? t('imageStudio.xyz.run') : t(generateReasonKey ?? 'visualRef.reason.unavailable')}
++            onClick={() => { onRun(cells); onClose(); }}
++            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-gold text-deep text-xs font-semibold hover:bg-accent-amber transition disabled:opacity-40 disabled:cursor-not-allowed"
++          >
++            <Grid3x3 size={12} />
++            {t('imageStudio.xyz.run')}
++          </button>
++        </div>
++      </div>
++    </Modal>
++  );
++}
+diff --git a/src/engines/image-studio/components/weightKeys.ts b/src/engines/image-studio/components/weightKeys.ts
+new file mode 100644
+index 0000000..f66a3b9
+--- /dev/null
++++ b/src/engines/image-studio/components/weightKeys.ts
+@@ -0,0 +1,33 @@
++// ctrl+↑ / ctrl+↓ on a selection, the way every image UI does it. Its own file
++// because a module that exports both a component and a helper cannot be hot
++// reloaded, and this helper is used by three text boxes in the composer.
++
++import type { KeyboardEvent } from 'react';
++import { WEIGHT_STEP, adjustWeight } from '../studio';
++
++type TextControl = HTMLTextAreaElement | HTMLInputElement;
++
++/**
++ * ctrl+↑ / ctrl+↓ on a selection, the way every image UI does it.
++ *
++ * The selection is restored afterwards so the shortcut can be held: without it
++ * the caret jumps to the end after the first press and the second press
++ * weights whatever word happens to be there.
++ */
++export function onWeightKeyDown(
++  event: KeyboardEvent<TextControl>,
++  onChange: (text: string) => void,
++): void {
++  if (!(event.ctrlKey || event.metaKey)) return;
++  if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
++  const field = event.currentTarget;
++  const delta = event.key === 'ArrowUp' ? WEIGHT_STEP : -WEIGHT_STEP;
++  const edit = adjustWeight(field.value, field.selectionStart ?? 0, field.selectionEnd ?? 0, delta);
++  if (!edit) return;
++  event.preventDefault();
++  onChange(edit.text);
++  window.requestAnimationFrame(() => {
++    field.setSelectionRange(edit.start, edit.end);
++  });
++}
++
+diff --git a/src/engines/image-studio/studio/index.ts b/src/engines/image-studio/studio/index.ts
+index c496705..eb2e681 100644
+--- a/src/engines/image-studio/studio/index.ts
++++ b/src/engines/image-studio/studio/index.ts
+@@ -98,5 +98,8 @@ export {
+ } from './xyz';
+ export type { AxisField, XyzAxis, XyzCell, XyzOverrides } from './xyz';
+ 
++export { planRun } from './run';
++export type { RunInput, RunPlan } from './run';
++
+ export { DEFAULT_STUDIO_PREFS, readStudioPrefs, writeStudioPrefs } from './prefs';
+ export type { StudioPrefs } from './prefs';
+diff --git a/src/engines/image-studio/studio/run.ts b/src/engines/image-studio/studio/run.ts
+new file mode 100644
+index 0000000..4515621
+--- /dev/null
++++ b/src/engines/image-studio/studio/run.ts
+@@ -0,0 +1,118 @@
++// ============================================================================
++// One run, planned — the single place the request is assembled
++// ============================================================================
++//
++// The composer, the X/Y/Z plot and "vary this one" all end up here. A preview
++// built by a second code path is a preview of something else, and the whole
++// point of the resolved-prompt disclosure is that what it shows is what is
++// sent.
++//
++// Pure, so the interesting claims can be tested without a backend: that the
++// wildcards are resolved BEFORE the prompt is recorded, that a refused pass is
++// reported rather than dropped, and that the LoRA stack reaches the request as
++// an array.
++
++import type { ResolvedGeneration } from '@/services/visualRef';
++import type { AiRouteSelection } from '@/services/aiRuntime/types';
++import type { GenerateAndSaveOptions } from '../operations';
++import { chainToRequest, serializePassChain, type PassSupportInput, type StudioPass } from './passes';
++import { stackToSelections, type LoraStackEntry } from './loraStack';
++import { resolveWildcards, type WildcardPick } from './wildcards';
++
++export interface RunInput {
++  projectId: string;
++  route: AiRouteSelection;
++  resolved: ResolvedGeneration;
++  composer: { subjects: string; scene: string; style: string };
++  width: number;
++  height: number;
++  seed: number;
++  /**
++   * Seed for the wildcard picks alone. Defaults to `seed`, so the same seed
++   * reproduces the same prompt. A batch that holds the diffusion seed fixed
++   * passes a different one per image, which is how "same noise, different
++   * wording" is done honestly — the picks it made are recorded on the row.
++   */
++  wildcardSeed?: number;
++  /** Images per call. Batches with walking seeds are one call each. */
++  n: number;
++  steps?: number;
++  cfg?: number;
++  sampler?: string;
++  scheduler?: string;
++  clipSkip?: number;
++  passes: readonly StudioPass[];
++  passSupport: PassSupportInput;
++  loraStack: readonly LoraStackEntry[];
++  /** Named wildcard lists, from the project's own reusable fragments. */
++  wildcardFiles?: Readonly<Record<string, readonly string[]>>;
++  /** Conditioning bytes, already read out of Gallery. */
++  referenceImages?: string[];
++  controlNets?: { image: string; weight: number }[];
++  /** Gallery ids of the same, so the row can point back at them. */
++  refImageIds?: string[];
++  controlImageId?: string;
++  /** Every reference this prompt named, whether or not it carried a LoRA. */
++  visualRefIds?: string[];
++  /** Appended to the prompt: the X/Y/Z prompt axis, and nothing else. */
++  promptSuffix?: string;
++  tags?: string[];
++}
++
++export interface RunPlan {
++  options: GenerateAndSaveOptions;
++  /** Passes that were on and cannot run. Shown, never swallowed. */
++  refusedPasses: { id: string; kind: string; reasonKey: string }[];
++  wildcards: WildcardPick[];
++  /** `__names__` with no list behind them, left in the prompt exactly as typed. */
++  unresolvedWildcards: string[];
++}
++
++export function planRun(input: RunInput): RunPlan {
++  // Resolved with THIS run's seed, so a batch with walking seeds explores the
++  // wildcards as well as the noise — and so the same seed reproduces the same
++  // choices, which is the only thing that makes the stored prompt honest.
++  const wildcardSeed = input.wildcardSeed ?? input.seed;
++  const prompt = resolveWildcards(
++    [input.resolved.prompt, input.promptSuffix].filter(Boolean).join(', '),
++    wildcardSeed,
++    input.wildcardFiles,
++  );
++  const negative = input.resolved.negativePrompt
++    ? resolveWildcards(input.resolved.negativePrompt, wildcardSeed ^ 0x5f3a, input.wildcardFiles)
++    : undefined;
++  const chain = chainToRequest(input.passes, input.passSupport);
++  const loras = stackToSelections(input.loraStack);
++
++  return {
++    options: {
++      projectId: input.projectId,
++      route: input.route,
++      prompt: prompt.text,
++      negativePrompt: negative?.text,
++      width: input.width,
++      height: input.height,
++      n: input.n,
++      seed: input.seed,
++      steps: input.steps,
++      guidance: input.cfg,
++      sampler: input.sampler,
++      scheduler: input.scheduler,
++      clipSkip: input.clipSkip,
++      loras: loras.length ? loras : undefined,
++      hires: chain.hires,
++      referenceImages: input.referenceImages?.length ? input.referenceImages : undefined,
++      controlNets: input.controlNets?.length ? input.controlNets : undefined,
++      refImageIds: input.refImageIds,
++      controlImageId: input.controlImageId,
++      visualRefIds: input.visualRefIds,
++      composer: input.composer,
++      passChain: serializePassChain(input.passes),
++      wildcards: prompt.picks.length ? prompt.picks : undefined,
++      tags: input.tags,
++    },
++    refusedPasses: chain.refused,
++    wildcards: prompt.picks,
++    unresolvedWildcards: [...new Set([...prompt.unresolved, ...(negative?.unresolved ?? [])])],
++  };
++}
+diff --git a/src/engines/image-studio/studioModel.ts b/src/engines/image-studio/studioModel.ts
+index bffedf2..81149df 100644
+--- a/src/engines/image-studio/studioModel.ts
++++ b/src/engines/image-studio/studioModel.ts
+@@ -61,47 +61,13 @@ export function studioResolverModel(input: StudioModelInput): ResolverModel | nu
+ }
+ 
+ /**
+- * Which parameter fields the chosen model can honour.
++ * Whether the route points at the app's own stable-diffusion.cpp server.
+  *
+- * The existing studio already hides the cfg slider for FLUX; this generalises
+- * that instinct instead of special-casing the next family by hand. A field that
+- * is shown and does nothing is worse than no field: the writer turns it, sees
+- * no change, and concludes the whole panel is decorative.
++ * The distinction the capability descriptor turns on: a remote
++ * `/v1/images/generations` endpoint takes a prompt and a size, so every
++ * diffusion knob is decoration against one, and saying "this model runs at a
++ * fixed guidance" about it would be a confident wrong answer.
+  */
+-export interface ParameterVisibility {
+-  cfg: boolean;
+-  sampler: boolean;
+-  scheduler: boolean;
+-  steps: boolean;
+-  seed: boolean;
+-}
+-
+-/** Which resolved fields the request can actually carry (see `operations.ts`). */
+-export interface RequestSupport {
+-  sampler: boolean;
+-  scheduler: boolean;
+-}
+-
+-export function parameterVisibility(
+-  model: ResolverModel | null,
+-  supports: RequestSupport,
+-): ParameterVisibility {
+-  if (!model) {
+-    return { cfg: false, sampler: false, scheduler: false, steps: false, seed: false };
+-  }
+-  const guided = model.cfg === undefined || model.cfg > 1;
+-  return {
+-    // A distilled model runs at a fixed guidance; the slider would be a lie.
+-    // The negative prompt follows the same rule, but it is not decided here:
+-    // it belongs to the reference, and the resolver refuses it out loud in the
+-    // disclosure so the writer sees WHICH model dropped it and why.
+-    cfg: guided,
+-    // Samplers and schedulers are a local-diffusion concept, AND the request
+-    // has to be able to carry them. Both halves matter: the second is why the
+-    // knobs are refused today rather than turned into a value the gateway drops.
+-    sampler: supports.sampler && (model.supportsLora || model.supportsInitImage),
+-    scheduler: supports.scheduler && (model.family === 'sdxl' || model.family === 'sd1'),
+-    steps: true,
+-    seed: true,
+-  };
++export function isManagedLocalRoute(route?: AiRouteSelection): boolean {
++  return route?.connectionId === BUILTIN_SD_ID;
+ }
+diff --git a/src/locales/en.ts b/src/locales/en.ts
+index 8e6f4e7..e1d79ef 100644
+--- a/src/locales/en.ts
++++ b/src/locales/en.ts
+@@ -4241,6 +4241,149 @@ const en = {
+   'visualRef.reason.compareCount': 'Pick two to four pictures to compare.',
+   'visualRef.reason.noName': 'Give the reference a name first.',
+   'visualRef.reason.unavailable': 'Not available right now.',
++  'imageStudio.level.title': 'Level of control',
++  'imageStudio.level.simple': 'Simple',
++  'imageStudio.level.studio': 'Studio',
++  'imageStudio.level.expert': 'Expert',
++  'imageStudio.level.simple.what': 'Who is in it, what it looks like, how big, how many.',
++  'imageStudio.level.studio.what': 'The knobs every tutorial talks about: sampler, scheduler, steps, guidance, CLIP-skip, the LoRA stack and the pass chain.',
++  'imageStudio.level.expert.what': 'Everything above, plus the research knobs and every sampler the runtime knows.',
++  'imageStudio.why.catalog': 'These knobs now hold the numbers this model was catalogued with, measured against these exact weights.',
++  'imageStudio.why.distilled': 'This is a distilled checkpoint: 4–8 steps at guidance 1. Run at an ordinary model’s numbers it is four times slower and worse.',
++  'imageStudio.why.flux': 'Flux is guidance-distilled: text guidance stays at 1 and the picture is steered by its own distilled guidance.',
++  'imageStudio.why.sdxl': 'SDXL’s working point: about 30 steps, guidance 6, dpm++2m with karras, and a one-megapixel bucket.',
++  'imageStudio.why.sd1Anime': 'An SD 1.5 anime checkpoint: trained with the last CLIP layer discarded, so CLIP-skip is 2.',
++  'imageStudio.why.sd1': 'SD 1.5’s working point: about 25 steps, guidance 7, and the 512-area buckets.',
++  'imageStudio.why.generic': 'No family was reported for this model, so these are conservative middle-of-the-road numbers.',
++  'imageStudio.why.undo': 'Put my numbers back',
++  'imageStudio.why.reapply': 'Use this model’s working point',
++  'imageStudio.reason.noRequestField': 'The app cannot ask the server for this yet: the image request has no field to carry it. The control is here so you can see it is coming.',
++  'imageStudio.reason.noClipStack': 'This model is not conditioned by a CLIP text stack, so there is no layer to skip.',
++  'imageStudio.reason.noLoraSupport': 'Only the built-in local image server can load LoRA files.',
++  'imageStudio.reason.noInitImage': 'This model does not do denoise-strength img2img, which is what a mask would be repainted into.',
++  'imageStudio.reason.noSubseed': 'stable-diffusion.cpp has no variation seed. Approximating one by re-noising would make a different picture and call it a variation, so it is not offered.',
++  'imageStudio.reason.noPassthrough': 'The request is typed all the way to the server, so there is nowhere for raw JSON to go.',
++  'imageStudio.reason.upscaleInHires': 'This build has no separate upscale job. Real-ESRGAN is reachable, but as the hires pass’s upscaler.',
++  'imageStudio.reason.noUpscaler': 'No upscaler is installed. Add one in AI settings → local image models.',
++  'imageStudio.reason.oneHiresPass': 'The request has room for one hires pass, so a second one is refused rather than merged into the first.',
++  'imageStudio.reason.noMaskEditor': 'The request can carry a mask; the studio has nowhere to paint one yet.',
++  'imageStudio.size.custom': 'Custom size',
++  'imageStudio.size.width': 'Width',
++  'imageStudio.size.height': 'Height',
++  'imageStudio.size.offBucket': 'This size is outside the aspect ratios these weights were trained on. Duplicated heads and stretched bodies usually start here.',
++  'imageStudio.chain.title': 'Pass chain',
++  'imageStudio.chain.what': 'base → hires → detail: the chain every expert result is actually made of.',
++  'imageStudio.chain.add': 'Add a pass',
++  'imageStudio.chain.moveUp': 'Move earlier',
++  'imageStudio.chain.moveDown': 'Move later',
++  'imageStudio.chain.remove': 'Remove this pass',
++  'imageStudio.chain.baseKept': 'The base pass is what makes the picture; the rest of the chain works on what it produced.',
++  'imageStudio.pass.base': 'Base',
++  'imageStudio.pass.hires': 'Hires',
++  'imageStudio.pass.detail': 'Detail',
++  'imageStudio.pass.upscale': 'Upscale',
++  'imageStudio.pass.base.what': 'The generation itself, at the size above.',
++  'imageStudio.pass.hires.what': 'Enlarge and diffuse again, so detail is added at the larger size instead of interpolated.',
++  'imageStudio.pass.detail.what': 'Find the faces, repaint them at full resolution, paste them back. Faces are what a reader looks at first.',
++  'imageStudio.pass.upscale.what': 'Enlarge without diffusing again.',
++  'imageStudio.pass.upscaler': 'Upscaler',
++  'imageStudio.pass.scale': 'Scale',
++  'imageStudio.pass.steps': 'Steps in this pass',
++  'imageStudio.pass.prompt': 'Prompt for this pass',
++  'imageStudio.pass.promptPlaceholder': 'Leave empty to reuse the prompt above',
++  'imageStudio.pass.denoise': 'Denoise',
++  'imageStudio.pass.denoise.adds': 'Adds detail to the picture you already have.',
++  'imageStudio.pass.denoise.reimagines': 'High enough to make a different picture at the larger size, not a sharper version of this one.',
++  'imageStudio.pass.detector': 'Detector',
++  'imageStudio.pass.confidence': 'Confidence',
++  'imageStudio.detector.face': 'Faces',
++  'imageStudio.detector.hand': 'Hands',
++  'imageStudio.detector.person': 'People',
++  'imageStudio.detector.eyes': 'Eyes',
++  'imageStudio.lora.stack': 'LoRA stack',
++  'imageStudio.lora.stackEmpty': 'No LoRA in this generation yet. Search below to add one.',
++  'imageStudio.lora.trigger': 'trigger',
++  'imageStudio.lora.noTrigger': 'No trigger word recorded — if this LoRA seems to do nothing, that is usually why.',
++  'imageStudio.lora.triggerMissing': 'These trigger words are not in the prompt, so their LoRA will barely show: {words}.',
++  'imageStudio.lora.search': 'Search LoRA files…',
++  'imageStudio.lora.remove': 'Take out of this generation',
++  'imageStudio.lora.ownedByRef': 'This one belongs to {name}. Change its weight in the reference, where it will be remembered.',
++  'imageStudio.lora.folder': 'Drop .safetensors files into {path} and they appear here.',
++  'imageStudio.prompt.tokens': '≈{count} tokens',
++  'imageStudio.prompt.chunks': '{count} chunks — everything past the boundary is encoded separately and stops interacting with what came before.',
++  'imageStudio.prompt.weightKeys': 'ctrl+↑ / ctrl+↓ weights the selection',
++  'imageStudio.prompt.weighted': 'Emphasis on this span.',
++  'imageStudio.prompt.wildcardPreview': 'This seed picks:',
++  'imageStudio.prompt.wildcardUnknown': 'No list behind these wildcards, so they are being sent as words: {names}.',
++  'imageStudio.prompt.unsupported.scheduling': 'Prompt scheduling ([a:b:0.4]) is not implemented by this runtime — it reaches the model as literal text.',
++  'imageStudio.prompt.unsupported.break': 'BREAK is not implemented by this runtime — it reaches the model as the word "break".',
++  'imageStudio.prompt.unsupported.loraToken': 'A <lora:…> tag in the prompt is encoded as words by this server. Use the LoRA stack instead.',
++  'imageStudio.batchSeed': 'Seed in a batch',
++  'imageStudio.batchSeed.incremental': 'Walks',
++  'imageStudio.batchSeed.fixed': 'Stays',
++  'imageStudio.batchSeed.incremental.what': 'Each picture takes the next seed: different pictures of the same idea.',
++  'imageStudio.batchSeed.fixed.what': 'Every picture keeps the same seed, so only the wildcard picks change: the same noise, different wording.',
++  'imageStudio.clipSkip': 'CLIP-skip',
++  'imageStudio.clipSkip.hint': 'How many of the last CLIP layers to discard. Anime checkpoints are trained at 2; everything else wants 1.',
++  'imageStudio.inpaint': 'Inpainting',
++  'imageStudio.inpaint.what': 'Paint a mask and repaint only what is under it.',
++  'imageStudio.expert.title': 'Research knobs',
++  'imageStudio.sigmas': 'Custom sigmas',
++  'imageStudio.slg': 'Skip-layer guidance',
++  'imageStudio.apg': 'Adaptive projected guidance',
++  'imageStudio.cacheMode': 'Inference cache',
++  'imageStudio.variationSeed': 'Variation seed',
++  'imageStudio.rawJson': 'Raw JSON passthrough',
++  'imageStudio.sampler.showAll': 'Show every sampler the runtime knows',
++  'imageStudio.xyz.title': 'X/Y/Z plot',
++  'imageStudio.xyz.intro': 'Pick up to three fields, give each a list of values, and get one labelled picture per combination. This is how you find out what a knob actually does.',
++  'imageStudio.xyz.axisNone': '— none —',
++  'imageStudio.xyz.axis.0': 'X axis',
++  'imageStudio.xyz.axis.1': 'Y axis',
++  'imageStudio.xyz.axis.2': 'Z axis',
++  'imageStudio.xyz.valuesPlaceholder': '20, 30, 40   or   20-40 (10)',
++  'imageStudio.xyz.count': '{count} pictures',
++  'imageStudio.xyz.capped': 'That asks for {requested} pictures; only the first {max} will run.',
++  'imageStudio.xyz.run': 'Run the plot',
++  'imageStudio.xyz.field.steps': 'Steps',
++  'imageStudio.xyz.field.cfg': 'Guidance',
++  'imageStudio.xyz.field.sampler': 'Sampler',
++  'imageStudio.xyz.field.scheduler': 'Scheduler',
++  'imageStudio.xyz.field.seed': 'Seed',
++  'imageStudio.xyz.field.clipSkip': 'CLIP-skip',
++  'imageStudio.xyz.field.hiresDenoise': 'Hires denoise',
++  'imageStudio.xyz.field.promptSuffix': 'Added to the prompt',
++  'imageStudio.sampler.euler': 'The reference. Deterministic, converges, never surprises you — and the right default for flow-matching models such as Flux.',
++  'imageStudio.sampler.eulerA': 'Ancestral: fresh noise at every step, so more steps keep changing the picture. Variety, at the cost of reproducing across step counts.',
++  'imageStudio.sampler.heun': 'Two evaluations per step: cleaner than Euler at the same step count, and about twice as slow.',
++  'imageStudio.sampler.dpm2': 'Second-order DPM. Slower than Euler for a small gain; mostly of historical interest now.',
++  'imageStudio.sampler.dpmpp2sA': 'Ancestral second-order DPM++. Soft, painterly results; like every ancestral sampler it never quite settles.',
++  'imageStudio.sampler.dpmpp2m': 'The SDXL workhorse. Paired with karras it is still the most common combination in the field.',
++  'imageStudio.sampler.dpmpp2mv2': 'The corrected DPM++ 2M: same character, better behaved at low step counts.',
++  'imageStudio.sampler.ipndm': 'Linear multistep. Fast and stable at very low step counts.',
++  'imageStudio.sampler.ipndmV': 'Variable-step iPNDM: the same idea, adapted to an uneven sigma schedule.',
++  'imageStudio.sampler.lcm': 'For distilled checkpoints — Turbo, Lightning, LCM — at 4–8 steps and guidance 1. Useless on an ordinary model.',
++  'imageStudio.sampler.ddimTrailing': 'DDIM with the trailing timestep convention: what most distilled and inpainting workflows were fitted with.',
++  'imageStudio.sampler.tcd': 'Trajectory consistency distillation: keeps more detail than LCM at the same very low step count.',
++  'imageStudio.sampler.resMultistep': 'A modern exponential-integrator multistep. Sharp at moderate step counts.',
++  'imageStudio.sampler.res2s': 'The two-stage version of the same idea: fewer steps, more work in each.',
++  'imageStudio.sampler.erSde': 'Stochastic: adds texture and grain, and gives up reproducing exactly across step counts.',
++  'imageStudio.sampler.eulerCfgPp': 'CFG++: reparameterised guidance, so the useful range is about 0.5–2 instead of 5–8. The practical answer to "high guidance burns the picture".',
++  'imageStudio.sampler.eulerACfgPp': 'Ancestral CFG++: the low-guidance range, with fresh noise at every step.',
++  'imageStudio.sampler.eulerGe': 'Euler with a gradient-estimation correction: slightly cleaner edges for the same cost.',
++  'imageStudio.scheduler.discrete': 'The model’s own training schedule. The safe default when nothing suggests otherwise.',
++  'imageStudio.scheduler.karras': 'Spends more steps at low noise, where detail is decided. Still the standard partner for dpm++2m on SD 1.5 and SDXL.',
++  'imageStudio.scheduler.exponential': 'A smooth exponential fall. Softer results, forgiving at high step counts.',
++  'imageStudio.scheduler.ays': 'Align Your Steps: a schedule built for very few steps — about ten — without losing structure.',
++  'imageStudio.scheduler.gits': 'A search-derived schedule for low step counts, in the same family as AYS.',
++  'imageStudio.scheduler.sgmUniform': 'Uniform in sigma space, the convention the SDXL refiner workflows expect.',
++  'imageStudio.scheduler.simple': 'A plain linear schedule — what Flux and the other flow-matching models want.',
++  'imageStudio.scheduler.smoothstep': 'Eased at both ends: gentler starts and endings, less prone to over-sharpening.',
++  'imageStudio.scheduler.klOptimal': 'Derived by minimising divergence along the trajectory; strong at moderate step counts.',
++  'imageStudio.scheduler.lcm': 'The schedule that goes with distilled LCM checkpoints.',
++  'imageStudio.scheduler.bongTangent': 'A tangent-shaped schedule from the community, at home with the res_* samplers.',
++  'imageStudio.scheduler.ltx2': 'The schedule the LTX-2 model expects.',
++  'visualRef.action.useSeed': 'Use this seed',
+ } as const;
+ 
+ export default en;
+diff --git a/src/locales/es.ts b/src/locales/es.ts
+index cb0355a..14cd779 100644
+--- a/src/locales/es.ts
++++ b/src/locales/es.ts
+@@ -4241,6 +4241,149 @@ const es = {
+   'visualRef.reason.compareCount': 'Elige de dos a cuatro imágenes para comparar.',
+   'visualRef.reason.noName': 'Ponle antes un nombre a la referencia.',
+   'visualRef.reason.unavailable': 'No disponible ahora mismo.',
++  'imageStudio.level.title': 'Nivel de control',
++  'imageStudio.level.simple': 'Sencillo',
++  'imageStudio.level.studio': 'Estudio',
++  'imageStudio.level.expert': 'Experto',
++  'imageStudio.level.simple.what': 'Quién sale, qué aspecto tiene, de qué tamaño y cuántas.',
++  'imageStudio.level.studio.what': 'Los mandos de los que habla cualquier tutorial: sampler, planificador, pasos, guía, CLIP-skip, la pila de LoRA y la cadena de pasadas.',
++  'imageStudio.level.expert.what': 'Todo lo anterior, más los mandos de investigación y todos los samplers que conoce el runtime.',
++  'imageStudio.why.catalog': 'Los mandos tienen ahora las cifras con las que se catalogó este modelo, medidas sobre estos mismos pesos.',
++  'imageStudio.why.distilled': 'Es un checkpoint destilado: de 4 a 8 pasos con guía 1. Con las cifras de un modelo normal tarda cuatro veces más y sale peor.',
++  'imageStudio.why.flux': 'Flux está destilado en guía: la guía de texto se queda en 1 y la imagen la dirige su propia guía destilada.',
++  'imageStudio.why.sdxl': 'El punto de trabajo de SDXL: unos 30 pasos, guía 6, dpm++2m con karras y un cubo de un megapíxel.',
++  'imageStudio.why.sd1Anime': 'Un checkpoint anime de SD 1.5: se entrenó descartando la última capa de CLIP, así que el CLIP-skip es 2.',
++  'imageStudio.why.sd1': 'El punto de trabajo de SD 1.5: unos 25 pasos, guía 7 y los cubos de 512.',
++  'imageStudio.why.generic': 'Este modelo no declara familia, así que estas son cifras intermedias y prudentes.',
++  'imageStudio.why.undo': 'Devuélveme mis cifras',
++  'imageStudio.why.reapply': 'Usar el punto de trabajo de este modelo',
++  'imageStudio.reason.noRequestField': 'La aplicación todavía no puede pedirle esto al servidor: la petición de imagen no tiene ningún campo que lo lleve. El control está aquí para que veas que llega.',
++  'imageStudio.reason.noClipStack': 'Este modelo no se condiciona con una pila de texto CLIP, así que no hay ninguna capa que saltarse.',
++  'imageStudio.reason.noLoraSupport': 'Solo el servidor de imagen local integrado puede cargar ficheros LoRA.',
++  'imageStudio.reason.noInitImage': 'Este modelo no hace img2img por fuerza de ruido, que es sobre lo que se repintaría una máscara.',
++  'imageStudio.reason.noSubseed': 'stable-diffusion.cpp no tiene semilla de variación. Aproximarla volviendo a añadir ruido haría otra imagen y la llamaría variación, así que no se ofrece.',
++  'imageStudio.reason.noPassthrough': 'La petición va tipada hasta el servidor, así que no hay dónde meter JSON en crudo.',
++  'imageStudio.reason.upscaleInHires': 'Esta compilación no tiene un trabajo de escalado aparte. Real-ESRGAN sí se alcanza, pero como escalador de la pasada hires.',
++  'imageStudio.reason.noUpscaler': 'No hay ningún escalador instalado. Añade uno en Ajustes de IA → modelos de imagen locales.',
++  'imageStudio.reason.oneHiresPass': 'La petición tiene sitio para una pasada hires, así que la segunda se rechaza en vez de fundirse con la primera.',
++  'imageStudio.reason.noMaskEditor': 'La petición sí puede llevar una máscara; el estudio todavía no tiene dónde pintarla.',
++  'imageStudio.size.custom': 'Tamaño a medida',
++  'imageStudio.size.width': 'Ancho',
++  'imageStudio.size.height': 'Alto',
++  'imageStudio.size.offBucket': 'Este tamaño queda fuera de las proporciones con las que se entrenaron estos pesos. Las cabezas duplicadas y los cuerpos estirados suelen empezar aquí.',
++  'imageStudio.chain.title': 'Cadena de pasadas',
++  'imageStudio.chain.what': 'base → hires → detalle: la cadena de la que está hecho en realidad cualquier resultado experto.',
++  'imageStudio.chain.add': 'Añadir una pasada',
++  'imageStudio.chain.moveUp': 'Mover antes',
++  'imageStudio.chain.moveDown': 'Mover después',
++  'imageStudio.chain.remove': 'Quitar esta pasada',
++  'imageStudio.chain.baseKept': 'La pasada base es la que hace la imagen; el resto de la cadena trabaja sobre lo que ella produjo.',
++  'imageStudio.pass.base': 'Base',
++  'imageStudio.pass.hires': 'Hires',
++  'imageStudio.pass.detail': 'Detalle',
++  'imageStudio.pass.upscale': 'Escalado',
++  'imageStudio.pass.base.what': 'La generación en sí, al tamaño de arriba.',
++  'imageStudio.pass.hires.what': 'Agrandar y volver a difundir, para que el detalle se añada al tamaño grande en vez de interpolarse.',
++  'imageStudio.pass.detail.what': 'Encontrar las caras, repintarlas a resolución completa y devolverlas. La cara es lo primero que mira un lector.',
++  'imageStudio.pass.upscale.what': 'Agrandar sin volver a difundir.',
++  'imageStudio.pass.upscaler': 'Escalador',
++  'imageStudio.pass.scale': 'Escala',
++  'imageStudio.pass.steps': 'Pasos de esta pasada',
++  'imageStudio.pass.prompt': 'Prompt de esta pasada',
++  'imageStudio.pass.promptPlaceholder': 'Déjalo vacío para reutilizar el de arriba',
++  'imageStudio.pass.denoise': 'Ruido',
++  'imageStudio.pass.denoise.adds': 'Añade detalle a la imagen que ya tienes.',
++  'imageStudio.pass.denoise.reimagines': 'Lo bastante alto como para hacer otra imagen al tamaño grande, no una versión más nítida de esta.',
++  'imageStudio.pass.detector': 'Detector',
++  'imageStudio.pass.confidence': 'Confianza',
++  'imageStudio.detector.face': 'Caras',
++  'imageStudio.detector.hand': 'Manos',
++  'imageStudio.detector.person': 'Personas',
++  'imageStudio.detector.eyes': 'Ojos',
++  'imageStudio.lora.stack': 'Pila de LoRA',
++  'imageStudio.lora.stackEmpty': 'Todavía no hay ningún LoRA en esta generación. Busca abajo para añadir uno.',
++  'imageStudio.lora.trigger': 'palabra clave',
++  'imageStudio.lora.noTrigger': 'No hay palabra clave anotada; si este LoRA parece no hacer nada, suele ser por eso.',
++  'imageStudio.lora.triggerMissing': 'Estas palabras clave no están en el prompt, así que su LoRA apenas se notará: {words}.',
++  'imageStudio.lora.search': 'Buscar ficheros LoRA…',
++  'imageStudio.lora.remove': 'Sacar de esta generación',
++  'imageStudio.lora.ownedByRef': 'Este es de {name}. Cambia su peso en la referencia, donde se recordará.',
++  'imageStudio.lora.folder': 'Deja ficheros .safetensors en {path} y aparecerán aquí.',
++  'imageStudio.prompt.tokens': '≈{count} tokens',
++  'imageStudio.prompt.chunks': '{count} bloques: todo lo que pasa del corte se codifica aparte y deja de interactuar con lo anterior.',
++  'imageStudio.prompt.weightKeys': 'ctrl+↑ / ctrl+↓ pesa lo seleccionado',
++  'imageStudio.prompt.weighted': 'Énfasis sobre este fragmento.',
++  'imageStudio.prompt.wildcardPreview': 'Con esta semilla sale:',
++  'imageStudio.prompt.wildcardUnknown': 'No hay ninguna lista detrás de estos comodines, así que se envían como palabras: {names}.',
++  'imageStudio.prompt.unsupported.scheduling': 'Este runtime no implementa la programación de prompt ([a:b:0.4]): le llega al modelo como texto literal.',
++  'imageStudio.prompt.unsupported.break': 'Este runtime no implementa BREAK: le llega al modelo como la palabra «break».',
++  'imageStudio.prompt.unsupported.loraToken': 'Este servidor codifica una etiqueta <lora:…> del prompt como palabras. Usa la pila de LoRA.',
++  'imageStudio.batchSeed': 'Semilla en un lote',
++  'imageStudio.batchSeed.incremental': 'Avanza',
++  'imageStudio.batchSeed.fixed': 'Se queda',
++  'imageStudio.batchSeed.incremental.what': 'Cada imagen coge la semilla siguiente: imágenes distintas de la misma idea.',
++  'imageStudio.batchSeed.fixed.what': 'Todas las imágenes mantienen la misma semilla, así que solo cambian los comodines: el mismo ruido con otras palabras.',
++  'imageStudio.clipSkip': 'CLIP-skip',
++  'imageStudio.clipSkip.hint': 'Cuántas capas finales de CLIP se descartan. Los checkpoints anime se entrenan con 2; el resto quiere 1.',
++  'imageStudio.inpaint': 'Repintado',
++  'imageStudio.inpaint.what': 'Pintar una máscara y repintar solo lo que queda debajo.',
++  'imageStudio.expert.title': 'Mandos de investigación',
++  'imageStudio.sigmas': 'Sigmas a medida',
++  'imageStudio.slg': 'Guía por salto de capas',
++  'imageStudio.apg': 'Guía proyectada adaptativa',
++  'imageStudio.cacheMode': 'Caché de inferencia',
++  'imageStudio.variationSeed': 'Semilla de variación',
++  'imageStudio.rawJson': 'JSON en crudo',
++  'imageStudio.sampler.showAll': 'Mostrar todos los samplers que conoce el runtime',
++  'imageStudio.xyz.title': 'Gráfica X/Y/Z',
++  'imageStudio.xyz.intro': 'Elige hasta tres campos, dale a cada uno una lista de valores y saca una imagen etiquetada por combinación. Así se averigua qué hace de verdad un mando.',
++  'imageStudio.xyz.axisNone': '— ninguno —',
++  'imageStudio.xyz.axis.0': 'Eje X',
++  'imageStudio.xyz.axis.1': 'Eje Y',
++  'imageStudio.xyz.axis.2': 'Eje Z',
++  'imageStudio.xyz.valuesPlaceholder': '20, 30, 40   o   20-40 (10)',
++  'imageStudio.xyz.count': '{count} imágenes',
++  'imageStudio.xyz.capped': 'Eso pide {requested} imágenes; solo se harán las primeras {max}.',
++  'imageStudio.xyz.run': 'Lanzar la gráfica',
++  'imageStudio.xyz.field.steps': 'Pasos',
++  'imageStudio.xyz.field.cfg': 'Guía',
++  'imageStudio.xyz.field.sampler': 'Sampler',
++  'imageStudio.xyz.field.scheduler': 'Planificador',
++  'imageStudio.xyz.field.seed': 'Semilla',
++  'imageStudio.xyz.field.clipSkip': 'CLIP-skip',
++  'imageStudio.xyz.field.hiresDenoise': 'Ruido del hires',
++  'imageStudio.xyz.field.promptSuffix': 'Añadido al prompt',
++  'imageStudio.sampler.euler': 'La referencia. Determinista, converge y nunca te sorprende; además es lo que quieren los modelos de flujo como Flux.',
++  'imageStudio.sampler.eulerA': 'Ancestral: mete ruido nuevo en cada paso, así que a más pasos la imagen sigue cambiando. Variedad, a cambio de no repetirse entre números de pasos distintos.',
++  'imageStudio.sampler.heun': 'Dos evaluaciones por paso: más limpio que Euler con los mismos pasos y unas dos veces más lento.',
++  'imageStudio.sampler.dpm2': 'DPM de segundo orden. Más lento que Euler para ganar poco; hoy es casi histórico.',
++  'imageStudio.sampler.dpmpp2sA': 'DPM++ de segundo orden ancestral. Resultados suaves, casi pintados; como todo ancestral, nunca acaba de asentarse.',
++  'imageStudio.sampler.dpmpp2m': 'El caballo de batalla de SDXL. Con karras sigue siendo la pareja más habitual del sector.',
++  'imageStudio.sampler.dpmpp2mv2': 'El DPM++ 2M corregido: el mismo carácter, mejor educado con pocos pasos.',
++  'imageStudio.sampler.ipndm': 'Multipaso lineal. Rápido y estable con muy pocos pasos.',
++  'imageStudio.sampler.ipndmV': 'iPNDM de paso variable: la misma idea, adaptada a una planificación de sigmas irregular.',
++  'imageStudio.sampler.lcm': 'Para checkpoints destilados (Turbo, Lightning, LCM) con 4–8 pasos y guía 1. Inútil sobre un modelo normal.',
++  'imageStudio.sampler.ddimTrailing': 'DDIM con la convención de paso final: con la que se ajustaron casi todos los flujos destilados y de repintado.',
++  'imageStudio.sampler.tcd': 'Destilación por consistencia de trayectoria: guarda más detalle que LCM con los mismos poquísimos pasos.',
++  'imageStudio.sampler.resMultistep': 'Multipaso moderno por integrador exponencial. Nítido con un número medio de pasos.',
++  'imageStudio.sampler.res2s': 'La versión en dos etapas de lo mismo: menos pasos y más trabajo en cada uno.',
++  'imageStudio.sampler.erSde': 'Estocástico: añade textura y grano, y renuncia a repetirse exactamente entre números de pasos distintos.',
++  'imageStudio.sampler.eulerCfgPp': 'CFG++: reformula la guía, así que el rango útil está en 0,5–2 en vez de 5–8. La respuesta práctica a «la guía alta quema la imagen».',
++  'imageStudio.sampler.eulerACfgPp': 'CFG++ ancestral: el rango de guía baja, con ruido nuevo en cada paso.',
++  'imageStudio.sampler.eulerGe': 'Euler con corrección por estimación de gradiente: bordes algo más limpios por el mismo coste.',
++  'imageStudio.scheduler.discrete': 'La planificación con la que se entrenó el modelo. La opción segura mientras nada diga otra cosa.',
++  'imageStudio.scheduler.karras': 'Gasta más pasos con poco ruido, que es donde se decide el detalle. Sigue siendo la pareja estándar de dpm++2m en SD 1.5 y SDXL.',
++  'imageStudio.scheduler.exponential': 'Una caída exponencial suave. Resultados más blandos y tolerantes con muchos pasos.',
++  'imageStudio.scheduler.ays': 'Align Your Steps: una planificación hecha para poquísimos pasos —unos diez— sin perder estructura.',
++  'imageStudio.scheduler.gits': 'Una planificación obtenida por búsqueda para pocos pasos, de la misma familia que AYS.',
++  'imageStudio.scheduler.sgmUniform': 'Uniforme en el espacio de sigmas, la convención que esperan los flujos con refinador de SDXL.',
++  'imageStudio.scheduler.simple': 'Una planificación lineal sencilla: lo que quieren Flux y los demás modelos de flujo.',
++  'imageStudio.scheduler.smoothstep': 'Suavizada en los dos extremos: arranques y finales más amables, menos propensa a sobreafilar.',
++  'imageStudio.scheduler.klOptimal': 'Derivada minimizando la divergencia a lo largo de la trayectoria; fuerte con un número medio de pasos.',
++  'imageStudio.scheduler.lcm': 'La planificación que acompaña a los checkpoints LCM destilados.',
++  'imageStudio.scheduler.bongTangent': 'Una planificación con forma de tangente venida de la comunidad; se lleva bien con los samplers res_*.',
++  'imageStudio.scheduler.ltx2': 'La planificación que espera el modelo LTX-2.',
++  'visualRef.action.useSeed': 'Usar esta semilla',
+ } as const;
+ 
+ export default es;
+-- 
+2.43.0
+

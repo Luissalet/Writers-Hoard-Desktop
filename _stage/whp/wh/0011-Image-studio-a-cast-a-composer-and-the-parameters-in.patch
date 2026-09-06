@@ -1,0 +1,3614 @@
+From 9114483513772d577f88867238aa64e384a3a8cc Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 01:07:18 +0000
+Subject: [PATCH 11/36] Image studio: a cast, a composer and the parameters, in
+ three columns
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The chat metaphor is wrong for this work. It hides the parameters behind
+the prose, it makes history unbrowsable, and it has nowhere to put a
+reference that accumulates over months. So: the cast on the left, the
+composer and a grid of batches in the middle, the knobs on the right.
+
+Every generation goes through the resolver and the resolved prompt is on
+screen under a disclosure, with a numbered line for each decision — the
+LoRA that was applied, the one that was refused because it belongs to
+another family, the negative prompt a distilled model cannot steer with.
+A control that cannot run stays visible and disabled carrying its reason;
+hiding it would teach the writer the feature does not exist.
+
+Which fields the parameters column offers is decided by the model and by
+what the request can actually carry. That second half is a type: when the
+runtime grows a sampler field, the table in operations.ts stops compiling
+and says which line to change, instead of a comment quietly going stale.
+
+Also here: compare two to four pictures with the recipe diff underneath,
+iterate on a recipe without ever substituting a missing model, the chapters
+each character appears in, and the training-set export with its captions
+drafted from the codex entry.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RmpuZqpQrFjas3Ajv22pKb
+---
+ .../image-studio/ImageStudioEngine.tsx        | 1012 +++++++++--------
+ .../image-studio/components/CastColumn.tsx    |  133 +++
+ .../image-studio/components/CompareDialog.tsx |   74 ++
+ .../components/DatasetExportDialog.tsx        |  127 +++
+ .../components/ParametersColumn.tsx           |  195 ++++
+ .../components/ReferenceEditor.tsx            |  401 +++++++
+ .../components/ResolvedPrompt.tsx             |   93 ++
+ .../image-studio/components/ResultsGrid.tsx   |  127 +++
+ src/engines/image-studio/datasetExport.ts     |   32 +
+ src/engines/image-studio/operations.ts        |   88 +-
+ src/engines/image-studio/studioModel.ts       |  107 ++
+ src/locales/en.ts                             |  138 +++
+ src/locales/es.ts                             |  138 +++
+ src/services/visualRef/resolve.ts             |    8 +
+ tests/critical.browser.ts                     |    8 +-
+ tests/visual-ref.ts                           |  566 +++++++++
+ 16 files changed, 2764 insertions(+), 483 deletions(-)
+ create mode 100644 src/engines/image-studio/components/CastColumn.tsx
+ create mode 100644 src/engines/image-studio/components/CompareDialog.tsx
+ create mode 100644 src/engines/image-studio/components/DatasetExportDialog.tsx
+ create mode 100644 src/engines/image-studio/components/ParametersColumn.tsx
+ create mode 100644 src/engines/image-studio/components/ReferenceEditor.tsx
+ create mode 100644 src/engines/image-studio/components/ResolvedPrompt.tsx
+ create mode 100644 src/engines/image-studio/components/ResultsGrid.tsx
+ create mode 100644 src/engines/image-studio/datasetExport.ts
+ create mode 100644 src/engines/image-studio/studioModel.ts
+ create mode 100644 tests/visual-ref.ts
+
+diff --git a/src/engines/image-studio/ImageStudioEngine.tsx b/src/engines/image-studio/ImageStudioEngine.tsx
+index 7a14fd5..5104b51 100644
+--- a/src/engines/image-studio/ImageStudioEngine.tsx
++++ b/src/engines/image-studio/ImageStudioEngine.tsx
+@@ -1,254 +1,386 @@
+ // ============================================================================
+-// Image studio — the engine tab
++// Image studio — three columns, not a chat log
+ // ============================================================================
+ //
+-// Prompt, model, size, variants → generate through the gateway → every result
+-// lands in Gallery with its provenance and shows up here as a strip of recent
+-// generations. Options a server cannot honour are not faked: the studio only
+-// sends what was set, and a strict server simply ignores nothing.
++// Cast on the left, composer and results in the middle, parameters on the
++// right. The chat metaphor is actively wrong for this work: it hides the
++// parameters behind the prose, it makes history unbrowsable, and it has nowhere
++// to put a reference that accumulates. What makes a character look the same in
++// chapter 30 as in chapter 1 is not a better sentence; it is a resolver that
++// applies the same LoRA, the same portrait, the same seed and the same words
++// every time, and shows the writer exactly what it did.
++//
++// The state this opens in for a writer with no image model installed is not an
++// error state. It is the visual bible: the cast, the portraits, the fragments,
++// the chapters each character appears in. Generation is what is missing, and it
++// says so — visibly, in the place the button lives.
+ 
+-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
++import { useCallback, useEffect, useMemo, useState } from 'react';
+ import { useNavigate } from 'react-router-dom';
+-import { Copy, Dices, ImagePlus, Layers, Loader2, RefreshCw, Settings2, Sparkles, Square, Trash2, XCircle } from 'lucide-react';
++import { GitCompare, ImagePlus, Loader2, Settings2, Sparkles, Square, XCircle } from 'lucide-react';
+ import { useTranslation } from '@/i18n/useTranslation';
+ import { ConfirmDialog } from '@/engines/_shared';
+ import type { EngineComponentProps } from '@/engines/_types';
+-import type { InspirationImage } from '@/types';
++import type { CodexEntry, InspirationImage } from '@/types';
++import type { VisualRef } from '@/types/visualRef';
++import { db } from '@/db';
+ import { useAiRuntimeStore } from '@/stores/aiRuntimeStore';
+ import { useImageRuntimeStore } from '@/stores/imageRuntimeStore';
+-import { useImageHandoffStore } from '@/stores/imageHandoffStore';
+-import { BUILTIN_SD_ID } from '@/services/aiRuntime/constants';
+-import ModelRoutePicker from '@/components/ai-settings/ModelRoutePicker';
+-import VramWarning from '@/components/ai-settings/VramWarning';
+-import GalleryLightbox from '@/components/gallery/GalleryLightbox';
+-import { toast } from '@/components/common/toast';
+-import { detectVramContention } from '@/services/aiRuntime/sdServer';
+-import { imageCatalogEntry } from '@/services/aiRuntime/imageCatalog';
+ import type { AiRouteSelection } from '@/services/aiRuntime/types';
+ import type { ImageHandle } from '@/services/aiRuntime/client';
+ import { getProjectSettings, saveProjectSettings } from '@/services/copilot/threads';
++import { toast } from '@/components/common/toast';
++import {
++  mentionToken,
++  parseMentions,
++  readRecipe,
++  resolve,
++  variationSeeds,
++  type ResolveOptions,
++  type ResolverModel,
++} from '@/services/visualRef';
+ import {
+   IMAGE_SIZE_PRESETS,
++  REQUEST_SUPPORTS,
+   deleteGeneratedImage,
+   listGeneratedImages,
+-  makeThumbnail,
+   saveGenerated,
+   startGeneration,
+ } from './operations';
++import {
++  addToReferenceSet,
++  createVisualRef,
++  deleteVisualRef,
++  listVisualRefs,
++  loadRefImages,
++  pinHeroSeed,
++  setCanonicalImage,
++  updateVisualRef,
++} from './refs';
++import { AVAILABLE, blocked, parameterVisibility, studioResolverModel, type Availability } from './studioModel';
++import CastColumn from './components/CastColumn';
++import ParametersColumn, { type ParametersState } from './components/ParametersColumn';
++import ReferenceEditor from './components/ReferenceEditor';
++import ResolvedPrompt from './components/ResolvedPrompt';
++import ResultsGrid, { type ResultBatch } from './components/ResultsGrid';
++import CompareDialog from './components/CompareDialog';
++import DatasetExportDialog from './components/DatasetExportDialog';
++
++const INITIAL_PARAMETERS: ParametersState = {
++  sizePreset: 'square',
++  steps: '',
++  cfg: '',
++  sampler: '',
++  scheduler: '',
++  seedMode: 'explore',
++  manualSeed: '',
++  batch: 1,
++};
++
++/** Variations are a batch of six: enough to see a trend, few enough to look at. */
++const VARIATION_COUNT = 6;
+ 
+-const QUALITIES = ['auto', 'low', 'medium', 'high'] as const;
++/**
++ * The model the disclosure resolves against when nothing is installed. The
++ * writer still gets to see what their reference WOULD send: the disclosure is
++ * the teaching surface, and withholding it until a backend exists teaches
++ * nothing at all.
++ */
++const ABSENT_MODEL: ResolverModel = {
++  connectionId: '',
++  modelId: '',
++  dialect: 'prose',
++  supportsLora: false,
++  supportsReferenceImages: false,
++  supportsPhotoMaker: false,
++  supportsControlNet: false,
++  supportsInitImage: false,
++};
++
++/**
++ * A seed for an unrepeatable run. At module scope on purpose: the dice belong
++ * outside the component (React's purity rule) and outside the resolver (which
++ * has to be reproducible), so this is the one place in the studio that rolls.
++ */
++function rollSeed(): number {
++  return Math.floor(Math.random() * 2_147_483_647);
++}
+ 
+ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+   const { t } = useTranslation();
+   const navigate = useNavigate();
+   const runtime = useAiRuntimeStore();
++  const sdStatus = useImageRuntimeStore((state) => state.status);
++
++  const [refs, setRefs] = useState<VisualRef[]>([]);
++  const [entries, setEntries] = useState<CodexEntry[]>([]);
++  const [selectedRefId, setSelectedRefId] = useState<string | null>(null);
++  const [pane, setPane] = useState<'composer' | 'reference'>('composer');
++  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
++
++  const [subjects, setSubjects] = useState('');
++  const [scene, setScene] = useState('');
++  const [style, setStyle] = useState('');
++  const [parameters, setParameters] = useState<ParametersState>(INITIAL_PARAMETERS);
++
+   const [route, setRoute] = useState<AiRouteSelection | undefined>(undefined);
+-  const [prompt, setPrompt] = useState('');
+-  const [negative, setNegative] = useState('');
+-  const [showAdvanced, setShowAdvanced] = useState(false);
+-  // 'native' follows the model's training resolution when it reports one.
+-  const [preset, setPreset] = useState('native');
+-  const [quality, setQuality] = useState<(typeof QUALITIES)[number]>('auto');
+-  const [count, setCount] = useState(1);
+-  const [seed, setSeed] = useState<string>('');
+-  const [steps, setSteps] = useState<string>('');
+   const [handle, setHandle] = useState<ImageHandle | null>(null);
+   const [error, setError] = useState<string | null>(null);
+   const [images, setImages] = useState<InspirationImage[]>([]);
+-  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+-  const [lightbox, setLightbox] = useState<number | null>(null);
+-  // A prompt handed over from another engine, queued to generate once a route is
+-  // resolved (defaults load async, so the route may not be ready on first paint).
+-  const [autoGenPrompt, setAutoGenPrompt] = useState<string | null>(null);
+-  // img2img: a reference image (data URL) and its denoise strength.
+-  const [initImage, setInitImage] = useState<string | null>(null);
+-  const [strength, setStrength] = useState(0.6);
+-  // LoRA: one of the files present in the runtime's folder, with its weight.
+-  const [loraName, setLoraName] = useState('');
+-  const [loraWeight, setLoraWeight] = useState(0.8);
+-  const fileInputRef = useRef<HTMLInputElement>(null);
+-
+-  const reload = useCallback(() => {
++  const [compareIds, setCompareIds] = useState<string[]>([]);
++  const [comparing, setComparing] = useState(false);
++  const [exporting, setExporting] = useState(false);
++  const [exportImages, setExportImages] = useState<InspirationImage[]>([]);
++  const [pendingDiscard, setPendingDiscard] = useState<InspirationImage | null>(null);
++  const [pendingRefDelete, setPendingRefDelete] = useState<VisualRef | null>(null);
++
++  const reloadRefs = useCallback(async () => {
++    const rows = await listVisualRefs(projectId);
++    setRefs(rows);
++    const portraitIds = rows.map((row) => row.canonicalImageId).filter((id): id is string => Boolean(id));
++    if (portraitIds.length === 0) {
++      setThumbnails({});
++      return;
++    }
++    const portraits = await db.inspirationImages.bulkGet(portraitIds);
++    setThumbnails(Object.fromEntries(
++      portraits
++        .filter((row): row is InspirationImage => Boolean(row))
++        .map((row) => [row.id, row.thumbnailData ?? row.imageData]),
++    ));
++  }, [projectId]);
++
++  const reloadImages = useCallback(() => {
+     void listGeneratedImages(projectId).then(setImages);
+   }, [projectId]);
+ 
+   useEffect(() => {
+-    reload();
+-    void runtime.loadConnections();
+-    void runtime.loadDefaults();
+-    void getProjectSettings(projectId).then((settings) => {
++    let live = true;
++    void (async () => {
++      // Everything is set after an await on purpose: a synchronous setState
++      // inside an effect cascades a second render before the first has painted.
++      const [codex, settings] = await Promise.all([
++        db.codexEntries.where('projectId').equals(projectId).toArray(),
++        getProjectSettings(projectId),
++        reloadRefs(),
++      ]);
++      if (!live) return;
++      setEntries(codex);
+       if (settings.imageRoute) setRoute(settings.imageRoute);
+-    });
++      reloadImages();
++      void runtime.loadConnections();
++      void runtime.loadDefaults();
++    })();
++    return () => { live = false; };
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [projectId]);
+ 
++  // --- the model, and what it can honour ------------------------------------
+   const effectiveRoute = route ?? runtime.defaults.image;
+-  const connection = runtime.connections.find((c) => c.id === effectiveRoute?.connectionId);
+-  const routeModel = effectiveRoute ? runtime.modelsByConnection[effectiveRoute.connectionId]?.models.find((m) => m.id === effectiveRoute.modelId) : undefined;
+-  const nativeSize = routeModel?.nativeWidth && routeModel.nativeHeight ? { width: routeModel.nativeWidth, height: routeModel.nativeHeight } : null;
+-  // img2img is offered for local Stable Diffusion models; FLUX does not do
+-  // classic denoise-strength img2img, so the reference slot stays hidden for it.
+-  const supportsImg2img = routeModel?.family === 'sd1' || routeModel?.family === 'sdxl';
+-  const presetValue = preset === 'native' && !nativeSize ? 'square' : preset;
+-  const size = presetValue === 'native' && nativeSize ? nativeSize : IMAGE_SIZE_PRESETS.find((p) => p.id === presetValue) ?? IMAGE_SIZE_PRESETS[0];
+-  const busy = handle !== null;
+-  // The managed image server loads the weights on the first request: say so
+-  // instead of showing a bare spinner for half a minute.
+-  const sdStatus = useImageRuntimeStore((s) => s.status);
+-  const refreshSdRuntime = useImageRuntimeStore((s) => s.refresh);
+-  const localServerState = sdStatus?.state;
+-  const isLocalRoute = effectiveRoute?.connectionId === BUILTIN_SD_ID;
+-  const loadingLocalModel = busy && isLocalRoute && localServerState === 'starting';
+-  // LoRAs and the VRAM warning only mean anything for the managed local server:
+-  // a remote image API neither loads LoRA files from this disk nor competes for
+-  // this graphics card.
+-  const loras = useMemo(
+-    () => (isLocalRoute && sdStatus?.lorasSupported !== false ? sdStatus?.loras ?? [] : []),
+-    [isLocalRoute, sdStatus?.loras, sdStatus?.lorasSupported],
+-  );
+-  const activeLora = loraName ? loras.find((lora) => lora.name === loraName) : undefined;
+-  const contention = useMemo(
+-    () => (isLocalRoute && effectiveRoute ? detectVramContention(sdStatus?.vram, imageCatalogEntry(effectiveRoute.modelId)) : null),
+-    [isLocalRoute, effectiveRoute, sdStatus?.vram],
++  const descriptor = effectiveRoute
++    ? runtime.modelsByConnection[effectiveRoute.connectionId]?.models.find((model) => model.id === effectiveRoute.modelId)
++    : undefined;
++  const cfgOverride = parameters.cfg.trim() ? Number(parameters.cfg) : undefined;
++  const model = useMemo(
++    () => studioResolverModel({
++      route: effectiveRoute,
++      descriptor,
++      runtimeLorasSupported: sdStatus?.lorasSupported,
++      cfgOverride,
++    }),
++    [effectiveRoute, descriptor, sdStatus?.lorasSupported, cfgOverride],
+   );
++  const visibility = useMemo(() => parameterVisibility(model, REQUEST_SUPPORTS), [model]);
++  const nativeSize = descriptor?.nativeWidth && descriptor.nativeHeight
++    ? { width: descriptor.nativeWidth, height: descriptor.nativeHeight }
++    : undefined;
++  const size = parameters.sizePreset === 'native' && nativeSize
++    ? nativeSize
++    : IMAGE_SIZE_PRESETS.find((preset) => preset.id === parameters.sizePreset) ?? IMAGE_SIZE_PRESETS[0];
+ 
+-  // Ask main who is holding the card whenever the local runtime becomes the
+-  // route: the answer is what the warning is drawn from, and it is measured
+-  // there (nvidia-smi + Ollama's /api/ps), never here. Re-asked on a slow beat
+-  // because the card can change hands with this tab open — a copilot answer in
+-  // the dock leaves its model resident — and a warning nobody refreshes is a
+-  // warning nobody can trust. Main memoises the measurement, so this is one
+-  // reading, not a poll of the driver.
+-  useEffect(() => {
+-    if (!isLocalRoute) return undefined;
+-    void refreshSdRuntime();
+-    const timer = setInterval(() => void refreshSdRuntime(), 20_000);
+-    return () => clearInterval(timer);
+-  }, [isLocalRoute, refreshSdRuntime]);
+-  const hasImageModels = useMemo(
+-    () => runtime.connections.some((c) => c.enabled && (runtime.modelsByConnection[c.id]?.models ?? []).some((m) => m.type === 'image')),
+-    [runtime.connections, runtime.modelsByConnection],
++  // --- the resolution -------------------------------------------------------
++  const mentions = useMemo(() => parseMentions(subjects, refs), [subjects, refs]);
++  const resolveOptions: ResolveOptions = useMemo(() => ({
++    seedMode: parameters.seedMode,
++    manualSeed: parameters.manualSeed.trim() ? Number(parameters.manualSeed) : undefined,
++  }), [parameters.seedMode, parameters.manualSeed]);
++  // Resolved against a nameless placeholder model when nothing is installed, so
++  // the writer can still see what their reference WOULD send. The disclosure is
++  // the teaching surface; withholding it until a model exists teaches nothing.
++  const previewModel = useMemo(() => model ?? ABSENT_MODEL, [model]);
++  const resolved = useMemo(
++    () => resolve(mentions.refs, [mentions.rest, scene].filter(Boolean).join(', '), style, previewModel, resolveOptions),
++    [mentions.refs, mentions.rest, scene, style, previewModel, resolveOptions],
+   );
+ 
+-  const chooseRoute = (next: AiRouteSelection | null) => {
+-    setRoute(next ?? undefined);
+-    void saveProjectSettings(projectId, { imageRoute: next ?? undefined });
+-  };
++  const selectedRef = refs.find((row) => row.id === selectedRefId) ?? null;
++  const heroRef = mentions.refs.find((row) => typeof row.heroSeed === 'number') ?? null;
++  const busy = handle !== null;
+ 
+-  const handleReferenceFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+-    const file = e.target.files?.[0];
+-    e.target.value = ''; // let the same file be picked again after a remove
+-    if (!file) return;
+-    if (!file.type.startsWith('image/')) {
+-      toast.error(t('imageStudio.reference.notImage'));
+-      return;
+-    }
+-    if (file.size > 20 * 1024 * 1024) {
+-      toast.error(t('imageStudio.reference.tooLarge'));
+-      return;
+-    }
+-    const dataUrl = await new Promise<string>((resolve, reject) => {
+-      const reader = new FileReader();
+-      reader.onload = () => resolve(String(reader.result));
+-      reader.onerror = () => reject(new Error('read failed'));
+-      reader.readAsDataURL(file);
+-    }).catch(() => null);
+-    if (!dataUrl) {
+-      toast.error(t('imageStudio.reference.notImage'));
+-      return;
+-    }
+-    // Bound the payload, and require a decodable raster: a successful thumbnail
+-    // proves the image decoded (an SVG or corrupt file yields undefined). The
+-    // server resizes to the target anyway.
+-    const bounded = await makeThumbnail(dataUrl, 1024);
+-    if (!bounded) {
+-      toast.error(t('imageStudio.reference.notImage'));
+-      return;
+-    }
+-    setInitImage(bounded);
+-  };
++  // --- availability, with reasons -------------------------------------------
++  const generateAction: Availability = !model
++    ? blocked('visualRef.reason.noModel')
++    : busy
++      ? blocked('visualRef.reason.busy')
++      : !resolved.prompt.trim()
++        ? blocked('visualRef.reason.noPrompt')
++        : AVAILABLE;
++  const refActions: Availability = selectedRef ? AVAILABLE : blocked('visualRef.reason.noRefSelected');
++  const seedAction = useCallback(
++    (image: InspirationImage): Availability => {
++      if (!selectedRef) return blocked('visualRef.reason.noRefSelected');
++      if (image.generation?.seed === undefined) return blocked('visualRef.reason.noSeedRecorded');
++      return AVAILABLE;
++    },
++    [selectedRef],
++  );
++  const compareAction: Availability = compareIds.length >= 2 && compareIds.length <= 4
++    ? AVAILABLE
++    : blocked('visualRef.reason.compareCount');
+ 
+-  const generate = async (override?: { prompt?: string; negative?: string; seed?: number; width?: number; height?: number }) => {
+-    const text = (override?.prompt ?? prompt).trim();
+-    if (!text || !effectiveRoute || busy) return;
++  // --- generating -----------------------------------------------------------
++  const runGeneration = async (override?: { seeds?: number[]; prompt?: string; negative?: string }) => {
++    if (!model || !effectiveRoute || busy) return;
+     setError(null);
++    // The dice are rolled HERE, not in the resolver: a pure resolver is what
++    // makes a recipe reproducible and a diff meaningful.
++    const seeds = override?.seeds
++      ?? (resolved.seedMode === 'explore' ? [rollSeed()] : [resolved.seed ?? rollSeed()]);
++    const references = await resolveReferenceData();
+     const options = {
+       projectId,
+       route: effectiveRoute,
+-      prompt: text,
+-      negativePrompt: (override?.negative ?? negative).trim() || undefined,
+-      width: override?.width ?? size.width,
+-      height: override?.height ?? size.height,
+-      n: count,
+-      seed: override?.seed ?? (seed.trim() ? Number(seed) : undefined),
+-      steps: steps.trim() ? Number(steps) : undefined,
+-      quality: quality === 'auto' ? undefined : quality,
+-      initImage: supportsImg2img && initImage ? initImage : undefined,
+-      strength: supportsImg2img && initImage ? strength : undefined,
+-      loras: activeLora ? [{ name: activeLora.name, weight: loraWeight }] : undefined,
++      prompt: override?.prompt ?? resolved.prompt,
++      negativePrompt: override?.negative ?? resolved.negativePrompt,
++      width: size.width,
++      height: size.height,
++      n: override?.seeds ? 1 : parameters.batch,
++      steps: parameters.steps.trim() ? Number(parameters.steps) : undefined,
++      guidance: visibility.cfg && parameters.cfg.trim() ? Number(parameters.cfg) : undefined,
++      sampler: parameters.sampler || undefined,
++      scheduler: parameters.scheduler || undefined,
++      loras: resolved.loras.length
++        ? resolved.loras.map((lora) => ({ name: lora.fileName, weight: lora.weight }))
++        : undefined,
++      referenceImages: references.identity,
++      controlNets: references.control,
++      visualRefIds: mentions.refs.map((row) => row.id),
+     };
+-    const started = startGeneration(options);
+-    setHandle(started);
+-    try {
+-      const result = await started.result;
+-      const saved = await saveGenerated(options, result);
+-      if (!saved.ok) {
+-        if (saved.code !== 'cancelled') setError(saved.error ?? t('imageStudio.error.generic'));
+-      } else {
+-        toast.success(t('imageStudio.saved').replace('{count}', String(saved.images.length)));
+-        reload();
++    for (const seed of seeds) {
++      const request = { ...options, seed };
++      const started = startGeneration(request);
++      setHandle(started);
++      try {
++        const saved = await saveGenerated(request, await started.result);
++        if (!saved.ok && saved.code !== 'cancelled') setError(saved.error ?? t('imageStudio.error.generic'));
++      } catch (caught) {
++        setError(t('imageStudio.error.saveFailed').replace('{error}', caught instanceof Error ? caught.message : String(caught)));
++      } finally {
++        setHandle(null);
+       }
+-    } catch (err) {
+-      // A rejected write (quota, most often) used to vanish: the spinner just
+-      // stopped, `error` stayed null, and the author paid for the generation
+-      // again to see the same nothing.
+-      setError(
+-        t('imageStudio.error.saveFailed').replace(
+-          '{error}',
+-          err instanceof Error ? err.message : String(err),
+-        ),
++    }
++    reloadImages();
++  };
++
++  /** Turn the resolved image ids into the bytes the request would carry. */
++  const resolveReferenceData = async (): Promise<{ identity: string[]; control: { image: string; weight: number }[] }> => {
++    if (resolved.referenceImages.length === 0) return { identity: [], control: [] };
++    const rows = await db.inspirationImages.bulkGet(resolved.referenceImages.map((image) => image.imageId));
++    const identity: string[] = [];
++    const control: { image: string; weight: number }[] = [];
++    resolved.referenceImages.forEach((reference, index) => {
++      const row = rows[index];
++      if (!row) return;
++      const data = row.imageDataOriginal ?? row.imageData;
++      if (reference.role === 'pose') control.push({ image: data, weight: reference.weight ?? 0.55 });
++      else identity.push(data);
++    });
++    return { identity, control };
++  };
++
++  // --- actions on a result --------------------------------------------------
++  const iterate = (image: InspirationImage) => {
++    if (!image.generation) return;
++    const recipe = readRecipe(image.generation);
++    // The model this was made with may be gone. Say so — never quietly pick the
++    // nearest installed one, because then every stored recipe reproduces by
++    // luck and the writer stops being able to trust any of them.
++    if (recipe.modelId !== effectiveRoute?.modelId) {
++      const installed = runtime.connections
++        .flatMap((connection) => runtime.modelsByConnection[connection.id]?.models ?? [])
++        .some((candidate) => candidate.id === recipe.modelId);
++      // Named, never substituted. The selected model is offered as the nearest
++      // thing available — as an offer the writer can see and refuse, not as a
++      // swap made behind their back, which would make every stored recipe
++      // reproduce by luck and none of them worth keeping.
++      const current = effectiveRoute?.modelId ?? '—';
++      toast.info(
++        (installed ? t('visualRef.iterate.otherModel') : t('visualRef.iterate.modelGone'))
++          .replace('{model}', recipe.modelId)
++          .replace('{current}', current),
+       );
+-    } finally {
+-      setHandle(null);
+-      // The generation just changed who is on the card (the image server took
+-      // it, and main may have asked a chat model to step off): re-read it so the
+-      // warning reflects the machine and not the last minute.
+-      if (isLocalRoute) void refreshSdRuntime();
+     }
++    setScene('');
++    setStyle('');
++    setSubjects(recipe.prompt);
++    setParameters((current) => ({
++      ...current,
++      steps: recipe.steps === undefined ? '' : String(recipe.steps),
++      cfg: recipe.cfg === undefined ? '' : String(recipe.cfg),
++      sampler: recipe.sampler ?? '',
++      scheduler: recipe.scheduler ?? '',
++      seedMode: recipe.seed === undefined ? 'explore' : 'manual',
++      manualSeed: recipe.seed === undefined ? '' : String(recipe.seed),
++    }));
++    setPane('composer');
+   };
+ 
+-  // Drain a prompt handed over from another engine (e.g. a text selection in
+-  // Escritos): pre-fill it, and queue a generation if it asked for one.
+-  // Subscribing (not a mount-only effect) so a second hand-off that arrives
+-  // while the studio is already open is picked up too, not stranded in the store.
+-  const pendingHandoff = useImageHandoffStore((s) => s.pending);
+-  useEffect(() => {
+-    if (!pendingHandoff) return;
+-    const handoff = useImageHandoffStore.getState().take();
+-    if (!handoff) return;
+-    if (handoff.prompt) setPrompt(handoff.prompt);
+-    if (handoff.initImage) setInitImage(handoff.initImage);
+-    if (handoff.autoGenerate && handoff.prompt) setAutoGenPrompt(handoff.prompt);
+-  }, [pendingHandoff]);
+-
+-  // Fire the queued generation once a route is resolved and nothing is running.
+-  useEffect(() => {
+-    if (autoGenPrompt === null || !effectiveRoute || busy) return;
+-    const queued = autoGenPrompt;
+-    setAutoGenPrompt(null);
+-    void generate({ prompt: queued });
+-    // eslint-disable-next-line react-hooks/exhaustive-deps
+-  }, [autoGenPrompt, effectiveRoute, busy]);
++  const variations = (image: InspirationImage) => {
++    const recipe = image.generation ? readRecipe(image.generation) : null;
++    const base = recipe?.seed ?? rollSeed();
++    void runGeneration({
++      seeds: variationSeeds(base, VARIATION_COUNT),
++      prompt: recipe?.prompt,
++      negative: recipe?.negativePrompt,
++    });
++  };
++
++  const batches: ResultBatch[] = useMemo(() => {
++    const grouped = new Map<number, InspirationImage[]>();
++    for (const image of images) {
++      const at = image.generation?.createdAt ?? image.createdAt;
++      const bucket = grouped.get(at);
++      if (bucket) bucket.push(image);
++      else grouped.set(at, [image]);
++    }
++    return [...grouped.entries()]
++      .sort((left, right) => right[0] - left[0])
++      .map(([at, rows]) => ({ at, images: rows }));
++  }, [images]);
++
++  const compareImages = images.filter((image) => compareIds.includes(image.id));
++
++  const openExport = async () => {
++    if (!selectedRef) return;
++    const rows = await loadRefImages(selectedRef);
++    setExportImages(rows.filter((row) => selectedRef.referenceImageIds.includes(row.id)));
++    setExporting(true);
++  };
++
++  const hasImageModels = runtime.connections.some(
++    (connection) => connection.enabled
++      && (runtime.modelsByConnection[connection.id]?.models ?? []).some((candidate) => candidate.type === 'image'),
++  );
+ 
+   return (
+-    <div className="max-w-5xl mx-auto space-y-6">
++    <div className="space-y-4">
+       <div className="flex items-start justify-between gap-3">
+         <div>
+           <h2 className="text-lg font-serif font-bold text-accent-gold flex items-center gap-2">
+             <Sparkles size={18} />
+             {t('engines.image-studio.name')}
+           </h2>
+-          <p className="text-xs text-text-muted mt-0.5">{t('imageStudio.intro')}</p>
++          <p className="text-xs text-text-muted mt-0.5">{t('visualRef.intro')}</p>
+         </div>
+         <button
+           type="button"
+@@ -261,329 +393,251 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
+       </div>
+ 
+       {!hasImageModels && runtime.connectionsLoaded && (
+-        <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/5 px-4 py-3 text-xs text-text-muted space-y-2">
++        <div className="rounded-lg border border-accent-gold/30 bg-accent-gold/5 px-4 py-3 text-xs text-text-muted space-y-1">
+           <p className="text-text-primary">{t('imageStudio.noModels.title')}</p>
+-          <p>{t('imageStudio.noModels.body')}</p>
+-          <button
+-            type="button"
+-            onClick={() => navigate('/settings/ai')}
+-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-accent-gold/15 text-accent-gold hover:bg-accent-gold/25 transition"
+-          >
+-            <Settings2 size={12} />
+-            {t('imageStudio.noModels.cta')}
+-          </button>
++          {/* Not an error. The cast, the portraits and the fragments below are
++              the point of this tab even when nothing can generate. */}
++          <p>{t('visualRef.noModels.stillUseful')}</p>
+         </div>
+       )}
+ 
+-      <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
+-        <div>
+-          <label className="block text-[11px] text-text-muted mb-1">{t('imageStudio.model')}</label>
+-          <ModelRoutePicker type="image" value={effectiveRoute} onChange={chooseRoute} allowNone={false} />
+-          {connection && (
+-            <p className="text-[10px] text-text-dim mt-1">
+-              {connection.name} · {t(`settings.ai.locality.${connection.locality}`)}
+-            </p>
+-          )}
+-        </div>
+-        <div>
+-          <label className="block text-[11px] text-text-muted mb-1">{t('imageStudio.prompt')}</label>
+-          <textarea
+-            value={prompt}
+-            onChange={(e) => setPrompt(e.target.value)}
+-            rows={3}
+-            placeholder={t('imageStudio.promptPlaceholder')}
+-            className="w-full resize-y rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-gold transition"
++      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,15rem)] gap-4">
++        <aside className="lg:border-r lg:border-border/60 lg:pr-4">
++          <CastColumn
++            refs={refs}
++            thumbnails={thumbnails}
++            selectedId={selectedRefId}
++            onSelect={(id) => { setSelectedRefId(id); setPane('reference'); }}
++            onInsert={(ref) => {
++              setSelectedRefId(ref.id);
++              setSubjects((current) => (current ? `${current} ${mentionToken(ref)}` : mentionToken(ref)));
++              setPane('composer');
++            }}
++            onCreate={(name) => {
++              void createVisualRef(projectId, name).then(async (created) => {
++                await reloadRefs();
++                setSelectedRefId(created.id);
++                setPane('reference');
++              });
++            }}
++            onDelete={setPendingRefDelete}
+           />
+-        </div>
+-        {supportsImg2img && (
+-          <div className="rounded-lg border border-border/60 bg-elevated/40 p-3 space-y-2">
+-            <div className="flex items-center justify-between">
+-              <span className="text-[11px] text-text-muted flex items-center gap-1.5">
+-                <ImagePlus size={12} />
+-                {t('imageStudio.reference.label')}
+-              </span>
+-              {initImage && (
+-                <button
+-                  type="button"
+-                  onClick={() => setInitImage(null)}
+-                  className="flex items-center gap-1 text-[10px] text-text-dim hover:text-danger transition"
+-                >
+-                  <XCircle size={11} />
+-                  {t('imageStudio.reference.remove')}
+-                </button>
+-              )}
+-            </div>
+-            {initImage ? (
+-              <div className="flex items-center gap-3">
+-                <img src={initImage} alt="" className="w-16 h-16 rounded border border-border object-cover flex-shrink-0" />
+-                <label className="flex-1 min-w-0 text-[11px] text-text-muted">
+-                  <span className="flex items-center justify-between">
+-                    <span>{t('imageStudio.reference.strength')}</span>
+-                    <span className="font-mono tabular-nums text-text-dim">{strength.toFixed(2)}</span>
+-                  </span>
+-                  <input
+-                    type="range"
+-                    min={0.1}
+-                    max={0.95}
+-                    step={0.05}
+-                    value={strength}
+-                    onChange={(e) => setStrength(Number(e.target.value))}
+-                    className="w-full accent-accent-gold"
+-                  />
+-                  <span className="block text-[10px] text-text-dim">{t('imageStudio.reference.strengthHint')}</span>
+-                </label>
+-              </div>
+-            ) : (
++        </aside>
++
++        <section className="min-w-0 space-y-3">
++          <div className="flex items-center gap-1.5">
++            {(['composer', 'reference'] as const).map((tab) => (
+               <button
++                key={tab}
+                 type="button"
+-                onClick={() => fileInputRef.current?.click()}
+-                className="w-full rounded-lg border border-dashed border-border px-3 py-3 text-[11px] text-text-dim hover:text-text-primary hover:border-accent-gold/40 transition"
+-              >
+-                {t('imageStudio.reference.drop')}
+-              </button>
+-            )}
+-            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleReferenceFile} />
+-          </div>
+-        )}
+-        {isLocalRoute && loras.length > 0 && (
+-          <div className="rounded-lg border border-border/60 bg-elevated/40 p-3 space-y-2">
+-            <span className="text-[11px] text-text-muted flex items-center gap-1.5">
+-              <Layers size={12} />
+-              {t('imageStudio.lora.label')}
+-            </span>
+-            <div className="flex items-center gap-3 flex-wrap">
+-              <select
+-                value={loraName}
+-                onChange={(e) => setLoraName(e.target.value)}
+-                className="px-2 py-1.5 bg-elevated border border-border rounded-lg text-xs text-text-primary outline-none focus:border-accent-gold"
++                onClick={() => setPane(tab)}
++                disabled={tab === 'reference' && !selectedRef}
++                title={tab === 'reference' && !selectedRef ? t('visualRef.reason.noRefSelected') : t(`visualRef.pane.${tab}`)}
++                className={`px-2.5 py-1 rounded-lg text-[11px] border transition disabled:opacity-40 disabled:cursor-not-allowed ${
++                  pane === tab
++                    ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold'
++                    : 'border-border text-text-dim hover:text-text-primary'
++                }`}
+               >
+-                <option value="">{t('imageStudio.lora.none')}</option>
+-                {loras.map((lora) => (
+-                  <option key={lora.name} value={lora.name}>
+-                    {lora.name}
+-                  </option>
+-                ))}
+-              </select>
+-              {activeLora && (
+-                <label className="flex-1 min-w-[10rem] text-[11px] text-text-muted">
+-                  <span className="flex items-center justify-between">
+-                    <span>{t('imageStudio.lora.weight')}</span>
+-                    <span className="font-mono tabular-nums text-text-dim">{loraWeight.toFixed(2)}</span>
+-                  </span>
+-                  <input
+-                    type="range"
+-                    min={0}
+-                    max={1.5}
+-                    step={0.05}
+-                    value={loraWeight}
+-                    onChange={(e) => setLoraWeight(Number(e.target.value))}
+-                    className="w-full accent-accent-gold"
+-                  />
+-                </label>
+-              )}
+-            </div>
+-            <p className="text-[10px] text-text-dim">{t('imageStudio.lora.hint')}</p>
+-          </div>
+-        )}
+-        <div className="flex flex-wrap items-center gap-3">
+-          <label className="flex items-center gap-2 text-[11px] text-text-muted">
+-            {t('imageStudio.size')}
+-            <select value={presetValue} onChange={(e) => setPreset(e.target.value)} className="px-2 py-1.5 bg-elevated border border-border rounded-lg text-xs text-text-primary outline-none focus:border-accent-gold">
+-              {nativeSize && (
+-                <option value="native">
+-                  {t('imageStudio.size.native')} · {nativeSize.width}×{nativeSize.height}
+-                </option>
+-              )}
+-              {IMAGE_SIZE_PRESETS.map((p) => (
+-                <option key={p.id} value={p.id}>
+-                  {t(`imageStudio.size.${p.labelKey}`)} · {p.width}×{p.height}
+-                </option>
+-              ))}
+-            </select>
+-          </label>
+-          <label className="flex items-center gap-2 text-[11px] text-text-muted">
+-            {t('imageStudio.quality')}
+-            <select value={quality} onChange={(e) => setQuality(e.target.value as (typeof QUALITIES)[number])} className="px-2 py-1.5 bg-elevated border border-border rounded-lg text-xs text-text-primary outline-none focus:border-accent-gold">
+-              {QUALITIES.map((q) => (
+-                <option key={q} value={q}>
+-                  {t(`imageStudio.quality.${q}`)}
+-                </option>
+-              ))}
+-            </select>
+-          </label>
+-          <label className="flex items-center gap-2 text-[11px] text-text-muted">
+-            {t('imageStudio.variants')}
+-            <select value={count} onChange={(e) => setCount(Number(e.target.value))} className="px-2 py-1.5 bg-elevated border border-border rounded-lg text-xs text-text-primary outline-none focus:border-accent-gold">
+-              {[1, 2, 3, 4].map((n) => (
+-                <option key={n} value={n}>
+-                  {n}
+-                </option>
+-              ))}
+-            </select>
+-          </label>
+-          <button type="button" onClick={() => setShowAdvanced((v) => !v)} className="text-[11px] text-text-dim hover:text-text-primary transition ml-auto">
+-            {showAdvanced ? t('imageStudio.advanced.hide') : t('imageStudio.advanced.show')}
+-          </button>
+-        </div>
+-        {showAdvanced && (
+-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+-            <label className="block sm:col-span-1">
+-              <span className="block text-[11px] text-text-muted mb-1">{t('imageStudio.negative')}</span>
+-              <input value={negative} onChange={(e) => setNegative(e.target.value)} placeholder={t('imageStudio.negativePlaceholder')} className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition" />
+-            </label>
+-            <label className="block">
+-              <span className="block text-[11px] text-text-muted mb-1 flex items-center gap-1">
+-                {t('imageStudio.seed')}
+-                <button type="button" onClick={() => setSeed(String(Math.floor(Math.random() * 2_147_483_647)))} title={t('imageStudio.randomSeed')} className="text-text-dim hover:text-accent-gold">
+-                  <Dices size={11} />
+-                </button>
+-              </span>
+-              <input value={seed} onChange={(e) => setSeed(e.target.value.replace(/[^\d]/g, ''))} placeholder={t('imageStudio.seedPlaceholder')} className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition font-mono" />
+-            </label>
+-            <label className="block">
+-              <span className="block text-[11px] text-text-muted mb-1">{t('imageStudio.steps')}</span>
+-              <input value={steps} onChange={(e) => setSteps(e.target.value.replace(/[^\d]/g, ''))} placeholder={t('imageStudio.stepsPlaceholder')} className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition font-mono" />
+-            </label>
+-            <p className="sm:col-span-3 text-[10px] text-text-dim">{t('imageStudio.advanced.note')}</p>
+-            {isLocalRoute && loras.length === 0 && (
+-              <p className="sm:col-span-3 text-[10px] text-text-dim">{t('imageStudio.lora.empty')}</p>
+-            )}
+-          </div>
+-        )}
+-        {contention && !busy && (
+-          <VramWarning
+-            contention={contention}
+-            onProceed={() => void generate()}
+-            proceedDisabled={!prompt.trim() || !effectiveRoute}
+-          />
+-        )}
+-        <div className="flex items-center gap-2">
+-          {busy ? (
+-            <>
+-              <span className="flex items-center gap-2 text-xs text-text-muted">
+-                <Loader2 size={14} className="animate-spin text-accent-gold" />
+-                {loadingLocalModel ? t('imageStudio.loadingLocalModel') : t('imageStudio.generating')}
+-              </span>
+-              <button type="button" onClick={() => handle?.cancel()} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border text-text-muted hover:text-danger hover:border-danger/40 transition">
+-                <Square size={12} />
+-                {t('common.cancel')}
++                {t(`visualRef.pane.${tab}`)}
+               </button>
+-            </>
+-          ) : (
++            ))}
+             <button
+               type="button"
+-              onClick={() => void generate()}
+-              disabled={!prompt.trim() || !effectiveRoute}
+-              className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-gold text-deep text-sm font-semibold hover:bg-accent-amber transition disabled:opacity-40"
++              onClick={() => setComparing(true)}
++              disabled={!compareAction.enabled}
++              title={compareAction.enabled ? t('visualRef.action.compare') : t(compareAction.reasonKey ?? '')}
++              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] border border-border text-text-dim hover:text-accent-gold transition disabled:opacity-40 disabled:cursor-not-allowed"
+             >
+-              <ImagePlus size={14} />
+-              {t('imageStudio.generate')}
++              <GitCompare size={11} />
++              {t('visualRef.action.compare')} ({compareIds.length})
+             </button>
+-          )}
+-        </div>
+-        {error && (
+-          <div className="flex items-start gap-2 px-3 py-2 bg-danger/10 text-danger text-xs rounded-lg">
+-            <XCircle size={14} className="mt-0.5 flex-shrink-0" />
+-            <span className="break-words">{error}</span>
+           </div>
+-        )}
+-      </div>
+ 
+-      <div>
+-        <div className="flex items-center justify-between mb-2">
+-          <h3 className="text-sm text-text-primary font-medium">{t('imageStudio.recent')}</h3>
+-          <button type="button" onClick={reload} className="p-1 text-text-dim hover:text-accent-gold transition" title={t('common.refresh')}>
+-            <RefreshCw size={12} />
+-          </button>
+-        </div>
+-        {images.length === 0 ? (
+-          <p className="text-xs text-text-dim">{t('imageStudio.recentEmpty')}</p>
+-        ) : (
+-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+-            {images.map((image, index) => (
+-              <div key={image.id} className="group relative rounded-lg overflow-hidden border border-border bg-elevated">
+-                <button type="button" onClick={() => setLightbox(index)} className="block w-full">
+-                  <img src={image.thumbnailData ?? image.imageData} alt="" className="w-full aspect-square object-cover" />
+-                </button>
+-                <div className="p-2 space-y-1">
+-                  <p className="text-[10px] text-text-muted line-clamp-2" title={image.generation?.prompt}>
+-                    {image.generation?.prompt ?? image.notes}
+-                  </p>
+-                  <p className="text-[9px] text-text-dim font-mono truncate">
+-                    {image.generation?.modelId} · {image.generation?.width}×{image.generation?.height}
+-                    {image.generation?.seed !== undefined ? ` · #${image.generation.seed}` : ''}
++          {pane === 'reference' && selectedRef ? (
++            <ReferenceEditor
++              projectId={projectId}
++              visual={selectedRef}
++              entries={entries}
++              onChange={(changes) => { void updateVisualRef(selectedRef.id, changes).then(reloadRefs); }}
++              onReload={() => { void reloadRefs(); }}
++              onExportDataset={() => { void openExport(); }}
++            />
++          ) : (
++            <div className="space-y-3">
++              <div className="rounded-lg border border-border bg-surface p-3 space-y-2.5">
++                <label className="block">
++                  <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.composer.subjects')}</span>
++                  <textarea
++                    value={subjects}
++                    onChange={(event) => setSubjects(event.target.value)}
++                    onDrop={(event) => {
++                      const name = event.dataTransfer.getData('text/plain');
++                      if (!name) return;
++                      event.preventDefault();
++                      setSubjects((current) => (current ? `${current} ${mentionToken({ name })}` : mentionToken({ name })));
++                    }}
++                    rows={2}
++                    placeholder={t('visualRef.composer.subjectsPlaceholder')}
++                    className="w-full resize-y px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
++                  />
++                </label>
++                {mentions.unknown.length > 0 && (
++                  <p className="text-[10px] text-accent-amber">
++                    {t('visualRef.composer.unknownMention').replace('{names}', mentions.unknown.join(', '))}
+                   </p>
+-                  <div className="flex items-center gap-1">
+-                    <button
+-                      type="button"
+-                      onClick={() => {
+-                        setPrompt(image.generation?.prompt ?? image.notes);
+-                        setNegative(image.generation?.negativePrompt ?? '');
+-                        if (image.generation?.seed !== undefined) setSeed(String(image.generation.seed));
+-                      }}
+-                      title={t('imageStudio.reuse')}
+-                      className="p-1 rounded text-text-dim hover:text-accent-gold transition"
+-                    >
+-                      <Copy size={11} />
+-                    </button>
++                )}
++                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
++                  <label className="block">
++                    <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.composer.scene')}</span>
++                    <input
++                      value={scene}
++                      onChange={(event) => setScene(event.target.value)}
++                      placeholder={t('visualRef.composer.scenePlaceholder')}
++                      className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
++                    />
++                  </label>
++                  <label className="block">
++                    <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.composer.style')}</span>
++                    <input
++                      value={style}
++                      onChange={(event) => setStyle(event.target.value)}
++                      placeholder={t('visualRef.composer.stylePlaceholder')}
++                      className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
++                    />
++                  </label>
++                </div>
++                <ResolvedPrompt resolved={resolved} />
++                <div className="flex items-center gap-2">
++                  {busy && (
+                     <button
+                       type="button"
+-                      disabled={busy || !effectiveRoute}
+-                      onClick={() =>
+-                        void generate({
+-                          prompt: image.generation?.prompt ?? image.notes,
+-                          negative: image.generation?.negativePrompt ?? '',
+-                          width: image.generation?.width,
+-                          height: image.generation?.height,
+-                        })
+-                      }
+-                      title={t('imageStudio.regenerate')}
+-                      className="p-1 rounded text-text-dim hover:text-accent-gold transition disabled:opacity-40"
++                      onClick={() => handle?.cancel()}
++                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border text-text-muted hover:text-danger hover:border-danger/40 transition"
+                     >
+-                      <RefreshCw size={11} />
+-                    </button>
+-                    {supportsImg2img && (
+-                      <button
+-                        type="button"
+-                        onClick={() => {
+-                          setInitImage(image.imageDataOriginal ?? image.imageData);
+-                          window.scrollTo({ top: 0, behavior: 'smooth' });
+-                        }}
+-                        title={t('imageStudio.useAsReference')}
+-                        className="p-1 rounded text-text-dim hover:text-accent-gold transition"
+-                      >
+-                        <ImagePlus size={11} />
+-                      </button>
+-                    )}
+-                    <button type="button" onClick={() => setPendingDelete(image.id)} title={t('common.delete')} className="ml-auto p-1 rounded text-text-dim hover:text-danger transition">
+-                      <Trash2 size={11} />
++                      <Square size={12} />
++                      {t('common.cancel')}
+                     </button>
+-                  </div>
++                  )}
++                  <button
++                    type="button"
++                    onClick={() => void runGeneration()}
++                    disabled={!generateAction.enabled}
++                    title={generateAction.enabled ? t('imageStudio.generate') : t(generateAction.reasonKey ?? '')}
++                    aria-label={generateAction.enabled ? t('imageStudio.generate') : t(generateAction.reasonKey ?? '')}
++                    className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-gold text-deep text-sm font-semibold hover:bg-accent-amber transition disabled:opacity-40 disabled:cursor-not-allowed"
++                  >
++                    {busy ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}
++                    {t('imageStudio.generate')}
++                  </button>
+                 </div>
++                {!generateAction.enabled && (
++                  <p className="text-[10px] text-accent-amber">{t(generateAction.reasonKey ?? '')}</p>
++                )}
++                {error && (
++                  <div className="flex items-start gap-2 px-3 py-2 bg-danger/10 text-danger text-xs rounded-lg">
++                    <XCircle size={14} className="mt-0.5 flex-shrink-0" />
++                    <span className="break-words">{error}</span>
++                  </div>
++                )}
+               </div>
+-            ))}
+-          </div>
+-        )}
++
++              <div>
++                <h3 className="text-[11px] text-text-primary font-medium mb-1.5">{t('visualRef.results.title')}</h3>
++                <ResultsGrid
++                  batches={batches}
++                  compareIds={compareIds}
++                  onToggleCompare={(id) => setCompareIds((current) => (
++                    current.includes(id) ? current.filter((other) => other !== id) : [...current, id].slice(-4)
++                  ))}
++                  onIterate={iterate}
++                  onVariations={variations}
++                  onPinSeed={(image) => {
++                    const seed = image.generation?.seed;
++                    if (!selectedRef || seed === undefined) return;
++                    void pinHeroSeed(selectedRef.id, seed).then(reloadRefs);
++                    toast.success(t('visualRef.action.pinnedSeed').replace('{seed}', String(seed)));
++                  }}
++                  onCanonical={(image) => {
++                    if (!selectedRef) return;
++                    void setCanonicalImage(selectedRef.id, image.id).then(reloadRefs);
++                    toast.success(t('visualRef.action.canonicalSet').replace('{name}', selectedRef.name));
++                  }}
++                  onAddToSet={(image) => {
++                    if (!selectedRef) return;
++                    void addToReferenceSet(selectedRef.id, image.id).then(reloadRefs);
++                    toast.success(t('visualRef.action.addedToSet').replace('{name}', selectedRef.name));
++                  }}
++                  onKeep={(image) => {
++                    const tags = image.tags.includes('keep')
++                      ? image.tags.filter((tag) => tag !== 'keep')
++                      : [...image.tags, 'keep'];
++                    void db.inspirationImages.update(image.id, { tags }).then(reloadImages);
++                  }}
++                  onDiscard={setPendingDiscard}
++                  refActions={refActions}
++                  generateAction={generateAction}
++                  seedAction={seedAction}
++                />
++              </div>
++            </div>
++          )}
++        </section>
++
++        <aside className="lg:border-l lg:border-border/60 lg:pl-4">
++          <ParametersColumn
++            route={effectiveRoute}
++            onRoute={(next) => {
++              setRoute(next ?? undefined);
++              void saveProjectSettings(projectId, { imageRoute: next ?? undefined });
++            }}
++            visibility={visibility}
++            value={parameters}
++            onChange={(changes) => setParameters((current) => ({ ...current, ...changes }))}
++            hasHeroSeed={heroRef !== null}
++            nativeSize={nativeSize}
++          />
++        </aside>
+       </div>
+ 
+-      {lightbox !== null && images[lightbox] && (
+-        <GalleryLightbox
+-          image={images[lightbox]}
+-          linkedEntries={[]}
+-          onClose={() => setLightbox(null)}
++      <CompareDialog open={comparing} images={compareImages} onClose={() => setComparing(false)} />
++
++      {selectedRef && (
++        <DatasetExportDialog
++          open={exporting}
++          visual={selectedRef}
++          entry={entries.find((row) => row.id === selectedRef.codexEntryId)}
++          images={exportImages}
++          onClose={() => setExporting(false)}
+         />
+       )}
+ 
+       <ConfirmDialog
+-        open={pendingDelete !== null}
++        open={pendingDiscard !== null}
+         destructive
+         message={t('gallery.deleteImageConfirm')}
+         onConfirm={() => {
+-          const id = pendingDelete;
+-          setPendingDelete(null);
+-          if (id) void deleteGeneratedImage(id).then(reload);
++          const image = pendingDiscard;
++          setPendingDiscard(null);
++          if (image) void deleteGeneratedImage(image.id).then(reloadImages);
++        }}
++        onCancel={() => setPendingDiscard(null)}
++      />
++
++      <ConfirmDialog
++        open={pendingRefDelete !== null}
++        destructive
++        message={t('visualRef.cast.deleteConfirm')}
++        onConfirm={() => {
++          const ref = pendingRefDelete;
++          setPendingRefDelete(null);
++          if (!ref) return;
++          void deleteVisualRef(ref.id).then(() => {
++            if (selectedRefId === ref.id) setSelectedRefId(null);
++            void reloadRefs();
++          });
+         }}
+-        onCancel={() => setPendingDelete(null)}
++        onCancel={() => setPendingRefDelete(null)}
+       />
+     </div>
+   );
+diff --git a/src/engines/image-studio/components/CastColumn.tsx b/src/engines/image-studio/components/CastColumn.tsx
+new file mode 100644
+index 0000000..a8d6bbf
+--- /dev/null
++++ b/src/engines/image-studio/components/CastColumn.tsx
+@@ -0,0 +1,133 @@
++// ============================================================================
++// The cast — the project's visual references, as faces
++// ============================================================================
++//
++// This column is the reason the studio is a mode and not a chat: the writer's
++// characters are objects on the left, permanently, and a generation is made by
++// putting one of them into the composer. A chat log has nowhere to put this.
++//
++// It is also the part that works with no image backend at all. A reference with
++// a portrait the writer uploaded and three lines describing her is a visual
++// bible, and this column is how it is read.
++
++import { useState } from 'react';
++import { Plus, Trash2, UserRound } from 'lucide-react';
++import { useTranslation } from '@/i18n/useTranslation';
++import type { VisualRef } from '@/types/visualRef';
++
++export interface CastColumnProps {
++  refs: readonly VisualRef[];
++  /** Gallery data URL per image id, for the avatars. */
++  thumbnails: Readonly<Record<string, string>>;
++  selectedId: string | null;
++  onSelect: (id: string) => void;
++  onInsert: (ref: VisualRef) => void;
++  onCreate: (name: string) => void;
++  onDelete: (ref: VisualRef) => void;
++}
++
++export default function CastColumn({
++  refs, thumbnails, selectedId, onSelect, onInsert, onCreate, onDelete,
++}: CastColumnProps) {
++  const { t } = useTranslation();
++  const [name, setName] = useState('');
++
++  const submit = () => {
++    const trimmed = name.trim();
++    if (!trimmed) return;
++    setName('');
++    onCreate(trimmed);
++  };
++
++  return (
++    <div className="space-y-3">
++      <h3 className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
++        <UserRound size={13} />
++        {t('visualRef.cast')}
++      </h3>
++
++      {refs.length === 0 ? (
++        <p className="text-[11px] text-text-dim">{t('visualRef.cast.empty')}</p>
++      ) : (
++        <ul className="space-y-1">
++          {refs.map((ref) => {
++            const portrait = ref.canonicalImageId ? thumbnails[ref.canonicalImageId] : undefined;
++            return (
++              <li key={ref.id}>
++                <div
++                  className={`group flex items-center gap-2 rounded-lg border px-2 py-1.5 transition ${
++                    selectedId === ref.id
++                      ? 'border-accent-gold/50 bg-accent-gold/10'
++                      : 'border-border bg-elevated/40 hover:border-accent-gold/30'
++                  }`}
++                >
++                  <button
++                    type="button"
++                    // Dragging one in is the fast path; a click has to work too,
++                    // because a drag onto a textarea is not discoverable.
++                    draggable
++                    onDragStart={(event) => event.dataTransfer.setData('text/plain', ref.name)}
++                    onClick={() => onInsert(ref)}
++                    title={t('visualRef.cast.insert')}
++                    className="flex items-center gap-2 flex-1 min-w-0 text-left"
++                  >
++                    {portrait ? (
++                      <img src={portrait} alt="" className="w-7 h-7 rounded object-cover flex-shrink-0 border border-border" />
++                    ) : (
++                      <span className="w-7 h-7 rounded bg-deep/60 flex items-center justify-center flex-shrink-0 text-text-dim">
++                        <UserRound size={13} />
++                      </span>
++                    )}
++                    <span className="min-w-0">
++                      <span className="block text-[11px] text-text-primary truncate">{ref.name}</span>
++                      <span className="block text-[9px] text-text-dim truncate">
++                        {t(`visualRef.kind.${ref.kind}`)}
++                        {ref.lora ? ` · ${t('visualRef.cast.hasLora')}` : ''}
++                        {ref.heroSeed !== undefined ? ` · #${ref.heroSeed}` : ''}
++                      </span>
++                    </span>
++                  </button>
++                  <button
++                    type="button"
++                    onClick={() => onSelect(ref.id)}
++                    title={t('visualRef.cast.edit')}
++                    className="p-1 rounded text-text-dim hover:text-accent-gold transition"
++                  >
++                    <UserRound size={11} />
++                  </button>
++                  <button
++                    type="button"
++                    onClick={() => onDelete(ref)}
++                    title={t('visualRef.cast.delete')}
++                    className="p-1 rounded text-text-dim hover:text-danger transition opacity-0 group-hover:opacity-100"
++                  >
++                    <Trash2 size={11} />
++                  </button>
++                </div>
++              </li>
++            );
++          })}
++        </ul>
++      )}
++
++      <div className="flex items-center gap-1.5">
++        <input
++          value={name}
++          onChange={(event) => setName(event.target.value)}
++          onKeyDown={(event) => { if (event.key === 'Enter') submit(); }}
++          placeholder={t('visualRef.cast.newPlaceholder')}
++          className="flex-1 min-w-0 px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold transition"
++        />
++        <button
++          type="button"
++          onClick={submit}
++          disabled={!name.trim()}
++          title={name.trim() ? t('visualRef.cast.new') : t('visualRef.reason.noName')}
++          className="p-1.5 rounded-lg bg-accent-gold/15 text-accent-gold hover:bg-accent-gold/25 transition disabled:opacity-40"
++        >
++          <Plus size={13} />
++        </button>
++      </div>
++    </div>
++  );
++}
+diff --git a/src/engines/image-studio/components/CompareDialog.tsx b/src/engines/image-studio/components/CompareDialog.tsx
+new file mode 100644
+index 0000000..b2d8318
+--- /dev/null
++++ b/src/engines/image-studio/components/CompareDialog.tsx
+@@ -0,0 +1,74 @@
++// ============================================================================
++// Compare — two to four pictures, and the recipe diff underneath
++// ============================================================================
++//
++// This is the part that teaches. Two pictures side by side say "that one is
++// better"; two pictures side by side with «steps 20→30 · seed changed · LoRA
++// 0.80→1.00» underneath say WHY, and after a dozen of those the writer knows
++// what the knobs do. No chat log can show this, because a chat log has no place
++// to put a diff.
++
++import { useTranslation } from '@/i18n/useTranslation';
++import Modal from '@/components/common/Modal';
++import type { InspirationImage } from '@/types';
++import { diffRecipes, readRecipe } from '@/services/visualRef';
++
++export interface CompareDialogProps {
++  open: boolean;
++  images: readonly InspirationImage[];
++  onClose: () => void;
++}
++
++export default function CompareDialog({ open, images, onClose }: CompareDialogProps) {
++  const { t } = useTranslation();
++  const recipes = images.map((image) => (image.generation ? readRecipe(image.generation) : null));
++
++  return (
++    <Modal open={open} onClose={onClose} title={t('visualRef.compare.title')} wide>
++      <div className="space-y-3">
++        <div className={`grid gap-2 ${images.length > 2 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2'}`}>
++          {images.map((image) => (
++            <img key={image.id} src={image.imageData} alt="" className="w-full rounded-lg border border-border object-contain bg-deep/40" />
++          ))}
++        </div>
++        <div className="space-y-2">
++          {recipes.slice(1).map((recipe, index) => {
++            const previous = recipes[index];
++            const label = `${index + 1} → ${index + 2}`;
++            if (!previous || !recipe) {
++              return (
++                <p key={label} className="text-[11px] text-text-dim">
++                  {t('visualRef.compare.noRecipe').replace('{pair}', label)}
++                </p>
++              );
++            }
++            const differences = diffRecipes(previous, recipe);
++            return (
++              <div key={label} className="rounded-lg border border-border/60 bg-elevated/40 px-3 py-2">
++                <p className="text-[10px] text-text-muted mb-1">{label}</p>
++                {differences.length === 0 ? (
++                  <p className="text-[11px] text-text-dim">{t('visualRef.compare.same')}</p>
++                ) : (
++                  <p className="text-[11px] text-text-primary font-mono break-words">
++                    {differences
++                      .map((difference) => {
++                        const from = difference.before ?? '—';
++                        const to = difference.after ?? '—';
++                        // A whole prompt inside a one-line diff is unreadable;
++                        // the point of the line is which knobs moved.
++                        if (difference.field === 'prompt' || difference.field === 'negativePrompt') {
++                          return `${difference.field} ${t('visualRef.compare.changed')}`;
++                        }
++                        return `${difference.field} ${from}→${to}`;
++                      })
++                      .join(' · ')}
++                  </p>
++                )}
++              </div>
++            );
++          })}
++        </div>
++      </div>
++    </Modal>
++  );
++}
+diff --git a/src/engines/image-studio/components/DatasetExportDialog.tsx b/src/engines/image-studio/components/DatasetExportDialog.tsx
+new file mode 100644
+index 0000000..5e67076
+--- /dev/null
++++ b/src/engines/image-studio/components/DatasetExportDialog.tsx
+@@ -0,0 +1,127 @@
++// ============================================================================
++// The training-set export
++// ============================================================================
++//
++// Writers Hoard does not train. It prepares — and the preparation is where a
++// writing app has an advantage nobody else has, because the captions can be
++// drafted from the prose the writer already wrote about this character.
++//
++// The captioning rule is on screen, not only in the README, because a writer
++// meeting LoRA training for the first time will otherwise caption her eyes and
++// wonder for two hours of GPU time why the trained character has new ones.
++
++import { useMemo, useState } from 'react';
++import { Download, Loader2 } from 'lucide-react';
++import { useTranslation } from '@/i18n/useTranslation';
++import Modal from '@/components/common/Modal';
++import type { CodexEntry, InspirationImage } from '@/types';
++import type { VisualRef } from '@/types/visualRef';
++import { stripHtml } from '@/utils/text';
++import { buildDataset, datasetTrigger, draftCaption } from '@/services/visualRef';
++import { toast } from '@/components/common/toast';
++import { downloadDataset } from '../datasetExport';
++
++export interface DatasetExportDialogProps {
++  open: boolean;
++  visual: VisualRef;
++  entry?: CodexEntry;
++  images: readonly InspirationImage[];
++  onClose: () => void;
++}
++
++export default function DatasetExportDialog({ open, visual, entry, images, onClose }: DatasetExportDialogProps) {
++  const { t } = useTranslation();
++  const [captions, setCaptions] = useState<Record<string, string>>({});
++  const [busy, setBusy] = useState(false);
++  const trigger = datasetTrigger(visual);
++
++  const sources = useMemo(() => {
++    if (!entry) return [visual.promptFragment ?? ''];
++    return [
++      entry.fields.physicalDescription ?? '',
++      stripHtml(entry.content ?? ''),
++      visual.promptFragment ?? '',
++    ];
++  }, [entry, visual.promptFragment]);
++
++  const drafted = useMemo(() => draftCaption(trigger, sources), [trigger, sources]);
++
++  // Drafting is what the dialog is for: the writer arrives to EDIT captions,
++  // not to type them, so the drafts are in the boxes when it opens. Seeded with
++  // the render-adjust pattern rather than an effect (lessons.md #17): a
++  // synchronous setState inside an effect cascades a second render, and the
++  // writer would see empty boxes fill in a frame later.
++  const seedKey = open ? `${images.map((image) => image.id).join(',')}|${drafted.caption}` : null;
++  const [seededFor, setSeededFor] = useState<string | null>(null);
++  if (seedKey !== null && seedKey !== seededFor) {
++    setSeededFor(seedKey);
++    setCaptions(Object.fromEntries(images.map((image) => [image.id, drafted.caption])));
++  }
++
++  const download = async () => {
++    setBusy(true);
++    try {
++      const bundle = buildDataset({
++        ref: visual,
++        items: images.map((image) => ({
++          imageId: image.id,
++          dataUrl: image.imageDataOriginal ?? image.imageData,
++          caption: captions[image.id] ?? drafted.caption,
++        })),
++      });
++      await downloadDataset(bundle);
++      toast.success(t('visualRef.export.done').replace('{count}', String(images.length)));
++      onClose();
++    } catch (error) {
++      toast.error(t('visualRef.export.failed').replace('{error}', error instanceof Error ? error.message : String(error)));
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  return (
++    <Modal open={open} onClose={onClose} title={t('visualRef.export.title')} wide>
++      <div className="space-y-3">
++        <p className="text-[11px] text-text-muted">{t('visualRef.export.hint')}</p>
++        <p className="text-[11px] text-accent-amber">{t('visualRef.export.rule')}</p>
++        <p className="text-[11px] text-text-dim">
++          {t('visualRef.export.trigger')} <span className="font-mono text-accent-gold">{trigger}</span>
++        </p>
++        {drafted.omitted.length > 0 && (
++          <p className="text-[10px] text-text-dim">
++            {t('visualRef.export.omitted').replace('{words}', drafted.omitted.join(', '))}
++          </p>
++        )}
++        {images.length === 0 ? (
++          <p className="text-[11px] text-text-dim">{t('visualRef.export.empty')}</p>
++        ) : (
++          <div className="space-y-2 max-h-72 overflow-y-auto">
++            {images.map((image) => (
++              <div key={image.id} className="flex items-start gap-2">
++                <img src={image.thumbnailData ?? image.imageData} alt="" className="w-14 h-14 rounded border border-border object-cover flex-shrink-0" />
++                <textarea
++                  value={captions[image.id] ?? ''}
++                  onChange={(event) => setCaptions((current) => ({ ...current, [image.id]: event.target.value }))}
++                  rows={2}
++                  className="flex-1 resize-y px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold"
++                />
++              </div>
++            ))}
++          </div>
++        )}
++        <div className="flex justify-end">
++          <button
++            type="button"
++            onClick={() => void download()}
++            disabled={busy || images.length === 0}
++            title={images.length === 0 ? t('visualRef.reason.noReferenceImages') : t('visualRef.export.download')}
++            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-gold text-deep text-xs font-semibold hover:bg-accent-amber transition disabled:opacity-40 disabled:cursor-not-allowed"
++          >
++            {busy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
++            {t('visualRef.export.download')}
++          </button>
++        </div>
++      </div>
++    </Modal>
++  );
++}
+diff --git a/src/engines/image-studio/components/ParametersColumn.tsx b/src/engines/image-studio/components/ParametersColumn.tsx
+new file mode 100644
+index 0000000..a731a52
+--- /dev/null
++++ b/src/engines/image-studio/components/ParametersColumn.tsx
+@@ -0,0 +1,195 @@
++// ============================================================================
++// Parameters — the knobs, and the ones this model cannot turn
++// ============================================================================
++//
++// The studio used to hide the cfg slider for FLUX by name. That instinct is
++// right and the special case is not, so what decides here is
++// `parameterVisibility(model)`: a field is offered when the chosen model can
++// honour it and refused when it cannot.
++//
++// Refused, not removed. The same contract that asks the fields to answer to the
++// model also says a feature that cannot run must stay visible and disabled with
++// a reason — hiding it teaches the writer that this program has no cfg slider,
++// and they never find out that the distilled model they picked is the reason.
++
++import { Dices, Lock, LockOpen } from 'lucide-react';
++import { useTranslation } from '@/i18n/useTranslation';
++import ModelRoutePicker from '@/components/ai-settings/ModelRoutePicker';
++import type { AiRouteSelection } from '@/services/aiRuntime/types';
++import type { SeedMode } from '@/services/visualRef';
++import type { ParameterVisibility } from '../studioModel';
++import { IMAGE_SIZE_PRESETS } from '../operations';
++
++const SAMPLERS = ['euler', 'euler_a', 'heun', 'dpm++2m', 'dpm++2s_a', 'lcm'] as const;
++const SCHEDULERS = ['discrete', 'karras', 'exponential', 'ays'] as const;
++
++export interface ParametersState {
++  sizePreset: string;
++  steps: string;
++  cfg: string;
++  sampler: string;
++  scheduler: string;
++  seedMode: SeedMode;
++  manualSeed: string;
++  batch: number;
++}
++
++export interface ParametersColumnProps {
++  route?: AiRouteSelection;
++  onRoute: (route: AiRouteSelection | null) => void;
++  visibility: ParameterVisibility;
++  value: ParametersState;
++  onChange: (changes: Partial<ParametersState>) => void;
++  /** Whether the reference in the composer actually has a hero seed to lock to. */
++  hasHeroSeed: boolean;
++  nativeSize?: { width: number; height: number };
++}
++
++/** A field the model cannot honour: still there, still labelled, not usable. */
++function fieldClass(enabled: boolean): string {
++  return enabled ? '' : 'opacity-45';
++}
++
++export default function ParametersColumn({
++  route, onRoute, visibility, value, onChange, hasHeroSeed, nativeSize,
++}: ParametersColumnProps) {
++  const { t } = useTranslation();
++  const cfgReason = visibility.cfg ? undefined : t('visualRef.reason.cfgFixed');
++  const samplerReason = visibility.sampler ? undefined : t('visualRef.reason.serverChoosesSampler');
++  const schedulerReason = visibility.scheduler ? undefined : t('visualRef.reason.serverChoosesSampler');
++
++  return (
++    <div className="space-y-3">
++      <h3 className="text-xs font-semibold text-text-primary">{t('visualRef.params.title')}</h3>
++
++      <label className="block">
++        <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.model')}</span>
++        <ModelRoutePicker type="image" value={route} onChange={onRoute} allowNone={false} />
++      </label>
++
++      <label className="block">
++        <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.size')}</span>
++        <select
++          value={value.sizePreset}
++          onChange={(event) => onChange({ sizePreset: event.target.value })}
++          className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold"
++        >
++          {nativeSize && (
++            <option value="native">
++              {t('imageStudio.size.native')} · {nativeSize.width}×{nativeSize.height}
++            </option>
++          )}
++          {IMAGE_SIZE_PRESETS.map((preset) => (
++            <option key={preset.id} value={preset.id}>
++              {t(`imageStudio.size.${preset.labelKey}`)} · {preset.width}×{preset.height}
++            </option>
++          ))}
++        </select>
++      </label>
++
++      <div className="grid grid-cols-2 gap-2">
++        <label className={`block ${fieldClass(visibility.steps)}`}>
++          <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.steps')}</span>
++          <input
++            value={value.steps}
++            disabled={!visibility.steps}
++            title={visibility.steps ? undefined : t('visualRef.reason.noModel')}
++            onChange={(event) => onChange({ steps: event.target.value.replace(/[^\d]/g, '') })}
++            placeholder={t('imageStudio.stepsPlaceholder')}
++            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] font-mono text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
++          />
++        </label>
++        <label className={`block ${fieldClass(visibility.cfg)}`}>
++          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.params.cfg')}</span>
++          <input
++            value={value.cfg}
++            disabled={!visibility.cfg}
++            title={cfgReason}
++            onChange={(event) => onChange({ cfg: event.target.value.replace(/[^\d.]/g, '') })}
++            placeholder={t('visualRef.params.cfgPlaceholder')}
++            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] font-mono text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
++          />
++        </label>
++      </div>
++      {cfgReason && <p className="text-[10px] text-accent-amber">{cfgReason}</p>}
++
++      <div className="grid grid-cols-2 gap-2">
++        <label className={`block ${fieldClass(visibility.sampler)}`}>
++          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.params.sampler')}</span>
++          <select
++            value={value.sampler}
++            disabled={!visibility.sampler}
++            title={samplerReason}
++            onChange={(event) => onChange({ sampler: event.target.value })}
++            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
++          >
++            <option value="">{t('visualRef.params.auto')}</option>
++            {SAMPLERS.map((sampler) => <option key={sampler} value={sampler}>{sampler}</option>)}
++          </select>
++        </label>
++        <label className={`block ${fieldClass(visibility.scheduler)}`}>
++          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.params.scheduler')}</span>
++          <select
++            value={value.scheduler}
++            disabled={!visibility.scheduler}
++            title={schedulerReason}
++            onChange={(event) => onChange({ scheduler: event.target.value })}
++            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold disabled:cursor-not-allowed"
++          >
++            <option value="">{t('visualRef.params.auto')}</option>
++            {SCHEDULERS.map((scheduler) => <option key={scheduler} value={scheduler}>{scheduler}</option>)}
++          </select>
++        </label>
++      </div>
++
++      <div>
++        <span className="block text-[10px] text-text-muted mb-1">{t('imageStudio.seed')}</span>
++        <div className="flex items-center gap-1.5">
++          <button
++            type="button"
++            onClick={() => onChange({ seedMode: value.seedMode === 'lock' ? 'explore' : 'lock' })}
++            disabled={!hasHeroSeed && value.seedMode !== 'lock'}
++            title={hasHeroSeed ? t('visualRef.params.lockSeed') : t('visualRef.reason.noHeroSeed')}
++            className={`p-1.5 rounded-lg border transition disabled:opacity-40 disabled:cursor-not-allowed ${
++              value.seedMode === 'lock'
++                ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold'
++                : 'border-border text-text-dim hover:text-text-primary'
++            }`}
++          >
++            {value.seedMode === 'lock' ? <Lock size={12} /> : <LockOpen size={12} />}
++          </button>
++          <input
++            value={value.manualSeed}
++            onChange={(event) => onChange({ manualSeed: event.target.value.replace(/[^\d]/g, ''), seedMode: 'manual' })}
++            placeholder={t('imageStudio.seedPlaceholder')}
++            className="flex-1 min-w-0 px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] font-mono text-text-primary outline-none focus:border-accent-gold"
++          />
++          <button
++            type="button"
++            onClick={() => onChange({ seedMode: 'explore', manualSeed: '' })}
++            title={t('visualRef.params.exploreSeed')}
++            className={`p-1.5 rounded-lg border transition ${
++              value.seedMode === 'explore'
++                ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold'
++                : 'border-border text-text-dim hover:text-text-primary'
++            }`}
++          >
++            <Dices size={12} />
++          </button>
++        </div>
++        <p className="text-[10px] text-text-dim mt-1">{t(`visualRef.params.seedMode.${value.seedMode}`)}</p>
++      </div>
++
++      <label className="block">
++        <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.params.batch')}</span>
++        <select
++          value={value.batch}
++          onChange={(event) => onChange({ batch: Number(event.target.value) })}
++          className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[11px] text-text-primary outline-none focus:border-accent-gold"
++        >
++          {[1, 2, 3, 4].map((count) => <option key={count} value={count}>{count}</option>)}
++        </select>
++      </label>
++    </div>
++  );
++}
+diff --git a/src/engines/image-studio/components/ReferenceEditor.tsx b/src/engines/image-studio/components/ReferenceEditor.tsx
+new file mode 100644
+index 0000000..d5d8d21
+--- /dev/null
++++ b/src/engines/image-studio/components/ReferenceEditor.tsx
+@@ -0,0 +1,401 @@
++// ============================================================================
++// One reference, edited — the visual bible
++// ============================================================================
++//
++// Everything here works with no image model installed anywhere. The words that
++// describe her, the dialect they are written in, the portrait the writer found
++// on the internet, the turnarounds, the pose bank, the chapters she appears in:
++// that is a character sheet a novelist can use on its own, and it is the state
++// this engine has to be worth opening in. The generation parameters below it —
++// hero seed, LoRA, preset — fill in later, on their own schedule.
++
++import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
++import { BookOpen, Download, ImagePlus, Star, Trash2, Wand2, XCircle } from 'lucide-react';
++import { useTranslation } from '@/i18n/useTranslation';
++import { db } from '@/db';
++import type { CodexEntry, InspirationImage } from '@/types';
++import type { PromptDialect, VisualRef, VisualRefKind } from '@/types/visualRef';
++import { generateId } from '@/utils/idGenerator';
++import { stripHtml } from '@/utils/text';
++import {
++  findPlaceAppearances,
++  useAppearanceWritings,
++  type PlaceAppearance,
++} from '@/engines/real-atlas/appearances';
++import { makeThumbnail } from '../operations';
++import {
++  addControlImage,
++  addToReferenceSet,
++  clearHeroSeed,
++  loadRefImages,
++  removeControlImage,
++  removeFromReferenceSet,
++  setCanonicalImage,
++} from '../refs';
++
++const KINDS: readonly VisualRefKind[] = ['character', 'place', 'object', 'style'];
++const DIALECTS: readonly PromptDialect[] = ['prose', 'tags'];
++
++export interface ReferenceEditorProps {
++  projectId: string;
++  /** Named `visual`, never `ref`: `ref` is a reserved prop and React's
++   *  compiler rules read every access to it as a ref read during render. */
++  visual: VisualRef;
++  entries: readonly CodexEntry[];
++  onChange: (changes: Partial<VisualRef>) => void;
++  onReload: () => void;
++  onExportDataset: () => void;
++}
++
++export default function ReferenceEditor({
++  projectId, visual, entries, onChange, onReload, onExportDataset,
++}: ReferenceEditorProps) {
++  const { t } = useTranslation();
++  const [images, setImages] = useState<InspirationImage[]>([]);
++  const [picking, setPicking] = useState(false);
++  const [galleryRows, setGalleryRows] = useState<InspirationImage[]>([]);
++  const fileInput = useRef<HTMLInputElement>(null);
++
++  const reloadImages = useCallback(() => {
++    void loadRefImages(visual).then(setImages);
++  }, [visual]);
++  useEffect(reloadImages, [reloadImages]);
++
++  const byId = useMemo(() => new Map(images.map((image) => [image.id, image])), [images]);
++  const entry = visual.codexEntryId ? entries.find((row) => row.id === visual.codexEntryId) : undefined;
++
++  // The chapters that name her. The one thing only a writing app can offer:
++  // the picture and the prose it is supposed to match, side by side.
++  const { items: writings } = useAppearanceWritings(projectId);
++  const appearances: PlaceAppearance[] = useMemo(
++    () => findPlaceAppearances([visual.name], writings),
++    [visual.name, writings],
++  );
++
++  const uploadReference = async (event: React.ChangeEvent<HTMLInputElement>) => {
++    const file = event.target.files?.[0];
++    event.target.value = '';
++    if (!file || !file.type.startsWith('image/')) return;
++    const dataUrl = await new Promise<string | null>((resolve) => {
++      const reader = new FileReader();
++      reader.onload = () => resolve(String(reader.result));
++      reader.onerror = () => resolve(null);
++      reader.readAsDataURL(file);
++    });
++    if (!dataUrl) return;
++    const row: InspirationImage = {
++      id: generateId('img'),
++      projectId,
++      imageData: dataUrl,
++      thumbnailData: await makeThumbnail(dataUrl),
++      tags: ['reference', visual.name],
++      notes: visual.name,
++      linkedEntryIds: visual.codexEntryId ? [visual.codexEntryId] : [],
++      createdAt: Date.now(),
++      source: 'uploaded',
++    };
++    await db.inspirationImages.add(row);
++    await addToReferenceSet(visual.id, row.id);
++    onReload();
++  };
++
++  const openPicker = async () => {
++    setGalleryRows(await db.inspirationImages.where('projectId').equals(projectId).limit(120).toArray());
++    setPicking(true);
++  };
++
++  const thumb = (image: InspirationImage) => image.thumbnailData ?? image.imageData;
++
++  return (
++    <div className="space-y-4">
++      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
++        <label className="block">
++          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.name')}</span>
++          <input
++            value={visual.name}
++            onChange={(event) => onChange({ name: event.target.value })}
++            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
++          />
++        </label>
++        <label className="block">
++          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.kind')}</span>
++          <select
++            value={visual.kind}
++            onChange={(event) => onChange({ kind: event.target.value as VisualRefKind })}
++            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
++          >
++            {KINDS.map((kind) => <option key={kind} value={kind}>{t(`visualRef.kind.${kind}`)}</option>)}
++          </select>
++        </label>
++        <label className="block">
++          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.codexEntry')}</span>
++          <select
++            value={visual.codexEntryId ?? ''}
++            onChange={(event) => onChange({ codexEntryId: event.target.value || undefined })}
++            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
++          >
++            <option value="">{t('visualRef.editor.codexNone')}</option>
++            {entries.map((row) => <option key={row.id} value={row.id}>{row.title}</option>)}
++          </select>
++        </label>
++      </div>
++
++      <div>
++        <div className="flex items-center gap-2 mb-1">
++          <span className="text-[10px] text-text-muted">{t('visualRef.editor.dialect')}</span>
++          {DIALECTS.map((dialect) => (
++            <button
++              key={dialect}
++              type="button"
++              onClick={() => onChange({ dialect })}
++              className={`px-2 py-0.5 rounded text-[10px] border transition ${
++                visual.dialect === dialect
++                  ? 'border-accent-gold/50 bg-accent-gold/15 text-accent-gold'
++                  : 'border-border text-text-dim hover:text-text-primary'
++              }`}
++            >
++              {t(`visualRef.dialect.${dialect}`)}
++            </button>
++          ))}
++        </div>
++        <p className="text-[10px] text-text-dim">{t('visualRef.dialect.hint')}</p>
++      </div>
++
++      <label className="block">
++        <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.fragment')}</span>
++        <textarea
++          value={visual.promptFragment ?? ''}
++          onChange={(event) => onChange({ promptFragment: event.target.value })}
++          rows={3}
++          placeholder={t(`visualRef.editor.fragmentPlaceholder.${visual.dialect}`)}
++          className="w-full resize-y px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
++        />
++        {entry && !visual.promptFragment && (
++          <button
++            type="button"
++            onClick={() => onChange({ promptFragment: stripHtml(entry.fields.physicalDescription ?? entry.content).slice(0, 400) })}
++            className="mt-1 inline-flex items-center gap-1 text-[10px] text-accent-gold hover:underline"
++          >
++            <Wand2 size={10} />
++            {t('visualRef.editor.fromCodex')}
++          </button>
++        )}
++      </label>
++
++      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
++        <label className="block">
++          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.negative')}</span>
++          <input
++            value={visual.negativeFragment ?? ''}
++            onChange={(event) => onChange({ negativeFragment: event.target.value })}
++            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] text-text-primary outline-none focus:border-accent-gold"
++          />
++        </label>
++        <label className="block">
++          <span className="block text-[10px] text-text-muted mb-1">{t('visualRef.editor.trigger')}</span>
++          <input
++            value={visual.triggerWord ?? ''}
++            onChange={(event) => onChange({ triggerWord: event.target.value })}
++            placeholder={t('visualRef.editor.triggerPlaceholder')}
++            className="w-full px-2 py-1.5 bg-elevated border border-border rounded-lg text-[12px] font-mono text-text-primary outline-none focus:border-accent-gold"
++          />
++          <span className="block text-[10px] text-text-dim mt-0.5">{t('visualRef.editor.triggerHint')}</span>
++        </label>
++      </div>
++
++      {/* --- the reference set ------------------------------------------- */}
++      <div className="space-y-2">
++        <div className="flex items-center gap-2">
++          <span className="text-[11px] text-text-primary font-medium">{t('visualRef.editor.references')}</span>
++          <span className="text-[10px] text-text-dim">{visual.referenceImageIds.length}</span>
++          <button
++            type="button"
++            onClick={() => fileInput.current?.click()}
++            title={t('visualRef.editor.upload')}
++            className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded border border-border text-[10px] text-text-muted hover:text-accent-gold hover:border-accent-gold/40 transition"
++          >
++            <ImagePlus size={11} />
++            {t('visualRef.editor.upload')}
++          </button>
++          <button
++            type="button"
++            onClick={() => void openPicker()}
++            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border text-[10px] text-text-muted hover:text-accent-gold hover:border-accent-gold/40 transition"
++          >
++            {t('visualRef.editor.fromGallery')}
++          </button>
++          <input ref={fileInput} type="file" accept="image/*" className="hidden" onChange={(event) => void uploadReference(event)} />
++        </div>
++        <p className="text-[10px] text-text-dim">{t('visualRef.editor.referencesHint')}</p>
++        {visual.referenceImageIds.length === 0 ? (
++          <p className="text-[11px] text-text-dim">{t('visualRef.editor.referencesEmpty')}</p>
++        ) : (
++          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
++            {visual.referenceImageIds.map((id) => {
++              const image = byId.get(id);
++              const isCanonical = visual.canonicalImageId === id;
++              return (
++                <div key={id} className={`group relative rounded-lg overflow-hidden border ${isCanonical ? 'border-accent-gold' : 'border-border'}`}>
++                  {image ? (
++                    <img src={thumb(image)} alt="" className="w-full aspect-square object-cover" />
++                  ) : (
++                    <div className="w-full aspect-square bg-deep/50 flex items-center justify-center text-[9px] text-text-dim px-1 text-center">
++                      {t('visualRef.editor.imageGone')}
++                    </div>
++                  )}
++                  <div className="absolute inset-x-0 bottom-0 flex items-center gap-0.5 bg-deep/70 px-1 py-0.5 opacity-0 group-hover:opacity-100 transition">
++                    <button
++                      type="button"
++                      onClick={() => void setCanonicalImage(visual.id, id).then(onReload)}
++                      title={t('visualRef.editor.canonical')}
++                      className={`p-0.5 rounded ${isCanonical ? 'text-accent-gold' : 'text-text-dim hover:text-accent-gold'}`}
++                    >
++                      <Star size={11} fill={isCanonical ? 'currentColor' : 'none'} />
++                    </button>
++                    <button
++                      type="button"
++                      onClick={() => void addControlImage(visual.id, id).then(onReload)}
++                      title={t('visualRef.editor.pinPose')}
++                      className="p-0.5 rounded text-text-dim hover:text-accent-gold"
++                    >
++                      <Wand2 size={11} />
++                    </button>
++                    <button
++                      type="button"
++                      onClick={() => void removeFromReferenceSet(visual.id, id).then(onReload)}
++                      title={t('visualRef.editor.removeReference')}
++                      className="ml-auto p-0.5 rounded text-text-dim hover:text-danger"
++                    >
++                      <XCircle size={11} />
++                    </button>
++                  </div>
++                  {isCanonical && (
++                    <span className="absolute top-0.5 left-0.5 px-1 rounded bg-accent-gold/90 text-deep text-[8px] font-semibold">
++                      {t('visualRef.editor.canonicalBadge')}
++                    </span>
++                  )}
++                </div>
++              );
++            })}
++          </div>
++        )}
++      </div>
++
++      {/* --- the pose bank ------------------------------------------------ */}
++      {(visual.controlImageIds?.length ?? 0) > 0 && (
++        <div className="space-y-1">
++          <span className="text-[11px] text-text-primary font-medium">{t('visualRef.editor.poses')}</span>
++          <p className="text-[10px] text-text-dim">{t('visualRef.editor.posesHint')}</p>
++          <div className="flex flex-wrap gap-2">
++            {(visual.controlImageIds ?? []).map((id) => {
++              const image = byId.get(id);
++              return (
++                <div key={id} className="relative w-14 h-14 rounded overflow-hidden border border-border">
++                  {image && <img src={thumb(image)} alt="" className="w-full h-full object-cover" />}
++                  <button
++                    type="button"
++                    onClick={() => void removeControlImage(visual.id, id).then(onReload)}
++                    title={t('visualRef.editor.removePose')}
++                    className="absolute top-0 right-0 p-0.5 bg-deep/70 text-text-dim hover:text-danger"
++                  >
++                    <XCircle size={10} />
++                  </button>
++                </div>
++              );
++            })}
++          </div>
++        </div>
++      )}
++
++      {/* --- what accumulates last ---------------------------------------- */}
++      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
++        <div className="rounded-lg border border-border/60 bg-elevated/40 p-2.5 space-y-1">
++          <span className="text-[11px] text-text-primary font-medium">{t('visualRef.editor.heroSeed')}</span>
++          {visual.heroSeed === undefined ? (
++            <p className="text-[10px] text-text-dim">{t('visualRef.editor.heroSeedNone')}</p>
++          ) : (
++            <div className="flex items-center gap-2">
++              <span className="font-mono text-[12px] text-accent-gold">#{visual.heroSeed}</span>
++              <button
++                type="button"
++                onClick={() => void clearHeroSeed(visual.id).then(onReload)}
++                title={t('visualRef.editor.clearHeroSeed')}
++                className="p-1 rounded text-text-dim hover:text-danger transition"
++              >
++                <Trash2 size={11} />
++              </button>
++            </div>
++          )}
++        </div>
++        <div className="rounded-lg border border-border/60 bg-elevated/40 p-2.5 space-y-1">
++          <span className="text-[11px] text-text-primary font-medium">{t('visualRef.editor.lora')}</span>
++          {visual.lora ? (
++            <p className="text-[10px] text-text-dim font-mono truncate">
++              {visual.lora.fileName} · {visual.lora.weight.toFixed(2)} · {visual.lora.baseFamily}
++            </p>
++          ) : (
++            <p className="text-[10px] text-text-dim">{t('visualRef.editor.loraNone')}</p>
++          )}
++          <button
++            type="button"
++            onClick={onExportDataset}
++            disabled={visual.referenceImageIds.length === 0}
++            title={visual.referenceImageIds.length === 0 ? t('visualRef.reason.noReferenceImages') : t('visualRef.editor.export')}
++            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border text-[10px] text-text-muted hover:text-accent-gold hover:border-accent-gold/40 transition disabled:opacity-40 disabled:cursor-not-allowed"
++          >
++            <Download size={11} />
++            {t('visualRef.editor.export')}
++          </button>
++        </div>
++      </div>
++
++      {/* --- where does she appear? --------------------------------------- */}
++      <div className="space-y-1">
++        <span className="text-[11px] text-text-primary font-medium flex items-center gap-1.5">
++          <BookOpen size={12} />
++          {t('visualRef.editor.appearsIn')}
++        </span>
++        {appearances.length === 0 ? (
++          <p className="text-[10px] text-text-dim">{t('visualRef.editor.appearsNowhere')}</p>
++        ) : (
++          <ul className="flex flex-wrap gap-1.5">
++            {appearances.map((appearance) => (
++              <li key={appearance.writingId} className="px-2 py-0.5 rounded bg-elevated border border-border text-[10px] text-text-muted">
++                {appearance.chapter !== undefined
++                  ? `${t('visualRef.editor.chapterShort').replace('{n}', String(appearance.chapter))} · ${appearance.title}`
++                  : appearance.title}
++              </li>
++            ))}
++          </ul>
++        )}
++      </div>
++
++      {picking && (
++        <div className="rounded-lg border border-border bg-elevated/60 p-2 space-y-2">
++          <div className="flex items-center justify-between">
++            <span className="text-[11px] text-text-primary">{t('visualRef.editor.fromGallery')}</span>
++            <button type="button" onClick={() => setPicking(false)} className="text-[10px] text-text-dim hover:text-text-primary">
++              {t('common.cancel')}
++            </button>
++          </div>
++          {galleryRows.length === 0 ? (
++            <p className="text-[10px] text-text-dim">{t('visualRef.editor.galleryEmpty')}</p>
++          ) : (
++            <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5 max-h-48 overflow-y-auto">
++              {galleryRows.map((image) => (
++                <button
++                  key={image.id}
++                  type="button"
++                  onClick={() => void addToReferenceSet(visual.id, image.id).then(() => { setPicking(false); onReload(); })}
++                  className="rounded overflow-hidden border border-border hover:border-accent-gold transition"
++                >
++                  <img src={thumb(image)} alt="" className="w-full aspect-square object-cover" />
++                </button>
++              ))}
++            </div>
++          )}
++        </div>
++      )}
++    </div>
++  );
++}
+diff --git a/src/engines/image-studio/components/ResolvedPrompt.tsx b/src/engines/image-studio/components/ResolvedPrompt.tsx
+new file mode 100644
+index 0000000..b9fea32
+--- /dev/null
++++ b/src/engines/image-studio/components/ResolvedPrompt.tsx
+@@ -0,0 +1,93 @@
++// ============================================================================
++// The resolved-prompt disclosure
++// ============================================================================
++//
++// Not optional. A writer who cannot see what was actually sent cannot learn the
++// tool — they turn a knob, the picture changes, and they have no way to connect
++// the two. And a prompt rewritten behind their back destroys the meaning of a
++// seed: the same number stops reproducing the same picture, which is the one
++// promise a seed makes.
++
++import { useState } from 'react';
++import { ChevronDown, ChevronRight, Info } from 'lucide-react';
++import { useTranslation } from '@/i18n/useTranslation';
++import type { ResolutionStep, ResolvedGeneration } from '@/services/visualRef';
++
++/** Steps that report a refusal rather than a decision, drawn in the warning tone. */
++const REFUSALS = new Set<ResolutionStep['code']>([
++  'loraFamilyMismatch',
++  'loraUnsupported',
++  'noCanonical',
++  'canonicalUnused',
++  'negativeIgnored',
++  'poseUnsupported',
++]);
++
++function stepText(step: ResolutionStep, t: (key: string) => string): string {
++  let line = t(`visualRef.step.${step.code}`);
++  if (step.refName) line = line.replace('{name}', step.refName);
++  for (const [key, value] of Object.entries(step.values ?? {})) {
++    line = line.replace(`{${key}}`, value);
++  }
++  return line;
++}
++
++export interface ResolvedPromptProps {
++  resolved: ResolvedGeneration;
++}
++
++export default function ResolvedPrompt({ resolved }: ResolvedPromptProps) {
++  const { t } = useTranslation();
++  const [open, setOpen] = useState(false);
++  const Chevron = open ? ChevronDown : ChevronRight;
++
++  return (
++    <div className="rounded-lg border border-border/60 bg-elevated/40">
++      <button
++        type="button"
++        onClick={() => setOpen((value) => !value)}
++        aria-expanded={open}
++        className="w-full flex items-center gap-1.5 px-3 py-2 text-[11px] text-text-muted hover:text-text-primary transition"
++      >
++        <Chevron size={12} />
++        <Info size={12} />
++        {t('visualRef.composer.resolved')}
++        <span className="ml-auto font-mono text-[10px] text-text-dim truncate max-w-[55%]">
++          {resolved.prompt || t('visualRef.composer.resolvedEmpty')}
++        </span>
++      </button>
++      {open && (
++        <div className="px-3 pb-3 space-y-2">
++          <p className="text-[10px] text-text-dim">{t('visualRef.composer.resolvedHint')}</p>
++          <pre className="whitespace-pre-wrap break-words rounded bg-deep/40 px-2 py-1.5 text-[11px] font-mono text-text-primary">
++            {resolved.prompt || '—'}
++          </pre>
++          {resolved.negativePrompt && (
++            <>
++              <p className="text-[10px] text-text-muted">{t('visualRef.composer.negativeResolved')}</p>
++              <pre className="whitespace-pre-wrap break-words rounded bg-deep/40 px-2 py-1.5 text-[11px] font-mono text-text-primary">
++                {resolved.negativePrompt}
++              </pre>
++            </>
++          )}
++          <ol className="space-y-1">
++            {resolved.steps.map((step, index) => (
++              <li
++                key={`${step.code}-${step.refId ?? index}`}
++                className={`text-[10px] flex gap-1.5 ${REFUSALS.has(step.code) ? 'text-accent-amber' : 'text-text-dim'}`}
++              >
++                <span className="font-mono tabular-nums opacity-60">{index + 1}.</span>
++                <span>{stepText(step, t)}</span>
++              </li>
++            ))}
++          </ol>
++          {resolved.referenceImages.length > 0 && (
++            <p className="text-[10px] text-text-dim">
++              {t('visualRef.composer.attached').replace('{count}', String(resolved.referenceImages.length))}
++            </p>
++          )}
++        </div>
++      )}
++    </div>
++  );
++}
+diff --git a/src/engines/image-studio/components/ResultsGrid.tsx b/src/engines/image-studio/components/ResultsGrid.tsx
+new file mode 100644
+index 0000000..34da9db
+--- /dev/null
++++ b/src/engines/image-studio/components/ResultsGrid.tsx
+@@ -0,0 +1,127 @@
++// ============================================================================
++// Results — batches, newest on top, with the actions that make them useful
++// ============================================================================
++//
++// A grid, not a stream. The chat metaphor is actively wrong for pictures: it
++// hides the parameters, it makes history unbrowsable, and it gives no place to
++// put the one action that matters most — the culling click that turns a good
++// generation into training data.
++//
++// Every action that cannot run right now stays here, disabled, carrying the
++// reason it cannot. A writer who never sees "Make this the canonical portrait"
++// because no reference is selected concludes the studio cannot do it.
++
++import { Copy, Layers, RefreshCw, Star, Trash2, Anchor, GitCompare, Plus } from 'lucide-react';
++import { useTranslation } from '@/i18n/useTranslation';
++import type { InspirationImage } from '@/types';
++import type { Availability } from '../studioModel';
++
++export interface ResultBatch {
++  /** The generation stamp every image of one call shares. */
++  at: number;
++  images: InspirationImage[];
++}
++
++export interface ResultsGridProps {
++  batches: readonly ResultBatch[];
++  compareIds: readonly string[];
++  onToggleCompare: (id: string) => void;
++  onIterate: (image: InspirationImage) => void;
++  onVariations: (image: InspirationImage) => void;
++  onPinSeed: (image: InspirationImage) => void;
++  onCanonical: (image: InspirationImage) => void;
++  onAddToSet: (image: InspirationImage) => void;
++  onKeep: (image: InspirationImage) => void;
++  onDiscard: (image: InspirationImage) => void;
++  /** Availability of every ref-dependent action, with its reason. */
++  refActions: Availability;
++  generateAction: Availability;
++  seedAction: (image: InspirationImage) => Availability;
++}
++
++/** One action button: never hidden, and never disabled without saying why. */
++function Action({
++  icon: Icon, label, availability, onClick, active,
++}: {
++  icon: typeof Star;
++  label: string;
++  availability: Availability;
++  onClick: () => void;
++  active?: boolean;
++}) {
++  const { t } = useTranslation();
++  const reason = availability.enabled ? label : t(availability.reasonKey ?? 'visualRef.reason.unavailable');
++  return (
++    <button
++      type="button"
++      onClick={onClick}
++      disabled={!availability.enabled}
++      title={reason}
++      aria-label={reason}
++      className={`p-1 rounded transition disabled:opacity-40 disabled:cursor-not-allowed ${
++        active ? 'text-accent-gold' : 'text-text-dim hover:text-accent-gold'
++      }`}
++    >
++      <Icon size={11} />
++    </button>
++  );
++}
++
++export default function ResultsGrid({
++  batches, compareIds, onToggleCompare, onIterate, onVariations, onPinSeed,
++  onCanonical, onAddToSet, onKeep, onDiscard, refActions, generateAction, seedAction,
++}: ResultsGridProps) {
++  const { t } = useTranslation();
++
++  if (batches.length === 0) {
++    return <p className="text-[11px] text-text-dim">{t('visualRef.results.empty')}</p>;
++  }
++
++  return (
++    <div className="space-y-4">
++      {batches.map((batch) => (
++        <div key={batch.at} className="space-y-1.5">
++          <p className="text-[10px] text-text-dim font-mono">
++            {new Date(batch.at).toLocaleString()} · {batch.images.length}
++          </p>
++          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
++            {batch.images.map((image) => {
++              const kept = image.tags.includes('keep');
++              const comparing = compareIds.includes(image.id);
++              return (
++                <div
++                  key={image.id}
++                  className={`rounded-lg overflow-hidden border bg-elevated ${
++                    comparing ? 'border-accent-gold' : 'border-border'
++                  }`}
++                >
++                  <button type="button" onClick={() => onToggleCompare(image.id)} className="block w-full" title={t('visualRef.action.compare')}>
++                    <img src={image.thumbnailData ?? image.imageData} alt="" className="w-full aspect-square object-cover" />
++                  </button>
++                  <div className="p-1.5 space-y-1">
++                    <p className="text-[9px] text-text-dim font-mono truncate">
++                      {image.generation?.modelId}
++                      {image.generation?.seed !== undefined ? ` · #${image.generation.seed}` : ''}
++                    </p>
++                    <div className="flex items-center gap-0.5 flex-wrap">
++                      <Action icon={Star} label={t('visualRef.action.keep')} availability={{ enabled: true }} onClick={() => onKeep(image)} active={kept} />
++                      <Action icon={Copy} label={t('visualRef.action.iterate')} availability={{ enabled: true }} onClick={() => onIterate(image)} />
++                      <Action icon={RefreshCw} label={t('visualRef.action.variations')} availability={generateAction} onClick={() => onVariations(image)} />
++                      <Action icon={Anchor} label={t('visualRef.action.pinSeed')} availability={seedAction(image)} onClick={() => onPinSeed(image)} />
++                      <Action icon={Layers} label={t('visualRef.action.canonical')} availability={refActions} onClick={() => onCanonical(image)} />
++                      <Action icon={Plus} label={t('visualRef.action.addToSet')} availability={refActions} onClick={() => onAddToSet(image)} />
++                      <Action icon={GitCompare} label={t('visualRef.action.compare')} availability={{ enabled: true }} onClick={() => onToggleCompare(image.id)} active={comparing} />
++                      <span className="ml-auto">
++                        <Action icon={Trash2} label={t('visualRef.action.discard')} availability={{ enabled: true }} onClick={() => onDiscard(image)} />
++                      </span>
++                    </div>
++                  </div>
++                </div>
++              );
++            })}
++          </div>
++        </div>
++      ))}
++    </div>
++  );
++}
+diff --git a/src/engines/image-studio/datasetExport.ts b/src/engines/image-studio/datasetExport.ts
+new file mode 100644
+index 0000000..4cfdec3
+--- /dev/null
++++ b/src/engines/image-studio/datasetExport.ts
+@@ -0,0 +1,32 @@
++// ============================================================================
++// Writing the training set to disk
++// ============================================================================
++//
++// The bundle itself is decided by a pure function (`services/visualRef/dataset`);
++// this is the half that touches bytes. It goes out as a ZIP the writer unpacks
++// wherever their trainer lives, which is also the only shape available without
++// a new file-system door in the main process — and a ZIP is what gets moved to
++// the machine with the graphics card anyway.
++
++import JSZip from 'jszip';
++import { saveAs } from 'file-saver';
++import { dataUrlToBlob } from '@/engines/_shared';
++import type { DatasetBundle } from '@/services/visualRef';
++
++/** Turn a bundle into archive bytes. Separated from saving so it can be tested. */
++export async function buildDatasetArchive(bundle: DatasetBundle): Promise<Blob> {
++  const zip = new JSZip();
++  for (const file of bundle.images) {
++    const { blob } = dataUrlToBlob(file.dataUrl);
++    zip.file(file.path, blob);
++  }
++  for (const file of [...bundle.captions, ...bundle.configs, bundle.readme]) {
++    zip.file(file.path, file.text);
++  }
++  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
++}
++
++/** Build and hand the archive to the browser's download flow. */
++export async function downloadDataset(bundle: DatasetBundle): Promise<void> {
++  saveAs(await buildDatasetArchive(bundle), `${bundle.folder}.zip`);
++}
+diff --git a/src/engines/image-studio/operations.ts b/src/engines/image-studio/operations.ts
+index 751b767..71fa1ab 100644
+--- a/src/engines/image-studio/operations.ts
++++ b/src/engines/image-studio/operations.ts
+@@ -17,6 +17,15 @@ import type { AiImageRequest, AiImageResult, AiLoraSelection, AiRouteSelection }
+ 
+ export const IMAGE_STUDIO_ENGINE_ID = 'image-studio';
+ 
++/** The same widening, on the row this writes. See `services/visualRef/recipe`. */
++interface WidenedGenerationInfo {
++  cfg?: number;
++  sampler?: string;
++  scheduler?: string;
++  loras?: { name: string; weight: number }[];
++  visualRefIds?: string[];
++}
++
+ /** Common aspect presets, all multiples of 64 as diffusion models prefer. */
+ export const IMAGE_SIZE_PRESETS: ReadonlyArray<{ id: string; width: number; height: number; labelKey: string }> = [
+   { id: 'square', width: 1024, height: 1024, labelKey: 'square' },
+@@ -29,6 +38,51 @@ export const IMAGE_SIZE_PRESETS: ReadonlyArray<{ id: string; width: number; heig
+   { id: 'small', width: 512, height: 512, labelKey: 'small' },
+ ];
+ 
++/**
++ * Fields the AI-runtime branch is adding to `AiImageRequest`. Declared here as
++ * optional so the studio can write them today: an intersection with them is
++ * legal whether or not the real request type has grown them yet.
++ */
++interface WidenedImageRequest {
++  sampler?: string;
++  scheduler?: string;
++  /** Identity/face reference images, as data URLs, in attachment order. */
++  referenceImages?: string[];
++  /** ControlNet conditioning: a pinned pose and how hard to hold it. */
++  controlNets?: { image: string; weight: number }[];
++}
++
++/**
++ * Whether a given field is ALREADY on `AiImageRequest`.
++ *
++ * This is the feature detection, and it maintains itself. Today `sampler` is
++ * not on the request, so `FieldOnRequest<'sampler'>` is `false` and the table
++ * below must say `false`; the parameters column reads it and refuses the field
++ * with a reason instead of offering a knob whose value is dropped on the way to
++ * the server. The day the runtime branch adds `sampler`, this type flips to
++ * `true`, the `false` below stops compiling, and whoever merges is told exactly
++ * which line to change — which is the opposite of a comment that goes stale.
++ */
++type FieldOnRequest<K extends string> = K extends keyof AiImageRequest ? true : false;
++
++export const REQUEST_SUPPORTS: {
++  guidance: FieldOnRequest<'guidance'>;
++  loras: FieldOnRequest<'loras'>;
++  initImage: FieldOnRequest<'initImage'>;
++  sampler: FieldOnRequest<'sampler'>;
++  scheduler: FieldOnRequest<'scheduler'>;
++  referenceImages: FieldOnRequest<'referenceImages'>;
++  controlNets: FieldOnRequest<'controlNets'>;
++} = {
++  guidance: true,
++  loras: true,
++  initImage: true,
++  sampler: false,
++  scheduler: false,
++  referenceImages: false,
++  controlNets: false,
++};
++
+ export interface GenerateAndSaveOptions {
+   projectId: string;
+   route: AiRouteSelection;
+@@ -45,6 +99,15 @@ export interface GenerateAndSaveOptions {
+   strength?: number;
+   /** LoRAs to apply. Only the managed local runtime can load them. */
+   loras?: AiLoraSelection[];
++  /** Guidance scale. Ignored by a distilled model, which runs at a fixed one. */
++  guidance?: number;
++  sampler?: string;
++  scheduler?: string;
++  /** Identity references, as data URLs, in the order the prompt names them. */
++  referenceImages?: string[];
++  controlNets?: { image: string; weight: number }[];
++  /** The visual references this generation was resolved from, for the recipe. */
++  visualRefIds?: string[];
+   collectionId?: string;
+   tags?: string[];
+ }
+@@ -79,7 +142,7 @@ export async function makeThumbnail(dataUrl: string, maxEdge = 320): Promise<str
+ }
+ 
+ export function startGeneration(options: GenerateAndSaveOptions): ImageHandle {
+-  const request: AiImageRequest = {
++  const request: AiImageRequest & Partial<WidenedImageRequest> = {
+     connectionId: options.route.connectionId,
+     modelId: options.route.modelId,
+     prompt: options.prompt,
+@@ -93,7 +156,19 @@ export function startGeneration(options: GenerateAndSaveOptions): ImageHandle {
+     initImage: options.initImage,
+     strength: options.strength,
+     loras: options.loras?.length ? options.loras : undefined,
++    guidance: options.guidance,
+   };
++  // Only set what the request can carry. A field written here that the gateway
++  // does not know is dropped between the studio and the server without a word,
++  // and the parameters column would go on showing a knob that does nothing.
++  if (REQUEST_SUPPORTS.sampler && options.sampler) request.sampler = options.sampler;
++  if (REQUEST_SUPPORTS.scheduler && options.scheduler) request.scheduler = options.scheduler;
++  if (REQUEST_SUPPORTS.referenceImages && options.referenceImages?.length) {
++    request.referenceImages = options.referenceImages;
++  }
++  if (REQUEST_SUPPORTS.controlNets && options.controlNets?.length) {
++    request.controlNets = options.controlNets;
++  }
+   return gatewayGenerate(request);
+ }
+ 
+@@ -108,7 +183,7 @@ export async function saveGenerated(
+   const now = Date.now();
+   for (const image of result.images) {
+     const dataUrl = `data:${image.mimeType};base64,${image.base64}`;
+-    const generation: ImageGenerationInfo = {
++    const generation: ImageGenerationInfo & Partial<WidenedGenerationInfo> = {
+       prompt: options.prompt,
+       negativePrompt: options.negativePrompt || undefined,
+       connectionId: options.route.connectionId,
+@@ -119,6 +194,15 @@ export async function saveGenerated(
+       quality: options.quality,
+       steps: options.steps,
+       createdAt: now,
++      // Written whether or not `ImageGenerationInfo` has grown these yet: an
++      // extra key on a stored row is harmless, and a recipe that cannot say
++      // what cfg it ran at cannot be iterated on honestly. `readRecipe` reads
++      // them back defensively for exactly the same reason.
++      cfg: options.guidance,
++      sampler: options.sampler,
++      scheduler: options.scheduler,
++      loras: options.loras?.length ? options.loras.map((lora) => ({ name: lora.name, weight: lora.weight })) : undefined,
++      visualRefIds: options.visualRefIds?.length ? options.visualRefIds : undefined,
+     };
+     const row: InspirationImage = {
+       id: generateId('img'),
+diff --git a/src/engines/image-studio/studioModel.ts b/src/engines/image-studio/studioModel.ts
+new file mode 100644
+index 0000000..bffedf2
+--- /dev/null
++++ b/src/engines/image-studio/studioModel.ts
+@@ -0,0 +1,107 @@
++// ============================================================================
++// From the runtime's answer to the resolver's question
++// ============================================================================
++//
++// The resolver is pure and knows nothing about connections, servers or
++// downloaded weights. This is the one place that reads the runtime and turns it
++// into the small factual object the resolver takes — and, just as importantly,
++// into the REASONS the composer shows next to every control it has to disable.
++//
++// A feature that cannot run must be visible and disabled with a reason. Hiding
++// it teaches the writer that the feature does not exist, and then they go
++// looking for another program.
++
++import type { AiModelDescriptor, AiRouteSelection } from '@/services/aiRuntime/types';
++import { imageCatalogEntry } from '@/services/aiRuntime/imageCatalog';
++import { BUILTIN_SD_ID } from '@/services/aiRuntime/constants';
++import { describeResolverModel, type ResolverModel } from '@/services/visualRef';
++
++/** Why one control is unavailable. `reasonKey` is a locale key, never a sentence. */
++export interface Availability {
++  enabled: boolean;
++  reasonKey?: string;
++}
++
++export const AVAILABLE: Availability = { enabled: true };
++
++export function blocked(reasonKey: string): Availability {
++  return { enabled: false, reasonKey };
++}
++
++export interface StudioModelInput {
++  route?: AiRouteSelection;
++  descriptor?: AiModelDescriptor;
++  /** The managed local server's LoRA answer, when the route points at it. */
++  runtimeLorasSupported?: boolean;
++  /** Guidance the writer set by hand in the parameters column. */
++  cfgOverride?: number;
++}
++
++/**
++ * The chosen model as the resolver sees it, or `null` when nothing is chosen.
++ * `null` is the state the studio opens in for a writer with no image backend
++ * installed — the state the reference has to be worth building in anyway.
++ */
++export function studioResolverModel(input: StudioModelInput): ResolverModel | null {
++  if (!input.route) return null;
++  const catalog = imageCatalogEntry(input.route.modelId);
++  const descriptor = input.descriptor ?? {
++    connectionId: input.route.connectionId,
++    id: input.route.modelId,
++    type: 'image' as const,
++    capabilities: [],
++    family: catalog?.family,
++  };
++  return describeResolverModel(descriptor, {
++    catalog,
++    runtimeLorasSupported: input.runtimeLorasSupported,
++    isManagedLocalRuntime: input.route.connectionId === BUILTIN_SD_ID,
++    cfgOverride: input.cfgOverride,
++  });
++}
++
++/**
++ * Which parameter fields the chosen model can honour.
++ *
++ * The existing studio already hides the cfg slider for FLUX; this generalises
++ * that instinct instead of special-casing the next family by hand. A field that
++ * is shown and does nothing is worse than no field: the writer turns it, sees
++ * no change, and concludes the whole panel is decorative.
++ */
++export interface ParameterVisibility {
++  cfg: boolean;
++  sampler: boolean;
++  scheduler: boolean;
++  steps: boolean;
++  seed: boolean;
++}
++
++/** Which resolved fields the request can actually carry (see `operations.ts`). */
++export interface RequestSupport {
++  sampler: boolean;
++  scheduler: boolean;
++}
++
++export function parameterVisibility(
++  model: ResolverModel | null,
++  supports: RequestSupport,
++): ParameterVisibility {
++  if (!model) {
++    return { cfg: false, sampler: false, scheduler: false, steps: false, seed: false };
++  }
++  const guided = model.cfg === undefined || model.cfg > 1;
++  return {
++    // A distilled model runs at a fixed guidance; the slider would be a lie.
++    // The negative prompt follows the same rule, but it is not decided here:
++    // it belongs to the reference, and the resolver refuses it out loud in the
++    // disclosure so the writer sees WHICH model dropped it and why.
++    cfg: guided,
++    // Samplers and schedulers are a local-diffusion concept, AND the request
++    // has to be able to carry them. Both halves matter: the second is why the
++    // knobs are refused today rather than turned into a value the gateway drops.
++    sampler: supports.sampler && (model.supportsLora || model.supportsInitImage),
++    scheduler: supports.scheduler && (model.family === 'sdxl' || model.family === 'sd1'),
++    steps: true,
++    seed: true,
++  };
++}
+diff --git a/src/locales/en.ts b/src/locales/en.ts
+index baff647..8e6f4e7 100644
+--- a/src/locales/en.ts
++++ b/src/locales/en.ts
+@@ -4103,6 +4103,144 @@ const en = {
+   'realAtlas.geocode.resultsFor': 'Results for “{query}”',
+   'projectTools.publishing.includeToc': 'Table of contents',
+   'projectTools.publishing.tocTitle': 'Contents',
++  'visualRef.intro': 'A cast on the left, the composer in the middle, the knobs on the right. Every reference remembers what makes her look like herself.',
++  'visualRef.noModels.stillUseful': 'This tab is still worth keeping: the cast, the portraits, the descriptions and the chapters each character appears in are a visual bible with no model installed at all.',
++  'visualRef.pane.composer': 'Composer',
++  'visualRef.pane.reference': 'Reference',
++  'visualRef.cast': 'Cast',
++  'visualRef.cast.empty': 'No references yet. Add a character, a place, an object or a style and it will start accumulating.',
++  'visualRef.cast.new': 'Add reference',
++  'visualRef.cast.newPlaceholder': 'New reference…',
++  'visualRef.cast.insert': 'Put into the prompt',
++  'visualRef.cast.edit': 'Open this reference',
++  'visualRef.cast.delete': 'Delete reference',
++  'visualRef.cast.deleteConfirm': 'Delete this reference? Its pictures stay in the Gallery; only the description, the seed and the choices about her are lost.',
++  'visualRef.cast.hasLora': 'LoRA',
++  'visualRef.kind.character': 'Character',
++  'visualRef.kind.place': 'Place',
++  'visualRef.kind.object': 'Object',
++  'visualRef.kind.style': 'Style',
++  'visualRef.dialect.prose': 'Prose',
++  'visualRef.dialect.tags': 'Tags',
++  'visualRef.dialect.hint': 'Tag-trained bases (SD 1.5, SDXL, Pony) read comma-separated tags; prose-trained ones (FLUX, Qwen) read sentences. Say which this is written in and the resolver adapts it at the join.',
++  'visualRef.editor.name': 'Name',
++  'visualRef.editor.kind': 'Kind',
++  'visualRef.editor.codexEntry': 'Codex entry',
++  'visualRef.editor.codexNone': 'Not linked',
++  'visualRef.editor.dialect': 'Written as',
++  'visualRef.editor.fragment': 'What she looks like',
++  'visualRef.editor.fragmentPlaceholder.prose': 'A tall woman in her forties, a long grey coat, hair tied back.',
++  'visualRef.editor.fragmentPlaceholder.tags': '1woman, 40s, tall, long grey coat, hair tied back',
++  'visualRef.editor.fromCodex': 'Draft it from the codex entry',
++  'visualRef.editor.negative': 'Never this',
++  'visualRef.editor.trigger': 'Trigger word',
++  'visualRef.editor.triggerPlaceholder': 'elena_ohwx',
++  'visualRef.editor.triggerHint': 'The token a trained LoRA answers to. It goes first in every prompt that uses her.',
++  'visualRef.editor.references': 'Reference set',
++  'visualRef.editor.upload': 'Upload',
++  'visualRef.editor.fromGallery': 'From the Gallery',
++  'visualRef.editor.referencesHint': 'The pictures that are her. Twenty or thirty good ones are what a LoRA is trained from; one is what an edit model needs.',
++  'visualRef.editor.referencesEmpty': 'No pictures yet. Upload one you found, or add a generation you liked from the results.',
++  'visualRef.editor.imageGone': 'Picture deleted',
++  'visualRef.editor.canonical': 'This is her',
++  'visualRef.editor.canonicalBadge': 'Her',
++  'visualRef.editor.pinPose': 'Keep as a pose',
++  'visualRef.editor.removeReference': 'Take out of the set',
++  'visualRef.editor.poses': 'Pose bank',
++  'visualRef.editor.posesHint': 'Pictures kept for how the body is arranged in them, to be reused on other scenes.',
++  'visualRef.editor.removePose': 'Remove pose',
++  'visualRef.editor.heroSeed': 'Hero seed',
++  'visualRef.editor.heroSeedNone': 'None pinned yet. Pin the seed of the generation that looks most like her.',
++  'visualRef.editor.clearHeroSeed': 'Unpin the seed',
++  'visualRef.editor.lora': 'Trained LoRA',
++  'visualRef.editor.loraNone': 'None yet. Export the training set and train it in AI Toolkit or musubi-tuner.',
++  'visualRef.editor.export': 'Export training set',
++  'visualRef.editor.appearsIn': 'Appears in',
++  'visualRef.editor.appearsNowhere': 'Does not appear in any chapter yet',
++  'visualRef.editor.chapterShort': 'Ch. {n}',
++  'visualRef.editor.galleryEmpty': 'This project has no images in the Gallery yet.',
++  'visualRef.composer.subjects': 'Who is in it',
++  'visualRef.composer.subjectsPlaceholder': '@Elena — click a face on the left or drag it in',
++  'visualRef.composer.unknownMention': 'No reference is called {names}.',
++  'visualRef.composer.scene': 'Scene',
++  'visualRef.composer.scenePlaceholder': 'on a wet quay at dawn, looking back',
++  'visualRef.composer.style': 'Style',
++  'visualRef.composer.stylePlaceholder': 'oil painting, low light',
++  'visualRef.composer.resolved': 'Resolved prompt',
++  'visualRef.composer.resolvedEmpty': 'nothing yet',
++  'visualRef.composer.resolvedHint': 'Exactly what will be sent, and why each piece of it is there. Nothing is rewritten behind your back — a prompt that changes silently makes a seed meaningless.',
++  'visualRef.composer.negativeResolved': 'Negative prompt',
++  'visualRef.composer.attached': '{count} image(s) attached to the request.',
++  'visualRef.step.lora': 'LoRA {file} at {weight}, and {name}\'s trigger word first',
++  'visualRef.step.loraFamilyMismatch': '{name}\'s LoRA was trained on {loraFamily} and this model is {modelFamily}: not applied',
++  'visualRef.step.loraUnsupported': 'This server cannot load LoRA files, so {name}\'s is not applied',
++  'visualRef.step.referenceImage': '{name}\'s portrait goes in as image {index}',
++  'visualRef.step.photoMaker': '{name}\'s portrait goes in as a face reference',
++  'visualRef.step.noCanonical': '{name} has no portrait marked "this is her" yet, so this model has nothing to hold on to',
++  'visualRef.step.canonicalUnused': '{name}\'s portrait is not used: this model takes no reference images',
++  'visualRef.step.fragment': '{name}\'s description',
++  'visualRef.step.dialectAdapted': '{name}\'s description was written as {from} and adapted to {to}',
++  'visualRef.step.scene': 'The scene',
++  'visualRef.step.style': 'The style',
++  'visualRef.step.negative': 'The negative prompt',
++  'visualRef.step.negativeIgnored': 'The negative prompt is dropped: this model runs at cfg {cfg} and cannot steer with it',
++  'visualRef.step.pose': 'The pinned pose, held at {weight}',
++  'visualRef.step.poseUnsupported': 'This model has no ControlNet, so the pinned pose is not applied',
++  'visualRef.step.seedHero': '{name}\'s hero seed {seed} — identity locked',
++  'visualRef.step.seedManual': 'Seed {seed}',
++  'visualRef.step.seedExplore': 'A different seed each time — exploring',
++  'visualRef.params.title': 'Parameters',
++  'visualRef.params.cfg': 'Guidance (cfg)',
++  'visualRef.params.cfgPlaceholder': 'model default',
++  'visualRef.params.sampler': 'Sampler',
++  'visualRef.params.scheduler': 'Scheduler',
++  'visualRef.params.auto': 'Automatic',
++  'visualRef.params.lockSeed': 'Lock identity: reuse the hero seed',
++  'visualRef.params.exploreSeed': 'Explore: a new seed each time',
++  'visualRef.params.batch': 'Variants per run',
++  'visualRef.params.seedMode.lock': 'Identity locked to the hero seed.',
++  'visualRef.params.seedMode.explore': 'A new seed each run.',
++  'visualRef.params.seedMode.manual': 'This exact seed.',
++  'visualRef.results.title': 'Results',
++  'visualRef.results.empty': 'Nothing generated in this project yet.',
++  'visualRef.action.keep': 'Keep',
++  'visualRef.action.iterate': 'Iterate on this: the whole recipe back into the composer',
++  'visualRef.action.variations': 'Variations: same everything, neighbouring seeds',
++  'visualRef.action.pinSeed': 'Pin this seed to the reference',
++  'visualRef.action.canonical': 'Make this the canonical portrait',
++  'visualRef.action.addToSet': 'Add to the reference set',
++  'visualRef.action.compare': 'Compare',
++  'visualRef.action.discard': 'Discard',
++  'visualRef.action.pinnedSeed': 'Seed {seed} pinned.',
++  'visualRef.action.canonicalSet': 'That is {name} now.',
++  'visualRef.action.addedToSet': 'Added to {name}\'s reference set.',
++  'visualRef.compare.title': 'Compare',
++  'visualRef.compare.same': 'Same recipe.',
++  'visualRef.compare.changed': 'changed',
++  'visualRef.compare.noRecipe': '{pair}: one of these has no recorded recipe.',
++  'visualRef.export.title': 'Export training set',
++  'visualRef.export.hint': 'The images, a caption beside each, and a config for AI Toolkit and for musubi-tuner. Writers Hoard does not train; it prepares the folder and gets out of the way.',
++  'visualRef.export.rule': 'Caption what you do NOT want baked in — the hat, the coat, the hairstyle, the pose. Say nothing about her eyes, her face or her complexion: those are her, and they belong to the trigger word.',
++  'visualRef.export.trigger': 'Trigger word:',
++  'visualRef.export.omitted': 'Left out on purpose: {words}.',
++  'visualRef.export.empty': 'This reference has no pictures in its set yet.',
++  'visualRef.export.download': 'Download the folder',
++  'visualRef.export.done': '{count} image(s) exported. Open ai-toolkit.yaml in AI Toolkit.',
++  'visualRef.export.failed': 'The training set could not be written: {error}',
++  'visualRef.iterate.modelGone': 'The model this was made with ({model}) is not installed. Nothing was substituted: {current} is selected, and it will not reproduce this picture.',
++  'visualRef.iterate.otherModel': 'This was made with {model}; {current} is selected right now, so the seed will not reproduce it.',
++  'visualRef.reason.noModel': 'No image model is connected. Everything else on this page still works.',
++  'visualRef.reason.noPrompt': 'Nothing to send yet: put someone in, or describe a scene.',
++  'visualRef.reason.busy': 'A generation is running.',
++  'visualRef.reason.noRefSelected': 'Pick a reference in the cast first.',
++  'visualRef.reason.noSeedRecorded': 'This picture has no seed recorded, so there is nothing to pin.',
++  'visualRef.reason.noReferenceImages': 'This reference has no pictures in its set yet.',
++  'visualRef.reason.noHeroSeed': 'No hero seed pinned yet on the references in this prompt.',
++  'visualRef.reason.cfgFixed': 'This model runs at a fixed guidance, so guidance and the negative prompt do nothing here.',
++  'visualRef.reason.serverChoosesSampler': 'The image server picks the sampler for this model.',
++  'visualRef.reason.compareCount': 'Pick two to four pictures to compare.',
++  'visualRef.reason.noName': 'Give the reference a name first.',
++  'visualRef.reason.unavailable': 'Not available right now.',
+ } as const;
+ 
+ export default en;
+diff --git a/src/locales/es.ts b/src/locales/es.ts
+index b9292c9..cb0355a 100644
+--- a/src/locales/es.ts
++++ b/src/locales/es.ts
+@@ -4103,6 +4103,144 @@ const es = {
+   'realAtlas.geocode.resultsFor': 'Resultados para «{query}»',
+   'projectTools.publishing.includeToc': 'Índice de capítulos',
+   'projectTools.publishing.tocTitle': 'Índice',
++  'visualRef.intro': 'El reparto a la izquierda, el compositor en medio, los mandos a la derecha. Cada referencia recuerda lo que la hace parecerse a sí misma.',
++  'visualRef.noModels.stillUseful': 'Esta pestaña sigue mereciendo la pena: el reparto, los retratos, las descripciones y los capítulos en los que aparece cada personaje son una biblia visual sin ningún modelo instalado.',
++  'visualRef.pane.composer': 'Compositor',
++  'visualRef.pane.reference': 'Referencia',
++  'visualRef.cast': 'Reparto',
++  'visualRef.cast.empty': 'Todavía no hay referencias. Añade un personaje, un lugar, un objeto o un estilo y empezará a acumular.',
++  'visualRef.cast.new': 'Añadir referencia',
++  'visualRef.cast.newPlaceholder': 'Nueva referencia…',
++  'visualRef.cast.insert': 'Meter en el prompt',
++  'visualRef.cast.edit': 'Abrir esta referencia',
++  'visualRef.cast.delete': 'Borrar referencia',
++  'visualRef.cast.deleteConfirm': '¿Borrar esta referencia? Sus imágenes se quedan en la Galería; solo se pierden la descripción, la semilla y las decisiones sobre ella.',
++  'visualRef.cast.hasLora': 'LoRA',
++  'visualRef.kind.character': 'Personaje',
++  'visualRef.kind.place': 'Lugar',
++  'visualRef.kind.object': 'Objeto',
++  'visualRef.kind.style': 'Estilo',
++  'visualRef.dialect.prose': 'Prosa',
++  'visualRef.dialect.tags': 'Etiquetas',
++  'visualRef.dialect.hint': 'Las bases entrenadas con etiquetas (SD 1.5, SDXL, Pony) leen etiquetas separadas por comas; las de prosa (FLUX, Qwen) leen frases. Di en cuál está escrito y el resolutor lo adapta al unirlo.',
++  'visualRef.editor.name': 'Nombre',
++  'visualRef.editor.kind': 'Tipo',
++  'visualRef.editor.codexEntry': 'Entrada del códice',
++  'visualRef.editor.codexNone': 'Sin enlazar',
++  'visualRef.editor.dialect': 'Escrito como',
++  'visualRef.editor.fragment': 'Cómo es',
++  'visualRef.editor.fragmentPlaceholder.prose': 'Una mujer alta de unos cuarenta, abrigo gris largo, pelo recogido.',
++  'visualRef.editor.fragmentPlaceholder.tags': '1mujer, 40 años, alta, abrigo gris largo, pelo recogido',
++  'visualRef.editor.fromCodex': 'Redactarlo desde la entrada del códice',
++  'visualRef.editor.negative': 'Nunca esto',
++  'visualRef.editor.trigger': 'Palabra clave',
++  'visualRef.editor.triggerPlaceholder': 'elena_ohwx',
++  'visualRef.editor.triggerHint': 'El token al que responde un LoRA entrenado. Va el primero en cada prompt que la use.',
++  'visualRef.editor.references': 'Conjunto de referencia',
++  'visualRef.editor.upload': 'Subir',
++  'visualRef.editor.fromGallery': 'Desde la Galería',
++  'visualRef.editor.referencesHint': 'Las imágenes que son ella. Veinte o treinta buenas son de lo que se entrena un LoRA; una es lo que necesita un modelo de edición.',
++  'visualRef.editor.referencesEmpty': 'Todavía no hay imágenes. Sube una que hayas encontrado, o añade una generación que te haya gustado desde los resultados.',
++  'visualRef.editor.imageGone': 'Imagen borrada',
++  'visualRef.editor.canonical': 'Esta es ella',
++  'visualRef.editor.canonicalBadge': 'Ella',
++  'visualRef.editor.pinPose': 'Guardar como pose',
++  'visualRef.editor.removeReference': 'Sacar del conjunto',
++  'visualRef.editor.poses': 'Banco de poses',
++  'visualRef.editor.posesHint': 'Imágenes guardadas por cómo está colocado el cuerpo, para reutilizarlas en otras escenas.',
++  'visualRef.editor.removePose': 'Quitar pose',
++  'visualRef.editor.heroSeed': 'Semilla buena',
++  'visualRef.editor.heroSeedNone': 'Ninguna fijada todavía. Fija la semilla de la generación que más se le parezca.',
++  'visualRef.editor.clearHeroSeed': 'Soltar la semilla',
++  'visualRef.editor.lora': 'LoRA entrenado',
++  'visualRef.editor.loraNone': 'Todavía ninguno. Exporta el conjunto de entrenamiento y entrénalo en AI Toolkit o musubi-tuner.',
++  'visualRef.editor.export': 'Exportar conjunto de entrenamiento',
++  'visualRef.editor.appearsIn': 'Aparece en',
++  'visualRef.editor.appearsNowhere': 'Todavía no aparece en ningún capítulo',
++  'visualRef.editor.chapterShort': 'Cap. {n}',
++  'visualRef.editor.galleryEmpty': 'Este proyecto todavía no tiene imágenes en la Galería.',
++  'visualRef.composer.subjects': 'Quién sale',
++  'visualRef.composer.subjectsPlaceholder': '@Elena — pulsa una cara de la izquierda o arrástrala aquí',
++  'visualRef.composer.unknownMention': 'Ninguna referencia se llama {names}.',
++  'visualRef.composer.scene': 'Escena',
++  'visualRef.composer.scenePlaceholder': 'en un muelle mojado al amanecer, mirando atrás',
++  'visualRef.composer.style': 'Estilo',
++  'visualRef.composer.stylePlaceholder': 'pintura al óleo, poca luz',
++  'visualRef.composer.resolved': 'Prompt resuelto',
++  'visualRef.composer.resolvedEmpty': 'todavía nada',
++  'visualRef.composer.resolvedHint': 'Exactamente lo que se va a enviar, y por qué está cada pieza. Nada se reescribe a tus espaldas: un prompt que cambia en silencio deja sin sentido a la semilla.',
++  'visualRef.composer.negativeResolved': 'Prompt negativo',
++  'visualRef.composer.attached': '{count} imagen(es) adjuntas a la petición.',
++  'visualRef.step.lora': 'LoRA {file} a {weight}, y la palabra clave de {name} la primera',
++  'visualRef.step.loraFamilyMismatch': 'El LoRA de {name} se entrenó sobre {loraFamily} y este modelo es {modelFamily}: no se aplica',
++  'visualRef.step.loraUnsupported': 'Este servidor no puede cargar archivos LoRA, así que el de {name} no se aplica',
++  'visualRef.step.referenceImage': 'El retrato de {name} entra como imagen {index}',
++  'visualRef.step.photoMaker': 'El retrato de {name} entra como referencia de cara',
++  'visualRef.step.noCanonical': '{name} todavía no tiene un retrato marcado como «esta es ella», así que este modelo no tiene a qué agarrarse',
++  'visualRef.step.canonicalUnused': 'El retrato de {name} no se usa: este modelo no acepta imágenes de referencia',
++  'visualRef.step.fragment': 'La descripción de {name}',
++  'visualRef.step.dialectAdapted': 'La descripción de {name} estaba escrita como {from} y se ha adaptado a {to}',
++  'visualRef.step.scene': 'La escena',
++  'visualRef.step.style': 'El estilo',
++  'visualRef.step.negative': 'El prompt negativo',
++  'visualRef.step.negativeIgnored': 'Se descarta el prompt negativo: este modelo va a cfg {cfg} y no puede guiarse con él',
++  'visualRef.step.pose': 'La pose fijada, sujeta a {weight}',
++  'visualRef.step.poseUnsupported': 'Este modelo no tiene ControlNet, así que la pose fijada no se aplica',
++  'visualRef.step.seedHero': 'Semilla buena de {name} {seed} — identidad fijada',
++  'visualRef.step.seedManual': 'Semilla {seed}',
++  'visualRef.step.seedExplore': 'Una semilla distinta cada vez — explorando',
++  'visualRef.params.title': 'Parámetros',
++  'visualRef.params.cfg': 'Guía (cfg)',
++  'visualRef.params.cfgPlaceholder': 'por defecto',
++  'visualRef.params.sampler': 'Muestreador',
++  'visualRef.params.scheduler': 'Planificador',
++  'visualRef.params.auto': 'Automático',
++  'visualRef.params.lockSeed': 'Fijar identidad: reutilizar la semilla buena',
++  'visualRef.params.exploreSeed': 'Explorar: una semilla nueva cada vez',
++  'visualRef.params.batch': 'Variantes por tirada',
++  'visualRef.params.seedMode.lock': 'Identidad fijada a la semilla buena.',
++  'visualRef.params.seedMode.explore': 'Una semilla nueva en cada tirada.',
++  'visualRef.params.seedMode.manual': 'Exactamente esta semilla.',
++  'visualRef.results.title': 'Resultados',
++  'visualRef.results.empty': 'Todavía no se ha generado nada en este proyecto.',
++  'visualRef.action.keep': 'Guardar',
++  'visualRef.action.iterate': 'Iterar sobre esta: toda la receta de vuelta al compositor',
++  'visualRef.action.variations': 'Variaciones: todo igual, semillas vecinas',
++  'visualRef.action.pinSeed': 'Fijar esta semilla a la referencia',
++  'visualRef.action.canonical': 'Hacer de esta el retrato canónico',
++  'visualRef.action.addToSet': 'Añadir al conjunto de referencia',
++  'visualRef.action.compare': 'Comparar',
++  'visualRef.action.discard': 'Descartar',
++  'visualRef.action.pinnedSeed': 'Semilla {seed} fijada.',
++  'visualRef.action.canonicalSet': 'Esa es {name} a partir de ahora.',
++  'visualRef.action.addedToSet': 'Añadida al conjunto de referencia de {name}.',
++  'visualRef.compare.title': 'Comparar',
++  'visualRef.compare.same': 'La misma receta.',
++  'visualRef.compare.changed': 'cambió',
++  'visualRef.compare.noRecipe': '{pair}: una de estas no tiene receta guardada.',
++  'visualRef.export.title': 'Exportar conjunto de entrenamiento',
++  'visualRef.export.hint': 'Las imágenes, un pie de foto junto a cada una y una configuración para AI Toolkit y para musubi-tuner. Writers Hoard no entrena: prepara la carpeta y se aparta.',
++  'visualRef.export.rule': 'Describe lo que NO quieres que se quede fijado — el sombrero, el abrigo, el peinado, la pose. No digas nada de sus ojos, su cara ni su tez: eso es ella, y pertenece a la palabra clave.',
++  'visualRef.export.trigger': 'Palabra clave:',
++  'visualRef.export.omitted': 'Dejado fuera a propósito: {words}.',
++  'visualRef.export.empty': 'Esta referencia todavía no tiene imágenes en su conjunto.',
++  'visualRef.export.download': 'Descargar la carpeta',
++  'visualRef.export.done': '{count} imagen(es) exportadas. Abre ai-toolkit.yaml en AI Toolkit.',
++  'visualRef.export.failed': 'No se ha podido escribir el conjunto de entrenamiento: {error}',
++  'visualRef.iterate.modelGone': 'El modelo con el que se hizo ({model}) no está instalado. No se ha sustituido nada: está seleccionado {current}, y no va a reproducir esta imagen.',
++  'visualRef.iterate.otherModel': 'Esto se hizo con {model}; ahora mismo está seleccionado {current}, así que la semilla no lo va a reproducir.',
++  'visualRef.reason.noModel': 'No hay ningún modelo de imagen conectado. Todo lo demás de esta página sigue funcionando.',
++  'visualRef.reason.noPrompt': 'Todavía no hay nada que enviar: mete a alguien, o describe una escena.',
++  'visualRef.reason.busy': 'Hay una generación en marcha.',
++  'visualRef.reason.noRefSelected': 'Elige antes una referencia en el reparto.',
++  'visualRef.reason.noSeedRecorded': 'Esta imagen no tiene semilla guardada, así que no hay nada que fijar.',
++  'visualRef.reason.noReferenceImages': 'Esta referencia todavía no tiene imágenes en su conjunto.',
++  'visualRef.reason.noHeroSeed': 'Todavía no hay ninguna semilla buena fijada en las referencias de este prompt.',
++  'visualRef.reason.cfgFixed': 'Este modelo va a una guía fija, así que la guía y el prompt negativo no hacen nada aquí.',
++  'visualRef.reason.serverChoosesSampler': 'El servidor de imagen elige el muestreador para este modelo.',
++  'visualRef.reason.compareCount': 'Elige de dos a cuatro imágenes para comparar.',
++  'visualRef.reason.noName': 'Ponle antes un nombre a la referencia.',
++  'visualRef.reason.unavailable': 'No disponible ahora mismo.',
+ } as const;
+ 
+ export default es;
+diff --git a/src/services/visualRef/resolve.ts b/src/services/visualRef/resolve.ts
+index 241319d..7ff24bb 100644
+--- a/src/services/visualRef/resolve.ts
++++ b/src/services/visualRef/resolve.ts
+@@ -44,6 +44,7 @@ export interface ResolutionStep {
+     | 'referenceImage'
+     | 'photoMaker'
+     | 'noCanonical'
++    | 'canonicalUnused'
+     | 'fragment'
+     | 'dialectAdapted'
+     | 'scene'
+@@ -202,6 +203,13 @@ function resolveSubject(
+     out.steps.push({ code: 'photoMaker', refId: ref.id, refName: ref.name });
+   }
+ 
++  // A portrait the writer marked "this is her" and nothing can carry has to be
++  // said out loud. Falling through to the words alone without a word about it
++  // is how a writer concludes the portrait does something when it does not.
++  if (strategy === 'prompt-only' && ref.canonicalImageId) {
++    out.steps.push({ code: 'canonicalUnused', refId: ref.id, refName: ref.name });
++  }
++
+   // Always, whatever carried the face: the words still describe her.
+   const fragment = fragmentFor(ref, model, out.steps);
+   if (fragment) parts.push(fragment);
+diff --git a/tests/critical.browser.ts b/tests/critical.browser.ts
+index fa7affe..04dc55d 100644
+--- a/tests/critical.browser.ts
++++ b/tests/critical.browser.ts
+@@ -113,6 +113,7 @@ import type { Writing } from '@/types';
+ import type { Citation, PublishingProfile } from '@/types/projectTools';
+ import type { ProofreaderInput, ProofreaderWritingRow } from '@/services/proofreader';
+ import type { AiMessage } from '@/services/copilot/types';
++import { runVisualRefTests } from './visual-ref';
+ import { runFootnoteTests } from './footnotes';
+ import { runFootnoteBridgeTests } from './footnotesBridge';
+ import {
+@@ -174,13 +175,14 @@ function assert(condition: unknown, message: string): asserts condition {
+ async function testMigration(): Promise<void> {
+   await db.delete();
+   await db.open();
+-  assert(db.verno === 28, `expected schema v28, received v${db.verno}`);
++  assert(db.verno === 29, `expected schema v29, received v${db.verno}`);
+   for (const table of [
+     'entityLinks', 'citations', 'publishingProfiles', 'conversionReceipts',
+     'boards', 'boardNodes', 'boardEdges', 'boardLayers', 'boardViews',
+     'canonTiles', 'renderedTiles',
+     'aiThreads', 'aiMessages', 'aiProjectSettings',
+     'atlasPlaces', 'atlasDivergences',
++    'visualRefs',
+   ]) {
+     assert(db.tables.some(row => row.name === table), `missing migrated table ${table}`);
+   }
+@@ -192,7 +194,7 @@ async function testMigration(): Promise<void> {
+   ]) {
+     assert(!db.tables.some(row => row.name === retired), `retired table ${retired} still exists`);
+   }
+-  passed.push('Dexie migration v28');
++  passed.push('Dexie migration v29');
+ }
+ 
+ async function seedBackupFixture(projectId: string): Promise<string[]> {
+@@ -5023,6 +5025,8 @@ async function run(): Promise<void> {
+   testWorldgenRulerOverlayDraws();
+   passed.push('Worldgen 2D: ruler maths, legend stops, keyboard camera, ruler overlay pixels');
+   passed.push(await testWorldgenRulerOnMap());
++  stage('visual references');
++  passed.push(...await runVisualRefTests());
+ }
+ 
+ void run()
+diff --git a/tests/visual-ref.ts b/tests/visual-ref.ts
+new file mode 100644
+index 0000000..9908d35
+--- /dev/null
++++ b/tests/visual-ref.ts
+@@ -0,0 +1,566 @@
++// ============================================================================
++// Visual references — the resolver, the store, and the training export
++// ============================================================================
++//
++// Runs inside the critical harness (a real Chromium window with a real
++// IndexedDB), so the migration test upgrades an actual v28 database and the
++// render test mounts the actual React tree. Each exported `testVisualRef…`
++// throws on failure; `critical.browser.ts` calls them in `run()`.
++//
++// The state tested FIRST is the one with no image backend at all: a reference
++// that is a name, a fragment and an uploaded portrait has to be useful before
++// a single pixel is generated, or the whole object is just a settings panel
++// for a feature the writer may never install.
++
++import Dexie from 'dexie';
++import { act } from 'react';
++import { createRoot, type Root } from 'react-dom/client';
++import { createElement } from 'react';
++import { MemoryRouter } from 'react-router-dom';
++import { db } from '@/db';
++import type { InspirationImage } from '@/types';
++import type { VisualRef } from '@/types/visualRef';
++import { emptyVisualRef } from '@/types/visualRef';
++import {
++  NEGATIVE_PROMPT_MIN_CFG,
++  POSE_CONTROL_WEIGHT,
++  adaptDialect,
++  buildDataset,
++  datasetTrigger,
++  describeResolverModel,
++  diffRecipes,
++  draftCaption,
++  joinInDialect,
++  mentionToken,
++  parseMentions,
++  readRecipe,
++  resolve,
++  variationSeeds,
++  type ResolverModel,
++} from '@/services/visualRef';
++import {
++  addToReferenceSet,
++  createVisualRef,
++  deleteVisualRef,
++  listVisualRefs,
++  pinHeroSeed,
++  removeFromReferenceSet,
++  setCanonicalImage,
++} from '@/engines/image-studio/refs';
++import ImageStudioEngine from '@/engines/image-studio/ImageStudioEngine';
++
++function assert(condition: unknown, message: string): asserts condition {
++  if (!condition) throw new Error(message);
++}
++
++const PROJECT = 'vref-project';
++
++function ref(overrides: Partial<VisualRef> = {}): VisualRef {
++  return { ...emptyVisualRef('vref-elena', PROJECT, 'Elena', 1_000), ...overrides };
++}
++
++function model(overrides: Partial<ResolverModel> = {}): ResolverModel {
++  return {
++    connectionId: 'conn',
++    modelId: 'test-model',
++    dialect: 'prose',
++    supportsLora: false,
++    supportsReferenceImages: false,
++    supportsPhotoMaker: false,
++    supportsControlNet: false,
++    supportsInitImage: false,
++    ...overrides,
++  };
++}
++
++const codes = (steps: readonly { code: string }[]): string[] => steps.map((step) => step.code);
++
++// ---------------------------------------------------------------------------
++// 1. The state with no backend at all
++// ---------------------------------------------------------------------------
++
++export function testVisualRefBareRefResolves(): void {
++  // A reference that is nothing but a name — the day-one object — must still
++  // produce a prompt. Anything that throws here makes the visual bible
++  // unusable until the writer has filled in fields they do not have yet.
++  const bare = ref();
++  const resolved = resolve([bare], '', '', model(), { seedMode: 'explore' });
++  assert(resolved.prompt === 'Elena.', `bare ref resolved to "${resolved.prompt}"`);
++  assert(resolved.negativePrompt === undefined, 'a bare ref invented a negative prompt');
++  assert(resolved.loras.length === 0 && resolved.referenceImages.length === 0, 'a bare ref attached something');
++  assert(resolved.strategies[bare.id] === 'prompt-only', 'a bare ref did not fall through to words');
++
++  // And with no refs at all: the composer must not need one to work.
++  const empty = resolve([], 'a lighthouse at dawn', 'oil painting', model(), { seedMode: 'explore' });
++  assert(empty.prompt === 'a lighthouse at dawn. oil painting.', `empty cast resolved to "${empty.prompt}"`);
++}
++
++// ---------------------------------------------------------------------------
++// 2. The resolver's order, branch by branch
++// ---------------------------------------------------------------------------
++
++export function testVisualRefResolverOrder(): void {
++  const elena = ref({
++    promptFragment: 'a tall woman in a grey coat',
++    triggerWord: 'elena_ohwx',
++    canonicalImageId: 'img-canon',
++    lora: { fileName: 'elena-v3', weight: 0.85, baseFamily: 'sdxl' },
++  });
++
++  // 1. A LoRA whose family matches wins, and the trigger word goes first.
++  const withLora = resolve([elena], 'in the rain', '', model({ supportsLora: true, family: 'sdxl' }), { seedMode: 'explore' });
++  assert(withLora.strategies[elena.id] === 'lora', 'a matching LoRA was not applied');
++  assert(withLora.prompt.startsWith('elena_ohwx'), `trigger word not first: "${withLora.prompt}"`);
++  assert(withLora.loras.length === 1 && withLora.loras[0].weight === 0.85, 'the LoRA weight was lost');
++  assert(withLora.referenceImages.length === 0, 'a LoRA generation still attached a reference image');
++
++  // A LoRA from another family is not weak, it is wrong — and the writer is told.
++  const wrongFamily = resolve([elena], '', '', model({ supportsLora: true, family: 'flux' }), { seedMode: 'explore' });
++  assert(wrongFamily.strategies[elena.id] === 'prompt-only', 'a cross-family LoRA was applied anyway');
++  assert(codes(wrongFamily.steps).includes('loraFamilyMismatch'), 'the family mismatch was not disclosed');
++  assert(!wrongFamily.prompt.includes('elena_ohwx'), 'an unapplied LoRA still spent its trigger word');
++
++  // A runtime that cannot load LoRAs says so rather than pretending.
++  const noLoraRuntime = resolve([elena], '', '', model({ family: 'sdxl' }), { seedMode: 'explore' });
++  assert(codes(noLoraRuntime.steps).includes('loraUnsupported'), 'a LoRA-less runtime stayed silent');
++
++  // 2. No LoRA → an edit model takes the canonical portrait as image 1.
++  const plain = ref({ promptFragment: 'a tall woman in a grey coat', canonicalImageId: 'img-canon' });
++  const edit = resolve([plain], 'in the rain', '', model({ supportsReferenceImages: true }), { seedMode: 'explore' });
++  assert(edit.strategies[plain.id] === 'reference-image', 'an edit model did not take the portrait');
++  assert(edit.referenceImages[0].imageId === 'img-canon' && edit.referenceImages[0].role === 'identity', 'wrong reference attached');
++  assert(edit.prompt.includes('the person in image 1'), `edit instruction missing: "${edit.prompt}"`);
++
++  // The ordinal has to match the attachment order when there are two subjects.
++  const marco = { ...plain, id: 'vref-marco', name: 'Marco', canonicalImageId: 'img-marco' };
++  const two = resolve([plain, marco], 'arguing', '', model({ supportsReferenceImages: true }), { seedMode: 'explore' });
++  assert(two.referenceImages.length === 2, 'the second subject was dropped');
++  assert(two.prompt.includes('the person in image 1') && two.prompt.includes('the person in image 2'), `ordinals wrong: "${two.prompt}"`);
++
++  // An edit model with nothing to show is told so, not handed a blank.
++  const noPortrait = resolve([ref()], '', '', model({ supportsReferenceImages: true }), { seedMode: 'explore' });
++  assert(codes(noPortrait.steps).includes('noCanonical'), 'the missing canonical portrait was not disclosed');
++  assert(noPortrait.referenceImages.length === 0, 'an absent portrait was attached anyway');
++
++  // 3. No LoRA, no edit model → PhotoMaker takes the face.
++  const photo = resolve([plain], '', '', model({ supportsPhotoMaker: true }), { seedMode: 'explore' });
++  assert(photo.strategies[plain.id] === 'photomaker', 'PhotoMaker did not pick the face up');
++  assert(photo.referenceImages[0].role === 'face', 'PhotoMaker attached the wrong role');
++
++  // 4. The fragment is spliced whatever carried the face.
++  for (const resolved of [withLora, edit, photo]) {
++    assert(resolved.prompt.includes('a tall woman in a grey coat'), `the fragment was dropped: "${resolved.prompt}"`);
++  }
++}
++
++export function testVisualRefNegativeCfgRule(): void {
++  const elena = ref({ negativeFragment: 'blurry, extra fingers' });
++  const guided = resolve([elena], '', '', model({ cfg: 6.5 }), { seedMode: 'explore' });
++  assert(guided.negativePrompt === 'blurry, extra fingers.', `negative lost at cfg 6.5: "${guided.negativePrompt}"`);
++  assert(codes(guided.steps).includes('negative'), 'an applied negative was not disclosed');
++
++  // A distilled model at cfg 1 has no negative branch to steer with. Sending
++  // the text anyway and showing the field working teaches the writer that
++  // their negative prompt did something.
++  const distilled = resolve([elena], '', '', model({ cfg: NEGATIVE_PROMPT_MIN_CFG }), { seedMode: 'explore' });
++  assert(distilled.negativePrompt === undefined, 'a cfg-1 model was sent a negative prompt');
++  assert(codes(distilled.steps).includes('negativeIgnored'), 'the ignored negative was hidden from the writer');
++
++  // Unknown guidance is treated as honoured: dropping the writer's words on a
++  // guess is the worse of the two mistakes.
++  const unknown = resolve([elena], '', '', model(), { seedMode: 'explore' });
++  assert(unknown.negativePrompt === 'blurry, extra fingers.', 'an unknown cfg silently dropped the negative');
++}
++
++export function testVisualRefDialect(): void {
++  assert(adaptDialect('A tall woman. She wears a grey coat', 'prose', 'tags') === 'A tall woman, She wears a grey coat', 'prose→tags split wrong');
++  assert(adaptDialect('1girl, grey coat, rain', 'tags', 'prose') === '1girl, grey coat, rain.', 'tags→prose join wrong');
++  assert(adaptDialect('unchanged text', 'tags', 'tags') === 'unchanged text', 'same-dialect text was rewritten');
++  assert(joinInDialect(['a', 'b'], 'tags') === 'a, b', 'tag join wrong');
++  assert(joinInDialect(['a.', 'b'], 'prose') === 'a. b.', 'prose join doubled a full stop');
++
++  const tagRef = ref({ dialect: 'tags', promptFragment: '1girl, grey coat' });
++  const toProse = resolve([tagRef], '', '', model({ dialect: 'prose' }), { seedMode: 'explore' });
++  assert(toProse.prompt === '1girl, grey coat.', `tags→prose fragment wrong: "${toProse.prompt}"`);
++  assert(codes(toProse.steps).includes('dialectAdapted'), 'the dialect adaptation was not disclosed');
++
++  const same = resolve([tagRef], '', '', model({ dialect: 'tags' }), { seedMode: 'explore' });
++  assert(!codes(same.steps).includes('dialectAdapted'), 'a same-dialect fragment claimed an adaptation');
++
++  // The family is what picks the dialect, and it is read from the descriptor.
++  const sdxl = describeResolverModel({ connectionId: 'c', id: 'm', family: 'sdxl', capabilities: [] });
++  const flux = describeResolverModel({ connectionId: 'c', id: 'm', family: 'flux', capabilities: [] });
++  assert(sdxl.dialect === 'tags' && flux.dialect === 'prose', 'family → dialect mapping wrong');
++}
++
++export function testVisualRefSeedAndPose(): void {
++  const elena = ref({ heroSeed: 4242 });
++
++  const locked = resolve([elena], '', '', model(), { seedMode: 'lock' });
++  assert(locked.seed === 4242, `hero seed not used when locked: ${locked.seed}`);
++  assert(codes(locked.steps).includes('seedHero'), 'the hero seed was not disclosed');
++
++  // Locking identity on a reference that has no hero seed yet must not invent
++  // one: a fabricated seed would be pinned by the next click and be wrong.
++  const noHero = resolve([ref()], '', '', model(), { seedMode: 'lock' });
++  assert(noHero.seed === undefined, 'a missing hero seed was invented');
++
++  const explore = resolve([elena], '', '', model(), { seedMode: 'explore', exploreSeed: 7 });
++  assert(explore.seed === 7, 'explore ignored the seed it was handed');
++  assert(codes(explore.steps).includes('seedExplore'), 'explore mode was not disclosed');
++
++  const manual = resolve([elena], '', '', model(), { seedMode: 'manual', manualSeed: 99 });
++  assert(manual.seed === 99, 'a typed seed was overridden');
++
++  // A pinned pose only exists if the model can hold one; otherwise it is
++  // visibly refused rather than silently dropped.
++  const pose = { refId: elena.id, imageId: 'img-pose' };
++  const withControl = resolve([elena], '', '', model({ supportsControlNet: true }), { seedMode: 'lock', pose });
++  const control = withControl.referenceImages.find((image) => image.role === 'pose');
++  assert(control?.imageId === 'img-pose', 'the pinned pose was not attached');
++  assert(control?.weight === POSE_CONTROL_WEIGHT, `pose weight ${control?.weight} is outside the working band`);
++  assert(POSE_CONTROL_WEIGHT >= 0.4 && POSE_CONTROL_WEIGHT <= 0.7, 'the pose weight left the 0.4–0.7 band');
++
++  const withoutControl = resolve([elena], '', '', model(), { seedMode: 'lock', pose });
++  assert(withoutControl.referenceImages.length === 0, 'a pose was attached to a model that cannot hold one');
++  assert(codes(withoutControl.steps).includes('poseUnsupported'), 'the refused pose was not explained');
++}
++
++export function testVisualRefResolverIsPure(): void {
++  const elena = ref({
++    promptFragment: 'a tall woman',
++    negativeFragment: 'blurry',
++    triggerWord: 'elena_ohwx',
++    canonicalImageId: 'img-canon',
++    heroSeed: 11,
++    lora: { fileName: 'elena-v3', weight: 0.8, baseFamily: 'sdxl' },
++  });
++  const args = [
++    [elena],
++    'in the rain',
++    'oil painting',
++    model({ supportsLora: true, family: 'sdxl', cfg: 7, supportsControlNet: true }),
++    { seedMode: 'lock' as const, pose: { refId: elena.id, imageId: 'img-pose' } },
++  ] as const;
++  const first = resolve(...args);
++  const second = resolve(...args);
++  assert(JSON.stringify(first) === JSON.stringify(second), 'the resolver is not pure: two identical calls differed');
++
++  // And it does not mutate what it was handed.
++  const snapshot = JSON.stringify(elena);
++  resolve([elena], 'x', 'y', model(), { seedMode: 'explore' });
++  assert(JSON.stringify(elena) === snapshot, 'the resolver mutated the reference it was given');
++}
++
++export function testVisualRefMentions(): void {
++  const elena = ref();
++  const marco = ref({ id: 'vref-marco', name: 'Marco Aurelio' });
++  const parsed = parseMentions('@Elena and @{Marco Aurelio} at @Nobody, arguing', [elena, marco]);
++  assert(parsed.refs.length === 2 && parsed.refs[0].id === elena.id, 'mentions resolved to the wrong refs');
++  assert(parsed.unknown.length === 1 && parsed.unknown[0] === 'Nobody', 'an unmatched mention was swallowed');
++  assert(parsed.rest.includes('arguing'), `the rest of the slot was lost: "${parsed.rest}"`);
++  assert(mentionToken(marco) === '@{Marco Aurelio}', 'a name with a space was not braced');
++
++  // Accents and case fold, because the writer types the name as the book has it.
++  const maria = ref({ id: 'vref-maria', name: 'María' });
++  assert(parseMentions('@maria', [maria]).refs.length === 1, 'an accented name did not match');
++
++  // The same reference named twice is one subject, not two.
++  assert(parseMentions('@Elena @Elena', [elena]).refs.length === 1, 'a repeated mention duplicated the subject');
++}
++
++export function testVisualRefRecipes(): void {
++  const before = readRecipe({
++    prompt: 'elena in the rain', connectionId: 'c', modelId: 'sdxl',
++    width: 1024, height: 1024, steps: 20, seed: 5, createdAt: 1,
++  });
++  const after = readRecipe({
++    prompt: 'elena in the rain', connectionId: 'c', modelId: 'sdxl',
++    width: 1024, height: 1024, steps: 30, seed: 6, createdAt: 2,
++  });
++  const differences = diffRecipes(before, after);
++  const fields = differences.map((difference) => difference.field);
++  assert(fields.includes('steps') && fields.includes('seed'), `diff missed a field: ${fields.join(', ')}`);
++  assert(!fields.includes('prompt'), 'an unchanged prompt was reported as changed');
++  const steps = differences.find((difference) => difference.field === 'steps');
++  assert(steps?.before === '20' && steps.after === '30', 'the steps diff lost its values');
++
++  // The widened generation fields are read when they are there and are simply
++  // absent when they are not — this is what has to survive the runtime merge.
++  const widened = readRecipe({
++    prompt: 'p', connectionId: 'c', modelId: 'm', width: 512, height: 512, createdAt: 1,
++    cfg: 7, sampler: 'euler', loras: [{ name: 'elena-v3', weight: 0.8 }],
++  } as Parameters<typeof readRecipe>[0]);
++  assert(widened.cfg === 7 && widened.sampler === 'euler', 'the widened fields were not read');
++  assert(widened.loras.length === 1, 'the widened LoRA list was not read');
++  assert(before.cfg === undefined && before.loras.length === 0, 'absent widened fields were invented');
++
++  // Variations step around the seed and never below zero.
++  assert(JSON.stringify(variationSeeds(10, 6)) === JSON.stringify([10, 11, 9, 12, 8, 13]), `variation seeds wrong: ${variationSeeds(10, 6)}`);
++  assert(variationSeeds(0, 4).every((seed) => seed >= 0), 'a variation seed went negative');
++}
++
++// ---------------------------------------------------------------------------
++// 3. The training export
++// ---------------------------------------------------------------------------
++
++export function testVisualRefCaptions(): void {
++  const prose = 'She is tall and wears a long grey coat. Her eyes are pale green. '
++    + 'She keeps her hair in a braid and never takes off her round glasses. '
++    + 'Her complexion is olive.';
++  const drafted = draftCaption('elena_ohwx', [prose]);
++  assert(drafted.caption.startsWith('elena_ohwx'), `the trigger word is not first: "${drafted.caption}"`);
++  assert(drafted.caption.includes('grey coat'), 'the coat — detachable — was left out of the caption');
++  assert(drafted.kept.some((clause) => clause.includes('braid')), 'the hairstyle was left out of the caption');
++  assert(drafted.kept.some((clause) => clause.includes('glasses')), 'the glasses were left out of the caption');
++  // The counter-intuitive half: captioning her eyes teaches the model that her
++  // eyes are optional, and the trained character comes back with new ones.
++  assert(!drafted.caption.includes('green'), `eye colour was captioned: "${drafted.caption}"`);
++  assert(!drafted.caption.includes('complexion'), `complexion was captioned: "${drafted.caption}"`);
++  assert(drafted.omitted.includes('eyes') && drafted.omitted.includes('complexion'), 'the omissions were not reported');
++}
++
++export function testVisualRefDatasetExport(): void {
++  const elena = ref({ triggerWord: 'elena_ohwx' });
++  const items = [
++    { imageId: 'img-a', dataUrl: 'data:image/png;base64,AAA', caption: 'elena_ohwx, grey coat' },
++    { imageId: 'img-b', dataUrl: 'data:image/jpeg;base64,BBB', caption: 'elena_ohwx, braid' },
++  ];
++  const bundle = buildDataset({ ref: elena, items, resolution: 1024, baseModel: 'test/base' });
++
++  // A trainer pairs an image with its caption BY STEM. If the two names differ
++  // by anything but the extension it trains on empty captions and never says so.
++  assert(bundle.images.length === 2 && bundle.captions.length === 2, 'wrong number of dataset files');
++  for (const image of bundle.images) {
++    const stem = image.path.replace(/\.[^.]+$/, '');
++    assert(bundle.captions.some((caption) => caption.path === `${stem}.txt`), `no caption beside ${image.path}`);
++  }
++  assert(bundle.images[0].path.endsWith('.png') && bundle.images[1].path.endsWith('.jpg'), 'the image extensions were not read from the data URLs');
++  assert(bundle.captions[0].text.trim() === 'elena_ohwx, grey coat', 'a caption was rewritten on the way out');
++
++  // A reference with no trigger word yet still gets a token to train onto —
++  // a made-up one, because the plain name already means every other Elena the
++  // base model ever saw.
++  assert(datasetTrigger({ name: 'Elena', triggerWord: undefined }) === 'elena_ohwx', 'the default trigger word is wrong');
++  assert(datasetTrigger({ name: 'Elena', triggerWord: 'xyz' }) === 'xyz', 'an explicit trigger word was overridden');
++
++  // The configs have to parse. Not "look right": parse.
++  const yaml = bundle.configs.find((config) => config.path.endsWith('.yaml'));
++  assert(yaml, 'no ai-toolkit config was written');
++  const yamlTree = parseIndentedYaml(yaml.text);
++  assert(yamlTree.job === 'extension', `ai-toolkit job wrong: ${JSON.stringify(yamlTree.job)}`);
++  assert(yaml.text.includes('trigger_word: "elena_ohwx"'), 'the ai-toolkit config lost the trigger word');
++  assert(yaml.text.includes('caption_ext: txt'), 'the ai-toolkit config does not ask for the captions');
++
++  const toml = bundle.configs.find((config) => config.path.endsWith('.toml'));
++  assert(toml, 'no musubi-tuner config was written');
++  const tomlTree = parseFlatToml(toml.text);
++  assert(tomlTree.general?.caption_extension === '".txt"', `musubi caption extension wrong: ${tomlTree.general?.caption_extension}`);
++  assert(tomlTree.general?.resolution === '[1024, 1024]', `musubi resolution wrong: ${tomlTree.general?.resolution}`);
++  assert(tomlTree.datasets?.image_directory === '"dataset"', 'musubi does not point at the dataset folder');
++
++  // The rule is in the README too, because the person who reads it is about to
++  // spend two hours of GPU time on whatever the captions say.
++  assert(bundle.readme.text.includes('Caption what you do NOT want baked in'), 'the README lost the captioning rule');
++}
++
++/** A deliberately small YAML reader: enough to prove the file has structure. */
++function parseIndentedYaml(text: string): Record<string, unknown> {
++  const root: Record<string, unknown> = {};
++  for (const line of text.split('\n')) {
++    if (!line.trim() || line.trim().startsWith('#') || line.trim() === '---') continue;
++    if (/^\S/.test(line)) {
++      const match = /^([\w-]+):\s*(.*)$/.exec(line);
++      if (!match) throw new Error(`ai-toolkit YAML has an unreadable top-level line: ${line}`);
++      root[match[1]] = match[2] === '' ? {} : match[2];
++    } else if (!/^\s+(?:- )?[\w-]+:|^\s+- /.test(line)) {
++      throw new Error(`ai-toolkit YAML has an unreadable nested line: ${line}`);
++    }
++  }
++  return root;
++}
++
++/** The same for TOML: sections and `key = value`, and nothing else allowed. */
++function parseFlatToml(text: string): Record<string, Record<string, string>> {
++  const tree: Record<string, Record<string, string>> = {};
++  let section = '';
++  for (const line of text.split('\n')) {
++    const trimmed = line.trim();
++    if (!trimmed || trimmed.startsWith('#')) continue;
++    const header = /^\[\[?([\w.]+)\]?\]$/.exec(trimmed);
++    if (header) {
++      section = header[1];
++      tree[section] = tree[section] ?? {};
++      continue;
++    }
++    const pair = /^([\w_]+)\s*=\s*(.+)$/.exec(trimmed);
++    if (!pair) throw new Error(`musubi TOML has an unreadable line: ${line}`);
++    if (!section) throw new Error(`musubi TOML has a key outside every section: ${line}`);
++    tree[section][pair[1]] = pair[2];
++  }
++  return tree;
++}
++
++// ---------------------------------------------------------------------------
++// 4. The store, and the migration into it
++// ---------------------------------------------------------------------------
++
++export async function testVisualRefMigrationKeepsRows(): Promise<void> {
++  await db.close();
++  await Dexie.delete('WritersHoardDB');
++
++  // A v28 database with rows in it — exactly what a user who has been writing
++  // in this app for a year has on disk.
++  const legacy = new Dexie('WritersHoardDB');
++  legacy.version(28).stores({
++    projects: 'id, mode, type, parentId, status, updatedAt',
++    codexEntries: 'id, projectId, type, *tags, updatedAt',
++    inspirationImages: 'id, projectId, collectionId, *tags, *linkedEntryIds',
++  });
++  await legacy.open();
++  assert(legacy.verno === 28, `the legacy fixture opened at v${legacy.verno}`);
++  await legacy.table('projects').add({
++    id: PROJECT, title: 'Old book', mode: 'novelist', type: 'standalone', color: '#fff',
++    description: '', status: 'draft', enabledEngines: [], engineOrder: [], createdAt: 1, updatedAt: 1,
++  });
++  await legacy.table('codexEntries').add({
++    id: 'codex-elena', projectId: PROJECT, type: 'character', title: 'Elena',
++    fields: { physicalDescription: 'She wears a long grey coat. Her eyes are pale green.' },
++    content: '', tags: [], relations: [], createdAt: 1, updatedAt: 1,
++  });
++  await legacy.table('inspirationImages').add({
++    id: 'img-canon', projectId: PROJECT, imageData: 'data:image/png;base64,AAA',
++    tags: [], notes: 'a portrait', createdAt: 1,
++  });
++  legacy.close();
++
++  await db.open();
++  assert(db.verno === 29, `the upgrade landed on v${db.verno}, not 29`);
++  // The whole point: an additive version that loses a row is unforgivable in a
++  // writing app, and nothing in v29 reads or rewrites an existing table.
++  assert((await db.projects.get(PROJECT))?.title === 'Old book', 'the v29 upgrade lost a project');
++  assert((await db.codexEntries.get('codex-elena'))?.title === 'Elena', 'the v29 upgrade lost a codex entry');
++  assert((await db.inspirationImages.get('img-canon'))?.notes === 'a portrait', 'the v29 upgrade lost a Gallery image');
++  assert(db.tables.some((table) => table.name === 'visualRefs'), 'v29 did not create visualRefs');
++  assert((await db.visualRefs.count()) === 0, 'v29 invented reference rows');
++}
++
++export async function testVisualRefStoreActions(): Promise<void> {
++  const created = await createVisualRef(PROJECT, 'Elena', 'character', 'prose', 'codex-elena');
++  assert(created.referenceImageIds.length === 0 && created.canonicalImageId === undefined, 'a new reference was born full');
++
++  const others = await createVisualRef('another-project', 'Someone else');
++  const listed = await listVisualRefs(PROJECT);
++  assert(listed.length === 1 && listed[0].id === created.id, 'the reference list leaked across projects');
++
++  await addToReferenceSet(created.id, 'img-canon');
++  await addToReferenceSet(created.id, 'img-canon');
++  assert((await db.visualRefs.get(created.id))?.referenceImageIds.length === 1, 'the same image was added twice');
++
++  await setCanonicalImage(created.id, 'img-second');
++  const canonical = await db.visualRefs.get(created.id);
++  assert(canonical?.canonicalImageId === 'img-second', 'the canonical portrait was not set');
++  assert(canonical?.referenceImageIds.includes('img-second'), 'the canonical portrait was left out of the reference set');
++
++  // Culling the canonical portrait out of the set has to clear the portrait
++  // too, or every edit generation goes on being handed a picture the writer
++  // has deliberately thrown away.
++  await removeFromReferenceSet(created.id, 'img-second');
++  const culled = await db.visualRefs.get(created.id);
++  assert(culled?.canonicalImageId === undefined, 'a culled image stayed the canonical portrait');
++
++  await pinHeroSeed(created.id, 1234);
++  assert((await db.visualRefs.get(created.id))?.heroSeed === 1234, 'the hero seed was not pinned');
++
++  // Project deletion has to sweep this table like every other project-scoped
++  // one. It does so generically, through the `projectId` index — which is
++  // exactly why it is worth pinning: the guarantee is a property of the schema
++  // line, and a future index change could quietly take it away.
++  const { deleteProject } = await import('@/db/operations');
++  const doomedProject = 'vref-doomed-project';
++  const doomedRef = await createVisualRef(doomedProject, 'Ghost');
++  await deleteProject(doomedProject);
++  assert((await db.visualRefs.get(doomedRef.id)) === undefined, 'deleting a project left a visual reference behind');
++
++  // Deleting a reference must not delete the writer's pictures with it.
++  await deleteVisualRef(created.id);
++  assert((await db.visualRefs.get(created.id)) === undefined, 'the reference survived its deletion');
++  assert((await db.inspirationImages.get('img-canon')) !== undefined, 'deleting a reference deleted a Gallery image');
++  await db.visualRefs.delete(others.id);
++}
++
++// ---------------------------------------------------------------------------
++// 5. The studio with no image backend at all
++// ---------------------------------------------------------------------------
++
++export async function testVisualRefNoBackendUi(): Promise<void> {
++  const image: InspirationImage = {
++    id: 'img-canon', projectId: PROJECT, imageData: 'data:image/png;base64,AAA',
++    tags: [], notes: 'a portrait', createdAt: 1,
++  };
++  await db.inspirationImages.put(image);
++  const elena = await createVisualRef(PROJECT, 'Elena', 'character', 'prose', 'codex-elena');
++  await setCanonicalImage(elena.id, image.id);
++
++  const host = document.createElement('div');
++  document.body.appendChild(host);
++  let root: Root | null = null;
++  try {
++    await act(async () => {
++      root = createRoot(host);
++      root.render(createElement(MemoryRouter, null, createElement(ImageStudioEngine, { projectId: PROJECT })));
++    });
++    // Let the reference load settle: everything below is about what the writer
++    // sees when no model is installed, which is the state most writers open
++    // this tab in and the one that has to be worth opening.
++    await act(async () => { await new Promise((done) => setTimeout(done, 60)); });
++
++    const text = host.textContent ?? '';
++    assert(text.includes('Elena'), 'the cast did not render the reference');
++
++    const disabled = [...host.querySelectorAll('button')].filter((button) => button.disabled);
++    assert(disabled.length > 0, 'nothing was disabled with no backend — the studio pretended it could generate');
++    // Hiding an action teaches the writer the feature does not exist. Every
++    // disabled control has to carry the reason it is disabled.
++    for (const button of disabled) {
++      const reason = button.getAttribute('title') ?? button.getAttribute('aria-label') ?? '';
++      assert(reason.trim().length > 0, `a disabled control carries no reason: "${button.textContent?.trim()}"`);
++    }
++  } finally {
++    if (root) await act(async () => { (root as Root).unmount(); });
++    host.remove();
++    await db.visualRefs.delete(elena.id);
++  }
++}
++
++/** Everything above, in the order the harness should read them. */
++export async function runVisualRefTests(): Promise<string[]> {
++  testVisualRefBareRefResolves();
++  testVisualRefResolverOrder();
++  testVisualRefNegativeCfgRule();
++  testVisualRefDialect();
++  testVisualRefSeedAndPose();
++  testVisualRefResolverIsPure();
++  testVisualRefMentions();
++  testVisualRefRecipes();
++  testVisualRefCaptions();
++  testVisualRefDatasetExport();
++  await testVisualRefMigrationKeepsRows();
++  await testVisualRefStoreActions();
++  await testVisualRefNoBackendUi();
++  return [
++    'Visual refs: a reference with nothing but a name still resolves',
++    'Visual refs: the resolver order — LoRA, reference image, PhotoMaker, words',
++    'Visual refs: a negative prompt is refused, and explained, at cfg 1',
++    'Visual refs: fragments are adapted between the tag and prose dialects',
++    'Visual refs: hero seed, explore, and a pose only when the model can hold one',
++    'Visual refs: the resolver is pure and mutates nothing',
++    'Visual refs: @mentions resolve, fold accents and never duplicate a subject',
++    'Visual refs: recipes read the widened fields, diff, and step their seeds',
++    'Visual refs: captions name what must stay detachable and omit the face',
++    'Visual refs: the dataset export pairs every image with its caption and parses',
++    'Visual refs: the v28 → v29 upgrade keeps every row',
++    'Visual refs: the store actions a reference accumulates through',
++    'Visual refs: the studio with no image backend, disabled with its reasons',
++  ];
++}
+-- 
+2.43.0
+

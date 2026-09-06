@@ -1,0 +1,52 @@
+From 054f58d31f9c1a34a424657131c757e3758d5e98 Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 00:51:11 +0000
+Subject: [PATCH 08/36] Describe the new image models and companions in both
+ languages
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RmpuZqpQrFjas3Ajv22pKb
+---
+ src/locales/en.ts | 7 +++++++
+ src/locales/es.ts | 7 +++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/src/locales/en.ts b/src/locales/en.ts
+index ded5093..baff647 100644
+--- a/src/locales/en.ts
++++ b/src/locales/en.ts
+@@ -3123,6 +3123,13 @@ const en = {
+   'settings.ai.imageCatalog.dreamshaper-xl-turbo': 'SDXL at 1024 px in 6-8 steps: far more quality and detail if your GPU has 10 GB or more.',
+   'settings.ai.imageCatalog.sdxl-turbo': 'SDXL sketches in 1-4 steps: the fastest option at medium resolution. Non-commercial licence only.',
+   'settings.ai.imageCatalog.flux-schnell-q4': 'FLUX.1 schnell in 4 steps with very faithful text and composition; four files and 12 GB of VRAM or a split with RAM.',
++  'settings.ai.imageCatalog.flux-kontext-dev-q4': 'The editing model: give it one or more reference images and it keeps the same character across new scenes. Four files, and it shares three of them with FLUX schnell. Non-commercial licence only.',
++  'settings.ai.imageCompanions.title': 'ControlNets and upscalers',
++  'settings.ai.imageCompanions.note': 'Extras the image server is pointed at rather than models it runs. A ControlNet is chosen when the server starts, so switching one restarts it.',
++  'settings.ai.imageCompanions.controlnet-sd15-openpose': 'Hold a pose: give it a skeleton and the figure takes that stance. For SD 1.5 models.',
++  'settings.ai.imageCompanions.controlnet-sd15-canny': 'Hold a shape: give it an edge drawing and the picture follows those lines. For SD 1.5 models.',
++  'settings.ai.imageCompanions.controlnet-sd15-depth': 'Hold a space: give it a depth map and the scene keeps that layout. For SD 1.5 models.',
++  'settings.ai.imageCompanions.realesrgan-x4': 'Four times the resolution on the second pass, for printing a portrait or a map at size.',
+   'settings.ai.kind.sdcpp': 'Local (sd.cpp)',
+ 
+   'settings.ai.catalog.qwen3.5-9b': 'The sweet spot for 12 GB of VRAM: tools, vision and 256K context.',
+diff --git a/src/locales/es.ts b/src/locales/es.ts
+index 706161d..b9292c9 100644
+--- a/src/locales/es.ts
++++ b/src/locales/es.ts
+@@ -3123,6 +3123,13 @@ const es = {
+   'settings.ai.imageCatalog.dreamshaper-xl-turbo': 'SDXL a 1024 px en 6-8 pasos: mucha más calidad y detalle si tu GPU tiene 10 GB o más.',
+   'settings.ai.imageCatalog.sdxl-turbo': 'Bocetos SDXL en 1-4 pasos: la opción más rápida a media resolución. Licencia sólo no comercial.',
+   'settings.ai.imageCatalog.flux-schnell-q4': 'FLUX.1 schnell en 4 pasos con texto y composición muy fieles; cuatro archivos y 12 GB de VRAM o reparto con la RAM.',
++  'settings.ai.imageCatalog.flux-kontext-dev-q4': 'El modelo de edición: le das una o varias imágenes de referencia y mantiene al mismo personaje en escenas nuevas. Cuatro archivos, y comparte tres con FLUX schnell. Licencia sólo no comercial.',
++  'settings.ai.imageCompanions.title': 'ControlNets y escaladores',
++  'settings.ai.imageCompanions.note': 'Extras a los que se apunta el servidor de imagen, no modelos que ejecute. El ControlNet se elige al arrancar, así que cambiarlo lo reinicia.',
++  'settings.ai.imageCompanions.controlnet-sd15-openpose': 'Fija una pose: le das un esqueleto y la figura adopta esa postura. Para modelos SD 1.5.',
++  'settings.ai.imageCompanions.controlnet-sd15-canny': 'Fija una forma: le das un dibujo de bordes y la imagen sigue esas líneas. Para modelos SD 1.5.',
++  'settings.ai.imageCompanions.controlnet-sd15-depth': 'Fija un espacio: le das un mapa de profundidad y la escena mantiene esa disposición. Para modelos SD 1.5.',
++  'settings.ai.imageCompanions.realesrgan-x4': 'Cuatro veces la resolución en la segunda pasada, para imprimir un retrato o un mapa a tamaño.',
+   'settings.ai.kind.sdcpp': 'Local (sd.cpp)',
+ 
+   'settings.ai.catalog.qwen3.5-9b': 'Equilibrio ideal para 12 GB de VRAM: herramientas, visión y 256K de contexto.',
+-- 
+2.43.0
+

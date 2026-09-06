@@ -1,0 +1,69 @@
+From 18112eccc4c576ba63ff89d355f48d213e1e4125 Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 01:50:30 +0000
+Subject: [PATCH 29/36] Plan the studio level: disclosure, capabilities, the
+ pass chain
+
+---
+ tasks/todo-image-studio.md | 49 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 49 insertions(+)
+ create mode 100644 tasks/todo-image-studio.md
+
+diff --git a/tasks/todo-image-studio.md b/tasks/todo-image-studio.md
+new file mode 100644
+index 0000000..284d9c5
+--- /dev/null
++++ b/tasks/todo-image-studio.md
+@@ -0,0 +1,49 @@
++# The Studio — the controls the runtime has always had
++
++Contract S2. The bundled stable-diffusion.cpp build serves 18 sampler names,
++12 scheduler names, a native hires pass, LoRA arrays, img2img, inpainting and
++ControlNet. The studio exposed eight knobs and read sampler/steps/CFG from
++catalogue defaults nobody could change. This is the level in between.
++
++Files: `src/engines/image-studio/**`, `src/locales/{en,es}.ts`, `tests/image-studio.ts`.
++Not mine: `src/services/aiRuntime/**`, `electron/**`, `src/types/**`, `src/db/**`,
++`src/services/visualRef/**`.
++
++## Plan
++
++- [ ] S-0  Widen `REQUEST_SUPPORTS` to every field the studio wants to send, and
++      flip the two the runtime branch has already landed (`sampler`, `scheduler`).
++      Wire `refImages` / `controlImage` / `maskImage` / `hiresFix` through
++      `startGeneration` — today they are built and dropped.
++- [ ] S-1  Three levels of disclosure (Simple / Studio / Expert), remembered per
++      project. Every parameter belongs to exactly one level.
++- [ ] S-2  A per-model capability descriptor: one place that says, per field,
++      enabled or refused AND why. `parameterVisibility` becomes a view of it.
++- [ ] S-3  Curated samplers and schedulers over the runtime's real vocabulary,
++      each with the one line that says what it is FOR, plus "show all" at Expert.
++- [ ] S-4  Family-aware defaults applied on model switch, with the "why" visible
++      and a one-click undo.
++- [ ] S-5  Resolution buckets per family; an off-bucket size is named as one.
++- [ ] S-6  The pass chain as a first-class editable list: base → hires → detail
++      → upscale, reorderable, each pass with its own prompt, denoise and toggle.
++- [ ] S-7  The LoRA stack: N LoRAs, weights, toggles, search, trigger words.
++- [ ] S-8  Seed discipline: lock, from image, incremental vs fixed batch.
++- [ ] S-9  Prompt craft: A1111 weighting on a selection, a token estimate with
++      chunk boundaries, client-side wildcards, a fragment palette.
++- [ ] S-10 X/Y/Z plot: 1–3 axes, a job matrix, a labelled grid.
++- [ ] S-11 Tests in `tests/image-studio.ts`, wired into `critical.browser.ts`.
++      The no-backend state is tested FIRST.
++- [ ] S-12 `tsc` (renderer + electron), lint, conformance.
++
++## Rules this work is held to
++
++- A parameter the model cannot honour is visible, disabled and carries its
++  reason in the text. Never hidden.
++- Never offer what the backend cannot honour: no prompt scheduling, no BREAK,
++  no variation seed — sd.cpp does none of them, and a silently different image
++  is worse than an absent feature.
++- Every string through both locale files.
++
++## Review
++
++(filled in at the end)
+-- 
+2.43.0
+

@@ -1,0 +1,338 @@
+From 49d687b21cd6741604a3020dd11ad15c9114d8d9 Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 03:05:31 +0000
+Subject: [PATCH 36/36] Route a ComfyUI connection, and stop promising a
+ detailer that is not there
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Three branches landed at once and the seams between them were the work. The
+ComfyUI adapter existed but nothing could reach it: the connection kind was not
+in the union, the gateway did not route to it, and the IPC handler collapsed
+every unrecognised kind to openai-compatible, which would have turned a ComfyUI
+connection into one talking the wrong protocol at the right port.
+
+The REQUEST_SUPPORTS table did exactly what it was built to do. Five fields
+landed on the request and their  stopped compiling, naming their own
+lines. Three of them were checking a name the request does not use, so those
+checks now point at the field it actually declares — otherwise this stops being
+a compile-time fact and becomes a comment that happens to be true.
+
+The detail pass was refusing with 'the request has no field for this yet', and
+that is a promise of a release that is not coming: at the pinned commit the
+detailer strings appear nowhere in the parser, the CLI or the public header.
+It now says the build has none, the way the upscale pass already did.
+
+quick-note.html is committed because vite.config.ts names it as an entry point
+and it was never tracked, so the harness aborted on a cold checkout.
+---
+ electron/ai/connectionStore.ts            |  6 +-
+ electron/ai/inferenceGateway.ts           |  2 +
+ electron/ai/ipc.ts                        |  8 ++-
+ quick-note.html                           | 71 +++++++++++++++++++++++
+ src/engines/image-studio/operations.ts    | 23 +++++---
+ src/engines/image-studio/studio/passes.ts |  6 +-
+ src/locales/en.ts                         |  1 +
+ src/locales/es.ts                         |  1 +
+ src/services/aiRuntime/types.ts           |  2 +-
+ src/services/aiRuntime/urlPolicy.ts       |  4 ++
+ tests/image-studio.ts                     | 14 +++--
+ 11 files changed, 120 insertions(+), 18 deletions(-)
+ create mode 100644 quick-note.html
+
+diff --git a/electron/ai/connectionStore.ts b/electron/ai/connectionStore.ts
+index 9e3a184..47a949b 100644
+--- a/electron/ai/connectionStore.ts
++++ b/electron/ai/connectionStore.ts
+@@ -38,7 +38,11 @@ export function isBuiltinConnectionId(id: string): boolean {
+ interface StoredConnection {
+   id: string;
+   name: string;
+-  kind: 'openai-compatible' | 'ollama';
++  // The kinds a person can create and that therefore get written to disk.
++  // `sdcpp` is deliberately not here: that connection is synthesised for the
++  // managed runtime and never persisted, so a stored row can never point at a
++  // server the app is supposed to be supervising itself.
++  kind: 'openai-compatible' | 'ollama' | 'comfyui';
+   baseUrl: string;
+   enabled: boolean;
+   modelTypes: AiModelType[];
+diff --git a/electron/ai/inferenceGateway.ts b/electron/ai/inferenceGateway.ts
+index 6cee884..a4679a9 100644
+--- a/electron/ai/inferenceGateway.ts
++++ b/electron/ai/inferenceGateway.ts
+@@ -38,6 +38,7 @@ import {
+ import { ollamaAdapter } from './adapters/ollama';
+ import { openAiCompatibleAdapter } from './adapters/openAiCompatible';
+ import { sdcppAdapter } from './adapters/sdcpp';
++import { comfyuiAdapter } from './adapters/comfyui';
+ import { getAllModelMetrics, recordModelUsage } from './modelMetrics';
+ import { invalidateVramReport } from './vramRoom';
+ import type { AdapterContext, ProviderAdapter } from './adapters/types';
+@@ -60,6 +61,7 @@ let sequence = 0;
+ 
+ function adapterFor(connection: AiConnectionSummary): ProviderAdapter {
+   if (connection.kind === 'sdcpp') return sdcppAdapter;
++  if (connection.kind === 'comfyui') return comfyuiAdapter;
+   return connection.kind === 'ollama' ? ollamaAdapter : openAiCompatibleAdapter;
+ }
+ 
+diff --git a/electron/ai/ipc.ts b/electron/ai/ipc.ts
+index a61f8c2..0d34da8 100644
+--- a/electron/ai/ipc.ts
++++ b/electron/ai/ipc.ts
+@@ -227,7 +227,13 @@ export function registerAiIpc({ assertIpcSender, window }: AiIpcDeps): void {
+     if (!isRecord(input) || typeof input.name !== 'string' || typeof input.baseUrl !== 'string') {
+       return { ok: false, code: 'bad-url', error: 'Invalid connection.' };
+     }
+-    const kind = input.kind === 'ollama' ? 'ollama' : 'openai-compatible';
++    // Every kind a user can create has to survive this line. It used to
++    // collapse anything unrecognised to openai-compatible, which silently
++    // turned a ComfyUI connection into one that talks the wrong protocol to
++    // the right port and fails with a confusing error.
++    const kind = input.kind === 'ollama' ? 'ollama'
++      : input.kind === 'comfyui' ? 'comfyui'
++      : 'openai-compatible';
+     const result = await saveConnection({
+       id: typeof input.id === 'string' ? input.id : undefined,
+       name: input.name,
+diff --git a/quick-note.html b/quick-note.html
+new file mode 100644
+index 0000000..1afdea2
+--- /dev/null
++++ b/quick-note.html
+@@ -0,0 +1,71 @@
++<!doctype html>
++<html lang="es">
++  <head>
++    <meta charset="UTF-8" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++    <!-- Locked to local content: this window loads no remote anything. The
++         inline-script and localhost-ws allowances exist only so the Vite dev
++         server's React preamble and HMR socket don't spam the console during
++         `npm run dev:desktop`; the built page has neither. -->
++    <meta
++      http-equiv="Content-Security-Policy"
++      content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:5174 ws://localhost:5174; img-src 'self' data:"
++    />
++    <title>Quick note</title>
++    <style>
++      /* Standalone on purpose: this window must paint instantly and never
++         depend on the app bundle (React, Tailwind, fonts, Dexie). */
++      * { box-sizing: border-box; }
++      html, body { height: 100%; margin: 0; }
++      body {
++        background: #131317;
++        color: #ece7de;
++        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
++        font-size: 14px;
++        border: 1px solid #2c2c34;
++        border-radius: 12px;
++        overflow: hidden;
++        user-select: none;
++      }
++      #app { display: flex; flex-direction: column; height: 100%; padding: 12px 14px 10px; gap: 8px; }
++      .row { display: flex; align-items: center; gap: 6px; }
++      .drag { -webkit-app-region: drag; flex: 1; height: 18px; }
++      .brand { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #7a7686; }
++      .chip {
++        -webkit-app-region: no-drag;
++        border: 1px solid #2c2c34; background: transparent; color: #a19caf;
++        border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer;
++        font-family: inherit;
++      }
++      .chip:hover { color: #ece7de; background: #1c1c22; }
++      .chip[data-active='true'] { color: #131317; font-weight: 600; border-color: transparent; }
++      textarea {
++        -webkit-app-region: no-drag;
++        flex: 1; resize: none; width: 100%;
++        background: #1c1c22; color: #ece7de;
++        border: 1px solid #2c2c34; border-radius: 8px;
++        padding: 9px 11px; font-family: inherit; font-size: 14px; line-height: 1.45;
++        outline: none; user-select: text;
++      }
++      textarea:focus { border-color: #e8c577; }
++      textarea::placeholder { color: #63606e; }
++      .footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
++      .hint { font-size: 11px; color: #63606e; }
++      .target {
++        -webkit-app-region: no-drag;
++        display: inline-flex; align-items: center; gap: 6px;
++        border: 1px solid #2c2c34; background: transparent; color: #a19caf;
++        border-radius: 999px; padding: 3px 10px; font-size: 11px; cursor: pointer;
++        max-width: 260px; font-family: inherit;
++      }
++      .target:hover { color: #ece7de; background: #1c1c22; }
++      .target span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++      .saved { color: #4a9e6d; font-size: 12px; }
++      .error { color: #c4463a; font-size: 12px; }
++    </style>
++  </head>
++  <body>
++    <div id="app"></div>
++    <script type="module" src="/src/quick-note/main.ts"></script>
++  </body>
++</html>
+diff --git a/src/engines/image-studio/operations.ts b/src/engines/image-studio/operations.ts
+index bf54360..563831b 100644
+--- a/src/engines/image-studio/operations.ts
++++ b/src/engines/image-studio/operations.ts
+@@ -105,9 +105,12 @@ export const REQUEST_SUPPORTS: {
+   hiresFix: FieldOnRequest<'hiresFix'>;
+   clipSkip: FieldOnRequest<'clipSkip'>;
+   detailer: FieldOnRequest<'detailer'>;
+-  sigmas: FieldOnRequest<'sigmas'>;
+-  slg: FieldOnRequest<'slg'>;
+-  apg: FieldOnRequest<'apg'>;
++  // The studio's names and the request's names are not the same words. Point
++  // each check at the field the request actually declares, or this stops being
++  // a compile-time fact and becomes a comment that happens to be true.
++  sigmas: FieldOnRequest<'customSigmas'>;
++  slg: FieldOnRequest<'skipLayerGuidance'>;
++  apg: FieldOnRequest<'extraSampleArgs'>;
+   cacheMode: FieldOnRequest<'cacheMode'>;
+ } = {
+   guidance: true,
+@@ -120,12 +123,16 @@ export const REQUEST_SUPPORTS: {
+   controlImage: true,
+   maskImage: true,
+   hiresFix: true,
+-  clipSkip: false,
++  clipSkip: true,
++  sigmas: true,
++  slg: true,
++  apg: true,
++  cacheMode: true,
++  // The one that is NOT waiting on plumbing. The pinned runtime has no native
++  // detailer pass at all: `ad_model`, `ad_prompt` and `extra_ad_args` occur
++  // nowhere in the parser, the CLI, or the public header at commit 92a3b73.
++  // Flipping this would offer a control the server discards in silence.
+   detailer: false,
+-  sigmas: false,
+-  slg: false,
+-  apg: false,
+-  cacheMode: false,
+ };
+ 
+ export type RequestSupportMap = typeof REQUEST_SUPPORTS;
+diff --git a/src/engines/image-studio/studio/passes.ts b/src/engines/image-studio/studio/passes.ts
+index 3ff4473..ebb5883 100644
+--- a/src/engines/image-studio/studio/passes.ts
++++ b/src/engines/image-studio/studio/passes.ts
+@@ -210,9 +210,13 @@ export function passAvailability(kind: PassKind, input: PassSupportInput): Field
+     return { enabled: false, reasonKey: 'imageStudio.reason.upscaleInHires' };
+   }
+   if (kind === 'detail') {
++    // Not "not yet" either: at the pinned commit `ad_model`, `ad_prompt` and
++    // `extra_ad_args` appear nowhere in the parser, the CLI or the public
++    // header. There is no native detailer to wait for, so saying the request
++    // lacks a field would promise a release that is not coming.
+     return input.supports.detailer
+       ? { enabled: true }
+-      : { enabled: false, reasonKey: 'imageStudio.reason.noRequestField' };
++      : { enabled: false, reasonKey: 'imageStudio.reason.noDetailer' };
+   }
+   if (!input.supports.hiresFix) return { enabled: false, reasonKey: 'imageStudio.reason.noRequestField' };
+   if (!input.managedLocal) return { enabled: false, reasonKey: 'visualRef.reason.serverChoosesSampler' };
+diff --git a/src/locales/en.ts b/src/locales/en.ts
+index 38d626f..a51d58f 100644
+--- a/src/locales/en.ts
++++ b/src/locales/en.ts
+@@ -4264,6 +4264,7 @@ const en = {
+   'imageStudio.reason.noSubseed': 'stable-diffusion.cpp has no variation seed. Approximating one by re-noising would make a different picture and call it a variation, so it is not offered.',
+   'imageStudio.reason.noPassthrough': 'The request is typed all the way to the server, so there is nowhere for raw JSON to go.',
+   'imageStudio.reason.upscaleInHires': 'This build has no separate upscale job. Real-ESRGAN is reachable, but as the hires pass’s upscaler.',
++  'imageStudio.reason.noDetailer': 'This build has no face or hand detail pass. The runtime it ships does not implement one, so there is nothing to switch on.',
+   'imageStudio.reason.noUpscaler': 'No upscaler is installed. Add one in AI settings → local image models.',
+   'imageStudio.reason.oneHiresPass': 'The request has room for one hires pass, so a second one is refused rather than merged into the first.',
+   'imageStudio.reason.noMaskEditor': 'The request can carry a mask; the studio has nowhere to paint one yet.',
+diff --git a/src/locales/es.ts b/src/locales/es.ts
+index 8ecf14b..4ea8d81 100644
+--- a/src/locales/es.ts
++++ b/src/locales/es.ts
+@@ -4264,6 +4264,7 @@ const es = {
+   'imageStudio.reason.noSubseed': 'stable-diffusion.cpp no tiene semilla de variación. Aproximarla volviendo a añadir ruido haría otra imagen y la llamaría variación, así que no se ofrece.',
+   'imageStudio.reason.noPassthrough': 'La petición va tipada hasta el servidor, así que no hay dónde meter JSON en crudo.',
+   'imageStudio.reason.upscaleInHires': 'Esta compilación no tiene un trabajo de escalado aparte. Real-ESRGAN sí se alcanza, pero como escalador de la pasada hires.',
++  'imageStudio.reason.noDetailer': 'Esta compilación no tiene pasada de detalle de caras o manos. El runtime que trae no la implementa, así que no hay nada que activar.',
+   'imageStudio.reason.noUpscaler': 'No hay ningún escalador instalado. Añade uno en Ajustes de IA → modelos de imagen locales.',
+   'imageStudio.reason.oneHiresPass': 'La petición tiene sitio para una pasada hires, así que la segunda se rechaza en vez de fundirse con la primera.',
+   'imageStudio.reason.noMaskEditor': 'La petición sí puede llevar una máscara; el estudio todavía no tiene dónde pintarla.',
+diff --git a/src/services/aiRuntime/types.ts b/src/services/aiRuntime/types.ts
+index e2ef7c8..f132da1 100644
+--- a/src/services/aiRuntime/types.ts
++++ b/src/services/aiRuntime/types.ts
+@@ -15,7 +15,7 @@ import type { Recipe } from './recipe';
+  * Wire protocol a connection speaks. `sdcpp` is the managed local image
+  * server (stable-diffusion.cpp) — never user-created, always the builtin.
+  */
+-export type AiConnectionKind = 'openai-compatible' | 'ollama' | 'sdcpp';
++export type AiConnectionKind = 'openai-compatible' | 'ollama' | 'sdcpp' | 'comfyui';
+ 
+ export type AiModelType = 'chat' | 'image';
+ 
+diff --git a/src/services/aiRuntime/urlPolicy.ts b/src/services/aiRuntime/urlPolicy.ts
+index 364a945..97dfece 100644
+--- a/src/services/aiRuntime/urlPolicy.ts
++++ b/src/services/aiRuntime/urlPolicy.ts
+@@ -209,6 +209,10 @@ export const LOCAL_DETECT_TARGETS: ReadonlyArray<{
+   label: string;
+ }> = [
+   { port: 11434, kind: 'ollama', label: 'Ollama' },
++  // ComfyUI's default. Probing it returns real models, because the adapter
++  // reads /object_info rather than a model list endpoint — so autodetection
++  // finds a running install without the user knowing its port.
++  { port: 8188, kind: 'comfyui', label: 'ComfyUI' },
+   { port: 1234, kind: 'openai-compatible', label: 'LM Studio' },
+   { port: 8080, kind: 'openai-compatible', label: 'llama.cpp' },
+   { port: 8000, kind: 'openai-compatible', label: 'vLLM' },
+diff --git a/tests/image-studio.ts b/tests/image-studio.ts
+index f4ffebf..bb91df9 100644
+--- a/tests/image-studio.ts
++++ b/tests/image-studio.ts
+@@ -227,17 +227,19 @@ export function testStudioRefusalsAreSpecific(): void {
+   assert(guided.sampler.enabled, 'the local sampler is live now that the request carries one');
+   assert(!remote.sampler.enabled, 'a remote images endpoint was offered a sampler it cannot use');
+   assert(remote.sampler.reasonKey === 'visualRef.reason.serverChoosesSampler', 'the remote refusal named the wrong cause');
+-  assert(!guided.clipSkip.enabled && guided.clipSkip.reasonKey === 'imageStudio.reason.noRequestField',
+-    'CLIP-skip must say the request has no field for it, not that the model cannot do it');
++  // CLIP-skip's field landed, so "the request has no field" would now be a lie.
++  // The only honest refusal left for it is a model with no CLIP stack, and a
++  // guided SDXL is not that — it must simply be offered.
++  assert(guided.clipSkip.enabled, 'CLIP-skip is on the request now and was still refused');
+   assert(guided.variationSeed.reasonKey === 'imageStudio.reason.noSubseed',
+     'the variation seed must say sd.cpp has none, not that it is coming');
+   assert(guided.rawJson.reasonKey === 'imageStudio.reason.noPassthrough', 'raw JSON named the wrong cause');
+ 
+   const reasons = new Set([
+-    distilled.cfg.reasonKey, remote.sampler.reasonKey, guided.clipSkip.reasonKey,
++    distilled.cfg.reasonKey, remote.sampler.reasonKey,
+     guided.variationSeed.reasonKey, guided.rawJson.reasonKey,
+   ]);
+-  assert(reasons.size === 5, 'two refusals share a reason, so one of them is saying something untrue');
++  assert(reasons.size === 4, 'two refusals share a reason, so one of them is saying something untrue');
+ }
+ 
+ export async function testStudioPanelShowsTheReason(): Promise<void> {
+@@ -247,7 +249,7 @@ export async function testStudioPanelShowsTheReason(): Promise<void> {
+     // The refusal is IN THE TEXT. A `title` satisfies a unit test and fails a
+     // reader who never hovers, and fails every touch screen outright.
+     assert(text.includes(translate('visualRef.reason.cfgFixed')), 'the fixed-guidance reason was not on the page');
+-    assert(text.includes(translate('imageStudio.reason.noRequestField')), 'the "no field yet" reason was not on the page');
++    assert(text.includes(translate('imageStudio.reason.noDetailer')), 'the missing detailer reason was not on the page');
+     assert(text.includes(translate('imageStudio.reason.noSubseed')), 'the missing variation seed was not explained');
+ 
+     // Present AND disabled — not removed. A vanished slider teaches "this app
+@@ -412,7 +414,7 @@ export function testStudioPassChain(): void {
+   // capability went, not with a shrug.
+   assert(passAvailability('upscale', LOCAL_SUPPORT).reasonKey === 'imageStudio.reason.upscaleInHires',
+     'the upscale pass must say that ESRGAN lives in the hires pass here');
+-  assert(passAvailability('detail', LOCAL_SUPPORT).reasonKey === 'imageStudio.reason.noRequestField',
++  assert(passAvailability('detail', LOCAL_SUPPORT).reasonKey === 'imageStudio.reason.noDetailer',
+     'the detailer must say the request has no field for it yet');
+   assert(passAvailability('hires', { ...LOCAL_SUPPORT, upscalers: [] }).reasonKey === 'imageStudio.reason.noUpscaler',
+     'a hires pass with no upscaler installed must say so');
+-- 
+2.43.0
+

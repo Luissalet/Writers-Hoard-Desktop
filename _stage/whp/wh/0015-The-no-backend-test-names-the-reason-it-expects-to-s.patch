@@ -1,0 +1,50 @@
+From 188a05331f93eb5c67b9cdfb2714990f3de04198 Mon Sep 17 00:00:00 2001
+From: Luissalet <luismasc16@gmail.com>
+Date: Fri, 4 Sep 2026 01:16:44 +0000
+Subject: [PATCH 15/36] The no-backend test names the reason it expects to see
+
+Asserting that something is disabled proves nothing about whether the
+writer can tell why. It now checks that a disabled control blames the
+missing image model by name, that the page says so in words, and that the
+portrait the writer uploaded is on screen regardless.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RmpuZqpQrFjas3Ajv22pKb
+---
+ tests/visual-ref.ts | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/tests/visual-ref.ts b/tests/visual-ref.ts
+index 629ac33..970cc64 100644
+--- a/tests/visual-ref.ts
++++ b/tests/visual-ref.ts
+@@ -48,6 +48,7 @@ import {
+   setCanonicalImage,
+ } from '@/engines/image-studio/refs';
+ import ImageStudioEngine from '@/engines/image-studio/ImageStudioEngine';
++import { t as translate } from '@/i18n/useTranslation';
+ 
+ function assert(condition: unknown, message: string): asserts condition {
+   if (!condition) throw new Error(message);
+@@ -530,6 +531,18 @@ export async function testVisualRefNoBackendUi(): Promise<void> {
+ 
+     const disabled = [...host.querySelectorAll('button')].filter((button) => button.disabled);
+     assert(disabled.length > 0, 'nothing was disabled with no backend — the studio pretended it could generate');
++    // And the reason is the right one, in the writer's language: "no image
++    // model is connected", not a generic shrug and not a claim about a model
++    // they have not chosen.
++    const noModelReason = translate('visualRef.reason.noModel');
++    assert(
++      disabled.some((button) => (button.getAttribute('title') ?? '') === noModelReason),
++      'no disabled control blamed the missing image model',
++    );
++    assert(text.includes(noModelReason), 'the missing image model was never said out loud on the page');
++    // The reference set the writer built is on the page whatever the backend
++    // does — that is the whole claim of the no-backend state.
++    assert(host.querySelector('img[src^="data:image/png"]'), 'the uploaded portrait was not shown');
+     // Hiding an action teaches the writer the feature does not exist. Every
+     // disabled control has to carry the reason it is disabled.
+     for (const button of disabled) {
+-- 
+2.43.0
+
