@@ -8,6 +8,9 @@ import AnnotationSurface from '@/engines/annotations/components/AnnotationSurfac
 import { generateId } from '@/utils/idGenerator';
 import { DEFAULT_PARAMS } from '../core/types';
 import { worldWaypointOps } from '../operations';
+import { createWorldAlternative, freshWorldEdits } from '../recipe';
+import { worldWorkspaceCopy } from '../workspaceCopy';
+import ReadErrorNotice from '@/components/common/ReadErrorNotice';
 import { useGeneratedWorlds } from '../hooks';
 import WorldView, {
   type RegionFocus,
@@ -16,10 +19,11 @@ import WorldView, {
 } from './WorldView';
 
 export default function WorldgenEngine({ projectId }: EngineComponentProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const {
     items: worlds,
     loading,
+    error, refresh, refetching,
     addItem: addWorld,
     editItem: editWorld,
     removeItem: removeWorld,
@@ -32,14 +36,27 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
 
   useAutoSelect(worlds, activeWorldId, setActiveWorldId);
 
+  useEffect(() => {
+    const worldId = searchParams.get('world');
+    if (!worldId || !worlds.some((candidate) => candidate.id === worldId)) return;
+    const timer = window.setTimeout(() => {
+      setActiveWorldId(worldId);
+      const next = new URLSearchParams(searchParams);
+      next.delete('world');
+      setSearchParams(next, { replace: true });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [searchParams, setSearchParams, worlds]);
+
   useEnsureDefault({
     items: worlds,
-    loading,
+    loading: loading || !!error,
     createDefault: () => ({
       id: generateId('world'),
       projectId,
       title: t('worldgenEngine.defaultName'),
       params: { ...DEFAULT_PARAMS, seed: generateId('seed').slice(-8) },
+      edits: freshWorldEdits(),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }),
@@ -107,6 +124,7 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
       projectId,
       title: name,
       params: { ...DEFAULT_PARAMS, seed: name.toLowerCase().replace(/\s+/g, '-') },
+      edits: freshWorldEdits(),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -124,13 +142,30 @@ export default function WorldgenEngine({ projectId }: EngineComponentProps) {
 
   return (
     <div className="space-y-4" data-testid="worldgen-engine">
+      {error && <ReadErrorNotice onRetry={refresh} retrying={refetching} />}
+      {worlds.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3">
+        <label className="flex min-w-0 items-center gap-2 text-text-primary">
+          <Mountain size={19} className="shrink-0 text-accent-gold" />
+          <span className="sr-only">{t('worldgen.itemNoun')}</span>
+          <select value={activeWorldId} onChange={event => setActiveWorldId(event.target.value)} className="min-w-0 max-w-full rounded-lg border border-border bg-surface px-3 py-2 text-base font-semibold">
+            {worlds.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+          </select>
+        </label>
+        {activeWorld?.originWorldId && worlds.some(item => item.id === activeWorld.originWorldId) &&
+          <button onClick={() => setActiveWorldId(activeWorld.originWorldId!)} className="text-sm text-accent-gold underline underline-offset-4">{worldWorkspaceCopy(locale).openOriginal}</button>}
+      </div>}
       {activeWorld && (
         <>
           <WorldView
             key={activeWorld.id}
             projectId={projectId}
             world={activeWorld}
-            onSaveParams={(params) => editWorld(activeWorld.id, { params })}
+            onRefreshWorld={refresh}
+            onCreateAlternative={async (params) => {
+              const alternative = await createWorldAlternative(activeWorld.id, params, `${worldWorkspaceCopy(locale).alternativeName} ${activeWorld.title}`);
+              await refresh();
+              setActiveWorldId(alternative.id);
+            }}
             onSaveEdits={(edits) => editWorld(activeWorld.id, { edits })}
             onSaveRegions={(regions) => editWorld(activeWorld.id, { regions })}
             onThumbnail={(thumbnail) => editWorld(activeWorld.id, { thumbnail })}

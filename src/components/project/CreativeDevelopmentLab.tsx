@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   BookOpenCheck,
@@ -20,12 +20,12 @@ import { getAnchorAdapter } from '@/engines/_shared/anchoring';
 import { useTranslation } from '@/i18n/useTranslation';
 import { toast } from '@/components/common/toast';
 import {
-  CreativeLab,
   SceneLab,
   buildCreativeSources,
   creativeSourceKey,
   type CreativeSourceCitation,
 } from './creative-lab';
+import PersistentCreativeLab from './creative-lab/PersistentCreativeLab';
 import BranchLab from './creative-lab/BranchLab';
 import StoryStateLab from './creative-lab/StoryStateLab';
 import CharacterPressureChamber from '@/components/character-pressure/CharacterPressureChamber';
@@ -377,7 +377,15 @@ function CausalWorkspace({ projectId, entities, onOpen }: {
 export default function CreativeDevelopmentLab({ projectId, entities }: CreativeDevelopmentLabProps) {
   const { t, locale } = useTranslation();
   const navigate = useNavigate();
-  const [view, setView] = useState<LabView>('ideas');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedView = searchParams.get('lab');
+  const view = LAB_VIEWS.find(candidate => candidate.id === requestedView)?.id ?? 'ideas';
+  const setView = (nextView: LabView) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('panel', 'lab');
+    next.set('lab', nextView);
+    setSearchParams(next);
+  };
   const data = useLiveQuery(async () => {
     const [
       notes,
@@ -648,9 +656,9 @@ export default function CreativeDevelopmentLab({ projectId, entities }: Creative
 
   return (
     <div className="space-y-5">
-      <header className="overflow-hidden rounded-2xl border border-border bg-[radial-gradient(circle_at_top_left,rgba(196,151,59,0.14),transparent_42%),linear-gradient(135deg,rgba(31,27,24,0.95),rgba(20,18,17,0.9))] p-5 sm:p-7">
+      <header className="py-1">
         <div className="flex items-start gap-3">
-          <span className="rounded-xl border border-accent-gold/30 bg-accent-gold/10 p-2.5 text-accent-gold"><Sparkles size={20} aria-hidden="true" /></span>
+          <Sparkles size={20} className="mt-1 shrink-0 text-accent-gold" aria-hidden="true" />
           <div>
             <h3 className="font-serif text-xl font-semibold text-text-primary">{t('creativeLab.title')}</h3>
             <p className="mt-1 max-w-3xl text-sm leading-relaxed text-text-muted">{t('creativeLab.description')}</p>
@@ -677,9 +685,10 @@ export default function CreativeDevelopmentLab({ projectId, entities }: Creative
 
       {!data && <div className="flex min-h-72 items-center justify-center"><Loader2 className="animate-spin text-accent-gold" /></div>}
       {data && view === 'ideas' && (
-        <CreativeLab
+        <PersistentCreativeLab
           projectId={projectId}
           sources={data.sources}
+          focusedSourceKey={searchParams.get('source')}
           locale={locale}
           onOpenSource={openCreativeSource}
           onPromote={(request) => promoteCreativePossibility(request, labels)}

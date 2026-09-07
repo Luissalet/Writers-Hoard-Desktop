@@ -43,6 +43,10 @@ export interface WorldParams {
   moisture: number;
   /** 0–1: how many rivers are shown (threshold on drainage area). */
   riverDensity: number;
+  /** Missing means the original solver; new recipes use topological drainage. */
+  drainageVersion?: 1 | 2;
+  /** Missing retains relative rainfall; v2 uses absolute annual water balance. */
+  hydrologyVersion?: 1 | 2;
   /** Detect + mark landmarks (volcanoes, caves, waterfalls, gorges, springs). */
   landmarks: boolean;
   /**
@@ -71,12 +75,14 @@ export const DEFAULT_PARAMS: WorldParams = {
   temperature: 0,
   moisture: 1.0,
   riverDensity: 0.5,
+  drainageVersion: 2,
+  hydrologyVersion: 2,
   landmarks: true,
 };
 
 /** Fill any missing fields (worlds saved by older versions of the engine). */
 export function normalizeParams(params: Partial<WorldParams>): WorldParams {
-  return { ...DEFAULT_PARAMS, ...params };
+  return { ...DEFAULT_PARAMS, ...params, drainageVersion: params.drainageVersion === 2 ? 2 : 1, hydrologyVersion: params.hydrologyVersion === 2 ? 2 : 1 };
 }
 
 /** Land-cover / biome classification per cell. */
@@ -226,6 +232,8 @@ export interface WorldData {
   flow: Float32Array;
   /** 1 where a lake sits above sea level. */
   lake: Uint8Array;
+  /** Lake water elevation in km, zero outside lakes; absent in old snapshots. */
+  lakeSurface?: Float32Array;
   rivers: RiverPath[];
   landmarks: Landmark[];
   /** Plate kinematics for the plates view (per plate: sx, sy = seed cell; dx, dy = drift). */
@@ -283,6 +291,7 @@ export interface WorldTransfer {
   biome: ArrayBuffer;
   flow: ArrayBuffer;
   lake: ArrayBuffer;
+  lakeSurface?: ArrayBuffer;
   rivers: { cells: ArrayBuffer; flow: number }[];
   landmarks: Landmark[];
   plateInfo: WorldData['plateInfo'];
@@ -294,27 +303,34 @@ export interface WorldTransfer {
   revision: number;
 }
 
+/** Transfer whole views only: a subarray must not expose unrelated cells. */
+function gridBuffer(view: ArrayBufferView): ArrayBuffer {
+  return view.byteOffset === 0 && view.byteLength === view.buffer.byteLength && view.buffer instanceof ArrayBuffer
+    ? view.buffer : new Uint8Array(view.buffer, view.byteOffset, view.byteLength).slice().buffer;
+}
+
 export function packWorld(w: WorldData): { transfer: WorldTransfer; buffers: ArrayBuffer[] } {
   const transfer: WorldTransfer = {
     width: w.width,
     height: w.height,
     params: w.params,
-    elevation: w.elevation.buffer as ArrayBuffer,
-    plateId: w.plateId.buffer as ArrayBuffer,
-    boundary: w.boundary.buffer as ArrayBuffer,
-    temperature: w.temperature.buffer as ArrayBuffer,
-    precipitation: w.precipitation.buffer as ArrayBuffer,
-    biome: w.biome.buffer as ArrayBuffer,
-    flow: w.flow.buffer as ArrayBuffer,
-    lake: w.lake.buffer as ArrayBuffer,
-    rivers: w.rivers.map((r) => ({ cells: r.cells.buffer as ArrayBuffer, flow: r.flow })),
+    elevation: gridBuffer(w.elevation),
+    plateId: gridBuffer(w.plateId),
+    boundary: gridBuffer(w.boundary),
+    temperature: gridBuffer(w.temperature),
+    precipitation: gridBuffer(w.precipitation),
+    biome: gridBuffer(w.biome),
+    flow: gridBuffer(w.flow),
+    lake: gridBuffer(w.lake),
+    lakeSurface: w.lakeSurface ? gridBuffer(w.lakeSurface) : undefined,
+    rivers: w.rivers.map((r) => ({ cells: gridBuffer(r.cells), flow: r.flow })),
     landmarks: w.landmarks,
     plateInfo: w.plateInfo,
-    currentU: w.currentU.buffer as ArrayBuffer,
-    currentV: w.currentV.buffer as ArrayBuffer,
-    sst: w.sst.buffer as ArrayBuffer,
-    currentSpeed: w.currentSpeed.buffer as ArrayBuffer,
-    ice: w.ice.buffer as ArrayBuffer,
+    currentU: gridBuffer(w.currentU),
+    currentV: gridBuffer(w.currentV),
+    sst: gridBuffer(w.sst),
+    currentSpeed: gridBuffer(w.currentSpeed),
+    ice: gridBuffer(w.ice),
     revision: w.revision,
   };
   const buffers = [
@@ -326,6 +342,7 @@ export function packWorld(w: WorldData): { transfer: WorldTransfer; buffers: Arr
     transfer.biome,
     transfer.flow,
     transfer.lake,
+    ...(transfer.lakeSurface ? [transfer.lakeSurface] : []),
     transfer.currentU,
     transfer.currentV,
     transfer.sst,
@@ -333,7 +350,7 @@ export function packWorld(w: WorldData): { transfer: WorldTransfer; buffers: Arr
     transfer.ice,
     ...transfer.rivers.map((r) => r.cells),
   ];
-  return { transfer, buffers };
+  return { transfer, buffers: [...new Set(buffers)] };
 }
 
 export function unpackWorld(t: WorldTransfer): WorldData {
@@ -349,6 +366,7 @@ export function unpackWorld(t: WorldTransfer): WorldData {
     biome: new Uint8Array(t.biome),
     flow: new Float32Array(t.flow),
     lake: new Uint8Array(t.lake),
+    lakeSurface: t.lakeSurface ? new Float32Array(t.lakeSurface) : undefined,
     rivers: t.rivers.map((r) => ({ cells: new Uint32Array(r.cells), flow: r.flow })),
     landmarks: t.landmarks,
     plateInfo: t.plateInfo,

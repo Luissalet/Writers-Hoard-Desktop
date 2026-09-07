@@ -2,7 +2,7 @@
 // Storyboard Engine — Panel Editor Modal
 // ============================================
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Images, Upload } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import Modal from '@/components/common/Modal';
@@ -16,7 +16,7 @@ interface PanelEditorProps {
   panel: StoryboardPanel | null;
   isOpen: boolean;
   onClose: () => void;
-  onSave: (panel: StoryboardPanel) => void;
+  onSave: (panel: StoryboardPanel) => void | Promise<void>;
   /** Scenes available for linking (`linkedSceneId` had no UI at all). */
   scenes?: Scene[];
 }
@@ -30,6 +30,9 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave, scenes = [
   const [previewOriginal, setPreviewOriginal] = useState<string | undefined>(panel?.imageDataOriginal || panel?.imageData);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [showGallery, setShowGallery] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [saveFailed, setSaveFailed] = useState(false);
 
   const onDrop = (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -49,9 +52,13 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave, scenes = [
     noClick: false,
   });
 
-  const handleSave = () => {
-    if (!panel) return;
-    onSave({
+  const handleSave = async () => {
+    if (!panel || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setSaveFailed(false);
+    try {
+    await onSave({
       ...panel,
       ...formData,
       subtitle: (formData.subtitle || '').trim(),
@@ -60,14 +67,20 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave, scenes = [
       updatedAt: Date.now(),
     });
     onClose();
+    } catch {
+      setSaveFailed(true);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   if (!isOpen || !panel) return null;
 
   return (
     <>
-      <Modal open={isOpen} onClose={onClose} title={t('storyboard.editPanel')}>
-      <div className="space-y-6 max-w-2xl">
+      <Modal open={isOpen} busy={saving} onClose={() => { if (!saving) onClose(); }} title={t('storyboard.editPanel')}>
+      <fieldset disabled={saving} className="space-y-6 max-w-2xl">
         {/* Image Upload */}
         <div>
           <label className="block text-sm font-semibold text-text-primary mb-2">{t('storyboard.form.image')}</label>
@@ -196,6 +209,7 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave, scenes = [
           />
         </div>
 
+        {saveFailed && <p role="alert" className="text-sm text-danger">{t('common.saveFailed')}</p>}
         {/* Action Buttons */}
         <div className="flex gap-3 pt-4 border-t border-border">
           <button
@@ -206,12 +220,13 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave, scenes = [
           </button>
           <button
             onClick={handleSave}
-            className="flex-1 px-4 py-2 bg-accent-gold text-deep rounded-lg hover:bg-accent-amber transition font-semibold"
+            disabled={saving}
+            className="flex-1 px-4 py-2 bg-accent-gold text-deep rounded-lg hover:bg-accent-amber transition font-semibold disabled:opacity-50"
           >
-            {t('storyboard.form.savePanel')}
+            {t(saving ? 'common.saving' : 'storyboard.form.savePanel')}
           </button>
         </div>
-      </div>
+      </fieldset>
     </Modal>
       <GalleryAssetPicker
         projectId={panel.projectId}

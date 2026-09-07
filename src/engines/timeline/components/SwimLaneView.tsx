@@ -6,6 +6,7 @@ import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
 import Modal from '@/components/common/Modal';
 import ColorPicker from '@/components/common/ColorPicker';
+import { validateTimelineDates } from '../dateValidation';
 import { useCodexEntries } from '@/engines/codex/hooks';
 
 // ============================================
@@ -19,14 +20,18 @@ interface SwimLaneViewProps {
   timelines: Timeline[];
   events: TimelineEvent[];
   connections: TimelineConnection[];
-  onAddEvent: (event: TimelineEvent) => void;
-  onEditEvent: (id: string, changes: Partial<TimelineEvent>) => void;
+  onAddEvent: (event: TimelineEvent) => void | Promise<void>;
+  onEditEvent: (id: string, changes: Partial<TimelineEvent>) => void | Promise<void>;
   onDeleteEvent: (id: string) => void;
-  onAddConnection: (conn: TimelineConnection) => void;
-  onEditConnection: (id: string, changes: Partial<TimelineConnection>) => void;
+  onAddConnection: (conn: TimelineConnection) => void | Promise<void>;
+  onEditConnection: (id: string, changes: Partial<TimelineConnection>) => void | Promise<void>;
   onDeleteConnection: (id: string) => void;
-  onEditTimeline: (id: string, changes: Partial<Timeline>) => void;
+  onEditTimeline: (id: string, changes: Partial<Timeline>) => void | Promise<void>;
 }
+
+type ConnectionWrite =
+  | { kind: 'create'; connection: TimelineConnection }
+  | { kind: 'update'; id: string; changes: Partial<TimelineConnection> };
 
 // Layout constants
 const LANE_HEIGHT = 120;
@@ -375,6 +380,8 @@ export default function SwimLaneView({
   const [connectingFromId, setConnectingFromId] = useState<string | null>(null);
   const [hoveredConnectionId, setHoveredConnectionId] = useState<string | null>(null);
   const [showEventForm, setShowEventForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [editingEvent, setEditingEvent] = useState<TimelineEvent | null>(null);
   const { items: codexEntries } = useCodexEntries(projectId);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; eventId: string } | null>(null);
@@ -385,6 +392,11 @@ export default function SwimLaneView({
   const [renamingTimeline, setRenamingTimeline] = useState<Timeline | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
   const [renameDescription, setRenameDescription] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const [renameFailed, setRenameFailed] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [failedConnection, setFailedConnection] = useState<ConnectionWrite | null>(null);
+  const connectionSavingRef = useRef(false);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
 
   // Drag-to-reorder state
@@ -412,6 +424,43 @@ export default function SwimLaneView({
 
   const svgWidth = Math.max(800, totalWidth + 80);
   const svgHeight = Math.max(300, TOP_PADDING + timelines.length * LANE_HEIGHT + 40);
+  const dateError = form.dateMode === 'calendar' ? validateTimelineDates(form.realDate, form.realDateEnd) : null;
+
+  const saveTimelineName = async () => {
+    if (!renamingTimeline || !renameTitle.trim() || renaming) return;
+    setRenaming(true);
+    setRenameFailed(false);
+    try {
+      await onEditTimeline(renamingTimeline.id, {
+        title: renameTitle.trim(), description: renameDescription.trim() || undefined,
+      });
+      setRenamingTimeline(null);
+    } catch {
+      setRenameFailed(true);
+    } finally {
+      setRenaming(false);
+    }
+  };
+
+  const saveConnection = useCallback(async (write: ConnectionWrite) => {
+    if (connectionSavingRef.current) return;
+    connectionSavingRef.current = true;
+    setConnecting(true);
+    setFailedConnection(null);
+    try {
+      if (write.kind === 'create') {
+        await onAddConnection(write.connection);
+        setConnectingFromId(null);
+      } else {
+        await onEditConnection(write.id, write.changes);
+      }
+    } catch {
+      setFailedConnection(write);
+    } finally {
+      connectionSavingRef.current = false;
+      setConnecting(false);
+    }
+  }, [onAddConnection, onEditConnection]);
 
   // ── Zoom ──
   const handleZoomIn = () => setZoom(z => Math.min(z + 0.15, 2.5));
@@ -456,21 +505,22 @@ export default function SwimLaneView({
   // ── Event clicks ──
   const handleEventClick = useCallback((e: React.MouseEvent, evt: TimelineEvent) => {
     e.stopPropagation();
-    if (dragStarted.current) return; // was a drag, not a click
+    if (dragStarted.current || connectionSavingRef.current) return; // a drag or an in-flight connection
     if (connectingFromId) {
       if (connectingFromId !== evt.id) {
-        onAddConnection({
+        void saveConnection({ kind: 'create', connection: {
           id: generateId('conn'), projectId,
           timelineId: evt.timelineId,
           sourceEventId: connectingFromId, targetEventId: evt.id,
           label: '', color: '#c4973b', style: 'solid', createdAt: Date.now(),
-        });
+        } });
+      } else {
+        setConnectingFromId(null);
       }
-      setConnectingFromId(null);
     } else {
       setSelectedEventId(prev => prev === evt.id ? null : evt.id);
     }
-  }, [connectingFromId, projectId, onAddConnection]);
+  }, [connectingFromId, projectId, saveConnection]);
 
   // Plain function (not useCallback): it delegates to `openEditForm`, which
   // is declared later and re-created each render — memoizing on [] both lied
@@ -601,6 +651,7 @@ export default function SwimLaneView({
 
   // ── Form handling ──
   const openAddForm = (timelineId: string) => {
+    setSaveFailed(false);
     const tl = timelines.find(t => t.id === timelineId);
     setForm({
       title: '', description: '', date: '', dateMode: 'text', eventType: 'point',
@@ -625,8 +676,11 @@ export default function SwimLaneView({
     setContextMenu(null);
   };
 
-  const handleSave = () => {
-    if (!form.title.trim()) return;
+  const handleSave = async () => {
+    if (!form.title.trim() || saving || dateError) return;
+    setSaving(true);
+    setSaveFailed(false);
+    try {
 
     const dateValue = form.dateMode === 'calendar' && form.realDate
       ? formatDate(form.realDate, form.realDateEnd) : form.date;
@@ -644,7 +698,7 @@ export default function SwimLaneView({
         ? nextOrderInLane(events, form.timelineId)
         : undefined;
 
-      onEditEvent(editingEvent.id, {
+      await onEditEvent(editingEvent.id, {
         title: form.title, description: form.description, date: dateValue,
         dateMode: form.dateMode, eventType: effectiveType,
         realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
@@ -654,7 +708,7 @@ export default function SwimLaneView({
         ...(timelineChanged ? { timelineId: form.timelineId, order: newOrder } : {}),
       });
     } else {
-      onAddEvent({
+      await onAddEvent({
         id: generateId('evt'), projectId, timelineId: form.timelineId,
         title: form.title, description: form.description, date: dateValue,
         dateMode: form.dateMode, eventType: effectiveType,
@@ -667,6 +721,11 @@ export default function SwimLaneView({
     }
     setShowEventForm(false);
     setEditingEvent(null);
+    } catch {
+      setSaveFailed(true);
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Close context menus on outside click
@@ -686,6 +745,14 @@ export default function SwimLaneView({
 
   return (
     <div className="space-y-3">
+      {connecting && <p role="status" className="text-sm text-text-muted">{t('common.saving')}</p>}
+      {failedConnection && (
+        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-danger">
+          <span>{t('timeline.connectionSaveFailed')}</span>
+          <button type="button" onClick={() => void saveConnection(failedConnection)} className="rounded border border-border px-3 py-1 text-text-primary hover:bg-elevated">{t('projectCockpit.retry')}</button>
+          <button type="button" onClick={() => { setFailedConnection(null); setConnectingFromId(null); }} className="text-text-muted hover:text-text-primary">{t('common.cancel')}</button>
+        </div>
+      )}
       {/* Toolbar */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-lg font-serif font-bold text-accent-gold">{t('timeline.swimLaneView')}</h3>
@@ -788,6 +855,7 @@ export default function SwimLaneView({
                     e.stopPropagation();
                     setRenameTitle(tl.title);
                     setRenameDescription(tl.description ?? '');
+                    setRenameFailed(false);
                     setRenamingTimeline(tl);
                   }}
                 >
@@ -1086,13 +1154,13 @@ export default function SwimLaneView({
                   were created with an empty label and a fixed style and the
                   only affordance was deleting them. `updateConnection` existed
                   in operations.ts with no caller. */}
-              <div className="px-3 py-2 space-y-2 border-b border-border" onContextMenu={(e) => e.preventDefault()}>
+              <fieldset disabled={connecting} className="px-3 py-2 space-y-2 border-b border-border" onContextMenu={(e) => e.preventDefault()}>
                 <input
                   defaultValue={conn.label ?? ''}
                   placeholder={t('timeline.connectionLabel')}
                   onBlur={(e) => {
                     const next = e.target.value.trim();
-                    if (next !== (conn.label ?? '')) onEditConnection(conn.id, { label: next });
+                    if (next !== (conn.label ?? '')) void saveConnection({ kind: 'update', id: conn.id, changes: { label: next } });
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
@@ -1103,7 +1171,7 @@ export default function SwimLaneView({
                   {(['solid', 'dashed', 'dotted'] as const).map((style) => (
                     <button
                       key={style}
-                      onClick={() => onEditConnection(conn.id, { style })}
+                      onClick={() => void saveConnection({ kind: 'update', id: conn.id, changes: { style } })}
                       className={`flex-1 px-1.5 py-1 text-[10px] rounded transition ${
                         conn.style === style
                           ? 'bg-accent-gold/20 text-accent-gold font-semibold'
@@ -1115,11 +1183,11 @@ export default function SwimLaneView({
                   ))}
                   <ColorPicker
                     value={conn.color || '#c4973b'}
-                    onChange={(color) => onEditConnection(conn.id, { color })}
+                    onChange={(color) => void saveConnection({ kind: 'update', id: conn.id, changes: { color } })}
                     size="sm"
                   />
                 </div>
-              </div>
+              </fieldset>
 
               <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10 transition"
                 onClick={() => { onDeleteConnection(connContextMenu.connId); setConnContextMenu(null); }}>
@@ -1133,10 +1201,11 @@ export default function SwimLaneView({
       {/* Rename Timeline Modal */}
       <Modal
         open={renamingTimeline !== null}
-        onClose={() => setRenamingTimeline(null)}
+        busy={renaming}
+        onClose={() => { if (!renaming) setRenamingTimeline(null); }}
         title={t('timeline.renameTimeline')}
       >
-        <div className="space-y-4">
+        <fieldset disabled={renaming} className="space-y-4">
           <div>
             <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelTitle')}</label>
             <input
@@ -1155,21 +1224,14 @@ export default function SwimLaneView({
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition resize-none"
             />
           </div>
+          {renameFailed && <p role="alert" className="text-sm text-danger">{t('common.saveFailed')}</p>}
           <div className="flex gap-3 pt-2">
             <button
-              onClick={() => {
-                if (renamingTimeline && renameTitle.trim()) {
-                  onEditTimeline(renamingTimeline.id, {
-                    title: renameTitle.trim(),
-                    description: renameDescription.trim() || undefined,
-                  });
-                }
-                setRenamingTimeline(null);
-              }}
-              disabled={!renameTitle.trim()}
+              onClick={() => void saveTimelineName()}
+              disabled={!renameTitle.trim() || renaming}
               className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition disabled:opacity-50"
             >
-              {t('common.save')}
+              {t(renaming ? 'common.saving' : 'common.save')}
             </button>
             <button
               onClick={() => setRenamingTimeline(null)}
@@ -1178,13 +1240,13 @@ export default function SwimLaneView({
               {t('common.cancel')}
             </button>
           </div>
-        </div>
+        </fieldset>
       </Modal>
 
       {/* Add/Edit Event Modal */}
-      <Modal open={showEventForm} onClose={() => { setShowEventForm(false); setEditingEvent(null); }}
+      <Modal open={showEventForm} onClose={() => { if (!saving) { setShowEventForm(false); setEditingEvent(null); setSaveFailed(false); } }}
         title={editingEvent ? t('timeline.editEvent') : t('timeline.newEvent')}>
-        <div className="space-y-4">
+        <fieldset disabled={saving} className="space-y-4">
           <div>
             <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelTitle')}</label>
             <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
@@ -1300,17 +1362,19 @@ export default function SwimLaneView({
             </div>
           )}
 
+          {dateError && <p role="alert" className="text-sm text-danger">{t(dateError)}</p>}
+          {saveFailed && <p role="alert" className="text-sm text-danger">{t('common.saveFailed')}</p>}
           <div className="flex gap-3 pt-2">
-            <button onClick={handleSave}
-              className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition">
-              {editingEvent ? t('timeline.save') : t('timeline.create')}
+            <button onClick={handleSave} disabled={saving || Boolean(dateError)}
+              className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition disabled:opacity-50">
+              {saving ? t('common.saving') : editingEvent ? t('timeline.save') : t('timeline.create')}
             </button>
             <button onClick={() => { setShowEventForm(false); setEditingEvent(null); }}
               className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition">
               {t('timeline.cancel')}
             </button>
           </div>
-        </div>
+        </fieldset>
       </Modal>
     </div>
   );

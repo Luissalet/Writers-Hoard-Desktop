@@ -25,7 +25,7 @@ import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from '@/co
 import GalleryLightbox from './GalleryLightbox';
 import { useImageHandoffStore } from '@/stores/imageHandoffStore';
 import { navigateTo } from '@/engines/_shared/anchoring/navigation';
-import { ConfirmDialog } from '@/engines/_shared';
+import { ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
 import {
   BoundedImportQueue,
   DEFAULT_GALLERY_IMPORT_CONCURRENCY,
@@ -36,6 +36,10 @@ import { prepareGalleryImportFile } from './prepareImportFile';
 
 const GALLERY_PAGE_SIZE = 60;
 
+function foldReferenceText(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
+}
+
 interface InspirationGalleryProps {
   projectId: string;
   images: InspirationImage[];
@@ -44,7 +48,7 @@ interface InspirationGalleryProps {
   onAdd: (image: InspirationImage) => Promise<void> | void;
   onEditImage: (id: string, changes: Partial<InspirationImage>) => void;
   onDelete: (id: string) => void;
-  onAddCollection: (collection: ImageCollection) => void;
+  onAddCollection: (collection: ImageCollection) => Promise<void>;
   onDeleteCollection: (id: string) => void;
   /** Kept deliberately small by the queue (and clamped to four). */
   importConcurrency?: number;
@@ -104,14 +108,32 @@ export default function InspirationGallery({
   const { t } = useTranslation();
   const [lightboxImage, setLightboxImage] = useState<InspirationImage | null>(null);
   const [filterTag, setFilterTag] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [filterEntryId, setFilterEntryId] = useState<string>('');
   const [uploadTags, setUploadTags] = useState<string[]>([]);
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
   const [showNewAlbum, setShowNewAlbum] = useState(false);
+  const [savingAlbum, setSavingAlbum] = useState(false);
+  const [albumError, setAlbumError] = useState(false);
+  const savingAlbumRef = useRef(false);
   const [newAlbumName, setNewAlbumName] = useState('');
   const [editingImageId, setEditingImageId] = useState<string | null>(null);
   const [entrySearchQuery, setEntrySearchQuery] = useState('');
   const [showEntryPicker, setShowEntryPicker] = useState(false);
+  const linkedImageId = useDeepLinkParam('image');
+  const linkedAlbumId = useDeepLinkParam('album');
+  const [appliedLink, setAppliedLink] = useState('');
+  const imageTarget = images.find(image => image.id === linkedImageId && image.projectId === projectId);
+  const albumTarget = collections.find(album => album.id === linkedAlbumId && album.projectId === projectId);
+  const linkKey = `${projectId}:${linkedImageId ?? ''}:${linkedAlbumId ?? ''}`;
+  if (linkKey !== appliedLink && (imageTarget || albumTarget)) {
+    setAppliedLink(linkKey);
+    setFilterTag('');
+    setSearchQuery('');
+    setFilterEntryId('');
+    setActiveCollectionId(imageTarget?.collectionId ?? albumTarget?.id ?? null);
+    if (imageTarget) setLightboxImage(imageTarget);
+  }
   const [cropRequests, setCropRequests] = useState<CropRequest[]>([]);
   // Deleting an image was a single unconfirmed click sitting on the thumbnail
   // hover bar — one slip and an irreplaceable reference photo was gone, while
@@ -238,16 +260,26 @@ export default function InspirationGallery({
     accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp'] },
   });
 
-  const handleCreateAlbum = () => {
-    if (!newAlbumName.trim()) return;
-    onAddCollection({
+  const handleCreateAlbum = async () => {
+    if (!newAlbumName.trim() || savingAlbumRef.current) return;
+    savingAlbumRef.current = true;
+    setSavingAlbum(true);
+    setAlbumError(false);
+    try {
+      await onAddCollection({
       id: generateId('col'),
       projectId,
       title: newAlbumName.trim(),
       createdAt: Date.now(),
-    });
-    setNewAlbumName('');
-    setShowNewAlbum(false);
+      });
+      setNewAlbumName('');
+      setShowNewAlbum(false);
+    } catch {
+      setAlbumError(true);
+    } finally {
+      savingAlbumRef.current = false;
+      setSavingAlbum(false);
+    }
   };
 
   const handleMoveToAlbum = (imageId: string, collectionId: string | null) => {
@@ -293,15 +325,22 @@ export default function InspirationGallery({
   const filteredByTag = filterTag
     ? filteredByCollection.filter(img => img.tags.includes(filterTag))
     : filteredByCollection;
-  const filtered = filterEntryId
+  const filteredByEntry = filterEntryId
     ? filteredByTag.filter(img => (img.linkedEntryIds || []).includes(filterEntryId))
     : filteredByTag;
+  const searchTerms = foldReferenceText(searchQuery).trim().split(/\s+/).filter(Boolean);
+  const filtered = searchTerms.length ? filteredByEntry.filter(img => {
+    const text = foldReferenceText([img.notes, ...img.tags, ...getLinkedEntries(img).map(entry => entry.title)].join(' '));
+    return searchTerms.every(term => text.includes(term));
+  }) : filteredByEntry;
+  const hasFilters = Boolean(searchQuery || filterTag || filterEntryId);
+  const clearFilters = () => { setSearchQuery(''); setFilterTag(''); setFilterEntryId(''); };
 
   // A mood board of a few thousand references used to mount every one of them
   // at once, decoding a full-size base64 payload per tile. The grid now grows a
   // page at a time; changing album, tag or entry starts again from the first
   // page (render-adjust, the same pattern the deep link in CodexEntryList uses).
-  const filterKey = `${activeCollectionId ?? ''}\u0000${filterTag}\u0000${filterEntryId}`;
+  const filterKey = `${activeCollectionId ?? ''}\u0000${filterTag}\u0000${filterEntryId}\u0000${searchQuery}`;
   const [appliedFilterKey, setAppliedFilterKey] = useState(filterKey);
   const [visibleCount, setVisibleCount] = useState(GALLERY_PAGE_SIZE);
   if (filterKey !== appliedFilterKey) {
@@ -382,14 +421,14 @@ export default function InspirationGallery({
         })}
 
         {showNewAlbum ? (
-          <div className="flex items-center gap-1">
+          <fieldset disabled={savingAlbum} aria-busy={savingAlbum} className="flex items-center gap-1">
             <input
               value={newAlbumName}
               onChange={(e) => setNewAlbumName(e.target.value)}
               placeholder={t('gallery.albumName')}
               className="px-2 py-1 bg-elevated border border-border rounded text-sm text-text-primary outline-none focus:border-accent-gold w-32"
               autoFocus
-              onKeyDown={(e) => { if (e.key === 'Enter') handleCreateAlbum(); if (e.key === 'Escape') setShowNewAlbum(false); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateAlbum(); if (e.key === 'Escape' && !savingAlbum) setShowNewAlbum(false); }}
             />
             <button onClick={handleCreateAlbum} className="p-1 text-accent-gold hover:text-accent-amber transition" title={t('common.create')} aria-label={t('common.create')}>
               <ChevronRight size={16} aria-hidden="true" />
@@ -397,7 +436,7 @@ export default function InspirationGallery({
             <button onClick={() => setShowNewAlbum(false)} className="p-1 text-text-muted hover:text-text-primary transition" title={t('common.cancel')} aria-label={t('common.cancel')}>
               <X size={14} aria-hidden="true" />
             </button>
-          </div>
+          </fieldset>
         ) : (
           <button
             onClick={() => setShowNewAlbum(true)}
@@ -409,7 +448,13 @@ export default function InspirationGallery({
         )}
       </div>
 
+      {albumError && <p role="alert" className="text-sm text-red-400">{t('gallery.albumSaveError')}</p>}
+
       {/* Controls */}
+      <div className="flex flex-wrap items-center gap-3">
+        <input type="search" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} aria-label={t('gallery.searchReferences')} placeholder={t('gallery.searchReferences')} className="min-w-0 flex-1 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary" />
+        {hasFilters && <button type="button" onClick={clearFilters} className="px-3 py-2 text-sm text-accent-gold hover:underline">{t('common.resetFilters')}</button>}
+      </div>
       <div className="flex items-center gap-3 flex-wrap">
         <div {...getRootProps()} className={`flex items-center gap-2 px-4 py-2 rounded-lg cursor-pointer transition border-2 border-dashed ${
           isDragActive ? 'border-accent-gold bg-accent-gold/10 text-accent-gold' : 'border-border text-text-muted hover:border-accent-gold/50 hover:text-text-primary'
@@ -579,9 +624,9 @@ export default function InspirationGallery({
       {filtered.length === 0 ? (
         <EmptyState
           icon={<ImageIcon size={40} />}
-          title={activeCollectionId ? t('gallery.albumEmpty.title') : t('gallery.empty.title')}
-          message={activeCollectionId ? t('gallery.albumEmpty.message') : t('gallery.empty.message')}
-          action={{ label: t('gallery.uploadImages'), onClick: openFilePicker }}
+          title={hasFilters ? t('common.filteredEmpty') : activeCollectionId ? t('gallery.albumEmpty.title') : t('gallery.empty.title')}
+          message={hasFilters ? t('gallery.searchReferences') : activeCollectionId ? t('gallery.albumEmpty.message') : t('gallery.empty.message')}
+          action={hasFilters ? { label: t('common.resetFilters'), onClick: clearFilters } : { label: t('gallery.uploadImages'), onClick: openFilePicker }}
         />
       ) : (
         <Masonry

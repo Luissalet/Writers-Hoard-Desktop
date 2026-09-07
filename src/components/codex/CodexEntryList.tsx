@@ -17,8 +17,8 @@ import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from './co
 interface CodexEntryListProps {
   projectId: string;
   entries: CodexEntry[];
-  onAdd: (entry: CodexEntry) => void;
-  onEdit: (id: string, changes: Partial<CodexEntry>) => void;
+  onAdd: (entry: CodexEntry) => Promise<void>;
+  onEdit: (id: string, changes: Partial<CodexEntry>, base?: CodexEntry) => Promise<void>;
   onDelete: (id: string) => void;
 }
 
@@ -84,10 +84,12 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
   const { t } = useTranslation();
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [savingForm, setSavingForm] = useState(false);
   const [editEntry, setEditEntry] = useState<CodexEntry | null>(null);
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<CodexEntryType | 'all'>('all');
-  const [selectedEntry, setSelectedEntry] = useState<CodexEntry | null>(null);
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const selectedEntry = entries.find(entry => entry.id === selectedEntryId && entry.projectId === projectId) ?? null;
 
   // Deep link: `/project/:id/codex?entry=<id>` — how global search, Cmd+K and
   // annotation backlinks arrive here. Opens the detail modal on the record
@@ -102,7 +104,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
     const target = entries.find((e) => e.id === deepLinkedEntryId);
     if (target) {
       setAppliedDeepLink(deepLinkedEntryId);
-      setSelectedEntry(target);
+      setSelectedEntryId(target.id);
     }
   }
   const [pendingDeleteEntry, setPendingDeleteEntry] = useState<CodexEntry | null>(null);
@@ -196,7 +198,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
             return (
               <button
                 key={entry.id}
-                onClick={() => setSelectedEntry(entry)}
+                onClick={() => setSelectedEntryId(entry.id)}
                 className="text-left p-4 bg-surface border border-border rounded-xl hover:border-accent-gold/40 transition group"
               >
                 <div className="flex items-start gap-3">
@@ -230,18 +232,20 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
       )}
 
       {/* Create/Edit Modal */}
-      <Modal open={showForm || !!editEntry} onClose={() => { setShowForm(false); setEditEntry(null); }} title={editEntry ? t('codex.editEntry') : t('codex.newCodexEntry')} wide>
+      <Modal open={showForm || !!editEntry} busy={savingForm} onClose={() => { setShowForm(false); setEditEntry(null); }} title={editEntry ? t('codex.editEntry') : t('codex.newCodexEntry')} wide>
         <CodexEntryForm
+          key={editEntry?.id ?? 'new'}
           projectId={projectId}
           entry={editEntry || undefined}
-          onSave={(entry) => {
+          onPendingChange={setSavingForm}
+          onSave={async (entry, base) => {
             if (editEntry) {
-              onEdit(entry.id, entry);
+              await onEdit(entry.id, entry, base);
             } else {
-              onAdd(entry);
+              await onAdd(entry);
               // Open the freshly created entry instead of dumping the user
               // back on the grid to hunt for it.
-              setSelectedEntry(entry);
+              setSelectedEntryId(entry.id);
             }
             setShowForm(false);
             setEditEntry(null);
@@ -251,7 +255,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
       </Modal>
 
       {/* Detail View Modal */}
-      <Modal open={!!selectedEntry} onClose={() => setSelectedEntry(null)} title={selectedEntry?.title} wide>
+      <Modal open={!!selectedEntry} onClose={() => setSelectedEntryId(null)} title={selectedEntry?.title} wide>
         {selectedEntry && (
           <div className="space-y-4">
             <div className="flex items-start gap-4 mb-4">
@@ -315,7 +319,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
 
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => { setSelectedEntry(null); setEditEntry(selectedEntry); }}
+                onClick={() => { setSelectedEntryId(null); setEditEntry(selectedEntry); }}
                 className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition"
               >
                 {t('common.edit')}
@@ -340,7 +344,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
           setPendingDeleteEntry(null);
           if (!entry) return;
           onDelete(entry.id);
-          setSelectedEntry(null);
+          setSelectedEntryId(null);
         }}
         onCancel={() => setPendingDeleteEntry(null)}
       />

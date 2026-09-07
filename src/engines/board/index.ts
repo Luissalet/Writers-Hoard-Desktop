@@ -133,8 +133,8 @@ registerAnchorAdapter({
     return board?.title ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.board'),
-  navigateToEntity(entityId: string) {
-    const projectId = getCurrentProjectIdFromUrl();
+  navigateToEntity(entityId: string, targetProjectId?: string) {
+    const projectId = targetProjectId ?? getCurrentProjectIdFromUrl();
     if (!projectId) return;
     navigateTo(`/project/${projectId}/board?node=${encodeURIComponent(entityId)}`);
   },

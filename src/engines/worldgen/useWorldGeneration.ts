@@ -26,6 +26,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { forgeAvailable, forgeDegraded, spawnForgeWorker } from './forge/bridge';
 import type { WorldData, WorldParams } from './core/types';
 import { unpackWorld } from './core/types';
+import { captureEnvironment, restoreEnvironment, type EnvironmentFields } from './core/recalculate';
 import { loadSnapshot, saveSnapshot } from './snapshots';
 import { bindCanonWorld } from './canonSnapshots';
 import type { WorkerReply } from './worldgen.worker';
@@ -33,12 +34,19 @@ import type { WorkerReply } from './worldgen.worker';
 interface Entry {
   key: string;
   data: WorldData;
+  byteLength: number;
   /** The generated world, before any brush touched it. */
-  pristine: { elevation: Float32Array; biome: Uint8Array; lake: Uint8Array };
+  pristine: EnvironmentFields & { elevation: Float32Array };
 }
 
 /** Session-lifetime cache: worldId → entry. */
 const cache = new Map<string, Entry>();
+const CACHE_BYTES = 256 * 1024 * 1024;
+
+function touchEntry(worldId: string, entry: Entry): void {
+  cache.delete(worldId);
+  cache.set(worldId, entry);
+}
 
 export function paramsKey(params: WorldParams): string {
   return JSON.stringify(params);
@@ -48,25 +56,33 @@ function remember(worldId: string, key: string, data: WorldData): Entry {
   const entry: Entry = {
     key,
     data,
+    byteLength: 0,
     pristine: {
+      ...captureEnvironment(data),
       elevation: Float32Array.from(data.elevation),
-      biome: Uint8Array.from(data.biome),
-      lake: Uint8Array.from(data.lake),
     },
   };
+  // Count actual owned buffers rather than assuming the default resolution.
+  // A 3072-wide world is several times larger than the old three-world budget
+  // implied. Count aliases once and include the pristine paint recovery copy.
+  const buffers = new Set<ArrayBufferLike>();
+  for (const value of [...Object.values(data), ...Object.values(entry.pristine), ...data.rivers.map((river) => river.cells), ...entry.pristine.rivers.map(river => river.cells)]) {
+    if (ArrayBuffer.isView(value)) buffers.add(value.buffer);
+  }
+  for (const buffer of buffers) entry.byteLength += buffer.byteLength;
   // Every world object that reaches a view passes through here, so this is
   // the one place the canon persistence learns which Dexie row a live world
   // belongs to. A world that never passes (benches, transient previews)
   // simply never persists canon.
   bindCanonWorld(data, worldId);
-  cache.delete(worldId);
-  cache.set(worldId, entry);
-  // Three worlds of pristine copies is about thirty-six megabytes; a reader who
-  // browses ten in one sitting should not be carrying all ten. Map iteration is
-  // insertion-ordered, so the first key is the least recently remembered.
-  while (cache.size > 3) {
+  touchEntry(worldId, entry);
+  let bytes = 0;
+  for (const cached of cache.values()) bytes += cached.byteLength;
+  // Retain the just-adopted world even if it alone exceeds the budget.
+  while (cache.size > 1 && (cache.size > 3 || bytes > CACHE_BYTES)) {
     const oldest = cache.keys().next().value;
     if (!oldest || oldest === worldId) break;
+    bytes -= cache.get(oldest)!.byteLength;
     cache.delete(oldest);
   }
   return entry;
@@ -74,12 +90,17 @@ function remember(worldId: string, key: string, data: WorldData): Entry {
 
 export function getCachedWorld(worldId: string, params: WorldParams): WorldData | null {
   const hit = cache.get(worldId);
-  if (hit && hit.key === paramsKey(params)) return hit.data;
+  if (hit && hit.key === paramsKey(params)) {
+    touchEntry(worldId, hit);
+    return hit.data;
+  }
   return null;
 }
 
 export interface GenerationState {
   running: boolean;
+  /** The caller is committing the recipe; cancellation must not interrupt it. */
+  committing?: boolean;
   stage: string;
   progress: number; // 0..1
   error: string | null;
@@ -90,11 +111,11 @@ const LOADING: GenerationState = { running: true, stage: 'loading', progress: 0.
 
 export function useWorldGeneration(
   worldId: string,
-  onDone?: (world: WorldData) => void,
+  onDone?: (world: WorldData) => void | Promise<void>,
 ): {
   world: WorldData | null;
   gen: GenerationState;
-  generate: (params: WorldParams) => void;
+  generate: (params: WorldParams, options?: { fresh?: boolean }) => void;
   cancel: () => void;
   /**
    * Put the world's editable fields back the way the generator left them.
@@ -110,6 +131,7 @@ export function useWorldGeneration(
   const workerRef = useRef<Worker | null>(null);
   /** Monotonic token: a load or a generation that finishes late is discarded. */
   const runRef = useRef(0);
+  const committingRef = useRef(false);
   const onDoneRef = useRef(onDone);
   useEffect(() => {
     onDoneRef.current = onDone;
@@ -128,6 +150,7 @@ export function useWorldGeneration(
   // Kill any in-flight worker when the world changes or on unmount.
   const invalidateRun = useCallback(() => {
     runRef.current++;
+    committingRef.current = false;
   }, []);
   useEffect(() => {
     return () => {
@@ -138,6 +161,7 @@ export function useWorldGeneration(
   }, [worldId, invalidateRun]);
 
   const cancel = useCallback(() => {
+    if (committingRef.current) return;
     workerRef.current?.terminate();
     workerRef.current = null;
     invalidateRun();
@@ -148,10 +172,32 @@ export function useWorldGeneration(
     const entry = cache.get(worldId);
     if (!entry || entry.data !== w) return;
     w.elevation.set(entry.pristine.elevation);
-    w.biome.set(entry.pristine.biome);
-    w.lake.set(entry.pristine.lake);
+    restoreEnvironment(w, entry.pristine);
     w.painted = undefined;
     w.revision = (w.revision ?? 0) + 1;
+  }, [worldId]);
+
+  const adopt = useCallback(async (data: WorldData, key: string, run: number, persist: boolean, cached?: Entry) => {
+    if (run !== runRef.current) return;
+    committingRef.current = true;
+    setGen({ running: true, committing: true, stage: 'finish', progress: 1, error: null });
+    try {
+      // Persist the caller's recipe/edit reset before exposing new terrain.
+      // Failed commits keep the old live world and both caches untouched.
+      await onDoneRef.current?.(data);
+      if (run !== runRef.current) return;
+      const entry = cached ?? remember(worldId, key, data);
+      setWorld(data);
+      setGen(IDLE);
+      if (persist) {
+        const snapshot = { ...data, ...entry.pristine, painted: undefined };
+        window.setTimeout(() => { void saveSnapshot(worldId, key, snapshot); }, 2500);
+      }
+    } catch (error) {
+      if (run === runRef.current) setGen({ running: false, stage: '', progress: 0, error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      if (run === runRef.current) committingRef.current = false;
+    }
   }, [worldId]);
 
   const forge = useCallback((params: WorldParams, key: string, run: number) => {
@@ -161,9 +207,15 @@ export function useWorldGeneration(
     // receives the finished world. Web Worker fallback everywhere else —
     // including the degraded mode the bridge declares when a forge child
     // dies without ever answering (see FORGE_FIRST_REPLY_MS).
-    const worker = forgeAvailable() && !forgeDegraded()
-      ? spawnForgeWorker('worldgen') as unknown as Worker
-      : new Worker(new URL('./worldgen.worker.ts', import.meta.url), { type: 'module' });
+    let worker: Worker;
+    try {
+      worker = forgeAvailable() && !forgeDegraded()
+        ? spawnForgeWorker('worldgen') as unknown as Worker
+        : new Worker(new URL('./worldgen.worker.ts', import.meta.url), { type: 'module' });
+    } catch (error) {
+      setGen({ running: false, stage: '', progress: 0, error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     workerRef.current = worker;
     setGen({ running: true, stage: 'plates', progress: 0, error: null });
 
@@ -176,17 +228,11 @@ export function useWorldGeneration(
         worker.terminate();
         if (workerRef.current === worker) workerRef.current = null;
         if (run !== runRef.current) return;
-        const data = unpackWorld(msg.world);
-        remember(worldId, key, data);
-        setWorld(data);
-        setGen(IDLE);
-        // Kept for next time. Deferred rather than immediate: quantising
-        // thirty-eight megabytes is about half a second of main thread, and the
-        // moment the world arrives is precisely when the reader is watching it
-        // draw. Nothing waits on it and nothing breaks if it fails — the worst
-        // case is that the world gets forged again one day.
-        window.setTimeout(() => { void saveSnapshot(worldId, key, data); }, 2500);
-        onDoneRef.current?.(data);
+        try {
+          void adopt(unpackWorld(msg.world), key, run, true);
+        } catch (error) {
+          setGen({ running: false, stage: '', progress: 0, error: error instanceof Error ? error.message : String(error) });
+        }
       } else {
         worker.terminate();
         if (workerRef.current === worker) workerRef.current = null;
@@ -201,18 +247,32 @@ export function useWorldGeneration(
       setGen({ running: false, stage: '', progress: 0, error: err.message || 'Worker error' });
     };
 
-    worker.postMessage({ type: 'generate', params });
-  }, [worldId]);
+    try {
+      worker.postMessage({ type: 'generate', params });
+    } catch (error) {
+      worker.terminate();
+      if (workerRef.current === worker) workerRef.current = null;
+      setGen({ running: false, stage: '', progress: 0, error: error instanceof Error ? error.message : String(error) });
+    }
+  }, [adopt]);
 
-  const generate = useCallback((params: WorldParams) => {
+  const generate = useCallback((params: WorldParams, options?: { fresh?: boolean }) => {
+    if (committingRef.current) return;
     const key = paramsKey(params);
     const run = ++runRef.current;
+    workerRef.current?.terminate();
+    workerRef.current = null;
+
+    if (options?.fresh) {
+      forge(params, key, run);
+      return;
+    }
 
     // 1. Session cache → instant.
     const hit = cache.get(worldId);
     if (hit && hit.key === key) {
-      setWorld(hit.data);
-      setGen(IDLE);
+      touchEntry(worldId, hit);
+      void adopt(hit.data, key, run, false, hit);
       return;
     }
 
@@ -225,15 +285,12 @@ export function useWorldGeneration(
         forge(params, key, run);
         return;
       }
-      remember(worldId, key, stored);
-      setWorld(stored);
-      setGen(IDLE);
-      onDoneRef.current?.(stored);
+      void adopt(stored, key, run, false);
     }).catch(() => {
       if (run !== runRef.current) return;
       forge(params, key, run);
     });
-  }, [worldId, forge]);
+  }, [worldId, forge, adopt]);
 
   return { world, gen, generate, cancel, restorePristine };
 }

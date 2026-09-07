@@ -156,18 +156,22 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
   // fills in the local copy — yt-dlp for media links, a full page archive
   // (PDF + screenshot + HTML) for ordinary web pages.
   const handleCapture = useCallback(
-    (snapshot: Snapshot) => {
+    async (snapshot: Snapshot) => {
+      // Confirm the link itself before the capture bar clears its input.
+      await addSnapshot(snapshot);
+      if (!isDesktop()) return;
       void (async () => {
-        await addSnapshot(snapshot);
-        if (!isDesktop()) return;
         if (canDownloadMedia(snapshot.source)) {
           await runSnapshotDownload(snapshot, editSnapshot, 'video');
         } else if (canCapturePage(snapshot.source)) {
           await runSnapshotCapture(snapshot, editSnapshot);
         }
-      })();
+      })().catch(error => {
+        console.error('Snapshot background capture failed', error);
+        toast.error(t(canDownloadMedia(snapshot.source) ? 'scrapper.downloadFailed' : 'scrapper.captureFailed'));
+      });
     },
-    [addSnapshot, editSnapshot],
+    [addSnapshot, editSnapshot, t],
   );
 
   // Collection import: the modal already listed + reviewed everything; here we
@@ -394,8 +398,8 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
       {isManualModalOpen && (
         <ManualSnapshotModal
           projectId={projectId}
-          onSave={(snapshot) => {
-            addSnapshot(snapshot);
+          onSave={async (snapshot) => {
+            await addSnapshot(snapshot);
             setIsManualModalOpen(false);
           }}
           onCancel={() => setIsManualModalOpen(false)}

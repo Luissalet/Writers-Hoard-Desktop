@@ -17,6 +17,7 @@ import type { EngineComponentProps } from '@/engines/_types';
 import { EngineSpinner } from '@/engines/_shared';
 import { navigateTo } from '@/engines/_shared/anchoring';
 import EmptyState from '@/components/common/EmptyState';
+import ReadErrorNotice from '@/components/common/ReadErrorNotice';
 import { useProject } from '@/hooks/useProjects';
 import { useUsageReport } from '../hooks';
 import type { CharacterUsage } from '../types';
@@ -27,7 +28,7 @@ const NO_ROWS: CharacterUsage[] = [];
 
 export default function PovAuditEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
-  const { items, loading, refresh } = useUsageReport(projectId);
+  const { items, loading, error, refetching, refresh } = useUsageReport(projectId);
   const { project } = useProject(projectId);
   const [filter, setFilter] = useState<FilterMode>('all');
 
@@ -49,6 +50,7 @@ export default function PovAuditEngine({ projectId }: EngineComponentProps) {
   );
 
   if (loading) return <EngineSpinner />;
+  if (error) return <ReadErrorNotice onRetry={refresh} retrying={refetching} />;
   if (!report) return null;
 
   const { totals } = report;
@@ -73,7 +75,7 @@ export default function PovAuditEngine({ projectId }: EngineComponentProps) {
           action={
             codexEnabled
               ? { label: t('povAudit.firstRun.action'), onClick: () => navigateTo(`/project/${projectId}/codex`) }
-              : undefined
+              : { label: t('project.manageEngines'), onClick: () => navigateTo(`/project/${projectId}/overview?manage=1`) }
           }
         />
       </div>

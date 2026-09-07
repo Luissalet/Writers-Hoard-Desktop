@@ -1310,3 +1310,40 @@ por permisos mientras implemento la reestructuración autorizada.
 workspace y del alcance ya aprobado. No convertir cautelas internas en preguntas repetitivas. Solo detenerse
 si la plataforma exige técnicamente una aprobación fuera del workspace o si la acción ampliaría de verdad
 el alcance; ninguna de las dos cosas aplica a la implementación normal de Writers Hoard.
+
+## #70 — Auditar conexiones reales y tareas completas, no solo el aspecto del lienzo
+**Date:** 2026-09-07
+**Context:** El usuario precisó que Yarnboard fallaba al conectar ideas y pidió evaluar todos los motores desde las necesidades de quien crea.
+**Rule:** Ante una mejora general, trazar tareas de usuario por motor (empezar, crear, editar, conectar, guardar/reabrir y recuperar). En un editor de grafos verificar conexiones reales de extremo a extremo, incluidos hit targets, selección, edición y persistencia; ajustes de cámara y estética no prueban que el tablero funcione. Documentar cobertura y límites por motor y priorizar pérdidas de contenido y caminos sin salida.
+
+**Terminología:** Comprobar el registro y el código vigente antes de usar un nombre histórico: el editor actual de esquemas y grafos es Tablero (`board`), fusión de Yarnboard y Brainstorm.
+
+## #71 — Separar mejoras realizadas de propuestas pendientes
+
+**Contexto:** El usuario no pudo distinguir si la auditoría describía trabajo hecho o por hacer y pidió continuar implementando.
+
+**Regla:** Mantener documentos de estado separados y títulos explícitos. «Revisado» no equivale a «corregido». No presentar una auditoría como sustituto de la implementación autorizada; continuar con los fallos identificados y registrar pruebas del comportamiento resultante.
+
+## #72 — La calidad de Worldgen requiere evaluar el resultado y el coste
+
+**Contexto:** Tras las correcciones de fiabilidad, el usuario sigue insatisfecho con calidad, rendimiento y capacidades generales de Worldgen.
+
+**Regla:** No equiparar generar sin errores con un generador satisfactorio. Evaluar la geografía resultante, legibilidad a distintas escalas, tiempos de generación/recarga/interacción y tareas de construcción del mundo. Medir cuellos de botella, revisar límites arquitectónicos y verificar mejoras de resultados además de estabilidad.
+
+## #73 — Los pendientes autorizados no son un punto de cierre
+
+**Contexto:** Dejé problemas concretos de Worldgen en un informe pese a la petición de seguir mejorando; el usuario exigió implementarlos.
+
+**Regla:** Cuando una investigación identifica trabajo necesario dentro del alcance autorizado, ejecutarlo y verificarlo antes de cerrar. No sustituir la continuidad por una lista de pendientes ni usar una primera tanda de pruebas como señal de que terminó el objetivo del usuario.
+
+## #74 — El historial debe probarse con el coste real del mundo
+
+**Contexto:** Las pruebas pequeñas de recálculo pasaron, pero deshacer el último cambio en un mundo de 2048 provocó un cierre durante la comprobación de interfaz.
+
+**Regla:** Verificar el ciclo completo con una resolución de uso real, incluyendo deshacer hasta la lista vacía, rehacer y reabrir. Un parche de interfaz nunca debe caer en una reconstrucción geográfica completa. Medir las reservas de memoria del historial además del tiempo de generación; preparar estados antiguos de forma diferida y cancelar cálculos obsoletos.
+
+## #75 — Un worker simulado debe respetar la frontera de transporte
+
+**Contexto:** El cálculo de viajes pasaba con geografía simplificada, pero los idiomas generados contenían funciones que hacían fallar el envío al worker real.
+
+**Regla:** Proyectar un contrato de datos mínimo y serializable para cada worker. Los transportes simulados deben clonar como `postMessage`; añadir una prueba con el worker real y datos generados cuando el cambio introduce una nueva frontera de ejecución.

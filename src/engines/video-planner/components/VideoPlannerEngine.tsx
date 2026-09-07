@@ -338,6 +338,7 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
       {activePlan && (
         <div className="border-t border-border pt-6">
           <VideoPlanView
+            key={activePlan.id}
             plan={activePlan}
             segments={segments}
             onAddSegment={addSegment}

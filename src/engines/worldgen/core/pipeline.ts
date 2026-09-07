@@ -94,6 +94,7 @@ export function generateWorld(rawParams: WorldParams, onProgress?: ProgressFn): 
   const iterScale = params.width >= 3072 ? 0.5 : params.width >= 2048 ? 0.62 : params.width >= 1536 ? 0.75 : 1;
   const iterations = Math.round(8 + 34 * params.erosion * iterScale);
   const solver = erode(elevation, plates.uplift, W, H, {
+    drainageVersion: params.drainageVersion,
     iterations,
     K: 0.013,
     deposition: 0.18,
@@ -128,7 +129,7 @@ export function generateWorld(rawParams: WorldParams, onProgress?: ProgressFn): 
 
   // 5. Hydrology (rain-weighted rivers + lakes) ------------------------------
   report('hydrology', 0);
-  const hydro = computeHydrology(params, elevation, climate.precipitation, solver);
+  const hydro = computeHydrology(params, elevation, climate.precipitation, solver, climate.temperature);
   report('hydrology', 1);
 
   // 6. Biomes ----------------------------------------------------------------
@@ -185,6 +186,7 @@ export function generateWorld(rawParams: WorldParams, onProgress?: ProgressFn): 
     biome,
     flow: hydro.flowMap,
     lake: hydro.lake,
+    lakeSurface: hydro.lakeSurface,
     rivers: hydro.rivers,
     landmarks,
     plateInfo: plates.plateInfo,

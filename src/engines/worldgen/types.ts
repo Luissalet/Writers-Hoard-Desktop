@@ -7,6 +7,7 @@
 
 import type { WorldParams } from './core/types';
 import type { RegionParams } from './region/types';
+import type { WorldJourney } from './journeyTypes';
 
 /**
  * A bookmarked regional view.
@@ -44,6 +45,8 @@ export interface GeneratedWorld {
   projectId: string;
   title: string;
   params: WorldParams;
+  /** Original world when this recipe was explored as an independent alternative. */
+  originWorldId?: string;
   /**
    * The brush strokes, serialised.
    *
@@ -60,6 +63,8 @@ export interface GeneratedWorld {
   edits?: string;
   /** Named/bookmarked regional views. Generated pixels are never persisted. */
   regions?: SavedWorldRegion[];
+  /** Named travel plans; geographic paths and durations are derived on opening. */
+  journeys?: WorldJourney[];
   /** Small JPEG data URL preview for dashboards / future use. */
   thumbnail?: string;
   createdAt: number;

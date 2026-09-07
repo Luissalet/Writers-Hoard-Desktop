@@ -26,7 +26,7 @@ interface BaseProps {
 interface ArchiveProps extends BaseProps {
   mode?: 'archive';
   projectId: string;
-  onCapture: (snapshot: Snapshot) => void;
+  onCapture: (snapshot: Snapshot) => Promise<void>;
   onManualEntry: () => void;
 }
 
@@ -50,6 +50,8 @@ export default function CaptureBar(props: CaptureBarProps) {
   const { t } = useTranslation();
   const [url, setUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const submittingRef = useRef(false);
   const [format, setFormat] = useState<MediaFormat>('video');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -68,8 +70,9 @@ export default function CaptureBar(props: CaptureBarProps) {
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (!url.trim()) return;
-
+    if (!url.trim() || submittingRef.current) return;
+    submittingRef.current = true;
+    setSaveError(false);
     setIsLoading(true);
     try {
       if (isDownloadMode(props)) {
@@ -90,10 +93,13 @@ export default function CaptureBar(props: CaptureBarProps) {
           preservedAt: Date.now(),
           createdAt: Date.now(),
         };
-        props.onCapture(snapshot);
+        await props.onCapture(snapshot);
         setUrl('');
       }
+    } catch {
+      setSaveError(true);
     } finally {
+      submittingRef.current = false;
       setIsLoading(false);
     }
   }, [url, format, props]);
@@ -143,6 +149,8 @@ export default function CaptureBar(props: CaptureBarProps) {
             ref={inputRef}
             type="text"
             value={url}
+            disabled={buttonBusy}
+            aria-label={t('scrapper.urlPlaceholder')}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t('scrapper.urlPlaceholder')}
@@ -187,7 +195,7 @@ export default function CaptureBar(props: CaptureBarProps) {
           {submitLabel}
         </button>
       </div>
-
+      {saveError && <p role="alert" className="text-sm text-red-400">{t('scrapper.saveError')}</p>}
       <div className="flex justify-between items-center">
         <p className="text-xs text-muted">
           {url && source && (

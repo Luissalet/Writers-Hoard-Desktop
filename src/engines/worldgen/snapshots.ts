@@ -12,7 +12,7 @@
 import { db } from '@/db';
 import type { WorldData } from './core/types';
 import type { WorldSnapshot } from './types';
-import { decodeWorld, encodeWorld, SNAPSHOT_VERSION } from './core/worldStore';
+import { decodeWorld, encodeWorld, SNAPSHOT_VERSION, supportsSnapshotVersion } from './core/worldStore';
 
 export type { WorldSnapshot };
 
@@ -29,7 +29,7 @@ const KEEP = 4;
 export async function loadSnapshot(worldId: string, key: string): Promise<WorldData | null> {
   try {
     const row = await db.worldSnapshots.get(worldId);
-    if (!row || row.key !== key || row.version !== SNAPSHOT_VERSION) return null;
+    if (!row || row.key !== key || !supportsSnapshotVersion(row.version)) return null;
     const world = await decodeWorld(row.bytes);
     // Touch it so the eviction below keeps what is actually being used rather
     // than what happened to be forged most recently.

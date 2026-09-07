@@ -3,12 +3,13 @@ import { GripVertical, Trash2 } from 'lucide-react';
 import type { VideoSegment, VisualType } from '../types';
 import SegmentEditor from './SegmentEditor';
 import { useTranslation } from '@/i18n/useTranslation';
+import { ConfirmDialog } from '@/engines/_shared';
 
 interface SegmentCardProps {
   segment: VideoSegment;
   index: number;
-  onUpdate: (id: string, changes: Partial<VideoSegment>) => void;
-  onDelete: (id: string) => void;
+  onUpdate: (id: string, changes: Partial<VideoSegment>) => void | Promise<void>;
+  onDelete: (id: string) => void | Promise<void>;
   isDragging?: boolean;
   onDragStart?: (e: React.DragEvent, id: string) => void;
 }
@@ -33,6 +34,7 @@ export default function SegmentCard({
   const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(false);
 
   const formatTimecodeRange = (start?: string, end?: string): string => {
     if (!start && !end) return '';
@@ -73,7 +75,7 @@ export default function SegmentCard({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onDelete(segment.id);
+                setPendingDelete(true);
               }}
               className="p-1.5 hover:bg-elevated rounded text-red-400 hover:text-red-300 transition-colors"
               title={t('common.delete')}
@@ -136,13 +138,20 @@ export default function SegmentCard({
       {isEditing && (
         <SegmentEditor
           segment={segment}
-          onSave={(updated) => {
-            onUpdate(segment.id, updated);
+          onSave={async (updated) => {
+            await onUpdate(segment.id, updated);
             setIsEditing(false);
           }}
           onCancel={() => setIsEditing(false)}
         />
       )}
+      <ConfirmDialog
+        open={pendingDelete}
+        destructive
+        message={t('videoPlanner.segment.deleteConfirm')}
+        onConfirm={async () => { await onDelete(segment.id); setPendingDelete(false); }}
+        onCancel={() => setPendingDelete(false)}
+      />
     </>
   );
 }

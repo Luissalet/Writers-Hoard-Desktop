@@ -2,6 +2,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Settings2 } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useProject } from '@/hooks/useProjects';
+import ReadErrorNotice from '@/components/common/ReadErrorNotice';
 import { getEngine, getEnginesByIds } from '@/engines';
 import TopBar from '@/components/layout/TopBar';
 import EngineManager from '@/components/project/EngineManager';
@@ -18,7 +19,7 @@ export default function ProjectDetail() {
   const { id, tab } = useParams<{ id: string; tab?: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { project, loading, refresh } = useProject(id);
+  const { project, loading, error, refresh } = useProject(id);
   const { showEngineManager, setShowEngineManager } = useAppStore();
   const setCurrentProject = useAppStore((s) => s.setCurrentProject);
 
@@ -115,6 +116,7 @@ export default function ProjectDetail() {
     );
   }
 
+  if (error && !project) return <div className="p-6"><ReadErrorNotice onRetry={refresh} retrying={loading} /></div>;
   if (!project) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -131,6 +133,7 @@ export default function ProjectDetail() {
       />
 
       <div className="flex-1 overflow-hidden flex flex-col">
+        {error && <ReadErrorNotice onRetry={refresh} />}
         {/* Engine content — no more tab bar */}
         <div className="flex-1 overflow-y-auto p-6">
           {tab === 'overview' ? (
@@ -154,7 +157,7 @@ export default function ProjectDetail() {
                   </div>
                 )}
               >
-                <activeEngine.component projectId={id!} />
+                <activeEngine.component key={`${id}:${activeEngine.id}`} projectId={id!} />
               </Suspense>
             </EngineErrorBoundary>
           ) : (

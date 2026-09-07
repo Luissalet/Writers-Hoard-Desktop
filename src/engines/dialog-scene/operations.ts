@@ -17,7 +17,13 @@ const sceneOps = makeTableOps<Scene>({
 
 export const getScenes = sceneOps.getAll;
 export const getScene = sceneOps.getOne;
-export const createScene = sceneOps.create;
+export async function createScene(scene: Scene): Promise<string> {
+  return db.transaction('rw', db.scenes, async () => {
+    const id = await sceneOps.create(scene);
+    await autoNumberScenes(scene.projectId);
+    return id;
+  });
+}
 export const updateScene = sceneOps.update;
 
 // deleteScene cascades to blocks and cast
@@ -57,35 +63,41 @@ export async function deleteScene(id: string): Promise<void> {
     'rw',
     ['scenes', 'dialogBlocks', 'sceneCasts', 'outlineBeats', 'annotations', 'annotationReferences'],
     async () => {
+      const scene = await db.scenes.get(id);
       const orphaned = await getLinkedBeats(id);
       for (const beat of orphaned) {
         await db.table('outlineBeats').update(beat.id, { linkedSceneId: undefined });
       }
       await deleteEntityAnnotations('dialog-scene', id);
       await deleteSceneRow(id);
+      if (scene) await autoNumberScenes(scene.projectId);
     },
   );
 }
 
 export async function reorderScenes(projectId: string, orderedIds: string[]): Promise<void> {
-  await reorderItems('scenes', 'projectId', projectId, orderedIds);
+  await db.transaction('rw', db.scenes, async () => {
+    await reorderItems('scenes', 'projectId', projectId, orderedIds);
+    await autoNumberScenes(projectId);
+  });
 }
 
 /** Auto-number all non-locked scenes. Omitted scenes keep their number but are prefixed visually. */
 export async function autoNumberScenes(projectId: string): Promise<void> {
-  const scenes = await getScenes(projectId);
-  let nextNumber = 1;
-  for (const scene of scenes) {
-    if (scene.isLocked) {
-      // locked scenes keep their number; advance counter past them
-      if (scene.sceneNumber && scene.sceneNumber >= nextNumber) {
-        nextNumber = scene.sceneNumber + 1;
+  await db.transaction('rw', db.scenes, async () => {
+    const scenes = await getScenes(projectId);
+    const changed: Scene[] = [];
+    let nextNumber = 1;
+    for (const scene of scenes) {
+      if (scene.isLocked) {
+        if (scene.sceneNumber && scene.sceneNumber >= nextNumber) nextNumber = scene.sceneNumber + 1;
+        continue;
       }
-      continue;
+      if (scene.sceneNumber !== nextNumber) changed.push({ ...scene, sceneNumber: nextNumber, updatedAt: Date.now() });
+      nextNumber++;
     }
-    await updateScene(scene.id, { sceneNumber: nextNumber });
-    nextNumber++;
-  }
+    if (changed.length) await db.scenes.bulkPut(changed);
+  });
 }
 
 // ===== Dialog Blocks =====

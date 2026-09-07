@@ -533,6 +533,10 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
   }
 
   const rawEntities: Array<Omit<HubEntity, 'key' | 'backlinkCount'>> = [
+    ...boards.map(row => ({ id: row.id, engineId: 'board', entityType: 'board', title: row.title, updatedAt: row.updatedAt })),
+    ...boardNodes.map(row => ({ id: row.id, engineId: 'board', entityType: 'board-node', title: row.title || row.ref?.title || t('board.defaultName'), subtitle: row.kind, updatedAt: row.updatedAt })),
+    ...characterArcs.map(row => ({ id: row.id, engineId: 'character-arc', entityType: 'character-arc', title: row.title, updatedAt: row.updatedAt })),
+    ...relationships.map(row => ({ id: row.id, engineId: 'relationships', entityType: 'relationship', title: row.label || `${row.entityAName} → ${row.entityBName}`, updatedAt: row.updatedAt })),
     ...codexEntries.map(row => ({ id: row.id, engineId: 'codex', entityType: row.type, title: row.title, subtitle: row.type, updatedAt: row.updatedAt })),
     ...writings.map(row => ({ id: row.id, engineId: 'writings', entityType: 'writing', title: row.title, subtitle: row.status, updatedAt: row.updatedAt })),
     ...scenes.map(row => ({ id: row.id, engineId: 'dialog-scene', entityType: 'scene', title: row.title, subtitle: row.setting, updatedAt: row.updatedAt })),
@@ -626,6 +630,8 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
   ).length;
 
   const recent: RecentProjectItem[] = [
+    ...rawEntities.filter(row => ['board', 'character-arc', 'relationships', 'outline', 'seeds'].includes(row.engineId))
+      .map(row => ({ id: row.id, engineId: row.engineId, title: row.title, subtitle: row.subtitle ?? row.entityType, updatedAt: row.updatedAt ?? 0 })),
     ...writings.map(row => ({ id: row.id, engineId: 'writings', title: row.title, subtitle: row.status, updatedAt: row.updatedAt })),
     ...codexEntries.map(row => ({ id: row.id, engineId: 'codex', title: row.title, subtitle: row.type, updatedAt: row.updatedAt })),
     ...scenes.map(row => ({ id: row.id, engineId: 'dialog-scene', title: row.title, subtitle: 'scene', updatedAt: row.updatedAt })),

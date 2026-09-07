@@ -11,6 +11,9 @@ import { makeNote, moveNote } from '../operations';
 import { GLOBAL_NOTES_SCOPE, NOTE_KINDS, NOTE_KIND_META, type Note, type NoteKind } from '../types';
 import NoteCard from './NoteCard';
 import NoteComposer, { type NoteDraft } from './NoteComposer';
+import { useNavigate } from 'react-router-dom';
+import ReadErrorNotice from '@/components/common/ReadErrorNotice';
+import { creativeSourceKey } from '@/components/project/creative-lab';
 
 type KindFilter = NoteKind | 'all';
 
@@ -22,8 +25,9 @@ type KindFilter = NoteKind | 'all';
  */
 export default function NotesEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const isInbox = projectId === GLOBAL_NOTES_SCOPE;
-  const { items: notes, loading, addItem, editItem, removeItem, refresh } = useNotes(projectId);
+  const { items: notes, loading, hasLoaded, error, refetching, addItem, editItem, removeItem, refresh } = useNotes(projectId);
   const { projects } = useProjects();
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [query, setQuery] = useState('');
@@ -70,18 +74,16 @@ export default function NotesEngine({ projectId }: EngineComponentProps) {
     });
   }, [notes, kindFilter, query]);
 
-  const handleCreate = (draft: NoteDraft) => {
-    void (async () => {
-      await addItem(makeNote(projectId, draft));
-      notifyNotesChanged();
-    })();
+  const handleCreate = async (draft: NoteDraft) => {
+    await addItem(makeNote(projectId, draft));
+    notifyNotesChanged();
   };
 
   const handleDelete = (id: string) => {
     void (async () => {
       await removeItem(id);
       notifyNotesChanged();
-    })();
+    })().catch(() => toast.error(t('notes.saveFailed')));
   };
 
   const handleMove = (id: string, targetProjectId: string) => {
@@ -91,13 +93,15 @@ export default function NotesEngine({ projectId }: EngineComponentProps) {
       notifyNotesChanged();
       const target = projects.find((p) => p.id === targetProjectId);
       toast.success(`${t('notes.moved')} ${target?.title ?? ''}`.trim());
-    })();
+    })().catch(() => toast.error(t('notes.saveFailed')));
   };
 
   if (loading && notes.length === 0) return <EngineSpinner />;
+  if (error && !hasLoaded) return <ReadErrorNotice onRetry={refresh} retrying={refetching} />;
 
   return (
     <div className="flex flex-col h-full bg-deep">
+      {error && <ReadErrorNotice onRetry={refresh} retrying={refetching} />}
       <div className="p-4 pb-0">
         <NoteComposer onSubmit={handleCreate} tagSuggestions={allTags} />
       </div>
@@ -164,6 +168,7 @@ export default function NotesEngine({ projectId }: EngineComponentProps) {
                 key={note.id}
                 note={note}
                 onUpdate={editItem}
+                onDevelop={isInbox ? undefined : source => navigate(`/project/${encodeURIComponent(projectId)}/overview?panel=lab&lab=ideas&source=${encodeURIComponent(creativeSourceKey('note', source.id))}`)}
                 onDelete={handleDelete}
                 moveTargets={moveTargets}
                 onMove={handleMove}

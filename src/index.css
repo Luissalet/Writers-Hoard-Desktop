@@ -5,15 +5,20 @@
    invalid missing-asset responses in Chromium. */
 
 @theme {
-  --color-deep: #07070d;
-  --color-surface: #111119;
-  --color-elevated: #1a1a25;
-  --color-border: #2a2a3a;
-  --color-border-hover: #3a3a4f;
-  --color-text-primary: #e8e5e0;
-  --color-text-muted: #aaa6b0;
-  --color-text-dim: #88838f;
-  --color-accent-gold: #c4973b;
+  --color-deep: #17191a;
+  --color-surface: #202223;
+  --color-elevated: #2a2d2e;
+  --color-border: #3b3e3e;
+  --color-border-hover: #626560;
+  --color-text-primary: #eeeae2;
+  --color-text-muted: #babcb6;
+  --color-text-dim: #a1a49e;
+  --color-accent-gold: #d5b575;
+  /* Compatibility names used by existing engine controls. */
+  --color-background: var(--color-deep);
+  --color-bg-elevated: var(--color-elevated);
+  --color-bg-base: var(--color-deep);
+  --color-text-secondary: var(--color-text-muted);
   --color-accent-amber: #e4a853;
   --color-accent-plum: #7c5cbf;
   --color-accent-plum-light: #9b7ed8;
@@ -117,6 +122,22 @@ body {
   color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Shared controls remain readable across engines and keyboard navigation. */
+button:not(:disabled), a, summary { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent-gold);
+  outline-offset: 3px;
+}
+::selection { background: #d5b57540; color: var(--color-text-primary); }
+input, textarea { caret-color: var(--color-accent-gold); }
+
+@media (max-width: 800px) {
+  .app-sidebar { width: 60px; }
+  .app-sidebar span { display: none; }
+  .app-sidebar > div:first-child { padding-inline: 14px; }
 }
 
 /* Scrollbar styling */
@@ -327,7 +348,7 @@ body {
   background: var(--color-accent-gold) !important;
   box-shadow: 0 0 0 2px rgba(7, 7, 13, 0.7);
   opacity: 0.35;
-  transition: opacity 120ms ease, transform 120ms ease;
+  transition: opacity 120ms ease, scale 120ms ease;
 }
 
 /* The halo is the real hit target: 22px of slack around an 11px dot. */
@@ -347,7 +368,7 @@ body {
 .board-handle.connectingfrom,
 .board-handle.connectingto {
   opacity: 1;
-  transform: scale(1.45);
+  scale: 1.45;
   background: var(--color-accent-amber) !important;
 }
 

@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react';
-import { Check, Copy, FolderInput, Palette, Pencil, Pin, PinOff, Trash2, X } from 'lucide-react';
+import { ArrowUpRight, Check, Copy, FolderInput, Palette, Pencil, Pin, PinOff, Trash2, X } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
 import { NOTE_COLORS, NOTE_KIND_META, type Note } from '../types';
 
 interface NoteCardProps {
   note: Note;
-  onUpdate: (id: string, changes: Partial<Note>) => void;
+  onUpdate: (id: string, changes: Partial<Note>) => Promise<void> | void;
+  onDevelop?: (note: Note) => void;
   onDelete: (id: string) => void;
   /** Projects the note can be moved into. Empty → the action is hidden. */
   moveTargets?: { id: string; title: string }[];
@@ -18,6 +19,7 @@ interface NoteCardProps {
 export default function NoteCard({
   note,
   onUpdate,
+  onDevelop,
   onDelete,
   moveTargets = [],
   onMove,
@@ -34,6 +36,9 @@ export default function NoteCard({
   const [copied, setCopied] = useState(false);
   const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
   const copiedTimer = useRef<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const saveLock = useRef(false);
 
   const { icon: KindIcon, color: kindColor } = NOTE_KIND_META[note.kind];
   const accent = note.color ?? kindColor;
@@ -53,14 +58,30 @@ export default function NoteCard({
     setEditing(true);
   };
 
-  const commit = () => {
+  const update = async (changes: Partial<Note>): Promise<boolean> => {
+    if (saveLock.current) return false;
+    saveLock.current = true;
+    setSaving(true);
+    setSaveFailed(false);
+    try {
+      await onUpdate(note.id, changes);
+      return true;
+    } catch {
+      setSaveFailed(true);
+      return false;
+    } finally {
+      saveLock.current = false;
+      setSaving(false);
+    }
+  };
+
+  const commit = async () => {
     const text = draft.trim();
     if (!text) {
       setEditing(false);
       return;
     }
-    onUpdate(note.id, { text, source: draftSource.trim() || undefined });
-    setEditing(false);
+    if (await update({ text, source: draftSource.trim() || undefined })) setEditing(false);
   };
 
   const copy = () => {
@@ -78,7 +99,8 @@ export default function NoteCard({
       className="break-inside-avoid mb-3 rounded-xl border bg-surface hover:border-accent-gold/40 transition group relative"
       style={{ borderColor: `${accent}40`, boxShadow: `inset 3px 0 0 0 ${accent}` }}
     >
-      <div className="p-3.5">
+      <div className="p-3.5" inert={saving}>
+        {saveFailed && <p role="alert" className="mb-2 text-sm text-danger">{t('notes.saveFailed')}</p>}
         {/* Header: kind + actions */}
         <div className="flex items-start justify-between gap-2 mb-2">
           <span
@@ -90,7 +112,7 @@ export default function NoteCard({
           </span>
           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition">
             <button
-              onClick={() => onUpdate(note.id, { pinned: !note.pinned })}
+              onClick={() => { void update({ pinned: !note.pinned }); }}
               className="p-1.5 hover:bg-elevated rounded transition"
               title={note.pinned ? t('notes.unpin') : t('notes.pin')}
             >
@@ -161,7 +183,7 @@ export default function NoteCard({
               <button
                 key={c}
                 onClick={() => {
-                  onUpdate(note.id, { color: c });
+                  void update({ color: c });
                   setShowColors(false);
                 }}
                 className="w-4 h-4 rounded-full border border-black/30 hover:scale-110 transition"
@@ -170,7 +192,7 @@ export default function NoteCard({
             ))}
             <button
               onClick={() => {
-                onUpdate(note.id, { color: undefined });
+                  void update({ color: undefined });
                 setShowColors(false);
               }}
               className="text-[11px] text-text-dim hover:text-text-primary transition ml-1"
@@ -252,6 +274,8 @@ export default function NoteCard({
         {note.source && !editing && (
           <p className="text-xs text-text-muted mt-2">— {note.source}</p>
         )}
+
+        {onDevelop && !editing && <button type="button" onClick={() => onDevelop(note)} className="mt-3 flex items-center gap-1.5 py-1 text-sm text-accent-gold hover:underline"><ArrowUpRight size={14} aria-hidden="true" />{t('notes.developIdea')}</button>}
 
         {note.tags.length > 0 && (
           <div className="flex items-center gap-1 flex-wrap mt-2.5">

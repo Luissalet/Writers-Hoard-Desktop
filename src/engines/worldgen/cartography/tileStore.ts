@@ -297,7 +297,15 @@ export class DisplayTileStore {
     const pending: Pending = { cancel: request.cancel };
     this.inflight.set(id, pending);
     request.promise.then((bmp) => {
+      const ownsRequest = this.inflight.get(id) === pending;
       this.settled(id, pending);
+      // Cancellation is best effort. An offscreen response that arrives late
+      // no longer owns this slot, even within the same generation. Caching it
+      // can evict the visible tile and leave a settled view permanently coarse.
+      if (!ownsRequest || this.disposed || epoch !== this.epoch) {
+        if (bmp) close(bmp);
+        return;
+      }
       if (!bmp) {
         // UN HUECO RE-PEDIBLE, TAMBIÉN CON LA CÁMARA QUIETA. Una tesela que
         // se resuelve vacía (caducada, cancelada, worker caído, fabricación
@@ -329,6 +337,7 @@ export class DisplayTileStore {
       this.nudgeDelayMs = 400;
       this.onArrive();
     }).catch(() => {
+      if (this.inflight.get(id) !== pending || this.disposed || epoch !== this.epoch) return;
       this.settled(id, pending);
       // El mismo hueco por la vía del rechazo (una cancelación que asienta
       // tarde): re-pedible, no eterno — y con el mismo empujón.

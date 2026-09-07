@@ -1,14 +1,19 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { randomSeed } from '../randomSeed';
+import { createWorldEditWriter } from '../editWriter';
+import { commitRegeneration, prepareRegeneration, WorldRecipeConflict, type LocationPolicy, type RegenerationPlan } from '../recipe';
+import { worldWorkspaceCopy } from '../workspaceCopy';
+import RegenerateWorldDialog from './RegenerateWorldDialog';
+import { journeyStopsForWorld } from '../journeyTypes';
 import {
   Map as MapIcon, Box, Dices, Download, Waves, Flame, MapPin, Globe,
   Loader2, X, ChevronDown, Send, Mountain, ScrollText, Trees, Route, Landmark,
-  Signpost, Compass, Flag, Search, Home, Ruler,
+  Signpost, Compass, Flag, Search, Home, Ruler, PanelRightClose, PanelRightOpen,
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { useTranslation } from '@/i18n/useTranslation';
 import { toast } from '@/components/common/toast';
-import { ConfirmDialog, EngineSpinner } from '@/engines/_shared';
+import { EngineSpinner } from '@/engines/_shared';
 import { generateId } from '@/utils/idGenerator';
 import { worldMapOps, mapPinOps } from '@/engines/maps/operations';
 import type {
@@ -23,9 +28,10 @@ import {
   doubleClickSpanKm, EARTH_KM, type FlyMark, type FlyTarget,
 } from '../core/camera';
 import { normalizeParams } from '../core/types';
-import { renderComposite } from '../core/render';
+import { renderAtlasPreview, renderComposite } from '../core/render';
 import { PROJECTION_IDS, reprojectRgba, type Projection } from '../core/projections';
 import { useWorldGeneration } from '../useWorldGeneration';
+import { useWorldEnvironment } from '../useWorldEnvironment';
 import { useWorldWaypoints } from '../hooks';
 import Map2D from './Map2D';
 import ParamsPanel from './ParamsPanel';
@@ -44,13 +50,13 @@ import SpatialEntityInspector from './SpatialEntityInspector';
 import { alreadyAtTown, townFrame } from '../region/townPlan';
 import { PaintSession } from '../core/paintSession';
 import { registerLiveWorld } from '../core/liveWorlds';
-import { deserializeEdits, editKey, serializeEdits, sitesPolicyFrom, targetFromKey } from '../core/edits';
+import { deserializeEdits, editKey, sitesPolicyFrom, targetFromKey } from '../core/edits';
 import { planRoute } from '../core/travel';
 import { nameBridges, paleoMap } from '../core/paleo';
 import type { WorldEdit } from '../core/edits';
 import { THEMES, themeById } from '../cartography/theme';
 import {
-  adoptGeographyBase, getGeography, geographyIsStale, rebuildGeography, renderCartoCanvas,
+  adoptGeographyBase, cachedGeographyDepth, getGeography, geographyIsStale, patchCachedGeography, renderCartoCanvas,
 } from '../cartography/texture';
 import { requestGeographyBase } from '../cartography/geographyClient';
 import type { GeoDepth } from '../core/settlements';
@@ -122,7 +128,8 @@ interface WorldViewProps {
   manuscriptLinks?: ManuscriptLink[];
   /** Open the host's own editor for a linked scene, character or event. */
   onOpenManuscriptLink?: (link: ManuscriptLink) => void;
-  onSaveParams: (params: WorldParams) => Promise<void> | void;
+  onCreateAlternative: (params: WorldParams) => Promise<void>;
+  onRefreshWorld: () => Promise<void>;
   /**
    * Persist the brush strokes.
    *
@@ -146,7 +153,8 @@ export default function WorldView({
   world,
   manuscriptLinks,
   onOpenManuscriptLink,
-  onSaveParams,
+  onCreateAlternative,
+  onRefreshWorld,
   onSaveEdits,
   onSaveRegions,
   onThumbnail,
@@ -154,17 +162,15 @@ export default function WorldView({
   focusSpatial,
   focusRegion,
 }: WorldViewProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const copy = worldWorkspaceCopy(locale);
   const [params, setParams] = useState<WorldParams>(() => normalizeParams(world.params));
-  /**
-   * Which view the reader lands in.
-   *
-   * The 3D world, in satellite. It is the one that shows what the generator
-   * actually made — the shape of the ground and the colour of it — and it is the
-   * one the brush works on. The carta is a beautiful thing to export and a poor
-   * thing to work in, so it is last in the row and never the default.
-   */
-  const [view, setView] = useState<'3d' | 'map' | 'carta'>('3d');
+  // Start above the whole map; perspective and export chart remain available.
+  const [view, setView] = useState<'3d' | 'map' | 'carta'>('map');
+  const [toolsOpen, setToolsOpen] = useState(true);
+  const [preparing, setPreparing] = useState(false);
+  const preparingRef = useRef(false);
+  const [recipeError, setRecipeError] = useState<string | null>(null);
   /**
    * The last view that could be painted on.
    *
@@ -173,7 +179,7 @@ export default function WorldView({
    * in the 2D who glanced at the index came back to the globe, every time. What
    * "back" means is where you were, not a constant.
    */
-  const lastPaintableView = useRef<'3d' | 'map'>('3d');
+  const lastPaintableView = useRef<'3d' | 'map'>('map');
   if (view !== 'carta') lastPaintableView.current = view;
   const [themeId, setThemeId] = useState<string>('wonder');
   const [skin3D, setSkin3D] = useState<Skin3D>('satelite');
@@ -223,9 +229,13 @@ export default function WorldView({
    *  before you can see what you are drawing is not on by default at all. */
   const [showRoads, setShowRoads] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
-  const [panelTab, setPanelTab] = useState<
+  const [panelTab, selectPanelTab] = useState<
     'params' | 'waypoints' | 'paint' | 'world' | 'journey' | 'atlas' | 'regions' | 'places'
   >('params');
+  const setPanelTab = useCallback((tab: typeof panelTab) => {
+    selectPanelTab(tab);
+    setToolsOpen(true);
+  }, []);
   const [atlasKey, setAtlasKey] = useState<string | null>(null);
   const [selectedSpatialKey, setSelectedSpatialKey] = useState<string | null>(null);
   // The journey: two ends, the route between them, and the world at another
@@ -279,22 +289,48 @@ export default function WorldView({
   const [regionDetail, setRegionDetail] = useState<RegionData | null>(null);
 
   const thumbRef = useRef<string | undefined>(world.thumbnail);
+  const requestedPlan = useRef<RegenerationPlan | null>(null);
+  const saveRegionsRef = useRef(onSaveRegions);
+  saveRegionsRef.current = onSaveRegions;
+  const regionWriter = useMemo(() => createWorldEditWriter(`regions:${world.id}`, json => saveRegionsRef.current(JSON.parse(json))), [world.id]);
+  useEffect(() => () => { void regionWriter.flush(); }, [regionWriter]);
 
-  const handleDone = useCallback((data: WorldData) => {
+  const handleDone = useCallback(async (data: WorldData) => {
+    // A cancelled or failed attempt must leave the saved world's recipe intact.
+    if (requestedPlan.current) {
+      try {
+        const saved = await commitRegeneration(requestedPlan.current);
+        savedEdits.current = saved.edits;
+        editsSeed.current = saved.params.seed;
+        setParams(normalizeParams(saved.params));
+        setSavedRegions(saved.regions ?? []);
+        requestedPlan.current = null;
+        setRecipeError(null);
+      } catch (error) {
+        setRecipeError(error instanceof WorldRecipeConflict ? worldWorkspaceCopy(locale).conflict : worldWorkspaceCopy(locale).saveFailed);
+        throw error;
+      }
+    }
     // Small preview for dashboards; deterministic pixels → cheap dedupe.
     try {
-      const canvas = compositeToCanvas(data, 'atlas', true, 256);
+      const preview = renderAtlasPreview(data, 256, true);
+      const canvas = document.createElement('canvas');
+      canvas.width = preview.width;
+      canvas.height = preview.height;
+      canvas.getContext('2d')!.putImageData(new ImageData(preview.pixels, preview.width, preview.height), 0, 0);
       const url = canvas.toDataURL('image/jpeg', 0.8);
       if (url !== thumbRef.current) {
         thumbRef.current = url;
-        onThumbnail(url);
+        void Promise.resolve(onThumbnail(url)).catch(() => undefined);
       }
     } catch {
       // thumbnail is cosmetic — never block on it
     }
-  }, [onThumbnail]);
+  }, [onThumbnail, locale]);
 
   const { world: data, gen, generate, cancel, restorePristine } = useWorldGeneration(world.id, handleDone);
+  const generationBusyRef = useRef(false);
+  generationBusyRef.current = gen.running;
   const globalSpatialEntities = useMemo(
     () => {
       void paintRev;
@@ -306,8 +342,8 @@ export default function WorldView({
 
   const persistRegions = useCallback((next: SavedWorldRegion[]) => {
     setSavedRegions(next);
-    void onSaveRegions(next);
-  }, [onSaveRegions]);
+    regionWriter.schedule(JSON.stringify(next));
+  }, [regionWriter]);
 
   const saveRegion = useCallback((value: SavedWorldRegion) => {
     const existing = savedRegions.some((region) => region.id === value.id);
@@ -406,8 +442,23 @@ export default function WorldView({
   const sessionWorld = useRef<WorldData | null>(null);
   /** The seed the stored strokes belong to. */
   const editsSeed = useRef<string>(world.params.seed);
-  /** Armed by Regenerar; consumed by the session effect when new data lands. */
-  const cleanSlate = useRef(false);
+  const savedEdits = useRef<string | undefined>(world.edits);
+  const applyExternalRef = useRef<(edits: WorldEdit[]) => void>(() => {});
+  const saveEditsRef = useRef(onSaveEdits);
+  saveEditsRef.current = onSaveEdits;
+  const editWriter = useMemo(() => createWorldEditWriter(world.id, json => saveEditsRef.current(json)), [world.id]);
+  const environment = useWorldEnvironment({ data, record: world, session, sessionWorld, savedEdits, writer: editWriter, restorePristine,
+    onReady: () => setPaintRev(value => value + 1),
+  });
+  const environmentBusyRef = useRef(false);
+  environmentBusyRef.current = environment.busy || (!!data && !environment.ready);
+  useEffect(() => {
+    if (!environment.ready) return;
+    return registerLiveWorld(world.id, {
+      apply: edits => applyExternalRef.current(edits),
+      snapshot: () => session.current?.serialize() ?? savedEdits.current ?? '',
+    });
+  }, [world.id, environment.ready]);
 
   // A new world object (regenerate, load, restore) makes every cached canon
   // tile and idle worker of the previous one dead weight — free it eagerly.
@@ -441,8 +492,8 @@ export default function WorldView({
    * dependency: two worlds with the same seed and the same edits have the same
    * ground, and that is the entire question a tile is asking.
    */
-  const canonPrev = useRef<{ key: string; value: { world: WorldData; edits?: string } | null }>(
-    { key: '\u0000', value: null },
+  const canonPrev = useRef<{ source: WorldData | null; key: string; value: { world: WorldData; edits?: string } | null }>(
+    { source: null, key: '\u0000', value: null },
   );
   const canonSource = useMemo(() => {
     void paintRev;
@@ -450,7 +501,7 @@ export default function WorldView({
     const s = sessionWorld.current === data ? session.current : null;
     const edits = s && s.edits.length ? s.serialize() : undefined;
     const key = `${data.params.seed}:${data.width}:${edits ?? ''}`;
-    if (canonPrev.current.key === key && canonPrev.current.value) return canonPrev.current.value;
+    if (canonPrev.current.source === data && canonPrev.current.key === key && canonPrev.current.value) return canonPrev.current.value;
     const value = edits
       ? { world: { ...data, elevation: s!.pristineElevation }, edits }
       : { world: data, edits: undefined };
@@ -466,7 +517,7 @@ export default function WorldView({
      * lo que enciende el bus entre sesiones de verdad.
      */
     bindCanonWorld(value.world, world.id);
-    canonPrev.current = { key, value };
+    canonPrev.current = { source: data, key, value };
     return value;
   }, [data, paintRev, world.id]);
 
@@ -606,7 +657,7 @@ export default function WorldView({
    * surface that must not accept paint.
    */
   const paintable = view !== 'carta';
-  const brush = paintable ? tool : DEFAULT_PAINT_TOOL;
+  const brush = paintable && environment.ready && !environment.busy ? tool : DEFAULT_PAINT_TOOL;
   /** The Punto tool, set to Chincheta, and actually live. */
   /**
    * A pin is being placed.
@@ -647,8 +698,6 @@ export default function WorldView({
   // since switched to.
   const needsGeoRef = useRef(needsGeo);
   needsGeoRef.current = needsGeo;
-  const geoDepthRef = useRef(geoDepth);
-  geoDepthRef.current = geoDepth;
   /** The world revision the cached geography was built at. */
   const geoRev = useRef(-1);
   /** Which of the two geography passes has landed, so the second one knows to
@@ -717,7 +766,7 @@ export default function WorldView({
    * presence.
    */
   useEffect(() => {
-    if (!needsGeo || !data) return;
+    if (!needsGeo || !data || environment.busy || !environment.ready) return;
     // NOT WHILE A BRUSH IS OUT. Rebuilding costs one and a half seconds at
     // `places` and nineteen at `full`, and a reader mid-stroke wants neither —
     // the cheap patch in `afterEdit` keeps the dots honest until they stop.
@@ -770,12 +819,17 @@ export default function WorldView({
     // Full geography is real background work. `requestIdleCallback` was not:
     // the new log measured two 13.2 s UI freezes inside that callback, during
     // which even completed tile messages could not be received.
-    if (step === 'full') {
+    const cachedDepth = cachedGeographyDepth(data);
+    // Every rebuild is background work. A request for places may reuse a full
+    // cached base; rebuildGeography would otherwise promote it synchronously.
+    if (step === 'full' || geography || cachedDepth) {
+      const backgroundDepth = cachedDepth === 'full' || geography?.depth === 'full' ? 'full' : step;
       let cancelled = false;
-      requestGeographyBase(data, 'full').then((base) => {
+      const controller = new AbortController();
+      requestGeographyBase(data, backgroundDepth, undefined, undefined, controller.signal).then((base) => {
         if (cancelled || (data.revision ?? 0) !== rev) return;
         geoRev.current = rev;
-        stagedDepth.current = 'full';
+        stagedDepth.current = backgroundDepth;
         setGeography(adoptGeographyBase(data, base));
         setGeoBusy(false);
       }).catch((error: unknown) => {
@@ -783,16 +837,16 @@ export default function WorldView({
         console.error('[worldgen] geography worker', error);
         setGeoBusy(false);
       });
-      return () => { cancelled = true; };
+      return () => { cancelled = true; controller.abort(); };
     }
 
     const run = () => {
       try {
         geoRev.current = rev;
         stagedDepth.current = step;
-        setGeography(geographyIsStale(data, step)
-          ? rebuildGeography(data, step)
-          : getGeography(data, step));
+        // A base may have arrived since the timer was scheduled. Reuse it;
+        // only a genuinely cold places pass may construct data on this path.
+        setGeography(patchCachedGeography(data) ?? getGeography(data, 'places'));
       } finally {
         setGeoBusy(more);
       }
@@ -800,7 +854,7 @@ export default function WorldView({
     // Let React commit the loading surface before the short first pass starts.
     const t = window.setTimeout(run, more ? 30 : 80);
     return () => window.clearTimeout(t);
-  }, [needsGeo, geoDepth, brushIsOut, data, geography, paintRev]);
+  }, [needsGeo, geoDepth, brushIsOut, data, geography, paintRev, environment.busy, environment.ready]);
 
   // ---- painting ------------------------------------------------------------
   // A world is stored as seed + params + edit list, so the session holds the list
@@ -835,80 +889,17 @@ export default function WorldView({
   }, [view]);
 
   const [painting, setPainting] = useState(false);
-  // (the session ref itself is declared up by the canon-source memo — see there)
-  /**
-   * The stored strokes, read ONCE.
-   *
-   * Saving them updates the world row, which hands this component a new `world`
-   * prop; reading `world.edits` on every render would then rebuild the session
-   * from what was just written and undo the reader's undo.
-   */
-  const savedEdits = useRef<string | undefined>(world.edits);
-  // External edits (the AI bridge, the copilot) arrive through here while this
-  // view is open, so the row has ONE writer; wired to applyEditGroup below.
-  const applyExternalRef = useRef<(edits: WorldEdit[]) => void>(() => {});
-  useEffect(() => {
-    if (!data) { session.current = null; sessionWorld.current = null; return; }
-    // The cached world object carries whatever the last session painted on it,
-    // so it is put back the way the generator left it before the list is
-    // replayed — otherwise the strokes apply on top of themselves.
-    restorePristine(data);
-    // Strokes follow a WORLD, not a slot. Re-forging with the same seed is a
-    // parameter tweak — the coastline you painted is still your coastline, so
-    // the list replays (the original design). A NEW SEED is a new planet: a
-    // ridge drawn for a continent that no longer exists is debris, so the
-    // list — strokes, renames, all of it — stays with the old seed and the
-    // stored row is emptied.
-    if (cleanSlate.current || data.params.seed !== editsSeed.current) {
-      cleanSlate.current = false;
-      editsSeed.current = data.params.seed;
-      // UN MUNDO NUEVO (o re-forjado con otra semilla) NACE DESNUDO, y lo
-      // dice una EDICIÓN, no una ausencia: `placesEverywhere:false` como
-      // primer asiento de la lista. Así el tick nace apagado, Ctrl+Z lo
-      // revierte como a todo, y los mundos EXISTENTES — cuyas listas no
-      // llevan ninguna edición de lugares — conservan su país entero
-      // (2026-08-13: la ausencia-como-negativa borró lo que Luis ya tenía;
-      // «una cosa es lo que te pedí para NUEVOS mundos o REGENERADOS»).
-      const desnudo = serializeEdits([{ kind: 'placesEverywhere', enabled: false }]);
-      savedEdits.current = desnudo;
-      saveEditsRef.current?.(desnudo);
-    }
-    const stored = savedEdits.current;
-    let initial: WorldEdit[] = [];
-    if (stored) {
-      try {
-        initial = deserializeEdits(stored);
-      } catch (err) {
-        console.warn('[worldgen] no se pudieron leer las ediciones guardadas', err);
-      }
-    }
-    session.current = new PaintSession(data, initial);
-    sessionWorld.current = data;
-    setPaintRev(initial.length);
-    // Announce the open world: an external writer hands us its edits (applied
-    // like a stroke, saved by our own debounce) instead of racing us for the row.
-    return registerLiveWorld(world.id, {
-      apply: (edits) => applyExternalRef.current(edits),
-      snapshot: () => session.current?.serialize() ?? savedEdits.current ?? '',
-    });
-  }, [data, restorePristine, world.id]);
 
   // Written after the world has settled rather than on every stroke: a terrain
   // stroke is followed by more terrain strokes, and a write per stroke is a
   // write per fifty milliseconds of somebody drawing a coastline.
-  const saveTimer = useRef(0);
-  const saveEditsRef = useRef(onSaveEdits);
-  saveEditsRef.current = onSaveEdits;
   const scheduleSaveEdits = useCallback(() => {
-    window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => {
-      const json = session.current?.serialize();
-      if (json === undefined || json === savedEdits.current) return;
-      savedEdits.current = json;
-      void saveEditsRef.current(json);
-    }, 900);
-  }, []);
-  useEffect(() => () => window.clearTimeout(saveTimer.current), []);
+    const json = session.current?.serialize();
+    if (json === undefined || json === savedEdits.current) return;
+    savedEdits.current = json;
+    editWriter.schedule(json);
+  }, [editWriter]);
+  useEffect(() => () => { void editWriter.flush(); }, [editWriter]);
 
   // A full geography rebuild is ~4 s. After a stroke we take the cheap patch —
   // painted marks appear at once, anything drowned disappears — and schedule the
@@ -924,8 +915,11 @@ export default function WorldView({
     // seconds, and it fired every time he stopped moving the brush. The rebuild
     // now belongs to the effect above, which runs when the brush goes away.
     if (data && needsGeoRef.current) {
-      geoRev.current = data.revision ?? 0;
-      setGeography(getGeography(data, geoDepthRef.current));
+      const patched = patchCachedGeography(data);
+      if (patched) {
+        geoRev.current = data.revision ?? 0;
+        setGeography(patched);
+      }
     }
     setPaintRev((r) => r + 1);
     scheduleSaveEdits();
@@ -933,7 +927,7 @@ export default function WorldView({
 
   const applyEdit = useCallback((edit: WorldEdit) => {
     const s = session.current;
-    if (!s) return;
+    if (!s || environmentBusyRef.current || generationBusyRef.current || preparingRef.current) return;
     setPainting(true);
     // One frame of breathing room so the brush ring clears and the busy flag
     // paints before the main thread blocks on the edit.
@@ -956,7 +950,7 @@ export default function WorldView({
    */
   const applyEditGroup = useCallback((edits: WorldEdit[]) => {
     const s = session.current;
-    if (!s || !edits.length) return;
+    if (!s || !edits.length || environmentBusyRef.current || generationBusyRef.current || preparingRef.current) return;
     setPainting(true);
     window.setTimeout(() => {
       try {
@@ -967,24 +961,11 @@ export default function WorldView({
       }
     }, 0);
   }, [afterEdit]);
-  applyExternalRef.current = applyEditGroup;
+  applyExternalRef.current = edits => {
+    if (generationBusyRef.current || preparingRef.current || environmentBusyRef.current) throw new Error(copy.preparing);
+    applyEditGroup(edits);
+  };
 
-  // A change to the STORED list that we did not write — the bridge undoing one
-  // of its own edits, a backup restore — as opposed to the echo of our own save
-  // (which equals `savedEdits`). Reload the session from it, the way undo does.
-  useEffect(() => {
-    const incoming = world.edits;
-    const s = session.current;
-    if (!s || incoming === undefined || incoming === savedEdits.current) return;
-    try {
-      s.load(incoming);
-    } catch (err) {
-      console.warn('[worldgen] no se pudieron recargar las ediciones externas', err);
-      return;
-    }
-    savedEdits.current = incoming;
-    afterEdit();
-  }, [world.edits, afterEdit]);
 
   /**
    * Rename one generated thing, from wherever the reader is looking at it.
@@ -1203,29 +1184,23 @@ export default function WorldView({
   }, [geography, tool.realm]);
 
   const undoEdit = useCallback(() => {
-    const s = session.current;
-    if (!s?.canUndo) return;
-    s.undo();
-    afterEdit();
-  }, [afterEdit]);
+    if (!session.current?.canUndo || generationBusyRef.current || preparingRef.current) return;
+    void environment.history('undo').then(changed => { if (changed) afterEdit(); });
+  }, [afterEdit, environment]);
 
   const redoEdit = useCallback(() => {
-    const s = session.current;
-    if (!s?.canRedo) return;
-    s.redo();
-    afterEdit();
-  }, [afterEdit]);
+    if (!session.current?.canRedo || generationBusyRef.current || preparingRef.current) return;
+    void environment.history('redo').then(changed => { if (changed) afterEdit(); });
+  }, [afterEdit, environment]);
 
   const clearEdits = useCallback(() => {
-    const s = session.current;
-    if (!s) return;
-    s.clear();
-    afterEdit();
-  }, [afterEdit]);
+    if (generationBusyRef.current || preparingRef.current) return;
+    void environment.history('clear').then(changed => { if (changed) afterEdit(); });
+  }, [afterEdit, environment]);
 
   useEffect(() => {
-    const u = () => undoEdit();
-    const r = () => redoEdit();
+    const u = () => { if (!generationBusyRef.current && !preparingRef.current) undoEdit(); };
+    const r = () => { if (!generationBusyRef.current && !preparingRef.current) redoEdit(); };
     window.addEventListener('wg-undo', u);
     window.addEventListener('wg-redo', r);
     return () => { window.removeEventListener('wg-undo', u); window.removeEventListener('wg-redo', r); };
@@ -1233,33 +1208,41 @@ export default function WorldView({
 
   const theme = useMemo(() => themeById(themeId), [themeId]);
 
-  const runGenerate = useCallback(() => {
-    // REGENERAR means a fresh world, full stop. The strokes belonged to the
-    // ground the reader was looking at; carrying them onto new ground made
-    // the button feel haunted (reported twice). Same seed or new seed, the
-    // slate cleans at the reader's explicit action — but it is CONSUMED only
-    // when the new world actually arrives, so a failed generation cannot eat
-    // the strokes of the world still on screen.
-    cleanSlate.current = true;
-    onSaveParams(params);
-    generate(params);
-  }, [params, onSaveParams, generate]);
+  const runGenerate = useCallback(async (locations: LocationPolicy = 'keep') => {
+    if (preparingRef.current || gen.running || painting || environmentBusyRef.current) return;
+    preparingRef.current = true;
+    setPreparing(true);
+    setRecipeError(null);
+    try {
+      if (!await editWriter.flush() || !await regionWriter.flush()) throw new Error('Pending save failed');
+      requestedPlan.current = await prepareRegeneration(world.id, params, locations);
+      generate(requestedPlan.current.params, { fresh: true });
+    } catch {
+      setRecipeError(copy.saveFailed);
+    } finally {
+      preparingRef.current = false;
+      setPreparing(false);
+    }
+  }, [params, generate, gen.running, painting, editWriter, regionWriter, world.id, copy.saveFailed]);
 
-  /**
-   * And ASK first, if there is anything to lose.
-   *
-   * The button lives in two panels, one of which is where you go to switch
-   * fjords off. One click erased every stroke, hand-drawn road, hand-drawn
-   * river, rename and placed mark — hours of work — and PERSISTED the erasure,
-   * with no undo, because the session is rebuilt from an empty list. The
-   * confirmation copies the edit list to the clipboard on the way out, so even
-   * a confirmed regenerate is recoverable.
-   */
+  // Replacing an existing landscape is deliberate; alternatives keep the source.
   const [confirmRegen, setConfirmRegen] = useState(false);
   const handleGenerate = useCallback(() => {
-    if ((session.current?.edits.length ?? 0) > 0) { setConfirmRegen(true); return; }
-    runGenerate();
-  }, [runGenerate]);
+    if (data) { setConfirmRegen(true); return; }
+    void runGenerate();
+  }, [runGenerate, data]);
+
+  const createAlternative = async () => {
+    if (preparingRef.current || gen.running || painting || environmentBusyRef.current) return;
+    preparingRef.current = true;
+    setPreparing(true);
+    setRecipeError(null);
+    try {
+      if (!await editWriter.flush() || !await regionWriter.flush()) throw new Error('Pending save failed');
+      await onCreateAlternative(params);
+    } catch { setRecipeError(copy.saveFailed); }
+    finally { preparingRef.current = false; setPreparing(false); }
+  };
 
   /**
    * Drop a pin.
@@ -1594,13 +1577,13 @@ export default function WorldView({
   );
 
   return (
-    <div className="flex flex-col gap-3" data-testid="worldgen-view">
+    <div className="@container flex flex-col gap-3" data-testid="worldgen-view">
       {/* ---- Toolbar ---- */}
       <div className="flex items-center gap-2 flex-wrap">
         {/* View switch. The order is the order of importance. */}
         <div className="flex rounded-lg border border-border overflow-hidden">
-          <ToolbarTab active={view === '3d'} onClick={() => setView('3d')} icon={Box} label={t('worldgen.view.world3d')} disabled={!data} />
           <ToolbarTab active={view === 'map'} onClick={() => setView('map')} icon={MapIcon} label={t('worldgen.view.map')} />
+          <ToolbarTab active={view === '3d'} onClick={() => setView('3d')} icon={Box} label={t('worldgen.view.world3d')} disabled={!data} />
           <ToolbarTab active={view === 'carta'} onClick={() => setView('carta')} icon={ScrollText} label={t('worldgen.view.carta')} disabled={!data} />
         </div>
 
@@ -1608,6 +1591,7 @@ export default function WorldView({
         {view === 'map' && (
           <>
             <select
+              aria-label={copy.viewMode}
               value={viewMode}
               onChange={(e) => setViewMode(e.target.value as ViewMode)}
               className="bg-elevated border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-gold/60"
@@ -1813,11 +1797,25 @@ export default function WorldView({
         </div>
       </div>
 
-      {/* ---- Main area ---- */}
-      <div className="flex gap-3 items-stretch" style={{ height: 'max(440px, calc(100vh - 300px))' }}>
-        <div className="flex-1 relative rounded-xl overflow-hidden border border-border bg-deep min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+        <span className="text-text-muted">{preparing ? copy.preparing : JSON.stringify(params) !== JSON.stringify(normalizeParams(world.params)) ? copy.changed : copy.unchanged}</span>
+        {data && <button type="button" disabled={environment.busy || !environment.ready || gen.running || preparing || painting} title={copy.recalculateHint}
+          onClick={() => { void environment.recalculate().then(changed => { if (changed) { afterEdit(); toast.success(copy.environmentDone); } }); }}
+          className="rounded-lg border border-border px-3 py-2 text-text-primary hover:bg-elevated disabled:opacity-40">{copy.recalculate}</button>}
+        <button onClick={() => setToolsOpen(value => !value)} aria-expanded={toolsOpen} aria-controls="worldgen-tools" className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-text-primary hover:bg-elevated">
+          {toolsOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}{toolsOpen ? copy.hideTools : copy.showTools}
+        </button>
+      </div>
+
+      {data && (environment.error || (!environment.ready && !environment.busy)) && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface p-3 text-sm">
+        <p className="text-text-primary">{environment.error === 'conflict' ? copy.conflict : environment.error === 'save' ? copy.saveFailed : environment.error ? copy.environmentError : copy.environmentCancelled}</p>
+        <button type="button" onClick={environment.retry} className="text-accent-gold underline underline-offset-4">{copy.environmentRetry}</button>
+      </div>}
+      {recipeError && <p role="alert" className="text-sm text-danger">{recipeError}</p>}
+      {/* Stack tools below the map when the actual workspace is narrow. */}
+      <div className={`grid gap-3 items-stretch ${toolsOpen ? '@min-[960px]:grid-cols-[minmax(0,1fr)_21rem]' : ''}`}>
+        <div className="relative rounded-xl overflow-hidden border border-border bg-deep min-w-0 h-[max(420px,calc(100dvh-260px))]">
           {data && view === 'map' && (
-            !geography ? <EngineSpinner /> : (
               <Map2D
               world={data}
               viewMode={viewMode}
@@ -1884,7 +1882,6 @@ export default function WorldView({
               // dibujan aquí también.
               annotations={annotations}
               />
-            )
           )}
           {data && view === 'carta' && (
             !geography ? <EngineSpinner /> : (
@@ -1930,6 +1927,9 @@ export default function WorldView({
                 showWaypoints={showWaypoints}
                 showSettlements={showSettlements}
                 showLandmarks={showLandmarks}
+                showRivers={showRivers}
+                showRoads={showRoads}
+                showBorders={!!cartoLayers.borders}
                 selectedSpatialKey={selectedSpatialKey}
                 regionalEntities={regionalSpatialEntities}
                 onSelectSpatialEntity={(entity) => {
@@ -2009,16 +2009,24 @@ export default function WorldView({
           )}
 
           {/* Generation overlay */}
-          {(gen.running || (!data && !gen.error)) && (
-            <div className="absolute inset-0 z-20 flex items-center justify-center bg-deep/70 backdrop-blur-sm">
+          {environment.job && !gen.running && <div role="status" aria-live="polite" className="absolute inset-0 z-20 flex items-center justify-center bg-deep/80 p-4">
+            <div className="w-full max-w-sm space-y-3 rounded-xl border border-border bg-surface p-5">
+              <p className="flex items-center gap-2 text-sm text-text-primary"><Loader2 size={16} className="animate-spin text-accent-gold" />{environment.job.committing ? copy.environmentSave : environment.job.kind === 'open' ? copy.replaying : environment.job.kind === 'history' ? copy.history : copy.recalculating}</p>
+              <p className="text-xs leading-relaxed text-text-secondary">{copy.recalculateHint}</p>
+              <progress aria-label={copy.recalculate} max={1} value={environment.job.progress} className="h-2 w-full accent-accent-gold" />
+              <button type="button" disabled={environment.job.committing} onClick={environment.cancel} className="rounded border border-border px-3 py-2 text-xs text-text-primary hover:bg-elevated disabled:opacity-40">{copy.cancel}</button>
+            </div>
+          </div>}
+          {gen.running && (
+            <div role="status" aria-live="polite" className="absolute inset-0 z-20 flex items-center justify-center bg-deep/70 backdrop-blur-sm">
               <div className="w-72 rounded-xl border border-border bg-surface p-5 shadow-xl">
                 <div className="flex items-center gap-2 mb-3">
                   <Loader2 size={15} className="animate-spin text-accent-gold" />
                   <span className="text-sm text-text-primary font-medium">
-                    {t('worldgen.generating')}
+                    {gen.committing ? copy.applying : t('worldgen.generating')}
                   </span>
                 </div>
-                <div className="h-1.5 rounded-full bg-elevated overflow-hidden mb-2">
+                <div role="progressbar" aria-label={copy.progress} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(gen.progress * 100)} className="h-1.5 rounded-full bg-elevated overflow-hidden mb-2">
                   <div
                     className="h-full bg-accent-gold transition-[width] duration-200"
                     style={{ width: `${Math.round(gen.progress * 100)}%` }}
@@ -2026,11 +2034,23 @@ export default function WorldView({
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] text-text-muted">{stageLabel}</span>
-                  <button onClick={cancel} className="text-[11px] text-text-dim hover:text-danger transition flex items-center gap-1">
+                  <button disabled={gen.committing} onClick={() => { requestedPlan.current = null; cancel(); }} className="text-xs text-text-muted hover:text-danger transition flex items-center gap-1 disabled:opacity-40">
                     <X size={11} />
                     {t('worldgen.cancel')}
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {!data && !gen.running && !gen.error && (
+            <div className="absolute inset-0 flex items-center justify-center bg-deep p-6">
+              <div className="max-w-sm text-center space-y-3">
+                <Globe size={32} className="mx-auto text-accent-gold" />
+                <p className="text-sm text-text-primary">{t('worldgen.params.ready')}</p>
+                <button onClick={handleGenerate} className="rounded-lg bg-accent-gold px-4 py-2 text-sm font-medium text-deep hover:bg-accent-amber">
+                  {t('worldgen.generate')}
+                </button>
               </div>
             </div>
           )}
@@ -2047,13 +2067,21 @@ export default function WorldView({
                 >
                   {t('worldgen.retry')}
                 </button>
+                {data && (
+                  <button
+                    onClick={() => { requestedPlan.current = null; cancel(); }}
+                    className="ml-2 rounded-lg border border-border px-4 py-2 text-xs text-text-primary hover:bg-elevated"
+                  >
+                    {t('worldgen.params.keepEditing')}
+                  </button>
+                )}
               </div>
             </div>
           )}
         </div>
 
         {/* ---- Side panel ---- */}
-        <aside className="w-[21rem] shrink-0 flex flex-col rounded-xl border border-border bg-surface/50 overflow-hidden">
+        {toolsOpen && <aside id="worldgen-tools" inert={gen.running || preparing || environment.busy || (!!data && !environment.ready)} aria-label={copy.tools} className="min-w-0 flex flex-col rounded-xl border border-border bg-surface/50 overflow-hidden @min-[960px]:h-[max(420px,calc(100dvh-260px))]">
           {/* Two compact rows keep every world workflow one click away. */}
           <div className="grid grid-cols-4 border-b border-border">
             <PanelTab active={panelTab === 'params'} onClick={() => setPanelTab('params')} label={t('worldgen.params.title')} />
@@ -2199,7 +2227,16 @@ export default function WorldView({
               )
             ) : panelTab === 'journey' ? (
               data && geography ? (
-                <JourneyPanel
+              <JourneyPanel
+                  worldRecord={world}
+                  onJourneysChanged={onRefreshWorld}
+                  onOpenJourney={(journey) => {
+                    const stops = journeyStopsForWorld(journey, data);
+                    setJourneyFrom(stops[0] ?? null);
+                    setJourneyTo(stops[stops.length - 1] ?? null);
+                    setJourneyVia(stops.slice(1, -1));
+                    setJourneyPick(null);
+                  }}
                   world={data}
                   geography={geography}
                   from={journeyFrom}
@@ -2224,7 +2261,7 @@ export default function WorldView({
                 params={params}
                 onChange={setParams}
                 onGenerate={handleGenerate}
-                generating={gen.running}
+                generating={gen.running || preparing}
                 hasWorld={!!data}
               />
             ) : panelTab === 'paint' ? (
@@ -2245,7 +2282,7 @@ export default function WorldView({
                 }}
                 cellKm={Math.round(40075 / (data?.width ?? 1024))}
                 realms={realmChoices}
-                busy={painting}
+                busy={painting || environment.busy}
               />
             ) : panelTab === 'params' ? (
               <ParamsPanel
@@ -2253,8 +2290,10 @@ export default function WorldView({
                 onChange={setParams}
                 onGenerate={handleGenerate}
                 onRandomSeed={() => setParams({ ...params, seed: randomSeed() })}
-                generating={gen.running}
+                generating={gen.running || preparing}
                 hasWorld={!!data}
+                onCreateAlternative={() => void createAlternative()}
+                onReset={() => setParams(normalizeParams(world.params))}
               />
             ) : (
               <WaypointsPanel
@@ -2282,7 +2321,7 @@ export default function WorldView({
               />
             )}
           </div>
-        </aside>
+        </aside>}
       </div>
 
       {/* Seed shortcut under the map */}
@@ -2341,24 +2380,14 @@ export default function WorldView({
         )}
       </div>
 
-      <ConfirmDialog
+      <RegenerateWorldDialog
         open={confirmRegen}
-        destructive
-        message={t('worldgen.status.regenConfirm').replace(
-          '{edits}',
-          t(strokeCount === 1 ? 'worldgen.paint.edits.one' : 'worldgen.paint.edits.many')
-            .replace('{n}', String(strokeCount)),
-        )}
-        onConfirm={() => {
+        hasLocations={waypoints.length > 0 || savedRegions.length > 0}
+        onConfirm={(policy) => {
           setConfirmRegen(false);
-          const json = session.current?.serialize();
-          if (json) {
-            void navigator.clipboard?.writeText(json).catch(() => undefined);
-            toast.success(t('worldgen.paint.editsCopied'));
-          }
-          runGenerate();
+          void runGenerate(policy);
         }}
-        onCancel={() => setConfirmRegen(false)}
+        onClose={() => setConfirmRegen(false)}
       />
 
       {/* ---- Regional sheet: the scale between the world and the town ---- */}
@@ -2450,6 +2479,7 @@ function ToolbarTab({ active, onClick, icon: Icon, label, disabled }: {
     <button
       onClick={onClick}
       disabled={disabled}
+      aria-pressed={active}
       className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition disabled:opacity-40 ${
         active ? 'bg-accent-gold/15 text-accent-gold' : 'bg-elevated text-text-muted hover:text-text-primary'
       }`}
@@ -2470,6 +2500,8 @@ function OverlayToggle({ active, onClick, icon: Icon, title }: {
     <button
       onClick={onClick}
       title={title}
+      aria-label={title}
+      aria-pressed={active}
       className={`p-1.5 rounded-lg border transition ${
         active
           ? 'border-accent-gold/50 bg-accent-gold/10 text-accent-gold'
@@ -2497,6 +2529,7 @@ function PanelTab({ active, onClick, label }: { active: boolean; onClick: () => 
   return (
     <button
       onClick={onClick}
+      aria-pressed={active}
       className={`flex-1 px-3 py-2 text-xs font-medium transition ${
         active ? 'text-accent-gold border-b-2 border-accent-gold bg-accent-gold/5' : 'text-text-muted hover:text-text-primary'
       }`}

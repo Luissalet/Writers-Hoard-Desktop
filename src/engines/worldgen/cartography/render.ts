@@ -1026,7 +1026,9 @@ function drawRivers(
 
     let pts = raw.map((p) => ({ x: toX(p.x + shift), y: toY(p.y) }));
     pts = simplify(pts, 0.4);
-    if (pts.length < 3) continue;
+    // Simplifying a straight watercourse correctly leaves its two endpoints.
+    // It is still a drawable line, not a missing river.
+    if (pts.length < 2) continue;
     pts = chaikin(pts, false, 2);
 
     // Width grows from headwater to mouth; drawn as a few tapered pieces so a

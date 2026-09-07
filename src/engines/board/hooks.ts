@@ -179,6 +179,7 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
   // A failed flush re-queues itself, which makes `flush` and `scheduleFlush`
   // mutually recursive; the ref breaks the cycle without either going stale.
   const flushRef = useRef<() => Promise<boolean>>(() => Promise.resolve(true));
+  const inFlightFlush = useRef<Promise<boolean> | null>(null);
 
   const scheduleFlush = useCallback((delayMs = FLUSH_DELAY_MS) => {
     if (flushTimer.current !== null) window.clearTimeout(flushTimer.current);
@@ -188,7 +189,7 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
     }, delayMs);
   }, []);
 
-  const flush = useCallback(async (): Promise<boolean> => {
+  const flushBatch = useCallback(async (): Promise<boolean> => {
     if (flushTimer.current !== null) {
       window.clearTimeout(flushTimer.current);
       flushTimer.current = null;
@@ -238,6 +239,19 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
       return false;
     }
   }, [boardId, scheduleFlush]);
+
+  // A slow transaction must finish before the next one starts. Otherwise an
+  // older failed batch can be retried AFTER a newer successful edit and put
+  // the stale row back in the database. Callers also wait for the live batch
+  // instead of mistaking an empty pending map for a completed save.
+  const flush = useCallback((): Promise<boolean> => {
+    if (inFlightFlush.current) {
+      return inFlightFlush.current.then((saved) => saved ? flushRef.current() : false);
+    }
+    const task = flushBatch().finally(() => { inFlightFlush.current = null; });
+    inFlightFlush.current = task;
+    return task;
+  }, [flushBatch]);
 
   useEffect(() => {
     flushRef.current = flush;

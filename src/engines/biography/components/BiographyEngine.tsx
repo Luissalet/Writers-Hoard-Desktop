@@ -83,6 +83,7 @@ export default function BiographyEngine({ projectId }: EngineComponentProps) {
       {/* Main biography view */}
       {activeBiography && (
         <BiographyView
+          key={activeBiography.id}
           biography={activeBiography}
           onUpdate={(changes) => editBiography(activeBiography.id, changes)}
         />

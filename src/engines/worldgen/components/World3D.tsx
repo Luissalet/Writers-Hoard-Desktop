@@ -26,6 +26,7 @@ import {
   type SculptShape,
 } from '../sculpt/scene3d';
 import { createSky, type Sky } from '../sculpt/sky';
+import { lakeHeightAtUV } from '../core/lakeSurface';
 import { createWater, type Water } from '../sculpt/water';
 import { createScatter, type Scatter } from '../sculpt/scatter';
 import type { Pt, Stroke, TerrainOp, WorldEdit } from '../core/edits';
@@ -36,6 +37,7 @@ import type { HumanGeography, Settlement } from '../core/settlements';
 import { getCartoTexture } from '../cartography/texture';
 import type { CartoTheme } from '../cartography/theme';
 import { DisplayTileStore } from '../cartography/tileStore';
+import { flightProgress } from '../cartography/frameClock';
 import type { TileKey } from '../cartography/tiles';
 import {
   planZoomSkin, samePlan, zoomSkinCovers, MAX_ZOOM_SKIN_SPAN,
@@ -43,7 +45,9 @@ import {
 } from '../cartography/zoomSkin';
 import { tileStats, oldestInFlightMs } from '../region/client';
 import { serveTile } from '../region/tileService';
+import { mapSourceKey, worldContentKey, worldFamilyKey, geographyContentKey } from '../region/contentIdentity';
 import { drawRoadNetwork, roadOverlayAlpha } from '../cartography/roadOverlay';
+import { drawRealmBorders, realmBorders } from '../cartography/realmOverlay';
 import { drawTownStains } from '../cartography/townStains';
 import {
   drawWorldRivers, MAX_SAT_TILE_Z, SAT_DEEP_Z, satelliteDeepSupported, satPxPerCanonCell,
@@ -58,7 +62,7 @@ import {
 } from '../core/spatialEntities';
 import { semanticZoomProfile } from '../core/semanticZoom';
 import {
-  EARTH_KM, MIN_3D_SPAN_KM, MIN_SPAN_KM, type FlyMark, type FlyTarget,
+  EARTH_KM, FLIGHT_MS, MIN_3D_SPAN_KM, MIN_SPAN_KM, type FlyMark, type FlyTarget,
 } from '../core/camera';
 import { anchoredDolly, anchoredGlobeDolly } from '../core/zoomAnchor';
 
@@ -113,6 +117,9 @@ interface World3DProps {
   showWaypoints: boolean;
   showSettlements: boolean;
   showLandmarks: boolean;
+  showRivers?: boolean;
+  showRoads?: boolean;
+  showBorders?: boolean;
   selectedSpatialKey?: string | null;
   onSelectSpatialEntity?: (entity: WorldSpatialEntity | null) => void;
   /** Extra close-range entities supplied by the regional LOD controller. */
@@ -429,7 +436,8 @@ interface ScreenMark {
 
 export default function World3D({
   world, geography, canonWorld, canonEdits, theme, waypoints, showWaypoints, showSettlements,
-  showLandmarks, selectedSpatialKey, onSelectSpatialEntity, regionalEntities = [],
+  showLandmarks, showRivers = true, showRoads = true, showBorders = false,
+  selectedSpatialKey, onSelectSpatialEntity, regionalEntities = [],
   viewport, onViewportChange,
   skin, shape, onShape, exaggeration, tool, onTool, onEdit, onEdits, revision,
   flyTarget, flyMark = null, onPickSettlement, onPickWaypoint, onPlaceWaypoint, onRemoveWaypoint,
@@ -574,6 +582,9 @@ export default function World3D({
       skin: Skin3D;
       theme: CartoTheme;
       revision: number;
+      showRivers: boolean;
+      showRoads: boolean;
+      showBorders: boolean;
     };
     onZoomArrive: () => void;
     composeZoom: (plan: ZoomSkinPlan) => void;
@@ -587,7 +598,7 @@ export default function World3D({
     viewportTimer: number;
     pendingViewport: WorldViewport | null;
     marks: ScreenMark[];
-    fly: { active: boolean; t: number; fromT: THREE.Vector3; toT: THREE.Vector3; fromC: THREE.Vector3; toC: THREE.Vector3 };
+    fly: { active: boolean; t: number; startedAt: number; fromT: THREE.Vector3; toT: THREE.Vector3; fromC: THREE.Vector3; toC: THREE.Vector3 };
   } | null>(null);
 
   const gesture = useRef<SculptGesture | null>(null);
@@ -796,6 +807,8 @@ export default function World3D({
     water.globe.visible = false;
     scene.add(water.plane);
     scene.add(water.globe);
+    scene.add(water.lakePlane, water.lakeGlobe);
+    water.setWorld(world);
 
     /**
      * Y LO QUE CRECE ENCIMA.
@@ -830,7 +843,7 @@ export default function World3D({
         const req = serveTile(deep ? q.canonWorld! : q.world, q.geography, key, {
           ink: carta ? 'carta' : 'satellite',
           themeId: carta ? q.theme.id : 'satellite',
-          layers: { rivers: true, roads: true, fields: true },
+          layers: { rivers: q.showRivers, roads: q.showRoads, borders: q.showBorders, fields: true },
           density: 1,
           reliefAmount: 1,
           // `?? ''`: hondo sin ediciones sigue siendo contenido direccionable
@@ -879,6 +892,7 @@ export default function World3D({
       zoomInputs: {
         world, geography: geography ?? null,
         canonWorld: canonWorld ?? null, canonEdits, skin, theme, revision,
+        showRivers, showRoads, showBorders,
       },
       onZoomArrive: () => undefined,
       composeZoom: (() => undefined) as (plan: ZoomSkinPlan) => void,
@@ -887,7 +901,7 @@ export default function World3D({
       viewportAt: 0, viewportTimer: 0, pendingViewport: null,
       marks: [] as ScreenMark[],
       fly: {
-        active: false, t: 0,
+        active: false, t: 0, startedAt: 0,
         fromT: new THREE.Vector3(), toT: new THREE.Vector3(),
         fromC: new THREE.Vector3(), toC: new THREE.Vector3(),
       },
@@ -1000,7 +1014,7 @@ export default function World3D({
     if (walkRef.current && shapeRef.current === 'plane') {
       const c = st.camera.position;
       const u = c.x / SIZE_X + 0.5, v = c.z / sizeZ + 0.5;
-      const eye = Math.max(0, st.surface.heightAtUV(u, v) * st.surface.yMul) + WALK_EYE;
+      const eye = Math.max(0, Math.max(st.surface.heightAtUV(u, v), lakeHeightAtUV(st.zoomInputs.world, u, v)) * st.surface.yMul) + WALK_EYE;
       const moved = Math.abs(c.y - eye) > 1e-4;
       c.y = eye;
       // El punto de mira, delante y a los ojos. Se conserva el RUMBO que tenía
@@ -1019,7 +1033,7 @@ export default function World3D({
       const targetV = st.controls.target.z / sizeZ + 0.5;
       const targetGround = Math.max(
         0,
-        st.surface.heightAtUV(targetU, targetV) * st.surface.yMul,
+        Math.max(st.surface.heightAtUV(targetU, targetV), lakeHeightAtUV(st.zoomInputs.world, targetU, targetV)) * st.surface.yMul,
       );
       let changed = false;
       const targetShift = targetGround - st.controls.target.y;
@@ -1033,7 +1047,7 @@ export default function World3D({
       return clampCameraToSurface(
         st.camera.position,
         'plane',
-        st.surface.heightAtUV(cameraU, cameraV),
+        Math.max(st.surface.heightAtUV(cameraU, cameraV), lakeHeightAtUV(st.zoomInputs.world, cameraU, cameraV)),
         st.surface.yMul,
         clearance,
       ) || changed;
@@ -1055,7 +1069,7 @@ export default function World3D({
     return clampCameraToSurface(
       st.camera.position,
       'globe',
-      st.surface.heightAtUV(u, v),
+      Math.max(st.surface.heightAtUV(u, v), lakeHeightAtUV(st.zoomInputs.world, u, v)),
       st.surface.yMul,
       clearance,
     );
@@ -1171,7 +1185,8 @@ export default function World3D({
         });
       }
     }
-    return out;
+    // Arrival and authored pins reserve their names before generated places.
+    return out.sort((a, b) => a.rank - b.rank);
   }, [scenePos, world.width, world.height]);
 
   const drawOverlay = useCallback((marks: ScreenMark[]) => {
@@ -1191,6 +1206,7 @@ export default function World3D({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
 
     /**
      * Labels that would collide are not drawn.
@@ -1202,6 +1218,7 @@ export default function World3D({
      */
     const taken: { x0: number; y0: number; x1: number; y1: number }[] = [];
     const fits = (x0: number, y0: number, x1: number, y1: number): boolean => {
+      if (x0 < 3 || y0 < 3 || x1 > w - 3 || y1 > h - 3) return false;
       for (const r of taken) {
         if (x0 < r.x1 && x1 > r.x0 && y0 < r.y1 && y1 > r.y0) return false;
       }
@@ -1216,7 +1233,7 @@ export default function World3D({
         // es lo que el lector tecleó para llegar aquí.
         ctx.font = '600 12px "Source Sans 3", system-ui, sans-serif';
         const tw = ctx.measureText(m.label).width;
-        const lx = m.x + r1 + 6;
+        const lx = Math.max(5, Math.min(w - tw - 5, m.x + r1 + 6));
         fits(lx - 2, m.y - 9, lx + tw + 2, m.y + 9);
         label(ctx, m.label, lx, m.y, 12, m.color);
         m.hit = { x0: m.x - r1, y0: m.y - r1, x1: lx + tw + 3, y1: m.y + r1 };
@@ -1236,8 +1253,13 @@ export default function World3D({
         // A pin the reader placed always keeps its name: they put it there.
         ctx.font = '500 11px "Source Sans 3", system-ui, sans-serif';
         const pw = ctx.measureText(m.label).width;
-        fits(m.x - pw / 2, m.y - 30, m.x + pw / 2, m.y - 16);
-        label(ctx, m.label, m.x, m.y - 22, 11, m.color);
+        const lx = Math.max(5, Math.min(w - pw - 5, m.x - pw / 2));
+        for (const ly of [m.y - 22, m.y + 18]) {
+          if (fits(lx - 2, ly - 8, lx + pw + 2, ly + 8)) {
+            label(ctx, m.label, lx, ly, 11, m.color);
+            break;
+          }
+        }
         continue;
       }
       if (m.kind === 'spatial' && m.spatial) {
@@ -1291,7 +1313,7 @@ export default function World3D({
         if (alwaysLabel) {
           ctx.font = '600 11px "Source Sans 3", system-ui, sans-serif';
           const tw = ctx.measureText(m.label).width;
-          const lx = m.x + 8 * symbolScale;
+          const lx = m.x + 8 * symbolScale + tw + 3 < w ? m.x + 8 * symbolScale : m.x - 8 * symbolScale - tw;
           if (fits(lx - 2, m.y - 8, lx + tw + 2, m.y + 8)) {
             label(ctx, m.label, lx, m.y, 11, entity.style.color ?? '#f6efe0');
             m.hit = { x0: m.x - 8, y0: m.y - 10, x1: lx + tw + 3, y1: m.y + 10 };
@@ -1318,7 +1340,7 @@ export default function World3D({
       const size = big ? 12 : 11;
       ctx.font = `${size >= 12 ? 600 : 500} ${size}px "Source Sans 3", system-ui, sans-serif`;
       const tw = ctx.measureText(m.label).width;
-      const lx = m.x + r + 5;
+      const lx = m.x + r + 5 + tw + 3 < w ? m.x + r + 5 : m.x - r - 5 - tw;
       m.hit = undefined;
       if (fits(lx - 2, m.y - size * 0.7, lx + tw + 2, m.y + size * 0.7)) {
         label(ctx, m.label, lx, m.y, size, '#f6efe0');
@@ -1472,6 +1494,7 @@ export default function World3D({
     const st = R.current;
     if (!st) return;
     st.need = true;
+    if (document.hidden) return;
     if (!st.rafAlive || st.raf) return;
     st.booked = performance.now();
     st.raf = requestAnimationFrame(() => {
@@ -1525,8 +1548,9 @@ export default function World3D({
     st.zoomInputs = {
       world, geography: geography ?? null,
       canonWorld: canonWorld ?? null, canonEdits, skin, theme, revision,
+      showRivers, showRoads, showBorders,
     };
-  }, [world, geography, canonWorld, canonEdits, skin, theme, revision, ready]);
+  }, [world, geography, canonWorld, canonEdits, skin, theme, revision, ready, showRivers, showRoads, showBorders]);
 
   const composeZoomSkin = useCallback((plan: ZoomSkinPlan) => {
     const st = R.current;
@@ -1578,7 +1602,7 @@ export default function World3D({
     //     rutina que usan las teselas someras, así el relleno y las teselas
     //     que van llegando encima hablan un único idioma y el ancho del río no
     //     depende de a qué distancia esté la cámara.
-    if (st.albedoBase && st.zoomInputs.skin !== 'dibujado') {
+    if (st.albedoBase && st.zoomInputs.skin !== 'dibujado' && st.zoomInputs.showRivers) {
       drawWorldRivers(w, ctx, plan.view, plan.width);
     }
 
@@ -1638,7 +1662,7 @@ export default function World3D({
       //     este–oeste, como toda capa lineal: la ventana puede cruzar la
       //     costura y `unwrapRoad` deja cada camino en la copia [0, W).
       const roadAlpha = roadOverlayAlpha(inked ? satPxPerCanonCell(w, plan.z) : 0);
-      if (roadAlpha > 0.01 && geo.roads.length) {
+      if (st.zoomInputs.showRoads && roadAlpha > 0.01 && geo.roads.length) {
         const s = plan.width / plan.view.w;
         const k0 = Math.floor(plan.view.x / w.width);
         const k1 = Math.floor((plan.view.x + plan.view.w) / w.width);
@@ -1653,6 +1677,22 @@ export default function World3D({
             linear: { ox, oy, scale: s },
           });
         }
+      }
+    }
+
+    if (geo && st.zoomInputs.showBorders && geo.realms.length) {
+      const segments = realmBorders(w, geo);
+      const scale = plan.width / plan.view.w;
+      for (let k = Math.floor(plan.view.x / w.width); k <= Math.floor((plan.view.x + plan.view.w) / w.width); k++) {
+        const ox = (k * w.width - plan.view.x) * scale;
+        const oy = -plan.view.y * scale;
+        drawRealmBorders(ctx, segments, {
+          worldWidth: w.width, worldHeight: w.height,
+          toScreen: (u, v) => [ox + u * w.width * scale, oy + v * w.height * scale],
+          width: plan.width, height: plan.height, pxPerCell: scale,
+          view: { ...plan.view, x: plan.view.x - k * w.width },
+          linear: { ox, oy, scale },
+        });
       }
     }
 
@@ -1759,10 +1799,10 @@ export default function World3D({
       off();
       return;
     }
-    const gen = `${q.world.params.seed}:${q.revision}:${q.skin}:${q.theme.id}`;
+    const gen = `${mapSourceKey(q.world, q.geography, q.canonEdits ?? '')}:${q.revision}:${q.skin}:${q.theme.id}:${q.showRivers}:${q.showRoads}:${q.showBorders}`;
     if (gen !== st.zoomGen) {
       st.zoomGen = gen;
-      st.zoomStore.setGeneration(gen);   // una pincelada es otro país
+      st.zoomStore.setGeneration(gen, worldFamilyKey(q.world));
       st.zoomPlan = null;
       st.surface.setZoomSkin(null);
     }
@@ -1818,11 +1858,12 @@ export default function World3D({
       st.camera, st.controls.target, shapeRef.current,
       world.width, world.height, st.surface.uvWindow,
     ));
-  }, [world, revision, skin, theme, geography, ready, scheduleZoomSkin]);
+  }, [world, revision, skin, theme, geography, ready, scheduleZoomSkin, showRivers, showRoads, showBorders]);
 
   const draw = useCallback(() => {
     const st = R.current;
     if (!st) return;
+    if (document.hidden) { st.need = true; return; }
     st.need = false;
     const t0 = performance.now();
 
@@ -1844,7 +1885,7 @@ export default function World3D({
     st.time += st.lastDraw ? Math.min(0.1, Math.max(0, (t0 - st.lastDraw) / 1000)) : 0;
 
     if (st.fly.active) {
-      st.fly.t = Math.min(1, st.fly.t + 1 / 42);
+      st.fly.t = flightProgress(st.fly.startedAt, t0, FLIGHT_MS);
       const s = st.fly.t < 0.5 ? 2 * st.fly.t * st.fly.t : 1 - Math.pow(-2 * st.fly.t + 2, 2) / 2;
       st.controls.target.lerpVectors(st.fly.fromT, st.fly.toT, s);
       st.camera.position.lerpVectors(st.fly.fromC, st.fly.toC, s);
@@ -2031,6 +2072,7 @@ export default function World3D({
       horizon, skyForWater.horizonWarm, fogDist, shapeRef.current === 'plane',
     );
 
+    st.water.setWorld(st.zoomInputs.world);
     st.water.update({
       camera: c,
       sun: st.sun,
@@ -2162,6 +2204,9 @@ export default function World3D({
     const st = R.current;
     if (!st) return;
     st.timer = window.setInterval(() => {
+      // Background throttling is expected. It must not activate the GPU
+      // rescue path or contaminate automatic quality measurements.
+      if (document.hidden) return;
       const now = performance.now();
       // A frame that has not arrived is only evidence of a dead clock if the
       // main thread was FREE to deliver it — and a frame here can legitimately
@@ -2206,7 +2251,19 @@ export default function World3D({
         });
       }
     }, 16);
-    return () => window.clearInterval(st.timer);
+    const visibilityChanged = () => {
+      if (st.raf) cancelAnimationFrame(st.raf);
+      st.raf = 0;
+      st.chained = false;
+      st.lastT0 = 0;
+      st.rafAlive = true;
+      if (!document.hidden) request();
+    };
+    document.addEventListener('visibilitychange', visibilityChanged);
+    return () => {
+      window.clearInterval(st.timer);
+      document.removeEventListener('visibilitychange', visibilityChanged);
+    };
   }, [ready, request]);
 
   // ---- shape ---------------------------------------------------------------
@@ -2344,7 +2401,7 @@ export default function World3D({
     const st = R.current;
     if (!st) return;
     const rev = revision;
-    const key = `${skin}:${theme.id}:${geography ? 'geo' : 'bare'}`;
+    const key = `${worldContentKey(world)}:${skin}:${theme.id}:${geography ? geographyContentKey(geography) : 'bare'}:${showRivers}:${showRoads}:${showBorders}`;
     if (st.skinnedKey === key && st.skinnedRev === rev) return;
     st.skinnedKey = key;
     st.skinnedRev = rev;
@@ -2363,7 +2420,8 @@ export default function World3D({
     let canvas: HTMLCanvasElement;
     if (skin === 'dibujado') {
       canvas = getCartoTexture(world, theme, geography ?? undefined,
-        Math.min(4096, Math.max(2048, world.width)));
+        Math.min(4096, Math.max(2048, world.width)),
+        { rivers: showRivers, roads: showRoads, borders: showBorders });
       // La carta trae sus ríos dibujados en su propia lámina: el relleno de la
       // piel de cerca usa la misma imagen y no necesita base aparte.
       st.albedoBase = null;
@@ -2391,7 +2449,14 @@ export default function World3D({
         cctx.drawImage(baseCanvas, 0, 0);
         // wrap=false: este ráster ya cubre el cilindro entero; re-ramificar
         // por ventana empujaría los ríos orientales fuera del borde izquierdo.
-        drawWorldRivers(world, cctx, { x: 0, y: 0, w: world.width, h: world.height }, world.width, false);
+        if (showRivers) drawWorldRivers(world, cctx, { x: 0, y: 0, w: world.width, h: world.height }, world.width, false);
+        if (showBorders && geography) drawRealmBorders(cctx, realmBorders(world, geography), {
+          worldWidth: world.width, worldHeight: world.height,
+          toScreen: (u, v) => [u * world.width, v * world.height],
+          width: world.width, height: world.height, pxPerCell: 1,
+          view: { x: 0, y: 0, w: world.width, h: world.height },
+          linear: { ox: 0, oy: 0, scale: 1 },
+        });
       }
     }
     const tex = new THREE.CanvasTexture(canvas);
@@ -2414,7 +2479,7 @@ export default function World3D({
     st.surface.setShading(false, cavity, headlight, shadow);
     request();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skin, theme, geography, world, revision, ready, request]);
+  }, [skin, theme, geography, world, revision, ready, request, showRivers, showRoads, showBorders]);
 
   // ---- everything else the look depends on ---------------------------------
   useEffect(() => {
@@ -2563,6 +2628,7 @@ export default function World3D({
       st.fly.toC.copy(target).add(new THREE.Vector3(0, d * 0.72, d * 0.62));
     }
     st.fly.t = 0;
+    st.fly.startedAt = performance.now();
     st.fly.active = true;
     request();
     // eslint-disable-next-line react-hooks/exhaustive-deps
