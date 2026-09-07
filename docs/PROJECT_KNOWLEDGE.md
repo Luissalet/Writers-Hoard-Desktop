@@ -1,7 +1,8 @@
 # Writers Hoard project knowledge
 
-Last verified: 2026-07-27 against the current uncommitted working tree after the
-stability, cross-engine workflow, and product-capability implementation.
+Last verified: 2026-09-07 against the current uncommitted working tree after the
+integral remediation, Judge, Creative Development Lab, Shared Universe, and
+Read Aloud/Table Read implementation.
 
 Use this as the current-state companion to `tasks/lessons.md`. The older
 `tasks/architecture-unified-app.md` is a design/migration plan; many of its
@@ -73,7 +74,7 @@ engine-local error boundary.
 | `src/components/` | Application shell and general UI primitives |
 | `src/pages/` | Global pages and dynamic project composition |
 | `src/stores/` | Thin Zustand layer for UI/integration state |
-| `src/services/` | Backup, AI, search, project intelligence/tools, Google, writing activity, media/capture bridges |
+| `src/services/` | Backup, AI, search, project intelligence/tools, Google, writing activity, media/capture bridges, Judge/reference grounding, branching, story state/lenses, scene and narrative analysis, shared canon, read aloud, and project recovery |
 | `src/services/aiRuntime/` | Pure AI contracts shared by main and renderer: URL policy, hardware fit, tool policy/selection, the single tool executor, copilot prompts and events |
 | `src/services/aiBridge/` | Tool manifest and handlers used by both the external bridge and the copilot |
 | `src/services/copilot/` | Copilot threads/messages/settings over Dexie, the run-event reducer, backup strategy |
@@ -90,7 +91,7 @@ sub-application rather than a normal CRUD engine.
 
 ## Engine architecture
 
-Importing `src/engines/index.ts` registers 22 engines. An `EngineDefinition`
+Importing `src/engines/index.ts` registers 23 engines. An `EngineDefinition`
 declares metadata, category, table names, root component, and an optional
 sidebar badge. Projects store their active engine IDs in `enabledEngines` and
 their presentation order in `engineOrder`.
@@ -141,6 +142,7 @@ copies of the same project.
 | `timeline` | core | Multi-lane events, ranges, event links | `timelines`, `timelineEvents`, `timelineConnections` |
 | `board` | core | Infinite canvas over a typed graph: relations, layers, views, metrics | `boards`, `boardNodes`, `boardEdges`, `boardLayers`, `boardViews` |
 | `maps` | core | Uploaded maps plus synchronized Worldgen-backed maps and editable pins | `worldMaps`, `mapPins` |
+| `real-atlas` | core | Real-world places, checked facts, itineraries, and deliberate departures from reality | `atlasPlaces`, `atlasDivergences` |
 | `gallery` | core | Image collections and linked inspiration | `imageCollections`, `inspirationImages` |
 | `notes` | core | Short notes, quotes, ideas, and global inbox capture | `notes` |
 | `writing-stats` | core | Sessions, goals, sprints, progress, streaks | `writingSessions`, `writingGoals` |
@@ -161,7 +163,7 @@ copies of the same project.
 
 ## Persistence and domain invariants
 
-`WritersHoardDB` currently reaches schema version 27 and exposes 54 typed table
+`WritersHoardDB` currently reaches schema version 34 and exposes 71 typed table
 properties. Engine table declarations are descriptive and support backup
 coverage checks; they do **not** generate the Dexie schema. A persisted engine
 still needs a central, versioned change in `src/db/index.ts`.
@@ -204,6 +206,17 @@ Recent schema direction:
 - v27 added the copilot tables `aiThreads`, `aiMessages` and `aiProjectSettings`
   (project-scoped; `aiProjectSettings` is keyed by `projectId`, which is why
   `deleteProject` also sweeps tables whose primary key is the project).
+- v28 added `atlasPlaces` and `atlasDivergences` for the Real Atlas.
+- v29 added `visualRefs`; v30 added reproducible `imageRecipes` with provenance.
+- v31 added the grounded-review layer: `referenceDocuments`,
+  `referenceSections`, `referenceLenses`, `projectReferenceLinks`, `judgeRuns`,
+  and `judgeFindings`.
+- v32 added reversible creative branching through `creativeBranches`,
+  `creativeBranchDeltas`, and `branchPromotionReceipts`.
+- v33 added structured narrative evidence through `narrativeMoments` and
+  `storyClaims`.
+- v34 added saga-scoped `sharedCanonEntities` and project-local
+  `sharedEntityBindings` for Shared Universe.
 
 ## Cross-engine infrastructure
 
@@ -221,8 +234,10 @@ Current coverage:
   Every other searchable engine receives a navigation-safe fallback adapter.
 - Persisted engine strategies pass static schema/ownership conformance and the
   critical browser suite round-trips parent/child and empty-parent cases.
-- Project-tool tables use a project-scoped backup strategy registered at engine
-  bootstrap.
+- Project-tool tables use a scoped backup strategy registered at engine
+  bootstrap. The common validator fails closed on rows, references, and paths
+  outside the archive scope; Shared Universe canon is intentionally scoped by
+  `seriesId`, while bindings remain scoped by `projectId`.
 
 Global full-content search uses one invalidation-aware in-memory index instead
 of rescanning tables per keypress. It indexes Writings, Codex, Diary, Dialog,
@@ -239,6 +254,21 @@ localStorage recovery journal survives a failed/unload-time IndexedDB write.
 A session snapshot is created when editing begins; manual and pre-restore
 snapshots make restoration reversible. Positive word/time deltas feed Writing
 Stats using local calendar-day keys.
+
+Judge lives in the Writings side panel rather than in a parallel editor. A
+private PDF/Markdown/text library is split into grounded sections and connected
+to projects through reusable lenses. Judge, Questions, Reader, Story State, and
+Lens Duel use the same review service, citations, source fingerprint, history,
+staleness rules, snapshots, and anchored findings. Reader removes later
+chapters before the model call, rather than merely instructing the model to
+ignore them. Remote review remains explicit and reports exactly which sources
+will leave the device.
+
+Read Aloud is available from local chapters and Google-backed writings. It
+segments prose into navigable sentences, supports speed and voice selection,
+tracks playback state accurately, and can attach notes to the active segment.
+Dialog Scene builds Table Read on the same service, adding per-character voices
+without duplicating the text-to-speech pipeline.
 
 ### Scrapper
 
@@ -300,9 +330,21 @@ inventory. Its tool views add:
   off; only selected indexed excerpts are sent and answers are instructed to
   cite their source IDs.
 
-The eleven Cockpit views are organized as four workflows without removing any
+The Creative Development Lab is a derived workspace over existing story data,
+not a commercial pipeline. Its nine views cover ideas and constraints, causal
+consequences, character pressure, reversible branches, story state and canon,
+motifs and archaeology, scene variants, Narrative X-ray, and Shared Universe.
+Promotion into authoritative material creates receipts and remains reversible.
+Shared Universe keeps saga canon distinct from project-local overrides and
+shows origin/conflict context before a binding is accepted.
+
+Project Health & Recovery exposes stale references, import and migration
+problems, pending/conflicted writes, provenance, restore history, and available
+repair actions instead of leaving recovery as an invisible maintenance path.
+
+The twelve Cockpit views are organized as four workflows without removing any
 capability: Supervise (`overview`, `health`, `intelligence`), Develop
-(`entities`, `spine`, `ai`), Produce (`workflows`, `research`, `assets`), and
+(`lab`, `entities`, `spine`, `ai`), Produce (`workflows`, `research`, `assets`), and
 Prepare and publish (`templates`, `publishing`). The `panel` query parameter is
 the source of truth for the selected view, so links are shareable, browser
 history works, unrelated query state is preserved, and an invalid value heals
@@ -392,6 +434,9 @@ startup; those modules stay behind the Worldgen route.
   media root.
 - The media-library relocation IPC chooses its destination in the main process,
   writes its location atomically, and never accepts an arbitrary renderer path.
+- The loopback media server requires an unguessable session token, permits only
+  the exact renderer origin, and shares one cancellable queue with IPC callers;
+  cancellation reaches active downloader and transcoder child processes.
 - Google Identity/Drive/Docs are called directly from the renderer.
 - All AI network traffic runs in the main process through the inference
   gateway (`electron/ai/`). The managed image runtime (`electron/ai/sdRuntime.ts`)
@@ -424,7 +469,7 @@ startup; those modules stay behind the Worldgen route.
   cross-engine IDs and references can be remapped. Scrapper backups deliberately
   preserve metadata but reset unavailable external-file states; the native
   files themselves are not embedded in ZIP archives.
-- Parent deletion owns high-risk children/caches (writing snapshots, Yarn
+- Parent deletion owns high-risk children/caches (writing snapshots, Board
   edges, world caches), and Project Health can detect/repair other stale soft
   references. Dexie still has no foreign keys, so new relationships require a
   deliberate lifecycle audit.
@@ -440,9 +485,10 @@ startup; those modules stay behind the Worldgen route.
   and enables electron-builder's fail-closed signing check.
 - Engine roots and global pages are split, including large Worldgen/editor
   paths and the full Lucide project-icon catalogue. The shared renderer entry
-  is 906.2 kB minified, below its 1.6 MB release gate. Residual informative warnings
-  remain for World3D (710.6 kB against 700 kB) and total renderer JavaScript
-  (5,130.8 kB against 4,100 kB).
+  is 1,469.3 kB minified, below its 1.6 MB release gate. Residual informative
+  warnings remain for World3D (710.2 kB against 700 kB) and total renderer
+  JavaScript (7,400.2 kB against 4,100 kB); both are budget notes, not failed
+  release gates.
 - The recovery journal is intentionally best-effort and remains subject to
   browser localStorage quota. Writing analytics never turn a successful
   document save into a failure.

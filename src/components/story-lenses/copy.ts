@@ -1,0 +1,138 @@
+import type { StoryLensesLabCopy } from './StoryLensesLab';
+
+export type StoryLensesCopyLocale = 'en' | 'es';
+
+function countLabel(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+const EN: Omit<StoryLensesLabCopy, 'formatTimestamp'> = {
+  title: 'Motifs and idea archaeology',
+  description: 'Follow explicit echoes and the surviving path from a captured spark to canon. These are evidence-backed suggestions, never automatic interpretations.',
+  viewsLabel: 'Story lenses',
+  motifsView: 'Motif constellation',
+  archaeologyView: 'Idea archaeology',
+  groundedNotice: 'Only explicit tags, annotations and links are used as evidence.',
+  searchMotifs: 'Find a motif',
+  searchMotifsPlaceholder: 'object, colour, place, phrase…',
+  motifListLabel: 'Motifs found in the project',
+  noMotifs: 'Tag images, notes, scenes or entities to reveal their constellation here.',
+  appearances: 'Appearances',
+  appearanceCount: (count) => countLabel(count, 'appearance', 'appearances'),
+  echoesAndTransformations: 'Echoes and transformations',
+  noEchoes: 'No linked echo has been evidenced yet.',
+  relatedMotifs: 'Motifs that travel together',
+  noRelatedMotifs: 'No explicit co-occurrence yet.',
+  sequenceGaps: 'Where the motif disappears',
+  noSequenceGaps: 'No sequence gap is visible in the ordered material.',
+  gapDescription: (scope, before, after, count) => `${scope}: ${count} ordered element(s) between “${before}” and “${after}” carry no appearance.`,
+  echoKind: { echo: 'Echo', transformation: 'Transformation' },
+  evidenceKind: {
+    'annotation-reference': 'Annotation link',
+    'entity-link': 'Entity link',
+  },
+  orphanedAnnotation: 'The annotation anchor moved; the reference is retained.',
+  openEntity: (title) => `Open ${title}`,
+  searchTrail: 'Find an idea or canonical form',
+  searchTrailPlaceholder: 'note, seed, beat, chapter…',
+  entityListLabel: 'Entities with a surviving provenance trail',
+  noEntities: 'No surviving provenance trail is available yet.',
+  trailFor: (title) => `Trail for ${title}`,
+  originPath: 'Earlier forms',
+  noOrigins: 'No earlier form survives in the available evidence.',
+  laterForms: 'What it became',
+  noLaterForms: 'No later form is linked yet.',
+  evidenceTrail: 'Evidence trail',
+  noEvidenceTrail: 'There is no active transition for this entity.',
+  undoneEvidence: 'Undone transitions',
+  revisions: 'Recoverable writing revisions',
+  noRevisions: 'No writing snapshot belongs to this trail.',
+  transitionKind: {
+    conversion: 'Conversion',
+    migration: 'Migration',
+    'entity-link': 'Linked form',
+    'creative-promotion': 'Creative promotion',
+    'branch-promotion': 'Alternative promoted',
+  },
+  transitionLabel: (kind, detail) => detail ? `${kind} · ${detail}` : kind,
+  depthLabel: (depth) => `Step ${depth}`,
+  availability: {
+    live: 'Live source',
+    'snapshot-only': 'Recoverable snapshot',
+    'reference-only': 'Reference only',
+  },
+  referenceOnlyNotice: 'The link survives, but the original content no longer does. Recovery is not implied.',
+  snapshotSummary: (title, words, reason) => `${title} · ${words.toLocaleString('en')} words · ${reason}`,
+  openSnapshot: (title) => `Open snapshot of ${title}`,
+};
+
+const ES: Omit<StoryLensesLabCopy, 'formatTimestamp'> = {
+  title: 'Motivos y arqueología de ideas',
+  description: 'Sigue ecos explícitos y el rastro que sobrevive desde una chispa capturada hasta el canon. Son sugerencias con evidencia, nunca interpretaciones automáticas.',
+  viewsLabel: 'Lentes narrativas',
+  motifsView: 'Constelación de motivos',
+  archaeologyView: 'Arqueología de ideas',
+  groundedNotice: 'Solo se usan etiquetas, anotaciones y enlaces explícitos como evidencia.',
+  searchMotifs: 'Buscar un motivo',
+  searchMotifsPlaceholder: 'objeto, color, lugar, frase…',
+  motifListLabel: 'Motivos encontrados en el proyecto',
+  noMotifs: 'Etiqueta imágenes, notas, escenas o entidades para revelar aquí su constelación.',
+  appearances: 'Apariciones',
+  appearanceCount: (count) => countLabel(count, 'aparición', 'apariciones'),
+  echoesAndTransformations: 'Ecos y transformaciones',
+  noEchoes: 'Todavía no hay un eco respaldado por un vínculo.',
+  relatedMotifs: 'Motivos que viajan juntos',
+  noRelatedMotifs: 'Todavía no existe una coaparición explícita.',
+  sequenceGaps: 'Dónde desaparece el motivo',
+  noSequenceGaps: 'No hay huecos visibles en el material ordenado.',
+  gapDescription: (scope, before, after, count) => `${scope}: hay ${count} elemento(s) ordenados entre «${before}» y «${after}» sin ninguna aparición.`,
+  echoKind: { echo: 'Eco', transformation: 'Transformación' },
+  evidenceKind: {
+    'annotation-reference': 'Vínculo de anotación',
+    'entity-link': 'Vínculo entre entidades',
+  },
+  orphanedAnnotation: 'El ancla de la anotación se movió; la referencia se conserva.',
+  openEntity: (title) => `Abrir ${title}`,
+  searchTrail: 'Buscar una idea o forma canónica',
+  searchTrailPlaceholder: 'nota, semilla, beat, capítulo…',
+  entityListLabel: 'Entidades con un rastro de procedencia que sobrevive',
+  noEntities: 'Todavía no hay un rastro de procedencia disponible.',
+  trailFor: (title) => `Rastro de ${title}`,
+  originPath: 'Formas anteriores',
+  noOrigins: 'No sobrevive ninguna forma anterior en la evidencia disponible.',
+  laterForms: 'En qué se convirtió',
+  noLaterForms: 'Todavía no hay una forma posterior enlazada.',
+  evidenceTrail: 'Rastro de evidencia',
+  noEvidenceTrail: 'No hay una transición activa para esta entidad.',
+  undoneEvidence: 'Transiciones deshechas',
+  revisions: 'Versiones recuperables del escrito',
+  noRevisions: 'Ninguna versión del escrito pertenece a este rastro.',
+  transitionKind: {
+    conversion: 'Conversión',
+    migration: 'Migración',
+    'entity-link': 'Forma enlazada',
+    'creative-promotion': 'Promoción creativa',
+    'branch-promotion': 'Alternativa promovida',
+  },
+  transitionLabel: (kind, detail) => detail ? `${kind} · ${detail}` : kind,
+  depthLabel: (depth) => `Paso ${depth}`,
+  availability: {
+    live: 'Fuente viva',
+    'snapshot-only': 'Versión recuperable',
+    'reference-only': 'Solo referencia',
+  },
+  referenceOnlyNotice: 'El enlace sobrevive, pero el contenido original ya no. No se promete una recuperación falsa.',
+  snapshotSummary: (title, words, reason) => `${title} · ${words.toLocaleString('es')} palabras · ${reason}`,
+  openSnapshot: (title) => `Abrir versión de ${title}`,
+};
+
+export function getStoryLensesCopy(locale: StoryLensesCopyLocale): StoryLensesLabCopy {
+  const copy = locale === 'es' ? ES : EN;
+  return {
+    ...copy,
+    formatTimestamp: (timestamp) => new Intl.DateTimeFormat(locale, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(timestamp),
+  };
+}

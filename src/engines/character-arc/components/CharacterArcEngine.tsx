@@ -353,9 +353,8 @@ function ArcEditor({
       }
     : undefined;
 
-  const handleField = (key: keyof CharacterArc) => (value: string) => {
+  const handleField = (key: keyof CharacterArc) => (value: string) =>
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<CharacterArc>);
-  };
 
   // Buffered. `characterArcs` sorts by `updatedAt desc`, so writing on every
   // keystroke made the arc being renamed jump to the top of the list letter by
@@ -559,7 +558,7 @@ function CoreField({
 }: {
   label: string;
   value: string;
-  onChange: (v: string) => void;
+  onChange: (v: string) => Promise<void>;
   color: string;
   rows?: number;
   /** The template's prompt — a hint, never persisted content. */
@@ -607,9 +606,8 @@ function BeatRow({
   const [expanded, setExpanded] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
 
-  const handleField = (key: keyof ArcBeat) => (value: string) => {
+  const handleField = (key: keyof ArcBeat) => (value: string) =>
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<ArcBeat>);
-  };
 
   const titleField = useDebouncedField(beat.title, handleField('title'));
   const descriptionField = useDebouncedField(beat.description, handleField('description'));

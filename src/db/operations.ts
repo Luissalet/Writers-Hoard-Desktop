@@ -137,6 +137,27 @@ export async function deleteProject(id: string): Promise<void> {
   );
 
   await db.transaction('rw', db.tables, async () => {
+    const deletingProject = await db.projects.get(id);
+    if (deletingProject?.parentId) {
+      const parent = await db.projects.get(deletingProject.parentId);
+      if (parent) {
+        await db.projects.update(parent.id, {
+          children: (parent.children ?? []).filter((childId) => childId !== id),
+          updatedAt: Date.now(),
+        });
+      }
+    }
+    if (deletingProject?.type === 'saga') {
+      // A saga owns shared identities, never the content of its books. Removing
+      // it detaches those books and clears only the shared identity layer.
+      await db.sharedEntityBindings.where('seriesId').equals(id).delete();
+      await db.sharedCanonEntities.where('seriesId').equals(id).delete();
+      await db.projects.where('parentId').equals(id).modify((project) => {
+        project.parentId = undefined;
+        project.updatedAt = Date.now();
+      });
+    }
+
     // --- children without a projectId index: resolve via parent ids ---
     const [sceneIds, storyboardIds, annotationIds, worldIds] = await Promise.all([
       db.scenes.where('projectId').equals(id).primaryKeys(),
@@ -481,7 +502,10 @@ export async function updateInspirationImage(id: string, changes: Partial<Inspir
 }
 
 export async function deleteInspirationImage(id: string): Promise<void> {
-  await db.inspirationImages.delete(id);
+  await db.transaction('rw', [db.inspirationImages, db.imageRecipes], async () => {
+    await db.imageRecipes.where('imageId').equals(id).delete();
+    await db.inspirationImages.delete(id);
+  });
 }
 
 // ===== Settings =====
@@ -514,6 +538,8 @@ export const PROJECT_SETTING_PREFIXES = {
   atlasMap: 'realAtlas.map.',
   /** Written by `saveAtlasRoutes` in `engines/real-atlas/routes.ts`: the project's itineraries (also in its backup, via the engine's strategy). */
   atlasRoutes: 'realAtlas.routes.',
+  /** Per-character Web Speech voice choices for Dialog Scene table reads. */
+  tableReadVoices: 'dialogScene.tableRead.voices.',
 } as const;
 
 /** Every settings key the given project owns. */

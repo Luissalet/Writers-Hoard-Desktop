@@ -64,7 +64,7 @@ export interface LayersPanelProps {
   activeLayerId: string | null;
   counts: Map<string, number>;
   onCreate: (name: string) => void;
-  onPatch: (id: string, changes: Partial<BoardLayer>) => void;
+  onPatch: (id: string, changes: Partial<BoardLayer>) => Promise<void>;
   onDelete: (id: string) => void;
   onSetActive: (id: string | null) => void;
   onSelectContents: (id: string) => void;

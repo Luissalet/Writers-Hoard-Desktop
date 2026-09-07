@@ -49,7 +49,7 @@ export default function SegmentCard({
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
         onClick={() => setIsEditing(true)}
-        className={`bg-surface border border-border rounded-lg p-4 cursor-pointer transition-all hover:border-accent-gold hover:shadow-md ${
+        className={`bg-surface border border-border rounded-lg p-4 cursor-pointer transition-[border-color,box-shadow,transform] hover:border-accent-gold hover:shadow-md ${
           isDragging ? 'opacity-50 bg-elevated' : ''
         }`}
       >

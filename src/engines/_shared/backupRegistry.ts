@@ -88,10 +88,12 @@ function bytesToBase64(bytes: Uint8Array): string {
  * copy of an archive the caller already holds in memory, and it is released
  * with the JSZip instance it belongs to.
  */
-export async function preloadArchive(zip: JSZip): Promise<void> {
+export async function preloadArchive(zip: JSZip, excludedPrefixes: readonly string[] = []): Promise<void> {
   if (PRELOADED.has(zip)) return;
   const paths: string[] = [];
-  zip.forEach((_relativePath, file) => { if (!file.dir) paths.push(file.name); });
+  zip.forEach((_relativePath, file) => {
+    if (!file.dir && !excludedPrefixes.some(prefix => file.name.startsWith(prefix))) paths.push(file.name);
+  });
   const contents = new Map<string, Uint8Array>();
   for (const path of paths) {
     const file = zip.file(path);
@@ -173,6 +175,19 @@ export interface ImportContext {
   projectDir: string;
 }
 
+/**
+ * One archive section and the exact Dexie rows an import strategy will write.
+ *
+ * Scope validation consumes this read-only description before the restore
+ * transaction opens. Custom strategies must describe every table they own;
+ * otherwise a new import path could accidentally bypass the common guard.
+ */
+export interface BackupImportSection {
+  table: string;
+  path: string;
+  rows: readonly unknown[];
+}
+
 // ---------------------------------------------------------------------------
 // Strategy interface + registry
 // ---------------------------------------------------------------------------
@@ -186,6 +201,12 @@ export interface BackupStrategy {
   exportProject: (ctx: ExportContext) => Promise<void>;
   /** Called per project during import. */
   importProject: (ctx: ImportContext) => Promise<void>;
+  /**
+   * Read-only inventory of every row `importProject` can write. The common ZIP
+   * preflight verifies project ownership, primary keys and parent/reference
+   * containment from this inventory before any table is cleared or written.
+   */
+  inspectImport: (ctx: ImportContext) => Promise<BackupImportSection[]>;
   /**
    * Optional read-only validation run before a destructive restore starts.
    * It must not write to Dexie. Import still runs inside a transaction, but
@@ -270,12 +291,17 @@ export function makeSimpleBackupStrategy(opts: {
   folder?: string;
   /** Override the FK field name (default: 'projectId'). */
   projectIdField?: string;
+  /** Per-table ownership fields for a mixed strategy (for example seriesId). */
+  projectIdFields?: Readonly<Record<string, string>>;
 }): BackupStrategy {
   const folder = opts.folder ?? opts.engineId;
-  const fk = opts.projectIdField ?? 'projectId';
+
+  const projectScopeField = (tableName: string): string =>
+    opts.projectIdFields?.[tableName] ?? opts.projectIdField ?? 'projectId';
 
   const assertProjectScopeIndex = (tableName: string): void => {
     const table = db.table(tableName);
+    const fk = projectScopeField(tableName);
     const hasIndex = table.schema.primKey.name === fk || Boolean(table.schema.idxByName[fk]);
     if (!hasIndex) {
       throw new Error(
@@ -285,27 +311,36 @@ export function makeSimpleBackupStrategy(opts: {
     }
   };
 
+  const inspectImport = async ({ zip, projectDir }: ImportContext): Promise<BackupImportSection[]> => {
+    const sections: BackupImportSection[] = [];
+    for (const tableName of opts.tables) {
+      assertProjectScopeIndex(tableName);
+      const path = `${projectDir}/${folder}/${tableName}.json`;
+      const rows = await readJson<unknown>(zip, path);
+      if (rows !== null && !Array.isArray(rows)) {
+        throw new Error(`Expected "${path}" to contain a JSON array.`);
+      }
+      sections.push({ table: tableName, path, rows: rows ?? [] });
+    }
+    return sections;
+  };
+
   return {
     engineId: opts.engineId,
     tables: opts.tables,
     async exportProject({ zip, projectId, projectDir }) {
       for (const tableName of opts.tables) {
         assertProjectScopeIndex(tableName);
+        const fk = projectScopeField(tableName);
         const rows = await db.table(tableName)
           .where(fk).equals(projectId).toArray();
         if (rows.length === 0) continue;
         zip.file(`${projectDir}/${folder}/${tableName}.json`, JSON.stringify(rows, null, 2));
       }
     },
-    async preflightImport({ zip, projectDir }) {
-      for (const tableName of opts.tables) {
-        assertProjectScopeIndex(tableName);
-        const path = `${projectDir}/${folder}/${tableName}.json`;
-        const rows = await readJson<unknown>(zip, path);
-        if (rows !== null && !Array.isArray(rows)) {
-          throw new Error(`Expected "${path}" to contain a JSON array.`);
-        }
-      }
+    inspectImport,
+    async preflightImport(context) {
+      await inspectImport(context);
     },
     async importProject({ zip, projectDir }) {
       for (const tableName of opts.tables) {

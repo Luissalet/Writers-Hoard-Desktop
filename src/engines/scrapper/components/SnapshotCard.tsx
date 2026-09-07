@@ -58,7 +58,7 @@ export default function SnapshotCard({ snapshot, onOpen }: SnapshotCardProps) {
         exit={{ opacity: 0, y: -10 }}
         whileHover={{ y: -2 }}
         onClick={() => onOpen(snapshot.id)}
-        className="bg-elevated border border-border rounded-lg overflow-hidden hover:border-accent-gold cursor-pointer transition-all hover:shadow-lg"
+        className="bg-elevated border border-border rounded-lg overflow-hidden hover:border-accent-gold cursor-pointer transition-[border-color,box-shadow] hover:shadow-lg"
       >
         {firstItem ? (
           <div className="relative w-full h-56 overflow-hidden bg-black/60 flex items-center justify-center">

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BookOpen, Bot, ChevronRight, Globe } from 'lucide-react';
+import { Accessibility, BookOpen, Bot, ChevronRight, Globe } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Modal from '@/components/common/Modal';
 import { useLocaleStore, type Locale } from '@/stores/localeStore';
@@ -68,10 +68,13 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const reading = useAppStore((s) => s.reading);
   const setReading = useAppStore((s) => s.setReading);
   const loadReading = useAppStore((s) => s.loadReading);
+  const motion = useAppStore((s) => s.motion);
+  const setMotion = useAppStore((s) => s.setMotion);
+  const loadMotion = useAppStore((s) => s.loadMotion);
 
   useEffect(() => {
-    void loadReading();
-  }, [loadReading]);
+    void Promise.all([loadReading(), loadMotion()]);
+  }, [loadMotion, loadReading]);
 
   return (
     <Modal open={open} onClose={onClose} title={t('settings.title')}>
@@ -87,7 +90,9 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
             {LANGUAGES.map((lang) => (
               <button
                 key={lang.id}
+                type="button"
                 onClick={() => setLocale(lang.id)}
+                aria-pressed={locale === lang.id}
                 className={`w-full text-left px-4 py-2.5 rounded-lg border transition text-sm flex items-center gap-3 ${
                   locale === lang.id
                     ? 'border-accent-gold/40 bg-accent-gold/5'
@@ -171,6 +176,26 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
               {t('settings.reading.preview')}
             </p>
           </div>
+        </section>
+
+        <div className="border-t border-border" />
+
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Accessibility size={14} className="text-accent-gold" aria-hidden="true" />
+            <h3 className="text-sm font-medium text-text-primary">{t('settings.motion')}</h3>
+          </div>
+          <p className="text-[10px] text-text-dim mb-3">{t('settings.motion.subtitle')}</p>
+          <Choice
+            label={t('settings.motion.preference')}
+            value={motion}
+            options={[
+              { id: 'system', label: t('settings.motion.system') },
+              { id: 'reduce', label: t('settings.motion.reduce') },
+              { id: 'full', label: t('settings.motion.full') },
+            ]}
+            onChange={(preference) => void setMotion(preference)}
+          />
         </section>
 
         <div className="border-t border-border" />

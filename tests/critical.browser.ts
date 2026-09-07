@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import Dexie from 'dexie';
-import { db } from '@/db';
+import { CURRENT_DB_VERSION, db } from '@/db';
 import '@/engines/timeline';
 import '@/engines/gallery';
 import '@/engines/board';
@@ -150,6 +150,21 @@ import {
 } from './bookMode';
 import * as atlasMapTests from './atlasMap';
 import { testBridgeLinksStayInProject } from './aiBridgeScope';
+import { runMigrationV24Tests } from './migration-v24';
+import { testZipBackupScopeGuards } from './zipBackupScope';
+import { testConversionUndoSafety } from './project-tools-safety';
+import { testGoogleDocWriteSafety } from './google-docs-safety';
+import { runPendingWriteTests } from './pending-writes';
+import { testAccessibleModalContract } from './modal-accessibility';
+import { testProjectHealthRecovery } from './projectHealthRecovery';
+import { testJudgeContracts } from './judge';
+import { testCreativeBranchKernel } from './creative-branches';
+import { testStoryStateKernel } from './story-state';
+import { testCreativePromotion } from './creative-promotion';
+import { testStoryLenses } from './story-lenses';
+import { testSharedUniverse } from './shared-universe';
+import { runSceneLabCoreTests } from './scene-lab';
+import { runNarrativeXrayTests } from './narrative-xray';
 
 registerFallbackAnchorAdapters();
 
@@ -209,7 +224,7 @@ async function testMigration(): Promise<void> {
   previous.close();
 
   await db.open();
-  assert(db.verno === 30, `expected schema v30, received v${db.verno}`);
+  assert(db.verno === CURRENT_DB_VERSION, `expected schema v${CURRENT_DB_VERSION}, received v${db.verno}`);
   assert((await db.projects.get('legacy-project'))?.title === 'Antes de las recetas', 'the upgrade lost a project row');
   assert((await db.writings.get('legacy-writing'))?.content === '<p>un faro</p>', 'the upgrade lost a writing row');
   const carried = await db.inspirationImages.get('legacy-image');
@@ -311,7 +326,9 @@ async function seedBackupFixture(projectId: string): Promise<string[]> {
     targetEngineId: 'timeline', targetEntityId: 'event-1', createdAt: now,
   });
   await db.snapshots.add({
-    id: 'snapshot-1', projectId, url: 'https://example.com', title: 'Source',
+    id: 'snapshot-1', projectId,
+    url: 'https://www.instagram.com/p/ABC_def-12/?utm_source=ig_web_copy_link&igsh=abc%2Fdef#saved',
+    title: 'Source',
     source: 'url', status: 'success', notes: '', tags: [], preservedAt: now,
     createdAt: now, localMediaPath: `${projectId}/snapshot-1.mp4`,
     downloadState: 'done',
@@ -362,6 +379,10 @@ async function testBackupRoundTrip(): Promise<void> {
   assert(await db.annotationReferences.get('annotation-ref-1'), 'child-only annotation reference did not round-trip');
   const snapshot = await db.snapshots.get('snapshot-1');
   assert(snapshot && !snapshot.localMediaPath && snapshot.downloadState !== 'done', 'Scrapper restored unavailable external media as available');
+  assert(
+    snapshot?.url === 'https://www.instagram.com/p/ABC_def-12/?utm_source=ig_web_copy_link&igsh=abc%2Fdef#saved',
+    'Scrapper changed or lost the exact clipping link during backup restore',
+  );
   assert(await db.citations.get('citation-1'), 'project tools did not round-trip');
   const publishingProfile = await db.publishingProfiles.get('publishing-profile-1');
   assert(
@@ -1029,11 +1050,12 @@ async function testOutlineBeatDeepLink(): Promise<void> {
 
 function testEditorialNavigationContracts(): void {
   const cockpitTabs = COCKPIT_GROUPS.flatMap(group => group.tabs);
-  assert(cockpitTabs.length === 11, 'Cockpit grouping lost a project view');
+  assert(cockpitTabs.length === 12, 'Cockpit grouping lost a project view');
   assert(new Set(cockpitTabs).size === cockpitTabs.length, 'Cockpit grouping duplicated a project view');
   assert(resolveCockpitTab('research') === 'research', 'valid Cockpit panel did not survive URL resolution');
   assert(resolveCockpitTab('unknown') === 'overview', 'unknown Cockpit panel did not fall back to overview');
   assert(getCockpitGroup('publishing').id === 'prepare', 'publishing left the prepare workflow');
+  assert(getCockpitGroup('lab').id === 'develop', 'creative lab left the development workflow');
 
   const actions = buildCommandCenterActions({
     id: 'project with spaces',
@@ -4966,8 +4988,23 @@ function testSearchQueryGrammar(): void {
 
 async function run(): Promise<void> {
   await testMigration();
+  passed.push(...await runMigrationV24Tests());
   await testBackupRoundTrip();
   await testProjectImportCollisionGuard();
+  passed.push(...await testZipBackupScopeGuards());
+  passed.push(...await testConversionUndoSafety());
+  passed.push(...await testGoogleDocWriteSafety());
+  passed.push(...await runPendingWriteTests());
+  passed.push(...await testProjectHealthRecovery());
+  passed.push(...await testJudgeContracts());
+  passed.push(await testCreativeBranchKernel());
+  passed.push(await testStoryStateKernel());
+  passed.push(await testCreativePromotion());
+  passed.push(testStoryLenses());
+  passed.push(await testSharedUniverse());
+  passed.push(...runSceneLabCoreTests());
+  passed.push(...runNarrativeXrayTests());
+  passed.push(...await testAccessibleModalContract());
   await testCascades();
   await testCopilotRunGuards();
   await testImageHandoffStore();

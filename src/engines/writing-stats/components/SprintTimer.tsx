@@ -119,7 +119,7 @@ export default function SprintTimer({ projectId, onComplete, onCancel }: SprintT
         </div>
         <div className="h-2 bg-elevated rounded-full overflow-hidden">
           <div
-            className="h-full bg-accent-gold transition-all duration-300"
+            className="h-full bg-accent-gold transition-[width] duration-300"
             style={{ width: `${progressPercent}%` }}
           />
         </div>

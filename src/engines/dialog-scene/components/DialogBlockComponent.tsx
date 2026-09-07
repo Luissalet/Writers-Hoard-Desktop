@@ -8,7 +8,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 
 interface DialogBlockComponentProps {
   block: DialogBlock;
-  onUpdate: (content: string, parenthetical?: string) => void;
+  onUpdate: (content: string, parenthetical?: string) => Promise<void>;
   onUpdateFormatting: (formatting: BlockFormatting) => void;
   /** Tab-cycling of the block type; omit to disable (e.g. dual dialogue). */
   onChangeType?: (type: DialogBlockType) => void;

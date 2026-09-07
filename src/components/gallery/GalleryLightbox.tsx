@@ -14,6 +14,7 @@ import { ImagePlus, X } from 'lucide-react';
 import type { InspirationImage, CodexEntry } from '@/types';
 import { codexTypeIcons, codexTypeColors } from '@/components/codex/codexTypeMeta';
 import { useTranslation } from '@/i18n/useTranslation';
+import Modal from '@/components/common/Modal';
 
 interface GalleryLightboxProps {
   image: InspirationImage;
@@ -35,20 +36,20 @@ export default function GalleryLightbox({ image, linkedEntries, onClose, onEditN
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <button
-        className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition"
-        aria-label="Close"
-      >
-        <X size={24} className="text-white" />
-      </button>
-      <div className="flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
+    <Modal open onClose={onClose} ariaLabel={t('gallery.lightbox.title')} fullscreen>
+      <div className="relative flex min-h-[70vh] flex-col items-center justify-center gap-3 px-12 py-8">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-2 right-2 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          aria-label={t('common.close')}
+          title={t('common.close')}
+        >
+          <X size={24} className="text-white" aria-hidden="true" />
+        </button>
         <img
           src={image.imageData}
-          alt=""
+          alt={image.notes || t('gallery.lightbox.imageAlt')}
           className="max-w-[90vw] max-h-[80vh] rounded-lg shadow-2xl"
         />
         {onEditNotes ? (
@@ -94,6 +95,6 @@ export default function GalleryLightbox({ image, linkedEntries, onClose, onEditN
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }

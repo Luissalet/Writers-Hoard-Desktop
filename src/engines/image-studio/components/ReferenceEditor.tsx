@@ -43,7 +43,7 @@ export interface ReferenceEditorProps {
    *  compiler rules read every access to it as a ref read during render. */
   visual: VisualRef;
   entries: readonly CodexEntry[];
-  onChange: (changes: Partial<VisualRef>) => void;
+  onChange: (changes: Partial<VisualRef>) => Promise<void>;
   onReload: () => void;
   onExportDataset: () => void;
 }

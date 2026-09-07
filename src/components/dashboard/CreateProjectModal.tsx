@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import Modal from '@/components/common/Modal';
 import ColorPicker from '@/components/common/ColorPicker';
@@ -24,6 +24,8 @@ interface FormState {
 
 export default function CreateProjectModal({ open, onClose, onCreate }: CreateProjectModalProps) {
   const { t } = useTranslation();
+  const titleId = useId();
+  const descriptionId = useId();
   const [creationStep, setCreationStep] = useState<'mode' | 'details'>('mode');
   const [selectedMode, setSelectedMode] = useState<ProjectMode | null>(null);
   const [enabledEngines, setEnabledEngines] = useState<string[]>([]);
@@ -117,10 +119,6 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
                   className={`group relative p-4 rounded-lg border bg-elevated hover:bg-surface transition overflow-hidden text-left ${
                     isRecommended ? 'border-accent-gold/60 ring-1 ring-accent-gold/30' : 'border-border'
                   }`}
-                  style={{
-                    borderLeftWidth: '4px',
-                    borderLeftColor: modeConfig.color,
-                  }}
                 >
                   {/* Subtle background tint */}
                   <div
@@ -159,8 +157,9 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
         // Step 2: Project Details
         <div className="space-y-5">
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">{t('common.title')}</label>
+            <label htmlFor={titleId} className="block text-sm text-text-muted mb-1.5">{t('common.title')}</label>
             <input
+              id={titleId}
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
               placeholder={t('createProject.titlePlaceholder')}
@@ -170,8 +169,8 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
             />
           </div>
 
-          <div>
-            <label className="block text-sm text-text-muted mb-1.5">{t('createProject.type')}</label>
+          <fieldset>
+            <legend className="block text-sm text-text-muted mb-1.5">{t('createProject.type')}</legend>
             <div className="grid grid-cols-2 gap-2">
               {(['saga', 'standalone', 'collection', 'idea'] as const).map(type => (
                 <button
@@ -187,11 +186,12 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
                 </button>
               ))}
             </div>
-          </div>
+          </fieldset>
 
           <div>
-            <label className="block text-sm text-text-muted mb-1.5">{t('common.description')}</label>
+            <label htmlFor={descriptionId} className="block text-sm text-text-muted mb-1.5">{t('common.description')}</label>
             <textarea
+              id={descriptionId}
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               placeholder={t('createProject.descriptionPlaceholder')}

@@ -196,6 +196,33 @@ registerBackupStrategy({
       }
     }
   },
+  async inspectImport({ zip, projectDir }) {
+    const sections: Array<{ table: string; path: string; rows: readonly unknown[] }> = [];
+    for (const dir of boardDirs(zip, projectDir)) {
+      const boardPath = `${dir}/board.json`;
+      const board = await readBackupJson<unknown>(zip, boardPath);
+      sections.push({ table: 'boards', path: boardPath, rows: board === null ? [] : [board] });
+      for (const [file, table] of [
+        ['nodes', 'boardNodes'],
+        ['edges', 'boardEdges'],
+        ['layers', 'boardLayers'],
+        ['views', 'boardViews'],
+      ] as const) {
+        const path = `${dir}/${file}.json`;
+        const rows = await readBackupJson<unknown>(zip, path);
+        if (rows !== null && !Array.isArray(rows)) {
+          throw new Error(`Expected "${path}" to contain a JSON array.`);
+        }
+        sections.push({ table, path, rows: rows ?? [] });
+      }
+    }
+    for (const table of BOARD_TABLES) {
+      if (!sections.some((section) => section.table === table)) {
+        sections.push({ table, path: `${projectDir}/boards`, rows: [] });
+      }
+    }
+    return sections;
+  },
   async importProject({ zip, projectDir }) {
     for (const dir of boardDirs(zip, projectDir)) {
       const board = await readBackupJson<Record<string, unknown>>(zip, `${dir}/board.json`);

@@ -61,7 +61,7 @@ export default function ProgressChart({ stats, dailyGoal }: ProgressChartProps) 
                 {/* Bar */}
                 <div className="w-full flex-1 flex items-end justify-center">
                   <div
-                    className={`w-full rounded-t-md transition-all ${
+                    className={`w-full rounded-t-md transition-[height,background-color] ${
                       isGoalMet
                         ? 'bg-gradient-to-t from-accent-gold to-accent-gold/80'
                         : 'bg-gradient-to-t from-accent-plum to-accent-plum-light'

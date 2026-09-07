@@ -17,7 +17,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { db } from '@/db';
+import { CURRENT_DB_VERSION, db } from '@/db';
 import type { InspirationImage } from '@/types';
 import type { VisualRef } from '@/types/visualRef';
 import { emptyVisualRef } from '@/types/visualRef';
@@ -449,7 +449,7 @@ export async function testVisualRefMigrationKeepsRows(): Promise<void> {
   // The current schema, whatever it has reached: the point of this test is
   // that a v28 database still arrives with its rows, however many additive
   // versions have been laid on top since.
-  assert(db.verno === 30, `the upgrade landed on v${db.verno}, not 30`);
+  assert(db.verno === CURRENT_DB_VERSION, `the upgrade landed on v${db.verno}, not ${CURRENT_DB_VERSION}`);
   // The whole point: an additive version that loses a row is unforgivable in a
   // writing app, and nothing in v29 reads or rewrites an existing table.
   assert((await db.projects.get(PROJECT))?.title === 'Old book', 'the v29 upgrade lost a project');

@@ -90,6 +90,20 @@ registerBackupStrategy({
       if (connectors.length) zip.file(`${projectDir}/storyboard/storyboardConnectors.json`, JSON.stringify(connectors, null, 2));
     }
   },
+  async inspectImport({ zip, projectDir }) {
+    return Promise.all([
+      'storyboards',
+      'storyboardPanels',
+      'storyboardConnectors',
+    ].map(async (table) => {
+      const path = `${projectDir}/storyboard/${table}.json`;
+      const rows = await readBackupJson<unknown>(zip, path);
+      if (rows !== null && !Array.isArray(rows)) {
+        throw new Error(`Expected "${path}" to contain a JSON array.`);
+      }
+      return { table, path, rows: rows ?? [] };
+    }));
+  },
   async importProject({ zip, projectDir }) {
     const boards = await readBackupJson<unknown[]>(zip, `${projectDir}/storyboard/storyboards.json`);
     if (boards?.length) await db.storyboards.bulkPut(boards as never[]);

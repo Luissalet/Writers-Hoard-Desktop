@@ -56,7 +56,13 @@ import {
 } from './aibridge/state';
 import { BRIDGE_TOOLS } from '@/services/aiBridge/manifest';
 import { transcodeWebmToMp4 } from './media/transcode';
-import { downloadMedia, type MediaFormat } from './media/ytdlp';
+import {
+  detectPlatform,
+  downloadMedia,
+  SUPPORTED_PLATFORMS,
+  type MediaFormat,
+} from './media/ytdlp';
+import { mediaDownloadQueue } from './media/downloadQueue';
 import { downloadGallery, listCollection, type CollectionItem } from './media/gallerydl';
 import { openIgLogin, igStatus, igLogout, exportIgCookies, cleanupIgCookies, igCookiesPath } from './media/igAuth';
 import { capturePage, type PageMeta } from './media/pageCapture';
@@ -113,6 +119,25 @@ interface DownloadToLibraryResult {
   uploader?: string;
   uploadDate?: string;
   title?: string;
+  error?: string;
+}
+
+interface MediaDownloaderHealthResult {
+  ok: true;
+  platforms: string[];
+}
+
+interface MediaPlatformResult {
+  ok: boolean;
+  platform?: string;
+  error?: string;
+}
+
+interface DownloadToFileResult {
+  ok: boolean;
+  canceled?: boolean;
+  filename?: string;
+  sizeBytes?: number;
   error?: string;
 }
 
@@ -305,22 +330,16 @@ async function resolveWritableLibraryPath(relPath: string): Promise<string | nul
 
 /** In-flight downloads keyed by snapshotId, so we can cancel them / kill on quit. */
 const activeDownloads = new Map<string, AbortController>();
-
-/** Serialize downloads (concurrency 1) so several captures can't saturate the CPU. */
-let downloadQueue: Promise<unknown> = Promise.resolve();
-function enqueueDownload<T>(task: () => Promise<T>): Promise<T> {
-  const run = downloadQueue.then(task, task);
-  downloadQueue = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
+/** Standalone downloader jobs use request ids generated in the renderer. */
+const activeFileDownloads = new Map<string, AbortController>();
 
 /** Abort every in-flight download (used on app quit so nothing is orphaned). */
 function abortAllDownloads(): void {
   for (const controller of activeDownloads.values()) controller.abort();
   activeDownloads.clear();
+  for (const controller of activeFileDownloads.values()) controller.abort();
+  activeFileDownloads.clear();
+  mediaDownloadQueue.cancelAll();
   for (const controller of activeCaptures.values()) controller.abort();
   activeCaptures.clear();
   activeListingController?.abort();
@@ -1427,6 +1446,90 @@ function registerIpc(): void {
     },
   );
 
+  // Standalone downloader page. The renderer gets four narrow operations,
+  // never the loopback server's bearer-equivalent token.
+  ipcMain.handle('media:downloaderHealth', (event): MediaDownloaderHealthResult => {
+    assertIpcSender(event, 'media:downloaderHealth');
+    return { ok: true, platforms: [...SUPPORTED_PLATFORMS] };
+  });
+
+  ipcMain.handle('media:detectDownloadPlatform', (event, url: string): MediaPlatformResult => {
+    assertIpcSender(event, 'media:detectDownloadPlatform');
+    if (typeof url !== 'string' || !url.trim() || url.length > 8_192) {
+      return { ok: false, error: 'invalid url' };
+    }
+    return { ok: true, platform: detectPlatform(url) };
+  });
+
+  ipcMain.handle(
+    'media:downloadToFile',
+    async (
+      event,
+      args: { requestId: string; url: string; format: MediaFormat },
+    ): Promise<DownloadToFileResult> => {
+      assertIpcSender(event, 'media:downloadToFile');
+      const { requestId, url, format } = args ?? ({} as typeof args);
+      if (
+        !isSafeNativeSegment(requestId)
+        || typeof url !== 'string'
+        || !/^https?:\/\//i.test(url)
+        || (format !== 'video' && format !== 'audio')
+      ) {
+        return { ok: false, error: 'invalid request' };
+      }
+      if (activeFileDownloads.has(requestId)) {
+        return { ok: false, error: 'already downloading' };
+      }
+
+      const controller = new AbortController();
+      activeFileDownloads.set(requestId, controller);
+      try {
+        const outcome = await mediaDownloadQueue.enqueue(
+          (signal) => downloadMedia(url, format, signal),
+          controller.signal,
+        );
+        try {
+          if (controller.signal.aborted) return { ok: false, canceled: true, error: 'cancelled' };
+          if (!mainWindow) return { ok: false, error: 'no window' };
+
+          const extension = path.extname(outcome.filename).slice(1).toLowerCase();
+          const fallbackExtension = format === 'audio' ? 'mp3' : 'mp4';
+          const result = await dialog.showSaveDialog(mainWindow, {
+            defaultPath: path.join(
+              app.getPath('downloads'),
+              path.basename(outcome.filename) || `download.${fallbackExtension}`,
+            ),
+            filters: [{
+              name: format === 'audio' ? 'Audio' : 'Video',
+              extensions: [/^[a-z0-9]+$/.test(extension) ? extension : fallbackExtension],
+            }],
+          });
+          if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+          if (controller.signal.aborted) return { ok: false, canceled: true, error: 'cancelled' };
+          await fs.copyFile(outcome.filePath, result.filePath);
+          return {
+            ok: true,
+            filename: outcome.filename,
+            sizeBytes: outcome.sizeBytes,
+          };
+        } finally {
+          await outcome.cleanup();
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return { ok: false, canceled: true, error: 'cancelled' };
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      } finally {
+        activeFileDownloads.delete(requestId);
+      }
+    },
+  );
+
+  ipcMain.handle('media:cancelFileDownload', (event, requestId: string): void => {
+    assertIpcSender(event, 'media:cancelFileDownload');
+    if (!isSafeNativeSegment(requestId)) return;
+    activeFileDownloads.get(requestId)?.abort();
+  });
+
   // Scrapper: download a link's media into the managed library, return its rel path.
   ipcMain.handle(
     'media:downloadToLibrary',
@@ -1450,91 +1553,92 @@ function registerIpc(): void {
       try {
         // Serialized (concurrency 1) so multiple captures queue instead of
         // spawning parallel yt-dlp/ffmpeg processes that pin the CPU.
-        return await enqueueDownload(async (): Promise<DownloadToLibraryResult> => {
-          if (controller.signal.aborted) return { ok: false, error: 'cancelled' };
-
-          // Refresh exported Instagram cookies if the user connected their account.
-          const hasIg = await exportIgCookies().catch(() => false);
-          const cookiesFile = hasIg ? igCookiesPath() : undefined;
-
-          // 1) Try yt-dlp (video, anonymous — reels and video posts).
+        return await mediaDownloadQueue.enqueue(async (signal): Promise<DownloadToLibraryResult> => {
           try {
-            const outcome = await downloadMedia(url, format, controller.signal, cookiesFile);
-            try {
-              const ext = path.extname(outcome.filename) || (format === 'audio' ? '.mp3' : '.mp4');
-              const destDir = await resolveWritableLibraryPath(projectId);
-              if (!destDir) throw new Error('invalid library destination');
-              await fs.mkdir(destDir, { recursive: true });
-              const fileName = `${snapshotId}${ext}`;
-              const destination = await resolveWritableLibraryPath(`${projectId}/${fileName}`);
-              if (!destination) throw new Error('invalid library destination');
-              await fs.copyFile(outcome.filePath, destination);
-              const relPath = `${projectId}/${fileName}`;
-              return {
-                ok: true,
-                relPath,
-                items: [{ relPath, kind: 'video' }],
-                filename: outcome.filename,
-                sizeBytes: outcome.sizeBytes,
-                kind: format,
-                description: outcome.metadata?.description,
-                uploader: outcome.metadata?.uploader,
-                uploadDate: outcome.metadata?.uploadDate,
-                title: outcome.metadata?.title,
-              };
-            } finally {
-              await outcome.cleanup();
-            }
-          } catch (ytErr) {
-            const ymsg = ytErr instanceof Error ? ytErr.message : String(ytErr);
-            if (ymsg === 'cancelled') return { ok: false, error: 'cancelled' };
+            // Refresh exported Instagram cookies if the user connected their account.
+            const hasIg = await exportIgCookies().catch(() => false);
+            const cookiesFile = hasIg ? igCookiesPath() : undefined;
 
-            // 2) yt-dlp couldn't (likely a photo / carousel) → gallery-dl with cookies.
-            let gallery;
+            // 1) Try yt-dlp (video, anonymous — reels and video posts).
             try {
-              gallery = await downloadGallery(url, controller.signal, cookiesFile);
-            } catch (gErr) {
-              return { ok: false, error: gErr instanceof Error ? gErr.message : String(gErr) };
-            }
-            try {
-              const destDir = await resolveWritableLibraryPath(`${projectId}/${snapshotId}`);
-              if (!destDir) throw new Error('invalid library destination');
-              await fs.mkdir(destDir, { recursive: true });
-              const items: MediaItemRef[] = [];
-              for (let i = 0; i < gallery.items.length; i++) {
-                const it = gallery.items[i];
-                const ext = path.extname(it.filePath) || (it.kind === 'video' ? '.mp4' : '.jpg');
-                const fileName = `${i}${ext}`;
-                const destination = await resolveWritableLibraryPath(
-                  `${projectId}/${snapshotId}/${fileName}`,
-                );
+              const outcome = await downloadMedia(url, format, signal, cookiesFile);
+              try {
+                const ext = path.extname(outcome.filename) || (format === 'audio' ? '.mp3' : '.mp4');
+                const destDir = await resolveWritableLibraryPath(projectId);
+                if (!destDir) throw new Error('invalid library destination');
+                await fs.mkdir(destDir, { recursive: true });
+                const fileName = `${snapshotId}${ext}`;
+                const destination = await resolveWritableLibraryPath(`${projectId}/${fileName}`);
                 if (!destination) throw new Error('invalid library destination');
-                await fs.copyFile(it.filePath, destination);
-                items.push({ relPath: `${projectId}/${snapshotId}/${fileName}`, kind: it.kind });
+                await fs.copyFile(outcome.filePath, destination);
+                const relPath = `${projectId}/${fileName}`;
+                return {
+                  ok: true,
+                  relPath,
+                  items: [{ relPath, kind: 'video' }],
+                  filename: outcome.filename,
+                  sizeBytes: outcome.sizeBytes,
+                  kind: format,
+                  description: outcome.metadata?.description,
+                  uploader: outcome.metadata?.uploader,
+                  uploadDate: outcome.metadata?.uploadDate,
+                  title: outcome.metadata?.title,
+                };
+              } finally {
+                await outcome.cleanup();
               }
-              if (items.length === 0) return { ok: false, error: 'no media found' };
-              const firstVideo = items.find((i) => i.kind === 'video');
-              return {
-                ok: true,
-                relPath: (firstVideo ?? items[0]).relPath,
-                items,
-                kind: firstVideo ? 'video' : 'image',
-                description: gallery.metadata?.description,
-                uploader: gallery.metadata?.uploader,
-                uploadDate: gallery.metadata?.uploadDate,
-              };
-            } finally {
-              await gallery.cleanup();
+            } catch (ytErr) {
+              const ymsg = ytErr instanceof Error ? ytErr.message : String(ytErr);
+              if (ymsg === 'cancelled') return { ok: false, error: 'cancelled' };
+
+              // 2) yt-dlp couldn't (likely a photo / carousel) → gallery-dl with cookies.
+              let gallery;
+              try {
+                gallery = await downloadGallery(url, signal, cookiesFile);
+              } catch (gErr) {
+                return { ok: false, error: gErr instanceof Error ? gErr.message : String(gErr) };
+              }
+              try {
+                const destDir = await resolveWritableLibraryPath(`${projectId}/${snapshotId}`);
+                if (!destDir) throw new Error('invalid library destination');
+                await fs.mkdir(destDir, { recursive: true });
+                const items: MediaItemRef[] = [];
+                for (let i = 0; i < gallery.items.length; i++) {
+                  const it = gallery.items[i];
+                  const ext = path.extname(it.filePath) || (it.kind === 'video' ? '.mp4' : '.jpg');
+                  const fileName = `${i}${ext}`;
+                  const destination = await resolveWritableLibraryPath(
+                    `${projectId}/${snapshotId}/${fileName}`,
+                  );
+                  if (!destination) throw new Error('invalid library destination');
+                  await fs.copyFile(it.filePath, destination);
+                  items.push({ relPath: `${projectId}/${snapshotId}/${fileName}`, kind: it.kind });
+                }
+                if (items.length === 0) return { ok: false, error: 'no media found' };
+                const firstVideo = items.find((i) => i.kind === 'video');
+                return {
+                  ok: true,
+                  relPath: (firstVideo ?? items[0]).relPath,
+                  items,
+                  kind: firstVideo ? 'video' : 'image',
+                  description: gallery.metadata?.description,
+                  uploader: gallery.metadata?.uploader,
+                  uploadDate: gallery.metadata?.uploadDate,
+                };
+              } finally {
+                await gallery.cleanup();
+              }
             }
+          } finally {
+            // The cookie jar exists only while the queued task that may read it
+            // owns the process lane. A cancelled pending task never touches it.
+            await cleanupIgCookies();
           }
-        });
+        }, controller.signal);
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       } finally {
         activeDownloads.delete(snapshotId);
-        // The exported cookie jar is a live session credential: it exists only
-        // for as long as the child process that reads it.
-        await cleanupIgCookies();
       }
     },
   );

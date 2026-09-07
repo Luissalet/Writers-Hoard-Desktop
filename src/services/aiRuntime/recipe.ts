@@ -225,8 +225,23 @@ export interface ImageRecipeRow extends Recipe {
 
 // ---- Canonical form and hashing --------------------------------------------
 
-/** Fields that identify the ROW rather than the picture. */
-const UNHASHED_KEYS = new Set(['id', 'createdAt', 'hash']);
+/**
+ * Metadata attached to the Dexie row, not settings sent to the runtime.
+ *
+ * This list is deliberately applied only to the root object. An `id` nested
+ * under `model`, a LoRA, a model file or an input image identifies an asset and
+ * therefore changes the picture; recursively dropping names such as `id`
+ * makes two materially different recipes compare equal.
+ */
+const RECIPE_ROW_METADATA = [
+  'id',
+  'projectId',
+  'imageId',
+  'createdAt',
+  'updatedAt',
+  'hash',
+] as const;
+const RECIPE_ROW_METADATA_SET = new Set<string>(RECIPE_ROW_METADATA);
 
 /**
  * JSON with every object's keys in sorted order and every `undefined` dropped.
@@ -238,8 +253,11 @@ const UNHASHED_KEYS = new Set(['id', 'createdAt', 'hash']);
  *
  * Arrays keep their order: `[7, 8, 9]` and `[9, 8, 7]` are different skip-layer
  * sets and different reference-image orders.
+ *
+ * `dropRootRowMetadata` is kept for callers of the original helper, but is
+ * intentionally shallow. Nested identity always remains semantic.
  */
-export function canonicalJson(value: unknown, dropRowKeys = false): string {
+export function canonicalJson(value: unknown, dropRootRowMetadata = false): string {
   if (value === null) return 'null';
   if (typeof value === 'number') {
     // -0 and 0 are the same setting; JSON.stringify disagrees.
@@ -247,17 +265,25 @@ export function canonicalJson(value: unknown, dropRowKeys = false): string {
     return JSON.stringify(value === 0 ? 0 : value);
   }
   if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item, dropRowKeys)).join(',')}]`;
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
   if (typeof value === 'object') {
     const record = value as Record<string, unknown>;
     const keys = Object.keys(record)
-      .filter((key) => record[key] !== undefined && !(dropRowKeys && UNHASHED_KEYS.has(key)))
+      .filter((key) => record[key] !== undefined &&
+        !(dropRootRowMetadata && RECIPE_ROW_METADATA_SET.has(key)))
       .sort();
-    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key], dropRowKeys)}`).join(',')}}`;
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`;
   }
   // A function or a symbol cannot describe a picture; treat it as absent
   // rather than throwing inside what callers use as a pure accessor.
   return 'null';
+}
+
+/** The semantic root of a recipe, with only row metadata removed. */
+function semanticRecipeProjection(recipe: Recipe): Record<string, unknown> {
+  const semantic = { ...recipe } as Record<string, unknown>;
+  for (const key of RECIPE_ROW_METADATA) delete semantic[key];
+  return semantic;
 }
 
 // SHA-256 over UTF-8, in about forty lines. Implemented here rather than taken
@@ -333,11 +359,11 @@ export function sha256Hex(text: string): string {
  *
  * Stable across key order and across a field spelled `undefined` in one record
  * and missing in the other; unstable across any change that would change the
- * picture. `id`, `createdAt` and a previously stored `hash` are excluded, so
- * hashing a recipe and then hashing it again after storing the result agrees.
+ * picture. Root row identity, ownership, timestamps and a previously stored
+ * `hash` are excluded, so hashing before and after storing the result agrees.
  */
 export function recipeHash(recipe: Recipe): string {
-  return sha256Hex(canonicalJson(recipe, true));
+  return sha256Hex(canonicalJson(semanticRecipeProjection(recipe)));
 }
 
 // ---- Request ⇄ recipe ------------------------------------------------------
@@ -839,7 +865,7 @@ function walk(before: unknown, after: unknown, path: string, out: RecipeDiffEntr
   const a = before as Record<string, unknown>;
   const b = after as Record<string, unknown>;
   for (const key of [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()) {
-    if (UNHASHED_KEYS.has(key) && !path) continue;
+    if (RECIPE_ROW_METADATA_SET.has(key) && !path) continue;
     walk(a[key], b[key], path ? `${path}.${key}` : key, out);
   }
 }
@@ -847,7 +873,7 @@ function walk(before: unknown, after: unknown, path: string, out: RecipeDiffEntr
 /**
  * What changed between two recipes, by name.
  *
- * The row's own identity (`id`, `createdAt`, `hash`) is skipped, so comparing a
+ * Root row identity, ownership, timestamps and `hash` are skipped, so comparing a
  * recipe with a copy of itself made a day later reports no changes — which is
  * the honest answer to "did anything about this picture change".
  */

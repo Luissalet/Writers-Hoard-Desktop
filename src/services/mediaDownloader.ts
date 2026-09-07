@@ -1,5 +1,5 @@
 // ============================================
-// Media Downloader — typed client for the Python yt-dlp HTTP wrapper
+// Media Downloader — desktop IPC client with an external-web HTTP fallback
 // ============================================
 //
 // Backend lives in `Universal video downloader/server.py` (Flask + yt-dlp).
@@ -8,8 +8,9 @@
 //   POST /api/detect    {url}     -> { platform }
 //   POST /api/download  {url, format} -> stream of bytes (application/octet-stream)
 //
-// The base URL is configurable via the `VITE_MEDIA_DOWNLOADER_URL` env var.
-// Defaults to http://localhost:8765, matching server.py's default port.
+// Electron uses the narrow preload bridge: the embedded server's per-start
+// token never enters the renderer. The configurable URL remains as a fallback
+// for the standalone Python backend used outside the desktop shell.
 //
 // `downloadInBrowser()` triggers a normal browser download: the file lands
 // in the user's configured Downloads folder. If the user has the
@@ -24,6 +25,14 @@ function getBaseUrl(): string {
     env?: Record<string, string | undefined>;
   }).env?.VITE_MEDIA_DOWNLOADER_URL;
   return (fromEnv || DEFAULT_BASE_URL).replace(/\/$/, '');
+}
+
+function desktopMediaApi(): NonNullable<Window['electronAPI']>['media'] | null {
+  return typeof window !== 'undefined' ? window.electronAPI?.media ?? null : null;
+}
+
+function abortError(): DOMException {
+  return new DOMException('cancelled', 'AbortError');
 }
 
 export type MediaFormat = 'video' | 'audio';
@@ -51,6 +60,17 @@ export interface DownloadResult {
 // ---------------------------------------------------------------------------
 
 export async function checkHealth(signal?: AbortSignal): Promise<HealthResponse | null> {
+  const desktop = desktopMediaApi();
+  if (desktop) {
+    if (signal?.aborted) return null;
+    try {
+      const result = await desktop.downloaderHealth();
+      return signal?.aborted ? null : result;
+    } catch {
+      return null;
+    }
+  }
+
   try {
     const res = await fetch(`${getBaseUrl()}/api/health`, {
       method: 'GET',
@@ -69,6 +89,13 @@ export async function checkHealth(signal?: AbortSignal): Promise<HealthResponse 
 // ---------------------------------------------------------------------------
 
 export async function detectPlatform(url: string): Promise<MediaPlatform> {
+  const desktop = desktopMediaApi();
+  if (desktop) {
+    const result = await desktop.detectDownloadPlatform(url);
+    if (!result.ok) throw new Error(result.error || 'detect failed');
+    return result.platform ?? 'Desconocida';
+  }
+
   const res = await fetch(`${getBaseUrl()}/api/detect`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -106,14 +133,11 @@ function parseFilename(header: string | null, fallback: string): string {
 }
 
 /**
- * Trigger a browser download for the given media URL.
+ * Download the given media URL without exposing native credentials.
  *
- * Flow: fetch the backend response (which streams the file with
- * Content-Disposition: attachment), buffer it as a Blob, then click
- * an `<a download>` link with an object URL. The browser handles the
- * save location — it goes to the user's Downloads folder by default,
- * or shows the OS save-as dialog if "Ask where to save each file" is
- * enabled in browser settings.
+ * Electron delegates to main's serialized process queue and native save
+ * dialog. Outside Electron, fetch the configured external backend, buffer its
+ * response as a Blob, then click an `<a download>` link with an object URL.
  *
  * We buffer in memory because a streaming `<a download>` would require
  * a GET endpoint with the URL in the query string, exposing it in
@@ -125,6 +149,27 @@ export async function downloadInBrowser(
   format: MediaFormat,
   opts?: { signal?: AbortSignal },
 ): Promise<DownloadResult> {
+  const desktop = desktopMediaApi();
+  if (desktop) {
+    const requestId = crypto.randomUUID();
+    const signal = opts?.signal;
+    if (signal?.aborted) throw abortError();
+    const cancel = (): void => {
+      void desktop.cancelFileDownload(requestId);
+    };
+    signal?.addEventListener('abort', cancel, { once: true });
+    try {
+      const result = await desktop.downloadToFile({ requestId, url, format });
+      if (result.canceled || signal?.aborted) throw abortError();
+      if (!result.ok || !result.filename || result.sizeBytes === undefined) {
+        throw new Error(result.error || 'download failed');
+      }
+      return { filename: result.filename, sizeBytes: result.sizeBytes };
+    } finally {
+      signal?.removeEventListener('abort', cancel);
+    }
+  }
+
   const res = await fetch(`${getBaseUrl()}/api/download`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -185,6 +185,30 @@ registerBackupStrategy({
       }
     }
   },
+  async inspectImport({ zip, projectDir }) {
+    const galleryFolder = `${projectDir}/gallery/`;
+    const collectionsPath = `${galleryFolder}collections.json`;
+    const collections = await readBackupJson<unknown>(zip, collectionsPath);
+    if (collections !== null && !Array.isArray(collections)) {
+      throw new Error(`Expected "${collectionsPath}" to contain a JSON array.`);
+    }
+    const sections: Array<{ table: string; path: string; rows: readonly unknown[] }> = [
+      { table: 'imageCollections', path: collectionsPath, rows: collections ?? [] },
+    ];
+    const imagePaths: string[] = [];
+    zip.forEach((path) => {
+      if (path.startsWith(galleryFolder) && path.endsWith('/images.json')) imagePaths.push(path);
+    });
+    for (const path of imagePaths) {
+      const rows = await readBackupJson<unknown>(zip, path);
+      if (!Array.isArray(rows)) throw new Error(`Expected "${path}" to contain a JSON array.`);
+      sections.push({ table: 'inspirationImages', path, rows });
+    }
+    if (!imagePaths.length) {
+      sections.push({ table: 'inspirationImages', path: galleryFolder, rows: [] });
+    }
+    return sections;
+  },
   async importProject({ zip, projectDir }) {
     const galleryFolder = `${projectDir}/gallery/`;
 

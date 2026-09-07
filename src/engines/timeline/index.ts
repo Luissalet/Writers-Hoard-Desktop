@@ -106,6 +106,25 @@ registerBackupStrategy({
       `${projectDir}/timeline-extras/timelineConnections.json`,
     );
   },
+  async inspectImport({ zip, projectDir }) {
+    const timelinesPath = `${projectDir}/timeline/timelines.json`;
+    const eventsPath = `${projectDir}/timeline/timelineEvents.json`;
+    const connectionsPath = `${projectDir}/timeline/timelineConnections.json`;
+    const legacyConnectionsPath = `${projectDir}/timeline-extras/timelineConnections.json`;
+    const currentConnections = await readTimelineRows(zip, connectionsPath);
+    const legacyConnections = currentConnections === null
+      ? await readTimelineRows(zip, legacyConnectionsPath)
+      : null;
+    return [
+      { table: 'timelines', path: timelinesPath, rows: await readTimelineRows(zip, timelinesPath) ?? [] },
+      { table: 'timelineEvents', path: eventsPath, rows: await readTimelineRows(zip, eventsPath) ?? [] },
+      {
+        table: 'timelineConnections',
+        path: currentConnections === null ? legacyConnectionsPath : connectionsPath,
+        rows: currentConnections ?? legacyConnections ?? [],
+      },
+    ];
+  },
   async importProject({ zip, projectDir }) {
     const timelines = await readTimelineRows(
       zip,

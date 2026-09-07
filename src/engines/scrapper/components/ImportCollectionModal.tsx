@@ -18,7 +18,7 @@
 // that (mirrors how it already owns handleCapture for a single pasted link).
 
 import { useEffect, useRef, useState } from 'react';
-import { Instagram, Loader2, X, AlertCircle, Link2 } from 'lucide-react';
+import { Loader2, AlertCircle, Link2 } from 'lucide-react';
 import TagInput from '@/components/common/TagInput';
 import { useTranslation } from '@/i18n/useTranslation';
 import {
@@ -28,6 +28,7 @@ import {
 } from '../services/collectionImport';
 import { suggestSnapshotTags } from '@/services/aiFeatures';
 import type { AiConfig } from '@/types';
+import Modal from '@/components/common/Modal';
 
 export interface ImportedCollectionItem {
   url: string;
@@ -62,7 +63,7 @@ export default function ImportCollectionModal({
   onImport,
   onCancel,
 }: ImportCollectionModalProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [step, setStep] = useState<Step>('url');
   const [url, setUrl] = useState('');
   const [listError, setListError] = useState<string | null>(null);
@@ -145,6 +146,11 @@ export default function ImportCollectionModal({
     setStep('url');
   };
 
+  const handleClose = () => {
+    if (step === 'listing') void cancelListInstagramCollection();
+    onCancel();
+  };
+
   const toggleIncluded = (shortcode: string) => {
     setItems((prev) =>
       prev.map((it) => (it.post.shortcode === shortcode ? { ...it, included: !it.included } : it)),
@@ -172,24 +178,7 @@ export default function ImportCollectionModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onCancel}>
-      <div
-        className="bg-elevated rounded-lg max-w-3xl w-full max-h-[85vh] overflow-y-auto border border-border shadow-2xl flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="sticky top-0 bg-surface border-b border-border px-6 py-4 flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <Instagram size={18} className="text-pink-500" />
-            <h2 className="text-lg font-serif font-bold text-foreground">
-              {t('scrapper.importCollection.title')}
-            </h2>
-          </div>
-          <button onClick={onCancel} className="p-1 hover:bg-elevated rounded-lg transition-colors" title={t('common.close')} aria-label={t('common.close')}>
-            <X size={20} className="text-muted" aria-hidden="true" />
-          </button>
-        </div>
-
+    <Modal open onClose={handleClose} title={t('scrapper.importCollection.title')} wide>
         {step === 'url' && (
           <div className="p-6 space-y-4">
             <p className="text-sm text-muted">{t('scrapper.importCollection.urlHint')}</p>
@@ -212,20 +201,22 @@ export default function ImportCollectionModal({
             </div>
 
             {listError && (
-              <div className="flex items-start gap-2 text-sm text-red-400 bg-red-600/10 border border-red-600/30 rounded-lg p-3">
-                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+              <div role="alert" className="flex items-start gap-2 text-sm text-red-400 bg-red-600/10 border border-red-600/30 rounded-lg p-3">
+                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
                 <span>{listError}</span>
               </div>
             )}
 
             <div className="flex justify-end gap-2 pt-2">
               <button
-                onClick={onCancel}
+                type="button"
+                onClick={handleClose}
                 className="px-4 py-2 text-foreground hover:bg-surface rounded-lg transition-colors font-medium"
               >
                 {t('common.cancel')}
               </button>
               <button
+                type="button"
                 onClick={handleList}
                 disabled={!url.trim()}
                 className="px-4 py-2 bg-accent-gold hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed text-black rounded-lg transition-colors font-medium"
@@ -237,13 +228,14 @@ export default function ImportCollectionModal({
         )}
 
         {step === 'listing' && (
-          <div className="p-10 flex flex-col items-center justify-center gap-4 text-center">
-            <Loader2 size={28} className="animate-spin text-accent-gold" />
+          <div role="status" aria-live="polite" className="p-10 flex flex-col items-center justify-center gap-4 text-center">
+            <Loader2 size={28} className="animate-spin text-accent-gold" aria-hidden="true" />
             <div className="space-y-1">
               <p className="text-foreground font-medium">{t('scrapper.importCollection.listing')}</p>
               <p className="text-xs text-muted max-w-sm">{t('scrapper.importCollection.listingHint')}</p>
             </div>
             <button
+              type="button"
               onClick={handleCancelListing}
               className="mt-2 px-4 py-2 text-sm bg-elevated hover:bg-surface border border-border rounded-lg text-foreground transition-colors"
             >
@@ -282,6 +274,10 @@ export default function ImportCollectionModal({
                     type="checkbox"
                     checked={it.included}
                     onChange={() => toggleIncluded(it.post.shortcode)}
+                    aria-label={t('scrapper.importCollection.includeItem').replace(
+                      '{item}',
+                      it.post.uploader ? `@${it.post.uploader}` : it.post.url,
+                    )}
                     className="mt-1 flex-shrink-0 accent-accent-gold"
                   />
                   <div className="flex-1 min-w-0 space-y-2">
@@ -296,7 +292,12 @@ export default function ImportCollectionModal({
                       </a>
                       {it.post.uploadDate && (
                         <span className="text-xs text-muted flex-shrink-0">
-                          {it.post.uploadDate.replace(/^(\d{4})(\d{2})(\d{2})$/, '$3/$2/$1')}
+                          {(() => {
+                            const match = /^(\d{4})(\d{2})(\d{2})$/.exec(it.post.uploadDate);
+                            if (!match) return it.post.uploadDate;
+                            return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' })
+                              .format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))));
+                          })()}
                         </span>
                       )}
                     </div>
@@ -338,12 +339,14 @@ export default function ImportCollectionModal({
             </span>
             <div className="flex gap-2">
               <button
-                onClick={onCancel}
+                type="button"
+                onClick={handleClose}
                 className="px-4 py-2 text-foreground hover:bg-elevated rounded-lg transition-colors font-medium"
               >
                 {t('common.cancel')}
               </button>
               <button
+                type="button"
                 onClick={handleConfirm}
                 disabled={includedCount === 0}
                 className="px-4 py-2 bg-accent-gold hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed text-black rounded-lg transition-colors font-medium"
@@ -353,7 +356,6 @@ export default function ImportCollectionModal({
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -4,6 +4,7 @@ import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
 import SettingsModal from '@/components/settings/SettingsModal';
 import StorageStatus from '@/components/common/StorageStatus';
+import { PendingWriteStatus } from '@/components/common/PendingWritesHost';
 import { openShortcutsPanel } from '@/components/common/ShortcutsPanel';
 import { COMMAND_CENTRE_SHORTCUT, shortcutCaps } from '@/components/common/shortcuts';
 
@@ -36,6 +37,7 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <PendingWriteStatus />
           <StorageStatus />
           {/* The sheet has a key of its own, which is no use at all to the
               writer who does not know it exists. It sits beside settings

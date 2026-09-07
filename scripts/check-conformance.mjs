@@ -68,10 +68,23 @@ function canonicalIndexSpec(spec) {
 
 function parseStoresBlocks(dbSource) {
   const blocks = [];
-  const marker = /this\.version\((\d+)\)\.stores\(\{/g;
+  const numericConstants = new Map(
+    Array.from(
+      dbSource.matchAll(/^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(\d+)\s*;/gm),
+      (constant) => [constant[1], Number(constant[2])],
+    ),
+  );
+  const marker = /this\.version\((\d+|[A-Za-z_$][\w$]*)\)\.stores\(\{/g;
   let match;
 
   while ((match = marker.exec(dbSource)) !== null) {
+    const version = /^\d+$/.test(match[1])
+      ? Number(match[1])
+      : numericConstants.get(match[1]);
+    if (version === undefined) {
+      fail(`Could not resolve Dexie version constant "${match[1]}".`);
+      continue;
+    }
     const openBrace = marker.lastIndex - 1;
     let depth = 0;
     let quote = null;
@@ -105,7 +118,7 @@ function parseStoresBlocks(dbSource) {
       continue;
     }
     blocks.push({
-      version: Number(match[1]),
+      version,
       body: dbSource.slice(openBrace + 1, closeBrace),
     });
     marker.lastIndex = closeBrace + 1;
@@ -485,6 +498,59 @@ for (const binaryId of ['yt-dlp', 'gallery-dl']) {
       }
     }
     if (handled.size === 0) fail('electron: no ipcMain handlers found — the IPC scan is broken.');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// interface: critical dark-theme text tokens must remain readable
+// ---------------------------------------------------------------------------
+{
+  const css = read('src/index.css');
+  const token = (name) => css.match(new RegExp(`--color-${name}:\\s*(#[0-9a-f]{6})`, 'i'))?.[1];
+  const luminance = (hex) => {
+    const channels = hex.slice(1).match(/../g).map((part) => Number.parseInt(part, 16) / 255);
+    const linear = channels.map((channel) => (
+      channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+    ));
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  };
+  const ratio = (left, right) => {
+    const a = luminance(left);
+    const b = luminance(right);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  };
+  const foregrounds = ['text-primary', 'text-muted', 'text-dim'];
+  const backgrounds = ['deep', 'surface', 'elevated'];
+  for (const foregroundName of foregrounds) {
+    const foreground = token(foregroundName);
+    if (!foreground) {
+      fail(`interface: --color-${foregroundName} is missing or not a six-digit hex colour.`);
+      continue;
+    }
+    for (const backgroundName of backgrounds) {
+      const background = token(backgroundName);
+      if (!background) {
+        fail(`interface: --color-${backgroundName} is missing or not a six-digit hex colour.`);
+        continue;
+      }
+      const contrast = ratio(foreground, background);
+      if (contrast < 4.5) {
+        fail(
+          `interface: ${foregroundName} on ${backgroundName} is ${contrast.toFixed(2)}:1; `
+          + 'normal text requires at least 4.5:1.',
+        );
+      }
+    }
+  }
+  if (!css.includes('color-scheme: dark')) {
+    fail('interface: the dark theme must declare `color-scheme: dark` for native controls.');
+  }
+  if (!css.includes('@media (prefers-reduced-motion: reduce)')) {
+    fail('interface: the system reduced-motion preference is not handled.');
+  }
+  const html = read('index.html');
+  if (!/<meta\s+name="theme-color"\s+content="#[0-9a-f]{6}"/i.test(html)) {
+    fail('interface: index.html has no explicit dark theme-color.');
   }
 }
 

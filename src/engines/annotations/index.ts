@@ -78,6 +78,12 @@ registerBackupStrategy({
       await readAnnotationRows(zip, `${projectDir}/annotations/${table}.json`);
     }
   },
+  async inspectImport({ zip, projectDir }) {
+    return Promise.all(ANNOTATION_TABLES.map(async (table) => {
+      const path = `${projectDir}/annotations/${table}.json`;
+      return { table, path, rows: await readAnnotationRows(zip, path) ?? [] };
+    }));
+  },
   async importProject({ zip, projectDir }) {
     const folder = `${projectDir}/annotations`;
     const annotations = await readAnnotationRows(

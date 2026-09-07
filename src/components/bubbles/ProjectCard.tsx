@@ -73,7 +73,7 @@ export default function ProjectCard({
       onClick={onClick}
     >
       <div
-        className="relative overflow-hidden rounded-2xl border border-border bg-surface hover:border-accent-gold/50 transition-all duration-300 animate-pulse-gold"
+        className="relative overflow-hidden rounded-2xl border border-border bg-surface hover:border-accent-gold/50 transition-[border-color,box-shadow,transform] duration-300 animate-pulse-gold"
         style={{
           background: `linear-gradient(135deg, ${project.color}15 0%, var(--color-surface) 50%, var(--color-deep) 100%)`,
         }}

@@ -255,7 +255,7 @@ function CharacterRow({
 
           <div className="h-1.5 w-full rounded-full bg-bg-base overflow-hidden">
             <div
-              className="h-full rounded-full transition-all"
+              className="h-full rounded-full transition-[width,background-color]"
               style={{ width: `${widthPct}%`, background: accent }}
             />
           </div>

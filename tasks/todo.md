@@ -250,3 +250,198 @@ Judge se amplió como una única superficie con los modos `Judge`, `Questions`,
 `Reader` y `Story State`, más Lens Duel y Devil's Advocate. Question Garden se
 plantea como vista derivada sobre Board/Notes y Table Read como extensión de la
 lectura crítica para Dialog Scene, evitando siete módulos o almacenes nuevos.
+
+---
+
+# Implementación integral de remediación y laboratorio creativo — 2026-09-07
+
+## Plan maestro
+
+- [x] I0 Congelar el baseline: estado del repositorio, `verify:quick`, pruebas
+  críticas, auditoría de dependencias y reproducciones deterministas de cada P0/P1.
+- [x] I1 Blindar migraciones e importación: rescatar Yarn/Brainstorm en v24,
+  corregir v21 por proyecto y rechazar cualquier fila ZIP fuera de alcance.
+- [x] I2 Hacer reversibles las mutaciones destructivas: recibos versionados para
+  conversiones, protección del trabajo posterior y rollback atómico/idempotente.
+- [x] I3 Unificar escritura segura: versión esperada, snapshots obligatorios,
+  conflictos de Google Docs, autosave observable, flush/cierre y anti-race en hooks/stores.
+- [x] I4 Completar recuperación: recetas de imagen persistentes y con hash
+  semántico, backups coherentes y completos, settings permitidos y limpieza Worldgen.
+- [x] I5 Cerrar seguridad de escritorio: dependencias, autenticación del servidor
+  local de medios y una única cola cancelable para HTTP/IPC y procesos hijos.
+- [x] I6 Sanear la interfaz: diálogo accesible común, contraste AA, foco,
+  semántica, teclado, movimiento reducido, idioma/formato y estados de error.
+- [x] I7 Acotar rendimiento: importación multimedia con cola/cancelación,
+  colecciones grandes, imágenes y limpieza visual verificadas con fixtures.
+- [x] I8 Entregar salud y recuperación visibles: papelera/historial, conflictos,
+  procedencia, backups, migraciones y Centro de salud accionable.
+- [x] I9 Construir Judge como primer corte vertical: biblioteca local de
+  referencias, lentes, contexto entre capítulos, cuatro modos, citas, vigencia,
+  diff + snapshot y núcleo compartido con herramientas externas.
+- [x] I10 Construir las primitivas y experiencias creativas restantes por cortes
+  verticales: Mesa de ideas, ramas, causalidad, presión, reglas, secretos,
+  continuidad, motivos, radiografía, escenas, arqueología y universo compartido.
+- [x] I11 Ejecutar gates finales: typechecks, lint, conformance, seguridad,
+  pruebas críticas/regresión, build desktop, presupuesto, arranque real y QA visual.
+- [x] I12 Actualizar grafo del proyecto y documentar cambios, riesgos residuales,
+  migración/rollback y evidencia en esta sección.
+
+## Reglas de ejecución
+
+- Ninguna migración destructiva avanza sin fixture desde la versión anterior y
+  comprobación de conteos, relaciones, ids y repetición segura.
+- Ninguna escritura remota o restauración puede pisar datos si el estado leído
+  ya no coincide; conflicto y recuperación son resultados normales, no errores ocultos.
+- Cada fase se integra sólo cuando pasa sus pruebas enfocadas y el gate rápido.
+- La UI conserva el estudio creativo actual y evita lenguaje o flujos comerciales.
+- Los archivos ajenos del usuario y los artefactos de `_stage/` quedan fuera de alcance.
+
+## Review
+
+Implementación integral completada sobre el producto real, no como prototipo
+aislado. Se conservaron y probaron explícitamente los enlaces de Recortes; el
+fixture crítico mantiene intacta la URL con query, caracteres escapados y hash.
+
+Entregado:
+
+- Migraciones v21/v24 seguras, importación ZIP limitada por proyecto, restores
+  transaccionales y comprobación común de propiedad, claves y referencias.
+- Mutaciones protegidas por recibos, versión esperada, snapshots, conflictos
+  recuperables, autosaves observables y drenaje al cerrar.
+- Recetas de imagen reproducibles, procedencia, backup completo, servidor local
+  autenticado, CORS exacto y cola única cancelable para descargas HTTP/IPC.
+- Modal accesible, contraste y foco corregidos, movimiento reducido, navegación
+  por teclado, estados vacíos/error y Centro de salud y recuperación accionable.
+- Judge integrado en el lateral de Writings con biblioteca privada PDF/MD/TXT,
+  lentes reutilizables, citas, vigencia, historial y los modos Judge, Questions,
+  Reader sin capítulos futuros y Story State; Lens Duel comparte el mismo núcleo.
+- Laboratorio creativo integrado en Cockpit: Mesa de ideas, consecuencias,
+  presión de personajes, ramas, estado narrativo, motivos y arqueología, variantes
+  de escena, Narrative X-ray y universo compartido con canon de saga y overrides.
+- Lectura crítica en voz alta para capítulos y lectura de mesa para Dialog Scene,
+  con segmentación, velocidad, voces por personaje, navegación y notas ancladas.
+
+QA final:
+
+- `npm run test:critical`: 191 PASS, incluido canon compartido en backup.
+- Runners focales: Read Aloud 3 PASS, Scene Lab 5 PASS, Narrative X-ray 4 PASS,
+  Character Pressure 1 PASS y Creative Lab 5 PASS.
+- `npm run verify:quick`: renderer, Electron, lint y conformidad OK; 23 motores,
+  51 tablas de motor y 4637 claves de idioma.
+- `npm run audit:security`: 0 vulnerabilidades.
+- `npm run build:desktop`: OK; recursos tipográficos ausentes ya no se declaran
+  ni producen errores en Chromium o avisos de Vite.
+- QA real en Chromium a 1440×1000 y 1024×768: los nueve apartados creativos,
+  Judge, biblioteca, los cuatro modos y Read Aloud sin errores de consola ni
+  overflow de documento. Se corrigieron durante esta pasada claves React
+  duplicadas, el acceso a lectura en capítulos locales y el indicador `1.0×`.
+- `git diff --check`: OK.
+- Grafo canónico del repositorio actualizado a 23 motores, esquema v34 y 71
+  tablas tipadas, con Judge, laboratorio creativo, universo compartido,
+  lectura/mesa y recuperación reflejados en `docs/PROJECT_KNOWLEDGE.md`.
+
+Riesgo residual no bloqueante: el presupuesto informa de un chunk 3D de 710,2
+kB frente a la nota de 700 kB y 7,4 MB de JavaScript total frente a 4,1 MB. El
+gate es informativo y pasa; reducir ese coste exige un corte específico de
+rendimiento, no compromete la corrección ni la entrega actual.
+
+---
+
+# A4 — Cámara de presión de personajes — 2026-09-07
+
+## Plan
+
+- [x] Definir un contrato puro sobre filas existentes de Codex, Relationships y Character Arc.
+- [x] Generar preguntas, fricciones, alianzas y decisiones de forma determinista y no prescriptiva.
+- [x] Construir una UI autocontenida y accesible para 2–4 personajes y los cinco vectores de presión.
+- [x] Exponer promociones únicamente como borradores con procedencia mediante callbacks del host.
+- [x] Verificar no-mutación, determinismo, validación, callbacks, typecheck, lint y detector visual.
+
+## Review
+
+Integrada en Creative Development Lab. Lee únicamente personajes, relaciones y
+arcos existentes; formula fricciones y preguntas deterministas sin dictar una
+solución ni mutar canon. Las salidas solo pueden pasar al host como borradores
+con fuentes y procedencia. Runner Electron focal: 1 PASS; también verificada en
+la aplicación real y en el gate global.
+
+---
+
+# B4 — Laboratorio de escenas — 2026-09-07
+
+## Plan
+
+- [x] Definir variantes efímeras y trazables sobre una escena real, sin tabla ni copia persistente paralela.
+- [x] Permitir cambiar exactamente una variable declarada: POV, objetivo, lugar, entrada, información, coste, resultado o tono.
+- [x] Comparar intención, tensión, voz y texto, conservando una referencia visible al original.
+- [x] Exponer una preview estructural con procedencia y promover sólo por callback hacia el kernel de ramas.
+- [x] Entregar UI accesible ES/EN, tests focales, runner, typecheck, lint y detector visual.
+
+## Review
+
+El laboratorio es un componente autocontenido: recibe escenas y anclas ya
+proyectadas, mantiene todas las tomas en memoria y sólo emite una preview por
+callback. Su adaptador opcional crea una `creativeBranch`, añade un único delta
+de beat/evento y enlaza la escena real mediante `entityLinks`, todo en la misma
+transacción; nunca escribe prosa ni promueve la rama al canon.
+
+Evidencia: el runner Electron focal entrega 5 PASS, incluida una carrera de
+preview obsoleta que revierte rama y procedencia completas. El ESLint focal no
+reporta infracciones y el detector Impeccable devuelve `[]`. El typecheck global
+pasó durante el desarrollo de B4; su repetición final queda temporalmente roja
+por un import sin usar en `SharedUniverseLab.tsx`, ajeno a este corte.
+
+---
+
+# A3 — Mapa causal y de consecuencias — 2026-09-07
+
+## Plan
+
+- [x] Tipar la relación causal sobre `entityLinks`, con certeza y estado de canon, sin tabla nueva.
+- [x] Derivar un grafo común desde enlaces causales, Board, Seeds y conexiones explícitas de Timeline.
+- [x] Detectar saltos sin causa, consecuencias colgantes, coincidencias acumuladas y costes que desaparecen.
+- [x] Construir una UI autocontenida que abra entidades reales y emita toda mutación mediante callbacks.
+- [x] Verificar análisis, adaptadores, semántica accesible, typecheck, lint y detector visual.
+
+## Review
+
+La causalidad vive como metadatos versionados sobre `entityLinks`; no se creó
+tabla ni copia de entidades. El read model fusiona esos enlaces con aristas
+causales de Board, pares Seed/Payoff y conexiones de Timeline cuyo rótulo es
+causal explícito. Cronología desconocida se omite en vez de inventar hechos.
+
+La UI es un componente sin router ni acceso a Dexie. Cada entidad es un botón
+nativo que entrega su referencia real al host; cambios de canon/necesidad,
+causas posibles, coincidencias deliberadas y conversiones salen por callbacks.
+Los estados canon, hipótesis, descartado y no evaluado tienen semántica visible.
+
+Evidencia: `test:critical` completo, 181 pruebas, PASS; las cuatro pruebas A3
+cubren persistencia, adaptadores, recorrido/diagnósticos y HTML accesible.
+`typecheck:renderer` pasó antes de que el corte A2 concurrente introdujera sus
+errores en `BranchLab.tsx`; ESLint focal PASS y detector Impeccable `[]`.
+
+---
+
+# B2/B5 — Constelación de motivos y arqueología de ideas — 2026-09-07
+
+## Plan
+
+- [x] Definir un read model puro, determinista y limitado al proyecto sobre
+  entidades etiquetadas, anotaciones, enlaces, recibos, snapshots y procedencia creativa.
+- [x] Derivar apariciones, ecos y vacíos de motivos sin interpretar texto ni
+  convertir coincidencias automáticas en hechos.
+- [x] Reconstruir recorridos de procedencia solo desde evidencia persistida,
+  diferenciando transformaciones, revisiones, deshacer y referencias rotas.
+- [x] Construir una UI autocontenida y accesible con copy inyectable, filtros y
+  callbacks que abran las fuentes canónicas.
+- [x] Verificar alcance, determinismo, deduplicación, estados vacíos, navegación,
+  typecheck, lint focal y detector Impeccable.
+
+## Review
+
+Integrado como «Motivos y rastros». La constelación nace solo de etiquetas y
+enlaces explícitos; la arqueología reconstruye el camino desde snapshots,
+recibos y procedencia persistida, mostrando huecos o referencias rotas sin
+inventar interpretaciones. Navega siempre a la fuente real y comparte filtros
+ES/EN. Las pruebas críticas de Story Lenses pasan dentro de los 191 PASS y la
+vista vacía/no vacía se validó en el Cockpit real.
