@@ -12,11 +12,23 @@
 
 Los editores de biografía, arco, semilla, relación, escena y storyboard se identifican por entidad para separar borradores.
 
-`hooks/localDraftStore.ts` mantiene diarios locales de borradores de Mapas y Atlas por proyecto, compartidos entre instancias y con reintentos de almacenamiento registrados. Las eliminaciones limpian únicamente borradores afectados tras confirmar persistencia. `deleteProject` limpia los diarios del proyecto eliminado.
+`hooks/localDraftStore.ts` mantiene diarios locales de borradores de Mapas, Atlas y perfil editorial por proyecto, compartidos entre instancias y con reintentos de almacenamiento registrados. Las eliminaciones limpian únicamente borradores afectados tras confirmar persistencia. `deleteProject` limpia los diarios y la copia local de recuperación de procesos de escritura del proyecto eliminado.
 
 `makeEntityHook` y `makeReadOnlyHook` distinguen carga inicial, error y último contenido válido. Las respuestas y refrescos se acotan al propietario vigente. `ReadErrorNotice` ofrece reintento sin desmontar editores ya cargados. `useProjects` expone fallos de biblioteca/proyecto y evita respuestas obsoletas.
 
 `pendingWrites.discardPendingOwner` descarta el estado de guardado de un propietario tras una eliminación o descarte explícito. El Diario mantiene el editor montado durante el autoguardado y drena las ediciones que llegan mientras escribe.
+
+## Asistencia editorial y fuentes
+
+`Project.editorialProfile` guarda voz, público, criterios, contexto, muestra y revisión. `services/editorialProfile.ts` valida límites y confirma cambios mediante revisión optimista; propone voz desde una muestra y compara una edición con/sin perfil mediante `callAi`. `EditorialProfilePanel` se monta en IA contextual de `ProjectToolsPanel` y conserva un borrador local independiente del perfil guardado.
+
+`buildProjectEditorialContext` produce el contexto aprobado para copiloto, análisis, juez y procesos de escritura. El transporte Electron admite ese contexto acotado. El juez incluye su tamaño y huella en la declaración de envío y detecta revisiones con perfil cambiado. Los ejemplos se tratan como material, no como instrucciones de herramientas.
+
+`Citation.researchEvidence` contiene afirmación, tipo, fragmento literal, ubicación, notas, estado de revisión humana y fechas. `services/researchEvidence.ts` comparte validación, aislamiento y concurrencia entre interfaz y herramientas. `ResearchEvidencePanel` se monta en Citas, reutiliza citas/recortes y muestra texto extraído disponible. Guardar metadatos de citas conserva las evidencias vigentes; sustituir una fuente con evidencias se rechaza. Borrar una cita requiere proyecto y versión esperados.
+
+`Project.writingWorkflows` conserva pasos, materiales seleccionados, historial y referencias a escritos creados. `services/writingWorkflows.ts` ofrece reportaje, ensayo y narrativa, genera propuestas explícitas y crea escritos de forma transaccional e idempotente. Los materiales incluyen notas, escritos, recortes y citas con evidencias. `WritingWorkflowsPanel` se monta en Flujos y mantiene recuperación local. ZIP conserva los campos del proyecto; la importación JSON remapea referencias disponibles y elimina referencias cuyo material no viaja en ese formato.
+
+`wh_get_editorial_context` y `wh_get_research_evidence` son herramientas de lectura del manifiesto común MCP/copiloto. La segunda consulta afirmaciones y procedencia con filtros y paginación. La selección prioriza acciones solicitadas y continuidad frente al contexto editorial opcional.
 
 ## Sistema visual
 
