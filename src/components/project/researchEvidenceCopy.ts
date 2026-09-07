@@ -1,0 +1,28 @@
+export const researchEvidenceCopy = {
+  es: {
+    title: 'Afirmaciones y fuentes', intro: 'Relaciona cada afirmación con su fuente. La revisión refleja tu criterio; no certifica que el dato sea verdadero.',
+    sourcePreview: 'Consultar texto conservado del recorte', previewLimit: 'Vista limitada a los primeros 30.000 caracteres. El recorte conserva el texto completo.', add: 'Añadir afirmación', edit: 'Editar afirmación', statement: 'Afirmación', source: 'Fuente del proyecto', choose: 'Elige una cita o un recorte',
+    quote: 'Fragmento literal', quoteHint: 'Copia el texto de la fuente sin modificarlo. Es obligatorio para marcar la afirmación como revisada.',
+    locator: 'Página, sección o minuto', notes: 'Notas de revisión', kind: 'Tipo', status: 'Estado',
+    kinds: { fact: 'Dato', attribution: 'Declaración atribuida', interpretation: 'Interpretación' },
+    statuses: { pending: 'Pendiente', reviewed: 'Revisada por mí', disputed: 'En disputa' },
+    save: 'Guardar afirmación', saving: 'Guardando…', cancel: 'Cancelar', empty: 'Todavía no hay afirmaciones. Añade una y conserva la evidencia que la respalda o la contradice.',
+    noSources: 'Añade una cita en Investigación o guarda una fuente en Recortes para empezar.', loading: 'Cargando fuentes…', retry: 'Reintentar',
+    loadError: 'No se pudieron cargar las fuentes. Reintenta la carga.', saveError: 'No se pudo guardar. Tu texto sigue aquí; vuelve a intentarlo.',
+    errors: { scope: 'La fuente no pertenece a este proyecto o ya no existe.', source: 'La fuente ya no existe. Selecciona otra.', statement: 'Escribe una afirmación de hasta 10.000 caracteres.', quote: 'Para revisar, añade un fragmento literal. Comprueba también la longitud de los campos.', url: 'La fuente tiene un enlace no válido. Corrígelo en la cita o en Recortes.', conflict: 'Esta afirmación cambió desde que la abriste. Cancela y vuelve a editar la versión actual.' },
+    all: 'Todos los estados', filter: 'Filtrar por estado', noMatches: 'No hay afirmaciones con este estado.', published: 'Publicación', accessed: 'Consulta', reviewed: 'Revisión', open: 'Abrir fuente', citation: 'Cita', snapshot: 'Recorte', saved: 'Afirmación guardada.',
+  },
+  en: {
+    title: 'Claims and sources', intro: 'Connect each claim to its source. Review records your judgment; it does not certify that a claim is true.',
+    sourcePreview: 'Read preserved clipping text', previewLimit: 'Preview limited to the first 30,000 characters. The clipping retains the full text.', add: 'Add claim', edit: 'Edit claim', statement: 'Claim', source: 'Project source', choose: 'Choose a citation or clipping',
+    quote: 'Verbatim excerpt', quoteHint: 'Copy the source text without changing it. An excerpt is required to mark a claim as reviewed.',
+    locator: 'Page, section or timestamp', notes: 'Review notes', kind: 'Type', status: 'Status',
+    kinds: { fact: 'Fact', attribution: 'Attributed statement', interpretation: 'Interpretation' },
+    statuses: { pending: 'Pending', reviewed: 'Reviewed by me', disputed: 'Disputed' },
+    save: 'Save claim', saving: 'Saving…', cancel: 'Cancel', empty: 'No claims yet. Add one and retain the evidence that supports or contradicts it.',
+    noSources: 'Add a citation in Research or save a source in Clippings to begin.', loading: 'Loading sources…', retry: 'Retry',
+    loadError: 'Sources could not be loaded. Retry loading.', saveError: 'Could not save. Your text is still here; please try again.',
+    errors: { scope: 'The source does not belong to this project or no longer exists.', source: 'The source no longer exists. Choose another.', statement: 'Enter a claim of up to 10,000 characters.', quote: 'Add a verbatim excerpt before marking reviewed. Also check field lengths.', url: 'The source link is invalid. Correct it in the citation or Clippings.', conflict: 'This claim changed since you opened it. Cancel and edit the current version.' },
+    all: 'All statuses', filter: 'Filter by status', noMatches: 'No claims with this status.', published: 'Published', accessed: 'Accessed', reviewed: 'Reviewed', open: 'Open source', citation: 'Citation', snapshot: 'Clipping', saved: 'Claim saved.',
+  },
+};

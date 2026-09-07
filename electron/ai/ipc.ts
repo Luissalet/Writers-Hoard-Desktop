@@ -186,6 +186,7 @@ function asCopilotRequest(value: unknown): CopilotRunRequest | null {
     briefing: {
       projectTitle: typeof briefing.projectTitle === 'string' ? briefing.projectTitle : 'Project',
       projectDescription: typeof briefing.projectDescription === 'string' ? briefing.projectDescription : undefined,
+      editorialContext: typeof briefing.editorialContext === 'string' ? briefing.editorialContext.slice(0, 16000) : undefined,
       projectMode: typeof briefing.projectMode === 'string' ? briefing.projectMode : undefined,
       enabledEngines: Array.isArray(briefing.enabledEngines) ? briefing.enabledEngines.filter((e): e is string => typeof e === 'string') : [],
       openEngine: typeof briefing.openEngine === 'string' ? briefing.openEngine : null,

@@ -1,4 +1,5 @@
 import { db } from '@/db';
+import { buildProjectEditorialContext } from '@/services/editorialProfile';
 import { compareManuscriptOrder } from '@/engines/writings/chapterOrder';
 import { parseJsonFromModel } from '@/services/aiText';
 import { chatStream } from '@/services/aiRuntime/client';
@@ -676,6 +677,7 @@ async function payloadReceipt(
   references: ReferenceEvidence[],
   internal: InternalEvidence[],
   truncated: boolean,
+  editorialContext = '',
 ): Promise<JudgePayloadReceipt> {
   const all = [...target, ...references, ...internal];
   const disclosed = {
@@ -685,9 +687,12 @@ async function payloadReceipt(
     routeName: route.connectionName,
     targetCharacters: target.reduce((sum, row) => sum + row.text.length, 0),
     referenceCharacters: references.reduce((sum, row) => sum + row.text.length, 0),
-    internalCharacters: internal.reduce((sum, row) => sum + row.text.length, 0),
+    internalCharacters: internal.reduce((sum, row) => sum + row.text.length, 0) + editorialContext.length,
     targetTruncated: truncated,
-    evidence: all.map(row => ({ id: row.id, hash: row.hash, characters: row.text.length })),
+    evidence: [
+      ...all.map(row => ({ id: row.id, hash: row.hash, characters: row.text.length })),
+      { id: 'editorial-profile', hash: await sha256Hex(editorialContext), characters: editorialContext.length },
+    ],
   };
   return {
     ...disclosed,
@@ -696,6 +701,7 @@ async function payloadReceipt(
 }
 
 export async function runJudge(input: RunJudgeInput): Promise<RunJudgeResult> {
+  const editorialContext = await buildProjectEditorialContext(input.projectId);
   if (input.scope === 'selection' && !input.selection?.text.trim()) throw new Error('judge-selection-empty');
   if (input.sourceMode === 'reference' && input.lensIds.length === 0) throw new Error('judge-reference-required');
   const routeInfo = await getJudgeRouteInfo(input.projectId);
@@ -730,6 +736,7 @@ export async function runJudge(input: RunJudgeInput): Promise<RunJudgeResult> {
     allReferenceEvidence,
     internal,
     target.truncated,
+    editorialContext,
   );
   if (
     routeInfo.locality === 'remote'
@@ -765,7 +772,7 @@ export async function runJudge(input: RunJudgeInput): Promise<RunJudgeResult> {
       input.signal?.throwIfAborted();
       input.onStage?.('analysing', index, lensRuns.length);
       const prompt = promptFor(input, target.evidence, lensRun.references, internal);
-      const raw = await streamCompletion(routeInfo.route, prompt.system, prompt.user, input.signal);
+      const raw = await streamCompletion(routeInfo.route, `${prompt.system}\n${editorialContext}`, prompt.user, input.signal);
       const validated = await validateFindings(
         input,
         runId,
@@ -825,6 +832,8 @@ export async function assessJudgeRunFreshness(
   contentOverrides: Readonly<Record<string, string>> = {},
 ): Promise<JudgeRunFreshness> {
   const reasons = new Set<JudgeRunFreshness['reasons'][number]>();
+  const profileEvidence = run.payload.evidence.find(row => row.id === 'editorial-profile');
+  if (profileEvidence && profileEvidence.hash !== await sha256Hex(await buildProjectEditorialContext(run.projectId))) reasons.add('profile-changed');
   for (const target of run.targetVersions) {
     const override = contentOverrides[target.writingId];
     const row = override === undefined ? await db.writings.get(target.writingId) : undefined;
@@ -859,7 +868,7 @@ export async function buildJudgeDisclosure(input: Omit<RunJudgeInput, 'allowRemo
     : await internalEvidence(input, targetText);
   return {
     route,
-    summary: await payloadReceipt(route, target.evidence, [...references.byLens.values()].flat(), internal, target.truncated),
+    summary: await payloadReceipt(route, target.evidence, [...references.byLens.values()].flat(), internal, target.truncated, await buildProjectEditorialContext(input.projectId)),
   };
 }
 

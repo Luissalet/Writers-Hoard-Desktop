@@ -1,5 +1,18 @@
 # Lessons Learned
 
+## 24. Keep app branding in one primary place in the desktop shell
+**Date:** 2026-09-07
+**Context:** The integrated titlebar repeated Writer's Hoard beside the sidebar
+brand and the dashboard heading, creating three adjacent copies of the app name.
+**Rule:** Review the whole visible shell when changing window chrome. Keep the
+primary brand in the sidebar; use the page heading for the current destination
+and the titlebar for window controls and status. Give native-facing buttons an
+explicit accessible label when their children contain live status regions.
+
+**Refinement:** The user also clarified that the actual dragon/quill app icon
+belongs beside that primary sidebar name, replacing the generic feather. Keep
+the titlebar for controls/status; do not split a single brand lockup across rows.
+
 ## 23. El copiloto interno y el MCP externo deben compartir el mismo núcleo de herramientas
 **Date:** 2026-08-30
 **Context:** Al planificar la IA nativa de Writer's Hoard, el usuario aclaró que
@@ -1347,3 +1360,13 @@ el alcance; ninguna de las dos cosas aplica a la implementación normal de Write
 **Contexto:** El cálculo de viajes pasaba con geografía simplificada, pero los idiomas generados contenían funciones que hacían fallar el envío al worker real.
 
 **Regla:** Proyectar un contrato de datos mínimo y serializable para cada worker. Los transportes simulados deben clonar como `postMessage`; añadir una prueba con el worker real y datos generados cuando el cambio introduce una nueva frontera de ejecución.
+
+## #76 — Writer’s Hoard también sirve a periodistas y otros autores
+
+**Contexto:** El usuario corrigió una comparación competitiva demasiado centrada en novelas.
+**Regla:** Evaluar el producto para narrativa, periodismo, ensayo y otros trabajos de escritura. Considerar investigación, trazabilidad, atribución, revisión editorial y publicación digital como necesidades principales cuando corresponda. No relegar SEO/CMS por asumir que todos escriben ficción; distinguir distribución de rigor editorial.
+
+## #77 — Adaptar la comparación competitiva al alcance elegido
+
+**Contexto:** El usuario descartó trabajo con editores y publicación digital de las oportunidades Jasper/Writesonic y aceptó el resto condicionado a su adaptación a Writer’s Hoard.
+**Regla:** Concentrar esta iniciativa en investigación/trazabilidad, contexto/voz/criterios y flujos individuales de escritura. Excluir coedición, roles editoriales y CMS; no introducir campañas, SEO ni métricas por imitación de competidores. Conservar revisión propia y exportaciones existentes. Integrar las mejoras en los motores y el núcleo compartido de herramientas.

@@ -4,7 +4,6 @@ import {
   Home,
   ChevronLeft,
   ChevronRight,
-  Feather,
   Settings2,
   Download,
   StickyNote,
@@ -68,9 +67,14 @@ export default function Sidebar() {
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-border">
-        <div className="w-8 h-8 rounded-lg bg-accent-gold/20 flex items-center justify-center flex-shrink-0">
-          <Feather size={18} className="text-accent-gold" />
-        </div>
+        <img
+          src={`${import.meta.env.BASE_URL}app-icon.png`}
+          width={32}
+          height={32}
+          className="w-8 h-8 rounded-lg flex-shrink-0"
+          alt={sidebarOpen ? '' : t('sidebar.brand')}
+          draggable={false}
+        />
         {sidebarOpen && (
           <span
             className="font-serif font-bold text-accent-gold text-sm whitespace-nowrap"

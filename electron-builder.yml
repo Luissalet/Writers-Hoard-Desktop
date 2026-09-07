@@ -13,6 +13,7 @@ files:
   - dist/**/*
   - dist-electron/**/*
   - package.json
+  - '!**/*.map'
 
 # Native/binary deps can't run from inside app.asar — unpack ffmpeg.
 # The MCP adapter is unpacked too: an external client spawns it with plain
@@ -29,11 +30,11 @@ extraResources:
       - '**/*'
 
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch:
         - x64
-  # Add build/icon.ico to customise the app icon (optional).
 
 nsis:
   oneClick: false
@@ -48,6 +49,7 @@ mac:
     - dmg
 
 linux:
+  icon: build/icon.png
   category: Office
   target:
     - AppImage
@@ -55,4 +57,4 @@ linux:
 publish:
   provider: github
   owner: Luissalet
-  repo: Writers-Hoard-Desktop
+  repo: Writers-Hoard-Releases

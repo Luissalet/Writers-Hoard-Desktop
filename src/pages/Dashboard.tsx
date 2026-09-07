@@ -490,7 +490,7 @@ export default function Dashboard() {
 
   return (
     <>
-      <TopBar title={t('dashboard.title')} subtitle={t('dashboard.subtitle')} />
+      <TopBar title={t('sidebar.home')} />
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-5 mb-8">
