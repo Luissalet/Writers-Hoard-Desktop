@@ -23,6 +23,8 @@ interface HistoryModalProps {
   open: boolean;
   onClose: () => void;
   writing: Writing;
+  /** Version to reveal immediately (for example the losing side of a sync). */
+  initialSnapshotId?: string | null;
   /** Current (possibly unsaved) editor content — used for manual snapshots. */
   currentContent: string;
   currentTitle: string;
@@ -142,6 +144,7 @@ export default function HistoryModal({
   open,
   onClose,
   writing,
+  initialSnapshotId,
   currentContent,
   currentTitle,
   onRestored,
@@ -164,8 +167,11 @@ export default function HistoryModal({
   }, [writing.id]);
 
   useEffect(() => {
-    if (open) void refresh();
-  }, [open, refresh]);
+    if (open) {
+      if (initialSnapshotId) setSelectedId(initialSnapshotId);
+      void refresh();
+    }
+  }, [initialSnapshotId, open, refresh]);
 
   // Closing drops the loaded body. The modal stays mounted between openings, so
   // without this a chapter the writer glanced at once stays in the heap for the

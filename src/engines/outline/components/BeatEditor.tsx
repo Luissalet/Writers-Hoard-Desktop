@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { X, Link2, Unlink } from 'lucide-react';
+import { Link2, Unlink } from 'lucide-react';
 import type { OutlineBeat, BeatStatus } from '../types';
 import type { Scene } from '@/engines/dialog-scene/types';
 import type { Writing } from '@/types';
 import { useTranslation } from '@/i18n/useTranslation';
+import Modal from '@/components/common/Modal';
 
 interface BeatEditorProps {
   beat: OutlineBeat;
@@ -81,18 +82,8 @@ export default function BeatEditor({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-elevated border border-border rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-text-primary">{t('outline.beat.editTitle')}</h2>
-          <button
-            onClick={onClose}
-            className="text-text-dim hover:text-text-primary transition"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
+    <Modal open onClose={onClose} title={t('outline.beat.editTitle')} wide>
+      <div>
         <div className="space-y-4">
           {/* Title */}
           <div>
@@ -196,8 +187,10 @@ export default function BeatEditor({
               {PRESET_COLORS.map((c) => (
                 <button
                   key={c}
+                  type="button"
                   onClick={() => setColor(c)}
-                  className="w-8 h-8 rounded-full border-2 transition-all"
+                  aria-pressed={color === c}
+                  className="w-8 h-8 rounded-full border-2 transition-[border-color,box-shadow,transform]"
                   style={{
                     backgroundColor: c,
                     borderColor: color === c ? '#c4973b' : 'transparent',
@@ -253,6 +246,7 @@ export default function BeatEditor({
                 </select>
                 {linkedWritingId && (
                   <button
+                    type="button"
                     onClick={() => setLinkedWritingId('')}
                     className="p-2 text-text-dim hover:text-danger rounded transition"
                     title={t('outline.beat.unlinkWriting')}
@@ -287,6 +281,7 @@ export default function BeatEditor({
                 </select>
                 {linkedSceneId && (
                   <button
+                    type="button"
                     onClick={() => setLinkedSceneId('')}
                     className="p-2 text-text-dim hover:text-danger rounded transition"
                     title={t('outline.unlinkScene')}
@@ -304,12 +299,14 @@ export default function BeatEditor({
           {/* Buttons */}
           <div className="flex gap-2 justify-end pt-4">
             <button
+              type="button"
               onClick={onClose}
               className="px-4 py-2 rounded-lg border border-border bg-surface text-text-primary hover:bg-surface/80 transition"
             >
               {t('common.cancel')}
             </button>
             <button
+              type="button"
               onClick={handleSave}
               className="px-4 py-2 rounded-lg bg-accent-gold/10 text-accent-gold hover:bg-accent-gold/20 transition font-medium"
             >
@@ -318,6 +315,6 @@ export default function BeatEditor({
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -39,7 +39,7 @@ export function HexInput({
       {/* Color swatch */}
       <button
         type="button"
-        className={`${dim} rounded-full ring-2 ring-white/20 hover:ring-accent-gold/60 transition-all cursor-pointer flex-shrink-0`}
+        className={`${dim} rounded-full ring-2 ring-white/20 hover:ring-accent-gold/60 transition-[box-shadow,transform] cursor-pointer flex-shrink-0`}
         style={{ backgroundColor: value }}
         title="Color swatch"
         disabled

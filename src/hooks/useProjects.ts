@@ -26,6 +26,7 @@ export function useProjects() {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      seqRef.current += 1;
     };
   }, []);
 
@@ -78,17 +79,18 @@ export function useProject(id: string | undefined) {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      seqRef.current += 1;
     };
   }, []);
 
   const refresh = useCallback(async () => {
+    const seq = ++seqRef.current;
     if (!id) {
       setProject(null);
       setLoading(false);
       loadedIdRef.current = null;
       return;
     }
-    const seq = ++seqRef.current;
     if (loadedIdRef.current !== id) setLoading(true);
     try {
       const data = await ops.getProject(id);
@@ -107,5 +109,10 @@ export function useProject(id: string | undefined) {
     refresh();
   }, [refresh, version]);
 
-  return { project, loading, refresh };
+  const ownsPublishedProject = Boolean(id) && loadedIdRef.current === id;
+  return {
+    project: ownsPublishedProject ? project : null,
+    loading: Boolean(id) && !ownsPublishedProject ? true : loading,
+    refresh,
+  };
 }

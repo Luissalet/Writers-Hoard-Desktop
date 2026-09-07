@@ -4,6 +4,12 @@ Fecha de la auditoría: 6 de septiembre de 2026
 Repositorio: `Writers hoard desktop`  
 Objetivo: corregir todos los defectos confirmados, cerrar los riesgos de pérdida de datos y convertir las mejoras propuestas en una hoja de ruta implementable y verificable.
 
+> **Estado — 7 de septiembre de 2026:** la remediación y los cortes creativos de
+> este documento ya fueron implementados directamente por Codex. Se conserva
+> este informe como especificación y trazabilidad histórica; la evidencia final,
+> los gates y el único riesgo residual están en `tasks/todo.md`, sección
+> «Implementación integral de remediación y laboratorio creativo».
+
 ## Instrucción principal
 
 Actúa como responsable técnico del proyecto. No te limites a comentar los hallazgos: impleméntalos por fases, añade las pruebas que demuestren cada corrección y mantén el proyecto utilizable al finalizar cada fase.

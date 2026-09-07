@@ -9,9 +9,11 @@
 // produce identical rows.
 
 import { db } from '@/db';
+import { deleteInspirationImage } from '@/db/operations';
 import type { ImageGenerationInfo, InspirationImage } from '@/types';
 import { generateId } from '@/utils/idGenerator';
 import { generateImage as gatewayGenerate, type ImageHandle } from '@/services/aiRuntime/client';
+import { recipeHash, type ImageRecipeRow } from '@/services/aiRuntime/recipe';
 import { formatLoraToken } from '@/services/aiRuntime/sdServer';
 import type { AiImageRequest, AiImageResult, AiLoraSelection, AiRouteSelection } from '@/services/aiRuntime/types';
 
@@ -289,11 +291,31 @@ export async function saveGenerated(
     return { ok: false, images: [], code: result.code, error: result.error ?? 'no images' };
   }
   const rows: InspirationImage[] = [];
+  const recipeRows: ImageRecipeRow[] = [];
   const now = Date.now();
   // One stamp for the whole batch, so the grid groups the pictures of one
   // press together however many calls it took to make them.
   const stamp = options.stamp ?? now;
   for (const image of result.images) {
+    const imageId = generateId('img');
+    let storedRecipe: ImageRecipeRow | undefined;
+    if (image.recipe) {
+      const hash = recipeHash(image.recipe);
+      if (image.recipe.hash !== undefined && image.recipe.hash !== hash) {
+        throw new Error(`Image recipe "${image.recipe.id}" failed its integrity check.`);
+      }
+      // Keep the runtime's recipe field-for-field at every semantic field. The
+      // remaining properties are only the Dexie row's ownership/link metadata,
+      // and the recomputed hash is authoritative for both sides of the link.
+      storedRecipe = {
+        ...image.recipe,
+        projectId: options.projectId,
+        imageId,
+        updatedAt: now,
+        hash,
+      };
+      recipeRows.push(storedRecipe);
+    }
     const dataUrl = `data:${image.mimeType};base64,${image.base64}`;
     const generation: ImageGenerationInfo & Partial<WidenedGenerationInfo> = {
       prompt: options.prompt,
@@ -327,9 +349,13 @@ export async function saveGenerated(
       hiresUpscaler: options.hires?.upscaler,
       hiresScale: options.hires?.scale,
       parameters: image.parameters,
+      ...(storedRecipe ? {
+        recipeId: storedRecipe.id,
+        recipeHash: storedRecipe.hash,
+      } : {}),
     };
     const row: InspirationImage = {
-      id: generateId('img'),
+      id: imageId,
       projectId: options.projectId,
       collectionId: options.collectionId,
       imageData: dataUrl,
@@ -346,9 +372,17 @@ export async function saveGenerated(
       source: 'generated',
       generation,
     };
-    await db.inspirationImages.add(row);
     rows.push(row);
   }
+
+  // One transaction for the complete batch: a duplicate recipe id, quota
+  // error or failed image write rolls every row back. `add` is intentional —
+  // replacing an existing recipe would silently re-point its `imageId` while
+  // the older Gallery row kept linking to it.
+  await db.transaction('rw', [db.inspirationImages, db.imageRecipes], async () => {
+    if (recipeRows.length) await db.imageRecipes.bulkAdd(recipeRows);
+    await db.inspirationImages.bulkAdd(rows);
+  });
   return { ok: true, images: rows };
 }
 
@@ -367,5 +401,5 @@ export async function listGeneratedImages(projectId: string, limit = 60): Promis
 }
 
 export async function deleteGeneratedImage(id: string): Promise<void> {
-  await db.inspirationImages.delete(id);
+  await deleteInspirationImage(id);
 }

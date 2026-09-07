@@ -40,6 +40,25 @@ import { legacyLinksToSnapshots } from '@/engines/scrapper/legacyLinks';
 import type { AiMessage, AiProjectSettings, AiThread } from '@/services/copilot/types';
 import type { VisualRef } from '@/types/visualRef';
 import type { ImageRecipeRow } from '@/services/aiRuntime/recipe';
+import type {
+  JudgeFinding,
+  JudgeRun,
+  ProjectReferenceLink,
+  ReferenceDocument,
+  ReferenceLens,
+  ReferenceSection,
+} from '@/services/judge/types';
+import type {
+  BranchPromotionReceipt,
+  CreativeBranch,
+  CreativeBranchDelta,
+} from '@/services/branching/types';
+import type { NarrativeMoment, StoryClaim } from '@/services/storyState/types';
+import type { SharedCanonEntity, SharedEntityBinding } from '@/services/sharedUniverse/types';
+import { migrateLegacyBoards } from './legacyBoardMigration';
+
+/** Single source of truth for migration and compatibility tests. */
+export const CURRENT_DB_VERSION = 34;
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -100,6 +119,19 @@ export class WritersHoardDB extends Dexie {
   aiProjectSettings!: Table<AiProjectSettings>;
   visualRefs!: Table<VisualRef>;
   imageRecipes!: Table<ImageRecipeRow>;
+  referenceDocuments!: Table<ReferenceDocument>;
+  referenceSections!: Table<ReferenceSection>;
+  referenceLenses!: Table<ReferenceLens>;
+  projectReferenceLinks!: Table<ProjectReferenceLink>;
+  judgeRuns!: Table<JudgeRun>;
+  judgeFindings!: Table<JudgeFinding>;
+  creativeBranches!: Table<CreativeBranch>;
+  creativeBranchDeltas!: Table<CreativeBranchDelta>;
+  branchPromotionReceipts!: Table<BranchPromotionReceipt>;
+  narrativeMoments!: Table<NarrativeMoment>;
+  storyClaims!: Table<StoryClaim>;
+  sharedCanonEntities!: Table<SharedCanonEntity>;
+  sharedEntityBindings!: Table<SharedEntityBinding>;
 
   constructor() {
     super('WritersHoardDB');
@@ -681,8 +713,8 @@ export class WritersHoardDB extends Dexie {
       notes: 'id, projectId, kind, *tags, pinned, createdAt',
     }).upgrade(async (tx) => {
       const links = await tx.table('externalLinks').toArray();
+      const snapshots = legacyLinksToSnapshots(links);
       if (links.length) {
-        const snapshots = legacyLinksToSnapshots(links);
         // bulkPut, not bulkAdd: a half-finished upgrade that runs again must
         // not explode on ids it already wrote.
         if (snapshots.length) await tx.table('snapshots').bulkPut(snapshots);
@@ -692,18 +724,19 @@ export class WritersHoardDB extends Dexie {
       // existing project on to Notes, which is new and would otherwise be
       // invisible until the user went looking for it in the Engine Manager
       // (where it can just as easily be switched back off).
-      const hadLinks = links.length > 0;
-      const rewrite = (list: unknown): string[] | undefined => {
+      const projectIdsWithLinks = new Set(snapshots.map((snapshot) => snapshot.projectId));
+      const rewrite = (list: unknown, enableScrapper: boolean): string[] | undefined => {
         if (!Array.isArray(list)) return undefined;
         const next = (list as string[]).filter((e) => e !== 'links');
-        if (hadLinks && !next.includes('scrapper')) next.push('scrapper');
+        if (enableScrapper && !next.includes('scrapper')) next.push('scrapper');
         if (!next.includes('notes')) next.push('notes');
         return next;
       };
       await tx.table('projects').toCollection().modify((project) => {
-        const enabled = rewrite(project.enabledEngines);
+        const enableScrapper = projectIdsWithLinks.has(project.id);
+        const enabled = rewrite(project.enabledEngines, enableScrapper);
         if (enabled) project.enabledEngines = enabled;
-        const order = rewrite(project.engineOrder);
+        const order = rewrite(project.engineOrder, enableScrapper);
         if (order) project.engineOrder = order;
       });
     });
@@ -729,46 +762,23 @@ export class WritersHoardDB extends Dexie {
     // costumes — an infinite canvas with cards and connecting lines. They are
     // replaced by `board`, which keeps the canvas and makes the connections a
     // real graph: typed relations, many-to-many links, links between links,
-    // layers, saved views. Nothing modelled the old tables that the new ones
-    // cannot express, so they are dropped rather than migrated.
+    // layers and saved views. All six legacy stores remain present in this
+    // version because Dexie applies the schema diff before its upgrader: v24
+    // must be able to read them while it copies into the five Board stores.
     this.version(24).stores({
       boards: 'id, projectId',
       boardNodes: 'id, projectId, boardId, kind, *tags',
       boardEdges: 'id, projectId, boardId, sourceId, targetId, kind',
       boardLayers: 'id, projectId, boardId, order',
       boardViews: 'id, projectId, boardId, order',
-      yarnBoards: null,
-      yarnNodes: null,
-      yarnEdges: null,
-      brainstormBoards: null,
-      brainstormItems: null,
-      brainstormConnections: null,
+      yarnBoards: 'id, projectId',
+      yarnNodes: 'id, projectId, boardId',
+      yarnEdges: 'id, boardId, sourceId, targetId',
+      brainstormBoards: 'id, projectId',
+      brainstormItems: 'id, boardId, projectId, type',
+      brainstormConnections: 'id, boardId, sourceId, targetId',
     }).upgrade(async (tx) => {
-      // Keep every project's tab list pointing at something that exists.
-      await tx.table('projects').toCollection().modify((project: {
-        enabledEngines?: string[];
-        engineOrder?: string[];
-      }) => {
-        const swap = (list: string[] | undefined): string[] | undefined => {
-          if (!list) return list;
-          const mapped = list.map((id) =>
-            id === 'yarn-board' || id === 'brainstorm' ? 'board' : id,
-          );
-          return mapped.filter((id, index) => mapped.indexOf(id) === index);
-        };
-        project.enabledEngines = swap(project.enabledEngines);
-        project.engineOrder = swap(project.engineOrder);
-      });
-
-      // Margin notes anchored on the retired engines follow them across.
-      for (const [table, field] of [
-        ['annotations', 'sourceEngineId'],
-        ['annotationReferences', 'targetEngineId'],
-      ] as const) {
-        await tx.table(table).toCollection().modify((row: Record<string, unknown>) => {
-          if (row[field] === 'yarn-board' || row[field] === 'brainstorm') row[field] = 'board';
-        });
-      }
+      await migrateLegacyBoards(tx);
     });
 
     // v25: persisted canon supertiles for the world generator — the ~31 s of
@@ -777,8 +787,18 @@ export class WritersHoardDB extends Dexie {
     // versioned, byte-budgeted, evicted by `savedAt`, cleared with its world,
     // and deliberately OUTSIDE the backup registry — see
     // `engines/worldgen/canonSnapshots.ts` for the one door to it.
+    // v25: retire the source stores only after v24 committed the copy. A
+    // database that already crossed the old, destructive v24 has no legacy
+    // rows left to recover; later upgrades intentionally create no substitute
+    // data. Recovery for those installations requires a pre-v24 backup.
     this.version(25).stores({
       canonTiles: 'id, worldId, savedAt',
+      yarnBoards: null,
+      yarnNodes: null,
+      yarnEdges: null,
+      brainstormBoards: null,
+      brainstormItems: null,
+      brainstormConnections: null,
     });
 
     // v26: persisted RENDERED tiles for the world generator — the inked
@@ -846,6 +866,45 @@ export class WritersHoardDB extends Dexie {
     // "show me every image from this recipe" both ask.
     this.version(30).stores({
       imageRecipes: 'id, projectId, imageId, hash, createdAt',
+    });
+
+    // v31: Judge's private reference library and grounded review history.
+    // Documents/lenses are personal and global; projects own lightweight links
+    // plus their own runs/findings. The original is stored once as a Blob and
+    // project deletion therefore cannot erase a source used by another book.
+    this.version(31).stores({
+      referenceDocuments: 'id, &sha256, status, updatedAt',
+      referenceSections: 'id, documentId, order, *terms',
+      referenceLenses: 'id, documentId, updatedAt',
+      projectReferenceLinks: 'id, projectId, documentId, lensId, status, active',
+      judgeRuns: 'id, projectId, writingId, mode, status, createdAt',
+      judgeFindings: 'id, projectId, writingId, runId, lensId, mode, status, createdAt',
+    });
+
+    // v32: one structural branching kernel shared by Outline and Timeline.
+    // Alternatives keep only their deltas; promotion receipts hold the exact
+    // inverse so promotion and undo remain atomic without copying prose or a
+    // whole project. Additive: existing projects simply start with no branches.
+    this.version(32).stores({
+      creativeBranches: 'id, projectId, status, updatedAt',
+      creativeBranchDeltas: 'id, projectId, branchId, targetKind, targetId, [branchId+targetKind+targetId], updatedAt',
+      branchPromotionReceipts: 'id, projectId, branchId, createdAt, undoneAt',
+    });
+
+    // v33: the explicit narrative axis and its typed facts, beliefs and world
+    // rules. These rows point at canonical entities; they never duplicate a
+    // chapter or infer chronology from fictional dates written as prose.
+    this.version(33).stores({
+      narrativeMoments: 'id, projectId, order, anchorKind, anchorEntityId, &[projectId+anchorKind+anchorEntityId], updatedAt',
+      storyClaims: 'id, projectId, kind, status, [projectId+kind], updatedAt',
+    });
+
+    // v34: saga-owned identities and project-owned bindings. Full prose and
+    // engine records remain in their project; this layer stores only stable
+    // identity, a local override and explicit provenance.
+    this.version(CURRENT_DB_VERSION).stores({
+      sharedCanonEntities: 'id, seriesId, kind, title, updatedAt',
+      sharedEntityBindings: 'id, projectId, seriesId, sharedEntityId, &[seriesId+sharedEntityId+projectId], updatedAt',
     });
   }
 }

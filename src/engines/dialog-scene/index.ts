@@ -87,6 +87,20 @@ registerBackupStrategy({
       if (casts.length) zip.file(`${projectDir}/dialog-scene/sceneCasts.json`, JSON.stringify(casts, null, 2));
     }
   },
+  async inspectImport({ zip, projectDir }) {
+    return Promise.all([
+      ['scenes', 'scenes'],
+      ['dialogBlocks', 'dialogBlocks'],
+      ['sceneCasts', 'sceneCasts'],
+    ].map(async ([file, table]) => {
+      const path = `${projectDir}/dialog-scene/${file}.json`;
+      const rows = await readBackupJson<unknown>(zip, path);
+      if (rows !== null && !Array.isArray(rows)) {
+        throw new Error(`Expected "${path}" to contain a JSON array.`);
+      }
+      return { table, path, rows: rows ?? [] };
+    }));
+  },
   async importProject({ zip, projectDir }) {
     const scenes = await readBackupJson<unknown[]>(zip, `${projectDir}/dialog-scene/scenes.json`);
     if (scenes?.length) await db.scenes.bulkPut(scenes as never[]);

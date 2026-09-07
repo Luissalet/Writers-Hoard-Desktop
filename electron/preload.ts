@@ -58,6 +58,25 @@ interface DownloadToLibraryResult {
   error?: string;
 }
 
+interface MediaDownloaderHealthResult {
+  ok: true;
+  platforms: string[];
+}
+
+interface MediaPlatformResult {
+  ok: boolean;
+  platform?: string;
+  error?: string;
+}
+
+interface DownloadToFileResult {
+  ok: boolean;
+  canceled?: boolean;
+  filename?: string;
+  sizeBytes?: number;
+  error?: string;
+}
+
 /** Outcome of writing an automatic backup archive into userData. */
 interface BackupWriteResult {
   ok: boolean;
@@ -292,6 +311,19 @@ const api = {
     /** Transcode a WebM capture to MP4 and prompt the user to save it. */
     saveTeleprompterMp4: (webm: ArrayBuffer, suggestedName: string): Promise<SaveResult> =>
       ipcRenderer.invoke('media:saveTeleprompterMp4', webm, suggestedName),
+    /** Probe the bundled downloader without revealing its loopback auth token. */
+    downloaderHealth: (): Promise<MediaDownloaderHealthResult> =>
+      ipcRenderer.invoke('media:downloaderHealth'),
+    detectDownloadPlatform: (url: string): Promise<MediaPlatformResult> =>
+      ipcRenderer.invoke('media:detectDownloadPlatform', url),
+    /** Download through main's shared process queue, then show a native save dialog. */
+    downloadToFile: (args: {
+      requestId: string;
+      url: string;
+      format: 'video' | 'audio';
+    }): Promise<DownloadToFileResult> => ipcRenderer.invoke('media:downloadToFile', args),
+    cancelFileDownload: (requestId: string): Promise<void> =>
+      ipcRenderer.invoke('media:cancelFileDownload', requestId),
     /** Download a link's media into the managed library; resolves with its relative path. */
     downloadToLibrary: (args: {
       url: string;

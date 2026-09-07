@@ -8,7 +8,7 @@ import { deleteEntityAnnotations } from '@/engines/_shared/deleteEntityAnnotatio
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import type { Annotation, AnnotationReference } from '@/engines/annotations/types';
 import type { Writing } from '@/types';
-import { takeSnapshot } from './snapshots';
+import { ensureSnapshot, takeSnapshot, type SnapshotWriteOutcome } from './snapshots';
 import type { WritingSnapshot } from './snapshotTypes';
 
 export async function getWritings(projectId: string): Promise<Writing[]> {
@@ -261,6 +261,92 @@ export async function updateWritingAtVersion(
   }
 
   return outcome.version;
+}
+
+export type ProtectedWritingReplacement =
+  | {
+      status: 'applied';
+      version: number;
+      snapshot: SnapshotWriteOutcome;
+      changes: Partial<Writing>;
+    }
+  | {
+      status: 'conflict';
+      expectedVersion: number;
+      current: Writing;
+      rejectedSnapshotId: string | null;
+    }
+  | { status: 'gone'; writingId: string };
+
+/**
+ * Replace a writing only if it is still the version a slow external operation
+ * started from, and make the restore point part of the same IndexedDB commit.
+ *
+ * This is intentionally separate from the editor's ordinary compare-and-swap:
+ * that path protects the losing in-memory text after a conflict, whereas this
+ * one protects the CURRENT row before a wholesale remote/import replacement.
+ * A quota or snapshot failure throws and aborts the transaction, so the live
+ * chapter cannot move unless its recovery row landed too.
+ */
+export async function replaceWritingWithSnapshot(
+  id: string,
+  changes: Partial<Writing>,
+  expectedVersion: number,
+): Promise<ProtectedWritingReplacement> {
+  type TransactionOutcome =
+    | { kind: 'applied'; version: number; snapshot: SnapshotWriteOutcome; projectId: string }
+    | { kind: 'conflict'; current: Writing }
+    | { kind: 'gone' };
+
+  const outcome = await db.transaction(
+    'rw',
+    [db.writings, db.writingSnapshots],
+    async (): Promise<TransactionOutcome> => {
+      const current = await db.writings.get(id);
+      if (!current) return { kind: 'gone' };
+      if (current.updatedAt !== expectedVersion) return { kind: 'conflict', current };
+
+      const snapshot = await ensureSnapshot(current, 'auto');
+      const version = nextWritingVersion(current.updatedAt);
+      const written = await db.writings.update(id, { ...changes, updatedAt: version });
+      if (written === 0) throw new WritingGoneError(id);
+      return { kind: 'applied', version, snapshot, projectId: current.projectId };
+    },
+  );
+
+  if (outcome.kind === 'gone') return { status: 'gone', writingId: id };
+  if (outcome.kind === 'conflict') {
+    let rejectedSnapshotId: string | null = null;
+    if (changes.content !== undefined) {
+      const preserved = await ensureSnapshot({
+        id,
+        projectId: outcome.current.projectId,
+        title: changes.title ?? outcome.current.title,
+        content: changes.content,
+      }, 'manual');
+      rejectedSnapshotId = preserved.status === 'skipped-empty' ? null : preserved.snapshotId;
+    }
+    return {
+      status: 'conflict',
+      expectedVersion,
+      current: outcome.current,
+      rejectedSnapshotId,
+    };
+  }
+
+  void touchProject(outcome.projectId);
+  notifyDataChanged({
+    source: 'other',
+    table: 'writings',
+    entityId: id,
+    projectId: outcome.projectId,
+  });
+  return {
+    status: 'applied',
+    version: outcome.version,
+    snapshot: outcome.snapshot,
+    changes: { ...changes, updatedAt: outcome.version },
+  };
 }
 
 /**

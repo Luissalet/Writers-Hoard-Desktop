@@ -2,6 +2,7 @@ export type CockpitTab =
   | 'overview'
   | 'health'
   | 'entities'
+  | 'lab'
   | 'spine'
   | 'intelligence'
   | 'assets'
@@ -25,6 +26,7 @@ export const COCKPIT_TAB_LABEL_KEYS: Record<CockpitTab, string> = {
   overview: 'projectCockpit.tabs.overview',
   health: 'projectCockpit.tabs.health',
   entities: 'projectCockpit.tabs.entities',
+  lab: 'projectCockpit.tabs.lab',
   spine: 'projectCockpit.tabs.spine',
   intelligence: 'projectCockpit.tabs.intelligence',
   assets: 'projectCockpit.tabs.assets',
@@ -45,8 +47,8 @@ export const COCKPIT_GROUPS: readonly CockpitGroup[] = [
   {
     id: 'develop',
     labelKey: 'projectCockpit.groups.develop',
-    defaultTab: 'entities',
-    tabs: ['entities', 'spine', 'ai'],
+    defaultTab: 'lab',
+    tabs: ['lab', 'entities', 'spine', 'ai'],
   },
   {
     id: 'produce',

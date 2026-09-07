@@ -138,6 +138,33 @@ registerBackupStrategy({
       if (pins.length > 0) zip.file(`${mDir}/pins.json`, JSON.stringify(pins, null, 2));
     }
   },
+  async inspectImport({ zip, projectDir }) {
+    const folder = `${projectDir}/maps/`;
+    const dirs = new Set<string>();
+    zip.forEach((path) => {
+      if (!path.startsWith(folder)) return;
+      const dir = path.slice(folder.length).split('/')[0];
+      if (dir) dirs.add(`${folder}${dir}`);
+    });
+    const sections: Array<{ table: string; path: string; rows: readonly unknown[] }> = [];
+    for (const dir of dirs) {
+      const mapPath = `${dir}/map.json`;
+      const map = await readBackupJson<unknown>(zip, mapPath);
+      sections.push({ table: 'worldMaps', path: mapPath, rows: map === null ? [] : [map] });
+      const pinsPath = `${dir}/pins.json`;
+      const pins = await readBackupJson<unknown>(zip, pinsPath);
+      if (pins !== null && !Array.isArray(pins)) {
+        throw new Error(`Expected "${pinsPath}" to contain a JSON array.`);
+      }
+      sections.push({ table: 'mapPins', path: pinsPath, rows: pins ?? [] });
+    }
+    for (const table of ['worldMaps', 'mapPins']) {
+      if (!sections.some((section) => section.table === table)) {
+        sections.push({ table, path: folder, rows: [] });
+      }
+    }
+    return sections;
+  },
   async importProject({ zip, projectDir }) {
     const folder = `${projectDir}/maps/`;
     const dirs = new Set<string>();

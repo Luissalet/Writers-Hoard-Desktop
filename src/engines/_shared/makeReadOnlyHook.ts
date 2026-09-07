@@ -76,10 +76,12 @@ export function makeReadOnlyHook<T, Deps = void>(
       mountedRef.current = true;
       return () => {
         mountedRef.current = false;
+        seqRef.current += 1;
       };
     }, []);
 
     const refresh = useCallback(async () => {
+      const seq = ++seqRef.current;
       if (!scopeId) {
         setItems([]);
         setLoading(false);
@@ -88,7 +90,6 @@ export function makeReadOnlyHook<T, Deps = void>(
         loadedKeyRef.current = null;
         return;
       }
-      const seq = ++seqRef.current;
       // Key on scope only: a deps change refetches but shouldn't blank the view
       // with a full spinner (that would flash a derived dashboard on every filter
       // toggle). Initial spinner fires once per scope.
@@ -123,6 +124,13 @@ export function makeReadOnlyHook<T, Deps = void>(
     // And on writes that went around this hook (AI bridge, copilot, undo).
     useEffect(() => onDataChanged(() => { void refresh(); }), [refresh]);
 
-    return { items, loading, refetching, error, refresh };
+    const ownsPublishedItems = Boolean(scopeId) && loadedKeyRef.current === scopeId;
+    return {
+      items: ownsPublishedItems ? items : [],
+      loading: Boolean(scopeId) && !ownsPublishedItems ? true : loading,
+      refetching: ownsPublishedItems ? refetching : false,
+      error: ownsPublishedItems ? error : null,
+      refresh,
+    };
   };
 }

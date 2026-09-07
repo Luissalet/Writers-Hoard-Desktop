@@ -279,7 +279,7 @@ export function InlineColorPicker({
       <button
         type="button"
         onClick={() => setShowPicker(!showPicker)}
-        className={`${dim} rounded-full ring-2 ring-white/20 hover:ring-accent-gold/60 transition-all cursor-pointer`}
+        className={`${dim} rounded-full ring-2 ring-white/20 hover:ring-accent-gold/60 transition-[box-shadow,transform] cursor-pointer`}
         style={{ backgroundColor: value }}
         title={t('common.changeColor')}
       />

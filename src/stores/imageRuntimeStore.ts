@@ -40,6 +40,8 @@ function sdApi(): NonNullable<Window['electronAPI']>['sd'] | null {
 }
 
 const UNAVAILABLE: SdOpResult = { ok: false, error: 'desktop-only' };
+let statusRequest = 0;
+let statusPushRevision = 0;
 
 export const useImageRuntimeStore = create<ImageRuntimeState>((set, get) => ({
   available: sdApi() !== null,
@@ -50,7 +52,10 @@ export const useImageRuntimeStore = create<ImageRuntimeState>((set, get) => ({
   refresh: async () => {
     const api = sdApi();
     if (!api) return;
-    set({ status: await api.status() });
+    const request = ++statusRequest;
+    const pushRevision = statusPushRevision;
+    const status = await api.status();
+    if (request === statusRequest && pushRevision === statusPushRevision) set({ status });
   },
 
   installRuntime: async (backend) => {
@@ -118,14 +123,20 @@ export const useImageRuntimeStore = create<ImageRuntimeState>((set, get) => ({
   stopServer: async () => {
     const api = sdApi();
     if (!api) return;
-    set({ status: await api.stop() });
+    const request = ++statusRequest;
+    const pushRevision = statusPushRevision;
+    const status = await api.stop();
+    if (request === statusRequest && pushRevision === statusPushRevision) set({ status });
   },
 }));
 
 // One module-scope subscription per push channel (guarded against HMR).
 if (typeof window !== 'undefined' && window.electronAPI?.sd && !window.__whImageRuntimeWired) {
   window.__whImageRuntimeWired = true;
-  window.electronAPI.sd.onStatus((status) => useImageRuntimeStore.setState({ status }));
+  window.electronAPI.sd.onStatus((status) => {
+    statusPushRevision += 1;
+    useImageRuntimeStore.setState({ status });
+  });
   window.electronAPI.sd.onProgress((progress) =>
     useImageRuntimeStore.setState((s) => ({ progress: { ...s.progress, [progress.id]: progress } })),
   );

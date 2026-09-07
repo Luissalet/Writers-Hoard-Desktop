@@ -1,8 +1,9 @@
 import { useState, useCallback } from 'react';
-import { Save, X } from 'lucide-react';
+import { Save } from 'lucide-react';
 import type { WritingGoal } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
+import Modal from '@/components/common/Modal';
 
 interface GoalSetterProps {
   goals: WritingGoal[];
@@ -62,22 +63,8 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
   }, [dailyTarget, projectTarget, deadlineTarget, deadlineDate, dailyGoal, projectGoal, deadlineGoal, projectId, onSave, onClose]);
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-      <div
-        className="bg-surface border border-border rounded-xl p-6 max-w-md w-full mx-4 space-y-6 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-serif font-bold text-text-primary">{t('writingStats.goals.title')}</h2>
-          <button
-            onClick={onClose}
-            className="text-text-dim hover:text-text-primary transition-colors"
-            title={t('common.close')}
-            aria-label={t('common.close')}
-          >
-            <X size={20} aria-hidden="true" />
-          </button>
-        </div>
+    <Modal open onClose={onClose} title={t('writingStats.goals.title')}>
+      <div className="space-y-6">
 
         <div className="space-y-4">
           {/* Daily Goal */}
@@ -131,12 +118,14 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
         {/* Buttons */}
         <div className="flex gap-3 justify-end pt-4 border-t border-border">
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-text-muted font-medium rounded-lg hover:bg-elevated transition-colors"
           >
             {t('common.cancel')}
           </button>
           <button
+            type="button"
             onClick={handleSave}
             className="flex items-center gap-2 px-4 py-2 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition-colors"
           >
@@ -145,6 +134,6 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

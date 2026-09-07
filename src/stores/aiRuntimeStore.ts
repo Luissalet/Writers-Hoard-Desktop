@@ -53,6 +53,16 @@ interface AiRuntimeState {
 
 const EMPTY_MODELS: ModelsState = { models: [], loading: false, error: null, loadedAt: 0 };
 
+// Async IPC replies are not ordered. These identities are deliberately outside
+// Zustand state: they are implementation bookkeeping, not UI state, and one
+// counter per resource means a models request for A never cancels one for B.
+let connectionsRequest = 0;
+let hardwareRequest = 0;
+let defaultsRequest = 0;
+let discoveryRequest = 0;
+const modelRequests = new Map<string, number>();
+const probeRequests = new Map<string, number>();
+
 export const useAiRuntimeStore = create<AiRuntimeState>((set, get) => ({
   available: aiApi() !== null,
   connections: [],
@@ -64,13 +74,14 @@ export const useAiRuntimeStore = create<AiRuntimeState>((set, get) => ({
   discovered: [],
 
   loadConnections: async () => {
+    const request = ++connectionsRequest;
     const api = aiApi();
     if (!api) {
-      set({ connections: [], connectionsLoaded: true });
+      if (request === connectionsRequest) set({ connections: [], connectionsLoaded: true });
       return;
     }
     const connections = await api.listConnections();
-    set({ connections, connectionsLoaded: true });
+    if (request === connectionsRequest) set({ connections, connectionsLoaded: true });
   },
 
   saveConnection: async (input) => {
@@ -104,11 +115,13 @@ export const useAiRuntimeStore = create<AiRuntimeState>((set, get) => ({
   probe: async (id) => {
     const api = aiApi();
     if (!api) return { ok: false, code: 'unreachable', error: 'desktop only' };
+    const request = (probeRequests.get(id) ?? 0) + 1;
+    probeRequests.set(id, request);
     set((s) => ({
       connections: s.connections.map((c) => (c.id === id ? { ...c, status: 'loading' } : c)),
     }));
     const result = await api.probe(id);
-    if (result.ok && result.models) {
+    if (probeRequests.get(id) === request && result.ok && result.models) {
       set((s) => ({
         modelsByConnection: {
           ...s.modelsByConnection,
@@ -116,7 +129,7 @@ export const useAiRuntimeStore = create<AiRuntimeState>((set, get) => ({
         },
       }));
     }
-    await get().loadConnections();
+    if (probeRequests.get(id) === request) await get().loadConnections();
     return result;
   },
 
@@ -125,10 +138,15 @@ export const useAiRuntimeStore = create<AiRuntimeState>((set, get) => ({
     if (!api) return [];
     const current = get().modelsByConnection[connectionId] ?? EMPTY_MODELS;
     if (!refresh && current.loadedAt && Date.now() - current.loadedAt < 60_000) return current.models;
+    const request = (modelRequests.get(connectionId) ?? 0) + 1;
+    modelRequests.set(connectionId, request);
     set((s) => ({
       modelsByConnection: { ...s.modelsByConnection, [connectionId]: { ...current, loading: true, error: null } },
     }));
     const result = await api.listModels(connectionId, refresh);
+    if (modelRequests.get(connectionId) !== request) {
+      return result.ok ? result.models : get().modelsByConnection[connectionId]?.models ?? current.models;
+    }
     set((s) => ({
       modelsByConnection: {
         ...s.modelsByConnection,
@@ -163,19 +181,25 @@ export const useAiRuntimeStore = create<AiRuntimeState>((set, get) => ({
     const api = aiApi();
     if (!api) return;
     if (!force && get().hardware) return;
-    set({ hardware: await api.hardware(force) });
+    const request = ++hardwareRequest;
+    const hardware = await api.hardware(force);
+    if (request === hardwareRequest) set({ hardware });
   },
 
   loadDefaults: async () => {
     const api = aiApi();
     if (!api) return;
-    set({ defaults: await api.getDefaults() });
+    const request = ++defaultsRequest;
+    const defaults = await api.getDefaults();
+    if (request === defaultsRequest) set({ defaults });
   },
 
   setDefault: async (kind, route) => {
     const api = aiApi();
     if (!api) return;
-    set({ defaults: await api.setDefault(kind, route) });
+    const request = ++defaultsRequest;
+    const defaults = await api.setDefault(kind, route);
+    if (request === defaultsRequest) set({ defaults });
   },
 
   setModelOverride: async (connectionId, modelId, override) => {
@@ -188,13 +212,14 @@ export const useAiRuntimeStore = create<AiRuntimeState>((set, get) => ({
   discoverLocal: async () => {
     const api = aiApi();
     if (!api) return [];
+    const request = ++discoveryRequest;
     set({ discovering: true });
     try {
       const discovered = await api.discoverLocal();
-      set({ discovered });
+      if (request === discoveryRequest) set({ discovered });
       return discovered;
     } finally {
-      set({ discovering: false });
+      if (request === discoveryRequest) set({ discovering: false });
     }
   },
 }));

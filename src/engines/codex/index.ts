@@ -108,6 +108,19 @@ registerBackupStrategy({
       zip.file(`${entryDir}/entry.json`, JSON.stringify(meta, null, 2));
     }
   },
+  async inspectImport({ zip, projectDir }) {
+    const folder = `${projectDir}/codex/`;
+    const paths = new Set<string>();
+    zip.forEach((path) => {
+      if (path.startsWith(folder) && path.endsWith('/entry.json')) paths.add(path);
+    });
+    const sections = [];
+    for (const path of paths) {
+      const entry = await readBackupJson<unknown>(zip, path);
+      sections.push({ table: 'codexEntries', path, rows: entry === null ? [] : [entry] });
+    }
+    return sections.length ? sections : [{ table: 'codexEntries', path: folder, rows: [] }];
+  },
   async importProject({ zip, projectDir }) {
     const codexFolder = `${projectDir}/codex/`;
     const dirs = new Set<string>();

@@ -5,7 +5,7 @@
 import { cleanGoogleDocsHtml, countWords } from '@/utils/googleDocsHtmlCleaner';
 import { generateId } from '@/utils/idGenerator';
 import * as ops from '@/db/operations';
-import { takeSnapshot } from '@/engines/writings/snapshots';
+import { replaceWritingWithSnapshot } from '@/engines/writings/operations';
 import { assertTokenAccepted } from '@/services/googleAuth';
 import { t } from '@/i18n/useTranslation';
 import type { Writing } from '@/types';
@@ -157,6 +157,10 @@ export type GoogleDocSyncRisk = 'none' | 'emptied' | 'shrunk';
 
 /** A pull that has been fetched but not written, so the writer confirms what they saw. */
 export interface GoogleDocSyncPreview {
+  writingId: string;
+  projectId: string;
+  /** Local row version held before either network request began. */
+  expectedVersion: number;
   changes: Partial<Writing>;
   risk: GoogleDocSyncRisk;
   cachedWordCount: number;
@@ -165,7 +169,14 @@ export interface GoogleDocSyncPreview {
 
 export type GoogleDocSyncOutcome =
   | { status: 'applied'; changes: Partial<Writing> }
-  | { status: 'needs-confirmation'; preview: GoogleDocSyncPreview };
+  | { status: 'needs-confirmation'; preview: GoogleDocSyncPreview }
+  | {
+      status: 'conflict';
+      preview: GoogleDocSyncPreview;
+      current: Writing;
+      incomingSnapshotId: string | null;
+    }
+  | { status: 'gone'; writingId: string };
 
 function assessShrink(cachedWordCount: number, incomingWordCount: number): GoogleDocSyncRisk {
   if (cachedWordCount === 0) return 'none'; // nothing cached to lose
@@ -186,18 +197,29 @@ function assessShrink(cachedWordCount: number, incomingWordCount: number): Googl
  */
 export async function applyGoogleDocSync(
   writing: Writing,
-  preview: GoogleDocSyncPreview
-): Promise<Partial<Writing>> {
-  await takeSnapshot(writing, 'auto');
+  preview: GoogleDocSyncPreview,
+  expectedVersion = preview.expectedVersion,
+): Promise<GoogleDocSyncOutcome> {
+  if (preview.writingId !== writing.id || preview.projectId !== writing.projectId) {
+    throw new Error('Google Doc sync preview belongs to another writing');
+  }
 
   const changes: Partial<Writing> = {
     ...preview.changes,
     lastSyncedAt: Date.now(),
-    updatedAt: Date.now(),
   };
 
-  await ops.updateWriting(writing.id, changes);
-  return changes;
+  const outcome = await replaceWritingWithSnapshot(writing.id, changes, expectedVersion);
+  if (outcome.status === 'gone') return outcome;
+  if (outcome.status === 'conflict') {
+    return {
+      status: 'conflict',
+      preview,
+      current: outcome.current,
+      incomingSnapshotId: outcome.rejectedSnapshotId,
+    };
+  }
+  return { status: 'applied', changes: outcome.changes };
 }
 
 /**
@@ -224,6 +246,9 @@ export async function syncGoogleDoc(
   const cachedWordCount = countWords(writing.content ?? '');
 
   const preview: GoogleDocSyncPreview = {
+    writingId: writing.id,
+    projectId: writing.projectId,
+    expectedVersion: writing.updatedAt,
     changes: {
       content: cleanHtml,
       wordCount: incomingWordCount,
@@ -236,25 +261,33 @@ export async function syncGoogleDoc(
   };
 
   if (preview.risk !== 'none') return { status: 'needs-confirmation', preview };
-  return { status: 'applied', changes: await applyGoogleDocSync(writing, preview) };
+  return applyGoogleDocSync(writing, preview);
 }
 
 /**
  * Check if a Google Doc has been modified since last sync
  */
+export type GoogleDocChangeStatus =
+  | { status: 'not-linked' }
+  | { status: 'never-synced' }
+  | { status: 'changed'; modifiedAt: number }
+  | { status: 'unchanged'; modifiedAt: number };
+
 export async function hasDocChanged(
   accessToken: string,
   writing: Writing
-): Promise<boolean> {
-  if (!writing.googleDocId || !writing.lastSyncedAt) return false;
+): Promise<GoogleDocChangeStatus> {
+  if (!writing.googleDocId) return { status: 'not-linked' };
+  if (!writing.lastSyncedAt) return { status: 'never-synced' };
 
-  try {
-    const metadata = await getDocMetadata(accessToken, writing.googleDocId);
-    const docModified = new Date(metadata.modifiedTime).getTime();
-    return docModified > writing.lastSyncedAt;
-  } catch {
-    return false;
-  }
+  // Deliberately let authentication/network/API failures reach the caller. A
+  // failed check is not evidence that the remote document is unchanged.
+  const metadata = await getDocMetadata(accessToken, writing.googleDocId);
+  const modifiedAt = new Date(metadata.modifiedTime).getTime();
+  if (!Number.isFinite(modifiedAt)) throw new Error('Google Doc returned an invalid modified time');
+  return modifiedAt > writing.lastSyncedAt
+    ? { status: 'changed', modifiedAt }
+    : { status: 'unchanged', modifiedAt };
 }
 
 // ============================================

@@ -1101,7 +1101,10 @@ export default function BookEditor({
               : 'text-accent-amber'
       }`}
       title={saveState === 'conflict' ? t('writings.externalChange.hint') : saveError ?? t('writings.autosaveHint')}
+      role="status"
       aria-live="polite"
+      aria-atomic="true"
+      data-book-save-state={saveState}
     >
       {saveState === 'saved' ? (
         <Check size={12} />

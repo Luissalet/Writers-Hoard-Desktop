@@ -103,7 +103,7 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
                 </div>
                 <div className="h-2 bg-elevated rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-accent-gold transition-all duration-500"
+                    className="h-full bg-accent-gold transition-[width] duration-500"
                     style={{ width: `${Math.min(100, todayProgress)}%` }}
                   />
                 </div>

@@ -9,12 +9,14 @@ import { lazy } from 'react';
 // already carries them and `wh_list_images` already lists them. The studio adds
 // the making, not another picture store.
 //
-// It owns exactly one table, and it is not pictures: `visualRefs`, the
+// Its first table is not pictures: `visualRefs`, the
 // accumulating description of a character, place, object or style — the words,
 // the dialect they are written in, the ids of her reference images, a hero
 // seed, a preset, a trained LoRA. It has to survive a backup because it is the
 // part the writer built by hand over months; the pictures can be regenerated,
 // the judgement about which one is her cannot.
+// `imageRecipes` holds the exact runtime account for reproducibility; the
+// image bytes still belong solely to Gallery.
 
 import { Sparkles } from 'lucide-react';
 import type { EngineDefinition } from '@/engines/_types';
@@ -30,6 +32,7 @@ const imageStudioEngine: EngineDefinition = {
   category: 'creative',
   tables: {
     visualRefs: 'id, projectId, codexEntryId, kind, updatedAt',
+    imageRecipes: 'id, projectId, imageId, hash, createdAt',
   },
   component: ImageStudioEngine,
 };
@@ -42,7 +45,10 @@ registerEngine(imageStudioEngine);
 // right faces after a restore.
 registerBackupStrategy(makeSimpleBackupStrategy({
   engineId: 'image-studio',
-  tables: ['visualRefs'],
+  // An archive made before recipes has no second JSON file; the additive
+  // strategy reads that as an empty set and leaves legacy Gallery provenance
+  // usable. Recipe rows themselves are plain JSON and need no external assets.
+  tables: ['visualRefs', 'imageRecipes'],
 }));
 
 export { imageStudioEngine };

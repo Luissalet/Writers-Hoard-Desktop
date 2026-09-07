@@ -5,14 +5,21 @@ import { projectSettingKeys } from '@/db/operations';
 import {
   getAllBackupStrategies,
   preloadArchive,
+  type BackupImportSection,
   type BackupStrategy,
 } from '@/engines/_shared/backupRegistry';
+import {
+  validateBackupScopes,
+  type ScopedBackupProject,
+} from '@/engines/_shared/backupScope';
 import { GLOBAL_NOTES_SCOPE } from '@/engines/notes/types';
+import { lexicalTerms, sha256Hex } from '@/services/judge/text';
+import type { ReferenceDocument, ReferenceLens, ReferenceSection } from '@/services/judge/types';
 // Engine initialization is part of the backup contract: every strategy must
 // be registered before an archive is inspected, exported, or restored.
 import '@/engines';
 
-const BACKUP_VERSION = 3;
+const BACKUP_VERSION = 4;
 const MIN_SUPPORTED_BACKUP_VERSION = 1;
 
 export type BackupPhase = 'export' | 'preflight' | 'import';
@@ -72,6 +79,10 @@ interface BackupManifest {
       restorePolicy: 'reset-unavailable';
     };
   };
+  referenceLibrary?: {
+    included: boolean;
+    originals: boolean;
+  };
 }
 
 interface ProjectRecord {
@@ -90,7 +101,30 @@ interface PreflightResult {
   manifest: BackupManifest;
   projects: PreparedProject[];
   json: Map<string, unknown>;
+  referenceLibrary: PreparedReferenceLibrary;
 }
+
+interface ArchivedReferenceDocument extends Omit<ReferenceDocument, 'original'> {
+  originalPath: string;
+}
+
+interface ReferenceLibraryArchive {
+  documents: ArchivedReferenceDocument[];
+  sections: ReferenceSection[];
+  lenses: ReferenceLens[];
+}
+
+interface PreparedReferenceLibrary {
+  documents: ReferenceDocument[];
+  sections: ReferenceSection[];
+  lenses: ReferenceLens[];
+}
+
+const EMPTY_REFERENCE_LIBRARY: PreparedReferenceLibrary = {
+  documents: [],
+  sections: [],
+  lenses: [],
+};
 
 export interface ProjectZipImportProject {
   id: string;
@@ -165,6 +199,10 @@ function manifestFor(projectCount: number, singleProject = false): BackupManifes
         included: false,
         restorePolicy: 'reset-unavailable',
       },
+    },
+    referenceLibrary: {
+      included: !singleProject,
+      originals: !singleProject,
     },
   };
 }
@@ -251,16 +289,48 @@ async function writeProjectToZip(
   await exportStrategies(zip, project, projectDir, failures);
 }
 
-/**
- * Build the whole-database archive and hand it to the browser as a download.
- *
- * Resolving means the bytes were handed over, NOT that a file exists: `saveAs`
- * only starts the download, the shell's own save dialog comes after it, and a
- * Cancel there leaves nothing behind and says nothing back. So no caller may
- * record a completed backup off the back of this — a completion is stamped only
- * from a write that reports success (see src/services/autoBackup.ts).
- */
-export async function exportFullZip(): Promise<void> {
+async function writeReferenceLibraryToZip(
+  zip: JSZip,
+  failures: BackupFailure[],
+): Promise<void> {
+  const [documents, sections, lenses] = await Promise.all([
+    db.referenceDocuments.toArray(),
+    db.referenceSections.toArray(),
+    db.referenceLenses.toArray(),
+  ]);
+  const archivedDocuments: ArchivedReferenceDocument[] = [];
+  for (const document of documents) {
+    try {
+      const bytes = new Uint8Array(await document.original.arrayBuffer());
+      const actualHash = await sha256Hex(bytes);
+      if (actualHash !== document.sha256) {
+        throw new Error(`Reference original "${document.name}" no longer matches its recorded SHA-256.`);
+      }
+      const originalPath = `reference-library/originals/${encodeURIComponent(document.id)}.bin`;
+      zip.file(originalPath, bytes);
+      const metadata: Omit<ReferenceDocument, 'original'> = {
+        id: document.id,
+        name: document.name,
+        mimeType: document.mimeType,
+        size: document.size,
+        sha256: document.sha256,
+        version: document.version,
+        status: document.status,
+        ...(document.statusDetail ? { statusDetail: document.statusDetail } : {}),
+        createdAt: document.createdAt,
+        updatedAt: document.updatedAt,
+      };
+      archivedDocuments.push({ ...metadata, originalPath });
+    } catch (error) {
+      failures.push(failure('export', error, { path: 'reference-library.json' }));
+    }
+  }
+  const archive: ReferenceLibraryArchive = { documents: archivedDocuments, sections, lenses };
+  zip.file('reference-library.json', JSON.stringify(archive));
+}
+
+/** Build the canonical whole-database archive without starting a download. */
+export async function createFullZipArchive(): Promise<{ blob: Blob; fileName: string }> {
   const zip = new JSZip();
   const failures: BackupFailure[] = [];
   try {
@@ -273,6 +343,7 @@ export async function exportFullZip(): Promise<void> {
     zip.file('manifest.json', JSON.stringify(manifestFor(projects.length), null, 2));
     zip.file('settings.json', JSON.stringify(settings, null, 2));
     zip.file('tags.json', JSON.stringify(tags, null, 2));
+    await writeReferenceLibraryToZip(zip, failures);
 
     const inboxNotes = await db
       .table('notes')
@@ -291,10 +362,22 @@ export async function exportFullZip(): Promise<void> {
       compression: 'DEFLATE',
       compressionOptions: { level: 6 },
     });
-    saveAs(blob, `writers-hoard-backup-${new Date().toISOString().slice(0, 10)}.zip`);
+    return {
+      blob,
+      fileName: `writers-hoard-backup-${new Date().toISOString().slice(0, 10)}.zip`,
+    };
   } catch (error) {
     throw wrapFailure('export', error);
   }
+}
+
+/**
+ * Hand the canonical archive to the browser's save flow. Resolving only means
+ * `saveAs` was started; it does not prove that the user completed the dialog.
+ */
+export async function exportFullZip(): Promise<void> {
+  const { blob, fileName } = await createFullZipArchive();
+  saveAs(blob, fileName);
 }
 
 /** Build a single-project archive without triggering a browser download. */
@@ -434,23 +517,243 @@ function validateManifest(
       ),
     );
   }
+  if (manifest.version === BACKUP_VERSION) {
+    const library = manifest.referenceLibrary;
+    const expected = mode === 'full';
+    if (!library || library.included !== expected || library.originals !== expected) {
+      failures.push(failure(
+        'preflight',
+        'Backup has an invalid reference-library declaration.',
+        { path: 'manifest.json' },
+      ));
+    }
+  }
   return manifest as BackupManifest;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+async function prepareReferenceLibrary(
+  zip: JSZip,
+  json: Map<string, unknown>,
+  manifest: BackupManifest | null,
+  mode: 'project' | 'full',
+  failures: BackupFailure[],
+): Promise<PreparedReferenceLibrary> {
+  if (mode !== 'full' || !manifest || manifest.version < 4) return EMPTY_REFERENCE_LIBRARY;
+  const path = 'reference-library.json';
+  const raw = json.get(path);
+  if (!isRecord(raw) || !Array.isArray(raw.documents) || !Array.isArray(raw.sections) || !Array.isArray(raw.lenses)) {
+    failures.push(failure('preflight', `Missing or invalid "${path}".`, { path }));
+    return EMPTY_REFERENCE_LIBRARY;
+  }
+
+  const documents: ReferenceDocument[] = [];
+  const documentIds = new Set<string>();
+  const documentHashes = new Set<string>();
+  for (const [index, value] of raw.documents.entries()) {
+    if (!isRecord(value)) {
+      failures.push(failure('preflight', `Reference document ${index + 1} is not an object.`, { path }));
+      continue;
+    }
+    const id = typeof value.id === 'string' ? value.id : '';
+    const name = typeof value.name === 'string' ? value.name : '';
+    const mimeType = typeof value.mimeType === 'string' ? value.mimeType : '';
+    const sha256 = typeof value.sha256 === 'string' ? value.sha256.toLowerCase() : '';
+    const originalPath = typeof value.originalPath === 'string' ? value.originalPath : '';
+    const expectedPath = `reference-library/originals/${encodeURIComponent(id)}.bin`;
+    if (
+      !id || !name || !mimeType || !/^[a-f0-9]{64}$/.test(sha256)
+      || originalPath !== expectedPath
+      || documentIds.has(id)
+      || documentHashes.has(sha256)
+      || typeof value.size !== 'number' || value.size < 0
+      || typeof value.version !== 'number' || !Number.isInteger(value.version) || value.version < 1
+      || typeof value.createdAt !== 'number' || typeof value.updatedAt !== 'number'
+      || !['indexing', 'ready', 'error', 'relink-required'].includes(String(value.status))
+    ) {
+      failures.push(failure('preflight', `Reference document ${index + 1} has invalid metadata.`, { path }));
+      continue;
+    }
+    const file = zip.file(originalPath);
+    if (!file) {
+      failures.push(failure('preflight', `Reference original "${originalPath}" is missing.`, { path: originalPath }));
+      continue;
+    }
+    const bytes = await file.async('uint8array');
+    if (bytes.byteLength !== value.size || await sha256Hex(bytes) !== sha256) {
+      failures.push(failure('preflight', `Reference original "${originalPath}" failed its size or SHA-256 check.`, { path: originalPath }));
+      continue;
+    }
+    documentIds.add(id);
+    documentHashes.add(sha256);
+    const owned = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(owned).set(bytes);
+    documents.push({
+      id,
+      name,
+      mimeType,
+      size: value.size,
+      sha256,
+      version: value.version,
+      status: value.status as ReferenceDocument['status'],
+      statusDetail: typeof value.statusDetail === 'string' ? value.statusDetail : undefined,
+      original: new Blob([owned], { type: mimeType }),
+      createdAt: value.createdAt,
+      updatedAt: value.updatedAt,
+    });
+  }
+
+  const sections: ReferenceSection[] = [];
+  const sectionIds = new Set<string>();
+  const sectionDocuments = new Map<string, string>();
+  for (const [index, value] of raw.sections.entries()) {
+    if (!isRecord(value)) {
+      failures.push(failure('preflight', `Reference section ${index + 1} is not an object.`, { path }));
+      continue;
+    }
+    const id = typeof value.id === 'string' ? value.id : '';
+    const documentId = typeof value.documentId === 'string' ? value.documentId : '';
+    const text = typeof value.text === 'string' ? value.text : '';
+    const textHash = typeof value.textHash === 'string' ? value.textHash.toLowerCase() : '';
+    const terms = Array.isArray(value.terms) && value.terms.every(term => typeof term === 'string')
+      ? value.terms as string[]
+      : null;
+    if (
+      !id || sectionIds.has(id) || !documentIds.has(documentId) || !text.trim()
+      || typeof value.order !== 'number' || !Number.isInteger(value.order) || value.order < 0
+      || !terms || !/^[a-f0-9]{64}$/.test(textHash) || await sha256Hex(text) !== textHash
+    ) {
+      failures.push(failure('preflight', `Reference section ${index + 1} has invalid ownership or content hash.`, { path }));
+      continue;
+    }
+    sectionIds.add(id);
+    sectionDocuments.set(id, documentId);
+    sections.push({
+      id,
+      documentId,
+      order: value.order,
+      page: typeof value.page === 'number' ? value.page : undefined,
+      heading: typeof value.heading === 'string' ? value.heading : undefined,
+      text,
+      textHash,
+      // Terms are derived and cheap to rebuild. Never trust an archive to
+      // choose what private passages rank for a later query.
+      terms: lexicalTerms(text),
+    });
+  }
+
+  const lenses: ReferenceLens[] = [];
+  const lensIds = new Set<string>();
+  for (const [index, value] of raw.lenses.entries()) {
+    if (!isRecord(value)) {
+      failures.push(failure('preflight', `Reference lens ${index + 1} is not an object.`, { path }));
+      continue;
+    }
+    const id = typeof value.id === 'string' ? value.id : '';
+    const documentId = typeof value.documentId === 'string' ? value.documentId : '';
+    const name = typeof value.name === 'string' ? value.name : '';
+    const selected = Array.isArray(value.sectionIds) && value.sectionIds.every(sectionId => typeof sectionId === 'string')
+      ? value.sectionIds as string[]
+      : null;
+    const criteria = Array.isArray(value.criteria) ? value.criteria : null;
+    const criterionIds = new Set<string>();
+    const selectedSet = new Set(selected ?? []);
+    const criteriaValid = criteria?.every(criterion => {
+      if (
+        !isRecord(criterion)
+        || typeof criterion.id !== 'string'
+        || !criterion.id
+        || criterionIds.has(criterion.id)
+        || typeof criterion.text !== 'string'
+        || !criterion.text.trim()
+        || typeof criterion.approved !== 'boolean'
+        || (criterion.sourceSectionId !== undefined && typeof criterion.sourceSectionId !== 'string')
+      ) return false;
+      criterionIds.add(criterion.id);
+      return criterion.sourceSectionId === undefined || selectedSet.has(criterion.sourceSectionId);
+    }) ?? false;
+    if (
+      !id || lensIds.has(id) || !name.trim() || !documentIds.has(documentId)
+      || !selected || selected.length === 0 || selectedSet.size !== selected.length || !criteriaValid
+      || selected.some(sectionId => sectionDocuments.get(sectionId) !== documentId)
+      || typeof value.createdAt !== 'number' || typeof value.updatedAt !== 'number'
+    ) {
+      failures.push(failure('preflight', `Reference lens ${index + 1} has invalid ownership or section links.`, { path }));
+      continue;
+    }
+    lensIds.add(id);
+    lenses.push({
+      id,
+      documentId,
+      name,
+      sectionIds: selected,
+      criteria: criteria as ReferenceLens['criteria'],
+      createdAt: value.createdAt,
+      updatedAt: value.updatedAt,
+    });
+  }
+  return { documents, sections, lenses };
 }
 
 async function runStrategyPreflight(
   zip: JSZip,
   projects: PreparedProject[],
   failures: BackupFailure[],
+  mode: 'project' | 'full',
 ): Promise<void> {
+  const scopedProjects: ScopedBackupProject[] = [];
   for (const project of projects) {
+    const sections: Array<BackupImportSection & { engineId: string }> = [];
     for (const strategy of getAllBackupStrategies()) {
-      if (!strategy.preflightImport) continue;
       try {
-        await strategy.preflightImport({
+        const context = {
           zip,
           projectId: project.projectId,
           projectDir: project.projectDir,
-        });
+        };
+        await strategy.preflightImport?.(context);
+        if (typeof strategy.inspectImport !== 'function') {
+          throw new Error(
+            `Backup strategy "${strategy.engineId}" has no import scope inventory.`,
+          );
+        }
+        const inspected = await strategy.inspectImport(context);
+        if (!Array.isArray(inspected)) {
+          throw new Error(
+            `Backup strategy "${strategy.engineId}" returned an invalid import scope inventory.`,
+          );
+        }
+        const declared = new Set(strategy.tables);
+        const covered = new Set<string>();
+        for (const section of inspected) {
+          if (
+            !section ||
+            typeof section !== 'object' ||
+            typeof section.table !== 'string' ||
+            typeof section.path !== 'string' ||
+            !Array.isArray(section.rows)
+          ) {
+            throw new Error(
+              `Backup strategy "${strategy.engineId}" returned an invalid import section.`,
+            );
+          }
+          if (!declared.has(section.table)) {
+            throw new Error(
+              `Backup strategy "${strategy.engineId}" inventories undeclared table "${section.table}".`,
+            );
+          }
+          covered.add(section.table);
+          sections.push({ ...section, engineId: strategy.engineId });
+        }
+        const missing = strategy.tables.filter((table) => !covered.has(table));
+        if (missing.length) {
+          throw new Error(
+            `Backup strategy "${strategy.engineId}" did not inventory table(s): ${missing.join(', ')}.`,
+          );
+        }
       } catch (error) {
         failures.push(
           failure('preflight', error, {
@@ -461,6 +764,23 @@ async function runStrategyPreflight(
         );
       }
     }
+    scopedProjects.push({
+      projectId: project.projectId,
+      projectDir: project.projectDir,
+      sections,
+    });
+  }
+  if (failures.length) return;
+  try {
+    const scopeIssues = await validateBackupScopes(
+      scopedProjects,
+      mode === 'project',
+    );
+    for (const issue of scopeIssues) {
+      failures.push(failure('preflight', issue.message, issue));
+    }
+  } catch (error) {
+    failures.push(failure('preflight', error));
   }
 }
 
@@ -471,6 +791,7 @@ async function preflightArchive(
   const failures: BackupFailure[] = [];
   const json = await parseAllJson(zip, failures);
   const manifest = validateManifest(json.get('manifest.json'), mode, failures);
+  const referenceLibrary = await prepareReferenceLibrary(zip, json, manifest, mode, failures);
   const dirs = projectDirectories(zip);
   if (mode === 'project' && dirs.length === 0) {
     failures.push(failure('preflight', 'Backup contains no projects.'));
@@ -565,11 +886,11 @@ async function preflightArchive(
     projects.push({ projectId: project.id, projectDir, project });
   }
 
-  await runStrategyPreflight(zip, projects, failures);
+  await runStrategyPreflight(zip, projects, failures, mode);
   if (failures.length || !manifest) {
     throw new BackupOperationError('preflight', failures);
   }
-  return { manifest, projects, json };
+  return { manifest, projects, json, referenceLibrary };
 }
 
 async function loadAndPreflight(
@@ -771,7 +1092,7 @@ export async function importFullZip(file: File): Promise<void> {
   const inboxNotes = expectArray(prepared.json, 'notes-inbox.json', []);
   // Same reason as the project restore: nothing inside the transaction may
   // yield to the event loop, and a JSZip read does.
-  await preloadArchive(zip);
+  await preloadArchive(zip, ['reference-library/originals/']);
 
   try {
     await db.transaction('rw', db.tables, async () => {
@@ -781,6 +1102,15 @@ export async function importFullZip(file: File): Promise<void> {
       if (settings.length) await db.settings.bulkAdd(settings as never[]);
       if (tags.length) await db.tags.bulkAdd(tags as never[]);
       if (inboxNotes.length) await db.table('notes').bulkAdd(inboxNotes as never[]);
+      if (prepared.referenceLibrary.documents.length) {
+        await db.referenceDocuments.bulkAdd(prepared.referenceLibrary.documents);
+      }
+      if (prepared.referenceLibrary.sections.length) {
+        await db.referenceSections.bulkAdd(prepared.referenceLibrary.sections);
+      }
+      if (prepared.referenceLibrary.lenses.length) {
+        await db.referenceLenses.bulkAdd(prepared.referenceLibrary.lenses);
+      }
 
       for (const project of prepared.projects) {
         await db.projects.add(project.project as never);

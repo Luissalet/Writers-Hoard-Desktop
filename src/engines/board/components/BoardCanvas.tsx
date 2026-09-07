@@ -1289,7 +1289,7 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
                   updatedAt: Date.now(),
                 } satisfies BoardLayer)
               }
-              onPatch={(id, changes) => void editLayer(id, changes)}
+              onPatch={(id, changes) => editLayer(id, changes)}
               onDelete={(id) => void removeLayer(id)}
               onSetActive={setActiveLayerId}
               onSelectContents={(id) =>

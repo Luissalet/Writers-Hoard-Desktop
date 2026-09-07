@@ -1276,3 +1276,37 @@ contra él. Para Writers Hoard, prioriza pensamiento divergente y convergente, h
 ramas, consecuencias, canon, tensión y transformación de ideas en estructura y escenas. No añadas
 CRM, envíos, colaboración comercial o paridad competitiva salvo petición explícita. Las referencias
 de mercado pueden validar una necesidad, pero nunca deben sustituir la dirección propia del producto.
+
+## #67 — La compatibilidad se calibra contra los datos que de verdad importan (2026-09-07)
+
+**Qué pasó.** Durante la remediación integral estaba tratando cada fila legacy del entorno como si
+fuera producción irremplazable. El usuario aclaró que casi todo el contenido actual son pruebas; la
+única excepción material son los enlaces guardados en Recortes.
+
+**Regla.** Para este proyecto, no consumir semanas en compatibilidad histórica hipotética ni dejar
+que los fixtures actuales dicten la arquitectura. Se puede reestructurar esquema, backups y módulos
+con libertad si mejora el producto futuro. Los enlaces de Recortes son la única excepción real:
+ninguna limpieza, migración, restore o prueba puede borrarlos, reescribirlos o sacarlos de alcance
+sin una copia y una comprobación explícitas.
+
+## #68 — Un módulo sin integración aún necesita una frontera de idioma (2026-09-07)
+
+**Qué pasó.** Construí Creative Lab aislado para evitar conflictos con el Cockpit y los catálogos de
+idioma, pero dejé el texto de la interfaz y de las operaciones deterministas incrustado en inglés.
+Eso hacía que la integración ES/EN posterior exigiera reescribir el componente en vez de limitarse
+a conectarlo.
+
+**Regla.** Cuando una entrega vertical prohíba tocar los locales compartidos, extraer desde el primer
+momento un contrato de copy completo fuera del archivo React, ofrecer defaults por `locale` y permitir
+inyectar el objeto entero. Esto incluye aria-labels, errores, estados vacíos, formatos dinámicos y el
+texto que generan las operaciones; aislar la UI no justifica fijar su idioma.
+
+## #69 — No reabrir permisos que el usuario ya concedió (2026-09-07)
+
+**Qué pasó.** El usuario tuvo que recalcar que dispongo de acceso completo y que no quiere interrupciones
+por permisos mientras implemento la reestructuración autorizada.
+
+**Regla.** Ejecutar directamente toda lectura, edición, prueba y reestructuración normal dentro del
+workspace y del alcance ya aprobado. No convertir cautelas internas en preguntas repetitivas. Solo detenerse
+si la plataforma exige técnicamente una aprobación fuera del workspace o si la acción ampliaría de verdad
+el alcance; ninguna de las dos cosas aplica a la implementación normal de Writers Hoard.

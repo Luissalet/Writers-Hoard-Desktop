@@ -7,6 +7,7 @@ export type ReadingMeasure = 'narrow' | 'wide';
 /** `flow` is the continuous column; `page` sets the text on sheets with page breaks. */
 export type ReadingLayout = 'flow' | 'page';
 export type ReadingPageSize = 'a4' | 'letter';
+export type MotionPreference = 'system' | 'reduce' | 'full';
 
 /** How the manuscript is set. Interface chrome is not affected. */
 export interface ReadingPreferences {
@@ -35,11 +36,19 @@ const DEFAULT_READING: ReadingPreferences = {
 };
 
 const READING_KEY = 'ui_reading';
+const MOTION_KEY = 'ui_motion';
 const FACES: readonly ReadingFace[] = ['serif', 'sans', 'mono'];
 const SIZES: readonly ReadingSize[] = ['small', 'medium', 'large'];
 const MEASURES: readonly ReadingMeasure[] = ['narrow', 'wide'];
 const LAYOUTS: readonly ReadingLayout[] = ['flow', 'page'];
 const PAGE_SIZES: readonly ReadingPageSize[] = ['a4', 'letter'];
+const MOTION_PREFERENCES: readonly MotionPreference[] = ['system', 'reduce', 'full'];
+
+function applyMotionPreference(preference: MotionPreference): void {
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.motion = preference;
+  }
+}
 
 function pick<T extends string>(allowed: readonly T[], value: unknown, fallback: T): T {
   return typeof value === 'string' && (allowed as readonly string[]).includes(value)
@@ -72,6 +81,8 @@ interface AppState {
   showEngineManager: boolean;
   reading: ReadingPreferences;
   readingLoaded: boolean;
+  motion: MotionPreference;
+  motionLoaded: boolean;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   toggleSearch: () => void;
@@ -80,11 +91,14 @@ interface AppState {
   setShowEngineManager: (open: boolean) => void;
   setReading: (patch: Partial<ReadingPreferences>) => Promise<void>;
   loadReading: () => Promise<void>;
+  setMotion: (preference: MotionPreference) => Promise<void>;
+  loadMotion: () => Promise<void>;
 }
 
 // One read per process, shared by every caller. The editor and the settings
 // modal both ask; neither of them knows about the other.
 let readingRead: Promise<void> | null = null;
+let motionRead: Promise<void> | null = null;
 
 export const useAppStore = create<AppState>((set, get) => ({
   sidebarOpen: true,
@@ -93,6 +107,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   showEngineManager: false,
   reading: DEFAULT_READING,
   readingLoaded: false,
+  motion: 'system',
+  motionLoaded: false,
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   toggleSearch: () => set((s) => ({ searchOpen: !s.searchOpen })),
@@ -120,5 +136,27 @@ export const useAppStore = create<AppState>((set, get) => ({
         set({ readingLoaded: true });
       });
     await readingRead;
+  },
+
+  setMotion: async (motion) => {
+    set({ motion, motionLoaded: true });
+    applyMotionPreference(motion);
+    await setSetting(MOTION_KEY, motion);
+  },
+
+  loadMotion: async () => {
+    if (get().motionLoaded) return;
+    motionRead ??= getSetting(MOTION_KEY)
+      .then((raw) => {
+        if (get().motionLoaded) return;
+        const motion = pick(MOTION_PREFERENCES, raw, 'system');
+        set({ motion, motionLoaded: true });
+        applyMotionPreference(motion);
+      })
+      .catch(() => {
+        set({ motionLoaded: true });
+        applyMotionPreference(get().motion);
+      });
+    await motionRead;
   },
 }));

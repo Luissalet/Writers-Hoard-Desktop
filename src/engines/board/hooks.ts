@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { makeEntityHook } from '@/engines/_shared';
+import { registerPendingFlusher, trackPendingWrite } from '@/services/pendingWrites';
 import * as ops from './operations';
 import { planDeletion } from './graph/mutations';
 import type { Board, BoardEdge, BoardLayer, BoardNode, BoardView } from './types';
@@ -123,7 +124,7 @@ export interface BoardGraphApi {
   canRedo: boolean;
   undoLabel: string | null;
   redoLabel: string | null;
-  flush: () => Promise<void>;
+  flush: () => Promise<boolean>;
 }
 
 export function useBoardGraph(boardId: string): BoardGraphApi {
@@ -131,6 +132,7 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
   const [edges, setEdges] = useState<BoardEdge[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [hasPendingWrites, setHasPendingWrites] = useState(false);
   const [historyState, setHistoryState] = useState({
     canUndo: false,
     canRedo: false,
@@ -176,7 +178,7 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
 
   // A failed flush re-queues itself, which makes `flush` and `scheduleFlush`
   // mutually recursive; the ref breaks the cycle without either going stale.
-  const flushRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const flushRef = useRef<() => Promise<boolean>>(() => Promise.resolve(true));
 
   const scheduleFlush = useCallback((delayMs = FLUSH_DELAY_MS) => {
     if (flushTimer.current !== null) window.clearTimeout(flushTimer.current);
@@ -186,15 +188,16 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
     }, delayMs);
   }, []);
 
-  const flush = useCallback(async () => {
+  const flush = useCallback(async (): Promise<boolean> => {
     if (flushTimer.current !== null) {
       window.clearTimeout(flushTimer.current);
       flushTimer.current = null;
     }
-    if (pending.current.size === 0) return;
+    if (pending.current.size === 0) return true;
 
     const writes = Array.from(pending.current.entries());
     pending.current.clear();
+    if (mounted.current) setHasPendingWrites(false);
 
     const nodePuts: BoardNode[] = [];
     const edgePuts: BoardEdge[] = [];
@@ -209,8 +212,16 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
     }
 
     try {
-      await ops.commitBoardBatch({ nodePuts, edgePuts, nodeDeletes, edgeDeletes });
-      if (mounted.current) setError(null);
+      await trackPendingWrite(
+        ops.commitBoardBatch({ nodePuts, edgePuts, nodeDeletes, edgeDeletes }),
+        () => flushRef.current(),
+        `board:${boardId}`,
+      );
+      if (mounted.current) {
+        setError(null);
+        setHasPendingWrites(pending.current.size > 0);
+      }
+      return true;
     } catch (reason) {
       console.error('[board] flush failed', reason);
       // Nothing was written — the transaction rolled the whole batch back — so
@@ -220,11 +231,13 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
         if (!pending.current.has(key)) pending.current.set(key, write);
       }
       if (mounted.current) {
+        setHasPendingWrites(true);
         setError(reason instanceof Error ? reason : new Error(String(reason)));
         scheduleFlush(RETRY_DELAY_MS);
       }
+      return false;
     }
-  }, [scheduleFlush]);
+  }, [boardId, scheduleFlush]);
 
   useEffect(() => {
     flushRef.current = flush;
@@ -233,6 +246,7 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
   const enqueue = useCallback(
     (kind: RowKind, id: string, row: BoardNode | BoardEdge | null) => {
       pending.current.set(`${kind}:${id}`, { kind, id, row });
+      setHasPendingWrites(true);
       scheduleFlush();
     },
     [scheduleFlush],
@@ -274,14 +288,16 @@ export function useBoardGraph(boardId: string): BoardGraphApi {
       });
   }, [boardId]);
 
-  // Flush whatever is queued when the board changes or the view goes away.
+  // Make the board's in-memory batch visible to the app-wide close guard.
   useEffect(() => {
-    const handleUnload = () => {
-      void flush();
-    };
-    window.addEventListener('beforeunload', handleUnload);
+    if (!hasPendingWrites) return;
+    return registerPendingFlusher(`board:${boardId}`, () => flushRef.current());
+  }, [boardId, hasPendingWrites]);
+
+  // Flush whatever is queued when the board changes or the view goes away.
+  // Window teardown itself is coordinated centrally by PendingWritesHost.
+  useEffect(() => {
     return () => {
-      window.removeEventListener('beforeunload', handleUnload);
       void flush();
     };
   }, [boardId, flush]);
