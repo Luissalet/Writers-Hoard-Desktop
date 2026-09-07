@@ -1,9 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useRef } from 'react';
 import { Save } from 'lucide-react';
 import type { WritingGoal } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
 import Modal from '@/components/common/Modal';
+import { validWordTarget, validGoalDate } from '../goalValidation';
+import { getGoalCopy } from '../copy';
 
 interface GoalSetterProps {
   goals: WritingGoal[];
@@ -13,7 +15,8 @@ interface GoalSetterProps {
 }
 
 export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSetterProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const copy = getGoalCopy(locale);
   // Find active goals by type
   const dailyGoal = goals.find((g) => g.type === 'daily' && g.active);
   const projectGoal = goals.find((g) => g.type === 'project' && g.active);
@@ -24,8 +27,21 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
   const [projectTarget, setProjectTarget] = useState(projectGoal?.targetWords.toString() || '');
   const [deadlineTarget, setDeadlineTarget] = useState(deadlineGoal?.targetWords.toString() || '');
   const [deadlineDate, setDeadlineDate] = useState(deadlineGoal?.deadline || '');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const pendingGoals = useRef<Partial<Record<WritingGoal['type'], WritingGoal>>>({});
+  const savedSignatures = useRef<Partial<Record<WritingGoal['type'], string>>>({});
 
-  const handleSave = useCallback(async () => {
+  const handleSave = async () => {
+    if (savingRef.current) return;
+    const targets = [dailyTarget, projectTarget, deadlineTarget];
+    if (targets.some((value) => value.trim() && !validWordTarget(value))) { setError(copy.positive); return; }
+    if ((deadlineTarget.trim() || deadlineDate) && (!validWordTarget(deadlineTarget) || !validGoalDate(deadlineDate))) { setError(copy.deadline); return; }
+    if (!targets.some((value) => value.trim())) { setError(copy.empty); return; }
+    savingRef.current = true;
+    setSaving(true);
+    setError(null);
     // Build NEW goal objects — mutating the ones from props corrupts the
     // parent's state array in place.
     const buildGoal = (
@@ -34,7 +50,7 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
       targetWords: number,
       deadline?: string,
     ): WritingGoal => ({
-      id: existing?.id ?? generateId('goal'),
+      id: existing?.id ?? pendingGoals.current[type]?.id ?? generateId('goal'),
       projectId,
       type,
       targetWords,
@@ -44,33 +60,35 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
       updatedAt: Date.now(),
     });
 
-    if (dailyTarget.trim()) {
-      const words = parseInt(dailyTarget, 10);
-      if (!isNaN(words)) await onSave(buildGoal(dailyGoal, 'daily', words));
-    }
-
-    if (projectTarget.trim()) {
-      const words = parseInt(projectTarget, 10);
-      if (!isNaN(words)) await onSave(buildGoal(projectGoal, 'project', words));
-    }
-
-    if (deadlineTarget.trim() && deadlineDate.trim()) {
-      const words = parseInt(deadlineTarget, 10);
-      if (!isNaN(words)) await onSave(buildGoal(deadlineGoal, 'deadline', words, deadlineDate));
-    }
-
-    onClose();
-  }, [dailyTarget, projectTarget, deadlineTarget, deadlineDate, dailyGoal, projectGoal, deadlineGoal, projectId, onSave, onClose]);
+    try {
+      const drafts: Array<[WritingGoal['type'], string, WritingGoal | undefined, string?]> = [
+        ['daily', dailyTarget, dailyGoal], ['project', projectTarget, projectGoal], ['deadline', deadlineTarget, deadlineGoal, deadlineDate],
+      ];
+      for (const [type, target, existing, deadline] of drafts) {
+        if (!target.trim()) continue;
+        const signature = JSON.stringify([Number(target), deadline]);
+        if (savedSignatures.current[type] === signature) continue;
+        const goal = buildGoal(existing, type, Number(target), deadline);
+        pendingGoals.current[type] = goal;
+        await onSave(goal);
+        savedSignatures.current[type] = signature;
+      }
+      onClose();
+    } catch { setError(copy.failed); }
+    finally { savingRef.current = false; setSaving(false); }
+  };
 
   return (
-    <Modal open onClose={onClose} title={t('writingStats.goals.title')}>
-      <div className="space-y-6">
+    <Modal open onClose={onClose} busy={saving} title={t('writingStats.goals.title')}>
+      <form noValidate onSubmit={(event) => { event.preventDefault(); void handleSave(); }} className="space-y-6">
+        {error && <p role="alert" className="rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{error}</p>}
 
-        <div className="space-y-4">
+        <fieldset disabled={saving} className="space-y-4">
           {/* Daily Goal */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-text-muted">{t('writingStats.goals.dailyTarget')}</label>
+            <label htmlFor="goal-daily" className="text-sm font-medium text-text-muted">{t('writingStats.goals.dailyTarget')}</label>
             <input
+              id="goal-daily" min={1} step={1}
               type="number"
               value={dailyTarget}
               onChange={(e) => setDailyTarget(e.target.value)}
@@ -82,8 +100,9 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
 
           {/* Project Goal */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-text-muted">{t('writingStats.goals.projectTarget')}</label>
+            <label htmlFor="goal-project" className="text-sm font-medium text-text-muted">{t('writingStats.goals.projectTarget')}</label>
             <input
+              id="goal-project" min={1} step={1}
               type="number"
               value={projectTarget}
               onChange={(e) => setProjectTarget(e.target.value)}
@@ -95,9 +114,10 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
 
           {/* Deadline Goal */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-text-muted">{t('writingStats.goals.deadlineTarget')}</label>
-            <div className="flex gap-2">
+            <label htmlFor="goal-deadline" className="text-sm font-medium text-text-muted">{t('writingStats.goals.deadlineTarget')}</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input
+                id="goal-deadline" min={1} step={1}
                 type="number"
                 value={deadlineTarget}
                 onChange={(e) => setDeadlineTarget(e.target.value)}
@@ -105,6 +125,7 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
                 className="flex-1 px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition"
               />
               <input
+                aria-label={copy.date}
                 type="date"
                 value={deadlineDate}
                 onChange={(e) => setDeadlineDate(e.target.value)}
@@ -113,27 +134,28 @@ export default function GoalSetter({ goals, onSave, onClose, projectId }: GoalSe
             </div>
             <p className="text-xs text-text-dim">{t('writingStats.goals.deadlineHint')}</p>
           </div>
-        </div>
+        </fieldset>
 
         {/* Buttons */}
         <div className="flex gap-3 justify-end pt-4 border-t border-border">
           <button
             type="button"
             onClick={onClose}
+            disabled={saving}
             className="px-4 py-2 text-text-muted font-medium rounded-lg hover:bg-elevated transition-colors"
           >
             {t('common.cancel')}
           </button>
           <button
-            type="button"
-            onClick={handleSave}
+            type="submit"
+            disabled={saving}
             className="flex items-center gap-2 px-4 py-2 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition-colors"
           >
             <Save size={18} />
-            {t('writingStats.goals.saveGoals')}
+            {saving ? copy.saving : t('writingStats.goals.saveGoals')}
           </button>
         </div>
-      </div>
+      </form>
     </Modal>
   );
 }

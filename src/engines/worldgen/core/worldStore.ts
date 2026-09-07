@@ -32,8 +32,12 @@
 
 import { unpackWorld, type WorldData, type WorldParams, type WorldTransfer } from './types';
 
-/** Bumped whenever the layout below changes; older snapshots are discarded. */
-export const SNAPSHOT_VERSION = 1;
+/** New writes use the current layout; explicitly supported older layouts remain readable. */
+// v1 could contain already-painted fields from a delayed snapshot write.
+// Rebuild those caches once so saved brush strokes are never applied twice.
+export const SNAPSHOT_VERSION = 3;
+/** v2 is pristine but lacks lake levels; v1 remains unsafe to replay. */
+export function supportsSnapshotVersion(version: number): boolean { return version === 2 || version === 3; }
 
 const MAGIC = 0x57475331; // 'WGS1'
 
@@ -41,7 +45,8 @@ type Codec =
   | { kind: 'f32-i16'; scale: number }
   | { kind: 'f32-u16'; scale: number }
   | { kind: 'f32-u8'; scale: number }
-  | { kind: 'u8' };
+  | { kind: 'u8' }
+  | { kind: 'f32' };
 
 /**
  * One entry per field of `WorldData` that is a grid.
@@ -65,10 +70,12 @@ const FIELDS: { name: keyof WorldData & string; codec: Codec }[] = [
   { name: 'sst', codec: { kind: 'f32-i16', scale: 200 } },
   { name: 'currentSpeed', codec: { kind: 'f32-u8', scale: 255 } },
   { name: 'ice', codec: { kind: 'f32-u8', scale: 255 } },
+  { name: 'lakeSurface', codec: { kind: 'f32' } },
 ];
 
 interface Header {
   v: number;
+  hasLakeSurface?: boolean;
   width: number;
   height: number;
   params: WorldParams;
@@ -108,6 +115,7 @@ function packElevation(src: Float32Array, scale: number): Int16Array {
 function encodeField(src: ArrayLike<number>, codec: Codec): ArrayBufferView {
   const n = src.length;
   switch (codec.kind) {
+    case 'f32': return Float32Array.from(src);
     case 'u8': {
       const out = new Uint8Array(n);
       out.set(src as ArrayLike<number> as Uint8Array);
@@ -139,22 +147,23 @@ function encodeField(src: ArrayLike<number>, codec: Codec): ArrayBufferView {
 
 function decodeField(buf: ArrayBuffer, off: number, len: number, n: number, codec: Codec): ArrayBufferView {
   switch (codec.kind) {
+    case 'f32': return new Float32Array(buf.slice(off, off + len));
     case 'u8':
       return new Uint8Array(buf.slice(off, off + len));
     case 'f32-i16': {
-      const q = new Int16Array(buf.slice(off, off + len));
+      const q = off % 2 === 0 ? new Int16Array(buf, off, len / 2) : new Int16Array(buf.slice(off, off + len));
       const out = new Float32Array(n);
       for (let i = 0; i < n; i++) out[i] = q[i] / codec.scale;
       return out;
     }
     case 'f32-u16': {
-      const q = new Uint16Array(buf.slice(off, off + len));
+      const q = off % 2 === 0 ? new Uint16Array(buf, off, len / 2) : new Uint16Array(buf.slice(off, off + len));
       const out = new Float32Array(n);
       for (let i = 0; i < n; i++) out[i] = q[i] / codec.scale;
       return out;
     }
     case 'f32-u8': {
-      const q = new Uint8Array(buf.slice(off, off + len));
+      const q = new Uint8Array(buf, off, len);
       const out = new Float32Array(n);
       for (let i = 0; i < n; i++) out[i] = q[i] / codec.scale;
       return out;
@@ -198,11 +207,14 @@ function looksUncompressed(bytes: Uint8Array): boolean {
 
 /** Serialise a generated world to a compressed byte array. */
 export async function encodeWorld(w: WorldData): Promise<Uint8Array> {
+  if (w.lakeSurface && (w.lakeSurface.length !== w.width * w.height || !w.lakeSurface.every(Number.isFinite))) {
+    throw new Error('altura de lago inválida');
+  }
   const parts: ArrayBufferView[] = [];
   const layout: number[] = [];
 
   for (const f of FIELDS) {
-    const src = w[f.name] as unknown as ArrayLike<number>;
+    const src = (w[f.name] ?? new Float32Array(w.width * w.height)) as unknown as ArrayLike<number>;
     const view = f.name === 'elevation'
       ? packElevation(w.elevation, (f.codec as { scale: number }).scale)
       : encodeField(src, f.codec);
@@ -220,6 +232,7 @@ export async function encodeWorld(w: WorldData): Promise<Uint8Array> {
 
   const header: Header = {
     v: SNAPSHOT_VERSION,
+    hasLakeSurface: !!w.lakeSurface,
     width: w.width,
     height: w.height,
     params: w.params,
@@ -250,18 +263,43 @@ export async function encodeWorld(w: WorldData): Promise<Uint8Array> {
 /** The inverse. Throws on anything it does not recognise; callers treat that as a miss. */
 export async function decodeWorld(stored: Uint8Array): Promise<WorldData> {
   const bytes = await gunzip(stored);
+  if (bytes.byteLength < 8) throw new Error('instantánea incompleta');
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (dv.getUint32(0, false) !== MAGIC) throw new Error('instantánea ilegible');
   const headerLen = dv.getUint32(4, true);
+  if (headerLen > bytes.byteLength - 8) throw new Error('cabecera de instantánea incompleta');
   const header = JSON.parse(
     new TextDecoder().decode(bytes.subarray(8, 8 + headerLen)),
   ) as Header;
-  if (header.v !== SNAPSHOT_VERSION) throw new Error(`versión ${header.v}`);
+  if (!supportsSnapshotVersion(header.v)) throw new Error(`versión ${header.v}`);
+
+  const fields = header.v === 2 ? FIELDS.slice(0, -1) : FIELDS;
+
+  // Validate every byte range before allocating the much larger float grids.
+  // A truncated/old/corrupt cache must be a cache miss, never a world full of
+  // NaNs or an allocation based on an unchecked dimension in its JSON header.
+  const n = header.width * header.height;
+  if (!Number.isSafeInteger(header.width) || !Number.isSafeInteger(header.height)
+    || header.width < 1 || header.height < 1 || !Number.isSafeInteger(n)
+    || !header.params || header.params.width !== header.width || typeof header.params.seed !== 'string'
+    || !Array.isArray(header.layout) || !Array.isArray(header.riverFlows) || !Array.isArray(header.riverLengths)
+    || !Array.isArray(header.landmarks) || !Array.isArray(header.plateInfo)
+    || header.riverFlows.length !== header.riverLengths.length
+    || header.layout.length !== fields.length + header.riverFlows.length) throw new Error('estructura de instantánea inválida');
+  let expectedBytes = 0;
+  for (let i = 0; i < header.layout.length; i++) {
+    const field = fields[i];
+    const riverLength = header.riverLengths[i - fields.length];
+    if (!field && (!Number.isSafeInteger(riverLength) || riverLength < 0)) throw new Error('río de instantánea inválido');
+    const expected = field ? n * (field.codec.kind === 'f32' ? 4 : field.codec.kind.endsWith('16') ? 2 : 1) : riverLength * 4;
+    if (!Number.isSafeInteger(expected) || expected < 0 || header.layout[i] !== expected) throw new Error('campo de instantánea incompleto');
+    expectedBytes += expected;
+  }
+  if (expectedBytes !== bytes.byteLength - 8 - headerLen || header.riverFlows.some((flow) => !Number.isFinite(flow))) throw new Error('datos de instantánea incompletos');
 
   // One contiguous copy so every `slice` below is a plain byte range rather than
   // an offset into a possibly unaligned view.
   const payload = bytes.slice(8 + headerLen).buffer;
-  const n = header.width * header.height;
   const t: Record<string, unknown> = {
     width: header.width,
     height: header.height,
@@ -272,7 +310,7 @@ export async function decodeWorld(stored: Uint8Array): Promise<WorldData> {
   };
   let off = 0;
   let k = 0;
-  for (const f of FIELDS) {
+  for (const f of fields) {
     const len = header.layout[k++];
     const view = decodeField(payload, off, len, n, f.codec);
     t[f.name] = view.buffer;
@@ -285,5 +323,7 @@ export async function decodeWorld(stored: Uint8Array): Promise<WorldData> {
     off += len;
   }
   t.rivers = rivers;
+  if (header.hasLakeSurface === false) delete t.lakeSurface;
+  if (t.lakeSurface && !new Float32Array(t.lakeSurface as ArrayBuffer).every(Number.isFinite)) throw new Error('altura de lago inválida');
   return unpackWorld(t as unknown as WorldTransfer);
 }

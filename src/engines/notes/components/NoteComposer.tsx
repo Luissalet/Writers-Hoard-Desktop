@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Plus, Tag as TagIcon, X } from 'lucide-react';
+import { Loader2, Plus, Tag as TagIcon, X } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { NOTE_KINDS, NOTE_KIND_META, type NoteKind } from '../types';
 
@@ -11,7 +11,8 @@ export interface NoteDraft {
 }
 
 interface NoteComposerProps {
-  onSubmit: (draft: NoteDraft) => void;
+  onSubmit: (draft: NoteDraft) => Promise<void | boolean>;
+  onPendingChange?: (pending: boolean) => void;
   /** Tags already used in this scope — offered as quick picks. */
   tagSuggestions?: string[];
   autoFocus?: boolean;
@@ -26,6 +27,7 @@ interface NoteComposerProps {
  */
 export default function NoteComposer({
   onSubmit,
+  onPendingChange,
   tagSuggestions = [],
   autoFocus = false,
   bare = false,
@@ -37,17 +39,37 @@ export default function NoteComposer({
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [showDetails, setShowDetails] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const submittingRef = useRef(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
-  const submit = () => {
-    if (!text.trim()) return;
-    onSubmit({ kind, text, source: source.trim() || undefined, tags });
-    setText('');
-    setSource('');
-    setTags([]);
-    setTagInput('');
-    setShowDetails(false);
-    textRef.current?.focus();
+  const submit = async () => {
+    if (!text.trim() || submittingRef.current) return;
+    submittingRef.current = true;
+    setSaving(true);
+    setSaveError(false);
+    onPendingChange?.(true);
+    try {
+      const written = await onSubmit({ kind, text, source: source.trim() || undefined, tags });
+      if (written === false) {
+        setSaveError(true);
+        return;
+      }
+      setText('');
+      setSource('');
+      setTags([]);
+      setTagInput('');
+      setShowDetails(false);
+    } catch {
+      // The thought stays editable and retryable until storage confirms it.
+      setSaveError(true);
+    } finally {
+      submittingRef.current = false;
+      setSaving(false);
+      onPendingChange?.(false);
+      window.requestAnimationFrame(() => textRef.current?.focus());
+    }
   };
 
   const addTag = (raw: string) => {
@@ -58,9 +80,9 @@ export default function NoteComposer({
   };
 
   const handleTextKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      submit();
+      void submit();
     }
   };
 
@@ -74,7 +96,9 @@ export default function NoteComposer({
   const unusedSuggestions = tagSuggestions.filter((tg) => !tags.includes(tg)).slice(0, 6);
 
   return (
-    <div
+    <fieldset
+      disabled={saving}
+      aria-busy={saving}
       className={
         bare
           ? 'space-y-2'
@@ -111,10 +135,13 @@ export default function NoteComposer({
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleTextKeyDown}
         autoFocus={autoFocus}
+        aria-label={t('notes.placeholder')}
         rows={bare ? 3 : 2}
         placeholder={kind === 'quote' ? t('notes.quotePlaceholder') : t('notes.placeholder')}
         className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder:text-text-dim outline-none focus:border-accent-gold transition resize-none"
       />
+
+      {saveError && <p role="alert" className="text-sm text-red-400">{t('notes.saveFailed')}</p>}
 
       {showDetails && (
         <div className="space-y-2">
@@ -182,14 +209,14 @@ export default function NoteComposer({
           <span className="text-[11px] text-text-dim hidden sm:inline">{t('notes.saveHint')}</span>
           <button
             type="button"
-            onClick={submit}
-            disabled={!text.trim()}
+            onClick={() => void submit()}
+            disabled={saving || !text.trim()}
             className="flex items-center gap-1.5 px-3.5 py-1.5 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <Plus size={15} /> {t('notes.save')}
+            {saving ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <Plus size={15} aria-hidden="true" />} {t(saving ? 'common.saving' : 'notes.save')}
           </button>
         </div>
       </div>
-    </div>
+    </fieldset>
   );
 }

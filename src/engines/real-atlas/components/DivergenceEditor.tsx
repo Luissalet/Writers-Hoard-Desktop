@@ -4,7 +4,7 @@ import { toast } from '@/components/common/toast';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { DIVERGENCE_CATEGORIES, type AtlasDivergence, type AtlasPlace, type DivergenceCategory } from '../types';
 import { EditorHeader, Field, inputClass, selectClass, textareaClass } from './fields';
-import { useRowDraft } from './useRowDraft';
+import { useRowDraft, type RowDraftStore } from './useRowDraft';
 
 interface DivergenceDraft {
   title: string;
@@ -44,6 +44,7 @@ function fromDraft(draft: DivergenceDraft, untitled: string): Partial<AtlasDiver
 }
 
 interface DivergenceEditorProps {
+  draftStore?: RowDraftStore;
   projectId: string;
   divergence: AtlasDivergence;
   places: AtlasPlace[];
@@ -51,10 +52,10 @@ interface DivergenceEditorProps {
   onDelete: () => Promise<void>;
 }
 
-export default function DivergenceEditor({ projectId, divergence, places, onSave, onDelete }: DivergenceEditorProps) {
+export default function DivergenceEditor({ projectId, divergence, places, onSave, onDelete, draftStore }: DivergenceEditorProps) {
   const { t } = useTranslation();
   const untitled = t('realAtlas.divergence.untitled');
-  const { draft, patch, changes, dirty } = useRowDraft(divergence, toDraft, (d) => fromDraft(d, untitled));
+  const { draft, patch, changes, dirty, acknowledge } = useRowDraft(divergence, toDraft, (d) => fromDraft(d, untitled), draftStore);
 
   return (
     <div className="space-y-5">
@@ -64,6 +65,7 @@ export default function DivergenceEditor({ projectId, divergence, places, onSave
         canSave={dirty}
         onSave={async () => {
           await onSave(changes);
+          acknowledge();
           toast.success(t('realAtlas.divergence.saved'));
         }}
         deleteLabel={t('realAtlas.divergence.delete')}

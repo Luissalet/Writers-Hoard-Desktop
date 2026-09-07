@@ -56,7 +56,10 @@ export interface CreativeLabProps {
   onPromote: (request: CreativePromotionRequest) => Promise<CreativePromotionResult>;
   onOpenSource?: (source: CreativeSourceCitation) => void;
   initialPossibilities?: readonly CreativePossibility[];
+  possibilities?: readonly CreativePossibility[];
+  onPossibilitiesChange?: (update: (current: CreativePossibility[]) => CreativePossibility[]) => void;
   initialDeckSeed?: number;
+  focusedSourceKey?: string | null;
   createPossibilityId?: () => string;
   now?: () => number;
   /** Used only when `copy` is omitted. Any locale beginning with `es` selects Spanish. */
@@ -277,7 +280,7 @@ interface OperationComposerProps {
 }
 
 function OperationComposer({ copy, sources, onRemoveSource, onCreate }: OperationComposerProps) {
-  const [operation, setOperation] = useState<CreativeOperation>('combine');
+  const [operation, setOperation] = useState<CreativeOperation>(() => sources.length === 1 ? 'truth' : 'combine');
   const [fields, setFields] = useState<OperationFields>(EMPTY_OPERATION_FIELDS);
   const request = operationRequest(operation, fields);
   const issue = getCreativeOperationIssue(request, sources.length);
@@ -685,7 +688,10 @@ export function CreativeLab({
   onPromote,
   onOpenSource,
   initialPossibilities = [],
+  possibilities: persistedPossibilities,
+  onPossibilitiesChange,
   initialDeckSeed = 1,
+  focusedSourceKey,
   createPossibilityId = () => generateId('possibility'),
   now = Date.now,
   locale = 'en',
@@ -696,9 +702,16 @@ export function CreativeLab({
   const scopedSources = useMemo(() => sources.filter(source => source.projectId === projectId), [projectId, sources]);
   const sourceByKey = useMemo(() => new Map(scopedSources.map(source => [source.key, source])), [scopedSources]);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const [possibilities, setPossibilities] = useState<CreativePossibility[]>(() =>
+  const [appliedSourceKey, setAppliedSourceKey] = useState<string | null>(null);
+  if (focusedSourceKey && focusedSourceKey !== appliedSourceKey && sourceByKey.has(focusedSourceKey)) {
+    setAppliedSourceKey(focusedSourceKey);
+    setSelectedKeys([focusedSourceKey]);
+  }
+  const [localPossibilities, setLocalPossibilities] = useState<CreativePossibility[]>(() =>
     initialPossibilities.filter(possibility => possibility.projectId === projectId).map(possibility => ({ ...possibility })),
   );
+  const possibilities = persistedPossibilities ?? localPossibilities;
+  const setPossibilities = onPossibilitiesChange ?? setLocalPossibilities;
   const [status, setStatus] = useState<CreativePossibilityStatus>('active');
   const [comparisonIds, setComparisonIds] = useState<string[]>([]);
   const [promotionTargets, setPromotionTargets] = useState<Record<string, CreativePromotionTarget>>({});

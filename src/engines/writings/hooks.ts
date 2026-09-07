@@ -17,12 +17,14 @@ const useWritingsEntity = makeEntityHook<Writing>({
 });
 
 export function useWritings(projectId: string) {
-  const { items, loading, refetching, refresh, addItem, editItem, removeItem } =
+  const { items, hasLoaded, loading, refetching, error, refresh, addItem, editItem, removeItem } =
     useWritingsEntity(projectId);
   return {
     writings: items,
+    hasLoaded,
     loading,
     refetching,
+    error,
     refresh,
     addWriting: addItem,
     editWriting: editItem,

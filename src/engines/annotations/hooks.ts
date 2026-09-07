@@ -6,13 +6,13 @@
 // the call sites can pair them with optimistic UI / refresh().
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { liveQuery } from 'dexie';
 import { makeReadOnlyHook } from '@/engines/_shared';
 import {
   getAnnotationsForEntity,
   getReferenceForAnnotation,
   getBacklinksForEntity,
   getAnnotationsForProject,
-  countOrphansForProject,
   reanchorEntityAnnotations,
 } from './operations';
 import type {
@@ -155,30 +155,31 @@ export function useEntityBacklinks(key: EntityKey | undefined) {
 /**
  * Project-wide list (used by the AnnotationsEngine dashboard).
  */
-export const useAnnotationsForProject = makeReadOnlyHook<Annotation>({
+const useProjectAnnotations = makeReadOnlyHook<Annotation>({
   fetchFn: (projectId: string) => getAnnotationsForProject(projectId),
 });
+
+export function useAnnotationsForProject(projectId: string | undefined) {
+  const result = useProjectAnnotations(projectId);
+  const { refresh } = result;
+  useEffect(() => {
+    if (!projectId) return;
+    // Reanchoring and inline edits write directly to Dexie, outside the
+    // dashboard's own actions. Observe them so counts and filters agree.
+    let initial = true;
+    const subscription = liveQuery(() => getAnnotationsForProject(projectId)).subscribe({
+      next: () => { if (initial) initial = false; else void refresh(); },
+      error: () => { void refresh(); },
+    });
+    return () => subscription.unsubscribe();
+  }, [projectId, refresh]);
+  return result;
+}
 
 /**
  * Project-wide orphan count for a "needs attention" badge.
  */
 export function useOrphanCount(projectId: string | undefined) {
-  const [count, setCount] = useState<number>(0);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    if (!projectId) return;
-    let cancelled = false;
-    countOrphansForProject(projectId).then((n) => {
-      if (!cancelled) setCount(n);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, tick]);
-
-  /** Bumping the tick re-runs the count effect. */
-  const refresh = useCallback(() => setTick((n) => n + 1), []);
-
-  return { count: projectId ? count : 0, refresh };
+  const { items, error, refresh } = useAnnotationsForProject(projectId);
+  return { count: items.filter(ann => ann.isOrphaned).length, error, refresh };
 }

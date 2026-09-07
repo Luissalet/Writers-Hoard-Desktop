@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import { ViewportPortal } from '@xyflow/react';
 import { computeEdgeGeometry, type EdgeGeometry } from '../graph/geometry';
 import type { BoardBox, BoardEdge } from '../types';
+import { useTranslation } from '@/i18n/useTranslation';
 
 export interface EdgeLayerProps {
   edges: BoardEdge[];
@@ -133,6 +134,7 @@ function EdgeShape({
   onSelect,
   onOpen,
 }: EdgeShapeProps) {
+  const { t } = useTranslation();
   // Width follows relation strength unless the author pinned it explicitly.
   const strokeWidth = edge.width > 0 ? edge.width : 1.6 + Math.min(4.4, edge.weight * 1.4);
   const opacity = dimmed ? 0.08 : layerOpacity * (0.35 + 0.65 * Math.max(0, Math.min(1, edge.certainty)));
@@ -141,7 +143,14 @@ function EdgeShape({
   const showEnd = edge.direction === 'forward' || edge.direction === 'both';
 
   return (
-    <g opacity={opacity} style={{ pointerEvents: dimmed ? 'none' : undefined }}>
+    <g opacity={opacity} role="button" tabIndex={dimmed ? -1 : 0}
+      aria-label={edge.label || t(`board.edgeKind.${edge.kind}`)} aria-pressed={selected}
+      data-board-edge-id={edge.id}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault(); event.stopPropagation(); onSelect(edge.id, event.shiftKey || event.metaKey || event.ctrlKey);
+        }
+      }} style={{ pointerEvents: dimmed ? 'none' : undefined }}>
       {shape.legs.map((leg, index) => (
         <g key={`${edge.id}-${index}`}>
           {/* Fat invisible stroke: the visible line is too thin to click. */}
@@ -150,7 +159,8 @@ function EdgeShape({
             fill="none"
             stroke="transparent"
             strokeWidth={Math.max(16, strokeWidth + 14)}
-            style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+            vectorEffect="non-scaling-stroke"
+            style={{ pointerEvents: dimmed ? 'none' : 'stroke', cursor: 'pointer' }}
             onClick={(event) => {
               event.stopPropagation();
               onSelect(edge.id, event.shiftKey || event.metaKey || event.ctrlKey);
@@ -184,7 +194,7 @@ function EdgeShape({
             <Arrow x={leg.end.x} y={leg.end.y} angle={leg.endAngle} color={stroke} size={strokeWidth} />
           ) : null}
           {showStart && (shape.simple || leg.side === 'source') ? (
-            <Arrow x={leg.start.x} y={leg.start.y} angle={leg.startAngle + 180} color={stroke} size={strokeWidth} />
+            <Arrow x={leg.start.x} y={leg.start.y} angle={leg.startAngle} color={stroke} size={strokeWidth} />
           ) : null}
         </g>
       ))}
@@ -210,7 +220,9 @@ function EdgeShape({
       ) : null}
 
       {showLabel && edge.label ? (
-        <g transform={`translate(${shape.mid.x} ${shape.mid.y})`} style={{ pointerEvents: 'none' }}>
+        <g transform={`translate(${shape.mid.x} ${shape.mid.y})`} style={{ pointerEvents: dimmed ? 'none' : 'all', cursor: 'pointer' }}
+          onClick={(event) => { event.stopPropagation(); onSelect(edge.id, event.shiftKey || event.metaKey || event.ctrlKey); }}
+          onDoubleClick={(event) => { event.stopPropagation(); onOpen(edge.id); }}>
           <rect
             x={-(edge.label.length * 3.4 + 8)}
             y={-9}

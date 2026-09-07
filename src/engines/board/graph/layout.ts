@@ -360,7 +360,7 @@ export function runLayout(
   edges: BoardEdge[],
   options: LayoutOptions = {},
 ): LayoutResult {
-  const movable = nodes.filter((node) => !node.locked);
+  const movable = nodes.filter((node) => !node.locked && (kind === 'force' || !node.pinned));
   if (movable.length === 0) return {};
   switch (kind) {
     case 'hierarchy':

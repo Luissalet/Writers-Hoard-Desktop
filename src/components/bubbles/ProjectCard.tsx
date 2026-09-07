@@ -1,5 +1,4 @@
 import { useRef } from 'react';
-import { motion } from 'framer-motion';
 import { BookOpen, Clock, Library, Lightbulb, Layers, PenLine, PlayCircle, Trash2, Palette } from 'lucide-react';
 import { InlineIconPicker } from '@/components/common/IconPicker';
 import { ProjectIcon } from '@/components/common/ProjectIcon';
@@ -42,7 +41,6 @@ export default function ProjectCard({
   onDelete,
   onColorChange,
   onIconChange,
-  index,
   totalWords = 0,
   daysSinceEdit = null,
   resumeLabel,
@@ -64,26 +62,13 @@ export default function ProjectCard({
   const showProgress = totalWords > 0 || editedLabel !== null;
 
   return (
-    <motion.div
+    <article
       className="relative group cursor-pointer"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.05, duration: 0.3 }}
-      whileHover={{ y: -4 }}
       onClick={onClick}
     >
       <div
-        className="relative overflow-hidden rounded-2xl border border-border bg-surface hover:border-accent-gold/50 transition-[border-color,box-shadow,transform] duration-300 animate-pulse-gold"
-        style={{
-          background: `linear-gradient(135deg, ${project.color}15 0%, var(--color-surface) 50%, var(--color-deep) 100%)`,
-        }}
+        className="relative h-full overflow-hidden rounded-xl border border-border bg-surface hover:border-accent-gold/50 transition-colors duration-200"
       >
-        {/* Glow effect */}
-        <div
-          className="absolute -top-10 -right-10 w-32 h-32 rounded-full blur-3xl opacity-20 group-hover:opacity-30 transition"
-          style={{ backgroundColor: project.color }}
-        />
-
         <div className="relative p-6">
           {/* Header */}
           <div className="flex items-start justify-between mb-4">
@@ -107,8 +92,8 @@ export default function ProjectCard({
           </div>
 
           {/* Content */}
-          <h3 className="font-serif font-bold text-lg text-text-primary mb-1 group-hover:text-accent-gold transition">
-            {project.title}
+          <h3 className="font-semibold text-lg text-text-primary mb-1 group-hover:text-accent-gold transition">
+            <button type="button" className="text-left break-words" onClick={event => { event.stopPropagation(); onClick(); }}>{project.title}</button>
           </h3>
           <p className="text-sm text-text-muted line-clamp-2 mb-3">
             {project.description || t('projectCard.noDescription')}
@@ -152,7 +137,7 @@ export default function ProjectCard({
             <span className="text-xs text-text-dim capitalize px-2 py-1 bg-elevated rounded">
               {t(`project.type.${project.type}`)}
             </span>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+            <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 group-focus-within:opacity-100 transition">
               {onIconChange && (
                 <InlineIconPicker
                   value={project.icon}
@@ -192,6 +177,6 @@ export default function ProjectCard({
           </div>
         </div>
       </div>
-    </motion.div>
+    </article>
   );
 }

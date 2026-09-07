@@ -15,10 +15,21 @@
 // requiring a bridge, depending entirely on which way you are going.
 
 import { Biome, type WorldData } from './types';
-import type { HumanGeography } from './settlements';
+import { riverKey } from './edits';
+import { englishRoute } from './travelText';
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 export type TravelMode = 'foot' | 'horse' | 'cart' | 'boat' | 'ship';
+
+/** Only facts consumed by route planning; excludes language functions and naming registries. */
+export interface TravelGeography {
+  roads: { cells: number[]; major: boolean }[];
+  settlements: { x: number; y: number; name: string; rank: string }[];
+  ruins: { x: number; y: number; name: string }[];
+  realms: { id: number; name: string }[];
+  realmOf: Int32Array;
+}
+
 
 /**
  * CLAVES de catálogo, no texto. El motor no traduce: guarda la clave y quien
@@ -254,8 +265,8 @@ class Heap {
 }
 
 /** Road membership per cell, cached per geography. */
-const ROAD_CACHE = new WeakMap<HumanGeography, Uint8Array>();
-function roadMask(world: WorldData, geo: HumanGeography): Uint8Array {
+const ROAD_CACHE = new WeakMap<TravelGeography, Uint8Array>();
+function roadMask(world: WorldData, geo: TravelGeography): Uint8Array {
   const hit = ROAD_CACHE.get(geo);
   if (hit && hit.length === world.width * world.height) return hit;
   const m = new Uint8Array(world.width * world.height);
@@ -302,18 +313,30 @@ export interface TravelCostInfo {
 
 function cellCost(
   world: WorldData, roads: Uint8Array,
-  from: number, to: number, kmPerCell: number, diagonal: boolean, opts: TravelOptions,
+  from: number, to: number, metric: TravelMetric, opts: TravelOptions, terminals: ReadonlySet<number>,
 ): TravelCostInfo {
   const b = world.biome[to];
-  const sea = world.elevation[to] <= 0 && b === Biome.Ocean;
   const mode = opts.mode;
-  const km = kmPerCell * (diagonal ? Math.SQRT2 : 1)
-    // East-west cells shrink toward the poles; ignoring it makes polar journeys
-    // twice as long as they are.
-    * (diagonal ? 1 : 1) * lonScale(world, to, from);
+  const km = stepDistance(world, metric, from, to);
+
+  if (mode === 'ship' || mode === 'boat') {
+    const fromWater = navigableWater(world, from, opts);
+    const toWater = navigableWater(world, to, opts);
+    if (!fromWater || !toWater) {
+      // A selected coastal town can embark/disembark at adjacent water. These
+      // terminal access steps never turn dry coastal land into a waterway.
+      const shore = fromWater ? to : from;
+      if (fromWater !== toWater && terminals.has(shore) && !isSea(world, shore) && !isLake(world, shore)) {
+        return { hours: km / BASE_KMH.foot.off, onRoad: false };
+      }
+      return { hours: Infinity, onRoad: false };
+    }
+  } else if (isSea(world, from) || isLake(world, from) || isSea(world, to) || isLake(world, to)) {
+    // A road mask does not establish a bridge or a ferry across open water.
+    return { hours: Infinity, onRoad: false };
+  }
 
   if (mode === 'ship') {
-    if (!sea) return { hours: Infinity, onRoad: false };
     // Ice closes the northern route in winter, which is a real and dramatic fact
     // about a world and exactly the sort of thing a plot turns on.
     const ice = world.ice[to] * (opts.season === 'winter' ? 1.5 : 0.65);
@@ -328,18 +351,12 @@ function cellCost(
     return { hours: km / (BASE_KMH.ship.road * help / drag), onRoad: false };
   }
 
-  if (sea) return { hours: Infinity, onRoad: false };
-
   if (mode === 'boat') {
-    // A boat needs water under it: a real river, a lake, or the coast.
-    const navigable = world.flow[to] > 0.62 || world.lake[to] === 1 || nearSea(world, to);
-    if (!navigable) return { hours: Infinity, onRoad: false };
-    if (opts.season === 'winter' && world.temperature[to] - 9 < -6) {
-      return { hours: Infinity, onRoad: false };       // frozen solid
-    }
     // Downstream is fast, upstream is a haul. Elevation decides which.
+    // Flat lakes and coastal water have no upstream/downstream penalty.
+    const flowing = !isSea(world, to) && !isLake(world, to) && !isLake(world, from);
     const downhill = world.elevation[to] < world.elevation[from];
-    const kmh = BASE_KMH.boat.road * (downhill ? 1.45 : 0.62);
+    const kmh = BASE_KMH.boat.road * (flowing ? (downhill ? 1.45 : 0.62) : 1);
     return { hours: km / kmh, onRoad: false };
   }
 
@@ -348,25 +365,37 @@ function cellCost(
     // Not forbidden — just very slow, so a cart will go a long way round to stay
     // on a road, which is the correct behaviour and produces the correct answer.
     const drag = (BIOME_DRAG[b] ?? 1.5) * 2.2;
-    const grade = gradePenalty(world, from, to, kmPerCell);
+    const grade = gradePenalty(world, from, to, km);
     if (grade > 4) return { hours: Infinity, onRoad: false };
     const kmh = BASE_KMH.cart.off / (drag * grade * seasonFactor(world, to, opts.season, b));
     return { hours: km / kmh, onRoad: false };
   }
 
   const drag = road ? (roads[to] === 2 ? 1 : 1.12) : (BIOME_DRAG[b] ?? 1.4);
-  const grade = gradePenalty(world, from, to, kmPerCell);
+  const grade = gradePenalty(world, from, to, km);
   const base = road ? BASE_KMH[mode].road : BASE_KMH[mode].off;
   const kmh = base / (drag * grade * seasonFactor(world, to, opts.season, b));
   return { hours: km / kmh, onRoad: road };
 }
 
-function lonScale(world: WorldData, to: number, from: number): number {
-  const y = (to / world.width) | 0;
-  const sameRow = ((from / world.width) | 0) === y;
-  if (!sameRow) return 1;
-  const lat = (0.5 - (y + 0.5) / world.height) * Math.PI;
-  return Math.max(0.08, Math.cos(lat));
+interface TravelMetric { radius: number; horizontal: Float64Array; diagonal: Float64Array; vertical: number }
+const METRIC_CACHE = new WeakMap<WorldData, TravelMetric>();
+function travelMetric(world: WorldData, radius: number): TravelMetric {
+  const cached = METRIC_CACHE.get(world);
+  if (cached?.radius === radius) return cached;
+  const horizontal = new Float64Array(world.height), diagonal = new Float64Array(world.height);
+  for (let y = 0; y < world.height; y++) {
+    horizontal[y] = greatCircleKm(world, y * world.width, y * world.width + 1, radius);
+    if (y + 1 < world.height) diagonal[y] = greatCircleKm(world, y * world.width, (y + 1) * world.width + 1, radius);
+  }
+  const metric = { radius, horizontal, diagonal, vertical: Math.PI * radius / world.height };
+  METRIC_CACHE.set(world, metric);
+  return metric;
+}
+function stepDistance(world: WorldData, metric: TravelMetric, from: number, to: number): number {
+  const fy = Math.floor(from / world.width), ty = Math.floor(to / world.width);
+  if (fy === ty) return metric.horizontal[fy];
+  return from % world.width === to % world.width ? metric.vertical : metric.diagonal[Math.min(fy, ty)];
 }
 
 /**
@@ -386,15 +415,51 @@ function gradePenalty(world: WorldData, from: number, to: number, kmPerCell: num
   return 1 + a * k + a * a * (up ? 22 : 10);
 }
 
-function nearSea(world: WorldData, i: number): boolean {
+function isSea(world: WorldData, i: number): boolean { return world.elevation[i] <= 0 && world.biome[i] === Biome.Ocean; }
+function isLake(world: WorldData, i: number): boolean {
+  // The hydrology mask also retains arid basins classified as dry salt flats.
+  return world.biome[i] === Biome.Lake || (world.lake[i] === 1 && world.biome[i] !== Biome.SaltFlat);
+}
+function nearLand(world: WorldData, i: number): boolean {
   const W = world.width, H = world.height;
   const x = i % W, y = (i / W) | 0;
   for (let k = 0; k < 8; k++) {
     const nx = ((x + DX8[k]) % W + W) % W, ny = y + DY8[k];
     if (ny < 0 || ny >= H) continue;
-    if (world.elevation[ny * W + nx] <= 0) return true;
+    const j = ny * W + nx;
+    if (!isSea(world, j) && !isLake(world, j)) return true;
   }
   return false;
+}
+
+function navigableWater(world: WorldData, i: number, opts: TravelOptions): boolean {
+  if (opts.mode === 'ship') return isSea(world, i) && world.ice[i] * (opts.season === 'winter' ? 1.5 : 0.65) <= 0.55;
+  if (opts.season === 'winter' && world.temperature[i] - 9 < -6) return false;
+  if (isSea(world, i)) return nearLand(world, i);
+  if (isLake(world, i)) return true;
+  const riverEdit = riverEditsMask(world)?.[i] ?? 0;
+  if (riverEdit === 1) return true;
+  return world.biome[i] !== Biome.SaltFlat && riverEdit !== 2 && world.flow[i] > 0.62;
+}
+
+const RIVER_EDIT_CACHE = new WeakMap<WorldData, { revision: number; painted: WorldData['painted']; mask: Uint8Array | null }>();
+function riverEditsMask(world: WorldData): Uint8Array | null {
+  const cached = RIVER_EDIT_CACHE.get(world);
+  if (cached?.revision === world.revision && cached.painted === world.painted) return cached.mask;
+  const painted = world.painted;
+  let mask: Uint8Array | null = null;
+  if (painted && (painted.rivers.length || painted.removed.size)) {
+    mask = new Uint8Array(world.width * world.height);
+    for (const river of world.rivers) {
+      if (painted.removed.has(riverKey(river.cells))) for (const cell of river.cells) mask[cell] = 2;
+    }
+    // Author-declared rivers are waterways too, even though their strokes do
+    // not rerun the planet's expensive drainage model. A later painted river
+    // may deliberately restore a channel that was removed from the generator.
+    for (const river of painted.rivers) for (const cell of river.cells) mask[cell] = 1;
+  }
+  RIVER_EDIT_CACHE.set(world, { revision: world.revision, painted, mask });
+  return mask;
 }
 
 // ---------------------------------------------------------------------------
@@ -411,12 +476,24 @@ function nearSea(world: WorldData, i: number): boolean {
  * that, so the route found is genuinely optimal and not merely plausible.
  */
 export function planRoute(
+  world: WorldData, geo: TravelGeography, from: { x: number; y: number }, to: { x: number; y: number }, opts: TravelOptions, locale: 'es' | 'en' = 'es',
+): Route {
+  const route = solveRoute(world, geo, from, to, opts);
+  return locale === 'en' ? englishRoute(route) : route;
+}
+
+function solveRoute(
   world: WorldData,
-  geo: HumanGeography,
+  geo: TravelGeography,
   from: { x: number; y: number },
   to: { x: number; y: number },
   opts: TravelOptions,
 ): Route {
+  opts = {
+    ...opts,
+    hoursPerDay: Number.isFinite(opts.hoursPerDay) && opts.hoursPerDay! > 0 ? opts.hoursPerDay : SEASON_HOURS[opts.season],
+    planetRadiusKm: Number.isFinite(opts.planetRadiusKm) && opts.planetRadiusKm! > 0 ? opts.planetRadiusKm : 6371,
+  };
   // "By way of X" is a chain of journeys, not one journey with a hint. Each leg
   // is solved on its own and the results are welded; a single search with a
   // bonus near X produces a route that passes NEAR X, which is not what anybody
@@ -432,22 +509,22 @@ export function planRoute(
     return weldRoutes(world, geo, legsOut, opts);
   }
   const W = world.width, H = world.height, N = W * H;
-  const kmPerCell = (2 * Math.PI * (opts.planetRadiusKm ?? 6371)) / W;
+  const metric = travelMetric(world, opts.planetRadiusKm!);
   const roads = roadMask(world, geo);
 
   const idx = (x: number, y: number) => Math.min(H - 1, Math.max(0, Math.round(y))) * W
     + (((Math.round(x) % W) + W) % W);
   const start = idx(from.x, from.y);
   const goal = idx(to.x, to.y);
+  const terminals = new Set([start, goal]);
 
-  const gx = goal % W, gy = (goal / W) | 0;
-  const fastest = Math.max(BASE_KMH[opts.mode].road, BASE_KMH[opts.mode].off);
-  const heur = (i: number) => {
-    const x = i % W, y = (i / W) | 0;
-    let dx = Math.abs(x - gx);
-    if (dx > W / 2) dx = W - dx;
-    return (Math.hypot(dx, y - gy) * kmPerCell) / fastest;
-  };
+  // Every edge costs at least its spherical distance / this speed bound.
+  // Include favourable currents, downstream flow and frozen road surfaces;
+  // a planar/base-speed heuristic overestimated at high latitudes and could
+  // permanently close a cell before its quickest approach was considered.
+  const boost = opts.mode === 'ship' ? 1.5 : opts.mode === 'boat' ? 1.45 : opts.season === 'winter' ? 1 / 0.42 : 1;
+  const fastest = Math.max(BASE_KMH[opts.mode].road, BASE_KMH[opts.mode].off) * boost;
+  const heur = (i: number) => greatCircleKm(world, i, goal, metric.radius) / fastest;
 
   const dist = new Float64Array(N).fill(Infinity);
   const prev = new Int32Array(N).fill(-1);
@@ -471,7 +548,7 @@ export function planRoute(
       if (ny < 0 || ny >= H) continue;
       const j = ny * W + nx;
       if (closed[j]) continue;
-      const c = cellCost(world, roads, i, j, kmPerCell, (k & 1) === 1, opts);
+      const c = cellCost(world, roads, i, j, metric, opts, terminals);
       if (!isFinite(c.hours)) continue;
       const nd = dist[i] + c.hours;
       if (nd < dist[j]) {
@@ -508,9 +585,8 @@ export function planRoute(
   let cur: RouteLeg | null = null;
   for (let k = 1; k < cells.length; k++) {
     const a = cells[k - 1], b = cells[k];
-    const diag = Math.abs((a % W) - (b % W)) === 1 && Math.abs(((a / W) | 0) - ((b / W) | 0)) === 1;
-    const c = cellCost(world, roads, a, b, kmPerCell, diag, opts);
-    const segKm = kmPerCell * (diag ? Math.SQRT2 : 1) * lonScale(world, b, a);
+    const c = cellCost(world, roads, a, b, metric, opts, terminals);
+    const segKm = stepDistance(world, metric, a, b);
     km += segKm;
     if (c.onRoad) roadKm += segKm;
     const label = c.onRoad ? 'calzada' : (TERRAIN_ES[world.biome[b]] ?? 'campo abierto');
@@ -542,7 +618,7 @@ export function planRoute(
     legs: mergeSmallLegs(legs, km * 0.04),
     crossings,
     roadFraction: km > 0 ? roadKm / km : 0,
-    stages: findStages(world, geo, roads, cells, kmPerCell, hpd, opts),
+    stages: findStages(world, geo, roads, cells, metric, hpd, opts, terminals),
     realms: realmsAlong(world, geo, cells),
     ...profile,
   };
@@ -557,8 +633,8 @@ export function planRoute(
  * that the party would in fact have hurried to get out of.
  */
 function findStages(
-  world: WorldData, geo: HumanGeography, roads: Uint8Array,
-  cells: number[], kmPerCell: number, hoursPerDay: number, opts: TravelOptions,
+  world: WorldData, geo: TravelGeography, roads: Uint8Array,
+  cells: number[], metric: TravelMetric, hoursPerDay: number, opts: TravelOptions, terminals: ReadonlySet<number>,
 ): RouteStage[] {
   const W = world.width;
   const out: RouteStage[] = [];
@@ -571,10 +647,9 @@ function findStages(
   let acc = 0, accKm = 0, night = 1;
   for (let k = 1; k < cells.length && night < 400; k++) {
     const a = cells[k - 1], b = cells[k];
-    const diag = Math.abs((a % W) - (b % W)) === 1 && Math.abs(((a / W) | 0) - ((b / W) | 0)) === 1;
-    const c = cellCost(world, roads, a, b, kmPerCell, diag, opts);
+    const c = cellCost(world, roads, a, b, metric, opts, terminals);
     if (!isFinite(c.hours)) continue;
-    const stepKm = kmPerCell * (diag ? Math.SQRT2 : 1) * lonScale(world, b, a);
+    const stepKm = stepDistance(world, metric, a, b);
 
     // A world cell is FORTY KILOMETRES, which at walking pace is most of a day.
     // Cutting the day only at cell boundaries therefore reported nights 94 km
@@ -582,7 +657,7 @@ function findStages(
     // split along its own length, and a step long enough to hold several days
     // yields several nights.
     let done = 0;
-    while (acc + c.hours * (1 - done) >= hoursPerDay) {
+    while (acc + c.hours * (1 - done) >= hoursPerDay && night < 400) {
       const need = hoursPerDay - acc;
       const f = done + need / c.hours;
       const ax = a % W, ay = (a / W) | 0;
@@ -595,9 +670,7 @@ function findStages(
 
       let best: { name: string; kind: string; km: number } | undefined;
       for (const sh of shelters) {
-        let sdx = Math.abs(sh.x - x);
-        if (sdx > W / 2) sdx = W - sdx;
-        const d = Math.hypot(sdx, sh.y - y) * kmPerCell;
+        const d = coordinateDistance(world, x, y, sh.x, sh.y, metric.radius);
         if (!best || d < best.km) best = { name: sh.name, kind: sh.kind, km: d };
       }
 
@@ -636,7 +709,7 @@ function findStages(
 
 
 /** Which realms the route passes through, in order, without repeats. */
-function realmsAlong(world: WorldData, geo: HumanGeography, cells: number[]): string[] {
+function realmsAlong(world: WorldData, geo: TravelGeography, cells: number[]): string[] {
   const out: string[] = [];
   let last = -2;
   for (let k = 0; k < cells.length; k += 3) {
@@ -683,7 +756,7 @@ function elevationProfile(
  */
 /** Join consecutive legs into one journey, without double-counting the joints. */
 function weldRoutes(
-  world: WorldData, geo: HumanGeography, parts: Route[], opts: TravelOptions,
+  world: WorldData, geo: TravelGeography, parts: Route[], opts: TravelOptions,
 ): Route {
   const cells: number[] = [];
   for (const p of parts) {
@@ -697,14 +770,15 @@ function weldRoutes(
   // The stages are recomputed over the WHOLE journey rather than concatenated:
   // a night does not fall at a waypoint just because the route happened to be
   // solved in pieces there.
-  const kmPerCell = (2 * Math.PI * (opts.planetRadiusKm ?? 6371)) / world.width;
-  const stages = findStages(world, geo, roadMask(world, geo), cells, kmPerCell, hpd, opts);
+  const metric = travelMetric(world, opts.planetRadiusKm ?? 6371);
+  const terminals = new Set(parts.flatMap(part => [part.cells[0], part.cells[part.cells.length - 1]]));
+  const stages = findStages(world, geo, roadMask(world, geo), cells, metric, hpd, opts, terminals);
   const profile = elevationProfile(world, cells);
   const realms: string[] = [];
   for (const p of parts) for (const n of p.realms) if (realms[realms.length - 1] !== n) realms.push(n);
   return {
     cells, km, hours, days: hours / hpd,
-    directKm: parts.reduce((a, p) => a + p.directKm, 0),
+    directKm: cells.length ? greatCircleKm(world, cells[0], cells[cells.length - 1], metric.radius) : 0,
     legs,
     crossings: parts.flatMap((p) => p.crossings),
     roadFraction: km > 0 ? roadKm / km : 0,
@@ -731,14 +805,18 @@ function mergeSmallLegs(legs: RouteLeg[], minKm: number): RouteLeg[] {
 }
 
 function greatCircleKm(world: WorldData, a: number, b: number, radiusKm: number): number {
+  return coordinateDistance(world, a % world.width, Math.floor(a / world.width), b % world.width, Math.floor(b / world.width), radiusKm);
+}
+
+function coordinateDistance(world: WorldData, ax: number, ay: number, bx: number, by: number, radiusKm: number): number {
   const W = world.width, H = world.height;
-  const toRad = (i: number) => ({
-    lon: ((i % W) / W) * Math.PI * 2,
-    lat: (0.5 - (((i / W) | 0) + 0.5) / H) * Math.PI,
+  const toRad = (x: number, y: number) => ({
+    lon: (x / W) * Math.PI * 2,
+    lat: (0.5 - (y + 0.5) / H) * Math.PI,
   });
-  const p = toRad(a), q = toRad(b);
-  const d = Math.acos(Math.min(1, Math.max(-1,
-    Math.sin(p.lat) * Math.sin(q.lat) + Math.cos(p.lat) * Math.cos(q.lat) * Math.cos(p.lon - q.lon))));
+  const p = toRad(ax, ay), q = toRad(bx, by);
+  const hav = Math.sin((p.lat - q.lat) / 2) ** 2 + Math.cos(p.lat) * Math.cos(q.lat) * Math.sin((p.lon - q.lon) / 2) ** 2;
+  const d = 2 * Math.asin(Math.sqrt(Math.max(0, Math.min(1, hav))));
   return d * radiusKm;
 }
 
@@ -766,7 +844,7 @@ export function describeDuration(
 
 /** Every mode and season at once — the table a writer actually wants. */
 export function travelTable(
-  world: WorldData, geo: HumanGeography,
+  world: WorldData, geo: TravelGeography,
   from: { x: number; y: number }, to: { x: number; y: number },
   modes: TravelMode[] = ['foot', 'horse', 'cart'],
   seasons: Season[] = ['summer', 'winter'],

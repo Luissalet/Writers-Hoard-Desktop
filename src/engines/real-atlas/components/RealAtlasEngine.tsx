@@ -13,6 +13,8 @@ import PlaceEditor, { type CoordinatePick } from './PlaceEditor';
 import { useAppearanceWritings } from '../appearances';
 import { nextPickSeq } from './picks';
 import DivergenceEditor from './DivergenceEditor';
+import { isRowDraftSnapshot, type RowDraftStore } from './useRowDraft';
+import { createLocalDraftStore, deleteWithDraftCleanup } from '@/hooks/localDraftStore';
 import AtlasMap, { type MapRequest } from './AtlasMap';
 import { divergenceCountLabel } from './labels';
 
@@ -110,6 +112,7 @@ export default function RealAtlasEngine({ projectId }: EngineComponentProps) {
   const appearanceWritings = useAppearanceWritings(projectId);
   const [tab, setTab] = useState<Tab>('places');
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [draftStore] = useState<RowDraftStore>(() => createLocalDraftStore(`wh.real-atlas-drafts.v1.${projectId}`, isRowDraftSnapshot));
   const [selectedDivergenceId, setSelectedDivergenceId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<KindFilter>('all');
@@ -221,7 +224,7 @@ export default function RealAtlasEngine({ projectId }: EngineComponentProps) {
   };
 
   const deletePlace = async (id: string) => {
-    await places.removeItem(id);
+    await deleteWithDraftCleanup(draftStore, [id], () => places.removeItem(id));
     setSelectedPlaceId(null);
     // deleteAtlasPlace unanchors the place's divergences in the same
     // transaction; the divergences hook did not see that write.
@@ -308,6 +311,7 @@ export default function RealAtlasEngine({ projectId }: EngineComponentProps) {
             )}
             editor={selectedPlace && (
               <PlaceEditor
+                draftStore={draftStore}
                 // One editor per place: a geocoding search still in flight
                 // for the previous selection must never land in this one.
                 key={selectedPlace.id}
@@ -391,12 +395,13 @@ export default function RealAtlasEngine({ projectId }: EngineComponentProps) {
             )}
             editor={selectedDivergence && (
               <DivergenceEditor
+                draftStore={draftStore}
                 projectId={projectId}
                 divergence={selectedDivergence}
                 places={places.items}
                 onSave={(changes) => divergences.editItem(selectedDivergence.id, changes)}
                 onDelete={async () => {
-                  await divergences.removeItem(selectedDivergence.id);
+                  await deleteWithDraftCleanup(draftStore, [selectedDivergence.id], () => divergences.removeItem(selectedDivergence.id));
                   setSelectedDivergenceId(null);
                 }}
               />

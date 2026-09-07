@@ -1,12 +1,18 @@
-import { useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import type { WorldData } from '../core/types';
 import type { HumanGeography, Settlement } from '../core/settlements';
 import {
-  planRoute, describeDuration, MODE_KEY, SEASON_KEY,
+  describeDuration, MODE_KEY, SEASON_KEY,
   type Route, type Season, type TravelMode,
 } from '../core/travel';
-import { paleoMap, describePaleo, seaLevelForIce, type PaleoMap, type PaleoState } from '../core/paleo';
+import { seaLevelForIce, type PaleoState } from '../core/paleo';
+import { useJourneyComputation, useJourneyPaleo } from '../useJourneyComputation';
 import { useTranslation } from '@/i18n/useTranslation';
+import type { GeneratedWorld } from '../types';
+import { journeyNormalizedStops, journeyRecipeKey, type WorldJourney } from '../journeyTypes';
+import { deleteWorldJourney, saveWorldJourney } from '../journeyOperations';
+import { ConfirmDialog } from '@/engines/_shared';
+import JourneyCreativeCapture from './JourneyCreativeCapture';
 
 /**
  * Two questions the reader asks a map and no map generator answers.
@@ -22,6 +28,9 @@ import { useTranslation } from '@/i18n/useTranslation';
  */
 
 interface JourneyPanelProps {
+  worldRecord?: GeneratedWorld;
+  onOpenJourney?: (journey: WorldJourney) => void;
+  onJourneysChanged?: () => void | Promise<void>;
   world: WorldData;
   geography: HumanGeography;
   from: Settlement | null;
@@ -45,49 +54,123 @@ const MODE_COLOR: Record<TravelMode, string> = {
   foot: '#a3261e', horse: '#1b5e20', cart: '#0d47a1', boat: '#00695c', ship: '#4527a0',
 };
 
-export default function JourneyPanel({
+export default function JourneyPanel(props: JourneyPanelProps) {
+  return <JourneyPanelContent key={props.worldRecord ? `${props.worldRecord.projectId}:${props.worldRecord.id}` : 'unsaved'} {...props} />;
+}
+
+function JourneyPanelContent({
   world, geography, from, to, picking, onPick, onSwap, onClear, onRoute,
-  via, onClearVia, paleo, onPaleo,
+  via, onClearVia, paleo, onPaleo, worldRecord, onOpenJourney, onJourneysChanged,
 }: JourneyPanelProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [mode, setMode] = useState<TravelMode>('foot');
   const [season, setSeason] = useState<Season>('summer');
   const [showAll, setShowAll] = useState(false);
   const [showStages, setShowStages] = useState(false);
+  const [customOptions, setCustomOptions] = useState<Pick<WorldJourney['options'], 'hoursPerDay' | 'planetRadiusKm'>>({});
+  const [journeyName, setJourneyName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [saveError, setSaveError] = useState(false);
+  const [savedLocally, setSavedLocally] = useState<WorldJourney[]>([]);
+  const [openedJourney, setOpenedJourney] = useState<WorldJourney | null>(null);
+  const [deletingJourney, setDeletingJourney] = useState<WorldJourney | null>(null);
+  const [deleteError, setDeleteError] = useState(false);
+  const [deletedJourneys, setDeletedJourneys] = useState<WorldJourney[]>([]);
+  const hoursPerDay = customOptions.hoursPerDay ?? HPD[season];
+  const savedJourneys = [...new Map([...savedLocally, ...(worldRecord?.journeys ?? [])].map(journey => [journey.id, journey])).values()]
+    .filter(journey => !deletedJourneys.some(deleted => deleted.id === journey.id && JSON.stringify(deleted) === JSON.stringify(journey)));
+  const currentRecipeKey = worldRecord ? journeyRecipeKey({ ...worldRecord, params: world.params }) : '';
 
-  const route = useMemo(() => {
-    if (!from || !to) return null;
-    return planRoute(world, geography, from, to, {
-      mode, season, via: via.length ? via.map((v) => ({ x: v.x, y: v.y })) : undefined,
-    });
-  }, [world, geography, from, to, mode, season, via]);
+  const saveJourney = async () => {
+    if (savingRef.current || !worldRecord || !from || !to || !journeyName.trim()) return;
+    savingRef.current = true; setSaving(true); setSaveError(false);
+    const now = Date.now();
+    const journey: WorldJourney = {
+      id: crypto.randomUUID(), name: journeyName.trim(),
+      stops: journeyNormalizedStops([from, ...via, to], world),
+      options: { ...customOptions, mode, season }, recipeKey: currentRecipeKey, createdAt: now, updatedAt: now,
+    };
+    try {
+      await saveWorldJourney(worldRecord.id, worldRecord.projectId, journey);
+      setSavedLocally(current => [...current, journey]); setJourneyName(''); setOpenedJourney(journey);
+      // The write has committed. A failed parent refresh must not turn a retry into a duplicate save.
+      try { await onJourneysChanged?.(); } catch { /* Local committed row remains available until refresh. */ }
+    } catch { setSaveError(true); }
+    finally { savingRef.current = false; setSaving(false); }
+  };
 
-  // The comparison table is the point of the feature, but it costs one A* per
-  // cell, so it only runs when the reader asks to see it.
-  const table = useMemo(() => {
-    if (!from || !to || !showAll) return null;
-    return MODES.map((m) => ({
-      mode: m,
-      seasons: SEASONS.map((s) => planRoute(world, geography, from, to, {
-        mode: m, season: s, via: via.length ? via.map((v) => ({ x: v.x, y: v.y })) : undefined,
-      })),
-    }));
-  }, [world, geography, from, to, showAll, via]);
+  const confirmDeleteJourney = async () => {
+    if (savingRef.current || !worldRecord || !deletingJourney) return;
+    savingRef.current = true; setSaving(true); setDeleteError(false);
+    try {
+      await deleteWorldJourney(worldRecord.id, worldRecord.projectId, deletingJourney);
+      setDeletedJourneys(current => [...current, deletingJourney]);
+      setSavedLocally(current => current.filter(journey => journey.id !== deletingJourney.id));
+      if (openedJourney?.id === deletingJourney.id) setOpenedJourney(null);
+      setDeletingJourney(null);
+      try { await onJourneysChanged?.(); } catch { /* The confirmed deletion remains reflected locally. */ }
+    } catch { setDeleteError(true); }
+    finally { savingRef.current = false; setSaving(false); }
+  };
 
-  const paleoResult: PaleoMap | null = useMemo(
-    () => (paleo ? paleoMap(world, paleo) : null),
-    [world, paleo],
-  );
+  const calculation = useJourneyComputation(world, geography, from, to, via, { ...customOptions, mode, season }, showAll, locale);
+  const { route, table } = calculation;
+  const paleoCalculation = useJourneyPaleo(world, paleo, locale);
 
   // The map's copy of the route is a side effect of this panel's state, so it is
   // published in an effect. An effect event always sees the latest parent
   // callback without making its identity a reason to publish the route again.
   const publishRoute = useEffectEvent(onRoute);
-  useEffect(() => { publishRoute(route, MODE_COLOR[mode]); }, [route, mode]);
+  useEffect(() => { if (route || !calculation.hasEndpoints) publishRoute(route, MODE_COLOR[mode]); }, [route, mode, calculation.hasEndpoints]);
 
   return (
     <div className="flex flex-col gap-3 text-[11px] text-white/80">
+      {worldRecord && (
+        <section className="flex flex-col gap-2 border-b border-white/10 pb-3" aria-label={t('worldgen.journey.saved')}>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-white/50">{t('worldgen.journey.saved')}</span>
+            <select aria-label={t('worldgen.journey.openSaved')} value="" disabled={saving || !onOpenJourney}
+              className="rounded border border-white/20 bg-[#191d25] px-2 py-1.5 text-white/90"
+              onChange={event => {
+                const journey = savedJourneys.find(row => row.id === event.target.value);
+                if (!journey) return;
+                setMode(journey.options.mode); setSeason(journey.options.season);
+                setCustomOptions({ hoursPerDay: journey.options.hoursPerDay, planetRadiusKm: journey.options.planetRadiusKm });
+                setOpenedJourney(journey); onPick(null); onOpenJourney?.(journey);
+              }}>
+              <option value="">{t('worldgen.journey.openSaved')}</option>
+              {savedJourneys.map(journey => <option key={journey.id} value={journey.id}>{journey.name}</option>)}
+            </select>
+          </label>
+          {!savedJourneys.length && <p className="text-white/45">{t('worldgen.journey.savedEmpty')}</p>}
+          {openedJourney && <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 truncate text-white/65">{openedJourney.name}</p>
+            <button type="button" disabled={saving} className="shrink-0 rounded px-2 py-1 text-red-200/80 hover:bg-red-400/10 disabled:opacity-40"
+              onClick={() => { setDeletingJourney(openedJourney); setDeleteError(false); }}>{t('worldgen.journey.delete')}</button>
+          </div>}
+          {openedJourney && openedJourney.recipeKey !== currentRecipeKey && <p role="status" className="text-amber-200/85">{t('worldgen.journey.recipeChanged')}</p>}
+          {from && to && <form onSubmit={event => { event.preventDefault(); void saveJourney(); }} className="flex flex-col gap-1.5">
+            <input aria-label={t('worldgen.journey.name')} placeholder={t('worldgen.journey.name')} value={journeyName} disabled={saving}
+              onChange={event => setJourneyName(event.target.value)} maxLength={160}
+              className="rounded border border-white/20 bg-white/5 px-2 py-1.5 text-white/90" />
+            <button type="submit" disabled={saving || !journeyName.trim()} className="rounded bg-amber-400/20 px-2 py-1.5 text-amber-100 hover:bg-amber-400/30 disabled:opacity-40">
+              {t(saving ? 'worldgen.journey.saving' : 'worldgen.journey.save')}
+            </button>
+            {saveError && <p role="alert" className="text-red-300">{t('worldgen.journey.saveError')}</p>}
+          </form>}
+          <p className="text-white/40 leading-snug">{t('worldgen.journey.savedNote')}</p>
+        </section>
+      )}
+      <ConfirmDialog open={!!deletingJourney} destructive title={t('worldgen.journey.delete')}
+        message={t('worldgen.journey.deleteConfirm').replace('{name}', deletingJourney?.name ?? '') + (deleteError ? `\n\n${t('worldgen.journey.deleteError')}` : '')}
+        onConfirm={confirmDeleteJourney} onCancel={() => { if (!savingRef.current) { setDeletingJourney(null); setDeleteError(false); } }} />
       {/* ---- the journey ---- */}
+      {worldRecord && calculation.capture && <JourneyCreativeCapture
+        world={worldRecord} route={calculation.capture.route} stops={calculation.capture.stops}
+        mode={calculation.capture.mode} season={calculation.capture.season} width={world.width} height={world.height}
+        sourcePending={!route || !!route.impossible}
+      />}
       <div className="flex flex-col gap-1.5">
         <div className="text-[10px] uppercase tracking-wider text-white/35">{t('worldgen.journey.title')}</div>
         <EndButton
@@ -143,12 +226,17 @@ export default function JourneyPanel({
             ))}
           </div>
 
+          {calculation.busy && <p role="status" className="text-amber-200/75">{route && showAll
+            ? t('worldgen.journey.comparing').replace('{n}', String(calculation.completed))
+            : t('worldgen.journey.calculating')}</p>}
+          {calculation.error && <p role="alert" className="text-red-300">{t('worldgen.journey.calculationError')}{' '}
+            <button onClick={calculation.retry} className="underline">{t('common.retry')}</button></p>}
           {route?.impossible ? (
             <p className="text-[11px] text-red-300/85 leading-snug">{route.impossible}</p>
           ) : route ? (
             <div className="flex flex-col gap-1.5 border-t border-white/10 pt-2">
               <div className="text-lg text-white/90 leading-none">
-                {describeDuration(route.hours, HPD[season], t)}
+                {describeDuration(route.hours, hoursPerDay, t)}
               </div>
               <div className="text-[10px] text-white/50">
                 {t('worldgen.journey.byRoad').replace('{n}', Math.round(route.km).toLocaleString('es-ES'))} ·
@@ -156,7 +244,7 @@ export default function JourneyPanel({
                 {' '}{t('worldgen.journey.roadShare').replace('{n}', String(Math.round(route.roadFraction * 100)))}
               </div>
               <div className="text-[10px] text-white/50">
-                {t('worldgen.journey.perDay').replace('{n}', (route.km / (route.hours / HPD[season])).toFixed(0))}
+                {t('worldgen.journey.perDay').replace('{n}', (route.hours > 0 ? route.km / (route.hours / hoursPerDay) : 0).toFixed(0))}
                 {route.crossings.length > 0 && ` · ${t('worldgen.journey.riverCrossings').replace('{n}', String(route.crossings.length))}`}
               </div>
               <div className="flex flex-col gap-0.5 mt-1">
@@ -240,10 +328,10 @@ export default function JourneyPanel({
                               .replace(' jornadas','j') sólo funcionaba en
                               español. */}
                           {r.impossible ? '—'
-                            : r.hours < HPD[SEASONS[i]]
-                              ? describeDuration(r.hours, HPD[SEASONS[i]], t)
+                            : r.hours < (customOptions.hoursPerDay ?? HPD[SEASONS[i]])
+                              ? describeDuration(r.hours, customOptions.hoursPerDay ?? HPD[SEASONS[i]], t)
                               : t('worldgen.travel.dur.daysShort')
-                                .replace('{n}', String(Math.floor(r.hours / HPD[SEASONS[i]])))}
+                                .replace('{n}', String(Math.floor(r.hours / (customOptions.hoursPerDay ?? HPD[SEASONS[i]]))))}
                         </td>
                       ))}
                     </tr>
@@ -293,11 +381,10 @@ export default function JourneyPanel({
                 {t('worldgen.journey.noIce')}
               </button>
             </div>
-            {paleoResult && (
-              <p className="text-[10px] text-white/55 leading-snug">
-                {describePaleo(world, paleoResult)}
-              </p>
-            )}
+            {paleoCalculation.busy && <p role="status" className="text-white/50">{t('worldgen.journey.calculating')}</p>}
+            {paleoCalculation.error && <p role="alert" className="text-red-300">{t('worldgen.journey.calculationError')}{' '}
+              <button onClick={paleoCalculation.retry} className="underline">{t('common.retry')}</button></p>}
+            {paleoCalculation.description && <p className="text-[10px] text-white/55 leading-snug">{paleoCalculation.description}</p>}
           </>
         )}
       </div>

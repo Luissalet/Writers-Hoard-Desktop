@@ -11,7 +11,7 @@ import { GEOCODE_MAX_QUERY_LENGTH, parseNominatimResults, type GeocodeHit } from
 import { loadAtlasMapPrefs, saveAtlasMapPrefs } from '../mapPrefs';
 import { consumePick } from './picks';
 import { EditorHeader, Field, inputClass, labelClass, selectClass, textareaClass } from './fields';
-import { useRowDraft } from './useRowDraft';
+import { useRowDraft, type RowDraftStore } from './useRowDraft';
 
 /** What the inputs hold: strings where the row has numbers or lists. */
 interface PlaceDraft {
@@ -213,6 +213,7 @@ export interface CoordinatePick {
 
 
 interface PlaceEditorProps {
+  draftStore?: RowDraftStore;
   projectId: string;
   place: AtlasPlace;
   /** The manuscript as tokens, held by the engine so the editor's remounts do not reread it. */
@@ -231,11 +232,11 @@ interface PlaceEditorProps {
 }
 
 export default function PlaceEditor({
-  projectId, place, places, divergences, writings, onSave, onDelete, onAddDivergence, onOpenDivergence, onPickOnMap, coordinatePick,
+  projectId, place, places, divergences, writings, onSave, onDelete, onAddDivergence, onOpenDivergence, onPickOnMap, coordinatePick, draftStore,
 }: PlaceEditorProps) {
   const { t, locale } = useTranslation();
   const untitled = t('realAtlas.place.untitled');
-  const { draft, patch, changes, dirty } = useRowDraft(place, toDraft, (d) => fromDraft(d, untitled));
+  const { draft, patch, changes, dirty, acknowledge } = useRowDraft(place, toDraft, (d) => fromDraft(d, untitled), draftStore);
   const [geocoding, setGeocoding] = useState<Geocoding>({ kind: 'idle' });
   const geocode = geocoder();
   // Render-adjust: a search or its results belong to one place. Should the
@@ -337,6 +338,7 @@ export default function PlaceEditor({
         canSave={dirty && !latInvalid && !lonInvalid}
         onSave={async () => {
           await onSave(changes);
+          acknowledge();
           toast.success(t('realAtlas.place.saved'));
         }}
         deleteLabel={t('realAtlas.place.delete')}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Keyboard, Search, Settings } from 'lucide-react';
+import { Keyboard, Plus, Search, Settings } from 'lucide-react';
+import { openQuickNote } from '@/engines/notes/quickCapture';
 import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
 import SettingsModal from '@/components/settings/SettingsModal';
@@ -27,16 +28,20 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
 
   return (
     <>
-      <header className="h-14 bg-surface/80 backdrop-blur-sm border-b border-border flex items-center justify-between px-6 flex-shrink-0">
-        <div className="flex items-center gap-3">
+      <header className="min-h-16 bg-surface border-b border-border flex flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6 flex-shrink-0">
+        <div className="flex min-w-40 flex-1 items-center gap-3">
           {title && (
-            <div>
-              <h1 className="text-sm font-serif font-bold text-accent-gold leading-tight">{title}</h1>
+            <div className="min-w-0">
+              <h1 className="truncate text-base font-semibold text-text-primary leading-tight">{title}</h1>
               {subtitle && <p className="text-xs text-text-muted">{subtitle}</p>}
             </div>
           )}
         </div>
         <div className="flex items-center gap-2">
+          <button type="button" onClick={openQuickNote} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-accent-gold px-3 text-sm font-semibold text-deep hover:brightness-110" aria-label={t('creative.capture')}>
+            <Plus size={16} aria-hidden="true" />
+            <span className="hidden sm:inline">{t('creative.capture')}</span>
+          </button>
           <PendingWriteStatus />
           <StorageStatus />
           {/* The sheet has a key of its own, which is no use at all to the
@@ -66,8 +71,8 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
             className="flex items-center gap-2 px-3 py-1.5 bg-elevated border border-border rounded-lg text-text-muted text-sm hover:border-accent-gold/50 transition"
           >
             <Search size={14} />
-            <span>{t('topbar.search')}</span>
-            <kbd className="ml-2 px-1.5 py-0.5 bg-deep border border-border rounded text-[10px] font-mono">
+            <span className="hidden lg:inline">{t('topbar.search')}</span>
+            <kbd className="hidden xl:inline ml-2 px-1.5 py-0.5 bg-deep border border-border rounded text-[10px] font-mono">
               {commandShortcut}
             </kbd>
           </button>

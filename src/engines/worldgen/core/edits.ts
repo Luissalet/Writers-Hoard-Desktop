@@ -20,6 +20,7 @@
 
 import { Biome, type BiomeId, type WorldData } from './types';
 import { classifyBiomes } from './biomes';
+import { getRecalculationCheckpoint, installRecalculationCheckpoints, recalculateEnvironment, restoreEnvironment } from './recalculate';
 import { distanceTo, localRelief } from './fields';
 import type { LandmarkType, MarkerKind, RuinKind } from './types';
 // The brushes live in one place and both callers go through it: this replay and
@@ -119,6 +120,7 @@ export const RUIN_LABEL: Record<RuinKind, string> = {
 };
 
 export type WorldEdit =
+  | { kind: 'recalculate'; version: 1 }
   | { kind: 'terrain'; op: TerrainOp; stroke: Stroke }
   /** Paint coastline directly: turn sea into land or land into sea. */
   | { kind: 'land'; op: LandOp; stroke: Stroke }
@@ -446,6 +448,26 @@ function touchedRect(edits: WorldEdit[], W: number, H: number, pad: number) {
   return { x0, y0, w, h };
 }
 
+/** Adjacent samples follow the short arc across the planet's east/west seam. */
+function polylineCells(points: readonly Pt[], W: number, H: number): number[] {
+  const cells: number[] = [];
+  for (let k = 1; k < points.length; k++) {
+    const a = points[k - 1], b = points[k];
+    let dx = b.x - a.x;
+    while (dx > W / 2) dx -= W;
+    while (dx < -W / 2) dx += W;
+    const steps = Math.max(1, Math.ceil(Math.hypot(dx, b.y - a.y)));
+    for (let s = 0; s <= steps; s++) {
+      const fraction = s / steps;
+      const x = ((Math.round(a.x + dx * fraction) % W) + W) % W;
+      const y = Math.min(H - 1, Math.max(0, Math.round(a.y + (b.y - a.y) * fraction)));
+      const cell = y * W + x;
+      if (cells[cells.length - 1] !== cell) cells.push(cell);
+    }
+  }
+  return cells;
+}
+
 // ---------------------------------------------------------------------------
 // Applying edits
 // ---------------------------------------------------------------------------
@@ -545,7 +567,25 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   // Both go through sculpt/ops.ts, which is also what the sculpt view runs while
   // you are dragging. That is the point of the module: the preview and the replay
   // are not two implementations that were written to agree, they are one.
-  for (const e of edits) {
+  let start = 0;
+  let needsClassification = false;
+  // A checkpoint owns exactly its prefix. Later strokes reuse it without re-running climate.
+  for (let index = edits.length - 1; index >= 0; index--) {
+    if (edits[index].kind !== 'recalculate') continue;
+    if ((edits[index] as { version: number }).version !== 1) throw new Error('Unsupported environment recalculation version');
+    const cached = getRecalculationCheckpoint(world, serializeEdits(edits.slice(0, index + 1)));
+    if (!cached) continue;
+    elev.set(cached.elevation); restoreEnvironment(world, cached.environment);
+    start = index + 1; out.terrainChanged = true; break;
+  }
+  for (let index = start; index < edits.length; index++) {
+    const e = edits[index];
+    if (e.kind === 'recalculate') {
+      const environment = recalculateEnvironment(world);
+      installRecalculationCheckpoints(world, [{ key: serializeEdits(edits.slice(0, index + 1)), elevation: elev.slice(), environment }]);
+      restoreEnvironment(world, environment); out.terrainChanged = true;
+      needsClassification = false;
+    }
     if (e.kind === 'terrain') {
       const s = maskForOp(e.op, e.stroke, W, H);
       if (!s || s.empty) continue;
@@ -555,6 +595,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       const base = snapshotBase(elev, W, H, r.x0, r.y0, r.w, r.h);
       applyTerrainOp(e.op, elev, base, W, H, s, e.stroke, world.params.seed);
       out.terrainChanged = true;
+      needsClassification = true;
     } else if (e.kind === 'land') {
       const s = strokeMask(e.stroke, W, H);
       if (!s || s.empty) continue;
@@ -567,6 +608,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       // land twice is the same land — and existing higher ground is left alone.
       applyLandOp(e.op, elev, { at: (i) => elev[i] }, W, H, s, e.stroke, world.params.seed);
       out.terrainChanged = true;
+      needsClassification = true;
     } else if (e.kind === 'river') {
       // Carve a shallow channel so the drawn river also shows up in drainage,
       // relief and the biomes along its banks.
@@ -575,11 +617,12 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
         if (elev[i] > 0) elev[i] = Math.max(0.004, elev[i] - 0.055 * c);
       });
       out.terrainChanged = true;
+      needsClassification = true;
     }
   }
 
   // ---- 2. re-derive what the terrain decides -----------------------------
-  if (out.terrainChanged) {
+  if (needsClassification) {
     const seaDist = seaDistanceFor(world, elev, W, H);
     const reliefR = Math.max(3, Math.round(W / 150));
     const relief = localRelief(elev, W, H, reliefR);
@@ -600,6 +643,9 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
       flow: world.flow,
       relief,
       seaDist,
+      sst: world.sst,
+      boundary: world.boundary,
+      filters: world.params.filters,
     }, touchedRect(edits, W, H, reliefR + 3), world.biome);
   }
 
@@ -637,18 +683,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
   // ---- 4. hand-drawn rivers as polylines ---------------------------------
   for (const e of edits) {
     if (e.kind !== 'river' || e.pts.length < 2) continue;
-    const cells: number[] = [];
-    for (let k = 1; k < e.pts.length; k++) {
-      const a = e.pts[k - 1], b = e.pts[k];
-      const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y)));
-      for (let s = 0; s <= steps; s++) {
-        const t = s / steps;
-        const x = ((Math.round(a.x + (b.x - a.x) * t) % W) + W) % W;
-        const y = Math.min(H - 1, Math.max(0, Math.round(a.y + (b.y - a.y) * t)));
-        const i = y * W + x;
-        if (cells[cells.length - 1] !== i) cells.push(i);
-      }
-    }
+    const cells = polylineCells(e.pts, W, H);
     if (cells.length >= 2) {
       out.rivers.push({ cells: Uint32Array.from(cells), flow: Math.min(1, e.width / 3) });
     }
@@ -724,18 +759,7 @@ export function applyEdits(world: WorldData, edits: WorldEdit[]): AppliedEdits {
     } else if (e.kind === 'road' && e.pts.length >= 2) {
       // Rasterised to cells so it draws through exactly the same road layer the
       // generated ones use — a hand-drawn road must not be distinguishable.
-      const cells: number[] = [];
-      for (let k = 1; k < e.pts.length; k++) {
-        const a = e.pts[k - 1], b = e.pts[k];
-        const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y)));
-        for (let t = 0; t <= steps; t++) {
-          const f = t / steps;
-          const x = ((Math.round(a.x + (b.x - a.x) * f) % W) + W) % W;
-          const y = Math.min(H - 1, Math.max(0, Math.round(a.y + (b.y - a.y) * f)));
-          const i = y * W + x;
-          if (cells[cells.length - 1] !== i) cells.push(i);
-        }
-      }
+      const cells = polylineCells(e.pts, W, H);
       if (cells.length >= 2) out.roads.push({ cells, major: e.major });
     } else if (e.kind === 'realm' || e.kind === 'realmFill' || e.kind === 'realmArea') {
       // In LIST ORDER with each other, like the biome overlay: paint a province,

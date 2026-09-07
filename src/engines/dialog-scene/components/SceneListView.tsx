@@ -30,10 +30,10 @@ interface SceneListViewProps {
   projectId: string;
   scenes: Scene[];
   onSelectScene: (sceneId: string) => void;
-  onCreateScene: (scene: Scene) => void;
+  onCreateScene: (scene: Scene) => Promise<void>;
   onUpdateScene: (sceneId: string, changes: Partial<Scene>) => void;
-  onDeleteScene: (sceneId: string) => void;
-  onReorderScenes: (orderedIds: string[]) => void;
+  onDeleteScene: (sceneId: string) => Promise<void>;
+  onReorderScenes: (orderedIds: string[]) => Promise<void>;
   /** Called after a script import lands: renumber scenes + refresh the list. */
   onImported: () => Promise<void>;
 }
@@ -180,6 +180,9 @@ export default function SceneListView({
   const { project } = useProject(projectId);
   const [showNewScene, setShowNewScene] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState(false);
+  const creatingRef = useRef(false);
   const [pendingDeleteSceneId, setPendingDeleteSceneId] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -252,8 +255,11 @@ export default function SceneListView({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const handleCreateScene = () => {
-    if (!newTitle.trim()) return;
+  const handleCreateScene = async () => {
+    if (!newTitle.trim() || creatingRef.current) return;
+    creatingRef.current = true;
+    setCreating(true);
+    setCreateError(false);
 
     const scene: Scene = {
       id: generateId('scene'),
@@ -265,9 +271,16 @@ export default function SceneListView({
       updatedAt: Date.now(),
     };
 
-    onCreateScene(scene);
-    setNewTitle('');
-    setShowNewScene(false);
+    try {
+      await onCreateScene(scene);
+      setNewTitle('');
+      setShowNewScene(false);
+    } catch {
+      setCreateError(true);
+    } finally {
+      creatingRef.current = false;
+      setCreating(false);
+    }
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -276,7 +289,7 @@ export default function SceneListView({
       const oldIndex = scenes.findIndex((s) => s.id === active.id);
       const newIndex = scenes.findIndex((s) => s.id === over.id);
       const newScenes = arrayMove(scenes, oldIndex, newIndex);
-      onReorderScenes(newScenes.map((s) => s.id));
+      void onReorderScenes(newScenes.map((s) => s.id)).catch(() => toast.error(t('dialogScene.saveError')));
     }
   };
 
@@ -311,6 +324,7 @@ export default function SceneListView({
           )}
           <button
             onClick={() => setShowNewScene(!showNewScene)}
+            disabled={creating}
             className="flex items-center gap-2 px-4 py-2 text-sm bg-accent-gold text-deep rounded-lg font-semibold hover:bg-accent-amber transition"
           >
             <Plus size={16} />
@@ -334,6 +348,8 @@ export default function SceneListView({
           <AnimatePresence>
             {showNewScene && (
               <motion.div
+                inert={creating}
+                aria-busy={creating}
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
@@ -346,19 +362,21 @@ export default function SceneListView({
                   placeholder={t('dialogScene.sceneTitlePlaceholder')}
                   className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-text-primary placeholder:text-text-dim focus:border-accent-gold outline-none text-sm"
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCreateScene();
+                    if (e.key === 'Enter') void handleCreateScene();
                     if (e.key === 'Escape') {
                       setShowNewScene(false);
                       setNewTitle('');
                     }
                   }}
                 />
+                {createError && <p role="alert" className="text-sm text-red-400">{t('dialogScene.saveError')}</p>}
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={handleCreateScene}
+                    onClick={() => void handleCreateScene()}
+                    disabled={creating || !newTitle.trim()}
                     className="flex-1 px-3 py-1.5 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
                   >
-                    {t('dialogScene.createScene')}
+                    {t(creating ? 'common.saving' : 'dialogScene.createScene')}
                   </button>
                   <button
                     onClick={() => {
@@ -420,11 +438,11 @@ export default function SceneListView({
               )
             : ''
         }
-        onConfirm={() => {
+        onConfirm={async () => {
           if (!pendingDeleteSceneId) return;
           const id = pendingDeleteSceneId;
+          await onDeleteScene(id);
           setPendingDeleteSceneId(null);
-          onDeleteScene(id);
         }}
         onCancel={() => setPendingDeleteSceneId(null)}
       />

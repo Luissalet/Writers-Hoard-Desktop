@@ -353,10 +353,16 @@ export default function BeatList({
           {beat.linkedSceneId && (() => {
             const linkedScene = scenes.find((s) => s.id === beat.linkedSceneId);
             return linkedScene ? (
-              <div className="flex items-center gap-1 text-xs text-accent-gold/80 px-2 py-1 bg-accent-gold/10 rounded flex-shrink-0" title={t('outline.beat.linkedTo').replace('{name}', linkedScene.title)}>
+              <button
+                type="button"
+                onClick={() => navigateTo(`/project/${encodeURIComponent(projectId)}/dialog-scene?entity=${encodeURIComponent(linkedScene.id)}`)}
+                aria-label={t('outline.beat.openLinked').replace('{name}', linkedScene.title)}
+                className="flex items-center gap-1 text-xs text-accent-gold/80 px-2 py-1 bg-accent-gold/10 rounded flex-shrink-0 hover:bg-accent-gold/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold"
+                title={t('outline.beat.openLinked').replace('{name}', linkedScene.title)}
+              >
                 <Link2 size={10} />
                 <span className="max-w-20 truncate">#{linkedScene.sceneNumber ?? '?'}</span>
-              </div>
+              </button>
             ) : null;
           })()}
 
@@ -377,17 +383,20 @@ export default function BeatList({
             // how far. The name is in the tooltip, where it costs no width.
             const written = linkedWriting.wordCount ?? 0;
             return (
-              <div
+              <button
+                type="button"
+                onClick={() => navigateTo(`/project/${encodeURIComponent(projectId)}/writings?writing=${encodeURIComponent(linkedWriting.id)}`)}
+                aria-label={t('outline.beat.openLinked').replace('{name}', linkedWriting.title)}
                 className={`flex items-center gap-1 text-xs px-2 py-1 rounded flex-shrink-0 tabular-nums ${
                   written > 0 ? 'bg-accent-gold/10 text-accent-gold/80' : 'bg-surface text-text-dim'
-                }`}
+                } hover:bg-accent-gold/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold`}
                 title={`${t('outline.beat.linkedTo').replace('{name}', linkedWriting.title)} · ${
                   written.toLocaleString()
                 } ${t('writings.words')}`}
               >
                 <PenLine size={10} aria-hidden="true" />
                 <span>{written.toLocaleString()}</span>
-              </div>
+              </button>
             );
           })()}
 
@@ -401,14 +410,20 @@ export default function BeatList({
             const written = linkedWriting?.wordCount ?? 0;
             const reached = written >= (beat.wordTarget ?? 0);
             return (
-              <div
+              <button
+                type="button"
+                disabled={!linkedWriting}
+                onClick={() => {
+                  if (linkedWriting) navigateTo(`/project/${encodeURIComponent(projectId)}/writings?writing=${encodeURIComponent(linkedWriting.id)}`);
+                }}
+                aria-label={linkedWriting ? t('outline.beat.openLinked').replace('{name}', linkedWriting.title) : t('outline.beat.wordTarget')}
                 className={`text-xs px-2 py-1 rounded flex-shrink-0 tabular-nums ${
                   reached ? 'bg-green-500/10 text-green-500' : 'bg-surface text-text-dim'
-                }`}
+                } enabled:hover:bg-accent-gold/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold`}
                 title={t('outline.beat.wordTarget')}
               >
                 {written.toLocaleString()}/{(beat.wordTarget ?? 0).toLocaleString()}
-              </div>
+              </button>
             );
           })()}
 

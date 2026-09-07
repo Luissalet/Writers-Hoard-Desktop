@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Filter, BookUser } from 'lucide-react';
+import { Plus, Filter, BookUser, Search } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import EmptyState from '@/components/common/EmptyState';
 import type { Biography, BiographyFact, BiographyCategory } from '../types';
@@ -13,6 +13,8 @@ import { ConfirmDialog } from '@/engines/_shared';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useCodexEntries } from '@/engines/codex/hooks';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
+import { matchesBiographyFact } from '../search';
+import { getBiographyCopy } from '../copy';
 
 interface BiographyViewProps {
   biography: Biography;
@@ -22,13 +24,15 @@ interface BiographyViewProps {
 type ViewMode = 'cards' | 'narrative';
 
 export default function BiographyView({ biography, onUpdate }: BiographyViewProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const copy = getBiographyCopy(locale);
   const { items: facts, addItem: addFact, editItem: editFact, removeItem: removeFact } = useBiographyFacts(biography.id);
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingFact, setEditingFact] = useState<BiographyFact | undefined>();
   const [selectedCategory, setSelectedCategory] = useState<BiographyCategory | null>(null);
   const [pendingDeleteFactId, setPendingDeleteFactId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
 
   const { items: codexEntries } = useCodexEntries(biography.projectId);
   const characters = useMemo(
@@ -47,9 +51,8 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
 
   // Filter facts by selected category
   const filteredFacts = useMemo(() => {
-    if (!selectedCategory) return facts;
-    return facts.filter(f => f.category === selectedCategory);
-  }, [facts, selectedCategory]);
+    return facts.filter(f => (!selectedCategory || f.category === selectedCategory) && matchesBiographyFact(f, query));
+  }, [facts, selectedCategory, query]);
 
   const handleNewFact = () => {
     setEditingFact(undefined);
@@ -179,6 +182,7 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2">
           <button
+            aria-pressed={viewMode === 'cards'}
             onClick={() => setViewMode('cards')}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
               viewMode === 'cards'
@@ -189,6 +193,7 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
             {t('biography.view.cards')}
           </button>
           <button
+            aria-pressed={viewMode === 'narrative'}
             onClick={() => setViewMode('narrative')}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
               viewMode === 'narrative'
@@ -212,12 +217,15 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
       {/* Category filter (Cards view only) */}
       {viewMode === 'cards' && (
         <div className="space-y-2">
+          <label className="flex items-center gap-2 rounded-lg border border-border bg-elevated px-3 py-2 text-text-muted"><Search size={16} aria-hidden="true"/><input type="search" aria-label={copy.search} placeholder={copy.search} value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-text-primary outline-none" /></label>
+          {(query.trim() || selectedCategory) && <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-muted"><span role="status">{filteredFacts.length === 1 ? copy.resultOne : copy.results.replace('{count}', String(filteredFacts.length))}</span><button type="button" onClick={() => { setQuery(''); setSelectedCategory(null); }} className="rounded px-2 py-1 text-accent-gold hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold">{copy.clear}</button></div>}
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <Filter size={14} />
             {t('biography.filterByCategory')}
           </div>
           <div className="flex flex-wrap gap-2">
             <button
+              aria-pressed={selectedCategory === null}
               onClick={() => setSelectedCategory(null)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
                 selectedCategory === null
@@ -233,6 +241,7 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
               return (
                 <button
                   key={key}
+                  aria-pressed={selectedCategory === key}
                   onClick={() => setSelectedCategory(key as BiographyCategory)}
                   className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
                     selectedCategory === key
@@ -255,8 +264,8 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
             // A category filter with no hits is a filtering result, not a first
             // run: the writer already knows what this engine is. Only the truly
             // empty life gets the explanation and the button.
-            selectedCategory ? (
-              <p className="text-text-muted text-center py-12">{t('biography.noFactsInCategory')}</p>
+            selectedCategory || query.trim() ? (
+              <div className="space-y-3 py-12 text-center"><p className="text-text-muted">{copy.noResults}</p><button type="button" onClick={() => { setQuery(''); setSelectedCategory(null); }} className="rounded-lg border border-border px-3 py-2 text-sm text-accent-gold hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold">{copy.clear}</button></div>
             ) : (
               <EmptyState
                 icon={<BookUser size={40} />}

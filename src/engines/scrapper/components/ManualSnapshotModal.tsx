@@ -11,7 +11,7 @@ import { toast } from '@/components/common/toast';
 
 interface ManualSnapshotModalProps {
   projectId: string;
-  onSave: (snapshot: Snapshot) => void;
+  onSave: (snapshot: Snapshot) => Promise<void>;
   onCancel: () => void;
 }
 
@@ -26,6 +26,8 @@ export default function ManualSnapshotModal({
   const [tags, setTags] = useState<string[]>([]);
   const [screenshot, setScreenshot] = useState<string | undefined>();
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const savingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -40,12 +42,15 @@ export default function ManualSnapshotModal({
   };
 
   const handleSave = async () => {
+    if (savingRef.current) return;
     if (!title.trim()) {
       toast.error(t('scrapper.enterTitle'));
       return;
     }
 
     setIsSaving(true);
+    savingRef.current = true;
+    setSaveError(false);
     try {
       const snapshot: Snapshot = {
         id: crypto.randomUUID(),
@@ -61,8 +66,11 @@ export default function ManualSnapshotModal({
         createdAt: Date.now(),
       };
 
-      onSave(snapshot);
+      await onSave(snapshot);
+    } catch {
+      setSaveError(true);
     } finally {
+      savingRef.current = false;
       setIsSaving(false);
     }
   };
@@ -76,7 +84,7 @@ export default function ManualSnapshotModal({
   return (
     <div
       className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-      onClick={onCancel}
+      onClick={() => { if (!savingRef.current) onCancel(); }}
     >
       <div
         className="bg-elevated rounded-lg max-w-xl w-full border border-border shadow-2xl"
@@ -87,6 +95,7 @@ export default function ManualSnapshotModal({
           <h2 className="text-lg font-serif font-bold text-foreground">{t('scrapper.addResearchNote')}</h2>
           <button
             onClick={onCancel}
+            disabled={isSaving}
             className="p-1 hover:bg-elevated rounded-lg transition-colors"
             title={t('common.close')}
             aria-label={t('common.close')}
@@ -96,6 +105,7 @@ export default function ManualSnapshotModal({
         </div>
 
         {/* Content */}
+        {saveError && <p role="alert" className="px-6 pt-4 text-sm text-red-400">{t('scrapper.saveError')}</p>}
         <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
           {/* Title */}
           <div className="space-y-2">
@@ -176,6 +186,7 @@ export default function ManualSnapshotModal({
         <div className="bg-surface border-t border-border px-6 py-4 flex justify-end gap-2">
           <button
             onClick={onCancel}
+            disabled={isSaving}
             className="px-4 py-2 text-foreground hover:bg-elevated rounded-lg transition-colors font-medium"
           >
             {t('common.cancel')}

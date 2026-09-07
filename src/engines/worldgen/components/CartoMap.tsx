@@ -8,7 +8,7 @@ import type { CartoTheme } from '../cartography/theme';
 import { CartoBaseGL } from '../cartography/glbase';
 import { computeFields, getTintFieldFor } from '../cartography/render';
 import { drawAnnotations, type CartoAnnotations } from '../cartography/annotations';
-import { drawOverlay } from '../cartography/overlay';
+import { LabelSpace, drawOverlay } from '../cartography/overlay';
 import { drawArrivalMark } from '../cartography/screenFurniture';
 import {
   cartaViewToViewport, viewportToCartaCamera, clampViewport, sameViewport,
@@ -269,6 +269,7 @@ export default function CartoMap({
     outH: number,
     typeScale: number,
     z: number,
+    space: LabelSpace,
   ) => {
     const p = propsRef.current;
     const scale = outW / v.w;
@@ -312,6 +313,9 @@ export default function CartoMap({
     ctx.lineJoin = 'round';
     for (const c of declutterLabels(cands, 64, 3)) {
       const d = c.value;
+      const rect = { x: c.x, y: c.y - c.height! / 2, w: c.width, h: c.height! };
+      if (!space.fits(rect, 3)) continue;
+      space.add(rect);
       ctx.font = d.font;
       ctx.strokeStyle = p.theme.type.halo;
       ctx.lineWidth = p.theme.type.haloWidth * Math.max(0.6, d.size / 14);
@@ -384,7 +388,7 @@ export default function CartoMap({
     if (!geo || (!wantMarks && !wantNames)) return;
     const z = levelFor(p.world, outW / v.w, p.canonWorld ? MAX_TILE_Z : MAX_WORLD_TILE_Z);
     const deep = z >= DEEP_TILE_Z && !!p.canonWorld && geo.depth === 'full';
-    drawOverlay(ctx, p.world, geo, {
+    const space = drawOverlay(ctx, p.world, geo, {
       theme: p.theme,
       view: v,
       scale: outW / v.w,
@@ -396,7 +400,7 @@ export default function CartoMap({
       layers: { roads: false, borders: false, settlements: wantMarks, labels: wantNames },
       typeScale,
     });
-    if (deep && wantNames) drawDeepNames(ctx, v, outW, outH, typeScale, z);
+    if (deep && wantNames) drawDeepNames(ctx, v, outW, outH, typeScale, z, space);
   }, [drawDeepNames]);
 
   /** Blit the last finished bitmap at the live view. Cheap enough for 60 fps. */
@@ -462,8 +466,7 @@ export default function CartoMap({
 
     // Lettering rides every frame (see drawLettering) — the blit and the tiles
     // underneath carry no type at all.
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    drawLettering(ctx, v, canvas.width, canvas.height, dpr > 1 ? 1 : 0.92);
+    drawLettering(ctx, v, canvas.width, canvas.height, canvas.width / Math.max(1, size.w));
     drawFlyMark(ctx, v, canvas.width, canvas.height, canvas.width / Math.max(1, size.w));
   }, [viewFor, size.w, size.h, world.width, world.height, theme.paper.base, theme.ocean.deep, drawLettering, drawFlyMark]);
 
@@ -537,7 +540,9 @@ export default function CartoMap({
     // before the main thread blocks.
     requestAnimationFrame(() => {
       try {
-        const typeScale = factor < 1 ? 1 / factor * 0.72 : dpr > 1 ? 1 : 0.92;
+        // Lettering is specified in CSS pixels. A quick bitmap is enlarged
+        // on screen; multiplying by its inverse scale enlarged type twice.
+        const typeScale = w / Math.max(1, size.w);
         // Lettering is NOT baked (see drawLettering): this canvas doubles as
         // the gesture blit source, and baked type stretches under any other
         // zoom — the classic doubled-name artifact.

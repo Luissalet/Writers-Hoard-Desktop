@@ -18,6 +18,7 @@ import * as ops from '@/db/operations';
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
   const loadedOnceRef = useRef(false);
   const seqRef = useRef(0);
@@ -33,6 +34,7 @@ export function useProjects() {
   const refresh = useCallback(async () => {
     const seq = ++seqRef.current;
     if (!loadedOnceRef.current) setLoading(true);
+    setError(null);
     try {
       const data = await ops.getAllProjects();
       if (seq !== seqRef.current || !mountedRef.current) return;
@@ -40,6 +42,7 @@ export function useProjects() {
       loadedOnceRef.current = true;
     } catch (err) {
       console.error('[useProjects] fetch failed', err);
+      if (seq === seqRef.current && mountedRef.current) setError(err instanceof Error ? err : new Error(String(err)));
     } finally {
       if (seq === seqRef.current && mountedRef.current) setLoading(false);
     }
@@ -65,14 +68,19 @@ export function useProjects() {
     await refresh();
   }, [refresh]);
 
-  return { projects, loading, refresh, addProject, editProject, removeProject };
+  return { projects, loading, error, refresh, addProject, editProject, removeProject };
 }
 
 export function useProject(id: string | undefined) {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
   const loadedIdRef = useRef<string | null>(null);
+  const requestedIdRef = useRef<string | undefined>(undefined);
+  const errorIdRef = useRef<string | undefined>(undefined);
+  const currentIdRef = useRef(id);
+  currentIdRef.current = id;
   const seqRef = useRef(0);
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -84,7 +92,10 @@ export function useProject(id: string | undefined) {
   }, []);
 
   const refresh = useCallback(async () => {
+    if (!mountedRef.current || currentIdRef.current !== id) return;
     const seq = ++seqRef.current;
+    requestedIdRef.current = id;
+    setError(null);
     if (!id) {
       setProject(null);
       setLoading(false);
@@ -99,6 +110,10 @@ export function useProject(id: string | undefined) {
       loadedIdRef.current = id;
     } catch (err) {
       console.error('[useProject] fetch failed', err);
+      if (seq === seqRef.current && mountedRef.current) {
+        errorIdRef.current = id;
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
     } finally {
       if (seq === seqRef.current && mountedRef.current) setLoading(false);
     }
@@ -112,7 +127,8 @@ export function useProject(id: string | undefined) {
   const ownsPublishedProject = Boolean(id) && loadedIdRef.current === id;
   return {
     project: ownsPublishedProject ? project : null,
-    loading: Boolean(id) && !ownsPublishedProject ? true : loading,
+    loading: Boolean(id) && requestedIdRef.current !== id ? true : loading,
+    error: id && errorIdRef.current === id ? error : null,
     refresh,
   };
 }

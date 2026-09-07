@@ -12,6 +12,7 @@
 // grid could not resolve; slide the window one metre east and the ground does
 // not move, it just gets re-sampled.
 
+import { resolveLakeSurface } from '../core/lakeSurface';
 import { SphereNoise } from '../core/noise';
 import { riverKey } from '../core/edits';
 import { resample } from '../cartography/contours';
@@ -108,6 +109,7 @@ export interface WorldPatch {
   temp: Float32Array;
   prec: Float32Array;
   lake: Uint8Array;
+  lakeSurface: Float32Array;
   ice: Float32Array;
   flow: Float32Array;
 }
@@ -124,9 +126,10 @@ export function extractPatch(world: WorldData, g: RegionGeometry): WorldPatch {
     x0, y0, w, h,
     elev: new Float32Array(n), biome: new Uint8Array(n), temp: new Float32Array(n),
     prec: new Float32Array(n), lake: new Uint8Array(n), ice: new Float32Array(n),
-    flow: new Float32Array(n),
+    flow: new Float32Array(n), lakeSurface: new Float32Array(n),
   };
   const WW = world.width, WH = world.height;
+  const lakeSurface = resolveLakeSurface(world);
   for (let j = 0; j < h; j++) {
     const wy = Math.min(WH - 1, Math.max(0, y0 + j));
     for (let i = 0; i < w; i++) {
@@ -138,6 +141,7 @@ export function extractPatch(world: WorldData, g: RegionGeometry): WorldPatch {
       p.temp[d] = world.temperature[s];
       p.prec[d] = world.precipitation[s];
       p.lake[d] = world.lake[s];
+      p.lakeSurface[d] = lakeSurface[s];
       p.ice[d] = world.ice[s];
       p.flow[d] = world.flow[s];
     }
@@ -501,6 +505,11 @@ export function buildElevation(
         h += nearSea * Math.max(grad, 0.08) * coastal * 0.34 * coastF.at(x, y, u, v);
       }
 
+      // World lakes are boundary conditions, even when a cropped sheet cannot
+      // see the outlet. Invented hills must not raise their bed above the water.
+      const pi = Math.min(patch.h - 1, Math.max(0, Math.floor(wy - patch.y0))) * patch.w
+        + Math.min(patch.w - 1, Math.max(0, Math.floor(wx - patch.x0)));
+      if (patch.lake[pi] && patch.lakeSurface[pi] > 0) h = Math.min(h, patch.lakeSurface[pi] - 0.001);
       out[y * W + x] = h;
     }
   }
@@ -950,6 +959,19 @@ export function buildHydrology(
   }
 
   markLakes(world, g, patch, elev, filled, water, W, H);
+  // A lake spanning the whole crop has no local spill rim; the sheet's flood
+  // alone would erase it. Keep the world level and footprint authoritative.
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const wx = g.originX + (x + 0.5) * g.worldPerCellX;
+    const wy = g.originY + (y + 0.5) * g.worldPerCellY;
+    const pi = Math.min(patch.h - 1, Math.max(0, Math.floor(wy - patch.y0))) * patch.w
+      + Math.min(patch.w - 1, Math.max(0, Math.floor(wx - patch.x0)));
+    const i = y * W + x;
+    if (patch.lake[pi] && patch.lakeSurface[pi] > elev[i]) {
+      water[i] = 2;
+      filled[i] = patch.lakeSurface[pi];
+    }
+  }
 
   return { elevation: elev, water, flow, accum: acc, slope, wet, filled, down };
 }

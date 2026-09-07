@@ -70,6 +70,10 @@ export function makeReadOnlyHook<T, Deps = void>(
     const [error, setError] = useState<Error | null>(null);
 
     const loadedKeyRef = useRef<string | null>(null);
+    const requestedScopeRef = useRef<string | null>(null);
+    const errorScopeRef = useRef<string | null>(null);
+    const currentScopeRef = useRef(scopeId);
+    currentScopeRef.current = scopeId;
     const seqRef = useRef(0);
     const mountedRef = useRef(true);
     useEffect(() => {
@@ -81,7 +85,9 @@ export function makeReadOnlyHook<T, Deps = void>(
     }, []);
 
     const refresh = useCallback(async () => {
+      if (!mountedRef.current || currentScopeRef.current !== scopeId) return;
       const seq = ++seqRef.current;
+      requestedScopeRef.current = scopeId ?? null;
       if (!scopeId) {
         setItems([]);
         setLoading(false);
@@ -106,6 +112,7 @@ export function makeReadOnlyHook<T, Deps = void>(
       } catch (err) {
         if (seq === seqRef.current && mountedRef.current) {
           console.error('[makeReadOnlyHook] fetch failed', err);
+          errorScopeRef.current = scopeId;
           setError(err instanceof Error ? err : new Error(String(err)));
         }
       } finally {
@@ -127,9 +134,9 @@ export function makeReadOnlyHook<T, Deps = void>(
     const ownsPublishedItems = Boolean(scopeId) && loadedKeyRef.current === scopeId;
     return {
       items: ownsPublishedItems ? items : [],
-      loading: Boolean(scopeId) && !ownsPublishedItems ? true : loading,
+      loading: Boolean(scopeId) && requestedScopeRef.current !== scopeId ? true : loading,
       refetching: ownsPublishedItems ? refetching : false,
-      error: ownsPublishedItems ? error : null,
+      error: scopeId && errorScopeRef.current === scopeId ? error : null,
       refresh,
     };
   };

@@ -10,8 +10,10 @@ import {
   ShieldAlert,
   FolderOpen,
   Settings2,
+  Search,
 } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
+import ReadErrorNotice from '@/components/common/ReadErrorNotice';
 import ProjectCard from '@/components/bubbles/ProjectCard';
 import EmptyState from '@/components/common/EmptyState';
 import { StoragePersistenceWarning } from '@/components/common/StorageStatus';
@@ -54,10 +56,12 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 import { getAnchorAdapter } from '@/engines/_shared/anchoring';
 import type { Project } from '@/types';
+import { getEngine } from '@/engines';
 
 /** The chapter a card's "Continue" would open, and what to call the button. */
 interface ResumeTarget {
-  writingId: string;
+  engineId: string;
+  entityId?: string;
   title: string;
 }
 
@@ -75,9 +79,13 @@ function withCurrentChoice(choices: readonly number[], current: number): number[
 
 export default function Dashboard() {
   const { t } = useTranslation();
-  const { projects, loading, addProject, editProject, removeProject, refresh } = useProjects();
+  const { projects, loading, error, addProject, editProject, removeProject, refresh } = useProjects();
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
+  const [projectQuery, setProjectQuery] = useState('');
+  const filteredProjects = projects.filter(project =>
+    `${project.title} ${project.description}`.toLocaleLowerCase().includes(projectQuery.trim().toLocaleLowerCase()),
+  );
   const [importing, setImporting] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
   const fullImportRef = useRef<HTMLInputElement>(null);
@@ -160,6 +168,12 @@ export default function Dashboard() {
   const resumeTargetFor = (project: Project): ResumeTarget | null => {
     const stats = progress.get(project.id);
     const remembered = resumeRoutes.get(project.id);
+    // Concept work is a resume target too, regardless of manuscript edits.
+    if (remembered && remembered.engineId !== 'writings' &&
+      project.enabledEngines.includes(remembered.engineId) && getEngine(remembered.engineId)) {
+      return { engineId: remembered.engineId, entityId: remembered.entityId, title: t(`engines.${remembered.engineId}.name`) };
+    }
+    if (!project.enabledEngines.includes('writings')) return null;
     const rememberedId = remembered?.engineId === 'writings' ? remembered.entityId : undefined;
     const rememberedTitle = rememberedId ? stats?.writingTitles.get(rememberedId) : undefined;
     // A remembered route that predates the newest edit is stale: the writer has
@@ -167,22 +181,22 @@ export default function Dashboard() {
     // import). Prefer what the manuscript itself says.
     const staleRoute = (stats?.lastWrittenAt ?? 0) > (remembered?.savedAt ?? 0);
     if (rememberedId && rememberedTitle && !staleRoute) {
-      return { writingId: rememberedId, title: rememberedTitle };
+      return { engineId: 'writings', entityId: rememberedId, title: rememberedTitle };
     }
     const newestId = stats?.lastWritingId ?? undefined;
     const newestTitle = newestId ? stats?.writingTitles.get(newestId) : undefined;
-    if (newestId && newestTitle) return { writingId: newestId, title: newestTitle };
+    if (newestId && newestTitle) return { engineId: 'writings', entityId: newestId, title: newestTitle };
     return null;
   };
 
   const openResume = (project: Project, target: ResumeTarget) => {
-    rememberProjectRoute(project.id, { engineId: 'writings', entityId: target.writingId });
+    rememberProjectRoute(project.id, { engineId: target.engineId, entityId: target.entityId });
     // The same jump global search and annotation backlinks make.
-    const adapter = getAnchorAdapter('writings');
-    if (adapter) adapter.navigateToEntity(target.writingId, project.id);
+    const adapter = getAnchorAdapter(target.engineId);
+    if (adapter && target.entityId) adapter.navigateToEntity(target.entityId, project.id);
     else {
       navigate(
-        `/project/${encodeURIComponent(project.id)}/writings?writing=${encodeURIComponent(target.writingId)}`,
+        `/project/${encodeURIComponent(project.id)}/${encodeURIComponent(target.engineId)}`,
       );
     }
   };
@@ -477,16 +491,17 @@ export default function Dashboard() {
   return (
     <>
       <TopBar title={t('dashboard.title')} subtitle={t('dashboard.subtitle')} />
-      <div className="flex-1 overflow-y-auto p-8">
+      <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-wrap items-center justify-between gap-5 mb-8">
           <div>
-            <h1 className="text-3xl font-serif font-bold text-accent-gold">{t('dashboard.projects')}</h1>
+            <h2 className="text-3xl font-serif font-semibold text-text-primary">{t('dashboard.projects')}</h2>
+            <p className="mt-2 text-sm text-text-muted">{t('creative.libraryHint')}</p>
             <p className="text-text-muted mt-1">
               {projects.length} {projects.length === 1 ? t('dashboard.worldCount.singular') : t('dashboard.worldCount.plural')}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <input ref={importRef} type="file" accept=".json,.zip" className="hidden" onChange={handleImport} />
             <input ref={fullImportRef} type="file" accept=".zip,.json" className="hidden" onChange={handleFullImport} />
 
@@ -644,7 +659,7 @@ export default function Dashboard() {
             </button>
             <button
               onClick={() => setShowCreate(true)}
-              className="flex items-center gap-2 px-5 py-2.5 bg-accent-gold text-deep font-semibold rounded-xl hover:bg-accent-amber transition shadow-lg shadow-accent-gold/20"
+              className="flex items-center gap-2 px-5 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:brightness-110 transition"
             >
               <Plus size={18} />
               {t('dashboard.newProject')}
@@ -655,21 +670,29 @@ export default function Dashboard() {
         {/* The browser has not promised to keep any of this. */}
         <StoragePersistenceWarning />
 
+        {error && <ReadErrorNotice onRetry={refresh} retrying={loading} />}
+        {projects.length > 0 && <div className="relative mb-5 max-w-md">
+          <Search size={16} className="pointer-events-none absolute left-3 top-3 text-text-dim" aria-hidden="true" />
+          <input type="search" value={projectQuery} onChange={event => setProjectQuery(event.target.value)} aria-label={t('creative.filter')} placeholder={t('creative.filter')} className="h-10 w-full rounded-lg border border-border bg-surface pl-10 pr-3 text-sm text-text-primary" />
+        </div>}
+
         {/* Grid */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-8 h-8 border-2 border-accent-gold border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : projects.length === 0 ? (
+        ) : error && projects.length === 0 ? null : projects.length === 0 ? (
           <EmptyState
             icon={<Feather size={48} />}
             title={t('dashboard.empty.title')}
             message={t('dashboard.empty.message')}
             action={{ label: t('dashboard.empty.action'), onClick: () => setShowCreate(true) }}
           />
+        ) : filteredProjects.length === 0 ? (
+          <div className="py-12 text-center text-text-muted"><p>{t('creative.noResults')}</p><button type="button" onClick={() => setProjectQuery('')} className="mt-3 text-accent-gold hover:underline">{t('creative.clearFilter')}</button></div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-            {projects.map((project, i) => {
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-5">
+            {filteredProjects.map((project, i) => {
               const stats = progress.get(project.id);
               const resume = resumeTargetFor(project);
               return (

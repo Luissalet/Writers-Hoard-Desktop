@@ -1,0 +1,23 @@
+{
+  "seed": "j_zdm1cq",
+  "width": 2048,
+  "cycles": 5,
+  "timings": {
+    "generationMs": 14802.5,
+    "geographyMs": 8750.799999952316,
+    "recalculationMs": 7570.200000047684,
+    "maxGeographyPatchMs": 0.6000000238418579,
+    "emptyHistoryCyclesMs": 420,
+    "totalMs": 32589.80000001192
+  },
+  "memory": [
+    { "stage": "opened", "retainedMiB": 186.1, "jsHeapMiB": 289.9 },
+    { "stage": "first recalculation", "retainedMiB": 270.1, "jsHeapMiB": 289.9 },
+    { "stage": "undo/redo 1", "retainedMiB": 270.1, "jsHeapMiB": 289.9 },
+    { "stage": "undo/redo 2", "retainedMiB": 270.1, "jsHeapMiB": 289.9 },
+    { "stage": "undo/redo 3", "retainedMiB": 270.1, "jsHeapMiB": 289.9 },
+    { "stage": "sculpt undo/redo 1", "retainedMiB": 354.2, "jsHeapMiB": 289.9 },
+    { "stage": "sculpt undo/redo 2", "retainedMiB": 354.2, "jsHeapMiB": 289.9 },
+    { "stage": "journal reloaded", "retainedMiB": 354.2, "jsHeapMiB": 289.9 }
+  ]
+}

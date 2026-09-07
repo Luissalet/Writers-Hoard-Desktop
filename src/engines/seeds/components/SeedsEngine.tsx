@@ -22,13 +22,16 @@ import { useProject } from '@/hooks/useProjects';
 import { useWritings } from '@/engines/writings/hooks';
 import { useScenes } from '@/engines/dialog-scene/hooks';
 import { useAllProjectBeats } from '@/engines/outline/hooks';
+import { getSeedsCopy } from '../copy';
+import SourceLinks, { type SeedSourceCatalog } from './SourceLinks';
 
 // ---------------------------------------------------------------------------
 // SeedsEngine
 // ---------------------------------------------------------------------------
 
 export default function SeedsEngine({ projectId }: EngineComponentProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const copy = getSeedsCopy(locale);
   const { items: seeds, loading: seedsLoading, addItem: addSeed, editItem: editSeed, removeItem: removeSeed } = useSeeds(projectId);
   const { items: allPayoffs, loading: payoffsLoading, refresh: refreshAllPayoffs } = useAllPayoffs(projectId);
   const [activeSeedId, setActiveSeedId] = useState<string | null>(null);
@@ -72,6 +75,7 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
     if (seed) {
       return (
         <SeedDetail
+          key={seed.id}
           seed={seed}
           projectId={projectId}
           onBack={() => setActiveSeedId(null)}
@@ -126,6 +130,7 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
       {/* Filters */}
       <div className="flex items-center gap-2 flex-wrap text-xs">
         <select
+          aria-label={t('seeds.filter.allKinds')}
           value={filterKind}
           onChange={(e) => setFilterKind(e.target.value as SeedKind | '')}
           className="px-2.5 py-1.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition cursor-pointer"
@@ -136,6 +141,7 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
           ))}
         </select>
         <select
+          aria-label={t('seeds.filter.allStatuses')}
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value as SeedStatus | '')}
           className="px-2.5 py-1.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition cursor-pointer"
@@ -145,6 +151,7 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
             <option key={k} value={k}>{t(SEED_STATUS_CONFIG[k].labelKey)}</option>
           ))}
         </select>
+        {(filterKind || filterStatus) && <button type="button" onClick={() => { setFilterKind(''); setFilterStatus(''); }} className="rounded px-2 py-1 text-accent-gold hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold">{copy.reset}</button>}
       </div>
 
       {showNew && (
@@ -174,6 +181,7 @@ export default function SeedsEngine({ projectId }: EngineComponentProps) {
           <div className="flex flex-col items-center justify-center py-16 text-text-dim">
             <Sprout size={36} className="mb-3 opacity-40" aria-hidden="true" />
             <p className="text-sm">{t('seeds.noResults')}</p>
+            <button type="button" onClick={() => { setFilterKind(''); setFilterStatus(''); }} className="mt-3 rounded-lg border border-border px-3 py-2 text-sm text-accent-gold hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold">{copy.reset}</button>
           </div>
         )
       ) : (
@@ -517,6 +525,7 @@ function SeedDetail({
   onPayoffsChanged: () => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const { project } = useProject(projectId);
   const { items: payoffs, addItem: addPayoff, editItem: editPayoff, removeItem: removePayoff } = usePayoffs(seed.id);
   const kindCfg = SEED_KIND_CONFIG[seed.kind];
   const [pendingDeleteSeed, setPendingDeleteSeed] = useState(false);
@@ -541,6 +550,8 @@ function SeedDetail({
   const titleField = useDebouncedField(seed.title, handleField('title'));
   const descriptionField = useDebouncedField(seed.description ?? '', handleField('description'));
   const locationField = useDebouncedField(seed.locationLabel ?? '', handleField('locationLabel'));
+  const sourceCatalog: SeedSourceCatalog = { writings, scenes, outlineBeats, enabledEngines: project?.enabledEngines ?? [] };
+  const flushDraft = async () => (await Promise.all([titleField.flush(), descriptionField.flush(), locationField.flush()])).every(Boolean);
 
   const handleAddPayoff = async () => {
     const now = Date.now();
@@ -688,6 +699,8 @@ function SeedDetail({
         />
       </div>
 
+      <SourceLinks row={seed} catalog={sourceCatalog} kind="planting" beforeNavigate={flushDraft} />
+
       {/* Payoffs */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
@@ -719,6 +732,7 @@ function SeedDetail({
                 writings={writings}
                 scenes={scenes}
                 outlineBeats={outlineBeats}
+                sourceCatalog={sourceCatalog}
               />
             ))}
           </div>
@@ -788,6 +802,7 @@ function PayoffCard({
   writings,
   scenes,
   outlineBeats,
+  sourceCatalog,
 }: {
   payoff: Payoff;
   onUpdate: (changes: Partial<Payoff>) => Promise<void>;
@@ -795,6 +810,7 @@ function PayoffCard({
   writings: { id: string; title: string }[];
   scenes: { id: string; title: string; sceneNumber?: number }[];
   outlineBeats: { id: string; title: string }[];
+  sourceCatalog: SeedSourceCatalog;
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -830,6 +846,7 @@ function PayoffCard({
           <Trash2 size={11} />
         </button>
       </div>
+      <SourceLinks row={payoff} catalog={sourceCatalog} kind="payoff" beforeNavigate={async () => (await Promise.all([titleField.flush(), descriptionField.flush(), locationField.flush()])).every(Boolean)} />
       {expanded && (
         <div className="space-y-2 pl-5">
           <textarea

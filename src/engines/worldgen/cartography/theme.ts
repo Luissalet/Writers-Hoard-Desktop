@@ -292,7 +292,7 @@ export const THEME_WONDER: CartoTheme = {
     color: '#3b2d1c',
     halo: 'rgba(239,224,189,0.85)',
     haloWidth: 3,
-    oceanColor: '#e8dcbe',
+    oceanColor: '#244451',
   },
   furniture: { ink: '#4a3a23', accent: '#9c7434', frame: '#5a4529', frameFill: '#e2cfa4', teeth: 46, flourish: true },
 };

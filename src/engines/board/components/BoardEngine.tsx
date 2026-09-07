@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Network, Trash2 } from 'lucide-react';
 import { ConfirmDialog, EngineSpinner, NewItemForm, useAutoSelect, useEnsureDefault } from '@/engines/_shared';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
@@ -8,11 +9,17 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { useBoards } from '../hooks';
 import type { Board } from '../types';
 import BoardCanvas from './BoardCanvas';
+import { getBoardCopy } from '../copy';
+import { getBoardNode } from '../operations';
+import { rememberProjectRoute } from '@/services/projectIntelligence';
 
 export default function BoardEngine({ projectId }: EngineComponentProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const copy = getBoardCopy(locale);
   const { items: boards, loading, addItem, editItem, removeItem } = useBoards(projectId);
   const [activeId, setActiveId] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const targetId = searchParams.get('node');
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
@@ -45,13 +52,29 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
 
   const active = useMemo(() => boards.find((board) => board.id === activeId), [boards, activeId]);
 
+  useEffect(() => {
+    if (!targetId || loading) return;
+    let cancelled = false;
+    void (async () => {
+      const boardId = boards.some((item) => item.id === targetId)
+        ? targetId : (await getBoardNode(targetId))?.boardId;
+      if (!cancelled && boardId && boards.some((item) => item.id === boardId)) setActiveId(boardId);
+    })();
+    return () => { cancelled = true; };
+  }, [targetId, boards, loading]);
+
+  useEffect(() => {
+    if (activeId) rememberProjectRoute(projectId, { engineId: 'board', entityId: activeId });
+  }, [activeId, projectId]);
+
   const handleCreate = useCallback(async () => {
     const board = makeBoard(draftName.trim() || t('board.defaultName'));
     await addItem(board);
+    setSearchParams({});
     setActiveId(board.id);
     setDraftName('');
     setCreating(false);
-  }, [makeBoard, draftName, t, addItem]);
+  }, [makeBoard, draftName, t, addItem, setSearchParams]);
 
   const handleDelete = useCallback(async () => {
     if (!pendingDelete) return;
@@ -72,6 +95,10 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
           <Network size={18} /> {t('engines.board.name')}
         </h2>
 
+        {active && <select aria-label={copy.surface} value={active.surface} onChange={(event) => void editItem(active.id, { surface: event.target.value as Board['surface'] })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-xs text-text-muted focus-visible:outline-2 focus-visible:outline-accent-gold">
+          {(['cork', 'slate', 'grid', 'blueprint'] as const).map((surface) => <option key={surface} value={surface}>{copy[surface]}</option>)}
+        </select>}
+
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           {boards.map((board) => (
             <div key={board.id} className="group relative">
@@ -90,7 +117,7 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
               ) : (
               <button
                 type="button"
-                onClick={() => setActiveId(board.id)}
+                onClick={() => { setSearchParams({}); setActiveId(board.id); }}
                 // Double-click renames. `onRenameBoard` was declared, passed
                 // down and then never destructured inside BoardCanvas, and no
                 // other surface offered a rename — a board's title was fixed
@@ -152,7 +179,7 @@ export default function BoardEngine({ projectId }: EngineComponentProps) {
             key={active.id}
             projectId={projectId}
             board={active}
-            onRenameBoard={(title) => void editItem(active.id, { title })}
+            onViewportChange={(viewport) => void editItem(active.id, { viewport })}
           />
           <AnnotationSurface
             projectId={projectId}

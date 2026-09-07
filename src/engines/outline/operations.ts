@@ -1,6 +1,7 @@
 import { db } from '@/db';
-import { makeTableOps, reorderItems, makeCascadeDeleteOp } from '@/engines/_shared';
-import type { Outline, OutlineBeat } from './types';
+import { makeTableOps, reorderItems, makeCascadeDeleteOp, notifyDataChanged } from '@/engines/_shared';
+import { BEAT_SHEET_TEMPLATES, type Outline, type OutlineBeat } from './types';
+import { generateId } from '@/utils/idGenerator';
 
 // ===== Outlines =====
 const outlineOps = makeTableOps<Outline>({
@@ -12,6 +13,35 @@ export const getOutlines = outlineOps.getAll;
 export const getOutline = outlineOps.getOne;
 export const createOutline = outlineOps.create;
 export const updateOutline = outlineOps.update;
+
+/** Template text is resolved before the transaction; the entire structure commits together. */
+export async function createOutlineFromTemplate(
+  projectId: string,
+  title: string,
+  templateId: string | undefined,
+  translate: (key: string) => string,
+): Promise<Outline> {
+  if (!title.trim()) throw new Error('Outline title is required');
+  const template = templateId ? BEAT_SHEET_TEMPLATES.find(candidate => candidate.id === templateId) : undefined;
+  if (templateId && !template) throw new Error('Unknown outline template');
+  const now = Date.now();
+  const outline: Outline = {
+    id: generateId('outline'), projectId, title: title.trim(), templateId,
+    createdAt: now, updatedAt: now,
+  };
+  const beats: OutlineBeat[] = (template?.beats ?? []).map((beat, order) => ({
+    id: generateId('beat'), outlineId: outline.id, projectId, order,
+    level: beat.level, title: translate(beat.titleKey), description: translate(beat.descriptionKey),
+    storyPosition: beat.storyPosition, color: beat.color, status: 'empty',
+    createdAt: now, updatedAt: now,
+  }));
+  await db.transaction('rw', db.outlines, db.outlineBeats, async () => {
+    await db.outlines.add(outline);
+    if (beats.length) await db.outlineBeats.bulkAdd(beats);
+  });
+  notifyDataChanged({ source: 'other', projectId });
+  return outline;
+}
 
 // deleteOutline cascades to outlineBeats
 export const deleteOutline = makeCascadeDeleteOp({

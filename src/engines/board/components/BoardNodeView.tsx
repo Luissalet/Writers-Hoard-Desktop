@@ -20,6 +20,7 @@ const INLINE_EDITABLE = new Set<BoardNode['kind']>(['postit', 'card', 'frame', '
 
 export interface BoardNodeData extends Record<string, unknown> {
   node: BoardNode;
+  layerLocked?: boolean;
   /** The query said "not this one" — visible, but pushed into the background. */
   dimmed: boolean;
   layerOpacity: number;
@@ -156,12 +157,13 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
     (accept: boolean) => {
       setEditing(false);
       if (accept && draft !== node.title) data.onRename(id, draft);
+      else if (!accept) setDraft(node.title);
     },
     [draft, node.title, data, id],
   );
 
   const handleDoubleClick = useCallback(() => {
-    if (node.locked) return;
+    if (node.locked || data.layerLocked) return;
     if (INLINE_EDITABLE.has(node.kind)) setEditing(true);
     else data.onEdit(id);
   }, [node.locked, node.kind, data, id]);
@@ -356,7 +358,7 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
 
   return (
     <div className="group relative" style={wrapper} onDoubleClick={handleDoubleClick}>
-      {selected && !node.locked ? (
+      {selected && !node.locked && !data.layerLocked ? (
         <NodeResizer
           minWidth={min.width}
           minHeight={min.height}
@@ -386,7 +388,7 @@ function BoardNodeView({ id, data, selected }: NodeProps<BoardFlowNode>) {
       ) : null}
 
       {body}
-      <NodeChrome data={data} selected={Boolean(selected)} />
+      {!data.layerLocked && <NodeChrome data={data} selected={Boolean(selected)} />}
     </div>
   );
 }
@@ -397,6 +399,7 @@ export default memo(BoardNodeView, (previous, next) =>
   previous.data.node === next.data.node &&
   previous.data.dimmed === next.data.dimmed &&
   previous.data.layerOpacity === next.data.layerOpacity &&
+  previous.data.layerLocked === next.data.layerLocked &&
   previous.data.linking === next.data.linking &&
   previous.data.onPath === next.data.onPath,
 );

@@ -120,9 +120,14 @@ export class SphereNoise {
 
   /** Fractional Brownian motion, output roughly in [-1, 1]. */
   fbm(u: number, v: number, frequency: number, octaves: number, lacunarity = 2, gain = 0.5): number {
+    // Every octave samples the same point on the sphere. Reuse its angles,
+    // keeping multiplication order identical to sample() for saved recipes.
+    const lon = u * TAU, lat = (0.5 - v) * Math.PI;
+    const cl = Math.cos(lat), sl = Math.sin(lat), co = Math.cos(lon), so = Math.sin(lon);
     let sum = 0, amp = 1, norm = 0, f = frequency;
     for (let o = 0; o < octaves; o++) {
-      sum += amp * this.sample(u, v, f);
+      const r = f / TAU;
+      sum += amp * this.simplex.noise(r * cl * co, r * sl, r * cl * so);
       norm += amp;
       amp *= gain;
       f *= lacunarity;
@@ -132,9 +137,12 @@ export class SphereNoise {
 
   /** Ridged multifractal in [0, 1] — sharp crests, good for mountain detail. */
   ridged(u: number, v: number, frequency: number, octaves: number, lacunarity = 2, gain = 0.5): number {
+    const lon = u * TAU, lat = (0.5 - v) * Math.PI;
+    const cl = Math.cos(lat), sl = Math.sin(lat), co = Math.cos(lon), so = Math.sin(lon);
     let sum = 0, amp = 0.5, norm = 0, f = frequency, weight = 1;
     for (let o = 0; o < octaves; o++) {
-      let n = 1 - Math.abs(this.sample(u, v, f));
+      const r = f / TAU;
+      let n = 1 - Math.abs(this.simplex.noise(r * cl * co, r * sl, r * cl * so));
       n *= n;
       n *= weight;
       weight = Math.min(1, Math.max(0, n * 2));

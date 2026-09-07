@@ -39,6 +39,7 @@ import {
   type SemanticZoomTier,
 } from '../core/semanticZoom';
 import { DisplayTileStore } from '../cartography/tileStore';
+import { CanvasFrameQueue } from '../cartography/frameClock';
 import { map2DLayerPlan, map2DVectorRiverFallback } from '../cartography/map2dLayers';
 import { levelFor, tileCountX, tileId, TILE_PX, type TileKey } from '../cartography/tiles';
 import { drawRoadNetwork, unwrapRoad } from '../cartography/roadOverlay';
@@ -897,7 +898,7 @@ export default function Map2D({
    * the way every other gesture in this view resolves Ctrl at the press.
    */
   const panRef = useRef(false);
-  const rafRef = useRef(0);
+  const frameQueue = useRef<CanvasFrameQueue | null>(null);
   /** Reintento pendiente tras un contexto 2D nulo — ver la guarda de `draw`. */
   const ctxRetryRef = useRef(0);
   /**
@@ -1543,13 +1544,40 @@ export default function Map2D({
       size: number,
       weight: number,
       priority: number,
+      area?: { maxWidth: number },
     ) => {
+      if (x < 0 || x > cw || y < 0 || y > ch) return;
       ctx.font = `${weight} ${size}px "Source Sans 3", sans-serif`;
+      let width = ctx.measureText(text).width;
+      if (area) {
+        const budget = Math.min(area.maxWidth, cw * 0.48);
+        if (width > budget) {
+          size *= budget / width;
+          if (size < 10) return;
+          ctx.font = `${weight} ${size}px "Source Sans 3", sans-serif`;
+          width = ctx.measureText(text).width;
+        }
+        x -= width / 2;
+      } else if (x + width > cw - 6) {
+        // Point labels may choose the other side of their symbol at an edge.
+        x -= width + 12;
+      }
+      if (priority >= 300) {
+        if (width > cw - 12) {
+          size *= (cw - 12) / width;
+          if (size < 9) return;
+          ctx.font = `${weight} ${size}px "Source Sans 3", sans-serif`;
+          width = ctx.measureText(text).width;
+        }
+        x = Math.max(6, Math.min(cw - width - 6, x));
+        y = Math.max(size * 0.7 + 4, Math.min(ch - size * 0.7 - 4, y));
+      }
+      if (x < 6 || x + width > cw - 6 || y - size * 0.7 < 4 || y + size * 0.7 > ch - 4) return;
       mapLabels.push({
         value: { text, color, size, weight },
         x,
         y,
-        width: ctx.measureText(text).width,
+        width,
         height: size * 1.4,
         priority,
       });
@@ -2011,25 +2039,23 @@ export default function Map2D({
         // political geography.
         const across = Math.sqrt(anchor.cells) * pxPerCell;
         if (across < 120) continue;
-        const size = Math.max(10, Math.min(18, 9 + across / 90));
-        // Letter-spaced caps, the way an atlas letters a country — with REAL
-        // spaces, because `measureText` is what reserves the box the
-        // declutterer reasons about and canvas letter-spacing is not in it.
-        const text = [...realm.name.toUpperCase()].join(' ');
+        const size = Math.max(10, Math.min(14, 9 + across / 110));
+        // Compact caps preserve the name as a word and fit the actual country.
+        const text = realm.name.toUpperCase();
         ctx.font = `600 ${size}px "Source Sans 3", sans-serif`;
-        const half = ctx.measureText(text).width / 2;
+
         for (const copyOx of copies) {
           const [sx, sy] = toScreen((anchor.x + 0.5) / W, (anchor.y + 0.5) / H, copyOx);
           if (sx < -160 || sx > cw + 160 || sy < -30 || sy > ch + 30) continue;
           queueLabel(
-            // Centred: `queueLabel` places from the LEFT edge, and a country
-            // name hung off its own centroid drifts into the neighbour.
-            text, sx - half, sy,
+            // Area labels reserve a centred box, fitted to their territory.
+            text, sx, sy,
             `hsl(${realm.hue} 55% 78%)`, size, 600,
             // Above the towns, which top out at 100: with the political layer
             // switched on, the country is the thing the reader switched it on
             // to see. Below the seas, which only letter where they have room.
             110,
+            { maxWidth: across * 0.85 },
           );
         }
       }
@@ -2315,18 +2341,19 @@ export default function Map2D({
             mover: { target: 'feature', key: fKey, label: f.name },
           });
           queueLabel(
-            f.name.toUpperCase(),
+            f.kind === 'continent' || f.kind === 'ocean' ? f.name.toUpperCase() : f.name,
             sx, sy,
             water ? 'rgba(178,214,236,0.92)' : 'rgba(238,228,205,0.9)',
             river
               ? Math.max(9, Math.min(12, 8 + f.importance * 5))
-              : Math.max(9, Math.min(17, 10 + f.importance * 7)),
+              : Math.max(10, Math.min(14, 10 + f.importance * 4)),
             600,
             // Above the towns: at the zoom where a sea has room for its name,
             // the sea is what you are looking at. A river goes just over the
             // towns too (they top out at 100) and under the realms and the
             // seas, which name more ground than it does.
             river ? 96 + f.importance * 12 : 120 + f.importance * 30,
+            river ? undefined : { maxWidth: f.extent * ((PW * scale) / W) * 0.85 },
           );
         }
       }
@@ -2706,7 +2733,7 @@ export default function Map2D({
       }
     }
 
-    for (const candidate of declutterLabels(mapLabels, semantic.labelBudget, 3)) {
+    for (const candidate of declutterLabels(mapLabels, Math.max(8, Math.round(semantic.labelBudget * Math.min(1, cw * ch / 400000))), 4)) {
       const item = candidate.value;
       ctx.font = `${item.weight} ${item.size}px "Source Sans 3", sans-serif`;
       ctx.lineWidth = 3;
@@ -3192,8 +3219,8 @@ export default function Map2D({
   // the latest one through a ref (kept current in the redraw effect below).
   const drawRef = useRef<(() => void) | null>(null);
   const scheduleDraw = useCallback(() => {
-    cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(() => drawRef.current?.());
+    frameQueue.current ??= new CanvasFrameQueue(() => drawRef.current?.());
+    frameQueue.current.request();
   }, []);
 
   // ---- sizing / init ----------------------------------------------------------
@@ -3235,7 +3262,7 @@ export default function Map2D({
     ro.observe(container);
     return () => {
       ro.disconnect();
-      cancelAnimationFrame(rafRef.current);
+      frameQueue.current?.cancel();
       window.clearTimeout(sharpTimer.current);
       window.clearTimeout(ctxRetryRef.current);
       ctxRetryRef.current = 0;

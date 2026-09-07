@@ -1,10 +1,10 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { ListTree, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { useAutoSelect, useEnsureDefault, EngineSpinner, ConfirmDialog, useDebouncedField, useDeepLinkParam } from '@/engines/_shared';
 import { useAllProjectBeats, useOutlines, useOutlineBeats } from '../hooks';
-import { getBeatCountsByOutline } from '../operations';
+import { createOutlineFromTemplate, getBeatCountsByOutline } from '../operations';
 import { useScenes } from '@/engines/dialog-scene/hooks';
 import { useWritings } from '@/engines/writings/hooks';
 import { BEAT_SHEET_TEMPLATES } from '../types';
@@ -12,17 +12,19 @@ import type { Outline, OutlineBeat } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import TemplateSelector from './TemplateSelector';
 import BeatList from './BeatList';
+import Modal from '@/components/common/Modal';
 
 export default function OutlineEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
-  const { items: outlines, loading, addItem: addOutline, editItem: editOutline, removeItem: removeOutline } = useOutlines(projectId);
+  const { items: outlines, loading, addItem: addOutline, editItem: editOutline, removeItem: removeOutline, refresh: refreshOutlines } = useOutlines(projectId);
   const { items: projectBeats, loading: projectBeatsLoading } = useAllProjectBeats(projectId);
   const [activeOutlineId, setActiveOutlineId] = useState<string>('');
   const [showNewOutline, setShowNewOutline] = useState(false);
   const [newOutlineName, setNewOutlineName] = useState('');
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
-  const [templateForNewOutline, setTemplateForNewOutline] = useState<string | undefined>(undefined);
-  void templateForNewOutline; // used in template selection flow
+  const [creatingOutline, setCreatingOutline] = useState(false);
+  const [createError, setCreateError] = useState(false);
+  const creatingRef = useRef(false);
 
   // `reorder` estaba en el hook desde el principio y no se extraía siquiera:
   // el asa de arrastre de `BeatList` era decoración.
@@ -96,57 +98,24 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
   // Buffered: the title used to hit Dexie plus a full table refresh on every
   // keystroke, with the input bound to the refreshed row — so typing fast lost
   // characters.
-  const titleField = useDebouncedField(
-    activeOutline?.title ?? '',
-    (title) => activeOutlineId
-      ? editOutline(activeOutlineId, { title, updatedAt: Date.now() })
-      : Promise.resolve(),
-  );
-
   const handleCreateOutline = async (name: string, selectedTemplateId?: string) => {
-    const outline: Outline = {
-      id: generateId('outline'),
-      projectId,
-      title: name.trim(),
-      templateId: selectedTemplateId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    await addOutline(outline);
-    setActiveOutlineId(outline.id);
-
-    // Add beats from template if selected.
-    // The template only holds i18n keys, so they MUST be resolved here: these
-    // strings are copied into the beat rows and live in the author's project
-    // for good — a key (or English) written now would never be re-translated.
-    if (selectedTemplateId) {
-      const template = BEAT_SHEET_TEMPLATES.find((tmpl) => tmpl.id === selectedTemplateId);
-      if (template) {
-        for (let i = 0; i < template.beats.length; i++) {
-          const templateBeat = template.beats[i];
-          const beat: OutlineBeat = {
-            id: generateId('beat'),
-            outlineId: outline.id,
-            projectId,
-            order: i,
-            level: templateBeat.level,
-            title: t(templateBeat.titleKey),
-            description: t(templateBeat.descriptionKey),
-            storyPosition: templateBeat.storyPosition,
-            color: templateBeat.color,
-            status: 'empty',
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          };
-          await addBeat(beat);
-        }
-      }
+    if (creatingRef.current) return;
+    creatingRef.current = true;
+    setCreatingOutline(true);
+    setCreateError(false);
+    try {
+      const outline = await createOutlineFromTemplate(projectId, name, selectedTemplateId, t);
+      await refreshOutlines();
+      setActiveOutlineId(outline.id);
+      setNewOutlineName('');
+      setShowNewOutline(false);
+      setShowTemplateSelector(false);
+    } catch {
+      setCreateError(true);
+    } finally {
+      creatingRef.current = false;
+      setCreatingOutline(false);
     }
-
-    setNewOutlineName('');
-    setShowNewOutline(false);
-    setShowTemplateSelector(false);
-    setTemplateForNewOutline(undefined);
   };
 
   const handleDeleteOutline = async (id: string) => {
@@ -171,14 +140,7 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
         <div className="space-y-4">
           <div className="border border-border rounded-xl bg-surface/50 p-6">
             {/* Outline Title */}
-            <input
-              type="text"
-              value={titleField.value}
-              onChange={(e) => titleField.onChange(e.target.value)}
-              onBlur={titleField.onBlur}
-              className="text-2xl font-semibold text-text-primary bg-transparent focus:outline-none focus:ring-2 focus:ring-accent-gold/50 rounded px-2 py-1 -mx-2 mb-2 w-full"
-              placeholder={t('outline.titlePlaceholder')}
-            />
+            <OutlineTitle key={activeOutline.id} outline={activeOutline} onSave={editOutline} />
             {activeOutline.templateId && (
               <p className="text-xs text-text-dim">
                 {t('outline.usingTemplate')} {activeTemplate ? t(activeTemplate.nameKey) : activeOutline.templateId}
@@ -260,15 +222,16 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
 
         {/* Template Selector Modal */}
         {showTemplateSelector && newOutlineName.trim() && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-elevated border border-border rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
+          <Modal open busy={creatingOutline} onClose={() => setShowTemplateSelector(false)} title={t('outline.templateSelector.title')} wide>
+            <fieldset disabled={creatingOutline} aria-busy={creatingOutline}>
+              {createError && <p role="alert" className="mb-4 text-sm text-red-400">{t('outline.createError')}</p>}
               <TemplateSelector
                 onSelectTemplate={(templateId) => {
-                  handleCreateOutline(newOutlineName, templateId);
+                  void handleCreateOutline(newOutlineName, templateId);
                 }}
               />
-            </div>
-          </div>
+            </fieldset>
+          </Modal>
         )}
 
         {/* Outlines Grid */}
@@ -338,5 +301,25 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
         onCancel={() => setPendingDeleteOutline(null)}
       />
     </div>
+  );
+}
+
+/** A buffered title belongs to one outline for its entire mounted lifetime. */
+export function OutlineTitle({ outline, onSave }: {
+  outline: Outline;
+  onSave: (id: string, changes: Partial<Outline>) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const titleField = useDebouncedField(outline.title, (title) => onSave(outline.id, { title }));
+  return (
+    <input
+      type="text"
+      value={titleField.value}
+      onChange={(e) => titleField.onChange(e.target.value)}
+      onBlur={titleField.onBlur}
+      className="text-2xl font-semibold text-text-primary bg-transparent focus:outline-none focus:ring-2 focus:ring-accent-gold/50 rounded px-2 py-1 -mx-2 mb-2 w-full"
+      placeholder={t('outline.titlePlaceholder')}
+      aria-label={t('outline.titlePlaceholder')}
+    />
   );
 }

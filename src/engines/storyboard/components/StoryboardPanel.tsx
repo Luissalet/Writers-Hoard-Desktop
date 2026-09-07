@@ -40,7 +40,7 @@ export default function StoryboardPanel({
       case 'square':
         return 'aspect-square';
       case '4:3':
-        return 'aspect-video';
+        return 'aspect-[4/3]';
       case '16:9':
       default:
         return 'aspect-video';

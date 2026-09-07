@@ -436,31 +436,45 @@ export function renderAtlasWindow(
   const wrapC = (x: number) => ((x % W) + W) % W;
   const clampR = (y: number) => Math.min(H - 1, Math.max(0, y));
 
-  /** Bilinear elevation at world-cell coordinates (centre convention). */
-  const eAt = (gx: number, gy: number): number => {
-    const fx = gx - 0.5, fy = gy - 0.5;
-    const x0 = Math.floor(fx), y0 = Math.floor(fy);
-    const tx = fx - x0, ty = fy - y0;
-    const xa = wrapC(x0), xb = wrapC(x0 + 1);
-    const ya = clampR(y0), yb = clampR(y0 + 1);
-    const e00 = elevation[ya * W + xa], e10 = elevation[ya * W + xb];
-    const e01 = elevation[yb * W + xa], e11 = elevation[yb * W + xb];
+  // The five height samples per pixel share screen columns and rows. Resolve
+  // wrapping and interpolation coordinates once per axis, not five times per
+  // pixel; no per-pixel corner/weight arrays or spread operations are needed.
+  const xa = new Int32Array(outW * 3), xb = new Int32Array(outW * 3);
+  const xt = new Float64Array(outW * 3);
+  for (let px = 0; px < outW; px++) {
+    const gx = view.x + (px + 0.5) * sx;
+    for (let sample = 0; sample < 3; sample++) {
+      const fx = (sample === 0 ? gx : sample === 1 ? gx + 1 : gx - 1) - 0.5;
+      const x0 = Math.floor(fx), at = sample * outW + px;
+      xa[at] = wrapC(x0); xb[at] = wrapC(x0 + 1); xt[at] = fx - x0;
+    }
+  }
+  const ya = new Int32Array(3), yb = new Int32Array(3), yt = new Float64Array(3);
+  const eAt = (col: number, row: number): number => {
+    const tx = xt[col], ty = yt[row];
+    const e00 = elevation[ya[row] + xa[col]], e10 = elevation[ya[row] + xb[col]];
+    const e01 = elevation[yb[row] + xa[col]], e11 = elevation[yb[row] + xb[col]];
     return (e00 * (1 - tx) + e10 * tx) * (1 - ty) + (e01 * (1 - tx) + e11 * tx) * ty;
   };
 
   const Z = 11, lx = -0.55, ly = -0.55, lz = 0.63; // mirror hillshade()
+  const idx = [0, 0, 0, 0], wgt = [0, 0, 0, 0];
 
   for (let py = 0; py < outH; py++) {
     const gy = view.y + (py + 0.5) * sy;
+    for (let sample = 0; sample < 3; sample++) {
+      const fy = (sample === 0 ? gy : sample === 1 ? gy + 1 : gy - 1) - 0.5;
+      const y0 = Math.floor(fy);
+      ya[sample] = clampR(y0) * W; yb[sample] = clampR(y0 + 1) * W; yt[sample] = fy - y0;
+    }
     for (let px = 0; px < outW; px++) {
-      const gx = view.x + (px + 0.5) * sx;
       const o = (py * outW + px) * 4;
 
-      const e = eAt(gx, gy);
+      const e = eAt(px, 0);
       // Per-pixel shade from the interpolated surface, same physical scale as
       // the cell version (centred difference over two cells).
-      const dzdx = (eAt(gx + 1, gy) - eAt(gx - 1, gy)) * 0.5 * Z;
-      const dzdy = (eAt(gx, gy + 1) - eAt(gx, gy - 1)) * 0.5 * Z;
+      const dzdx = (eAt(px + outW, 0) - eAt(px + outW * 2, 0)) * 0.5 * Z;
+      const dzdy = (eAt(px, 1) - eAt(px, 2)) * 0.5 * Z;
       const len = Math.sqrt(dzdx * dzdx + dzdy * dzdy + 1);
       const dot = (-dzdx * lx + -dzdy * ly + lz) / len;
       const shade = 0.62 + 0.55 * Math.max(0, dot);
@@ -473,16 +487,16 @@ export function renderAtlasWindow(
       }
 
       // Corner cells around the sample, for colour blending.
-      const fx = gx - 0.5, fy = gy - 0.5;
-      const x0 = Math.floor(fx), y0 = Math.floor(fy);
-      const tx = fx - x0, ty = fy - y0;
-      const xa = wrapC(x0), xb = wrapC(x0 + 1);
-      const ya = clampR(y0), yb = clampR(y0 + 1);
-      const idx = [ya * W + xa, ya * W + xb, yb * W + xa, yb * W + xb];
-      const wgt = [(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty];
+      const tx = xt[px], ty = yt[0];
+      idx[0] = ya[0] + xa[px]; idx[1] = ya[0] + xb[px];
+      idx[2] = yb[0] + xa[px]; idx[3] = yb[0] + xb[px];
+      wgt[0] = (1 - tx) * (1 - ty); wgt[1] = tx * (1 - ty);
+      wgt[2] = (1 - tx) * ty; wgt[3] = tx * ty;
 
       let r = 0, g = 0, b = 0, wsum = 0;
+      let nearestCorner = 0;
       for (let k = 0; k < 4; k++) {
+        if (wgt[k] > wgt[nearestCorner]) nearestCorner = k;
         const i = idx[k];
         if (elevation[i] <= 0) continue; // sea colour never bleeds uphill
         const q = i * 4;
@@ -495,12 +509,12 @@ export function renderAtlasWindow(
         // Land by interpolation, water at every corner: a hairline case at
         // concave coves — take the nearest corner's colour as the cell
         // version would have shown there.
-        const near = idx[wgt.indexOf(Math.max(...wgt))] * 4;
+        const near = idx[nearestCorner] * 4;
         r = unshaded[near]; g = unshaded[near + 1]; b = unshaded[near + 2];
         wsum = 1;
       }
       // Lakes shade flat, exactly like the cell version.
-      const nearest = idx[wgt.indexOf(Math.max(...wgt))];
+      const nearest = idx[nearestCorner];
       const sh = biome[nearest] === Biome.Lake ? 1 : shade;
       out[o] = (r / wsum) * sh;
       out[o + 1] = (g / wsum) * sh;
@@ -578,4 +592,58 @@ export function renderComposite(world: WorldData, mode: ViewMode, withRivers: bo
     }
   }
   return base;
+}
+
+/** Small atlas thumbnail without allocating/rendering a full planet raster. */
+export function renderAtlasPreview(world: WorldData, maxWidth = 256, withRivers = true): {
+  pixels: Uint8ClampedArray<ArrayBuffer>; width: number; height: number;
+} {
+  const { width: W, height: H } = world;
+  const width = Math.max(1, Math.min(W, Number.isFinite(maxWidth) ? Math.floor(maxWidth) : 256));
+  const height = Math.max(1, Math.round(H * width / W));
+  if (width === W) return { pixels: renderComposite(world, 'atlas', withRivers), width, height };
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  // Four stratified samples preserve small coasts better than a single nearest
+  // cell, but still cost only 131k samples for a 256×128 thumbnail at ANY detail.
+  for (let py = 0; py < height; py++) {
+    for (let px = 0; px < width; px++) {
+      let red = 0, green = 0, blue = 0;
+      for (let sy = 0; sy < 2; sy++) {
+        const y = Math.min(H - 1, Math.floor((py + (sy + 0.5) / 2) * H / height));
+        for (let sx = 0; sx < 2; sx++) {
+          const x = Math.min(W - 1, Math.floor((px + (sx + 0.5) / 2) * W / width));
+          const i = y * W + x;
+          const [r, g, b] = atlasCellColor(world, i);
+          const shade = world.elevation[i] <= 0 ? 0.92 + 0.08 * hillshade(world, i, x, y)
+            : world.biome[i] === Biome.Lake ? 1 : hillshade(world, i, x, y);
+          red += r * shade; green += g * shade; blue += b * shade;
+        }
+      }
+      put(pixels, py * width + px, red / 4, green / 4, blue / 4);
+    }
+  }
+  if (withRivers) {
+    const coverage = new Uint8Array(width * height);
+    const removed = world.painted?.removed;
+    const rivers = world.painted?.rivers?.length ? [...world.rivers, ...world.painted.rivers] : world.rivers;
+    for (const river of rivers) {
+      if (removed?.has(riverKey(river.cells))) continue;
+      const alpha = Math.min(160, Math.round(255 * (0.5 + 2 * river.flow) * width / W));
+      for (const cell of river.cells) {
+        if (cell >= W * H) continue;
+        const x = Math.floor((cell % W) * width / W), y = Math.floor(Math.floor(cell / W) * height / H);
+        const at = y * width + x;
+        coverage[at] = Math.max(coverage[at], alpha);
+      }
+    }
+    for (let i = 0; i < coverage.length; i++) {
+      const a = coverage[i] / 255;
+      if (!a) continue;
+      const offset = i * 4;
+      pixels[offset] = pixels[offset] * (1 - a) + 79 * a;
+      pixels[offset + 1] = pixels[offset + 1] * (1 - a) + 147 * a;
+      pixels[offset + 2] = pixels[offset + 2] * (1 - a) + 184 * a;
+    }
+  }
+  return { pixels, width, height };
 }

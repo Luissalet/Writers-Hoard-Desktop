@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { ArrowLeft, Trash2, Pin, Clock } from 'lucide-react';
 import type { DiaryEntry, DiaryMood } from '../types';
 import { MOOD_CONFIG } from '../types';
@@ -7,6 +7,8 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 import { toast } from '@/components/common/toast';
 import { toLocalDateTimeStamp } from '@/engines/writing-stats/date';
+import { discardPendingOwner, registerPendingFlusher, trackPendingWrite } from '@/services/pendingWrites';
+import { stripHtml } from '@/utils/text';
 
 interface EntryEditorProps {
   entry: DiaryEntry;
@@ -14,6 +16,10 @@ interface EntryEditorProps {
   onSave: (changes: Partial<DiaryEntry>) => Promise<void>;
   onDelete: () => Promise<void>;
   onClose: () => void;
+}
+
+function hasDiaryContent(html: string): boolean {
+  return Boolean(stripHtml(html).trim()) || /<(?:img|video|audio|iframe|hr|table)\b/i.test(html);
 }
 
 export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }: EntryEditorProps) {
@@ -25,8 +31,67 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
   const [tagsText, setTagsText] = useState(entry.tags.join(', '));
   const [pinned, setPinned] = useState(entry.pinned);
   const [saving, setSaving] = useState(false);
+  const [autosaving, setAutosaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
   const contentRef = useRef(content);
+  const changes = {
+    title: title.trim(), content, entryDate, mood: mood || undefined,
+    tags: tagsText.split(',').map(tag => tag.trim()).filter(Boolean), pinned,
+  };
+  const serialized = JSON.stringify(changes);
+  const savedRef = useRef(serialized);
+  const [savedSerialized, setSavedSerialized] = useState(serialized);
+  const latestRef = useRef({ serialized, onSave });
+  const inFlightRef = useRef<Promise<boolean> | null>(null);
+  const discardingRef = useRef(false);
+  useEffect(() => { latestRef.current = { serialized, onSave }; }, [onSave, serialized]);
+
+  const flushDraft = useCallback(async (): Promise<boolean> => {
+    if (discardingRef.current) return true;
+    if (inFlightRef.current) return inFlightRef.current;
+    if (latestRef.current.serialized === savedRef.current) return true;
+    const run = async (): Promise<boolean> => {
+      setAutosaving(true);
+      setSaveFailed(false);
+      try {
+        // Background saving never freezes typing. Drain newer edits before a
+        // close/exit flusher reports success, preserving the entry owner.
+        while (!discardingRef.current && latestRef.current.serialized !== savedRef.current) {
+          const snapshot = latestRef.current;
+          await trackPendingWrite(
+            Promise.resolve().then(() => snapshot.onSave(JSON.parse(snapshot.serialized) as Partial<DiaryEntry>)),
+            flushDraft,
+            `diary-draft:${entry.projectId}:${entry.id}`,
+          );
+          savedRef.current = snapshot.serialized;
+          setSavedSerialized(snapshot.serialized);
+        }
+        return true;
+      } catch {
+        setSaveFailed(true);
+        return false;
+      } finally {
+        inFlightRef.current = null;
+        setAutosaving(false);
+      }
+    };
+    inFlightRef.current = run();
+    return inFlightRef.current;
+  }, [entry.id, entry.projectId]);
+
+  useEffect(() => {
+    if (serialized === savedRef.current) return;
+    return registerPendingFlusher(`diary-draft:${entry.projectId}:${entry.id}`, flushDraft);
+  }, [entry.id, entry.projectId, flushDraft, serialized, savedSerialized]);
+
+  useEffect(() => {
+    if (serialized === savedRef.current || (isNew && !title.trim() && !hasDiaryContent(content))) return;
+    const timer = window.setTimeout(() => { void flushDraft(); }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [serialized, isNew, title, content, flushDraft]);
+
+  useEffect(() => () => { void flushDraft(); }, [flushDraft]);
 
   // Keep a ref for TipTap's onChange (avoids stale closure issues)
   const handleContentChange = (html: string) => {
@@ -34,26 +99,15 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
     setContent(html);
   };
 
-  // Returns whether the entry actually reached the database. A rejected write
-  // used to leave `saving` stuck at true forever: Save disabled, Back inert,
-  // and — diary has no autosave — the text gone the moment the author
-  // navigated away.
+  // Explicit Save waits for the latest snapshot before acting as Done.
   const handleSave = async (): Promise<boolean> => {
     if (saving) return false;
     setSaving(true);
-    const tags = tagsText
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
     try {
-      await onSave({
-        title: title.trim(),
-        content: contentRef.current,
-        entryDate,
-        mood: mood || undefined,
-        tags,
-        pinned,
-      });
+      const saved = await flushDraft();
+      if (!saved) throw new Error('Diary draft was not saved');
+      // Saving an unchanged entry still acts as Done.
+      onClose();
       return true;
     } catch {
       toast.error(t('diary.saveError'));
@@ -72,28 +126,27 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
   // close without creating a junk entry.
   // Uses `content` state (kept in lockstep with contentRef by
   // handleContentChange) — reading a ref during render is invalid.
-  const isDirty =
-    title !== entry.title ||
-    content !== entry.content ||
-    entryDate !== entry.entryDate ||
-    (mood || '') !== (entry.mood || '') ||
-    pinned !== entry.pinned ||
-    tagsText !== entry.tags.join(', ');
+  const isDirty = serialized !== savedSerialized;
 
   const handleBack = async () => {
-    const empty = !title.trim() && !contentRef.current.trim();
+    const empty = !title.trim() && !hasDiaryContent(contentRef.current);
+    if (isNew && empty) {
+      discardingRef.current = true;
+      discardPendingOwner(`diary-draft:${entry.projectId}:${entry.id}`);
+      onClose();
+      return;
+    }
     if (isDirty && !(isNew && empty)) {
-      // The parent closes the editor once the entry persists. When the write
-      // fails the author has already been told; Back still has to let them
-      // out instead of doing nothing.
-      const saved = await handleSave();
-      if (saved) return;
+      // The parent closes after success. A failed save keeps the only copy of
+      // the draft visible and retryable instead of treating Back as discard.
+      await handleSave();
+      return;
     }
     onClose();
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" aria-busy={saving} inert={saving}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <button
@@ -116,12 +169,14 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-4 py-1.5 text-sm bg-accent-gold text-white rounded-lg hover:bg-accent-amber transition font-medium disabled:opacity-50"
+            className="px-4 py-1.5 text-sm bg-accent-gold text-deep rounded-lg hover:bg-accent-amber transition font-medium disabled:opacity-50"
           >
             {saving ? t('common.saving') : isNew ? t('common.create') : t('writings.save')}
           </button>
         </div>
       </div>
+
+      {saveFailed ? <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-danger"><span>{t('diary.saveError')}</span><button type="button" onClick={() => { void flushDraft(); }} className="underline">{t('diary.retrySave')}</button></div> : <p role="status" className="text-xs text-text-muted">{autosaving ? t('common.saving') : isDirty ? t('diary.autosavePending') : t('diary.autosaveReady')}</p>}
 
       {/* Date & time + pin */}
       <div className="flex items-center gap-3 flex-wrap">
@@ -204,8 +259,16 @@ export default function EntryEditor({ entry, isNew, onSave, onDelete, onClose }:
         destructive
         message={t('diary.deleteConfirm')}
         onConfirm={async () => {
-          setPendingDelete(false);
-          await onDelete();
+          discardingRef.current = true;
+          try {
+            if (inFlightRef.current) await inFlightRef.current;
+            await onDelete();
+            discardPendingOwner(`diary-draft:${entry.projectId}:${entry.id}`);
+            setPendingDelete(false);
+          } catch (error) {
+            discardingRef.current = false;
+            throw error;
+          }
         }}
         onCancel={() => setPendingDelete(false)}
       />

@@ -22,6 +22,7 @@ import { marchingSquares } from './contours';
 import { renderCartography, type CartoLayers, type CartoView } from './render';
 import type { CartoTheme } from './theme';
 import type { Ctx } from './symbols';
+import { geographyContentKey } from '../region/contentIdentity';
 
 // A world object is identity-stable for as long as it is loaded, so a WeakMap
 // keyed on it is exactly the right cache lifetime.
@@ -69,8 +70,29 @@ const GEO_CACHE = new WeakMap<WorldData, GeoEntry>();
  * revisión no puede cobrar la base del otro estado.
  */
 function geoKey(world: WorldData, params: HumanGeographyParams): string {
+  // Absence is the legacy open policy, exactly as buildHumanGeography treats
+  // it. Undoing the last non-policy edit must not become a full cache miss.
+  const policy = params.sites === 'auto'
+    ? (world.painted?.sitesPolicy ?? { everywhere: true, zones: [] })
+    : null;
   return JSON.stringify(params)
-    + '|' + JSON.stringify(world.painted?.sitesPolicy ?? null);
+    + '|' + JSON.stringify(policy);
+}
+
+/** Interaction path: patch an existing base, or report a cold cache. Never
+ * generate geography here, including when a places policy actually changed.
+ * Keep the base key/revision so the background rebuild remains necessary. */
+export function patchCachedGeography(world: WorldData): HumanGeography | null {
+  const hit = GEO_CACHE.get(world);
+  if (!hit) return null;
+  const geo = patchGeography(world, hit.base);
+  GEO_CACHE.set(world, { ...hit, rev: world.revision ?? 0, geo });
+  return geo;
+}
+
+/** Scheduling only: querying cache depth must never build or patch anything. */
+export function cachedGeographyDepth(world: WorldData): GeoDepth | null {
+  return GEO_CACHE.get(world)?.depth ?? null;
 }
 
 export function getGeography(
@@ -491,12 +513,13 @@ export function getCartoTexture(
   theme: CartoTheme,
   geography: HumanGeography | undefined,
   size = 2048,
+  visibility: Pick<Partial<CartoLayers>, 'rivers' | 'roads' | 'borders'> = {},
 ): HTMLCanvasElement {
   const rev = world.revision ?? 0;
   let entry = TEX_CACHE.get(world);
   if (!entry || entry.rev !== rev) TEX_CACHE.set(world, (entry = { rev, map: new Map() }));
   const per = entry.map;
-  const key = `${theme.id}:${size}:${geography ? 'geo' : 'bare'}`;
+  const key = `${theme.id}:${size}:${geography ? geographyContentKey(geography) : 'bare'}:${visibility.rivers !== false}:${visibility.roads !== false}:${visibility.borders === true}`;
   const hit = per.get(key);
   if (hit) return hit;
 
@@ -512,12 +535,17 @@ export function getCartoTexture(
       scaleBar: false,
       graticule: false,
       labels: false,
-      borders: false,
+      rivers: visibility.rivers !== false,
+      roads: visibility.roads !== false,
+      borders: visibility.borders === true,
     },
     density: 1,
     typeScale: 1,
   });
   per.set(key, canvas);
+  // Layer toggles can produce many full-resolution variants of one world.
+  // Retain a small working set instead of every combination until it unloads.
+  while (per.size > 4) per.delete(per.keys().next().value!);
   return canvas;
 }
 

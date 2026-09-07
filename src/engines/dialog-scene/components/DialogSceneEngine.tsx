@@ -5,8 +5,11 @@ import { useScenes } from '../hooks';
 import { autoNumberScenes } from '../operations';
 import SceneListView from './SceneListView';
 import SceneEditor from './SceneEditor';
+import { toast } from '@/components/common/toast';
+import { useTranslation } from '@/i18n/useTranslation';
 
 export default function DialogSceneEngine({ projectId }: EngineComponentProps) {
+  const { t } = useTranslation();
   const { items: scenes, loading, addItem: addScene, editItem: editScene, removeItem: removeScene, reorder, refresh } =
     useScenes(projectId);
   const [activeSceneId, setActiveSceneId] = useState<string>('');
@@ -25,29 +28,19 @@ export default function DialogSceneEngine({ projectId }: EngineComponentProps) {
   // NOTE: No useAutoSelect here — Dialog engine uses explicit list→editor navigation.
   // useAutoSelect would immediately re-select a scene after Back, preventing the list view.
 
-  // Auto-number scenes whenever the list changes
-  const runAutoNumber = useCallback(async () => {
-    if (scenes.length === 0) return;
-    await autoNumberScenes(projectId);
-    await refresh();
-  }, [scenes.length, projectId, refresh]);
-
-  // Re-number after reorder or add/delete
+  // The operations commit order and numbering together; no timing guesses.
   const handleReorder = useCallback(async (orderedIds: string[]) => {
     await reorder(orderedIds);
-    // Small delay to let reorder persist, then re-number
-    setTimeout(() => autoNumberScenes(projectId).then(refresh), 50);
-  }, [reorder, projectId, refresh]);
+  }, [reorder]);
 
   const handleCreateScene = useCallback(async (scene: Parameters<typeof addScene>[0]) => {
     await addScene({ ...scene, projectId });
-    setTimeout(() => autoNumberScenes(projectId).then(refresh), 50);
-  }, [addScene, projectId, refresh]);
+    setActiveSceneId(scene.id);
+  }, [addScene, projectId]);
 
   const handleDeleteScene = useCallback(async (sceneId: string) => {
     await removeScene(sceneId);
-    setTimeout(() => autoNumberScenes(projectId).then(refresh), 50);
-  }, [removeScene, projectId, refresh]);
+  }, [removeScene]);
 
   // After a script import: number the new scenes (locks from `#N#` numbers
   // are respected) and refresh. No 50 ms timer — the import's transaction has
@@ -59,10 +52,10 @@ export default function DialogSceneEngine({ projectId }: EngineComponentProps) {
 
   // Auto-number on initial load if any scene lacks a number
   useEffect(() => {
-    if (!loading && scenes.length > 0 && scenes.some((s) => s.sceneNumber === undefined)) {
-      runAutoNumber();
+    if (!loading && scenes.some((s) => !s.isLocked && s.sceneNumber === undefined)) {
+      void autoNumberScenes(projectId).then(refresh).catch(() => toast.error(t('dialogScene.saveError')));
     }
-  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loading, scenes, projectId, refresh, t]);
 
   if (loading && scenes.length === 0) return <EngineSpinner className="flex items-center justify-center h-full bg-deep" />;
 
@@ -72,6 +65,7 @@ export default function DialogSceneEngine({ projectId }: EngineComponentProps) {
     <div className="h-full">
       {activeScene ? (
         <SceneEditor
+          key={activeScene.id}
           scene={activeScene}
           scenes={scenes}
           onUpdateScene={(changes) => editScene(activeScene.id, changes)}

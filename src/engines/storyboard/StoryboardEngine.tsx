@@ -101,6 +101,7 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
       {/* Main Storyboard View */}
       {activeStoryboard && (
         <StoryboardView
+          key={activeStoryboard.id}
           storyboard={activeStoryboard}
           panels={panels}
           connectors={connectors}
@@ -147,9 +148,8 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
         {/* Storyboards Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {storyboards.map((sb) => (
-            <button
+            <div
               key={sb.id}
-              onClick={() => setActiveStoryboardId(sb.id)}
               className={`p-3 rounded-lg border-2 text-left transition ${
                 activeStoryboardId === sb.id
                   ? 'border-accent-gold bg-accent-gold/10'
@@ -157,22 +157,22 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
               }`}
             >
               <div className="flex items-start justify-between">
-                <div className="flex-1">
+                <button type="button" onClick={() => setActiveStoryboardId(sb.id)} aria-pressed={activeStoryboardId === sb.id} className="min-w-0 flex-1 text-left">
                   <h4 className="font-semibold text-text-primary text-sm mb-1">{sb.title}</h4>
                   <p className="text-text-muted text-xs">{panelCounts[sb.id] ?? 0} {t('storyboard.panels')} • {sb.columns} {t('storyboard.columns')}</p>
-                </div>
+                </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     setPendingDeleteStoryboardId(sb.id);
                   }}
-                  className="p-1 text-red-600 hover:text-red-700 transition opacity-0 hover:opacity-100"
+                  className="p-2 text-text-muted hover:text-danger focus-visible:text-danger transition"
                   title={t('storyboard.deleteStoryboard')}
                 >
                   <Trash2 size={14} />
                 </button>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       </div>

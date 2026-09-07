@@ -25,6 +25,7 @@ import { captureNote } from '../operations';
 import { notifyNotesChanged } from '../hooks';
 import { GLOBAL_NOTES_SCOPE } from '../types';
 import NoteComposer, { type NoteDraft } from './NoteComposer';
+import { QUICK_NOTE_OPEN_EVENT } from '../quickCapture';
 
 const NOTES_ENGINE_ID = 'notes';
 
@@ -41,6 +42,7 @@ export default function QuickNoteHost() {
   const { project } = useProject(projectId ?? undefined);
   const [open, setOpen] = useState(false);
   const [toProject, setToProject] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   /**
    * Write one captured note and say where it went. Resolves true when a row
@@ -91,6 +93,7 @@ export default function QuickNoteHost() {
         text: draft.text,
         kind: draft.kind,
         source: draft.source,
+        tags: draft.tags,
       });
       if (!note) return false;
       notifyNotesChanged();
@@ -189,14 +192,24 @@ export default function QuickNoteHost() {
 
   const targetId = toProject && projectId ? projectId : GLOBAL_NOTES_SCOPE;
 
+  useEffect(() => {
+    const openCapture = () => {
+      setToProject(true);
+      setOpen(true);
+    };
+    window.addEventListener(QUICK_NOTE_OPEN_EVENT, openCapture);
+    return () => window.removeEventListener(QUICK_NOTE_OPEN_EVENT, openCapture);
+  }, []);
+
   return (
-    <Modal open={open} onClose={() => setOpen(false)} title={t('notes.quickCapture')}>
+    <Modal open={open} onClose={() => setOpen(false)} busy={saving} title={t('notes.quickCapture')}>
       <div className="space-y-3">
         {projectId && project && (
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-text-dim mr-1">{t('notes.saveIn')}</span>
             <button
               onClick={() => setToProject(true)}
+              disabled={saving}
               className={`px-2.5 py-1 rounded-full text-xs border transition truncate max-w-[14rem] ${
                 toProject
                   ? 'border-accent-gold text-accent-gold bg-accent-gold/10'
@@ -207,6 +220,7 @@ export default function QuickNoteHost() {
             </button>
             <button
               onClick={() => setToProject(false)}
+              disabled={saving}
               className={`px-2.5 py-1 rounded-full text-xs border transition ${
                 !toProject
                   ? 'border-accent-gold text-accent-gold bg-accent-gold/10'
@@ -220,11 +234,11 @@ export default function QuickNoteHost() {
         <NoteComposer
           bare
           autoFocus
-          onSubmit={(draft) => {
-            // The modal unmounts on close, so a rejected write has nowhere to
-            // surface but a toast — silence here is the same lost note.
-            void save(targetId, draft).catch(() => toast.error(t('notes.saveFailed')));
-            setOpen(false);
+          onPendingChange={setSaving}
+          onSubmit={async (draft) => {
+            const written = await save(targetId, draft);
+            if (written) setOpen(false);
+            return written;
           }}
         />
       </div>

@@ -106,7 +106,13 @@ export function relevantEditsForSheets(
     ({ pts, radius, strength: 1, softness: 0 });
   const touches = (stroke: Stroke): boolean =>
     sheets.some((g) => strokeTouchesSheet(stroke, g, world.width));
-  return deserializeEdits(editsJson).filter((e) => {
+  const edits = deserializeEdits(editsJson);
+  let environmentPrefix = edits.length - 1;
+  while (environmentPrefix >= 0 && edits[environmentPrefix].kind !== 'recalculate') environmentPrefix--;
+  return edits.filter((e, index) => {
+    // A distant ridge can change this sheet's rainfall after recalculation.
+    // The checkpoint therefore depends on its entire prefix, not only local strokes.
+    if (index <= environmentPrefix) return true;
     if ('stroke' in e) return touches(e.stroke);
     if (e.kind === 'river') return touches(asStroke(e.pts, Math.max(1, e.width)));
     if (e.kind === 'road' || e.kind === 'realmArea') {
