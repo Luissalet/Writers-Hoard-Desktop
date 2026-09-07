@@ -763,6 +763,9 @@ async function createConversion(
     targetTable: 'writings',
     preview: `${source.title} → ${writing.title}`,
     undoPayload: { targetId: writing.id, targetTable: 'writings' },
+    receiptVersion: 2,
+    targetVersion: writing.updatedAt,
+    targetFingerprint: fingerprintConversionTarget(writing),
     createdAt: now,
   };
   const link: EntityLink = {
@@ -781,6 +784,7 @@ async function createConversion(
     createdAt: now,
     updatedAt: now,
   };
+  receipt.conversionLinkId = link.id;
   await db.transaction('rw', [db.writings, db.conversionReceipts, db.entityLinks], async () => {
     await db.writings.add(writing);
     await db.conversionReceipts.add(receipt);
@@ -843,15 +847,171 @@ export async function promoteSnapshotToWriting(snapshotId: string): Promise<Conv
   return createConversion(snapshot.projectId, { engineId: 'scrapper', entityType: 'snapshot', id: snapshot.id, title: writing.title }, writing);
 }
 
-export async function undoConversion(receiptId: string): Promise<void> {
-  const receipt = await db.conversionReceipts.get(receiptId);
-  if (!receipt || receipt.undoneAt) return;
-  if (receipt.targetTable !== 'writings') throw new Error('Unsupported conversion target');
-  await db.transaction('rw', [db.writings, db.writingSnapshots, db.entityLinks, db.conversionReceipts], async () => {
-    await db.writingSnapshots.where('writingId').equals(receipt.targetEntityId).delete();
-    await db.writings.delete(receipt.targetEntityId);
-    await db.entityLinks.where('targetEntityId').equals(receipt.targetEntityId).delete();
-    await db.conversionReceipts.update(receipt.id, { undoneAt: Date.now() });
+/**
+ * Stable, local signature for the fields a conversion owns when it creates a
+ * writing. `updatedAt` is also checked independently; the signature closes the
+ * same-millisecond and direct-Dexie-write gaps without coupling this workflow
+ * to the image-runtime recipe hasher.
+ */
+function fingerprintConversionTarget(writing: Writing): string {
+  const semantic = JSON.stringify({
+    id: writing.id,
+    projectId: writing.projectId,
+    title: writing.title,
+    status: writing.status,
+    content: writing.content,
+    synopsis: writing.synopsis ?? null,
+    wordCount: writing.wordCount,
+    chapter: writing.chapter ?? null,
+    tags: writing.tags,
+    googleDocId: writing.googleDocId ?? null,
+    googleDocUrl: writing.googleDocUrl ?? null,
+    googleDocName: writing.googleDocName ?? null,
+    lastSyncedAt: writing.lastSyncedAt ?? null,
+    syncDirection: writing.syncDirection ?? null,
+    isGoogleDoc: writing.isGoogleDoc ?? null,
+    createdAt: writing.createdAt,
+  });
+
+  // Two differently-seeded FNV-1a lanes plus the byte length. This is an
+  // integrity fingerprint, not an authentication primitive; the version token
+  // and dependency checks below are separate guards.
+  let left = 0x811c9dc5;
+  let right = 0x9e3779b9;
+  for (let index = 0; index < semantic.length; index += 1) {
+    const code = semantic.charCodeAt(index);
+    left = Math.imul(left ^ code, 0x01000193) >>> 0;
+    right = Math.imul(right ^ code, 0x85ebca6b) >>> 0;
+  }
+  return `writing-v1:${semantic.length}:${left.toString(16).padStart(8, '0')}${right.toString(16).padStart(8, '0')}`;
+}
+
+export type ConversionUndoResult =
+  | { status: 'not-found'; receiptId: string }
+  | { status: 'already-undone'; receiptId: string; disposition?: ConversionReceipt['undoDisposition'] }
+  | { status: 'removed-intact'; receiptId: string; targetEntityId: string }
+  | {
+      status: 'detached-preserved';
+      receiptId: string;
+      targetEntityId: string;
+      reason: NonNullable<ConversionReceipt['undoReason']>;
+    }
+  | { status: 'target-missing'; receiptId: string; targetEntityId: string };
+
+/**
+ * Undo a promotion without ever interpreting an old receipt as permission to
+ * destroy later work.
+ *
+ * A v2 target is physically removed only while its semantic fields and
+ * monotonic version are byte-for-byte the ones the conversion created and no
+ * user-owned history or relation points at it. Every other case keeps the
+ * writing and merely removes the conversion provenance edge. The decision and
+ * mutation share one transaction, so a concurrent edit can only make the
+ * operation more conservative, never race underneath a delete.
+ */
+export async function undoConversion(receiptId: string): Promise<ConversionUndoResult> {
+  const tables = [
+    db.writings,
+    db.writingSnapshots,
+    db.entityLinks,
+    db.conversionReceipts,
+    db.outlineBeats,
+    db.annotations,
+    db.citations,
+    db.publishingProfiles,
+  ];
+
+  return db.transaction('rw', tables, async (): Promise<ConversionUndoResult> => {
+    const receipt = await db.conversionReceipts.get(receiptId);
+    if (!receipt) return { status: 'not-found', receiptId };
+    if (receipt.undoneAt) {
+      return { status: 'already-undone', receiptId, disposition: receipt.undoDisposition };
+    }
+    if (receipt.targetTable !== 'writings') throw new Error('Unsupported conversion target');
+
+    const target = await db.writings.get(receipt.targetEntityId);
+    const projectLinks = await db.entityLinks.where('projectId').equals(receipt.projectId).toArray();
+    const conversionLinks = projectLinks.filter(link =>
+      link.provenance === 'conversion'
+      && link.sourceEngineId === receipt.sourceEngineId
+      && link.sourceEntityId === receipt.sourceEntityId
+      && link.targetEngineId === receipt.targetEngineId
+      && link.targetEntityId === receipt.targetEntityId
+      && (!receipt.conversionLinkId || link.id === receipt.conversionLinkId),
+    );
+
+    const unlinkConversion = async (): Promise<void> => {
+      if (conversionLinks.length) {
+        await db.entityLinks.bulkDelete(conversionLinks.map(link => link.id));
+      }
+    };
+
+    if (!target) {
+      await unlinkConversion();
+      await db.conversionReceipts.update(receipt.id, {
+        undoneAt: Date.now(),
+        undoDisposition: 'target-missing',
+      });
+      return { status: 'target-missing', receiptId, targetEntityId: receipt.targetEntityId };
+    }
+
+    const isModern = receipt.receiptVersion === 2
+      && receipt.targetVersion !== undefined
+      && Boolean(receipt.targetFingerprint);
+    const scopeMatches = target.projectId === receipt.projectId;
+    const targetChanged = !isModern
+      || target.updatedAt !== receipt.targetVersion
+      || fingerprintConversionTarget(target) !== receipt.targetFingerprint;
+
+    const [snapshots, beats, annotations, citations, profiles] = await Promise.all([
+      db.writingSnapshots.where('writingId').equals(target.id).count(),
+      db.outlineBeats.where('projectId').equals(receipt.projectId).filter(beat => beat.linkedWritingId === target.id).count(),
+      db.annotations.where('[sourceEngineId+sourceEntityId]').equals(['writings', target.id]).count(),
+      db.citations.where('projectId').equals(receipt.projectId).filter(citation => citation.writingIds.includes(target.id)).count(),
+      db.publishingProfiles.where('projectId').equals(receipt.projectId).filter(profile =>
+        profile.selectedWritingIds.includes(target.id) || (profile.writingOrder ?? []).includes(target.id),
+      ).count(),
+    ]);
+    const otherLinks = projectLinks.some(link =>
+      !conversionLinks.some(conversion => conversion.id === link.id)
+      && (
+        (link.sourceEngineId === 'writings' && link.sourceEntityId === target.id)
+        || (link.targetEngineId === 'writings' && link.targetEntityId === target.id)
+      ),
+    );
+    const referenced = snapshots > 0 || beats > 0 || annotations > 0
+      || citations > 0 || profiles > 0 || otherLinks;
+
+    if (scopeMatches && !targetChanged && !referenced) {
+      await unlinkConversion();
+      await db.writings.delete(target.id);
+      await db.conversionReceipts.update(receipt.id, {
+        undoneAt: Date.now(),
+        undoDisposition: 'removed-intact',
+        undoReason: undefined,
+      });
+      return { status: 'removed-intact', receiptId, targetEntityId: target.id };
+    }
+
+    const reason: NonNullable<ConversionReceipt['undoReason']> = !scopeMatches
+      ? 'scope-mismatch'
+      : !isModern
+        ? 'legacy'
+        : referenced
+          ? 'referenced'
+          : 'changed';
+    await unlinkConversion();
+    await db.conversionReceipts.update(receipt.id, {
+      undoneAt: Date.now(),
+      undoDisposition: 'detached-preserved',
+      undoReason: reason,
+    });
+    return {
+      status: 'detached-preserved',
+      receiptId,
+      targetEntityId: target.id,
+      reason,
+    };
   });
 }
 

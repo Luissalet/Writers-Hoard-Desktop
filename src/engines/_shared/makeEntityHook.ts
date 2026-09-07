@@ -72,10 +72,15 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
       mountedRef.current = true;
       return () => {
         mountedRef.current = false;
+        seqRef.current += 1;
       };
     }, []);
 
     const refresh = useCallback(async () => {
+      // Invalidate every older request BEFORE the empty-scope early return.
+      // Otherwise A can resolve after A→empty and repopulate a screen that no
+      // longer owns A.
+      const seq = ++seqRef.current;
       if (!scopeId) {
         setItems([]);
         setLoading(false);
@@ -84,7 +89,6 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
         loadedScopeRef.current = null;
         return;
       }
-      const seq = ++seqRef.current;
       const isInitialForScope = loadedScopeRef.current !== scopeId;
       if (isInitialForScope) setLoading(true);
       else setRefetching(true);
@@ -170,11 +174,15 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
       [scopeId, refresh],
     );
 
+    const ownsPublishedItems = Boolean(scopeId) && loadedScopeRef.current === scopeId;
     return {
-      items,
-      loading,
-      refetching,
-      error,
+      // On the render where A changes to B, the effect that starts B has not
+      // run yet. Deriving by ownership prevents that one render from labelling
+      // A's rows as B's data.
+      items: ownsPublishedItems ? items : [],
+      loading: Boolean(scopeId) && !ownsPublishedItems ? true : loading,
+      refetching: ownsPublishedItems ? refetching : false,
+      error: ownsPublishedItems ? error : null,
       addItem,
       editItem,
       removeItem,

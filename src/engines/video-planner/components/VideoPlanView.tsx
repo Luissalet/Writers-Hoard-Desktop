@@ -182,7 +182,7 @@ export default function VideoPlanView({
                     }}
                     title={t('videoPlanner.renamePlan')}
                     aria-label={t('videoPlanner.renamePlan')}
-                    className="p-1.5 rounded text-neutral-400 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-accent-gold hover:bg-accent-gold/10 transition-all"
+                    className="p-1.5 rounded text-neutral-400 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-accent-gold hover:bg-accent-gold/10 transition-[opacity,color,background-color]"
                   >
                     <Pencil className="w-4 h-4" />
                   </button>

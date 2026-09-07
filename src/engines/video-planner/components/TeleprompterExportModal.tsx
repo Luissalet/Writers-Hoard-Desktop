@@ -209,7 +209,7 @@ export default function TeleprompterExportModal({ plan, segments, onClose }: Pro
               {phase === 'recording' && progress.total > 0 && (
                 <div className="h-1.5 w-full rounded-full bg-deep overflow-hidden">
                   <div
-                    className="h-full bg-accent-gold transition-all"
+                    className="h-full bg-accent-gold transition-[width]"
                     style={{ width: `${Math.min(100, (progress.elapsed / progress.total) * 100)}%` }}
                   />
                 </div>

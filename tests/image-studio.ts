@@ -19,11 +19,26 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import en from '@/locales/en';
 import es from '@/locales/es';
+import { db } from '@/db';
+import { deleteProject } from '@/db/operations';
 import { t as translate } from '@/i18n/useTranslation';
+import {
+  canonicalJson,
+  recipeHash,
+  type ImageRecipeRow,
+  type Recipe as RuntimeRecipe,
+} from '@/services/aiRuntime/recipe';
+import type { AiImageResult } from '@/services/aiRuntime/types';
 import { SD_SAMPLERS, SD_SCHEDULERS } from '@/services/aiRuntime/sdServer';
+import { createProjectZipArchive, importProjectZip } from '@/services/zipBackup';
 import type { ResolverModel } from '@/services/visualRef';
 import type { VisualRef } from '@/types/visualRef';
-import { REQUEST_SUPPORTS } from '@/engines/image-studio/operations';
+import {
+  REQUEST_SUPPORTS,
+  deleteGeneratedImage,
+  saveGenerated,
+  type GenerateAndSaveOptions,
+} from '@/engines/image-studio/operations';
 import {
   CURATED_SAMPLERS,
   CURATED_SCHEDULERS,
@@ -621,6 +636,219 @@ export function testStudioPlanRun(): void {
 }
 
 // ---------------------------------------------------------------------------
+// 11. Exact runtime recipes: semantic identity, storage and lifecycle
+// ---------------------------------------------------------------------------
+
+function exactRuntimeRecipe(id = 'runtime-recipe-exact'): RuntimeRecipe {
+  const recipe: RuntimeRecipe = {
+    version: 1,
+    id,
+    createdAt: 1_777_777_777_000,
+    prompt: {
+      positive: 'a lighthouse',
+      negative: 'fog',
+      resolvedPositive: 'a red lighthouse at dawn',
+      resolvedNegative: 'dense fog',
+    },
+    model: {
+      id: 'model-sdxl-a',
+      label: 'SDXL A',
+      fileName: 'sdxl-a.safetensors',
+      sha256: 'a'.repeat(64),
+      files: [{ id: 'vae-a', fileName: 'vae-a.safetensors', sha256: 'b'.repeat(64) }],
+    },
+    loras: [{
+      id: 'lora-light-a',
+      label: 'Light A',
+      fileName: 'light-a.safetensors',
+      sha256: 'c'.repeat(64),
+      weight: 0.65,
+    }],
+    sampling: { sampler: 'euler_a', scheduler: 'karras', steps: 24, cfg: 6.5 },
+    seed: { seed: 42, rngMode: 'cuda' },
+    size: { width: 1024, height: 1024 },
+    inputs: {
+      initImage: { imageId: 'source-image-a', sha256: 'd'.repeat(64) },
+      refImages: [{ imageId: 'reference-image-a', sha256: 'e'.repeat(64) }],
+      strength: 0.55,
+    },
+    passes: [{ kind: 'base' }, { kind: 'hires', upscaler: 'Latent', scale: 1.5 }],
+    backend: { kind: 'sdcpp', version: 'test', connectionId: 'builtin-sd', runtimeProfileHash: 'runtime-a' },
+  };
+  return { ...recipe, hash: recipeHash(recipe) };
+}
+
+export function testRecipeHashUsesNestedIdentityOnly(): void {
+  const recipe = exactRuntimeRecipe();
+  const hash = recipeHash(recipe);
+
+  assert(recipeHash({ ...recipe, model: { ...recipe.model, id: 'model-sdxl-b' } }) !== hash,
+    'changing model.id kept the same recipe hash');
+  assert(recipeHash({
+    ...recipe,
+    model: { ...recipe.model, files: [{ ...recipe.model.files![0], id: 'vae-b' }] },
+  }) !== hash, 'changing a nested model asset id kept the same recipe hash');
+  assert(recipeHash({
+    ...recipe,
+    loras: [{ ...recipe.loras[0], id: 'lora-light-b' }],
+  }) !== hash, 'changing a LoRA id kept the same recipe hash');
+  assert(recipeHash({
+    ...recipe,
+    inputs: { ...recipe.inputs, initImage: { ...recipe.inputs.initImage!, imageId: 'source-image-b' } },
+  }) !== hash, 'changing an input image id kept the same recipe hash');
+
+  const row: ImageRecipeRow = {
+    ...recipe,
+    projectId: 'project-a',
+    imageId: 'gallery-image-a',
+    updatedAt: 1_777_777_777_100,
+  };
+  const movedRow: ImageRecipeRow = {
+    ...row,
+    id: 'another-row-id',
+    projectId: 'project-b',
+    imageId: 'gallery-image-b',
+    createdAt: row.createdAt + 1,
+    updatedAt: row.updatedAt + 1,
+    hash: 'stale-row-hash',
+  };
+  assert(recipeHash(movedRow) === recipeHash(row),
+    'root row identity/ownership timestamps contaminated the semantic hash');
+}
+
+const ONE_PIXEL_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+function withoutRecipeRowMetadata(row: ImageRecipeRow): Record<string, unknown> {
+  const recipe = { ...row } as Record<string, unknown>;
+  delete recipe.projectId;
+  delete recipe.imageId;
+  delete recipe.updatedAt;
+  return recipe;
+}
+
+export async function testExactRecipePersistenceBackupAndCascade(): Promise<void> {
+  const projectId = 'image-recipe-roundtrip-project';
+  const madeAt = 1_777_777_777_000;
+  const recipe = exactRuntimeRecipe();
+  const options: GenerateAndSaveOptions = {
+    projectId,
+    route: { connectionId: 'builtin-sd', modelId: recipe.model.id },
+    prompt: recipe.prompt.positive,
+    negativePrompt: recipe.prompt.negative,
+    width: recipe.size.width,
+    height: recipe.size.height,
+    n: 2,
+    seed: recipe.seed.seed,
+    steps: recipe.sampling.steps,
+    guidance: recipe.sampling.cfg,
+    sampler: recipe.sampling.sampler,
+    scheduler: recipe.sampling.scheduler,
+    stamp: madeAt,
+  };
+  const runtimeResult: AiImageResult = {
+    ok: true,
+    images: [
+      { base64: ONE_PIXEL_PNG, mimeType: 'image/png', seed: recipe.seed.seed, recipe },
+      // Providers and rows predating v30 have only the legacy generation data.
+      { base64: ONE_PIXEL_PNG, mimeType: 'image/png', seed: recipe.seed.seed + 1 },
+    ],
+  };
+
+  await deleteProject(projectId);
+  await db.projects.add({
+    id: projectId,
+    title: 'Image Recipe Roundtrip',
+    mode: 'novelist',
+    type: 'standalone',
+    color: '#123456',
+    description: '',
+    status: 'in-progress',
+    enabledEngines: ['gallery', 'image-studio'],
+    engineOrder: ['gallery', 'image-studio'],
+    createdAt: madeAt,
+    updatedAt: madeAt,
+  });
+
+  try {
+    const saved = await saveGenerated(options, runtimeResult);
+    assert(saved.ok && saved.images.length === 2, 'the mixed exact/legacy batch did not save');
+    const linkedImage = saved.images[0];
+    const legacyImage = saved.images[1];
+    assert(linkedImage.generation?.recipeId === recipe.id, 'the Gallery row did not link the runtime recipe id');
+    assert(linkedImage.generation?.recipeHash === recipe.hash, 'the Gallery row did not link the verified recipe hash');
+    assert(!legacyImage.generation?.recipeId && !legacyImage.generation?.recipeHash,
+      'a provider with no exact recipe was given a fabricated link');
+
+    const stored = await db.imageRecipes.get(recipe.id);
+    assert(stored, 'saveGenerated wrote the image without its recipe');
+    assert(stored.projectId === projectId && stored.imageId === linkedImage.id,
+      'the stored recipe points at the wrong project or Gallery row');
+    assert(canonicalJson(withoutRecipeRowMetadata(stored)) === canonicalJson(recipe),
+      'the recipe read from Dexie differs from the exact runtime recipe');
+
+    // Replaying an already-consumed result must not create new Gallery rows or
+    // overwrite the existing recipe's imageId. The duplicate primary key makes
+    // the whole transaction fail before either table can diverge.
+    let duplicateRejected = false;
+    try {
+      await saveGenerated(options, runtimeResult);
+    } catch {
+      duplicateRejected = true;
+    }
+    assert(duplicateRejected, 'a duplicate runtime recipe id was silently reassigned');
+    assert(await db.inspirationImages.where('projectId').equals(projectId).count() === 2,
+      'a failed duplicate save left orphan Gallery rows');
+    assert(await db.imageRecipes.where('projectId').equals(projectId).count() === 1,
+      'a failed duplicate save changed the recipe set');
+
+    const corrupt = { ...recipe, id: 'runtime-recipe-corrupt', hash: '0'.repeat(64) };
+    let corruptRejected = false;
+    try {
+      await saveGenerated({ ...options, n: 1 }, {
+        ok: true,
+        images: [{ base64: ONE_PIXEL_PNG, mimeType: 'image/png', recipe: corrupt }],
+      });
+    } catch {
+      corruptRejected = true;
+    }
+    assert(corruptRejected, 'saveGenerated accepted a runtime recipe whose stored hash was false');
+    assert(await db.inspirationImages.where('projectId').equals(projectId).count() === 2,
+      'a failed recipe integrity check left an image row behind');
+
+    const archive = await createProjectZipArchive(projectId);
+    await deleteProject(projectId);
+    assert(!await db.projects.get(projectId), 'project deletion left its project row behind');
+    assert(await db.imageRecipes.where('projectId').equals(projectId).count() === 0,
+      'project deletion left an image recipe behind');
+    assert(await db.inspirationImages.where('projectId').equals(projectId).count() === 0,
+      'project deletion left a generated image behind');
+
+    const restoredIds = await importProjectZip(new File([archive.blob], archive.fileName, { type: 'application/zip' }));
+    assert(restoredIds.includes(projectId), 'the project archive did not restore its project');
+    const restoredRecipe = await db.imageRecipes.get(recipe.id);
+    const restoredImage = await db.inspirationImages.get(linkedImage.id);
+    const restoredLegacy = await db.inspirationImages.get(legacyImage.id);
+    assert(restoredRecipe && restoredImage, 'backup/restore lost the linked image or exact recipe');
+    assert(restoredImage.generation?.recipeId === restoredRecipe.id &&
+      restoredImage.generation.recipeHash === restoredRecipe.hash,
+    'backup/restore broke the Gallery-to-recipe link');
+    assert(canonicalJson(withoutRecipeRowMetadata(restoredRecipe)) === canonicalJson(recipe),
+      'backup/restore changed the exact recipe');
+    assert(restoredLegacy && !restoredLegacy.generation?.recipeId,
+      'backup/restore stopped supporting a legacy image without a recipe');
+
+    await deleteGeneratedImage(restoredImage.id);
+    assert(!await db.inspirationImages.get(restoredImage.id) && !await db.imageRecipes.get(recipe.id),
+      'deleting a generated image did not cascade to its recipe');
+    assert(await db.inspirationImages.get(restoredLegacy.id),
+      'the recipe cascade deleted an unrelated legacy image');
+  } finally {
+    await deleteProject(projectId);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 export async function runImageStudioTests(): Promise<string[]> {
   await testStudioNoBackend();
@@ -638,6 +866,8 @@ export async function runImageStudioTests(): Promise<string[]> {
   testStudioSeeds();
   testStudioXyzMatrix();
   testStudioPlanRun();
+  testRecipeHashUsesNestedIdentityOnly();
+  await testExactRecipePersistenceBackupAndCascade();
   return [
     'Studio: with no image backend every knob is refused, and for the right reason',
     'Studio: three levels, each a superset of the one below',
@@ -654,5 +884,7 @@ export async function runImageStudioTests(): Promise<string[]> {
     'Studio: a batch walks its seed, or holds it',
     'Studio: X/Y/Z builds the right matrix, X fastest, capped',
     'Studio: one run planned — the resolved prompt is what is recorded',
+    'Studio recipes: nested asset ids define the hash; root row metadata does not',
+    'Studio recipes: atomic save, exact read, backup/restore, legacy fallback and cascades',
   ];
 }

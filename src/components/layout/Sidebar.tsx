@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { NavLink, useParams } from 'react-router-dom';
 import {
   Home,
   ChevronLeft,
@@ -23,9 +22,7 @@ import { toast } from '@/components/common/toast';
 export default function Sidebar() {
   const { t } = useTranslation();
   const { sidebarOpen, toggleSidebar, setShowEngineManager } = useAppStore();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { id: projectId, tab } = useParams<{ id?: string; tab?: string }>();
+  const { id: projectId } = useParams<{ id?: string }>();
 
   // Fetch project data to get dynamic engine list
   const { project } = useProject(projectId);
@@ -34,14 +31,16 @@ export default function Sidebar() {
   const engineIds = [...new Set(rawOrder)];
   const engines = getEnginesByIds(engineIds);
 
-  const isHome = location.pathname === '/';
-  const isMediaDownloader = location.pathname === '/media-downloader';
-  const isNotesInbox = location.pathname === '/notes';
-  const isAiSettings = location.pathname === '/settings/ai';
   const desktop = isDesktop();
   const inboxCount = useInboxNoteCount();
-  const activeTab = tab || 'overview';
   const [exporting, setExporting] = useState(false);
+
+  const navClass = (active: boolean, strong = false) =>
+    `w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm ${
+      active
+        ? `bg-accent-gold/15 text-accent-gold${strong ? ' font-semibold' : ''}`
+        : 'text-text-muted hover:text-text-primary hover:bg-elevated'
+    }`;
 
   const handleExport = async () => {
     if (!projectId || exporting) return;
@@ -63,10 +62,8 @@ export default function Sidebar() {
   };
 
   return (
-    <motion.aside
-      className="h-full bg-surface border-r border-border flex flex-col overflow-hidden"
-      animate={{ width: sidebarOpen ? 220 : 60 }}
-      transition={{ duration: 0.2 }}
+    <aside
+      className={`h-full bg-surface border-r border-border flex flex-col overflow-hidden transition-[width] duration-200 ${sidebarOpen ? 'w-[220px]' : 'w-[60px]'}`}
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-border">
@@ -74,43 +71,36 @@ export default function Sidebar() {
           <Feather size={18} className="text-accent-gold" />
         </div>
         {sidebarOpen && (
-          <motion.span
+          <span
             className="font-serif font-bold text-accent-gold text-sm whitespace-nowrap"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.1 }}
           >
             {t('sidebar.brand')}
-          </motion.span>
+          </span>
         )}
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
         {/* Home */}
-        <button
-          onClick={() => navigate('/')}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
-            isHome
-              ? 'bg-accent-gold/15 text-accent-gold'
-              : 'text-text-muted hover:text-text-primary hover:bg-elevated'
-          }`}
+        <NavLink
+          to="/"
+          end
+          className={({ isActive }) => navClass(isActive)}
+          title={t('sidebar.home')}
+          aria-label={t('sidebar.home')}
         >
-          <Home size={18} className="flex-shrink-0" />
+          <Home size={18} className="flex-shrink-0" aria-hidden="true" />
           {sidebarOpen && <span className="whitespace-nowrap">{t('sidebar.home')}</span>}
-        </button>
+        </NavLink>
 
         {/* Notes inbox — project-less quick captures, always reachable. */}
-        <button
-          onClick={() => navigate('/notes')}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
-            isNotesInbox
-              ? 'bg-accent-gold/15 text-accent-gold'
-              : 'text-text-muted hover:text-text-primary hover:bg-elevated'
-          }`}
+        <NavLink
+          to="/notes"
+          className={({ isActive }) => navClass(isActive)}
           title={t('sidebar.notes')}
+          aria-label={t('sidebar.notes')}
         >
-          <StickyNote size={18} className="flex-shrink-0" />
+          <StickyNote size={18} className="flex-shrink-0" aria-hidden="true" />
           {sidebarOpen && (
             <>
               <span className="whitespace-nowrap">{t('sidebar.notes')}</span>
@@ -121,38 +111,33 @@ export default function Sidebar() {
               )}
             </>
           )}
-        </button>
+        </NavLink>
 
         {/* Media Downloader — desktop only (bundled yt-dlp backend). */}
         {desktop && (
-          <button
-            onClick={() => navigate('/media-downloader')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
-              isMediaDownloader
-                ? 'bg-accent-gold/15 text-accent-gold'
-                : 'text-text-muted hover:text-text-primary hover:bg-elevated'
-            }`}
+          <NavLink
+            to="/media-downloader"
+            className={({ isActive }) => navClass(isActive)}
+            title={t('sidebar.mediaDownloader')}
+            aria-label={t('sidebar.mediaDownloader')}
           >
-            <Download size={18} className="flex-shrink-0" />
+            <Download size={18} className="flex-shrink-0" aria-hidden="true" />
             {sidebarOpen && (
               <span className="whitespace-nowrap">{t('sidebar.mediaDownloader')}</span>
             )}
-          </button>
+          </NavLink>
         )}
 
         {/* AI settings — connections by IP, local models, copilot defaults. */}
-        <button
-          onClick={() => navigate('/settings/ai')}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
-            isAiSettings
-              ? 'bg-accent-gold/15 text-accent-gold'
-              : 'text-text-muted hover:text-text-primary hover:bg-elevated'
-          }`}
+        <NavLink
+          to="/settings/ai"
+          className={({ isActive }) => navClass(isActive)}
           title={t('sidebar.aiSettings')}
+          aria-label={t('sidebar.aiSettings')}
         >
-          <Bot size={18} className="flex-shrink-0" />
+          <Bot size={18} className="flex-shrink-0" aria-hidden="true" />
           {sidebarOpen && <span className="whitespace-nowrap">{t('sidebar.aiSettings')}</span>}
-        </button>
+        </NavLink>
 
         {/* Dynamic engine list — only when inside a project */}
         {projectId && (
@@ -165,39 +150,34 @@ export default function Sidebar() {
               )}
               {!sidebarOpen && <div className="border-t border-border" />}
             </div>
-            <button
-              onClick={() => navigate(`/project/${projectId}/overview`)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
-                activeTab === 'overview'
-                  ? 'bg-accent-gold/15 text-accent-gold font-semibold'
-                  : 'text-text-muted hover:text-text-primary hover:bg-elevated'
-              }`}
+            <NavLink
+              to={`/project/${projectId}/overview`}
+              className={({ isActive }) => navClass(isActive, true)}
+              title={t('sidebar.overview')}
+              aria-label={t('sidebar.overview')}
             >
-              <LayoutDashboard size={18} className="flex-shrink-0" />
+              <LayoutDashboard size={18} className="flex-shrink-0" aria-hidden="true" />
               {sidebarOpen && <span className="whitespace-nowrap">{t('sidebar.overview')}</span>}
-            </button>
+            </NavLink>
             {engines.map((engine) => {
               const Icon = engine.icon;
-              const isActive = activeTab === engine.id;
               const Badge = engine.SidebarBadge;
               return (
-                <button
+                <NavLink
                   key={engine.id}
-                  onClick={() => navigate(`/project/${projectId}/${engine.id}`)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-sm ${
-                    isActive
-                      ? 'bg-accent-gold/15 text-accent-gold font-semibold'
-                      : 'text-text-muted hover:text-text-primary hover:bg-elevated'
-                  }`}
+                  to={`/project/${projectId}/${engine.id}`}
+                  className={({ isActive }) => navClass(isActive, true)}
+                  title={t(`engines.${engine.id}.name`)}
+                  aria-label={t(`engines.${engine.id}.name`)}
                 >
-                  <Icon size={18} className="flex-shrink-0" />
+                  <Icon size={18} className="flex-shrink-0" aria-hidden="true" />
                   {sidebarOpen && (
                     <>
                       <span className="whitespace-nowrap">{t(`engines.${engine.id}.name`)}</span>
                       {Badge && projectId && <Badge projectId={projectId} />}
                     </>
                   )}
-                </button>
+                </NavLink>
               );
             })}
           </>
@@ -208,6 +188,7 @@ export default function Sidebar() {
       {projectId && (
         <div className="px-2 py-2 border-t border-border space-y-1">
           <button
+            type="button"
             onClick={() => setShowEngineManager(true)}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-text-primary hover:bg-elevated transition"
             title={t('project.manageEngines')}
@@ -216,6 +197,7 @@ export default function Sidebar() {
             {sidebarOpen && <span className="whitespace-nowrap">{t('project.manageEngines')}</span>}
           </button>
           <button
+            type="button"
             onClick={handleExport}
             disabled={exporting}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-text-primary hover:bg-elevated transition"
@@ -233,6 +215,7 @@ export default function Sidebar() {
 
       {/* Collapse toggle */}
       <button
+        type="button"
         onClick={toggleSidebar}
         className="flex items-center justify-center py-3 border-t border-border text-text-muted hover:text-text-primary transition"
         title={sidebarOpen ? t('common.collapse') : t('common.expand')}
@@ -240,6 +223,6 @@ export default function Sidebar() {
       >
         {sidebarOpen ? <ChevronLeft size={18} aria-hidden="true" /> : <ChevronRight size={18} aria-hidden="true" />}
       </button>
-    </motion.aside>
+    </aside>
   );
 }

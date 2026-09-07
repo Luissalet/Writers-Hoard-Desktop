@@ -351,6 +351,7 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     annotationReferences,
     worldSnapshotOwnerIds,
     canonTileWorldIds,
+    renderedTileWorldIds,
     allWorldIds,
   ] = await Promise.all([
     // A writing snapshot carries a whole manuscript body. Counting the orphans
@@ -374,6 +375,7 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
       : [],
     db.worldSnapshots.toCollection().primaryKeys(),
     db.canonTiles.orderBy('worldId').keys(),
+    db.renderedTiles.orderBy('worldId').keys(),
     db.generatedWorlds.toCollection().primaryKeys(),
   ]);
   const boardNodeIds = new Set(boardNodes.map(row => row.id));
@@ -411,6 +413,9 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     id => !existingWorldIds.has(id),
   );
   const orphanCanonTiles = (canonTileWorldIds as string[]).filter(id => !existingWorldIds.has(id));
+  const orphanRenderedTiles = (renderedTileWorldIds as string[]).filter(
+    id => !existingWorldIds.has(id),
+  );
   const interruptedJobs = snapshots.filter(
     row => row.downloadState === 'downloading' || row.captureState === 'capturing',
   );
@@ -441,7 +446,7 @@ export async function loadProjectCockpit(projectId: string): Promise<ProjectCock
     issue('orphan-storyboard-connectors', 'error', 'integrity', 'Broken storyboard connectors', 'Connectors point to missing panels.', orphanStoryboardConnectors.length, true),
     issue('orphan-scene-casts', 'error', 'integrity', 'Orphan scene casts', 'Cast rows across the app point to deleted scenes.', orphanSceneCasts.length, true),
     issue('orphan-annotation-references', 'error', 'integrity', 'Orphan annotation references', 'References across the app point to deleted annotations.', orphanAnnotationReferences.length, true),
-    issue('orphan-world-snapshots', 'warning', 'storage', 'Stale world caches', 'Regenerable caches across the app remain after their worlds were deleted.', orphanWorldSnapshots.length + orphanCanonTiles.length, true),
+    issue('orphan-world-snapshots', 'warning', 'storage', 'Stale world caches', 'Regenerable caches across the app remain after their worlds were deleted.', orphanWorldSnapshots.length + orphanCanonTiles.length + orphanRenderedTiles.length, true),
     issue('interrupted-native-jobs', 'warning', 'storage', 'Interrupted capture jobs', 'Jobs were still marked active after the previous session ended.', interruptedJobs.length, true),
     issue('broken-gallery-collections', 'warning', 'integrity', 'Images in missing collections', 'Gallery images reference a deleted collection.', brokenGalleryCollections.length, true),
     issue('broken-map-pins', 'error', 'integrity', 'Pins on missing maps', 'Map pins reference a deleted map.', brokenMapPins.length, true),
@@ -793,127 +798,6 @@ export async function updateNarrativeSpineLink(
   if ('writingId' in link) changes.linkedWritingId = link.writingId || undefined;
   if ('sceneId' in link) changes.linkedSceneId = link.sceneId || undefined;
   await db.outlineBeats.update(beatId, changes);
-}
-
-export async function repairProjectHealthIssue(projectId: string, issueId: string): Promise<void> {
-  switch (issueId) {
-    case 'orphan-writing-snapshots': {
-      const writingIds = new Set(await db.writings.where('projectId').equals(projectId).primaryKeys());
-      // The detector counts these orphans over primary keys precisely so that no
-      // manuscript body is ever read; the repair has to keep the same promise.
-      // `toArray()` here pulled the project's ENTIRE version history — one whole
-      // chapter per row, of which this decision needs two fields — into memory
-      // just to work out which ids to delete. The cursor drops each body with
-      // the row that carried it.
-      const orphaned: string[] = [];
-      await db.writingSnapshots
-        .where('projectId')
-        .equals(projectId)
-        .each(({ id, writingId }) => {
-          if (!writingIds.has(writingId)) orphaned.push(id);
-        });
-      await db.writingSnapshots.bulkDelete(orphaned);
-      break;
-    }
-    case 'orphan-board-edges': {
-      const nodes = new Set(await db.boardNodes.where('projectId').equals(projectId).primaryKeys());
-      const rows = await db.boardEdges.where('projectId').equals(projectId).toArray();
-      const edgeIds = new Set(rows.map(row => row.id));
-      await db.boardEdges.bulkDelete(
-        rows
-          .filter(
-            row =>
-              row.sources.length === 0 ||
-              row.targets.length === 0 ||
-              [...row.sources, ...row.targets].some(endpoint =>
-                endpoint.on === 'edge' ? !edgeIds.has(endpoint.id) : !nodes.has(endpoint.id),
-              ),
-          )
-          .map(row => row.id),
-      );
-      break;
-    }
-    case 'orphan-storyboard-connectors': {
-      const boards = await db.storyboards.where('projectId').equals(projectId).primaryKeys();
-      const panels = new Set(await db.storyboardPanels.where('projectId').equals(projectId).primaryKeys());
-      const rows = boards.length ? await db.storyboardConnectors.where('storyboardId').anyOf(boards).toArray() : [];
-      await db.storyboardConnectors.bulkDelete(rows.filter(row => !panels.has(row.sourceId) || !panels.has(row.targetId)).map(row => row.id));
-      break;
-    }
-    case 'orphan-scene-casts': {
-      // Parentless rows belong to no project, so the sweep is app-wide.
-      const scenes = new Set((await db.scenes.toCollection().primaryKeys()) as string[]);
-      const rows = await db.sceneCasts.toArray();
-      await db.sceneCasts.bulkDelete(rows.filter(row => !scenes.has(row.sceneId)).map(row => row.id));
-      break;
-    }
-    case 'orphan-annotation-references': {
-      const annotations = new Set((await db.annotations.toCollection().primaryKeys()) as string[]);
-      const rows = await db.annotationReferences.toArray();
-      await db.annotationReferences.bulkDelete(rows.filter(row => !annotations.has(row.annotationId)).map(row => row.id));
-      break;
-    }
-    case 'orphan-world-snapshots': {
-      const worlds = new Set((await db.generatedWorlds.toCollection().primaryKeys()) as string[]);
-      const snapshotIds = (await db.worldSnapshots.toCollection().primaryKeys()) as string[];
-      const staleSnapshots = snapshotIds.filter(id => !worlds.has(id));
-      if (staleSnapshots.length) await db.worldSnapshots.bulkDelete(staleSnapshots);
-      // Canon supertiles too — same lifetime, different table. Index keys
-      // only: a canon row's payload is megabytes and never needs loading here.
-      const canonOwners = await db.canonTiles.orderBy('worldId').uniqueKeys();
-      const gone = (canonOwners as string[]).filter(id => !worlds.has(id));
-      if (gone.length) await db.canonTiles.where('worldId').anyOf(gone).delete();
-      break;
-    }
-    case 'interrupted-native-jobs': {
-      await db.snapshots.where('projectId').equals(projectId).modify(snapshot => {
-        if (snapshot.downloadState === 'downloading') {
-          snapshot.downloadState = 'error';
-          snapshot.downloadError = 'The download was interrupted. Retry it from the snapshot.';
-        }
-        if (snapshot.captureState === 'capturing') {
-          snapshot.captureState = 'error';
-          snapshot.captureError = 'The capture was interrupted. Retry it from the snapshot.';
-        }
-      });
-      break;
-    }
-    case 'broken-gallery-collections': {
-      const collections = new Set(await db.imageCollections.where('projectId').equals(projectId).primaryKeys());
-      await db.inspirationImages.where('projectId').equals(projectId).modify(image => {
-        if (image.collectionId && !collections.has(image.collectionId)) delete image.collectionId;
-      });
-      break;
-    }
-    case 'broken-map-pins': {
-      const maps = new Set(await db.worldMaps.where('projectId').equals(projectId).primaryKeys());
-      const pins = await db.mapPins.where('projectId').equals(projectId).toArray();
-      await db.mapPins.bulkDelete(pins.filter(pin => !maps.has(pin.mapId)).map(pin => pin.id));
-      break;
-    }
-    case 'broken-spine-links': {
-      const writings = new Set(await db.writings.where('projectId').equals(projectId).primaryKeys());
-      const scenes = new Set(await db.scenes.where('projectId').equals(projectId).primaryKeys());
-      await db.outlineBeats.where('projectId').equals(projectId).modify(beat => {
-        if (beat.linkedWritingId && !writings.has(beat.linkedWritingId)) delete beat.linkedWritingId;
-        if (beat.linkedSceneId && !scenes.has(beat.linkedSceneId)) delete beat.linkedSceneId;
-      });
-      break;
-    }
-    case 'engine-order': {
-      const project = await db.projects.get(projectId);
-      if (!project) return;
-      const enabled = [...new Set(project.enabledEngines)];
-      const enabledSet = new Set(enabled);
-      const ordered = [...new Set(project.engineOrder)].filter(id => enabledSet.has(id));
-      await db.projects.update(projectId, {
-        enabledEngines: enabled,
-        engineOrder: [...ordered, ...enabled.filter(id => !ordered.includes(id))],
-        updatedAt: Date.now(),
-      });
-      break;
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------

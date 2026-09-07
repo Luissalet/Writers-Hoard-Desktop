@@ -5,6 +5,10 @@ export type InternalRendererRole = 'main' | 'quick-note';
 
 const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]>> = Object.freeze({
   'media:saveTeleprompterMp4': ['main'],
+  'media:downloaderHealth': ['main'],
+  'media:detectDownloadPlatform': ['main'],
+  'media:downloadToFile': ['main'],
+  'media:cancelFileDownload': ['main'],
   'media:downloadToLibrary': ['main'],
   'media:cancelDownload': ['main'],
   'media:deleteLibraryFile': ['main'],

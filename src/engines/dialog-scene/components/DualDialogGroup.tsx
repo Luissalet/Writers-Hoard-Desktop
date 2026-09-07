@@ -10,8 +10,8 @@ import { useTranslation } from '@/i18n/useTranslation';
 interface DualDialogGroupProps {
   left: DialogBlock;
   right: DialogBlock;
-  onUpdateLeft: (content: string, parenthetical?: string) => void;
-  onUpdateRight: (content: string, parenthetical?: string) => void;
+  onUpdateLeft: (content: string, parenthetical?: string) => Promise<void>;
+  onUpdateRight: (content: string, parenthetical?: string) => Promise<void>;
   onUpdateFormattingLeft: (formatting: BlockFormatting) => void;
   onUpdateFormattingRight: (formatting: BlockFormatting) => void;
   onDeleteLeft: () => void;
@@ -46,7 +46,7 @@ function DualColumn({
   suggestions,
 }: {
   block: DialogBlock;
-  onUpdate: (content: string, parenthetical?: string) => void;
+  onUpdate: (content: string, parenthetical?: string) => Promise<void>;
   suggestions?: AutocompleteSuggestion[];
 }) {
   const { t } = useTranslation();
@@ -63,7 +63,7 @@ function DualColumn({
   const field = useDebouncedField(block.content, (next) => onUpdate(next, block.parenthetical));
 
   return (
-    <div className="flex-1 min-w-0">
+    <div className="flex-1 min-w-0" data-dialog-block-id={block.id}>
       {/* Character header */}
       <div
         className="px-3 py-2 border-b border-border flex items-center gap-2"

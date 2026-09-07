@@ -36,6 +36,7 @@ import type { ShutdownWarning } from '@/electron-env';
 export type CloseGuard = () => boolean | Promise<boolean>;
 
 const guards = new Set<CloseGuard>();
+const warnings = new Map<string, ShutdownWarning>();
 let unsubscribe: (() => void) | null = null;
 
 /**
@@ -91,7 +92,8 @@ export function registerCloseGuard(guard: CloseGuard): () => void {
     if (guards.size === 0) {
       uninstall();
       // Nothing is left to hold the window, so nothing may claim it is.
-      reportUnsavedWork(null);
+      warnings.clear();
+      window.electronAPI?.shutdown?.setWarning?.(null);
     }
   };
 }
@@ -104,8 +106,18 @@ export function registerCloseGuard(guard: CloseGuard): () => void {
  * Call it on the transition, not on every keystroke: it is a report about a
  * state, not an event.
  */
-export function reportUnsavedWork(warning: ShutdownWarning | null): void {
-  window.electronAPI?.shutdown?.setWarning?.(warning);
+export function reportUnsavedWork(
+  warning: ShutdownWarning | null,
+  ownerId = 'default',
+): void {
+  if (warning) warnings.set(ownerId, warning);
+  else warnings.delete(ownerId);
+
+  // Several editors can own buffered work at once (for example a chapter
+  // body plus a debounced metadata field). Clearing one warning must not erase
+  // the other owner's safety net in the main process.
+  const activeWarning = [...warnings.values()].at(-1) ?? null;
+  window.electronAPI?.shutdown?.setWarning?.(activeWarning);
 }
 
 /**

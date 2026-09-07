@@ -98,7 +98,9 @@ export default function OutlineEngine({ projectId }: EngineComponentProps) {
   // characters.
   const titleField = useDebouncedField(
     activeOutline?.title ?? '',
-    (title) => { if (activeOutlineId) void editOutline(activeOutlineId, { title, updatedAt: Date.now() }); },
+    (title) => activeOutlineId
+      ? editOutline(activeOutlineId, { title, updatedAt: Date.now() })
+      : Promise.resolve(),
   );
 
   const handleCreateOutline = async (name: string, selectedTemplateId?: string) => {

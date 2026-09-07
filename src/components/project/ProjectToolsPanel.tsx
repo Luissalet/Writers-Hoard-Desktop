@@ -38,6 +38,7 @@ import {
   saveGroundedAiPrivacy,
   saveProjectAsRecipe,
   undoConversion,
+  type ConversionUndoResult,
   type GroundedAiPrivacy,
   type GroundedAiResult,
   type ProjectRecipe,
@@ -150,6 +151,7 @@ function Workflows({ projectId, data }: { projectId: string; data: ToolsData }) 
   const { t, locale } = useTranslation();
   const [busy, setBusy] = useState<string | null>(null);
   const [replaceOpen, setReplaceOpen] = useState(false);
+  const [pendingUndo, setPendingUndo] = useState<ConversionReceipt | null>(null);
   const run = async (key: string, action: () => Promise<unknown>, success: string) => {
     setBusy(key);
     try {
@@ -172,6 +174,28 @@ function Workflows({ projectId, data }: { projectId: string; data: ToolsData }) 
     } catch (error) {
       console.error('Clipboard capture failed', error);
       toast.error(t('projectTools.workflows.clipboardError'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const confirmUndo = async () => {
+    const receipt = pendingUndo;
+    if (!receipt) return;
+    setPendingUndo(null);
+    setBusy(`undo:${receipt.id}`);
+    try {
+      const result: ConversionUndoResult = await undoConversion(receipt.id);
+      if (result.status === 'removed-intact') {
+        toast.success(t('projectTools.workflows.undoneToast'));
+      } else if (result.status === 'detached-preserved') {
+        toast.info(t('projectTools.workflows.undoPreservedToast'));
+      } else if (result.status === 'target-missing') {
+        toast.info(t('projectTools.workflows.undoMissingToast'));
+      }
+    } catch (error) {
+      console.error('Workflow undo failed', error);
+      toast.error(t('projectTools.workflows.error'));
     } finally {
       setBusy(null);
     }
@@ -267,14 +291,30 @@ function Workflows({ projectId, data }: { projectId: string; data: ToolsData }) 
             <button
               type="button"
               disabled={Boolean(receipt.undoneAt) || busy !== null}
-              onClick={() => void run(`undo:${receipt.id}`, () => undoConversion(receipt.id), t('projectTools.workflows.undoneToast'))}
+              onClick={() => setPendingUndo(receipt)}
               className={buttonClass}
             >
-              <RotateCcw size={13} /> {receipt.undoneAt ? t('projectTools.workflows.undone') : t('projectTools.workflows.undo')}
+              <RotateCcw size={13} /> {
+                receipt.undoDisposition === 'detached-preserved'
+                  ? t('projectTools.workflows.detached')
+                  : receipt.undoneAt
+                    ? t('projectTools.workflows.undone')
+                    : t('projectTools.workflows.undo')
+              }
             </button>
           </div>
         ))}
       </section>
+
+      <ConfirmDialog
+        open={pendingUndo !== null}
+        destructive
+        title={t('projectTools.workflows.undoTitle')}
+        message={t('projectTools.workflows.undoMessage')}
+        confirmLabel={t('projectTools.workflows.undoConfirm')}
+        onConfirm={confirmUndo}
+        onCancel={() => setPendingUndo(null)}
+      />
     </div>
   );
 }

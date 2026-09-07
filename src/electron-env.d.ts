@@ -48,6 +48,25 @@ export interface DownloadToLibraryResult {
   error?: string;
 }
 
+export interface MediaDownloaderHealthResult {
+  ok: true;
+  platforms: string[];
+}
+
+export interface MediaPlatformResult {
+  ok: boolean;
+  platform?: string;
+  error?: string;
+}
+
+export interface DownloadToFileResult {
+  ok: boolean;
+  canceled?: boolean;
+  filename?: string;
+  sizeBytes?: number;
+  error?: string;
+}
+
 /** Outcome of writing an automatic backup archive into userData. */
 export interface BackupWriteResult {
   ok: boolean;
@@ -281,6 +300,14 @@ export interface ElectronAPI {
   isDesktop: true;
   media: {
     saveTeleprompterMp4: (webm: ArrayBuffer, suggestedName: string) => Promise<SaveResult>;
+    downloaderHealth: () => Promise<MediaDownloaderHealthResult>;
+    detectDownloadPlatform: (url: string) => Promise<MediaPlatformResult>;
+    downloadToFile: (args: {
+      requestId: string;
+      url: string;
+      format: 'video' | 'audio';
+    }) => Promise<DownloadToFileResult>;
+    cancelFileDownload: (requestId: string) => Promise<void>;
     downloadToLibrary: (args: {
       url: string;
       format: 'video' | 'audio';

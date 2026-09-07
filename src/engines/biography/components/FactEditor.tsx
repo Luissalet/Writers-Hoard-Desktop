@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import TipTapEditor from '@/components/editor/TiptapEditor';
 import TagInput from '@/components/common/TagInput';
 import { LinkSelect } from '@/engines/_shared';
@@ -8,6 +8,7 @@ import type { BiographyFact, FactSource, BiographyCategory } from '../types';
 import { BIOGRAPHY_CATEGORIES, CONFIDENCE_LEVELS } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
 import { toast } from '@/components/common/toast';
+import Modal from '@/components/common/Modal';
 
 interface FactEditorProps {
   fact?: BiographyFact;
@@ -82,23 +83,12 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-deep rounded-xl border border-border w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="sticky top-0 bg-deep border-b border-border p-4 flex items-center justify-between">
-          <h2 className="text-lg font-serif font-semibold text-text-primary">
-            {fact ? t('biography.fact.editTitle') : t('biography.fact.newTitle')}
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-1 text-text-muted hover:text-text-primary transition"
-            title={t('common.close')}
-            aria-label={t('common.close')}
-          >
-            <X size={20} aria-hidden="true" />
-          </button>
-        </div>
-
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title={fact ? t('biography.fact.editTitle') : t('biography.fact.newTitle')}
+      wide
+    >
         {/* Content */}
         <div className="p-6 space-y-5">
           {/* Title */}
@@ -154,7 +144,9 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
               {Object.entries(BIOGRAPHY_CATEGORIES).map(([key, { labelKey, color }]) => (
                 <button
                   key={key}
+                  type="button"
                   onClick={() => setCategory(key as BiographyCategory)}
+                  aria-pressed={category === key}
                   className={`py-2 px-3 rounded-lg text-xs font-medium transition ${
                     category === key
                       ? `bg-gradient-to-r ${color} text-white`
@@ -174,7 +166,9 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
               {Object.entries(CONFIDENCE_LEVELS).map(([key, { labelKey }]) => (
                 <button
                   key={key}
+                  type="button"
                   onClick={() => setConfidence(key as 'confirmed' | 'likely' | 'uncertain' | 'disputed')}
+                  aria-pressed={confidence === key}
                   className={`py-2 px-3 rounded-lg text-xs font-medium transition ${
                     confidence === key
                       ? `bg-accent-gold/20 border border-accent-gold text-accent-gold`
@@ -231,6 +225,7 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
                       )}
                     </div>
                     <button
+                      type="button"
                       onClick={() => handleRemoveSource(idx)}
                       className="p-1 text-text-muted hover:text-red-400 transition flex-shrink-0"
                       title={t('common.remove')}
@@ -248,7 +243,10 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
                 {['manual', 'link', 'snapshot', 'interview'].map((type) => (
                   <button
                     key={type}
+                    type="button"
                     onClick={() => setNewSourceType(type as 'snapshot' | 'link' | 'manual' | 'interview')}
+                    aria-pressed={newSourceType === type}
+                    aria-label={t(`biography.source.${type}`)}
                     className={`py-1 px-2 rounded text-xs font-medium transition ${
                       newSourceType === type
                         ? 'bg-accent-gold/20 text-accent-gold border border-accent-gold'
@@ -289,6 +287,7 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
               />
 
               <button
+                type="button"
                 onClick={handleAddSource}
                 className="w-full py-1.5 px-2 bg-accent-gold/10 text-accent-gold rounded text-xs font-medium hover:bg-accent-gold/20 transition flex items-center justify-center gap-1"
               >
@@ -302,19 +301,20 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
         {/* Footer */}
         <div className="sticky bottom-0 bg-deep border-t border-border p-4 flex items-center justify-end gap-2">
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-sm text-text-muted hover:text-text-primary transition"
           >
             {t('common.cancel')}
           </button>
           <button
+            type="button"
             onClick={handleSave}
             className="px-4 py-2 bg-accent-gold text-deep rounded-lg text-sm font-semibold hover:bg-accent-amber transition"
           >
             {t('biography.fact.save')}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

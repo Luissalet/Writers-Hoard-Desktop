@@ -291,7 +291,7 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
                       handleSelectPlan(plan.id);
                     }
                   }}
-                  className={`cursor-pointer text-left px-4 py-3 rounded border transition-all ${
+                  className={`cursor-pointer text-left px-4 py-3 rounded border transition-[border-color,background-color,box-shadow] ${
                     activePlanId === plan.id
                       ? 'bg-accent-gold/10 border-accent-gold'
                       : 'bg-surface border-border hover:border-accent-gold/50'

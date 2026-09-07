@@ -748,7 +748,7 @@ export async function testBookEditorAutosave(): Promise<void> {
     await untilAsync(async () => (await db.writings.get('wrt-three'))?.content === '<p>Edited: Last chapter.</p>', 'the autosave');
     assert((await db.writings.get('wrt-two'))?.updatedAt === rows[1].updatedAt, 'the other rows are untouched');
     assert(refreshes >= 1, 'the host list is asked to refresh');
-    await until(() => host.querySelector('[aria-live]')?.textContent?.includes('Guardado') === true, 'the saved indicator');
+    await until(() => Boolean(host.querySelector('[data-book-save-state="saved"]')), 'the saved indicator');
 
     // Heading 1 in the middle of chapter 2: a new row, numbered, stamped on the heading.
     editor.chain().focus().setTextSelection(insideParagraph(editor, 'Middle cut')).setChapterHeading().run();
@@ -803,7 +803,7 @@ export async function testBookEditorAutosave(): Promise<void> {
     const filed = await db.writingSnapshots.where('writingId').equals('wrt-three').toArray();
     assert(filed.some((snapshot) => snapshot.content === '<p>Theirs, again.</p>' && snapshot.reason === 'manual'), 'their text is filed as a version first');
     await untilAsync(async () => (await db.writings.get('wrt-two'))?.content.startsWith('<p>Dirty: Middle before') === true, 'the dirty edit to land too');
-    await until(() => host.querySelector('[aria-live]')?.textContent?.includes('Guardado') === true, 'the book to be saved again');
+    await until(() => Boolean(host.querySelector('[data-book-save-state="saved"]')), 'the book to be saved again');
 
     // Leaving inside the debounce: the unmount flush writes the last edit.
     const current = (host.querySelector('.ProseMirror') as (HTMLElement & { editor?: Editor }) | null)?.editor;
@@ -889,7 +889,7 @@ export async function testBookUndoMergeKeepsOneRow(): Promise<void> {
     await merge();
     editor.chain().focus().undo().run();
     await untilAsync(async () => (await db.writings.where('projectId').equals(projectId).count()) === 3, 'the row to be restored');
-    await until(() => book.host.querySelector('[aria-live]')?.textContent?.includes('Guardado') === true, 'the save after the undo');
+    await until(() => Boolean(book.host.querySelector('[data-book-save-state="saved"]')), 'the save after the undo');
     assert((await rowsNow()) === 'u-one:1:<p>First.</p> | u-two:2:<p>Second.</p> | u-three:3:<p>Third prose.</p>', `Ctrl+Z brings the same row back: ${await rowsNow()}`);
     assert(!document.querySelector('[role="status"] button'), 'the undo bar has nothing left to offer');
     assert(book.liveEditor() === editor, 'no reload was needed');

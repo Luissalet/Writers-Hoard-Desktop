@@ -35,6 +35,7 @@ import {
   BookOpenText,
   AlignJustify,
   File,
+  Volume2,
 } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
@@ -42,7 +43,7 @@ import { useNavigate } from 'react-router-dom';
 import type { FootnoteMarkerStyle, FootnotePlacement, Writing, WritingStatus } from '@/types';
 import type { PublishingProfile } from '@/types/projectTools';
 import { generateId } from '@/utils/idGenerator';
-import { countWords } from '@/utils/text';
+import { countWords, stripHtml } from '@/utils/text';
 import TiptapEditor from '@/components/editor/TiptapEditor';
 import { FootnoteNode } from '@/components/editor/footnotes/FootnoteNode';
 import FootnotesPanel from '@/components/editor/footnotes/FootnotesPanel';
@@ -59,13 +60,14 @@ import GoogleDocBadge from './GoogleDocBadge';
 import SyncButton from './SyncButton';
 import SprintControl from './SprintControl';
 import AiToolbar from './AiToolbar';
+import JudgePanel from './JudgePanel';
 import CompileModal from './CompileModal';
 import ManuscriptImportModal from './ManuscriptImportModal';
 import HistoryModal from './HistoryModal';
 import ReadingView from './ReadingView';
 import RecentlyChanged from './RecentlyChanged';
 import PublishingProfileModal from '@/components/project/PublishingProfileModal';
-import { takeSnapshot } from '../snapshots';
+import { ensureSnapshot, takeSnapshot } from '../snapshots';
 import { generateImageFromSelection } from '../generateImageFromSelection';
 import { db } from '@/db';
 import { touchProject, updateProject } from '@/db/operations';
@@ -86,6 +88,12 @@ import { t as translateNow, useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog, onDataChanged, useDebouncedField, useDeepLinkParam } from '@/engines/_shared';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import type { AnnotationAnchor } from '@/engines/annotations/types';
+import { captureContext, getAnchorAdapter } from '@/engines/_shared/anchoring';
+import {
+  findQuoteRangeInDocument,
+  navigateEditorToQuote,
+  type JudgeFinding,
+} from '@/services/judge';
 import GettingStartedChecklist from '@/components/project/GettingStartedChecklist';
 import {
   clearWritingRecoveryDraft,
@@ -118,6 +126,8 @@ import {
 } from '../chapterExport';
 import { applyChapterNumbers } from '../chapterOrderPersist';
 import { toast } from '@/components/common/toast';
+import { ReadAloudPanel } from '@/components/read-aloud';
+import { writingToReadAloudBlocks, type ReadAloudNoteAnchor } from '@/services/readAloud';
 
 const STATUS_CONFIG: Record<WritingStatus, { icon: typeof Lightbulb; color: string; bg: string }> = {
   idea: { icon: Lightbulb, color: '#d4a843', bg: 'rgba(212, 168, 67, 0.12)' },
@@ -210,7 +220,7 @@ function ChapterNumberField({
   onUpdate,
 }: {
   writing: Writing;
-  onUpdate: (id: string, changes: Partial<Writing>) => void;
+  onUpdate: (id: string, changes: Partial<Writing>) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const field = useDebouncedField(
@@ -218,7 +228,7 @@ function ChapterNumberField({
     (value) => {
       const digits = value.replace(/\D/g, '');
       // Empty means "no number": Dexie's `update` drops a key set to undefined.
-      onUpdate(writing.id, { chapter: digits ? parseInt(digits, 10) : undefined });
+      return onUpdate(writing.id, { chapter: digits ? parseInt(digits, 10) : undefined });
     },
   );
 
@@ -252,7 +262,7 @@ function WritingMetaFields({
 }: {
   writing: Writing;
   tagSuggestions: string[];
-  onUpdate: (id: string, changes: Partial<Writing>) => void;
+  onUpdate: (id: string, changes: Partial<Writing>) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const synopsisField = useDebouncedField(
@@ -476,7 +486,9 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   const [confirmRenumber, setConfirmRenumber] = useState(false);
   const [orderBusy, setOrderBusy] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [historyInitialSnapshotId, setHistoryInitialSnapshotId] = useState<string | null>(null);
   const [showExport, setShowExport] = useState(false);
+  const [showReadAloud, setShowReadAloud] = useState(false);
   // Reading mode: the manuscript as one scroll, read-only. `readingStartId` is
   // the piece it opens on — the chapter that was in the editor, when reading
   // was entered from there.
@@ -488,10 +500,22 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // (footnotes) and the page count. The setter is what TiptapEditor gets:
   // it is stable, so its effect does not re-run per render.
   const [liveEditor, setLiveEditor] = useState<Editor | null>(null);
+  const [pendingJudgeNavigation, setPendingJudgeNavigation] = useState<{
+    writingId: string;
+    quote: string;
+    start?: number;
+    annotate: boolean;
+  } | null>(null);
   // Flow or page, A4 or Letter: the writer's reading preferences (global).
   const readingPrefs = useAppStore((s) => s.reading);
   const setReadingPrefs = useAppStore((s) => s.setReading);
   const pageCount = usePageCount(liveEditor);
+  const readAloudBlocks = useMemo(
+    () => openWriting
+      ? writingToReadAloudBlocks({ id: openWriting.id, title: editedTitle, content: editedContent })
+      : [],
+    [editedContent, editedTitle, openWriting],
+  );
 
   const { accessToken } = useGoogleStore();
   const { project } = useProject(projectId);
@@ -1351,6 +1375,151 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     handleOpenWriting(target);
   }, [flushSave, handleOpenWriting]);
 
+  const stageJudgeAnnotation = useCallback((finding: JudgeFinding, body: string) => {
+    let start = finding.anchor.start;
+    let end = finding.anchor.end;
+    if (body.slice(start, end) !== finding.anchor.quote) {
+      start = body.indexOf(finding.anchor.quote);
+      end = start < 0 ? -1 : start + finding.anchor.quote.length;
+    }
+    if (start < 0 || end <= start) {
+      toast.error(t('judge.action.passageMoved'));
+      return false;
+    }
+    setPendingAnchor({
+      type: 'text_range',
+      start,
+      end,
+      selectedText: body.slice(start, end),
+      ...captureContext(body, start, end),
+    });
+    return true;
+  }, [t]);
+
+  const handleJudgeNavigate = useCallback((writingId: string, quote: string, start?: number) => {
+    if (openWriting?.id === writingId && liveEditor) {
+      if (!navigateEditorToQuote(liveEditor, quote, start)) toast.error(t('judge.action.passageMoved'));
+      return;
+    }
+    const target = writings.find(row => row.id === writingId);
+    if (!target) {
+      toast.error(t('judge.action.sourceMissing'));
+      return;
+    }
+    setPendingJudgeNavigation({ writingId, quote, start, annotate: false });
+    void handleNavigateWriting(target);
+  }, [handleNavigateWriting, liveEditor, openWriting?.id, t, writings]);
+
+  const handleJudgeNavigateEntity = useCallback((engineId: string, entityId: string, quote: string) => {
+    if (engineId === 'writings') {
+      handleJudgeNavigate(entityId, quote);
+      return;
+    }
+    const adapter = getAnchorAdapter(engineId);
+    if (adapter) adapter.navigateToEntity(entityId, projectId);
+    else toast.error(t('judge.action.sourceMissing'));
+  }, [handleJudgeNavigate, projectId, t]);
+
+  const handleReadAloudSource = useCallback((anchor: ReadAloudNoteAnchor, annotate: boolean) => {
+    const body = stripHtml(editedContent);
+    const start = body.indexOf(anchor.quote);
+    if (start < 0) {
+      toast.error(t('readAloud.integration.passageMoved'));
+      return;
+    }
+    const end = start + anchor.quote.length;
+    setShowReadAloud(false);
+    if (liveEditor) navigateEditorToQuote(liveEditor, anchor.quote, start);
+    if (annotate) {
+      setPendingAnchor({
+        type: 'text_range',
+        start,
+        end,
+        selectedText: anchor.quote,
+        ...captureContext(body, start, end),
+      });
+    }
+  }, [editedContent, liveEditor, t]);
+
+  const handleJudgeAnnotation = useCallback((finding: JudgeFinding) => {
+    if (openWriting?.id === finding.writingId && liveEditor) {
+      navigateEditorToQuote(liveEditor, finding.anchor.quote, finding.anchor.start);
+      stageJudgeAnnotation(finding, stripHtml(editedContent));
+      return;
+    }
+    const target = writings.find(row => row.id === finding.writingId);
+    if (!target) {
+      toast.error(t('judge.action.sourceMissing'));
+      return;
+    }
+    setPendingJudgeNavigation({
+      writingId: finding.writingId,
+      quote: finding.anchor.quote,
+      start: finding.anchor.start,
+      annotate: true,
+    });
+    void handleNavigateWriting(target);
+  }, [editedContent, handleNavigateWriting, liveEditor, openWriting?.id, stageJudgeAnnotation, t, writings]);
+
+  useEffect(() => {
+    if (!pendingJudgeNavigation || !liveEditor || openWriting?.id !== pendingJudgeNavigation.writingId) return;
+    const pending = pendingJudgeNavigation;
+    const frame = window.requestAnimationFrame(() => {
+      if (!navigateEditorToQuote(liveEditor, pending.quote, pending.start)) {
+        toast.error(t('judge.action.passageMoved'));
+      } else if (pending.annotate) {
+        const body = stripHtml(editorRef.current.content);
+        const exactAtAnchor = pending.start !== undefined
+          && body.slice(pending.start, pending.start + pending.quote.length) === pending.quote;
+        const start = exactAtAnchor ? pending.start! : body.indexOf(pending.quote);
+        if (start >= 0) {
+          setPendingAnchor({
+            type: 'text_range',
+            start,
+            end: start + pending.quote.length,
+            selectedText: pending.quote,
+            ...captureContext(body, start, start + pending.quote.length),
+          });
+        }
+      }
+      setPendingJudgeNavigation(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [liveEditor, openWriting?.id, pendingJudgeNavigation, t]);
+
+  const handleJudgeSuggestion = useCallback(async (finding: JudgeFinding): Promise<boolean> => {
+    const suggestion = finding.suggestion;
+    if (!suggestion || !liveEditor || openWriting?.id !== finding.writingId) {
+      toast.error(t('judge.action.openTargetFirst'));
+      return false;
+    }
+    const range = findQuoteRangeInDocument(liveEditor.state.doc, suggestion.before, finding.anchor.start);
+    if (!range) {
+      toast.error(t('judge.action.passageMoved'));
+      return false;
+    }
+    try {
+      // The exact in-memory text is versioned BEFORE the editor transaction.
+      // If IndexedDB rejects the snapshot, no character on screen is changed.
+      await ensureSnapshot({
+        id: openWriting.id,
+        projectId,
+        title: editedTitle,
+        content: editedContent,
+      }, 'pre-ai');
+      liveEditor.view.dispatch(
+        liveEditor.state.tr.insertText(suggestion.after, range.from, range.to),
+      );
+      liveEditor.commands.focus();
+      toast.success(t('judge.action.applied'));
+      return true;
+    } catch (error) {
+      console.error('[judge] could not snapshot and apply suggestion', error);
+      toast.error(t('judge.action.applyFailed'));
+      return false;
+    }
+  }, [editedContent, editedTitle, liveEditor, openWriting?.id, projectId, t]);
+
   // Opening a piece from the "changed recently" panel, which spans the whole
   // project: land in a tab that contains it, so the editor's prev/next
   // chevrons walk its neighbours instead of sitting disabled. A writer already
@@ -1574,9 +1743,11 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // version each of these produced. Unguarded on purpose: a status flip or a tag
   // is a field the writer chose a moment ago, not a body composed minutes ago,
   // and refusing it because the copilot touched the synopsis would be pedantry.
-  const handleMetaUpdate = useCallback((id: string, changes: Partial<Writing>) => {
-    void writeWriting(id, changes).catch(reportSideEdit);
+  const handleMetaUpdate = useCallback((id: string, changes: Partial<Writing>): Promise<void> => {
+    const persistence = writeWriting(id, changes).then(() => undefined);
+    void persistence.catch(reportSideEdit);
     setOpenWriting(current => (current && current.id === id ? { ...current, ...changes } : current));
+    return persistence;
   }, [writeWriting]);
 
   const handleSynopsisUpdate = (synopsis: string) => {
@@ -1848,6 +2019,16 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           >
             <BookOpen size={15} />
           </button>
+
+          <button
+            type="button"
+            onClick={() => setShowReadAloud(true)}
+            disabled={readAloudBlocks.length === 0}
+            className="p-1.5 rounded-lg transition border text-text-muted border-border hover:text-accent-gold hover:border-accent-gold/40 hover:bg-elevated disabled:opacity-40"
+            title={t('readAloud.integration.chapter')}
+          >
+            <Volume2 size={15} aria-hidden="true" />
+          </button>
           {/* Status switcher */}
           <div className="flex items-center gap-1 bg-surface border border-border rounded-lg px-1 py-0.5">
             {(Object.entries(STATUS_CONFIG) as [WritingStatus, typeof STATUS_CONFIG['idea']][]).map(([st, cfg]) => {
@@ -1886,8 +2067,17 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             writing={openWriting}
             size="md"
             onSynced={(changes) => {
-              void writeWriting(openWriting.id, changes).catch(reportSideEdit);
-              setOpenWriting({ ...openWriting, ...changes });
+              // The sync service already committed snapshot + compare-and-swap
+              // atomically. Writing the same patch a second time here used to
+              // advance the version again and could race the editor. This
+              // callback only mirrors the committed row into the visible view.
+              setOpenWriting(current => (
+                current?.id === openWriting.id ? { ...current, ...changes } : current
+              ));
+            }}
+            onReviewConflict={(snapshotId) => {
+              setHistoryInitialSnapshotId(snapshotId);
+              setShowHistory(true);
             }}
           />
         </div>
@@ -1922,7 +2112,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
               A's text to chapter B, and "save as synopsis" then wrote a
               summary of A onto B. */}
           <AiToolbar
-            key={openWriting.id}
+            key={`linked-ai-toolbar-${openWriting.id}`}
             writing={openWriting}
             projectId={projectId}
             onSynopsisUpdate={handleSynopsisUpdate}
@@ -2083,6 +2273,16 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             <BookOpen size={15} />
           </button>
 
+          <button
+            type="button"
+            onClick={() => setShowReadAloud(true)}
+            disabled={readAloudBlocks.length === 0}
+            className="p-1.5 rounded-lg transition border text-text-muted border-border hover:text-accent-gold hover:border-accent-gold/40 hover:bg-elevated disabled:opacity-40"
+            title={t('readAloud.integration.chapter')}
+          >
+            <Volume2 size={15} aria-hidden="true" />
+          </button>
+
           {/* The whole book as one document, with this chapter among the rest. */}
           <button
             onClick={() => void handleOpenBookFromEditor()}
@@ -2144,7 +2344,10 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           <button
             onClick={() => {
               void flushSave().then((saved) => {
-                if (saved) setShowHistory(true);
+                if (saved) {
+                  setHistoryInitialSnapshotId(null);
+                  setShowHistory(true);
+                }
               });
             }}
             className="p-1.5 rounded-lg transition border text-text-muted border-border hover:text-text-primary hover:bg-elevated"
@@ -2197,7 +2400,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             <span>{t('editor.page.count').replace('{n}', String(pageCount))}</span>
           )}
           <ChapterNumberField
-            key={openWriting.id}
+            key={`chapter-number-${openWriting.id}`}
             writing={openWriting}
             onUpdate={handleMetaUpdate}
           />
@@ -2217,7 +2420,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             out of the way in focus mode. */}
         {!focusMode && (
           <WritingMetaFields
-            key={openWriting.id}
+            key={`writing-meta-${openWriting.id}`}
             writing={openWriting}
             tagSuggestions={tagSuggestions}
             onUpdate={handleMetaUpdate}
@@ -2229,7 +2432,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             carry chapter A's fetched text and pending summary into chapter B. */}
         {!focusMode && (
           <AiToolbar
-            key={openWriting.id}
+            key={`ai-toolbar-${openWriting.id}`}
             writing={{ ...openWriting, content: editedContent }}
             projectId={projectId}
             onSynopsisUpdate={handleSynopsisUpdate}
@@ -2306,7 +2509,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
 
         {focusMode ? (
           <TiptapEditor
-            key={openWriting.id}
+            key={`focus-editor-${openWriting.id}`}
             content={editedContent}
             onChange={setEditedContent}
             placeholder={t('writings.startWriting')}
@@ -2329,7 +2532,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             }`}
           >
             <TiptapEditor
-              key={openWriting.id}
+              key={`editor-${openWriting.id}`}
               content={editedContent}
               onChange={setEditedContent}
               placeholder={t('writings.startWriting')}
@@ -2346,6 +2549,18 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
                 pageMode ? 'min-[1440px]:sticky min-[1440px]:top-4' : 'lg:sticky lg:top-4'
               }`}
             >
+              <JudgePanel
+                key={`judge-${openWriting.id}`}
+                projectId={projectId}
+                writing={{ ...openWriting, content: editedContent, title: editedTitle }}
+                currentContent={editedContent}
+                writings={writings}
+                editor={liveEditor}
+                onNavigate={handleJudgeNavigate}
+                onNavigateEntity={handleJudgeNavigateEntity}
+                onCreateAnnotation={handleJudgeAnnotation}
+                onApplySuggestion={handleJudgeSuggestion}
+              />
               <FootnotesPanel
                 editor={liveEditor}
                 style={footnoteStyle}
@@ -2366,10 +2581,29 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         )}
 
         {/* Version history */}
+        <Modal
+          open={showReadAloud}
+          onClose={() => setShowReadAloud(false)}
+          title={t('readAloud.integration.chapter')}
+          wide
+        >
+          <ReadAloudPanel
+            blocks={readAloudBlocks}
+            mode="read-aloud"
+            locale={locale}
+            onCreateNote={(anchor) => handleReadAloudSource(anchor, true)}
+            onJumpToSource={(anchor) => handleReadAloudSource(anchor, false)}
+          />
+        </Modal>
+
         <HistoryModal
           open={showHistory}
-          onClose={() => setShowHistory(false)}
+          onClose={() => {
+            setShowHistory(false);
+            setHistoryInitialSnapshotId(null);
+          }}
           writing={openWriting}
+          initialSnapshotId={historyInitialSnapshotId}
           currentContent={editedContent}
           currentTitle={editedTitle}
           onRestored={({ title, content, wordCount }) => {
@@ -2409,7 +2643,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             chapter the author is in, not the one it first opened on. */}
         {showExport && (
           <PublishingProfileModal
-            key={openWriting.id}
+            key={`single-export-${openWriting.id}`}
             open
             onClose={() => setShowExport(false)}
             project={{ id: projectId, title: projectTitle }}

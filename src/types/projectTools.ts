@@ -70,6 +70,21 @@ export interface ConversionReceipt {
   targetTable: string;
   preview: string;
   undoPayload: Record<string, unknown>;
+  /**
+   * Receipt contract written by the safe conversion flow. Missing means the
+   * row predates target guards and therefore may never authorise a delete.
+   */
+  receiptVersion?: 2;
+  /** Monotonic writing version captured in the same transaction as creation. */
+  targetVersion?: number;
+  /** Semantic signature of the writing exactly as the conversion created it. */
+  targetFingerprint?: string;
+  /** The provenance edge created with the target; older receipts omit it. */
+  conversionLinkId?: string;
   createdAt: number;
   undoneAt?: number;
+  /** What undo actually did. Kept on the receipt as a durable audit trail. */
+  undoDisposition?: 'removed-intact' | 'detached-preserved' | 'target-missing';
+  /** Why a target was preserved instead of physically removed. */
+  undoReason?: 'changed' | 'referenced' | 'legacy' | 'scope-mismatch';
 }

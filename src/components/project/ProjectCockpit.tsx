@@ -5,20 +5,17 @@ import {
   AlertTriangle,
   ArrowRight,
   Boxes,
-  CheckCircle2,
   CircleAlert,
   ExternalLink,
   FileText,
   Loader2,
   Network,
   Pencil,
-  RefreshCcw,
   Search,
   ShieldCheck,
 } from 'lucide-react';
 import { useProjectCockpit } from '@/hooks/useProjectCockpit';
 import {
-  repairProjectHealthIssue,
   repairMissingManagedAssets,
   updateNarrativeSpineLink,
   type NarrativeContinuitySignal,
@@ -30,6 +27,8 @@ import { toast } from '@/components/common/toast';
 import { useTranslation } from '@/i18n/useTranslation';
 import ProjectToolsPanel from './ProjectToolsPanel';
 import ProofreaderPanel from '@/components/proofreader/ProofreaderPanel';
+import HealthRecoveryPanel from './HealthRecoveryPanel';
+import CreativeDevelopmentLab from './CreativeDevelopmentLab';
 import {
   COCKPIT_GROUPS,
   COCKPIT_TAB_LABEL_KEYS,
@@ -181,7 +180,7 @@ function Meter({ label, value }: { label: string; value: number | null }) {
         aria-valuenow={value ?? undefined}
       >
         {available && (
-          <div className="h-full rounded-full bg-accent-gold transition-all" style={{ width: `${value}%` }} />
+          <div className="h-full rounded-full bg-accent-gold transition-[width]" style={{ width: `${value}%` }} />
         )}
       </div>
     </div>
@@ -329,71 +328,31 @@ function Overview({
   );
 }
 
-function Health({ projectId, data }: { projectId: string; data: ProjectCockpitData }) {
-  const { t } = useTranslation();
-  const [repairing, setRepairing] = useState<string | null>(null);
-  const repair = async (issueId: string) => {
-    setRepairing(issueId);
-    try {
-      await repairProjectHealthIssue(projectId, issueId);
-      toast.success(t('projectCockpit.health.repaired'));
-    } catch (error) {
-      console.error('Project repair failed', error);
-      toast.error(t('projectCockpit.health.repairError'));
-    } finally {
-      setRepairing(null);
-    }
-  };
+function Health({
+  projectId,
+  data,
+  onOpenWorkflows,
+  onRefreshIntegrity,
+}: {
+  projectId: string;
+  data: ProjectCockpitData;
+  onOpenWorkflows: () => void;
+  onRefreshIntegrity: () => void;
+}) {
 
   // The integrity report and the proofreader answer different questions —
   // "is the data sound?" and "is the story sound?" — so they stack in the same
   // tab instead of one of them early-returning the other off the screen.
-  const integrity = data.healthStatus === 'not-applicable' ? (
-    <div className="rounded-xl border border-border bg-surface p-10 text-center">
-      <Activity className="mx-auto text-text-dim" size={34} />
-      <h3 className="mt-3 font-serif text-lg font-semibold text-text-primary">{t('projectCockpit.health.noData')}</h3>
-      <p className="mt-2 text-sm text-text-muted">{t('projectCockpit.health.noDataDetail')}</p>
-    </div>
-  ) : data.healthStatus === 'clean' ? (
-    <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-10 text-center">
-      <CheckCircle2 className="mx-auto text-green-400" size={34} />
-      <h3 className="mt-3 font-serif text-lg font-semibold text-text-primary">{t('projectCockpit.health.clean')}</h3>
-      <p className="mt-2 text-sm text-text-muted">{t('projectCockpit.health.cleanDetail')}</p>
-    </div>
-  ) : (
-    <div className="space-y-3">
-      {data.health.map(row => (
-        <div key={row.id} className="flex items-start gap-4 rounded-xl border border-border bg-surface p-4">
-          <AlertTriangle
-            size={20}
-            className={row.severity === 'error' ? 'text-red-400' : row.severity === 'warning' ? 'text-amber-400' : 'text-blue-400'}
-          />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h3 className="font-medium text-text-primary">{t(`projectCockpit.health.issue.${row.id}.title`)}</h3>
-              <span className="rounded-full bg-elevated px-2 py-0.5 text-xs text-text-muted">{row.count}</span>
-            </div>
-            <p className="mt-1 text-sm text-text-muted">{t(`projectCockpit.health.issue.${row.id}.detail`)}</p>
-          </div>
-          {row.repairable && (
-            <button
-              type="button"
-              disabled={repairing !== null}
-              onClick={() => void repair(row.id)}
-              className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-text-primary transition hover:border-accent-gold disabled:opacity-50"
-            >
-              {repairing === row.id ? <Loader2 size={13} className="animate-spin" /> : <RefreshCcw size={13} />}
-              {t('projectCockpit.health.repair')}
-            </button>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-
   return (
     <div className="space-y-6">
-      {integrity}
+      <HealthRecoveryPanel
+        key={projectId}
+        projectId={projectId}
+        healthStatus={data.healthStatus}
+        issues={data.health}
+        onOpenWorkflows={onOpenWorkflows}
+        onRefreshIntegrity={onRefreshIntegrity}
+      />
       <ProofreaderPanel projectId={projectId} />
     </div>
   );
@@ -898,8 +857,16 @@ export default function ProjectCockpit({ projectId, onManageEngines, onEditProje
             onOpenHealth={() => selectTab('health')}
           />
         )}
-        {activeTab === 'health' && <Health projectId={projectId} data={data} />}
+        {activeTab === 'health' && (
+          <Health
+            projectId={projectId}
+            data={data}
+            onOpenWorkflows={() => selectTab('workflows')}
+            onRefreshIntegrity={retry}
+          />
+        )}
         {activeTab === 'entities' && <EntityHub projectId={projectId} data={data} />}
+        {activeTab === 'lab' && <CreativeDevelopmentLab projectId={projectId} entities={data.entities} />}
         {activeTab === 'spine' && (
           <NarrativeSpine
             projectId={projectId}

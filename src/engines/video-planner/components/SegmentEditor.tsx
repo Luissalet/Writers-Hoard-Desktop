@@ -1,9 +1,10 @@
 import { useState, useRef } from 'react';
-import { Images, X, Upload } from 'lucide-react';
+import { Images, Upload } from 'lucide-react';
 import type { VideoSegment, VisualType } from '../types';
 import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import { useTranslation } from '@/i18n/useTranslation';
 import GalleryAssetPicker from '@/components/gallery/GalleryAssetPicker';
+import Modal from '@/components/common/Modal';
 
 interface SegmentEditorProps {
   segment: VideoSegment;
@@ -70,21 +71,8 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-surface border border-border rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="sticky top-0 flex items-center justify-between bg-elevated border-b border-border p-4">
-          <h2 className="font-serif text-xl text-neutral-50">{t('videoPlanner.segment.editTitle')}</h2>
-          <button
-            onClick={onCancel}
-            className="p-1 hover:bg-surface rounded transition-colors"
-            title={t('common.close')}
-            aria-label={t('common.close')}
-          >
-            <X className="w-5 h-5" aria-hidden="true" />
-          </button>
-        </div>
-
+    <>
+      <Modal open onClose={onCancel} title={t('videoPlanner.segment.editTitle')} wide>
         {/* Content */}
         <div className="p-6 space-y-6">
           {/* Title */}
@@ -153,8 +141,10 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
               {VISUAL_TYPES.map((vt) => (
                 <button
                   key={vt.value}
+                  type="button"
                   onClick={() => setVisualType(vt.value)}
-                  className={`p-3 rounded border transition-all ${
+                  aria-pressed={visualType === vt.value}
+                  className={`p-3 rounded border transition-[border-color,background-color] ${
                     visualType === vt.value
                       ? 'border-accent-gold bg-accent-gold/10'
                       : 'border-border hover:border-accent-gold/50'
@@ -188,15 +178,16 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
               onChange={handleImageUpload}
               className="hidden"
             />
-            <div
+            <button
+              type="button"
               onClick={() => visualImageData ? setPendingImage(visualImageDataOriginal || visualImageData) : fileInputRef.current?.click()}
-              className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-accent-gold/50 cursor-pointer transition-colors"
+              className="w-full border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-accent-gold/50 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/60"
             >
               {visualImageData ? (
                 <div>
                   <img
                     src={visualImageData}
-                    alt="Visual"
+                    alt={title || t('videoPlanner.segment.visualImage')}
                     className="w-full max-h-40 object-contain rounded mb-2"
                   />
                   <p className="text-xs text-neutral-400">{t('videoPlanner.segment.clickToPreview')}</p>
@@ -207,7 +198,7 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
                   <p className="text-sm text-neutral-300">{t('videoPlanner.segment.dropImage')}</p>
                 </div>
               )}
-            </div>
+            </button>
             <button
               type="button"
               onClick={() => setShowGallery(true)}
@@ -256,19 +247,21 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
         {/* Footer */}
         <div className="sticky bottom-0 flex justify-end gap-3 bg-elevated border-t border-border p-4">
           <button
+            type="button"
             onClick={onCancel}
             className="px-4 py-2 rounded border border-border hover:bg-surface transition-colors text-neutral-300"
           >
             {t('common.cancel')}
           </button>
           <button
+            type="button"
             onClick={handleSave}
             className="px-4 py-2 rounded bg-accent-gold text-deep font-medium hover:bg-accent-gold/90 transition-colors"
           >
             {t('videoPlanner.segment.saveChanges')}
           </button>
         </div>
-      </div>
+      </Modal>
       <GalleryAssetPicker
         projectId={segment.projectId}
         open={showGallery}
@@ -287,6 +280,6 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
         }}
         onCancel={() => setPendingImage(null)}
       />
-    </div>
+    </>
   );
 }

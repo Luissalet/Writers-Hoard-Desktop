@@ -101,6 +101,12 @@ interface AiState {
   deleteModel: (tag: string) => Promise<void>;
 }
 
+let settingsLoadRequest = 0;
+let connectionCheckRequest = 0;
+let localStatusRequest = 0;
+let localStatusPushRevision = 0;
+let settingsWriteQueue: Promise<void> = Promise.resolve();
+
 export const useAiStore = create<AiState>((set, get) => ({
   config: { ...DEFAULT_AI_CONFIG },
   isConnected: false,
@@ -113,12 +119,15 @@ export const useAiStore = create<AiState>((set, get) => ({
   pullProgress: { ...IDLE_PULL },
 
   loadSettings: async () => {
+    const request = ++settingsLoadRequest;
     try {
-      const baseUrl = await ops.getSetting(AI_SETTINGS_KEYS.BASE_URL);
-      const model = await ops.getSetting(AI_SETTINGS_KEYS.MODEL);
-      const enabled = await ops.getSetting(AI_SETTINGS_KEYS.ENABLED);
-      const provider = await ops.getSetting(AI_SETTINGS_KEYS.PROVIDER);
-      const localModel = await ops.getSetting(AI_SETTINGS_KEYS.LOCAL_MODEL);
+      const [baseUrl, model, enabled, provider, localModel] = await Promise.all([
+        ops.getSetting(AI_SETTINGS_KEYS.BASE_URL),
+        ops.getSetting(AI_SETTINGS_KEYS.MODEL),
+        ops.getSetting(AI_SETTINGS_KEYS.ENABLED),
+        ops.getSetting(AI_SETTINGS_KEYS.PROVIDER),
+        ops.getSetting(AI_SETTINGS_KEYS.LOCAL_MODEL),
+      ]);
 
       const config: AiConfig = {
         baseUrl: baseUrl || DEFAULT_AI_CONFIG.baseUrl,
@@ -127,40 +136,57 @@ export const useAiStore = create<AiState>((set, get) => ({
         provider: provider === 'local' ? 'local' : DEFAULT_AI_CONFIG.provider,
         localModel: localModel || DEFAULT_AI_CONFIG.localModel,
       };
+      if (request !== settingsLoadRequest) return;
       set({ config });
       await migrateLegacyAiSettings(config);
-      await useAiRuntimeStore.getState().loadDefaults();
+      if (request === settingsLoadRequest) await useAiRuntimeStore.getState().loadDefaults();
     } catch {
       // Use defaults if settings can't be loaded
     }
   },
 
-  saveSettings: async (changes: Partial<AiConfig>) => {
-    const current = get().config;
-    const updated = { ...current, ...changes };
+  saveSettings: (changes: Partial<AiConfig>) => {
+    // Preserve invocation order, including two writes to the same key. Each
+    // task merges into the state that exists WHEN it commits, so disjoint
+    // concurrent changes cannot both start from one stale config snapshot.
+    const task = settingsWriteQueue.then(async () => {
+      if (changes.baseUrl !== undefined) {
+        await ops.setSetting(AI_SETTINGS_KEYS.BASE_URL, changes.baseUrl);
+      }
+      if (changes.model !== undefined) {
+        await ops.setSetting(AI_SETTINGS_KEYS.MODEL, changes.model);
+      }
+      if (changes.enabled !== undefined) {
+        await ops.setSetting(AI_SETTINGS_KEYS.ENABLED, String(changes.enabled));
+      }
+      if (changes.provider !== undefined) {
+        await ops.setSetting(AI_SETTINGS_KEYS.PROVIDER, changes.provider);
+      }
+      if (changes.localModel !== undefined) {
+        await ops.setSetting(AI_SETTINGS_KEYS.LOCAL_MODEL, changes.localModel);
+      }
 
-    if (changes.baseUrl !== undefined) {
-      await ops.setSetting(AI_SETTINGS_KEYS.BASE_URL, changes.baseUrl);
-    }
-    if (changes.model !== undefined) {
-      await ops.setSetting(AI_SETTINGS_KEYS.MODEL, changes.model);
-    }
-    if (changes.enabled !== undefined) {
-      await ops.setSetting(AI_SETTINGS_KEYS.ENABLED, String(changes.enabled));
-    }
-    if (changes.provider !== undefined) {
-      await ops.setSetting(AI_SETTINGS_KEYS.PROVIDER, changes.provider);
-    }
-    if (changes.localModel !== undefined) {
-      await ops.setSetting(AI_SETTINGS_KEYS.LOCAL_MODEL, changes.localModel);
-    }
-
-    set({ config: updated });
+      set((state) => ({ config: { ...state.config, ...changes } }));
+      if (changes.baseUrl !== undefined || changes.provider !== undefined) {
+        connectionCheckRequest += 1;
+        set({ isConnected: false, availableModels: [], isLoading: false, error: null });
+      }
+    });
+    settingsWriteQueue = task.catch(() => undefined);
+    return task;
   },
 
   checkConnection: async () => {
+    const request = ++connectionCheckRequest;
+    const checked = get().config;
     set({ isLoading: true, error: null });
-    const result = await testConnection(get().config.baseUrl);
+    const result = await testConnection(checked.baseUrl);
+    const active = get().config;
+    if (
+      request !== connectionCheckRequest
+      || active.baseUrl !== checked.baseUrl
+      || active.provider !== checked.provider
+    ) return;
     set({
       isConnected: result.connected,
       availableModels: result.models,
@@ -181,6 +207,8 @@ export const useAiStore = create<AiState>((set, get) => ({
   },
 
   refreshLocalStatus: async () => {
+    const request = ++localStatusRequest;
+    const pushRevision = localStatusPushRevision;
     const api = window.electronAPI?.ollama;
     if (!api) {
       // Web build / no bridge: honest synthetic status, UI shows "no soportado".
@@ -197,6 +225,7 @@ export const useAiStore = create<AiState>((set, get) => ({
       return;
     }
     const status = await api.getStatus();
+    if (request !== localStatusRequest || pushRevision !== localStatusPushRevision) return;
     set({ localStatus: status });
     // The ONE policy line: an installed runtime that isn't running yet gets
     // started in the background; the ollama:status push flips the UI.
@@ -284,6 +313,7 @@ if (ollamaBridge && !window.__whOllamaWired) {
   window.__whOllamaWired = true;
 
   ollamaBridge.onStatus((status) => {
+    localStatusPushRevision += 1;
     useAiStore.setState((prev) => ({
       localStatus: status,
       // A terminal state ends whatever progress was showing.

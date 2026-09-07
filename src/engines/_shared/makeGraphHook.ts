@@ -81,6 +81,7 @@ export function makeGraphHook<N, E>(
       mountedRef.current = true;
       return () => {
         mountedRef.current = false;
+        seqRef.current += 1;
       };
     }, []);
 
@@ -88,6 +89,7 @@ export function makeGraphHook<N, E>(
     // initial load only; post-mutation refreshes set `refetching` so a canvas
     // never blanks to a spinner mid-interaction. Stale results are discarded.
     const refresh = useCallback(async () => {
+      const seq = ++seqRef.current;
       if (!scopeId) {
         setNodes([]);
         setEdges([]);
@@ -97,7 +99,6 @@ export function makeGraphHook<N, E>(
         loadedScopeRef.current = null;
         return;
       }
-      const seq = ++seqRef.current;
       const isInitialForScope = loadedScopeRef.current !== scopeId;
       if (isInitialForScope) setLoading(true);
       else setRefetching(true);
@@ -188,12 +189,13 @@ export function makeGraphHook<N, E>(
       [runMutation],
     );
 
+    const ownsPublishedGraph = Boolean(scopeId) && loadedScopeRef.current === scopeId;
     return {
-      nodes,
-      edges,
-      loading,
-      refetching,
-      error,
+      nodes: ownsPublishedGraph ? nodes : [],
+      edges: ownsPublishedGraph ? edges : [],
+      loading: Boolean(scopeId) && !ownsPublishedGraph ? true : loading,
+      refetching: ownsPublishedGraph ? refetching : false,
+      error: ownsPublishedGraph ? error : null,
       addNode,
       updateNode,
       removeNode,

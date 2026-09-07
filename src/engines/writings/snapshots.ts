@@ -139,6 +139,46 @@ const DEDUPED_REASONS: ReadonlySet<SnapshotReason> = new Set<SnapshotReason>([
   'pre-restore',
 ]);
 
+export type SnapshotWriteOutcome =
+  | { status: 'created'; snapshotId: string }
+  | { status: 'already-covered'; snapshotId: string }
+  | { status: 'skipped-empty' };
+
+/**
+ * Strict snapshot primitive for a caller that is about to replace the only
+ * live copy of some prose.
+ *
+ * Unlike `takeSnapshot`, this function never swallows a database failure. It
+ * is safe to call inside a Dexie transaction that includes
+ * `writingSnapshots`; the caller can then make the restore point and the
+ * destructive write one atomic unit. A deduplicated row still counts as
+ * covered because the newest version already contains exactly these words.
+ */
+export async function ensureSnapshot(
+  writing: Pick<Writing, 'id' | 'projectId' | 'title' | 'content'>,
+  reason: SnapshotReason,
+): Promise<SnapshotWriteOutcome> {
+  if (!writing.content?.trim() && reason === 'auto') return { status: 'skipped-empty' };
+  if (DEDUPED_REASONS.has(reason)) {
+    const latest = await latestSnapshot(writing.id);
+    if (latest && latest.content === writing.content) {
+      return { status: 'already-covered', snapshotId: latest.id };
+    }
+  }
+  const snapshot: WritingSnapshot = {
+    id: generateId('wsnap'),
+    writingId: writing.id,
+    projectId: writing.projectId,
+    title: writing.title,
+    content: writing.content,
+    wordCount: countWords(writing.content),
+    reason,
+    createdAt: Date.now(),
+  };
+  await db.writingSnapshots.add(snapshot);
+  return { status: 'created', snapshotId: snapshot.id };
+}
+
 /**
  * Take a snapshot of the given writing state. Deduplicates: no-op when the
  * content is identical to the most recent snapshot, for the machine-taken
@@ -158,23 +198,8 @@ export async function takeSnapshot(
   reason: SnapshotReason,
 ): Promise<string | null> {
   try {
-    if (!writing.content?.trim() && reason === 'auto') return null; // nothing to protect
-    if (DEDUPED_REASONS.has(reason)) {
-      const latest = await latestSnapshot(writing.id);
-      if (latest && latest.content === writing.content) return null;
-    }
-    const snapshot: WritingSnapshot = {
-      id: generateId('wsnap'),
-      writingId: writing.id,
-      projectId: writing.projectId,
-      title: writing.title,
-      content: writing.content,
-      wordCount: countWords(writing.content),
-      reason,
-      createdAt: Date.now(),
-    };
-    await db.writingSnapshots.add(snapshot);
-    return snapshot.id;
+    const outcome = await ensureSnapshot(writing, reason);
+    return outcome.status === 'created' ? outcome.snapshotId : null;
   } catch (err) {
     console.error('[snapshots] failed to snapshot writing', err);
     return null;

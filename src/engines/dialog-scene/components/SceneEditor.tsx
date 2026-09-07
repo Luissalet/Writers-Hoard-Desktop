@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Plus, Link2 } from 'lucide-react';
+import { Plus, Link2, Volume2 } from 'lucide-react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   DndContext,
@@ -29,12 +30,30 @@ import { SCREENPLAY_TRANSITIONS, SLUG_PREFIXES, type AutocompleteSuggestion } fr
 import { useDebouncedField } from '@/engines/_shared';
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
+import Modal from '@/components/common/Modal';
+import { ReadAloudPanel } from '@/components/read-aloud';
+import { dialogBlocksToReadAloudBlocks, type ReadAloudNoteAnchor } from '@/services/readAloud';
+import { createAnnotation } from '@/engines/annotations/operations';
+import { getSetting, PROJECT_SETTING_PREFIXES, updateSetting } from '@/db/operations';
+import { toast } from '@/components/common/toast';
+import { db } from '@/db';
 
 interface SceneEditorProps {
   scene: Scene;
   scenes: Scene[];
-  onUpdateScene: (changes: Partial<Scene>) => void;
+  onUpdateScene: (changes: Partial<Scene>) => Promise<void>;
   onBack: () => void;
+}
+
+function parseVoicePreferences(raw: string | undefined): Record<string, string | undefined> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([, value]) => typeof value === 'string'));
+  } catch {
+    return {};
+  }
 }
 
 function SortableBlockWrapper({
@@ -46,7 +65,7 @@ function SortableBlockWrapper({
   suggestions,
 }: {
   block: DialogBlock;
-  onUpdate: (content: string, parenthetical?: string) => void;
+  onUpdate: (content: string, parenthetical?: string) => Promise<void>;
   onUpdateFormatting: (formatting: BlockFormatting) => void;
   onChangeType?: (type: DialogBlockType) => void;
   onDelete: () => void;
@@ -82,7 +101,7 @@ export default function SceneEditor({
   onUpdateScene,
   onBack,
 }: SceneEditorProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   void _scenes; // available for future scene-navigation features
   const { items: blocks, addItem: addBlock, editItem: editBlock, removeItem: removeBlock, reorder } =
     useDialogBlocks(scene.id);
@@ -135,6 +154,54 @@ export default function SceneEditor({
   const [editingDesc, setEditingDesc] = useState(false);
   const [editingSetting, setEditingSetting] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showTableRead, setShowTableRead] = useState(false);
+  const tableReadSettingKey = `${PROJECT_SETTING_PREFIXES.tableReadVoices}${scene.projectId}`;
+  const tableReadVoicePreferences = useLiveQuery(
+    async () => parseVoicePreferences(await getSetting(tableReadSettingKey)),
+    [tableReadSettingKey],
+  ) ?? {};
+  const tableReadBlocks = useMemo(() => dialogBlocksToReadAloudBlocks(blocks), [blocks]);
+
+  const saveTableReadVoice = useCallback(async (key: string, voiceURI: string | undefined) => {
+    await updateSetting(tableReadSettingKey, (current) => {
+      const next = parseVoicePreferences(current);
+      if (voiceURI) next[key] = voiceURI;
+      else delete next[key];
+      return JSON.stringify(next);
+    });
+  }, [tableReadSettingKey]);
+
+  const createTableReadNote = useCallback(async (anchor: ReadAloudNoteAnchor) => {
+    const now = Date.now();
+    const position = await db.annotations
+      .where('[sourceEngineId+sourceEntityId]')
+      .equals(['dialog-scene', scene.id])
+      .count();
+    await createAnnotation({
+      id: generateId('annotation'),
+      projectId: scene.projectId,
+      sourceEngineId: 'dialog-scene',
+      sourceEntityId: scene.id,
+      anchor: { type: 'entity' },
+      noteType: 'text',
+      noteBody: `${t('dialogScene.tableRead.notePrefix')}${anchor.characterName ? ` · ${anchor.characterName}` : ''}\n“${anchor.quote}”`,
+      isOrphaned: false,
+      position,
+      createdAt: now,
+      updatedAt: now,
+    });
+    toast.success(t('dialogScene.tableRead.noteSaved'));
+  }, [scene.id, scene.projectId, t]);
+
+  const jumpFromTableRead = useCallback(async (anchor: ReadAloudNoteAnchor) => {
+    setShowTableRead(false);
+    window.setTimeout(() => {
+      const target = [...document.querySelectorAll<HTMLElement>('[data-dialog-block-id]')]
+        .find((element) => element.dataset.dialogBlockId === anchor.blockId);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target?.querySelector<HTMLElement>('textarea, input, button')?.focus();
+    }, 0);
+  }, []);
 
   // Buffered: these three inputs were bound to the row coming back from
   // `editScene` → Dexie write → refetch, so typing in the middle of a title
@@ -358,6 +425,16 @@ export default function SceneEditor({
         <div className="flex items-center gap-3">
           <ChronometryBadge blocks={blocks} />
           <button
+            type="button"
+            onClick={() => setShowTableRead(true)}
+            disabled={tableReadBlocks.length === 0}
+            className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm text-text-muted transition hover:border-accent-gold/50 hover:text-accent-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold disabled:opacity-40"
+            title={t('dialogScene.tableRead.hint')}
+          >
+            <Volume2 size={15} aria-hidden="true" />
+            {t('dialogScene.tableRead.button')}
+          </button>
+          <button
             onClick={onBack}
             className="px-3 py-1.5 text-sm bg-border/30 text-text-muted hover:text-text-primary rounded transition"
           >
@@ -466,12 +543,12 @@ export default function SceneEditor({
                       }
                       const block = group.block;
                       return (
-                        <div key={block.id} className="group/block relative">
+                        <div key={block.id} className="group/block relative" data-dialog-block-id={block.id}>
                           <SortableBlockWrapper
                             block={block}
-                            onUpdate={(content, parenthetical) => {
-                              editBlock(block.id, { content, parenthetical });
-                            }}
+                            onUpdate={(content, parenthetical) =>
+                              editBlock(block.id, { content, parenthetical })
+                            }
                             onUpdateFormatting={(formatting) => {
                               editBlock(block.id, { formatting });
                             }}
@@ -667,6 +744,23 @@ export default function SceneEditor({
           </div>
         </div>
       </div>
+      <Modal
+        open={showTableRead}
+        onClose={() => setShowTableRead(false)}
+        title={t('dialogScene.tableRead.title')}
+        wide
+      >
+        <ReadAloudPanel
+          blocks={tableReadBlocks}
+          mode="table-read"
+          locale={locale}
+          initialGranularity="block"
+          voicePreferences={tableReadVoicePreferences}
+          onVoicePreferenceChange={saveTableReadVoice}
+          onCreateNote={createTableReadNote}
+          onJumpToSource={jumpFromTableRead}
+        />
+      </Modal>
     </div>
   );
 }

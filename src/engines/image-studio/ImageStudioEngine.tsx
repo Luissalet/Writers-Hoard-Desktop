@@ -711,7 +711,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
               projectId={projectId}
               visual={selectedRef}
               entries={entries}
-              onChange={(changes) => { void updateVisualRef(selectedRef.id, changes).then(reloadRefs); }}
+              onChange={(changes) => updateVisualRef(selectedRef.id, changes).then(reloadRefs)}
               onReload={() => { void reloadRefs(); }}
               onExportDataset={() => { void openExport(); }}
             />

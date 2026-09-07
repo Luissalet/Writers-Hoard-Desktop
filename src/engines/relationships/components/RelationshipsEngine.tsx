@@ -460,9 +460,8 @@ function RelationshipEditor({
   const cfg = RELATIONSHIP_KIND_CONFIG[r.kind];
   const [pendingDelete, setPendingDelete] = useState(false);
 
-  const handleField = <K extends keyof Relationship>(key: K) => (value: Relationship[K]) => {
+  const handleField = <K extends keyof Relationship>(key: K) => (value: Relationship[K]) =>
     onSave({ [key]: value, updatedAt: Date.now() } as Partial<Relationship>);
-  };
 
   // Buffered. `relationships` sorts by `updatedAt desc`, so typing a note
   // reordered the list underneath on every character, and the controlled input

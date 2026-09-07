@@ -175,6 +175,23 @@ registerBackupStrategy({
       );
     }
   },
+  async inspectImport({ zip, projectDir }) {
+    const path = `${projectDir}/scrapper/snapshots.json`;
+    const snapshots = await readSnapshots(zip, path) ?? [];
+    const legacyPath = `${projectDir}/links/links.json`;
+    const legacy = await readBackupJson<unknown>(zip, legacyPath);
+    if (legacy !== null && !Array.isArray(legacy)) {
+      throw new Error(`Expected "${legacyPath}" to contain a JSON array.`);
+    }
+    return [
+      { table: 'snapshots', path, rows: snapshots },
+      {
+        table: 'snapshots',
+        path: legacyPath,
+        rows: legacy ? legacyLinksToSnapshots(legacy) : [],
+      },
+    ];
+  },
   async importProject({ zip, projectDir }) {
     const snapshots = await readSnapshots(
       zip,

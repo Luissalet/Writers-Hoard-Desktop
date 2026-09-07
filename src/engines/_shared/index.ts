@@ -52,4 +52,9 @@ export type { CollectionDashboardProps } from './components/CollectionDashboard'
 export type { ConfirmDialogProps } from './components/ConfirmDialog';
 export type { LinkSelectProps, LinkSelectOption } from './components/LinkSelect';
 export type { EntityResolverConfig } from './entityResolverRegistry';
-export type { BackupStrategy, ExportContext, ImportContext } from './backupRegistry';
+export type {
+  BackupImportSection,
+  BackupStrategy,
+  ExportContext,
+  ImportContext,
+} from './backupRegistry';

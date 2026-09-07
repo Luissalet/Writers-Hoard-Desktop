@@ -135,6 +135,13 @@ import {
 import { whAnnotate, whListAnnotations } from './annotations';
 import { whPovAudit, whWritingStats } from './analysis';
 import { whDelete } from './deletion';
+import {
+  whGetJudgeEvidence,
+  whGetJudgeReview,
+  whListJudgeLenses,
+  whListJudgeReviews,
+  whRunJudge,
+} from './judge';
 
 export type ToolHandler = (args: ToolArgs) => Promise<unknown>;
 
@@ -153,6 +160,11 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_append_writing: whAppendWriting,
   wh_list_writing_versions: whListWritingVersions,
   wh_restore_writing_version: whRestoreWritingVersion,
+  wh_list_judge_lenses: whListJudgeLenses,
+  wh_get_judge_evidence: whGetJudgeEvidence,
+  wh_run_judge: whRunJudge,
+  wh_get_judge_review: whGetJudgeReview,
+  wh_list_judge_reviews: whListJudgeReviews,
   // Codex
   wh_list_codex: whListCodex,
   wh_get_codex_entry: whGetCodexEntry,

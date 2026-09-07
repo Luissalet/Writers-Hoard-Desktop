@@ -1,110 +1,8 @@
 @import "tailwindcss";
 
-/* ── The app's own typefaces, bundled ────────────────────────────────────────
-   These three used to arrive from fonts.googleapis.com over an `@import`,
-   which meant a local-first app needed the network to look like itself: on a
-   plane every title, label and button dropped silently to a system face. The
-   files now live in `public/fonts/` (that folder's README lists exactly which
-   ones, at which weights, under which licence).
-
-   The `src` URLs start with a slash ON PURPOSE. A slash-rooted url in CSS is a
-   PUBLIC-DIRECTORY reference: Vite copies the file to `dist/fonts/` and — because
-   the desktop build runs with `VITE_BASE_URL=./` (see `build:desktop`) — rewrites
-   the reference in the emitted stylesheet to a path relative to that stylesheet,
-   `../fonts/…`. That is what the packaged app needs, because its renderer is
-   opened with `loadFile(dist/index.html)`: the origin is `file://`, where a URL
-   left as `/fonts/…` would be read from the root of the user's disk. Writing
-   `../fonts/…` here by hand would be wrong in the other direction — Vite resolves
-   relative css urls against THIS file, i.e. `src/fonts/`, where nothing lives.
-   Same convention as `/vite.svg` and `/renderer-prelude.js` in index.html, which
-   already survive the packaged build.
-
-   Until the .woff2 files are dropped in, Vite leaves the unresolved url alone
-   (it warns and moves on), the browser skips the face, and the next entry in the
-   stack is used. That is why every stack in `@theme` below names real system
-   fonts instead of a bare `serif`/`sans-serif`/`monospace`: with the files or
-   without them, the chrome is set in something chosen — which is already better
-   than today's offline behaviour. */
-
-@font-face {
-  font-family: 'Cinzel';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/cinzel-400.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Cinzel';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/fonts/cinzel-600.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Cinzel';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('/fonts/cinzel-700.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Source Sans 3';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/source-sans-3-400.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Source Sans 3';
-  font-style: italic;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/source-sans-3-400-italic.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Source Sans 3';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/source-sans-3-500.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Source Sans 3';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/fonts/source-sans-3-600.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Source Sans 3';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('/fonts/source-sans-3-700.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'JetBrains Mono';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/jetbrains-mono-400.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'JetBrains Mono';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/jetbrains-mono-500.woff2') format('woff2');
-}
+/* Font files are intentionally not declared until they ship. The desktop app
+   uses the explicit local system stacks below without network requests or
+   invalid missing-asset responses in Chromium. */
 
 @theme {
   --color-deep: #07070d;
@@ -113,8 +11,8 @@
   --color-border: #2a2a3a;
   --color-border-hover: #3a3a4f;
   --color-text-primary: #e8e5e0;
-  --color-text-muted: #8a8690;
-  --color-text-dim: #5a5665;
+  --color-text-muted: #aaa6b0;
+  --color-text-dim: #88838f;
   --color-accent-gold: #c4973b;
   --color-accent-amber: #e4a853;
   --color-accent-plum: #7c5cbf;
@@ -150,6 +48,7 @@
    design. `--wh-face-sans` and `--wh-face-mono` still name the bundled families
    first, which now resolve from `public/fonts/` rather than from the network. */
 :root {
+  color-scheme: dark;
   --wh-face-serif: 'Iowan Old Style', Charter, 'Bitstream Charter', Georgia,
     'Liberation Serif', 'Noto Serif', 'DejaVu Serif', 'Times New Roman', serif;
   --wh-face-sans: 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
@@ -162,6 +61,29 @@
   --wh-reading-font: var(--wh-face-serif);
   --wh-reading-size: 1.0625rem;
   --wh-reading-measure: 46rem;
+}
+
+/* Motion follows the OS until the writer explicitly chooses otherwise.
+   Essential progress remains present as text/status even when its spinner is
+   still. Framer Motion reads the same preference in Modal.tsx. */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='full']) *,
+  html:not([data-motion='full']) *::before,
+  html:not([data-motion='full']) *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+html[data-motion='reduce'] *,
+html[data-motion='reduce'] *::before,
+html[data-motion='reduce'] *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }
 
 [data-reading-face='serif'] { --wh-reading-font: var(--wh-face-serif); }

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useRef, useState } from 'react';
 import Modal from '@/components/common/Modal';
 import { useTranslation } from '@/i18n/useTranslation';
 
@@ -57,6 +57,8 @@ export default function ConfirmDialog({
 }: ConfirmDialogProps) {
   const { t } = useTranslation();
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const submittingRef = useRef(false);
+  const [busy, setBusy] = useState(false);
 
   const resolvedTitle =
     title ?? (destructive ? t('common.delete') : t('common.confirm'));
@@ -67,26 +69,27 @@ export default function ConfirmDialog({
   // Focus the Cancel button when the dialog opens, so an accidental Enter
   // press maps to Cancel rather than confirm. This is the safe default for
   // destructive actions.
-  useEffect(() => {
-    if (open) {
-      // Defer one tick — Modal mounts via AnimatePresence after this effect runs.
-      const id = window.setTimeout(() => cancelRef.current?.focus(), 0);
-      return () => window.clearTimeout(id);
+  const handleConfirm = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setBusy(true);
+    try {
+      await onConfirm();
+    } finally {
+      submittingRef.current = false;
+      setBusy(false);
     }
-  }, [open]);
-
-  const handleConfirm = () => {
-    void onConfirm();
   };
 
   return (
-    <Modal open={open} onClose={onCancel} title={resolvedTitle}>
+    <Modal open={open} onClose={onCancel} title={resolvedTitle} busy={busy} initialFocusRef={cancelRef}>
       <p className="text-sm text-text-primary mb-6 whitespace-pre-wrap">{message}</p>
       <div className="flex items-center justify-end gap-2">
         <button
           ref={cancelRef}
           type="button"
           onClick={onCancel}
+          disabled={busy}
           className="px-4 py-2 text-sm rounded-lg border border-border text-text-primary hover:bg-elevated transition focus:outline-none focus:ring-2 focus:ring-accent-gold/50"
         >
           {resolvedCancelLabel}
@@ -94,6 +97,8 @@ export default function ConfirmDialog({
         <button
           type="button"
           onClick={handleConfirm}
+          disabled={busy}
+          aria-busy={busy || undefined}
           className={
             destructive
               ? 'px-4 py-2 text-sm rounded-lg bg-danger text-white font-semibold hover:bg-danger/90 transition focus:outline-none focus:ring-2 focus:ring-danger/50'

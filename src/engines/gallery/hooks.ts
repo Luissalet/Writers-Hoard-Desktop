@@ -1,4 +1,5 @@
 import { makeEntityHook, makeTableOps } from '@/engines/_shared';
+import { deleteInspirationImage } from '@/db/operations';
 import type { InspirationImage, ImageCollection } from '@/types';
 import { deleteImageCollection } from './operations';
 
@@ -23,5 +24,5 @@ export const useInspirationImages = makeEntityHook<InspirationImage>({
   fetchFn: inspirationImageOps.getAll,
   createFn: inspirationImageOps.create,
   updateFn: inspirationImageOps.update,
-  deleteFn: inspirationImageOps.delete,
+  deleteFn: deleteInspirationImage,
 });

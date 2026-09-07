@@ -20,6 +20,8 @@ import {
 import { isCurrentSdRuntimeReceipt, SD_RUNTIME_ARTIFACTS, sdBackendsFor, sdRuntimeArtifact } from '../electron/ai/sdRuntimeManifest';
 import { contentRangeStart, DownloadError, downloadVerified, verifyFile } from '../electron/ai/download';
 import { appendAudit, auditPath, getAuditRecord, readAudit, undoneIndices } from '../electron/aibridge/state';
+import { runMediaSecurityTests } from './media-security';
+import { runCausalGraphTests } from './causal-graph';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -27,6 +29,9 @@ function assert(condition: unknown, message: string): asserts condition {
 
 export async function runElectronSecurityTests(temporaryDirectory: string): Promise<string[]> {
   const passed: string[] = [];
+
+  passed.push(...await runMediaSecurityTests(temporaryDirectory));
+  passed.push(...runCausalGraphTests());
 
   assert(isSafeNativeSegment('project_1-safe.zip'), 'safe native segment rejected');
   for (const unsafe of ['.', '..', '', '../escape', 'folder/file', 'folder\\file']) {
@@ -77,6 +82,15 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
   assert(!isExactRendererDocumentUrl('https://example.com/', renderer), 'external renderer accepted');
   assert(isIpcChannelAllowedForRole('media:listLibraryFiles', 'main'), 'main IPC policy missing');
   assert(!isIpcChannelAllowedForRole('media:listLibraryFiles', 'quick-note'), 'quick-note gained main IPC');
+  for (const channel of [
+    'media:downloaderHealth',
+    'media:detectDownloadPlatform',
+    'media:downloadToFile',
+    'media:cancelFileDownload',
+  ]) {
+    assert(isIpcChannelAllowedForRole(channel, 'main'), `${channel} has no trusted renderer`);
+    assert(!isIpcChannelAllowedForRole(channel, 'quick-note'), `${channel} leaked to quick-note`);
+  }
   assert(isIpcChannelAllowedForRole('quick-note:submit', 'quick-note'), 'quick-note submit policy missing');
   assert(!isIpcChannelAllowedForRole('unknown:channel', 'main'), 'unknown IPC channel did not fail closed');
   // The AI bridge answers from the main window only: the quick-note renderer

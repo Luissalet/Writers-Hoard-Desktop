@@ -527,9 +527,8 @@ function SeedDetail({
   const { pendingAnchor, consumePendingAnchor, bindProps } =
     useTextareaSelectionAnchor(seed.description ?? '');
 
-  const handleField = <K extends keyof Seed>(key: K) => (value: Seed[K]) => {
+  const handleField = <K extends keyof Seed>(key: K) => (value: Seed[K]) =>
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<Seed>);
-  };
 
   // Buffered — one Dexie write plus a full refresh per keystroke used to make
   // the description swallow characters as you typed.
@@ -800,9 +799,8 @@ function PayoffCard({
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
-  const handleField = <K extends keyof Payoff>(key: K) => (value: Payoff[K]) => {
+  const handleField = <K extends keyof Payoff>(key: K) => (value: Payoff[K]) =>
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<Payoff>);
-  };
 
   const titleField = useDebouncedField(payoff.title, handleField('title'));
   const descriptionField = useDebouncedField(payoff.description ?? '', handleField('description'));

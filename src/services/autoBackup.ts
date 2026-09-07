@@ -30,19 +30,9 @@
 // declaring an older version still restores (the importer accepts the whole
 // supported range), which is what makes that mirror safe rather than fragile.
 
-import JSZip from 'jszip';
 import { db } from '@/db';
 import { getSetting, setSetting } from '@/db/operations';
-import {
-  dataUrlToBlob,
-  getAllBackupStrategies,
-  sanitize,
-} from '@/engines/_shared/backupRegistry';
-import { GLOBAL_NOTES_SCOPE } from '@/engines/notes/types';
-// Engine initialization is part of the backup contract: every strategy must be
-// registered before an archive is built. Same import, same reason, as zipBackup.
-import '@/engines';
-import type { Project } from '@/types';
+import { createFullZipArchive } from '@/services/zipBackup';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -342,36 +332,9 @@ export async function openBackupFolder(): Promise<boolean> {
 // Building the archive
 // ---------------------------------------------------------------------------
 
-/**
- * The manifest version this archive declares. It mirrors `BACKUP_VERSION` in
- * src/services/zipBackup.ts, which owns the format and which this file may not
- * edit. The mirror is safe in the direction that matters: the importer accepts
- * every version from the minimum supported up to its own, so an archive
- * written here still restores after the format moves on — exactly like an
- * archive written by an older build of the app.
- */
-const ARCHIVE_MANIFEST_VERSION = 3;
-
 /** Sortable, colon-free, and the shape electron/main.ts will accept. */
 function archiveFileName(at: Date): string {
   return `writers-hoard-auto-${at.toISOString().slice(0, 19).replace(/:/g, '-')}.zip`;
-}
-
-async function writeProjectToZip(zip: JSZip, project: Project): Promise<void> {
-  const projectDir = `projects/${sanitize(project.title)}__${project.id}`;
-  const metadata: Project = { ...project };
-  if (metadata.coverImage) {
-    const { blob, ext } = dataUrlToBlob(metadata.coverImage);
-    if (blob.byteLength === 0) {
-      throw new Error(`Project "${project.title}" has a cover that is not a valid image.`);
-    }
-    zip.file(`${projectDir}/cover.${ext}`, blob);
-    metadata.coverImage = `cover.${ext}`;
-  }
-  zip.file(`${projectDir}/project.json`, JSON.stringify(metadata, null, 2));
-  for (const strategy of getAllBackupStrategies()) {
-    await strategy.exportProject({ zip, projectId: project.id, projectDir });
-  }
 }
 
 /**
@@ -380,44 +343,8 @@ async function writeProjectToZip(zip: JSZip, project: Project): Promise<void> {
  * not a backup, and a partial archive that restores cleanly is worse than none.
  */
 async function buildFullArchive(): Promise<{ bytes: ArrayBuffer; fileName: string }> {
-  const zip = new JSZip();
-  const [projects, tags, settings, inboxNotes] = await Promise.all([
-    db.projects.toArray(),
-    db.tags.toArray(),
-    db.settings.toArray(),
-    db.table('notes').where('projectId').equals(GLOBAL_NOTES_SCOPE).toArray(),
-  ]);
-
-  zip.file(
-    'manifest.json',
-    JSON.stringify(
-      {
-        app: 'WritersHoard',
-        version: ARCHIVE_MANIFEST_VERSION,
-        exportedAt: new Date().toISOString(),
-        projectCount: projects.length,
-        externalAssets: {
-          scrapper: { included: false, restorePolicy: 'reset-unavailable' },
-        },
-      },
-      null,
-      2,
-    ),
-  );
-  zip.file('settings.json', JSON.stringify(settings, null, 2));
-  zip.file('tags.json', JSON.stringify(tags, null, 2));
-  zip.file('notes-inbox.json', JSON.stringify(inboxNotes, null, 2));
-
-  for (const project of projects) {
-    await writeProjectToZip(zip, project);
-  }
-
-  const bytes = await zip.generateAsync({
-    type: 'arraybuffer',
-    compression: 'DEFLATE',
-    compressionOptions: { level: 6 },
-  });
-  return { bytes, fileName: archiveFileName(new Date()) };
+  const { blob } = await createFullZipArchive();
+  return { bytes: await blob.arrayBuffer(), fileName: archiveFileName(new Date()) };
 }
 
 // ---------------------------------------------------------------------------
@@ -532,8 +459,15 @@ export function runAutomaticBackup(options: { force?: boolean } = {}): Promise<B
   return run;
 }
 
-/** The writer asked for an archive now, schedule or no schedule. */
-export function backUpNow(): Promise<BackupStatus> {
+/**
+ * The writer asked for an archive now, schedule or no schedule. If an older
+ * scheduled run is already in flight, let it settle and then start a fresh
+ * forced archive. Callers that gate a destructive operation on this promise
+ * therefore never mistake a pre-existing run for their safety snapshot.
+ */
+export async function backUpNow(): Promise<BackupStatus> {
+  const olderRun = inFlight;
+  if (olderRun) await olderRun;
   return runAutomaticBackup({ force: true });
 }
 

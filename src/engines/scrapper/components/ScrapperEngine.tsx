@@ -360,7 +360,7 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
             {filteredSnapshots.map((snapshot) => (
               <div
                 key={snapshot.id}
-                className="bg-elevated border border-border rounded-lg p-4 hover:border-accent-gold cursor-pointer transition-all hover:shadow-md"
+                className="bg-elevated border border-border rounded-lg p-4 hover:border-accent-gold cursor-pointer transition-[border-color,box-shadow] hover:shadow-md"
                 onClick={() => setSelectedSnapshotId(snapshot.id)}
               >
                 <div className="flex items-start justify-between gap-3">
