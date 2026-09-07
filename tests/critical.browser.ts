@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { testEditorialTools } from './editorial-tools.browser';
 import { testBoardInteractions } from './board-interactions';
 import { testPlanningTitleOwnership, testPlanningSaveRecovery } from './planning-lifecycle.browser';
 import { testProjectUserFlows } from './project-userflows.browser';
@@ -1287,6 +1288,12 @@ async function testOutlineCoverageIgnoresDeletedWritings(): Promise<void> {
 // the harness reproduces it.
 async function testCitationAccessedDayIsLocal(): Promise<void> {
   const projectId = 'citation-date-project';
+  const now = Date.now();
+  await db.projects.add({
+    id: projectId, title: 'Citation dates', mode: 'reporter', type: 'standalone',
+    color: '#7c3aed', description: '', status: 'draft', enabledEngines: [],
+    engineOrder: [], createdAt: now, updatedAt: now,
+  });
   const cases = [
     { id: 'citation-snapshot-early', preservedAt: new Date(2026, 6, 27, 0, 30).getTime() },
     { id: 'citation-snapshot-late', preservedAt: new Date(2026, 6, 27, 23, 30).getTime() },
@@ -1316,6 +1323,7 @@ async function testCitationAccessedDayIsLocal(): Promise<void> {
   }
   await db.citations.bulkDelete(citationIds);
   await db.snapshots.bulkDelete(cases.map(row => row.id));
+  await db.projects.delete(projectId);
   passed.push('citation accessed date is the local day of the snapshot and round-trips');
 }
 
@@ -4588,6 +4596,10 @@ async function testRepeatedRestoreDoesNotRefileTheSameChapter(): Promise<void> {
   });
   const kept = await takeSnapshot({ id: writingId, projectId, title: 'The door', content: old }, 'manual');
   assert(typeof kept === 'string', 'the fixture version was not filed');
+  // Establish chronology explicitly: rapid fixture writes can share one
+  // millisecond, whose random primary-key order is not a creation order.
+  // This test checks deduplication against the newest version, not tied dates.
+  await db.writingSnapshots.update(kept, { createdAt: now - 2000 });
 
   const countVersions = () => db.writingSnapshots.where('writingId').equals(writingId).count();
 
@@ -4602,6 +4614,7 @@ async function testRepeatedRestoreDoesNotRefileTheSameChapter(): Promise<void> {
     (await readSnapshot(preRestore.id))?.content === rewritten,
     'the pre-restore version does not hold the text that was replaced',
   );
+  await db.writingSnapshots.update(preRestore.id, { createdAt: now - 1000 });
 
   // From here the chapter never changes again: every further restore of this
   // version replaces `old` with `old`. The history records that once — the next
@@ -5142,6 +5155,7 @@ async function run(): Promise<void> {
   passed.push(...await testCreativeOrganizationBrowser());
   passed.push(...await testCreativeCapturePersistence());
   stage('visual references');
+  passed.push(...await testEditorialTools());
   passed.push(...await runVisualRefTests());
   stage('image studio');
   passed.push(...await runImageStudioTests());
