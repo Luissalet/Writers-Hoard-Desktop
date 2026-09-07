@@ -27,6 +27,8 @@
 
 import * as THREE from 'three';
 import { GLOBE_RELIEF } from './scene3d';
+import type { WorldData } from '../core/types';
+import { buildLakeGeometry } from './lakeGeometry';
 import { EARTH_KM } from '../core/camera';
 
 export interface WaterOptions {
@@ -55,6 +57,9 @@ export interface WaterSkyInput {
 export interface Water {
   plane: THREE.Mesh;
   globe: THREE.Mesh;
+  lakePlane: THREE.Mesh;
+  lakeGlobe: THREE.Mesh;
+  setWorld(world: WorldData): void;
   update(o: {
     camera: THREE.PerspectiveCamera;
     sun: THREE.Vector3;
@@ -105,13 +110,27 @@ const VERT = /* glsl */`
 precision highp float;
 
 out vec3 vWorld;
+out float vWaterLevel;
+uniform float uSea;
+uniform float uLake;
+uniform float uShape;
+uniform float uYMul;
+uniform float uRadius;
+in float surfaceHeight;
 
 void main() {
   // La posición del MUNDO, no la de vista: la profundidad del fondo, el oleaje
   // y la bruma se calculan todos en coordenadas de mundo, y el plano se
   // recoloca bajo la cámara cada fotograma (ver update), así que cualquier
   // cosa atada al espacio local se movería con él.
-  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vec3 p = position;
+  vWaterLevel = uSea;
+  if (uLake > 0.5) {
+    vWaterLevel = surfaceHeight;
+    if (uShape < 0.5) p.y = surfaceHeight * uYMul;
+    else p = normalize(position) * (uRadius + surfaceHeight * uYMul * ${GLOBE_RELIEF});
+  }
+  vec4 wp = modelMatrix * vec4(p, 1.0);
   vWorld = wp.xyz;
   gl_Position = projectionMatrix * viewMatrix * wp;
 }
@@ -124,6 +143,7 @@ precision highp sampler2D;
 uniform sampler2D uHeight;
 uniform float uHasHeight;
 uniform vec2  uGrid;
+uniform float uLake;
 uniform float uSea;        // nivel del mar, en km (unidades del grid)
 uniform float uSizeX;
 uniform float uSizeZ;
@@ -142,6 +162,7 @@ uniform float uKmPerUnit;  // km de suelo por unidad de escena
 uniform float uSteep;      // pendiente máxima del oleaje
 
 in vec3 vWorld;
+in float vWaterLevel;
 out vec4 outColor;
 
 // ---------------------------------------------------------------------------
@@ -343,11 +364,12 @@ void main() {
   // lámina; 1,6 es del orden de la plataforma media y el borde desaparece.
   float openKm = 1.6;
   float edgeMix = smoothstep(0.0, uSizeX * 0.08, outside);
-  float dKm = mix(uSea - floorKm, openKm, edgeMix);
+  float dKm = mix(vWaterLevel - floorKm, openKm, edgeMix);
   // Y fuera del mundo nunca hay orilla: la profundidad no puede bajar de cero
   // o aparecerían espumas en mitad del océano al prolongar una costa.
   if (outside > 0.0) dKm = max(dKm, mix(0.0, 0.4, edgeMix));
   float dw = fwidth(dKm);
+  if (uLake > 0.5 && dKm <= 0.0) discard;
 
   // ---- la bruma, y la salida temprana ------------------------------------
   // El plano llega hasta el far, así que junto al horizonte un solo píxel cubre
@@ -514,6 +536,9 @@ function makeUniforms(o: WaterOptions, shape: number, phase: number): WaterUnifo
     // vista rasante bastaba una cara de ola para que el Fresnel saltara a uno y
     // el mar se llenaba de manchas blancas del tamaño de una nube. 0,34 deja el
     // brillo donde tiene que estar —el reguero del sol— y el resto azul.
+    uLake: { value: 0 },
+    uYMul: { value: 1 },
+    uRadius: { value: o.radius },
     uSteep: { value: 0.34 },
   };
 }
@@ -572,17 +597,37 @@ export function createWater(o: WaterOptions): Water {
   const globe = new THREE.Mesh(globeGeo, globeMat);
   globe.renderOrder = 1;
 
+  const lakePlaneUniforms = makeUniforms(o, 0, phase);
+  const lakeGlobeUniforms = makeUniforms(o, 1, phase);
+  lakePlaneUniforms.uLake.value = lakeGlobeUniforms.uLake.value = 1;
+  const lakePlane = new THREE.Mesh(new THREE.BufferGeometry(), makeMaterial(lakePlaneUniforms));
+  const lakeGlobe = new THREE.Mesh(new THREE.BufferGeometry(), makeMaterial(lakeGlobeUniforms));
+  lakePlane.renderOrder = lakeGlobe.renderOrder = 2;
+  lakePlane.frustumCulled = lakeGlobe.frustumCulled = false;
+  let lakeWorld: WorldData | undefined;
+  let lakeRevision = -1;
   const tmp = new THREE.Vector3();
   // Fuera del bucle: `update` corre sesenta veces por segundo y un literal de
   // array dentro reserva memoria en cada fotograma, que es basura para el
   // recolector justo en el hilo que dibuja.
-  const BOTH = [planeUniforms, globeUniforms];
+  const BOTH = [planeUniforms, globeUniforms, lakePlaneUniforms, lakeGlobeUniforms];
 
   return {
     plane,
     globe,
+    lakePlane,
+    lakeGlobe,
+    setWorld(world) {
+      if (lakeWorld === world && lakeRevision === world.revision) return;
+      lakeWorld = world; lakeRevision = world.revision;
+      lakePlane.geometry.dispose(); lakeGlobe.geometry.dispose();
+      lakePlane.geometry = buildLakeGeometry(world, 'plane', o);
+      lakeGlobe.geometry = buildLakeGeometry(world, 'globe', o);
+    },
 
     update(u) {
+      lakePlane.visible = plane.visible;
+      lakeGlobe.visible = globe.visible;
       const seaY = u.seaLevel * u.yMul;
       const cam = u.camera;
       cam.updateMatrixWorld();
@@ -633,6 +678,7 @@ export function createWater(o: WaterOptions): Water {
         un.uHasHeight.value = u.heightTex ? 1 : 0;
         (un.uGrid.value as THREE.Vector2).set(u.gridW, u.gridH);
         un.uSea.value = u.seaLevel;
+        un.uYMul.value = u.yMul;
         (un.uSun.value as THREE.Vector3).copy(tmp);
         (un.uCam.value as THREE.Vector3).copy(cam.position);
         un.uTime.value = u.time;
@@ -663,6 +709,8 @@ export function createWater(o: WaterOptions): Water {
       planeMat.dispose();
       globeGeo.dispose();
       globeMat.dispose();
+      lakePlane.geometry.dispose(); lakeGlobe.geometry.dispose();
+      lakePlane.material.dispose(); lakeGlobe.material.dispose();
     },
   };
 }

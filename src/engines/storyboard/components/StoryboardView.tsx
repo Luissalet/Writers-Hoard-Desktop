@@ -18,8 +18,8 @@ interface StoryboardViewProps {
   storyboard: Storyboard;
   panels: StoryboardPanelType[];
   connectors: StoryboardConnector[];
-  onAddPanel: (panel: StoryboardPanelType) => void;
-  onUpdatePanel: (id: string, changes: Partial<StoryboardPanelType>) => void;
+  onAddPanel: (panel: StoryboardPanelType) => void | Promise<void>;
+  onUpdatePanel: (id: string, changes: Partial<StoryboardPanelType>) => void | Promise<void>;
   onDeletePanel: (id: string) => void;
   onReorderPanels: (panelIds: string[]) => void;
   onAddConnector: (connector: StoryboardConnector) => void;
@@ -46,6 +46,7 @@ export default function StoryboardView({
 }: StoryboardViewProps) {
   const { t } = useTranslation();
   const [editingPanel, setEditingPanel] = useState<StoryboardPanelType | null>(null);
+  const [draftPanelId, setDraftPanelId] = useState<string | null>(null);
   const [editingConnectorFrom, setEditingConnectorFrom] = useState<string>('');
   const [editingConnectorTo, setEditingConnectorTo] = useState<string>('');
   const [isReordering, setIsReordering] = useState(false);
@@ -70,15 +71,16 @@ export default function StoryboardView({
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    onAddPanel(newPanel);
+    setDraftPanelId(newPanel.id);
     setEditingPanel(newPanel);
   };
 
-  const handleSavePanel = (panel: StoryboardPanelType) => {
-    if (editingPanel?.id === panel.id) {
-      onUpdatePanel(panel.id, panel);
+  const handleSavePanel = async (panel: StoryboardPanelType) => {
+    if (draftPanelId === panel.id) {
+      await onAddPanel(panel);
+      setDraftPanelId(null);
     } else {
-      onAddPanel(panel);
+      await onUpdatePanel(panel.id, panel);
     }
     setEditingPanel(null);
   };
@@ -144,9 +146,21 @@ export default function StoryboardView({
     return rowArray;
   }, [sortedPanels, storyboard.columns]);
 
+  const panelEditor = editingPanel && (
+    <PanelEditor
+      key={editingPanel.id}
+      panel={editingPanel}
+      isOpen
+      onClose={() => { setEditingPanel(null); setDraftPanelId(null); }}
+      onSave={handleSavePanel}
+      scenes={scenes}
+    />
+  );
+
   if (sortedPanels.length === 0) {
     return (
       <div className="space-y-4">
+        {panelEditor}
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-serif font-bold text-accent-gold">{t('storyboard.viewTitle').replace('{name}', storyboard.title)}</h2>
         </div>
@@ -300,16 +314,7 @@ export default function StoryboardView({
           formData/previewImage from `panel` in useState initialisers, which
           only run on mount. Keeping it permanently mounted meant editing panel
           B showed panel A's data and saving overwrote B with A's content. */}
-      {editingPanel && (
-        <PanelEditor
-          key={editingPanel.id}
-          panel={editingPanel}
-          isOpen={!!editingPanel}
-          onClose={() => setEditingPanel(null)}
-          onSave={handleSavePanel}
-          scenes={scenes}
-        />
-      )}
+      {panelEditor}
 
       {/* Connector Editor Modal */}
       <ConnectorEditor

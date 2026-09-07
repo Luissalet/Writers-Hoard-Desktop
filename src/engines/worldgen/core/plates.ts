@@ -340,8 +340,6 @@ export function buildPlates(params: WorldParams, onCell?: (done: number) => void
         // conventional gain of 0.5 therefore gives H = 1 and D = 1.00 — a
         // SMOOTH curve. That single default was why every coast came out round.
         // Great Britain measures D ≈ 1.25, so H ≈ 0.75, so gain ≈ 2^-0.75 ≈ 0.59.
-        const fret = fretN.fbm(u + 0.41, v + 0.07, coastFretFreq * ws, 6, 2, coastGain);
-
         // A gentler radial lumpiness still helps at the largest scale; it is
         // just no longer doing the work alone.
         const mod = Math.max(0.55, 1 + 0.22 * shapeN.fbm(u + 0.91, v + 0.53, 2.6 * ws, 3, 2, 0.55));
@@ -373,6 +371,9 @@ export function buildPlates(params: WorldParams, onCell?: (done: number) => void
         // Window: full strength across the shelf, off in the deep ocean, faded
         // in the continental interior where a fret would just be noise.
         if (crust > 0.001) {
+          // This six-octave field cannot affect deep ocean. Noise is stateless,
+          // so evaluating it only where consumed preserves every recipe bit.
+          const fret = fretN.fbm(u + 0.41, v + 0.07, coastFretFreq * ws, 6, 2, coastGain);
           const w = Math.min(1, crust * 5) * (1 - Math.min(1, Math.max(0, (crust - 0.5) / 0.45)));
           crust = Math.max(0, crust + coastFret * fret * w);
         }
@@ -385,16 +386,21 @@ export function buildPlates(params: WorldParams, onCell?: (done: number) => void
       // consolidate — a shared ultra-low-frequency field was what used to
       // weld everything into one supercontinent.
       const interior = shapeN.fbm(u, v, 3.1 * ws, 4);
-      const plateau = shapeN.fbm(u + 0.61, v + 0.13, 1.8 * ws, 3);
       h += (h > -0.05 ? 0.2 : 0.12) * interior;
-      if (h > 0.02 && plateau > 0.2) h += Math.min(0.45, (plateau - 0.2) * 1.3) * (0.4 + 0.6 * params.mountainousness);
+      if (h > 0.02) {
+        const plateau = shapeN.fbm(u + 0.61, v + 0.13, 1.8 * ws, 3);
+        if (plateau > 0.2) h += Math.min(0.45, (plateau - 0.2) * 1.3) * (0.4 + 0.6 * params.mountainousness);
+      }
       // Epeiric basins — dips that the ocean can claim (Baltic/Hudson style).
-      const basin = shapeN.fbm(u + 0.17, v + 0.83, 1.9 * ws, 3);
-      if (h > 0 && basin < -0.24) h += Math.max(-0.7, (basin + 0.24) * 2.2);
+      if (h > 0) {
+        const basin = shapeN.fbm(u + 0.17, v + 0.83, 1.9 * ws, 3);
+        if (basin < -0.24) h += Math.max(-0.7, (basin + 0.24) * 2.2);
+      }
 
       // Hotspot trails & microcontinents — noise-modulated so islands get
       // ragged organic outlines instead of perfect gaussian circles.
       if (bumps.length > 0) {
+        let ragged: number | undefined;
         for (let bi = 0; bi < bumps.length; bi++) {
           const b = bumps[bi];
           const ddx = cx3 - bx[bi], ddy = cy3 - by[bi], ddz = cz3 - bz[bi];
@@ -403,7 +409,7 @@ export function buildPlates(params: WorldParams, onCell?: (done: number) => void
             // High-frequency modulation so the noise varies WITHIN the bump —
             // low-frequency scaling just resizes the circle, it doesn't break
             // the circular outline (they read as poker chips on the coast).
-            const ragged = Math.max(0.12, 0.6 + 0.85 * shapeN.fbm(u + 0.29, v + 0.41, 36, 3));
+            ragged ??= Math.max(0.12, 0.6 + 0.85 * shapeN.fbm(u + 0.29, v + 0.41, 36, 3));
             h += b.amp * ragged * Math.exp(-d2 / b.r2);
           }
         }

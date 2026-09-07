@@ -24,11 +24,11 @@
 
 import type { WorldData } from './types';
 import { applyEdits, serializeEdits, deserializeEdits, type WorldEdit } from './edits';
+import { captureEnvironment, restoreEnvironment, getRecalculationCheckpoint, installRecalculationCheckpoints, type EnvironmentFields } from './recalculate';
 
 interface Snapshot {
   elevation: Float32Array;
-  biome: Uint8Array;
-  lake: Uint8Array;
+  environment: EnvironmentFields;
 }
 
 export class PaintSession {
@@ -57,14 +57,25 @@ export class PaintSession {
     return this.pristine.elevation;
   }
 
+  /** Read-only source, like pristineElevation. Worker postMessage clones it once. */
+  get pristineWorld(): WorldData {
+    return { ...this.world, ...this.pristine.environment, elevation: this.pristine.elevation, painted: undefined };
+  }
+
+  get undoEdits(): WorldEdit[] {
+    const count = this.groups.at(-1) ?? (this.edits.length ? 1 : 0);
+    return this.edits.slice(0, this.edits.length - count);
+  }
+
+  get redoEdits(): WorldEdit[] { return [...this.edits, ...(this.undone.at(-1) ?? [])]; }
+
   // Explicit field, not a constructor parameter property: the project builds
   // with `erasableSyntaxOnly`.
   constructor(world: WorldData, edits: WorldEdit[] = []) {
     this.world = world;
     this.pristine = {
       elevation: Float32Array.from(world.elevation),
-      biome: Uint8Array.from(world.biome),
-      lake: Uint8Array.from(world.lake),
+      environment: captureEnvironment(world),
     };
     if (edits.length) {
       this.edits = edits.slice();
@@ -95,10 +106,22 @@ export class PaintSession {
    */
   pushMany(edits: WorldEdit[]): void {
     if (!edits.length) return;
-    this.edits.push(...edits);
+    // Match saved precision immediately so an explicit derivation reopens bit-for-bit.
+    this.edits.push(...deserializeEdits(serializeEdits(edits)));
     this.groups.push(edits.length);
     this.undone.length = 0;
     this.replay();
+  }
+
+  /** Adopt only the matching revision. Owned worker results can be consumed without another full-grid copy. */
+  pushRecalculation(environment: EnvironmentFields, expectedRevision: number, takeOwnership = false): boolean {
+    if ((this.world.revision ?? 0) !== expectedRevision) return false;
+    const edit: WorldEdit = { kind: 'recalculate', version: 1 };
+    installRecalculationCheckpoints(this.world, [{
+      key: serializeEdits([...this.edits, edit]), elevation: this.world.elevation.slice(), environment: takeOwnership ? environment : captureEnvironment(environment),
+    }]);
+    this.push(edit);
+    return true;
   }
 
   undo(): void {
@@ -154,16 +177,22 @@ export class PaintSession {
     this.world = world;
     this.pristine = {
       elevation: Float32Array.from(world.elevation),
-      biome: Uint8Array.from(world.biome),
-      lake: Uint8Array.from(world.lake),
+      environment: captureEnvironment(world),
     };
     this.replay();
   }
 
   private replay(): void {
-    this.world.elevation.set(this.pristine.elevation);
-    this.world.biome.set(this.pristine.biome);
-    this.world.lake.set(this.pristine.lake);
+    // applyEdits restores its newest cached prefix directly. Restoring the
+    // pristine grids first would write ~84 MiB that is immediately overwritten.
+    let hasCheckpoint = false;
+    for (let index = this.edits.length - 1; index >= 0; index--) {
+      if (this.edits[index].kind === 'recalculate' && getRecalculationCheckpoint(this.world, serializeEdits(this.edits.slice(0, index + 1)))) { hasCheckpoint = true; break; }
+    }
+    if (!hasCheckpoint) {
+      this.world.elevation.set(this.pristine.elevation);
+      restoreEnvironment(this.world, this.pristine.environment);
+    }
     this.world.painted = undefined;
     // Bump even on an empty list: the caches must let go of the painted state.
     this.world.revision = (this.world.revision ?? 0) + 1;

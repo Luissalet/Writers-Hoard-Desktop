@@ -74,9 +74,10 @@ async function main() {
     );
     return htmlPath;
   };
-  const [criticalHtmlPath, startupHtmlPath] = await Promise.all([
+  const [criticalHtmlPath, startupHtmlPath, worldgenHtmlPath] = await Promise.all([
     buildHarness('critical', 'critical.browser.ts'),
     buildHarness('startup', 'startup.browser.ts'),
+    buildHarness('worldgen', 'worldgen-study.entry.ts'),
   ]);
 
   const testWindow = new BrowserWindow({
@@ -85,6 +86,8 @@ async function main() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Hidden test windows must execute editor timers like a foreground app.
+      backgroundThrottling: false,
     },
   });
   const runHarness = async (htmlPath, resultExpression, label, timeoutMs) => {
@@ -92,6 +95,8 @@ async function main() {
       (label === 'Full renderer startup' ? '#/' : '');
     await testWindow.loadURL(url);
     const deadline = Date.now() + timeoutMs;
+    const startedAt = Date.now();
+    let lastProgress = '';
     while (Date.now() < deadline) {
       const result = await testWindow.webContents.executeJavaScript(
         `${resultExpression} ?? null`,
@@ -100,6 +105,13 @@ async function main() {
         if (!result.ok) throw new Error(result.error || `${label} failed`);
         for (const test of result.tests) console.log(`PASS ${test}`);
         return result.tests.length;
+      }
+      const progress = await testWindow.webContents.executeJavaScript(
+        '`${window.__criticalProgress?.length ?? 0} checks, ${window.__criticalStage ?? "initial checks"}`',
+      );
+      if (progress !== lastProgress) {
+        console.log(`${label}: ${progress} (${((Date.now() - startedAt) / 1000).toFixed(1)}s)`);
+        lastProgress = progress;
       }
       await new Promise(resolve => setTimeout(resolve, 50));
     }
@@ -128,6 +140,12 @@ async function main() {
       'window.__startupResult',
       'Full renderer startup',
       30_000,
+    );
+    const worldgenCount = await runHarness(
+      worldgenHtmlPath,
+      'window.__worldgenResult',
+      'Worldgen quality and workflow tests',
+      60_000,
     );
     const { createServer } = await import('vite');
     const projectRoot = path.resolve(__dirname, '..');
@@ -228,6 +246,11 @@ async function main() {
         }
         console.log('PASS Vite regional worker startup');
         devStartupCount += 1;
+        const journeyTests = await testWindow.webContents.executeJavaScript(`
+          import('/tests/worldgen-journey-live.ts').then(module => module.testWorldgenLiveJourney())
+        `);
+        for (const test of journeyTests) console.log('PASS ' + test);
+        devStartupCount += journeyTests.length;
       } finally {
         testWindow.webContents.removeListener('console-message', onConsoleMessage);
         testWindow.webContents.removeListener('render-process-gone', onRendererGone);
@@ -236,7 +259,7 @@ async function main() {
       await devServer.close();
     }
     console.log(
-      `Critical tests passed: ${nativeTests.length + criticalCount + startupCount + devStartupCount}`,
+      `Critical tests passed: ${nativeTests.length + criticalCount + worldgenCount + startupCount + devStartupCount}`,
     );
   } finally {
     if (!testWindow.isDestroyed()) testWindow.destroy();

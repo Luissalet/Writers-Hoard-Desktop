@@ -16,6 +16,7 @@ import {
 } from '@/engines/scrapper/legacyLinks';
 import { deleteEntityAnnotations } from '@/engines/_shared/deleteEntityAnnotations';
 import type { BoardEndpoint } from '@/engines/board/types';
+import { clearProjectDraftStores } from '@/hooks/localDraftStore';
 
 // ===== Projects =====
 
@@ -191,6 +192,9 @@ export async function deleteProject(id: string): Promise<void> {
 
     await db.projects.delete(id);
   });
+  // Recovery copies outlive mounted engines. Clear them only after the database
+  // transaction commits; storage errors remain retryable in PendingWrites.
+  clearProjectDraftStores(id);
   notifyProjectsChanged();
 }
 

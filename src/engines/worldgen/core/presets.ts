@@ -4,12 +4,32 @@
 // Writer-friendly starting points. Each preset overrides a subset of
 // DEFAULT_PARAMS; seed & resolution are always preserved from current state.
 
-import type { WorldParams } from './types';
+import { DEFAULT_PARAMS, type WorldParams } from './types';
 
 export interface WorldPreset {
   id: string;
   /** i18n key suffix: worldgen.preset.<id> */
   overrides: Partial<WorldParams>;
+}
+
+/** A starting point must not inherit the climate of the previous preset. */
+export function applyWorldPreset(params: WorldParams, preset: WorldPreset): WorldParams {
+  return {
+    ...DEFAULT_PARAMS,
+    ...preset.overrides,
+    seed: params.seed,
+    width: params.width,
+    filters: params.filters,
+    landmarks: params.landmarks,
+    drainageVersion: params.drainageVersion,
+    hydrologyVersion: params.hydrologyVersion,
+  };
+}
+
+export function matchesWorldPreset(params: WorldParams, preset: WorldPreset): boolean {
+  const expected = applyWorldPreset(params, preset);
+  return (Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[])
+    .every((key) => params[key] === expected[key]);
 }
 
 export const WORLD_PRESETS: WorldPreset[] = [

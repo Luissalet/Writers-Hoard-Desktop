@@ -23,6 +23,8 @@ export interface EdgeLeg {
   d: string;
   start: BoardPoint;
   end: BoardPoint;
+  /** A point on the visible path, used by labels and relation anchors. */
+  mid?: BoardPoint;
   /** Tangent angle in degrees at `start`, pointing away from the path. */
   startAngle: number;
   /** Tangent angle in degrees at `end`, pointing along the path. */
@@ -144,7 +146,7 @@ function arcPath(a: BoardPoint, b: BoardPoint, bend: number): string {
 }
 
 /** Self-loop drawn as a teardrop above the node. */
-function loopPath(box: BoardBox, bend: number): { d: string; mid: BoardPoint; start: BoardPoint; end: BoardPoint } {
+function loopPath(box: BoardBox, bend: number): { d: string; mid: BoardPoint; start: BoardPoint; end: BoardPoint; startAngle: number; endAngle: number } {
   const c = centerOfBox(box);
   const r = 30 + Math.abs(bend) * 14;
   const start = { x: c.x - box.width * 0.2, y: box.y - ARROW_GAP };
@@ -152,9 +154,11 @@ function loopPath(box: BoardBox, bend: number): { d: string; mid: BoardPoint; st
   const top = { x: c.x, y: box.y - r * 2 };
   return {
     d: `M ${start.x} ${start.y} C ${start.x - r} ${top.y} ${end.x + r} ${top.y} ${end.x} ${end.y}`,
-    mid: top,
+    mid: { x: c.x, y: (start.y + 6 * top.y + end.y) / 8 },
     start,
     end,
+    startAngle: angleBetween({ x: start.x - r, y: top.y }, start),
+    endAngle: angleBetween({ x: end.x + r, y: top.y }, end),
   };
 }
 
@@ -275,6 +279,7 @@ function buildLeg(
   let d: string;
   let controlForStart: BoardPoint = b;
   let controlForEnd: BoardPoint = a;
+  let mid = midOf(a, b);
 
   if (curvature === 'straight') {
     d = straightPath(a, b);
@@ -290,19 +295,27 @@ function buildLeg(
     d = curve.d;
     controlForStart = curve.c1;
     controlForEnd = curve.c2;
+    mid = { x: (a.x + 3 * curve.c1.x + 3 * curve.c2.x + b.x) / 8, y: (a.y + 3 * curve.c1.y + 3 * curve.c2.y + b.y) / 8 };
   } else if (curvature === 'arc') {
     d = arcPath(a, b, bend);
+    const distance = Math.hypot(b.x - a.x, b.y - a.y);
+    const radius = distance * 0.75;
+    const sagitta = radius - Math.sqrt(Math.max(0, radius * radius - distance * distance / 4));
+    const sign = bend >= 0 ? -1 : 1;
+    if (distance > 0) mid = { x: mid.x - (b.y - a.y) / distance * sagitta * sign, y: mid.y + (b.x - a.x) / distance * sagitta * sign };
   } else {
     const curve = curvedPath(a, b, bend);
     d = curve.d;
     controlForStart = curve.control;
     controlForEnd = curve.control;
+    mid = { x: (a.x + 2 * curve.control.x + b.x) / 4, y: (a.y + 2 * curve.control.y + b.y) / 4 };
   }
 
   return {
     d,
     start: a,
     end: b,
+    mid,
     startAngle: angleBetween(controlForStart, a),
     endAngle: angleBetween(controlForEnd, b),
     side,
@@ -418,8 +431,8 @@ function tryResolve(
       return {
         simple: true,
         mid: {
-          x: (from.point.x + to.point.x) / 2 + (from.normal.x + to.normal.x) * 40,
-          y: (from.point.y + to.point.y) / 2 + (from.normal.y + to.normal.y) * 40,
+          x: (from.point.x + 3 * curve.c1.x + 3 * curve.c2.x + to.point.x) / 8,
+          y: (from.point.y + 3 * curve.c1.y + 3 * curve.c2.y + to.point.y) / 8,
         },
         legs: [{
           d: curve.d,
@@ -440,8 +453,8 @@ function tryResolve(
         d: loop.d,
         start: loop.start,
         end: loop.end,
-        startAngle: -90,
-        endAngle: 90,
+        startAngle: loop.startAngle,
+        endAngle: loop.endAngle,
         side: 'target',
         endpointId: targets[0].endpoint.id,
       }],
@@ -455,7 +468,7 @@ function tryResolve(
     const from = aim(rawFrom, rawTo.point);
     const to = aim(rawTo, from.point);
     const leg = buildLeg(from, to, 'source', targets[0].endpoint.id, edge.curvature, bend);
-    return { simple: true, mid: midOf(leg.start, leg.end), legs: [leg] };
+    return { simple: true, mid: leg.mid ?? midOf(leg.start, leg.end), legs: [leg] };
   }
 
   // Hyper-edge: every endpoint meets at a hub placed at the centroid.

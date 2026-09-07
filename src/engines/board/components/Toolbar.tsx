@@ -63,10 +63,10 @@ const ALIGNMENTS = [
 ] as const;
 
 const buttonClass =
-  'flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition hover:bg-elevated hover:text-accent-gold disabled:cursor-not-allowed disabled:opacity-30';
+  'flex h-9 w-9 items-center justify-center rounded-lg text-text-muted transition hover:bg-elevated hover:text-accent-gold focus-visible:outline-2 focus-visible:outline-accent-gold disabled:cursor-not-allowed disabled:opacity-30';
 const activeClass = 'bg-accent-gold/15 text-accent-gold';
 const groupClass =
-  'flex items-center gap-0.5 rounded-xl border border-border bg-surface/95 p-1 shadow-lg backdrop-blur';
+  'grid grid-cols-2 items-center gap-0.5 rounded-xl border border-border bg-surface p-1';
 
 export default function Toolbar(props: ToolbarProps) {
   const { t } = useTranslation();
@@ -86,10 +86,10 @@ export default function Toolbar(props: ToolbarProps) {
             <Icon size={15} />
           </button>
         ))}
-        <span className="mx-0.5 h-5 w-px bg-border" />
         <button
           type="button"
           title={t('board.tool.link')}
+          aria-pressed={props.linking}
           onClick={props.onToggleLink}
           className={`${buttonClass} ${props.linking ? activeClass : ''}`}
         >
@@ -123,6 +123,7 @@ export default function Toolbar(props: ToolbarProps) {
           <button
             type="button"
             title={t('board.tool.layout')}
+            aria-expanded={layoutOpen}
             onClick={() => setLayoutOpen((value) => !value)}
             className={`${buttonClass} ${layoutOpen ? activeClass : ''}`}
           >
@@ -131,6 +132,7 @@ export default function Toolbar(props: ToolbarProps) {
           <button
             type="button"
             title={t('board.tool.snap')}
+            aria-pressed={props.snap}
             onClick={props.onToggleSnap}
             className={`${buttonClass} ${props.snap ? activeClass : ''}`}
           >
@@ -139,6 +141,7 @@ export default function Toolbar(props: ToolbarProps) {
           <button
             type="button"
             title={t('board.tool.labels')}
+            aria-pressed={props.labels}
             onClick={props.onToggleLabels}
             className={`${buttonClass} ${props.labels ? activeClass : ''}`}
           >

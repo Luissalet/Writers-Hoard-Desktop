@@ -1,5 +1,22 @@
 import { useState } from 'react';
 
+/** Engine-owned drafts survive selection changes and map/editor tab switches. */
+export type RowDraftStore = Map<string, { seed: { id: string; updatedAt: number }; draft: object }>;
+
+export function isRowDraftSnapshot(value: unknown): value is { seed: { id: string; updatedAt: number }; draft: object } {
+  if (!value || typeof value !== 'object') return false;
+  const snapshot = value as { seed?: Record<string, unknown>; draft?: Record<string, unknown> };
+  if (!snapshot.seed || typeof snapshot.seed.id !== 'string' || typeof snapshot.seed.updatedAt !== 'number' || !snapshot.draft) return false;
+  // Mandatory collection fields are consumed by each editor when seeding a row.
+  const strings = (keys: string[]) => keys.every((key) => typeof snapshot.draft![key] === 'string');
+  return Array.isArray(snapshot.seed.tags) && Array.isArray(snapshot.draft.tags)
+    && (typeof snapshot.seed.name === 'string'
+      ? Array.isArray(snapshot.seed.aliases) && Array.isArray(snapshot.seed.sources)
+        && Array.isArray(snapshot.draft.aliases) && typeof snapshot.draft.fictional === 'boolean'
+        && strings(['name', 'kind', 'country', 'address', 'lat', 'lon', 'parentId', 'era', 'description', 'realNotes', 'sources'])
+      : typeof snapshot.seed.title === 'string' && strings(['title', 'category', 'placeId', 'reality', 'fiction', 'reason', 'since']));
+}
+
 /**
  * A form-shaped copy of a stored row, written back only on Save.
  *
@@ -19,21 +36,32 @@ export function useRowDraft<Row extends { id: string; updatedAt: number }, Draft
   row: Row,
   seedFrom: (row: Row) => Draft,
   changesOf: (draft: Draft) => Partial<Row>,
+  store?: RowDraftStore,
 ) {
-  const [seed, setSeed] = useState(row);
-  const [draft, setDraft] = useState(() => seedFrom(row));
+  const [seed, setSeed] = useState(() => (store?.get(row.id)?.seed as Row | undefined) ?? row);
+  const [draft, setDraft] = useState(() => (store?.get(row.id)?.draft as Draft | undefined) ?? seedFrom(row));
   const changes = changesOf(draft);
   /** Save would write something other than what is stored. */
   const dirty = !same(changes, row);
   if (seed.id !== row.id) {
-    setSeed(row);
-    setDraft(seedFrom(row));
+    const cached = store?.get(row.id);
+    setSeed((cached?.seed as Row | undefined) ?? row);
+    setDraft(cached ? mergeDraft(cached.draft as Draft, seedFrom(cached.seed as Row), seedFrom(row)) : seedFrom(row));
   } else if (seed.updatedAt !== row.updatedAt) {
     setSeed(row);
     setDraft(mergeDraft(draft, seedFrom(seed), seedFrom(row)));
   }
-  const patch = (partial: Partial<Draft>) => setDraft((current) => ({ ...current, ...partial }));
-  return { draft, patch, changes, dirty };
+  const patch = (partial: Partial<Draft>) => {
+    const next = { ...draft, ...partial };
+    store?.set(row.id, { seed, draft: next });
+    setDraft(next);
+  };
+  const storedSnapshot = store?.get(row.id);
+  const acknowledge = () => {
+    // A slow successful save may not discard a newer edit made in the meantime.
+    if (storedSnapshot && store?.get(row.id) === storedSnapshot) store.delete(row.id);
+  };
+  return { draft, patch, changes, dirty, acknowledge };
 }
 
 /**

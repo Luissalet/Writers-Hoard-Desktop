@@ -11,7 +11,7 @@ import ProgressChart from './ProgressChart';
 import GoalSetter from './GoalSetter';
 import SessionCard from './SessionCard';
 import SprintHistory from './SprintHistory';
-import { generateId } from '@/utils/idGenerator';
+import { getGoal } from '../operations';
 
 // ============================================================================
 // WritingStatsEngine
@@ -51,16 +51,15 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
 
   const handleGoalSave = useCallback(
     async (goal: WritingGoal) => {
-      if (goal.id && goals.find((g) => g.id === goal.id)) {
+      if (await getGoal(goal.id)) {
         // Update existing
         await editGoal(goal.id, goal);
       } else {
         // Create new
-        goal.id = generateId('goal');
         await addGoal(goal);
       }
     },
-    [goals, addGoal, editGoal]
+    [addGoal, editGoal]
   );
 
   const loading = sessionsLoading || goalsLoading;

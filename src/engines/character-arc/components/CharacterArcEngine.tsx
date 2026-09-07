@@ -51,6 +51,7 @@ export default function CharacterArcEngine({ projectId }: EngineComponentProps) 
     if (arc) {
       return (
         <ArcEditor
+          key={arc.id}
           arc={arc}
           projectId={projectId}
           onBack={() => setActiveArcId(null)}

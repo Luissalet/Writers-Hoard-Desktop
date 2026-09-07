@@ -37,7 +37,7 @@ export interface CanonCompositeRequest {
   v: number;
   /** Ground width to cover, km. */
   spanKm: number;
-  /** height/width of the window (defaults to 1/1.7 like the LOD effect). */
+  /** Width/height of the window (defaults to 1.7 like the LOD effect). */
   aspect?: number;
 }
 
@@ -59,9 +59,12 @@ export function canonCover(world: WorldData, req: CanonCompositeRequest): TileId
   const out: TileId[] = [];
   const ny = tileCountY(world);
   const ty0 = Math.max(0, Math.floor(y0 / TILE_WORLD_CELLS));
-  const ty1 = Math.min(ny - 1, Math.floor(y1 / TILE_WORLD_CELLS));
+  const ty1 = Math.min(ny - 1, Math.ceil(y1 / TILE_WORLD_CELLS) - 1);
   const tx0 = Math.floor(x0 / TILE_WORLD_CELLS);
-  const tx1 = Math.floor(x1 / TILE_WORLD_CELLS);
+  // Bounds are half-open. A full-world view crosses the longitude seam but
+  // must never ask the worker for that same wrapped tile twice.
+  const nx = Math.max(1, Math.round(W / TILE_WORLD_CELLS));
+  const tx1 = Math.min(tx0 + nx - 1, Math.ceil(x1 / TILE_WORLD_CELLS) - 1);
   for (let ty = ty0; ty <= ty1; ty++) {
     for (let tx = tx0; tx <= tx1; tx++) out.push({ tx: wrapTx(world, tx), ty });
   }
@@ -111,9 +114,14 @@ export function composeCanon(
   let gy1 = Math.ceil(Math.min(H, cy + spanYCells / 2) / per);
   if (gy1 <= gy0) gy1 = gy0 + 1;
 
-  const stride = Math.max(1, Math.ceil((gx1 - gx0) / COMPOSITE_MAX));
-  const cw = Math.max(1, Math.floor((gx1 - gx0) / stride));
-  const ch = Math.max(1, Math.floor((gy1 - gy0) / stride));
+  const stride = Math.max(1,
+    Math.ceil((gx1 - gx0) / COMPOSITE_MAX),
+    Math.ceil((gy1 - gy0) / COMPOSITE_MAX));
+  // The copy visits every stride-th sample in [start, end), including the
+  // final partial stride. Floor left no column for it: x === width then
+  // overwrote the first cell of the following row.
+  const cw = Math.max(1, Math.ceil((gx1 - gx0) / stride));
+  const ch = Math.max(1, Math.ceil((gy1 - gy0) / stride));
   const n = cw * ch;
 
   const out: RegionData = {

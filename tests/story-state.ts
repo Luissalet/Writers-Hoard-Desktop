@@ -98,7 +98,7 @@ export async function testStoryStateKernel(): Promise<string> {
     const late = await storyStateAtMoment(PROJECT_ID, after.id);
     assert(late.beliefs.length === 1, 'knowledge did not become active at its explicit moment');
     assert(late.contradictions.length === 1, 'two simultaneous canonical locations were not reported');
-    assert(late.contradictions[0].values.join('|') === 'North bank|South bank', 'contradiction lost its evidence values');
+    assert([...late.contradictions[0].values].sort().join('|') === 'North bank|South bank', 'contradiction lost its evidence values');
 
     const questions = stressWorldRule(rule, 'es');
     assert(questions.length === 5, 'the world-rule lab omitted a stress scenario');

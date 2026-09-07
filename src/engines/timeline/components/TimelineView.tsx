@@ -7,13 +7,14 @@ import { useTranslation } from '@/i18n/useTranslation';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
 import ColorPicker from '@/components/common/ColorPicker';
+import { validateTimelineDates } from '../dateValidation';
 
 interface TimelineViewProps {
   projectId: string;
   timelineId: string;
   events: TimelineEvent[];
-  onAddEvent: (event: TimelineEvent) => void;
-  onEditEvent: (id: string, changes: Partial<TimelineEvent>) => void;
+  onAddEvent: (event: TimelineEvent) => void | Promise<void>;
+  onEditEvent: (id: string, changes: Partial<TimelineEvent>) => void | Promise<void>;
   onDeleteEvent: (id: string) => void;
 }
 
@@ -45,6 +46,8 @@ type SortMode = 'manual' | 'chronological';
 export default function TimelineView({ projectId, timelineId, events, onAddEvent, onEditEvent, onDeleteEvent }: TimelineViewProps) {
   const { t } = useTranslation();
   const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [editingEvent, setEditingEvent] = useState<TimelineEvent | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('manual');
   const [form, setForm] = useState({
@@ -64,9 +67,13 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
 
   // Check if there are any calendar-mode events (enables chronological sort)
   const hasCalendarEvents = events.some(e => e.dateMode === 'calendar' && e.realDate);
+  const dateError = form.dateMode === 'calendar' ? validateTimelineDates(form.realDate, form.realDateEnd) : null;
 
-  const handleSave = () => {
-    if (!form.title.trim()) return;
+  const handleSave = async () => {
+    if (!form.title.trim() || saving || dateError) return;
+    setSaving(true);
+    setSaveFailed(false);
+    try {
 
     const dateValue = form.dateMode === 'calendar' && form.realDate
       ? formatRealDate(form.realDate, form.realDateEnd)
@@ -77,7 +84,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
       form.dateMode === 'calendar' && form.realDateEnd ? 'range' : form.eventType;
 
     if (editingEvent) {
-      onEditEvent(editingEvent.id, {
+      await onEditEvent(editingEvent.id, {
         title: form.title,
         description: form.description,
         date: dateValue,
@@ -89,9 +96,8 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
         color: form.color,
       });
     } else {
-      // eslint-disable-next-line react-hooks/purity -- submit handler: runs at event time, not during render
       const now = Date.now();
-      onAddEvent({
+      await onAddEvent({
         id: generateId('evt'),
         projectId,
         timelineId,
@@ -116,13 +122,20 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
     setShowForm(false);
     setEditingEvent(null);
     resetForm();
+    } catch {
+      setSaveFailed(true);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const resetForm = () => {
+    setSaveFailed(false);
     setForm({ title: '', description: '', date: '', dateMode: 'text', eventType: 'point', realDate: '', realDateEnd: '', lane: 'Main', color: '#c4973b' });
   };
 
   const openEdit = (evt: TimelineEvent) => {
+    setSaveFailed(false);
     setForm({
       title: evt.title,
       description: evt.description,
@@ -281,8 +294,8 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
       )}
 
       {/* Form Modal */}
-      <Modal open={showForm} onClose={() => { setShowForm(false); setEditingEvent(null); }} title={editingEvent ? t('timeline.editEvent') : t('timeline.newEvent')}>
-        <div className="space-y-4">
+      <Modal open={showForm} onClose={() => { if (!saving) { setShowForm(false); setEditingEvent(null); } }} title={editingEvent ? t('timeline.editEvent') : t('timeline.newEvent')}>
+        <fieldset disabled={saving} className="space-y-4">
           <div>
             <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelTitle')}</label>
             <input
@@ -406,15 +419,17 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
               size="sm"
             />
           </div>
+          {dateError && <p role="alert" className="text-sm text-danger">{t(dateError)}</p>}
+          {saveFailed && <p role="alert" className="text-sm text-danger">{t('common.saveFailed')}</p>}
           <div className="flex gap-3 pt-2">
-            <button onClick={handleSave} className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition">
-              {editingEvent ? t('timeline.save') : t('timeline.create')}
+            <button onClick={handleSave} disabled={saving || Boolean(dateError)} className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition disabled:opacity-50">
+              {saving ? t('common.saving') : editingEvent ? t('timeline.save') : t('timeline.create')}
             </button>
             <button onClick={() => { setShowForm(false); setEditingEvent(null); }} className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition">
               {t('timeline.cancel')}
             </button>
           </div>
-        </div>
+        </fieldset>
       </Modal>
     </div>
   );

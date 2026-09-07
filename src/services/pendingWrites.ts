@@ -103,6 +103,14 @@ export async function retryFailedWrites(): Promise<void> {
   );
 }
 
+/** Only after deliberate discard or confirmed deletion of this owner's data. */
+export function discardPendingOwner(ownerId: string): void {
+  failed.delete(ownerId);
+  flushers.delete(ownerId);
+  ownerGeneration.delete(ownerId);
+  publish();
+}
+
 export interface FlushPendingWritesResult {
   ok: boolean;
   timedOut: boolean;

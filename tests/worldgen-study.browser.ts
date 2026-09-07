@@ -1,0 +1,44 @@
+import { testWorldgenLifecycle } from './worldgen-lifecycle.browser';
+import { testWorldgenRecipes } from './worldgen-recipes.browser';
+import { testWorldgenJourneys } from './worldgen-journeys.browser';
+import { testWorldEnvironment } from './worldgen-environment.browser';
+import { testWorldgenCreative } from './worldgen-creative.browser';
+import { testWorldgenRecalculation } from './worldgen-recalculation';
+import { testWorldgenHistoryAllocation } from './worldgen-history-allocation.browser';
+import { testGeographyPatchAfterUndo, testGeographyScopedCancellation } from './worldgen-geography-patch.browser';
+import { testWorldgenHydrology } from './worldgen-hydrology.browser';
+import { testWorldgenJourneyWorker } from './worldgen-journey-worker.browser';
+import { testCartographicLabelBounds, testCartographicPresetLabels, testCartoMapTypeScale } from './worldgen-labels.browser';
+import { testPhysicalLakeGeometry, testLakeTransportSnapshot, testLakeRegionalClipping, testLakeWebGLWater } from './worldgen-lakes.browser';
+import { testWorldgenTravel } from './worldgen-travel';
+import { testWorldgenPaintQuality } from './worldgen-paint-quality';
+import { testWorldgenCoreReliability } from './worldgen-core.browser';
+import { testCanonCompositeRaster, testDisplayTileCancellation, testWorldgenFrameClock, testWorldgenLayerTextures, testMap2DFrameLifecycle } from './worldgen-display.browser';
+
+export async function testWorldgenStudy(): Promise<string[]> {
+  const tests: string[] = [];
+  window.__criticalProgress = tests;
+  window.__criticalStage = 'worldgen core and snapshots';
+  tests.push(...await testWorldgenCoreReliability());
+  window.__criticalStage = 'worldgen routes and painting';
+  tests.push(...await testWorldgenTravel(), ...await testWorldgenPaintQuality());
+  window.__criticalStage = 'worldgen rendering';
+  tests.push(...testCanonCompositeRaster(), await testDisplayTileCancellation(), ...testWorldgenFrameClock(), testWorldgenLayerTextures());
+  tests.push(await testMap2DFrameLifecycle());
+  window.__criticalStage = 'worldgen replacement and alternatives';
+  tests.push(...await testWorldgenRecipes());
+  tests.push(...await testWorldgenJourneys());
+  window.__criticalStage = 'worldgen environmental editing and lakes';
+  tests.push(...await testWorldgenRecalculation(), ...await testWorldEnvironment());
+  tests.push(...await testWorldgenHistoryAllocation());
+  tests.push(await testGeographyPatchAfterUndo(), await testGeographyScopedCancellation());
+  tests.push(testPhysicalLakeGeometry(), await testLakeTransportSnapshot(), testLakeRegionalClipping(), testLakeWebGLWater());
+  tests.push(...await testWorldgenHydrology());
+  tests.push(...await testWorldgenCreative());
+  tests.push(...await testWorldgenJourneyWorker());
+  tests.push(testCartographicLabelBounds(), ...testCartographicPresetLabels());
+  tests.push(await testCartoMapTypeScale());
+  window.__criticalStage = 'worldgen async lifecycle';
+  tests.push(...await testWorldgenLifecycle());
+  return tests;
+}

@@ -40,20 +40,24 @@ interface EditorHeaderProps {
 export function EditorHeader({ title, saveLabel, canSave, onSave, deleteLabel, deleteConfirm, onDelete }: EditorHeaderProps) {
   const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
 
   const save = async () => {
     if (saving || !canSave) return;
     setSaving(true);
+    setSaveFailed(false);
     try {
       await onSave();
+    } catch {
+      setSaveFailed(true);
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex flex-wrap items-center justify-between gap-3">
       <h2 className="min-w-0 truncate font-serif text-xl font-semibold text-text-primary">{title}</h2>
       <div className="flex shrink-0 items-center gap-2">
         <button
@@ -73,6 +77,8 @@ export function EditorHeader({ title, saveLabel, canSave, onSave, deleteLabel, d
           {saving ? t('common.saving') : saveLabel}
         </button>
       </div>
+      {canSave && <p className="w-full text-xs text-text-muted">{t('realAtlas.draftKept')}</p>}
+      {saveFailed && <p role="alert" className="w-full text-sm text-danger">{t('common.saveFailed')}</p>}
       <ConfirmDialog
         open={pendingDelete}
         destructive

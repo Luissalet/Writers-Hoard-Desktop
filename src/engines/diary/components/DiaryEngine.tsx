@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import { BookOpen, Plus, Search, Calendar, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
@@ -67,6 +67,7 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
   // Blank entry for the 'new' flow, created once at click time (not during
   // render, where regenerated ids/dates broke the editor's dirty-check).
   const [draftEntry, setDraftEntry] = useState<DiaryEntry | null>(null);
+  const savedDraftId = useRef<string | null>(null);
   const openNewEntry = useCallback(() => {
     setDraftEntry({
       id: generateId('diary'),
@@ -149,13 +150,20 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
     const blank = draftEntry;
     return (
       <EntryEditor
+        key={blank.id}
         entry={blank}
-        isNew
+        isNew={!entries.some(entry => entry.id === blank.id)}
         onSave={async (changes) => {
-          await addEntry({ ...blank, ...changes });
+          if (savedDraftId.current === blank.id) await editEntry(blank.id, changes);
+          else {
+            await addEntry({ ...blank, ...changes });
+            savedDraftId.current = blank.id;
+          }
+        }}
+        onDelete={async () => {
+          if (savedDraftId.current === blank.id) await removeEntry(blank.id);
           setEditingId(null);
         }}
-        onDelete={async () => setEditingId(null)}
         onClose={() => setEditingId(null)}
       />
     );
@@ -167,10 +175,10 @@ export default function DiaryEngine({ projectId }: EngineComponentProps) {
     if (entry) {
       return (
         <EntryEditor
+          key={entry.id}
           entry={entry}
           onSave={async (changes) => {
             await editEntry(entry.id, changes);
-            setEditingId(null);
           }}
           onDelete={async () => {
             await removeEntry(entry.id);

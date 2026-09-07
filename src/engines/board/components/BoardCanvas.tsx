@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Background, BackgroundVariant, ConnectionLineType, ConnectionMode, Controls, MiniMap,
   Panel, ReactFlow, ReactFlowProvider, useReactFlow, type Connection, type NodeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Route, Search, Trash2, X } from 'lucide-react';
+import { GitBranch, Plus, Route, Search, Trash2, X } from 'lucide-react';
 import ConfirmDialog from '@/engines/_shared/components/ConfirmDialog';
 import { resolveEntity } from '@/engines/_shared';
 import { navigateTo } from '@/engines/_shared/anchoring';
@@ -18,9 +19,12 @@ import { runLayout, type LayoutKind } from '../graph/layout';
 import { computeMetrics } from '../graph/metrics';
 import { evaluateQuery } from '../graph/query';
 import { shortestPath } from '../graph/paths';
+import { canMoveNode, findOpenPosition, isCanvasShortcutTarget } from '../graph/interactions';
+import { getBoardCopy } from '../copy';
+import { rememberProjectRoute } from '@/services/projectIntelligence';
 import type {
   Board, BoardBox, BoardEdge, BoardEndpoint, BoardEntityRef, BoardLayer, BoardNode,
-  BoardNodeKind, BoardSide, BoardView,
+  BoardNodeKind, BoardSide, BoardView, BoardViewport,
 } from '../types';
 import BoardNodeView, { type BoardFlowNode } from './BoardNodeView';
 import EdgeLayer from './EdgeLayer';
@@ -30,6 +34,7 @@ import { LayersPanel, MetricsPanel, ViewsPanel } from './SidePanels';
 import Toolbar, { type PanelKey } from './Toolbar';
 
 const nodeTypes = { board: BoardNodeView };
+const fitOptions = { padding: { top: '128px', left: '112px', right: '48px', bottom: '64px' }, maxZoom: 1 } as const;
 
 /** Survives remounts so copy on one board pastes on another. */
 const clipboard: { nodes: BoardNode[]; edges: BoardEdge[] } = { nodes: [], edges: [] };
@@ -65,7 +70,7 @@ interface LinkState {
 export interface BoardCanvasProps {
   projectId: string;
   board: Board;
-  onRenameBoard: (title: string) => void;
+  onViewportChange: (viewport: BoardViewport) => void;
 }
 
 export default function BoardCanvas(props: BoardCanvasProps) {
@@ -76,8 +81,11 @@ export default function BoardCanvas(props: BoardCanvasProps) {
   );
 }
 
-function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
-  const { t } = useTranslation();
+function BoardCanvasInner({ projectId, board, onViewportChange }: BoardCanvasProps) {
+  const { t, locale } = useTranslation();
+  const copy = getBoardCopy(locale);
+  const [searchParams] = useSearchParams();
+  const targetNodeId = searchParams.get('node');
   const boardId = board.id;
   const graph = useBoardGraph(boardId);
   const { items: layers, addItem: addLayer, editItem: editLayer, removeItem: removeLayer } =
@@ -93,6 +101,7 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<Set<string>>(() => new Set());
   const [transient, setTransient] = useState<Record<string, Transient>>({});
   const [query, setQuery] = useState('');
+  const [ideaDraft, setIdeaDraft] = useState('');
   const [queryMode, setQueryMode] = useState<'filter' | 'highlight'>('highlight');
   const [link, setLink] = useState<LinkState | null>(null);
   const [panel, setPanel] = useState<PanelKey>(null);
@@ -236,6 +245,7 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
   // ---- node callbacks (stable identities keep memoised nodes still) ----
 
   const openInspector = useCallback((id: string) => {
+    setPanel(null);
     setSelectedNodeIds(new Set([id]));
     setSelectedEdgeIds(new Set());
   }, []);
@@ -285,6 +295,7 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
         zIndex: node.kind === 'frame' ? 0 : 2 + Math.max(0, node.zIndex),
         data: {
           node,
+          layerLocked: layer?.locked ?? false,
           dimmed: queryMode === 'highlight' && !queryResult.passthrough && !queryResult.nodeIds.has(node.id),
           layerOpacity: layer?.opacity ?? 1,
           linking: linkingSources.has(node.id) ? 'source' : linkingTargets.has(node.id) ? 'target' : false,
@@ -403,14 +414,14 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
       frameDrag.current = {
         frameId: node.id,
         origin: { ...model.position },
-        children: nodesInsideFrame(model, graph.nodes).map((child) => ({
+        children: nodesInsideFrame(model, graph.nodes).filter((child) => canMoveNode(child, layerById)).map((child) => ({
           id: child.id,
           x: child.position.x,
           y: child.position.y,
         })),
       };
     },
-    [graph.nodeById, graph.nodes],
+    [graph.nodeById, graph.nodes, layerById],
   );
 
   // ---- creating things -------------------------------------------------
@@ -423,6 +434,7 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
 
   const addNode = useCallback(
     (kind: BoardNodeKind, overrides: Partial<Parameters<typeof makeNode>[0]> = {}) => {
+      if (graph.loading) return;
       if (kind === 'entity') {
         setPickerFor('new');
         return;
@@ -437,19 +449,17 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
         projectId,
         boardId,
         kind,
-        position: {
-          x: Math.round((center.x - size.width / 2) / GRID_STEP) * GRID_STEP,
-          y: Math.round((center.y - size.height / 2) / GRID_STEP) * GRID_STEP,
-        },
-        layerId: activeLayerId ?? undefined,
+        position: findOpenPosition({ x: center.x - size.width / 2, y: center.y - size.height / 2 }, size, graph.nodes),
+        layerId: activeLayerId && !layerById.get(activeLayerId)?.locked ? activeLayerId : undefined,
         title: kind === 'frame' ? t('board.add.frame') : '',
         ...overrides,
       });
       graph.addNodes([node], t('board.history.add'));
       setSelectedNodeIds(new Set([node.id]));
       setSelectedEdgeIds(new Set());
+      setPanel(null);
     },
-    [viewportCenter, projectId, boardId, activeLayerId, graph, t],
+    [viewportCenter, projectId, boardId, activeLayerId, graph, t, layerById],
   );
 
   const addImagesFromFiles = useCallback(
@@ -566,6 +576,40 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
     () => graph.nodes.filter((node) => selectedNodeIds.has(node.id)),
     [graph.nodes, selectedNodeIds],
   );
+  const resumeNodeId = selectedNodes.length === 1 ? selectedNodes[0].id : null;
+  useEffect(() => {
+    if (resumeNodeId) rememberProjectRoute(projectId, { engineId: 'board', entityId: resumeNodeId });
+  }, [resumeNodeId, projectId]);
+
+  const movableNodes = selectedNodes.filter((node) => canMoveNode(node, layerById));
+
+  const captureIdea = (branch: boolean) => {
+    const title = ideaDraft.trim();
+    if (!title || graph.loading) return;
+    const parent = branch && selectedNodes.length === 1 ? selectedNodes[0] : undefined;
+    const center = viewportCenter();
+    const size = DEFAULT_SIZE.card;
+    const desired = parent
+      ? { x: parent.position.x + parent.size.width + 96, y: parent.position.y }
+      : { x: center.x - size.width / 2, y: center.y - size.height / 2 };
+    const node = makeNode({
+      projectId, boardId, kind: 'card', role: 'concept', title,
+      position: findOpenPosition(desired, size, graph.nodes),
+      layerId: activeLayerId && !layerById.get(activeLayerId)?.locked ? activeLayerId : undefined,
+    });
+    graph.batch(t('board.history.add'), {
+      addNodes: [node],
+      addEdges: parent ? [makeEdge({ projectId, boardId,
+        sources: [{ id: parent.id, on: 'node', side: 'right' }],
+        targets: [{ id: node.id, on: 'node', side: 'left' }],
+      })] : [],
+    });
+    setIdeaDraft('');
+    setSelectedNodeIds(new Set([node.id]));
+    setSelectedEdgeIds(new Set());
+    setPanel(null);
+    void flow.setCenter(node.position.x + size.width / 2, node.position.y + size.height / 2, { zoom: flow.getZoom(), duration: 200 });
+  };
 
   const deleteSelection = useCallback(() => {
     if (selectedNodeIds.size === 0 && selectedEdgeIds.size === 0) return;
@@ -619,8 +663,8 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
 
   const align = useCallback(
     (mode: 'left' | 'center-x' | 'right' | 'top' | 'center-y' | 'bottom') => {
-      if (selectedNodes.length < 2) return;
-      const boxList = selectedNodes.map((node) => ({ node, box: boxOfNode(node) }));
+      if (movableNodes.length < 2) return;
+      const boxList = movableNodes.map((node) => ({ node, box: boxOfNode(node) }));
       const minX = Math.min(...boxList.map((entry) => entry.box.x));
       const maxX = Math.max(...boxList.map((entry) => entry.box.x + entry.box.width));
       const minY = Math.min(...boxList.map((entry) => entry.box.y));
@@ -640,13 +684,13 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
       });
       graph.patchNodes(patches, t('board.history.align'));
     },
-    [selectedNodes, graph, t],
+    [movableNodes, graph, t],
   );
 
   const distribute = useCallback(
     (axis: 'x' | 'y') => {
-      if (selectedNodes.length < 3) return;
-      const sorted = selectedNodes
+      if (movableNodes.length < 3) return;
+      const sorted = movableNodes
         .slice()
         .sort((a, b) => (axis === 'x' ? a.position.x - b.position.x : a.position.y - b.position.y));
       const first = sorted[0];
@@ -671,19 +715,20 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
       });
       graph.patchNodes(patches, t('board.history.distribute'));
     },
-    [selectedNodes, graph, t],
+    [movableNodes, graph, t],
   );
 
   const applyLayout = useCallback(
     (kind: LayoutKind) => {
-      const scope = selectedNodes.length >= 3 ? selectedNodes : visibleNodes;
+      const scope = (selectedNodes.length >= 2 ? selectedNodes : visibleNodes)
+        .map((node) => canMoveNode(node, layerById) ? node : { ...node, locked: true });
       const result = runLayout(kind, scope, visibleEdges, {
         focusId: selectedNodes[0]?.id,
       });
       const patches = Object.entries(result).map(([id, position]) => ({ id, changes: { position } }));
       if (patches.length > 0) graph.patchNodes(patches, t(`board.layout.${kind}`));
     },
-    [selectedNodes, visibleNodes, visibleEdges, graph, t],
+    [selectedNodes, visibleNodes, visibleEdges, graph, t, layerById],
   );
 
   const tracePath = useCallback(() => {
@@ -710,7 +755,7 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
       ) {
         return;
       }
-      if (!containerRef.current?.closest('body')) return;
+      if (!isCanvasShortcutTarget(event.target, containerRef.current) || pendingDelete || pickerFor || graph.loading) return;
 
       const mod = event.ctrlKey || event.metaKey;
 
@@ -719,6 +764,7 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
         setPathIds(null);
         setSelectedNodeIds(new Set());
         setSelectedEdgeIds(new Set());
+        setPanel(null);
         return;
       }
       if (mod && event.key.toLowerCase() === 'z') {
@@ -773,11 +819,14 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
       }
       if (event.key.startsWith('Arrow') && selectedNodeIds.size > 0) {
         event.preventDefault();
+        // React Flow also nudges focused nodes. Own the gesture once so its
+        // built-in movement cannot race our undoable persisted movement.
+        event.stopPropagation();
         const step = event.shiftKey ? GRID_STEP : 1;
         const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
         const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
         graph.patchNodes(
-          selectedNodes.map((node) => ({
+          movableNodes.map((node) => ({
             id: node.id,
             changes: { position: { x: node.position.x + dx, y: node.position.y + dy } },
           })),
@@ -787,11 +836,11 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
       }
     };
 
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
   }, [
     graph, copySelection, paste, groupIntoFrame, deleteSelection, commitLink,
-    link, selectedNodeIds, selectedNodes, visibleNodes, t,
+    link, selectedNodeIds, movableNodes, visibleNodes, t, pendingDelete, pickerFor,
   ]);
 
   // ---- clipboard images ------------------------------------------------
@@ -800,6 +849,7 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
     const handler = (event: ClipboardEvent) => {
       const files = Array.from(event.clipboardData?.files ?? []);
       if (files.length === 0) return;
+      if (!isCanvasShortcutTarget(event.target, containerRef.current) || pendingDelete || pickerFor || graph.loading) return;
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
       event.preventDefault();
@@ -807,7 +857,7 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
     };
     window.addEventListener('paste', handler);
     return () => window.removeEventListener('paste', handler);
-  }, [addImagesFromFiles]);
+  }, [addImagesFromFiles, pendingDelete, pickerFor, graph.loading]);
 
   // ---- cross-engine reference revalidation -----------------------------
 
@@ -874,18 +924,18 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
 
   // ---- deep link -------------------------------------------------------
 
-  const deepLinked = useRef(false);
+  const deepLinked = useRef<string | null>(null);
   useEffect(() => {
-    if (graph.loading || deepLinked.current) return;
-    const params = new URLSearchParams(window.location.hash.split('?')[1] ?? window.location.search);
-    const target = params.get('node');
+    if (!targetNodeId) { deepLinked.current = null; return; }
+    if (graph.loading || deepLinked.current === targetNodeId) return;
+    const target = targetNodeId;
     if (!target) return;
     const node = graph.nodeById.get(target);
     if (!node) return;
-    deepLinked.current = true;
     // Deferred a frame: the graph has only just landed and React Flow needs a
     // measured canvas before it can centre on anything.
     const frame = window.requestAnimationFrame(() => {
+      deepLinked.current = target;
       setSelectedNodeIds(new Set([target]));
       flow.setCenter(node.position.x + node.size.width / 2, node.position.y + node.size.height / 2, {
         zoom: 1,
@@ -893,7 +943,7 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
       });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [graph.loading, graph.nodeById, flow]);
+  }, [graph.loading, graph.nodeById, flow, targetNodeId]);
 
   // ---- views -----------------------------------------------------------
 
@@ -902,20 +952,18 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
       setActiveViewId(view.id);
       setQuery(view.query);
       setQueryMode(view.mode);
-      if (view.layerIds.length > 0) {
-        for (const layer of layers) {
-          void editLayer(layer.id, { visible: view.layerIds.includes(layer.id) });
-        }
+      for (const layer of layers) {
+        void editLayer(layer.id, { visible: view.layerIds.includes(layer.id) });
       }
       if (view.positions) {
         const patches = Object.entries(view.positions)
-          .filter(([id]) => graph.nodeById.has(id))
+          .filter(([id]) => { const node = graph.nodeById.get(id); return node && canMoveNode(node, layerById); })
           .map(([id, position]) => ({ id, changes: { position } }));
         if (patches.length > 0) graph.patchNodes(patches, t('board.history.applyView'));
       }
       if (view.viewport) flow.setViewport(view.viewport, { duration: 300 });
     },
-    [layers, editLayer, graph, flow, t],
+    [layers, editLayer, graph, flow, t, layerById],
   );
 
   const snapshotView = useCallback(
@@ -1032,6 +1080,10 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
   return (
     <div
       ref={containerRef}
+      tabIndex={-1}
+      onPointerDownCapture={(event) => {
+        if (isCanvasShortcutTarget(event.target, containerRef.current)) containerRef.current?.focus({ preventScroll: true });
+      }}
       className={`relative h-[calc(100vh-11rem)] min-h-[520px] w-full overflow-hidden rounded-xl border border-border ${SURFACE_CLASS[board.surface] ?? 'cork-bg'}`}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
@@ -1049,6 +1101,11 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
         onNodeDragStart={onNodeDragStart}
         onNodeClick={onNodeClick}
         onConnect={onConnect}
+        onMoveEnd={(_event, viewport) => { if (!graph.loading) onViewportChange(viewport); }}
+        onDoubleClick={(event) => {
+          if (!(event.target as HTMLElement).classList.contains('react-flow__pane') || graph.loading) return;
+          addNode('card', { position: flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }) });
+        }}
         onPaneClick={() => {
           setSelectedEdgeIds(new Set());
           setPathIds(null);
@@ -1071,6 +1128,7 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
         onlyRenderVisibleElements={visibleNodes.length > 200}
         defaultViewport={board.viewport ?? { x: 0, y: 0, zoom: 1 }}
         fitView={!board.viewport}
+        fitViewOptions={fitOptions}
         className="h-full w-full"
       >
         <Background
@@ -1079,9 +1137,9 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
           size={1}
           color="#2a2a3a"
         />
-        <Controls className="board-chrome" position="bottom-right" showInteractive={false} />
+        <Controls className="board-chrome" position="bottom-right" showInteractive={false} fitViewOptions={fitOptions} />
         <MiniMap
-          className="board-chrome"
+          className="board-chrome !ml-28"
           position="bottom-left"
           pannable
           zoomable
@@ -1128,23 +1186,29 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
             onToggleLabels={() => setShowLabels((value) => !value)}
             panel={panel}
             onPanel={setPanel}
-            onFit={() => flow.fitView({ duration: 400, padding: 0.15 })}
+            onFit={() => flow.fitView({ duration: 400, ...fitOptions })}
             onExport={() => void exportPng()}
           />
         </Panel>
 
-        <Panel position="top-center">
-          <div className="board-chrome flex w-[min(60vw,540px)] flex-col gap-1">
+        <Panel position="top-center" style={{ left: 112, right: 12, transform: 'none', margin: 0, top: 12 }}>
+          <div className="board-chrome flex min-w-0 flex-col gap-2">
+            <form onSubmit={(event) => { event.preventDefault(); captureIdea(false); }} className="flex min-w-0 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2">
+              <input aria-label={copy.capture} value={ideaDraft} onChange={(event) => setIdeaDraft(event.target.value)} placeholder={copy.capture} disabled={graph.loading} className="min-w-0 flex-1 bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted" />
+              {selectedNodes.length === 1 && <button type="button" onClick={() => captureIdea(true)} disabled={!ideaDraft.trim() || graph.loading} title={`${copy.branchHint}: ${selectedNodes[0].title || t('board.untitled')}`} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-text-primary hover:border-accent-gold focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-40"><GitBranch size={14} /> {copy.branch}</button>}
+              <button type="submit" disabled={!ideaDraft.trim() || graph.loading} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-accent-gold px-2.5 py-1.5 text-xs font-semibold text-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-gold disabled:opacity-40"><Plus size={14} /> {copy.add}</button>
+            </form>
             <div className="flex items-center gap-2 rounded-xl border border-border bg-surface/95 px-2.5 py-1.5 shadow-lg backdrop-blur">
               <Search size={14} className="text-text-dim" />
               <input
+                aria-label={copy.search}
                 value={query}
                 onChange={(event) => {
                   setQuery(event.target.value);
                   setActiveViewId(null);
                 }}
                 placeholder={t('board.query.placeholder')}
-                className="flex-1 bg-transparent text-sm text-text-primary outline-none"
+                className="min-w-0 flex-1 bg-transparent text-sm text-text-primary outline-none"
               />
               <button
                 type="button"
@@ -1178,10 +1242,20 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
                 title={graph.error.message}
               >
                 {t('board.saveFailed')}
+                <button type="button" onClick={() => void graph.flush()} className="ml-2 underline underline-offset-2">{copy.saveRetry}</button>
               </div>
             ) : null}
           </div>
         </Panel>
+
+        {graph.nodes.length === 0 && !query && !graph.error && (
+          <Panel position="bottom-center" className="pointer-events-none mb-32 w-[min(65%,440px)] text-center">
+            <div className="rounded-xl bg-surface/95 p-6">
+              <h3 className="font-serif text-xl text-text-primary">{graph.loading ? copy.loading : copy.emptyTitle}</h3>
+              {!graph.loading && <><p className="mt-3 text-sm leading-relaxed text-text-muted">{copy.emptyBody}</p><p className="mt-4 text-xs text-text-muted">{copy.emptyHint}</p></>}
+            </div>
+          </Panel>
+        )}
 
         {link ? (
           <Panel position="bottom-center">
@@ -1230,6 +1304,7 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
                   .replace('{nodes}', String(selectedNodes.length))
                   .replace('{edges}', String(selectedEdgeIds.size))}
               </span>
+              {selectedNodes.length > 1 && <button type="button" onClick={groupIntoFrame} className="rounded-lg border border-border px-2 py-1 text-xs text-text-primary">{copy.group}</button>}
               {SURFACE_PALETTE.map((color) => (
                 <button
                   key={color}
@@ -1268,7 +1343,8 @@ function BoardCanvasInner({ projectId, board }: BoardCanvasProps) {
       </ReactFlow>
 
       {(selectedNode || selectedEdge || panel) && (
-        <aside className="board-chrome absolute right-3 top-3 z-20 max-h-[calc(100%-1.5rem)] w-[300px] overflow-y-auto rounded-xl border border-border bg-surface/95 p-3 shadow-2xl backdrop-blur">
+        <aside className="board-chrome absolute right-3 top-28 z-20 max-h-[calc(100%-8rem)] w-[min(300px,calc(100%-8rem))] overflow-y-auto rounded-xl border border-border bg-surface p-3 shadow-xl">
+          <div className="mb-2 flex justify-end"><button type="button" aria-label={copy.close} title={copy.close} onClick={() => { setPanel(null); setSelectedNodeIds(new Set()); setSelectedEdgeIds(new Set()); }} className="rounded-md p-1.5 text-text-muted hover:bg-elevated hover:text-text-primary focus-visible:outline-2 focus-visible:outline-accent-gold"><X size={16} /></button></div>
           {panel === 'layers' ? (
             <LayersPanel
               layers={layers}

@@ -445,3 +445,92 @@ recibos y procedencia persistida, mostrando huecos o referencias rotas sin
 inventar interpretaciones. Navega siempre a la fuente real y comparte filtros
 ES/EN. Las pruebas críticas de Story Lenses pasan dentro de los 191 PASS y la
 vista vacía/no vacía se validó en el Cockpit real.
+
+# Mejora creativa integral — 2026-09-07
+
+## Worldgen — estudio y reestructuración autorizados
+
+### Continuación: geografía coherente y edición del mundo
+
+- [x] Recalcular clima, corrientes, ríos, lagos y biomas del relieve esculpido con acción en segundo plano, persistencia y deshacer.
+- [x] Incorporar lluvia absoluta y evaporación al caudal y selección de ríos, contrastando escenarios secos/húmedos.
+- [x] Transportar y representar superficies físicas de lagos en 3D, incluida reapertura de snapshots.
+- [x] Desarrollar un viaje o una noche como idea o escena vinculada al mundo, conservando el borrador y confirmando guardado.
+- [x] Calcular rutas, comparaciones y descripción paleogeográfica fuera del hilo de interacción, con cancelación y descarte de respuestas obsoletas.
+- [x] Corregir la jerarquía/colisión de nombres y medir optimizaciones del coste de generación completa.
+- [x] Corregir el cierre encontrado al deshacer un recálculo en el mundo real de 2048; verificar consumo de memoria, ausencia de reconstrucción síncrona y ciclos de deshacer/rehacer/reapertura.
+- [x] Integrar controles claros, comprobar mundos de prueba, regresiones, compilación y actualizar referencias.
+
+Plan contrastado con la corrección del usuario: implementar las necesidades identificadas, dividir núcleo físico, agua 3D y recálculo/experiencia, comprobar resultados y recuperación antes del cierre.
+
+### Revisión final de la continuación Worldgen
+
+Implementados los ocho puntos anteriores. La comprobación real descubrió y corrigió dos defectos adicionales: deshacer el último recálculo podía reconstruir geografía completa en la interfaz con copias masivas del mundo; el worker de viajes recibía funciones de idiomas no serializables. Las regresiones nuevas cubren ambos límites y el transporte real.
+
+Verificación final: `verify:quick` correcto (tipos renderer/Electron, lint sin excepciones, 23 motores, 51 tablas, 4718 claves y cero avisos de conformidad); `test:critical`: **310 comprobaciones**, con **70 grupos Worldgen** y workers reales de región, viajes y paleogeografía. `build:desktop`: correcto, 3119 módulos y bundles Electron. La comprobación de tamaño cumple el límite de entrada; permanecen avisos informativos de tamaño global y del módulo 3D del proyecto, sin fallo de compilación. `git diff --check` sin errores.
+
+`test:worldgen:large` supera cinco ciclos sobre mundo real de 2048, incluida igualdad completa de campos, terreno esculpido y recarga del historial; 32,59 s totales y parche de geografía máximo 0,6 ms. Las matrices retenidas permanecen en 270,1 MiB con un punto del historial y 354,2 MiB con dos, sin crecimiento por repetir los ciclos. No es una medida de RSS ni del pico total del proceso. Evidencia exacta en [worldgen-large-lifecycle-2026-09-07.json](worldgen-large-lifecycle-2026-09-07.json). La prueba de reservas independiente hace ocho ciclos sin clonar matrices ambientales.
+
+Recorrido final de interfaz en el proyecto sintético: abrir `j_zdm1cq` de 2048 con 606 ríos/119 hitos; deshacer hasta 419/113 y lista vacía; rehacer hasta 606/119, salir y volver conservando el resultado. Elegir Tengoro → Teeno calcula un recorrido real; desarrollar la noche 16 crea «QA — La noche del altar», y «Open ideas» muestra la idea guardada con el mundo fuente. Revisadas distribución de escritorio y 760 px; tamaño habitual restaurado y consola sin errores. Referencias `.odysseus` actualizadas conforme a la habilidad de grafo; la ruta antigua de memoria no existe en este entorno Windows.
+
+Montaje final de motores repetido tras todas las correcciones: **23/23** en perfil aislado, sin generación ni IA en esa prueba transversal.
+
+Medición comparada de generación completa: 16,2 % menos tiempo a 1024 y 9,0 % a 2048, sin reducir detalle y conservando hashes. El estudio describe el modelo anual aproximado, las pruebas y cada cambio implementado; no deja tareas identificadas de esta continuación Worldgen sin ejecutar.
+
+- [x] Medir generación y render; comprobar apertura y navegación; evaluar calidad y capacidades con mundos y rutas reproducibles.
+- [x] Definir responsabilidades entre generación, datos persistidos, presentación y herramientas creativas; documentar defectos y decisiones.
+- [x] Implementar mejoras del núcleo/rendimiento y rutas sustentadas por pruebas.
+- [x] Mejorar el flujo de creación, edición/regeneración y espacio cartográfico con fallos recuperables.
+- [x] Verificar calidad visual, medidas antes/después, regresiones y compilación; registrar entregado y límites; actualizar arquitectura.
+
+Plan verificado contra la petición: investigar e implementar cambios profundos donde exista evidencia, con foco en construir mundos útiles para ideas e historias. Trabajo repartido entre núcleo, cartografía, rutas y experiencia de creación, sin bloquear la implementación con otra solicitud de permiso.
+
+### Revisión Worldgen
+
+Implementados drenaje compatible/versionado, correcciones regionales y capas, cachés y miniaturas eficientes, rutas geográficas coherentes, pintura continua por la costura, alternativas, sustitución atómica y política de lugares, e itinerarios guardados con recuperación y eliminación confirmada. Estudio y límites en [estudio-worldgen-2026-09-07.md](estudio-worldgen-2026-09-07.md); medición reproducible en [worldgen-benchmark-2026-09-07.json](worldgen-benchmark-2026-09-07.json).
+
+Verificación final: `verify:quick` correcto (tipos renderer/Electron, lint sin excepciones; 23 motores, 51 tablas, 4714 claves). `test:critical`: **274 comprobaciones**, incluida fase Worldgen de **36 grupos** y arranque real de renderer/worker. `build:desktop` correcto: 3103 módulos y bundles Electron. `git diff --check` y detector acotado a cuatro componentes de Worldgen sin hallazgos. El montaje 23/23 de motores de la entrega anterior sigue siendo la cobertura transversal; esta entrega amplía las pruebas funcionales de Worldgen.
+
+Interfaz real en proyecto sintético: abrir original estándar; crear alternativa Archipelago/Fast con semilla propia; regenerarla mediante confirmación a `creative-archipelago-qa-v2`; salir y volver comprobando receta persistida (69 ríos, 56 hitos); recuperar original intacto (419 ríos, 113 hitos). Inspección a 1280 y 760 px, mapa expandible y herramientas recuperables, tamaño restaurado y consola sin errores. Las recargas del servidor durante compilación/pruebas reiniciaron selección temporal, por lo que la comprobación final se realizó con esas tareas terminadas.
+
+El mapa y la miniatura de 2048 pasan de 98,3→50,4 ms y 133,3→7,43 ms en medianas locales; generación completa ~14,6 s sin mejora estable demostrada. Quedan necesidades físicas y artísticas explícitas en el estudio. Actualizadas las referencias `.odysseus` conforme a la habilidad de grafo; la antigua ruta `/sessions/.../.auto-memory` no existe en este entorno Windows.
+
+## Continuación autorizada — flujos y recuperación
+
+- [x] Escritos y auditoría de personajes: errores de lectura visibles con reintento, sin falsos vacíos.
+- [x] Anotaciones y Galería: recuperar material por texto, filtros y estados sin resultados útiles.
+- [x] Relaciones: todas las relaciones por par, alta desde matriz y edición recuperable.
+- [x] Mapas, Atlas y Cronología: preservar borradores y validar operaciones de organización.
+- [x] Esquema y escenas: plantillas atómicas y navegación al material enlazado.
+- [x] Integrar pruebas, revisar en interfaz y separar claramente entregado de pendiente en documentación.
+
+Plan contrastado con los fallos pendientes y la petición de continuar: cambios acotados por motor, conservar el sistema visual y los datos; validación con fallos de almacenamiento y recorridos completos. No requiere nueva aprobación.
+
+### Revisión de la continuación
+
+Implementados los seis puntos y ampliados los recorridos: Nota → laboratorio con fuente seleccionada; Diario autoguarda sin cerrar/bloquear y conserva lo escrito durante una escritura anterior; Códice mezcla cambios no conflictivos y permite resolver cada conflicto sin sobrescribir otros campos; Semillas navega a fuentes, Biografía busca material y Estadísticas valida y reintenta sin duplicar objetivos. Borradores locales de Mapas/Atlas sobreviven reapertura y se limpian por entidad/proyecto solo tras eliminar con éxito.
+
+Verificación: `verify:quick` correcto, 23 motores, 51 tablas y 4702 claves; `test:critical` completo: 244 comprobaciones; `test:engines`: 23/23; `build:desktop` correcto con 3097 módulos y bundles Electron. Vista real del laboratorio a 1280 y 760 px, sin errores en apertura limpia; recorrido nota → posibilidad → salir/volver confirmado. Relaciones y objetivos revisados también a 480 px. Perfiles de prueba aislados. Separados [hechos](mejoras-realizadas-2026-09-07.md) y [pendientes](mejoras-pendientes.md); referencias de arquitectura actualizadas. El recuento de 210 de la revisión inferior corresponde a la primera entrega.
+
+El ejecutor focal declara UTF-8 para evitar fallos de arranque con expresiones Unicode. Las ventanas de prueba desactivan la ralentización de temporizadores en segundo plano; la suite crítica conserva el límite de 90 segundos y ahora informa progreso y tiempos para localizar fallos.
+
+Objetivo: facilitar capturar ideas, desarrollarlas, conectarlas y organizar un proyecto creativo; conservar datos, motores y preferencias existentes.
+
+## Plan
+- [x] Auditar los 23 motores, shell, inicio, captura/organización, Tablero y Worldgen con evidencias concretas.
+- [x] Afinar el sistema visual existente: superficies cálidas legibles, jerarquía, navegación y espacio útil de trabajo.
+- [x] Mejorar el acceso a captura y el centro del proyecto alrededor del proceso creativo.
+- [x] Corregir interacciones/persistencia del Tablero vigente y facilitar construir conexiones.
+- [x] Mejorar controles y fiabilidad de Worldgen sin perder mundos ni ediciones.
+- [x] Verificar con typecheck, lint, conformance, pruebas críticas y navegación/capturas en perfil aislado.
+- [x] Documentar resultados, limitaciones y actualizar conocimiento de arquitectura.
+
+## Verificación del plan
+La petición autoriza las mejoras; se conserva la arquitectura Electron/React, el esquema de datos y la identidad oscura/cálida. Trabajo paralelo acotado por motor; integración y revisión visual centralizadas. Prioridad a fallos reproducibles y flujos completos frente a sumar herramientas desconectadas.
+
+## Revisión
+Centro creativo y captura accesibles desde el proyecto, laboratorio persistente y exportable, navegación con propietario explícito y aislamiento de borradores. Tablero: enlaces, flechas, etiquetas, curvas, bloqueos, cámara y guardado ordenado; captura y ramificación con deshacer. Worldgen: cancelación, caché sin doble pintura, guardado del último trazo, presets y rutas al mundo correcto. Formularios de varios motores conservan su contenido ante fallos de escritura.
+
+Verificado: `verify:quick` (TypeScript renderer/Electron, lint sin excepciones y conformance: 23 motores, 51 tablas de motor, 4677 claves de traducción), `test:critical` (210 comprobaciones), `test:engines` (23/23 montajes en perfil aislado; workers dormidos, no prueba IA/generación) y `build:desktop`. Pruebas manuales del Tablero: arrastre entre conectores, editar/seleccionar etiqueta, borrar/deshacer, recargar conservando conexiones/cámara, ramificar y abrir nodo exacto. Captura rápida confirmada en proyecto aislado. Worldgen generó realmente un mundo estándar con 419 ríos y 113 hitos, sin errores de consola. Centro creativo comprobado a 1280 y 760 px; tamaño de navegador restaurado.
+
+Auditoría por motor y necesidades aún abiertas: [auditoria-creativa-2026-09-07.md](auditoria-creativa-2026-09-07.md). No se ha ejecutado una sesión productiva completa en cada motor ni generación de imagen con modelo real. Compilación de escritorio realizada; sin empaquetar/publicar instalador. Referencia de arquitectura y motores en `.odysseus/`; la ruta antigua de memoria indicada por la habilidad no existe en este entorno Windows.

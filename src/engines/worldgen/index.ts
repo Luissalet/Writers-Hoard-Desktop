@@ -11,6 +11,7 @@ import { registerBackupStrategy, makeSimpleBackupStrategy } from '@/engines/_sha
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
 import { readWorldRenameEdits } from './core/readRenameEdits';
+import { resolveWorldgenRoute } from './navigation';
 const WorldgenEngine = lazy(() => import('./components/WorldgenEngine'));
 
 const worldgenEngine: EngineDefinition = {
@@ -166,15 +167,14 @@ registerAnchorAdapter({
       .find((region) => region.id === entityId)?.title ?? null;
   },
   getEngineChipLabel: () => t('annotations.chipLabel.worldgen'),
-  navigateToEntity(entityId: string, projectId?: string) {
+  async navigateToEntity(entityId: string, projectId?: string) {
     const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
-    if (entityId.includes('::')) {
-      navigateTo(`/project/${pid}/worldgen?place=${encodeURIComponent(entityId)}`);
-    } else if (entityId.startsWith('region')) {
-      navigateTo(`/project/${pid}/worldgen?region=${encodeURIComponent(entityId)}`);
-    } else {
-      navigateTo(`/project/${pid}/worldgen?waypoint=${encodeURIComponent(entityId)}`);
+    try {
+      const route = await resolveWorldgenRoute(pid, entityId);
+      if (route) navigateTo(route);
+    } catch (error) {
+      console.warn('[worldgen] Could not resolve linked place', error);
     }
   },
 });

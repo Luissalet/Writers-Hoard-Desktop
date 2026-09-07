@@ -8,7 +8,7 @@ import Modal from '@/components/common/Modal';
 
 interface SegmentEditorProps {
   segment: VideoSegment;
-  onSave: (segment: Partial<VideoSegment>) => void;
+  onSave: (segment: Partial<VideoSegment>) => void | Promise<void>;
   onCancel: () => void;
 }
 
@@ -38,6 +38,8 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [showGallery, setShowGallery] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -50,8 +52,12 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
     }
   };
 
-  const handleSave = () => {
-    onSave({
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    setSaveFailed(false);
+    try {
+    await onSave({
       title,
       startTime: startTime || undefined,
       endTime: endTime || undefined,
@@ -68,13 +74,18 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
         .map(tag => tag.trim())
         .filter(Boolean),
     });
+    } catch {
+      setSaveFailed(true);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <>
-      <Modal open onClose={onCancel} title={t('videoPlanner.segment.editTitle')} wide>
+      <Modal open onClose={() => { if (!saving) onCancel(); }} title={t('videoPlanner.segment.editTitle')} wide>
         {/* Content */}
-        <div className="p-6 space-y-6">
+        <fieldset disabled={saving} className="p-6 space-y-6">
           {/* Title */}
           <div>
             <label className="block text-sm font-medium text-accent-gold mb-2">{t('videoPlanner.segment.title')}</label>
@@ -242,13 +253,15 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
               placeholder={t('videoPlanner.segment.tagsPlaceholder')}
             />
           </div>
-        </div>
+        </fieldset>
 
         {/* Footer */}
+        {saveFailed && <p role="alert" className="px-4 pb-3 text-sm text-danger">{t('common.saveFailed')}</p>}
         <div className="sticky bottom-0 flex justify-end gap-3 bg-elevated border-t border-border p-4">
           <button
             type="button"
             onClick={onCancel}
+            disabled={saving}
             className="px-4 py-2 rounded border border-border hover:bg-surface transition-colors text-neutral-300"
           >
             {t('common.cancel')}
@@ -256,9 +269,10 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
           <button
             type="button"
             onClick={handleSave}
-            className="px-4 py-2 rounded bg-accent-gold text-deep font-medium hover:bg-accent-gold/90 transition-colors"
+            disabled={saving}
+            className="px-4 py-2 rounded bg-accent-gold text-deep font-medium hover:bg-accent-gold/90 transition-colors disabled:opacity-50"
           >
-            {t('videoPlanner.segment.saveChanges')}
+            {t(saving ? 'common.saving' : 'videoPlanner.segment.saveChanges')}
           </button>
         </div>
       </Modal>

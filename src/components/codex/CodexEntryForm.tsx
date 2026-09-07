@@ -7,6 +7,8 @@ import TagInput from '@/components/common/TagInput';
 import ImagePreviewCrop from '@/components/common/ImagePreviewCrop';
 import { User, MapPin, Sword, Shield, Sparkles, HelpCircle, BookOpen, ImagePlus, X } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
+import { CodexEditConflict, type CodexFieldConflict } from '@/engines/codex/operations';
+import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 
 const typeConfig: Record<CodexEntryType, { icon: typeof User; labelKey: string; color: string }> = {
   character: { icon: User, labelKey: 'codex.types.character', color: '#c4973b' },
@@ -48,11 +50,12 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
 interface CodexEntryFormProps {
   projectId: string;
   entry?: CodexEntry;
-  onSave: (entry: CodexEntry) => void;
+  onSave: (entry: CodexEntry, base?: CodexEntry) => Promise<void>;
+  onPendingChange?: (pending: boolean) => void;
   onCancel: () => void;
 }
 
-export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: CodexEntryFormProps) {
+export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onPendingChange }: CodexEntryFormProps) {
   const { t } = useTranslation();
   const [type, setType] = useState<CodexEntryType>(entry?.type || 'character');
   const [title, setTitle] = useState(entry?.title || '');
@@ -63,6 +66,48 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
   const [tags, setTags] = useState<string[]>(entry?.tags || []);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [pendingAvatar, setPendingAvatar] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const savingRef = useRef(false);
+  const baseRef = useRef(entry);
+  const [conflict, setConflict] = useState<CodexEditConflict | null>(null);
+
+  const resolveConflict = (item: CodexFieldConflict, keepDraft: boolean) => {
+    if (!conflict || !baseRef.current) return;
+    const base = { ...baseRef.current, fields: { ...baseRef.current.fields } };
+    if (item.key.startsWith('fields.')) {
+      const key = item.key.slice(7);
+      const value = conflict.current.fields[key];
+      if (value === undefined) delete base.fields[key];
+      else base.fields[key] = value;
+      if (!keepDraft) setFields(previous => {
+        const next = { ...previous };
+        if (value === undefined) delete next[key];
+        else next[key] = value;
+        return next;
+      });
+    } else {
+      const key = item.key as 'title' | 'content' | 'tags' | 'avatar' | 'avatarOriginal';
+      Object.assign(base, { [key]: conflict.current[key] });
+      if (!keepDraft) {
+        if (key === 'title') setTitle(conflict.current.title);
+        if (key === 'content') setContent(conflict.current.content);
+        if (key === 'tags') setTags([...conflict.current.tags]);
+        if (key === 'avatar') setAvatar(conflict.current.avatar ?? '');
+        if (key === 'avatarOriginal') setAvatarOriginal(conflict.current.avatarOriginal ?? conflict.current.avatar ?? '');
+      }
+    }
+    baseRef.current = base;
+    const remaining = conflict.conflicts.filter(candidate => candidate.key !== item.key);
+    setConflict(remaining.length ? new CodexEditConflict(remaining, conflict.current) : null);
+  };
+
+  const conflictLabel = (key: CodexFieldConflict['key']) => key.startsWith('fields.')
+    ? t(FIELD_LABEL_KEYS[key.slice(7)] || key.slice(7))
+    : t(({ title: 'common.title', content: 'codex.extendedNotes', tags: 'common.tags', avatar: 'codex.avatar', avatarOriginal: 'codex.avatar' } as Record<string, string>)[key]);
+  const conflictDraftValue = (key: CodexFieldConflict['key']) => key.startsWith('fields.')
+    ? fields[key.slice(7)]
+    : ({ title, content, tags, avatar, avatarOriginal } as Record<string, string | string[]>)[key];
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -79,9 +124,14 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
     }
   };
 
-  const handleSave = () => {
-    if (!title.trim()) return;
-    onSave({
+  const handleSave = async () => {
+    if (!title.trim() || savingRef.current || conflict) return;
+    savingRef.current = true;
+    setSaving(true);
+    setSaveError(false);
+    onPendingChange?.(true);
+    try {
+      await onSave({
       id: entry?.id || generateId('codex'),
       projectId,
       type,
@@ -94,11 +144,19 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
       relations: entry?.relations || [],
       createdAt: entry?.createdAt || Date.now(),
       updatedAt: Date.now(),
-    });
+      }, baseRef.current);
+    } catch (error) {
+      if (error instanceof CodexEditConflict) setConflict(error);
+      else setSaveError(true);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+      onPendingChange?.(false);
+    }
   };
 
   return (
-    <div className="space-y-6">
+    <fieldset disabled={saving} inert={saving} aria-busy={saving} className="space-y-6">
       {/* Type selector */}
       {!entry && (
         <div>
@@ -145,7 +203,7 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
                   <ImagePlus size={12} className="text-white" />
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); setAvatar(''); }}
+                  onClick={(e) => { e.stopPropagation(); setAvatar(''); setAvatarOriginal(''); }}
                   className="p-1.5 bg-white/20 rounded-full hover:bg-red-500/50 transition"
                   title={t('common.remove')}
                 >
@@ -217,12 +275,40 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
       </div>
 
       {/* Actions */}
+      {conflict && (
+        <div role="alert" className="space-y-4 rounded-lg border border-accent-gold/40 bg-surface p-4">
+          <p className="text-sm text-text-primary">{t('codex.conflictNotice')}</p>
+          {conflict.conflicts.map(item => (
+            <div key={item.key} className="space-y-2" data-conflict-field={item.key}>
+              <h4 className="text-sm font-semibold text-accent-gold">{conflictLabel(item.key)}</h4>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {(['draft', 'current'] as const).map(version => {
+                  const value = version === 'draft' ? conflictDraftValue(item.key) : item.current;
+                  return (
+                  <div key={version} className="min-w-0 rounded border border-border p-3">
+                    <p className="mb-2 text-xs text-text-muted">{t(version === 'draft' ? 'codex.yourVersion' : 'codex.latestVersion')}</p>
+                    {(item.key === 'avatar' || item.key === 'avatarOriginal') && typeof value === 'string' && value
+                      ? <img src={value} alt="" className="max-h-28 rounded object-contain" />
+                      : item.key === 'content'
+                        ? <div className="max-h-40 overflow-auto break-words text-sm text-text-primary" dangerouslySetInnerHTML={sanitizedHtml(String(value ?? ''))} />
+                        : <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs text-text-primary">{Array.isArray(value) ? value.join(', ') : value || '—'}</pre>}
+                    <button type="button" onClick={() => resolveConflict(item, version === 'draft')} className="mt-3 rounded border border-border px-3 py-2 text-sm text-text-primary hover:bg-elevated">{t(version === 'draft' ? 'codex.keepYourVersion' : 'codex.useLatestVersion')}</button>
+                  </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {saveError && <p role="alert" className="text-sm text-red-400">{t('codex.saveError')}</p>}
       <div className="flex gap-3 pt-2">
         <button
-          onClick={handleSave}
+          onClick={() => void handleSave()}
+          disabled={saving || !title.trim() || !!conflict}
           className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition"
         >
-          {entry ? t('codex.saveChanges') : t('codex.createEntry')}
+          {saving ? t('common.saving') : entry ? t('codex.saveChanges') : t('codex.createEntry')}
         </button>
         <button
           onClick={onCancel}
@@ -240,6 +326,6 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel }: C
         }}
         onCancel={() => setPendingAvatar(null)}
       />
-    </div>
+    </fieldset>
   );
 }

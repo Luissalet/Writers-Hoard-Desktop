@@ -14,7 +14,7 @@ import {
 import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useProject } from '@/hooks/useProjects';
-import { getEnginesByIds } from '@/engines';
+import { getEngine, getEnginesByIds } from '@/engines';
 import { useInboxNoteCount } from '@/engines/notes/hooks';
 import { isDesktop } from '@/utils/platform';
 import { toast } from '@/components/common/toast';
@@ -28,7 +28,8 @@ export default function Sidebar() {
   const { project } = useProject(projectId);
 
   const rawOrder = project?.engineOrder || project?.enabledEngines || [];
-  const engineIds = [...new Set(rawOrder)];
+  const enabled = new Set(project?.enabledEngines ?? []);
+  const engineIds = [...new Set([...rawOrder, ...enabled])].filter(id => enabled.has(id) && getEngine(id));
   const engines = getEnginesByIds(engineIds);
 
   const desktop = isDesktop();
@@ -63,7 +64,7 @@ export default function Sidebar() {
 
   return (
     <aside
-      className={`h-full bg-surface border-r border-border flex flex-col overflow-hidden transition-[width] duration-200 ${sidebarOpen ? 'w-[220px]' : 'w-[60px]'}`}
+      className={`app-sidebar h-full shrink-0 bg-surface border-r border-border flex flex-col overflow-hidden transition-[width] duration-200 ${sidebarOpen ? 'w-[220px]' : 'w-[60px]'}`}
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-border">
@@ -144,8 +145,8 @@ export default function Sidebar() {
           <>
             <div className="pt-3 pb-1 px-3">
               {sidebarOpen && (
-                <span className="text-xs font-semibold text-text-dim uppercase tracking-wider">
-                  {t('sidebar.project')}
+                <span className="block truncate text-xs font-semibold text-text-dim" title={project?.title}>
+                  {project?.title ?? t('sidebar.project')}
                 </span>
               )}
               {!sidebarOpen && <div className="border-t border-border" />}

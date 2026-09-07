@@ -20,7 +20,7 @@ export interface FlowResult {
   filled: Float32Array;
   /** D8 receiver index per cell (self for pits/ocean). */
   receiver: Int32Array;
-  /** Cells in increasing `filled` order (flood pop order). */
+  /** Downstream before upstream; legacy v1 approximates this with flood order. */
   order: Uint32Array;
   /** Number of valid entries in `order`. */
   count: number;
@@ -54,8 +54,9 @@ export class FlowSolver {
   private rowDistE: Float32Array;
   private rowDistDiag: Float32Array;
   private rowArea: Float32Array;
+  private donors: Uint8Array | null;
 
-  constructor(width: number, height: number) {
+  constructor(width: number, height: number, drainageVersion: 1 | 2 = 1) {
     this.W = width; this.H = height; this.N = width * height;
     this.heapIdx = new Uint32Array(this.N);
     this.heapKey = new Float64Array(this.N);
@@ -69,6 +70,8 @@ export class FlowSolver {
     this.rowDistE = new Float32Array(height);
     this.rowDistDiag = new Float32Array(height);
     this.rowArea = new Float32Array(height);
+    // Flood visitation is finished before donor counting begins.
+    this.donors = drainageVersion === 2 ? this.visited : null;
     for (let y = 0; y < height; y++) {
       const lat = (0.5 - (y + 0.5) / height) * Math.PI;
       const c = Math.cos(lat);
@@ -81,32 +84,32 @@ export class FlowSolver {
   private heapPush(idx: number, key: number): void {
     let i = this.heapSize++;
     const hi = this.heapIdx, hk = this.heapKey;
-    hi[i] = idx; hk[i] = key;
+    // Move the hole, not two complete heap entries at every level. The same
+    // strict comparisons retain the historical ordering of equal heights.
     while (i > 0) {
       const p = (i - 1) >> 1;
-      if (hk[p] <= hk[i]) break;
-      const tI = hi[p]; hi[p] = hi[i]; hi[i] = tI;
-      const tK = hk[p]; hk[p] = hk[i]; hk[i] = tK;
+      if (hk[p] <= key) break;
+      hi[i] = hi[p]; hk[i] = hk[p];
       i = p;
     }
+    hi[i] = idx; hk[i] = key;
   }
 
   private heapPop(): number {
     const hi = this.heapIdx, hk = this.heapKey;
     const top = hi[0];
     const n = --this.heapSize;
-    hi[0] = hi[n]; hk[0] = hk[n];
+    const idx = hi[n], key = hk[n];
     let i = 0;
     for (;;) {
       const l = 2 * i + 1, r = l + 1;
-      let s = i;
-      if (l < n && hk[l] < hk[s]) s = l;
-      if (r < n && hk[r] < hk[s]) s = r;
-      if (s === i) break;
-      const tI = hi[s]; hi[s] = hi[i]; hi[i] = tI;
-      const tK = hk[s]; hk[s] = hk[i]; hk[i] = tK;
+      if (l >= n) break;
+      const s = r < n && hk[r] < hk[l] ? r : l;
+      if (hk[s] >= key) break;
+      hi[i] = hi[s]; hk[i] = hk[s];
       i = s;
     }
+    hi[i] = idx; hk[i] = key;
     return top;
   }
 
@@ -135,14 +138,24 @@ export class FlowSolver {
       for (let x = 0; x < W; x++) {
         const i = yW + x;
         if (elev[i] > 0) continue;
-        let frontier = false;
-        for (let d = 0; d < 8; d++) {
-          const n = this.neighbor(i, x, y, d);
-          if (n >= 0 && elev[n] > 0) { frontier = true; break; }
-        }
+        const east = x + 1 < W ? i + 1 : i + 1 - W;
+        const west = x > 0 ? i - 1 : i - 1 + W;
+        const frontier = elev[east] > 0 || elev[west] > 0
+          || (y + 1 < H && (elev[i + W] > 0 || elev[east + W] > 0 || elev[west + W] > 0))
+          || (y > 0 && (elev[i - W] > 0 || elev[east - W] > 0 || elev[west - W] > 0));
         if (frontier) this.heapPush(i, filled[i]);
         else order[count++] = i; // interior ocean: order irrelevant, acc stays local
       }
+    }
+
+    // A wholly dry globe still needs a drainage outlet. Legacy recipes retain
+    // their original behaviour; new recipes drain into their lowest basin.
+    if (this.donors && count === 0 && this.heapSize === 0) {
+      let lowest = 0;
+      for (let i = 1; i < N; i++) if (elev[i] < elev[lowest]) lowest = i;
+      filled[lowest] = elev[lowest];
+      visited[lowest] = 1;
+      this.heapPush(lowest, filled[lowest]);
     }
 
     const fifo = this.fifo;
@@ -187,12 +200,33 @@ export class FlowSolver {
         if (elev[i] <= 0) { receiver[i] = i; continue; }
         const fi = filled[i];
         let best = i, bestRate = 0, bestDist = 1;
-        for (let d = 0; d < 8; d++) {
-          const n = this.neighbor(i, x, y, d);
-          if (n < 0) continue;
-          const dist = d < 2 ? dE : d < 4 ? 1 : dD;
-          const rate = (fi - filled[n]) / dist;
-          if (rate > bestRate) { bestRate = rate; best = n; bestDist = dist; }
+        // This kernel runs eight times per land cell on every erosion pass.
+        // Resolve seam/pole bounds once and retain E,W,S,N,SE,SW,NE,NW tie order.
+        const east = x + 1 < W ? i + 1 : i + 1 - W;
+        const west = x > 0 ? i - 1 : i - 1 + W;
+        let rate = (fi - filled[east]) / dE;
+        if (rate > bestRate) { bestRate = rate; best = east; bestDist = dE; }
+        rate = (fi - filled[west]) / dE;
+        if (rate > bestRate) { bestRate = rate; best = west; bestDist = dE; }
+        if (y + 1 < H) {
+          rate = fi - filled[i + W];
+          if (rate > bestRate) { bestRate = rate; best = i + W; bestDist = 1; }
+        }
+        if (y > 0) {
+          rate = fi - filled[i - W];
+          if (rate > bestRate) { bestRate = rate; best = i - W; bestDist = 1; }
+        }
+        if (y + 1 < H) {
+          rate = (fi - filled[east + W]) / dD;
+          if (rate > bestRate) { bestRate = rate; best = east + W; bestDist = dD; }
+          rate = (fi - filled[west + W]) / dD;
+          if (rate > bestRate) { bestRate = rate; best = west + W; bestDist = dD; }
+        }
+        if (y > 0) {
+          rate = (fi - filled[east - W]) / dD;
+          if (rate > bestRate) { bestRate = rate; best = east - W; bestDist = dD; }
+          rate = (fi - filled[west - W]) / dD;
+          if (rate > bestRate) { best = west - W; bestDist = dD; }
         }
         receiver[i] = best;
         recvDist[i] = bestDist;
@@ -210,10 +244,33 @@ export class FlowSolver {
         acc[i] = (weights ? weights[i] : 1) * area;
       }
     }
-    for (let k = count - 1; k >= 0; k--) {
-      const c = order[k];
-      const r = receiver[c];
-      if (r !== c) acc[r] += acc[c];
+    if (this.donors) {
+      // FIFO depression filling with an epsilon gradient does NOT guarantee
+      // that a D8 receiver precedes its donors in flood-pop order. Summing in
+      // that order drops late tributaries. Kahn's pass is linear, allocation-
+      // free, and records a true downstream order for the erosion pass too.
+      const donors = this.donors;
+      donors.fill(0);
+      for (let i = 0; i < N; i++) if (receiver[i] !== i) donors[receiver[i]]++;
+      let tail = 0;
+      for (let i = 0; i < N; i++) if (!donors[i]) order[tail++] = i;
+      for (let head = 0; head < tail; head++) {
+        const c = order[head], r = receiver[c];
+        if (r === c) continue;
+        acc[r] += acc[c];
+        if (--donors[r] === 0) order[tail++] = r;
+      }
+      count = tail;
+      // Public contract and erosion consume outlet-to-source order in reverse.
+      for (let left = 0, right = count - 1; left < right; left++, right--) {
+        const cell = order[left]; order[left] = order[right]; order[right] = cell;
+      }
+    } else {
+      for (let k = count - 1; k >= 0; k--) {
+        const c = order[k];
+        const r = receiver[c];
+        if (r !== c) acc[r] += acc[c];
+      }
     }
 
     return { filled, receiver, order, count, acc, recvDist };
@@ -238,6 +295,7 @@ export class FlowSolver {
 }
 
 export interface ErosionOptions {
+  drainageVersion?: 1 | 2;
   iterations: number;
   /** Stream-power constant. */
   K: number;
@@ -261,7 +319,7 @@ export function erode(
   height: number,
   opts: ErosionOptions,
 ): FlowSolver {
-  const solver = new FlowSolver(width, height);
+  const solver = new FlowSolver(width, height, opts.drainageVersion);
   const N = width * height;
   const { iterations, K, deposition, talus, upliftScale } = opts;
   // East-west neighbor distance per row (cos lat, clamped).

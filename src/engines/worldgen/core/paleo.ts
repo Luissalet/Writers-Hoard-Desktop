@@ -232,10 +232,24 @@ export function nameBridges(
 }
 
 /** A sentence a reader can put in a note. */
-export function describePaleo(world: WorldData, p: PaleoMap): string {
+export function describePaleo(world: WorldData, p: PaleoMap, locale: 'es' | 'en' = 'es'): string {
   const delta = (p.landFractionThen - p.landFractionNow) / Math.max(1e-6, p.landFractionNow);
   const surfaceKm2 = 4 * Math.PI * 6371 * 6371;
   const gainedKm2 = (p.landFractionThen - p.landFractionNow) * surfaceKm2;
+  if (locale === 'en') {
+    const bits = p.state.seaLevelM < -2
+      ? [`With sea level ${Math.abs(Math.round(p.state.seaLevelM))} m lower, ${Math.round(gainedKm2 / 1000) * 1000} km² of continental shelf emerges (${Math.round(delta * 100)}% more land).`]
+      : p.state.seaLevelM > 2
+        ? [`With sea level ${Math.round(p.state.seaLevelM)} m higher, ${Math.round(-gainedKm2 / 1000) * 1000} km² of coast is submerged.`]
+        : ['Sea level is the same as today.'];
+    if (p.bridges.length) bits.push(p.bridges.length === 1 ? 'One land bridge joins two currently separate landmasses.' : `${p.bridges.length} land bridges join currently separate landmasses.`);
+    if (p.state.ice > 0.05) {
+      let iced = 0, landCells = 0;
+      for (let i = 0; i < p.ice.length; i++) if (p.land[i]) { landCells++; if (p.ice[i] > 0.35) iced++; }
+      bits.push(`Ice covers ${Math.round(iced / Math.max(1, landCells) * 100)}% of the land.`);
+    }
+    return bits.join(' ');
+  }
   const bits: string[] = [];
   if (p.state.seaLevelM < -2) {
     bits.push(`Con el mar ${Math.abs(Math.round(p.state.seaLevelM))} m más bajo emergen `

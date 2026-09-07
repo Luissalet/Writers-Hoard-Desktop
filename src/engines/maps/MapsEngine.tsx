@@ -6,16 +6,22 @@ import type { EngineComponentProps } from '@/engines/_types';
 import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard, useDeepLinkParam } from '@/engines/_shared';
 import { db } from '@/db';
 import { useWorldMaps, useMapPins } from './hooks';
-import MapView from '@/components/maps/MapView';
+import MapView, { type PinDraft } from '@/components/maps/MapView';
 import { generateId } from '@/utils/idGenerator';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { useCodexEntries } from '@/engines/codex/hooks';
+import { createLocalDraftStore, deleteWithDraftCleanup } from '@/hooks/localDraftStore';
 
 export default function MapsEngine({ projectId }: EngineComponentProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { items: maps, loading: mapsLoading, addItem: addMap, editItem: editMap, removeItem: removeMap } = useWorldMaps(projectId);
   const [activeMapId, setActiveMapId] = useState<string>('');
+  const [pinDrafts] = useState(() => createLocalDraftStore<PinDraft>(`wh.maps-drafts.v1.${projectId}`, (value): value is PinDraft => {
+    if (!value || typeof value !== 'object') return false;
+    const draft = value as Partial<PinDraft>;
+    return typeof draft.name === 'string' && typeof draft.description === 'string' && typeof draft.icon === 'string';
+  }));
   const { items: pins, addItem: addPin, editItem: editPin, removeItem: removePin } = useMapPins(activeMapId);
   const { items: codexEntries } = useCodexEntries(projectId);
 
@@ -77,7 +83,8 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
   };
 
   const handleDeleteMap = async (id: string) => {
-    await removeMap(id);
+    const pinIds = await db.mapPins.where('mapId').equals(id).primaryKeys();
+    await deleteWithDraftCleanup(pinDrafts, pinIds, () => removeMap(id));
     if (activeMapId === id) {
       const remaining = maps.filter((m) => m.id !== id);
       if (remaining.length > 0) {
@@ -100,7 +107,7 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
               </span>
               <button
                 type="button"
-                onClick={() => navigate(`/project/${projectId}/worldgen`)}
+                onClick={() => navigate(`/project/${projectId}/worldgen?world=${encodeURIComponent(activeMap.sourceWorldId!)}`)}
                 className="flex items-center gap-1 rounded border border-border bg-elevated px-2 py-1 text-[11px] hover:border-accent-gold/40"
               >
                 <ExternalLink size={11} /> Abrir mundo
@@ -113,6 +120,7 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
             mapId={activeMapId}
             backgroundImage={activeMap?.backgroundImage}
             pins={pins}
+            drafts={pinDrafts}
             codexEntries={codexEntries}
             onUploadBackground={(img) => editMap(activeMapId, {
               backgroundImage: img,

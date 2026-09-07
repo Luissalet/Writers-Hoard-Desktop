@@ -29,6 +29,7 @@ import ProjectToolsPanel from './ProjectToolsPanel';
 import ProofreaderPanel from '@/components/proofreader/ProofreaderPanel';
 import HealthRecoveryPanel from './HealthRecoveryPanel';
 import CreativeDevelopmentLab from './CreativeDevelopmentLab';
+import CreativeLaunchpad from './CreativeLaunchpad';
 import {
   COCKPIT_GROUPS,
   COCKPIT_TAB_LABEL_KEYS,
@@ -139,7 +140,7 @@ function StatCard({ label, value, detail, onClick }: {
 }) {
   const body = (
     <>
-      <div className="text-2xl font-semibold text-text-primary">{value}</div>
+      <div className="text-xl font-semibold tabular-nums text-text-primary">{value}</div>
       <div className="mt-1 text-sm text-text-muted">{label}</div>
       {detail && <div className="mt-2 text-xs text-text-dim">{detail}</div>}
     </>
@@ -147,13 +148,13 @@ function StatCard({ label, value, detail, onClick }: {
   // A card that leads somewhere has to be reachable by keyboard and say so on
   // hover; a plain figure stays a plain figure.
   if (!onClick) {
-    return <div className="rounded-xl border border-border bg-surface p-4">{body}</div>;
+    return <div className="px-3 py-2">{body}</div>;
   }
   return (
     <button
       type="button"
       onClick={onClick}
-      className="rounded-xl border border-border bg-surface p-4 text-left transition hover:border-accent-gold/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold"
+      className="rounded-lg px-3 py-2 text-left transition hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold"
     >
       {body}
     </button>
@@ -216,7 +217,7 @@ function EngineLink({
       type="button"
       onClick={open}
       aria-label={ariaLabel}
-      className={className ?? 'text-left transition hover:text-accent-gold'}
+      className={className ?? 'block w-full text-left transition hover:bg-elevated hover:text-accent-gold'}
     >
       {children}
     </button>
@@ -237,7 +238,7 @@ function Overview({
   const { t, locale } = useTranslation();
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+      <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-y border-border py-4 sm:grid-cols-4 xl:grid-cols-7">
         {/* How big is the book. Already computed for Supervise → Intelligence;
             it was the one number the Overview never showed. */}
         <StatCard
@@ -844,6 +845,7 @@ export default function ProjectCockpit({ projectId, onManageEngines, onEditProje
           {t('project.edit.action')}
         </button>
       </div>
+      {activeTab === 'overview' && <CreativeLaunchpad projectId={projectId} onDevelop={() => selectTab('lab')} onOrganize={() => selectTab('entities')} onManage={onManageEngines} />}
       <CockpitNavigation activeTab={activeTab} onSelect={selectTab} />
       <section
         id="cockpit-active-panel"

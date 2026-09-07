@@ -1,0 +1,216 @@
+{
+  "runtime": {
+    "node": "v22.19.0",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "baseline": "2475b80881d4a6a35ae78266c788dffae17eb55e",
+  "methodology": "Pure core in Node; same seed and explicit legacy drainage v1; paired before/after on this machine. Hot paths discard one warmup pair. Generation samples are not warmed. Thumbnail baseline measures full composite only, excluding canvas downscaling, so its comparison is conservative. Each snapshot decoder reads its own encoded format.",
+  "seed": "core-audit",
+  "samples": 3,
+  "generationSamples": 1,
+  "widths": [
+    {
+      "width": 1024,
+      "generation": {
+        "beforeMs": [
+          4715.345899999999
+        ],
+        "afterMs": [
+          4463.6955
+        ],
+        "beforeMedianMs": 4715.345899999999,
+        "afterMedianMs": 4463.6955,
+        "stagesBefore": [
+          {
+            "plates": 1832.9809999999998,
+            "terrain": 342.6319000000003,
+            "erosion": 1280.3612000000003,
+            "glaciers": 204.40749999999935,
+            "currents": 402.28049999999985,
+            "climate": 360.6847000000007,
+            "hydrology": 89.32060000000001,
+            "biomes": 190.6282000000001,
+            "landmarks": 11.801399999999376
+          }
+        ],
+        "stagesAfter": [
+          {
+            "plates": 1467.1278999999995,
+            "terrain": 338.89090000000033,
+            "erosion": 1329.6227999999992,
+            "glaciers": 218.13570000000072,
+            "currents": 437.3696,
+            "climate": 374.2471999999998,
+            "hydrology": 83.94859999999971,
+            "biomes": 200.73580000000038,
+            "landmarks": 13.322599999999511
+          }
+        ],
+        "identicalFields": true,
+        "elevationSha256": "a53c81c3071f7de6bc326de7b535f318ee1e5c885aeef0e827e1b8323cb5dd03"
+      },
+      "plates": {
+        "beforeMs": [
+          1530.136700000001,
+          1263.665500000001,
+          1253.2132999999994
+        ],
+        "afterMs": [
+          1250.6882999999998,
+          1165.2066999999988,
+          1227.0593999999983
+        ],
+        "beforeMedianMs": 1263.665500000001,
+        "afterMedianMs": 1227.0593999999983
+      },
+      "window": {
+        "beforeMs": [
+          105.42259999999806,
+          92.78429999999935,
+          97.1244000000006
+        ],
+        "afterMs": [
+          66.8714,
+          56.619699999999284,
+          55.35410000000047
+        ],
+        "beforeMedianMs": 97.1244000000006,
+        "afterMedianMs": 56.619699999999284,
+        "identicalPixels": true
+      },
+      "thumbnail": {
+        "beforeMs": [
+          27.976399999999558,
+          26.4346000000005,
+          26.51039999999921
+        ],
+        "afterMs": [
+          7.225600000001577,
+          7.197299999999814,
+          6.989600000000792
+        ],
+        "beforeMedianMs": 26.51039999999921,
+        "afterMedianMs": 7.197299999999814,
+        "fullRasterBytes": 4194304,
+        "previewRasterBytes": 163840
+      },
+      "snapshot": {
+        "beforeMs": [
+          60.69970000000103,
+          52.623200000001816,
+          52.9529999999977
+        ],
+        "afterMs": [
+          51.42400000000271,
+          51.945599999999104,
+          46.71889999999985
+        ],
+        "beforeMedianMs": 52.9529999999977,
+        "afterMedianMs": 51.42400000000271,
+        "temporaryBytesAvoided": 8388608
+      }
+    },
+    {
+      "width": 2048,
+      "generation": {
+        "beforeMs": [
+          14637.577500000003
+        ],
+        "afterMs": [
+          14572.585699999996
+        ],
+        "beforeMedianMs": 14637.577500000003,
+        "afterMedianMs": 14572.585699999996,
+        "stagesBefore": [
+          {
+            "plates": 4920.109099999998,
+            "terrain": 1221.3143000000018,
+            "erosion": 4903.281299999999,
+            "glaciers": 859.6152999999977,
+            "currents": 776.8542000000016,
+            "climate": 1101.6805000000022,
+            "hydrology": 252.61329999999725,
+            "biomes": 556.0388999999996,
+            "landmarks": 45.94759999999951
+          }
+        ],
+        "stagesAfter": [
+          {
+            "plates": 5050.733099999998,
+            "terrain": 1478.5396000000037,
+            "erosion": 4584.141300000003,
+            "glaciers": 800.7519999999931,
+            "currents": 721.9934000000067,
+            "climate": 1082.9458999999988,
+            "hydrology": 248.56759999999485,
+            "biomes": 567.5608000000066,
+            "landmarks": 37.20409999999538
+          }
+        ],
+        "identicalFields": true,
+        "elevationSha256": "53701ef6ff0084c8d638ef3a39738173150e69a048e4802f023db3371b8c8f94"
+      },
+      "plates": {
+        "beforeMs": [
+          5037.314000000006,
+          5007.377500000002,
+          4982.86510000001
+        ],
+        "afterMs": [
+          4582.348200000008,
+          4624.04819999999,
+          4475.085099999997
+        ],
+        "beforeMedianMs": 5007.377500000002,
+        "afterMedianMs": 4582.348200000008
+      },
+      "window": {
+        "beforeMs": [
+          97.13870000001043,
+          98.30040000000736,
+          98.5222999999969
+        ],
+        "afterMs": [
+          50.442699999999604,
+          50.15260000000126,
+          53.1707000000024
+        ],
+        "beforeMedianMs": 98.30040000000736,
+        "afterMedianMs": 50.442699999999604,
+        "identicalPixels": true
+      },
+      "thumbnail": {
+        "beforeMs": [
+          146.53409999998985,
+          132.89509999999427,
+          133.27629999999772
+        ],
+        "afterMs": [
+          7.429300000003423,
+          9.29890000000887,
+          6.5178000000014435
+        ],
+        "beforeMedianMs": 133.27629999999772,
+        "afterMedianMs": 7.429300000003423,
+        "fullRasterBytes": 16777216,
+        "previewRasterBytes": 163840
+      },
+      "snapshot": {
+        "beforeMs": [
+          187.44959999999264,
+          182.11609999999928,
+          179.85540000000037
+        ],
+        "afterMs": [
+          173.12169999998878,
+          172.8411000000051,
+          178.27309999999125
+        ],
+        "beforeMedianMs": 182.11609999999928,
+        "afterMedianMs": 173.12169999998878,
+        "temporaryBytesAvoided": 33554432
+      }
+    }
+  ]
+}

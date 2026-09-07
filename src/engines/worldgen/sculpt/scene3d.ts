@@ -25,6 +25,7 @@
 // whole world, which is exactly the old behaviour.
 
 import * as THREE from 'three';
+import { Biome } from '../core/types';
 
 export type SculptShape = 'plane' | 'globe';
 
@@ -229,6 +230,9 @@ float ampNoise(vec2 p) {
  */
 float subCellRelief(vec2 uv, float base) {
   if (uAmpDetail <= 0.0 || base <= 0.0) return 0.0;
+  // Display detail may roughen hills, but must not grow islands through a lake.
+  int waterBiome = int(texture(uBiome, vec2(fract(uv.x), clamp(uv.y, 0.0005, 0.9995))).r * 255.0 + 0.5);
+  if (waterBiome == ${Biome.Lake}) return 0.0;
   float band = 1.0 - smoothstep(0.06, 0.34, uUVSize.x);
   if (band <= 0.0) return 0.0;
   vec2 d = 1.0 / uGrid;
@@ -306,6 +310,7 @@ precision highp float;
 precision highp sampler2D;
 
 uniform sampler2D uHeight;
+uniform sampler2D uBiome;
 uniform sampler2D uDetailHeight;
 uniform vec2  uGrid;         // world grid size in cells
 uniform vec2  uDetailGrid;

@@ -42,7 +42,22 @@ export function makeNote(
 
 /** Move a note between scopes (inbox → project, or project → project). */
 export async function moveNote(id: string, projectId: string): Promise<void> {
-  await db.table('notes').update(id, { projectId, updatedAt: Date.now() });
+  await db.transaction('rw', db.notes, db.projects, async () => {
+    const note = await db.notes.get(id);
+    if (!note) throw new Error('Note no longer exists');
+    if (projectId !== GLOBAL_NOTES_SCOPE) {
+      const project = await db.projects.get(projectId);
+      if (!project) throw new Error('Project no longer exists');
+      if (!project.enabledEngines.includes('notes')) {
+        await db.projects.update(projectId, {
+          enabledEngines: [...project.enabledEngines, 'notes'],
+          engineOrder: [...new Set([...(project.engineOrder ?? project.enabledEngines), 'notes'])],
+          updatedAt: Date.now(),
+        });
+      }
+    }
+    await db.notes.update(id, { projectId, updatedAt: Date.now() });
+  });
 }
 
 /** How many notes are sitting in the project-less inbox (sidebar badge). */
@@ -59,6 +74,7 @@ export async function captureNote(args: {
   text: string;
   kind?: NoteKind;
   source?: string;
+  tags?: string[];
 }): Promise<Note | null> {
   const text = args.text.trim();
   if (!text) return null;
@@ -66,6 +82,7 @@ export async function captureNote(args: {
     text,
     kind: args.kind ?? 'note',
     source: args.source?.trim() || undefined,
+    tags: args.tags ?? [],
   });
   await createNote(note);
   return note;

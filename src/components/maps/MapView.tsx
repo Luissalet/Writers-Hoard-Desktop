@@ -52,9 +52,11 @@ interface MapViewProps {
    * the editor draft.
    */
   focusPinId?: string | null;
+  /** Owned by the engine so a map switch retains another pin's draft. */
+  drafts?: Map<string, PinDraft>;
 }
 
-interface PinDraft {
+export interface PinDraft {
   name: string;
   description: string;
   icon: MapPin['icon'];
@@ -86,6 +88,7 @@ export default function MapView({
   onEditPin,
   onDeletePin,
   focusPinId,
+  drafts: suppliedDrafts,
 }: MapViewProps) {
   const { t } = useTranslation();
   const [placingPin, setPlacingPin] = useState(false);
@@ -101,6 +104,11 @@ export default function MapView({
   const [pendingDeletePin, setPendingDeletePin] = useState<MapPin | null>(null);
   const [dragState, setDragState] = useState<PinDragState | null>(null);
   const [savingPin, setSavingPin] = useState(false);
+  const [creatingPin, setCreatingPin] = useState(false);
+  const [createPinFailed, setCreatePinFailed] = useState(false);
+  const [editPinFailedId, setEditPinFailedId] = useState<string | null>(null);
+  const [localDrafts] = useState(() => new Map<string, PinDraft>());
+  const drafts = suppliedDrafts ?? localDrafts;
   const mapRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -114,15 +122,20 @@ export default function MapView({
     return a.title.localeCompare(b.title);
   });
 
-  const selectPin = (pin: MapPin) => {
+  const selectPin = useCallback((pin: MapPin) => {
     setSelectedPinId(pin.id);
-    setPinDraft({
+    setPinDraft(drafts.get(pin.id) ?? {
       name: pin.name,
       description: pin.description ?? '',
       icon: pin.icon,
       color: pin.color,
       linkedEntryId: pin.linkedEntryId,
     });
+  }, [drafts]);
+
+  const patchPinDraft = (next: PinDraft) => {
+    if (selectedPinId) drafts.set(selectedPinId, next);
+    setPinDraft(next);
   };
 
   // Open the pin a `?pin=` deep link asked for, once its row has landed.
@@ -133,7 +146,7 @@ export default function MapView({
     if (!pin) return;
     focusedPin.current = focusPinId;
     selectPin(pin);
-  }, [focusPinId, pins]);
+  }, [focusPinId, pins, selectPin]);
 
   const getMapPosition = (clientX: number, clientY: number): MapPin['position'] | null => {
     const rect = mapRef.current?.getBoundingClientRect();
@@ -160,16 +173,20 @@ export default function MapView({
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
     setPendingPosition({ x, y });
+    setCreatePinFailed(false);
     setShowPinForm(true);
   }, [placingPin, backgroundImage]);
 
-  const handleSavePin = () => {
-    if (!pendingPosition || !pinName.trim()) return;
-    onAddPin({
+  const handleSavePin = async () => {
+    if (!pendingPosition || !pinName.trim() || creatingPin) return;
+    setCreatingPin(true);
+    setCreatePinFailed(false);
+    try {
+    await onAddPin({
       id: generateId('pin'),
       projectId,
       mapId,
-      name: pinName,
+      name: pinName.trim(),
       icon: pinType,
       position: pendingPosition,
       description: pinDescription,
@@ -179,19 +196,30 @@ export default function MapView({
     setPinDescription('');
     setPendingPosition(null);
     setPlacingPin(false);
+    } catch {
+      setCreatePinFailed(true);
+    } finally {
+      setCreatingPin(false);
+    }
   };
 
   const handleSavePinEdits = async () => {
-    if (!selectedPin || !pinDraft?.name.trim()) return;
+    if (!selectedPin || !pinDraft?.name.trim() || savingPin) return;
+    const id = selectedPin.id;
+    const submitted = pinDraft;
     setSavingPin(true);
+    setEditPinFailedId(null);
     try {
-      await onEditPin(selectedPin.id, {
+      await onEditPin(id, {
         name: pinDraft.name.trim(),
         description: pinDraft.description.trim(),
         icon: pinDraft.icon,
         color: pinDraft.color,
         linkedEntryId: pinDraft.linkedEntryId || undefined,
       });
+      if (drafts.get(id) === submitted) drafts.delete(id);
+    } catch {
+      setEditPinFailedId(id);
     } finally {
       setSavingPin(false);
     }
@@ -254,6 +282,7 @@ export default function MapView({
     if (!pendingDeletePin) return;
     const id = pendingDeletePin.id;
     await onDeletePin(id);
+    drafts.delete(id);
     if (selectedPinId === id) {
       setSelectedPinId(null);
       setPinDraft(null);
@@ -462,7 +491,7 @@ export default function MapView({
                   <label className="block text-xs text-text-muted mb-1.5">{t('common.name')}</label>
                   <input
                     value={pinDraft.name}
-                    onChange={(e) => setPinDraft({ ...pinDraft, name: e.target.value })}
+                    onChange={(e) => patchPinDraft({ ...pinDraft, name: e.target.value })}
                     className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition"
                   />
                 </div>
@@ -470,7 +499,7 @@ export default function MapView({
                   <label className="block text-xs text-text-muted mb-1.5">{t('gallery.linkEntries')}</label>
                   <select
                     value={pinDraft.linkedEntryId ?? ''}
-                    onChange={(e) => setPinDraft({ ...pinDraft, linkedEntryId: e.target.value || undefined })}
+                    onChange={(e) => patchPinDraft({ ...pinDraft, linkedEntryId: e.target.value || undefined })}
                     className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition"
                   >
                     <option value="">—</option>
@@ -487,7 +516,7 @@ export default function MapView({
                 <label className="block text-xs text-text-muted mb-1.5">{t('common.description')}</label>
                 <textarea
                   value={pinDraft.description}
-                  onChange={(e) => setPinDraft({ ...pinDraft, description: e.target.value })}
+                  onChange={(e) => patchPinDraft({ ...pinDraft, description: e.target.value })}
                   rows={2}
                   className="w-full px-3 py-2 bg-elevated border border-border rounded-lg text-sm text-text-primary outline-none focus:border-accent-gold transition resize-none"
                 />
@@ -503,7 +532,7 @@ export default function MapView({
                       <button
                         key={key}
                         type="button"
-                        onClick={() => setPinDraft({ ...pinDraft, icon: key as MapPin['icon'] })}
+                        onClick={() => patchPinDraft({ ...pinDraft, icon: key as MapPin['icon'] })}
                         className={`p-2 rounded-lg border transition ${
                           isActive
                             ? 'bg-accent-gold/10 border-accent-gold'
@@ -519,20 +548,22 @@ export default function MapView({
                 </div>
               </div>
 
+              {drafts.has(selectedPin.id) && <p className="mt-3 text-xs text-text-muted">{t('maps.draftKept')}</p>}
+              {editPinFailedId === selectedPin.id && <p role="alert" className="mt-3 text-sm text-danger">{t('common.saveFailed')}</p>}
               <div className="mt-4 flex flex-wrap items-end gap-3">
                 <div>
                   <label className="block text-xs text-text-muted mb-1.5">{t('common.changeColor')}</label>
                   <input
                     type="color"
-                    value={pinDraft.color ?? PIN_ICONS[pinDraft.icon].color}
-                    onChange={(e) => setPinDraft({ ...pinDraft, color: e.target.value })}
+                    value={pinDraft.color ?? (PIN_ICONS[pinDraft.icon] || PIN_ICONS.custom).color}
+                    onChange={(e) => patchPinDraft({ ...pinDraft, color: e.target.value })}
                     className="block h-9 w-14 cursor-pointer rounded border border-border bg-elevated p-1"
                   />
                 </div>
                 {pinDraft.color && (
                   <button
                     type="button"
-                    onClick={() => setPinDraft({ ...pinDraft, color: undefined })}
+                    onClick={() => patchPinDraft({ ...pinDraft, color: undefined })}
                     className="mb-0.5 px-3 py-2 text-xs text-text-muted hover:text-text-primary transition"
                   >
                     {t('common.resetDefault')}
@@ -561,8 +592,8 @@ export default function MapView({
       )}
 
       {/* Pin creation modal */}
-      <Modal open={showPinForm} onClose={() => { setShowPinForm(false); setPendingPosition(null); }} title={t('maps.newPin')}>
-        <div className="space-y-4">
+      <Modal open={showPinForm} busy={creatingPin} onClose={() => { if (!creatingPin) { setShowPinForm(false); setPendingPosition(null); } }} title={t('maps.newPin')}>
+        <fieldset disabled={creatingPin} className="space-y-4">
           <div>
             <label className="block text-sm text-text-muted mb-1.5">{t('common.name')}</label>
             <input
@@ -583,15 +614,16 @@ export default function MapView({
               className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition resize-none"
             />
           </div>
+          {createPinFailed && <p role="alert" className="text-sm text-danger">{t('common.saveFailed')}</p>}
           <div className="flex gap-3 pt-2">
-            <button onClick={handleSavePin} className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition">
-              {t('maps.placePin')}
+            <button onClick={handleSavePin} disabled={creatingPin} className="flex-1 py-2.5 bg-accent-gold text-deep font-semibold rounded-lg hover:bg-accent-amber transition disabled:opacity-50">
+              {t(creatingPin ? 'common.saving' : 'maps.placePin')}
             </button>
             <button onClick={() => { setShowPinForm(false); setPendingPosition(null); }} className="px-6 py-2.5 border border-border text-text-muted rounded-lg hover:bg-elevated transition">
               {t('common.cancel')}
             </button>
           </div>
-        </div>
+        </fieldset>
       </Modal>
       <GalleryAssetPicker
         projectId={projectId}

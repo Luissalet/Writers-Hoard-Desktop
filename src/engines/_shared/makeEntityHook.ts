@@ -16,6 +16,8 @@ export interface EntityHookOptions<T> {
 
 export interface EntityHookResult<T> {
   items: T[];
+  /** Whether this scope has published a successful read, even an empty one. */
+  hasLoaded: boolean;
   /**
    * `true` ONLY while the first load for the current scope is in flight.
    * Post-mutation refreshes (add/edit/remove/reorder) do NOT flip this back to
@@ -66,6 +68,10 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
     // Scope for which we have completed a successful load. When it differs from
     // the current scopeId, the next fetch is treated as an initial load.
     const loadedScopeRef = useRef<string | null>(null);
+    const requestedScopeRef = useRef<string | null>(null);
+    const errorScopeRef = useRef<string | null>(null);
+    const currentScopeRef = useRef(scopeId);
+    currentScopeRef.current = scopeId;
     const seqRef = useRef(0);
     const mountedRef = useRef(true);
     useEffect(() => {
@@ -77,10 +83,14 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
     }, []);
 
     const refresh = useCallback(async () => {
+      // A mutation can finish after navigation. Its captured refresh must not
+      // invalidate or publish over the new owner's in-flight read.
+      if (!mountedRef.current || currentScopeRef.current !== scopeId) return;
       // Invalidate every older request BEFORE the empty-scope early return.
       // Otherwise A can resolve after A→empty and repopulate a screen that no
       // longer owns A.
       const seq = ++seqRef.current;
+      requestedScopeRef.current = scopeId;
       if (!scopeId) {
         setItems([]);
         setLoading(false);
@@ -102,6 +112,7 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
       } catch (err) {
         if (seq === seqRef.current && mountedRef.current) {
           console.error('[makeEntityHook] fetch failed', err);
+          errorScopeRef.current = scopeId;
           setError(err instanceof Error ? err : new Error(String(err)));
         }
       } finally {
@@ -127,11 +138,14 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
           await createFn(item);
           await refresh();
         } catch (reason) {
-          setError(reason instanceof Error ? reason : new Error(String(reason)));
+          if (mountedRef.current && currentScopeRef.current === scopeId) {
+            errorScopeRef.current = scopeId;
+            setError(reason instanceof Error ? reason : new Error(String(reason)));
+          }
           throw reason;
         }
       },
-      [refresh],
+      [refresh, scopeId],
     );
 
     const editItem = useCallback(
@@ -140,11 +154,14 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
           await updateFn(id, changes);
           await refresh();
         } catch (reason) {
-          setError(reason instanceof Error ? reason : new Error(String(reason)));
+          if (mountedRef.current && currentScopeRef.current === scopeId) {
+            errorScopeRef.current = scopeId;
+            setError(reason instanceof Error ? reason : new Error(String(reason)));
+          }
           throw reason;
         }
       },
-      [refresh],
+      [refresh, scopeId],
     );
 
     const removeItem = useCallback(
@@ -153,11 +170,14 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
           await deleteFn(id);
           await refresh();
         } catch (reason) {
-          setError(reason instanceof Error ? reason : new Error(String(reason)));
+          if (mountedRef.current && currentScopeRef.current === scopeId) {
+            errorScopeRef.current = scopeId;
+            setError(reason instanceof Error ? reason : new Error(String(reason)));
+          }
           throw reason;
         }
       },
-      [refresh],
+      [refresh, scopeId],
     );
 
     const reorder = useCallback(
@@ -167,7 +187,10 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
           await reorderFn(scopeId, orderedIds);
           await refresh();
         } catch (reason) {
-          setError(reason instanceof Error ? reason : new Error(String(reason)));
+          if (mountedRef.current && currentScopeRef.current === scopeId) {
+            errorScopeRef.current = scopeId;
+            setError(reason instanceof Error ? reason : new Error(String(reason)));
+          }
           throw reason;
         }
       },
@@ -180,9 +203,10 @@ export function makeEntityHook<T>(options: EntityHookOptions<T>): (scopeId: stri
       // run yet. Deriving by ownership prevents that one render from labelling
       // A's rows as B's data.
       items: ownsPublishedItems ? items : [],
-      loading: Boolean(scopeId) && !ownsPublishedItems ? true : loading,
+      hasLoaded: ownsPublishedItems,
+      loading: Boolean(scopeId) && requestedScopeRef.current !== scopeId ? true : loading,
       refetching: ownsPublishedItems ? refetching : false,
-      error: ownsPublishedItems ? error : null,
+      error: scopeId && errorScopeRef.current === scopeId ? error : null,
       addItem,
       editItem,
       removeItem,

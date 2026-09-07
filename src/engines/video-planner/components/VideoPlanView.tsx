@@ -1,19 +1,20 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { Plus, MonitorPlay, Pencil, Check, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { VideoPlan, VideoSegment } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import SegmentCard from './SegmentCard';
+import SegmentEditor from './SegmentEditor';
 import TeleprompterView from './TeleprompterView';
 import PlanExportMenu from './PlanExportMenu';
 
 interface VideoPlanViewProps {
   plan: VideoPlan;
   segments: VideoSegment[];
-  onAddSegment: (segment: VideoSegment) => void;
-  onUpdateSegment: (id: string, changes: Partial<VideoSegment>) => void;
-  onDeleteSegment: (id: string) => void;
+  onAddSegment: (segment: VideoSegment) => void | Promise<void>;
+  onUpdateSegment: (id: string, changes: Partial<VideoSegment>) => void | Promise<void>;
+  onDeleteSegment: (id: string) => void | Promise<void>;
   onReorderSegments: (segmentIds: string[]) => void;
   onRenamePlan?: (title: string) => void | Promise<void>;
 }
@@ -33,6 +34,10 @@ export default function VideoPlanView({
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(plan.title);
+  const [createdSegment, setCreatedSegment] = useState<VideoSegment | null>(null);
+  const [addingSegment, setAddingSegment] = useState(false);
+  const [addFailed, setAddFailed] = useState(false);
+  const addingSegmentRef = useRef(false);
 
   // Render-adjust: sync the editable title when the plan (or its title)
   // changes externally.
@@ -57,20 +62,32 @@ export default function VideoPlanView({
     return [...segments].sort((a, b) => a.order - b.order);
   }, [segments]);
 
-  const handleAddSegment = () => {
+  const handleAddSegment = async () => {
+    if (addingSegmentRef.current) return;
+    addingSegmentRef.current = true;
+    setAddingSegment(true);
+    setAddFailed(false);
     const newSegment: VideoSegment = {
       id: generateId('vsg'),
       videoPlanId: plan.id,
       projectId: plan.projectId,
       order: sortedSegments.length,
-      title: `Segment ${sortedSegments.length + 1}`,
+      title: t('videoPlanner.defaultSegmentTitle').replace('{number}', String(sortedSegments.length + 1)),
       script: '',
       visualType: 'camera',
       tags: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    onAddSegment(newSegment);
+    try {
+      await onAddSegment(newSegment);
+      setCreatedSegment(newSegment);
+    } catch {
+      setAddFailed(true);
+    } finally {
+      addingSegmentRef.current = false;
+      setAddingSegment(false);
+    }
   };
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
@@ -127,6 +144,18 @@ export default function VideoPlanView({
 
   return (
     <div className="space-y-6">
+      {createdSegment && (
+        <SegmentEditor
+          key={createdSegment.id}
+          segment={createdSegment}
+          onSave={async changes => {
+            await onUpdateSegment(createdSegment.id, changes);
+            setCreatedSegment(null);
+          }}
+          onCancel={() => setCreatedSegment(null)}
+        />
+      )}
+      {addFailed && <p role="alert" className="text-sm text-danger">{t('common.saveFailed')}</p>}
       {/* Header */}
       <div className="space-y-2">
         <div className="flex items-start justify-between gap-3">
@@ -223,6 +252,8 @@ export default function VideoPlanView({
               <p className="text-neutral-400 mb-4">{t('videoPlanner.noSegments')}</p>
               <button
                 onClick={handleAddSegment}
+                disabled={addingSegment}
+                aria-busy={addingSegment}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded bg-accent-gold text-deep font-medium hover:bg-accent-gold/90 transition-colors"
               >
                 <Plus className="w-4 h-4" />
@@ -230,8 +261,7 @@ export default function VideoPlanView({
               </button>
             </div>
           ) : (
-            <>
-              {sortedSegments.map((segment) => (
+              sortedSegments.map((segment) => (
                 <motion.div
                   key={segment.id}
                   layout
@@ -255,8 +285,7 @@ export default function VideoPlanView({
                     onDragStart={handleDragStart}
                   />
                 </motion.div>
-              ))}
-            </>
+              ))
           )}
         </AnimatePresence>
 
@@ -264,6 +293,8 @@ export default function VideoPlanView({
         {sortedSegments.length > 0 && (
           <button
             onClick={handleAddSegment}
+            disabled={addingSegment}
+            aria-busy={addingSegment}
             className="w-full py-3 rounded border border-dashed border-border hover:border-accent-gold/50 text-neutral-400 hover:text-accent-gold transition-colors flex items-center justify-center gap-2 text-sm"
           >
             <Plus className="w-4 h-4" />
