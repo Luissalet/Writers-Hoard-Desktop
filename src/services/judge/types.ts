@@ -190,5 +190,5 @@ export interface JudgeFinding {
 
 export interface JudgeRunFreshness {
   stale: boolean;
-  reasons: Array<'target-changed' | 'source-missing' | 'source-versioned' | 'lens-changed'>;
+  reasons: Array<'target-changed' | 'source-missing' | 'source-versioned' | 'lens-changed' | 'profile-changed'>;
 }
