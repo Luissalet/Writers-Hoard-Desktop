@@ -1,5 +1,35 @@
 @import "tailwindcss";
 
+/* Reserve the native caption controls; only this strip drags the window. */
+.desktop-titlebar {
+  -webkit-app-region: drag;
+  app-region: drag;
+  flex: 0 0 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 160px 0 16px;
+  background: var(--color-deep);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  user-select: none;
+}
+
+.desktop-titlebar-menu {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.desktop-updates-button {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 /* Font files are intentionally not declared until they ship. The desktop app
    uses the explicit local system stacks below without network requests or
    invalid missing-asset responses in Chromium. */

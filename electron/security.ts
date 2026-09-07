@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs';
 export type InternalRendererRole = 'main' | 'quick-note';
 
 const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]>> = Object.freeze({
+  'window:openMenu': ['main'],
   'media:saveTeleprompterMp4': ['main'],
   'media:downloaderHealth': ['main'],
   'media:detectDownloadPlatform': ['main'],
@@ -43,6 +44,9 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'quick-note:ack': ['main'],
   'quick-note:close': ['quick-note'],
   'updates:check': ['main'],
+  'updates:getState': ['main'],
+  'updates:download': ['main'],
+  'updates:openReleases': ['main'],
   'updates:quitAndInstall': ['main'],
   // Real atlas geocoding: the one place the app queries OpenStreetMap's
   // Nominatim, opt-in per project. Only the main window holds the atlas.

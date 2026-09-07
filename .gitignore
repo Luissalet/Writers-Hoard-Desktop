@@ -17,6 +17,8 @@ CLIProxyAPI/
 dist-electron
 release
 resources/bin
+# Independent public distribution checkout (never embed its Git history here).
+/tasks/release-public/
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -28,4 +30,3 @@ resources/bin
 *.sln
 *.sw?
 .env
-

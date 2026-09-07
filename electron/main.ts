@@ -31,6 +31,7 @@ import os from 'node:os';
 import { promises as fs } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { autoUpdater } from 'electron-updater';
+import { createUpdateController } from './updates';
 import { startMediaServer, stopMediaServer } from './media/server';
 import {
   AI_BRIDGE_PORT,
@@ -160,6 +161,10 @@ const QUICK_NOTE_RENDERER_URL = isDev
   : pathToFileURL(QUICK_NOTE_RENDERER_PATH).href;
 
 let mainWindow: BrowserWindow | null = null;
+const RELEASES_URL = 'https://github.com/Luissalet/Writers-Hoard-Releases/releases';
+const updates = createUpdateController(autoUpdater, app.getVersion(), !isDev, (state) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updates:state', state);
+});
 
 function rendererUrlForRole(role: InternalRendererRole): string {
   return role === 'main' ? MAIN_RENDERER_URL : QUICK_NOTE_RENDERER_URL;
@@ -523,6 +528,7 @@ let shutdownWarning: ShutdownWarning | null = null;
 let closeApproved = false;
 /** True between `before-quit` and the quit finishing, so approval quits rather than closes. */
 let quitting = false;
+let updateInstallRequested = false;
 let shutdownRequestSeq = 0;
 /** The round currently waiting on the renderer, if any. */
 let pendingShutdown: { id: number; timer: NodeJS.Timeout | null } | null = null;
@@ -540,6 +546,20 @@ function clearShutdownTimer(): void {
 function approveShutdown(): void {
   forgetPendingShutdown();
   closeApproved = true;
+  if (updateInstallRequested) {
+    updateInstallRequested = false;
+    // A failed installer must not leave the normal unsaved-work veto bypassed.
+    const recover = () => { closeApproved = false; quitting = false; };
+    autoUpdater.once('error', recover);
+    try { autoUpdater.quitAndInstall(false, true); }
+    catch (error) {
+      autoUpdater.removeListener('error', recover);
+      recover();
+      updates.reportFailure();
+      console.error('[updates] installer failed', error);
+    }
+    return;
+  }
   // A quit that reached a vetoed `close` was cancelled by Electron, so it has
   // to be asked for again rather than resumed.
   if (quitting) {
@@ -563,6 +583,7 @@ function forgetPendingShutdown(): void {
 function abandonShutdown(): void {
   forgetPendingShutdown();
   quitting = false;
+  updateInstallRequested = false;
 }
 
 /**
@@ -675,10 +696,15 @@ async function createWindow(): Promise<void> {
     y: state.y,
     minWidth: 940,
     minHeight: 600,
-    backgroundColor: '#0e0e11',
+    backgroundColor: '#17191a',
     show: false,
     title: 'Writers Hoard',
-    autoHideMenuBar: !isDev,
+    icon: path.join(isDev ? path.join(__dirname, '..', 'public') : PACKAGED_RENDERER_DIR, 'app-icon.png'),
+    autoHideMenuBar: true,
+    ...(process.platform !== 'darwin' ? {
+      titleBarStyle: 'hidden' as const,
+      titleBarOverlay: { color: '#17191a', symbolColor: '#eeeae2', height: 36 },
+    } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -992,43 +1018,14 @@ function buildMenu(): void {
 // ---------------------------------------------------------------------------
 
 async function checkForUpdates(interactive = false): Promise<void> {
-  if (isDev) {
-    if (interactive) {
-      void dialog.showMessageBox(mainWindow ?? undefined!, {
-        type: 'info',
-        message: 'Updates are disabled in development.',
-      });
-    }
-    return;
-  }
-  try {
-    const result = await autoUpdater.checkForUpdates();
-    if (interactive && !result?.updateInfo) {
-      void dialog.showMessageBox(mainWindow ?? undefined!, {
-        type: 'info',
-        message: 'You are on the latest version.',
-      });
-    }
-  } catch (err) {
-    console.error('[updates] check failed', err);
-    if (interactive) {
-      void dialog.showMessageBox(mainWindow ?? undefined!, {
-        type: 'error',
-        message: 'Update check failed.',
-        detail: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+  if (interactive) mainWindow?.webContents.send('updates:open');
+  await updates.check();
 }
 
 function initAutoUpdates(): void {
   if (isDev) return;
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('update-downloaded', () => {
-    mainWindow?.webContents.send('updates:downloaded');
-  });
   void checkForUpdates(false);
+  setInterval(() => void checkForUpdates(false), 6 * 60 * 60 * 1000).unref();
 }
 
 // ---------------------------------------------------------------------------
@@ -1369,6 +1366,10 @@ async function syncAiBridgeNow(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function registerIpc(): void {
+  ipcMain.on('window:openMenu', (event) => {
+    if (!acceptIpcSender(event, 'window:openMenu') || !mainWindow) return;
+    Menu.getApplicationMenu()?.popup({ window: mainWindow, x: 12, y: 36 });
+  });
   // Teleprompter video: re-encode the renderer's WebM capture to MP4 and save it.
   ipcMain.handle(
     'media:saveTeleprompterMp4',
@@ -1941,6 +1942,18 @@ function registerIpc(): void {
     assertIpcSender(event, 'updates:check');
     return checkForUpdates(true);
   });
+  ipcMain.handle('updates:getState', (event) => {
+    assertIpcSender(event, 'updates:getState');
+    return updates.snapshot();
+  });
+  ipcMain.handle('updates:download', (event) => {
+    assertIpcSender(event, 'updates:download');
+    return updates.download();
+  });
+  ipcMain.handle('updates:openReleases', (event) => {
+    assertIpcSender(event, 'updates:openReleases');
+    return shell.openExternal(RELEASES_URL);
+  });
 
   // ---- Real atlas: geocoding through Nominatim -----------------------------
   // Made from main so the app as a whole keeps Nominatim's one-request-a-second
@@ -1952,7 +1965,9 @@ function registerIpc(): void {
   });
   ipcMain.handle('updates:quitAndInstall', (event) => {
     assertIpcSender(event, 'updates:quitAndInstall');
-    autoUpdater.quitAndInstall();
+    if (updates.snapshot().status !== 'downloaded') return;
+    updateInstallRequested = true;
+    if (!interceptClose()) approveShutdown();
   });
 
   // ---- Local AI (embedded portable Ollama) --------------------------------
@@ -2200,6 +2215,7 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    if (process.platform === 'win32') app.setAppUserModelId('com.luissalet.writershoard');
     await loadMediaLibraryLocation();
     registerIpc();
     buildMenu();

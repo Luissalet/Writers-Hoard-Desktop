@@ -9,6 +9,7 @@
 // The matching renderer-side type declaration lives in src/electron-env.d.ts.
 
 import { contextBridge, ipcRenderer } from 'electron';
+import type { DesktopUpdateState } from '../src/types/updates';
 import type {
   AiChatRequest,
   AiCompleteResult,
@@ -305,6 +306,8 @@ interface ShutdownWarning {
 const api = {
   /** Always true when running inside the desktop shell. */
   isDesktop: true as const,
+  platform: process.platform,
+  openWindowMenu: (): void => ipcRenderer.send('window:openMenu'),
 
   // Export pipelines that need native muscle (ffmpeg, PDF printing, save dialog).
   media: {
@@ -512,14 +515,21 @@ const api = {
   },
 
   updates: {
+    getState: (): Promise<DesktopUpdateState> => ipcRenderer.invoke('updates:getState'),
+    download: (): Promise<void> => ipcRenderer.invoke('updates:download'),
+    openReleases: (): Promise<void> => ipcRenderer.invoke('updates:openReleases'),
+    onState: (callback: (state: DesktopUpdateState) => void): (() => void) => {
+      const listener = (_e: unknown, state: DesktopUpdateState) => callback(state);
+      ipcRenderer.on('updates:state', listener);
+      return () => ipcRenderer.removeListener('updates:state', listener);
+    },
+    onOpen: (callback: () => void): (() => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('updates:open', listener);
+      return () => ipcRenderer.removeListener('updates:open', listener);
+    },
     check: (): Promise<void> => ipcRenderer.invoke('updates:check'),
     quitAndInstall: (): Promise<void> => ipcRenderer.invoke('updates:quitAndInstall'),
-    /** Fires once an update has finished downloading. Returns an unsubscribe fn. */
-    onDownloaded: (callback: () => void): (() => void) => {
-      const listener = () => callback();
-      ipcRenderer.on('updates:downloaded', listener);
-      return () => ipcRenderer.removeListener('updates:downloaded', listener);
-    },
   },
 
   // Local AI — a portable Ollama runtime managed by the main process. ALL

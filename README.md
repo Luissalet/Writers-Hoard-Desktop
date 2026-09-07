@@ -79,14 +79,25 @@ git push origin v0.1.0     # .github/workflows/release.yml builds + publishes
 ```
 
 Auto-update is wired via `electron-updater` against the
-`Luissalet/Writers-Hoard-Desktop` releases. Users get updates automatically;
-**Help ▸ Check for Updates…** triggers a manual check.
+`Luissalet/Writers-Hoard-Releases` releases. The titlebar Updates panel reports
+new versions after startup checks and every six hours. Downloads and installation
+are explicit user actions; restart first uses the pending-write shutdown guard.
+**Help ▸ Check for Updates…** opens the same panel, which also links to GitHub
+for a manual download. This preview includes prereleases and refuses downgrades.
 
 Published Windows releases are fail-closed: GitHub Actions must provide the
 repository secrets `WIN_CSC_LINK` (a PFX path/URL or base64 value accepted by
 electron-builder) and `WIN_CSC_KEY_PASSWORD`. `dist:publish` refuses to run
 without them and also enables electron-builder's `forceCodeSigning` check.
 Local `npm run dist` remains available for unsigned development installers.
+
+The public distribution repository is separate from this private source repository.
+Configure `RELEASES_GITHUB_TOKEN` with Contents: write permission on
+`Luissalet/Writers-Hoard-Releases` for the publishing workflow. Only installers,
+update metadata, checksums and public documentation belong there. Package rules
+exclude source maps; never copy this repository or its Git history to the public one.
+The initial manually published v0.1.0 preview is unsigned and marked as a prerelease;
+the automated stable publishing path continues to require signing credentials.
 
 ### Reproducible media binaries
 

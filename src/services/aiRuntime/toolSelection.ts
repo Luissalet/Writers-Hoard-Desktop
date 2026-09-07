@@ -99,7 +99,20 @@ export function selectToolsForTurn(input: ToolSelectionInput): BridgeTool[] {
 
   // 1. Core.
   for (const name of CORE_TOOL_NAMES) add(byName.get(name));
+  // Explicit actions and conversation continuity outrank optional context.
+  // Otherwise an expanding engine catalog can crowd out the requested action.
+  if (/\b(borra|borrar|elimina|eliminar|quita|quitar|delete|remove)\b/.test(folded)) add(byName.get('wh_delete'));
+  for (const tool of input.tools) {
+    if (input.message.includes(tool.name)) add(tool);
+  }
   if (CROSS_PROJECT_HINTS.some((hint) => folded.includes(hint))) add(byName.get('wh_list_projects'));
+  for (const name of used) add(byName.get(name));
+  add(byName.get('wh_get_editorial_context'));
+  // Evidence must remain reachable before broad engine catalogs fill the budget.
+  if (['writings', 'scrapper', 'biography'].includes(input.openEngine ?? '') ||
+      /\b(investig\w*|fuente\w*|evidenc\w*|cita\w*|contrast\w*|verific\w*|periodis\w*|articul\w*|ensayo\w*|entrevist\w*|revisa\w*|research\w*|source\w*|fact\w*|report\w*|interview\w*|essay\w*|review\w*)\b/.test(folded)) {
+    add(byName.get('wh_get_research_evidence'));
+  }
 
   // 2/3. Engines, scored: the open one first, then keyword hits, then defaults.
   const scores = new Map<string, number>();
@@ -146,9 +159,6 @@ export function selectToolsForTurn(input: ToolSelectionInput): BridgeTool[] {
     .filter((tool) => lexScore.has(tool.name) && !has.has(tool.name))
     .map((tool) => ({ tool, score: lexScore.get(tool.name) ?? 0 }))
     .sort((a, b) => b.score - a.score);
-
-  // 5. Previously used tools stay reachable.
-  for (const name of used) add(byName.get(name));
 
   // Declaration order, except that tools the message points at come first.
   const engineTools = (engineId: string): BridgeTool[] =>
