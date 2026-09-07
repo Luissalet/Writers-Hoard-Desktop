@@ -2,6 +2,8 @@
 // Writer's Hoard — Core Data Types
 // ============================================
 import type { CreativePossibility } from '@/components/project/creative-lab/types';
+import type { EditorialProfile } from './editorial';
+import type { WritingWorkflow } from './writingWorkflow';
 
 // Project Mode (determines which engines are visible by default)
 export type ProjectMode = 'essentials' | 'novelist' | 'realist' | 'biographer' | 'reporter' | 'playwright' | 'content-creator' | 'custom';
@@ -37,6 +39,8 @@ export interface Project {
   footnotePlacement?: FootnotePlacement;
   /** Unpromoted ideas, alternatives and their provenance belong to the project archive. */
   creativePossibilities?: CreativePossibility[];
+  editorialProfile?: EditorialProfile;
+  writingWorkflows?: WritingWorkflow[];
   createdAt: number;
   updatedAt: number;
 }

@@ -15,6 +15,7 @@ export interface CopilotBriefing {
   projectId: string;
   projectTitle: string;
   projectDescription?: string;
+  editorialContext?: string;
   projectMode?: string;
   enabledEngines: readonly string[];
   openEngine?: string | null;
@@ -74,6 +75,7 @@ export function buildCopilotSystemPrompt(briefing: CopilotBriefing): string {
     `Every tool call is already scoped to this project: you never need to pass projectId, and you cannot act on another project from here.`,
   );
   lines.push(POLICY_LINES[briefing.policy]);
+  if (briefing.editorialContext) lines.push(briefing.editorialContext);
   if (!briefing.toolsAvailable) {
     lines.push(
       'This model cannot call tools in this session, so you cannot read or change the project yourself. Answer from the conversation, and when the user asks for something that needs the project data, say so plainly and suggest a tool-capable model in AI settings.',

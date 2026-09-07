@@ -672,6 +672,23 @@ export async function importProjectData(
       ...data.project!,
       id: newProjectId,
       title: `${data.project!.title} (Imported)`,
+      // JSON imports clone IDs. Keep workflow pointers inside the new project;
+      // unlike ZIP, this legacy format does not carry notes or citations.
+      writingWorkflows: data.project!.writingWorkflows?.map(workflow => ({
+        ...workflow,
+        id: remap(workflow.id, 'workflow'),
+        materials: workflow.materials.flatMap(material => {
+          if (material.kind === 'writing' && data.writings?.some(row => row.id === material.id)) {
+            return [{ ...material, id: remap(material.id, 'wr') }];
+          }
+          if (material.kind === 'snapshot' && data.externalLinks?.some(row => row.id === material.id)) {
+            return [{ ...material, id: remap(material.id, 'snap') }];
+          }
+          return [];
+        }),
+        exports: workflow.exports.filter(item => data.writings?.some(row => row.id === item.writingId))
+          .map(item => ({ ...item, writingId: remap(item.writingId, 'wr') })),
+      })),
       updatedAt: Date.now(),
     });
 

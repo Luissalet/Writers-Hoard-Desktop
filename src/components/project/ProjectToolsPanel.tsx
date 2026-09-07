@@ -53,6 +53,9 @@ import { useTranslation } from '@/i18n/useTranslation';
 import ProjectReplaceModal from '@/components/project/ProjectReplaceModal';
 import PublishingProfileModal from '@/components/project/PublishingProfileModal';
 import { ConfirmDialog } from '@/engines/_shared';
+import EditorialProfilePanel from './EditorialProfilePanel';
+import ResearchEvidencePanel from './ResearchEvidencePanel';
+import WritingWorkflowsPanel from './WritingWorkflowsPanel';
 
 export type ProjectToolView = 'workflows' | 'research' | 'templates' | 'publishing' | 'ai';
 
@@ -320,7 +323,16 @@ function Workflows({ projectId, data }: { projectId: string; data: ToolsData }) 
 }
 
 function Research({ data }: { data: ToolsData }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const [pendingDelete, setPendingDelete] = useState<Citation | null>(null);
+  const deletionCopy = locale === 'es' ? { title: 'Eliminar fuente', error: 'No se pudo eliminar: la fuente puede haber cambiado. Revísala y vuelve a intentarlo.', message: (citation: Citation) => `¿Eliminar «${citation.title}» y sus ${citation.researchEvidence?.length ?? 0} afirmaciones? El recorte original se conserva.` } : { title: 'Delete source', error: 'Could not delete: the source may have changed. Review it and try again.', message: (citation: Citation) => `Delete “${citation.title}” and its ${citation.researchEvidence?.length ?? 0} claims? The original clipping is preserved.` };
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    const selected = pendingDelete;
+    setPendingDelete(null);
+    try { await deleteCitation(selected.id, { projectId: data.project.id, expectedUpdatedAt: selected.updatedAt }); }
+    catch { toast.error(deletionCopy.error); }
+  }
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
   const [authors, setAuthors] = useState('');
@@ -387,7 +399,7 @@ function Research({ data }: { data: ToolsData }) {
               key={snapshot.id}
               title={snapshot.title || snapshot.url}
               subtitle={snapshot.url}
-              action={() => void citationFromSnapshot(snapshot.id).then(() => toast.success(t('projectTools.research.createdFromResearch')))}
+              action={() => void citationFromSnapshot(snapshot.id).then(() => toast.success(t('projectTools.research.createdFromResearch'))).catch(() => toast.error(t('projectTools.research.saveError')))}
               actionLabel={t('projectTools.research.cite')}
             />
           ))}
@@ -407,7 +419,7 @@ function Research({ data }: { data: ToolsData }) {
             </div>
             <button
               type="button"
-              onClick={() => void deleteCitation(citation.id)}
+              onClick={() => setPendingDelete(citation)}
               aria-label={t('common.delete')}
               title={t('common.delete')}
               className="p-2 text-text-dim hover:text-red-400"
@@ -417,6 +429,9 @@ function Research({ data }: { data: ToolsData }) {
           </div>
         ))}
       </section>
+      <ConfirmDialog open={pendingDelete !== null} destructive title={deletionCopy.title}
+        message={pendingDelete ? deletionCopy.message(pendingDelete) : ''}
+        confirmLabel={t('common.delete')} onConfirm={confirmDelete} onCancel={() => setPendingDelete(null)} />
     </div>
   );
 }
@@ -702,9 +717,9 @@ export default function ProjectToolsPanel({
   const { data, error } = useToolsData(projectId);
   if (error) return <p className="rounded-xl border border-red-500/20 bg-red-500/5 p-6 text-sm text-red-300">{t('projectTools.loadError')}</p>;
   if (!data) return <div className="flex min-h-[20rem] items-center justify-center"><Loader2 className="animate-spin text-accent-gold" /></div>;
-  if (view === 'workflows') return <Workflows projectId={projectId} data={data} />;
-  if (view === 'research') return <Research data={data} />;
+  if (view === 'workflows') return <div className="space-y-6"><WritingWorkflowsPanel key={projectId} projectId={projectId} /><Workflows projectId={projectId} data={data} /></div>;
+  if (view === 'research') return <div className="space-y-6"><ResearchEvidencePanel key={projectId} projectId={projectId} /><Research data={data} /></div>;
   if (view === 'templates') return <Templates data={data} />;
   if (view === 'publishing') return <Publishing data={data} />;
-  return <GroundedAi projectId={projectId} />;
+  return <div className="space-y-6"><EditorialProfilePanel key={`editorial:${projectId}`} projectId={projectId} /><GroundedAi key={`grounded:${projectId}`} projectId={projectId} /></div>;
 }

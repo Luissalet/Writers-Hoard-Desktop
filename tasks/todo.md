@@ -534,3 +534,64 @@ Centro creativo y captura accesibles desde el proyecto, laboratorio persistente 
 Verificado: `verify:quick` (TypeScript renderer/Electron, lint sin excepciones y conformance: 23 motores, 51 tablas de motor, 4677 claves de traducción), `test:critical` (210 comprobaciones), `test:engines` (23/23 montajes en perfil aislado; workers dormidos, no prueba IA/generación) y `build:desktop`. Pruebas manuales del Tablero: arrastre entre conectores, editar/seleccionar etiqueta, borrar/deshacer, recargar conservando conexiones/cámara, ramificar y abrir nodo exacto. Captura rápida confirmada en proyecto aislado. Worldgen generó realmente un mundo estándar con 419 ríos y 113 hitos, sin errores de consola. Centro creativo comprobado a 1280 y 760 px; tamaño de navegador restaurado.
 
 Auditoría por motor y necesidades aún abiertas: [auditoria-creativa-2026-09-07.md](auditoria-creativa-2026-09-07.md). No se ha ejecutado una sesión productiva completa en cada motor ni generación de imagen con modelo real. Compilación de escritorio realizada; sin empaquetar/publicar instalador. Referencia de arquitectura y motores en `.odysseus/`; la ruta antigua de memoria indicada por la habilidad no existe en este entorno Windows.
+
+## Release pública de escritorio — 2026-09-07
+
+Plan verificado con la petición: conservar el diseño y código privado, integrar chrome de ventana, reutilizar Icon.png, publicar únicamente instaladores y documentación bajo Luissalet (clave bookhoard).
+
+- [x] Integrar barra de ventana, controles y tema; aplicar icono real.
+- [x] Preparar empaquetado Windows y evaluar Linux con dependencias nativas correctas.
+- [x] Verificar tipos, lint, pruebas críticas, build y arranque empaquetado aislado.
+- [x] Crear repositorio público separado con README detallado y publicar artefactos verificados.
+- [x] Registrar resultados, limitaciones y arquitectura.
+- [x] Añadido al alcance: aviso de nueva versión, descarga/instalación explícitas y enlace alternativo a Releases; verificar estados y reconstruir ambos paquetes antes de publicar.
+- [x] Corrección visual del usuario: una sola marca en la barra lateral; barra nativa sin texto repetido y cabecera Inicio. Lección registrada.
+
+### Revisión de la release pública
+
+Publicada v0.1.0 como prerelease en https://github.com/Luissalet/Writers-Hoard-Releases/releases/tag/v0.1.0 con identidad API Luissalet y SSH bookhoard. Repositorio público independiente: README detallado, notas e icono; comprobado que Writers-Hoard-Desktop sigue privado. Se distribuyen instalador Windows x64, AppImage Linux x64, metadatos de actualización, blockmap Windows y SHA256SUMS.txt. Los seis hashes remotos de GitHub coinciden con los archivos locales.
+
+Chrome de ventana integrado con la paleta, menú accesible y controles nativos; marca única e icono original junto al nombre en sidebar. Ventana y ejecutable usan el icono original. Actualizador con estado recuperable, aviso en barra, comprobaciones al inicio/cada seis horas, descarga e instalación explícitas, respeto al guardado pendiente y descarga alternativa desde GitHub. Verificada la consulta real a la release publicada: «You have the latest version», 0.1.0.
+
+Verificación: audit sin vulnerabilidades; verify:quick (tipos, lint cero deuda, conformance 23 motores/51 tablas/4738 claves), 311 comprobaciones críticas incluidas transiciones de actualizador y restricciones IPC. Compilación final y lint de las correcciones visuales; smoke de paquete Windows final, icono/menú/maximizar y panel de actualizaciones en interfaz nativa con perfil aislado. La salida de consola cerrada del primer launcher de prueba provocó EPIPE; relanzado con stdio independiente, arranque y consulta correctos. Sin cambios de datos del usuario.
+
+Linux construido con dependencias nativas Linux en Docker; smoke del AppRun extraído del artefacto final, no root y sandbox activado, en Debian 12/Xvfb. Canvas, FFmpeg y yt-dlp verificados. gallery-dl requiere glibc >=2.38 y se comprobó en Ubuntu 24.04; limitación documentada. Windows sin firma digital, indicado en README/notas. Auditoría de paquetes sin mapas de fuentes ni carpetas fuente propias; metadatos SHA-512 comprobados contra binarios y nombres públicos exactos. Presupuesto de entrada aprobado; tamaño total/lazy conserva avisos no bloqueantes existentes.
+
+Habilidad update-project-graph revisada: cambios de presentación, IPC y empaquetado sin cambios de esquema, rutas, motores, stores o servicios; sin disparadores para reescanear el grafo. Lecciones de marca y ubicación de icono registradas. Contenedores Linux detenidos y conservados para reproducir.
+
+## Investigación Jasper y Writesonic — 2026-09-07
+- [ ] Contrastar capacidades actuales en documentación oficial.
+- [ ] Revisar funciones implementadas de Writer’s Hoard y distinguir planes.
+- [ ] Documentar diferencias, ventajas aplicables y prioridades con fuentes.
+
+Plan revisado: comparación de producto para creación literaria; investigación y documentación, sin implementación de funciones.
+
+### Revisión final de investigación Jasper/Writesonic
+- [x] Contrastar capacidades actuales en documentación oficial.
+- [x] Revisar código conectado y separar capacidades presentes de propuestas.
+- [x] Incorporar periodismo, ensayo y otros autores al alcance.
+- [x] Documentar diferencias y prioridades en tasks/comparativa-jasper-writesonic-2026-09-07.md.
+
+Investigación documental completada. Sin cambios de aplicación ni evaluación comparativa de textos generados. Se priorizan fuentes y trazabilidad, contexto/voz editorial, flujos, revisión y publicación. Las casillas iniciales quedan sustituidas por esta revisión final.
+
+### Alcance seleccionado tras la comparativa
+- [x] Ajustar la propuesta: investigación y trazabilidad; contexto, voz y criterios; flujos individuales de escritura.
+- [x] Excluir trabajo con editores y publicación digital; adaptar a motores existentes, almacenamiento local y núcleo compartido copiloto/MCP.
+Revisión: actualizado el informe competitivo. Selección de alcance documentada; funciones aún sin implementar.
+
+## Implementación de herramientas de escritura — 2026-09-07
+
+Alcance verificado con la petición: investigación/trazabilidad, voz y contexto, procesos individuales; sin equipos, CMS ni marketing. Extensiones de superficies existentes, conservar datos y cambios previos. Proyecto como propietario de perfiles/procesos; citas como propietarias de evidencias. Reutilizar gateway IA, herramientas y exportaciones existentes.
+
+- [x] Perfil editorial persistente por proyecto, editable, propuesta desde muestras y aplicación explícita en copiloto/análisis/revisión.
+- [x] Evidencias vinculadas a fuentes con fragmentos, procedencia y estado de revisión humana.
+- [x] Recorridos de periodismo, ensayo y narrativa con pasos editables, asistencia contextual y promoción segura a escritos.
+- [x] Montar en herramientas de proyecto y exponer contexto al núcleo MCP/copiloto.
+- [x] Comprobar aislamiento, persistencia, conflictos, citas y recorridos de interfaz; ejecutar verificaciones del proyecto.
+- [x] Registrar resultados y actualizar conocimiento de arquitectura.
+
+Plan de verificación: pruebas focales de comportamiento con IndexedDB aislada; pruebas de tipos/lint/conformance, suite crítica, compilación y recorrido real de interfaz. No inferir calidad de IA desde mocks ni alterar recortes del usuario.
+
+### Revisión de implementación
+
+Entrega detallada en `tasks/herramientas-escritura-implementadas-2026-09-07.md`. Verificado: verify:quick (23 motores, 51 tablas de motor, 4738 claves), 325 pruebas críticas, 3 recorridos editoriales de formulario, renderer completo a 1280/760 px y build:desktop. Detector de los componentes sin hallazgos. Regresión de selección de herramientas corregida; fixtures antiguos crean su proyecto y fijan la cronología de instantáneas para evitar empates por milisegundo. Referencia de arquitectura actualizada. Sin cambios en recortes del usuario, sin publicar instalador y sin evaluar calidad con un modelo real. Búsqueda web autónoma/OCR/transcripción no forman parte de esta primera entrega.

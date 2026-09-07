@@ -29,6 +29,21 @@ export interface Citation {
   snapshotId?: string;
   writingIds: string[];
   tags: string[];
+  /** Author-maintained evidence, never an automatic truth certification. */
+  researchEvidence?: ResearchEvidence[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ResearchEvidence {
+  id: string;
+  statement: string;
+  kind: 'fact' | 'attribution' | 'interpretation';
+  quote: string;
+  locator: string;
+  status: 'pending' | 'reviewed' | 'disputed';
+  notes: string;
+  reviewedAt?: number;
   createdAt: number;
   updatedAt: number;
 }

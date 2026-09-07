@@ -1,6 +1,7 @@
 import { db } from '@/db';
 import * as projectOps from '@/db/operations';
 import { callAi } from '@/services/aiService';
+import { buildProjectEditorialContext } from '@/services/editorialProfile';
 import { searchProjectContent } from '@/services/projectSearchIndex';
 import {
   canExportPdf,
@@ -171,40 +172,68 @@ export async function getCitations(projectId: string): Promise<Citation[]> {
 export async function saveCitation(
   value: Omit<Citation, 'id' | 'createdAt' | 'updatedAt'> & { id?: string },
 ): Promise<Citation> {
-  const now = Date.now();
-  const existing = value.id ? await db.citations.get(value.id) : undefined;
-  const citation: Citation = {
-    ...value,
-    id: value.id ?? generateId('cite'),
-    authors: value.authors.filter(Boolean),
-    tags: value.tags.filter(Boolean),
-    writingIds: [...new Set(value.writingIds)],
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  };
-  await db.citations.put(citation);
-  return citation;
-}
-
-export async function citationFromSnapshot(snapshotId: string): Promise<Citation> {
-  const snapshot = await db.snapshots.get(snapshotId);
-  if (!snapshot) throw new Error('Research snapshot not found');
-  return saveCitation({
-    projectId: snapshot.projectId,
-    title: snapshot.title || snapshot.url,
-    authors: snapshot.author ? [snapshot.author] : [],
-    publishedAt: snapshot.publishDate,
-    accessedAt: toLocalDateKey(new Date(snapshot.preservedAt || snapshot.createdAt)),
-    url: snapshot.url,
-    notes: snapshot.notes,
-    snapshotId: snapshot.id,
-    writingIds: [],
-    tags: snapshot.tags,
+  return db.transaction('rw', db.projects, db.citations, db.snapshots, async () => {
+    if (!await db.projects.get(value.projectId)) throw new Error('Project not found');
+    const existing = value.id ? await db.citations.get(value.id) : undefined;
+    if (value.id && !existing) throw new Error('Citation no longer exists');
+    if (existing && existing.projectId !== value.projectId) throw new Error('Citation project cannot change');
+    if (existing?.researchEvidence?.length && (existing.url !== value.url || existing.snapshotId !== value.snapshotId)) {
+      throw new Error('A source with evidence cannot be replaced; create a separate citation');
+    }
+    if (value.snapshotId) {
+      const snapshot = await db.snapshots.get(value.snapshotId);
+      if (!snapshot || snapshot.projectId !== value.projectId) throw new Error('Citation source scope mismatch');
+    }
+    const now = Math.max(Date.now(), (existing?.updatedAt ?? 0) + 1);
+    const citation: Citation = {
+      ...existing,
+      ...value,
+      id: existing?.id ?? generateId('cite'),
+      // Evidence is changed only through its own scoped, versioned service.
+      // Read it inside this transaction; stale citation forms cannot overwrite it.
+      researchEvidence: existing?.researchEvidence,
+      authors: value.authors.filter(Boolean),
+      tags: value.tags.filter(Boolean),
+      writingIds: [...new Set(value.writingIds)],
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    await db.citations.put(citation);
+    return citation;
   });
 }
 
-export async function deleteCitation(id: string): Promise<void> {
-  await db.citations.delete(id);
+export async function citationFromSnapshot(snapshotId: string): Promise<Citation> {
+  return db.transaction('rw', db.projects, db.citations, db.snapshots, async () => {
+    const snapshot = await db.snapshots.get(snapshotId);
+    if (!snapshot) throw new Error('Research snapshot not found');
+    const existing = (await db.citations.where('projectId').equals(snapshot.projectId).toArray())
+      .find(citation => citation.snapshotId === snapshotId);
+    if (existing) return existing;
+    return saveCitation({
+      projectId: snapshot.projectId,
+      title: snapshot.title || snapshot.url,
+      authors: snapshot.author ? [snapshot.author] : [],
+      publishedAt: snapshot.publishDate,
+      accessedAt: toLocalDateKey(new Date(snapshot.preservedAt || snapshot.createdAt)),
+      url: snapshot.url,
+      notes: snapshot.notes,
+      snapshotId: snapshot.id,
+      writingIds: [],
+      tags: snapshot.tags,
+    });
+  });
+}
+
+/** Delete precisely the source/version the author reviewed in the confirmation. */
+export async function deleteCitation(id: string, guard: { projectId: string; expectedUpdatedAt: number }): Promise<void> {
+  await db.transaction('rw', db.citations, async () => {
+    const citation = await db.citations.get(id);
+    if (!citation || citation.projectId !== guard.projectId || citation.updatedAt !== guard.expectedUpdatedAt) {
+      throw new Error('Citation changed; review it before deleting');
+    }
+    await db.citations.delete(id);
+  });
 }
 
 export interface CitationFormatLabels {
@@ -1062,7 +1091,7 @@ export async function runGroundedProjectAnalysis(
     sources.push({ id: sourceId, engineId: hit.engineId, title: hit.title });
   }
   const answer = await callAi(
-    'Answer only from the supplied project excerpts. Cite supporting excerpts with their [S#] identifiers. If the context is insufficient, say so explicitly. Never claim access to files that are not in the context.',
+    'Answer only from the supplied project excerpts. Cite supporting excerpts with their [S#] identifiers. If the context is insufficient, say so explicitly. Never claim access to files that are not in the context.\n' + await buildProjectEditorialContext(projectId),
     `Question: ${question}\n\nProject excerpts:\n${context.join('\n\n')}`,
     config,
   );

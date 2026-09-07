@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
+import WindowTitleBar from './WindowTitleBar';
 import GlobalSearch from '../common/GlobalSearch';
 import ShortcutsPanel from '../common/ShortcutsPanel';
 import { ToastHost } from '../common/toast';
@@ -38,7 +39,9 @@ export default function MainLayout() {
   }, [loadAiSettings, loadLocale, loadMotion]);
 
   return (
-    <div className="h-dvh w-full flex overflow-hidden relative">
+    <div className="h-dvh w-full flex flex-col overflow-hidden relative">
+      <WindowTitleBar />
+      <div className="flex flex-1 min-h-0 overflow-hidden">
       <a
         href="#main-content"
         className="sr-only fixed left-3 top-3 z-[100] rounded-lg bg-accent-gold px-3 py-2 font-semibold text-deep focus:not-sr-only"
@@ -61,6 +64,7 @@ export default function MainLayout() {
       <PendingWritesHost />
       {/* Renders the confirmation an AI bridge deletion has to get past. */}
       <BridgeConfirmHost />
+      </div>
     </div>
   );
 }

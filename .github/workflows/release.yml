@@ -39,6 +39,8 @@ jobs:
       - name: Verify, build, and publish installer
         run: npm run dist:publish
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A fine-grained token with Contents: write on the PUBLIC releases
+          # repository. GITHUB_TOKEN is scoped to this private source repo.
+          GH_TOKEN: ${{ secrets.RELEASES_GITHUB_TOKEN }}
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}

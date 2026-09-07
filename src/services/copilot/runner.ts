@@ -9,6 +9,7 @@
 // than a spinner that never stops.
 
 import { runCopilot } from '@/services/aiRuntime/client';
+import { buildProjectEditorialContext } from '@/services/editorialProfile';
 import type { CopilotEvent } from '@/services/aiRuntime/copilot';
 import { threadTitleFrom } from '@/services/aiRuntime/prompts';
 import type { ActionPolicy } from '@/services/aiRuntime/toolPolicy';
@@ -171,6 +172,7 @@ export async function retryCopilotTurn(options: RetryTurnOptions): Promise<void>
 async function beginCopilotTurn(options: SendTurnOptions, replayUserMessageId?: string): Promise<void> {
   const thread = await getThread(options.threadId);
   if (!thread) return;
+  const editorialContext = await buildProjectEditorialContext(options.projectId);
   const stored = await listMessages(options.threadId);
   // A retry replays a user row that is already stored, so the history is
   // everything BEFORE it: the agent loop appends `message` as the user turn
@@ -275,7 +277,7 @@ async function beginCopilotTurn(options: SendTurnOptions, replayUserMessageId?: 
       projectId: options.projectId,
       route: options.route,
       policy: options.policy,
-      briefing: options.briefing,
+      briefing: { ...options.briefing, editorialContext },
       history,
       message: options.text,
       usedTools,

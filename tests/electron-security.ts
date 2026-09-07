@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { runDesktopUpdateTests } from './desktop-updates';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
@@ -83,6 +84,10 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
   assert(isIpcChannelAllowedForRole('media:listLibraryFiles', 'main'), 'main IPC policy missing');
   assert(!isIpcChannelAllowedForRole('media:listLibraryFiles', 'quick-note'), 'quick-note gained main IPC');
   for (const channel of [
+    'updates:getState',
+    'updates:download',
+    'updates:openReleases',
+    'window:openMenu',
     'media:downloaderHealth',
     'media:detectDownloadPlatform',
     'media:downloadToFile',
@@ -233,5 +238,6 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
   assert(recent[0]?.index === 4 && recent.some((r) => r.index === 0), 'readAudit must span the rotated file too');
   passed.push('audit log numbering stable across rotation');
 
+  passed.push(...await runDesktopUpdateTests());
   return passed;
 }

@@ -1,5 +1,6 @@
 // Renderer-side type for the bridge exposed by electron/preload.ts.
 // Present only in the desktop shell; always optional in the web build.
+import type { DesktopUpdateState } from './types/updates';
 
 import type {
   AiChatRequest,
@@ -298,6 +299,8 @@ export interface ShutdownWarning {
 
 export interface ElectronAPI {
   isDesktop: true;
+  platform: string;
+  openWindowMenu: () => void;
   media: {
     saveTeleprompterMp4: (webm: ArrayBuffer, suggestedName: string) => Promise<SaveResult>;
     downloaderHealth: () => Promise<MediaDownloaderHealthResult>;
@@ -390,9 +393,13 @@ export interface ElectronAPI {
     keepOpen: () => void;
   };
   updates: {
+    getState: () => Promise<DesktopUpdateState>;
+    download: () => Promise<void>;
+    openReleases: () => Promise<void>;
+    onState: (callback: (state: DesktopUpdateState) => void) => () => void;
+    onOpen: (callback: () => void) => () => void;
     check: () => Promise<void>;
     quitAndInstall: () => Promise<void>;
-    onDownloaded: (callback: () => void) => () => void;
   };
   /**
    * Real atlas geocoding through Nominatim, made from main so the app keeps
