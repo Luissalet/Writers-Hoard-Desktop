@@ -10,6 +10,7 @@
 // Streams: the renderer picks the request id and subscribes to the push
 // channel BEFORE invoking, so no event can be lost to the invoke round trip.
 
+import { subscriptionLogin } from './subscriptionClient';
 import { ipcMain, type BrowserWindow } from 'electron';
 import type {
   AiChatRequest,
@@ -219,6 +220,11 @@ export function registerAiIpc({ assertIpcSender, window }: AiIpcDeps): void {
   setBuiltinSdResolver(isSdRuntimeInstalled);
 
   // ---- connections ---------------------------------------------------------
+  ipcMain.handle('ai:subscriptionLogin', (event, kind: unknown) => {
+    assertIpcSender(event, 'ai:subscriptionLogin');
+    if (kind !== 'claude-subscription' && kind !== 'codex-subscription') return { ok: false, error: 'Invalid subscription provider.' };
+    return subscriptionLogin(kind);
+  });
   ipcMain.handle('ai:listConnections', (event) => {
     assertIpcSender(event, 'ai:listConnections');
     return listConnections();
@@ -232,7 +238,7 @@ export function registerAiIpc({ assertIpcSender, window }: AiIpcDeps): void {
     // collapse anything unrecognised to openai-compatible, which silently
     // turned a ComfyUI connection into one that talks the wrong protocol to
     // the right port and fails with a confusing error.
-    const kind = input.kind === 'ollama' ? 'ollama'
+    const kind = input.kind === 'claude-subscription' || input.kind === 'codex-subscription' ? input.kind : input.kind === 'ollama' ? 'ollama'
       : input.kind === 'comfyui' ? 'comfyui'
       : 'openai-compatible';
     const result = await saveConnection({

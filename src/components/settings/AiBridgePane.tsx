@@ -11,12 +11,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { Plug, Copy, Check, RefreshCw, ShieldAlert, Undo2 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { AiBridgeAuditEntry, AiBridgeInfo } from '@/electron-env';
+import { BRIDGE_CLIENT_DOCS, bridgeClientConfig, bridgeOnboardingPrompt, type BridgeClient } from '@/services/aiBridge/connectionGuide';
 
-function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
+function Toggle({ on, onClick, label, disabled }: { on: boolean; onClick: () => void; label: string; disabled?: boolean }) {
   return (
     <button
       onClick={onClick}
       aria-label={label}
+      role="switch"
+      aria-checked={on}
+      disabled={disabled}
       className={`w-10 h-5 rounded-full transition relative flex-shrink-0 ${
         on ? 'bg-accent-gold' : 'bg-elevated border border-border'
       }`}
@@ -31,20 +35,30 @@ function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; labe
 }
 
 function CopyButton({ value, label }: { value: string; label: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
   return (
+    <span className="flex items-center gap-1">
     <button
       onClick={() => {
-        void navigator.clipboard.writeText(value).then(() => {
+        setFailed(false);
+        setCopied(false);
+        void Promise.resolve().then(() => navigator.clipboard.writeText(value)).then(() => {
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
-        });
+        }).catch(() => setFailed(true));
       }}
       title={label}
+      aria-label={copied ? t('settings.bridge.connect.copied') : label}
       className="p-1.5 rounded border border-border hover:border-accent-gold/40 text-text-muted hover:text-accent-gold transition flex-shrink-0"
     >
       {copied ? <Check size={12} /> : <Copy size={12} />}
     </button>
+    <span role="status" className={failed ? 'text-[10px] text-red-400' : 'sr-only'}>
+      {failed ? t('settings.bridge.connect.copyError') : copied ? t('settings.bridge.connect.copied') : ''}
+    </span>
+    </span>
   );
 }
 
@@ -59,28 +73,13 @@ function hasUndoTarget(entry: AiBridgeAuditEntry & { entityIds?: string[] }): bo
   return Boolean(entry.entityId) || Boolean(entry.entityIds?.length);
 }
 
-/** The exact stdio entry an MCP client wants, ready to paste. */
-function mcpConfigJson(info: AiBridgeInfo): string {
-  return JSON.stringify(
-    {
-      mcpServers: {
-        'writers-hoard': {
-          command: 'node',
-          args: [info.adapterPath],
-          env: { WH_BRIDGE_TOKEN: info.token, WH_BRIDGE_URL: info.url },
-        },
-      },
-    },
-    null,
-    2,
-  );
-}
-
 export default function AiBridgePane() {
   const { t } = useTranslation();
   const [info, setInfo] = useState<AiBridgeInfo | null>(null);
   const [audit, setAudit] = useState<AiBridgeAuditEntry[]>([]);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const [client, setClient] = useState<BridgeClient>('claude');
   const [undoError, setUndoError] = useState<string | null>(null);
   // What each reversal could NOT put back, by audit line. A partial undo that
   // said nothing left the line reading "undone" with half the change still on
@@ -93,7 +92,8 @@ export default function AiBridgePane() {
     void Promise.all([bridge.getInfo(), bridge.readAudit(20)]).then(([next, entries]) => {
       setInfo(next);
       setAudit(entries);
-    });
+      setError(false);
+    }).catch(() => setError(true));
   }, [bridge]);
 
   useEffect(() => {
@@ -104,7 +104,7 @@ export default function AiBridgePane() {
       if (!alive) return;
       setInfo(next);
       setAudit(entries);
-    });
+    }).catch(() => { if (alive) setError(true); });
     return () => {
       alive = false;
     };
@@ -115,11 +115,12 @@ export default function AiBridgePane() {
 
   const run = (action: () => Promise<AiBridgeInfo>) => {
     setBusy(true);
+    setError(false);
     void action()
       .then(setInfo)
+      .catch(() => setError(true))
       .finally(() => {
         setBusy(false);
-        refresh();
       });
   };
 
@@ -136,8 +137,52 @@ export default function AiBridgePane() {
         <Toggle
           on={info?.enabled === true}
           label={t('settings.bridge.title')}
+          disabled={busy || !info}
           onClick={() => !busy && info && run(() => bridge.setEnabled(!info.enabled))}
         />
+      </div>
+
+      {error && <div role="alert" className="mt-2 text-xs text-red-400">
+        {t('settings.bridge.connect.loadError')}
+        <button onClick={refresh} className="ml-2 underline">{t('settings.bridge.connect.retry')}</button>
+      </div>}
+      {!info && !error && <p role="status" className="mt-2 text-xs text-text-muted">{t('settings.bridge.connect.loading')}</p>}
+      <div className="mt-3 border-t border-border pt-3 space-y-2">
+        <h3 className="text-sm font-medium text-text-primary">{t('settings.bridge.connect.title')}</h3>
+        <p className="text-xs text-text-muted leading-relaxed">{t('settings.bridge.connect.intro')}</p>
+        <label htmlFor="bridge-client" className="block text-xs text-text-muted">{t('settings.bridge.connect.client')}</label>
+        <select id="bridge-client" value={client} onChange={event => setClient(event.target.value as BridgeClient)}
+          className="w-full rounded border border-border bg-elevated px-2 py-2 text-xs text-text-primary">
+          <option value="claude">Claude Desktop</option>
+          <option value="codex">Codex (OpenAI)</option>
+          <option value="gemini">Gemini CLI</option>
+          <option value="web">ChatGPT / Claude / Gemini — {t('settings.bridge.connect.web')}</option>
+        </select>
+        {client === 'web' ? <p className="text-xs text-text-muted leading-relaxed">{t('settings.bridge.connect.webNote')}</p> : <>
+          <ol className="list-decimal pl-5 space-y-2 text-xs text-text-muted leading-relaxed">
+            <li>{t('settings.bridge.connect.prepare')}</li>
+            <li>{t(`settings.bridge.connect.${client}`)}</li>
+            <li>{t('settings.bridge.connect.restart')}</li>
+          </ol>
+          <a href={BRIDGE_CLIENT_DOCS[client]} target="_blank" rel="noreferrer" className="inline-block text-xs text-accent-gold underline underline-offset-2">{t('settings.bridge.connect.docs')}</a>
+          {info?.enabled && <details>
+            <summary className="cursor-pointer text-xs text-text-primary py-1">{t('settings.bridge.clientConfig')}</summary>
+            <div className="flex items-center justify-between gap-2 my-1">
+              <p className="text-[10px] text-text-muted">{t('settings.bridge.connect.privateConfig')}</p>
+              <CopyButton value={bridgeClientConfig(info, client)} label={t('settings.bridge.connect.copyConfig')} />
+            </div>
+            <pre className="px-2 py-2 rounded border border-border bg-elevated text-[10px] font-mono text-text-muted overflow-x-auto max-h-48">{bridgeClientConfig(info, client)}</pre>
+          </details>}
+        </>}
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <p className="text-xs font-medium text-text-primary">{t('settings.bridge.connect.promptTitle')}</p>
+          <CopyButton value={bridgeOnboardingPrompt(t)} label={t('settings.bridge.connect.copyPrompt')} />
+        </div>
+        <p className="text-[10px] text-text-muted">{t('settings.bridge.connect.promptNote')}</p>
+        <details>
+          <summary className="cursor-pointer text-xs text-text-muted">{t('settings.bridge.connect.preview')}</summary>
+          <p className="mt-2 text-xs text-text-muted whitespace-pre-wrap leading-relaxed select-text">{bridgeOnboardingPrompt(t)}</p>
+        </details>
       </div>
 
       {info?.enabled && (
@@ -150,6 +195,7 @@ export default function AiBridgePane() {
             <Toggle
               on={info.writesEnabled}
               label={t('settings.bridge.writes')}
+              disabled={busy}
               onClick={() => !busy && run(() => bridge.setWritesEnabled(!info.writesEnabled))}
             />
           </div>
@@ -176,23 +222,14 @@ export default function AiBridgePane() {
               <button
                 onClick={() => !busy && run(() => bridge.regenerateToken())}
                 title={t('settings.bridge.regenerate')}
+                aria-label={t('settings.bridge.regenerate')}
+                disabled={busy}
                 className="p-1.5 rounded border border-border hover:border-accent-gold/40 text-text-muted hover:text-accent-gold transition"
               >
                 <RefreshCw size={12} />
               </button>
             </div>
             <p className="text-[10px] text-text-dim mt-1">{t('settings.bridge.tokenNote')}</p>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs text-text-muted">{t('settings.bridge.clientConfig')}</label>
-              <CopyButton value={mcpConfigJson(info)} label={t('common.copy')} />
-            </div>
-            <pre className="px-2 py-1.5 rounded border border-border bg-elevated text-[10px] font-mono text-text-muted overflow-x-auto max-h-40">
-              {mcpConfigJson(info)}
-            </pre>
-            <p className="text-[10px] text-text-dim mt-1">{t('settings.bridge.clientConfigNote')}</p>
           </div>
 
           <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-border text-[10px] text-text-dim">
@@ -241,6 +278,7 @@ export default function AiBridgePane() {
                                   : undefined;
                                 if (caveat) setUndoCaveats((prev) => ({ ...prev, [entry.index]: caveat }));
                               })
+                              .catch(() => setUndoError(t('settings.bridge.connect.undoError')))
                               .finally(() => {
                                 setBusy(false);
                                 refresh();
@@ -249,6 +287,7 @@ export default function AiBridgePane() {
                           disabled={busy}
                           className="ml-auto flex-shrink-0 text-text-dim hover:text-accent-gold transition disabled:opacity-40"
                           title={t('settings.bridge.undo')}
+                          aria-label={t('settings.bridge.undo')}
                         >
                           <Undo2 size={11} />
                         </button>

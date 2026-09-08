@@ -8,6 +8,24 @@ Use this as the current-state companion to `tasks/lessons.md`. The older
 `tasks/architecture-unified-app.md` is a design/migration plan; many of its
 ideas are now implemented, so it should not be treated as the current map.
 
+## AI subscription and external-client extension (2026-09-08)
+
+Desktop connections now include `claude-subscription` and `codex-subscription`.
+`electron/ai/subscriptionClient.ts` delegates authentication and text inference to
+the installed official clients; no provider credential import or API fallback.
+`adapters/subscription.ts` integrates with the existing inference gateway.
+`src/services/aiRuntime/subscriptionProtocol.ts` validates structured text tool
+proposals before the existing copilot executor handles permissions, audit and undo.
+Native client tools stay disabled. Models include client-default and optional
+user-supplied IDs; images remain on their existing providers.
+
+`SubscriptionsSection` owns subscription controls. `AiBridgePane` now explains
+the inverse connection with client-specific configurations and secret-free
+onboarding text from `src/services/aiBridge/connectionGuide.ts`. It continues
+using the existing local stdio/HTTP bridge, not a remote MCP endpoint.
+See `docs/ai-subscriptions.md` and `docs/ai-external-connection.md` for setup and
+reproducible focused checks.
+
 ## Product and runtime shape
 
 Writers Hoard is a local-first creative-writing platform. The same React

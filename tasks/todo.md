@@ -595,3 +595,41 @@ Plan de verificación: pruebas focales de comportamiento con IndexedDB aislada; 
 ### Revisión de implementación
 
 Entrega detallada en `tasks/herramientas-escritura-implementadas-2026-09-07.md`. Verificado: verify:quick (23 motores, 51 tablas de motor, 4738 claves), 325 pruebas críticas, 3 recorridos editoriales de formulario, renderer completo a 1280/760 px y build:desktop. Detector de los componentes sin hallazgos. Regresión de selección de herramientas corregida; fixtures antiguos crean su proyecto y fijan la cronología de instantáneas para evitar empates por milisegundo. Referencia de arquitectura actualizada. Sin cambios en recortes del usuario, sin publicar instalador y sin evaluar calidad con un modelo real. Búsqueda web autónoma/OCR/transcripción no forman parte de esta primera entrega.
+
+## Publicación 0.1.1 — Windows y Linux
+
+Plan verificado: generar nueva prerelease en Luissalet/Writers-Hoard-Releases con paquetes actuales Windows x64/Linux x64, conservar release anterior y código privado. Usuario autoriza build y subida; se mantiene distribución preliminar sin firma Windows de la release existente.
+- [x] Versionar 0.1.1, comprobar dependencias y recompilar renderer/Electron.
+- [x] Empaquetar Windows y Linux con dependencias nativas correctas.
+- [x] Verificar arranque de paquetes, contenido y metadatos/hashes.
+- [x] Subir artefactos a release nueva y verificar los archivos remotos.
+
+### Revisión de publicación 0.1.1
+
+Publicada prerelease https://github.com/Luissalet/Writers-Hoard-Releases/releases/tag/v0.1.1 con seis archivos: Windows x64 NSIS y blockmap, Linux x64 AppImage, latest.yml, latest-linux.yml y SHA256SUMS.txt. Los seis SHA256 remotos coinciden con los archivos locales de `release/publish-0.1.1`; nombres, tamaños y SHA512 de metadatos comprobados. Release anterior conservada. Código privado no subido.
+
+Audit sin vulnerabilidades, renderer/Electron recompilados a 0.1.1 y presupuesto de entrada aprobado. Suite de implementación previa: 325 comprobaciones. Windows: arranque empaquetado aislado, versión y funciones nuevas presentes, sin carpetas fuente ni mapas propios. Linux: dependencias nativas y binarios fijados verificados, AppRun final bajo usuario no root/Xvfb con sandbox, canvas/FFmpeg/yt-dlp correctos. La limitación conocida gallery-dl/GLIBC >=2.38 y la ausencia de firma Windows están en las notas de la release. Contenedores de build/verificación detenidos tras finalizar. No cambios en src en esta publicación; arquitectura permanece vigente.
+## Anuncio de LinkedIn — 2026-09-08
+
+Plan: texto personal y concreto, capacidades reales de narrativa y periodismo, imágenes de ejemplo sin publicar en LinkedIn.
+- [ ] Preparar capturas y material visual.
+- [ ] Redactar el post y revisar capacidades y enlace de descarga.
+
+### Revisión del anuncio
+- [x] Escritura y fuentes capturadas con contenido de ejemplo y revisadas visualmente; mapa Aetheria exportado por la aplicación como tercera imagen.
+- [x] Post personal con capacidades existentes y enlace a la versión preliminar 0.1.1.
+- [x] Imágenes preparadas en release/linkedin-0.1.1/imagenes-linkedin.zip. Sin publicación en redes ni cambios en src.
+
+## Suscripciones y conexión desde asistentes — 2026-09-08
+
+Plan verificado con la petición: trasladar las conexiones Claude/Codex por suscripción de Faustus a Writers Hoard de escritorio y ampliar la sección existente del puente con pasos por cliente e instrucciones copiables. Conservar el diseño, API/modelos locales, núcleo de herramientas y permisos.
+- [x] Integrar proveedores por suscripción, autenticación y ejecución cancelable.
+- [x] Añadir controles de suscripción y selección de modelos.
+- [x] Añadir configuración por cliente y briefing para agentes externos.
+- [x] Verificar tipos, lint, pruebas críticas, compilación y recorrido de interfaz; documentar límites reales.
+
+### Revisión de suscripciones y conexión externa
+
+Claude/Codex usan clientes oficiales con autenticación de suscripción comprobada, sin copiar credenciales ni alternativa API. Copiloto mediante propuestas estructuradas validadas y ejecutor compartido. Inicio de sesión Windows con ejecutable resuelto, cancelación de procesos y cierre global; instrucciones de terminal en otros sistemas. Interfaz bilingüe para importar/verificar/modelos/predeterminada/quitar conexión y configuración Claude Desktop/Codex/Gemini CLI más mensaje de inicio sin secretos. Chats web requieren integración aparte, no basta un prompt.
+
+Verificado: verify:quick sin errores, 325 pruebas críticas, test:subscriptions (protocolo, autenticación/cancelación, interfaz y guía), build:desktop y bundle:budget. Revisadas capturas reales de componentes/CSS a 1280 y 760 px con datos aislados. Ambos clientes instalados confirmaron suscripción y completaron respuestas reales y el ciclo propuesta de herramienta + resultado sintético + respuesta; sin leer proyectos personales. README, guías y PROJECT_KNOWLEDGE actualizados. Sin publicar instalador ni modificar configuraciones de asistentes externos.

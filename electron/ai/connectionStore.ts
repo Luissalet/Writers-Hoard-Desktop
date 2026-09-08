@@ -42,7 +42,7 @@ interface StoredConnection {
   // `sdcpp` is deliberately not here: that connection is synthesised for the
   // managed runtime and never persisted, so a stored row can never point at a
   // server the app is supposed to be supervising itself.
-  kind: 'openai-compatible' | 'ollama' | 'comfyui';
+  kind: 'openai-compatible' | 'ollama' | 'comfyui' | 'claude-subscription' | 'codex-subscription';
   baseUrl: string;
   enabled: boolean;
   modelTypes: AiModelType[];
@@ -223,7 +223,7 @@ export async function saveConnection(input: AiConnectionInput): Promise<SaveConn
   if (input.kind === 'sdcpp') {
     return { ok: false, code: 'builtin', error: 'The local image server is managed by the app; add an OpenAI-compatible image server instead.' };
   }
-  const normalised = normaliseBaseUrl(input.baseUrl);
+  const normalised = normaliseBaseUrl(input.kind === 'claude-subscription' ? 'https://claude.ai' : input.kind === 'codex-subscription' ? 'https://chatgpt.com' : input.baseUrl);
   if (!normalised.ok) {
     return { ok: false, code: 'bad-url', error: `Invalid address (${normalised.code}).` };
   }
@@ -235,7 +235,7 @@ export async function saveConnection(input: AiConnectionInput): Promise<SaveConn
   if (duplicate) {
     return { ok: false, code: 'duplicate', error: `"${duplicate.name}" already points at that server.` };
   }
-  const modelTypes: AiModelType[] = input.modelTypes?.length ? input.modelTypes : ['chat'];
+  const modelTypes: AiModelType[] = input.kind.endsWith('-subscription') ? ['chat'] : input.modelTypes?.length ? input.modelTypes : ['chat'];
   const pinnedModels = (input.pinnedModels ?? []).map((m) => m.trim()).filter(Boolean);
   const name = input.name.trim() || normalised.host;
 
