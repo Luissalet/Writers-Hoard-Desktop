@@ -438,6 +438,7 @@ export interface ElectronAPI {
 
   /** AI runtime: connections by IP/URL, models, hardware fit, streaming. See electron/ai/. */
   ai: {
+    subscriptionLogin(kind: 'claude-subscription' | 'codex-subscription'): Promise<{ ok: boolean; error?: string }>;
     listConnections: () => Promise<AiConnectionSummary[]>;
     saveConnection: (
       input: AiConnectionInput,

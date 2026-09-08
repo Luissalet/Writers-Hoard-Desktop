@@ -416,7 +416,7 @@ export default function ConnectionsSection() {
       )}
 
       <div className="space-y-2">
-        {connections.map((connection) => {
+        {connections.filter((connection) => !connection.kind.endsWith('-subscription')).map((connection) => {
           const models = modelsByConnection[connection.id];
           const isChatDefault = defaults.chat?.connectionId === connection.id;
           const isImageDefault = defaults.image?.connectionId === connection.id;

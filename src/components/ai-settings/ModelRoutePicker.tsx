@@ -73,7 +73,7 @@ export default function ModelRoutePicker({ type, value, onChange, requireCapabil
             <optgroup key={connection.id} label={connection.name}>
               {models.map((model) => (
                 <option key={model.id} value={`${connection.id}::${model.id}`}>
-                  {model.id}
+                  {connection.kind.endsWith('-subscription') && model.id === 'client-default' ? t('settings.ai.subscription.defaultModel') : model.label ?? model.id}
                   {/* "no tools" only means something for a chat model. */}
                   {type === 'chat' && !model.capabilities.includes('tools') ? ` — ${t('settings.ai.route.noTools')}` : ''}
                 </option>

@@ -1370,3 +1370,7 @@ el alcance; ninguna de las dos cosas aplica a la implementación normal de Write
 
 **Contexto:** El usuario descartó trabajo con editores y publicación digital de las oportunidades Jasper/Writesonic y aceptó el resto condicionado a su adaptación a Writer’s Hoard.
 **Regla:** Concentrar esta iniciativa en investigación/trazabilidad, contexto/voz/criterios y flujos individuales de escritura. Excluir coedición, roles editoriales y CMS; no introducir campañas, SEO ni métricas por imitación de competidores. Conservar revisión propia y exportaciones existentes. Integrar las mejoras en los motores y el núcleo compartido de herramientas.
+
+## 2026-09-08 — Comunicación de Writer’s Hoard
+- Presentar el producto para cualquiera que escriba: reportaje, ensayo, biografía y narrativa. No centrar ejemplos ni propuesta de valor en ficción.
+- Equilibrar ejemplos de los 23 motores con recortes, documentación, cronologías y escritura. Evitar bromas añadidas y frases de relleno en anuncios personales.

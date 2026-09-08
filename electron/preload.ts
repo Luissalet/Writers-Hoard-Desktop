@@ -591,6 +591,7 @@ const api = {
   // inference. The renderer names a connection id; main holds the URL and
   // the (encrypted) key. Streams: pick a request id, subscribe, then invoke.
   ai: {
+    subscriptionLogin: (kind: 'claude-subscription' | 'codex-subscription'): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('ai:subscriptionLogin', kind),
     listConnections: (): Promise<AiConnectionSummary[]> => ipcRenderer.invoke('ai:listConnections'),
     saveConnection: (
       input: AiConnectionInput,
