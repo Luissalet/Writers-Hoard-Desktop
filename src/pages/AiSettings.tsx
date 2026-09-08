@@ -23,6 +23,7 @@ import ConnectionsSection from '@/components/ai-settings/ConnectionsSection';
 import LocalModelsSection from '@/components/ai-settings/LocalModelsSection';
 import LocalImageModelsSection from '@/components/ai-settings/LocalImageModelsSection';
 import DefaultsSection from '@/components/ai-settings/DefaultsSection';
+import SubscriptionsSection from '@/components/ai-settings/SubscriptionsSection';
 import { useAiRuntimeStore } from '@/stores/aiRuntimeStore';
 import { isDesktop } from '@/utils/platform';
 
@@ -31,7 +32,7 @@ function ConnectionsDisclosure() {
   // A server the user added themselves means they came here for it before, so
   // it starts open for them. `null` is "nobody has said yet" — connections
   // arrive a tick after mount, and the first click must still win afterwards.
-  const hasOwnServer = useAiRuntimeStore((s) => s.connections.some((c) => !c.builtin));
+  const hasOwnServer = useAiRuntimeStore((s) => s.connections.some((c) => !c.builtin && !c.kind.endsWith('-subscription')));
   const [open, setOpen] = useState<boolean | null>(null);
   const expanded = open ?? hasOwnServer;
 
@@ -79,6 +80,8 @@ export default function AiSettings() {
             </div>
           ) : (
             <>
+              <SubscriptionsSection />
+              <div className="border-t border-border" />
               <LocalModelsSection />
               <div className="border-t border-border" />
               <LocalImageModelsSection />

@@ -20,6 +20,23 @@ npm run dev:desktop    # Vite dev server + Electron window (HMR)
 On Windows, `setup.bat` performs the one-time setup; subsequent launches use
 `run.bat` without reinstalling or changing dependencies.
 
+## AI subscriptions and external assistants
+
+In **AI settings → Use my subscriptions**, sign in with the official Claude or
+Codex client, or import an existing subscription session. Check the connection,
+then choose it as the default text model. API connections and local models remain
+available. Subscription requests verify the account's authentication method and
+never fall back to API billing. Text and copilot actions are supported; image
+generation continues to use the separate image providers.
+
+The **AI bridge** section explains how to connect Claude Desktop, Codex or Gemini
+CLI back to the app, with client-specific configuration and a separate, safe
+prompt to brief the assistant. Keep Writers Hoard open while connected. A normal
+web chat cannot gain access by pasting a prompt or a localhost address.
+
+See [subscription setup](docs/ai-subscriptions.md) and
+[external assistant setup](docs/ai-external-connection.md).
+
 ## Scripts
 
 | Script | What it does |
@@ -35,6 +52,7 @@ On Windows, `setup.bat` performs the one-time setup; subsequent launches use
 | `lint:baseline:prune` | Remove fixed fingerprints from the checked-in lint debt baseline. |
 | `conformance` | Check engine registration, schema, locale, backup, and binary declarations. |
 | `test:critical` | Run isolated Electron/Chromium tests for migration, backup, cascades, recovery/navigation, full rendering, and Vite startup. |
+| `test:subscriptions` | Test subscription isolation, tool protocol, connection controls and external-assistant setup without calling providers. |
 | `test:packaged` | Smoke-test the already-built `release/win-unpacked` desktop app with an isolated temporary profile. |
 | `bundle:budget` | Enforce renderer entry, lazy-chunk, and total JavaScript size limits. |
 | `audit:security` | Fail when npm reports a moderate-or-higher dependency vulnerability. |
@@ -71,6 +89,8 @@ The renderer detects Electron at runtime (`src/utils/platform.ts`) to choose
 Downloader. The web build is unchanged and still deploys to GitHub Pages.
 
 ## Releasing
+
+See [the release guide](docs/RELEASES.md) for the public repository, the six Windows/Linux assets, naming and checksum conventions, manual upload commands, and the scope of the Windows-only publishing workflow.
 
 ```bash
 # bump "version" in package.json, then:

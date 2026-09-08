@@ -35,6 +35,8 @@ import {
   getSecret,
   listConnections as listStoredConnections,
 } from './connectionStore';
+import { shutdownSubscriptionClients } from './subscriptionClient';
+import { subscriptionAdapter } from './adapters/subscription';
 import { ollamaAdapter } from './adapters/ollama';
 import { openAiCompatibleAdapter } from './adapters/openAiCompatible';
 import { sdcppAdapter } from './adapters/sdcpp';
@@ -60,6 +62,7 @@ const inFlight = new Map<string, { controller: AbortController; kind: 'chat' | '
 let sequence = 0;
 
 function adapterFor(connection: AiConnectionSummary): ProviderAdapter {
+  if (connection.kind.endsWith('-subscription')) return subscriptionAdapter;
   if (connection.kind === 'sdcpp') return sdcppAdapter;
   if (connection.kind === 'comfyui') return comfyuiAdapter;
   return connection.kind === 'ollama' ? ollamaAdapter : openAiCompatibleAdapter;
@@ -152,7 +155,7 @@ async function decorate(connectionId: string, models: AiModelDescriptor[]): Prom
       connectionId,
       id: pinned,
       type,
-      capabilities: type === 'image' ? ['image-generation'] : ['chat', 'streaming', 'tools'],
+      capabilities: connection?.kind.endsWith('-subscription') ? ['chat', 'tools'] : type === 'image' ? ['image-generation'] : ['chat', 'streaming', 'tools'],
       pinned: true,
     });
   }
@@ -407,6 +410,7 @@ export async function discoverLocalServers(): Promise<AiDiscoveredServer[]> {
 
 /** will-quit: nothing keeps streaming into a window that is gone. */
 export function shutdownGateway(): void {
+  shutdownSubscriptionClients();
   for (const { controller } of inFlight.values()) controller.abort('shutdown');
   inFlight.clear();
 }

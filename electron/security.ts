@@ -84,6 +84,7 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   // and the in-app copilot. Main owns every URL and key; the renderer only
   // ever names a connection id. Push channels (ai:stream, ai:image-done,
   // copilot:event) go main → renderer and need no entry here.
+  'ai:subscriptionLogin': ['main'],
   'ai:listConnections': ['main'],
   'ai:saveConnection': ['main'],
   'ai:deleteConnection': ['main'],
