@@ -15,6 +15,7 @@ import { preservationLevel, isLinkOnly } from '@/engines/scrapper/preservation';
 import { csvCell, snapshotsToCsv } from '@/engines/scrapper/linkExport';
 import { updateSnapshot } from '@/engines/scrapper/operations';
 import { runSnapshotDownload } from '@/services/scrapperMedia';
+import { startArchiveBatch } from '@/engines/scrapper/archiveBatch';
 import { runSnapshotCapture } from '@/services/pageCapture';
 import { ToastHost } from '@/components/common/toast';
 import { useLocaleStore } from '@/stores/localeStore';
@@ -176,6 +177,215 @@ async function captureKeepsTypedDescription(): Promise<string> {
   return 'runSnapshotCapture re-reads the row: a description typed mid-capture survives';
 }
 
+/**
+ * A clipping deleted while its download / page capture runs: the finished job
+ * must not leave its files behind — and must never touch anything that is not
+ * that clipping's own (a bare project id would wipe the project folder).
+ */
+async function orphanedFilesAreDiscarded(): Promise<string> {
+  const keep = snap('orphan-keep', { source: 'youtube', localMediaPath: `${P}/${P}-orphan-keep.mp4`, downloadState: 'done' });
+  const single = snap('orphan-single', { source: 'youtube' });
+  const carousel = snap('orphan-carousel', { source: 'instagram' });
+  const late = snap('orphan-late', { source: 'youtube' });
+  const page = snap('orphan-page');
+  await db.snapshots.bulkAdd([keep, single, carousel, late, page]);
+  const deleted: string[] = [];
+  setElectronApi({
+    media: {
+      deleteLibraryFile: async (relPath: string) => { deleted.push(relPath); },
+      downloadToLibrary: async ({ snapshotId }: { snapshotId: string }) => {
+        // The user deletes the clipping while yt-dlp runs (except `late`).
+        if (snapshotId !== late.id) await db.snapshots.delete(snapshotId);
+        if (snapshotId === carousel.id) {
+          return {
+            ok: true,
+            relPath: `${P}/${snapshotId}/0.mp4`,
+            kind: 'video',
+            // Hostile extras: the project folder and another clipping's file.
+            items: [
+              { relPath: `${P}/${snapshotId}/0.mp4`, kind: 'video' },
+              { relPath: `${P}/${snapshotId}/1.jpg`, kind: 'image' },
+              { relPath: P, kind: 'image' },
+              { relPath: `${P}/${keep.id}.mp4`, kind: 'video' },
+              { relPath: `${P}/${snapshotId}/../${keep.id}.mp4`, kind: 'video' },
+            ],
+          };
+        }
+        return { ok: true, relPath: `${P}/${snapshotId}.mp4`, kind: 'video' };
+      },
+    },
+    capture: {
+      page: async ({ snapshotId }: { snapshotId: string }) => {
+        await db.snapshots.delete(snapshotId);
+        return { ok: true, pdfPath: `${P}/${snapshotId}.pdf`, htmlPath: `${P}/${snapshotId}.html`, imagePath: `${P}/${snapshotId}.png` };
+      },
+    },
+  });
+  try {
+    await runSnapshotDownload({ ...single }, updateSnapshot);
+    await runSnapshotDownload({ ...carousel }, updateSnapshot);
+    // Deleted in the gap between the post-download read and the write.
+    await runSnapshotDownload({ ...late }, async (id, changes) => {
+      if (changes.downloadState === 'done') await db.snapshots.delete(id);
+      await updateSnapshot(id, changes);
+    });
+    await runSnapshotCapture({ ...page }, updateSnapshot);
+    // Deleted BEFORE its queued turn (collection import): nothing is fetched.
+    const before = deleted.length;
+    await runSnapshotDownload({ ...snap('orphan-never', { source: 'youtube' }) }, updateSnapshot);
+    assert(deleted.length === before, 'a download ran for a clipping that no longer exists');
+  } finally {
+    setElectronApi(undefined);
+  }
+  const expected = [
+    `${P}/${single.id}.mp4`,
+    `${P}/${carousel.id}`,
+    `${P}/${late.id}.mp4`,
+    `${P}/${page.id}.pdf`,
+    `${P}/${page.id}.png`,
+    `${P}/${page.id}.html`,
+  ];
+  assert(
+    JSON.stringify([...deleted].sort()) === JSON.stringify([...expected].sort()),
+    `orphan cleanup deleted ${JSON.stringify(deleted)}, expected ${JSON.stringify(expected)}`,
+  );
+  const survivor = await db.snapshots.get(keep.id);
+  assert(survivor?.url === keep.url && survivor.localMediaPath === keep.localMediaPath, 'another clipping was touched');
+  for (const gone of [single, carousel, late, page]) {
+    assert(!(await db.snapshots.get(gone.id)), `a deleted clipping was resurrected: ${gone.id}`);
+  }
+  await db.snapshots.delete(keep.id);
+  return 'a download/capture that finishes after its clipping was deleted discards only that clipping\'s files';
+}
+
+/** Deleting a clipping from the detail view cancels its running jobs. */
+async function deleteCancelsRunningJobs(): Promise<string> {
+  const target = snap('del-running', { source: 'youtube' });
+  const other = snap('del-other', { source: 'youtube', localMediaPath: `${P}/${P}-del-other.mp4`, downloadState: 'done' });
+  await db.snapshots.bulkAdd([target, other]);
+  const cancelledDownloads: string[] = [];
+  const cancelledCaptures: string[] = [];
+  const deleted: string[] = [];
+  let finishDownload: (() => void) | null = null;
+  setElectronApi({
+    instagram: { status: async () => ({ connected: false }) },
+    media: {
+      deleteLibraryFile: async (relPath: string) => { deleted.push(relPath); },
+      // The cancel loses the race: yt-dlp had already finished the copy.
+      cancelDownload: async (id: string) => { cancelledDownloads.push(id); },
+      downloadToLibrary: async ({ snapshotId }: { snapshotId: string }) => {
+        await new Promise<void>((resolve) => { finishDownload = resolve; });
+        return { ok: true, relPath: `${P}/${snapshotId}.mp4`, kind: 'video' };
+      },
+    },
+    capture: { cancel: async (id: string) => { cancelledCaptures.push(id); } },
+  });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const pause = (ms = 25) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+  const waitFor = async (condition: () => boolean, message: string) => {
+    const deadline = Date.now() + 8000;
+    while (!condition() && Date.now() < deadline) await act(async () => { await pause(); });
+    assert(condition(), message);
+  };
+  try {
+    await act(async () => {
+      root.render(<MemoryRouter><ScrapperEngine projectId={P} /><ToastHost /></MemoryRouter>);
+    });
+    await waitFor(() => host.querySelectorAll('[data-snapshot-id]').length === 2, 'grid did not load');
+    const running = runSnapshotDownload({ ...target }, updateSnapshot);
+    await waitFor(() => finishDownload !== null, 'download did not start');
+    await act(async () => host.querySelector<HTMLElement>(`[data-snapshot-id="${target.id}"]`)!.click());
+    // The detail footer's Delete, then the confirmation's (rendered after it).
+    const deleteButtons = () => Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+      .filter((b) => b.textContent?.trim() === 'Delete');
+    await waitFor(() => deleteButtons().length === 1, 'detail view did not open');
+    await act(async () => deleteButtons()[0].click());
+    await waitFor(() => (document.body.textContent?.includes('Delete this snapshot?') ?? false) && deleteButtons().length === 2, 'no delete confirmation');
+    await act(async () => deleteButtons()[1].click());
+    await waitFor(() => cancelledDownloads.includes(target.id) && cancelledCaptures.includes(target.id), 'delete did not cancel the running jobs');
+    await waitFor(() => host.querySelectorAll('[data-snapshot-id]').length === 1, 'clipping was not deleted');
+    assert(!cancelledDownloads.includes(other.id) && !cancelledCaptures.includes(other.id), 'another clipping was cancelled');
+    await act(async () => { finishDownload!(); await running; });
+    assert(JSON.stringify(deleted) === JSON.stringify([`${P}/${target.id}.mp4`]), `late file cleanup: ${JSON.stringify(deleted)}`);
+    assert(!(await db.snapshots.get(target.id)), 'the deleted clipping came back');
+    assert((await db.snapshots.get(other.id))?.url === other.url, 'another clipping was lost');
+  } finally {
+    await act(async () => { root.unmount(); });
+    host.remove();
+    setElectronApi(undefined);
+    await db.snapshots.bulkDelete([target.id, other.id]);
+  }
+  return 'deleting a clipping cancels its download/capture; a download that finishes anyway is removed';
+}
+
+/** The batch belongs to the module: a remounted view shows Stop, and no second batch starts. */
+async function batchSurvivesRemount(): Promise<string> {
+  const rows = [snap('rm-a'), snap('rm-b')];
+  await db.snapshots.bulkAdd(rows);
+  const started: string[] = [];
+  let release: (() => void) | null = null;
+  setElectronApi({
+    instagram: { status: async () => ({ connected: false }) },
+    capture: {
+      page: async ({ snapshotId }: { snapshotId: string }) => {
+        started.push(snapshotId);
+        await new Promise<void>((resolve) => { release = resolve; });
+        return { ok: false, error: 'cancelled' };
+      },
+      cancel: async () => { release?.(); },
+    },
+  });
+  const pause = (ms = 25) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+  const waitFor = async (condition: () => boolean, message: string) => {
+    const deadline = Date.now() + 8000;
+    while (!condition() && Date.now() < deadline) await act(async () => { await pause(); });
+    assert(condition(), message);
+  };
+  const button = (match: (text: string) => boolean) =>
+    Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((b) => match(b.textContent?.trim() ?? ''));
+  const mount = async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<MemoryRouter><ScrapperEngine projectId={P} /><ToastHost /></MemoryRouter>);
+    });
+    return { host, root };
+  };
+  let view = await mount();
+  try {
+    await waitFor(() => button((t) => t === 'Archive link-only (2)') !== undefined, 'archive button missing');
+    await act(async () => button((t) => t === 'Archive link-only (2)')!.click());
+    await waitFor(() => Boolean(button((t) => t === 'Archive 2')), 'no confirmation');
+    await act(async () => button((t) => t === 'Archive 2')!.click());
+    await waitFor(() => Boolean(button((t) => t.startsWith('Stop archiving'))) && release !== null, 'batch did not start');
+
+    // Leave the tab and come back while the first page is still rendering.
+    await act(async () => { view.root.unmount(); });
+    view.host.remove();
+    view = await mount();
+    await waitFor(() => button((t) => t === 'Stop archiving (0/2)') !== undefined, 'remounted view lost the Stop control');
+    assert(!button((t) => t.startsWith('Archive link-only')), 'remounted view offers a second batch');
+    assert(!startArchiveBatch(rows.map((r) => r.id)), 'a second batch started while one runs');
+    assert(started.length === 1, `captures running at once: ${started.length}`);
+
+    await act(async () => button((t) => t.startsWith('Stop archiving'))!.click());
+    await waitFor(() => document.body.textContent?.includes('Archived 0 of 2 pages.') ?? false, 'stop from the remounted view did not end the batch');
+    assert(started.length === 1, 'the batch kept going after Stop');
+    await waitFor(() => button((t) => t === 'Archive link-only (2)') !== undefined, 'archive button did not come back');
+    const after = await db.snapshots.bulkGet(rows.map((r) => r.id));
+    assert(after.every((row, i) => row?.url === rows[i].url), 'a link was lost or rewritten');
+  } finally {
+    await act(async () => { view.root.unmount(); });
+    view.host.remove();
+    setElectronApi(undefined);
+    await db.snapshots.bulkDelete(rows.map((r) => r.id));
+  }
+  return 'batch archive progress + Stop survive a remount, and only one batch runs at a time';
+}
+
 async function engineUi(passed: string[]): Promise<void> {
   const rows = [
     snap('a'),
@@ -327,6 +537,9 @@ export async function testScrapperPreservation(): Promise<string[]> {
     passed.push(await downloadKeepsTypedDescription());
     passed.push(await captureKeepsTypedDescription());
     await engineUi(passed);
+    passed.push(await orphanedFilesAreDiscarded());
+    passed.push(await deleteCancelsRunningJobs());
+    passed.push(await batchSurvivesRemount());
   } finally {
     useLocaleStore.setState({ locale: priorLocale });
   }
