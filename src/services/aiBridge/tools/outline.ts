@@ -31,6 +31,7 @@ import {
   resolveProjectForEngine,
   resolveProjectId,
   withAudit,
+  nextSlot,
   type ToolArgs,
 } from './shared';
 
@@ -175,7 +176,7 @@ export async function whCreateBeat(args: ToolArgs): Promise<unknown> {
     id: generateId('beat'),
     outlineId,
     projectId: outline.projectId,
-    order: optNumber(args, 'order') ?? siblings.length,
+    order: optNumber(args, 'order') ?? nextSlot(siblings, 'order'),
     level: optEnum(args, 'level', LEVELS) ?? 'beat',
     parentId,
     title: requireString(args, 'title'),

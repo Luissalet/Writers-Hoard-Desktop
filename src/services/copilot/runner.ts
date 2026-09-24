@@ -240,35 +240,43 @@ async function beginCopilotTurn(options: SendTurnOptions, replayUserMessageId?: 
 
   const finish = async (status: AiMessage['status'], error?: string): Promise<void> => {
     const run = useCopilotStore.getState().runsByThread[options.threadId];
-    if (assistantId) {
-      const content = run?.buffer ?? '';
-      if (!content && status === 'complete') {
-        // A trailing empty placeholder (turn ended on tool results): drop it.
-        const { db } = await import('@/db');
-        await db.aiMessages.delete(assistantId);
-      } else {
-        await updateMessage(assistantId, { content, status, error });
+    try {
+      if (assistantId) {
+        const content = run?.buffer ?? '';
+        if (!content && status === 'complete') {
+          // A trailing empty placeholder (turn ended on tool results): drop it.
+          const { db } = await import('@/db');
+          await db.aiMessages.delete(assistantId);
+        } else {
+          await updateMessage(assistantId, { content, status, error });
+        }
+      } else if (status === 'error' && error) {
+        await addMessage({
+          threadId: options.threadId,
+          projectId: options.projectId,
+          role: 'assistant',
+          content: '',
+          status: 'error',
+          error,
+          route: options.route,
+        });
       }
-    } else if (status === 'error' && error) {
-      await addMessage({
-        threadId: options.threadId,
-        projectId: options.projectId,
-        role: 'assistant',
-        content: '',
-        status: 'error',
-        error,
-        route: options.route,
-      });
-    }
-    // Any card still waiting is over.
-    for (const [callId, record] of toolState) {
-      if (record.state === 'proposed' || record.state === 'running') {
-        await upsertTool({ ...record, state: status === 'cancelled' ? 'rejected' : 'failed', ok: false, error: error ?? 'cancelled' });
-        toolState.set(callId, record);
+      // Any card still waiting is over.
+      for (const [callId, record] of toolState) {
+        if (record.state === 'proposed' || record.state === 'running') {
+          await upsertTool({ ...record, state: status === 'cancelled' ? 'rejected' : 'failed', ok: false, error: error ?? 'cancelled' });
+          toolState.set(callId, record);
+        }
       }
+    } finally {
+      // The run is over whatever the disk said. A failed write above must not
+      // leave the thread "busy" — every later send and retry would be refused
+      // and the dock would spin until the app is reloaded. A row left
+      // "streaming" is settled as cancelled by settleStaleMessages once the
+      // run is gone.
+      useCopilotStore.getState().endRun(options.threadId);
+      useCopilotStore.getState().bumpData();
     }
-    useCopilotStore.getState().endRun(options.threadId);
-    useCopilotStore.getState().bumpData();
   };
 
   const handle = runCopilot(

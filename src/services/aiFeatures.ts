@@ -157,8 +157,10 @@ export async function checkConsistency(
     .map((w, i) => `=== ${w.title} (Capítulo ${i + 1}) ===\n${stripHtml(w.content)}`)
     .join('\n\n');
 
-  // If text is too long, process in pairs
-  if (combined.length > 100000) {
+  // If text is too long, process in pairs. Only while there is more than a
+  // pair to split: two long chapters used to recurse on the same pair until
+  // the stack overflowed, and a single one returned [] — "no issues" — unread.
+  if (combined.length > 100000 && writings.length > 2) {
     const results: ConsistencyIssue[] = [];
     for (let i = 0; i < writings.length - 1; i++) {
       const pair = [writings[i], writings[i + 1]];

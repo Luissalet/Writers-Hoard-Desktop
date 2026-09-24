@@ -28,6 +28,7 @@ import {
   resolveProjectForEngine,
   resolveProjectId,
   withAudit,
+  nextSlot,
   type ToolArgs,
 } from './shared';
 
@@ -95,7 +96,7 @@ export async function whAddVideoSegment(args: ToolArgs): Promise<unknown> {
     id: generateId('segment'),
     videoPlanId,
     projectId: plan.projectId,
-    order: optNumber(args, 'order') ?? siblings.length,
+    order: optNumber(args, 'order') ?? nextSlot(siblings, 'order'),
     title: requireString(args, 'title'),
     startTime: optString(args, 'startTime'),
     endTime: optString(args, 'endTime'),
