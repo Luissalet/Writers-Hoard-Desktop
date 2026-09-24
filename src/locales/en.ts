@@ -3476,6 +3476,7 @@ const en = {
   'copilot.cancelled': 'Cancelled.',
   'copilot.thinking': 'Thinking…',
   'copilot.error.generic': 'The request failed.',
+  'copilot.error.sendFailed': 'The message could not be sent. It is back in the box so you can try again.',
   'copilot.remoteConsent': 'This model runs on a remote server ({name}). What you ask and what the copilot reads from the project will leave your computer. Continue for this project?',
   'copilot.notice.chat-only': 'This model does not support tools: it can converse but cannot read or change the project.',
   'copilot.notice.tools-dropped': 'The server refused tools; this answer is conversation only.',

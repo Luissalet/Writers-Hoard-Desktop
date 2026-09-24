@@ -10,6 +10,7 @@
 
 import { isDesktop } from '@/utils/platform';
 import type { Snapshot, SnapshotSource } from '@/engines/scrapper/types';
+import { getSnapshot } from '@/engines/scrapper/operations';
 import type { MediaFormat } from './mediaDownloader';
 
 /** Sources whose links yt-dlp can fetch (everything except manual / plain web pages). */
@@ -145,9 +146,13 @@ export async function runSnapshotDownload(
       downloadError: undefined,
     };
     // Fill in the reel's own caption/author/date — but never overwrite the user's edits.
-    if (media.description && !snapshot.description?.trim()) changes.description = media.description;
-    if (media.uploader && !snapshot.author?.trim()) changes.author = media.uploader;
-    if (!snapshot.publishDate) {
+    // A download can run for minutes, and the user may type a description in
+    // the meantime: decide from the row as it is NOW, not as it was when the
+    // download started. If the read fails, fall back to the caller's copy.
+    const current = (await getSnapshot(snapshot.id).catch(() => undefined)) ?? snapshot;
+    if (media.description && !current.description?.trim()) changes.description = media.description;
+    if (media.uploader && !current.author?.trim()) changes.author = media.uploader;
+    if (!current.publishDate) {
       const iso = isoFromYtDate(media.uploadDate);
       if (iso) changes.publishDate = iso;
     }
