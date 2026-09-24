@@ -94,7 +94,9 @@ async function main() {
     const url = pathToFileURL(htmlPath).toString() +
       (label === 'Full renderer startup' ? '#/' : '');
     await testWindow.loadURL(url);
-    const deadline = Date.now() + timeoutMs;
+    // An inactivity budget, not a total one: a slow machine that keeps
+    // reporting progress must not fail for being slow (lesson #40).
+    let deadline = Date.now() + timeoutMs;
     const startedAt = Date.now();
     let lastProgress = '';
     while (Date.now() < deadline) {
@@ -112,6 +114,7 @@ async function main() {
       if (progress !== lastProgress) {
         console.log(`${label}: ${progress} (${((Date.now() - startedAt) / 1000).toFixed(1)}s)`);
         lastProgress = progress;
+        deadline = Date.now() + timeoutMs;
       }
       await new Promise(resolve => setTimeout(resolve, 50));
     }
