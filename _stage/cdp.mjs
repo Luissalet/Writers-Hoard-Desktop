@@ -106,7 +106,7 @@ const EXPRESSIONS = {
 const [command, ...rest] = process.argv.slice(2);
 const arg = rest.join(' ');
 const build = EXPRESSIONS[command];
-if (!build && command !== 'shot' && command !== 'file') {
+if (!build && command !== 'shot' && command !== 'file' && command !== 'tap' && command !== 'press' && command !== 'hover') {
   console.error('commands: ' + Object.keys(EXPRESSIONS).join(', '));
   process.exit(2);
 }
@@ -116,14 +116,52 @@ let expression = null;
 if (command === 'file') {
   const fs = await import('node:fs');
   expression = fs.readFileSync(arg, 'utf8');
-} else if (command !== 'shot') {
+} else if (command !== 'shot' && command !== 'tap' && command !== 'press' && command !== 'hover') {
   expression = build(arg);
+}
+
+// A TRUSTED click: `el.click()` from Runtime.evaluate is no user gesture, so
+// anything gated on one (requestFullscreen) refuses it. Input.dispatchMouseEvent
+// is a real pointer as far as the page can tell.
+async function tap(ws, selector) {
+  const rect = await evaluate(ws, `const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null; el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 };`);
+  if (!rect) return 'NOT FOUND';
+  const base = { x: rect.x, y: rect.y, button: 'left', clickCount: 1 };
+  await send(ws, 7101, 'Input.dispatchMouseEvent', { type: 'mouseMoved', ...base });
+  await send(ws, 7102, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
+  await send(ws, 7103, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
+  await new Promise((r) => setTimeout(r, 600));
+  return 'tapped ' + selector;
+}
+
+// A trusted keystroke: `press Escape` / `press F` with modifiers bits (Alt=1, Ctrl=2, Meta=4, Shift=8).
+async function hover(ws, arg) {
+  const [x, y] = arg.split(',').map(Number);
+  await send(ws, 7121, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+  await new Promise((r) => setTimeout(r, 500));
+  return 'hovered ' + arg;
+}
+
+async function press(ws, arg) {
+  const [key, mods = '0'] = arg.split('::');
+  const code = key.length === 1 ? 'Key' + key.toUpperCase() : key;
+  const common = { key, code, modifiers: Number(mods), windowsVirtualKeyCode: key.length === 1 ? key.toUpperCase().charCodeAt(0) : key === 'Escape' ? 27 : 0 };
+  await send(ws, 7111, 'Input.dispatchKeyEvent', { type: 'keyDown', ...common });
+  await send(ws, 7112, 'Input.dispatchKeyEvent', { type: 'keyUp', ...common });
+  await new Promise((r) => setTimeout(r, 600));
+  return 'pressed ' + arg;
 }
 
 const target = await pickTarget();
 const ws = await connect(target.webSocketDebuggerUrl);
 try {
-  if (command === 'shot') {
+  if (command === 'tap') {
+    console.log(await tap(ws, arg));
+  } else if (command === 'press') {
+    console.log(await press(ws, arg));
+  } else if (command === 'hover') {
+    console.log(await hover(ws, arg));
+  } else if (command === 'shot') {
     const shot = await send(ws, 7001, 'Page.captureScreenshot', { format: 'png' });
     const fs = await import('node:fs');
     fs.writeFileSync(arg || 'shot.png', Buffer.from(shot.data, 'base64'));

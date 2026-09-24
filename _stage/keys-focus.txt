@@ -1,0 +1,5 @@
+topbar.hideSidebar|||Hide the sidebar|||Ocultar la barra lateral
+topbar.showSidebar|||Show the sidebar|||Mostrar la barra lateral
+shortcuts.global.sidebar|||Hide or show the sidebar|||Ocultar o mostrar la barra lateral
+shortcuts.editor.focusMode|||Enter or leave focus mode: the page alone, full screen|||Entrar o salir del modo concentración: solo la página, a pantalla completa
+writings.focusHint|||Move the pointer to the top edge for the controls · Esc leaves · {shortcut} toggles|||Lleva el puntero al borde superior para los controles · Esc sale · {shortcut} alterna

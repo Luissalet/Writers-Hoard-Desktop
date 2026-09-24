@@ -1514,8 +1514,8 @@ const en = {
   'writings.saveErrorIndicator': 'Save failed - retry',
   'writings.unsavedIndicator': 'Unsaved changes…',
   'writings.autosaveHint': 'Autosaves as you type. Ctrl+S saves immediately.',
-  'writings.focusMode': 'Focus mode (hide panels)',
-  'writings.exitFocusMode': 'Exit focus mode (Esc)',
+  'writings.focusMode': 'Focus mode: the page alone, full screen',
+  'writings.exitFocusMode': 'Leave focus mode (Esc)',
   'writings.confirmDelete': 'Delete “{name}”? Its version history goes with it — you have 30 seconds to undo.',
   'writings.leaveUnsaved.title': 'Changes not saved',
   'writings.leaveUnsaved.message': 'This writing could not be saved: {error}\n\nYour draft is kept in the local recovery journal and comes back the next time you open it, so leaving is safe.',
@@ -5029,6 +5029,11 @@ const en = {
   'creativeLab.story.limit': 'Where it stops working',
   'creativeLab.story.stressTitle': 'Pressure questions',
   'creativeLab.story.stressEmpty': 'Complete a rule to generate questions about abuse, failure, interaction and social cost.',
+  'topbar.hideSidebar': 'Hide the sidebar',
+  'topbar.showSidebar': 'Show the sidebar',
+  'shortcuts.global.sidebar': 'Hide or show the sidebar',
+  'shortcuts.editor.focusMode': 'Enter or leave focus mode: the page alone, full screen',
+  'writings.focusHint': 'Move the pointer to the top edge for the controls · Esc leaves · {shortcut} toggles',
 } as const;
 
 export default en;
