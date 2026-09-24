@@ -129,23 +129,28 @@ export default function ReadAloudPanel({
     () => segmentReadAloudBlocks(blocks, granularity, locale),
     [blocks, granularity, locale],
   );
+  // The cast is not part of the controller's identity: picking a character's
+  // voice mid-read used to build a new controller, which stopped the speech
+  // and sent the table read back to line 1. The controller reads the cast at
+  // each line it speaks, so handing it the new one is enough.
   const controller = useMemo(
-    () => new ReadAloudController({
-      driver,
-      segments,
-      locale,
-      rate: initialRate,
-      voicePreferences: resolvedVoicePreferences,
-    }),
-    [driver, initialRate, locale, resolvedVoicePreferences, segments],
+    () => new ReadAloudController({ driver, segments, locale, rate: initialRate }),
+    [driver, initialRate, locale, segments],
   );
+  useEffect(() => {
+    controller.setVoicePreferences(resolvedVoicePreferences);
+  }, [controller, resolvedVoicePreferences]);
   const snapshot = useSyncExternalStore(
     controller.subscribe,
     controller.getSnapshot,
     controller.getSnapshot,
   );
 
-  useEffect(() => () => controller.destroy(), [controller]);
+  // Stop, not destroy: the memoised controller outlives StrictMode's
+  // unmount/remount of this effect, and a destroyed one never speaks again
+  // (tasks/lessons #19). `stop` silences it and voids its pending callbacks
+  // just the same, and leaves the remounted panel a controller that plays.
+  useEffect(() => () => controller.stop(), [controller]);
 
   useEffect(() => {
     return driver.subscribeVoices?.(() => setVoices(driver.getVoices()));

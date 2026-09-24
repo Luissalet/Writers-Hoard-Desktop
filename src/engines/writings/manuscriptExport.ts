@@ -59,6 +59,50 @@ function decodeEntities(s: string): string {
     .replace(/&quot;/gi, '"');
 }
 
+/** A list with no list inside it: `ul`/`ol` (1), its attributes (2), its items (3). */
+const INNERMOST_LIST_RE = /<(ul|ol)\b([^>]*)>((?:(?!<(?:ul|ol)\b)[\s\S])*?)<\/\1>/gi;
+/**
+ * A list already written as Markdown, waiting for its parent item or the top
+ * level to place it. Bracketed by STX/ETX, which no chapter's text contains.
+ */
+// eslint-disable-next-line no-control-regex -- the control characters are the brackets
+const CONVERTED_LIST_RE = /\u0002([\s\S]*?)\u0003/g;
+
+/**
+ * One list as Markdown lines. The items hold no list html any more — their
+ * sub-lists were converted first and come in marked by `CONVERTED_LIST_RE` —
+ * so each is indented under its item by the width of the item's marker, which
+ * is how `markdownToTiptapHtml` reads nesting back. An item's paragraphs are
+ * joined with a space: a list item is one line there, and glued they would
+ * run the last word of one into the first word of the next.
+ */
+function listToMarkdown(tag: string, attributes: string, inner: string): string {
+  const ordered = tag.toLowerCase() === 'ol';
+  const start = ordered ? Number(/\bstart="(\d+)"/i.exec(attributes)?.[1] ?? 1) : 1;
+  const lines: string[] = [];
+  let index = 0;
+  for (const [, item] of inner.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)) {
+    const marker = ordered ? `${start + index}.` : '-';
+    index += 1;
+    const nested: string[] = [];
+    const text = item
+      .replace(CONVERTED_LIST_RE, (_m, markdown: string) => {
+        nested.push(markdown);
+        return ' ';
+      })
+      .replace(/<br\s*\/?>/gi, ' ')
+      .replace(/<\/p>\s*<p\b[^>]*>/gi, ' ')
+      .replace(/<\/?p\b[^>]*>/gi, '')
+      .trim();
+    lines.push(`${marker} ${text}`);
+    const indent = ' '.repeat(marker.length + 1);
+    for (const markdown of nested) {
+      for (const line of markdown.split('\n')) lines.push(`${indent}${line}`);
+    }
+  }
+  return `\u0002${lines.join('\n')}\u0003`;
+}
+
 /** A note's body as the text after `[^n]: ` — later lines indented as Markdown continues a footnote. */
 function markdownNoteText(text: string): string {
   return text.split(/\r?\n/).join('\n    ');
@@ -113,13 +157,19 @@ export function htmlToMarkdownParts(
     );
   });
 
-  // Lists — ordered get "1." (Markdown renderers auto-increment)
-  s = s.replace(/<ol[^>]*>(.*?)<\/ol>/gis, (_m, inner: string) => {
-    return '\n\n' + inner.replace(/<li[^>]*>(.*?)<\/li>/gis, (_m2, item: string) => `1. ${item.replace(/<\/?p[^>]*>/gi, '').trim()}\n`) + '\n';
-  });
-  s = s.replace(/<ul[^>]*>(.*?)<\/ul>/gis, (_m, inner: string) => {
-    return '\n\n' + inner.replace(/<li[^>]*>(.*?)<\/li>/gis, (_m2, item: string) => `- ${item.replace(/<\/?p[^>]*>/gi, '').trim()}\n`) + '\n';
-  });
+  // Lists, innermost first, so each item's sub-list is already Markdown when
+  // its parent item is written and can be indented under it. A single pass
+  // over the html ended the outer list at the inner one's `</ul>`: the parent
+  // item ran into its first child ("ParentChild one") and every item after
+  // the sub-list lost its bullet.
+  let unconverted: string;
+  do {
+    unconverted = s;
+    s = s.replace(INNERMOST_LIST_RE, (_m, tag: string, attributes: string, inner: string) =>
+      listToMarkdown(tag, attributes, inner),
+    );
+  } while (s !== unconverted);
+  s = s.replace(CONVERTED_LIST_RE, '\n\n$1\n\n');
 
   // Scene / POV breaks — the editor's `---` input rule persists an <hr>.
   s = s.replace(/<hr\b[^>]*>/gi, '\n\n---\n\n');
