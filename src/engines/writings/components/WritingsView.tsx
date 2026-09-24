@@ -51,7 +51,9 @@ import { collectFootnotes, normalizeFootnotePlacement, normalizeFootnoteStyle } 
 import type { PageLayoutOptions, PageNote } from '@/components/editor/pageMode/PageLayout';
 import { usePageCount } from '@/components/editor/pageMode/usePageCount';
 import { useAppStore } from '@/stores/appStore';
+import { FOCUS_MODE_SHORTCUT, matchesShortcut, shortcutCaps } from '@/components/common/shortcuts';
 import BookEditor from './BookEditor';
+import FocusChrome from './FocusChrome';
 import TagInput from '@/components/common/TagInput';
 import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
@@ -874,13 +876,18 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     // `locale` and not `t`: the translator is a new function every render.
   }, [unsaved, locale]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Ctrl/Cmd+S saves immediately; Escape exits focus mode.
+  // Ctrl/Cmd+S saves immediately; Mod+Shift+F toggles focus mode; Escape
+  // leaves it.
   useEffect(() => {
     if (!openWriting) return;
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
         void flushSave();
+      } else if (matchesShortcut(e, FOCUS_MODE_SHORTCUT)) {
+        if (e.repeat) return;
+        e.preventDefault();
+        setFocusMode((on) => !on);
       } else if (e.key === 'Escape') {
         setFocusMode(false);
       }
@@ -888,6 +895,33 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [openWriting, flushSave]);
+
+  // Focus mode is the page and nothing else: the overlay below hides the
+  // app's own furniture, and the window goes to full screen for the rest —
+  // title bar, taskbar, the other windows' edges. The Fullscreen API rather
+  // than a new IPC: Electron answers `requestFullscreen` by putting the whole
+  // window in full screen, and the web build gets the browser's for free.
+  // `fullscreenchange` is the single way OUT — Esc, F11, our own button and
+  // the OS all land there — so the overlay can never outlive the full
+  // screen, nor the full screen the overlay.
+  useEffect(() => {
+    if (!focusMode) return;
+    const root = document.documentElement;
+    if (!document.fullscreenElement && typeof root.requestFullscreen === 'function') {
+      root.requestFullscreen().catch(() => {
+        // Not granted (no user gesture left, or the platform declined): the
+        // overlay alone still hides everything the app itself draws.
+      });
+    }
+    const onChange = () => {
+      if (!document.fullscreenElement) setFocusMode(false);
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    };
+  }, [focusMode]);
 
   const filtered = useMemo(
     () => writings
@@ -2166,12 +2200,16 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     // Focus mode is local to this view — the app has no global immersive
     // layout to borrow, and inventing one for a single editor would put a
     // layout mode in everyone's way. A fixed overlay at the app's own
-    // background colour covers the sidebar and the copilot dock, leaving the
-    // page and the few controls needed to get back out. Esc exits (see the
-    // keydown effect above); modals still sit above it at z-50.
-    const editorBody = (
-      <>
-        {/* Header */}
+    // background colour covers the sidebar and the copilot dock, the window
+    // goes to full screen (see the effect above), and what is left is the
+    // page: the header row below slides in from the top edge when the
+    // pointer goes looking for it, the way Word's Focus view brings its
+    // ribbon back, and the counts sit in a corner. Esc exits; modals still
+    // sit above it at z-50.
+    const focusShortcut = (shortcutCaps(FOCUS_MODE_SHORTCUT)[0] ?? [])
+      .map((cap) => (cap.localeKey ? t(cap.localeKey) : cap.text))
+      .join(' ');
+    const headerRow = (
         <div className="flex items-center gap-4">
           <button
             onClick={handleCloseWriting}
@@ -2257,13 +2295,17 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             </div>
           )}
 
-          {/* Writing sprint — stays visible in focus mode; a countdown you
-              cannot see is not a countdown. */}
-          <SprintControl
-            projectId={projectId}
-            writingId={openWriting.id}
-            getProjectWords={getProjectWords}
-          />
+          {/* Writing sprint — in focus mode it moves to the corner pill,
+              which stays on screen; a countdown you cannot see is not a
+              countdown. (It seeds itself from the stored sprint, so the
+              remount paints the running clock straight away.) */}
+          {!focusMode && (
+            <SprintControl
+              projectId={projectId}
+              writingId={openWriting.id}
+              getProjectWords={getProjectWords}
+            />
+          )}
 
           {/* Read on from here: the manuscript as one scroll, opening on this
               chapter. Read-only, so the editor is closed (and flushed) first. */}
@@ -2358,7 +2400,9 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             <History size={15} />
           </button>
 
-          {/* Focus mode toggle */}
+          {/* Focus mode toggle. `requestFullscreen` wants a user gesture,
+              and this click is one; the effect that calls it runs right
+              after the state lands, well inside the gesture's window. */}
           <button
             onClick={() => setFocusMode(!focusMode)}
             className={`p-1.5 rounded-lg transition border ${
@@ -2366,7 +2410,9 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
                 ? 'text-accent-gold border-accent-gold/40 bg-accent-gold/10'
                 : 'text-text-muted border-border hover:text-text-primary hover:bg-elevated'
             }`}
-            title={focusMode ? t('writings.exitFocusMode') : t('writings.focusMode')}
+            title={`${focusMode ? t('writings.exitFocusMode') : t('writings.focusMode')} (${focusShortcut})`}
+            aria-label={focusMode ? t('writings.exitFocusMode') : t('writings.focusMode')}
+            aria-pressed={focusMode}
           >
             {focusMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
           </button>
@@ -2380,22 +2426,13 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             {saveState === 'saving' ? t('common.saving') : t('writings.save')}
           </button>
         </div>
+    );
 
-        {/* Title */}
-        <input
-          value={editedTitle}
-          onChange={(e) => setEditedTitle(e.target.value)}
-          className="w-full text-2xl font-serif font-bold bg-transparent border-none outline-none text-text-primary placeholder:text-text-dim"
-          placeholder={t('writings.untitled')}
-        />
-
-        {/* Which beat this chapter is written against, when one points here. */}
-        <LinkedBeatChip projectId={projectId} writingId={openWriting.id} />
-
-        {/* Word count, chapter & Google Doc badge.
-            The chapter used to be a read-only chip: a number could be given at
-            creation and never changed, so renumbering meant recreating the
-            chapter. It is an input now — empty clears the number. */}
+    // Word count, chapter & Google Doc badge.
+    // The chapter used to be a read-only chip: a number could be given at
+    // creation and never changed, so renumbering meant recreating the
+    // chapter. It is an input now — empty clears the number.
+    const metaRow = (
         <div className="flex items-center gap-4 text-xs text-text-muted">
           <span>{wc.toLocaleString()} {t('writings.words')}</span>
           {readingPrefs.layout === 'page' && (
@@ -2417,6 +2454,26 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             />
           )}
         </div>
+    );
+
+    const editorBody = (
+      <>
+        {/* Header — in focus mode it lives in the strip at the top edge. */}
+        {!focusMode && headerRow}
+
+        {/* Title */}
+        <input
+          value={editedTitle}
+          onChange={(e) => setEditedTitle(e.target.value)}
+          className="w-full text-2xl font-serif font-bold bg-transparent border-none outline-none text-text-primary placeholder:text-text-dim"
+          placeholder={t('writings.untitled')}
+        />
+
+        {/* Which beat this chapter is written against, when one points here. */}
+        <LinkedBeatChip projectId={projectId} writingId={openWriting.id} />
+
+        {/* Counts and chapter number — in focus mode, the corner pill. */}
+        {!focusMode && metaRow}
 
         {/* Synopsis + tags — planning furniture, so it follows the AI toolbar
             out of the way in focus mode. */}
@@ -2663,11 +2720,26 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
     );
 
     return focusMode ? (
-      <div className="fixed inset-0 z-40 overflow-y-auto bg-deep">
+      <div className="fixed inset-0 z-40 overflow-y-auto bg-deep" data-focus-mode>
+        {/* The header, at the top edge, out of sight until asked for. */}
+        <FocusChrome hint={t('writings.focusHint').replace('{shortcut}', focusShortcut)}>
+          {headerRow}
+        </FocusChrome>
         {/* The reading column in flow; in page mode a sheet plus the desk's
             padding, or the paper would be clipped by its own column. */}
-        <div className={`${pageMode ? 'max-w-[calc(816px+4rem)]' : 'max-w-3xl'} mx-auto px-6 py-6 space-y-4`}>
+        <div className={`${pageMode ? 'max-w-[calc(816px+4rem)]' : 'max-w-3xl'} mx-auto px-6 pt-20 pb-16 space-y-4`}>
           {editorBody}
+        </div>
+        {/* The counts, where a status bar keeps them: a corner, dim, and
+            not in the way of the last line on the page. */}
+        <div className="fixed bottom-3 right-4 z-10 flex items-center gap-4 rounded-full border border-border/60 bg-surface/80 px-3 py-1.5 backdrop-blur opacity-60 transition hover:opacity-100 focus-within:opacity-100">
+          <SprintControl
+            projectId={projectId}
+            writingId={openWriting.id}
+            getProjectWords={getProjectWords}
+            menuPlacement="above"
+          />
+          {metaRow}
         </div>
       </div>
     ) : (

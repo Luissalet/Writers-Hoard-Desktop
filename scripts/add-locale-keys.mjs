@@ -4,8 +4,10 @@
 // Refuses duplicates so two agents cannot silently disagree on a key.
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(new URL('..', import.meta.url).pathname);
+// `fileURLToPath`, not `.pathname`: a space in the checkout path arrives as %20 otherwise.
+const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const source = process.argv[2] ? fs.readFileSync(process.argv[2], 'utf8') : fs.readFileSync(0, 'utf8');
 const lines = source.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
 

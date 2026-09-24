@@ -15,6 +15,7 @@ import { useAiStore } from '@/stores/aiStore';
 import { useLocaleStore } from '@/stores/localeStore';
 import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
+import { SIDEBAR_SHORTCUT, matchesShortcut } from '../common/shortcuts';
 
 export default function MainLayout() {
   const { t } = useTranslation();
@@ -22,6 +23,7 @@ export default function MainLayout() {
   const loadAiSettings = useAiStore(state => state.loadSettings);
   const loadLocale = useLocaleStore(state => state.loadLocale);
   const loadMotion = useAppStore(state => state.loadMotion);
+  const loadSidebar = useAppStore(state => state.loadSidebar);
 
   // Expose the router's navigate to module-scoped anchor adapters so they
   // can jump to entities without reloading the page.
@@ -35,8 +37,22 @@ export default function MainLayout() {
       loadAiSettings(),
       loadLocale(),
       loadMotion(),
+      loadSidebar(),
     ]).catch(error => console.error('Application initialization failed', error));
-  }, [loadAiSettings, loadLocale, loadMotion]);
+  }, [loadAiSettings, loadLocale, loadMotion, loadSidebar]);
+
+  // The sidebar's hide key, bound to the window like the palette's: it has to
+  // work from inside the chapter editor, which is exactly where a writer
+  // wants the sidebar gone.
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.repeat || !matchesShortcut(event, SIDEBAR_SHORTCUT)) return;
+      event.preventDefault();
+      useAppStore.getState().toggleSidebarHidden();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   return (
     <div className="h-dvh w-full flex flex-col overflow-hidden relative">

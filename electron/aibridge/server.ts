@@ -7,6 +7,15 @@
 //   GET  /api/instructions  { instructions }   — briefing for a fresh model
 //   POST /api/call          { tool, args } -> { ok, result } | { ok:false, error, code }
 //
+// The Hoard family contract (what the Hoard Hub's proxy, rules and audit
+// speak, see HoardLink/docs/FAMILY.md) rides on the same port:
+//   GET  /api/health        also answers without a token — only version and
+//                           switches, never content — with a `hoard_link` block
+//   GET  /api/agent/tools   { tools, instructions }        (alias of /api/tools)
+//   POST /api/agent/call    { name, arguments, caller } -> the tool's result,
+//                           4xx with { ok:false, error } when it fails
+// and every call posts an `agent.call` event to the hub (family.ts).
+//
 // Bound to 127.0.0.1 like the media server, but hardened well beyond it,
 // because this port can rewrite the user's manuscript:
 //
@@ -27,6 +36,7 @@ import {
 } from '@/services/aiBridge/manifest';
 import { callRenderer, pendingCallCount, type BridgeCallResult } from './rpc';
 import { executeTool } from './executor';
+import { emitFamilyEvent, familyHealthBlock } from './family';
 import {
   appendAudit,
   getAuditRecord,
@@ -110,13 +120,15 @@ async function handleCall(rawBody: string): Promise<{ status: number; body: unkn
 
   const toolName = typeof parsed.tool === 'string' ? parsed.tool : '';
   const tool = getBridgeTool(toolName);
+  const client = typeof parsed.client === 'string' ? parsed.client.slice(0, 60) : undefined;
   if (!tool) {
+    emitFamilyEvent('agent.call', { tool: toolName, ok: false, ms: 0, caller: client ?? '', error: 'unknown tool' });
     return {
       status: 404,
       body: {
         ok: false,
         code: 'unknown-tool',
-        error: `No tool named "${toolName}". Call GET /api/tools for the catalogue.`,
+        error: `Unknown tool "${toolName}". Call GET /api/tools for the catalogue.`,
       },
     };
   }
@@ -125,7 +137,7 @@ async function handleCall(rawBody: string): Promise<{ status: number; body: unkn
     parsed.args && typeof parsed.args === 'object' && !Array.isArray(parsed.args)
       ? (parsed.args as Record<string, unknown>)
       : {};
-  const client = typeof parsed.client === 'string' ? parsed.client.slice(0, 60) : undefined;
+  const started = Date.now();
 
   // The route is a transport. Policy, scope, audit and the relay itself live
   // in the executor, shared with the in-app copilot (tasks/lessons.md #23).
@@ -136,6 +148,13 @@ async function handleCall(rawBody: string): Promise<{ status: number; body: unkn
   void _auditIndex;
   void _sent;
   const status = outcome.code === 'writes-disabled' ? 403 : 200;
+  emitFamilyEvent('agent.call', {
+    tool: toolName,
+    ok: outcome.ok !== false,
+    ms: Date.now() - started,
+    caller: client ?? '',
+    ...(outcome.ok === false ? { error: String(outcome.error ?? outcome.code ?? 'failed').slice(0, 200) } : {}),
+  });
   return { status, body: outcome satisfies BridgeCallResult };
 }
 
@@ -172,8 +191,70 @@ export async function undoBridgeChange(index: number): Promise<BridgeCallResult>
   return outcome;
 }
 
+const FAMILY_FIRST_LINE = 110;
+
+/** A first line of at most 110 characters (the first sentence, or a cut at a word), then the full description. */
+export function familyDescription(description: string): string {
+  const full = String(description ?? '').trim();
+  const firstLine = full.split('\n')[0] ?? '';
+  if (firstLine.length <= FAMILY_FIRST_LINE) return full;
+  const sentence = firstLine.match(/^(.{20,108}?[.!?])\s/)?.[1];
+  let head = sentence ?? firstLine.slice(0, FAMILY_FIRST_LINE - 1);
+  if (!sentence) {
+    const cut = head.lastIndexOf(' ');
+    head = (cut > 40 ? head.slice(0, cut) : head).trimEnd() + '…';
+  }
+  return `${head}\n${full}`;
+}
+
+/**
+ * The family contract's call: `{ name, arguments, caller }` in, the tool's own
+ * result out (the hub's proxy unwraps `{ ok, result }`), a 4xx with
+ * `{ ok:false, error, code }` when the tool is unknown or fails. The
+ * `agent.call` event is posted by handleCall, once per call whatever the route.
+ */
+async function handleFamilyCall(rawBody: string): Promise<{ status: number; body: unknown }> {
+  let parsed: { name?: unknown; tool?: unknown; arguments?: unknown; args?: unknown; caller?: unknown };
+  try {
+    parsed = JSON.parse(rawBody || '{}') as typeof parsed;
+  } catch {
+    return { status: 400, body: { ok: false, code: 'bad-json', error: 'Body is not valid JSON.' } };
+  }
+  const name = typeof parsed.name === 'string' ? parsed.name : typeof parsed.tool === 'string' ? parsed.tool : '';
+  const caller = typeof parsed.caller === 'string' ? parsed.caller.slice(0, 60) : 'family';
+  if (!getBridgeTool(name)) {
+    emitFamilyEvent('agent.call', { tool: name, ok: false, ms: 0, caller, error: 'unknown tool' });
+    return { status: 404, body: { ok: false, code: 'unknown-tool', error: `Unknown tool "${name}". Call GET /api/agent/tools for the catalogue.` } };
+  }
+  const args = parsed.arguments ?? parsed.args;
+  const inner = JSON.stringify({ tool: name, args: args && typeof args === 'object' ? args : {}, client: caller });
+  const { status, body } = await handleCall(inner);
+  const outcome = body as { ok?: boolean; result?: unknown; error?: string; code?: string };
+  if (status >= 400 || outcome.ok === false) {
+    return { status: status >= 400 ? status : 400, body: { ok: false, code: outcome.code ?? 'failed', error: outcome.error ?? 'The tool failed.' } };
+  }
+  return { status: 200, body: { ok: true, tool: name, result: outcome.result } };
+}
+
 async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = (req.url ?? '/').split('?')[0];
+
+  // Health is the one route the family probes without a token (the hub, Faustus's
+  // discovery): loopback and no-Origin still apply, and it says nothing about content.
+  if (req.method === 'GET' && url === '/api/health' && isLoopback(req) && !req.headers.origin) {
+    const config = await getBridgeConfig();
+    sendJson(res, 200, {
+      ok: true,
+      appOpen: hasWindow(),
+      enabled: config.enabled,
+      writesEnabled: config.writesEnabled,
+      inFlight: pendingCallCount(),
+      version: appVersion,
+      service: 'writers-hoard-ai-bridge',
+      hoard_link: familyHealthBlock(),
+    });
+    return;
+  }
 
   const denied = await authorize(req);
   if (denied) {
@@ -195,15 +276,18 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return;
   }
 
-  if (req.method === 'GET' && url === '/api/health') {
+  if (req.method === 'GET' && url === '/api/agent/tools') {
+    // The family's shape: the whole catalogue plus the briefing, in one answer.
+    // A tool index keeps only a description's first line, so it is a short
+    // one here (the full text follows on the next lines, untouched).
     sendJson(res, 200, {
       ok: true,
-      appOpen: hasWindow(),
-      enabled: config.enabled,
+      tools: selectTools({ groups: [], writesEnabled: config.writesEnabled }).map((tool) => ({
+        ...tool,
+        description: familyDescription(tool.description),
+      })),
+      instructions: BRIDGE_INSTRUCTIONS,
       writesEnabled: config.writesEnabled,
-      inFlight: pendingCallCount(),
-      version: appVersion,
-      service: 'writers-hoard-ai-bridge',
     });
     return;
   }
@@ -325,6 +409,19 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return;
     }
     const { status, body } = await handleCall(rawBody);
+    sendJson(res, status, body);
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/agent/call') {
+    let rawBody: string;
+    try {
+      rawBody = await readBody(req);
+    } catch {
+      sendJson(res, 413, { ok: false, code: 'body-too-large', error: 'Request body too large.' });
+      return;
+    }
+    const { status, body } = await handleFamilyCall(rawBody);
     sendJson(res, status, body);
     return;
   }
