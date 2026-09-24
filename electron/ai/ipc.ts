@@ -20,7 +20,13 @@ import type {
   AiLoraSelection,
   AiRouteSelection,
 } from '@/services/aiRuntime/types';
-import { clampLoraWeight, isSdLoraName } from '@/services/aiRuntime/sdServer';
+import {
+  clampLoraWeight,
+  isSdCacheMode,
+  isSdLayerArray,
+  isSdLoraName,
+  isSdSigmaArray,
+} from '@/services/aiRuntime/sdServer';
 import {
   BUILTIN_SD_ID,
   deleteConnection,
@@ -49,6 +55,7 @@ import {
   stopSdServer,
 } from './sdRuntime';
 import { sdBackendsFor, type SdBackend } from './sdRuntimeManifest';
+import { isSafeNativeSegment } from '../security';
 import { detectHardware } from './hardware';
 import {
   cancelRequest,
@@ -123,6 +130,94 @@ function asLoras(value: unknown): AiLoraSelection[] | undefined {
   return out.length ? out : undefined;
 }
 
+/** Every image input (init, mask, control hint, reference) crosses as one of these. */
+const MAX_IMAGE_DATA_URL = 32 * 1024 * 1024;
+const MAX_REF_IMAGES = 8;
+
+function asImageDataUrl(value: unknown): string | undefined {
+  return typeof value === 'string' && value.startsWith('data:image/') && value.length <= MAX_IMAGE_DATA_URL
+    ? value
+    : undefined;
+}
+
+function asRefImages(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const images = value
+    .map(asImageDataUrl)
+    .filter((image): image is string => Boolean(image))
+    .slice(0, MAX_REF_IMAGES);
+  return images.length ? images : undefined;
+}
+
+function asFinite(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * A sampler, scheduler or upscaler NAME. Each adapter matches it against its
+ * own vocabulary (and sd.cpp resolves an unknown upscaler as a file stem), so
+ * here it only has to be a plain name: no separators, no `..`.
+ */
+function asSamplingName(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[A-Za-z0-9 ._()+-]{1,120}$/.test(value) && !value.includes('..')
+    ? value
+    : undefined;
+}
+
+function asHiresFix(value: unknown): AiImageRequest['hiresFix'] {
+  if (!isRecord(value)) return undefined;
+  const upscaler = asSamplingName(value.upscaler);
+  const scale = asFinite(value.scale);
+  if (!upscaler || scale === undefined) return undefined;
+  return {
+    upscaler,
+    scale,
+    steps: asFinite(value.steps),
+    denoisingStrength: asFinite(value.denoisingStrength),
+    tileSize: asFinite(value.tileSize),
+    targetWidth: asFinite(value.targetWidth),
+    targetHeight: asFinite(value.targetHeight),
+    customSigmas: isSdSigmaArray(value.customSigmas) ? value.customSigmas : undefined,
+  };
+}
+
+function asSkipLayerGuidance(value: unknown): AiImageRequest['skipLayerGuidance'] {
+  if (!isRecord(value) || !isSdLayerArray(value.layers)) return undefined;
+  return {
+    layers: value.layers,
+    layerStart: asFinite(value.layerStart),
+    layerEnd: asFinite(value.layerEnd),
+    scale: asFinite(value.scale),
+  };
+}
+
+function asExtraSampleArgs(value: unknown): AiImageRequest['extraSampleArgs'] {
+  if (!isRecord(value)) return undefined;
+  return {
+    apgEta: asFinite(value.apgEta),
+    apgMomentum: asFinite(value.apgMomentum),
+    apgNormThreshold: asFinite(value.apgNormThreshold),
+    apgNormThresholdSmoothing: asFinite(value.apgNormThresholdSmoothing),
+    slgUncond: typeof value.slgUncond === 'boolean' ? value.slgUncond : undefined,
+    noiseClipStd: asFinite(value.noiseClipStd),
+    noiseScaleStart: asFinite(value.noiseScaleStart),
+    noiseScaleEnd: asFinite(value.noiseScaleEnd),
+    gamma: asFinite(value.gamma),
+  };
+}
+
+function asVaeTiling(value: unknown): AiImageRequest['vaeTiling'] {
+  if (!isRecord(value)) return undefined;
+  return {
+    enabled: typeof value.enabled === 'boolean' ? value.enabled : undefined,
+    tileSizeX: asFinite(value.tileSizeX),
+    tileSizeY: asFinite(value.tileSizeY),
+    targetOverlap: asFinite(value.targetOverlap),
+    relSizeX: asFinite(value.relSizeX),
+    relSizeY: asFinite(value.relSizeY),
+  };
+}
+
 function asImageRequest(value: unknown): AiImageRequest | null {
   if (!isRecord(value)) return null;
   const route = asRoute(value);
@@ -143,17 +238,51 @@ function asImageRequest(value: unknown): AiImageRequest | null {
     quality: typeof value.quality === 'string' ? value.quality.slice(0, 20) : undefined,
     // img2img: a bounded image data URL and a clamped denoise strength. Anything
     // else falls through to plain txt2img (fail-closed).
-    initImage:
-      typeof value.initImage === 'string' &&
-      value.initImage.startsWith('data:image/') &&
-      value.initImage.length <= 32 * 1024 * 1024
-        ? value.initImage
-        : undefined,
+    initImage: asImageDataUrl(value.initImage),
     strength:
       typeof value.strength === 'number' && Number.isFinite(value.strength)
         ? Math.max(0, Math.min(1, value.strength))
         : undefined,
     loras: asLoras(value.loras),
+    // Everything below is the studio's and the recipe replay's (lesson #54):
+    // this function rebuilds the request, so a field not copied here never
+    // reaches the adapter — the pose, the references, the mask and the hires
+    // pass were all being dropped between the studio and the server. Shapes
+    // are checked here; ranges stay with the payload builders that own them.
+    refImages: asRefImages(value.refImages),
+    increaseRefIndex: value.increaseRefIndex === true ? true : undefined,
+    disableAutoResizeRefImage: value.disableAutoResizeRefImage === true ? true : undefined,
+    controlImage: asImageDataUrl(value.controlImage),
+    // A catalogue id or the name of a ControlNet file dropped into its folder;
+    // the runtime only ever resolves it against the companions it installed.
+    controlNetModel:
+      isSafeNativeSegment(value.controlNetModel) && value.controlNetModel.length <= 200
+        ? value.controlNetModel
+        : undefined,
+    controlStrength: asFinite(value.controlStrength),
+    maskImage: asImageDataUrl(value.maskImage),
+    hiresFix: asHiresFix(value.hiresFix),
+    sampler: asSamplingName(value.sampler),
+    scheduler: asSamplingName(value.scheduler),
+    customSigmas: isSdSigmaArray(value.customSigmas) ? value.customSigmas : undefined,
+    clipSkip:
+      typeof value.clipSkip === 'number' && Number.isInteger(value.clipSkip) && value.clipSkip > 0 && value.clipSkip <= 24
+        ? value.clipSkip
+        : undefined,
+    eta: asFinite(value.eta),
+    flowShift: asFinite(value.flowShift),
+    shiftedTimestep:
+      typeof value.shiftedTimestep === 'number' && Number.isInteger(value.shiftedTimestep)
+        ? value.shiftedTimestep
+        : undefined,
+    distilledGuidance: asFinite(value.distilledGuidance),
+    imageGuidance: asFinite(value.imageGuidance),
+    skipLayerGuidance: asSkipLayerGuidance(value.skipLayerGuidance),
+    extraSampleArgs: asExtraSampleArgs(value.extraSampleArgs),
+    cacheMode: isSdCacheMode(value.cacheMode) ? value.cacheMode : undefined,
+    cacheOption:
+      typeof value.cacheOption === 'string' && value.cacheOption.length <= 500 ? value.cacheOption : undefined,
+    vaeTiling: asVaeTiling(value.vaeTiling),
   };
 }
 

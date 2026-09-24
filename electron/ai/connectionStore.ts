@@ -91,8 +91,19 @@ function file(): string {
 
 async function load(): Promise<StoreFile> {
   if (cache) return cache;
+  let raw: string;
   try {
-    const raw = (await fs.readFile(file(), 'utf8')).replace(/^\uFEFF/, '');
+    raw = (await fs.readFile(file(), 'utf8')).replace(/^\uFEFF/, '');
+  } catch (err) {
+    // Only a missing file means "no connections yet". Any other failure (a
+    // scanner holding the file, EPERM) is thrown uncached, so the next call
+    // retries: an empty registry cached here would be written over the real
+    // one — every connection and every encrypted key — by the next save.
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    cache = { ...EMPTY, connections: [], defaults: {}, modelOverrides: {} };
+    return cache;
+  }
+  try {
     const parsed = JSON.parse(raw) as Partial<StoreFile>;
     cache = {
       version: 1,
@@ -102,6 +113,9 @@ async function load(): Promise<StoreFile> {
       modelOverrides: parsed.modelOverrides ?? {},
     };
   } catch {
+    // Unparseable (a hand edit gone wrong): start empty, but move the file
+    // aside first so the next save cannot erase what is still in it.
+    await fs.rename(file(), `${file()}.unreadable-${Date.now()}`).catch(() => undefined);
     cache = { ...EMPTY, connections: [], defaults: {}, modelOverrides: {} };
   }
   return cache;
