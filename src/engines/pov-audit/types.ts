@@ -13,7 +13,7 @@ export interface CharacterUsage {
   characterId: string;
   /** Display name (taken from codex if available, otherwise from cast / dialog). */
   characterName: string;
-  /** How many scenes this character is listed in (via sceneCasts). */
+  /** Distinct scenes this character is in: listed in the cast (sceneCasts) or speaking a dialog line. */
   sceneCount: number;
   /** How many dialog blocks this character speaks (any block with characterId === id or characterName match). */
   lineCount: number;

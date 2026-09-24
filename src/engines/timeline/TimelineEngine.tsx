@@ -98,6 +98,10 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
 
   const handleDeleteTimeline = async (id: string) => {
     await removeTimeline(id);
+    // The delete cascades to the timeline's events and connections; the
+    // swim-lane view and the stats line read them from their own hooks.
+    refreshAllEvents();
+    refreshConnections();
     if (activeTimelineId === id) {
       const remaining = timelines.filter((t) => t.id !== id);
       if (remaining.length > 0) {
