@@ -28,7 +28,7 @@ import DualDialogGroup from './DualDialogGroup';
 import ChronometryBadge from './ChronometryBadge';
 import SceneArcBeats from './SceneArcBeats';
 import { SCREENPLAY_TRANSITIONS, SLUG_PREFIXES, type AutocompleteSuggestion } from './ScriptAutocomplete';
-import { useDebouncedField } from '@/engines/_shared';
+import { ConfirmDialog, useDebouncedField } from '@/engines/_shared';
 import { generateId } from '@/utils/idGenerator';
 import { useTranslation } from '@/i18n/useTranslation';
 import Modal from '@/components/common/Modal';
@@ -156,6 +156,13 @@ export default function SceneEditor({
   const [editingSetting, setEditingSetting] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showTableRead, setShowTableRead] = useState(false);
+  // Blocks waiting for delete confirmation, like every other delete in the
+  // app. A list because a dual pair's "Delete both" asks for its two blocks
+  // in one click (onDeleteLeft + onDeleteRight) and gets one question.
+  const [pendingBlockDeleteIds, setPendingBlockDeleteIds] = useState<string[]>([]);
+  const requestDeleteBlock = useCallback((id: string) => {
+    setPendingBlockDeleteIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+  }, []);
   const tableReadSettingKey = `${PROJECT_SETTING_PREFIXES.tableReadVoices}${scene.projectId}`;
   const tableReadVoicePreferences = useLiveQuery(
     async () => parseVoicePreferences(await getSetting(tableReadSettingKey)),
@@ -546,8 +553,8 @@ export default function SceneEditor({
                             onUpdateRight={(content, p) => editBlock(group.right.id, { content, parenthetical: p })}
                             onUpdateFormattingLeft={(f) => editBlock(group.left.id, { formatting: f })}
                             onUpdateFormattingRight={(f) => editBlock(group.right.id, { formatting: f })}
-                            onDeleteLeft={() => removeBlock(group.left.id)}
-                            onDeleteRight={() => removeBlock(group.right.id)}
+                            onDeleteLeft={() => requestDeleteBlock(group.left.id)}
+                            onDeleteRight={() => requestDeleteBlock(group.right.id)}
                             onUnpair={() => handleUnpairDual(group.groupId)}
                             suggestions={autocompleteSuggestions}
                           />
@@ -569,7 +576,7 @@ export default function SceneEditor({
                               // formatting and order all survive the switch.
                               editBlock(block.id, { type });
                             }}
-                            onDelete={() => removeBlock(block.id)}
+                            onDelete={() => requestDeleteBlock(block.id)}
                             suggestions={autocompleteSuggestions}
                           />
                           {/* Dual pair button for dialog blocks */}
@@ -773,6 +780,20 @@ export default function SceneEditor({
           onJumpToSource={jumpFromTableRead}
         />
       </Modal>
+      <ConfirmDialog
+        open={pendingBlockDeleteIds.length > 0}
+        destructive
+        message={t(
+          pendingBlockDeleteIds.length > 1 ? 'dialogScene.deleteBothConfirm' : 'dialogScene.deleteBlockConfirm',
+        )}
+        confirmLabel={t(pendingBlockDeleteIds.length > 1 ? 'dialogScene.deleteBoth' : 'dialogScene.deleteBlock')}
+        onConfirm={async () => {
+          const ids = pendingBlockDeleteIds;
+          for (const id of ids) await removeBlock(id);
+          setPendingBlockDeleteIds([]);
+        }}
+        onCancel={() => setPendingBlockDeleteIds([])}
+      />
     </div>
   );
 }

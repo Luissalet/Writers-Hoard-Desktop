@@ -102,6 +102,49 @@ export async function cancelSnapshotDownload(snapshotId: string): Promise<void> 
   }
 }
 
+/**
+ * True only when the snapshot row is provably gone. A failed read is not
+ * proof of deletion, so it answers false and nothing gets removed.
+ */
+export async function snapshotIsGone(snapshotId: string): Promise<boolean> {
+  try {
+    return (await getSnapshot(snapshotId)) === undefined;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remove the files a download or page capture produced for a clipping that
+ * was deleted while the job ran — nothing points at them any more.
+ *
+ * Only paths that are unmistakably THIS snapshot's own are touched:
+ * `<projectId>/<snapshotId>.<ext>`, or the carousel folder
+ * `<projectId>/<snapshotId>/`. `deleteLibraryFile` also accepts a bare project
+ * id and would wipe the whole project folder, so anything else is ignored.
+ */
+export async function discardOrphanedSnapshotFiles(
+  projectId: string,
+  snapshotId: string,
+  relPaths: readonly (string | undefined)[],
+): Promise<void> {
+  if (!isDesktop() || !window.electronAPI || !projectId || !snapshotId) return;
+  const targets = new Set<string>();
+  for (const relPath of relPaths) {
+    const parts = relPath?.split('/') ?? [];
+    if (parts[0] !== projectId || parts.some((part) => !part || part === '.' || part === '..')) continue;
+    if (parts.length === 2 && parts[1].startsWith(`${snapshotId}.`)) targets.add(parts.join('/'));
+    else if (parts.length === 3 && parts[1] === snapshotId) targets.add(`${projectId}/${snapshotId}`);
+  }
+  for (const target of targets) {
+    try {
+      await window.electronAPI.media.deleteLibraryFile(target);
+    } catch {
+      /* best-effort cleanup */
+    }
+  }
+}
+
 /** Build a playable URL for a downloaded media file served by the main process. */
 export function snapshotMediaUrl(relPath: string): string {
   const encoded = relPath.split('/').map(encodeURIComponent).join('/');
@@ -123,11 +166,18 @@ export function isoFromYtDate(d: string | undefined): string | undefined {
   return d && /^\d{8}$/.test(d) ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` : undefined;
 }
 
+function producedMediaPaths(media: DownloadedMedia): (string | undefined)[] {
+  return [media.relPath, ...(media.items ?? []).map((item) => item.relPath)];
+}
+
 export async function runSnapshotDownload(
   snapshot: Pick<Snapshot, 'id' | 'url' | 'projectId' | 'description' | 'author' | 'publishDate'>,
   update: (id: string, changes: Partial<Snapshot>) => void | Promise<void>,
   format: MediaFormat = 'video',
 ): Promise<void> {
+  // A queued download (collection import) can reach a clipping deleted while
+  // it waited: fetching it would only produce files nothing points at.
+  if (await snapshotIsGone(snapshot.id)) return;
   await update(snapshot.id, { downloadState: 'downloading', downloadError: undefined });
   try {
     const media = await downloadSnapshotMedia({
@@ -149,7 +199,19 @@ export async function runSnapshotDownload(
     // A download can run for minutes, and the user may type a description in
     // the meantime: decide from the row as it is NOW, not as it was when the
     // download started. If the read fails, fall back to the caller's copy.
-    const current = (await getSnapshot(snapshot.id).catch(() => undefined)) ?? snapshot;
+    let current: Pick<Snapshot, 'description' | 'author' | 'publishDate'> = snapshot;
+    try {
+      const row = await getSnapshot(snapshot.id);
+      // Deleted while yt-dlp ran (a cancel can lose the race with the copy):
+      // the saved file belongs to nothing, so it goes too.
+      if (!row) {
+        await discardOrphanedSnapshotFiles(snapshot.projectId, snapshot.id, producedMediaPaths(media));
+        return;
+      }
+      current = row;
+    } catch {
+      /* keep the caller's copy */
+    }
     if (media.description && !current.description?.trim()) changes.description = media.description;
     if (media.uploader && !current.author?.trim()) changes.author = media.uploader;
     if (!current.publishDate) {
@@ -157,6 +219,10 @@ export async function runSnapshotDownload(
       if (iso) changes.publishDate = iso;
     }
     await update(snapshot.id, changes);
+    // Deleted between the read above and this write: the update matched no row.
+    if (await snapshotIsGone(snapshot.id)) {
+      await discardOrphanedSnapshotFiles(snapshot.projectId, snapshot.id, producedMediaPaths(media));
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // User cancelled → back to link-only; duplicate request → leave as-is.

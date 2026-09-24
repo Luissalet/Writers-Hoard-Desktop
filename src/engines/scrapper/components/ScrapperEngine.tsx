@@ -9,7 +9,7 @@
 //   only the CaptureBar plus an ephemeral "this session" list of completed
 //   downloads. No DB, no archive UI.
 
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   Grid3x3,
   List,
@@ -27,6 +27,7 @@ import { useSnapshots } from '../hooks';
 import { getSnapshot } from '../operations';
 import { isLinkOnly } from '../preservation';
 import { downloadLinksCsv } from '../linkExport';
+import { startArchiveBatch, stopArchiveBatch, useArchiveBatchStore } from '../archiveBatch';
 import PreservationBadge from './PreservationBadge';
 import CaptureBar from './CaptureBar';
 import SnapshotCard from './SnapshotCard';
@@ -37,6 +38,7 @@ import ImportCollectionModal, { type ImportedCollectionItem } from './ImportColl
 import type { MediaFormat } from '@/services/mediaDownloader';
 import {
   canDownloadMedia,
+  cancelSnapshotDownload,
   deleteSnapshotMedia,
   runSnapshotDownload,
   isoFromYtDate,
@@ -113,10 +115,9 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
   const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
   const [linkOnlyFilter, setLinkOnlyFilter] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
-  const [archiveProgress, setArchiveProgress] = useState<{ done: number; total: number } | null>(null);
-  // The running batch archive, if any. `currentId` is the clipping whose page
-  // is being rendered right now, so Stop can cancel it instead of waiting.
-  const archiveRunRef = useRef<{ cancelled: boolean; currentId: string | null } | null>(null);
+  // The batch archive lives in the module (../archiveBatch), not in this view:
+  // any mounted view shows its progress and Stop, and only one runs at a time.
+  const archiveProgress = useArchiveBatchStore((s) => s.progress);
   const aiConfig = useAiStore((s) => s.config);
 
   if (
@@ -280,80 +281,31 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
     [projectId, addSnapshot, editSnapshot, t],
   );
 
-  // Batch archive of every link-only web page, one at a time (a hidden
-  // Chromium window per page is heavy). Only ever ADDS a local copy — the
-  // capture lifecycle never touches the link itself. Ends with ONE toast that
-  // sums up the batch instead of a failure toast per page.
   const startArchiveLinkOnly = useCallback(() => {
     setArchiveConfirmOpen(false);
-    if (archiveRunRef.current || archivableIds.length === 0) return;
-    const ids = archivableIds;
-    const run = { cancelled: false, currentId: null as string | null };
-    archiveRunRef.current = run;
-    setArchiveProgress({ done: 0, total: ids.length });
-    void (async () => {
-      let ok = 0;
-      let failed = 0;
-      try {
-        for (const [index, id] of ids.entries()) {
-          if (run.cancelled) break;
-          // Re-read: the queue can wait minutes, and meanwhile the clipping may
-          // have been edited, archived by hand or deleted.
-          const fresh = await getSnapshot(id).catch(() => undefined);
-          if (fresh && isLinkOnly(fresh) && fresh.captureState !== 'capturing') {
-            run.currentId = id;
-            // Never throws by contract; one surprise must not strand the rest.
-            await runSnapshotCapture(fresh, editSnapshot).catch((error: unknown) => {
-              console.error('Batch archive: capture failed', fresh.url, error);
-            });
-            run.currentId = null;
-            const after = await getSnapshot(id).catch(() => undefined);
-            if (after?.captureState === 'done') ok++;
-            else if (after?.captureState === 'error') failed++;
-          }
-          setArchiveProgress({ done: index + 1, total: ids.length });
-        }
-      } finally {
-        archiveRunRef.current = null;
-        setArchiveProgress(null);
-      }
-      const skipped = ids.length - ok - failed;
-      const parts = [
-        t('scrapper.archiveLinkOnly.summary')
-          .replace('{ok}', String(ok))
-          .replace('{total}', String(ids.length)),
-      ];
-      if (failed > 0) {
-        parts.push(t('scrapper.archiveLinkOnly.summaryFailed').replace('{failed}', String(failed)));
-      }
-      if (skipped > 0) {
-        parts.push(t('scrapper.archiveLinkOnly.summarySkipped').replace('{skipped}', String(skipped)));
-      }
-      const message = parts.join(' ');
-      if (failed > 0) toast.error(message, 10000);
-      else if (ok > 0) toast.success(message);
-      else toast.info(message);
-    })();
-  }, [archivableIds, editSnapshot, t]);
-
-  const stopArchiveLinkOnly = () => {
-    const run = archiveRunRef.current;
-    if (!run) return;
-    run.cancelled = true;
-    if (run.currentId) void cancelSnapshotCapture(run.currentId);
-  };
+    startArchiveBatch(archivableIds);
+  }, [archivableIds]);
 
   // Delete: also remove the local files so the library doesn't leak.
+  // A download or page capture still running for this clipping is cancelled;
+  // if it finishes anyway, its run* lifecycle sees the row gone and discards
+  // the files it produced (see discardOrphanedSnapshotFiles).
   const handleDelete = useCallback(
     (id: string) => {
-      const target = snapshots.find((s) => s.id === id);
-      if (target && (target.localMediaPath || target.mediaItems?.length)) {
-        void deleteSnapshotMedia(target);
-      }
-      if (target && (target.capturePdfPath || target.captureImagePath || target.captureHtmlPath)) {
-        void deleteSnapshotCapture(target);
-      }
-      void removeSnapshot(id);
+      void cancelSnapshotDownload(id);
+      void cancelSnapshotCapture(id);
+      void (async () => {
+        // Read the row itself: a job that just finished may have written paths
+        // this view's list has not refetched yet.
+        const target = (await getSnapshot(id).catch(() => undefined)) ?? snapshots.find((s) => s.id === id);
+        if (target && (target.localMediaPath || target.mediaItems?.length)) {
+          void deleteSnapshotMedia(target);
+        }
+        if (target && (target.capturePdfPath || target.captureImagePath || target.captureHtmlPath)) {
+          void deleteSnapshotCapture(target);
+        }
+        await removeSnapshot(id);
+      })();
     },
     [snapshots, removeSnapshot],
   );
@@ -430,7 +382,7 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
         {isDesktop() && archiveProgress ? (
           <button
             type="button"
-            onClick={stopArchiveLinkOnly}
+            onClick={stopArchiveBatch}
             className="flex flex-shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-accent-gold bg-elevated text-foreground transition-colors"
           >
             <Loader2 size={14} className="animate-spin" aria-hidden="true" />
