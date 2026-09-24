@@ -138,7 +138,17 @@ export default function ColorPicker({
   );
 
   return (
-    <div ref={containerRef} className="relative inline-block">
+    <div
+      ref={containerRef}
+      className="relative inline-block"
+      onKeyDown={(event) => {
+        // Escape closes the panel only, not a host <Modal> around the form.
+        if (event.key !== 'Escape' || !showPicker) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setShowPicker(false);
+      }}
+    >
       {label && (
         <label className="block text-sm font-medium text-text-primary mb-2">
           {label}
@@ -275,7 +285,17 @@ export function InlineColorPicker({
   const dim = size === 'sm' ? 'w-6 h-6' : 'w-8 h-8';
 
   return (
-    <div ref={containerRef} className="relative inline-flex items-center">
+    <div
+      ref={containerRef}
+      className="relative inline-flex items-center"
+      onKeyDown={(event) => {
+        // Escape closes the panel only, not a host <Modal> around the form.
+        if (event.key !== 'Escape' || !showPicker) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setShowPicker(false);
+      }}
+    >
       <button
         type="button"
         onClick={() => setShowPicker(!showPicker)}

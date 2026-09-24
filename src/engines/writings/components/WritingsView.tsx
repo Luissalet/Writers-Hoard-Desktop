@@ -512,12 +512,18 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   const readingPrefs = useAppStore((s) => s.reading);
   const setReadingPrefs = useAppStore((s) => s.setReading);
   const pageCount = usePageCount(liveEditor);
+  // Only while the panel is open: `editedContent` changes on every keystroke,
+  // and re-splitting the whole chapter each time was work nobody was reading.
   const readAloudBlocks = useMemo(
-    () => openWriting
+    () => openWriting && showReadAloud
       ? writingToReadAloudBlocks({ id: openWriting.id, title: editedTitle, content: editedContent })
       : [],
-    [editedContent, editedTitle, openWriting],
+    [editedContent, editedTitle, openWriting, showReadAloud],
   );
+  // What the buttons that OPEN the panel need to know, without building the
+  // blocks: is there any visible text? Stops at the first character found.
+  const hasReadableText = Boolean(openWriting) &&
+    (editedTitle.trim() !== '' || /(?:^|>)\s*[^<\s]/.test(editedContent));
 
   const { accessToken } = useGoogleStore();
   const { project } = useProject(projectId);
@@ -2057,7 +2063,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           <button
             type="button"
             onClick={() => setShowReadAloud(true)}
-            disabled={readAloudBlocks.length === 0}
+            disabled={!hasReadableText}
             className="p-1.5 rounded-lg transition border text-text-muted border-border hover:text-accent-gold hover:border-accent-gold/40 hover:bg-elevated disabled:opacity-40"
             title={t('readAloud.integration.chapter')}
           >
@@ -2318,7 +2324,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           <button
             type="button"
             onClick={() => setShowReadAloud(true)}
-            disabled={readAloudBlocks.length === 0}
+            disabled={!hasReadableText}
             className="p-1.5 rounded-lg transition border text-text-muted border-border hover:text-accent-gold hover:border-accent-gold/40 hover:bg-elevated disabled:opacity-40"
             title={t('readAloud.integration.chapter')}
           >

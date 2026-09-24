@@ -11,6 +11,8 @@ import EmptyState from '@/components/common/EmptyState';
 import { useTranslation } from '@/i18n/useTranslation';
 import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
 import { ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
+import { deleteWithDraftCleanup } from '@/hooks/localDraftStore';
+import { codexDraftStore } from './codexDrafts';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from './codexTypeMeta';
 
@@ -19,7 +21,7 @@ interface CodexEntryListProps {
   entries: CodexEntry[];
   onAdd: (entry: CodexEntry) => Promise<void>;
   onEdit: (id: string, changes: Partial<CodexEntry>, base?: CodexEntry) => Promise<void>;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => void | Promise<unknown>;
 }
 
 /**
@@ -85,6 +87,8 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [savingForm, setSavingForm] = useState(false);
+  const [formDirty, setFormDirty] = useState(false);
+  const [drafts] = useState(() => codexDraftStore(projectId));
   const [editEntry, setEditEntry] = useState<CodexEntry | null>(null);
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<CodexEntryType | 'all'>('all');
@@ -232,12 +236,13 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
       )}
 
       {/* Create/Edit Modal */}
-      <Modal open={showForm || !!editEntry} busy={savingForm} onClose={() => { setShowForm(false); setEditEntry(null); }} title={editEntry ? t('codex.editEntry') : t('codex.newCodexEntry')} wide>
+      <Modal open={showForm || !!editEntry} busy={savingForm} dismissible={!formDirty} onClose={() => { setShowForm(false); setEditEntry(null); }} title={editEntry ? t('codex.editEntry') : t('codex.newCodexEntry')} wide>
         <CodexEntryForm
           key={editEntry?.id ?? 'new'}
           projectId={projectId}
           entry={editEntry || undefined}
           onPendingChange={setSavingForm}
+          onDirtyChange={setFormDirty}
           onSave={async (entry, base) => {
             if (editEntry) {
               await onEdit(entry.id, entry, base);
@@ -260,7 +265,15 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
           <div className="space-y-4">
             <div className="flex items-start gap-4 mb-4">
               {selectedEntry.avatar && (
-                <img src={selectedEntry.avatar} alt="" className="w-24 h-24 rounded-xl object-cover border border-border flex-shrink-0" />
+                <button
+                  type="button"
+                  onClick={() => setLightboxSrc(selectedEntry.avatarOriginal || selectedEntry.avatar || null)}
+                  className="flex-shrink-0 rounded-xl hover:opacity-90 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold"
+                  aria-label={t('gallery.lightbox.title')}
+                  title={t('gallery.lightbox.title')}
+                >
+                  <img src={selectedEntry.avatar} alt="" className="w-24 h-24 rounded-xl object-cover border border-border" />
+                </button>
               )}
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: `${typeColors[selectedEntry.type]}20`, color: typeColors[selectedEntry.type] }}>
@@ -343,29 +356,30 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
           const entry = pendingDeleteEntry;
           setPendingDeleteEntry(null);
           if (!entry) return;
-          onDelete(entry.id);
           setSelectedEntryId(null);
+          // A deleted entry leaves no edit to recover.
+          void deleteWithDraftCleanup(drafts, [entry.id], async () => onDelete(entry.id))
+            .catch(error => console.error('Codex entry could not be deleted', error));
         }}
         onCancel={() => setPendingDeleteEntry(null)}
       />
 
-      {/* Image lightbox */}
-      {lightboxSrc && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-sm"
-          onClick={() => setLightboxSrc(null)}
-        >
-          <button className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition" title={t('common.close')} aria-label={t('common.close')}>
+      {/* Image lightbox — a stacked modal: an inline overlay sat under the
+          detail dialog's inert background and could be neither clicked nor escaped. */}
+      <Modal open={lightboxSrc !== null} onClose={() => setLightboxSrc(null)} ariaLabel={t('gallery.lightbox.title')} fullscreen>
+        <div className="relative flex min-h-[70vh] items-center justify-center px-12 py-8">
+          <button
+            type="button"
+            onClick={() => setLightboxSrc(null)}
+            className="absolute top-2 right-2 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            title={t('common.close')}
+            aria-label={t('common.close')}
+          >
             <X size={24} className="text-white" aria-hidden="true" />
           </button>
-          <img
-            src={lightboxSrc}
-            alt=""
-            className="max-w-[90vw] max-h-[90vh] rounded-lg shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
+          {lightboxSrc && <img src={lightboxSrc} alt="" className="max-w-[90vw] max-h-[80vh] rounded-lg shadow-2xl" />}
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

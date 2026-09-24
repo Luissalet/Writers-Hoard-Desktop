@@ -50,13 +50,68 @@ export interface CompileOptions {
 // ---------------------------------------------------------------------------
 
 function decodeEntities(s: string): string {
+  // `&amp;` last: decoded first, a typed "&lt;" (stored `&amp;lt;`) would be
+  // decoded twice and come out as "<".
   return s
     .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&quot;/gi, '"');
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi, '&');
+}
+
+/**
+ * A code block lifted out of the html while the rest is converted, restored
+ * as a fence once the whitespace is normalized: the rules below read its
+ * lines as prose — `<br>`-less newlines, runs of blank lines, trailing
+ * spaces — and would reflow the code. Bracketed by SOH, like the lists' STX/ETX.
+ */
+// eslint-disable-next-line no-control-regex -- the control characters are the brackets
+const LIFTED_CODE_RE = /(^> )?\u0001(\d+)\u0001/gm;
+
+/** A list with no list inside it: `ul`/`ol` (1), its attributes (2), its items (3). */
+const INNERMOST_LIST_RE = /<(ul|ol)\b([^>]*)>((?:(?!<(?:ul|ol)\b)[\s\S])*?)<\/\1>/gi;
+/**
+ * A list already written as Markdown, waiting for its parent item or the top
+ * level to place it. Bracketed by STX/ETX, which no chapter's text contains.
+ */
+// eslint-disable-next-line no-control-regex -- the control characters are the brackets
+const CONVERTED_LIST_RE = /\u0002([\s\S]*?)\u0003/g;
+
+/**
+ * One list as Markdown lines. The items hold no list html any more — their
+ * sub-lists were converted first and come in marked by `CONVERTED_LIST_RE` —
+ * so each is indented under its item by the width of the item's marker, which
+ * is how `markdownToTiptapHtml` reads nesting back. An item's paragraphs are
+ * joined with a space: a list item is one line there, and glued they would
+ * run the last word of one into the first word of the next.
+ */
+function listToMarkdown(tag: string, attributes: string, inner: string): string {
+  const ordered = tag.toLowerCase() === 'ol';
+  const start = ordered ? Number(/\bstart="(\d+)"/i.exec(attributes)?.[1] ?? 1) : 1;
+  const lines: string[] = [];
+  let index = 0;
+  for (const [, item] of inner.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)) {
+    const marker = ordered ? `${start + index}.` : '-';
+    index += 1;
+    const nested: string[] = [];
+    const text = item
+      .replace(CONVERTED_LIST_RE, (_m, markdown: string) => {
+        nested.push(markdown);
+        return ' ';
+      })
+      .replace(/<br\s*\/?>/gi, ' ')
+      .replace(/<\/p>\s*<p\b[^>]*>/gi, ' ')
+      .replace(/<\/?p\b[^>]*>/gi, '')
+      .trim();
+    lines.push(`${marker} ${text}`);
+    const indent = ' '.repeat(marker.length + 1);
+    for (const markdown of nested) {
+      for (const line of markdown.split('\n')) lines.push(`${indent}${line}`);
+    }
+  }
+  return `\u0002${lines.join('\n')}\u0003`;
 }
 
 /** A note's body as the text after `[^n]: ` — later lines indented as Markdown continues a footnote. */
@@ -86,9 +141,20 @@ export function htmlToMarkdownParts(
   const footnotes = renderFootnoteRefs(footnoteRefsOutOfCode(html), (note) => `[^${note.index}]`, start);
   let s = footnotes.html.replace(/\r/g, '');
 
+  // Code blocks before anything reads them as inline code or prose: a fence
+  // keeps their lines, and `class="language-x"` becomes its info string.
+  const codeBlocks: string[] = [];
+  s = s.replace(/<pre\b[^>]*>([\s\S]*?)<\/pre>/gi, (_m, inner: string) => {
+    const language = /<code\b[^>]*\bclass="[^"]*\blanguage-([\w+#-]+)/i.exec(inner)?.[1] ?? '';
+    const code = decodeEntities(inner.replace(/<[^>]+>/g, ''));
+    codeBlocks.push(`\`\`\`${language}\n${code}\n\`\`\``);
+    return `\n\n\u0001${codeBlocks.length - 1}\u0001\n\n`;
+  });
+
   // Inline marks first (so block regexes see clean text)
   s = s.replace(/<(strong|b)[^>]*>(.*?)<\/\1>/gis, '**$2**');
   s = s.replace(/<(em|i)[^>]*>(.*?)<\/\1>/gis, '*$2*');
+  s = s.replace(/<(s|del|strike)\b[^>]*>(.*?)<\/\1>/gis, '~~$2~~');
   s = s.replace(/<code[^>]*>(.*?)<\/code>/gis, '`$1`');
   s = s.replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gis, '[$2]($1)');
   s = s.replace(/<img[^>]*src="([^"]*)"[^>]*\/?>/gi, '![]($1)');
@@ -99,9 +165,10 @@ export function htmlToMarkdownParts(
   s = s.replace(/<h3[^>]*>(.*?)<\/h3>/gis, '\n\n### $1\n\n');
   s = s.replace(/<h[4-6][^>]*>(.*?)<\/h[4-6]>/gis, '\n\n#### $1\n\n');
 
-  // Blockquotes (Tiptap: <blockquote><p>…</p></blockquote>)
+  // Blockquotes (Tiptap: <blockquote><p>…</p></blockquote>). A line break
+  // is a line of its own here, so every line after it is quoted too.
   s = s.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gis, (_m, inner: string) => {
-    const text = inner.replace(/<p[^>]*>(.*?)<\/p>/gis, '$1\n');
+    const text = inner.replace(/<br\s*\/?>/gi, '\n').replace(/<p[^>]*>(.*?)<\/p>/gis, '$1\n');
     return (
       '\n\n' +
       text
@@ -113,13 +180,19 @@ export function htmlToMarkdownParts(
     );
   });
 
-  // Lists — ordered get "1." (Markdown renderers auto-increment)
-  s = s.replace(/<ol[^>]*>(.*?)<\/ol>/gis, (_m, inner: string) => {
-    return '\n\n' + inner.replace(/<li[^>]*>(.*?)<\/li>/gis, (_m2, item: string) => `1. ${item.replace(/<\/?p[^>]*>/gi, '').trim()}\n`) + '\n';
-  });
-  s = s.replace(/<ul[^>]*>(.*?)<\/ul>/gis, (_m, inner: string) => {
-    return '\n\n' + inner.replace(/<li[^>]*>(.*?)<\/li>/gis, (_m2, item: string) => `- ${item.replace(/<\/?p[^>]*>/gi, '').trim()}\n`) + '\n';
-  });
+  // Lists, innermost first, so each item's sub-list is already Markdown when
+  // its parent item is written and can be indented under it. A single pass
+  // over the html ended the outer list at the inner one's `</ul>`: the parent
+  // item ran into its first child ("ParentChild one") and every item after
+  // the sub-list lost its bullet.
+  let unconverted: string;
+  do {
+    unconverted = s;
+    s = s.replace(INNERMOST_LIST_RE, (_m, tag: string, attributes: string, inner: string) =>
+      listToMarkdown(tag, attributes, inner),
+    );
+  } while (s !== unconverted);
+  s = s.replace(CONVERTED_LIST_RE, '\n\n$1\n\n');
 
   // Scene / POV breaks — the editor's `---` input rule persists an <hr>.
   s = s.replace(/<hr\b[^>]*>/gi, '\n\n---\n\n');
@@ -132,6 +205,9 @@ export function htmlToMarkdownParts(
   s = s.replace(/<[^>]+>/g, '');
   s = decodeEntities(s);
   s = s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  // A block inside a quote keeps the quote on every line.
+  s = s.replace(LIFTED_CODE_RE, (_m, quote: string | undefined, index: string) =>
+    codeBlocks[Number(index)].split('\n').map((line) => (quote ?? '') + line).join('\n'));
   return { prose: s, notes: footnotes.notes };
 }
 

@@ -101,6 +101,8 @@ targetButton.type = 'button';
 
 const status = document.createElement('span');
 status.className = 'hint';
+// Saving / saved / "couldn't save" are announced, not only painted.
+status.setAttribute('role', 'status');
 
 header.append(chips, drag, brand);
 footer.append(targetButton, status);
@@ -116,6 +118,7 @@ function renderChips(): void {
       button.type = 'button';
       button.textContent = strings().kind[k];
       button.dataset.active = String(k === kind);
+      button.setAttribute('aria-pressed', String(k === kind));
       if (k === kind) button.style.background = KIND_COLORS[k];
       button.addEventListener('click', () => {
         kind = k;
@@ -139,8 +142,13 @@ function renderTarget(): void {
 }
 
 function render(): void {
+  // The page ships as lang="es"; say which language is actually on screen so
+  // the spellchecker and screen readers use it.
+  document.documentElement.lang = context.locale === 'en' ? 'en' : 'es';
   brand.textContent = strings().brand;
   textarea.placeholder = strings().placeholder;
+  // A placeholder vanishes as soon as there is text; give the box a name.
+  textarea.setAttribute('aria-label', strings().brand);
   // A re-render must never overwrite "Saving…" with the idle hint: blurring
   // the window mid-save re-renders it, and the writer would be told the note
   // is idle while it is still in flight.

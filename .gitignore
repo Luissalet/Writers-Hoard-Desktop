@@ -30,3 +30,7 @@ resources/bin
 *.sln
 *.sw?
 .env
+
+# Scratch output from local debugging sessions
+*.log.err
+/_to_delete/

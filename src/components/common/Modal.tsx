@@ -23,6 +23,12 @@ interface ModalProps {
   fullscreen?: boolean;
   /** Prevent closing and announce work while a submit is in flight. */
   busy?: boolean;
+  /**
+   * `false` ignores the accidental ways out — Escape and a backdrop click —
+   * while the header X and the dialog's own buttons still close. Editors pass
+   * `dismissible={!dirty}` so a stray key cannot throw away unsaved input.
+   */
+  dismissible?: boolean;
   /** Destructive confirmations pass their safe default (usually Cancel). */
   initialFocusRef?: RefObject<HTMLElement | null>;
 }
@@ -83,6 +89,7 @@ export default function Modal({
   wide,
   fullscreen = false,
   busy = false,
+  dismissible = true,
   initialFocusRef,
 }: ModalProps) {
   const { t } = useTranslation();
@@ -95,9 +102,11 @@ export default function Modal({
   const titleId = useId();
   const onCloseRef = useRef(onClose);
   const busyRef = useRef(busy);
+  const dismissibleRef = useRef(dismissible);
 
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   useEffect(() => { busyRef.current = busy; }, [busy]);
+  useEffect(() => { dismissibleRef.current = dismissible; }, [dismissible]);
 
   useEffect(() => {
     if (!open) return;
@@ -118,7 +127,7 @@ export default function Modal({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (modalStack.at(-1) !== dialog) return;
       if (event.key === 'Escape') {
-        if (busyRef.current) return;
+        if (busyRef.current || !dismissibleRef.current) return;
         event.preventDefault();
         onCloseRef.current();
         return;
@@ -168,7 +177,7 @@ export default function Modal({
       animate={{ opacity: 1 }}
       transition={{ duration: reduceMotion ? 0.08 : 0.15 }}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose();
+        if (event.target === event.currentTarget && !busy && dismissible) onClose();
       }}
     >
       <motion.div

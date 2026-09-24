@@ -142,6 +142,33 @@ export function readComfyExtras(request: unknown): ComfyExtras {
   };
 }
 
+/**
+ * The Studio's own ControlNet hint — `controlImage` + `controlNetModel` +
+ * `controlStrength`, the fields the bundled runtime reads — as one more entry
+ * of the ControlNet stack. `intentFromRequest` already counts it, so without
+ * this the multi-ControlNet template was chosen, every control occurrence was
+ * pruned for lack of an entry, and the pose came back ignored as a success.
+ * A hint that names no ControlNet is refused, as the bundled runtime refuses it.
+ */
+export function controlFromRequest(
+  request: AiImageRequest,
+): { ok: true; control: ComfyControlInput | null } | { ok: false; error: string } {
+  if (!request.controlImage) return { ok: true, control: null };
+  if (!request.controlNetModel) {
+    return { ok: false, error: 'A control image needs a ControlNet. Choose one of the ControlNets installed in ComfyUI.' };
+  }
+  return {
+    ok: true,
+    control: {
+      model: request.controlNetModel,
+      imageDataUrl: request.controlImage,
+      strength: clamp(num(request.controlStrength, 1), 0, 10),
+      startPercent: 0,
+      endPercent: 1,
+    },
+  };
+}
+
 export function intentFromRequest(request: AiImageRequest, extras: ComfyExtras): ComfyIntent {
   return {
     regions: extras.regions.length,

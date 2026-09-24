@@ -42,7 +42,8 @@ import { BUILTIN_SD_ID, DEFAULT_CONTEXT_TOKENS } from '@/services/aiRuntime/cons
 import { imageCatalogEntry } from '@/services/aiRuntime/imageCatalog';
 import { detectVramContention } from '@/services/aiRuntime/sdServer';
 import FitBadge from '@/components/ai-settings/FitBadge';
-import { createThread, deleteThread, saveProjectSettings, updateThread } from '@/services/copilot/threads';
+import { createThread, deleteThread, listMessages, saveProjectSettings, updateThread } from '@/services/copilot/threads';
+import { toast } from '@/components/common/toast';
 import { answerApproval, cancelCopilotTurn, planCopilotRetry, retryCopilotTurn, sendCopilotTurn } from '@/services/copilot/runner';
 import CopilotMessage from './CopilotMessage';
 import { useProjectAiSettings, useProjectThreads, useThreadMessages } from './useCopilotThread';
@@ -349,14 +350,25 @@ function DockBody({ projectId, tab, open }: { projectId: string; tab: string | n
       if (sendingRef.current) return;
       sendingRef.current = true;
       setDraft('');
+      let threadId: string | null = null;
       try {
-        const threadId = await ensureThread();
+        threadId = await ensureThread();
         await sendCopilotTurn({ projectId, threadId, text: clean, route, policy, briefing });
+      } catch (error) {
+        // The turn can fail before the message is stored (no thread, an
+        // invalid editorial profile…). The box was already cleared, so the
+        // words would simply vanish: put them back — unless they did reach
+        // the thread, where a resend would duplicate them — and say so.
+        console.error('Copilot send failed', error);
+        const stored = threadId ? await listMessages(threadId).catch(() => []) : [];
+        const landed = stored.filter((message) => message.role === 'user').at(-1)?.content === clean;
+        if (!landed) setDraft((current) => (current.trim() ? current : text));
+        toast.error(t(landed ? 'copilot.error.generic' : 'copilot.error.sendFailed'));
       } finally {
         sendingRef.current = false;
       }
     },
-    [briefing, ensureThread, policy, project, projectId, route, routeConnection?.locality, settings?.remoteConsent],
+    [briefing, ensureThread, policy, project, projectId, route, routeConnection?.locality, settings?.remoteConsent, t],
   );
 
   // Retry: the turn that ended in an error, a timeout or a cancel is run again
@@ -371,10 +383,15 @@ function DockBody({ projectId, tab, open }: { projectId: string; tab: string | n
     if (!route || !project || !activeThreadId) return;
     if (sendingRef.current) return;
     sendingRef.current = true;
-    void retryCopilotTurn({ projectId, threadId: activeThreadId, route, policy, briefing }).finally(() => {
-      sendingRef.current = false;
-    });
-  }, [activeThreadId, briefing, policy, project, projectId, route]);
+    void retryCopilotTurn({ projectId, threadId: activeThreadId, route, policy, briefing })
+      .catch((error) => {
+        console.error('Copilot retry failed', error);
+        toast.error(t('copilot.error.generic'));
+      })
+      .finally(() => {
+        sendingRef.current = false;
+      });
+  }, [activeThreadId, briefing, policy, project, projectId, route, t]);
   const retry = useCallback(() => {
     if (routeConnection?.locality === 'remote' && !settings?.remoteConsent) {
       setPendingConsent({ kind: 'retry' });

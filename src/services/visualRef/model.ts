@@ -60,6 +60,13 @@ export interface ResolverModel {
   supportsPhotoMaker: boolean;
   /** Has ControlNet weights for a pose. */
   supportsControlNet: boolean;
+  /**
+   * The ControlNets the server itself reported for this model (ComfyUI's
+   * ControlNet folder, say), which is where a request on that route must take
+   * its `controlNetModel` from. Absent for the managed local server: its
+   * ControlNets are companion files the studio reads from the runtime status.
+   */
+  controlNets?: string[];
   /** img2img denoise, which is not identity but is worth not confusing with it. */
   supportsInitImage: boolean;
   fileHash?: string;
@@ -72,6 +79,20 @@ export interface DescribeModelOptions {
   runtimeLorasSupported?: boolean;
   /** True when the route points at the app's own image server. */
   isManagedLocalRuntime?: boolean;
+  /**
+   * The model families the app's own server can run a pose ControlNet for —
+   * the `families` of the catalogued OpenPose ControlNet, today `['sd1']`.
+   *
+   * Needed because sd.cpp's model list never reports `controlNets`: the
+   * network is a companion file loaded beside the checkpoint, not a property
+   * of it. So for the managed runtime, support is decided by family instead,
+   * and whether the file is actually installed is the studio's question
+   * (`chooseControlNet`), answered with its own refusal. SDXL and FLUX stay
+   * `false`: an SD 1.5 ControlNet does not apply to them, and none of theirs
+   * is catalogued. Ignored for any other route, which answers through the
+   * descriptor's own `controlNets`.
+   */
+  managedControlNetFamilies?: readonly string[];
   /** Guidance the user set by hand, which beats every default. */
   cfgOverride?: number;
 }
@@ -100,6 +121,9 @@ export function describeResolverModel(
   const supportsLora = options.isManagedLocalRuntime === true
     ? (widened.lorasSupported ?? options.runtimeLorasSupported ?? true)
     : false;
+  const managedControlNet = options.isManagedLocalRuntime === true
+    && family !== undefined
+    && (options.managedControlNetFamilies ?? []).includes(family);
   return {
     connectionId: descriptor.connectionId,
     modelId: descriptor.id,
@@ -109,7 +133,8 @@ export function describeResolverModel(
     supportsLora,
     supportsReferenceImages: has(descriptor.capabilities, 'image-editing'),
     supportsPhotoMaker: identityAdapters.some((name) => name.toLowerCase().includes('photomaker')),
-    supportsControlNet: controlNets.length > 0,
+    supportsControlNet: controlNets.length > 0 || managedControlNet,
+    controlNets: controlNets.length > 0 ? controlNets : undefined,
     // Classic denoise-strength img2img is an SD thing; FLUX does not do it.
     supportsInitImage: family === 'sd1' || family === 'sdxl',
     fileHash: typeof widened.fileHash === 'string' ? widened.fileHash : undefined,

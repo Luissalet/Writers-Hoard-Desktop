@@ -7,6 +7,7 @@ import { CodexEditConflict, saveCodexDraft } from '@/engines/codex/operations';
 import CodexEntryForm from '@/components/codex/CodexEntryForm';
 import CodexEntryList from '@/components/codex/CodexEntryList';
 import { t } from '@/i18n/useTranslation';
+import { codexDraftStore } from '@/components/codex/codexDrafts';
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -93,6 +94,9 @@ export async function testCodexConcurrentEditing(): Promise<string[]> {
     await act(async () => { button(t('codex.useLatestVersion'))!.click(); await pause(); });
     assert(nextTitle.value === 'My chosen name', 'Use latest did not update the field');
     await unmount();
+    // Closing unsaved keeps a recovery draft (tests/codex-draft-recovery); this
+    // suite checks the list against fresh data, so retire it here.
+    codexDraftStore(fixture.projectId).clear();
 
     const list = (entry: CodexEntry) => <CodexEntryList projectId={fixture.projectId} entries={[entry]} onAdd={async () => {}} onEdit={async () => {}} onDelete={() => {}} />;
     await render(list(fixture));
@@ -112,6 +116,7 @@ export async function testCodexConcurrentEditing(): Promise<string[]> {
   } finally {
     db.relationships.hook('updating').unsubscribe(rejectPropagation);
     await unmount();
+    codexDraftStore(fixture.projectId).clear();
     await db.codexEntries.delete(fixture.id);
     await db.relationships.delete('codex-concurrent-link');
   }

@@ -32,7 +32,7 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
     addItem: addGoal,
   } = useWritingGoals(projectId);
 
-  const stats = useWritingStats(projectId);
+  const stats = useWritingStats(sessions);
 
   const [sprintActive, setSprintActive] = useState(false);
   const [goalSettingOpen, setGoalSettingOpen] = useState(false);
@@ -181,7 +181,9 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
                 <div>
                   <div className="text-xs font-medium text-accent-plum-light">{t('stats.projectGoal')}</div>
                   <div className="text-sm font-semibold text-text-primary">
-                    {stats.totalWords.toLocaleString()} / {projectGoal.targetWords.toLocaleString()} words
+                    {t('stats.goalCard.progress')
+                      .replace('{current}', stats.totalWords.toLocaleString())
+                      .replace('{target}', projectGoal.targetWords.toLocaleString())}
                   </div>
                 </div>
                 <div className="w-12 h-12 flex items-center justify-center bg-accent-plum/20 rounded-lg">
@@ -196,15 +198,16 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
                 <div>
                   <div className="text-xs font-medium text-warning">{t('stats.deadlineGoal')}</div>
                   <div className="text-sm font-semibold text-text-primary">
-                    {deadlineGoal.targetWords.toLocaleString()} words by{' '}
-                    {new Date(deadlineGoal.deadline + 'T00:00:00').toLocaleDateString()}
+                    {t('stats.goalCard.wordsBy')
+                      .replace('{target}', deadlineGoal.targetWords.toLocaleString())
+                      .replace('{date}', new Date(deadlineGoal.deadline + 'T00:00:00').toLocaleDateString())}
                   </div>
                   <div className="text-xs text-text-muted mt-1">
                     {deadlineInfo.daysLeft > 0
-                      ? `${deadlineInfo.daysLeft} days left`
+                      ? t('stats.goalCard.daysLeft').replace('{count}', String(deadlineInfo.daysLeft))
                       : deadlineInfo.daysLeft === 0
-                        ? 'Due today!'
-                        : `${Math.abs(deadlineInfo.daysLeft)} days overdue`}
+                        ? t('stats.goalCard.dueToday')
+                        : t('stats.goalCard.daysOverdue').replace('{count}', String(Math.abs(deadlineInfo.daysLeft)))}
                   </div>
                 </div>
               </div>

@@ -22,6 +22,7 @@ import {
 import {
   BrowserSpeechDriver,
   ReadAloudController,
+  clampReadAloudRate,
   collectCharacterVoiceAssignments,
   segmentReadAloudBlocks,
   voicePreferenceKey,
@@ -129,23 +130,36 @@ export default function ReadAloudPanel({
     () => segmentReadAloudBlocks(blocks, granularity, locale),
     [blocks, granularity, locale],
   );
+  // The cast is not part of the controller's identity: picking a character's
+  // voice mid-read used to build a new controller, which stopped the speech
+  // and sent the table read back to line 1. The controller reads the cast at
+  // each line it speaks, so handing it the new one is enough.
+  //
+  // The speed is the panel's for the same reason: switching sentence/block
+  // mode (or the text changing) builds a new controller, and one seeded with
+  // `initialRate` sent the slider back to 1× under the writer's feet.
+  const [rate, setRate] = useState(() => clampReadAloudRate(initialRate));
   const controller = useMemo(
-    () => new ReadAloudController({
-      driver,
-      segments,
-      locale,
-      rate: initialRate,
-      voicePreferences: resolvedVoicePreferences,
-    }),
-    [driver, initialRate, locale, resolvedVoicePreferences, segments],
+    () => new ReadAloudController({ driver, segments, locale }),
+    [driver, locale, segments],
   );
+  useEffect(() => {
+    controller.setVoicePreferences(resolvedVoicePreferences);
+  }, [controller, resolvedVoicePreferences]);
+  useEffect(() => {
+    controller.setRate(rate);
+  }, [controller, rate]);
   const snapshot = useSyncExternalStore(
     controller.subscribe,
     controller.getSnapshot,
     controller.getSnapshot,
   );
 
-  useEffect(() => () => controller.destroy(), [controller]);
+  // Stop, not destroy: the memoised controller outlives StrictMode's
+  // unmount/remount of this effect, and a destroyed one never speaks again
+  // (tasks/lessons #19). `stop` silences it and voids its pending callbacks
+  // just the same, and leaves the remounted panel a controller that plays.
+  useEffect(() => () => controller.stop(), [controller]);
 
   useEffect(() => {
     return driver.subscribeVoices?.(() => setVoices(driver.getVoices()));
@@ -197,7 +211,6 @@ export default function ReadAloudPanel({
   const isPlaying = snapshot.status === 'playing';
   const isPaused = snapshot.status === 'paused';
   const active = segments[snapshot.activeIndex];
-  const rate = snapshot.rate;
   const title = mode === 'table-read' ? copy.tableReadTitle : copy.readAloudTitle;
 
   return (
@@ -291,7 +304,7 @@ export default function ReadAloudPanel({
             max="2"
             step="0.1"
             value={rate}
-            onChange={(event) => controller.setRate(Number(event.target.value))}
+            onChange={(event) => setRate(clampReadAloudRate(Number(event.target.value)))}
             className="accent-accent-gold"
           />
         </label>

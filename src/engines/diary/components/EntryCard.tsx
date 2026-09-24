@@ -12,7 +12,12 @@ interface EntryCardProps {
 }
 
 function formatTime(iso: string): string {
+  // A bare "YYYY-MM-DD" (the AI bridge accepts any string) parses as UTC
+  // midnight, which prints the previous evening west of Greenwich; it carries
+  // no time, so show none. Unparseable stamps show nothing, not "Invalid Date".
+  if (!iso.includes('T')) return '';
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 

@@ -72,13 +72,20 @@ export function chatStream(request: AiChatRequest, onEvent: StreamListener): Str
     return { requestId, cancel: () => undefined };
   }
   streamListeners.set(requestId, onEvent);
-  void api.chat(requestId, request).then((ack) => {
-    if (!ack.ok) {
-      const listener = streamListeners.get(requestId);
-      streamListeners.delete(requestId);
-      listener?.({ type: 'error', code: 'bad-request', message: ack.error ?? 'Rejected.' });
-    }
-  });
+  // A rejected invoke (no handler yet, an uncloneable request, a sender check)
+  // must still end the stream: the listener waits for a terminal event and
+  // nothing else will ever send one.
+  const rejectStream = (message: string): void => {
+    const listener = streamListeners.get(requestId);
+    streamListeners.delete(requestId);
+    listener?.({ type: 'error', code: 'bad-request', message });
+  };
+  void api.chat(requestId, request).then(
+    (ack) => {
+      if (!ack.ok) rejectStream(ack.error ?? 'Rejected.');
+    },
+    (err: unknown) => rejectStream(err instanceof Error ? err.message : String(err)),
+  );
   return {
     requestId,
     cancel: () => {
@@ -105,12 +112,16 @@ export function generateImage(request: AiImageRequest): ImageHandle {
   }
   const result = new Promise<AiImageResult>((resolve) => {
     imageListeners.set(requestId, resolve);
-    void api.generateImage(requestId, request).then((ack) => {
-      if (!ack.ok) {
-        imageListeners.delete(requestId);
-        resolve({ ok: false, code: 'bad-request', error: ack.error ?? 'Rejected.' });
-      }
-    });
+    const rejectImage = (error: string): void => {
+      imageListeners.delete(requestId);
+      resolve({ ok: false, code: 'bad-request', error });
+    };
+    void api.generateImage(requestId, request).then(
+      (ack) => {
+        if (!ack.ok) rejectImage(ack.error ?? 'Rejected.');
+      },
+      (err: unknown) => rejectImage(err instanceof Error ? err.message : String(err)),
+    );
   });
   return {
     requestId,
@@ -156,13 +167,19 @@ export function runCopilot(request: Omit<CopilotRunRequest, 'runId'>, onEvent: C
     return { runId, cancel: () => undefined, approve: () => undefined };
   }
   copilotListeners.set(runId, onEvent);
-  void api.run({ ...request, runId }).then((ack) => {
-    if (!ack.ok) {
-      const listener = copilotListeners.get(runId);
-      copilotListeners.delete(runId);
-      listener?.({ type: 'error', code: 'bad-request', message: ack.error ?? 'Rejected.' });
-    }
-  });
+  // Same as chatStream: a rejected invoke would otherwise leave the run in the
+  // store, and the dock spinning, until the app is reloaded.
+  const rejectRun = (message: string): void => {
+    const listener = copilotListeners.get(runId);
+    copilotListeners.delete(runId);
+    listener?.({ type: 'error', code: 'bad-request', message });
+  };
+  void api.run({ ...request, runId }).then(
+    (ack) => {
+      if (!ack.ok) rejectRun(ack.error ?? 'Rejected.');
+    },
+    (err: unknown) => rejectRun(err instanceof Error ? err.message : String(err)),
+  );
   return {
     runId,
     cancel: () => {

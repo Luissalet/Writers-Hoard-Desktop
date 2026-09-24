@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { db } from '@/db';
 import { getAnchorAdapter } from '@/engines/_shared/anchoring';
+import { ConfirmDialog } from '@/engines/_shared';
 import { toast } from '@/components/common/toast';
 import { useTranslation } from '@/i18n/useTranslation';
 import {
@@ -66,6 +67,8 @@ export default function StoryStateLab({ projectId }: StoryStateLabProps) {
   const [ruleCost, setRuleCost] = useState('');
   const [ruleLimit, setRuleLimit] = useState('');
   const [stressRuleId, setStressRuleId] = useState<string | null>(null);
+  // Deleting a moment or claim is a hard delete, so it waits for a ConfirmDialog.
+  const [pendingDelete, setPendingDelete] = useState<{ kind: 'moment' | 'claim'; id: string; name: string } | null>(null);
 
   const data = useLiveQuery(async () => {
     const [moments, claims, beats, scenes, events, entries] = await Promise.all([
@@ -204,6 +207,13 @@ export default function StoryStateLab({ projectId }: StoryStateLabProps) {
     setRuleLimit('');
   }, t('creativeLab.story.ruleAdded'));
 
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const { kind, id } = pendingDelete;
+    await run(() => kind === 'moment' ? deleteNarrativeMoment(id) : deleteStoryClaim(id));
+    setPendingDelete(null);
+  };
+
   const moveMoment = (id: string, direction: -1 | 1) => run(async () => {
     if (!data) return;
     const ids = data.moments.map((moment) => moment.id);
@@ -265,7 +275,7 @@ export default function StoryStateLab({ projectId }: StoryStateLabProps) {
                   </button>
                   <button type="button" disabled={index === 0 || busy} onClick={() => void moveMoment(moment.id, -1)} aria-label={t('creativeLab.story.moveEarlier')} className="grid size-10 place-items-center rounded-lg text-text-muted disabled:opacity-30"><ArrowUp size={15} aria-hidden="true" /></button>
                   <button type="button" disabled={index === data.moments.length - 1 || busy} onClick={() => void moveMoment(moment.id, 1)} aria-label={t('creativeLab.story.moveLater')} className="grid size-10 place-items-center rounded-lg text-text-muted disabled:opacity-30"><ArrowDown size={15} aria-hidden="true" /></button>
-                  <button type="button" disabled={busy} onClick={() => void run(() => deleteNarrativeMoment(moment.id))} aria-label={t('creativeLab.story.deleteMoment')} className="grid size-10 place-items-center rounded-lg text-text-muted hover:text-danger"><Trash2 size={15} aria-hidden="true" /></button>
+                  <button type="button" disabled={busy} onClick={() => setPendingDelete({ kind: 'moment', id: moment.id, name: moment.label })} aria-label={t('creativeLab.story.deleteMoment')} className="grid size-10 place-items-center rounded-lg text-text-muted hover:text-danger"><Trash2 size={15} aria-hidden="true" /></button>
                 </li>
               ))}
               {data.moments.length === 0 && <li className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-text-muted">{t('creativeLab.story.axisEmpty')}</li>}
@@ -298,13 +308,13 @@ export default function StoryStateLab({ projectId }: StoryStateLabProps) {
             ))}
             <div className="grid gap-4 lg:grid-cols-3">
               <StateColumn title={t('creativeLab.story.facts')} empty={t('creativeLab.story.missing')}>
-                {snapshot.facts.map((claim) => <ClaimRow key={claim.id} title={claim.subject.title} detail={`${t(`creativeLab.story.factType.${claim.factType}`)} · ${claim.value}`} hypothesis={claim.status === 'hypothesis'} onDelete={() => void run(() => deleteStoryClaim(claim.id))} />)}
+                {snapshot.facts.map((claim) => <ClaimRow key={claim.id} title={claim.subject.title} detail={`${t(`creativeLab.story.factType.${claim.factType}`)} · ${claim.value}`} hypothesis={claim.status === 'hypothesis'} onDelete={() => setPendingDelete({ kind: 'claim', id: claim.id, name: `${claim.subject.title} · ${claim.value}` })} />)}
               </StateColumn>
               <StateColumn title={t('creativeLab.story.knowledge')} empty={t('creativeLab.story.missing')}>
-                {snapshot.beliefs.map((claim) => <ClaimRow key={claim.id} title={`${claim.actor.title} · ${t(`creativeLab.story.beliefMode.${claim.mode}`)}`} detail={claim.proposition} hypothesis={claim.status === 'hypothesis'} onDelete={() => void run(() => deleteStoryClaim(claim.id))} />)}
+                {snapshot.beliefs.map((claim) => <ClaimRow key={claim.id} title={`${claim.actor.title} · ${t(`creativeLab.story.beliefMode.${claim.mode}`)}`} detail={claim.proposition} hypothesis={claim.status === 'hypothesis'} onDelete={() => setPendingDelete({ kind: 'claim', id: claim.id, name: claim.proposition })} />)}
               </StateColumn>
               <StateColumn title={t('creativeLab.story.rules')} empty={t('creativeLab.story.missing')}>
-                {snapshot.rules.map((claim) => <ClaimRow key={claim.id} title={claim.title} detail={claim.effect} hypothesis={claim.status === 'hypothesis'} onOpen={() => { setStressRuleId(claim.id); setView('rules'); }} onDelete={() => void run(() => deleteStoryClaim(claim.id))} />)}
+                {snapshot.rules.map((claim) => <ClaimRow key={claim.id} title={claim.title} detail={claim.effect} hypothesis={claim.status === 'hypothesis'} onOpen={() => { setStressRuleId(claim.id); setView('rules'); }} onDelete={() => setPendingDelete({ kind: 'claim', id: claim.id, name: claim.title })} />)}
               </StateColumn>
             </div>
           </div>
@@ -361,6 +371,16 @@ export default function StoryStateLab({ projectId }: StoryStateLabProps) {
           </section>
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        destructive
+        message={pendingDelete
+          ? t(pendingDelete.kind === 'moment' ? 'creativeLab.story.deleteMomentConfirm' : 'creativeLab.story.deleteClaimConfirm').replace('{name}', () => pendingDelete.name)
+          : ''}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }
@@ -379,5 +399,6 @@ function StateColumn({ title, empty, children }: { title: string; empty: string;
 }
 
 function ClaimRow({ title, detail, hypothesis, onOpen, onDelete }: { title: string; detail: string; hypothesis: boolean; onOpen?: () => void; onDelete: () => void }) {
-  return <div className="rounded-lg border border-border bg-elevated/30 p-3"><div className="flex items-start gap-2"><div className="min-w-0 flex-1"><p className="text-sm font-medium text-text-primary">{title}</p><p className="mt-1 text-xs leading-relaxed text-text-muted">{detail}</p>{hypothesis && <span className="mt-2 inline-block rounded-full bg-accent-amber/10 px-2 py-0.5 text-[11px] text-accent-amber">?</span>}</div>{onOpen && <button type="button" onClick={onOpen} className="grid size-10 place-items-center rounded-lg text-text-muted hover:text-accent-gold"><ExternalLink size={14} aria-hidden="true" /></button>}<button type="button" onClick={onDelete} className="grid size-10 place-items-center rounded-lg text-text-muted hover:text-danger"><Trash2 size={14} aria-hidden="true" /></button></div></div>;
+  const { t } = useTranslation();
+  return <div className="rounded-lg border border-border bg-elevated/30 p-3"><div className="flex items-start gap-2"><div className="min-w-0 flex-1"><p className="text-sm font-medium text-text-primary">{title}</p><p className="mt-1 text-xs leading-relaxed text-text-muted">{detail}</p>{hypothesis && <span className="mt-2 inline-block rounded-full bg-accent-amber/10 px-2 py-0.5 text-[11px] text-accent-amber">?</span>}</div>{onOpen && <button type="button" onClick={onOpen} aria-label={t('creativeLab.story.showStress')} title={t('creativeLab.story.showStress')} className="grid size-10 place-items-center rounded-lg text-text-muted hover:text-accent-gold"><ExternalLink size={14} aria-hidden="true" /></button>}<button type="button" onClick={onDelete} aria-label={`${t('creativeLab.story.deleteClaim')}: ${title}`} title={t('creativeLab.story.deleteClaim')} className="grid size-10 place-items-center rounded-lg text-text-muted hover:text-danger"><Trash2 size={14} aria-hidden="true" /></button></div></div>;
 }

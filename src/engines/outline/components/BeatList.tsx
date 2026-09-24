@@ -171,7 +171,9 @@ export default function BeatList({
     onAddBeat({
       outlineId,
       projectId,
-      order: beats.length,
+      // max+1, not the count: deletes leave `order` sparse, and a count-based
+      // order would slot the new beat before the outline's last beats.
+      order: beats.reduce((max, b) => Math.max(max, b.order), -1) + 1,
       level: 'beat',
       title: t('outline.beat.defaultTitle'),
       description: '',

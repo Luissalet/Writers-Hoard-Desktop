@@ -154,6 +154,13 @@ export default function CartoMap({
   const fullTimer = useRef(0);
   const rendering = useRef(false);
   /**
+   * El fotograma que `render` cede antes de bloquear. Hay que poder cancelarlo:
+   * si la vista se cierra dentro de ese fotograma, el render completo (segundos
+   * de hilo principal, la lámina del mundo entero incluida) corría igualmente
+   * para pintar un lienzo que ya no existe.
+   */
+  const renderRaf = useRef(0);
+  /**
    * A render requested while another is still executing. Without this stash the
    * full-resolution pass died silently almost every gesture: it fires 120 ms
    * after the quick pass, the quick pass is still inside its rAF, the guard
@@ -538,7 +545,8 @@ export default function CartoMap({
     setBusy(true);
     // Yield one frame so the spinner and the interim blit are actually on screen
     // before the main thread blocks.
-    requestAnimationFrame(() => {
+    renderRaf.current = requestAnimationFrame(() => {
+      renderRaf.current = 0;
       try {
         // Lettering is specified in CSS pixels. A quick bitmap is enlarged
         // on screen; multiplying by its inverse scale enlarged type twice.
@@ -746,7 +754,19 @@ export default function CartoMap({
     window.clearTimeout(quickTimer.current);
     window.clearTimeout(fullTimer.current);
     window.clearTimeout(reportTimer.current);
+    window.clearTimeout(interimFallback.current);
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
+    // El render cedido muere con la vista. Y su cerrojo con él: bajo StrictMode
+    // este desmontaje es simulado, y un `rendering` que se quedara en true
+    // haría que el render del remontaje se aparcara en `pendingRender` para
+    // siempre, porque el `finally` que lo suelta ya no va a correr.
+    if (renderRaf.current) {
+      cancelAnimationFrame(renderRaf.current);
+      renderRaf.current = 0;
+      rendering.current = false;
+      pendingRender.current = null;
+    }
     glBase.current?.dispose();
     glBase.current = null;
   }, []);

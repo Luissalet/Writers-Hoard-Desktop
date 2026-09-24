@@ -423,7 +423,7 @@ export function SceneLab({
                 <table className="w-full min-w-[42rem] table-fixed border-collapse text-left text-sm">
                   <thead className="bg-surface">
                     <tr>
-                      <th scope="col" className="w-36 border-b border-border px-3 py-2 text-xs font-medium text-text-dim"><span className="sr-only">Field</span></th>
+                      <th scope="col" className="w-36 border-b border-border px-3 py-2 text-xs font-medium text-text-dim"><span className="sr-only">{copy.comparison.field}</span></th>
                       {comparisonTakes.map((take) => <th key={take.id} scope="col" className="border-b border-l border-border px-3 py-2 font-serif font-semibold">{take.title}</th>)}
                     </tr>
                   </thead>

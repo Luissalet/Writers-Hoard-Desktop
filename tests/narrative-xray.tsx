@@ -168,15 +168,79 @@ function testDeterminismAndAccessibleCopyBoundary(): void {
   assert(en.includes('does not score quality'), 'the non-evaluative contract is not visible');
 }
 
+/**
+ * A project large enough that every grouping in the analysis sees many rows
+ * per key: repeated words, several characters, tags on every row, sessions
+ * sharing dates and links sharing relations. Deterministic by construction.
+ */
+function largeModel() {
+  const words = ['bell', 'gate', 'platform', 'debt', 'night', 'train', 'rain', 'mara', 'ticket', 'silence'];
+  const sentence = (seed: number, length: number) =>
+    Array.from({ length }, (_, at) => words[(seed * 7 + at * 3) % words.length]).join(' ');
+  const writings = Array.from({ length: 40 }, (_, at) => writing(
+    `w-${at}`, `Chapter ${at}`,
+    Array.from({ length: 6 }, (_, p) => `<p>${sentence(at + p, 30)}. ${sentence(at * p, 12)}?</p>`).join(''),
+    at + 1, [TAGS[at % 2].name, at % 3 ? 'night' : 'Omen'],
+  ));
+  const scenes: Scene[] = Array.from({ length: 8 }, (_, at) => ({
+    ...SCENE, id: `scene-${at}`, title: `Scene ${at}`, order: 8 - at, tags: [at % 2 ? 'Debt' : 'Night'],
+  }));
+  const characters = ['mara', 'jon', 'ines', ''];
+  const dialogBlocks: DialogBlock[] = Array.from({ length: 240 }, (_, at) => ({
+    ...BLOCKS[0], id: `line-${String(at).padStart(3, '0')}`, sceneId: scenes[at % scenes.length].id,
+    type: at % 5 === 0 ? 'action' : 'dialog', characterId: characters[at % 4] || undefined,
+    characterName: characters[at % 4] ? characters[at % 4].toUpperCase() : '', content: `${sentence(at, 9)}!`, order: at,
+  }));
+  const writingSessions: WritingSession[] = Array.from({ length: 60 }, (_, at) => ({
+    ...SESSIONS[at % 2], id: `session-${at}`, date: `2026-09-${String(1 + (at % 9)).padStart(2, '0')}`, wordCount: at * 11,
+  }));
+  const entityLinks: EntityLink[] = Array.from({ length: 50 }, (_, at) => ({
+    ...LINK, id: `link-${String(at).padStart(2, '0')}`, relation: ['foreshadows', 'echoes', 'Echoes '][at % 3],
+    sourceEntityId: writings[at % writings.length].id, targetEntityId: `beat-${at % 7}`,
+  }));
+  return buildNarrativeXray({
+    projectId: PROJECT,
+    locale: 'en',
+    writings,
+    outlineBeats: Array.from({ length: 12 }, (_, at) => ({ ...BEAT, id: `beat-${at}`, order: at, description: sentence(at, 20) })),
+    scenes,
+    dialogBlocks,
+    writingSessions,
+    annotations: writings.slice(0, 10).map((row, at) => ({ ...ANNOTATION, id: `note-${at}`, sourceEntityId: row.id })),
+    tags: TAGS,
+    entityLinks,
+  });
+}
+
+/** FNV-1a over the model's JSON: a short, exact fingerprint of every field. */
+function fingerprint(value: unknown): string {
+  let hash = 0x811c9dc5;
+  for (const character of JSON.stringify(value)) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+function testGroupingIsLinearAndUnchanged(): void {
+  // The fingerprint was taken from the analysis before its groupings stopped
+  // copying their lists on every append: the model must not move by one field.
+  const result = largeModel();
+  equal(fingerprint(result), 'daa83c93', 'linear grouping changed the read model');
+  equal(fingerprint(largeModel()), 'daa83c93', 'the large read model is not deterministic');
+}
+
 export function runNarrativeXrayTests(): string[] {
   testTextMeasuresAndVoice();
   testRhythmAndEnergyRemainDescriptive();
   testThreadsAreOnlyExplicit();
   testDeterminismAndAccessibleCopyBoundary();
+  testGroupingIsLinearAndUnchanged();
   return [
     'voice metrics are exact and dialogue evidence stays navigable',
     'rhythm and energy remain descriptive without a quality score',
     'threads come only from explicit tags and entity links',
     'the read model is deterministic and the UI has an ES/EN accessible boundary',
+    'grouping a large project yields exactly the model it did before appends became linear',
   ];
 }

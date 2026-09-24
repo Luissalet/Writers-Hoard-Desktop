@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Clock, List, Layers } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
-import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard, ConfirmDialog } from '@/engines/_shared';
+import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard, ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
 import { useTimelines, useTimelineEvents, useAllProjectEvents, useTimelineConnections } from './hooks';
-import { countConnectionsForEvent } from './operations';
+import { countConnectionsForEvent, findTimelineIdForEntity } from './operations';
 import { generateId } from '@/utils/idGenerator';
 import TimelineView from './components/TimelineView';
 import SwimLaneView from './components/SwimLaneView';
@@ -46,6 +46,21 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
 
   useAutoSelect(timelines, activeTimelineId, setActiveTimelineId);
 
+  // Deep link (`?entity=<id>`): global search, backlinks and the cockpit reach
+  // this engine through the fallback anchor adapter, which emits `?entity=`.
+  // Nothing read it, so a hit opened the tab on whatever timeline happened to be
+  // selected. Keyed on the link alone, so picking another timeline afterwards is
+  // not undone.
+  const deepLinkedEntityId = useDeepLinkParam('entity');
+  useEffect(() => {
+    if (!deepLinkedEntityId) return;
+    let cancelled = false;
+    void findTimelineIdForEntity(projectId, deepLinkedEntityId).then((id) => {
+      if (!cancelled && id) setActiveTimelineId(id);
+    });
+    return () => { cancelled = true; };
+  }, [deepLinkedEntityId, projectId]);
+
   useEnsureDefault({
     items: timelines,
     loading: timelinesLoading,
@@ -83,6 +98,10 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
 
   const handleDeleteTimeline = async (id: string) => {
     await removeTimeline(id);
+    // The delete cascades to the timeline's events and connections; the
+    // swim-lane view and the stats line read them from their own hooks.
+    refreshAllEvents();
+    refreshConnections();
     if (activeTimelineId === id) {
       const remaining = timelines.filter((t) => t.id !== id);
       if (remaining.length > 0) {

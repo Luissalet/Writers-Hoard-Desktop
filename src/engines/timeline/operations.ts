@@ -48,6 +48,18 @@ export async function deleteTimeline(id: string): Promise<void> {
   });
 }
 
+/**
+ * The timeline a deep link (`?entity=<id>`) points at. Global search and the
+ * fallback anchor adapter emit either a timeline id or an event id; an event
+ * selects its lane. Scoped to the project so a stale link is ignored.
+ */
+export async function findTimelineIdForEntity(projectId: string, entityId: string): Promise<string | null> {
+  const timeline = await db.timelines.get(entityId);
+  if (timeline) return timeline.projectId === projectId ? timeline.id : null;
+  const event = await db.timelineEvents.get(entityId);
+  return event && event.projectId === projectId ? event.timelineId : null;
+}
+
 // ===== Timeline Events =====
 
 export async function getTimelineEvents(timelineId: string): Promise<TimelineEvent[]> {
