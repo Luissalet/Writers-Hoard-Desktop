@@ -9,7 +9,7 @@ import { act } from 'react';
 import JSZip from 'jszip';
 import { db } from '@/db';
 import { useDebouncedField, type DebouncedField } from '@/engines/_shared/useDebouncedField';
-import { stripHtml } from '@/utils/text';
+import { countWords, stripHtml } from '@/utils/text';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -166,6 +166,20 @@ export async function testDataLayerRegressions(): Promise<string[]> {
     const got = stripHtml('<p>a &amp;lt; b</p>');
     assert(got === 'a &lt; b', `stripHtml double-decoded: ${got}`);
     return 'stripHtml decodes &amp; last';
+  });
+  await probe('countWords', () => {
+    const cases: Array<[string, number]> = [
+      ['  hello   world  ', 2],
+      ['<p>Hola</p><p>mundo</p>', 2],
+      ['我爱写作。', 4],
+      ['今日は良い天気です', 9],
+      ['Writers Hoard 是一个应用', 7],
+    ];
+    for (const [text, expected] of cases) {
+      const got = countWords(text);
+      assert(got === expected, `countWords(${JSON.stringify(text)}) = ${got}, expected ${expected}`);
+    }
+    return 'countWords counts CJK per character and ignores its punctuation';
   });
   await probe('replaceGate', replaceGate);
   await probe('branchRemoval', branchRemoval);
