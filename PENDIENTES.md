@@ -36,10 +36,11 @@ Fallos conocidos, cosas sin verificar y deuda aceptada a propósito.
   en el contenedor. Todo está verificado leyendo la fuente en el commit del pin,
   no ejecutándolo.
 
-- `[?]` **El IPC de los companions no está cableado.** `electron/ai/ipc.ts` no
-  entraba en el reparto, así que ControlNet/ESRGAN no se pueden instalar desde
-  la UI todavía. Puntos de entrada: `downloadSdCompanion`,
-  `cancelSdCompanionDownload`, `deleteSdCompanion`, `installedSdCompanions`.
+- `[?]` **El IPC de los companions existe, pero ninguna pantalla lo llama.**
+  `sd:downloadCompanion` y compañía están en `electron/ai/ipc.ts` y en el
+  preload, pero la UI no ofrece instalar ControlNet/ESRGAN. Desde 2026-09-24
+  el Estudio elige la ControlNet instalada (`studio/controlNet.ts`) y, si no
+  hay ninguna, desactiva Generar explicando que hay que ponerla en su carpeta.
 
 - `[?]` **Contradicción sobre Z-Image.** La ayuda del CLI no lo menciona, pero
   `src/model/diffusion/z_image.hpp` y `docs/z_image.md` existen en el pin. Las
@@ -82,22 +83,18 @@ Fallos conocidos, cosas sin verificar y deuda aceptada a propósito.
 
 ## Mejoras pendientes
 
-- `[+]` **No hay `.gitignore` ni `package-lock.json` en el repo.** Un
-  `git add -A` en un worktree limpio prepara 400 MB de `node_modules`, y sin
-  lockfile un `npm install` resuelve versiones distintas a las de la línea base
-  (así aparecieron 131 "violaciones nuevas" de lint en ficheros intactos y un
-  error de tipos de `@xyflow/react`).
-
-- `[+]` **`quick-note.html` lo referencia `vite.config.ts` y no está en git.**
-  En un árbol frío la etapa de Vite aborta la primera vez.
-
-- `[+]` **Error de tipos preexistente** en `src/engines/board/components/
-  BoardCanvas.tsx:1049` (firma de `OnNodeDrag` de xyflow). Comprobado que
-  preexiste haciendo typecheck del commit base.
-
 - `[+]` **El grafo de conocimiento del proyecto no se ha refrescado** — el skill
   `update-project-graph` es un stub en la sesión de nube. Conviene correrlo en
   la máquina.
 
 - `[+]` **Falta un preset SDXL fotorrealista.** Se dejó fuera a propósito por no
   poder verificar su digest con el mismo cuidado que el resto del catálogo.
+
+---
+
+## Resuelto en la auditoría 2026-09-24
+
+- `.gitignore`, `package-lock.json` y `quick-note.html` ya están en git; el
+  error de tipos de `BoardCanvas.tsx` ya no existe (typecheck limpio).
+- Las opciones del Estudio (pose, referencias, máscara, hires, sampler…) se
+  caían en la frontera IPC (`asImageRequest`); ahora llegan al servidor.

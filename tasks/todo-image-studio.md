@@ -62,7 +62,9 @@ Four more fields turned out to be carried by the request already and were
 being built and dropped on the floor between the studio and the gateway:
 `refImages`, `controlImage` + `controlStrength`, `maskImage` and `hiresFix`.
 The identity references a writer had pinned and the pose they had chosen were
-never reaching the server. They do now.
+never reaching the server. They do now — but only since the 2026-09-24
+audit: `electron/ai/ipc.ts` `asImageRequest` rebuilt the request from 14
+fields and dropped the rest until commit 59aef88.
 
 Still waiting on the runtime branch, all of them visible and disabled with the
 sentence «the request has no field for this yet»: CLIP-skip, the detailer
