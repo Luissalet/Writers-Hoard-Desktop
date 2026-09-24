@@ -176,6 +176,12 @@ export interface GenerateAndSaveOptions {
   referenceImages?: string[];
   /** ControlNet conditioning: a pinned pose and how hard to hold it. */
   controlNets?: { image: string; weight: number }[];
+  /**
+   * The ControlNet the local server must hold for `controlNets` to mean
+   * anything (catalogue id or installed file name). sd.cpp refuses a control
+   * image without one; see `studio/controlNet.ts` for how it is chosen.
+   */
+  controlNetModel?: string;
   /** The second pass, when the chain has an enabled hires pass. */
   hires?: HiresPassRequest;
   /** The visual references this generation was resolved from, for the recipe. */
@@ -272,6 +278,7 @@ export function buildImageRequest(options: GenerateAndSaveOptions): AiImageReque
   if (REQUEST_SUPPORTS.controlImage && control) {
     request.controlImage = control.image;
     request.controlStrength = control.weight;
+    if (options.controlNetModel) request.controlNetModel = options.controlNetModel;
   }
   if (REQUEST_SUPPORTS.maskImage && options.maskImage) request.maskImage = options.maskImage;
   if (REQUEST_SUPPORTS.hiresFix && options.hires) request.hiresFix = options.hires;
@@ -344,6 +351,7 @@ export async function saveGenerated(
       wildcards: options.wildcards?.length ? options.wildcards : undefined,
       refImageIds: options.refImageIds?.length ? options.refImageIds : undefined,
       controlImageId: options.controlImageId,
+      controlNetModel: options.controlNets?.length ? options.controlNetModel : undefined,
       controlStrength: options.controlNets?.[0]?.weight,
       strength: options.strength,
       hiresUpscaler: options.hires?.upscaler,

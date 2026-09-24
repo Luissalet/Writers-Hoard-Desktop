@@ -14,6 +14,8 @@
 import { Readability } from '@mozilla/readability';
 import { isDesktop } from '@/utils/platform';
 import type { Snapshot, SnapshotSource } from '@/engines/scrapper/types';
+import { getSnapshot } from '@/engines/scrapper/operations';
+import { discardOrphanedSnapshotFiles, snapshotIsGone } from './scrapperMedia';
 
 /** Sources archived as a page. Media sources go through scrapperMedia instead. */
 export function canCapturePage(source: SnapshotSource): boolean {
@@ -148,6 +150,7 @@ export async function runSnapshotCapture(
       return;
     }
 
+    const produced = [res.pdfPath, res.imagePath, res.htmlPath];
     const meta = res.meta ?? {};
     const changes: Partial<Snapshot> = {
       capturePdfPath: res.pdfPath,
@@ -165,7 +168,20 @@ export async function runSnapshotCapture(
 
     // Fill in what the page told us about itself — but never overwrite the
     // user's own edits. The capture bar seeds `title` with the bare domain,
-    // so a real page title always wins over that placeholder.
+    // so a real page title always wins over that placeholder. Decide from the
+    // row as it is now: the user may have edited it while the page rendered.
+    let current: Pick<Snapshot, 'title' | 'description' | 'author' | 'publishDate'> = snapshot;
+    try {
+      const row = await getSnapshot(snapshot.id);
+      // Deleted while the page rendered: the archive belongs to nothing.
+      if (!row) {
+        await discardOrphanedSnapshotFiles(snapshot.projectId, snapshot.id, produced);
+        return;
+      }
+      current = row;
+    } catch {
+      /* keep the caller's copy */
+    }
     const domainPlaceholder = (() => {
       try {
         return new URL(snapshot.url).hostname.replace('www.', '');
@@ -173,14 +189,14 @@ export async function runSnapshotCapture(
         return '';
       }
     })();
-    if (meta.title && (!snapshot.title?.trim() || snapshot.title === domainPlaceholder)) {
+    if (meta.title && (!current.title?.trim() || current.title === domainPlaceholder)) {
       changes.title = meta.title.slice(0, 300);
     }
-    if (meta.author && !snapshot.author?.trim()) changes.author = meta.author;
-    if (meta.description && !snapshot.description?.trim()) {
+    if (meta.author && !current.author?.trim()) changes.author = meta.author;
+    if (meta.description && !current.description?.trim()) {
       changes.description = meta.description;
     }
-    if (meta.publishDate && !snapshot.publishDate) changes.publishDate = meta.publishDate;
+    if (meta.publishDate && !current.publishDate) changes.publishDate = meta.publishDate;
 
     const metadata: Record<string, string> = {};
     if (meta.siteName) metadata.siteName = meta.siteName;
@@ -189,6 +205,10 @@ export async function runSnapshotCapture(
     if (Object.keys(metadata).length > 0) changes.metadata = metadata;
 
     await update(snapshot.id, changes);
+    // Deleted between the read above and this write: the update matched no row.
+    if (await snapshotIsGone(snapshot.id)) {
+      await discardOrphanedSnapshotFiles(snapshot.projectId, snapshot.id, produced);
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await update(snapshot.id, { captureState: 'error', captureError: msg });

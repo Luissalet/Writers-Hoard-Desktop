@@ -49,6 +49,8 @@ export interface RunInput {
   /** Conditioning bytes, already read out of Gallery. */
   referenceImages?: string[];
   controlNets?: { image: string; weight: number }[];
+  /** The ControlNet the local server holds for `controlNets`. */
+  controlNetModel?: string;
   /** Gallery ids of the same, so the row can point back at them. */
   refImageIds?: string[];
   controlImageId?: string;
@@ -107,6 +109,7 @@ export function planRun(input: RunInput): RunPlan {
       hires: chain.hires,
       referenceImages: input.referenceImages?.length ? input.referenceImages : undefined,
       controlNets: input.controlNets?.length ? input.controlNets : undefined,
+      controlNetModel: input.controlNets?.length ? input.controlNetModel : undefined,
       refImageIds: input.refImageIds,
       controlImageId: input.controlImageId,
       visualRefIds: input.visualRefIds,

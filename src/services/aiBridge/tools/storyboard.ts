@@ -28,6 +28,7 @@ import {
   resolveProjectForEngine,
   resolveProjectId,
   withAudit,
+  nextSlot,
   type ToolArgs,
 } from './shared';
 
@@ -89,7 +90,7 @@ export async function whAddStoryboardPanel(args: ToolArgs): Promise<unknown> {
     id: generateId('panel'),
     storyboardId,
     projectId: board.projectId,
-    order: optNumber(args, 'order') ?? siblings.length,
+    order: optNumber(args, 'order') ?? nextSlot(siblings, 'order'),
     subtitle: requireString(args, 'subtitle'),
     description: optString(args, 'description'),
     duration: optString(args, 'duration'),

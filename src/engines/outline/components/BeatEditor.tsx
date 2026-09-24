@@ -43,6 +43,18 @@ export default function BeatEditor({
   const [linkedSceneId, setLinkedSceneId] = useState(beat.linkedSceneId || '');
   const [linkedWritingId, setLinkedWritingId] = useState(beat.linkedWritingId || '');
   const [parentId, setParentId] = useState(beat.parentId || '');
+  // Anything changed since the editor opened keeps Escape and the backdrop
+  // from discarding it; Cancel and the X still close.
+  const dirty = title !== beat.title
+    || description !== beat.description
+    || level !== beat.level
+    || status !== beat.status
+    || storyPosition !== (beat.storyPosition || 0)
+    || color !== (beat.color || '#c4973b')
+    || wordTarget !== (beat.wordTarget || 0)
+    || linkedSceneId !== (beat.linkedSceneId || '')
+    || linkedWritingId !== (beat.linkedWritingId || '')
+    || parentId !== (beat.parentId || '');
 
   // Candidate parents: every other beat except this one and everything nested
   // underneath it — otherwise the tree could be pointed at itself and
@@ -82,7 +94,7 @@ export default function BeatEditor({
   };
 
   return (
-    <Modal open onClose={onClose} title={t('outline.beat.editTitle')} wide>
+    <Modal open onClose={onClose} dismissible={!dirty} title={t('outline.beat.editTitle')} wide>
       <div>
         <div className="space-y-4">
           {/* Title */}

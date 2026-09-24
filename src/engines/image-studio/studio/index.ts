@@ -102,4 +102,4 @@ export { planRun } from './run';
 export type { RunInput, RunPlan } from './run';
 
 export { DEFAULT_STUDIO_PREFS, readStudioPrefs, writeStudioPrefs } from './prefs';
-export type { StudioPrefs } from './prefs';
+export type { PinnedPose, StudioPrefs } from './prefs';

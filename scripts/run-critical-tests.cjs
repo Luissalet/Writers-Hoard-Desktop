@@ -17,6 +17,18 @@ fsSync.mkdirSync(isolatedUserData, { recursive: true });
 // Must happen before app ready: no test may ever open the user's real profile.
 app.setPath('userData', isolatedUserData);
 
+/** A port the OS just handed out, released so Vite can bind it. */
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = require('node:net').createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
 async function main() {
   const nativeBundlePath = path.join(temporaryDirectory, 'electron-security.cjs');
   await esbuild.build({
@@ -94,7 +106,9 @@ async function main() {
     const url = pathToFileURL(htmlPath).toString() +
       (label === 'Full renderer startup' ? '#/' : '');
     await testWindow.loadURL(url);
-    const deadline = Date.now() + timeoutMs;
+    // An inactivity budget, not a total one: a slow machine that keeps
+    // reporting progress must not fail for being slow (lesson #40).
+    let deadline = Date.now() + timeoutMs;
     const startedAt = Date.now();
     let lastProgress = '';
     while (Date.now() < deadline) {
@@ -112,6 +126,7 @@ async function main() {
       if (progress !== lastProgress) {
         console.log(`${label}: ${progress} (${((Date.now() - startedAt) / 1000).toFixed(1)}s)`);
         lastProgress = progress;
+        deadline = Date.now() + timeoutMs;
       }
       await new Promise(resolve => setTimeout(resolve, 50));
     }
@@ -155,7 +170,9 @@ async function main() {
       logLevel: 'error',
       server: {
         host: '127.0.0.1',
-        port: 0,
+        // Vite reads `port: 0` as "unset" and falls back to 5173, which
+        // strictPort then refuses whenever a dev server is already running.
+        port: await freePort(),
         strictPort: true,
       },
     });

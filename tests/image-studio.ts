@@ -29,7 +29,9 @@ import {
   type Recipe as RuntimeRecipe,
 } from '@/services/aiRuntime/recipe';
 import type { AiImageResult } from '@/services/aiRuntime/types';
-import { SD_SAMPLERS, SD_SCHEDULERS } from '@/services/aiRuntime/sdServer';
+import { SD_SAMPLERS, SD_SCHEDULERS, type SdCompanionFile } from '@/services/aiRuntime/sdServer';
+import { chooseControlNet, chooseReportedControlNet, POSE_CONTROLNET_ID } from '@/engines/image-studio/studio/controlNet';
+import { routeModelsPending, studioResolverModel } from '@/engines/image-studio/studioModel';
 import { createProjectZipArchive, importProjectZip } from '@/services/zipBackup';
 import type { ResolverModel } from '@/services/visualRef';
 import type { VisualRef } from '@/types/visualRef';
@@ -850,6 +852,82 @@ export async function testExactRecipePersistenceBackupAndCascade(): Promise<void
 
 // ---------------------------------------------------------------------------
 
+/** A pose picks OpenPose, or the only ControlNet; several, none, or not-yet-known refuse with their own reason. */
+function testStudioControlNetChoice(): void {
+  const file = (catalogId: string | null, name: string, kind: SdCompanionFile['kind'] = 'controlnet'): SdCompanionFile =>
+    ({ kind, catalogId, name, fileName: `${name}.safetensors`, sizeBytes: 1 });
+  const same = (a: unknown, b: unknown, label: string) => {
+    if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${label}: ${JSON.stringify(a)} !== ${JSON.stringify(b)}`);
+  };
+  same(chooseControlNet(undefined), { ok: false, reasonKey: 'visualRef.reason.controlNetChecking' }, 'status not loaded');
+  same(chooseControlNet([]), { ok: false, reasonKey: 'visualRef.reason.noControlNet' }, 'none installed');
+  same(chooseControlNet([file(null, 'up', 'upscaler')]), { ok: false, reasonKey: 'visualRef.reason.noControlNet' }, 'only an upscaler');
+  same(chooseControlNet([file(null, 'depth')]), { ok: true, model: 'depth.safetensors' }, 'single hand-installed');
+  same(
+    chooseControlNet([file(null, 'depth'), file(POSE_CONTROLNET_ID, 'openpose')]),
+    { ok: true, model: POSE_CONTROLNET_ID },
+    'openpose wins',
+  );
+  same(
+    chooseControlNet([file(null, 'depth'), file(null, 'canny')]),
+    { ok: false, reasonKey: 'visualRef.reason.controlNetAmbiguous' },
+    'ambiguous',
+  );
+
+  // A server that lists its own ControlNets (ComfyUI) is answered from that
+  // list, by file name: a catalogue id would name a file it does not have.
+  same(
+    chooseReportedControlNet(['depth.safetensors', 'SD15/control_v11p_sd15_OpenPose.pth']),
+    { ok: true, model: 'SD15/control_v11p_sd15_OpenPose.pth' },
+    'reported: openpose wins, any case',
+  );
+  same(chooseReportedControlNet(['canny.safetensors']), { ok: true, model: 'canny.safetensors' }, 'reported: the only one');
+  same(
+    chooseReportedControlNet(['depth.safetensors', 'canny.safetensors']),
+    { ok: false, reasonKey: 'visualRef.reason.controlNetAmbiguous' },
+    'reported: ambiguous',
+  );
+  same(chooseReportedControlNet([]), { ok: false, reasonKey: 'visualRef.reason.noControlNet' }, 'reported: none');
+  // Not "none": the route's model list has not arrived, so Generate waits.
+  same(chooseReportedControlNet(undefined), { ok: false, reasonKey: 'visualRef.reason.controlNetChecking' }, 'reported: list not loaded');
+  // Windows ComfyUI reports subfolders with backslashes; sent verbatim, because
+  // ComfyUI matches the name exactly against the list it reported.
+  same(
+    chooseReportedControlNet(['SD15\\control_v11p_sd15_openpose.pth']),
+    { ok: true, model: 'SD15\\control_v11p_sd15_openpose.pth' },
+    'reported: backslash subfolder kept verbatim',
+  );
+  // A name main would drop is refused out loud, never sent as if chosen.
+  same(
+    chooseReportedControlNet(['depth.safetensors', 'C:\\openpose.pth']),
+    { ok: false, reasonKey: 'visualRef.reason.controlNetUnsendable' },
+    'reported: a name that cannot cross IPC',
+  );
+  for (const key of ['visualRef.reason.controlNetUnsendable', 'visualRef.reason.controlNetChecking'] as const) {
+    if (!en[key] || !es[key]) throw new Error(`missing locale key ${key}`);
+  }
+
+  // The not-yet-loaded window: a route that reports its own ControlNets keeps
+  // the pose (supportsControlNet) with none named until the list arrives.
+  const comfyRoute = { connectionId: 'comfy', modelId: 'sd15.safetensors' };
+  const pending = (over: Partial<Parameters<typeof routeModelsPending>[0]>) =>
+    routeModelsPending({ route: comfyRoute, connectionsLoaded: true, connectionEnabled: true, ...over });
+  same(pending({}), true, 'pending: enabled connection, no list yet');
+  same(pending({ connectionsLoaded: false, connectionEnabled: false }), true, 'pending: connections not loaded');
+  same(pending({ models: { loading: true } }), true, 'pending: list loading');
+  same(pending({ models: { loading: false } }), false, 'settled: list loaded without the model, or failed');
+  same(pending({ connectionEnabled: false }), false, 'settled: disabled or unknown connection');
+  same(
+    pending({ descriptor: { connectionId: 'comfy', id: 'sd15.safetensors', type: 'image', capabilities: [] } }),
+    false,
+    'settled: the model is listed',
+  );
+  same(pending({ route: { connectionId: 'builtin-sd', modelId: 'dreamshaper-8' } }), false, 'managed: never pending');
+  const waiting = studioResolverModel({ route: comfyRoute, modelsPending: true });
+  same([waiting?.supportsControlNet, waiting?.controlNets], [true, undefined], 'pending model keeps the pose');
+  same(studioResolverModel({ route: comfyRoute })?.supportsControlNet, false, 'settled model with no ControlNets');
+}
+
 export async function runImageStudioTests(): Promise<string[]> {
   await testStudioNoBackend();
   testStudioLevels();
@@ -866,6 +944,7 @@ export async function runImageStudioTests(): Promise<string[]> {
   testStudioSeeds();
   testStudioXyzMatrix();
   testStudioPlanRun();
+  testStudioControlNetChoice();
   testRecipeHashUsesNestedIdentityOnly();
   await testExactRecipePersistenceBackupAndCascade();
   return [
@@ -884,6 +963,7 @@ export async function runImageStudioTests(): Promise<string[]> {
     'Studio: a batch walks its seed, or holds it',
     'Studio: X/Y/Z builds the right matrix, X fastest, capped',
     'Studio: one run planned — the resolved prompt is what is recorded',
+    'Studio: a pose picks its ControlNet — from the companions locally, from the reported list elsewhere — and waits for the status instead of calling it missing',
     'Studio recipes: nested asset ids define the hash; root row metadata does not',
     'Studio recipes: atomic save, exact read, backup/restore, legacy fallback and cascades',
   ];

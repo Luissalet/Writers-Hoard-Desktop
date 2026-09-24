@@ -689,3 +689,62 @@ completa: cualquier prueba en vivo se rehace desde abrir el capítulo.
 **Abierto.** F11 (rol `togglefullscreen` del menú) durante el modo concentración no se ha probado por
 CDP (el acelerador lo maneja Electron, no el renderer); por diseño `fullscreenchange` debería apagar el
 modo. El libro entero (`BookEditor`) no tiene modo concentración.
+
+---
+
+# Full audit — 2026-09-24 (branch `claude/funny-ritchie-o15l6v`)
+
+Baseline on entry: both typechecks, shipping lint and conformance pass;
+`npm audit` reports js-yaml (high) and joi (low) in the dev tree.
+
+## Plan
+
+- [x] Parallel audit + fix, one area per agent, disjoint files:
+  - [x] Electron main process (security, IPC validation, media server, AI runtime)
+  - [x] Data layer: `src/db`, backup/restore, pending writes, search, replace
+  - [x] AI services: aiBridge, aiRuntime, copilot, judge, project tools
+  - [x] Writings engine + editor components (the manuscript core)
+  - [x] Small engines (annotations → video-planner, not the four big ones)
+  - [x] Board, image-studio, real-atlas, scrapper
+  - [x] Worldgen (crash/leak/correctness only)
+  - [x] Shell: components, pages, stores, hooks, i18n, accessibility
+- [x] Dependency audit fix (lockfile only)
+- [x] Features chosen against the product's core job (lesson #66, #76)
+- [x] Re-run verify:quick + the runnable test suites
+- [x] Review section below
+
+## Review
+
+Eight audit passes, one area each, then four features. Every fix was
+reproduced before it was changed; most have a focused test that fails
+against the old code.
+
+Features: arc beats ↔ scenes, Recortes preservation (badges, link-only
+filter, batch archive, CSV export), Codex draft recovery, and
+`Modal dismissible` adopted by every editor that lost input on Escape.
+
+Verified on the merged tree (after origin/main e6b4e71): verify:quick,
+npm audit (0), test:critical 325/325, read-aloud 3/3, subscription
+protocol/backend/UI/bridge, engine smoke 23/23, build:desktop,
+bundle:budget (advisory notes only: World3D chunk 714 kB / 700, total
+renderer JS 7.7 MB / 4.1 MB). New focused suites: data-layer-regressions,
+character-arc-scene-links, scrapper-preservation, worldgen-3d-regenerate,
+shell-ui-regressions, modal-dirty-guards, codex-draft-recovery.
+
+Caught in review: the read-aloud optimisation left the panel's open
+buttons permanently disabled (lesson #78).
+
+Second round ("keep going until you fix it"): every item above was fixed
+— ComfyUI poses and body timeout, ControlNet/upscaler install UI, pose
+pinning end to end, Markdown strikethrough/code/quoted breaks, read-aloud
+speed, orphaned clipping files, batch archive across views, POV speakers,
+timeline totals, dialog-delete confirm, CartoMap/World3D teardown, AI edit
+vs pending world save, Forge exit code, three.js chunk (World3D 714 → 188
+kB). Replace-with-nothing was verified not to be a bug. Three Cursor Bugbot
+findings were fixed and resolved on the PR.
+
+Still open, by decision: the total renderer JS budget (7.76 MB against an
+advisory 4.1 MB). Worldgen, three, lucide's lazy icon catalogue, pdfjs,
+docx, react-dom and the locales alone come to ~3.9 MB, so meeting it
+means removing features, not changing imports. On ComfyUI, the chosen
+ControlNet is not matched to the checkpoint's family.

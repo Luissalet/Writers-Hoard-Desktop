@@ -8,7 +8,8 @@ import { voicePreferenceKey } from './adapters';
 const MIN_RATE = 0.5;
 const MAX_RATE = 2;
 
-function clampRate(rate: number): number {
+/** The Web Speech rates the controller accepts; anything else is pulled into range. */
+export function clampReadAloudRate(rate: number): number {
   return Math.min(MAX_RATE, Math.max(MIN_RATE, Number.isFinite(rate) ? rate : 1));
 }
 
@@ -33,7 +34,6 @@ export class ReadAloudController {
   private listeners = new Set<() => void>();
   private completed = new Set<number>();
   private generation = 0;
-  private destroyed = false;
 
   private snapshot: ReadAloudSnapshot;
 
@@ -47,7 +47,7 @@ export class ReadAloudController {
       activeIndex: this.segments.length > 0 ? 0 : -1,
       completedIndexes: [],
       activeCharIndex: 0,
-      rate: clampRate(options.rate ?? 1),
+      rate: clampReadAloudRate(options.rate ?? 1),
       supported: this.driver.supported,
       boundaryEvents: this.driver.boundaryEvents,
     };
@@ -90,11 +90,11 @@ export class ReadAloudController {
   }
 
   setRate(rate: number): void {
-    this.publish({ rate: clampRate(rate) });
+    this.publish({ rate: clampReadAloudRate(rate) });
   }
 
   play(index?: number): void {
-    if (!this.driver.supported || this.destroyed || this.segments.length === 0) return;
+    if (!this.driver.supported || this.segments.length === 0) return;
     const target = index ?? (this.snapshot.status === 'finished'
       ? 0
       : this.snapshot.activeIndex < 0 ? 0 : this.snapshot.activeIndex);
@@ -180,15 +180,15 @@ export class ReadAloudController {
       rate: this.snapshot.rate,
       voiceURI: preferenceKey ? this.voicePreferences[preferenceKey] : undefined,
       onStart: () => {
-        if (token !== this.generation || this.destroyed) return;
+        if (token !== this.generation) return;
         this.publish({ status: 'playing' });
       },
       onBoundary: ({ charIndex }) => {
-        if (token !== this.generation || this.destroyed) return;
+        if (token !== this.generation) return;
         this.publish({ activeCharIndex: Math.max(0, charIndex) });
       },
       onEnd: () => {
-        if (token !== this.generation || this.destroyed) return;
+        if (token !== this.generation) return;
         this.completed.add(target);
         if (target >= this.segments.length - 1) {
           this.publish({
@@ -201,15 +201,21 @@ export class ReadAloudController {
         this.startAt(target + 1, false);
       },
       onError: (error) => {
-        if (token !== this.generation || this.destroyed) return;
+        if (token !== this.generation) return;
         this.publish({ status: 'error', error, activeCharIndex: 0 });
       },
     });
   }
 
+  /**
+   * Silence the reading, void its pending callbacks and let go of every
+   * subscriber. Not a one-way door: StrictMode — or any host that tears an
+   * effect down and sets it up again — hands the same controller back to a
+   * view that subscribes again, and a controller that refused to play after
+   * this would stay mute for good (tasks/lessons #19). Safe to call twice.
+   */
   destroy(): void {
-    this.destroyed = true;
-    this.stopInternal(false);
     this.listeners.clear();
+    this.stopInternal(true);
   }
 }

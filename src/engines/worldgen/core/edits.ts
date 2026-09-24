@@ -1111,15 +1111,44 @@ export function serializeEdits(edits: WorldEdit[]): string {
  * half a cell north-west, which ALIGNS it with its own ink (the channel was
  * the one consumer of the stroke mask that had no compensating ring).
  */
+/**
+ * ¿Se puede reproducir y volver a guardar esta edición? Sólo mira lo que el
+ * replay y `serializeEdits` recorren a ciegas: un `stroke` sin `pts` (o un
+ * `pts` que no es lista de puntos) hacía saltar el `.map` de la migración, el
+ * `catch` devolvía `[]` y el siguiente guardado borraba el historial ENTERO.
+ * Una edición rota cuesta ahora esa edición, nunca las N buenas de al lado.
+ */
+function wellFormedEdit(e: unknown): e is WorldEdit {
+  if (!e || typeof e !== 'object' || typeof (e as { kind?: unknown }).kind !== 'string') return false;
+  const points = (pts: unknown) => Array.isArray(pts)
+    && pts.every((p) => !!p && typeof p === 'object'
+      && typeof (p as Pt).x === 'number' && typeof (p as Pt).y === 'number');
+  if ('stroke' in e) {
+    const stroke = (e as { stroke?: unknown }).stroke;
+    return !!stroke && typeof stroke === 'object' && points((stroke as { pts?: unknown }).pts);
+  }
+  const kind = (e as { kind: string }).kind;
+  if (kind === 'river' || kind === 'realmArea' || kind === 'placesZone') {
+    return points((e as { pts?: unknown }).pts);
+  }
+  return true;
+}
+
+function keepWellFormed(list: unknown[]): WorldEdit[] {
+  const kept = list.filter(wellFormedEdit);
+  if (kept.length !== list.length) {
+    console.warn(`[worldgen] ${list.length - kept.length} edición(es) ilegible(s) descartada(s); se conservan ${kept.length}.`);
+  }
+  return kept;
+}
+
 export function deserializeEdits(json: string): WorldEdit[] {
   try {
     const v = JSON.parse(json);
     if (Array.isArray(v)) {
       // One malformed element must cost one element, not the reader's whole
-      // edit history — hence the object filter before the migration touches
-      // anything.
-      return (v as WorldEdit[])
-        .filter((e): e is WorldEdit => !!e && typeof e === 'object')
+      // edit history — hence the filter before the migration touches anything.
+      return keepWellFormed(v)
         .map((e) => ('stroke' in e
           ? {
             ...e,
@@ -1128,7 +1157,7 @@ export function deserializeEdits(json: string): WorldEdit[] {
           : e));
     }
     if (v && typeof v === 'object' && Array.isArray((v as { edits?: unknown }).edits)) {
-      return (v as { edits: WorldEdit[] }).edits;
+      return keepWellFormed((v as { edits: unknown[] }).edits);
     }
     return [];
   } catch {

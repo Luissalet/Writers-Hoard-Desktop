@@ -8,7 +8,7 @@ import { testWorldgenHistoryAllocation } from './worldgen-history-allocation.bro
 import { testGeographyPatchAfterUndo, testGeographyScopedCancellation } from './worldgen-geography-patch.browser';
 import { testWorldgenHydrology } from './worldgen-hydrology.browser';
 import { testWorldgenJourneyWorker } from './worldgen-journey-worker.browser';
-import { testCartographicLabelBounds, testCartographicPresetLabels, testCartoMapTypeScale } from './worldgen-labels.browser';
+import { testCartographicLabelBounds, testCartographicPresetLabels, testCartoMapTypeScale, testCartoMapUnmountCancelsRender } from './worldgen-labels.browser';
 import { testPhysicalLakeGeometry, testLakeTransportSnapshot, testLakeRegionalClipping, testLakeWebGLWater } from './worldgen-lakes.browser';
 import { testWorldgenTravel } from './worldgen-travel';
 import { testWorldgenPaintQuality } from './worldgen-paint-quality';
@@ -38,6 +38,7 @@ export async function testWorldgenStudy(): Promise<string[]> {
   tests.push(...await testWorldgenJourneyWorker());
   tests.push(testCartographicLabelBounds(), ...testCartographicPresetLabels());
   tests.push(await testCartoMapTypeScale());
+  tests.push(await testCartoMapUnmountCancelsRender());
   window.__criticalStage = 'worldgen async lifecycle';
   tests.push(...await testWorldgenLifecycle());
   return tests;

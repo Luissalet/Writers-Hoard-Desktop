@@ -342,7 +342,10 @@ export default function ProjectReplaceModal({ open, projectId, onClose }: Projec
 
   return (
     <>
-      <Modal open={open} onClose={close} title={t('projectReplace.title')} wide>
+      {/* Not closable while a write is in flight: its outcome — and the
+          one-click undo — would land in a hidden dialog and be reset on the
+          next open. */}
+      <Modal open={open} onClose={close} busy={busy === 'apply' || busy === 'undo'} title={t('projectReplace.title')} wide>
         <div className="space-y-5">
           <section className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -652,7 +655,7 @@ export default function ProjectReplaceModal({ open, projectId, onClose }: Projec
                   </div>
 
                   <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
-                    <button type="button" onClick={close} className={buttonClass}>
+                    <button type="button" onClick={close} disabled={busy === 'apply'} className={buttonClass}>
                       {t('common.cancel')}
                     </button>
                     <button

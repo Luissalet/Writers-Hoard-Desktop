@@ -9,7 +9,7 @@
 //
 // The captured stream is video-only (a canvas has no audio track), so `-an`.
 
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -52,9 +52,26 @@ export async function transcodeWebmToMp4(webm: Buffer): Promise<Buffer> {
   }
 }
 
+/**
+ * Encodes in flight. A long recording can take minutes to re-encode, and an
+ * ffmpeg left behind by a quit keeps a core pinned with nobody waiting for
+ * its output (tasks/lessons.md #15), so will-quit kills whatever is here.
+ */
+const activeEncodes = new Set<ChildProcess>();
+
+/** Kill every running encode — called on app quit. ffmpeg spawns no children. */
+export function killAllTranscodes(): void {
+  for (const child of activeEncodes) child.kill();
+  activeEncodes.clear();
+}
+
 function runFfmpeg(cmd: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { windowsHide: true });
+    activeEncodes.add(child);
+    const forget = (): void => void activeEncodes.delete(child);
+    child.once('close', forget);
+    child.once('error', forget);
     let stderr = '';
     child.stderr.on('data', (d: Buffer) => {
       stderr += d.toString();

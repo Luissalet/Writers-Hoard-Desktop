@@ -1,9 +1,0 @@
-{
-  "extends": "./tsconfig.app.json",
-  "include": [
-    "src/engines/worldgen/sculpt/scene3d.ts",
-    "src/engines/worldgen/core/camera.ts",
-    "src/engines/worldgen/components/World3D.tsx",
-    "src/engines/worldgen/components/WorldView.tsx"
-  ]
-}

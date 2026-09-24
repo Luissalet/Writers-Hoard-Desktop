@@ -10,6 +10,7 @@ import {
 } from '@/engines/_shared/anchoring';
 import { t } from '@/i18n/useTranslation';
 import { db } from '@/db';
+import { arcBeatPath } from './beatLinks';
 const CharacterArcEngine = lazy(() => import('./components/CharacterArcEngine'));
 
 const characterArcEngine: EngineDefinition = {
@@ -105,12 +106,16 @@ registerAnchorAdapter({
   navigateToEntity(entityId: string, projectId?: string) {
     const pid = projectId ?? getCurrentProjectIdFromUrl();
     if (!pid) return;
-    // A beat deep-links to its arc — the editor opens per arc.
+    // The editor opens per arc; a beat opens its arc and unfolds itself there.
     void (async () => {
       const arc = await db.characterArcs.get(entityId);
-      const targetId = arc ? entityId : (await db.arcBeats.get(entityId))?.arcId;
-      if (!targetId) return;
-      navigateTo(`/project/${pid}/character-arc?arc=${encodeURIComponent(targetId)}`);
+      if (arc) {
+        navigateTo(`/project/${pid}/character-arc?arc=${encodeURIComponent(arc.id)}`);
+        return;
+      }
+      const beat = await db.arcBeats.get(entityId);
+      if (!beat) return;
+      navigateTo(arcBeatPath(pid, beat.arcId, beat.id));
     })();
   },
 });

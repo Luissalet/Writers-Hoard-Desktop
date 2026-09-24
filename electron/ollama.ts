@@ -625,15 +625,9 @@ export async function pullOllamaModel(tag: string): Promise<OllamaOpResult> {
   if (activePulls.has(tag)) return { ok: false, error: 'already-pulling' };
   if (activePulls.size > 0) return { ok: false, error: 'busy' };
 
-  const started = await startOllama();
-  if (!started.ok || !baseUrl) return { ok: false, error: started.error ?? 'not-ready' };
-
-  try {
-    await assertDiskSpace(app.getPath('userData'), known * 1.2);
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'no-space:24' };
-  }
-
+  // Claimed before the first await (lesson #52): registering only after
+  // starting the runtime and checking the disk let a second quick call pass
+  // the guard above, and two pulls wrote the same blobs.
   const controller = new AbortController();
   activePulls.set(tag, controller);
   emit('ollama:status', snapshotStatus());
@@ -644,6 +638,16 @@ export async function pullOllamaModel(tag: string): Promise<OllamaOpResult> {
   let shown = 0;
 
   try {
+    const started = await startOllama();
+    if (!started.ok || !baseUrl) return { ok: false, error: started.error ?? 'not-ready' };
+
+    try {
+      await assertDiskSpace(app.getPath('userData'), known * 1.2);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'no-space:24' };
+    }
+    if (controller.signal.aborted) return { ok: false, error: 'cancelled' };
+
     const res = await net.fetch(`${baseUrl}/api/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

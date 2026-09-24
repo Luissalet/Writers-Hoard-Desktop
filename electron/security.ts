@@ -232,3 +232,21 @@ export function isExactRendererDocumentUrl(actual: string, expected: string): bo
     return false;
   }
 }
+
+/**
+ * The response wh-media:// hands back for a library file. `forcedType` pins a
+ * type the file:// fetch gets wrong (see MEDIA_CONTENT_TYPES in main). An
+ * HTML document — an archived page, scripts and all — also carries
+ * `Content-Security-Policy: sandbox`: the viewer's `<iframe sandbox="">`
+ * already strips it of scripts and origin, and the header keeps that true for
+ * any other way the page is ever opened. Everything else passes untouched.
+ */
+export function mediaProtocolResponse(res: Response, forcedType?: string): Response {
+  const type = forcedType ?? res.headers.get('Content-Type') ?? '';
+  const isDocument = /^\s*(?:text\/html|application\/xhtml\+xml)\s*(?:;|$)/i.test(type);
+  if (!forcedType && !isDocument) return res;
+  const headers = new Headers(res.headers);
+  if (forcedType) headers.set('Content-Type', forcedType);
+  if (isDocument) headers.set('Content-Security-Policy', 'sandbox');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}

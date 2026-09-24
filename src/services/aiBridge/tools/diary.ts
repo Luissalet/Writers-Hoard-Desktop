@@ -36,6 +36,39 @@ function localStamp(date = new Date()): string {
   );
 }
 
+/**
+ * `entryDate` as the diary stores it — local "YYYY-MM-DDTHH:mm" — or a refusal.
+ *
+ * The editor's datetime-local input, the day grouping (`slice(0, 10)`) and the
+ * newest-first sort (a plain string compare) all read that exact shape, so a
+ * free-form "yesterday" or "March 3" used to be stored verbatim: an entry the
+ * editor cannot show a date for, sorted wherever its first letter falls.
+ * Accepted: that shape, a bare date (stored at 00:00), seconds (dropped), a
+ * space for the "T", and an ISO stamp with a zone (converted to local time).
+ */
+function normalizeEntryDate(raw: string): string {
+  const text = raw.trim();
+  const local = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?)?$/.exec(text);
+  if (local) {
+    const [year, month, day, hour, minute] = local.slice(1).map((part) => (part === undefined ? 0 : Number(part)));
+    const date = new Date(year, month - 1, day, hour, minute);
+    // Round-trip the parts: 2026-02-30 or 25:00 would silently roll over.
+    if (
+      date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day &&
+      date.getHours() === hour && date.getMinutes() === minute
+    ) {
+      return localStamp(date);
+    }
+  } else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i.test(text)) {
+    const date = new Date(text);
+    if (!Number.isNaN(date.getTime())) return localStamp(date);
+  }
+  throw new BridgeError(
+    'bad-args',
+    `"entryDate" must be a local date and time as "YYYY-MM-DDTHH:mm" (or a date as "YYYY-MM-DD"); got "${raw}".`,
+  );
+}
+
 export async function whListDiary(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
   const limit = clampLimit(optNumber(args, 'limit'), 30, 200);
@@ -58,11 +91,12 @@ export async function whListDiary(args: ToolArgs): Promise<unknown> {
 export async function whCreateDiaryEntry(args: ToolArgs): Promise<unknown> {
   const projectId = await resolveProjectForEngine(args, 'diary');
   const markdown = requireString(args, 'content');
+  const rawDate = optString(args, 'entryDate');
   const now = Date.now();
   const entry: DiaryEntry = {
     id: generateId('diary'),
     projectId,
-    entryDate: optString(args, 'entryDate') || localStamp(),
+    entryDate: rawDate?.trim() ? normalizeEntryDate(rawDate) : localStamp(),
     title: optString(args, 'title') ?? '',
     content: htmlFromMarkdown(markdown),
     mood: optEnum(args, 'mood', MOODS),
@@ -94,7 +128,7 @@ export async function whUpdateDiaryEntry(args: ToolArgs): Promise<unknown> {
   const title = optString(args, 'title');
   if (title !== undefined) changes.title = title;
   const entryDate = optString(args, 'entryDate');
-  if (entryDate !== undefined) changes.entryDate = entryDate;
+  if (entryDate !== undefined) changes.entryDate = normalizeEntryDate(entryDate);
   const mood = optEnum(args, 'mood', MOODS);
   if (mood !== undefined) changes.mood = mood;
   const tags = optStringArray(args, 'tags');

@@ -79,7 +79,9 @@ export default function BiographyView({ biography, onUpdate }: BiographyViewProp
         ...factData,
         biographyId: biography.id,
         projectId: biography.projectId,
-        order: facts.length,
+        // max+1, not the count: after a delete the count can be lower than
+        // the last fact's order and the new fact would land mid-list.
+        order: facts.reduce((max, f) => Math.max(max, f.order), -1) + 1,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };

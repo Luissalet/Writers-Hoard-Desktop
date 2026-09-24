@@ -187,6 +187,18 @@ export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
   }
+  // Every field this call changes, as it was. Recording only title, status and
+  // wordCount made undo of a body rewrite put the OLD word count back on the
+  // NEW text and still report the change as reverted — the same lie
+  // wh_append_writing was fixed for. Same for synopsis, chapter and tags.
+  const before: Record<string, unknown> = {
+    title: existing.title,
+    status: existing.status,
+    wordCount: existing.wordCount,
+  };
+  for (const key of Object.keys(changes) as Array<keyof Writing>) {
+    before[key] = key === 'content' ? existing.content ?? '' : existing[key];
+  }
   await writeToUnmovedRow(existing, changes);
   return withAudit(
     { id: existing.id, updated: Object.keys(changes), wordCount: changes.wordCount ?? existing.wordCount },
@@ -194,7 +206,7 @@ export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
       projectId: existing.projectId,
       entityId: existing.id,
       summary: `updated writing "${existing.title}" (${Object.keys(changes).join(', ')})`,
-      before: { title: existing.title, status: existing.status, wordCount: existing.wordCount },
+      before,
     },
   );
 }

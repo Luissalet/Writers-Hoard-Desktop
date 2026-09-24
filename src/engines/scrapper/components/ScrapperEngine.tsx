@@ -10,10 +10,25 @@
 //   downloads. No DB, no archive UI.
 
 import { useState, useMemo, useCallback } from 'react';
-import { Grid3x3, List, CheckCircle2, AlertCircle, Instagram as InstagramIcon } from 'lucide-react';
+import {
+  Grid3x3,
+  List,
+  CheckCircle2,
+  AlertCircle,
+  Instagram as InstagramIcon,
+  Link2,
+  Archive,
+  Download,
+  Loader2,
+} from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
-import { EngineSpinner, useDeepLinkParam } from '@/engines/_shared';
+import { ConfirmDialog, EngineSpinner, useDeepLinkParam } from '@/engines/_shared';
 import { useSnapshots } from '../hooks';
+import { getSnapshot } from '../operations';
+import { isLinkOnly } from '../preservation';
+import { downloadLinksCsv } from '../linkExport';
+import { startArchiveBatch, stopArchiveBatch, useArchiveBatchStore } from '../archiveBatch';
+import PreservationBadge from './PreservationBadge';
 import CaptureBar from './CaptureBar';
 import SnapshotCard from './SnapshotCard';
 import SnapshotDetail from './SnapshotDetail';
@@ -23,11 +38,17 @@ import ImportCollectionModal, { type ImportedCollectionItem } from './ImportColl
 import type { MediaFormat } from '@/services/mediaDownloader';
 import {
   canDownloadMedia,
+  cancelSnapshotDownload,
   deleteSnapshotMedia,
   runSnapshotDownload,
   isoFromYtDate,
 } from '@/services/scrapperMedia';
-import { canCapturePage, deleteSnapshotCapture, runSnapshotCapture } from '@/services/pageCapture';
+import {
+  canCapturePage,
+  cancelSnapshotCapture,
+  deleteSnapshotCapture,
+  runSnapshotCapture,
+} from '@/services/pageCapture';
 import { extractDomainFromUrl } from '../services/urlDetector';
 import { isDesktop } from '@/utils/platform';
 import { useAiStore } from '@/stores/aiStore';
@@ -92,6 +113,11 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
   const deepLinkedSnapshotId = useDeepLinkParam('entity');
   const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
+  const [linkOnlyFilter, setLinkOnlyFilter] = useState(false);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  // The batch archive lives in the module (../archiveBatch), not in this view:
+  // any mounted view shows its progress and Stop, and only one runs at a time.
+  const archiveProgress = useArchiveBatchStore((s) => s.progress);
   const aiConfig = useAiStore((s) => s.config);
 
   if (
@@ -101,20 +127,40 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
   ) {
     setAppliedDeepLink(deepLinkedSnapshotId);
     setSearchQuery('');
+    setLinkOnlyFilter(false);
     setSelectedSnapshotId(deepLinkedSnapshotId);
   }
 
+  // Clippings whose only local trace is the URL, and the subset the page
+  // archiver can fix (media links go through their own per-clipping download).
+  const linkOnlyCount = useMemo(() => snapshots.filter((s) => isLinkOnly(s)).length, [snapshots]);
+  const archivableIds = useMemo(
+    () =>
+      snapshots
+        .filter((s) => isLinkOnly(s) && canCapturePage(s.source) && s.captureState !== 'capturing')
+        .map((s) => s.id),
+    [snapshots],
+  );
+
   const filteredSnapshots = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return snapshots;
-    return snapshots.filter(s =>
+    const base = linkOnlyFilter ? snapshots.filter((s) => isLinkOnly(s)) : snapshots;
+    if (!q) return base;
+    return base.filter(s =>
       s.title.toLowerCase().includes(q) ||
       s.url.toLowerCase().includes(q) ||
       s.notes.toLowerCase().includes(q) ||
       s.tags.some(tag => tag.toLowerCase().includes(q)) ||
       (s.extractedText && s.extractedText.toLowerCase().includes(q))
     );
-  }, [snapshots, searchQuery]);
+  }, [snapshots, searchQuery, linkOnlyFilter]);
+  const hasFilters = Boolean(searchQuery) || linkOnlyFilter;
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setSearchActiveIndex(-1);
+    setLinkOnlyFilter(false);
+  };
   const selectedSnapshot = snapshots.find((snapshot) => snapshot.id === selectedSnapshotId);
 
   // All distinct tags already used in this project — offered as autocomplete.
@@ -175,11 +221,14 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
   );
 
   // Collection import: the modal already listed + reviewed everything; here we
-  // just persist each confirmed item and download its media, one at a time —
-  // same per-item mechanics as handleCapture above, looped. Sequential (not
-  // Promise.all) so downloads queue predictably instead of firing N gallery-dl/
-  // yt-dlp processes at once (the main process serializes them anyway, but no
-  // reason to fire N IPC calls simultaneously either).
+  // persist every confirmed link FIRST, and only then download media one at a
+  // time. Interleaving the two (save #1, download #1 for minutes, save #2, …)
+  // meant a confirmed link only existed once every download before it had
+  // finished: closing the app mid-import silently dropped the rest, and a
+  // single failed write aborted the loop. The links are the irreplaceable part
+  // (lessons #67); the media can always be fetched again from them.
+  // Downloads stay sequential (not Promise.all) so they queue predictably
+  // instead of firing N gallery-dl/yt-dlp processes at once.
   const handleImportCollection = useCallback(
     (items: ImportedCollectionItem[]) => {
       setIsImportModalOpen(false);
@@ -188,6 +237,7 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
         t('scrapper.importCollection.started').replace('{count}', String(items.length)),
       );
       void (async () => {
+        const saved: Snapshot[] = [];
         for (const item of items) {
           const snapshot: Snapshot = {
             id: crypto.randomUUID(),
@@ -206,28 +256,56 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
             preservedAt: Date.now(),
             createdAt: Date.now(),
           };
-          await addSnapshot(snapshot);
-          if (!isDesktop()) continue;
-          if (canDownloadMedia(snapshot.source)) {
-            await runSnapshotDownload(snapshot, editSnapshot, 'video');
+          try {
+            await addSnapshot(snapshot);
+            saved.push(snapshot);
+          } catch (error) {
+            console.error('Collection import: could not save link', item.url, error);
           }
+        }
+        const failed = items.length - saved.length;
+        if (failed > 0) {
+          toast.error(t('scrapper.importCollection.saveFailed').replace('{count}', String(failed)));
+        }
+        if (!isDesktop()) return;
+        for (const snapshot of saved) {
+          if (!canDownloadMedia(snapshot.source)) continue;
+          // Never throws by contract, but one surprise must not strand the
+          // downloads queued behind it.
+          await runSnapshotDownload(snapshot, editSnapshot, 'video').catch((error: unknown) => {
+            console.error('Collection import: download failed', snapshot.url, error);
+          });
         }
       })();
     },
     [projectId, addSnapshot, editSnapshot, t],
   );
 
+  const startArchiveLinkOnly = useCallback(() => {
+    setArchiveConfirmOpen(false);
+    startArchiveBatch(archivableIds);
+  }, [archivableIds]);
+
   // Delete: also remove the local files so the library doesn't leak.
+  // A download or page capture still running for this clipping is cancelled;
+  // if it finishes anyway, its run* lifecycle sees the row gone and discards
+  // the files it produced (see discardOrphanedSnapshotFiles).
   const handleDelete = useCallback(
     (id: string) => {
-      const target = snapshots.find((s) => s.id === id);
-      if (target && (target.localMediaPath || target.mediaItems?.length)) {
-        void deleteSnapshotMedia(target);
-      }
-      if (target && (target.capturePdfPath || target.captureImagePath || target.captureHtmlPath)) {
-        void deleteSnapshotCapture(target);
-      }
-      void removeSnapshot(id);
+      void cancelSnapshotDownload(id);
+      void cancelSnapshotCapture(id);
+      void (async () => {
+        // Read the row itself: a job that just finished may have written paths
+        // this view's list has not refetched yet.
+        const target = (await getSnapshot(id).catch(() => undefined)) ?? snapshots.find((s) => s.id === id);
+        if (target && (target.localMediaPath || target.mediaItems?.length)) {
+          void deleteSnapshotMedia(target);
+        }
+        if (target && (target.capturePdfPath || target.captureImagePath || target.captureHtmlPath)) {
+          void deleteSnapshotCapture(target);
+        }
+        await removeSnapshot(id);
+      })();
     },
     [snapshots, removeSnapshot],
   );
@@ -285,6 +363,55 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
             </ul>
           )}
         </div>
+        {(linkOnlyCount > 0 || linkOnlyFilter) && (
+          <button
+            type="button"
+            aria-pressed={linkOnlyFilter}
+            onClick={() => setLinkOnlyFilter((on) => !on)}
+            title={t('scrapper.linkOnlyFilterHint')}
+            className={`flex flex-shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border transition-colors ${
+              linkOnlyFilter
+                ? 'border-accent-gold bg-accent-gold/20 text-foreground'
+                : 'border-border bg-elevated text-muted hover:text-foreground hover:border-accent-gold'
+            }`}
+          >
+            <Link2 size={14} aria-hidden="true" />
+            {t('scrapper.linkOnlyFilter').replace('{count}', String(linkOnlyCount))}
+          </button>
+        )}
+        {isDesktop() && archiveProgress ? (
+          <button
+            type="button"
+            onClick={stopArchiveBatch}
+            className="flex flex-shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-accent-gold bg-elevated text-foreground transition-colors"
+          >
+            <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+            {t('scrapper.archiveLinkOnly.stop')
+              .replace('{done}', String(archiveProgress.done))
+              .replace('{total}', String(archiveProgress.total))}
+          </button>
+        ) : isDesktop() && archivableIds.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setArchiveConfirmOpen(true)}
+            title={t('scrapper.archiveLinkOnly.buttonHint')}
+            className="flex flex-shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-elevated text-foreground hover:border-accent-gold transition-colors"
+          >
+            <Archive size={14} aria-hidden="true" />
+            {t('scrapper.archiveLinkOnly.button').replace('{count}', String(archivableIds.length))}
+          </button>
+        ) : null}
+        {snapshots.length > 0 && (
+          <button
+            type="button"
+            onClick={() => downloadLinksCsv(snapshots)}
+            title={t('scrapper.exportLinksHint')}
+            aria-label={t('scrapper.exportLinks')}
+            className="flex flex-shrink-0 items-center p-2 rounded-lg border border-border bg-elevated text-foreground hover:border-accent-gold transition-colors"
+          >
+            <Download size={14} aria-hidden="true" />
+          </button>
+        )}
         <InstagramConnect />
         {isDesktop() && (
           <button
@@ -341,13 +468,22 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
               </svg>
             </div>
             <h3 className="text-lg font-serif font-semibold text-foreground mb-2">
-              {searchQuery ? t('scrapper.noResults') : t('scrapper.noSnapshots')}
+              {hasFilters ? t('scrapper.noResults') : t('scrapper.noSnapshots')}
             </h3>
             <p className="text-muted text-sm max-w-sm">
-              {searchQuery
+              {hasFilters
                 ? t('scrapper.adjustSearch')
                 : t('scrapper.startCapturing')}
             </p>
+            {hasFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="mt-4 px-3 py-1.5 text-xs rounded-lg border border-border bg-elevated text-foreground hover:border-accent-gold transition-colors"
+              >
+                {t('scrapper.clearFilters')}
+              </button>
+            )}
           </div>
         ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -385,9 +521,12 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
                       <p className="text-xs text-muted mt-2 line-clamp-1">{snapshot.notes}</p>
                     )}
                   </div>
-                  <span className="flex-shrink-0 text-xs font-medium text-muted uppercase">
-                    {snapshot.source}
-                  </span>
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    <PreservationBadge snapshot={snapshot} />
+                    <span className="text-xs font-medium text-muted uppercase">
+                      {snapshot.source}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}
@@ -415,8 +554,21 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
         />
       )}
 
+      <ConfirmDialog
+        open={archiveConfirmOpen}
+        title={t('scrapper.archiveLinkOnly.title')}
+        message={t('scrapper.archiveLinkOnly.message').replace('{count}', String(archivableIds.length))}
+        confirmLabel={t('scrapper.archiveLinkOnly.confirm').replace('{count}', String(archivableIds.length))}
+        onConfirm={startArchiveLinkOnly}
+        onCancel={() => setArchiveConfirmOpen(false)}
+      />
+
       {selectedSnapshot && (
         <SnapshotDetail
+          // Remount per clipping: a deep link can swap the selection while the
+          // modal is open, and the reused instance would carry the previous
+          // clipping's notes and tags into this one's next save.
+          key={selectedSnapshot.id}
           snapshot={selectedSnapshot}
           onUpdate={editSnapshot}
           onDelete={handleDelete}

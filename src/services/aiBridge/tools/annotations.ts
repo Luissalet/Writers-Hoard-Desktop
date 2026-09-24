@@ -33,6 +33,7 @@ import {
   resolveProjectForEngine,
   resolveProjectId,
   withAudit,
+  nextSlot,
   type ToolArgs,
 } from './shared';
 
@@ -180,7 +181,7 @@ export async function whAnnotate(args: ToolArgs): Promise<unknown> {
     noteType: 'text',
     noteBody: note,
     isOrphaned: false,
-    position: existing.length,
+    position: nextSlot(existing, 'position'),
     createdAt: now,
     updatedAt: now,
   };

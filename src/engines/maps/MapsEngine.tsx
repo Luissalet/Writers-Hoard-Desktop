@@ -103,14 +103,14 @@ export default function MapsEngine({ projectId }: EngineComponentProps) {
             <div className="flex items-center gap-2 rounded-lg border border-accent-gold/25 bg-accent-gold/8 px-3 py-2 text-xs text-text-primary">
               <Link2 size={13} className="text-accent-gold" />
               <span className="min-w-0 flex-1">
-                Vinculado a Worldgen · revisión {activeMap.sourceRevision ?? 0}
+                {t('mapsEngine.worldgenLinked').replace('{revision}', String(activeMap.sourceRevision ?? 0))}
               </span>
               <button
                 type="button"
                 onClick={() => navigate(`/project/${projectId}/worldgen?world=${encodeURIComponent(activeMap.sourceWorldId!)}`)}
                 className="flex items-center gap-1 rounded border border-border bg-elevated px-2 py-1 text-[11px] hover:border-accent-gold/40"
               >
-                <ExternalLink size={11} /> Abrir mundo
+                <ExternalLink size={11} /> {t('mapsEngine.openWorld')}
               </button>
             </div>
           )}

@@ -19,6 +19,7 @@
 //   edits are appended to the stored list directly. Either way the caller gets
 //   the list as it was immediately before, for the audit trail.
 
+import { db } from '@/db';
 import type { GeneratedWorld } from './types';
 import type { WorldData, WorldParams } from './core/types';
 import { unpackWorld } from './core/types';
@@ -32,6 +33,7 @@ import { getCachedWorld, paramsKey } from './useWorldGeneration';
 import { loadSnapshot, saveSnapshot } from './snapshots';
 import { forgeAvailable, forgeDegraded, spawnForgeWorker } from './forge/bridge';
 import { generatedWorldOps } from './operations';
+import { flushWorldEdits, hasPendingWorldEdits } from './editWriter';
 import type { WorkerReply } from './worldgen.worker';
 
 export interface ReadableWorld {
@@ -86,14 +88,17 @@ function startBackgroundForge(worldId: string, params: WorldParams): void {
     const msg = e.data;
     if (msg.type === 'progress') return;
     if (msg.type === 'done') {
-      const data = unpackWorld(msg.world);
+      // Un `unpackWorld` que lanza no puede dejar el mundo «forjándose» para
+      // toda la sesión: cualquier salida de aquí suelta la marca.
+      let data: WorldData;
+      try { data = unpackWorld(msg.world); } catch { finish(); return; }
       void saveSnapshot(worldId, key, data).finally(finish);
       return;
     }
     finish();
   };
   worker.onerror = finish;
-  worker.postMessage({ type: 'generate', params });
+  try { worker.postMessage({ type: 'generate', params }); } catch { finish(); }
 }
 
 /** Whether a background forge for this world is still running. */
@@ -157,6 +162,9 @@ export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth
   };
 }
 
+/** Vueltas de «vaciar, comprobar, escribir» antes de rendirse ante una vista inquieta. */
+const ROW_WRITE_ATTEMPTS = 4;
+
 /**
  * Append edits to a world through whichever writer currently owns it.
  * Returns the serialised list as it stood immediately before the change.
@@ -165,24 +173,104 @@ export async function applyWorldEdits(
   world: GeneratedWorld,
   edits: WorldEdit[],
 ): Promise<{ before: string; delivered: 'view' | 'row' }> {
-  const handle = liveWorld(world.id);
-  if (handle) {
-    const before = handle.snapshot();
-    handle.apply(edits);
-    return { before, delivered: 'view' };
-  }
-  const before = world.edits ?? '';
-  let list: WorldEdit[] = [];
-  if (before) {
-    try {
-      list = deserializeEdits(before);
-    } catch {
-      list = [];
+  for (let attempt = 0; attempt < ROW_WRITE_ATTEMPTS; attempt += 1) {
+    const handle = liveWorld(world.id);
+    if (handle) {
+      const before = handle.snapshot();
+      handle.apply(edits);
+      return { before, delivered: 'view' };
     }
+    // Sin vista registrada no significa sin vista: una que se cierra o que aún
+    // prepara su sesión (tras regenerar, al reintentar) puede tener un guardado
+    // en vuelo. Se deja llegar primero; si no, aterrizaría DESPUÉS con la lista
+    // vieja y taparía esta edición.
+    if (!await flushWorldEdits(world.id)) break;
+    // Y la lista se lee de la FILA, no de `world`: el llamante la cargó antes de
+    // abrir el mundo para leerlo (segundos, a veces), y añadir sobre esa copia
+    // borraba lo que se hubiera guardado entretanto — trazos de la vista, una
+    // regeneración entera.
+    const before = await db.transaction('rw', db.generatedWorlds, async () => {
+      const row = await db.generatedWorlds.get(world.id);
+      // EL VACIADO ES UNA ESPERA, y en una espera el mundo se mueve: una vista
+      // pudo registrarse (y ya es la dueña: la edición es suya, no de la fila)
+      // o programar otro guardado (que aterrizaría detrás de éste con su lista
+      // vieja). Se mira aquí dentro, en el último momento antes de escribir: el
+      // guardado de una vista es otra transacción sobre esta tabla y no puede
+      // colarse entre esta comprobación y la escritura. Si algo cambió, no se
+      // escribe nada y se vuelve a empezar.
+      if (liveWorld(world.id) || hasPendingWorldEdits(world.id)) return null;
+      const current = row ? row.edits ?? '' : world.edits ?? '';
+      let list: WorldEdit[] = [];
+      if (current) {
+        try {
+          list = deserializeEdits(current);
+        } catch {
+          list = [];
+        }
+      }
+      list.push(...edits);
+      await generatedWorldOps.update(world.id, { edits: serializeEdits(list) });
+      return current;
+    });
+    if (before === null) continue;
+    // The private build for the old list is stale now.
+    built.delete(world.id);
+    await reconcileRowWrite(world.id, edits);
+    return { before, delivered: 'row' };
   }
-  list.push(...edits);
-  await generatedWorldOps.update(world.id, { edits: serializeEdits(list) });
-  // The private build for the old list is stale now.
-  built.delete(world.id);
-  return { before, delivered: 'row' };
+  throw new Error('The world has unsaved edits that could not be written yet; try again shortly.');
+}
+
+/** Whether `serialized` still holds `edits` as one contiguous run. */
+function holdsEdits(serialized: string | undefined, edits: WorldEdit[]): boolean {
+  if (!serialized) return edits.length === 0;
+  let list: WorldEdit[];
+  try {
+    list = deserializeEdits(serialized);
+  } catch {
+    return false;
+  }
+  const wanted = edits.map((edit) => JSON.stringify(edit));
+  const have = list.map((edit) => JSON.stringify(edit));
+  for (let start = 0; start + wanted.length <= have.length; start += 1) {
+    if (wanted.every((edit, offset) => have[start + offset] === edit)) return true;
+  }
+  return false;
+}
+
+/**
+ * DESPUÉS DE ESCRIBIR, COMPROBAR. La comprobación dentro de la transacción es
+ * el último momento ANTES de escribir, pero la escritura misma es una espera:
+ * en ella una vista pudo registrarse con la lista que leyó antes (y guardaría
+ * encima), o programar un guardado de su lista vieja. Sin identificadores por
+ * edición no hay fusión posible, así que se repara: a una vista viva que no
+ * tiene la edición se le entrega; si un guardado rancio devolvió la fila a la
+ * lista vieja, se vuelve a añadir. Acotado, como todo lo demás aquí.
+ */
+async function reconcileRowWrite(worldId: string, edits: WorldEdit[]): Promise<void> {
+  for (let attempt = 0; attempt < ROW_WRITE_ATTEMPTS; attempt += 1) {
+    const handle = liveWorld(worldId);
+    if (handle) {
+      if (!holdsEdits(handle.snapshot(), edits)) handle.apply(edits);
+      return;
+    }
+    if (!hasPendingWorldEdits(worldId)) return;
+    if (!await flushWorldEdits(worldId)) return;
+    const reappended = await db.transaction('rw', db.generatedWorlds, async () => {
+      const row = await db.generatedWorlds.get(worldId);
+      if (!row || holdsEdits(row.edits, edits)) return false;
+      if (liveWorld(worldId) || hasPendingWorldEdits(worldId)) return null;
+      let list: WorldEdit[] = [];
+      try {
+        list = row.edits ? deserializeEdits(row.edits) : [];
+      } catch {
+        list = [];
+      }
+      list.push(...edits);
+      await generatedWorldOps.update(worldId, { edits: serializeEdits(list) });
+      return true;
+    });
+    if (reappended === false) return;
+    if (reappended) built.delete(worldId);
+  }
 }

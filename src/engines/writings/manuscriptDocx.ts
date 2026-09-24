@@ -15,11 +15,12 @@
 // one thing this feature exists to avoid.
 //
 // SURVIVES
-//   • paragraphs, in order, including those inside tables and text boxes;
+//   • paragraphs, in order, including those inside tables and text boxes
+//     (once each: a text box's VML fallback copy is dropped);
 //   • headings, from the paragraph style (`Heading1`, `Heading 1`, `Título 1`,
 //     and the other localisations Word writes) or from `w:outlineLvl`;
 //   • bold and italic runs, as <strong>/<em>;
-//   • line breaks (<w:br/>) as <br>, tabs as spaces;
+//   • line breaks (<w:br/>, <w:cr/>) as <br>, tabs as spaces;
 //   • Quote / Cita paragraph styles, as <blockquote>;
 //   • tracked-change insertions (they are ordinary runs);
 //   • footnotes and endnotes (`word/footnotes.xml`, `word/endnotes.xml`), as
@@ -216,11 +217,15 @@ const OFF_RE = /w:val="(?:0|false|off)"/i;
  *   3  `<w:rPr>…</w:rPr>`   the open run's formatting (group 2)
  *   4  `<w:t …/>`           an empty text element
  *   5  `<w:t …>text</w:t>`  text (group 3)
- *   6  `<w:tab/>` `<w:br/>` `<w:noBreakHyphen/>`
+ *   6  `<w:tab/>` `<w:br/>` `<w:cr/>` `<w:noBreakHyphen/>`
  *   7  `<w:footnoteReference w:id="n"/>`, `<w:endnoteReference …/>` — a note
  *      (group 4 is `footnote` or `endnote`, group 5 the id). `w:footnoteRef`,
  *      the marker inside a note's own body, is a different element and is
  *      not matched.
+ *   8  `<w:p …>` / `</w:p>` — a paragraph NESTED in this one (a text box's;
+ *      the scanned paragraph's own tags are not part of `inner`). Each edge
+ *      is a line break, or the box's first and last words run into the text
+ *      around it.
  *
  * Read as a token stream with a stack rather than run-by-run because runs
  * NEST: a text box lives inside a run, carrying whole paragraphs with runs of
@@ -235,7 +240,7 @@ const OFF_RE = /w:val="(?:0|false|off)"/i;
  * `</w:t>` and swallow everything between.
  */
 const PARAGRAPH_TOKEN_RE =
-  /<w:r(?=[\s/>])[^>]*?(\/?)>|<\/w:r>|<w:rPr(?:\s[^>]*)?>([\s\S]*?)<\/w:rPr>|<w:t(?:\s[^>]*?)?\/>|<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:tab\s*\/>|<w:br(?:\s[^>]*)?\/?>|<w:noBreakHyphen\s*\/>|<w:(footnote|endnote)Reference\b[^>]*?w:id="([^"]*)"[^>]*\/>/g;
+  /<w:r(?=[\s/>])[^>]*?(\/?)>|<\/w:r>|<w:rPr(?:\s[^>]*)?>([\s\S]*?)<\/w:rPr>|<w:t(?:\s[^>]*?)?\/>|<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:tab\s*\/>|<w:(?:br|cr)(?:\s[^>]*)?\/?>|<w:noBreakHyphen\s*\/>|<w:(footnote|endnote)Reference\b[^>]*?w:id="([^"]*)"[^>]*\/>|<w:p(?=[\s>])[^>]*>|<\/w:p>/g;
 
 /** A toggle property is on unless it says otherwise (`w:val="0"`). */
 function toggleOn(runProps: string, pattern: RegExp): boolean {
@@ -289,11 +294,23 @@ function readParagraphText(inner: string, notes: DocxNotes = NO_NOTES): Inline {
     group = [];
   };
 
+  // A nested paragraph began or ended (token 8). The line break is placed
+  // before the next thing written, so a box at either end of the paragraph
+  // adds no blank line of its own.
+  let nestedBreak = false;
+
   const emit = (text: string, html: string, state: RunState): void => {
     if (state.bold !== openBold || state.italic !== openItalic) {
       flushGroup();
       openBold = state.bold;
       openItalic = state.italic;
+    }
+    if (nestedBreak) {
+      nestedBreak = false;
+      if (textParts.length > 0) {
+        textParts.push('\n');
+        group.push('<br>');
+      }
     }
     textParts.push(text);
     group.push(html);
@@ -321,7 +338,9 @@ function readParagraphText(inner: string, notes: DocxNotes = NO_NOTES): Inline {
       if (decoded.length > 0) emit(decoded, escapeHtml(decoded), state);
     } else if (raw.startsWith('<w:tab')) {
       emit(' ', ' ', state);
-    } else if (raw.startsWith('<w:br')) {
+    } else if (raw.startsWith('<w:p') || raw === '</w:p>') {
+      nestedBreak = true;
+    } else if (raw.startsWith('<w:br') || raw.startsWith('<w:cr')) {
       emit('\n', '<br>', state);
     } else if (raw.startsWith('<w:noBreakHyphen')) {
       emit('-', '-', state);
@@ -364,6 +383,33 @@ function isQuote(styleId: string, styleName: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Alternate content
+// ---------------------------------------------------------------------------
+
+const SELF_CLOSING_FALLBACK_RE = /<mc:Fallback\b[^>]*\/>/g;
+/** A fallback with no other fallback inside it. */
+const INNERMOST_FALLBACK_RE = /<mc:Fallback\b[^>]*>(?:(?!<mc:Fallback\b)[\s\S])*?<\/mc:Fallback>/g;
+
+/**
+ * `mc:AlternateContent` carries one object twice — `mc:Choice` for readers
+ * that know DrawingML, `mc:Fallback` (VML) for older ones — and Word writes
+ * every text box that way, so the box's paragraphs are in the part twice and
+ * a scan of both imports the writer's letter, epigraph or sidebar twice over.
+ * The choice is kept and the fallback dropped. Innermost first, until none is
+ * left: a text box can hold another, fallback and all.
+ */
+function dropAlternateFallbacks(xml: string): string {
+  if (!xml.includes('<mc:Fallback')) return xml;
+  let result = xml.replace(SELF_CLOSING_FALLBACK_RE, '');
+  let previous: string;
+  do {
+    previous = result;
+    result = result.replace(INNERMOST_FALLBACK_RE, '');
+  } while (result !== previous);
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Notes
 // ---------------------------------------------------------------------------
 
@@ -381,7 +427,7 @@ async function readNotes(zip: JSZip, part: string, tag: 'footnote' | 'endnote'):
   if (!entry) return notes;
   let xml: string;
   try {
-    xml = await entry.async('string');
+    xml = dropAlternateFallbacks(await entry.async('string'));
   } catch {
     // A damaged notes part costs the notes, not the manuscript.
     return notes;
@@ -456,6 +502,7 @@ export async function parseDocxBlocks(
     throw new ManuscriptImportError('invalid-docx');
   }
   if (!xml.includes('<w:')) throw new ManuscriptImportError('invalid-docx');
+  xml = dropAlternateFallbacks(xml);
 
   const blocks: ManuscriptBlock[] = [];
   const length = Math.max(1, xml.length);
