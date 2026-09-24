@@ -829,6 +829,9 @@ const es = {
   'dialogScene.newScene': 'Nueva Escena',
   'dialogScene.fountainHint': 'Exporta el guion como .fountain (se abre en Final Draft, Highland, Fade In…)',
   'dialogScene.linkedBeats': 'Vinculada a {count} beat(s) de la escaleta',
+  'dialogScene.arcBeats.label': 'Arcos de personaje',
+  'dialogScene.arcBeats.open': 'Abrir «{beat}» en el arco {arc}',
+  'dialogScene.arcBeats.navigationFailed': 'No se pudo guardar la escena, así que sigue abierta. Inténtalo de nuevo.',
   'dialogScene.fountainDone': 'Guion exportado como .fountain',
   'dialogScene.fountainError': 'Error al exportar el Fountain.',
   'dialogScene.import.label': 'Importar',
@@ -1198,6 +1201,8 @@ const es = {
   // ── Maps Engine ──
   'mapsEngine.defaultName': 'Mapa del Mundo',
   'mapsEngine.namePlaceholder': 'Nombre del mapa...',
+  'mapsEngine.worldgenLinked': 'Vinculado a Worldgen · revisión {revision}',
+  'mapsEngine.openWorld': 'Abrir mundo',
 
   // ── Outline Engine ──
   'outline.yourOutlines': 'Tus Esquemas',
@@ -1239,6 +1244,11 @@ const es = {
   'stats.goals': 'Metas',
   'stats.projectGoal': 'Meta del Proyecto',
   'stats.deadlineGoal': 'Meta de Plazo',
+  'stats.goalCard.progress': '{current} / {target} palabras',
+  'stats.goalCard.wordsBy': '{target} palabras antes del {date}',
+  'stats.goalCard.daysLeft': 'Quedan {count} días',
+  'stats.goalCard.dueToday': '¡Vence hoy!',
+  'stats.goalCard.daysOverdue': '{count} días de retraso',
   'stats.recentSessions': 'Sesiones Recientes',
   'writingStats.goals.title': 'Metas de escritura',
   'writingStats.goals.dailyTarget': 'Meta diaria (palabras)',
@@ -2962,6 +2972,10 @@ const es = {
   // ── Added 2026-08-16 (arc beat cross-engine links) ──
   'characterArc.beat.linkedBeat': 'Beat del esquema enlazado',
   'characterArc.beat.linkedScene': 'Escena enlazada',
+  'characterArc.beat.openScene': 'Abrir escena: {title}',
+  'characterArc.beat.openOutlineBeat': 'Abrir beat del esquema: {title}',
+  'characterArc.beat.navigationFailed': 'No se pudo guardar este momento, así que sigue abierto. Inténtalo de nuevo.',
+  'characterArc.beat.dragHint': 'Arrastra para reordenar dentro de esta etapa',
 
   // ── Added 2026-08-16 (cast ↔ codex link) ──
   'dialogScene.castFromCodex': 'Personaje del códice',
