@@ -862,12 +862,15 @@ export async function promoteSnapshotToWriting(snapshotId: string): Promise<Conv
   const snapshot = await db.snapshots.get(snapshotId);
   if (!snapshot) throw new Error('Research snapshot not found');
   const sourceText = snapshot.extractedText || snapshot.notes || snapshot.description || snapshot.url;
+  // A clipped URL is foreign text: a `"` in it ended the href early and turned
+  // the rest into attributes of the stored link.
+  const url = snapshot.url.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
   const writing: Writing = {
     id: generateId('wrt'),
     projectId: snapshot.projectId,
     title: snapshot.title || 'Research draft',
     status: 'idea',
-    content: `<p>${sourceText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '</p><p>')}</p><p><a href="${snapshot.url}">${snapshot.url}</a></p>`,
+    content: `<p>${sourceText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '</p><p>')}</p><p><a href="${url}">${url}</a></p>`,
     wordCount: sourceText.trim().split(/\s+/).filter(Boolean).length,
     tags: [...snapshot.tags],
     createdAt: Date.now(),
