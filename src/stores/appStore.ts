@@ -37,6 +37,42 @@ const DEFAULT_READING: ReadingPreferences = {
 
 const READING_KEY = 'ui_reading';
 const MOTION_KEY = 'ui_motion';
+const SIDEBAR_KEY = 'ui_sidebar';
+
+/**
+ * The sidebar has three widths, not two: expanded, collapsed to its icons,
+ * and gone. `open` is the old toggle at the foot of the sidebar; `hidden`
+ * is the newer one in the top bar, which a writer reaches for when even the
+ * icon rail is company they did not ask for. `open` survives a hide, so
+ * bringing the sidebar back restores the width it had.
+ */
+interface SidebarPreferences {
+  open: boolean;
+  hidden: boolean;
+}
+
+const DEFAULT_SIDEBAR: SidebarPreferences = { open: true, hidden: false };
+
+function parseSidebar(raw: string | undefined): SidebarPreferences {
+  if (!raw) return DEFAULT_SIDEBAR;
+  try {
+    const stored: unknown = JSON.parse(raw);
+    if (typeof stored !== 'object' || stored === null) return DEFAULT_SIDEBAR;
+    const record = stored as Record<string, unknown>;
+    return {
+      open: typeof record.open === 'boolean' ? record.open : DEFAULT_SIDEBAR.open,
+      hidden: typeof record.hidden === 'boolean' ? record.hidden : DEFAULT_SIDEBAR.hidden,
+    };
+  } catch {
+    return DEFAULT_SIDEBAR;
+  }
+}
+
+function persistSidebar(prefs: SidebarPreferences): void {
+  // Fire and forget: a sidebar width is not worth a failure surface.
+  void setSetting(SIDEBAR_KEY, JSON.stringify(prefs)).catch(() => undefined);
+}
+
 const FACES: readonly ReadingFace[] = ['serif', 'sans', 'mono'];
 const SIZES: readonly ReadingSize[] = ['small', 'medium', 'large'];
 const MEASURES: readonly ReadingMeasure[] = ['narrow', 'wide'];
@@ -76,6 +112,9 @@ function parseReading(raw: string | undefined): ReadingPreferences {
 
 interface AppState {
   sidebarOpen: boolean;
+  /** The sidebar is off screen entirely — not even the icon rail. */
+  sidebarHidden: boolean;
+  sidebarLoaded: boolean;
   searchOpen: boolean;
   currentProjectId: string | null;
   showEngineManager: boolean;
@@ -85,6 +124,9 @@ interface AppState {
   motionLoaded: boolean;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
+  toggleSidebarHidden: () => void;
+  setSidebarHidden: (hidden: boolean) => void;
+  loadSidebar: () => Promise<void>;
   toggleSearch: () => void;
   setSearchOpen: (open: boolean) => void;
   setCurrentProject: (id: string | null) => void;
@@ -99,9 +141,12 @@ interface AppState {
 // modal both ask; neither of them knows about the other.
 let readingRead: Promise<void> | null = null;
 let motionRead: Promise<void> | null = null;
+let sidebarRead: Promise<void> | null = null;
 
 export const useAppStore = create<AppState>((set, get) => ({
-  sidebarOpen: true,
+  sidebarOpen: DEFAULT_SIDEBAR.open,
+  sidebarHidden: DEFAULT_SIDEBAR.hidden,
+  sidebarLoaded: false,
   searchOpen: false,
   currentProjectId: null,
   showEngineManager: false,
@@ -109,8 +154,34 @@ export const useAppStore = create<AppState>((set, get) => ({
   readingLoaded: false,
   motion: 'system',
   motionLoaded: false,
-  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
-  setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  toggleSidebar: () => {
+    const open = !get().sidebarOpen;
+    set({ sidebarOpen: open, sidebarLoaded: true });
+    persistSidebar({ open, hidden: get().sidebarHidden });
+  },
+  setSidebarOpen: (open) => {
+    set({ sidebarOpen: open, sidebarLoaded: true });
+    persistSidebar({ open, hidden: get().sidebarHidden });
+  },
+  toggleSidebarHidden: () => get().setSidebarHidden(!get().sidebarHidden),
+  setSidebarHidden: (hidden) => {
+    set({ sidebarHidden: hidden, sidebarLoaded: true });
+    persistSidebar({ open: get().sidebarOpen, hidden });
+  },
+  loadSidebar: async () => {
+    if (get().sidebarLoaded) return;
+    sidebarRead ??= getSetting(SIDEBAR_KEY)
+      .then((raw) => {
+        // A toggle clicked while the read was in flight wins over it.
+        if (get().sidebarLoaded) return;
+        const prefs = parseSidebar(raw);
+        set({ sidebarOpen: prefs.open, sidebarHidden: prefs.hidden, sidebarLoaded: true });
+      })
+      .catch(() => {
+        set({ sidebarLoaded: true });
+      });
+    await sidebarRead;
+  },
   toggleSearch: () => set((s) => ({ searchOpen: !s.searchOpen })),
   setSearchOpen: (open) => set({ searchOpen: open }),
   setCurrentProject: (id) => set({ currentProjectId: id }),

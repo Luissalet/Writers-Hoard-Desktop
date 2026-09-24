@@ -40,6 +40,11 @@ interface SprintControlProps {
    * render would tear that interval down and rebuild it sixty times a minute.
    */
   getProjectWords: () => number;
+  /**
+   * Where the options sheet opens. `above` for a host at the bottom of the
+   * screen (the focus-mode corner pill), where `below` would be off it.
+   */
+  menuPlacement?: 'below' | 'above';
 }
 
 /**
@@ -56,7 +61,7 @@ interface SprintControlProps {
  * a throttled background window, a route change, or a restart of the app all
  * produce the same answer.
  */
-function SprintControl({ projectId, writingId, getProjectWords }: SprintControlProps) {
+function SprintControl({ projectId, writingId, getProjectWords, menuPlacement = 'below' }: SprintControlProps) {
   const { t } = useTranslation();
 
   // Seeded from what this session already knows, so a remount paints a running
@@ -334,7 +339,9 @@ function SprintControl({ projectId, writingId, getProjectWords }: SprintControlP
       </div>
 
       {setupOpen && (
-        <div className="absolute right-0 top-full mt-2 z-50 w-64 bg-surface border border-border/80 rounded-2xl shadow-2xl p-4 space-y-3">
+        <div className={`absolute right-0 z-50 w-64 bg-surface border border-border/80 rounded-2xl shadow-2xl p-4 space-y-3 ${
+          menuPlacement === 'above' ? 'bottom-full mb-2' : 'top-full mt-2'
+        }`}>
           <p className="text-[10px] uppercase tracking-widest text-text-dim font-semibold">
             {t('stats.sprint.duration')}
           </p>

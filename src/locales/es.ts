@@ -1325,7 +1325,7 @@ const es = {
   'writings.saveErrorIndicator': 'Error al guardar - reintentar',
   'writings.unsavedIndicator': 'Cambios sin guardar…',
   'writings.autosaveHint': 'Se guarda solo mientras escribes. Ctrl+S guarda al instante.',
-  'writings.focusMode': 'Modo concentración (ocultar paneles)',
+  'writings.focusMode': 'Modo concentración: solo la página, a pantalla completa',
   'writings.exitFocusMode': 'Salir del modo concentración (Esc)',
   'writings.confirmDelete': '¿Borrar «{name}»? Su historial de versiones se va con él; tendrás 30 segundos para deshacerlo.',
   'writings.leaveUnsaved.title': 'Cambios sin guardar',
@@ -5029,6 +5029,11 @@ const es = {
   'creativeLab.story.limit': 'Dónde deja de funcionar',
   'creativeLab.story.stressTitle': 'Preguntas de tensión',
   'creativeLab.story.stressEmpty': 'Completa una regla para generar preguntas sobre abuso, fallo, interacción y coste social.',
+  'topbar.hideSidebar': 'Ocultar la barra lateral',
+  'topbar.showSidebar': 'Mostrar la barra lateral',
+  'shortcuts.global.sidebar': 'Ocultar o mostrar la barra lateral',
+  'shortcuts.editor.focusMode': 'Entrar o salir del modo concentración: solo la página, a pantalla completa',
+  'writings.focusHint': 'Lleva el puntero al borde superior para los controles · Esc sale · {shortcut} alterna',
 } as const;
 
 export default es;

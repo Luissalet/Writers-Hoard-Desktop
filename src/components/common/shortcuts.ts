@@ -92,6 +92,8 @@ export interface Shortcut {
 /** Ids referenced from code, so a rename breaks the build instead of the key. */
 export const COMMAND_CENTRE_SHORTCUT = 'global.commandCentre';
 export const SHORTCUTS_PANEL_SHORTCUT = 'global.shortcuts';
+export const SIDEBAR_SHORTCUT = 'global.sidebar';
+export const FOCUS_MODE_SHORTCUT = 'editor.focusMode';
 
 export const SHORTCUTS: readonly Shortcut[] = [
   // ── Anywhere ──────────────────────────────────────────────────────────────
@@ -119,6 +121,16 @@ export const SHORTCUTS: readonly Shortcut[] = [
     keys: ['Mod+/'],
     descriptionKey: 'shortcuts.global.shortcuts',
     source: 'src/components/common/ShortcutsPanel.tsx',
+    readsThisTable: true,
+  },
+  {
+    id: SIDEBAR_SHORTCUT,
+    scope: 'global',
+    // Not Mod+B, which the editor has for bold; the shift is the price of
+    // one key that works from inside the page as well as outside it.
+    keys: ['Mod+Shift+B'],
+    descriptionKey: 'shortcuts.global.sidebar',
+    source: 'src/components/layout/MainLayout.tsx',
     readsThisTable: true,
   },
   {
@@ -235,6 +247,14 @@ export const SHORTCUTS: readonly Shortcut[] = [
     keys: ['Mod+Shift+Z', 'Mod+Y'],
     descriptionKey: 'shortcuts.editor.redo',
     source: 'src/components/editor/TiptapEditor.tsx',
+  },
+  {
+    id: FOCUS_MODE_SHORTCUT,
+    scope: 'editor',
+    keys: ['Mod+Shift+F'],
+    descriptionKey: 'shortcuts.editor.focusMode',
+    source: 'src/engines/writings/components/WritingsView.tsx',
+    readsThisTable: true,
   },
   {
     id: 'editor.leaveFocusMode',
