@@ -110,6 +110,28 @@ class PortWorker implements ForgeWorker {
       this.onmessage?.(event);
     };
     port.onmessageerror = (event) => this.onmessageerror?.(event);
+    /**
+     * EL PROCESO QUE MUERE DESPUÉS DE CONTESTAR. El vigilante de arriba sólo
+     * cubre el silencio ANTES de la primera respuesta: una forja que revienta
+     * a media generación (sin memoria, módulo nativo que peta) dejaba la
+     * generación del mundo en «forjando…» para siempre — su cliente no tiene
+     * otro reloj — y la petición regional colgada hasta que el vigía de la
+     * granja la retirara minutos después. El puerto enlazado emite `close`
+     * cuando el otro extremo desaparece (medido en Electron: un hijo de
+     * `utilityProcess` que peta tras su primer `progress` lo dispara en el
+     * renderer); aquí se convierte en el `onerror` que todos los clientes ya
+     * saben atender. Un cierre pedido por nosotros (`terminate`) llega con
+     * `closed` puesto y no dice nada.
+     */
+    port.addEventListener('close', () => {
+      if (this.closed) return;
+      // Morir sin haber contestado nunca es el mismo diagnóstico que el
+      // vigilante: esta instalación no sabe forjar, el resto va a Web Workers.
+      if (!this.heard) degraded = true;
+      console.warn('[worldgen] La Forja se cerró sin avisar; el trabajo en curso falla.');
+      this.onerror?.(new ErrorEvent('error', { message: 'La Forja se cerró inesperadamente.' }));
+      this.terminate();
+    });
     port.start();
     for (const message of this.queue) port.postMessage(message);
     this.queue = [];
