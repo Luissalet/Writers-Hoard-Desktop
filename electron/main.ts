@@ -2100,11 +2100,18 @@ function forgeEntry(kind: string): string {
   );
 }
 
-ipcMain.on('forge:spawn', (event, payload: { kind?: string } | undefined) => {
+ipcMain.on('forge:spawn', (event, payload: { kind?: string; token?: string } | undefined) => {
   if (!acceptIpcSender(event, 'forge:spawn')) return;
   const port = event.ports[0];
   if (!port) return;
   const kind = payload?.kind === 'worldgen' ? 'worldgen' : 'region';
+  // The renderer's handle for this process, echoed back if it dies: only this
+  // side ever sees the exit code, and "closed unexpectedly" alone tells the
+  // writer nothing about why.
+  const token = typeof payload?.token === 'string' && /^forge-(?:region|worldgen)-\d{1,9}$/.test(payload.token)
+    ? payload.token
+    : null;
+  const sender = event.sender;
   try {
     const child = utilityProcess.fork(forgeEntry(kind), [], {
       serviceName: `worldgen-forge-${kind}`,
@@ -2118,7 +2125,10 @@ ipcMain.on('forge:spawn', (event, payload: { kind?: string } | undefined) => {
       },
     });
     forgeChildren.add(child);
-    child.once('exit', () => forgeChildren.delete(child));
+    child.once('exit', (code) => {
+      forgeChildren.delete(child);
+      if (code !== 0 && token && !sender.isDestroyed()) sender.send('forge:exited', { token, code });
+    });
     child.postMessage({ type: 'attach' }, [port]);
   } catch {
     // No forge (missing bundle, packaging issue): close the port so the
