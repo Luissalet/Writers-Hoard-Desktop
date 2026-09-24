@@ -419,6 +419,14 @@ export default function SwimLaneView({
     timelineId: '',
     linkedEntryId: '',
   });
+  // What the form held when it opened: Escape and the backdrop only close it
+  // while nothing typed since then would be lost.
+  const [formOpenedWith, setFormOpenedWith] = useState(form);
+  const loadForm = (next: typeof form) => {
+    setForm(next);
+    setFormOpenedWith(next);
+  };
+  const formDirty = (Object.keys(form) as (keyof typeof form)[]).some((key) => form[key] !== formOpenedWith[key]);
 
   const { positions, totalWidth } = useMemo(() => buildEventPositions(timelines, events), [timelines, events]);
 
@@ -653,7 +661,7 @@ export default function SwimLaneView({
   const openAddForm = (timelineId: string) => {
     setSaveFailed(false);
     const tl = timelines.find(t => t.id === timelineId);
-    setForm({
+    loadForm({
       title: '', description: '', date: '', dateMode: 'text', eventType: 'point',
       realDate: '', realDateEnd: '', lane: 'Main', color: tl?.color || '#c4973b',
       timelineId, linkedEntryId: '',
@@ -663,7 +671,7 @@ export default function SwimLaneView({
   };
 
   const openEditForm = (evt: TimelineEvent) => {
-    setForm({
+    loadForm({
       title: evt.title, description: evt.description,
       date: evt.date, dateMode: evt.dateMode || 'text',
       eventType: evt.eventType || 'point',
@@ -1245,6 +1253,7 @@ export default function SwimLaneView({
 
       {/* Add/Edit Event Modal */}
       <Modal open={showEventForm} onClose={() => { if (!saving) { setShowEventForm(false); setEditingEvent(null); setSaveFailed(false); } }}
+        dismissible={!formDirty}
         title={editingEvent ? t('timeline.editEvent') : t('timeline.newEvent')}>
         <fieldset disabled={saving} className="space-y-4">
           <div>
