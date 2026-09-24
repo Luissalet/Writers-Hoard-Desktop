@@ -1,4 +1,0 @@
-{ "extends": "./tsconfig.app.json",
-  "include": ["src/engines/worldgen/components/WorldView.tsx",
-              "src/engines/worldgen/region/townPlan.ts",
-              "src/engines/worldgen/components/Map2D.tsx"] }
