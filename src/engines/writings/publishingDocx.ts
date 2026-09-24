@@ -164,6 +164,30 @@ function blocksFromChildren(
   return blocks;
 }
 
+/**
+ * A list item's own text, as the one numbered paragraph Word gives an item.
+ * The editor wraps an item's text in `<p>`, and an item can hold several: each
+ * block after the first starts a new line of the item, where a plain run of
+ * runs would glue the last word of one paragraph to the first of the next.
+ * Nested lists are skipped here (`inlineChildren` drops them) and follow as
+ * paragraphs of their own.
+ */
+function listItemChildren(item: Element, docx: DocxModule, notes: Notes): ParagraphChild[] {
+  const children: ParagraphChild[] = [];
+  let afterBlock = false;
+  for (const node of item.childNodes) {
+    // Source indentation between two blocks is layout, not a space in the text.
+    if (node.nodeType === 3 && !node.textContent?.trim() && (afterBlock || children.length === 0)) continue;
+    const block = node instanceof Element && BLOCK_TAGS.has(node.tagName.toLowerCase());
+    const runs = inlineChildren([node], docx, notes);
+    if (runs.length === 0) continue;
+    if ((block || afterBlock) && children.length > 0) children.push(new docx.TextRun({ break: 1 }));
+    children.push(...runs);
+    afterBlock = block;
+  }
+  return children;
+}
+
 function listBlocks(
   element: Element,
   docx: DocxModule,
@@ -186,7 +210,7 @@ function listBlocks(
   const blocks: BlockChild[] = [];
   const items = [...element.children].filter(child => child.tagName.toLowerCase() === 'li');
   for (const item of items) {
-    const children = inlineChildren(item.childNodes, docx, context.notes);
+    const children = listItemChildren(item, docx, context.notes);
     if (children.length > 0) {
       blocks.push(new docx.Paragraph({
         children,

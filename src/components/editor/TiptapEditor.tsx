@@ -54,7 +54,14 @@ export type EditorLayout = 'flow' | 'page';
 
 interface TiptapEditorProps {
   content: string;
-  onChange: (html: string) => void;
+  /**
+   * The document as HTML after every edit. Serialising the document costs a
+   * pass over all of it on each keystroke (≈15 ms for a 120 000-word book), so
+   * a host that reads the document itself passes `onDocumentChange` instead.
+   */
+  onChange?: (html: string) => void;
+  /** Told that the document changed, without the HTML (see `onChange`). */
+  onDocumentChange?: () => void;
   placeholder?: string;
   /**
    * Optional extra Tiptap extensions (footnotes, chapter headings). Read
@@ -160,6 +167,7 @@ function ToolButton({ active, onClick, title, children }: {
 export default function TiptapEditor({
   content,
   onChange,
+  onDocumentChange,
   placeholder,
   onAnnotate,
   onGenerateImage,
@@ -183,6 +191,10 @@ export default function TiptapEditor({
   // chapters as well as blocks) takes StarterKit's out of the schema: two
   // nodes of one name would both be registered, and the last one would win.
   const ownDocument = extensions?.some((extension) => extension.name === 'doc') ?? false;
+  // The HTML last handed to `onChange`. The host hands it straight back as
+  // `content`, and the sync effect below can skip serialising the document a
+  // second time to find out that nothing came from outside.
+  const emittedHtmlRef = useRef<string | null>(null);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false }, document: ownDocument ? false : undefined }),
@@ -192,7 +204,12 @@ export default function TiptapEditor({
     ],
     content,
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
+      if (onChange) {
+        const html = editor.getHTML();
+        emittedHtmlRef.current = html;
+        onChange(html);
+      }
+      onDocumentChange?.();
     },
     editorProps: {
       attributes: {
@@ -306,8 +323,11 @@ export default function TiptapEditor({
   // typing `editor.getHTML() === content`, so this never fights the cursor.
   useEffect(() => {
     if (!editor) return;
+    if (content === emittedHtmlRef.current) return;
     if (editor.getHTML() !== content) {
       editor.commands.setContent(content, { emitUpdate: false });
+      // What was emitted is no longer what the editor holds.
+      emittedHtmlRef.current = null;
     }
   }, [content, editor]);
 
