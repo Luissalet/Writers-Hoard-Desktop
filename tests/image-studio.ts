@@ -29,7 +29,8 @@ import {
   type Recipe as RuntimeRecipe,
 } from '@/services/aiRuntime/recipe';
 import type { AiImageResult } from '@/services/aiRuntime/types';
-import { SD_SAMPLERS, SD_SCHEDULERS } from '@/services/aiRuntime/sdServer';
+import { SD_SAMPLERS, SD_SCHEDULERS, type SdCompanionFile } from '@/services/aiRuntime/sdServer';
+import { chooseControlNet, POSE_CONTROLNET_ID } from '@/engines/image-studio/studio/controlNet';
 import { createProjectZipArchive, importProjectZip } from '@/services/zipBackup';
 import type { ResolverModel } from '@/services/visualRef';
 import type { VisualRef } from '@/types/visualRef';
@@ -850,6 +851,29 @@ export async function testExactRecipePersistenceBackupAndCascade(): Promise<void
 
 // ---------------------------------------------------------------------------
 
+/** A pose picks OpenPose, or the only ControlNet; several, none, or not-yet-known refuse with their own reason. */
+function testStudioControlNetChoice(): void {
+  const file = (catalogId: string | null, name: string, kind: SdCompanionFile['kind'] = 'controlnet'): SdCompanionFile =>
+    ({ kind, catalogId, name, fileName: `${name}.safetensors`, sizeBytes: 1 });
+  const same = (a: unknown, b: unknown, label: string) => {
+    if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${label}: ${JSON.stringify(a)} !== ${JSON.stringify(b)}`);
+  };
+  same(chooseControlNet(undefined), { ok: false, reasonKey: 'visualRef.reason.controlNetChecking' }, 'status not loaded');
+  same(chooseControlNet([]), { ok: false, reasonKey: 'visualRef.reason.noControlNet' }, 'none installed');
+  same(chooseControlNet([file(null, 'up', 'upscaler')]), { ok: false, reasonKey: 'visualRef.reason.noControlNet' }, 'only an upscaler');
+  same(chooseControlNet([file(null, 'depth')]), { ok: true, model: 'depth.safetensors' }, 'single hand-installed');
+  same(
+    chooseControlNet([file(null, 'depth'), file(POSE_CONTROLNET_ID, 'openpose')]),
+    { ok: true, model: POSE_CONTROLNET_ID },
+    'openpose wins',
+  );
+  same(
+    chooseControlNet([file(null, 'depth'), file(null, 'canny')]),
+    { ok: false, reasonKey: 'visualRef.reason.controlNetAmbiguous' },
+    'ambiguous',
+  );
+}
+
 export async function runImageStudioTests(): Promise<string[]> {
   await testStudioNoBackend();
   testStudioLevels();
@@ -866,6 +890,7 @@ export async function runImageStudioTests(): Promise<string[]> {
   testStudioSeeds();
   testStudioXyzMatrix();
   testStudioPlanRun();
+  testStudioControlNetChoice();
   testRecipeHashUsesNestedIdentityOnly();
   await testExactRecipePersistenceBackupAndCascade();
   return [
@@ -884,6 +909,7 @@ export async function runImageStudioTests(): Promise<string[]> {
     'Studio: a batch walks its seed, or holds it',
     'Studio: X/Y/Z builds the right matrix, X fastest, capped',
     'Studio: one run planned — the resolved prompt is what is recorded',
+    'Studio: a pose picks its ControlNet, and waits for the status instead of calling it missing',
     'Studio recipes: nested asset ids define the hash; root row metadata does not',
     'Studio recipes: atomic save, exact read, backup/restore, legacy fallback and cascades',
   ];
