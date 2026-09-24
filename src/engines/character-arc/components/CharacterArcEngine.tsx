@@ -368,7 +368,9 @@ function ArcEditor({
       id: generateId('arc-beat'),
       arcId: arc.id,
       projectId,
-      order: beats.length,
+      // max+1, not the count: after a delete the count can be lower than the
+      // highest order and the new beat would sort before existing ones.
+      order: beats.reduce((max, b) => Math.max(max, b.order), -1) + 1,
       stage: 'growth',
       title: t('characterArc.beat.newTitle'),
       description: '',

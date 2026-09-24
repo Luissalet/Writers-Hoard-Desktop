@@ -265,7 +265,10 @@ export default function SceneListView({
       id: generateId('scene'),
       projectId: '', // will be set by parent
       title: newTitle.trim(),
-      order: scenes.length,
+      // max+1, not the count (see importPersist.ts): `order` goes sparse after
+      // a delete, and a count-based order lands the new scene mid-list and
+      // hands it a mid-list scene number.
+      order: scenes.reduce((max, s) => Math.max(max, s.order), -1) + 1,
       tags: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),

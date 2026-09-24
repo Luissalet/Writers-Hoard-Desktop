@@ -65,7 +65,10 @@ export default function StoryboardView({
       id: generateId('sbp'),
       storyboardId: storyboard.id,
       projectId: storyboard.projectId,
-      order: sortedPanels.length,
+      // One past the highest `order`, never the row count: after a delete the
+      // count can be lower than the last panel's order, and the new panel would
+      // tie with (or land before) panels that are already there.
+      order: sortedPanels.reduce((max, p) => Math.max(max, p.order), -1) + 1,
       subtitle: '',
       tags: [],
       createdAt: Date.now(),

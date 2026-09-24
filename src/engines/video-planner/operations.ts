@@ -1,3 +1,4 @@
+import { db } from '@/db';
 import { makeTableOps, reorderItems, makeCascadeDeleteOp } from '@/engines/_shared';
 import type { VideoPlan, VideoSegment } from './types';
 
@@ -33,4 +34,17 @@ export const deleteSegment = segmentOps.delete;
 
 export async function reorderSegments(videoPlanId: string, orderedIds: string[]): Promise<void> {
   await reorderItems('videoSegments', 'videoPlanId', videoPlanId, orderedIds);
+}
+
+/**
+ * The plan a deep link (`?entity=<id>`) points at. Global search and the
+ * fallback anchor adapter emit either a plan id or a segment id; a segment
+ * opens its plan. Scoped to the project so a stale link can't open a plan this
+ * engine instance doesn't list.
+ */
+export async function findVideoPlanIdForEntity(projectId: string, entityId: string): Promise<string | null> {
+  const plan = await db.videoPlans.get(entityId);
+  if (plan) return plan.projectId === projectId ? plan.id : null;
+  const segment = await db.videoSegments.get(entityId);
+  return segment && segment.projectId === projectId ? segment.videoPlanId : null;
 }

@@ -95,7 +95,10 @@ export default function MarginPanel({
     [refresh],
   );
 
-  const nextPosition = items.length;
+  // One past the highest position, not the count: after a delete the count
+  // can be lower than the last note's position, and the new note would sort
+  // in among the existing ones instead of at the end.
+  const nextPosition = items.reduce((max, ann) => Math.max(max, ann.position ?? -1), -1) + 1;
 
   return (
     <aside className="w-full space-y-3">
