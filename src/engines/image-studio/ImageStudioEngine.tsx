@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GitCompare, Grid3x3, ImagePlus, Loader2, Settings2, Sparkles, Square, XCircle } from 'lucide-react';
+import { GitCompare, Grid3x3, ImagePlus, Loader2, Pin, Settings2, Sparkles, Square, XCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { ConfirmDialog } from '@/engines/_shared';
 import type { EngineComponentProps } from '@/engines/_types';
@@ -66,6 +66,7 @@ import {
   type DefaultsSource,
   type LoraStackEntry,
   type PassSupportInput,
+  type PinnedPose,
   type StudioLevel,
   type StudioPass,
   type XyzCell,
@@ -81,7 +82,7 @@ import {
   updateVisualRef,
 } from './refs';
 import { AVAILABLE, blocked, isManagedLocalRoute, studioResolverModel, type Availability } from './studioModel';
-import { chooseControlNet } from './studio/controlNet';
+import { chooseControlNet, chooseReportedControlNet } from './studio/controlNet';
 import ControlNetFix from './components/ControlNetFix';
 import CastColumn from './components/CastColumn';
 import ParametersColumn, { type ParametersState } from './components/ParametersColumn';
@@ -167,6 +168,10 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
   const [appliedDefaults, setAppliedDefaults] = useState<DefaultsSource | null>(null);
   const [beforeDefaults, setBeforeDefaults] = useState<ParametersState | null>(null);
   const [plotting, setPlotting] = useState(false);
+  // The pinned pose: ids as stored, and the picture's thumbnail once looked up
+  // (`src` undefined once the lookup found the Gallery row gone).
+  const [pose, setPose] = useState<PinnedPose | null>(null);
+  const [poseImage, setPoseImage] = useState<{ id: string; src?: string } | null>(null);
 
   const [route, setRoute] = useState<AiRouteSelection | undefined>(undefined);
   const [handle, setHandle] = useState<ImageHandle | null>(null);
@@ -216,6 +221,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
       setLevel(prefs.level);
       setPasses(prefs.passChain);
       setShowAllSamplers(prefs.showAllSamplers);
+      setPose(prefs.pose ?? null);
       setParameters((current) => ({ ...current, batchSeedMode: prefs.batchSeedMode }));
       reloadImages();
       void runtime.loadConnections();
@@ -286,28 +292,58 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
     [managedLocal, upscalers],
   );
 
-  /** The level, the chain and the batch mode are remembered per project. */
+  /** The level, the chain, the batch mode and the pinned pose are remembered per project. */
   const persist = useCallback((changes: Partial<{
     level: StudioLevel;
     passChain: StudioPass[];
     showAllSamplers: boolean;
     batchSeedMode: ParametersState['batchSeedMode'];
+    pose: PinnedPose | undefined;
   }>) => {
     writeStudioPrefs(projectId, {
       level,
       passChain: passes,
       showAllSamplers,
       batchSeedMode: parameters.batchSeedMode,
+      pose: pose ?? undefined,
       ...changes,
     });
-  }, [projectId, level, passes, showAllSamplers, parameters.batchSeedMode]);
+  }, [projectId, level, passes, showAllSamplers, parameters.batchSeedMode, pose]);
+
+  const pinPose = (next: PinnedPose | null) => {
+    setPose(next);
+    persist({ pose: next ?? undefined });
+  };
+
+  // --- the pinned pose ------------------------------------------------------
+  // Looked up by id, so a Gallery row deleted anywhere — here or in Gallery —
+  // is found gone the next time the studio looks.
+  const poseImageId = pose?.imageId;
+  useEffect(() => {
+    if (!poseImageId) return;
+    let live = true;
+    void db.inspirationImages.get(poseImageId).then((row) => {
+      if (live) setPoseImage({ id: poseImageId, src: row ? row.thumbnailData ?? row.imageData : undefined });
+    });
+    return () => { live = false; };
+  }, [poseImageId]);
+  // Only a pose that still exists is applied: its reference, that reference's
+  // pose bank, and the picture itself. A stale pin is inert rather than a
+  // control image the request cannot find the bytes for.
+  const poseRef = pose ? refs.find((row) => row.id === pose.refId) : undefined;
+  const pinnedPose = pose
+    && poseRef?.controlImageIds?.includes(pose.imageId)
+    && !(poseImage?.id === pose.imageId && poseImage.src === undefined)
+    ? pose
+    : null;
 
   // --- the resolution -------------------------------------------------------
   const mentions = useMemo(() => parseMentions(subjects, refs), [subjects, refs]);
   const resolveOptions: ResolveOptions = useMemo(() => ({
     seedMode: parameters.seedMode,
     manualSeed: parameters.manualSeed.trim() ? Number(parameters.manualSeed) : undefined,
-  }), [parameters.seedMode, parameters.manualSeed]);
+    pose: pinnedPose ?? undefined,
+  }), [parameters.seedMode, parameters.manualSeed, pinnedPose]);
   // Resolved against a nameless placeholder model when nothing is installed, so
   // the writer can still see what their reference WOULD send. The disclosure is
   // the teaching surface; withholding it until a model exists teaches nothing.
@@ -333,11 +369,17 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
   const heroRef = mentions.refs.find((row) => typeof row.heroSeed === 'number') ?? null;
   const busy = handle !== null;
 
-  // A pose goes out as a control image, and the local server refuses one
-  // without a ControlNet to run it through. Named here, before sending, so the
+  // A pose goes out as a control image, and a server refuses one without a
+  // ControlNet it holds to run it through. Named here, before sending, so the
   // writer reads why in their language instead of a server refusal afterwards.
-  const needsControlNet = managedLocal && resolved.referenceImages.some((row) => row.role === 'pose');
-  const controlNet = needsControlNet ? chooseControlNet(sdStatus?.companions) : null;
+  // The local server's ControlNets are its companion files; any other server's
+  // are the names it reported for the model, and only those will resolve there.
+  const needsControlNet = resolved.referenceImages.some((row) => row.role === 'pose');
+  const controlNet = !needsControlNet
+    ? null
+    : managedLocal
+      ? chooseControlNet(sdStatus?.companions)
+      : chooseReportedControlNet(model?.controlNets);
 
   // --- availability, with reasons -------------------------------------------
   const generateAction: Availability = !model
@@ -743,6 +785,8 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
               onChange={(changes) => updateVisualRef(selectedRef.id, changes).then(reloadRefs)}
               onReload={() => { void reloadRefs(); }}
               onExportDataset={() => { void openExport(); }}
+              pinnedPoseImageId={pinnedPose?.refId === selectedRef.id ? pinnedPose.imageId : undefined}
+              onPinPose={(imageId) => pinPose(imageId ? { refId: selectedRef.id, imageId } : null)}
             />
           ) : (
             <div className="space-y-3">
@@ -791,6 +835,27 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
                     />
                   </label>
                 </div>
+                {/* The pose is pinned from a reference's pose bank; here it is
+                    named, shown and unpinned. Whether the model can hold it is
+                    the disclosure's line to say, not this one's. */}
+                {pinnedPose && poseRef && (
+                  <div data-pinned-pose className="flex items-center gap-2 text-[10px] text-text-muted">
+                    <Pin size={11} className="text-accent-gold" />
+                    {poseImage?.src && (
+                      <img src={poseImage.src} alt="" className="w-7 h-7 rounded object-cover border border-border" />
+                    )}
+                    <span>{t('visualRef.composer.pose').replace('{name}', poseRef.name)}</span>
+                    <button
+                      type="button"
+                      onClick={() => pinPose(null)}
+                      title={t('visualRef.editor.unpinPose')}
+                      aria-label={t('visualRef.editor.unpinPose')}
+                      className="p-0.5 rounded text-text-dim hover:text-danger transition"
+                    >
+                      <XCircle size={11} />
+                    </button>
+                  </div>
+                )}
                 <ResolvedPrompt resolved={resolved} />
                 <PromptCraftBar
                   prompt={preview?.options.prompt ?? resolved.prompt}
@@ -831,7 +896,8 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
                 {!generateAction.enabled && (
                   <p className="text-[10px] text-accent-amber">{t(generateAction.reasonKey ?? '')}</p>
                 )}
-                {generateAction.reasonKey === 'visualRef.reason.noControlNet' && <ControlNetFix />}
+                {/* Only the app's own server can be fixed from here. */}
+                {managedLocal && generateAction.reasonKey === 'visualRef.reason.noControlNet' && <ControlNetFix />}
                 {error && (
                   <div className="flex items-start gap-2 px-3 py-2 bg-danger/10 text-danger text-xs rounded-lg">
                     <XCircle size={14} className="mt-0.5 flex-shrink-0" />
@@ -954,7 +1020,9 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
         onConfirm={() => {
           const image = pendingDiscard;
           setPendingDiscard(null);
-          if (image) void deleteGeneratedImage(image.id).then(reloadImages);
+          if (!image) return;
+          if (pose?.imageId === image.id) pinPose(null);
+          void deleteGeneratedImage(image.id).then(reloadImages);
         }}
         onCancel={() => setPendingDiscard(null)}
       />
@@ -967,6 +1035,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
           const ref = pendingRefDelete;
           setPendingRefDelete(null);
           if (!ref) return;
+          if (pose?.refId === ref.id) pinPose(null);
           void deleteVisualRef(ref.id).then(() => {
             if (selectedRefId === ref.id) setSelectedRefId(null);
             void reloadRefs();

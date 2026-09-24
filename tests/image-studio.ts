@@ -30,7 +30,7 @@ import {
 } from '@/services/aiRuntime/recipe';
 import type { AiImageResult } from '@/services/aiRuntime/types';
 import { SD_SAMPLERS, SD_SCHEDULERS, type SdCompanionFile } from '@/services/aiRuntime/sdServer';
-import { chooseControlNet, POSE_CONTROLNET_ID } from '@/engines/image-studio/studio/controlNet';
+import { chooseControlNet, chooseReportedControlNet, POSE_CONTROLNET_ID } from '@/engines/image-studio/studio/controlNet';
 import { createProjectZipArchive, importProjectZip } from '@/services/zipBackup';
 import type { ResolverModel } from '@/services/visualRef';
 import type { VisualRef } from '@/types/visualRef';
@@ -872,6 +872,21 @@ function testStudioControlNetChoice(): void {
     { ok: false, reasonKey: 'visualRef.reason.controlNetAmbiguous' },
     'ambiguous',
   );
+
+  // A server that lists its own ControlNets (ComfyUI) is answered from that
+  // list, by file name: a catalogue id would name a file it does not have.
+  same(
+    chooseReportedControlNet(['depth.safetensors', 'SD15/control_v11p_sd15_OpenPose.pth']),
+    { ok: true, model: 'SD15/control_v11p_sd15_OpenPose.pth' },
+    'reported: openpose wins, any case',
+  );
+  same(chooseReportedControlNet(['canny.safetensors']), { ok: true, model: 'canny.safetensors' }, 'reported: the only one');
+  same(
+    chooseReportedControlNet(['depth.safetensors', 'canny.safetensors']),
+    { ok: false, reasonKey: 'visualRef.reason.controlNetAmbiguous' },
+    'reported: ambiguous',
+  );
+  same(chooseReportedControlNet(undefined), { ok: false, reasonKey: 'visualRef.reason.noControlNet' }, 'reported: none');
 }
 
 export async function runImageStudioTests(): Promise<string[]> {
@@ -909,7 +924,7 @@ export async function runImageStudioTests(): Promise<string[]> {
     'Studio: a batch walks its seed, or holds it',
     'Studio: X/Y/Z builds the right matrix, X fastest, capped',
     'Studio: one run planned — the resolved prompt is what is recorded',
-    'Studio: a pose picks its ControlNet, and waits for the status instead of calling it missing',
+    'Studio: a pose picks its ControlNet — from the companions locally, from the reported list elsewhere — and waits for the status instead of calling it missing',
     'Studio recipes: nested asset ids define the hash; root row metadata does not',
     'Studio recipes: atomic save, exact read, backup/restore, legacy fallback and cascades',
   ];

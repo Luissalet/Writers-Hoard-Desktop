@@ -227,6 +227,45 @@ export function testVisualRefSeedAndPose(): void {
   assert(codes(withoutControl.steps).includes('poseUnsupported'), 'the refused pose was not explained');
 }
 
+/**
+ * sd.cpp never reports `controlNets` on a model, so the managed runtime's pose
+ * support is read from the family: an SD 1.5 base can hold the catalogued
+ * OpenPose ControlNet; SDXL and FLUX cannot, and say so.
+ */
+export function testVisualRefManagedPoseSupport(): void {
+  const elena = ref();
+  const pose = { refId: elena.id, imageId: 'img-pose' };
+  const managed = { isManagedLocalRuntime: true, managedControlNetFamilies: ['sd1'] };
+  const describe = (family: string, options: Parameters<typeof describeResolverModel>[1] = managed) =>
+    describeResolverModel({ connectionId: 'builtin-sd', id: `m-${family}`, family, capabilities: [] }, options);
+
+  const sd1 = describe('sd1');
+  assert(sd1.supportsControlNet, 'a managed SD 1.5 model was not given its pose ControlNet');
+  const posed = resolve([elena], 'on a bridge', '', sd1, { seedMode: 'explore', exploreSeed: 1, pose });
+  const control = posed.referenceImages.find((image) => image.role === 'pose');
+  assert(control?.imageId === 'img-pose' && control.refId === elena.id, 'the pinned pose did not reach the request');
+  assert(control.weight === POSE_CONTROL_WEIGHT, 'the pose was not held at the working weight');
+  assert(codes(posed.steps).includes('pose'), 'the applied pose was not disclosed');
+  assert(!codes(posed.steps).includes('poseUnsupported'), 'an applied pose was also called unsupported');
+
+  for (const family of ['sdxl', 'flux']) {
+    const other = describe(family);
+    assert(!other.supportsControlNet, `a managed ${family} model claimed an SD 1.5 ControlNet`);
+    const refused = resolve([elena], 'on a bridge', '', other, { seedMode: 'explore', exploreSeed: 1, pose });
+    assert(!refused.referenceImages.some((image) => image.role === 'pose'), `a pose was attached to ${family}`);
+    assert(codes(refused.steps).includes('poseUnsupported'), `the refused pose on ${family} was not explained`);
+  }
+
+  // The family list only speaks for the app's own server. A remote endpoint
+  // answers through its descriptor, and an SD 1.5 name there proves nothing.
+  assert(!describe('sd1', { managedControlNetFamilies: ['sd1'] }).supportsControlNet, 'a remote SD 1.5 model was given a ControlNet it never reported');
+  assert(!describe('sd1', { isManagedLocalRuntime: true }).supportsControlNet, 'support was assumed with no family list');
+  const remote = describeResolverModel(
+    { connectionId: 'comfy', id: 'x', family: 'sdxl', capabilities: [], controlNets: ['openpose'] } as Parameters<typeof describeResolverModel>[0],
+  );
+  assert(remote.supportsControlNet, 'a descriptor that reports a ControlNet lost it');
+}
+
 export function testVisualRefResolverIsPure(): void {
   const elena = ref({
     promptFragment: 'a tall woman',
@@ -566,6 +605,7 @@ export async function runVisualRefTests(): Promise<string[]> {
   testVisualRefNegativeCfgRule();
   testVisualRefDialect();
   testVisualRefSeedAndPose();
+  testVisualRefManagedPoseSupport();
   testVisualRefResolverIsPure();
   testVisualRefMentions();
   testVisualRefRecipes();
@@ -580,6 +620,7 @@ export async function runVisualRefTests(): Promise<string[]> {
     'Visual refs: a negative prompt is refused, and explained, at cfg 1',
     'Visual refs: fragments are adapted between the tag and prose dialects',
     'Visual refs: hero seed, explore, and a pose only when the model can hold one',
+    'Visual refs: a managed SD 1.5 model holds a pinned pose; SDXL and FLUX refuse it, said out loud',
     'Visual refs: the resolver is pure and mutates nothing',
     'Visual refs: @mentions resolve, fold accents and never duplicate a subject',
     'Visual refs: recipes read the widened fields, diff, and step their seeds',
