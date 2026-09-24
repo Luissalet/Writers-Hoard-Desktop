@@ -44,7 +44,6 @@ import {
   extractFootnotesFromHtml,
   withFootnoteTexts,
 } from '@/components/editor/footnotes/footnoteModel';
-import { foldedContains, foldSearchText } from '@/services/searchQuery';
 import { notifyDataChanged } from '@/engines/_shared/dataChanged';
 import { codexEntryOps } from '@/engines/codex/operations';
 import { updateEntry } from '@/engines/diary/operations';
@@ -216,6 +215,53 @@ const BLOCK_TAGS = new Set([
 ]);
 
 const LEAF_TAGS = new Set(['br', 'hr', 'img', 'iframe', 'video', 'audio']);
+
+// ---------------------------------------------------------------------------
+// The cheap gate in front of the parse
+// ---------------------------------------------------------------------------
+
+/** The entities an HTML serialiser writes into text, and what they spell. */
+const TEXT_ENTITIES: Readonly<Record<string, string>> = {
+  'amp;': '&', 'lt;': '<', 'gt;': '>', 'quot;': '"', '#39;': "'", 'nbsp;': '\u00a0',
+};
+const ENTITY = /&(#?[a-z0-9]+;?)/gi;
+const TAG = /<[^>]*>/g;
+const ALL_MARKS = /\p{M}/gu;
+
+/**
+ * The find bar's folding (`fold` in findReplace.ts), over a whole string. The
+ * one context-sensitive lowercase rule, the Greek final sigma, is flattened on
+ * both sides because the matcher folds character by character.
+ */
+function gateFold(value: string): string {
+  return value.normalize('NFD').replace(ALL_MARKS, '').toLowerCase().replace(/ς/g, 'σ');
+}
+
+/**
+ * "Could `indexField` find anything in this field?" It may say yes wrongly —
+ * the matcher then finds nothing — but it must never say no where the matcher
+ * would say yes, because a no skips the field without parsing it.
+ *
+ * The raw HTML is not the text the matcher reads: `Tom &amp; Jerry` is how
+ * "Tom & Jerry" is stored, and `Mar<strong>ta</strong>` is one word the preview
+ * must report as split. So tags are dropped and the entities a serialiser
+ * writes are decoded; any other entity means "parse it and see".
+ */
+function mayMatch(field: ReplaceField, foldedTerm: string): boolean {
+  if (!foldedTerm || !field.value) return false;
+  let text = field.value;
+  if (field.html) {
+    let unknownEntity = false;
+    text = text.replace(TAG, '').replace(ENTITY, (whole, name: string) => {
+      const known = TEXT_ENTITIES[name.toLowerCase()];
+      if (known !== undefined) return known;
+      unknownEntity = true;
+      return whole;
+    });
+    if (unknownEntity) return true;
+  }
+  return gateFold(text).includes(foldedTerm);
+}
 
 /** One text node of a field, with where it sits in the flat coordinate space. */
 interface Piece {
@@ -1006,7 +1052,7 @@ export async function scanProjectReplace(input: {
   };
   if (!input.term) return plan;
 
-  const folded = foldSearchText(input.term);
+  const folded = gateFold(input.term);
   const groups = new Map<string, ReplaceDocument>();
   let listed = 0;
 
@@ -1029,7 +1075,7 @@ export async function scanProjectReplace(input: {
       let rowSplit = 0;
 
       for (const field of row.fields) {
-        if (!foldedContains(field.value, folded)) continue;
+        if (!mayMatch(field, folded)) continue;
         const index = indexField(field.value, field.html, input.term, input.options);
         if (index.matches.length === 0) continue;
 
@@ -1300,7 +1346,7 @@ export async function applyProjectReplace(
   };
   if (work.length === 0) return outcome;
 
-  const folded = foldSearchText(plan.term);
+  const folded = gateFold(plan.term);
   const snapshotIds: string[] = [];
   const undoRows: UndoRecord['rows'] = [];
   const touched = new Set<string>();
@@ -1330,7 +1376,7 @@ export async function applyProjectReplace(
       const values = new Map<string, string>();
       let replacedHere = 0;
       for (const field of target.fields) {
-        if (!foldedContains(field.value, folded)) continue;
+        if (!mayMatch(field, folded)) continue;
         const index = indexField(field.value, field.html, plan.term, plan.options);
         let accepted = 0;
         const rewritten = rewriteField(index, replacement, (ordinal) => {

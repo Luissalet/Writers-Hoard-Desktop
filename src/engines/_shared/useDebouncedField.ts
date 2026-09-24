@@ -168,7 +168,12 @@ export function useDebouncedField(
   }, [dirty, error, saving]);
 
   // Never lose the tail of a sentence to a navigation or a closing modal.
+  // StrictMode (and `npm run dev:desktop` is how this app is run) mounts,
+  // unmounts and remounts: without re-arming here the field stayed "unmounted"
+  // for life, so a save never cleared `dirty`, never showed `saving` and never
+  // surfaced its `error` — the same reset every other shared hook performs.
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       if (timer.current !== null) clearTimeout(timer.current);

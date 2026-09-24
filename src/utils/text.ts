@@ -29,11 +29,12 @@ export function stripHtml(html: string): string {
     .replace(/<br\s*\/?>/gi, ' ')
     .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&quot;/gi, '"')
+    // Last: decoded first, `&amp;lt;` (the text "&lt;") would become "<".
+    .replace(/&amp;/gi, '&')
     .replace(/\s+/g, ' ')
     .trim();
 }
