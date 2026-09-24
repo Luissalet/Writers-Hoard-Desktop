@@ -50,14 +50,25 @@ export interface CompileOptions {
 // ---------------------------------------------------------------------------
 
 function decodeEntities(s: string): string {
+  // `&amp;` last: decoded first, a typed "&lt;" (stored `&amp;lt;`) would be
+  // decoded twice and come out as "<".
   return s
     .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&quot;/gi, '"');
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi, '&');
 }
+
+/**
+ * A code block lifted out of the html while the rest is converted, restored
+ * as a fence once the whitespace is normalized: the rules below read its
+ * lines as prose — `<br>`-less newlines, runs of blank lines, trailing
+ * spaces — and would reflow the code. Bracketed by SOH, like the lists' STX/ETX.
+ */
+// eslint-disable-next-line no-control-regex -- the control characters are the brackets
+const LIFTED_CODE_RE = /(^> )?\u0001(\d+)\u0001/gm;
 
 /** A list with no list inside it: `ul`/`ol` (1), its attributes (2), its items (3). */
 const INNERMOST_LIST_RE = /<(ul|ol)\b([^>]*)>((?:(?!<(?:ul|ol)\b)[\s\S])*?)<\/\1>/gi;
@@ -130,9 +141,20 @@ export function htmlToMarkdownParts(
   const footnotes = renderFootnoteRefs(footnoteRefsOutOfCode(html), (note) => `[^${note.index}]`, start);
   let s = footnotes.html.replace(/\r/g, '');
 
+  // Code blocks before anything reads them as inline code or prose: a fence
+  // keeps their lines, and `class="language-x"` becomes its info string.
+  const codeBlocks: string[] = [];
+  s = s.replace(/<pre\b[^>]*>([\s\S]*?)<\/pre>/gi, (_m, inner: string) => {
+    const language = /<code\b[^>]*\bclass="[^"]*\blanguage-([\w+#-]+)/i.exec(inner)?.[1] ?? '';
+    const code = decodeEntities(inner.replace(/<[^>]+>/g, ''));
+    codeBlocks.push(`\`\`\`${language}\n${code}\n\`\`\``);
+    return `\n\n\u0001${codeBlocks.length - 1}\u0001\n\n`;
+  });
+
   // Inline marks first (so block regexes see clean text)
   s = s.replace(/<(strong|b)[^>]*>(.*?)<\/\1>/gis, '**$2**');
   s = s.replace(/<(em|i)[^>]*>(.*?)<\/\1>/gis, '*$2*');
+  s = s.replace(/<(s|del|strike)\b[^>]*>(.*?)<\/\1>/gis, '~~$2~~');
   s = s.replace(/<code[^>]*>(.*?)<\/code>/gis, '`$1`');
   s = s.replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gis, '[$2]($1)');
   s = s.replace(/<img[^>]*src="([^"]*)"[^>]*\/?>/gi, '![]($1)');
@@ -143,9 +165,10 @@ export function htmlToMarkdownParts(
   s = s.replace(/<h3[^>]*>(.*?)<\/h3>/gis, '\n\n### $1\n\n');
   s = s.replace(/<h[4-6][^>]*>(.*?)<\/h[4-6]>/gis, '\n\n#### $1\n\n');
 
-  // Blockquotes (Tiptap: <blockquote><p>…</p></blockquote>)
+  // Blockquotes (Tiptap: <blockquote><p>…</p></blockquote>). A line break
+  // is a line of its own here, so every line after it is quoted too.
   s = s.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gis, (_m, inner: string) => {
-    const text = inner.replace(/<p[^>]*>(.*?)<\/p>/gis, '$1\n');
+    const text = inner.replace(/<br\s*\/?>/gi, '\n').replace(/<p[^>]*>(.*?)<\/p>/gis, '$1\n');
     return (
       '\n\n' +
       text
@@ -182,6 +205,9 @@ export function htmlToMarkdownParts(
   s = s.replace(/<[^>]+>/g, '');
   s = decodeEntities(s);
   s = s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  // A block inside a quote keeps the quote on every line.
+  s = s.replace(LIFTED_CODE_RE, (_m, quote: string | undefined, index: string) =>
+    codeBlocks[Number(index)].split('\n').map((line) => (quote ?? '') + line).join('\n'));
   return { prose: s, notes: footnotes.notes };
 }
 
