@@ -129,11 +129,14 @@ export async function whDelete(args: ToolArgs): Promise<unknown> {
 
   // Composed with t(), not written in English here: this dialog is the last
   // thing standing between a model and someone's work.
-  const lines = [t('bridge.delete.message').replace('{type}', label).replace('{name}', name)];
+  // Function replacers: a replacement STRING expands patterns like $& and $',
+  // so a title or a model-written reason containing them would print template
+  // text in place of what is actually about to be deleted.
+  const lines = [t('bridge.delete.message').replace('{type}', () => label).replace('{name}', () => name)];
   if (spec.cascade) {
-    lines.push(t('bridge.delete.alsoRemoves').replace('{what}', t(`bridge.delete.cascade.${type}`)));
+    lines.push(t('bridge.delete.alsoRemoves').replace('{what}', () => t(`bridge.delete.cascade.${type}`)));
   }
-  if (reason) lines.push(t('bridge.delete.reason').replace('{reason}', reason));
+  if (reason) lines.push(t('bridge.delete.reason').replace('{reason}', () => reason));
   lines.push(t('bridge.delete.irreversible'));
 
   const confirmed = await requestBridgeConfirmation({

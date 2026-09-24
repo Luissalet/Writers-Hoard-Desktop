@@ -34,6 +34,7 @@ import {
   resolveProjectForEngine,
   resolveProjectId,
   withAudit,
+  nextSlot,
   type ToolArgs,
 } from './shared';
 
@@ -147,7 +148,7 @@ export async function whAddArcBeat(args: ToolArgs): Promise<unknown> {
     id: generateId('arcbeat'),
     arcId,
     projectId: arc.projectId,
-    order: optNumber(args, 'order') ?? siblings.length,
+    order: optNumber(args, 'order') ?? nextSlot(siblings, 'order'),
     stage: optEnum(args, 'stage', STAGES) ?? 'inciting',
     title: requireString(args, 'title'),
     description: optString(args, 'description') ?? '',

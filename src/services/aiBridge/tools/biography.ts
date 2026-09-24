@@ -32,6 +32,7 @@ import {
   resolveProjectForEngine,
   resolveProjectId,
   withAudit,
+  nextSlot,
   type ToolArgs,
 } from './shared';
 
@@ -131,7 +132,7 @@ export async function whAddBiographyFact(args: ToolArgs): Promise<unknown> {
     date: optString(args, 'date'),
     endDate: optString(args, 'endDate'),
     category: optEnum(args, 'category', CATEGORIES) ?? 'custom',
-    order: siblings.length,
+    order: nextSlot(siblings, 'order'),
     sources: sourceDescription || sourceUrl
       ? [{ type: sourceUrl ? 'link' : 'manual', description: sourceDescription ?? '', url: sourceUrl }]
       : [],
