@@ -56,7 +56,7 @@ import {
   undoneIndices,
 } from './aibridge/state';
 import { BRIDGE_TOOLS } from '@/services/aiBridge/manifest';
-import { transcodeWebmToMp4 } from './media/transcode';
+import { killAllTranscodes, transcodeWebmToMp4 } from './media/transcode';
 import {
   detectPlatform,
   downloadMedia,
@@ -835,6 +835,7 @@ interface QuickNoteSubmitResult {
 }
 
 const QUICK_NOTE_ACCELERATOR = 'CommandOrControl+Shift+N';
+const QUICK_NOTE_KINDS: readonly QuickNotePayload['kind'][] = ['note', 'quote', 'idea', 'word'];
 
 /**
  * How long main waits for the main renderer to confirm the Dexie write before
@@ -1877,7 +1878,10 @@ function registerIpc(): void {
           target.webContents.send('quick-note:add', {
             requestId,
             text,
-            kind: payload?.kind ?? 'note',
+            // Main's copy of the union: this goes straight into a Dexie row,
+            // so the floating window cannot hand the main renderer a kind
+            // no note view knows how to draw.
+            kind: QUICK_NOTE_KINDS.includes(payload?.kind) ? payload.kind : 'note',
             projectId: typeof payload?.projectId === 'string' ? payload.projectId : null,
           });
         } catch (error) {
@@ -2286,5 +2290,6 @@ app.on('will-quit', () => {
   shutdownSdRuntime();
   rejectAllPendingCalls('Writers Hoard is shutting down.');
   abortAllDownloads();
+  killAllTranscodes();
   shutdownOllama();
 });
