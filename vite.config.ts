@@ -23,6 +23,13 @@ export default defineConfig({
         // opens (electron/main.ts loads dist/quick-note.html directly).
         'quick-note': path.resolve(__dirname, 'quick-note.html'),
       },
+      output: {
+        // three.js is only reachable from the lazy 3D view, and it is ~80% of
+        // that view's chunk. Its own vendor chunk keeps both halves under the
+        // lazy-chunk budget without changing when anything loads: the entry
+        // never imports it, and it is fetched alongside World3D.
+        manualChunks: (id) => (id.includes('/node_modules/three/') ? 'three' : undefined),
+      },
     },
   },
   server: {

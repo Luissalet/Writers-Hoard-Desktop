@@ -56,6 +56,15 @@ export function forgeAvailable(): boolean {
 const FORGE_FIRST_REPLY_MS = 20_000;
 let degraded = false;
 
+/**
+ * El mensaje del `onerror` que emite una forja muerta a media faena. Exportado
+ * para que la interfaz lo reconozca y cuente algo útil en su lugar: el código
+ * de salida del proceso NO llega aquí (sólo el proceso principal lo ve, en su
+ * `child-process-gone`), así que la causa probable —memoria— es una pista, no
+ * un diagnóstico.
+ */
+export const FORGE_CLOSED_MESSAGE = 'La Forja se cerró inesperadamente.';
+
 /** True cuando una forja murió sin contestar; los clientes vuelven al Web Worker. */
 export function forgeDegraded(): boolean {
   return degraded;
@@ -129,7 +138,7 @@ class PortWorker implements ForgeWorker {
       // vigilante: esta instalación no sabe forjar, el resto va a Web Workers.
       if (!this.heard) degraded = true;
       console.warn('[worldgen] La Forja se cerró sin avisar; el trabajo en curso falla.');
-      this.onerror?.(new ErrorEvent('error', { message: 'La Forja se cerró inesperadamente.' }));
+      this.onerror?.(new ErrorEvent('error', { message: FORGE_CLOSED_MESSAGE }));
       this.terminate();
     });
     port.start();

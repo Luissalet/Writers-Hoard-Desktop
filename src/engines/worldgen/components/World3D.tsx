@@ -691,9 +691,20 @@ export default function World3D({
     renderer.domElement.style.display = 'block';
     renderer.domElement.style.touchAction = 'none';
     host.appendChild(renderer.domElement);
+    /**
+     * EL CONTEXTO PERDIDO DESMONTA LA ESCENA YA, no al desmontar la vista.
+     * Antes sólo se paraba el reloj: la escena vieja seguía viva hasta cambiar
+     * de mundo, y cualquier cambio de marcadores, geografía o encuadre volvía a
+     * pedir fotogramas sobre un contexto muerto — y teselas para una piel que
+     * nadie iba a ver. Con `R.current` a null todos los caminos (`request`,
+     * `draw`, la piel de cerca, los efectos) se quedan en su guarda de siempre.
+     * La vista de relieve 2D toma el relevo hasta el siguiente montaje.
+     */
+    let teardown: (() => void) | null = null;
     const onContextLost = (event: Event) => {
       event.preventDefault();
       setFailed(translate('worldgen.threeD.contextLost'));
+      teardown?.();
     };
     renderer.domElement.addEventListener('webglcontextlost', onContextLost);
 
@@ -936,7 +947,10 @@ export default function World3D({
     ro.observe(host);
     resize();
 
-    return () => {
+    let torn = false;
+    teardown = () => {
+      if (torn) return;
+      torn = true;
       ro.disconnect();
       window.clearInterval(st.timer);
       window.clearTimeout(st.viewportTimer);
@@ -963,10 +977,13 @@ export default function World3D({
        * después de desmontar el 3D (el hallazgo «forceContextLoss que falta»
        * anotado en el corredor). Perderlo aquí devuelve la memoria ya.
        */
-      renderer.forceContextLoss();
+      // Sobre un contexto ya perdido, `loseContext` sólo añadiría un error GL.
+      if (!renderer.getContext().isContextLost()) renderer.forceContextLoss();
       if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
-      R.current = null;
+      if (sembrarRef.current === sembrar) sembrarRef.current = null;
+      if (R.current === st) R.current = null;
     };
+    return () => teardown?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [world]);
 

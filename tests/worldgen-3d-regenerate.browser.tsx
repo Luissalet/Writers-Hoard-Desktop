@@ -1,6 +1,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import World3D from '@/engines/worldgen/components/World3D';
 import { DEFAULT_PAINT_TOOL } from '@/engines/worldgen/components/PaintPanel';
 import { THEMES } from '@/engines/worldgen/cartography/theme';
@@ -99,6 +100,80 @@ async function testWorld3DSurvivesWorldSwap(): Promise<string> {
   }
 }
 
+/**
+ * Un contexto WebGL perdido desmonta la escena en el acto. Antes sólo se paraba
+ * el reloj: la escena vieja seguía viva hasta cambiar de mundo, y cualquier
+ * cambio de props (marcadores, relieve, geografía) volvía a encolar fotogramas
+ * — y teselas — sobre un contexto muerto.
+ */
+async function testWorld3DStopsAfterContextLoss(): Promise<string> {
+  const live = new Map<number, number>();
+  const nativeSet = window.setInterval, nativeClear = window.clearInterval;
+  window.setInterval = ((fn: TimerHandler, ms?: number, ...args: unknown[]) => {
+    const id = nativeSet(fn, ms, ...args);
+    live.set(id, ms ?? 0);
+    return id;
+  }) as typeof window.setInterval;
+  window.clearInterval = ((id?: number) => {
+    if (id !== undefined) live.delete(id);
+    nativeClear(id);
+  }) as typeof window.clearInterval;
+  const nativeUpdate = OrbitControls.prototype.update;
+  const nativeDispose = THREE.BufferGeometry.prototype.dispose;
+  let frames = 0;
+  let disposed = 0;
+  THREE.BufferGeometry.prototype.dispose = function (this: THREE.BufferGeometry) {
+    disposed++;
+    return nativeDispose.call(this);
+  };
+  OrbitControls.prototype.update = function (this: OrbitControls, ...args: Parameters<OrbitControls['update']>) {
+    frames++;
+    return nativeUpdate.apply(this, args);
+  };
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:0;top:0;width:800px;height:600px';
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    const world = generateWorld({ ...DEFAULT_PARAMS, seed: 'context-loss', width: 256 });
+    const view = (exaggeration: number, showSettlements: boolean) => (
+      <World3D world={world} theme={THEMES[0]} waypoints={[]} showWaypoints={false} showSettlements={showSettlements}
+        showLandmarks={false} skin="arcilla" shape="globe" onShape={() => {}} exaggeration={exaggeration}
+        tool={DEFAULT_PAINT_TOOL} onEdit={() => {}} revision={0} flyTarget={null} />
+    );
+    const rescueClocks = () => [...live.values()].filter((ms) => ms === 16).length;
+    await act(async () => { root.render(view(20, false)); });
+    await wait(1500);
+    const canvas = [...host.querySelectorAll('canvas')].find((c) => c.getContext('webgl2') || c.getContext('webgl'));
+    assert(canvas && rescueClocks() === 1 && frames > 0, 'World3D must mount with WebGL (SwiftShader), one rescue clock and drawn frames');
+    const gl = (canvas.getContext('webgl2') ?? canvas.getContext('webgl'))!;
+    disposed = 0;
+    await act(async () => {
+      const lose = gl.getExtension('WEBGL_lose_context');
+      if (lose) lose.loseContext();
+      else canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+      await wait(200);
+    });
+    assert(gl.isContextLost() || !canvas.isConnected, 'the WebGL context must be lost for this test');
+    assert(!canvas.isConnected, 'the dead WebGL canvas must leave the DOM');
+    assert(disposed > 0, 'a lost context must dispose the old scene now, not at unmount or world change');
+    // (Sin mirar los relojes aquí: el relevo 2D, SculptView, trae el suyo.)
+    frames = 0;
+    await act(async () => { root.render(view(35, true)); });
+    await wait(600);
+    assert(frames === 0, `prop changes after context loss must not draw on the dead scene (${frames} frames)`);
+    await act(async () => { root.unmount(); });
+    assert(rescueClocks() === 0, 'unmount after context loss leaves no clock');
+    return 'Worldgen: World3D tears its scene down on WebGL context loss; later prop changes draw nothing';
+  } finally {
+    window.setInterval = nativeSet;
+    window.clearInterval = nativeClear;
+    OrbitControls.prototype.update = nativeUpdate;
+    THREE.BufferGeometry.prototype.dispose = nativeDispose;
+    host.remove();
+  }
+}
+
 export async function testWorldgen3DRegenerate(): Promise<string[]> {
-  return [testMalformedEditsAreSkippedIndividually(), await testWorld3DSurvivesWorldSwap()];
+  return [testMalformedEditsAreSkippedIndividually(), await testWorld3DSurvivesWorldSwap(), await testWorld3DStopsAfterContextLoss()];
 }
