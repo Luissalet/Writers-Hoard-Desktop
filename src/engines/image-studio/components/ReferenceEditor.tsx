@@ -10,7 +10,7 @@
 // hero seed, LoRA, preset — fill in later, on their own schedule.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, Download, ImagePlus, Star, Trash2, Wand2, XCircle } from 'lucide-react';
+import { BookOpen, Download, ImagePlus, Pin, Star, Trash2, Wand2, XCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { db } from '@/db';
 import type { CodexEntry, InspirationImage } from '@/types';
@@ -46,10 +46,14 @@ export interface ReferenceEditorProps {
   onChange: (changes: Partial<VisualRef>) => Promise<void>;
   onReload: () => void;
   onExportDataset: () => void;
+  /** The pose-bank picture the composer has pinned, when it is one of this ref's. */
+  pinnedPoseImageId?: string;
+  /** Pin one of this ref's poses in the composer, or `null` to unpin it. */
+  onPinPose: (imageId: string | null) => void;
 }
 
 export default function ReferenceEditor({
-  projectId, visual, entries, onChange, onReload, onExportDataset,
+  projectId, visual, entries, onChange, onReload, onExportDataset, pinnedPoseImageId, onPinPose,
 }: ReferenceEditorProps) {
   const { t } = useTranslation();
   // Debounced, not written per keystroke: a Dexie write plus a full reload on
@@ -300,12 +304,27 @@ export default function ReferenceEditor({
           <div className="flex flex-wrap gap-2">
             {(visual.controlImageIds ?? []).map((id) => {
               const image = byId.get(id);
+              const pinned = pinnedPoseImageId === id;
               return (
-                <div key={id} className="relative w-14 h-14 rounded overflow-hidden border border-border">
+                <div key={id} className={`relative w-14 h-14 rounded overflow-hidden border ${pinned ? 'border-accent-gold' : 'border-border'}`}>
                   {image && <img src={thumb(image)} alt="" className="w-full h-full object-cover" />}
                   <button
                     type="button"
-                    onClick={() => void removeControlImage(visual.id, id).then(onReload)}
+                    onClick={() => onPinPose(pinned ? null : id)}
+                    title={pinned ? t('visualRef.editor.unpinPose') : t('visualRef.editor.usePose')}
+                    aria-label={pinned ? t('visualRef.editor.unpinPose') : t('visualRef.editor.usePose')}
+                    aria-pressed={pinned}
+                    className={`absolute top-0 left-0 p-0.5 bg-deep/70 ${pinned ? 'text-accent-gold' : 'text-text-dim hover:text-accent-gold'}`}
+                  >
+                    <Pin size={10} fill={pinned ? 'currentColor' : 'none'} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // A pose taken out of the bank is no longer one to apply.
+                      if (pinned) onPinPose(null);
+                      void removeControlImage(visual.id, id).then(onReload);
+                    }}
                     title={t('visualRef.editor.removePose')}
                     className="absolute top-0 right-0 p-0.5 bg-deep/70 text-text-dim hover:text-danger"
                   >

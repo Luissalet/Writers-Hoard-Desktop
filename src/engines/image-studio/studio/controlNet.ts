@@ -13,6 +13,11 @@
 // dropped in by hand, say). Several with no OpenPose among them is refused
 // rather than guessed: a skeleton fed to a depth or canny network produces a
 // picture that looks like a success and follows nothing.
+//
+// That is the managed local server, whose ControlNets are companion files. A
+// server that lists its own (ComfyUI) is asked the same question of ITS list:
+// a catalogue id sent there names a file it does not have, and the job fails
+// with the model missing.
 
 import type { SdCompanionFile } from '@/services/aiRuntime/sdServer';
 
@@ -33,19 +38,38 @@ function modelName(file: SdCompanionFile): string {
   return file.catalogId ?? file.fileName;
 }
 
+/** The pose network if there is one, else the only network, else a refusal. */
+function pick<T>(installed: readonly T[], isPose: (item: T) => boolean, name: (item: T) => string): ControlNetChoice {
+  const pose = installed.find(isPose);
+  if (pose) return { ok: true, model: name(pose) };
+  if (installed.length === 1) return { ok: true, model: name(installed[0]) };
+  return {
+    ok: false,
+    reasonKey: installed.length === 0 ? 'visualRef.reason.noControlNet' : 'visualRef.reason.controlNetAmbiguous',
+  };
+}
+
 /**
+ * The managed local server, from its companion files.
+ *
  * `undefined` means the runtime status has not arrived yet — not that nothing
  * is installed. Generate waits for it rather than telling the writer to
  * install a ControlNet they may already have.
  */
 export function chooseControlNet(companions: readonly SdCompanionFile[] | undefined): ControlNetChoice {
   if (companions === undefined) return { ok: false, reasonKey: 'visualRef.reason.controlNetChecking' };
-  const installed = companions.filter((file) => file.kind === 'controlnet');
-  const pose = installed.find((file) => file.catalogId === POSE_CONTROLNET_ID);
-  if (pose) return { ok: true, model: modelName(pose) };
-  if (installed.length === 1) return { ok: true, model: modelName(installed[0]) };
-  return {
-    ok: false,
-    reasonKey: installed.length === 0 ? 'visualRef.reason.noControlNet' : 'visualRef.reason.controlNetAmbiguous',
-  };
+  return pick(
+    companions.filter((file) => file.kind === 'controlnet'),
+    (file) => file.catalogId === POSE_CONTROLNET_ID,
+    modelName,
+  );
+}
+
+/**
+ * Any other server, from the ControlNet names it reported for the model
+ * (`ResolverModel.controlNets`). Those are file names in the server's own
+ * folder, so OpenPose is recognised by name, whatever its case or prefix.
+ */
+export function chooseReportedControlNet(names: readonly string[] | undefined): ControlNetChoice {
+  return pick(names ?? [], (name) => name.toLowerCase().includes('openpose'), (name) => name);
 }
