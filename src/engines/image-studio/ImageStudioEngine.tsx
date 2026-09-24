@@ -82,6 +82,7 @@ import {
 } from './refs';
 import { AVAILABLE, blocked, isManagedLocalRoute, studioResolverModel, type Availability } from './studioModel';
 import { chooseControlNet } from './studio/controlNet';
+import ControlNetFix from './components/ControlNetFix';
 import CastColumn from './components/CastColumn';
 import ParametersColumn, { type ParametersState } from './components/ParametersColumn';
 import ReferenceEditor from './components/ReferenceEditor';
@@ -830,6 +831,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
                 {!generateAction.enabled && (
                   <p className="text-[10px] text-accent-amber">{t(generateAction.reasonKey ?? '')}</p>
                 )}
+                {generateAction.reasonKey === 'visualRef.reason.noControlNet' && <ControlNetFix />}
                 {error && (
                   <div className="flex items-start gap-2 px-3 py-2 bg-danger/10 text-danger text-xs rounded-lg">
                     <XCircle size={14} className="mt-0.5 flex-shrink-0" />
