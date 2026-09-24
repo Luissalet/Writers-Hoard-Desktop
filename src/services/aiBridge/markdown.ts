@@ -74,8 +74,8 @@ const FOOTNOTE_DEFINITION_RE = /^ {0,3}\[\^([^\]\s]+)\]:[ \t]*(.*)$/;
 /** A line that continues the note above: four spaces (a tab counts as four). */
 const FOOTNOTE_CONTINUATION_RE = /^ {4}(.*)$/;
 const FOOTNOTE_REF_RE = /\[\^([^\]\s]+)\]/g;
-/** Mirrors the fence test of the block loop, so a definition inside code stays code. */
-const FENCE_RE = /^\s*```(\w*)\s*$/;
+/** The fence test of the block loop, shared so a definition inside code stays code. Group 1 is the language. */
+const FENCE_RE = /^\s*```([\w+#-]*)\s*$/;
 
 interface FootnoteState {
   /** label → body, first definition wins as in GFM. */
@@ -200,7 +200,8 @@ function inlineMarkdown(text: string, footnotes: FootnoteState | null): string {
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/__([^_]+)__/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
-    .replace(/(^|[^\w_])_([^_\n]+)_(?![\w_])/g, '$1<em>$2</em>');
+    .replace(/(^|[^\w_])_([^_\n]+)_(?![\w_])/g, '$1<em>$2</em>')
+    .replace(/~~([^~\n]+)~~/g, '<s>$1</s>');
 
   return work.replace(LIFT_RE, (_match, index: string) => lifted[Number(index)] ?? '');
 }
@@ -238,6 +239,9 @@ export function markdownToTiptapHtml(markdown: string, options: MarkdownOptions 
   let paragraph: string[] = [];
   let quote: string[] = [];
   let codeFence: string[] | null = null;
+  let codeLanguage = '';
+  const codeBlock = (lines: string[]): string =>
+    `<pre><code${codeLanguage ? ` class="language-${codeLanguage}"` : ''}>${escapeHtml(lines.join('\n'))}</code></pre>`;
 
   const closeLists = (toIndent = -1): void => {
     while (listStack.length && listStack[listStack.length - 1].indent > toIndent) {
@@ -267,12 +271,12 @@ export function markdownToTiptapHtml(markdown: string, options: MarkdownOptions 
 
   for (const rawLine of lines) {
     const line = rawLine.replace(/\t/g, '    ');
-    const fence = /^\s*```(\w*)\s*$/.exec(line);
+    const fence = FENCE_RE.exec(line);
 
     // A fenced block swallows every line until its closing fence.
     if (codeFence) {
       if (fence) {
-        out.push(`<pre><code>${escapeHtml(codeFence.join('\n'))}</code></pre>`);
+        out.push(codeBlock(codeFence));
         codeFence = null;
       } else {
         codeFence.push(rawLine);
@@ -282,6 +286,7 @@ export function markdownToTiptapHtml(markdown: string, options: MarkdownOptions 
     if (fence) {
       flushAll();
       codeFence = [];
+      codeLanguage = fence[1];
       continue;
     }
 
@@ -353,7 +358,7 @@ export function markdownToTiptapHtml(markdown: string, options: MarkdownOptions 
     paragraph.push(line.trim());
   }
 
-  if (codeFence) out.push(`<pre><code>${escapeHtml(codeFence.join('\n'))}</code></pre>`);
+  if (codeFence) out.push(codeBlock(codeFence));
   flushAll();
 
   return out.join('') || '<p></p>';

@@ -268,14 +268,97 @@ async function testAccessiblePanel(): Promise<void> {
   host.remove();
 }
 
+function setRangeValue(input: HTMLInputElement, value: string): void {
+  // React tracks the value it last rendered; the native setter is what a
+  // drag goes through, so the change is seen as one.
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+async function testSettingsSurviveGranularity(): Promise<void> {
+  const source = dialogBlocksToReadAloudBlocks([
+    dialogBlock('line', 0, 'dialog', 'Uno. Dos.', 'Mara', 'mara'),
+    dialogBlock('direction', 1, 'stage-direction', 'Llueve.'),
+  ]);
+  const driver = new MockSpeechDriver();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <ReadAloudPanel blocks={source} mode="table-read" locale="es" speechDriver={driver} />,
+    );
+  });
+
+  const range = host.querySelector<HTMLInputElement>('input[type="range"]');
+  const voiceSelect = host.querySelector<HTMLSelectElement>('select[aria-label^="Reparto de voces"]');
+  const granularity = host.querySelector<HTMLSelectElement>('label[for] select');
+  assert(range && voiceSelect && granularity, 'rate, voice or segmentation control is missing');
+  await act(async () => setRangeValue(range, '1.6'));
+  await act(async () => {
+    voiceSelect.value = 'voice-ben';
+    voiceSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  assertEqual(host.querySelector('output')?.textContent, '1.6\u00d7', 'the speed slider did not move');
+
+  await act(async () => {
+    granularity.value = 'block';
+    granularity.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  assertEqual(host.querySelector('output')?.textContent, '1.6\u00d7', 'switching to block mode reset the speed');
+  assertEqual(range.value, '1.6', 'switching to block mode reset the slider');
+
+  const play = [...host.querySelectorAll<HTMLButtonElement>('button')]
+    .find((button) => button.textContent?.trim() === 'Reproducir');
+  assert(play, 'play control is missing');
+  await act(async () => play.click());
+  assertEqual(driver.requests.at(-1)?.rate, 1.6, 'block mode spoke at the initial speed');
+  assertEqual(driver.requests.at(-1)?.voiceURI, 'voice-ben', 'block mode lost the chosen voice');
+
+  await act(async () => root.unmount());
+  host.remove();
+}
+
+function testDestroyIsNotTerminal(): void {
+  const segments = segmentReadAloudBlocks(
+    dialogBlocksToReadAloudBlocks([dialogBlock('line', 0, 'dialog', 'One. Two.', 'Mara', 'mara')]),
+    'sentence',
+    'en',
+  );
+  const driver = new MockSpeechDriver();
+  const controller = new ReadAloudController({ driver, segments, locale: 'en' });
+  let notified = 0;
+  controller.subscribe(() => { notified += 1; });
+  controller.play();
+  const stale = driver.requests[0];
+  controller.destroy();
+  controller.destroy();
+  assertEqual(controller.getSnapshot().status, 'idle', 'destroy left the snapshot claiming it still plays');
+  const afterDestroy = notified;
+  stale.onEnd();
+  assertEqual(controller.getSnapshot().activeIndex, 0, 'a callback from before destroy advanced playback');
+  // What StrictMode does: the view subscribes again to the same controller.
+  let resubscribed = 0;
+  controller.subscribe(() => { resubscribed += 1; });
+  controller.play();
+  assertEqual(driver.requests.length, 2, 'a destroyed controller never spoke again');
+  assertEqual(controller.getSnapshot().status, 'playing', 'replay after destroy did not play');
+  assertEqual(notified, afterDestroy, 'destroy kept notifying a dropped subscriber');
+  assert(resubscribed > 0, 'a new subscriber after destroy is not notified');
+}
+
 async function runTests(): Promise<string[]> {
   testCanonicalAdapters();
   testControllerStateMachine();
   await testAccessiblePanel();
+  await testSettingsSurviveGranularity();
+  testDestroyIsNotTerminal();
   return [
     'read-aloud adapters preserve canonical anchors and sentence/block boundaries',
     'speech playback is deterministic across pause, resume, jump, stale events, rate, voices, and unsupported hosts',
     'the read-aloud and table-read panel exposes accessible controls, character voices, stage directions, notes, and source jumps',
+    'switching sentence/block mode keeps the chosen speed and voice',
+    'destroy is idempotent and a re-subscribed controller plays again',
   ];
 }
 
