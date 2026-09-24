@@ -30,8 +30,37 @@ export type ControlNetChoice =
       reasonKey:
         | 'visualRef.reason.noControlNet'
         | 'visualRef.reason.controlNetAmbiguous'
-        | 'visualRef.reason.controlNetChecking';
+        | 'visualRef.reason.controlNetChecking'
+        | 'visualRef.reason.controlNetUnsendable';
     };
+
+/** Room for a ComfyUI subfolder or two; a longer name is refused, not truncated. */
+const MAX_MODEL_NAME = 255;
+const MAX_MODEL_SEGMENTS = 8;
+
+/**
+ * Whether `value` can cross IPC as `controlNetModel` — the one rule both sides
+ * read, so the studio never chooses a name main would drop.
+ *
+ * ComfyUI names its ControlNets by their path under its own ControlNet folder
+ * (`SD15/control_v11p_sd15_openpose.pth`, with `\` on Windows), so a relative
+ * path is allowed. Kept VERBATIM, never normalised: ComfyUI matches the name
+ * exactly against the list it reported. What is refused is anything that could
+ * name a place rather than an entry: an absolute or UNC path (an empty first
+ * segment), a drive letter or alternate data stream (`:`), an empty segment,
+ * a segment of only dots and spaces (`.`, `..`, and the `.. ` Windows trims to
+ * `..`), and control characters. The managed local runtime is stricter still:
+ * it resolves the name only against its catalogue ids and the file names it
+ * read out of its own folder, so a path never matches there at all.
+ */
+export function isControlNetModelName(value: unknown): value is string {
+  if (typeof value !== 'string' || !value || value.length > MAX_MODEL_NAME) return false;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f:]/.test(value)) return false;
+  const segments = value.split(/[\\/]/);
+  return segments.length <= MAX_MODEL_SEGMENTS
+    && segments.every((segment) => !/^[.\s]*$/.test(segment));
+}
 
 /** The value `controlNetModel` takes: the catalogue id, or the file name of a hand-installed one. */
 function modelName(file: SdCompanionFile): string {
@@ -67,9 +96,18 @@ export function chooseControlNet(companions: readonly SdCompanionFile[] | undefi
 
 /**
  * Any other server, from the ControlNet names it reported for the model
- * (`ResolverModel.controlNets`). Those are file names in the server's own
- * folder, so OpenPose is recognised by name, whatever its case or prefix.
+ * (`ResolverModel.controlNets`). Those are paths in the server's own folder,
+ * so OpenPose is recognised by name, whatever its case or subfolder.
+ *
+ * `undefined` means the server's model list has not arrived yet — as with
+ * `chooseControlNet`, Generate waits rather than running without the pose.
+ * A name that could not cross IPC is refused here, out loud: main would drop
+ * it and the server would then refuse a control image with no ControlNet.
  */
 export function chooseReportedControlNet(names: readonly string[] | undefined): ControlNetChoice {
-  return pick(names ?? [], (name) => name.toLowerCase().includes('openpose'), (name) => name);
+  if (names === undefined) return { ok: false, reasonKey: 'visualRef.reason.controlNetChecking' };
+  const choice = pick(names, (name) => name.toLowerCase().includes('openpose'), (name) => name);
+  return choice.ok && !isControlNetModelName(choice.model)
+    ? { ok: false, reasonKey: 'visualRef.reason.controlNetUnsendable' }
+    : choice;
 }

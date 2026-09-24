@@ -81,7 +81,7 @@ import {
   setCanonicalImage,
   updateVisualRef,
 } from './refs';
-import { AVAILABLE, blocked, isManagedLocalRoute, studioResolverModel, type Availability } from './studioModel';
+import { AVAILABLE, blocked, isManagedLocalRoute, routeModelsPending, studioResolverModel, type Availability } from './studioModel';
 import { chooseControlNet, chooseReportedControlNet } from './studio/controlNet';
 import ControlNetFix from './components/ControlNetFix';
 import CastColumn from './components/CastColumn';
@@ -237,14 +237,26 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
     ? runtime.modelsByConnection[effectiveRoute.connectionId]?.models.find((model) => model.id === effectiveRoute.modelId)
     : undefined;
   const cfgOverride = parameters.cfg.trim() ? Number(parameters.cfg) : undefined;
+  // A ComfyUI route's ControlNets arrive with its model list; until then a
+  // pinned pose waits instead of being dropped as unsupported.
+  const modelsPending = routeModelsPending({
+    route: effectiveRoute,
+    descriptor,
+    models: effectiveRoute ? runtime.modelsByConnection[effectiveRoute.connectionId] : undefined,
+    connectionsLoaded: runtime.connectionsLoaded,
+    connectionEnabled: runtime.connections.some(
+      (connection) => connection.id === effectiveRoute?.connectionId && connection.enabled,
+    ),
+  });
   const model = useMemo(
     () => studioResolverModel({
       route: effectiveRoute,
       descriptor,
       runtimeLorasSupported: sdStatus?.lorasSupported,
       cfgOverride,
+      modelsPending,
     }),
-    [effectiveRoute, descriptor, sdStatus?.lorasSupported, cfgOverride],
+    [effectiveRoute, descriptor, sdStatus?.lorasSupported, cfgOverride, modelsPending],
   );
   const managedLocal = isManagedLocalRoute(effectiveRoute);
   // The runtime status (LoRA support, installed ControlNets and upscalers) was
@@ -374,12 +386,13 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
   // writer reads why in their language instead of a server refusal afterwards.
   // The local server's ControlNets are its companion files; any other server's
   // are the names it reported for the model, and only those will resolve there.
+  // Either answer can still be on its way, and then Generate waits for it.
   const needsControlNet = resolved.referenceImages.some((row) => row.role === 'pose');
   const controlNet = !needsControlNet
     ? null
     : managedLocal
       ? chooseControlNet(sdStatus?.companions)
-      : chooseReportedControlNet(model?.controlNets);
+      : chooseReportedControlNet(modelsPending ? undefined : model?.controlNets ?? []);
 
   // --- availability, with reasons -------------------------------------------
   const generateAction: Availability = !model
