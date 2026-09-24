@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import type { CodexEntry, CodexEntryType } from '@/types';
 import { getTemplateFields } from '@/types';
 import { generateId } from '@/utils/idGenerator';
@@ -9,6 +9,8 @@ import { User, MapPin, Sword, Shield, Sparkles, HelpCircle, BookOpen, ImagePlus,
 import { useTranslation } from '@/i18n/useTranslation';
 import { CodexEditConflict, type CodexFieldConflict } from '@/engines/codex/operations';
 import { sanitizedHtml } from '@/utils/sanitizeRichHtml';
+import { ConfirmDialog } from '@/engines/_shared';
+import { codexDraftStore, codexFormValues, restoreCodexDraft, sameCodexFormValues, toCodexDraft } from './codexDrafts';
 
 const typeConfig: Record<CodexEntryType, { icon: typeof User; labelKey: string; color: string }> = {
   character: { icon: User, labelKey: 'codex.types.character', color: '#c4973b' },
@@ -52,34 +54,72 @@ interface CodexEntryFormProps {
   entry?: CodexEntry;
   onSave: (entry: CodexEntry, base?: CodexEntry) => Promise<void>;
   onPendingChange?: (pending: boolean) => void;
+  /** Whether the form holds unsaved input (typed now or recovered). */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** Closing keeps the recovery draft; only Save, Discard or deleting the entry retire it. */
   onCancel: () => void;
 }
 
-export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onPendingChange }: CodexEntryFormProps) {
+export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onPendingChange, onDirtyChange }: CodexEntryFormProps) {
   const { t } = useTranslation();
-  const [type, setType] = useState<CodexEntryType>(entry?.type || 'character');
-  const [title, setTitle] = useState(entry?.title || '');
-  const [avatar, setAvatar] = useState(entry?.avatar || '');
-  const [avatarOriginal, setAvatarOriginal] = useState(entry?.avatarOriginal || entry?.avatar || '');
-  const [fields, setFields] = useState<Record<string, string>>(entry?.fields || getTemplateFields(type));
-  const [content, setContent] = useState(entry?.content || '');
-  const [tags, setTags] = useState<string[]>(entry?.tags || []);
+  const draftId = entry?.id ?? 'new';
+  const [drafts] = useState(() => codexDraftStore(projectId));
+  const [initial] = useState(() => {
+    const stored = drafts.get(draftId);
+    return stored ? { ...restoreCodexDraft(stored, entry), recovered: true } : { values: codexFormValues(entry), base: entry, recovered: false };
+  });
+  const [type, setType] = useState<CodexEntryType>(initial.values.type);
+  const [title, setTitle] = useState(initial.values.title);
+  const [avatar, setAvatar] = useState(initial.values.avatar);
+  const [avatarOriginal, setAvatarOriginal] = useState(initial.values.avatarOriginal);
+  const [fields, setFields] = useState<Record<string, string>>(initial.values.fields);
+  const [content, setContent] = useState(initial.values.content);
+  const [tags, setTags] = useState<string[]>(initial.values.tags);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [pendingAvatar, setPendingAvatar] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const savingRef = useRef(false);
-  const baseRef = useRef(entry);
+  // The entry this edit started from, advanced field by field as conflicts are resolved.
+  const [base, setBase] = useState(initial.base);
   const [conflict, setConflict] = useState<CodexEditConflict | null>(null);
+  const [recovered, setRecovered] = useState(initial.recovered);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  // Mirror unsaved input into the recovery store: closing the modal unmounts
+  // this form, and what was typed has to survive it.
+  const dirty = recovered || !sameCodexFormValues({ type, title, avatar, avatarOriginal, fields, content, tags }, codexFormValues(entry));
+  useEffect(() => {
+    if (dirty) drafts.set(draftId, toCodexDraft({ type, title, avatar, avatarOriginal, fields, content, tags }, base));
+    else drafts.delete(draftId);
+  }, [drafts, draftId, dirty, type, title, avatar, avatarOriginal, fields, content, tags, base]);
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+
+  const discardDraft = () => {
+    const saved = codexFormValues(entry);
+    drafts.delete(draftId);
+    setType(saved.type);
+    setTitle(saved.title);
+    setAvatar(saved.avatar);
+    setAvatarOriginal(saved.avatarOriginal);
+    setFields(saved.fields);
+    setContent(saved.content);
+    setTags(saved.tags);
+    setBase(entry);
+    setConflict(null);
+    setSaveError(false);
+    setRecovered(false);
+    setConfirmDiscard(false);
+  };
 
   const resolveConflict = (item: CodexFieldConflict, keepDraft: boolean) => {
-    if (!conflict || !baseRef.current) return;
-    const base = { ...baseRef.current, fields: { ...baseRef.current.fields } };
+    if (!conflict || !base) return;
+    const nextBase = { ...base, fields: { ...base.fields } };
     if (item.key.startsWith('fields.')) {
       const key = item.key.slice(7);
       const value = conflict.current.fields[key];
-      if (value === undefined) delete base.fields[key];
-      else base.fields[key] = value;
+      if (value === undefined) delete nextBase.fields[key];
+      else nextBase.fields[key] = value;
       if (!keepDraft) setFields(previous => {
         const next = { ...previous };
         if (value === undefined) delete next[key];
@@ -88,7 +128,7 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
       });
     } else {
       const key = item.key as 'title' | 'content' | 'tags' | 'avatar' | 'avatarOriginal';
-      Object.assign(base, { [key]: conflict.current[key] });
+      Object.assign(nextBase, { [key]: conflict.current[key] });
       if (!keepDraft) {
         if (key === 'title') setTitle(conflict.current.title);
         if (key === 'content') setContent(conflict.current.content);
@@ -97,7 +137,7 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
         if (key === 'avatarOriginal') setAvatarOriginal(conflict.current.avatarOriginal ?? conflict.current.avatar ?? '');
       }
     }
-    baseRef.current = base;
+    setBase(nextBase);
     const remaining = conflict.conflicts.filter(candidate => candidate.key !== item.key);
     setConflict(remaining.length ? new CodexEditConflict(remaining, conflict.current) : null);
   };
@@ -144,7 +184,9 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
       relations: entry?.relations || [],
       createdAt: entry?.createdAt || Date.now(),
       updatedAt: Date.now(),
-      }, baseRef.current);
+      }, base);
+      // Saved: the recovery copy has done its job.
+      drafts.delete(draftId);
     } catch (error) {
       if (error instanceof CodexEditConflict) setConflict(error);
       else setSaveError(true);
@@ -157,6 +199,15 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
 
   return (
     <fieldset disabled={saving} inert={saving} aria-busy={saving} className="space-y-6">
+      {recovered && (
+        <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg border border-accent-gold/40 bg-surface px-4 py-2 text-sm text-text-primary">
+          <span>{t('codex.draftRecovered')}</span>
+          <span aria-hidden="true" className="text-text-muted">·</span>
+          <button type="button" onClick={() => setConfirmDiscard(true)} className="text-accent-gold underline-offset-2 hover:underline">
+            {t('codex.discardDraft')}
+          </button>
+        </div>
+      )}
       {/* Type selector */}
       {!entry && (
         <div>
@@ -192,22 +243,36 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
           <label className="block text-sm text-text-muted mb-1.5">{t('codex.avatar')}</label>
           <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
           {avatar ? (
-            <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-border group cursor-pointer" onClick={() => setPendingAvatar(avatarOriginal || avatar)}>
-              <img src={avatar} alt="" className="w-full h-full object-cover" />
-              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-1">
+            // Sibling buttons, not nested ones: the image re-crops, the overlay
+            // actions replace or remove, and each is reachable by keyboard.
+            <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-border group">
+              <button
+                type="button"
+                onClick={() => setPendingAvatar(avatarOriginal || avatar)}
+                className="block w-full h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-gold"
+                aria-label={t('imageCrop.title')}
+                title={t('imageCrop.title')}
+              >
+                <img src={avatar} alt="" className="w-full h-full object-cover" />
+              </button>
+              <div className="pointer-events-none absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition flex items-center justify-center gap-1">
                 <button
-                  onClick={(e) => { e.stopPropagation(); avatarInputRef.current?.click(); }}
-                  className="p-1.5 bg-white/20 rounded-full hover:bg-white/30 transition"
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="pointer-events-auto p-1.5 bg-white/20 rounded-full hover:bg-white/30 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  aria-label={t('common.change')}
                   title={t('common.change')}
                 >
-                  <ImagePlus size={12} className="text-white" />
+                  <ImagePlus size={12} className="text-white" aria-hidden="true" />
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); setAvatar(''); setAvatarOriginal(''); }}
-                  className="p-1.5 bg-white/20 rounded-full hover:bg-red-500/50 transition"
+                  type="button"
+                  onClick={() => { setAvatar(''); setAvatarOriginal(''); }}
+                  className="pointer-events-auto p-1.5 bg-white/20 rounded-full hover:bg-red-500/50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  aria-label={t('common.remove')}
                   title={t('common.remove')}
                 >
-                  <X size={12} className="text-white" />
+                  <X size={12} className="text-white" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -325,6 +390,15 @@ export default function CodexEntryForm({ projectId, entry, onSave, onCancel, onP
           setPendingAvatar(null);
         }}
         onCancel={() => setPendingAvatar(null)}
+      />
+      <ConfirmDialog
+        open={confirmDiscard}
+        destructive
+        title={t('codex.discardDraft')}
+        confirmLabel={t('codex.discardDraft')}
+        message={t('codex.discardDraftConfirm')}
+        onConfirm={discardDraft}
+        onCancel={() => setConfirmDiscard(false)}
       />
     </fieldset>
   );
