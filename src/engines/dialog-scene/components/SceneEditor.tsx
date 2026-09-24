@@ -26,6 +26,7 @@ import CastBar from './CastBar';
 import DialogBlockComponent from './DialogBlockComponent';
 import DualDialogGroup from './DualDialogGroup';
 import ChronometryBadge from './ChronometryBadge';
+import SceneArcBeats from './SceneArcBeats';
 import { SCREENPLAY_TRANSITIONS, SLUG_PREFIXES, type AutocompleteSuggestion } from './ScriptAutocomplete';
 import { useDebouncedField } from '@/engines/_shared';
 import { generateId } from '@/utils/idGenerator';
@@ -444,6 +445,15 @@ export default function SceneEditor({
           </button>
         </div>
       </div>
+
+      {/* Character-arc beats that land in this scene — links back to each. */}
+      <SceneArcBeats
+        projectId={scene.projectId}
+        sceneId={scene.id}
+        beforeNavigate={async () =>
+          (await Promise.all([titleField.flush(), settingField.flush(), descriptionField.flush()])).every(Boolean)
+        }
+      />
 
       {/* Description */}
       {editingDesc || scene.description ? (
