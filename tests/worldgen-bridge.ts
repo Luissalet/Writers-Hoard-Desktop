@@ -190,6 +190,51 @@ export async function testWorldgenBridgeAccess(): Promise<string> {
     assert(raceWrite.delivered === 'row' && raced.includes('Second writer') && raced.includes('Bridge after race'),
       `a save scheduled during the drain must not clobber the appended edit (got ${JSON.stringify(raced)})`);
 
+    // 4e. La escritura misma es una espera. Una vista que se registra DURANTE
+    //     ella con la lista que leyó antes recibe la edición (no la tiene); y
+    //     un guardado rancio programado en ese momento no puede dejar la fila
+    //     sin ella.
+    const beforeWrite = (await db.generatedWorlds.get(worldId))!.edits ?? '';
+    const duringReceived: WorldEdit[][] = [];
+    let unregisterDuring: (() => void) | undefined;
+    const registerDuringWrite = (mods: object) => {
+      if (!('edits' in mods) || unregisterDuring) return;
+      unregisterDuring = registerLiveWorld(worldId, {
+        apply: (edits) => { duringReceived.push(edits); },
+        snapshot: () => beforeWrite,
+      });
+    };
+    db.generatedWorlds.hook('updating', registerDuringWrite);
+    try {
+      const duringWrite = await applyWorldEdits(stale, [{ kind: 'label', x: 10, y: 10, text: 'During write', style: 'note' }]);
+      assert(duringWrite.delivered === 'row', 'the edit was written before the view appeared');
+      assert(duringReceived.length === 1 && duringReceived[0][0].kind === 'label',
+        'a view that went live during the write, without the edit, must be handed it');
+    } finally {
+      db.generatedWorlds.hook('updating').unsubscribe(registerDuringWrite);
+      unregisterDuring?.();
+    }
+
+    const beforeStale = (await db.generatedWorlds.get(worldId))!.edits ?? '';
+    const staleWriter = createWorldEditWriter(worldId, (json) => generatedWorldOps.update(worldId, { edits: json }), 60_000);
+    let scheduled = false;
+    const scheduleDuringWrite = (mods: object) => {
+      if (!('edits' in mods) || scheduled) return;
+      scheduled = true;
+      staleWriter.schedule(beforeStale);
+    };
+    db.generatedWorlds.hook('updating', scheduleDuringWrite);
+    try {
+      await applyWorldEdits(stale, [{ kind: 'label', x: 11, y: 11, text: 'Survives stale save', style: 'note' }]);
+    } finally {
+      db.generatedWorlds.hook('updating').unsubscribe(scheduleDuringWrite);
+    }
+    await staleWriter.flush();
+    const survived = deserializeEdits((await db.generatedWorlds.get(worldId))!.edits ?? '')
+      .map((edit) => (edit.kind === 'label' ? edit.text : edit.kind));
+    assert(survived.includes('Survives stale save'),
+      `a stale save scheduled during the write must not leave the row without the edit (got ${JSON.stringify(survived)})`);
+
     // 5. Deleting the world takes its links and caches with it.
     await db.entityLinks.add({
       id: generateId('entity-link'), projectId, sourceEngineId: 'worldgen', sourceEntityType: 'world-spatial',
