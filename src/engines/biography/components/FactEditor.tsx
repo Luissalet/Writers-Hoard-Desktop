@@ -51,7 +51,8 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
     || JSON.stringify(sources) !== JSON.stringify(fact?.sources ?? [])
     || newSourceDescription.trim() !== ''
     || newSourceUrl.trim() !== ''
-    || newSourceEntityId !== '';
+    // Only while it is still visible: the save path ignores it for other types.
+    || (newSourceType === 'snapshot' && newSourceEntityId !== '');
 
   if (!isOpen) return null;
 
