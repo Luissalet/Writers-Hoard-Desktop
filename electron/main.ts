@@ -73,6 +73,7 @@ import {
   isIpcChannelAllowedForRole,
   isPathContainedBy,
   isSafeNativeSegment,
+  mediaProtocolResponse,
   resolveExistingContainedNativePath,
   resolveWritableContainedNativePath,
   type InternalRendererRole,
@@ -2234,13 +2235,8 @@ if (!gotLock) {
         const res = await net.fetch(pathToFileURL(abs).toString());
         // Archived pages are served back into <iframe>s: without an explicit
         // type the PDF viewer never engages and the HTML renders as plain text.
-        const forced = MEDIA_CONTENT_TYPES[path.extname(abs).toLowerCase()];
-        if (forced) {
-          const headers = new Headers(res.headers);
-          headers.set('Content-Type', forced);
-          return new Response(res.body, { status: res.status, headers });
-        }
-        return res;
+        // Archived HTML also gets a CSP sandbox (defence in depth; see there).
+        return mediaProtocolResponse(res, MEDIA_CONTENT_TYPES[path.extname(abs).toLowerCase()]);
       } catch {
         return new Response(null, { status: 404 });
       }
