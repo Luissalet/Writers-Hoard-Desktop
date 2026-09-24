@@ -7,9 +7,10 @@ import type { VideoPlan } from '../types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import EmptyState from '@/components/common/EmptyState';
 import { useVideoPlans, useVideoSegments } from '../hooks';
+import { findVideoPlanIdForEntity } from '../operations';
 import { parsePlanJson, importPlan, PlanImportError } from '../planImport';
 import VideoPlanView from './VideoPlanView';
-import { ConfirmDialog } from '@/engines/_shared';
+import { ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
 
 interface VideoPlannerEngineProps {
   projectId: string;
@@ -32,6 +33,21 @@ export default function VideoPlannerEngine({ projectId }: VideoPlannerEngineProp
     const id = setTimeout(() => setImportStatus(null), 5000);
     return () => clearTimeout(id);
   }, [importStatus]);
+
+  // Deep link (`?entity=<id>`): global search, backlinks and the cockpit reach
+  // this engine through the fallback anchor adapter, which emits `?entity=`.
+  // Nothing read it, so a hit opened the tab on whatever plan happened to be
+  // selected. Keyed on the link alone, so picking another plan afterwards is
+  // not undone.
+  const deepLinkedEntityId = useDeepLinkParam('entity');
+  useEffect(() => {
+    if (!deepLinkedEntityId) return;
+    let cancelled = false;
+    void findVideoPlanIdForEntity(projectId, deepLinkedEntityId).then((id) => {
+      if (!cancelled && id) setActivePlanId(id);
+    });
+    return () => { cancelled = true; };
+  }, [deepLinkedEntityId, projectId]);
 
   const activePlan = plans.find(p => p.id === activePlanId);
   const { items: segments, addItem: addSegment, editItem: editSegment, removeItem: removeSegment, reorder } = useVideoSegments(

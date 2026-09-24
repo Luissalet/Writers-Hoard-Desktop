@@ -71,7 +71,9 @@ export default function VideoPlanView({
       id: generateId('vsg'),
       videoPlanId: plan.id,
       projectId: plan.projectId,
-      order: sortedSegments.length,
+      // max+1, not the count: after a delete the count can be lower than the
+      // last segment's order and the new segment would land mid-plan.
+      order: sortedSegments.reduce((max, s) => Math.max(max, s.order), -1) + 1,
       title: t('videoPlanner.defaultSegmentTitle').replace('{number}', String(sortedSegments.length + 1)),
       script: '',
       visualType: 'camera',

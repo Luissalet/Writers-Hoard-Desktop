@@ -199,7 +199,9 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
           icon={<Clock size={40} />}
           title={t('timeline.emptyTitle')}
           message={t('timeline.emptyMessage')}
-          action={{ label: t('timeline.addFirstEvent'), onClick: () => setShowForm(true) }}
+          // Same reset as the header's Add button: a cancelled edit leaves its
+          // event's fields in `form`, and the new event would open pre-filled.
+          action={{ label: t('timeline.addFirstEvent'), onClick: () => { resetForm(); setEditingEvent(null); setShowForm(true); } }}
         />
       ) : (
         <div className="relative">

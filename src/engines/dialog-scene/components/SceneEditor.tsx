@@ -173,10 +173,12 @@ export default function SceneEditor({
 
   const createTableReadNote = useCallback(async (anchor: ReadAloudNoteAnchor) => {
     const now = Date.now();
-    const position = await db.annotations
+    // max+1, not count(): positions go sparse after a delete, and a
+    // count-based position would slot this note among the existing ones.
+    const position = (await db.annotations
       .where('[sourceEngineId+sourceEntityId]')
       .equals(['dialog-scene', scene.id])
-      .count();
+      .toArray()).reduce((max, ann) => Math.max(max, ann.position ?? -1), -1) + 1;
     await createAnnotation({
       id: generateId('annotation'),
       projectId: scene.projectId,
