@@ -215,7 +215,62 @@ export async function applyWorldEdits(
     if (before === null) continue;
     // The private build for the old list is stale now.
     built.delete(world.id);
+    await reconcileRowWrite(world.id, edits);
     return { before, delivered: 'row' };
   }
   throw new Error('The world has unsaved edits that could not be written yet; try again shortly.');
+}
+
+/** Whether `serialized` still holds `edits` as one contiguous run. */
+function holdsEdits(serialized: string | undefined, edits: WorldEdit[]): boolean {
+  if (!serialized) return edits.length === 0;
+  let list: WorldEdit[];
+  try {
+    list = deserializeEdits(serialized);
+  } catch {
+    return false;
+  }
+  const wanted = edits.map((edit) => JSON.stringify(edit));
+  const have = list.map((edit) => JSON.stringify(edit));
+  for (let start = 0; start + wanted.length <= have.length; start += 1) {
+    if (wanted.every((edit, offset) => have[start + offset] === edit)) return true;
+  }
+  return false;
+}
+
+/**
+ * DESPUÉS DE ESCRIBIR, COMPROBAR. La comprobación dentro de la transacción es
+ * el último momento ANTES de escribir, pero la escritura misma es una espera:
+ * en ella una vista pudo registrarse con la lista que leyó antes (y guardaría
+ * encima), o programar un guardado de su lista vieja. Sin identificadores por
+ * edición no hay fusión posible, así que se repara: a una vista viva que no
+ * tiene la edición se le entrega; si un guardado rancio devolvió la fila a la
+ * lista vieja, se vuelve a añadir. Acotado, como todo lo demás aquí.
+ */
+async function reconcileRowWrite(worldId: string, edits: WorldEdit[]): Promise<void> {
+  for (let attempt = 0; attempt < ROW_WRITE_ATTEMPTS; attempt += 1) {
+    const handle = liveWorld(worldId);
+    if (handle) {
+      if (!holdsEdits(handle.snapshot(), edits)) handle.apply(edits);
+      return;
+    }
+    if (!hasPendingWorldEdits(worldId)) return;
+    if (!await flushWorldEdits(worldId)) return;
+    const reappended = await db.transaction('rw', db.generatedWorlds, async () => {
+      const row = await db.generatedWorlds.get(worldId);
+      if (!row || holdsEdits(row.edits, edits)) return false;
+      if (liveWorld(worldId) || hasPendingWorldEdits(worldId)) return null;
+      let list: WorldEdit[] = [];
+      try {
+        list = row.edits ? deserializeEdits(row.edits) : [];
+      } catch {
+        list = [];
+      }
+      list.push(...edits);
+      await generatedWorldOps.update(worldId, { edits: serializeEdits(list) });
+      return true;
+    });
+    if (reappended === false) return;
+    if (reappended) built.delete(worldId);
+  }
 }
