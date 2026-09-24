@@ -710,5 +710,32 @@ Baseline on entry: both typechecks, shipping lint and conformance pass;
   - [x] Shell: components, pages, stores, hooks, i18n, accessibility
 - [x] Dependency audit fix (lockfile only)
 - [x] Features chosen against the product's core job (lesson #66, #76)
-- [ ] Re-run verify:quick + the runnable test suites
-- [ ] Review section below
+- [x] Re-run verify:quick + the runnable test suites
+- [x] Review section below
+
+## Review
+
+Eight audit passes, one area each, then four features. Every fix was
+reproduced before it was changed; most have a focused test that fails
+against the old code.
+
+Features: arc beats ↔ scenes, Recortes preservation (badges, link-only
+filter, batch archive, CSV export), Codex draft recovery, and
+`Modal dismissible` adopted by every editor that lost input on Escape.
+
+Verified on the merged tree (after origin/main e6b4e71): verify:quick,
+npm audit (0), test:critical 325/325, read-aloud 3/3, subscription
+protocol/backend/UI/bridge, engine smoke 23/23, build:desktop,
+bundle:budget (advisory notes only: World3D chunk 714 kB / 700, total
+renderer JS 7.7 MB / 4.1 MB). New focused suites: data-layer-regressions,
+character-arc-scene-links, scrapper-preservation, worldgen-3d-regenerate,
+shell-ui-regressions, modal-dirty-guards, codex-draft-recovery.
+
+Caught in review: the read-aloud optimisation left the panel's open
+buttons permanently disabled (lesson #78).
+
+Left open (reported, not fixed): ComfyUI ignores controlImage; no UI
+calls sd:downloadCompanion; Markdown export drops strikethrough and
+multi-line code; find/replace with an empty replacement can remove a
+whole paragraph; a clipping deleted mid-download leaves its file;
+Worldgen's CartoMap frame and dead-context scene are not cancelled.
