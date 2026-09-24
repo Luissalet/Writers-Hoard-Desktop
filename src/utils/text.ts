@@ -39,9 +39,41 @@ export function stripHtml(html: string): string {
     .trim();
 }
 
+/**
+ * Chinese and Japanese are written without spaces and counted per character
+ * (字数, 文字数 — what Word reports too). Splitting on whitespace alone made a
+ * whole paragraph of them one "word".
+ */
+const CJK_CHAR_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\u3005\u30FC]/gu;
+
+/** Thai, Lao, Khmer and Burmese: no spaces and no per-character convention. */
+const UNSPACED_SCRIPT_RE = /[\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+
+let wordSegmenter: Intl.Segmenter | null | undefined;
+
+function countSpacedWords(text: string): number {
+  if (UNSPACED_SCRIPT_RE.test(text)) {
+    wordSegmenter ??= typeof Intl.Segmenter === 'function'
+      ? new Intl.Segmenter(undefined, { granularity: 'word' })
+      : null;
+    if (wordSegmenter) {
+      let count = 0;
+      for (const segment of wordSegmenter.segment(text)) if (segment.isWordLike) count += 1;
+      return count;
+    }
+  }
+  const trimmed = text.trim();
+  return trimmed ? trimmed.split(/\s+/).length : 0;
+}
+
 /** Count words in plain text or HTML (tags are stripped first). */
 export function countWords(htmlOrText: string): number {
   const text = htmlOrText.includes('<') ? stripHtml(htmlOrText) : htmlOrText.trim();
   if (!text) return 0;
-  return text.split(/\s+/).length;
+  const cjk = text.match(CJK_CHAR_RE)?.length ?? 0;
+  if (!cjk) return countSpacedWords(text);
+  // What the characters leave behind is Latin words and CJK punctuation (。、「」);
+  // only the words count.
+  const rest = text.replace(CJK_CHAR_RE, ' ').replace(/[^\s\p{L}\p{N}]+/gu, ' ');
+  return cjk + countSpacedWords(rest);
 }
