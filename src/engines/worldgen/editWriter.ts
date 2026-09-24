@@ -1,5 +1,22 @@
 import { registerPendingFlusher, trackPendingWrite } from '@/services/pendingWrites';
 
+/**
+ * Los escritores con algo pendiente, por mundo. Un escritor externo que va
+ * directo a la fila (el puente sin vista registrada) tiene que dejar que esto
+ * llegue al disco ANTES de leer la lista: si no, el guardado retrasado de la
+ * vista —que se está cerrando, o que aún no ha cargado su sesión— aterriza
+ * después con la lista vieja y borra la edición externa.
+ */
+const dirty = new Map<string, Set<() => Promise<boolean>>>();
+
+/** Drain every pending view save for this world; false if one of them failed. */
+export async function flushWorldEdits(worldId: string): Promise<boolean> {
+  const writers = dirty.get(worldId);
+  if (!writers) return true;
+  const results = await Promise.all([...writers].map((flush) => flush()));
+  return results.every(Boolean);
+}
+
 /** Coalesces strokes, preserves write order and survives navigation/close. */
 export function createWorldEditWriter(
   worldId: string,
@@ -13,6 +30,17 @@ export function createWorldEditWriter(
   let activeValue: string | undefined;
   const acknowledged: string[] = [];
   let unregister: (() => void) | undefined;
+  const track = () => {
+    const offLedger = registerPendingFlusher(owner, flush);
+    const writers = dirty.get(worldId) ?? new Set<() => Promise<boolean>>();
+    dirty.set(worldId, writers);
+    writers.add(flush);
+    return () => {
+      offLedger();
+      writers.delete(flush);
+      if (!writers.size && dirty.get(worldId) === writers) dirty.delete(worldId);
+    };
+  };
 
   const flush = (): Promise<boolean> => {
     clearTimeout(timer);
@@ -40,7 +68,7 @@ export function createWorldEditWriter(
   return {
     schedule(value: string) {
       latest = value;
-      unregister ??= registerPendingFlusher(owner, flush);
+      unregister ??= track();
       clearTimeout(timer);
       timer = setTimeout(() => { void flush(); }, delay);
     },

@@ -12,7 +12,9 @@ import { db } from '@/db';
 import { generateId } from '@/utils/idGenerator';
 import { generateWorld } from '@/engines/worldgen/core/pipeline';
 import { DEFAULT_PARAMS } from '@/engines/worldgen/core/types';
-import { deserializeEdits, editKey, type WorldEdit } from '@/engines/worldgen/core/edits';
+import { deserializeEdits, editKey, serializeEdits, type WorldEdit } from '@/engines/worldgen/core/edits';
+import { createWorldEditWriter } from '@/engines/worldgen/editWriter';
+import { generatedWorldOps } from '@/engines/worldgen/operations';
 import { registerLiveWorld } from '@/engines/worldgen/core/liveWorlds';
 import { applyWorldEdits, openWorldForReading } from '@/engines/worldgen/bridgeAccess';
 import { paramsKey } from '@/engines/worldgen/useWorldGeneration';
@@ -129,6 +131,23 @@ export async function testWorldgenBridgeAccess(): Promise<string> {
       unregister();
     }
     assert((await call('wh_get_world', { worldId })).live === false, 'unregister left the view registered');
+
+    // 4b. Sin vista registrada (cerrándose, o preparando su sesión tras
+    //     regenerar) la fila puede tener un guardado de la vista aún en vuelo,
+    //     y el llamante trae una copia de la fila leída antes de abrir el mundo.
+    //     La edición externa se suma a lo que la fila TIENE, y el guardado
+    //     retrasado de la vista no puede taparla después.
+    const stale = (await db.generatedWorlds.get(worldId))!;
+    const viewList = [...deserializeEdits(stale.edits ?? ''), { kind: 'label', x: 5, y: 5, text: 'View stroke', style: 'note' } as WorldEdit];
+    const viewWriter = createWorldEditWriter(worldId, (json) => generatedWorldOps.update(worldId, { edits: json }), 60_000);
+    viewWriter.schedule(serializeEdits(viewList));
+    const rowWrite = await applyWorldEdits(stale, [{ kind: 'label', x: 6, y: 6, text: 'Bridge label', style: 'note' }]);
+    await viewWriter.flush();
+    const merged = deserializeEdits((await db.generatedWorlds.get(worldId))!.edits ?? '');
+    const texts = merged.map((edit) => (edit.kind === 'label' ? edit.text : edit.kind));
+    assert(rowWrite.delivered === 'row' && texts.includes('View stroke') && texts.includes('Bridge label'),
+      `a row write must keep the view's pending save and survive it (got ${JSON.stringify(texts)})`);
+    assert(rowWrite.before === serializeEdits(viewList), 'the audit "before" must be the row as it stood, not the stale copy');
 
     // 5. Deleting the world takes its links and caches with it.
     await db.entityLinks.add({

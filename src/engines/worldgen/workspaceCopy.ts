@@ -20,6 +20,7 @@ const es = {
   environmentSave: 'Guardando el recálculo…', environmentError: 'No se pudo completar el cálculo. Tus cambios se conservan; vuelve a intentarlo.',
   environmentRetry: 'Volver a cargar la edición', environmentCancelled: 'La edición del mundo aún no se ha cargado.',
   environmentDone: 'Clima, ríos y lagos actualizados. Puedes deshacer el recálculo desde Pincel.',
+  forgeCrashed: 'El proceso que genera el mundo se cerró a mitad de trabajo. La causa más habitual es quedarse sin memoria: prueba con un tamaño de mundo menor o cierra otras aplicaciones, y vuelve a intentarlo.',
 };
 const en: typeof es = {
   tools: 'Tools', hideTools: 'Expand map', showTools: 'Show tools',
@@ -43,5 +44,6 @@ const en: typeof es = {
   environmentSave: 'Saving the recalculation…', environmentError: 'The calculation could not finish. Your edits are preserved; try again.',
   environmentRetry: 'Reload world edits', environmentCancelled: 'World edits have not been loaded yet.',
   environmentDone: 'Climate, rivers and lakes updated. You can undo the recalculation from Brush.',
+  forgeCrashed: 'The process that generates the world closed mid-way. The most common cause is running out of memory: try a smaller world size or close other applications, then try again.',
 };
 export const worldWorkspaceCopy = (locale: string) => locale === 'en' ? en : es;
