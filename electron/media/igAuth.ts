@@ -33,14 +33,29 @@ async function hasSessionCookie(): Promise<boolean> {
 }
 
 /**
+ * Callers between an `exportIgCookies()` and its `cleanupIgCookies()`.
+ *
+ * Two of them can overlap: a collection listing (`ig:listCollection`) does not
+ * run on the download lane, so it shares the one jar with a queued download.
+ * Deleting it when the FIRST of them finished pulled the file out from under a
+ * gallery-dl / yt-dlp still starting up (a private collection then lists as
+ * "login required"), and a child still running afterwards writes the jar back
+ * on exit (both tools update a `--cookies` file), leaving the session on disk.
+ * So the jar goes when the LAST holder lets go.
+ */
+let cookieJarHolders = 0;
+
+/**
  * Export the Instagram partition's cookies to a Netscape cookies.txt.
  * Returns true if a logged-in session was found (and the file written).
  *
  * The `sessionid` in that file IS the account: it is written owner-only and
  * the caller must `cleanupIgCookies()` in a finally once the child process it
- * was written for has exited.
+ * was written for has exited — whatever this returned or threw, since every
+ * call takes a hold on the jar.
  */
 export async function exportIgCookies(): Promise<boolean> {
+  cookieJarHolders += 1;
   const cookies = await igSession().cookies.get({ domain: 'instagram.com' });
   if (!cookies.some((c) => c.name === 'sessionid' && c.value)) return false;
 
@@ -62,8 +77,15 @@ export async function exportIgCookies(): Promise<boolean> {
   return true;
 }
 
-/** Delete the exported cookie jar. Safe to call when it is not there. */
+/** Release one hold on the exported jar; the last release deletes it. */
 export async function cleanupIgCookies(): Promise<void> {
+  cookieJarHolders = Math.max(0, cookieJarHolders - 1);
+  if (cookieJarHolders > 0) return;
+  await removeIgCookieJar();
+}
+
+/** Delete the exported cookie jar. Safe to call when it is not there. */
+async function removeIgCookieJar(): Promise<void> {
   await fs.rm(igCookiesPath(), { force: true }).catch(() => undefined);
 }
 
@@ -79,7 +101,9 @@ export async function igLogout(): Promise<void> {
   } catch {
     /* ignore */
   }
-  await cleanupIgCookies();
+  // Logging out removes the jar now, held or not; the holders' own releases
+  // stay balanced and simply find nothing left to delete.
+  await removeIgCookieJar();
 }
 
 /**
