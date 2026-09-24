@@ -17,6 +17,7 @@
 
 import { useEffect, useState } from 'react';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 
 export type ToastKind = 'success' | 'error' | 'info';
 
@@ -74,6 +75,7 @@ const KIND_STYLES: Record<ToastKind, { icon: typeof Info; accent: string }> = {
 
 /** Mount exactly once (MainLayout). Renders the toast stack bottom-right. */
 export function ToastHost() {
+  const { t: translate } = useTranslation();
   const [items, setItems] = useState<ToastItem[]>(stack);
 
   useEffect(() => {
@@ -100,9 +102,10 @@ export function ToastHost() {
             <button
               onClick={() => dismissToast(t.id)}
               className="text-text-dim hover:text-text-primary transition flex-shrink-0 mt-0.5"
-              aria-label="Dismiss"
+              type="button"
+              aria-label={translate('common.dismiss')}
             >
-              <X size={14} />
+              <X size={14} aria-hidden="true" />
             </button>
           </div>
         );

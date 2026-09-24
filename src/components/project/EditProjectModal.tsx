@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import Modal from '@/components/common/Modal';
 import ColorPicker from '@/components/common/ColorPicker';
 import IconPicker from '@/components/common/IconPicker';
@@ -16,6 +16,7 @@ interface EditProjectModalProps {
 
 export default function EditProjectModal({ project, onClose, onSave }: EditProjectModalProps) {
   const { t } = useTranslation();
+  const fieldId = useId();
   const [title, setTitle] = useState(project.title);
   const [type, setType] = useState<Project['type']>(project.type);
   const [status, setStatus] = useState<Project['status']>(project.status);
@@ -23,6 +24,14 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
   const [color, setColor] = useState(project.color || '#c4973b');
   const [icon, setIcon] = useState(project.icon ?? '');
   const [saving, setSaving] = useState(false);
+  // Escape or a stray backdrop click must not throw edits away; X and Cancel
+  // still close deliberately.
+  const dirty = title !== project.title
+    || type !== project.type
+    || status !== project.status
+    || description !== (project.description ?? '')
+    || color !== (project.color || '#c4973b')
+    || icon !== (project.icon ?? '');
   const setShowEngineManager = useAppStore(s => s.setShowEngineManager);
 
   const modeConfig = getModeConfig(project.mode);
@@ -66,11 +75,12 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
   };
 
   return (
-    <Modal open onClose={onClose} title={t('project.edit.title')}>
+    <Modal open onClose={onClose} busy={saving} dismissible={!dirty} title={t('project.edit.title')}>
       <div className="space-y-5">
         <div>
-          <label className="mb-1.5 block text-sm text-text-muted">{t('common.title')}</label>
+          <label htmlFor={`${fieldId}-title`} className="mb-1.5 block text-sm text-text-muted">{t('common.title')}</label>
           <input
+            id={`${fieldId}-title`}
             autoFocus
             value={title}
             onChange={event => setTitle(event.target.value)}
@@ -81,8 +91,9 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className="mb-1.5 block text-sm text-text-muted">{t('createProject.type')}</label>
+            <label htmlFor={`${fieldId}-type`} className="mb-1.5 block text-sm text-text-muted">{t('createProject.type')}</label>
             <select
+              id={`${fieldId}-type`}
               value={type}
               onChange={event => setType(event.target.value as Project['type'])}
               className="w-full rounded-lg border border-border bg-elevated px-4 py-2.5 text-text-primary outline-none focus:border-accent-gold"
@@ -93,8 +104,9 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
             </select>
           </div>
           <div>
-            <label className="mb-1.5 block text-sm text-text-muted">{t('project.edit.status')}</label>
+            <label htmlFor={`${fieldId}-status`} className="mb-1.5 block text-sm text-text-muted">{t('project.edit.status')}</label>
             <select
+              id={`${fieldId}-status`}
               value={status}
               onChange={event => setStatus(event.target.value as Project['status'])}
               className="w-full rounded-lg border border-border bg-elevated px-4 py-2.5 text-text-primary outline-none focus:border-accent-gold"
@@ -107,8 +119,9 @@ export default function EditProjectModal({ project, onClose, onSave }: EditProje
         </div>
 
         <div>
-          <label className="mb-1.5 block text-sm text-text-muted">{t('common.description')}</label>
+          <label htmlFor={`${fieldId}-description`} className="mb-1.5 block text-sm text-text-muted">{t('common.description')}</label>
           <textarea
+            id={`${fieldId}-description`}
             value={description}
             onChange={event => setDescription(event.target.value)}
             rows={4}

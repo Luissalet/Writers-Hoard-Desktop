@@ -66,6 +66,7 @@ export default function IconPicker({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const availableIcons = useDeferredIconCatalog(open);
   const iconEntries = useMemo(
@@ -126,9 +127,23 @@ export default function IconPicker({
   const iconSize = size === 'sm' ? 18 : 22;
 
   return (
-    <div ref={containerRef} className="relative inline-block">
+    <div
+      ref={containerRef}
+      className="relative inline-block"
+      onKeyDown={(event) => {
+        // Escape closes the dropdown only. Letting it bubble would reach the
+        // host <Modal> and close the whole form (the create-project modal
+        // resets every field it holds when it closes).
+        if (event.key !== 'Escape' || !open) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        triggerRef.current?.focus();
+      }}
+    >
       {/* Trigger button — shows current icon */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(!open)}
         className={`${btnSize} rounded-xl flex items-center justify-center border border-border hover:border-accent-gold/50 bg-elevated transition`}
@@ -305,6 +320,14 @@ export function InlineIconPicker({ value, onChange, color = '#c4973b' }: InlineI
         transform: 'translate(-100%, -100%)', // anchor bottom-right to the position
       }}
       onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        // Close this popover only; see the default picker above.
+        if (e.key !== 'Escape') return;
+        e.preventDefault();
+        e.stopPropagation();
+        setOpen(false);
+        buttonRef.current?.focus();
+      }}
     >
       <div className="relative mb-2">
         <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim" />
