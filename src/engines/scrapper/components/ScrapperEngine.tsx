@@ -175,11 +175,14 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
   );
 
   // Collection import: the modal already listed + reviewed everything; here we
-  // just persist each confirmed item and download its media, one at a time —
-  // same per-item mechanics as handleCapture above, looped. Sequential (not
-  // Promise.all) so downloads queue predictably instead of firing N gallery-dl/
-  // yt-dlp processes at once (the main process serializes them anyway, but no
-  // reason to fire N IPC calls simultaneously either).
+  // persist every confirmed link FIRST, and only then download media one at a
+  // time. Interleaving the two (save #1, download #1 for minutes, save #2, …)
+  // meant a confirmed link only existed once every download before it had
+  // finished: closing the app mid-import silently dropped the rest, and a
+  // single failed write aborted the loop. The links are the irreplaceable part
+  // (lessons #67); the media can always be fetched again from them.
+  // Downloads stay sequential (not Promise.all) so they queue predictably
+  // instead of firing N gallery-dl/yt-dlp processes at once.
   const handleImportCollection = useCallback(
     (items: ImportedCollectionItem[]) => {
       setIsImportModalOpen(false);
@@ -188,6 +191,7 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
         t('scrapper.importCollection.started').replace('{count}', String(items.length)),
       );
       void (async () => {
+        const saved: Snapshot[] = [];
         for (const item of items) {
           const snapshot: Snapshot = {
             id: crypto.randomUUID(),
@@ -206,11 +210,25 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
             preservedAt: Date.now(),
             createdAt: Date.now(),
           };
-          await addSnapshot(snapshot);
-          if (!isDesktop()) continue;
-          if (canDownloadMedia(snapshot.source)) {
-            await runSnapshotDownload(snapshot, editSnapshot, 'video');
+          try {
+            await addSnapshot(snapshot);
+            saved.push(snapshot);
+          } catch (error) {
+            console.error('Collection import: could not save link', item.url, error);
           }
+        }
+        const failed = items.length - saved.length;
+        if (failed > 0) {
+          toast.error(t('scrapper.importCollection.saveFailed').replace('{count}', String(failed)));
+        }
+        if (!isDesktop()) return;
+        for (const snapshot of saved) {
+          if (!canDownloadMedia(snapshot.source)) continue;
+          // Never throws by contract, but one surprise must not strand the
+          // downloads queued behind it.
+          await runSnapshotDownload(snapshot, editSnapshot, 'video').catch((error: unknown) => {
+            console.error('Collection import: download failed', snapshot.url, error);
+          });
         }
       })();
     },
@@ -417,6 +435,10 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
 
       {selectedSnapshot && (
         <SnapshotDetail
+          // Remount per clipping: a deep link can swap the selection while the
+          // modal is open, and the reused instance would carry the previous
+          // clipping's notes and tags into this one's next save.
+          key={selectedSnapshot.id}
           snapshot={selectedSnapshot}
           onUpdate={editSnapshot}
           onDelete={handleDelete}

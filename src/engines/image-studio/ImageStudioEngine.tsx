@@ -81,6 +81,7 @@ import {
   updateVisualRef,
 } from './refs';
 import { AVAILABLE, blocked, isManagedLocalRoute, studioResolverModel, type Availability } from './studioModel';
+import { chooseControlNet } from './studio/controlNet';
 import CastColumn from './components/CastColumn';
 import ParametersColumn, { type ParametersState } from './components/ParametersColumn';
 import ReferenceEditor from './components/ReferenceEditor';
@@ -324,6 +325,12 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
   const heroRef = mentions.refs.find((row) => typeof row.heroSeed === 'number') ?? null;
   const busy = handle !== null;
 
+  // A pose goes out as a control image, and the local server refuses one
+  // without a ControlNet to run it through. Named here, before sending, so the
+  // writer reads why in their language instead of a server refusal afterwards.
+  const needsControlNet = managedLocal && resolved.referenceImages.some((row) => row.role === 'pose');
+  const controlNet = needsControlNet ? chooseControlNet(sdStatus?.companions) : null;
+
   // --- availability, with reasons -------------------------------------------
   const generateAction: Availability = !model
     ? blocked('visualRef.reason.noModel')
@@ -331,7 +338,9 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
       ? blocked('visualRef.reason.busy')
       : !resolved.prompt.trim()
         ? blocked('visualRef.reason.noPrompt')
-        : AVAILABLE;
+        : controlNet && !controlNet.ok
+          ? blocked(controlNet.reasonKey)
+          : AVAILABLE;
   const refActions: Availability = selectedRef ? AVAILABLE : blocked('visualRef.reason.noRefSelected');
   const seedAction = useCallback(
     (image: InspirationImage): Availability => {
@@ -399,6 +408,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
       wildcardFiles,
       referenceImages: input.references?.identity,
       controlNets: input.references?.control,
+      controlNetModel: controlNet?.ok ? controlNet.model : undefined,
       refImageIds: input.refImageIds,
       controlImageId: input.controlImageId,
       visualRefIds: mentions.refs.map((row) => row.id),
@@ -420,6 +430,11 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
     tags?: string[];
   }) => {
     if (!model || !effectiveRoute || busy) return;
+    // "Vary this one" and the X/Y/Z plot reach here without the button.
+    if (controlNet && !controlNet.ok) {
+      setError(t(controlNet.reasonKey));
+      return;
+    }
     setError(null);
     // The dice are rolled HERE, not in the resolver: a pure resolver is what
     // makes a recipe reproducible and a diff meaningful.
@@ -708,6 +723,12 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
 
           {pane === 'reference' && selectedRef ? (
             <ReferenceEditor
+              // Remount per reference. Its debounced fields only adopt a new
+              // stored value while clean: picking another ref while the blur
+              // save of the previous one was still in flight left the previous
+              // name/fragments on screen, and the next keystroke wrote them
+              // into the newly picked ref.
+              key={selectedRef.id}
               projectId={projectId}
               visual={selectedRef}
               entries={entries}
