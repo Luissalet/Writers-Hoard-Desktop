@@ -65,6 +65,24 @@ let degraded = false;
  */
 export const FORGE_CLOSED_MESSAGE = 'La Forja se cerró inesperadamente.';
 
+/** Cuánto espera un puerto cerrado al código de salida que manda el principal. */
+const FORGE_EXIT_CODE_WAIT_MS = 400;
+
+/**
+ * El código de salida que acompaña a un `FORGE_CLOSED_MESSAGE`, si llegó, o
+ * `null` si el mensaje no es de una forja muerta o el código no llegó a tiempo.
+ */
+export function forgeCrashExitCode(message: string | null | undefined): number | null {
+  if (!message?.startsWith(FORGE_CLOSED_MESSAGE)) return null;
+  const match = /\[exit (-?\d+)\]$/.exec(message);
+  return match ? Number(match[1]) : null;
+}
+
+/** True cuando el mensaje es el de una forja que murió a media faena. */
+export function isForgeCrash(message: string | null | undefined): boolean {
+  return Boolean(message?.startsWith(FORGE_CLOSED_MESSAGE));
+}
+
 /** True cuando una forja murió sin contestar; los clientes vuelven al Web Worker. */
 export function forgeDegraded(): boolean {
   return degraded;
@@ -72,12 +90,41 @@ export function forgeDegraded(): boolean {
 
 let nextToken = 1;
 const pending = new Map<string, (port: MessagePort) => void>();
+/** Códigos de salida por token, y quien los espera (el `close` suele ganar la carrera). */
+const exitCodes = new Map<string, number>();
+const exitWaiters = new Map<string, (code: number) => void>();
 let listening = false;
+
+function waitForExitCode(token: string): Promise<number | null> {
+  const known = exitCodes.get(token);
+  if (known !== undefined) {
+    exitCodes.delete(token);
+    return Promise.resolve(known);
+  }
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      exitWaiters.delete(token);
+      resolve(null);
+    }, FORGE_EXIT_CODE_WAIT_MS);
+    exitWaiters.set(token, (code) => {
+      window.clearTimeout(timer);
+      exitWaiters.delete(token);
+      resolve(code);
+    });
+  });
+}
 
 function listen(): void {
   if (listening || typeof window === 'undefined') return;
   listening = true;
   window.addEventListener('message', (event) => {
+    const exit = event.data as { __forgeExit?: string; code?: number } | null;
+    if (exit && typeof exit === 'object' && typeof exit.__forgeExit === 'string' && typeof exit.code === 'number') {
+      const waiter = exitWaiters.get(exit.__forgeExit);
+      if (waiter) waiter(exit.code);
+      else exitCodes.set(exit.__forgeExit, exit.code);
+      return;
+    }
     const data = event.data as { __forgePort?: string } | null;
     if (!data || typeof data !== 'object' || !data.__forgePort) return;
     const resolve = pending.get(data.__forgePort);
@@ -100,6 +147,12 @@ class PortWorker implements ForgeWorker {
    *  largos posteriores son cómputo legítimo, no un proceso muerto. */
   private heard = false;
   private watchdog = 0;
+
+  private readonly token: string;
+
+  constructor(token: string) {
+    this.token = token;
+  }
 
   attach(port: MessagePort): void {
     if (this.closed) {
@@ -137,9 +190,15 @@ class PortWorker implements ForgeWorker {
       // Morir sin haber contestado nunca es el mismo diagnóstico que el
       // vigilante: esta instalación no sabe forjar, el resto va a Web Workers.
       if (!this.heard) degraded = true;
-      console.warn('[worldgen] La Forja se cerró sin avisar; el trabajo en curso falla.');
-      this.onerror?.(new ErrorEvent('error', { message: FORGE_CLOSED_MESSAGE }));
+      const onerror = this.onerror;
       this.terminate();
+      // El cierre del puerto suele llegar antes que el código de salida que
+      // manda el principal: se le espera un momento, nunca indefinidamente.
+      void waitForExitCode(this.token).then((code) => {
+        console.warn(`[worldgen] La Forja se cerró sin avisar (código ${code ?? '?'}); el trabajo en curso falla.`);
+        const message = code === null ? FORGE_CLOSED_MESSAGE : `${FORGE_CLOSED_MESSAGE} [exit ${code}]`;
+        onerror?.(new ErrorEvent('error', { message }));
+      });
     });
     port.start();
     for (const message of this.queue) port.postMessage(message);
@@ -192,7 +251,7 @@ export function spawnForgeWorker(kind: 'region' | 'worldgen'): ForgeWorker {
   if (!api?.available) throw new Error('Forge unavailable.');
   listen();
   const token = `forge-${kind}-${nextToken++}`;
-  const shim = new PortWorker();
+  const shim = new PortWorker(token);
   pending.set(token, (port) => shim.attach(port));
   api.spawn(kind, token);
   return shim;

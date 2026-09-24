@@ -704,7 +704,13 @@ contextBridge.exposeInMainWorld('whForge', {
   memoryBytes: ipcRenderer.sendSync('forge:memory') as number,
   spawn(kind: 'region' | 'worldgen', token: string): void {
     const channel = new MessageChannel();
-    ipcRenderer.postMessage('forge:spawn', { kind }, [channel.port2]);
+    ipcRenderer.postMessage('forge:spawn', { kind, token }, [channel.port2]);
     window.postMessage({ __forgePort: token }, '*', [channel.port1]);
   },
+});
+// A forge that died: main is the only side that sees its exit code, and it
+// travels into the page the same way the port did.
+ipcRenderer.on('forge:exited', (_event, payload: { token?: unknown; code?: unknown }) => {
+  if (typeof payload?.token !== 'string' || typeof payload.code !== 'number') return;
+  window.postMessage({ __forgeExit: payload.token, code: payload.code }, '*');
 });
