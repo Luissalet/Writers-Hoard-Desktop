@@ -12,9 +12,13 @@
 // looking for another program.
 
 import type { AiModelDescriptor, AiRouteSelection } from '@/services/aiRuntime/types';
-import { imageCatalogEntry } from '@/services/aiRuntime/imageCatalog';
+import { imageCatalogEntry, imageCompanionAsset } from '@/services/aiRuntime/imageCatalog';
 import { BUILTIN_SD_ID } from '@/services/aiRuntime/constants';
 import { describeResolverModel, type ResolverModel } from '@/services/visualRef';
+import { POSE_CONTROLNET_ID } from './studio/controlNet';
+
+/** The families the pose ControlNet the studio installs was trained against. */
+const POSE_CONTROLNET_FAMILIES = imageCompanionAsset(POSE_CONTROLNET_ID)?.families ?? [];
 
 /** Why one control is unavailable. `reasonKey` is a locale key, never a sentence. */
 export interface Availability {
@@ -56,6 +60,7 @@ export function studioResolverModel(input: StudioModelInput): ResolverModel | nu
     catalog,
     runtimeLorasSupported: input.runtimeLorasSupported,
     isManagedLocalRuntime: input.route.connectionId === BUILTIN_SD_ID,
+    managedControlNetFamilies: POSE_CONTROLNET_FAMILIES,
     cfgOverride: input.cfgOverride,
   });
 }

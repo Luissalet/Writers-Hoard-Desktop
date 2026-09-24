@@ -14,7 +14,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SdCompanionFile, SdOpResult, SdProgress, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
-import type { HardwareProfile } from '@/services/aiRuntime/types';
+import type { AiDefaults, AiImageRequest, AiImageResult, HardwareProfile } from '@/services/aiRuntime/types';
 import { imageCompanionAsset } from '@/services/aiRuntime/imageCatalog';
 import { formatBytes } from '@/services/aiRuntime/fit';
 import { useLocaleStore } from '@/stores/localeStore';
@@ -74,18 +74,35 @@ function makeSdMock() {
     platform: 'linux', cpuModel: 'test', cpuCores: 8, ramTotalBytes: 32e9, ramFreeBytes: 16e9,
     gpus: [], source: 'os-only', gpuConfidence: 'none', detectedAt: 1,
   };
+  const aiState = {
+    defaults: {} as AiDefaults,
+    /** What the studio handed main, as main would receive it. */
+    images: [] as { requestId: string; request: AiImageRequest }[],
+    imageDone: null as ((payload: { requestId: string; result: AiImageResult }) => void) | null,
+  };
   const ai = {
     hardware: async () => hardware,
     listModels: async () => ({ ok: true, models: [] }),
-    getDefaults: async () => ({}),
+    listConnections: async () => [],
+    getDefaults: async () => structuredClone(aiState.defaults),
+    generateImage: async (requestId: string, request: AiImageRequest) => {
+      aiState.images.push({ requestId, request });
+      return { ok: true };
+    },
+    cancel: async () => undefined,
     // Wired by the AI client at import; nothing streams in this test.
     onStream: () => () => undefined,
-    onImageDone: () => () => undefined,
+    onImageDone: (listener: (payload: { requestId: string; result: AiImageResult }) => void) => {
+      aiState.imageDone = listener;
+      return () => undefined;
+    },
   };
   return {
     api: { sd, ai },
     calls,
     status,
+    ai: aiState,
+    push,
     progress: (p: SdProgress) => progressListener?.(p),
     /** Main finishing the download: optionally put the file on disk first. */
     finish: (result: SdOpResult, installed?: SdCompanionFile, pushStatus = true) => {
@@ -224,6 +241,106 @@ export async function testImageCompanionsUi(): Promise<string[]> {
     check(host.querySelector('[data-generate-ready]')?.textContent === POSE, 'the studio picks the new ControlNet up after install');
     check(!fix(), 'the fix-it box goes away with the refusal');
     results.push('Studio: a missing pose ControlNet is installed in place and Generate unblocks when it lands');
+
+    // ---- 7. The real studio: pin a pose, blocked, then sent with OpenPose ---
+    // A managed SD 1.5 model (from the catalogue: sd.cpp never reports a
+    // ControlNet on a model) and one reference with one pose in its bank.
+    const [{ default: ImageStudioEngine }, { db }, refs, { MemoryRouter }, { useAiRuntimeStore }] = await Promise.all([
+      import('@/engines/image-studio/ImageStudioEngine'),
+      import('@/db'),
+      import('@/engines/image-studio/refs'),
+      import('react-router-dom'),
+      import('@/stores/aiRuntimeStore'),
+    ]);
+    const project = 'pose-ui-project';
+    const poseData = 'data:image/png;base64,UE9TRQ==';
+    await db.inspirationImages.put({ id: 'img-pose-ui', projectId: project, imageData: poseData, tags: [], notes: '', createdAt: 1 });
+    const elena = await refs.createVisualRef(project, 'Elena');
+    await refs.addControlImage(elena.id, 'img-pose-ui');
+    mock.ai.defaults = { image: { connectionId: 'builtin-sd', modelId: 'dreamshaper-8' } };
+    mock.status.companions = [];
+    mock.push();
+    const prefsKey = `wh.imageStudio.${project}`;
+    window.localStorage.removeItem(prefsKey);
+    const mountStudio = async () => {
+      await act(async () => { root!.unmount(); });
+      root = createRoot(host);
+      await act(async () => {
+        root!.render(<MemoryRouter><ImageStudioEngine projectId={project} /></MemoryRouter>);
+      });
+      await settle();
+      await settle();
+    };
+    try {
+      await mountStudio();
+
+      const byTitle = (title: string) => host.querySelector(`button[title="${title}"]`);
+      await click(byTitle(t('visualRef.cast.edit')), 'Edit Elena');
+      await click(host.querySelector(`button[aria-label="${t('visualRef.editor.usePose')}"]`), 'Use this pose');
+      check(host.querySelector(`button[aria-label="${t('visualRef.editor.unpinPose')}"][aria-pressed="true"]`), 'the pose tile reads pinned');
+      const stored = JSON.parse(window.localStorage.getItem(prefsKey) ?? '{}') as { pose?: { refId: string; imageId: string } };
+      check(stored.pose?.refId === elena.id && stored.pose.imageId === 'img-pose-ui', `the pin was not remembered: ${JSON.stringify(stored.pose)}`);
+      await click(byTitle(t('visualRef.cast.insert')), 'Insert Elena');
+
+      const slot = host.querySelector('[data-pinned-pose]');
+      check(slot?.textContent?.includes(t('visualRef.composer.pose').replace('{name}', 'Elena')), 'the composer names the pinned pose');
+      check(slot?.querySelector(`img[src="${poseData}"]`), 'the composer shows the pinned pose');
+      const disclosure = [...host.querySelectorAll('button[aria-expanded]')].find((b) => b.textContent?.includes(t('visualRef.composer.resolved')));
+      await click(disclosure, 'Open the disclosure');
+      check(host.textContent?.includes(t('visualRef.step.pose').replace('{weight}', '0.55')), 'the disclosure says the pose is applied');
+
+      const generate = () => [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === t('imageStudio.generate'));
+      check(generate()?.disabled, 'Generate ran a pose with no ControlNet installed');
+      check(generate()?.getAttribute('aria-label') === t('visualRef.reason.noControlNet'), `Generate blamed ${generate()?.getAttribute('aria-label')}`);
+      check(host.querySelector('[data-controlnet-fix]'), 'the studio did not offer the ControlNet install');
+
+      await act(async () => { mock.status.companions = [installedPose]; mock.push(); });
+      await settle();
+      check(!host.querySelector('[data-controlnet-fix]'), 'the fix-it box outlived the refusal');
+      await click(generate(), 'Generate');
+      const sent = mock.ai.images.at(-1);
+      check(sent, 'Generate sent nothing');
+      check(sent.request.controlImage === poseData, 'the request carries no pose control image');
+      check(sent.request.controlNetModel === POSE, `the request named ControlNet ${sent.request.controlNetModel}`);
+      await act(async () => { mock.ai.imageDone?.({ requestId: sent.requestId, result: { ok: false, code: 'cancelled', error: 'cancelled' } }); });
+      await settle();
+      results.push('Studio: a pinned pose on an SD 1.5 model blocks Generate until OpenPose is installed, then rides the request with it');
+
+      // ---- 8. The same pin on a ComfyUI route: its own list, no fix-it box --
+      // The ControlNet name has to be one ComfyUI listed; the companion file
+      // the local server holds (still installed above) means nothing there.
+      const comfyModel = (controlNets: string[]) => ({
+        connectionId: 'comfy-test', id: 'sd15.safetensors', type: 'image' as const,
+        capabilities: ['image-generation' as const], family: 'sd1', installed: true, controlNets,
+      });
+      const listControlNets = (controlNets: string[]) => useAiRuntimeStore.setState({
+        modelsByConnection: { 'comfy-test': { models: [comfyModel(controlNets)], loading: false, error: null, loadedAt: 1 } },
+      });
+      listControlNets(['depth.safetensors', 'canny.safetensors']);
+      mock.ai.defaults = { image: { connectionId: 'comfy-test', modelId: 'sd15.safetensors' } };
+      await mountStudio();
+      // Remounted: the pin comes back from the project's studio prefs.
+      await click(byTitle(t('visualRef.cast.insert')), 'Insert Elena on ComfyUI');
+      check(host.querySelector('[data-pinned-pose]'), 'the pinned pose did not survive a remount');
+      check(generate()?.getAttribute('aria-label') === t('visualRef.reason.controlNetAmbiguous'), `ComfyUI Generate blamed ${generate()?.getAttribute('aria-label')}`);
+      check(!host.querySelector('[data-controlnet-fix]'), 'the local-server install box was offered for ComfyUI');
+
+      await act(async () => { listControlNets(['depth.safetensors', 'control_v11p_sd15_openpose.pth']); });
+      await settle();
+      await click(generate(), 'Generate on ComfyUI');
+      const comfySent = mock.ai.images.at(-1);
+      check(comfySent && comfySent !== sent, 'Generate on ComfyUI sent nothing');
+      check(comfySent.request.connectionId === 'comfy-test', `sent to ${comfySent.request.connectionId}`);
+      check(comfySent.request.controlImage === poseData, 'the ComfyUI request carries no pose control image');
+      check(comfySent.request.controlNetModel === 'control_v11p_sd15_openpose.pth', `ComfyUI was asked for ControlNet ${comfySent.request.controlNetModel}`);
+      await act(async () => { mock.ai.imageDone?.({ requestId: comfySent.requestId, result: { ok: false, code: 'cancelled', error: 'cancelled' } }); });
+      await settle();
+      results.push('Studio: on ComfyUI the pose ControlNet is picked from the model\'s reported list, never the local companions');
+    } finally {
+      await db.visualRefs.delete(elena.id);
+      await db.inspirationImages.delete('img-pose-ui');
+      window.localStorage.removeItem(prefsKey);
+    }
   } finally {
     await act(async () => { root?.unmount(); });
     root = null;
