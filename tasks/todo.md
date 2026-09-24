@@ -633,3 +633,26 @@ Plan verificado con la petición: trasladar las conexiones Claude/Codex por susc
 Claude/Codex usan clientes oficiales con autenticación de suscripción comprobada, sin copiar credenciales ni alternativa API. Copiloto mediante propuestas estructuradas validadas y ejecutor compartido. Inicio de sesión Windows con ejecutable resuelto, cancelación de procesos y cierre global; instrucciones de terminal en otros sistemas. Interfaz bilingüe para importar/verificar/modelos/predeterminada/quitar conexión y configuración Claude Desktop/Codex/Gemini CLI más mensaje de inicio sin secretos. Chats web requieren integración aparte, no basta un prompt.
 
 Verificado: verify:quick sin errores, 325 pruebas críticas, test:subscriptions (protocolo, autenticación/cancelación, interfaz y guía), build:desktop y bundle:budget. Revisadas capturas reales de componentes/CSS a 1280 y 760 px con datos aislados. Ambos clientes instalados confirmaron suscripción y completaron respuestas reales y el ciclo propuesta de herramienta + resultado sintético + respuesta; sin leer proyectos personales. README, guías y PROJECT_KNOWLEDGE actualizados. Sin publicar instalador ni modificar configuraciones de asistentes externos.
+
+---
+
+# Full audit — 2026-09-24 (branch `claude/funny-ritchie-o15l6v`)
+
+Baseline on entry: both typechecks, shipping lint and conformance pass;
+`npm audit` reports js-yaml (high) and joi (low) in the dev tree.
+
+## Plan
+
+- [x] Parallel audit + fix, one area per agent, disjoint files:
+  - [x] Electron main process (security, IPC validation, media server, AI runtime)
+  - [x] Data layer: `src/db`, backup/restore, pending writes, search, replace
+  - [x] AI services: aiBridge, aiRuntime, copilot, judge, project tools
+  - [x] Writings engine + editor components (the manuscript core)
+  - [x] Small engines (annotations → video-planner, not the four big ones)
+  - [x] Board, image-studio, real-atlas, scrapper
+  - [x] Worldgen (crash/leak/correctness only)
+  - [x] Shell: components, pages, stores, hooks, i18n, accessibility
+- [x] Dependency audit fix (lockfile only)
+- [x] Features chosen against the product's core job (lesson #66, #76)
+- [ ] Re-run verify:quick + the runnable test suites
+- [ ] Review section below
