@@ -134,7 +134,7 @@ export async function testImageCompanionsUi(): Promise<string[]> {
   window.electronAPI = mock.api as unknown as NonNullable<Window['electronAPI']>;
   useLocaleStore.setState({ locale: 'en', loaded: true });
 
-  const [{ default: LocalImageModelsSection }, { default: ControlNetFix }, { useImageRuntimeStore }, { chooseControlNet }, { useTranslation }] = await Promise.all([
+  const [{ default: LocalImageModelsSection }, { default: ControlNetFix }, { useImageRuntimeStore }, { chooseControlNet, isControlNetModelName }, { useTranslation }] = await Promise.all([
     import('@/components/ai-settings/LocalImageModelsSection'),
     import('@/engines/image-studio/components/ControlNetFix'),
     import('@/stores/imageRuntimeStore'),
@@ -336,6 +336,46 @@ export async function testImageCompanionsUi(): Promise<string[]> {
       await act(async () => { mock.ai.imageDone?.({ requestId: comfySent.requestId, result: { ok: false, code: 'cancelled', error: 'cancelled' } }); });
       await settle();
       results.push('Studio: on ComfyUI the pose ControlNet is picked from the model\'s reported list, never the local companions');
+
+      // ---- 9. ComfyUI before its model list arrives: wait, never drop -------
+      // The list is where ComfyUI reports its ControlNets. Until it lands the
+      // pin must hold Generate with the checking reason — not resolve as
+      // "unsupported" and send the picture without the pose.
+      useAiRuntimeStore.setState({
+        modelsByConnection: { 'comfy-test': { models: [], loading: true, error: null, loadedAt: 0 } },
+      });
+      await mountStudio();
+      await click(byTitle(t('visualRef.cast.insert')), 'Insert Elena before the list');
+      check(host.querySelector('[data-pinned-pose]'), 'the pinned pose is shown while the list loads');
+      const beforeList = mock.ai.images.length;
+      check(generate()?.disabled, 'Generate was open before ComfyUI reported its ControlNets');
+      check(
+        generate()?.getAttribute('aria-label') === t('visualRef.reason.controlNetChecking'),
+        `Generate before the list blamed ${generate()?.getAttribute('aria-label')}`,
+      );
+      await click(
+        [...host.querySelectorAll('button[aria-expanded]')].find((b) => b.textContent?.includes(t('visualRef.composer.resolved'))),
+        'Open the disclosure before the list',
+      );
+      check(!host.textContent?.includes(t('visualRef.step.poseUnsupported')), 'the pose was written off as unsupported while loading');
+      check(mock.ai.images.length === beforeList, 'something was sent while the list loaded');
+
+      // The list lands with the OpenPose network in a subfolder, as ComfyUI
+      // names it — a name that has to survive main's validator intact.
+      await act(async () => { listControlNets(['depth.safetensors', 'SD15/control_v11p_sd15_openpose.pth']); });
+      await settle();
+      await click(generate(), 'Generate on ComfyUI after the list');
+      const loadedSent = mock.ai.images.at(-1);
+      check(loadedSent && mock.ai.images.length === beforeList + 1, 'Generate after the list sent nothing');
+      check(loadedSent.request.controlImage === poseData, 'the request after the list carries no pose');
+      check(
+        loadedSent.request.controlNetModel === 'SD15/control_v11p_sd15_openpose.pth',
+        `after the list ComfyUI was asked for ControlNet ${loadedSent.request.controlNetModel}`,
+      );
+      check(isControlNetModelName(loadedSent.request.controlNetModel), 'main would drop the chosen ControlNet name');
+      await act(async () => { mock.ai.imageDone?.({ requestId: loadedSent.requestId, result: { ok: false, code: 'cancelled', error: 'cancelled' } }); });
+      await settle();
+      results.push('Studio: on ComfyUI a pinned pose waits for the model list, then rides the request with a subfolder ControlNet');
     } finally {
       await db.visualRefs.delete(elena.id);
       await db.inspirationImages.delete('img-pose-ui');

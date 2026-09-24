@@ -24,6 +24,9 @@ import { contentRangeStart, DownloadError, downloadVerified, verifyFile } from '
 import { appendAudit, auditPath, getAuditRecord, readAudit, undoneIndices } from '../electron/aibridge/state';
 import { runMediaSecurityTests } from './media-security';
 import { runCausalGraphTests } from './causal-graph';
+// Relative, not `@/`: this bundle has no alias. The module is pure (its one
+// `@/` import is a type), and it is the rule `asImageRequest` applies.
+import { isControlNetModelName } from '../src/engines/image-studio/studio/controlNet';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -50,6 +53,27 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
     assert(resolveContainedNativePath(root, unsafe) === null, `path traversal accepted: ${unsafe}`);
   }
   passed.push('native path atoms + lexical containment');
+
+  // `controlNetModel` crosses IPC as a model NAME: ComfyUI lists its
+  // ControlNets by path under its own folder, so subfolders pass (verbatim —
+  // ComfyUI matches exactly), while anything naming a place does not.
+  for (const name of [
+    'controlnet-sd15-openpose',
+    'control_v11p_sd15_openpose.pth',
+    'SD15/openpose.pth',
+    'SD15\\openpose.pth',
+    'xinsir/controlnet union sdxl (promax).safetensors',
+  ]) {
+    assert(isControlNetModelName(name), `ControlNet name refused: ${name}`);
+  }
+  for (const name of [
+    '', '.', '..', '../x', 'SD15/../x', '..\\x', '/abs', '/etc/passwd', '\\\\server\\share\\x.pth',
+    'C:\\x', 'C:/x', 'c:x.pth', 'x.pth:stream', 'SD15//x.pth', 'SD15/', 'SD15/.. /x', 'a\u0000b', 'x'.repeat(256),
+    'a/b/c/d/e/f/g/h/i.pth', 42, null,
+  ]) {
+    assert(!isControlNetModelName(name), `unsafe ControlNet name accepted: ${JSON.stringify(name)}`);
+  }
+  passed.push('IPC ControlNet names: relative subfolders pass, traversal / absolute / drive paths refused');
 
   const safeFile = path.join(root, 'project-1', 'safe.txt');
   await fs.writeFile(safeFile, 'safe', 'utf8');

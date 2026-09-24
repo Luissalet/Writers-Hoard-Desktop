@@ -39,6 +39,11 @@ export interface StudioModelInput {
   runtimeLorasSupported?: boolean;
   /** Guidance the writer set by hand in the parameters column. */
   cfgOverride?: number;
+  /**
+   * The route's model list has not arrived yet (`routeModelsPending`), so
+   * whether it holds a ControlNet is unknown rather than "no".
+   */
+  modelsPending?: boolean;
 }
 
 /**
@@ -56,13 +61,43 @@ export function studioResolverModel(input: StudioModelInput): ResolverModel | nu
     capabilities: [],
     family: catalog?.family,
   };
-  return describeResolverModel(descriptor, {
+  const model = describeResolverModel(descriptor, {
     catalog,
     runtimeLorasSupported: input.runtimeLorasSupported,
     isManagedLocalRuntime: input.route.connectionId === BUILTIN_SD_ID,
     managedControlNetFamilies: POSE_CONTROLNET_FAMILIES,
     cfgOverride: input.cfgOverride,
   });
+  // Until the list arrives a pinned pose is KEPT, with no ControlNet named:
+  // the studio then waits on `chooseReportedControlNet(undefined)` instead of
+  // the resolver dropping the pose as unsupported and Generate running without
+  // it. The list decides once it lands, either way.
+  return input.modelsPending ? { ...model, supportsControlNet: true, controlNets: undefined } : model;
+}
+
+export interface RouteModelsInput {
+  route?: AiRouteSelection;
+  descriptor?: AiModelDescriptor;
+  /** `modelsByConnection[route.connectionId]`, when the store has one. */
+  models?: { loading: boolean };
+  connectionsLoaded: boolean;
+  /** The route's connection is listed and enabled, so its models WILL load. */
+  connectionEnabled: boolean;
+}
+
+/**
+ * Whether a route that answers through its own model list — ComfyUI reports
+ * its ControlNets there — is still waiting for that list.
+ *
+ * The managed local server never is: its ControlNets are companion files read
+ * from the runtime status (`chooseControlNet`). A list that loaded without the
+ * model, failed, or belongs to a disabled or unknown connection is settled,
+ * not pending: waiting on it would block Generate for good.
+ */
+export function routeModelsPending(input: RouteModelsInput): boolean {
+  if (!input.route || input.descriptor || isManagedLocalRoute(input.route)) return false;
+  if (input.models) return input.models.loading;
+  return !input.connectionsLoaded || input.connectionEnabled;
 }
 
 /**
