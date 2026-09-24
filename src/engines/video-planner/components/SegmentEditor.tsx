@@ -40,6 +40,19 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
   const [showGallery, setShowGallery] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  // Anything changed since the editor opened keeps Escape and the backdrop
+  // from discarding it; Cancel and the X still close.
+  const dirty = title !== segment.title
+    || startTime !== (segment.startTime || '')
+    || endTime !== (segment.endTime || '')
+    || script !== segment.script
+    || speakerName !== (segment.speakerName || '')
+    || visualType !== segment.visualType
+    || visualDescription !== (segment.visualDescription || '')
+    || visualImageData !== (segment.visualImageData || '')
+    || audioNotes !== (segment.audioNotes || '')
+    || notes !== (segment.notes || '')
+    || tags !== segment.tags.join(', ');
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -83,7 +96,7 @@ export default function SegmentEditor({ segment, onSave, onCancel }: SegmentEdit
 
   return (
     <>
-      <Modal open onClose={() => { if (!saving) onCancel(); }} title={t('videoPlanner.segment.editTitle')} wide>
+      <Modal open onClose={() => { if (!saving) onCancel(); }} dismissible={!dirty} title={t('videoPlanner.segment.editTitle')} wide>
         {/* Content */}
         <fieldset disabled={saving} className="p-6 space-y-6">
           {/* Title */}
