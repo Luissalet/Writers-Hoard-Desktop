@@ -128,19 +128,27 @@ export default function EngineManager({
   // and make the ordered list cover exactly the enabled set, so bad rows heal
   // rather than rendering an engine that cannot be reordered or one that is
   // enabled but invisible.
-  useEffect(() => {
-    if (!open) return;
-    const enabled = [...new Set(project.enabledEngines || [])].filter(id => Boolean(getEngine(id)));
-    const enabledSet = new Set(enabled);
-    const ordered = [...new Set(project.engineOrder || enabled)].filter(id => enabledSet.has(id));
-    const orderedSet = new Set(ordered);
-    setEnabledIds(enabled);
-    setOrder([...ordered, ...enabled.filter(id => !orderedSet.has(id))]);
-    setMode(project.mode);
-    setQuery('');
-    setPresetsOpen(false);
-    setPendingPreset(null);
-  }, [open, project]);
+  //
+  // Only on the opening transition (render-adjust, lessons #17). `project` is
+  // a new object after every project write anywhere in the app — a chapter
+  // save, a copilot or AI-bridge edit — and re-seeding on each one silently
+  // threw away the toggles and ordering staged here.
+  const [seededOpen, setSeededOpen] = useState(false);
+  if (seededOpen !== open) {
+    setSeededOpen(open);
+    if (open) {
+      const enabled = [...new Set(project.enabledEngines || [])].filter(id => Boolean(getEngine(id)));
+      const enabledSet = new Set(enabled);
+      const ordered = [...new Set(project.engineOrder || enabled)].filter(id => enabledSet.has(id));
+      const orderedSet = new Set(ordered);
+      setEnabledIds(enabled);
+      setOrder([...ordered, ...enabled.filter(id => !orderedSet.has(id))]);
+      setMode(project.mode);
+      setQuery('');
+      setPresetsOpen(false);
+      setPendingPreset(null);
+    }
+  }
 
   // What each engine currently holds for this project. Informational on the
   // rows; load-bearing in the preset confirmation, which names every engine it

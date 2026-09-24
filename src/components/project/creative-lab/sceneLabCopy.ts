@@ -56,6 +56,8 @@ export interface SceneLabCopy {
     voice: string;
     text: string;
     declaredChange: string;
+    /** Screen-reader header of the row-label column. */
+    field: string;
   };
   promotion: {
     title: string;
@@ -152,6 +154,7 @@ const englishCopy: SceneLabCopy = {
     voice: 'Voice',
     text: 'Text',
     declaredChange: 'Declared change',
+    field: 'Field',
   },
   promotion: {
     title: 'Stage in an existing branch',
@@ -248,6 +251,7 @@ const spanishCopy: SceneLabCopy = {
     voice: 'Voz',
     text: 'Texto',
     declaredChange: 'Cambio declarado',
+    field: 'Campo',
   },
   promotion: {
     title: 'Preparar en una rama existente',
