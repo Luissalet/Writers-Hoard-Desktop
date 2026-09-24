@@ -191,6 +191,22 @@ export async function undoBridgeChange(index: number): Promise<BridgeCallResult>
   return outcome;
 }
 
+const FAMILY_FIRST_LINE = 110;
+
+/** A first line of at most 110 characters (the first sentence, or a cut at a word), then the full description. */
+export function familyDescription(description: string): string {
+  const full = String(description ?? '').trim();
+  const firstLine = full.split('\n')[0] ?? '';
+  if (firstLine.length <= FAMILY_FIRST_LINE) return full;
+  const sentence = firstLine.match(/^(.{20,108}?[.!?])\s/)?.[1];
+  let head = sentence ?? firstLine.slice(0, FAMILY_FIRST_LINE - 1);
+  if (!sentence) {
+    const cut = head.lastIndexOf(' ');
+    head = (cut > 40 ? head.slice(0, cut) : head).trimEnd() + '…';
+  }
+  return `${head}\n${full}`;
+}
+
 /**
  * The family contract's call: `{ name, arguments, caller }` in, the tool's own
  * result out (the hub's proxy unwraps `{ ok, result }`), a 4xx with
@@ -262,9 +278,14 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
   if (req.method === 'GET' && url === '/api/agent/tools') {
     // The family's shape: the whole catalogue plus the briefing, in one answer.
+    // A tool index keeps only a description's first line, so it is a short
+    // one here (the full text follows on the next lines, untouched).
     sendJson(res, 200, {
       ok: true,
-      tools: selectTools({ groups: [], writesEnabled: config.writesEnabled }),
+      tools: selectTools({ groups: [], writesEnabled: config.writesEnabled }).map((tool) => ({
+        ...tool,
+        description: familyDescription(tool.description),
+      })),
       instructions: BRIDGE_INSTRUCTIONS,
       writesEnabled: config.writesEnabled,
     });
