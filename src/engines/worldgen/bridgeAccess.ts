@@ -86,14 +86,17 @@ function startBackgroundForge(worldId: string, params: WorldParams): void {
     const msg = e.data;
     if (msg.type === 'progress') return;
     if (msg.type === 'done') {
-      const data = unpackWorld(msg.world);
+      // Un `unpackWorld` que lanza no puede dejar el mundo «forjándose» para
+      // toda la sesión: cualquier salida de aquí suelta la marca.
+      let data: WorldData;
+      try { data = unpackWorld(msg.world); } catch { finish(); return; }
       void saveSnapshot(worldId, key, data).finally(finish);
       return;
     }
     finish();
   };
   worker.onerror = finish;
-  worker.postMessage({ type: 'generate', params });
+  try { worker.postMessage({ type: 'generate', params }); } catch { finish(); }
 }
 
 /** Whether a background forge for this world is still running. */

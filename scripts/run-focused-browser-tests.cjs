@@ -4,6 +4,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+// Same as run-critical-tests: SwiftShader keeps WebGL available headless, so
+// focused tests can mount the real 3D view instead of its 2D fallback.
+app.commandLine.appendSwitch('use-angle', 'swiftshader');
+app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-focused-'));
 app.setPath('userData', path.join(directory, 'profile'));
 const root = path.resolve(__dirname, '..');
