@@ -118,30 +118,6 @@ export function foldSearchText(value: string): string {
   return value.normalize('NFD').replace(COMBINING_MARKS, '').toLocaleLowerCase();
 }
 
-/**
- * "Could this text possibly contain the term?" — the cheap gate in front of an
- * expensive matcher.
- *
- * Deliberately a SUPERSET test, never an exact one. Folding removes case and
- * accents, so a `true` here can still be a miss once the real matcher applies
- * case-sensitive, accent-exact or whole-word rules — but a `false` is always a
- * real miss, in every combination of those toggles, because folding can only
- * make two strings more equal, never less. That one-sidedness is what makes it
- * safe to skip a document on `false`.
- *
- * Project-wide replace uses it to decide whether a stored chapter is worth
- * parsing into a DOM at all: over 400 chapters, folding 25 kB of HTML is a
- * rounding error next to building 400 documents nobody matches.
- *
- * `needle` must already be folded — it is folded once per search, not once per
- * document.
- */
-export function foldedContains(haystack: string, foldedNeedle: string): boolean {
-  if (!foldedNeedle) return false;
-  if (!haystack) return false;
-  return foldSearchText(haystack).includes(foldedNeedle);
-}
-
 // ---------------------------------------------------------------------------
 // Tokenizer
 // ---------------------------------------------------------------------------

@@ -123,8 +123,9 @@ export async function touchProject(projectId: string): Promise<void> {
  * automatically, so engines added in the future are covered without touching
  * this function. Child tables that have no `projectId` index (they hang off a
  * parent: sceneCasts, storyboardConnectors, annotationReferences,
- * worldSnapshots) are resolved through their parents first, and the flat
- * `settings` store through `PROJECT_SETTING_PREFIXES`.
+ * worldSnapshots, canonTiles, renderedTiles) are resolved through their
+ * parents first, and the flat `settings` store through
+ * `PROJECT_SETTING_PREFIXES`.
  *
  * Previously this only covered the 13 original tables and silently orphaned
  * ~25 engine tables' rows — which then leaked into global search and
@@ -176,6 +177,11 @@ export async function deleteProject(id: string): Promise<void> {
     }
     if (worldIds.length) {
       await db.worldSnapshots.bulkDelete(worldIds as string[]);
+      // The forged tile caches hang off the world, not the project, exactly
+      // like the snapshot above — and are megabytes per world, so an orphan
+      // is not free just because the budget evicts it eventually.
+      await db.canonTiles.where('worldId').anyOf(worldIds as string[]).delete();
+      await db.renderedTiles.where('worldId').anyOf(worldIds as string[]).delete();
     }
 
     // --- every project-scoped table, current and future ---
@@ -946,7 +952,16 @@ export async function importFullDatabase(
     if (data.imageCollections?.length) await db.imageCollections.bulkAdd(data.imageCollections);
     if (data.inspirationImages?.length) await db.inspirationImages.bulkAdd(data.inspirationImages);
     if (data.externalLinks?.length) {
-      await db.snapshots.bulkPut(data.externalLinks.map(legacyLinkToSnapshot));
+      // The v21 upgrade kept each link's id, so a link in an old file can
+      // already live here as a snapshot the writer has since captured, noted
+      // or retagged. Saved links are the one irreplaceable table: add the
+      // missing ones, never overwrite a live row with its bare legacy copy.
+      const incoming = data.externalLinks.map(legacyLinkToSnapshot);
+      const existing = new Set(
+        await db.snapshots.where('id').anyOf(incoming.map((snapshot) => snapshot.id)).primaryKeys(),
+      );
+      const missing = incoming.filter((snapshot) => !existing.has(snapshot.id));
+      if (missing.length) await db.snapshots.bulkPut(missing);
     }
     if (data.tags?.length) await db.tags.bulkAdd(data.tags);
     if (data.settings?.length) await db.settings.bulkAdd(data.settings);
