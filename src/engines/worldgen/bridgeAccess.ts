@@ -33,7 +33,7 @@ import { getCachedWorld, paramsKey } from './useWorldGeneration';
 import { loadSnapshot, saveSnapshot } from './snapshots';
 import { forgeAvailable, forgeDegraded, spawnForgeWorker } from './forge/bridge';
 import { generatedWorldOps } from './operations';
-import { flushWorldEdits } from './editWriter';
+import { flushWorldEdits, hasPendingWorldEdits } from './editWriter';
 import type { WorkerReply } from './worldgen.worker';
 
 export interface ReadableWorld {
@@ -162,6 +162,9 @@ export async function openWorldForReading(world: GeneratedWorld, depth: GeoDepth
   };
 }
 
+/** Vueltas de «vaciar, comprobar, escribir» antes de rendirse ante una vista inquieta. */
+const ROW_WRITE_ATTEMPTS = 4;
+
 /**
  * Append edits to a world through whichever writer currently owns it.
  * Returns the serialised list as it stood immediately before the change.
@@ -170,39 +173,49 @@ export async function applyWorldEdits(
   world: GeneratedWorld,
   edits: WorldEdit[],
 ): Promise<{ before: string; delivered: 'view' | 'row' }> {
-  const handle = liveWorld(world.id);
-  if (handle) {
-    const before = handle.snapshot();
-    handle.apply(edits);
-    return { before, delivered: 'view' };
-  }
-  // Sin vista registrada no significa sin vista: una que se cierra o que aún
-  // prepara su sesión (tras regenerar, al reintentar) puede tener un guardado
-  // en vuelo. Se deja llegar primero; si no, aterrizaría DESPUÉS con la lista
-  // vieja y taparía esta edición.
-  if (!await flushWorldEdits(world.id)) {
-    throw new Error('The world has unsaved edits that could not be written yet; try again shortly.');
-  }
-  // Y la lista se lee de la FILA, no de `world`: el llamante la cargó antes de
-  // abrir el mundo para leerlo (segundos, a veces), y añadir sobre esa copia
-  // borraba lo que se hubiera guardado entretanto — trazos de la vista, una
-  // regeneración entera.
-  const before = await db.transaction('rw', db.generatedWorlds, async () => {
-    const row = await db.generatedWorlds.get(world.id);
-    const current = row ? row.edits ?? '' : world.edits ?? '';
-    let list: WorldEdit[] = [];
-    if (current) {
-      try {
-        list = deserializeEdits(current);
-      } catch {
-        list = [];
-      }
+  for (let attempt = 0; attempt < ROW_WRITE_ATTEMPTS; attempt += 1) {
+    const handle = liveWorld(world.id);
+    if (handle) {
+      const before = handle.snapshot();
+      handle.apply(edits);
+      return { before, delivered: 'view' };
     }
-    list.push(...edits);
-    await generatedWorldOps.update(world.id, { edits: serializeEdits(list) });
-    return current;
-  });
-  // The private build for the old list is stale now.
-  built.delete(world.id);
-  return { before, delivered: 'row' };
+    // Sin vista registrada no significa sin vista: una que se cierra o que aún
+    // prepara su sesión (tras regenerar, al reintentar) puede tener un guardado
+    // en vuelo. Se deja llegar primero; si no, aterrizaría DESPUÉS con la lista
+    // vieja y taparía esta edición.
+    if (!await flushWorldEdits(world.id)) break;
+    // Y la lista se lee de la FILA, no de `world`: el llamante la cargó antes de
+    // abrir el mundo para leerlo (segundos, a veces), y añadir sobre esa copia
+    // borraba lo que se hubiera guardado entretanto — trazos de la vista, una
+    // regeneración entera.
+    const before = await db.transaction('rw', db.generatedWorlds, async () => {
+      const row = await db.generatedWorlds.get(world.id);
+      // EL VACIADO ES UNA ESPERA, y en una espera el mundo se mueve: una vista
+      // pudo registrarse (y ya es la dueña: la edición es suya, no de la fila)
+      // o programar otro guardado (que aterrizaría detrás de éste con su lista
+      // vieja). Se mira aquí dentro, en el último momento antes de escribir: el
+      // guardado de una vista es otra transacción sobre esta tabla y no puede
+      // colarse entre esta comprobación y la escritura. Si algo cambió, no se
+      // escribe nada y se vuelve a empezar.
+      if (liveWorld(world.id) || hasPendingWorldEdits(world.id)) return null;
+      const current = row ? row.edits ?? '' : world.edits ?? '';
+      let list: WorldEdit[] = [];
+      if (current) {
+        try {
+          list = deserializeEdits(current);
+        } catch {
+          list = [];
+        }
+      }
+      list.push(...edits);
+      await generatedWorldOps.update(world.id, { edits: serializeEdits(list) });
+      return current;
+    });
+    if (before === null) continue;
+    // The private build for the old list is stale now.
+    built.delete(world.id);
+    return { before, delivered: 'row' };
+  }
+  throw new Error('The world has unsaved edits that could not be written yet; try again shortly.');
 }

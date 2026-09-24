@@ -9,12 +9,31 @@ import { registerPendingFlusher, trackPendingWrite } from '@/services/pendingWri
  */
 const dirty = new Map<string, Set<() => Promise<boolean>>>();
 
-/** Drain every pending view save for this world; false if one of them failed. */
+/** Rondas de vaciado antes de rendirse: una por escritor que aparezca mientras tanto. */
+const FLUSH_ROUNDS = 8;
+
+/**
+ * Drain every pending view save for this world; false if one of them failed.
+ *
+ * NO BASTA UNA FOTO DEL CONJUNTO. Mientras se vacía, otro escritor del mismo
+ * mundo (una vista que se remonta, la que prepara su sesión) puede programar su
+ * guardado; con una sola pasada ése quedaba fuera y aterrizaba DESPUÉS del que
+ * vino a vaciar, con su lista vieja. Se repite hasta que no quede nadie, con
+ * techo: si nunca se calma, se contesta que no (y el llamante reintenta luego).
+ */
 export async function flushWorldEdits(worldId: string): Promise<boolean> {
-  const writers = dirty.get(worldId);
-  if (!writers) return true;
-  const results = await Promise.all([...writers].map((flush) => flush()));
-  return results.every(Boolean);
+  for (let round = 0; round < FLUSH_ROUNDS; round += 1) {
+    const writers = dirty.get(worldId);
+    if (!writers?.size) return true;
+    const results = await Promise.all([...writers].map((flush) => flush()));
+    if (!results.every(Boolean)) return false;
+  }
+  return !hasPendingWorldEdits(worldId);
+}
+
+/** Whether some view save for this world is scheduled or in flight right now. */
+export function hasPendingWorldEdits(worldId: string): boolean {
+  return !!dirty.get(worldId)?.size;
 }
 
 /** Coalesces strokes, preserves write order and survives navigation/close. */

@@ -699,10 +699,15 @@ export default function World3D({
      * nadie iba a ver. Con `R.current` a null todos los caminos (`request`,
      * `draw`, la piel de cerca, los efectos) se quedan en su guarda de siempre.
      * La vista de relieve 2D toma el relevo hasta el siguiente montaje.
+     *
+     * Y SI SE PIERDE A MEDIO MONTAR, `teardown` aún no existe: `lost` lo
+     * recuerda y el montaje no publica la escena (ver más abajo).
      */
     let teardown: (() => void) | null = null;
+    let lost = false;
     const onContextLost = (event: Event) => {
       event.preventDefault();
+      lost = true;
       setFailed(translate('worldgen.threeD.contextLost'));
       teardown?.();
     };
@@ -763,7 +768,8 @@ export default function World3D({
         worldWidth: world.width, worldHeight: world.height, mesh: MESH_STEPS[1], palette,
       });
     } catch (e) {
-      setFailed(e instanceof Error ? e.message : String(e));
+      // Sobre un contexto ya perdido el error es consecuencia, no causa.
+      if (!lost) setFailed(e instanceof Error ? e.message : String(e));
       // Fuera el oyente ANTES de perder el contexto: `forceContextLoss`
       // dispara `webglcontextlost` y su `setFailed` taparía la causa real con
       // «contexto perdido». Y el lienzo fuera del host, como en el desmontaje.
@@ -932,26 +938,12 @@ export default function World3D({
         fromC: new THREE.Vector3(), toC: new THREE.Vector3(),
       },
     };
-    R.current = st;
-    setReady((n) => n + 1);
-
-    const resize = () => {
-      const w = Math.max(2, host.clientWidth), h = Math.max(2, host.clientHeight);
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      st.need = true;
-      st.poseKey = '';
-    };
-    const ro = new ResizeObserver(resize);
-    ro.observe(host);
-    resize();
-
+    let ro: ResizeObserver | null = null;
     let torn = false;
     teardown = () => {
       if (torn) return;
       torn = true;
-      ro.disconnect();
+      ro?.disconnect();
       window.clearInterval(st.timer);
       window.clearTimeout(st.viewportTimer);
       window.clearTimeout(st.zoomTimer);
@@ -983,6 +975,34 @@ export default function World3D({
       if (sembrarRef.current === sembrar) sembrarRef.current = null;
       if (R.current === st) R.current = null;
     };
+    /**
+     * UN CONTEXTO PERDIDO A MEDIO MONTAR NO SE PUBLICA. El oyente ya estaba
+     * puesto, pero `teardown` no: si la pérdida llegó durante el montaje sólo
+     * quedó `lost`, y seguir era dejar `R.current` apuntando a una escena
+     * muerta — el reloj de rescate, los fotogramas y las teselas pidiendo
+     * sobre ella. Y si el contexto murió sin que su evento haya llegado aún
+     * (Chromium lo entrega en una tarea aparte), `isContextLost` lo dice ya.
+     * En los dos casos se desmonta lo construido y no se arranca nada.
+     */
+    if (lost || renderer.getContext().isContextLost()) {
+      if (!lost) setFailed(translate('worldgen.threeD.contextLost'));
+      teardown();
+      return;
+    }
+    R.current = st;
+    setReady((n) => n + 1);
+
+    const resize = () => {
+      const w = Math.max(2, host.clientWidth), h = Math.max(2, host.clientHeight);
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      st.need = true;
+      st.poseKey = '';
+    };
+    ro = new ResizeObserver(resize);
+    ro.observe(host);
+    resize();
     return () => teardown?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [world]);
