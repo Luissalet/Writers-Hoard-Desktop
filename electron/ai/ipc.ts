@@ -55,7 +55,7 @@ import {
   stopSdServer,
 } from './sdRuntime';
 import { sdBackendsFor, type SdBackend } from './sdRuntimeManifest';
-import { isSafeNativeSegment } from '../security';
+import { isControlNetModelName } from '@/engines/image-studio/studio/controlNet';
 import { detectHardware } from './hardware';
 import {
   cancelRequest,
@@ -253,12 +253,12 @@ function asImageRequest(value: unknown): AiImageRequest | null {
     increaseRefIndex: value.increaseRefIndex === true ? true : undefined,
     disableAutoResizeRefImage: value.disableAutoResizeRefImage === true ? true : undefined,
     controlImage: asImageDataUrl(value.controlImage),
-    // A catalogue id or the name of a ControlNet file dropped into its folder;
-    // the runtime only ever resolves it against the companions it installed.
-    controlNetModel:
-      isSafeNativeSegment(value.controlNetModel) && value.controlNetModel.length <= 200
-        ? value.controlNetModel
-        : undefined,
+    // A catalogue id, a file in the local runtime's ControlNet folder, or a
+    // path in ComfyUI's (`SD15/openpose.pth`) — the studio chooses by the same
+    // rule, so nothing it picks is dropped here. Each adapter resolves it only
+    // against its own list: the local runtime against its catalogue and the
+    // flat file names it read from its folder, ComfyUI against what it reported.
+    controlNetModel: isControlNetModelName(value.controlNetModel) ? value.controlNetModel : undefined,
     controlStrength: asFinite(value.controlStrength),
     maskImage: asImageDataUrl(value.maskImage),
     hiresFix: asHiresFix(value.hiresFix),
