@@ -93,6 +93,32 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
+/**
+ * A JSON body for the routes that act on an object. A body that could not be
+ * read — over the limit, or the client left — is answered 413 like /api/call
+ * and yields `null`: reading it as `{}` ran the self-test (and the cleanup)
+ * with its options silently dropped. Malformed JSON still reads as `{}`.
+ */
+async function readJsonObject(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<Record<string, unknown> | null> {
+  let raw: string;
+  try {
+    raw = await readBody(req);
+  } catch {
+    sendJson(res, 413, { ok: false, code: 'body-too-large', error: 'Request body too large.' });
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw || '{}');
+    // `null` here means "already answered": a body of `null` must not say so.
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 function isLoopback(req: http.IncomingMessage): boolean {
   const addr = req.socket.remoteAddress ?? '';
   return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
@@ -337,12 +363,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       });
       return;
     }
-    let body: Record<string, unknown> = {};
-    try {
-      body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>;
-    } catch {
-      body = {};
-    }
+    const body = await readJsonObject(req, res);
+    if (!body) return;
     const outcome = await callRenderer('__selftest', body, 120_000);
     sendJson(res, 200, outcome);
     return;
@@ -359,12 +381,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       });
       return;
     }
-    let body: Record<string, unknown> = {};
-    try {
-      body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>;
-    } catch {
-      body = {};
-    }
+    const body = await readJsonObject(req, res);
+    if (!body) return;
     const outcome = await callRenderer('__selftest_cleanup', body, 60_000);
     const removed = (outcome.result as { deleted?: unknown[] } | undefined)?.deleted;
     // No `kind`: a cascading multi-project delete has nothing to put back, and
@@ -390,12 +408,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       sendJson(res, 403, { ok: false, code: 'writes-disabled', error: 'Writing is switched off.' });
       return;
     }
-    let body: Record<string, unknown> = {};
-    try {
-      body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>;
-    } catch {
-      body = {};
-    }
+    const body = await readJsonObject(req, res);
+    if (!body) return;
     sendJson(res, 200, await undoBridgeChange(Number(body.index)));
     return;
   }

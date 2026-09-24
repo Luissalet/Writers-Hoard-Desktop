@@ -27,11 +27,13 @@ import {
   classesUsed,
   comfySamplerName,
   comfySchedulerName,
+  controlFromRequest,
   createComfyClient,
   createTemplateRegistry,
   danglingLinks,
   discoverInputs,
   indexObjectInfo,
+  intentFromRequest,
   isLink,
   inputSpec,
   missingModelMessage,
@@ -52,6 +54,7 @@ import {
   type ComfySocketFactory,
   type ComfySocketHandlers,
 } from '@/services/aiRuntime/comfy';
+import type { AiImageRequest } from '@/services/aiRuntime/types';
 import {
   CHECKPOINTS,
   CONTROLNETS,
@@ -476,6 +479,62 @@ function testPlanningSurface(): void {
   assert(comfySchedulerName('bong_tangent', ['normal', 'karras']) === 'normal', 'an unknown scheduler did not fall back');
 }
 
+/**
+ * The Studio's pose reference arrives as `controlImage` + `controlNetModel`
+ * + `controlStrength`, not as a `comfy.controls` entry. `intentFromRequest`
+ * counted it, so the multi-ControlNet template was chosen — and then every
+ * ControlNet occurrence was pruned for lack of an entry, and the pose was
+ * ignored by a job that reported success.
+ */
+function testRequestControlImage(): void {
+  const hint = 'data:image/png;base64,iVBORw0KGgo=';
+  const request: AiImageRequest = {
+    connectionId: 'comfy',
+    modelId: CHECKPOINTS[0],
+    prompt: 'a figure mid-stride',
+    width: 1024,
+    height: 1024,
+    n: 1,
+    controlImage: hint,
+    controlNetModel: CONTROLNETS[0],
+    controlStrength: 0.8,
+  };
+  const read = controlFromRequest(request);
+  assert(read.ok && read.control, 'a control image with its ControlNet was not read');
+  assert(read.ok && read.control?.imageDataUrl === hint && read.control.model === CONTROLNETS[0] && read.control.strength === 0.8, 'the control image, model or strength was lost');
+  assert(read.ok && read.control?.startPercent === 0 && read.control.endPercent === 1, 'the Studio hint must run over the whole schedule');
+
+  const templateId = chooseTemplateId(intentFromRequest(request, readComfyExtras(request)));
+  assert(templateId === 'multi-controlnet', 'a control image did not choose the ControlNet template');
+  const planned = planSubmission(REGISTRY, INFO, baseRecipe({
+    templateId,
+    controls: read.ok && read.control
+      ? [{ model: read.control.model, image: 'writers-hoard/pose.png', strength: read.control.strength, startPercent: 0, endPercent: 1 }]
+      : [],
+  }));
+  assert(planned.ok, 'a control-image recipe did not plan');
+  const applied = planned.ok ? Object.values(planned.graph).filter((node) => node.class_type === 'ControlNetApplyAdvanced') : [];
+  assert(applied.length === 1 && applied[0].inputs.strength === 0.8, 'the submitted graph does not apply the pose ControlNet at its strength');
+
+  // No ControlNet named: refused, as the bundled runtime refuses it, rather
+  // than a picture that follows nothing.
+  const unnamed = controlFromRequest({ ...request, controlNetModel: undefined });
+  assert(!unnamed.ok && /ControlNet/.test(unnamed.error), 'a control image with no ControlNet was not refused');
+  const defaulted = controlFromRequest({ ...request, controlStrength: undefined });
+  assert(defaulted.ok && defaulted.control?.strength === 1, 'an unset control strength did not default to 1');
+  const clamped = controlFromRequest({ ...request, controlStrength: 99 });
+  assert(clamped.ok && clamped.control?.strength === 10, 'an out-of-range control strength was not clamped');
+  const none = controlFromRequest({ ...request, controlImage: undefined });
+  assert(none.ok && none.control === null, 'a request with no control image produced a control');
+
+  // A ControlNet this install does not have is a missing model, named.
+  const missing = planSubmission(REGISTRY, INFO, baseRecipe({
+    templateId,
+    controls: [{ model: 'controlnet-sd15-openpose', image: 'writers-hoard/pose.png', strength: 1, startPercent: 0, endPercent: 1 }],
+  }));
+  assert(!missing.ok && missing.code === 'model-missing', 'a ControlNet the install lacks was not reported missing');
+}
+
 // ---------------------------------------------------------------------------
 // 9. Bring your own workflow
 // ---------------------------------------------------------------------------
@@ -801,6 +860,7 @@ export async function testComfyBackend(): Promise<string> {
   testMissingModels();
   testHarderTemplates();
   testPlanningSurface();
+  testRequestControlImage();
   testBringYourOwnWorkflow();
   await testTransportRoundTrip();
   await testAnEarlyWakeIsNotLost();
