@@ -39,8 +39,8 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
   // at one — `FactSource.entityId` was declared from day one and never filled.
   const { items: snapshots } = useSnapshots(projectId);
   // Differs from what the editor opened with (a new fact opens blank), so
-  // Escape or a backdrop click cannot throw the input away. A source typed
-  // but not yet added counts too.
+  // Escape or a backdrop click cannot throw the input away. A source typed or
+  // a capture picked but not yet added counts too.
   const dirty = title !== (fact?.title ?? '')
     || content !== (fact?.content ?? '')
     || date !== (fact?.date ?? '')
@@ -50,7 +50,8 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
     || JSON.stringify(tags) !== JSON.stringify(fact?.tags ?? [])
     || JSON.stringify(sources) !== JSON.stringify(fact?.sources ?? [])
     || newSourceDescription.trim() !== ''
-    || newSourceUrl.trim() !== '';
+    || newSourceUrl.trim() !== ''
+    || newSourceEntityId !== '';
 
   if (!isOpen) return null;
 

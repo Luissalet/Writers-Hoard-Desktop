@@ -4529,6 +4529,7 @@ const es = {
   'visualRef.reason.noPrompt': 'Todavía no hay nada que enviar: mete a alguien, o describe una escena.',
   'visualRef.reason.noControlNet': 'Una pose fijada necesita un ControlNet en el servidor local de imágenes, y no hay ninguno instalado. Añade el ControlNet OpenPose de SD 1.5 a la carpeta de ControlNets del runtime, o quita la pose de la referencia.',
   'visualRef.reason.controlNetAmbiguous': 'Hay varios ControlNets instalados y ninguno es OpenPose, así que la pose no se puede asignar a uno. Deja en la carpeta de ControlNets solo el que quieras usar.',
+  'visualRef.reason.controlNetChecking': 'Comprobando qué ControlNets tiene instaladas el servidor local de imágenes…',
   'visualRef.reason.busy': 'Hay una generación en marcha.',
   'visualRef.reason.noRefSelected': 'Elige antes una referencia en el reparto.',
   'visualRef.reason.noSeedRecorded': 'Esta imagen no tiene semilla guardada, así que no hay nada que fijar.',
