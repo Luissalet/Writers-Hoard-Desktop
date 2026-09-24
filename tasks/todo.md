@@ -633,3 +633,59 @@ Plan verificado con la petición: trasladar las conexiones Claude/Codex por susc
 Claude/Codex usan clientes oficiales con autenticación de suscripción comprobada, sin copiar credenciales ni alternativa API. Copiloto mediante propuestas estructuradas validadas y ejecutor compartido. Inicio de sesión Windows con ejecutable resuelto, cancelación de procesos y cierre global; instrucciones de terminal en otros sistemas. Interfaz bilingüe para importar/verificar/modelos/predeterminada/quitar conexión y configuración Claude Desktop/Codex/Gemini CLI más mensaje de inicio sin secretos. Chats web requieren integración aparte, no basta un prompt.
 
 Verificado: verify:quick sin errores, 325 pruebas críticas, test:subscriptions (protocolo, autenticación/cancelación, interfaz y guía), build:desktop y bundle:budget. Revisadas capturas reales de componentes/CSS a 1280 y 760 px con datos aislados. Ambos clientes instalados confirmaron suscripción y completaron respuestas reales y el ciclo propuesta de herramienta + resultado sintético + respuesta; sin leer proyectos personales. README, guías y PROJECT_KNOWLEDGE actualizados. Sin publicar instalador ni modificar configuraciones de asistentes externos.
+
+## Publicación 0.1.2 — 2026-09-08
+
+Usuario autoriza publicar siguiendo docs/RELEASES.md: nueva prerelease Windows/Linux, seis adjuntos, código privado y versiones anteriores conservadas.
+- [x] Versionar y preparar notas de novedades/requisitos.
+- [x] Verificar y empaquetar Windows/Linux con dependencias de cada plataforma.
+- [x] Probar paquetes finales y comprobar metadatos y hashes.
+- [x] Subir borrador, verificar adjuntos remotos y publicar.
+
+### Revisión de publicación 0.1.2
+
+Publicada https://github.com/Luissalet/Writers-Hoard-Releases/releases/tag/v0.1.2 como prerelease Windows x64/Linux x64. Seis adjuntos: instalador NSIS, blockmap, AppImage, dos YAML y SHA256SUMS. npm ci y binarios por plataforma, verify:release aprobado (0 vulnerabilidades, 325 pruebas críticas y pruebas nuevas de suscripciones), arranque Windows empaquetado y Linux no root con sandbox. Archivos de aplicación versión 0.1.2, funciones nuevas incluidas, sin fuentes/mapas propios. Los seis adjuntos descargados del borrador coinciden byte a byte con los locales; metadatos, tamaños y hashes verificados antes de publicar. Versiones 0.1.0/0.1.1 conservadas, código privado no enviado al repositorio público, contenedores de build detenidos. Limitaciones de firma Windows y gallery-dl Linux documentadas en notas.
+
+
+## Modo concentración a pantalla completa + ocultar barra lateral — 2026-09-23
+
+Petición de usuarios: al escribir capítulos, una «pantalla completa» como la de Word para concentrarse,
+y un botón para esconder/mostrar la barra lateral.
+
+- [x] Barra lateral: tercer estado «oculta» (`sidebarHidden` en appStore, persistido en `ui_sidebar`),
+      `Sidebar` a anchura 0 e `inert`, botón PanelLeft en `TopBar`, atajo Mod+Shift+B (fila en shortcuts.ts).
+- [x] Modo concentración: pantalla completa real con la Fullscreen API (sin IPC nuevo; Electron pone la
+      ventana a pantalla completa), cabecera que se esconde y aparece al llevar el ratón arriba (como Word),
+      pastilla de estado abajo a la derecha (palabras, páginas, sprint, autoguardado), Esc y
+      `fullscreenchange` salen a la vez, atajo Mod+Shift+F.
+- [x] Puertas: tsc, lint, conformance, 325 tests críticos; prueba en vivo en la app (CDP).
+- [x] Review aquí + memoria del proyecto.
+
+### Review
+
+**Qué hay.** `src/engines/writings/components/FocusChrome.tsx` (nuevo): la fila de controles del editor
+en una tira fija arriba, visible 2,8 s al entrar (con la pista «borde superior · Esc · Ctrl Mayús F») y
+después solo con el puntero en los 8 px del borde o con foco dentro — todo CSS (`group-hover/chrome`,
+`group-focus-within/chrome`), sin listener de `mousemove`. `WritingsView`: `headerRow` y `metaRow` son
+constantes JSX que se colocan en el cuerpo o en la tira/pastilla según `focusMode`; el efecto
+`[focusMode]` pide `requestFullscreen` al entrar, escucha `fullscreenchange` (si el documento deja la
+pantalla completa por cualquier vía, el modo se apaga) y en la limpieza sale de la pantalla completa.
+`SprintControl` gana `menuPlacement="above"` para que sus opciones no se abran fuera de pantalla desde la
+pastilla. `appStore`: `sidebarHidden` + `toggleSidebarHidden`/`setSidebarHidden`/`loadSidebar`, persistido
+junto a `sidebarOpen` en la clave `ui_sidebar`; `MainLayout` lo carga y ata Mod+Shift+B a la ventana.
+
+**Verificado en vivo (dev-desktop con CDP, `_stage/cdp.mjs` con los comandos nuevos `tap`, `hover`,
+`press` — clic y teclas de confianza, porque `el.click()` desde `Runtime.evaluate` no es gesto de
+usuario y `requestFullscreen` lo rechaza):** botón y atajo ocultan/muestran la barra (anchura 0, `inert`,
+etiqueta «Show the sidebar (Ctrl Shift B)»); persiste tras recargar. Modo concentración: la ventana pasa a
+1920×1080 (`document.fullscreenElement` puesto), la tira asoma y se esconde (top −49, opacidad 0), vuelve
+al pasar el puntero por y=3 y se va al bajar; Esc deja pantalla completa y overlay a la vez; Ctrl+Mayús+F
+entra y sale. La pastilla muestra sprint · 1.375 palabras · 5 páginas · capítulo · estado.
+
+**Trampas.** `scripts/add-locale-keys.mjs` fallaba con un espacio en la ruta (`.pathname` deja `%20`):
+ahora usa `fileURLToPath`. Vite recarga `WritingsView` al editarlo y eso cierra el editor y la pantalla
+completa: cualquier prueba en vivo se rehace desde abrir el capítulo.
+
+**Abierto.** F11 (rol `togglefullscreen` del menú) durante el modo concentración no se ha probado por
+CDP (el acelerador lo maneja Electron, no el renderer); por diseño `fullscreenchange` debería apagar el
+modo. El libro entero (`BookEditor`) no tiene modo concentración.
