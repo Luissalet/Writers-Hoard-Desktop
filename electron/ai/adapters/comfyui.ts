@@ -221,6 +221,9 @@ async function objectInfoFor(ctx: AdapterContext, signal?: AbortSignal): Promise
 }
 
 function descriptors(connectionId: string, info: ComfyObjectInfo): AiModelDescriptor[] {
+  // Every checkpoint on this install can take any of its ControlNets; the
+  // studio picks one for a pinned pose from this list (OpenPose first).
+  const controlNets = listControlNets(info);
   return listCheckpoints(info).map((id) => ({
     connectionId,
     id,
@@ -228,6 +231,7 @@ function descriptors(connectionId: string, info: ComfyObjectInfo): AiModelDescri
     capabilities: ['image-generation', 'image-editing'],
     label: id.replace(/\.[^.]+$/, '').replace(/^.*[\\/]/, ''),
     installed: true,
+    controlNets: controlNets.length ? controlNets : undefined,
   }));
 }
 
