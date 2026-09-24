@@ -734,8 +734,17 @@ shell-ui-regressions, modal-dirty-guards, codex-draft-recovery.
 Caught in review: the read-aloud optimisation left the panel's open
 buttons permanently disabled (lesson #78).
 
-Left open (reported, not fixed): ComfyUI ignores controlImage; no UI
-calls sd:downloadCompanion; Markdown export drops strikethrough and
-multi-line code; find/replace with an empty replacement can remove a
-whole paragraph; a clipping deleted mid-download leaves its file;
-Worldgen's CartoMap frame and dead-context scene are not cancelled.
+Second round ("keep going until you fix it"): every item above was fixed
+— ComfyUI poses and body timeout, ControlNet/upscaler install UI, pose
+pinning end to end, Markdown strikethrough/code/quoted breaks, read-aloud
+speed, orphaned clipping files, batch archive across views, POV speakers,
+timeline totals, dialog-delete confirm, CartoMap/World3D teardown, AI edit
+vs pending world save, Forge exit code, three.js chunk (World3D 714 → 188
+kB). Replace-with-nothing was verified not to be a bug. Three Cursor Bugbot
+findings were fixed and resolved on the PR.
+
+Still open, by decision: the total renderer JS budget (7.76 MB against an
+advisory 4.1 MB). Worldgen, three, lucide's lazy icon catalogue, pdfjs,
+docx, react-dom and the locales alone come to ~3.9 MB, so meeting it
+means removing features, not changing imports. On ComfyUI, the chosen
+ControlNet is not matched to the checkpoint's family.
