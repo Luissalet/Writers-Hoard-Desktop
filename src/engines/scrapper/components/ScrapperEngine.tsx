@@ -9,11 +9,25 @@
 //   only the CaptureBar plus an ephemeral "this session" list of completed
 //   downloads. No DB, no archive UI.
 
-import { useState, useMemo, useCallback } from 'react';
-import { Grid3x3, List, CheckCircle2, AlertCircle, Instagram as InstagramIcon } from 'lucide-react';
+import { useState, useMemo, useCallback, useRef } from 'react';
+import {
+  Grid3x3,
+  List,
+  CheckCircle2,
+  AlertCircle,
+  Instagram as InstagramIcon,
+  Link2,
+  Archive,
+  Download,
+  Loader2,
+} from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
-import { EngineSpinner, useDeepLinkParam } from '@/engines/_shared';
+import { ConfirmDialog, EngineSpinner, useDeepLinkParam } from '@/engines/_shared';
 import { useSnapshots } from '../hooks';
+import { getSnapshot } from '../operations';
+import { isLinkOnly } from '../preservation';
+import { downloadLinksCsv } from '../linkExport';
+import PreservationBadge from './PreservationBadge';
 import CaptureBar from './CaptureBar';
 import SnapshotCard from './SnapshotCard';
 import SnapshotDetail from './SnapshotDetail';
@@ -27,7 +41,12 @@ import {
   runSnapshotDownload,
   isoFromYtDate,
 } from '@/services/scrapperMedia';
-import { canCapturePage, deleteSnapshotCapture, runSnapshotCapture } from '@/services/pageCapture';
+import {
+  canCapturePage,
+  cancelSnapshotCapture,
+  deleteSnapshotCapture,
+  runSnapshotCapture,
+} from '@/services/pageCapture';
 import { extractDomainFromUrl } from '../services/urlDetector';
 import { isDesktop } from '@/utils/platform';
 import { useAiStore } from '@/stores/aiStore';
@@ -92,6 +111,12 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
   const deepLinkedSnapshotId = useDeepLinkParam('entity');
   const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
+  const [linkOnlyFilter, setLinkOnlyFilter] = useState(false);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [archiveProgress, setArchiveProgress] = useState<{ done: number; total: number } | null>(null);
+  // The running batch archive, if any. `currentId` is the clipping whose page
+  // is being rendered right now, so Stop can cancel it instead of waiting.
+  const archiveRunRef = useRef<{ cancelled: boolean; currentId: string | null } | null>(null);
   const aiConfig = useAiStore((s) => s.config);
 
   if (
@@ -101,20 +126,40 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
   ) {
     setAppliedDeepLink(deepLinkedSnapshotId);
     setSearchQuery('');
+    setLinkOnlyFilter(false);
     setSelectedSnapshotId(deepLinkedSnapshotId);
   }
 
+  // Clippings whose only local trace is the URL, and the subset the page
+  // archiver can fix (media links go through their own per-clipping download).
+  const linkOnlyCount = useMemo(() => snapshots.filter((s) => isLinkOnly(s)).length, [snapshots]);
+  const archivableIds = useMemo(
+    () =>
+      snapshots
+        .filter((s) => isLinkOnly(s) && canCapturePage(s.source) && s.captureState !== 'capturing')
+        .map((s) => s.id),
+    [snapshots],
+  );
+
   const filteredSnapshots = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return snapshots;
-    return snapshots.filter(s =>
+    const base = linkOnlyFilter ? snapshots.filter((s) => isLinkOnly(s)) : snapshots;
+    if (!q) return base;
+    return base.filter(s =>
       s.title.toLowerCase().includes(q) ||
       s.url.toLowerCase().includes(q) ||
       s.notes.toLowerCase().includes(q) ||
       s.tags.some(tag => tag.toLowerCase().includes(q)) ||
       (s.extractedText && s.extractedText.toLowerCase().includes(q))
     );
-  }, [snapshots, searchQuery]);
+  }, [snapshots, searchQuery, linkOnlyFilter]);
+  const hasFilters = Boolean(searchQuery) || linkOnlyFilter;
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setSearchActiveIndex(-1);
+    setLinkOnlyFilter(false);
+  };
   const selectedSnapshot = snapshots.find((snapshot) => snapshot.id === selectedSnapshotId);
 
   // All distinct tags already used in this project — offered as autocomplete.
@@ -235,6 +280,69 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
     [projectId, addSnapshot, editSnapshot, t],
   );
 
+  // Batch archive of every link-only web page, one at a time (a hidden
+  // Chromium window per page is heavy). Only ever ADDS a local copy — the
+  // capture lifecycle never touches the link itself. Ends with ONE toast that
+  // sums up the batch instead of a failure toast per page.
+  const startArchiveLinkOnly = useCallback(() => {
+    setArchiveConfirmOpen(false);
+    if (archiveRunRef.current || archivableIds.length === 0) return;
+    const ids = archivableIds;
+    const run = { cancelled: false, currentId: null as string | null };
+    archiveRunRef.current = run;
+    setArchiveProgress({ done: 0, total: ids.length });
+    void (async () => {
+      let ok = 0;
+      let failed = 0;
+      try {
+        for (const [index, id] of ids.entries()) {
+          if (run.cancelled) break;
+          // Re-read: the queue can wait minutes, and meanwhile the clipping may
+          // have been edited, archived by hand or deleted.
+          const fresh = await getSnapshot(id).catch(() => undefined);
+          if (fresh && isLinkOnly(fresh) && fresh.captureState !== 'capturing') {
+            run.currentId = id;
+            // Never throws by contract; one surprise must not strand the rest.
+            await runSnapshotCapture(fresh, editSnapshot).catch((error: unknown) => {
+              console.error('Batch archive: capture failed', fresh.url, error);
+            });
+            run.currentId = null;
+            const after = await getSnapshot(id).catch(() => undefined);
+            if (after?.captureState === 'done') ok++;
+            else if (after?.captureState === 'error') failed++;
+          }
+          setArchiveProgress({ done: index + 1, total: ids.length });
+        }
+      } finally {
+        archiveRunRef.current = null;
+        setArchiveProgress(null);
+      }
+      const skipped = ids.length - ok - failed;
+      const parts = [
+        t('scrapper.archiveLinkOnly.summary')
+          .replace('{ok}', String(ok))
+          .replace('{total}', String(ids.length)),
+      ];
+      if (failed > 0) {
+        parts.push(t('scrapper.archiveLinkOnly.summaryFailed').replace('{failed}', String(failed)));
+      }
+      if (skipped > 0) {
+        parts.push(t('scrapper.archiveLinkOnly.summarySkipped').replace('{skipped}', String(skipped)));
+      }
+      const message = parts.join(' ');
+      if (failed > 0) toast.error(message, 10000);
+      else if (ok > 0) toast.success(message);
+      else toast.info(message);
+    })();
+  }, [archivableIds, editSnapshot, t]);
+
+  const stopArchiveLinkOnly = () => {
+    const run = archiveRunRef.current;
+    if (!run) return;
+    run.cancelled = true;
+    if (run.currentId) void cancelSnapshotCapture(run.currentId);
+  };
+
   // Delete: also remove the local files so the library doesn't leak.
   const handleDelete = useCallback(
     (id: string) => {
@@ -303,6 +411,55 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
             </ul>
           )}
         </div>
+        {(linkOnlyCount > 0 || linkOnlyFilter) && (
+          <button
+            type="button"
+            aria-pressed={linkOnlyFilter}
+            onClick={() => setLinkOnlyFilter((on) => !on)}
+            title={t('scrapper.linkOnlyFilterHint')}
+            className={`flex flex-shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border transition-colors ${
+              linkOnlyFilter
+                ? 'border-accent-gold bg-accent-gold/20 text-foreground'
+                : 'border-border bg-elevated text-muted hover:text-foreground hover:border-accent-gold'
+            }`}
+          >
+            <Link2 size={14} aria-hidden="true" />
+            {t('scrapper.linkOnlyFilter').replace('{count}', String(linkOnlyCount))}
+          </button>
+        )}
+        {isDesktop() && archiveProgress ? (
+          <button
+            type="button"
+            onClick={stopArchiveLinkOnly}
+            className="flex flex-shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-accent-gold bg-elevated text-foreground transition-colors"
+          >
+            <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+            {t('scrapper.archiveLinkOnly.stop')
+              .replace('{done}', String(archiveProgress.done))
+              .replace('{total}', String(archiveProgress.total))}
+          </button>
+        ) : isDesktop() && archivableIds.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setArchiveConfirmOpen(true)}
+            title={t('scrapper.archiveLinkOnly.buttonHint')}
+            className="flex flex-shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-elevated text-foreground hover:border-accent-gold transition-colors"
+          >
+            <Archive size={14} aria-hidden="true" />
+            {t('scrapper.archiveLinkOnly.button').replace('{count}', String(archivableIds.length))}
+          </button>
+        ) : null}
+        {snapshots.length > 0 && (
+          <button
+            type="button"
+            onClick={() => downloadLinksCsv(snapshots)}
+            title={t('scrapper.exportLinksHint')}
+            aria-label={t('scrapper.exportLinks')}
+            className="flex flex-shrink-0 items-center p-2 rounded-lg border border-border bg-elevated text-foreground hover:border-accent-gold transition-colors"
+          >
+            <Download size={14} aria-hidden="true" />
+          </button>
+        )}
         <InstagramConnect />
         {isDesktop() && (
           <button
@@ -359,13 +516,22 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
               </svg>
             </div>
             <h3 className="text-lg font-serif font-semibold text-foreground mb-2">
-              {searchQuery ? t('scrapper.noResults') : t('scrapper.noSnapshots')}
+              {hasFilters ? t('scrapper.noResults') : t('scrapper.noSnapshots')}
             </h3>
             <p className="text-muted text-sm max-w-sm">
-              {searchQuery
+              {hasFilters
                 ? t('scrapper.adjustSearch')
                 : t('scrapper.startCapturing')}
             </p>
+            {hasFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="mt-4 px-3 py-1.5 text-xs rounded-lg border border-border bg-elevated text-foreground hover:border-accent-gold transition-colors"
+              >
+                {t('scrapper.clearFilters')}
+              </button>
+            )}
           </div>
         ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -403,9 +569,12 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
                       <p className="text-xs text-muted mt-2 line-clamp-1">{snapshot.notes}</p>
                     )}
                   </div>
-                  <span className="flex-shrink-0 text-xs font-medium text-muted uppercase">
-                    {snapshot.source}
-                  </span>
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    <PreservationBadge snapshot={snapshot} />
+                    <span className="text-xs font-medium text-muted uppercase">
+                      {snapshot.source}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}
@@ -432,6 +601,15 @@ function ArchiveModeView({ projectId }: { projectId: string }) {
           onCancel={() => setIsImportModalOpen(false)}
         />
       )}
+
+      <ConfirmDialog
+        open={archiveConfirmOpen}
+        title={t('scrapper.archiveLinkOnly.title')}
+        message={t('scrapper.archiveLinkOnly.message').replace('{count}', String(archivableIds.length))}
+        confirmLabel={t('scrapper.archiveLinkOnly.confirm').replace('{count}', String(archivableIds.length))}
+        onConfirm={startArchiveLinkOnly}
+        onCancel={() => setArchiveConfirmOpen(false)}
+      />
 
       {selectedSnapshot && (
         <SnapshotDetail

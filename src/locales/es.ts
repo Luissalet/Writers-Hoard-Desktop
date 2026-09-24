@@ -3476,6 +3476,7 @@ const es = {
   'copilot.cancelled': 'Cancelado.',
   'copilot.thinking': 'Pensando…',
   'copilot.error.generic': 'La petición falló.',
+  'copilot.error.sendFailed': 'No se pudo enviar el mensaje. Ha vuelto al cuadro para que lo intentes de nuevo.',
   'copilot.remoteConsent': 'Este modelo corre en un servidor remoto ({name}). Lo que le preguntes y lo que el copiloto lea del proyecto saldrá de tu equipo. ¿Continuar con este proyecto?',
   'copilot.notice.chat-only': 'Este modelo no soporta herramientas: puede conversar pero no leer ni cambiar el proyecto.',
   'copilot.notice.tools-dropped': 'El servidor rechazó las herramientas; esta respuesta es sólo conversación.',

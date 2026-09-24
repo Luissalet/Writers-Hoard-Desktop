@@ -7,6 +7,7 @@ import { motion } from 'framer-motion';
 import type { Snapshot } from '../types';
 import { useTranslation } from '@/i18n/useTranslation';
 import { snapshotMediaUrl } from '@/services/scrapperMedia';
+import PreservationBadge from './PreservationBadge';
 
 interface SnapshotCardProps {
   snapshot: Snapshot;
@@ -135,6 +136,7 @@ export default function SnapshotCard({ snapshot, onOpen }: SnapshotCardProps) {
                 {snapshot.title}
               </h3>
             </div>
+            <PreservationBadge snapshot={snapshot} />
           </div>
 
           <a
