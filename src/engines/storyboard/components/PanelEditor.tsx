@@ -77,9 +77,20 @@ export default function PanelEditor({ panel, isOpen, onClose, onSave, scenes = [
 
   if (!isOpen || !panel) return null;
 
+  // Anything changed since the editor opened keeps Escape and the backdrop
+  // from discarding it; Cancel and the X still close.
+  const dirty = (formData.subtitle || '') !== (panel.subtitle || '')
+    || (formData.description || '') !== (panel.description || '')
+    || (formData.duration || '') !== (panel.duration || '')
+    || (formData.linkedSceneId || '') !== (panel.linkedSceneId || '')
+    || formData.imageData !== panel.imageData
+    || formData.imageDataOriginal !== panel.imageDataOriginal
+    || formData.imageRef !== panel.imageRef
+    || (formData.tags ?? []).join(',') !== (panel.tags ?? []).join(',');
+
   return (
     <>
-      <Modal open={isOpen} busy={saving} onClose={() => { if (!saving) onClose(); }} title={t('storyboard.editPanel')}>
+      <Modal open={isOpen} busy={saving} dismissible={!dirty} onClose={() => { if (!saving) onClose(); }} title={t('storyboard.editPanel')}>
       <fieldset disabled={saving} className="space-y-6 max-w-2xl">
         {/* Image Upload */}
         <div>
