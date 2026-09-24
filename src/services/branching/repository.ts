@@ -192,14 +192,19 @@ async function validateRemoval(
     return;
   }
   if (delta.targetKind !== 'outline-beat') return;
+  // `linkedBeatId` is not an index on seeds, payoffs or arc beats: a
+  // `where('linkedBeatId')` threw a SchemaError, which the preview reported as
+  // an invalid reference — so NO alternative could ever remove a beat. Scope by
+  // the indexed project and test the link in memory instead.
+  const linkedToBeat = (row: { linkedBeatId?: string }) => row.linkedBeatId === delta.targetId;
   const [children, seeds, payoffs, arcBeats] = await Promise.all([
     db.outlineBeats.where('parentId').equals(delta.targetId).toArray(),
-    db.seeds.where('linkedBeatId').equals(delta.targetId).toArray(),
-    db.payoffs.where('linkedBeatId').equals(delta.targetId).toArray(),
-    db.arcBeats.where('linkedBeatId').equals(delta.targetId).toArray(),
+    db.seeds.where('projectId').equals(delta.projectId).filter(linkedToBeat).count(),
+    db.payoffs.where('projectId').equals(delta.projectId).filter(linkedToBeat).count(),
+    db.arcBeats.where('projectId').equals(delta.projectId).filter(linkedToBeat).count(),
   ]);
   const liveChildren = children.some((child) => !removed.has(proposalKey('outline-beat', child.id)));
-  if (liveChildren || seeds.length || payoffs.length || arcBeats.length) {
+  if (liveChildren || seeds || payoffs || arcBeats) {
     throw new Error('This beat still has canonical dependants and cannot be removed by the branch.');
   }
 }

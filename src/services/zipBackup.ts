@@ -120,6 +120,12 @@ interface PreparedReferenceLibrary {
   lenses: ReferenceLens[];
 }
 
+const REFERENCE_LIBRARY_TABLES: ReadonlySet<string> = new Set([
+  'referenceDocuments',
+  'referenceSections',
+  'referenceLenses',
+]);
+
 const EMPTY_REFERENCE_LIBRARY: PreparedReferenceLibrary = {
   documents: [],
   sections: [],
@@ -992,6 +998,7 @@ async function clearProjectForRestore(projectId: string): Promise<void> {
   if (worldIds.length) {
     await db.worldSnapshots.bulkDelete(worldIds as string[]);
     await db.canonTiles.where('worldId').anyOf(worldIds as string[]).delete();
+    await db.renderedTiles.where('worldId').anyOf(worldIds as string[]).delete();
   }
   for (const table of projectScoped) {
     await table.where('projectId').equals(projectId).delete();
@@ -1089,19 +1096,35 @@ export async function importFullZip(file: File): Promise<void> {
   const { zip, prepared } = await loadAndPreflight(file, 'full');
   const settings = expectArray(prepared.json, 'settings.json', []);
   const tags = expectArray(prepared.json, 'tags.json', []);
+  // Archives older than v3 predate the inbox file. Like the library below,
+  // what the archive cannot restore is kept rather than cleared.
+  const carriesInbox = prepared.json.has('notes-inbox.json');
   const inboxNotes = expectArray(prepared.json, 'notes-inbox.json', []);
   // Same reason as the project restore: nothing inside the transaction may
   // yield to the event loop, and a JSZip read does.
   await preloadArchive(zip, ['reference-library/originals/']);
 
   try {
+    // The private reference library is global, not project data, and only
+    // v4+ archives carry it. Restoring an older full backup must not wipe
+    // originals the archive has nothing to put back — the same rule the
+    // legacy JSON import follows for every table its format cannot hold. The
+    // version test is the one `prepareReferenceLibrary` reads it by.
+    const carriesLibrary = prepared.manifest.version >= 4;
+    const toClear = db.tables.filter(
+      (table) => carriesLibrary || !REFERENCE_LIBRARY_TABLES.has(table.name),
+    );
     await db.transaction('rw', db.tables, async () => {
       // Clear and restore are one transaction. If any strategy fails, Dexie
       // rolls the entire database back to its pre-import state.
-      await Promise.all(db.tables.map((table) => table.clear()));
+      const keptInbox = carriesInbox
+        ? []
+        : await db.notes.where('projectId').equals(GLOBAL_NOTES_SCOPE).toArray();
+      await Promise.all(toClear.map((table) => table.clear()));
       if (settings.length) await db.settings.bulkAdd(settings as never[]);
       if (tags.length) await db.tags.bulkAdd(tags as never[]);
       if (inboxNotes.length) await db.table('notes').bulkAdd(inboxNotes as never[]);
+      if (keptInbox.length) await db.notes.bulkPut(keptInbox);
       if (prepared.referenceLibrary.documents.length) {
         await db.referenceDocuments.bulkAdd(prepared.referenceLibrary.documents);
       }
