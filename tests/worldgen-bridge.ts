@@ -149,6 +149,47 @@ export async function testWorldgenBridgeAccess(): Promise<string> {
       `a row write must keep the view's pending save and survive it (got ${JSON.stringify(texts)})`);
     assert(rowWrite.before === serializeEdits(viewList), 'the audit "before" must be the row as it stood, not the stale copy');
 
+    // 4c. El vaciado es una espera. Una vista que se registra MIENTRAS tanto
+    //     ya es la dueña: la edición va a ella y la fila no se toca.
+    const lateReceived: WorldEdit[][] = [];
+    let unregisterLate: (() => void) | undefined;
+    const beforeLate = (await db.generatedWorlds.get(worldId))!.edits ?? '';
+    const lateWriter = createWorldEditWriter(worldId, async (json) => {
+      await generatedWorldOps.update(worldId, { edits: json });
+      unregisterLate = registerLiveWorld(worldId, {
+        apply: (edits) => { lateReceived.push(edits); },
+        snapshot: () => json,
+      });
+    }, 60_000);
+    lateWriter.schedule(beforeLate);
+    try {
+      const lateWrite = await applyWorldEdits(stale, [{ kind: 'label', x: 7, y: 7, text: 'Late view label', style: 'note' }]);
+      assert(lateWrite.delivered === 'view' && lateReceived.length === 1,
+        `a view that registers during the drain must receive the edit (delivered ${lateWrite.delivered})`);
+      const lateRow = deserializeEdits((await db.generatedWorlds.get(worldId))!.edits ?? '');
+      assert(!lateRow.some((edit) => edit.kind === 'label' && edit.text === 'Late view label'),
+        'an edit handed to the late view must not be written to the row too');
+    } finally {
+      unregisterLate?.();
+    }
+
+    // 4d. Y un guardado que OTRO escritor programa durante el vaciado también
+    //     llega antes de la suma: si no, aterriza después con la lista vieja.
+    const beforeRace = (await db.generatedWorlds.get(worldId))!.edits ?? '';
+    const raceList = [...deserializeEdits(beforeRace), { kind: 'label', x: 8, y: 8, text: 'Second writer', style: 'note' } as WorldEdit];
+    const secondWriter = createWorldEditWriter(worldId, (json) => generatedWorldOps.update(worldId, { edits: json }), 60_000);
+    const firstWriter = createWorldEditWriter(worldId, async (json) => {
+      await generatedWorldOps.update(worldId, { edits: json });
+      secondWriter.schedule(serializeEdits(raceList));
+    }, 60_000);
+    firstWriter.schedule(beforeRace);
+    const raceWrite = await applyWorldEdits(stale, [{ kind: 'label', x: 9, y: 9, text: 'Bridge after race', style: 'note' }]);
+    await secondWriter.flush();
+    const raced = deserializeEdits((await db.generatedWorlds.get(worldId))!.edits ?? '')
+      .map((edit) => (edit.kind === 'label' ? edit.text : edit.kind));
+    assert(raceWrite.delivered === 'row' && raced.includes('Second writer') && raced.includes('Bridge after race'),
+      `a save scheduled during the drain must not clobber the appended edit (got ${JSON.stringify(raced)})`);
+
     // 5. Deleting the world takes its links and caches with it.
     await db.entityLinks.add({
       id: generateId('entity-link'), projectId, sourceEngineId: 'worldgen', sourceEntityType: 'world-spatial',

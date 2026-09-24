@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import World3D from '@/engines/worldgen/components/World3D';
+import { SculptSurface } from '@/engines/worldgen/sculpt/scene3d';
 import { DEFAULT_PAINT_TOOL } from '@/engines/worldgen/components/PaintPanel';
 import { THEMES } from '@/engines/worldgen/cartography/theme';
 import { generateWorld } from '@/engines/worldgen/core/pipeline';
@@ -174,6 +175,84 @@ async function testWorld3DStopsAfterContextLoss(): Promise<string> {
   }
 }
 
+/**
+ * Y si el contexto se pierde A MEDIO MONTAR, cuando `teardown` aún no existe.
+ * Chromium entrega el `webglcontextlost` real en una tarea aparte, así que la
+ * única forma de que el oyente corra dentro del montaje es un despacho
+ * síncrono: se engancha a la primera subida del terreno (el oyente ya está
+ * puesto; cielo, agua, vegetación y teselas aún no). La escena no debe
+ * publicarse: ni fotogramas, ni reloj, y lo construido se libera ya.
+ */
+async function testWorld3DStopsAfterContextLossDuringSetup(): Promise<string> {
+  const live = new Map<number, number>();
+  const nativeSet = window.setInterval, nativeClear = window.clearInterval;
+  window.setInterval = ((fn: TimerHandler, ms?: number, ...args: unknown[]) => {
+    const id = nativeSet(fn, ms, ...args);
+    live.set(id, ms ?? 0);
+    return id;
+  }) as typeof window.setInterval;
+  window.clearInterval = ((id?: number) => {
+    if (id !== undefined) live.delete(id);
+    nativeClear(id);
+  }) as typeof window.clearInterval;
+  const nativeUpdate = OrbitControls.prototype.update;
+  const nativeUpload = SculptSurface.prototype.uploadAll;
+  const nativeSurfaceDispose = SculptSurface.prototype.dispose;
+  // El constructor de los controles ya llama a `update` una vez dentro del
+  // montaje; cualquier otra llamada es un efecto trabajando sobre la escena
+  // publicada (encuadre, cambios de props).
+  let updates = 0;
+  let surfacesFreed = 0;
+  let fired = false;
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:0;top:0;width:800px;height:600px';
+  document.body.append(host);
+  OrbitControls.prototype.update = function (this: OrbitControls, ...args: Parameters<OrbitControls['update']>) {
+    updates++;
+    return nativeUpdate.apply(this, args);
+  };
+  SculptSurface.prototype.dispose = function (this: SculptSurface) {
+    surfacesFreed++;
+    return nativeSurfaceDispose.call(this);
+  };
+  SculptSurface.prototype.uploadAll = function (this: SculptSurface, ...args: Parameters<SculptSurface['uploadAll']>) {
+    if (!fired) {
+      fired = true;
+      host.querySelector('canvas')?.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+    }
+    return nativeUpload.apply(this, args);
+  };
+  const root = createRoot(host);
+  try {
+    const world = generateWorld({ ...DEFAULT_PARAMS, seed: 'context-loss-setup', width: 256 });
+    const view = (exaggeration: number, showSettlements: boolean) => (
+      <World3D world={world} theme={THEMES[0]} waypoints={[]} showWaypoints={false} showSettlements={showSettlements}
+        showLandmarks={false} skin="arcilla" shape="globe" onShape={() => {}} exaggeration={exaggeration}
+        tool={DEFAULT_PAINT_TOOL} onEdit={() => {}} revision={0} flyTarget={null} />
+    );
+    await act(async () => { root.render(view(20, false)); });
+    await wait(600);
+    assert(fired, 'the setup hook must fire during the mount');
+    assert(surfacesFreed === 1, `a context lost during setup must free the half-built scene now, not at unmount (${surfacesFreed})`);
+    assert(updates <= 1, `a context lost during setup must never publish the scene (${updates - 1} effect updates on it)`);
+    await act(async () => { root.render(view(35, true)); });
+    await wait(600);
+    assert(updates <= 1, `prop changes after a setup-time loss must not touch the dead scene (${updates - 1} updates)`);
+    await act(async () => { root.unmount(); });
+    assert(surfacesFreed === 1, 'unmount after a setup-time loss must not tear the scene down twice');
+    assert([...live.values()].filter((ms) => ms === 16).length === 0, 'unmount after a setup-time loss leaves no clock');
+    return 'Worldgen: World3D losing its context mid-setup never publishes the scene and frees what it built';
+  } finally {
+    window.setInterval = nativeSet;
+    window.clearInterval = nativeClear;
+    OrbitControls.prototype.update = nativeUpdate;
+    SculptSurface.prototype.uploadAll = nativeUpload;
+    SculptSurface.prototype.dispose = nativeSurfaceDispose;
+    host.remove();
+  }
+}
+
 export async function testWorldgen3DRegenerate(): Promise<string[]> {
-  return [testMalformedEditsAreSkippedIndividually(), await testWorld3DSurvivesWorldSwap(), await testWorld3DStopsAfterContextLoss()];
+  return [testMalformedEditsAreSkippedIndividually(), await testWorld3DSurvivesWorldSwap(), await testWorld3DStopsAfterContextLoss(),
+    await testWorld3DStopsAfterContextLossDuringSetup()];
 }
