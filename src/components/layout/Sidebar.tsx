@@ -20,7 +20,7 @@ import { toast } from '@/components/common/toast';
 
 export default function Sidebar() {
   const { t } = useTranslation();
-  const { sidebarOpen, toggleSidebar, setShowEngineManager } = useAppStore();
+  const { sidebarOpen, sidebarHidden, toggleSidebar, setShowEngineManager } = useAppStore();
   const { id: projectId } = useParams<{ id?: string }>();
 
   // Fetch project data to get dynamic engine list
@@ -62,8 +62,17 @@ export default function Sidebar() {
   };
 
   return (
+    // Hidden is a third width, zero, rather than an unmount: the width
+    // animates shut the way collapse does, and `inert` keeps a sidebar the
+    // eye cannot see out of the Tab order too. The top bar owns the way back
+    // (and Mod+Shift+B), because a button on a sidebar that is not there
+    // is no button at all.
     <aside
-      className={`app-sidebar h-full shrink-0 bg-surface border-r border-border flex flex-col overflow-hidden transition-[width] duration-200 ${sidebarOpen ? 'w-[220px]' : 'w-[60px]'}`}
+      inert={sidebarHidden}
+      aria-hidden={sidebarHidden}
+      className={`app-sidebar h-full shrink-0 bg-surface flex flex-col overflow-hidden transition-[width] duration-200 ${
+        sidebarHidden ? 'w-0' : sidebarOpen ? 'w-[220px] border-r border-border' : 'w-[60px] border-r border-border'
+      }`}
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-border">

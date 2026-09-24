@@ -57,4 +57,6 @@ Requiere `RELEASES_GITHUB_TOKEN` con permiso `Contents: write` en el repositorio
 
 Las versiones preliminares manuales 0.1.0 y 0.1.1 se publicaron sin firma Windows, con esa limitación indicada en las notas. No interpretar ese antecedente como una publicación estable firmada. Las notas de 0.1.1 también documentan la limitación de gallery-dl en Linux (GLIBC >= 2.38).
 
-Referencia publicada: https://github.com/Luissalet/Writers-Hoard-Releases/releases/tag/v0.1.1
+Última publicación verificada: [v0.1.2](https://github.com/Luissalet/Writers-Hoard-Releases/releases/tag/v0.1.2), 8 de septiembre de 2026. Prerelease manual Windows x64/Linux x64, seis adjuntos en `release/publish-0.1.2/`, notas en `tasks/release-notes-0.1.2.md`. Se mantiene la distribución Windows sin firma y la limitación GLIBC de gallery-dl en Linux. Los seis archivos descargados de GitHub coinciden con los originales por SHA256; versiones, tamaños y SHA512 de los metadatos comprobados. Versiones anteriores conservadas.
+
+Referencia anterior: https://github.com/Luissalet/Writers-Hoard-Releases/releases/tag/v0.1.1
