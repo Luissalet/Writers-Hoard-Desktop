@@ -24,7 +24,8 @@
 //     survive their blank lines; so do lists, which is what keeps a "loose"
 //     list one list instead of six.
 //   • Hard-wrapped prose is unwrapped (see `joinSoftWrapped`) — the one place
-//     this reader is deliberately not literal.
+//     this reader is deliberately not literal. A run of lines too long to have
+//     been wrapped is one paragraph per line instead (`isParagraphPerLine`).
 
 import { markdownToTiptapHtml } from '@/services/aiBridge/markdown';
 import { countWords, stripHtml } from '@/utils/text';
@@ -55,16 +56,34 @@ const INDENTED_RE = /^\s{4,}\S/;
 const WRAPPED_LINE_MIN = 45;
 
 /**
+ * Longer than any column a text editor wraps at. A block holding a line this
+ * long was not hard-wrapped: it is one paragraph per line, with no blank line
+ * between them — what Word's "Save as plain text" writes, and what a chapter
+ * copied out of Word or Scrivener puts on the clipboard. Rejoining those lines
+ * would fuse the whole chapter into a single paragraph, and a `***` or
+ * "Chapter Two" line inside it could no longer split anything.
+ */
+const UNWRAPPED_LINE_MIN = 120;
+
+/** Lists, quotes, indented code and tables keep every line as written. */
+function isStructuredLine(line: string): boolean {
+  return LIST_ITEM_RE.test(line) || QUOTE_RE.test(line) || INDENTED_RE.test(line) || line.includes('|');
+}
+
+/** A run of plain lines, one paragraph each (see `UNWRAPPED_LINE_MIN`). */
+function isParagraphPerLine(lines: string[]): boolean {
+  if (lines.length < 2 || FENCE_RE.test(lines[0])) return false;
+  if (lines.some(isStructuredLine)) return false;
+  return lines.some((line) => line.trim().length >= UNWRAPPED_LINE_MIN);
+}
+
+/**
  * Rejoin lines that a text editor wrapped, leaving deliberate breaks alone.
  * Structured blocks — lists, quotes, indented code, tables — keep every line.
  */
 function joinSoftWrapped(lines: string[]): string[] {
   if (lines.length < 2) return lines;
-  for (const line of lines) {
-    if (LIST_ITEM_RE.test(line) || QUOTE_RE.test(line) || INDENTED_RE.test(line) || line.includes('|')) {
-      return lines;
-    }
-  }
+  if (lines.some(isStructuredLine)) return lines;
   const joined: string[] = [lines[0]];
   for (let index = 1; index < lines.length; index += 1) {
     const previous = joined[joined.length - 1];
@@ -106,14 +125,23 @@ export async function parseTextBlocks(
   /** The fence marker that opened the current code block, or null. */
   let fence: string | null = null;
 
-  const flush = (): void => {
-    const source = pending.join('\n');
-    pending = [];
-    if (!source.trim()) return;
+  const pushBlock = (source: string): void => {
     const html = markdownToTiptapHtml(joinSoftWrapped(source.split('\n')).join('\n'));
     // `text` stays the RAW source: the separator rule compares against what the
     // writer typed (`***`), not against the `<hr>` it renders as.
     blocks.push({ level: 0, text: source, html, words: countWords(html) });
+  };
+
+  const flush = (): void => {
+    const source = pending.join('\n');
+    pending = [];
+    if (!source.trim()) return;
+    const sourceLines = source.split('\n');
+    if (isParagraphPerLine(sourceLines)) {
+      for (const line of sourceLines) if (line.trim()) pushBlock(line);
+      return;
+    }
+    pushBlock(source);
   };
 
   const pushHeading = (level: number, title: string): void => {

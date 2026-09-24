@@ -1319,7 +1319,7 @@ export default function BookEditor({
           <TiptapEditor
             key={loaded.key}
             content={loaded.html}
-            onChange={handleChange}
+            onDocumentChange={handleChange}
             placeholder={t('writings.startWriting')}
             extensions={loaded.extensions}
             onEditorReady={setEditorInstance}

@@ -510,11 +510,13 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   const readingPrefs = useAppStore((s) => s.reading);
   const setReadingPrefs = useAppStore((s) => s.setReading);
   const pageCount = usePageCount(liveEditor);
+  // Only while the panel is open: `editedContent` changes on every keystroke,
+  // and re-splitting the whole chapter each time was work nobody was reading.
   const readAloudBlocks = useMemo(
-    () => openWriting
+    () => openWriting && showReadAloud
       ? writingToReadAloudBlocks({ id: openWriting.id, title: editedTitle, content: editedContent })
       : [],
-    [editedContent, editedTitle, openWriting],
+    [editedContent, editedTitle, openWriting, showReadAloud],
   );
 
   const { accessToken } = useGoogleStore();
