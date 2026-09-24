@@ -482,7 +482,16 @@ export default function World3D({
   const [panel, setPanel] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [ms, setMs] = useState(0);
-  const [ready, setReady] = useState(false);
+  /**
+   * GENERACIÓN DE ESCENA, no un booleano. Cada montaje de la escena (el primero
+   * y cada cambio de `world`, que la rehace entera) la sube en uno. Con un
+   * `true` fijo, regenerar el mundo con el 3D abierto dejaba sin re-ejecutar
+   * todos los efectos que sólo dependen de `ready`: la escena nueva nacía sin
+   * reloj de rescate (el viejo lo limpia el desmontaje), sin `onZoomArrive`
+   * (la piel de cerca no volvía a componer), sin forma, cámara, calidad,
+   * malla ni sol aplicados. 0 = aún no hay escena.
+   */
+  const [ready, setReady] = useState(0);
   const [readout, setReadout] = useState('');
   const [hovering, setHovering] = useState<string | null>(null);
   const [detail, setDetail] = useState('');
@@ -744,10 +753,16 @@ export default function World3D({
       });
     } catch (e) {
       setFailed(e instanceof Error ? e.message : String(e));
+      // Fuera el oyente ANTES de perder el contexto: `forceContextLoss`
+      // dispara `webglcontextlost` y su `setFailed` taparía la causa real con
+      // «contexto perdido». Y el lienzo fuera del host, como en el desmontaje.
+      renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
+      controls.dispose();
       renderer.dispose();
       // Igual que en el desmontaje: sin esto el contexto WebGL del intento
       // fallido sigue reteniendo memoria del proceso GPU.
       renderer.forceContextLoss();
+      if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
       return;
     }
     surface.uploadAll(world.elevation, world.biome);
@@ -907,7 +922,7 @@ export default function World3D({
       },
     };
     R.current = st;
-    setReady(true);
+    setReady((n) => n + 1);
 
     const resize = () => {
       const w = Math.max(2, host.clientWidth), h = Math.max(2, host.clientHeight);
