@@ -137,11 +137,19 @@ export default function ProjectDetail() {
         {/* Engine content — no more tab bar */}
         <div className="flex-1 overflow-y-auto p-6">
           {tab === 'overview' ? (
-            <ProjectCockpit
-              projectId={id!}
-              onManageEngines={() => setShowEngineManager(true)}
-              onEditProject={() => setShowProjectEditor(true)}
-            />
+            <EngineErrorBoundary
+              resetKey={`${id}:overview`}
+              title={t('project.overviewError.title')}
+              message={t('project.overviewError.message')}
+              retryLabel={t('common.retry')}
+              detailsLabel={t('project.engineError.details')}
+            >
+              <ProjectCockpit
+                projectId={id!}
+                onManageEngines={() => setShowEngineManager(true)}
+                onEditProject={() => setShowProjectEditor(true)}
+              />
+            </EngineErrorBoundary>
           ) : activeEngine ? (
             <EngineErrorBoundary
               resetKey={`${id}:${activeEngine.id}`}
