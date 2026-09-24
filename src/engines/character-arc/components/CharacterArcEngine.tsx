@@ -1,11 +1,31 @@
-import { useState, useMemo } from 'react';
-import { TrendingUp, Plus, Trash2, ArrowLeft, ChevronDown, ChevronRight, Sparkles, GripVertical } from 'lucide-react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { TrendingUp, Plus, Trash2, ArrowLeft, ChevronDown, ChevronRight, Sparkles, GripVertical, MessageSquare, ListTree } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 // `t` (module-level, non-reactive) is for `seedTemplateBeats`, which runs
 // outside React and writes the resolved text into the DB. Components use the
 // `useTranslation()` hook so they re-render when the locale changes.
 import { t, useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { EngineSpinner, ConfirmDialog, LinkSelect, useDebouncedField, useDeepLinkParam } from '@/engines/_shared';
+import { navigateTo } from '@/engines/_shared/anchoring';
+import { useProject } from '@/hooks/useProjects';
+import { toast } from '@/components/common/toast';
 import EmptyState from '@/components/common/EmptyState';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
 import { useScenes } from '@/engines/dialog-scene/hooks';
@@ -16,6 +36,7 @@ import { ARC_TEMPLATES, ARC_STAGE_CONFIG, ARC_STATUS_CONFIG } from '../types';
 import { generateId } from '@/utils/idGenerator';
 import { useCodexEntries } from '@/engines/codex/hooks';
 import { createBeat } from '../operations';
+import { arcBeatLinks, type ArcBeatLink, type ArcBeatLinkCatalog } from '../beatLinks';
 
 // ---------------------------------------------------------------------------
 // CharacterArcEngine
@@ -29,17 +50,22 @@ export default function CharacterArcEngine({ projectId }: EngineComponentProps) 
   const [showNew, setShowNew] = useState(false);
   const [pendingDeleteArcId, setPendingDeleteArcId] = useState<string | null>(null);
 
-  // Deep link (?arc=<id>): backlinks and global search navigate here through
-  // the anchor adapter. Render-adjust with an `applied` guard, same as codex —
-  // arcs arrive async, and re-applying on every render would drag the author
-  // back to the linked arc.
+  // Deep link (?arc=<id>[&beat=<id>]): backlinks, global search and the scene
+  // editor's arc strip navigate here. Render-adjust with an `applied` guard,
+  // same as codex — arcs arrive async, and re-applying on every render would
+  // drag the author back to the linked arc. The beat is kept as state, not
+  // read from the URL, so Back and reopening the arc doesn't unfold it again.
   const deepLinkedArcId = useDeepLinkParam('arc');
+  const deepLinkedBeatId = useDeepLinkParam('beat');
+  const deepLinkKey = deepLinkedArcId ? `${deepLinkedArcId}:${deepLinkedBeatId ?? ''}` : null;
   const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
-  if (deepLinkedArcId && deepLinkedArcId !== appliedDeepLink) {
+  const [focusedBeatId, setFocusedBeatId] = useState<string | null>(null);
+  if (deepLinkKey && deepLinkKey !== appliedDeepLink) {
     const target = arcs.find((a) => a.id === deepLinkedArcId);
     if (target) {
-      setAppliedDeepLink(deepLinkedArcId);
-      setActiveArcId(deepLinkedArcId);
+      setAppliedDeepLink(deepLinkKey);
+      setActiveArcId(target.id);
+      setFocusedBeatId(deepLinkedBeatId);
     }
   }
 
@@ -54,7 +80,11 @@ export default function CharacterArcEngine({ projectId }: EngineComponentProps) 
           key={arc.id}
           arc={arc}
           projectId={projectId}
-          onBack={() => setActiveArcId(null)}
+          focusedBeatId={focusedBeatId}
+          onBack={() => {
+            setActiveArcId(null);
+            setFocusedBeatId(null);
+          }}
           onUpdate={(changes) => editArc(arc.id, changes)}
           onDelete={async () => {
             await removeArc(arc.id);
@@ -154,10 +184,10 @@ function ArcCard({ arc, onOpen, onDelete }: { arc: CharacterArc; onOpen: () => v
         </div>
         {arc.summary && <p className="text-xs text-text-dim line-clamp-2">{arc.summary}</p>}
         <div className="flex items-center gap-2 text-[10px] text-text-dim pt-1">
-          {arc.lie && <span className="px-1.5 py-0.5 rounded bg-red-500/10 text-red-400">Lie</span>}
-          {arc.truth && <span className="px-1.5 py-0.5 rounded bg-green-500/10 text-green-400">Truth</span>}
-          {arc.want && <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400">Want</span>}
-          {arc.need && <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">Need</span>}
+          {arc.lie && <span className="px-1.5 py-0.5 rounded bg-red-500/10 text-red-400">{t('characterArc.core.lie')}</span>}
+          {arc.truth && <span className="px-1.5 py-0.5 rounded bg-green-500/10 text-green-400">{t('characterArc.core.truth')}</span>}
+          {arc.want && <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400">{t('characterArc.core.want')}</span>}
+          {arc.need && <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">{t('characterArc.core.need')}</span>}
         </div>
       </button>
       <button
@@ -301,18 +331,21 @@ function NewArcForm({
 function ArcEditor({
   arc,
   projectId,
+  focusedBeatId,
   onBack,
   onUpdate,
   onDelete,
 }: {
   arc: CharacterArc;
   projectId: string;
+  /** Beat named by a `?beat=` deep link: unfolded and scrolled into view. */
+  focusedBeatId: string | null;
   onBack: () => void;
   onUpdate: (changes: Partial<CharacterArc>) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
   const { t } = useTranslation();
-  const { items: beats, addItem: addBeat, editItem: editBeat, removeItem: removeBeat } = useArcBeats(arc.id);
+  const { items: beats, addItem: addBeat, editItem: editBeat, removeItem: removeBeat, reorder: reorderBeats } = useArcBeats(arc.id);
   // A qué puede apuntar un beat del arco. `ArcBeat.linkedBeatId` y
   // `linkedSceneId` estaban declarados desde el principio y nadie los escribía,
   // pero `services/projectIntelligence.ts` SÍ lee el primero: cuenta cuántos
@@ -321,6 +354,10 @@ function ArcEditor({
   // manera de que valiera otra cosa.
   const { items: outlineBeats } = useAllProjectBeats(projectId);
   const { items: scenes } = useScenes(projectId);
+  // Links out of a beat only count when the author can follow them: the target
+  // must still exist and its engine must be switched on (lesson #40).
+  const { project } = useProject(projectId);
+  const linkCatalog: ArcBeatLinkCatalog = { scenes, outlineBeats, enabledEngines: project?.enabledEngines ?? [] };
   const { items: codexEntries } = useCodexEntries(projectId);
   const characters = codexEntries.filter((e) => e.type === 'character');
   const [corePanelOpen, setCorePanelOpen] = useState(true);
@@ -395,6 +432,34 @@ function ArcEditor({
     }
     return byStage;
   }, [beats]);
+
+  // The grip used to be decoration: `reorderBeats` was wired into the hook and
+  // nothing called it. Beats are grouped by stage, so a drag reorders inside
+  // its stage only — moving a beat to another stage is the stage select's job,
+  // and guessing it from a drop would change the arc without being asked.
+  // Keyboard included, same as the outline: a mouse-only handle shuts out
+  // whoever doesn't use one.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const moved = beats.find((b) => b.id === active.id);
+    const target = beats.find((b) => b.id === over.id);
+    if (!moved || !target || moved.stage !== target.stage) return;
+    const group = (groupedBeats.get(moved.stage) ?? []).map((b) => b.id);
+    const from = group.indexOf(moved.id);
+    const to = group.indexOf(target.id);
+    if (from < 0 || to < 0) return;
+    // Renumber the whole arc top to bottom as it is drawn, so every `order`
+    // grows down the page and no two stages share numbers.
+    const orderedIds = (Object.keys(ARC_STAGE_CONFIG) as ArcBeatStage[]).flatMap((stage) =>
+      stage === moved.stage ? arrayMove(group, from, to) : (groupedBeats.get(stage) ?? []).map((b) => b.id),
+    );
+    void reorderBeats(orderedIds);
+  };
 
   return (
     <div className="space-y-4">
@@ -491,6 +556,7 @@ function ArcEditor({
         {beats.length === 0 ? (
           <p className="text-xs text-text-dim text-center py-6">{t('characterArc.beats.empty')}</p>
         ) : (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <div className="space-y-2">
             {(Object.keys(ARC_STAGE_CONFIG) as ArcBeatStage[]).map((stage) => {
               const stageBeats = groupedBeats.get(stage);
@@ -503,22 +569,27 @@ function ArcEditor({
                     <span className="text-xs font-semibold text-text-primary">{t(cfg.labelKey)}</span>
                     <span className="text-[10px] text-text-dim">({stageBeats.length})</span>
                   </div>
-                  <div className="divide-y divide-border/50">
-                    {stageBeats.map((beat) => (
-                      <BeatRow
-                        key={beat.id}
-                        beat={beat}
-                        onUpdate={(changes) => editBeat(beat.id, changes)}
-                        onDelete={() => removeBeat(beat.id)}
-                        outlineBeats={outlineBeats}
-                        scenes={scenes}
-                      />
-                    ))}
-                  </div>
+                  <SortableContext items={stageBeats.map((b) => b.id)} strategy={verticalListSortingStrategy}>
+                    <div className="divide-y divide-border/50">
+                      {stageBeats.map((beat) => (
+                        <BeatRow
+                          key={beat.id}
+                          beat={beat}
+                          focused={beat.id === focusedBeatId}
+                          onUpdate={(changes) => editBeat(beat.id, changes)}
+                          onDelete={() => removeBeat(beat.id)}
+                          outlineBeats={outlineBeats}
+                          scenes={scenes}
+                          links={arcBeatLinks(beat, linkCatalog)}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
                 </div>
               );
             })}
           </div>
+          </DndContext>
         )}
       </div>
 
@@ -594,20 +665,41 @@ function CoreField({
 
 function BeatRow({
   beat,
+  focused,
   onUpdate,
   onDelete,
   outlineBeats,
   scenes,
+  links,
 }: {
   beat: ArcBeat;
+  focused: boolean;
   onUpdate: (changes: Partial<ArcBeat>) => Promise<void>;
   onDelete: () => Promise<void>;
   outlineBeats: { id: string; title: string }[];
   scenes: { id: string; title: string; sceneNumber?: number }[];
+  /** Resolved by `arcBeatLinks`: only targets that exist in an enabled engine. */
+  links: ArcBeatLink[];
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
+  const [navigating, setNavigating] = useState(false);
+  const {
+    attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging,
+  } = useSortable({ id: beat.id });
+
+  // A deep-linked beat opens unfolded. Render-adjust, not an effect, so the
+  // row never paints collapsed first (lesson #17).
+  const [prevFocused, setPrevFocused] = useState(false);
+  if (focused !== prevFocused) {
+    setPrevFocused(focused);
+    if (focused) setExpanded(true);
+  }
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (focused) rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [focused]);
 
   const handleField = (key: keyof ArcBeat) => (value: string) =>
     onUpdate({ [key]: value, updatedAt: Date.now() } as Partial<ArcBeat>);
@@ -616,10 +708,44 @@ function BeatRow({
   const descriptionField = useDebouncedField(beat.description, handleField('description'));
   const emotionField = useDebouncedField(beat.emotion ?? '', handleField('emotion'));
 
+  // Save what is still buffered before leaving: the fields flush on unmount
+  // too, but a write that fails there has nobody left to tell.
+  const followLink = async (link: ArcBeatLink) => {
+    if (navigating) return;
+    setNavigating(true);
+    try {
+      const saved = await Promise.all([titleField.flush(), descriptionField.flush(), emotionField.flush()]);
+      if (saved.every(Boolean)) navigateTo(link.path);
+      else toast.error(t('characterArc.beat.navigationFailed'));
+    } catch {
+      toast.error(t('characterArc.beat.navigationFailed'));
+    } finally {
+      setNavigating(false);
+    }
+  };
+
   return (
-    <div className="px-3 py-2 group">
+    <div
+      ref={(node) => {
+        setNodeRef(node);
+        rowRef.current = node;
+      }}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+      aria-current={focused ? 'true' : undefined}
+      className={`px-3 py-2 group ${focused ? 'bg-accent-gold/5 ring-1 ring-inset ring-accent-gold/40' : ''}`}
+    >
       <div className="flex items-start gap-2">
-        <GripVertical size={12} className="text-text-dim mt-1 opacity-0 group-hover:opacity-100 cursor-grab" />
+        <button
+          type="button"
+          ref={setActivatorNodeRef}
+          {...attributes}
+          {...listeners}
+          title={t('characterArc.beat.dragHint')}
+          aria-label={t('characterArc.beat.dragHint')}
+          className="mt-1 text-text-dim opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition cursor-grab active:cursor-grabbing touch-none"
+        >
+          <GripVertical size={12} aria-hidden="true" />
+        </button>
         <button
           onClick={() => setExpanded((e) => !e)}
           className="p-0.5 mt-0.5 text-text-dim hover:text-text-primary transition"
@@ -632,8 +758,27 @@ function BeatRow({
           value={titleField.value}
           onChange={(e) => titleField.onChange(e.target.value)}
           onBlur={titleField.onBlur}
-          className="flex-1 bg-transparent text-sm text-text-primary outline-none border-b border-transparent focus:border-accent-gold transition"
+          className="flex-1 min-w-0 bg-transparent text-sm text-text-primary outline-none border-b border-transparent focus:border-accent-gold transition"
         />
+        {links.map((link) => {
+          const label = t(link.kind === 'scene' ? 'characterArc.beat.openScene' : 'characterArc.beat.openOutlineBeat').replace('{title}', link.title);
+          return (
+            <button
+              key={link.path}
+              type="button"
+              disabled={navigating}
+              onClick={() => { void followLink(link); }}
+              title={label}
+              aria-label={label}
+              className="flex max-w-[9rem] items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-accent-gold hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent-gold disabled:opacity-50 transition"
+            >
+              {link.kind === 'scene'
+                ? <MessageSquare size={10} className="shrink-0" aria-hidden="true" />
+                : <ListTree size={10} className="shrink-0" aria-hidden="true" />}
+              <span className="truncate">{link.title}</span>
+            </button>
+          );
+        })}
         <select
           value={beat.stage}
           onChange={(e) => handleField('stage')(e.target.value)}
