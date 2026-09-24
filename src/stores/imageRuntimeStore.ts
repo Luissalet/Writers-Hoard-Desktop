@@ -20,7 +20,7 @@ declare global {
 interface ImageRuntimeState {
   available: boolean;
   status: SdRuntimeStatus | null;
-  /** Keyed by runtime backend or model id. */
+  /** Keyed by runtime backend, model id or companion id. */
   progress: Record<string, SdProgress>;
   /** Last failure per key, cleared on the next attempt. */
   errors: Record<string, string>;
@@ -32,6 +32,10 @@ interface ImageRuntimeState {
   downloadModel: (id: string) => Promise<SdOpResult>;
   cancelDownload: (id: string) => Promise<void>;
   deleteModel: (id: string) => Promise<SdOpResult>;
+  /** ControlNets and upscalers: catalogue ids, progress and errors keyed by that id. */
+  downloadCompanion: (id: string) => Promise<SdOpResult>;
+  cancelCompanionDownload: (id: string) => Promise<void>;
+  deleteCompanion: (id: string) => Promise<SdOpResult>;
   stopServer: () => Promise<void>;
 }
 
@@ -115,6 +119,42 @@ export const useImageRuntimeStore = create<ImageRuntimeState>((set, get) => ({
     const api = sdApi();
     if (!api) return UNAVAILABLE;
     const result = await api.deleteModel(id);
+    await get().refresh();
+    await useAiRuntimeStore.getState().loadModels(BUILTIN_SD_ID, true);
+    return result;
+  },
+
+  // Companions follow the model path exactly: main reports their progress on
+  // the same channel under the companion's catalogue id, and invalidates the
+  // built-in route's model list when one lands or goes.
+  downloadCompanion: async (id) => {
+    const api = sdApi();
+    if (!api) return UNAVAILABLE;
+    set((s) => ({ errors: { ...s.errors, [id]: '' } }));
+    const result = await api.downloadCompanion(id);
+    if (!result.ok && result.error !== 'cancelled' && result.error !== 'busy') set((s) => ({ errors: { ...s.errors, [id]: result.error ?? 'error' } }));
+    set((s) => {
+      const next = { ...s.progress };
+      delete next[id];
+      return { progress: next };
+    });
+    // Anyone reading `status.companions` (the studio's ControlNet choice) sees
+    // the new file from here, without waiting for a push.
+    await get().refresh();
+    await useAiRuntimeStore.getState().loadModels(BUILTIN_SD_ID, true);
+    return result;
+  },
+
+  cancelCompanionDownload: async (id) => {
+    await sdApi()?.cancelCompanionDownload(id);
+  },
+
+  deleteCompanion: async (id) => {
+    const api = sdApi();
+    if (!api) return UNAVAILABLE;
+    set((s) => ({ errors: { ...s.errors, [id]: '' } }));
+    const result = await api.deleteCompanion(id);
+    if (!result.ok && result.error !== 'busy') set((s) => ({ errors: { ...s.errors, [id]: result.error ?? 'error' } }));
     await get().refresh();
     await useAiRuntimeStore.getState().loadModels(BUILTIN_SD_ID, true);
     return result;

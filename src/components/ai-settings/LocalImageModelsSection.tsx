@@ -21,18 +21,8 @@ import { computeImageFit, type SdBackend, type SdLoraFile } from '@/services/aiR
 import { fitRank, formatBytes } from '@/services/aiRuntime/fit';
 import type { FitEstimate } from '@/services/aiRuntime/types';
 import FitBadge from './FitBadge';
-
-function ProgressBar({ progress, indeterminate }: { progress: number; indeterminate?: boolean }) {
-  return (
-    <div className="h-1.5 rounded-full bg-elevated overflow-hidden">
-      {indeterminate ? (
-        <div className="h-full w-full bg-accent-gold/60 animate-pulse" />
-      ) : (
-        <div className="h-full bg-accent-gold transition-[width] duration-200" style={{ width: `${Math.round(progress * 100)}%` }} />
-      )}
-    </div>
-  );
-}
+import ProgressBar from './ProgressBar';
+import ImageCompanionsPanel from './ImageCompanions';
 
 const BACKEND_BYTES: Record<SdBackend, number> = { vulkan: 42_275_413, cuda12: 916_000_860, cpu: 21_195_454 };
 
@@ -359,6 +349,7 @@ export default function LocalImageModelsSection() {
           onRefresh={() => void refresh()}
         />
       )}
+      {runtimeInstalled && <ImageCompanionsPanel />}
       <p className="text-[10px] text-text-dim">{t('settings.ai.imageModels.note')}</p>
 
       <ConfirmDialog
