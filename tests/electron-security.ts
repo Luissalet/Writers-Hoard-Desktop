@@ -7,6 +7,7 @@ import {
   isIpcChannelAllowedForRole,
   isPathContainedBy,
   isSafeNativeSegment,
+  mediaProtocolResponse,
   resolveContainedNativePath,
   resolveExistingContainedNativePath,
   resolveWritableContainedNativePath,
@@ -119,6 +120,24 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
   assert(!isIpcChannelAllowedForRole('shutdown:request', 'main'), 'the main->renderer close push was opened as an inbound channel');
   assert(!isIpcChannelAllowedForRole('shutdown:request', 'quick-note'), 'the main->renderer close push was opened to quick-note');
   passed.push('exact renderer navigation + fail-closed IPC roles');
+
+  // wh-media:// serves archived pages with their scripts: the viewer iframe is
+  // sandbox="", and the header keeps them inert anywhere else they are opened.
+  const archived = mediaProtocolResponse(
+    new Response('<script>1</script>', { status: 200, headers: { 'Content-Type': 'text/plain' } }),
+    'text/html; charset=utf-8',
+  );
+  assert(archived.headers.get('Content-Type') === 'text/html; charset=utf-8', 'pinned HTML type lost');
+  assert(archived.headers.get('Content-Security-Policy') === 'sandbox', 'archived HTML served without a CSP sandbox');
+  assert(await archived.text() === '<script>1</script>', 'archived HTML body altered');
+  const sniffedHtml = mediaProtocolResponse(new Response('<p>', { headers: { 'Content-Type': 'text/html' } }));
+  assert(sniffedHtml.headers.get('Content-Security-Policy') === 'sandbox', '.htm served without a CSP sandbox');
+  const pdf = mediaProtocolResponse(new Response('%PDF', { headers: { 'Content-Type': 'text/plain' } }), 'application/pdf');
+  assert(pdf.headers.get('Content-Type') === 'application/pdf', 'pinned PDF type lost');
+  assert(!pdf.headers.has('Content-Security-Policy'), 'a CSP sandbox would break the PDF viewer');
+  const video = new Response('mp4', { status: 206, headers: { 'Content-Type': 'video/mp4', 'Content-Range': 'bytes 0-2/3' } });
+  assert(mediaProtocolResponse(video) === video, 'non-HTML media was rewritten');
+  passed.push('wh-media HTML carries a CSP sandbox; other media untouched');
 
   // MCP content blocks: a picture must leave as an image block, and its base64
   // must never also land in the text block, where it would be pure noise.
