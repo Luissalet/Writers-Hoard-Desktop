@@ -57,8 +57,10 @@ import {
 import {
   COMMAND_CENTRE_SHORTCUT,
   DISPLAY_ONLY_KEYS,
+  FOCUS_MODE_SHORTCUT,
   SHORTCUTS,
   SHORTCUTS_PANEL_SHORTCUT,
+  SIDEBAR_SHORTCUT,
   SHORTCUT_SCOPES,
   chordCaps,
   getShortcut,
@@ -3819,13 +3821,30 @@ function testShortcutTableInvariants(): void {
     }
   }
 
-  // The two ids the code names must exist, and must be the rows that read this
-  // table back — those are the only two that cannot drift.
-  for (const id of [COMMAND_CENTRE_SHORTCUT, SHORTCUTS_PANEL_SHORTCUT]) {
+  // The ids the code names must exist, and must be the rows that read this
+  // table back — those are the only ones that cannot drift.
+  for (const id of [COMMAND_CENTRE_SHORTCUT, SHORTCUTS_PANEL_SHORTCUT, SIDEBAR_SHORTCUT, FOCUS_MODE_SHORTCUT]) {
     const shortcut = getShortcut(id);
     assert(shortcut !== undefined, `${id} is named in code but missing from the table`);
     assert(shortcut.readsThisTable === true, `${id} is wired to the table but not marked as such`);
   }
+
+  // The sidebar key is bound on the window too, so like the sheet's it must
+  // be free everywhere; and the editor has Mod+B for bold, which is exactly
+  // why the sidebar's is the shifted one.
+  const sidebar = getShortcut(SIDEBAR_SHORTCUT)!;
+  for (const mac of [false, true]) {
+    const others = SHORTCUTS
+      .filter(row => row.id !== sidebar.id)
+      .flatMap(row => shortcutChords(row, mac));
+    for (const chord of shortcutChords(sidebar, mac)) {
+      assert(!others.includes(chord), `${chord} hides the sidebar and something else too (mac: ${mac})`);
+    }
+  }
+  assert(matchesShortcut(keystroke('Mod+Shift+B', false), SIDEBAR_SHORTCUT, false), 'Ctrl+Shift+B does not hide the sidebar');
+  assert(!matchesShortcut(keystroke('Mod+B', false), SIDEBAR_SHORTCUT, false), 'plain Ctrl+B (bold) hides the sidebar');
+  assert(matchesShortcut(keystroke('Mod+Shift+F', false), FOCUS_MODE_SHORTCUT, false), 'Ctrl+Shift+F does not enter focus mode');
+  assert(!matchesShortcut(keystroke('Mod+F', false), FOCUS_MODE_SHORTCUT, false), 'plain Ctrl+F (find) enters focus mode');
 
   passed.push('shortcut table: unique ids, described and sourced rows, no collision within a scope');
 }

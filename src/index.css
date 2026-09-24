@@ -166,6 +166,8 @@ input, textarea { caret-color: var(--color-accent-gold); }
 
 @media (max-width: 800px) {
   .app-sidebar { width: 60px; }
+  /* Hidden stays hidden on a narrow window too. */
+  .app-sidebar[inert] { width: 0; }
   .app-sidebar span { display: none; }
   .app-sidebar > div:first-child { padding-inline: 14px; }
 }

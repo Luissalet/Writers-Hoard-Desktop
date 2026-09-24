@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Keyboard, Plus, Search, Settings } from 'lucide-react';
+import { Keyboard, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings } from 'lucide-react';
 import { openQuickNote } from '@/engines/notes/quickCapture';
 import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -7,7 +7,7 @@ import SettingsModal from '@/components/settings/SettingsModal';
 import StorageStatus from '@/components/common/StorageStatus';
 import { PendingWriteStatus } from '@/components/common/PendingWritesHost';
 import { openShortcutsPanel } from '@/components/common/ShortcutsPanel';
-import { COMMAND_CENTRE_SHORTCUT, shortcutCaps } from '@/components/common/shortcuts';
+import { COMMAND_CENTRE_SHORTCUT, SIDEBAR_SHORTCUT, shortcutCaps } from '@/components/common/shortcuts';
 
 interface TopBarProps {
   title?: string;
@@ -16,20 +16,34 @@ interface TopBarProps {
 
 export default function TopBar({ title, subtitle }: TopBarProps) {
   const { t } = useTranslation();
-  const { setSearchOpen } = useAppStore();
+  const { setSearchOpen, sidebarHidden, toggleSidebarHidden } = useAppStore();
   const [showSettings, setShowSettings] = useState(false);
   // The ⌘/Ctrl label used to be worked out here. It now comes from the
   // shortcuts table, so this badge cannot say one key while the palette
   // answers to another.
-  const [commandCaps = []] = shortcutCaps(COMMAND_CENTRE_SHORTCUT);
-  const commandShortcut = commandCaps
-    .map((cap) => (cap.localeKey ? t(cap.localeKey) : cap.text))
-    .join(' ');
+  const capsText = (caps: ReturnType<typeof shortcutCaps>[number] = []) =>
+    caps.map((cap) => (cap.localeKey ? t(cap.localeKey) : cap.text)).join(' ');
+  const commandShortcut = capsText(shortcutCaps(COMMAND_CENTRE_SHORTCUT)[0]);
+  const sidebarShortcut = capsText(shortcutCaps(SIDEBAR_SHORTCUT)[0]);
+  const sidebarLabel = `${t(sidebarHidden ? 'topbar.showSidebar' : 'topbar.hideSidebar')} (${sidebarShortcut})`;
 
   return (
     <>
       <header className="min-h-16 bg-surface border-b border-border flex flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6 flex-shrink-0">
         <div className="flex min-w-40 flex-1 items-center gap-3">
+          {/* The sidebar's way back lives here, where it is still on screen
+              once the sidebar is not. */}
+          <button
+            type="button"
+            onClick={toggleSidebarHidden}
+            className="p-2 -ml-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-elevated transition"
+            title={sidebarLabel}
+            aria-label={sidebarLabel}
+            aria-pressed={sidebarHidden}
+            data-testid="topbar-sidebar-toggle"
+          >
+            {sidebarHidden ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}
+          </button>
           {title && (
             <div className="min-w-0">
               <h1 className="truncate text-base font-semibold text-text-primary leading-tight">{title}</h1>
