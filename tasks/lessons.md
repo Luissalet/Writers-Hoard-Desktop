@@ -1,5 +1,17 @@
 # Lessons Learned
 
+## 78. Gating derived data for speed changes every reader of it, not just the slow one
+**Date:** 2026-09-24
+**Context:** An audit pass built the read-aloud blocks only while the panel
+was open, to stop re-splitting the chapter on every keystroke. The two
+buttons that OPEN the panel were disabled when those blocks were empty, so
+the panel could never be opened again. Typecheck, lint and 325 critical
+tests all passed.
+**Rule:** Before making a memo conditional, grep every reader of the value.
+A reader that decides whether the condition can ever become true (an
+enable/disable, a visibility check) needs its own cheap signal. A green
+suite that never clicks the gated control proves nothing about it.
+
 ## 24. Keep app branding in one primary place in the desktop shell
 **Date:** 2026-09-07
 **Context:** The integrated titlebar repeated Writer's Hoard beside the sidebar
