@@ -829,6 +829,9 @@ const en = {
   'dialogScene.newScene': 'New Scene',
   'dialogScene.fountainHint': 'Export the screenplay as .fountain (opens in Final Draft, Highland, Fade In…)',
   'dialogScene.linkedBeats': 'Linked to {count} outline beat(s)',
+  'dialogScene.arcBeats.label': 'Character arcs',
+  'dialogScene.arcBeats.open': 'Open “{beat}” in the arc {arc}',
+  'dialogScene.arcBeats.navigationFailed': 'The scene could not be saved, so it stays open. Try again.',
   'dialogScene.fountainDone': 'Screenplay exported as .fountain',
   'dialogScene.fountainError': 'Fountain export failed.',
   'dialogScene.import.label': 'Import',
@@ -1198,6 +1201,8 @@ const en = {
   // ── Maps Engine ──
   'mapsEngine.defaultName': 'World Map',
   'mapsEngine.namePlaceholder': 'Map name...',
+  'mapsEngine.worldgenLinked': 'Linked to Worldgen · revision {revision}',
+  'mapsEngine.openWorld': 'Open world',
 
   // ── Outline Engine ──
   'outline.yourOutlines': 'Your Outlines',
@@ -1239,6 +1244,11 @@ const en = {
   'stats.goals': 'Goals',
   'stats.projectGoal': 'Project Goal',
   'stats.deadlineGoal': 'Deadline Goal',
+  'stats.goalCard.progress': '{current} / {target} words',
+  'stats.goalCard.wordsBy': '{target} words by {date}',
+  'stats.goalCard.daysLeft': '{count} days left',
+  'stats.goalCard.dueToday': 'Due today!',
+  'stats.goalCard.daysOverdue': '{count} days overdue',
   'stats.recentSessions': 'Recent Sessions',
   'writingStats.goals.title': 'Writing Goals',
   'writingStats.goals.dailyTarget': 'Daily Target (words)',
@@ -2962,6 +2972,10 @@ const en = {
   // ── Added 2026-08-16 (arc beat cross-engine links) ──
   'characterArc.beat.linkedBeat': 'Linked outline beat',
   'characterArc.beat.linkedScene': 'Linked scene',
+  'characterArc.beat.openScene': 'Open scene: {title}',
+  'characterArc.beat.openOutlineBeat': 'Open outline beat: {title}',
+  'characterArc.beat.navigationFailed': 'This beat could not be saved, so it stays open. Try again.',
+  'characterArc.beat.dragHint': 'Drag to reorder within this stage',
 
   // ── Added 2026-08-16 (cast ↔ codex link) ──
   'dialogScene.castFromCodex': 'Codex character',
