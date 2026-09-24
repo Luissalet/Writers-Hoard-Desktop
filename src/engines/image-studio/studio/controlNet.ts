@@ -20,15 +20,27 @@ export const POSE_CONTROLNET_ID = 'controlnet-sd15-openpose';
 
 export type ControlNetChoice =
   | { ok: true; model: string }
-  | { ok: false; reasonKey: 'visualRef.reason.noControlNet' | 'visualRef.reason.controlNetAmbiguous' };
+  | {
+      ok: false;
+      reasonKey:
+        | 'visualRef.reason.noControlNet'
+        | 'visualRef.reason.controlNetAmbiguous'
+        | 'visualRef.reason.controlNetChecking';
+    };
 
 /** The value `controlNetModel` takes: the catalogue id, or the file name of a hand-installed one. */
 function modelName(file: SdCompanionFile): string {
   return file.catalogId ?? file.fileName;
 }
 
+/**
+ * `undefined` means the runtime status has not arrived yet — not that nothing
+ * is installed. Generate waits for it rather than telling the writer to
+ * install a ControlNet they may already have.
+ */
 export function chooseControlNet(companions: readonly SdCompanionFile[] | undefined): ControlNetChoice {
-  const installed = (companions ?? []).filter((file) => file.kind === 'controlnet');
+  if (companions === undefined) return { ok: false, reasonKey: 'visualRef.reason.controlNetChecking' };
+  const installed = companions.filter((file) => file.kind === 'controlnet');
   const pose = installed.find((file) => file.catalogId === POSE_CONTROLNET_ID);
   if (pose) return { ok: true, model: modelName(pose) };
   if (installed.length === 1) return { ok: true, model: modelName(installed[0]) };

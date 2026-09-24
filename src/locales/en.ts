@@ -4529,6 +4529,7 @@ const en = {
   'visualRef.reason.noPrompt': 'Nothing to send yet: put someone in, or describe a scene.',
   'visualRef.reason.noControlNet': "A pinned pose needs a ControlNet on the local image server, and none is installed. Add the SD 1.5 OpenPose ControlNet to the runtime's ControlNet folder, or take the pose off the reference.",
   'visualRef.reason.controlNetAmbiguous': "Several ControlNets are installed and none is OpenPose, so the pose can't be matched to one. Keep only the one to use in the ControlNet folder.",
+  'visualRef.reason.controlNetChecking': 'Checking which ControlNets the local image server has installed…',
   'visualRef.reason.busy': 'A generation is running.',
   'visualRef.reason.noRefSelected': 'Pick a reference in the cast first.',
   'visualRef.reason.noSeedRecorded': 'This picture has no seed recorded, so there is nothing to pin.',

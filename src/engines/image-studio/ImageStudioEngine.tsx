@@ -144,6 +144,7 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
   const navigate = useNavigate();
   const runtime = useAiRuntimeStore();
   const sdStatus = useImageRuntimeStore((state) => state.status);
+  const refreshSdStatus = useImageRuntimeStore((state) => state.refresh);
 
   const [refs, setRefs] = useState<VisualRef[]>([]);
   const [entries, setEntries] = useState<CodexEntry[]>([]);
@@ -239,6 +240,12 @@ export default function ImageStudioEngine({ projectId }: EngineComponentProps) {
     [effectiveRoute, descriptor, sdStatus?.lorasSupported, cfgOverride],
   );
   const managedLocal = isManagedLocalRoute(effectiveRoute);
+  // The runtime status (LoRA support, installed ControlNets and upscalers) was
+  // only ever loaded by AI settings or the copilot, so a studio opened first
+  // read all of it as absent. Ask for it whenever the local server is in play.
+  useEffect(() => {
+    if (managedLocal) void refreshSdStatus();
+  }, [managedLocal, refreshSdStatus]);
   const family = model?.family;
   const capabilities = useMemo(
     () => studioCapabilities({
