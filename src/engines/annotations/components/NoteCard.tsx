@@ -12,6 +12,7 @@
 import { useState } from 'react';
 import { Trash2, AlertTriangle, FileText, Image as ImageIcon, Link as LinkIcon } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
+import { ConfirmDialog } from '@/engines/_shared';
 import ReferenceChip from './ReferenceChip';
 import type { AnnotationWithReference } from '../types';
 
@@ -25,6 +26,7 @@ export default function NoteCard({ annotation, onUpdate, onDelete }: NoteCardPro
   const { t } = useTranslation();
   const [editing, setEditing] = useState<boolean>(false);
   const [draft, setDraft] = useState<string>(annotation.noteBody ?? '');
+  const [pendingDelete, setPendingDelete] = useState(false);
 
   const snippet = annotation.anchor.selectedText;
 
@@ -53,7 +55,9 @@ export default function NoteCard({ annotation, onUpdate, onDelete }: NoteCardPro
           </span>
         )}
         <button
-          onClick={() => onDelete(annotation.id)}
+          // One stray click on a 12px icon used to erase the note outright —
+          // every sibling margin/list delete in the app asks first.
+          onClick={() => setPendingDelete(true)}
           className="p-1 text-text-muted hover:text-red-400 transition flex-shrink-0"
           aria-label={t('common.delete')}
         >
@@ -94,7 +98,13 @@ export default function NoteCard({ annotation, onUpdate, onDelete }: NoteCardPro
           </div>
         ) : (
           <p
-            onClick={() => setEditing(true)}
+            onClick={() => {
+              // Start from the stored body, not the one seen at mount: a note
+              // edited elsewhere since (another surface, the AI bridge) would
+              // otherwise be overwritten with the stale text on Save.
+              setDraft(annotation.noteBody ?? '');
+              setEditing(true);
+            }}
             className="text-sm text-text-primary whitespace-pre-wrap cursor-text min-h-[20px]"
           >
             {annotation.noteBody || (
@@ -124,6 +134,17 @@ export default function NoteCard({ annotation, onUpdate, onDelete }: NoteCardPro
           {t('annotations.card.referenceMissing')}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete}
+        destructive
+        message={t('annotations.card.deleteConfirm')}
+        onConfirm={() => {
+          setPendingDelete(false);
+          onDelete(annotation.id);
+        }}
+        onCancel={() => setPendingDelete(false)}
+      />
     </article>
   );
 }

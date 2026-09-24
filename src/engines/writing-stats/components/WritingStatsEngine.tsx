@@ -32,7 +32,7 @@ export default function WritingStatsEngine({ projectId }: EngineComponentProps) 
     addItem: addGoal,
   } = useWritingGoals(projectId);
 
-  const stats = useWritingStats(projectId);
+  const stats = useWritingStats(sessions);
 
   const [sprintActive, setSprintActive] = useState(false);
   const [goalSettingOpen, setGoalSettingOpen] = useState(false);
