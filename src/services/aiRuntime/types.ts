@@ -101,6 +101,12 @@ export interface AiModelDescriptor {
   /** Image models: the resolution the weights were trained at. */
   nativeWidth?: number;
   nativeHeight?: number;
+  /**
+   * Image servers that load ControlNets per request (ComfyUI): the networks
+   * installed there, so a pose can name one. The managed sd.cpp server picks
+   * its ControlNet at launch and leaves this unset.
+   */
+  controlNets?: string[];
 }
 
 export interface AiRouteSelection {

@@ -17,12 +17,24 @@ import { newChain, parsePassChain, serializePassChain } from './passes';
 import { isStudioLevel, type StudioLevel } from './levels';
 import type { BatchSeedMode } from './seeds';
 
+/** The pose the composer applies: one picture from one reference's pose bank. */
+export interface PinnedPose {
+  refId: string;
+  imageId: string;
+}
+
 export interface StudioPrefs {
   level: StudioLevel;
   passChain: StudioPass[];
   batchSeedMode: BatchSeedMode;
   /** Expert's "show every sampler the runtime knows". */
   showAllSamplers: boolean;
+  /**
+   * The pinned pose, kept here and not on the reference: it is a choice about
+   * the next picture, not a fact about the character. Ids only — the engine
+   * ignores one whose reference or picture has since gone.
+   */
+  pose?: PinnedPose;
 }
 
 export const DEFAULT_STUDIO_PREFS: StudioPrefs = {
@@ -31,6 +43,14 @@ export const DEFAULT_STUDIO_PREFS: StudioPrefs = {
   batchSeedMode: 'incremental',
   showAllSamplers: false,
 };
+
+function readPose(value: unknown): PinnedPose | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const { refId, imageId } = value as Record<string, unknown>;
+  return typeof refId === 'string' && refId && typeof imageId === 'string' && imageId
+    ? { refId, imageId }
+    : undefined;
+}
 
 function key(projectId: string): string {
   return `wh.imageStudio.${projectId}`;
@@ -52,6 +72,7 @@ export function readStudioPrefs(projectId: string): StudioPrefs {
       passChain: parsePassChain(typeof stored.passChain === 'string' ? stored.passChain : undefined),
       batchSeedMode: stored.batchSeedMode === 'fixed' ? 'fixed' : 'incremental',
       showAllSamplers: stored.showAllSamplers === true,
+      pose: readPose(stored.pose),
     };
   } catch {
     return { ...DEFAULT_STUDIO_PREFS, passChain: newChain() };
@@ -65,6 +86,7 @@ export function writeStudioPrefs(projectId: string, prefs: StudioPrefs): void {
       passChain: serializePassChain(prefs.passChain),
       batchSeedMode: prefs.batchSeedMode,
       showAllSamplers: prefs.showAllSamplers,
+      pose: prefs.pose,
     }));
   } catch {
     // Nothing to do and nothing worth telling the writer: the studio works

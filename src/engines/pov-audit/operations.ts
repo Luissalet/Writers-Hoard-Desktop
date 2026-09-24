@@ -29,7 +29,9 @@ function countWords(text: string | undefined): number {
  *   3. Load sceneCasts for those scene ids.
  *   4. Load dialogBlocks for those scene ids.
  *   5. Build a map keyed by characterId (falling back to name when the id is blank).
- *   6. Fold counts, mark unused / unmapped.
+ *   6. Fold counts, mark unused / unmapped. A character's scene count is the
+ *      number of distinct scenes where it is in the cast OR speaks a line: a
+ *      speaker nobody added to the cast is still in the scene.
  */
 export async function computeUsage(projectId: string): Promise<PovAuditReport> {
   // 1. Characters in the codex.
@@ -58,6 +60,8 @@ export async function computeUsage(projectId: string): Promise<PovAuditReport> {
   // Build the aggregation map.
   // ---------------------------------------------------------------------------
   const byKey = new Map<string, CharacterUsage>();
+  // Distinct scenes per row key, from cast rows and dialog lines alike.
+  const scenesByKey = new Map<string, Set<string>>();
 
   const resolveKey = (id: string | undefined, name: string): string =>
     id && id.trim() ? id : `__unmapped__:${castKeyOf(name).toLowerCase()}`;
@@ -65,9 +69,15 @@ export async function computeUsage(projectId: string): Promise<PovAuditReport> {
   const touch = (
     id: string | undefined,
     name: string,
+    sceneId: string | undefined,
     patch: Partial<CharacterUsage>,
   ): void => {
     const key = resolveKey(id, name);
+    if (sceneId) {
+      const seen = scenesByKey.get(key) ?? new Set<string>();
+      seen.add(sceneId);
+      scenesByKey.set(key, seen);
+    }
     const existing = byKey.get(key) ?? {
       characterId: key,
       characterName: name || 'Unnamed',
@@ -79,7 +89,7 @@ export async function computeUsage(projectId: string): Promise<PovAuditReport> {
     };
     byKey.set(key, {
       ...existing,
-      sceneCount: existing.sceneCount + (patch.sceneCount ?? 0),
+      sceneCount: scenesByKey.get(key)?.size ?? existing.sceneCount,
       lineCount: existing.lineCount + (patch.lineCount ?? 0),
       wordCount: existing.wordCount + (patch.wordCount ?? 0),
       color: patch.color ?? existing.color,
@@ -101,10 +111,9 @@ export async function computeUsage(projectId: string): Promise<PovAuditReport> {
     });
   }
 
-  // Fold in scene-cast presence — 1 scene per cast row.
+  // Fold in scene-cast presence.
   for (const cast of casts) {
-    touch(cast.characterId, cast.characterName || 'Unnamed', {
-      sceneCount: 1,
+    touch(cast.characterId, cast.characterName || 'Unnamed', cast.sceneId, {
       color: cast.color,
     });
   }
@@ -114,7 +123,7 @@ export async function computeUsage(projectId: string): Promise<PovAuditReport> {
   for (const block of blocks) {
     if (block.type !== 'dialog') continue;
     const words = countWords(block.content);
-    touch(block.characterId, block.characterName || 'Unnamed', {
+    touch(block.characterId, block.characterName || 'Unnamed', block.sceneId, {
       lineCount: 1,
       wordCount: words,
       color: block.characterColor,

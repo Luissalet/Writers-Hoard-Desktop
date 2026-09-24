@@ -25,11 +25,11 @@ import { snapshotMediaUrl, runSnapshotDownload, cancelSnapshotDownload } from '@
 import { runSnapshotCapture, cancelSnapshotCapture } from '@/services/pageCapture';
 import MediaGallery from './MediaGallery';
 import { useTranslation } from '@/i18n/useTranslation';
-import { ConfirmDialog } from '@/engines/_shared';
+import { ConfirmDialog, useDebouncedField } from '@/engines/_shared';
 
 interface SnapshotDetailProps {
   snapshot: Snapshot;
-  onUpdate: (id: string, changes: Partial<Snapshot>) => void;
+  onUpdate: (id: string, changes: Partial<Snapshot>) => void | Promise<void>;
   onDelete: (id: string) => void;
   onClose: () => void;
   tagSuggestions?: string[];
@@ -43,23 +43,18 @@ export default function SnapshotDetail({
   tagSuggestions,
 }: SnapshotDetailProps) {
   const { t } = useTranslation();
-  const [description, setDescription] = useState(snapshot.description ?? '');
-  const [notes, setNotes] = useState(snapshot.notes);
+  // Buffered fields, not a copy frozen at mount. The background download fills
+  // in the reel's caption while this modal is open; a plain `useState` copy
+  // kept the empty string, so merely focusing and leaving the box wrote ''
+  // over the caption that had just arrived. These adopt the stored value while
+  // untouched, keep the author's typing while dirty, and flush on unmount.
+  const description = useDebouncedField(snapshot.description ?? '', (next) =>
+    onUpdate(snapshot.id, { description: next }),
+  );
+  const notes = useDebouncedField(snapshot.notes, (next) => onUpdate(snapshot.id, { notes: next }));
   const [tags, setTags] = useState(snapshot.tags);
   const [pendingDelete, setPendingDelete] = useState(false);
   const [archiveTab, setArchiveTab] = useState<'screenshot' | 'pdf' | 'html'>('screenshot');
-
-  const handleDescriptionBlur = useCallback(() => {
-    if (description !== (snapshot.description ?? '')) {
-      onUpdate(snapshot.id, { description });
-    }
-  }, [description, snapshot.id, snapshot.description, onUpdate]);
-
-  const handleNotesBlur = useCallback(() => {
-    if (notes !== snapshot.notes) {
-      onUpdate(snapshot.id, { notes });
-    }
-  }, [notes, snapshot.id, snapshot.notes, onUpdate]);
 
   // Auto-grow the description box to fit its content (capped, then it scrolls).
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
@@ -68,7 +63,7 @@ export default function SnapshotDetail({
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 360)}px`;
-  }, [description]);
+  }, [description.value]);
 
   const handleTagsChange = useCallback((newTags: string[]) => {
     setTags(newTags);
@@ -367,9 +362,9 @@ export default function SnapshotDetail({
             <label className="font-serif font-semibold text-foreground block">{t('scrapper.description')}</label>
             <textarea
               ref={descriptionRef}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              onBlur={handleDescriptionBlur}
+              value={description.value}
+              onChange={(e) => description.onChange(e.target.value)}
+              onBlur={description.onBlur}
               placeholder={t('scrapper.descriptionPlaceholder')}
               className="w-full px-4 py-2 bg-elevated border border-border rounded-lg text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent-gold resize-none overflow-y-auto min-h-[5rem] max-h-[360px] leading-relaxed"
             />
@@ -379,11 +374,9 @@ export default function SnapshotDetail({
           <div className="space-y-2">
             <label className="font-serif font-semibold text-foreground block">{t('common.notes')}</label>
             <textarea
-              value={notes}
-              onChange={(e) => {
-                setNotes(e.target.value);
-              }}
-              onBlur={handleNotesBlur}
+              value={notes.value}
+              onChange={(e) => notes.onChange(e.target.value)}
+              onBlur={notes.onBlur}
               placeholder={t('scrapper.notesPlaceholderDetail')}
               className="w-full px-4 py-2 bg-elevated border border-border rounded-lg text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent-gold resize-none h-32"
             />

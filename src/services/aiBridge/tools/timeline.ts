@@ -33,6 +33,7 @@ import {
   resolveProjectForEngine,
   resolveProjectId,
   withAudit,
+  nextSlot,
   type ToolArgs,
 } from './shared';
 
@@ -133,7 +134,7 @@ export async function whCreateEvent(args: ToolArgs): Promise<unknown> {
     realDate: optString(args, 'realDate'),
     realDateEnd: optString(args, 'realDateEnd'),
     eventType: optEnum(args, 'eventType', EVENT_TYPES) ?? 'point',
-    order: optNumber(args, 'order') ?? siblings.length,
+    order: optNumber(args, 'order') ?? nextSlot(siblings, 'order'),
     lane: optString(args, 'lane') ?? '',
     color: optString(args, 'color') ?? timeline.color ?? DEFAULT_COLOR,
     linkedEntryId,

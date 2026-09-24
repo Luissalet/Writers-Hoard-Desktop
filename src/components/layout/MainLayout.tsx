@@ -58,8 +58,15 @@ export default function MainLayout() {
     <div className="h-dvh w-full flex flex-col overflow-hidden relative">
       <WindowTitleBar />
       <div className="flex flex-1 min-h-0 overflow-hidden">
+      {/* Moves focus by hand: under the desktop HashRouter, following the
+          fragment would rewrite the route to `/main-content`, which matches
+          nothing and navigates the writer away from the page they are on. */}
       <a
         href="#main-content"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById('main-content')?.focus();
+        }}
         className="sr-only fixed left-3 top-3 z-[100] rounded-lg bg-accent-gold px-3 py-2 font-semibold text-deep focus:not-sr-only"
       >
         {t('a11y.skipToContent')}

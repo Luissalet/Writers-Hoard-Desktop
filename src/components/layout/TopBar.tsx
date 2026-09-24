@@ -72,11 +72,14 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
             <Keyboard size={16} />
           </button>
           <button
+            type="button"
             onClick={() => setShowSettings(true)}
             className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-elevated transition"
             title={t('topbar.settings')}
+            aria-label={t('topbar.settings')}
+            aria-haspopup="dialog"
           >
-            <Settings size={16} />
+            <Settings size={16} aria-hidden="true" />
           </button>
           <button
             type="button"

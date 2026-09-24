@@ -55,6 +55,17 @@ interface EntityDescriptor {
   title: string;
 }
 
+/**
+ * Add `value` to the list under `key`. In place: copying the list on every
+ * append made grouping quadratic in the rows per key — a long chapter's
+ * repeated words, a character's lines — for a list nobody else holds.
+ */
+function appendTo<K, V>(groups: Map<K, V[]>, key: K, value: V): void {
+  const list = groups.get(key);
+  if (list) list.push(value);
+  else groups.set(key, [value]);
+}
+
 function round(value: number, digits = 1): number {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
@@ -177,7 +188,7 @@ function recurringTerms(
     const term = match[0].toLocaleLowerCase('und');
     if (term.length < 3 || STOP_WORDS.has(term) || /^\d+$/.test(term)) continue;
     const start = match.index ?? 0;
-    occurrences.set(term, [...(occurrences.get(term) ?? []), { start, end: start + match[0].length }]);
+    appendTo(occurrences, term, { start, end: start + match[0].length });
   }
   return [...occurrences.entries()]
     .filter(([, ranges]) => ranges.length > 1)
@@ -200,12 +211,12 @@ function recurringTermsAcross(
       const term = match[0].toLocaleLowerCase('und');
       if (term.length < 3 || STOP_WORDS.has(term) || /^\d+$/.test(term)) continue;
       const start = match.index ?? 0;
-      occurrences.set(term, [...(occurrences.get(term) ?? []), {
+      appendTo(occurrences, term, {
         plain,
         descriptor: source.descriptor,
         start,
         end: start + match[0].length,
-      }]);
+      });
     }
   }
   return [...occurrences.entries()]
@@ -265,7 +276,7 @@ function buildCharacterVoice(blocks: readonly DialogBlock[], sceneById: Readonly
     if (block.type !== 'dialog') continue;
     const name = block.characterName.trim() || '—';
     const key = block.characterId ? `id:${block.characterId}` : `name:${name.toLocaleLowerCase('und')}`;
-    groups.set(key, [...(groups.get(key) ?? []), block]);
+    appendTo(groups, key, block);
   }
   return [...groups.entries()].map(([key, rows]) => {
     const ordered = [...rows].sort((a, b) => {
@@ -326,7 +337,7 @@ function buildNarrativeRhythm(
   annotationCounts: ReadonlyMap<string, number>,
 ): NarrativeRhythmUnit[] {
   const blocksByScene = new Map<string, DialogBlock[]>();
-  for (const block of blocks) blocksByScene.set(block.sceneId, [...(blocksByScene.get(block.sceneId) ?? []), block]);
+  for (const block of blocks) appendTo(blocksByScene, block.sceneId, block);
 
   const writingUnits: NarrativeRhythmUnit[] = writings.map((writing, order) => ({
     id: `writing:${writing.id}`,
@@ -375,7 +386,7 @@ function buildNarrativeRhythm(
 
 function buildCreationRhythm(sessions: NarrativeXrayInput['writingSessions']): CreationRhythmDay[] {
   const byDate = new Map<string, NarrativeXrayInput['writingSessions'][number][]>();
-  for (const session of sessions) byDate.set(session.date, [...(byDate.get(session.date) ?? []), session]);
+  for (const session of sessions) appendTo(byDate, session.date, session);
   return [...byDate.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, rows]) => ({
@@ -471,11 +482,11 @@ function buildThreads(
       if (!label) continue;
       const meta = tagMeta.get(label.toLocaleLowerCase('und'));
       const normalized = (meta?.name ?? label).toLocaleLowerCase('und');
-      tagUses.set(normalized, [...(tagUses.get(normalized) ?? []), {
+      appendTo(tagUses, normalized, {
         label: meta?.name ?? label,
         color: meta?.color,
         descriptor,
-      }]);
+      });
     }
   };
   for (const writing of writings) addTags(writing.tags, {
@@ -510,7 +521,7 @@ function buildThreads(
     const relation = canonicalThreadLabel(link.relation);
     if (!relation) continue;
     const normalized = relation.toLocaleLowerCase('und');
-    relationGroups.set(normalized, [...(relationGroups.get(normalized) ?? []), link]);
+    appendTo(relationGroups, normalized, link);
   }
   const linkThreads: NarrativeThread[] = [...relationGroups.entries()]
     .sort(([a], [b]) => a.localeCompare(b))

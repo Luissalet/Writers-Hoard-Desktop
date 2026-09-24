@@ -59,6 +59,19 @@ export async function getPanelCountsByStoryboard(projectId: string): Promise<Rec
   return counts;
 }
 
+/**
+ * The storyboard a deep link (`?entity=<id>`) points at. Global search and the
+ * fallback anchor adapter emit either a storyboard id or a panel id; a panel
+ * opens its board. Scoped to the project so a stale link can't select a board
+ * this engine instance doesn't list.
+ */
+export async function findStoryboardIdForEntity(projectId: string, entityId: string): Promise<string | null> {
+  const board = await db.storyboards.get(entityId);
+  if (board) return board.projectId === projectId ? board.id : null;
+  const panel = await db.storyboardPanels.get(entityId);
+  return panel && panel.projectId === projectId ? panel.storyboardId : null;
+}
+
 export async function reorderPanels(_storyboardId: string, panelIds: string[]): Promise<void> {
   await db.transaction('rw', ['storyboardPanels'], async tx => {
     for (let i = 0; i < panelIds.length; i++) {

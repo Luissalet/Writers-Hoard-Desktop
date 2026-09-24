@@ -1,20 +1,18 @@
 # Mejoras pendientes
 
-Necesidades todavía abiertas. Lo implementado está en [mejoras-realizadas-2026-09-07.md](mejoras-realizadas-2026-09-07.md).
+Necesidades todavía abiertas. Lo implementado está en [mejoras-realizadas-2026-09-07.md](mejoras-realizadas-2026-09-07.md); la auditoría del 2026-09-24 cerró la navegación beats de arco ↔ escenas, la preservación de Recortes y la recuperación del formulario del Códice (ver `tasks/todo.md`).
 
 ## Conectar el proceso creativo
 
 - Extender entrada directa al laboratorio desde Galería, Semillas y Códice.
 - Vincular territorio, cronología, personajes y fuentes mediante referencias compartidas y navegación exacta.
-- Navegar desde beats de arcos de personaje a sus escenas.
 - Medir conceptualización sin reducir progreso a palabras escritas.
 
 ## Profundidad y uso prolongado
 
 - Evaluar Tablero y Relaciones con proyectos grandes reales: densidad, capas, legibilidad y aprendizaje.
-- Recortes: resumen de fallos por lote y distinguir enlace guardado de contenido descargado.
 - Vídeo: ordenación por teclado y coherencia visual completa de tarjetas.
-- Diario: conflictos de texto concurrente. Códice: recuperación del formulario tras cerrarlo voluntariamente.
+- Diario: conflictos de texto concurrente.
 
 ## Límites de recuperación
 

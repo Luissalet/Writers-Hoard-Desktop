@@ -44,9 +44,14 @@ export const useSprintLog = makeReadOnlyHook<SprintRecord>({
 // Writing Stats Hook (computed statistics)
 // ============================================================================
 
-export function useWritingStats(projectId: string): WritingStatsData {
-  const { items: sessions } = useWritingSessions(projectId);
-
+/**
+ * Derived from the caller's session list rather than a hook instance of its
+ * own. It used to call `useWritingSessions` itself, so the engine held TWO
+ * independent copies of the table: finishing a sprint refreshed the one behind
+ * "Recent sessions" while today's words, the streak and the 7-day chart kept
+ * reading the other, stale copy until the tab was remounted.
+ */
+export function useWritingStats(sessions: WritingSession[]): WritingStatsData {
   return useMemo(() => {
     const today = toLocalDateKey();
 

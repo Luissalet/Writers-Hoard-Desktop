@@ -5,7 +5,7 @@ import { DEFAULT_PARAMS, type WorldData } from '@/engines/worldgen/core/types';
 import { generateWorld } from '@/engines/worldgen/core/pipeline';
 import { applyWorldPreset, WORLD_PRESETS } from '@/engines/worldgen/core/presets';
 import { buildHumanGeography, type HumanGeography } from '@/engines/worldgen/core/settlements';
-import { act, createElement } from 'react';
+import { act, createElement, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import CartoMap from '@/engines/worldgen/components/CartoMap';
 
@@ -128,6 +128,52 @@ export async function testCartoMapTypeScale(): Promise<string> {
     if (dprDescriptor) Object.defineProperty(window, 'devicePixelRatio', dprDescriptor);
   }
   return 'Carta keeps identical CSS lettering size during wheel/interim/quick/full rendering on DPR1 and DPR2';
+}
+
+/**
+ * Cerrar la carta dentro del fotograma que `render` cede antes de bloquear no
+ * puede costar el render completo: antes corría igualmente (segundos de hilo
+ * principal a tamaño real) para pintar un lienzo ya desmontado. Y cancelar ese
+ * fotograma no puede dejar echado el cerrojo `rendering`: bajo StrictMode el
+ * desmontaje es simulado y el remontaje tiene que seguir dibujando.
+ */
+export async function testCartoMapUnmountCancelsRender(): Promise<string> {
+  const world = generateWorld({ ...DEFAULT_PARAMS, width: 64, erosion: 0, seed: 'carta-unmount' });
+  const host = document.createElement('div'); host.id = 'carto-unmount-qa'; host.style.cssText = 'position:relative;width:480px;height:240px';
+  const style = document.createElement('style'); style.textContent = '#carto-unmount-qa>div{position:absolute;inset:0}';
+  document.head.append(style); document.body.append(host);
+  const props = (density: number) => ({ world, theme: THEME_ANTIQUE, density, reliefAmount: 0,
+    layers: { labels: false, settlements: false, forests: false, relief: false, frame: false, compass: false, scaleBar: false } });
+  const drawn = () => (host.querySelector('canvas')?.width ?? 0) >= 400;
+  const waitFor = async (test: () => boolean, message: string) => {
+    const end = Date.now() + 5000;
+    while (!test() && Date.now() < end) await act(async () => { await new Promise(r => setTimeout(r, 40)); });
+    assert(test(), message);
+  };
+  const nativeCreate = document.createElement;
+  let root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(StrictMode, null, createElement(CartoMap, props(0)))));
+    await waitFor(drawn, 'StrictMode remount left the carta without a finished render');
+    // A prop change books the yielded frame; the view closes before it fires.
+    act(() => root.render(createElement(StrictMode, null, createElement(CartoMap, props(1)))));
+    let sheets = 0;
+    document.createElement = function (this: Document, tag: string, options?: ElementCreationOptions) {
+      if (String(tag).toLowerCase() === 'canvas') sheets++;
+      return nativeCreate.call(this, tag, options);
+    } as typeof document.createElement;
+    act(() => root.unmount());
+    await new Promise(r => setTimeout(r, 250));
+    assert(sheets === 0, `closing the carta inside its yielded frame still ran the full render (${sheets} sheets painted)`);
+    document.createElement = nativeCreate;
+    root = createRoot(host);
+    await act(async () => root.render(createElement(CartoMap, props(0))));
+    await waitFor(drawn, 'the carta did not render again after a cancelled frame');
+  } finally {
+    document.createElement = nativeCreate;
+    await act(async () => root.unmount()); host.remove(); style.remove();
+  }
+  return 'Carta: closing inside the yielded frame cancels the full render; StrictMode remount still draws';
 }
 
 /** Optional QA artifact, run outside the critical suite: real seeds side by side

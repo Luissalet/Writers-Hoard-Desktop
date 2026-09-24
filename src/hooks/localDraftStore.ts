@@ -7,7 +7,7 @@ const liveStores = new Map<string, Map<string, object>>();
 
 /** Exact project-owned keys only; keep their emptied owners for safe retries. */
 export function clearProjectDraftStores(projectId: string): void {
-  for (const prefix of ['wh.maps-drafts.v1.', 'wh.real-atlas-drafts.v1.', 'wh.editorial-drafts.v1.']) {
+  for (const prefix of ['wh.maps-drafts.v1.', 'wh.real-atlas-drafts.v1.', 'wh.editorial-drafts.v1.', 'wh.codex-drafts.v1.']) {
     createLocalDraftStore(`${prefix}${projectId}`, (value): value is object => value !== null && typeof value === 'object').clear();
   }
   try { localStorage.removeItem(`writing-workflow-draft:${projectId}`); } catch { /* Saved project deletion remains authoritative. */ }

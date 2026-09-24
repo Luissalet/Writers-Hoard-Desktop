@@ -29,6 +29,7 @@ import {
   chooseTemplateId,
   comfySamplerName,
   comfySchedulerName,
+  controlFromRequest,
   createComfyClient,
   createTemplateRegistry,
   extensionFor,
@@ -84,6 +85,10 @@ const OBJECT_INFO_TTL_MS = 60_000;
 /** A 4-tile Ultimate SD Upscale on a mid-range card is genuinely long. */
 const JOB_TIMEOUT_MS = 30 * 60_000;
 const CONNECT_TIMEOUT_MS = 15_000;
+/** Silence allowed between two chunks of a body, once its headers are in. */
+const BODY_IDLE_TIMEOUT_MS = 120_000;
+/** The multi-ControlNet template's control slots; one more would be pruned, not refused. */
+const MAX_CONTROLS = 3;
 
 interface CachedInfo {
   at: number;
@@ -143,6 +148,44 @@ function openSocket(url: string, handlers: ComfySocketHandlers): ComfySocket | n
   }
 }
 
+/**
+ * The connect timer stops once headers arrive, and the client then reads the
+ * whole body with no limit of its own — a server that stalls mid-body would
+ * hang the job forever. This bounds the silence between two chunks, not the
+ * total: a large picture on a slow link is still allowed to take its time.
+ */
+function withBodyIdleTimeout(response: Response, abort: () => void): Response {
+  // A null-body status cannot be rebuilt with a body, and has none to stall on.
+  if (!response.body || [101, 204, 205, 304].includes(response.status) || response.status < 200) return response;
+  const reader = response.body.getReader();
+  let timer: NodeJS.Timeout | undefined;
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const idleGuard = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new ComfyError('timeout', 'ComfyUI stopped sending data.')), BODY_IDLE_TIMEOUT_MS);
+      });
+      try {
+        const chunk = await Promise.race([reader.read(), idleGuard]);
+        if (chunk.done) controller.close();
+        else controller.enqueue(chunk.value);
+      } catch (err) {
+        // Aborting the request is what releases the socket; cancelling the
+        // reader alone leaves net.fetch holding it.
+        abort();
+        void reader.cancel(err).catch(() => undefined);
+        controller.error(err);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    cancel(reason) {
+      clearTimeout(timer);
+      return reader.cancel(reason);
+    },
+  });
+  return new Response(stream, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
 function clientFor(ctx: AdapterContext): ComfyClient {
   return createComfyClient({
     baseUrl: ctx.connection.baseUrl,
@@ -162,6 +205,7 @@ function clientFor(ctx: AdapterContext): ComfyClient {
           signal: combined,
           redirect: 'manual',
         })
+        .then((response) => withBodyIdleTimeout(response, () => controller.abort('timeout')))
         .finally(() => clearTimeout(timer));
     },
     openSocket,
@@ -177,6 +221,9 @@ async function objectInfoFor(ctx: AdapterContext, signal?: AbortSignal): Promise
 }
 
 function descriptors(connectionId: string, info: ComfyObjectInfo): AiModelDescriptor[] {
+  // Every checkpoint on this install can take any of its ControlNets; the
+  // studio picks one for a pinned pose from this list (OpenPose first).
+  const controlNets = listControlNets(info);
   return listCheckpoints(info).map((id) => ({
     connectionId,
     id,
@@ -184,6 +231,7 @@ function descriptors(connectionId: string, info: ComfyObjectInfo): AiModelDescri
     capabilities: ['image-generation', 'image-editing'],
     label: id.replace(/\.[^.]+$/, '').replace(/^.*[\\/]/, ''),
     installed: true,
+    controlNets: controlNets.length ? controlNets : undefined,
   }));
 }
 
@@ -270,6 +318,13 @@ async function generateImage(ctx: AdapterContext, request: AiImageRequest, signa
 
     const extras = readComfyExtras(request);
     const templateId = extras.templateId ?? chooseTemplateId(intentFromRequest(request, extras));
+    // The Studio's pose reference joins the stack; refused before any upload.
+    const requestControl = controlFromRequest(request);
+    if (!requestControl.ok) return { ok: false, code: 'bad-request', error: requestControl.error };
+    const controlInputs = requestControl.control ? [...extras.controls, requestControl.control] : extras.controls;
+    if (controlInputs.length > MAX_CONTROLS) {
+      return { ok: false, code: 'bad-request', error: `ComfyUI takes at most ${MAX_CONTROLS} ControlNets at once.` };
+    }
     if (signal.aborted) return { ok: false, code: 'cancelled', error: 'Cancelled.' };
 
     const sourceImage = request.initImage ? await uploadDataUrl(client, request.initImage, signal) : null;
@@ -281,7 +336,7 @@ async function generateImage(ctx: AdapterContext, request: AiImageRequest, signa
       regions.push({ prompt: region.prompt, mask, strength: region.strength });
     }
     const controls: NonNullable<ComfyRecipe['controls']> = [];
-    for (const control of extras.controls) {
+    for (const control of controlInputs) {
       const image = await uploadDataUrl(client, control.imageDataUrl, signal);
       if (!image) return { ok: false, code: 'bad-request', error: 'A ControlNet hint was not a readable image.' };
       controls.push({

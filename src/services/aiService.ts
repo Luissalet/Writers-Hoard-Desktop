@@ -243,10 +243,12 @@ export async function safeAiCall<T>(
         error: t('ai.proxyNotRunning'),
       };
     }
-    if (message.includes('429') || message.includes('rate')) {
+    // Whole-token match: a bare `includes('rate')` also fired on "generate",
+    // "moderate" or "accurate" in a server's error text and blamed a quota.
+    if (/\b429\b|\brate[- ]?limit/i.test(message)) {
       return {
         success: false,
-        error: 'Has alcanzado el límite de uso de tu suscripción Max. Espera un rato.',
+        error: t('ai.rateLimited'),
       };
     }
     if (err instanceof SyntaxError) {

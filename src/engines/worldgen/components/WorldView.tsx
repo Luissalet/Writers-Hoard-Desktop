@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { randomSeed } from '../randomSeed';
 import { createWorldEditWriter } from '../editWriter';
 import { commitRegeneration, prepareRegeneration, WorldRecipeConflict, type LocationPolicy, type RegenerationPlan } from '../recipe';
-import { worldWorkspaceCopy } from '../workspaceCopy';
+import { forgeCrashText, worldWorkspaceCopy } from '../workspaceCopy';
 import RegenerateWorldDialog from './RegenerateWorldDialog';
 import { journeyStopsForWorld } from '../journeyTypes';
 import {
@@ -31,6 +31,7 @@ import { normalizeParams } from '../core/types';
 import { renderAtlasPreview, renderComposite } from '../core/render';
 import { PROJECTION_IDS, reprojectRgba, type Projection } from '../core/projections';
 import { useWorldGeneration } from '../useWorldGeneration';
+import { forgeCrashExitCode, isForgeCrash } from '../forge/bridge';
 import { useWorldEnvironment } from '../useWorldEnvironment';
 import { useWorldWaypoints } from '../hooks';
 import Map2D from './Map2D';
@@ -2060,7 +2061,7 @@ export default function WorldView({
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-deep/70">
               <div className="text-center">
                 <p className="text-sm text-danger mb-2">{t('worldgen.error.generationFailed')}</p>
-                <p className="text-xs text-text-dim mb-3 max-w-xs">{gen.error}</p>
+                <p className="text-xs text-text-dim mb-3 max-w-xs">{isForgeCrash(gen.error) ? forgeCrashText(copy, forgeCrashExitCode(gen.error)) : gen.error}</p>
                 <button
                   onClick={handleGenerate}
                   className="px-4 py-2 text-xs bg-accent-gold text-deep rounded-lg font-medium hover:bg-accent-amber transition"

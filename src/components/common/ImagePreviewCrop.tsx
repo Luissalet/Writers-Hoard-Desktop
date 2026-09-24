@@ -1,9 +1,10 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect, useId } from 'react';
 import { createPortal } from 'react-dom';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, RotateCw, ZoomIn, ZoomOut, Check, Maximize } from 'lucide-react';
+import { useTranslation } from '@/i18n/useTranslation';
 
 interface ImagePreviewCropProps {
   /** Base64 image source to preview/crop (should be the ORIGINAL, uncropped image) */
@@ -87,6 +88,10 @@ function getCroppedCanvas(
  * Includes zoom slider and 90° rotation.
  */
 export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: ImagePreviewCropProps) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const onCancelRef = useRef(onCancel);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
@@ -94,6 +99,33 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
   const [rotation, setRotation] = useState(0);
 
   const [processing, setProcessing] = useState(false);
+  const open = Boolean(imageSrc);
+
+  useEffect(() => { onCancelRef.current = onCancel; }, [onCancel]);
+
+  // This overlay is often opened from inside a <Modal> (the codex entry form,
+  // storyboard and segment editors). It is not part of that modal's stack, so
+  // Escape used to reach the modal's document listener and close the whole
+  // form underneath — unsaved entry included — while the crop stayed up.
+  // Handle Escape in the capture phase and stop it here; focus moves in on
+  // open and goes back to where it was on close.
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusTimer = window.setTimeout(() => closeRef.current?.focus(), 0);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      onCancelRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.removeEventListener('keydown', onKeyDown, true);
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [open]);
 
   const onImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     imgRef.current = e.currentTarget;
@@ -142,6 +174,9 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
       {imageSrc && (
         <motion.div
           className="fixed inset-0 z-[60] flex flex-col bg-black/95 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -151,12 +186,16 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 bg-black/60 border-b border-white/5">
             <button
+              ref={closeRef}
+              type="button"
               onClick={onCancel}
               className="p-2 rounded-lg hover:bg-white/10 transition text-white/70 hover:text-white"
+              aria-label={t('common.cancel')}
+              title={t('common.cancel')}
             >
-              <X size={22} />
+              <X size={22} aria-hidden="true" />
             </button>
-            <span className="text-sm font-medium text-white/80">Adjust Image</span>
+            <span id={titleId} className="text-sm font-medium text-white/80">{t('imageCrop.title')}</span>
             <div className="w-10" />
           </div>
 
@@ -187,7 +226,7 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
             >
               <img
                 src={imageSrc}
-                alt="Preview"
+                alt={t('imageCrop.preview')}
                 onLoad={onImageLoad}
                 style={{
                   maxHeight: 'calc(100vh - 140px)',
@@ -212,6 +251,7 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
                 step={0.05}
                 value={zoom}
                 onChange={(e) => setZoom(Number(e.target.value))}
+                aria-label={t('imageCrop.zoom')}
                 className="flex-1 h-1 appearance-none bg-white/20 rounded-full outline-none
                   [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
                   [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent-gold [&::-webkit-slider-thumb]:cursor-pointer
@@ -226,28 +266,31 @@ export default function ImagePreviewCrop({ imageSrc, onConfirm, onCancel }: Imag
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={handleRotate}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white/80 hover:text-white transition text-sm"
                 >
-                  <RotateCw size={16} />
-                  Rotate
+                  <RotateCw size={16} aria-hidden="true" />
+                  {t('imageCrop.rotate')}
                 </button>
                 <button
+                  type="button"
                   onClick={handleResetCrop}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white/80 hover:text-white transition text-sm"
                 >
-                  <Maximize size={16} />
-                  Reset
+                  <Maximize size={16} aria-hidden="true" />
+                  {t('imageCrop.reset')}
                 </button>
               </div>
 
               <button
+                type="button"
                 onClick={handleConfirm}
                 disabled={processing}
                 className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-accent-gold hover:bg-accent-amber text-black font-semibold transition text-sm disabled:opacity-50"
               >
-                <Check size={16} />
-                {processing ? 'Processing...' : 'Attach'}
+                <Check size={16} aria-hidden="true" />
+                {processing ? t('imageCrop.processing') : t('imageCrop.attach')}
               </button>
             </div>
           </div>

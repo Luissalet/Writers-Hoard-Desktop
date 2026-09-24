@@ -56,7 +56,7 @@ import {
   undoneIndices,
 } from './aibridge/state';
 import { BRIDGE_TOOLS } from '@/services/aiBridge/manifest';
-import { transcodeWebmToMp4 } from './media/transcode';
+import { killAllTranscodes, transcodeWebmToMp4 } from './media/transcode';
 import {
   detectPlatform,
   downloadMedia,
@@ -73,6 +73,7 @@ import {
   isIpcChannelAllowedForRole,
   isPathContainedBy,
   isSafeNativeSegment,
+  mediaProtocolResponse,
   resolveExistingContainedNativePath,
   resolveWritableContainedNativePath,
   type InternalRendererRole,
@@ -835,6 +836,7 @@ interface QuickNoteSubmitResult {
 }
 
 const QUICK_NOTE_ACCELERATOR = 'CommandOrControl+Shift+N';
+const QUICK_NOTE_KINDS: readonly QuickNotePayload['kind'][] = ['note', 'quote', 'idea', 'word'];
 
 /**
  * How long main waits for the main renderer to confirm the Dexie write before
@@ -1877,7 +1879,10 @@ function registerIpc(): void {
           target.webContents.send('quick-note:add', {
             requestId,
             text,
-            kind: payload?.kind ?? 'note',
+            // Main's copy of the union: this goes straight into a Dexie row,
+            // so the floating window cannot hand the main renderer a kind
+            // no note view knows how to draw.
+            kind: QUICK_NOTE_KINDS.includes(payload?.kind) ? payload.kind : 'note',
             projectId: typeof payload?.projectId === 'string' ? payload.projectId : null,
           });
         } catch (error) {
@@ -2095,11 +2100,18 @@ function forgeEntry(kind: string): string {
   );
 }
 
-ipcMain.on('forge:spawn', (event, payload: { kind?: string } | undefined) => {
+ipcMain.on('forge:spawn', (event, payload: { kind?: string; token?: string } | undefined) => {
   if (!acceptIpcSender(event, 'forge:spawn')) return;
   const port = event.ports[0];
   if (!port) return;
   const kind = payload?.kind === 'worldgen' ? 'worldgen' : 'region';
+  // The renderer's handle for this process, echoed back if it dies: only this
+  // side ever sees the exit code, and "closed unexpectedly" alone tells the
+  // writer nothing about why.
+  const token = typeof payload?.token === 'string' && /^forge-(?:region|worldgen)-\d{1,9}$/.test(payload.token)
+    ? payload.token
+    : null;
+  const sender = event.sender;
   try {
     const child = utilityProcess.fork(forgeEntry(kind), [], {
       serviceName: `worldgen-forge-${kind}`,
@@ -2113,7 +2125,10 @@ ipcMain.on('forge:spawn', (event, payload: { kind?: string } | undefined) => {
       },
     });
     forgeChildren.add(child);
-    child.once('exit', () => forgeChildren.delete(child));
+    child.once('exit', (code) => {
+      forgeChildren.delete(child);
+      if (code !== 0 && token && !sender.isDestroyed()) sender.send('forge:exited', { token, code });
+    });
     child.postMessage({ type: 'attach' }, [port]);
   } catch {
     // No forge (missing bundle, packaging issue): close the port so the
@@ -2230,13 +2245,8 @@ if (!gotLock) {
         const res = await net.fetch(pathToFileURL(abs).toString());
         // Archived pages are served back into <iframe>s: without an explicit
         // type the PDF viewer never engages and the HTML renders as plain text.
-        const forced = MEDIA_CONTENT_TYPES[path.extname(abs).toLowerCase()];
-        if (forced) {
-          const headers = new Headers(res.headers);
-          headers.set('Content-Type', forced);
-          return new Response(res.body, { status: res.status, headers });
-        }
-        return res;
+        // Archived HTML also gets a CSP sandbox (defence in depth; see there).
+        return mediaProtocolResponse(res, MEDIA_CONTENT_TYPES[path.extname(abs).toLowerCase()]);
       } catch {
         return new Response(null, { status: 404 });
       }
@@ -2286,5 +2296,6 @@ app.on('will-quit', () => {
   shutdownSdRuntime();
   rejectAllPendingCalls('Writers Hoard is shutting down.');
   abortAllDownloads();
+  killAllTranscodes();
   shutdownOllama();
 });

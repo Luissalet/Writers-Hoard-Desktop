@@ -38,6 +38,21 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
   // Real captures from the Scrapper, so a 'snapshot' source can finally point
   // at one — `FactSource.entityId` was declared from day one and never filled.
   const { items: snapshots } = useSnapshots(projectId);
+  // Differs from what the editor opened with (a new fact opens blank), so
+  // Escape or a backdrop click cannot throw the input away. A source typed or
+  // a capture picked but not yet added counts too.
+  const dirty = title !== (fact?.title ?? '')
+    || content !== (fact?.content ?? '')
+    || date !== (fact?.date ?? '')
+    || endDate !== (fact?.endDate ?? '')
+    || category !== (fact?.category ?? 'custom')
+    || confidence !== (fact?.confidence ?? 'likely')
+    || JSON.stringify(tags) !== JSON.stringify(fact?.tags ?? [])
+    || JSON.stringify(sources) !== JSON.stringify(fact?.sources ?? [])
+    || newSourceDescription.trim() !== ''
+    || newSourceUrl.trim() !== ''
+    // Only while it is still visible: the save path ignores it for other types.
+    || (newSourceType === 'snapshot' && newSourceEntityId !== '');
 
   if (!isOpen) return null;
 
@@ -86,6 +101,7 @@ export default function FactEditor({ fact, projectId, isOpen, onClose, onSave }:
     <Modal
       open={isOpen}
       onClose={onClose}
+      dismissible={!dirty}
       title={fact ? t('biography.fact.editTitle') : t('biography.fact.newTitle')}
       wide
     >

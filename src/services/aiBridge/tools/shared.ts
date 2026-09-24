@@ -126,6 +126,25 @@ export function optEnum<T extends string>(
     : undefined;
 }
 
+/**
+ * The slot after the last sibling: max + 1, never `siblings.length`.
+ *
+ * Deleting a row leaves a gap in the numbering, so a count lands ON an
+ * existing row's number (or before it) and the "appended" row ties with or
+ * sorts ahead of it. The engines' own add buttons use this same max + 1.
+ */
+export function nextSlot<K extends string>(
+  siblings: ReadonlyArray<Partial<Record<K, unknown>>>,
+  key: K,
+): number {
+  let max = -1;
+  for (const row of siblings) {
+    const value = row[key];
+    if (typeof value === 'number' && Number.isFinite(value) && value > max) max = value;
+  }
+  return max + 1;
+}
+
 export function clampLimit(value: number | undefined, fallback: number, max: number): number {
   if (value === undefined) return fallback;
   return Math.max(1, Math.min(max, Math.floor(value)));

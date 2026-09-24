@@ -8,9 +8,9 @@ import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import EngineSpinner from '@/engines/_shared/components/EngineSpinner';
 import NewItemForm from '@/engines/_shared/components/NewItemForm';
-import { useAutoSelect, useEnsureDefault, ConfirmDialog } from '@/engines/_shared';
+import { useAutoSelect, useEnsureDefault, ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
 import { useStoryboards, useStoryboardPanels, useStoryboardConnectors } from './hooks';
-import { getPanelCountsByStoryboard } from './operations';
+import { findStoryboardIdForEntity, getPanelCountsByStoryboard } from './operations';
 import { generateId } from '@/utils/idGenerator';
 import StoryboardView from './components/StoryboardView';
 import { useScenes } from '@/engines/dialog-scene/hooks';
@@ -43,6 +43,21 @@ export default function StoryboardEngine({ projectId }: EngineComponentProps) {
   useEffect(() => refreshPanelCounts(), [refreshPanelCounts, storyboards.length, panels.length]);
 
   useAutoSelect(storyboards, activeStoryboardId, setActiveStoryboardId);
+
+  // Deep link (`?entity=<id>`): global search, backlinks and the cockpit reach
+  // this engine through the fallback anchor adapter, which emits `?entity=`.
+  // Nothing read it, so a hit opened the tab on whatever storyboard happened to be
+  // selected. Keyed on the link alone, so picking another storyboard afterwards is
+  // not undone.
+  const deepLinkedEntityId = useDeepLinkParam('entity');
+  useEffect(() => {
+    if (!deepLinkedEntityId) return;
+    let cancelled = false;
+    void findStoryboardIdForEntity(projectId, deepLinkedEntityId).then((id) => {
+      if (!cancelled && id) setActiveStoryboardId(id);
+    });
+    return () => { cancelled = true; };
+  }, [deepLinkedEntityId, projectId]);
 
   useEnsureDefault({
     items: storyboards,

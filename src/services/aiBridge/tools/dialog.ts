@@ -33,6 +33,7 @@ import {
   resolveProjectForEngine,
   resolveProjectId,
   withAudit,
+  nextSlot,
   type ToolArgs,
 } from './shared';
 
@@ -118,7 +119,7 @@ export async function whCreateScene(args: ToolArgs): Promise<unknown> {
     title: requireString(args, 'title'),
     description: optString(args, 'description'),
     setting: optString(args, 'setting'),
-    order: siblings.length,
+    order: nextSlot(siblings, 'order'),
     tags: optStringArray(args, 'tags') ?? [],
     createdAt: now,
     updatedAt: now,
@@ -245,7 +246,7 @@ export async function whAddDialog(args: ToolArgs): Promise<unknown> {
     characterName: identity.characterName,
     characterColor: identity.characterColor,
     content,
-    order: siblings.length,
+    order: nextSlot(siblings, 'order'),
     // Stored bare: the editor and the Fountain export add the brackets.
     parenthetical: optString(args, 'parenthetical')?.replace(/^\(|\)$/g, '') || undefined,
     dualGroupId,

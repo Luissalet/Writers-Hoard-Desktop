@@ -136,3 +136,11 @@ export function testStoryLenses(): string {
   assert(JSON.stringify(model) === JSON.stringify(reversed), 'story lenses depend on input iteration order');
   return 'Story lenses: motifs and idea trails stay explicit, scoped and deterministic';
 }
+
+/**
+ * The same test for the focused runner, which awaits what it calls:
+ *   electron scripts/run-focused-browser-tests.cjs tests/story-lenses.ts runStoryLensesTests
+ */
+export async function runStoryLensesTests(): Promise<string[]> {
+  return [testStoryLenses()];
+}

@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import Modal from '@/components/common/Modal';
+import { toast } from '@/components/common/toast';
 import ColorPicker from '@/components/common/ColorPicker';
 import IconPicker from '@/components/common/IconPicker';
 import { PROJECT_MODES, getEnginesForMode } from '@/engines';
@@ -92,6 +93,10 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
       };
       await onCreate(project);
       handleResetCreate();
+    } catch (error) {
+      // The form stays open with everything the writer entered.
+      console.error('Project creation failed', error);
+      toast.error(t('common.saveFailed'));
     } finally {
       creatingRef.current = false;
       setCreating(false);
@@ -99,9 +104,13 @@ export default function CreateProjectModal({ open, onClose, onCreate }: CreatePr
   };
 
   return (
+    // Escape, the backdrop and the X only hide the form: an accidental dismiss
+    // must not throw away a typed title, description and engine selection.
+    // The draft comes back on the next "New project"; Cancel discards it.
     <Modal
       open={open}
-      onClose={handleResetCreate}
+      onClose={onClose}
+      busy={creating}
       title={creationStep === 'mode' ? t('createProject.chooseMode') : t('createProject.newProject')}
     >
       {creationStep === 'mode' ? (

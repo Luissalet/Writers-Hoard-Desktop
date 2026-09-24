@@ -61,6 +61,14 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
     lane: 'Main',
     color: '#c4973b',
   });
+  // What the form held when it opened: Escape and the backdrop only close it
+  // while nothing typed since then would be lost.
+  const [formOpenedWith, setFormOpenedWith] = useState(form);
+  const loadForm = (next: typeof form) => {
+    setForm(next);
+    setFormOpenedWith(next);
+  };
+  const formDirty = (Object.keys(form) as (keyof typeof form)[]).some((key) => form[key] !== formOpenedWith[key]);
 
   const lanes = [...new Set(events.map(e => e.lane))];
   if (lanes.length === 0) lanes.push('Main');
@@ -131,12 +139,12 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
 
   const resetForm = () => {
     setSaveFailed(false);
-    setForm({ title: '', description: '', date: '', dateMode: 'text', eventType: 'point', realDate: '', realDateEnd: '', lane: 'Main', color: '#c4973b' });
+    loadForm({ title: '', description: '', date: '', dateMode: 'text', eventType: 'point', realDate: '', realDateEnd: '', lane: 'Main', color: '#c4973b' });
   };
 
   const openEdit = (evt: TimelineEvent) => {
     setSaveFailed(false);
-    setForm({
+    loadForm({
       title: evt.title,
       description: evt.description,
       date: evt.date,
@@ -199,7 +207,9 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
           icon={<Clock size={40} />}
           title={t('timeline.emptyTitle')}
           message={t('timeline.emptyMessage')}
-          action={{ label: t('timeline.addFirstEvent'), onClick: () => setShowForm(true) }}
+          // Same reset as the header's Add button: a cancelled edit leaves its
+          // event's fields in `form`, and the new event would open pre-filled.
+          action={{ label: t('timeline.addFirstEvent'), onClick: () => { resetForm(); setEditingEvent(null); setShowForm(true); } }}
         />
       ) : (
         <div className="relative">
@@ -294,7 +304,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
       )}
 
       {/* Form Modal */}
-      <Modal open={showForm} onClose={() => { if (!saving) { setShowForm(false); setEditingEvent(null); } }} title={editingEvent ? t('timeline.editEvent') : t('timeline.newEvent')}>
+      <Modal open={showForm} onClose={() => { if (!saving) { setShowForm(false); setEditingEvent(null); } }} dismissible={!formDirty} title={editingEvent ? t('timeline.editEvent') : t('timeline.newEvent')}>
         <fieldset disabled={saving} className="space-y-4">
           <div>
             <label className="block text-sm text-text-muted mb-1.5">{t('timeline.labelTitle')}</label>

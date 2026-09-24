@@ -7,6 +7,7 @@ import {
   isIpcChannelAllowedForRole,
   isPathContainedBy,
   isSafeNativeSegment,
+  mediaProtocolResponse,
   resolveContainedNativePath,
   resolveExistingContainedNativePath,
   resolveWritableContainedNativePath,
@@ -23,6 +24,9 @@ import { contentRangeStart, DownloadError, downloadVerified, verifyFile } from '
 import { appendAudit, auditPath, getAuditRecord, readAudit, undoneIndices } from '../electron/aibridge/state';
 import { runMediaSecurityTests } from './media-security';
 import { runCausalGraphTests } from './causal-graph';
+// Relative, not `@/`: this bundle has no alias. The module is pure (its one
+// `@/` import is a type), and it is the rule `asImageRequest` applies.
+import { isControlNetModelName } from '../src/engines/image-studio/studio/controlNet';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -49,6 +53,27 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
     assert(resolveContainedNativePath(root, unsafe) === null, `path traversal accepted: ${unsafe}`);
   }
   passed.push('native path atoms + lexical containment');
+
+  // `controlNetModel` crosses IPC as a model NAME: ComfyUI lists its
+  // ControlNets by path under its own folder, so subfolders pass (verbatim —
+  // ComfyUI matches exactly), while anything naming a place does not.
+  for (const name of [
+    'controlnet-sd15-openpose',
+    'control_v11p_sd15_openpose.pth',
+    'SD15/openpose.pth',
+    'SD15\\openpose.pth',
+    'xinsir/controlnet union sdxl (promax).safetensors',
+  ]) {
+    assert(isControlNetModelName(name), `ControlNet name refused: ${name}`);
+  }
+  for (const name of [
+    '', '.', '..', '../x', 'SD15/../x', '..\\x', '/abs', '/etc/passwd', '\\\\server\\share\\x.pth',
+    'C:\\x', 'C:/x', 'c:x.pth', 'x.pth:stream', 'SD15//x.pth', 'SD15/', 'SD15/.. /x', 'a\u0000b', 'x'.repeat(256),
+    'a/b/c/d/e/f/g/h/i.pth', 42, null,
+  ]) {
+    assert(!isControlNetModelName(name), `unsafe ControlNet name accepted: ${JSON.stringify(name)}`);
+  }
+  passed.push('IPC ControlNet names: relative subfolders pass, traversal / absolute / drive paths refused');
 
   const safeFile = path.join(root, 'project-1', 'safe.txt');
   await fs.writeFile(safeFile, 'safe', 'utf8');
@@ -119,6 +144,24 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
   assert(!isIpcChannelAllowedForRole('shutdown:request', 'main'), 'the main->renderer close push was opened as an inbound channel');
   assert(!isIpcChannelAllowedForRole('shutdown:request', 'quick-note'), 'the main->renderer close push was opened to quick-note');
   passed.push('exact renderer navigation + fail-closed IPC roles');
+
+  // wh-media:// serves archived pages with their scripts: the viewer iframe is
+  // sandbox="", and the header keeps them inert anywhere else they are opened.
+  const archived = mediaProtocolResponse(
+    new Response('<script>1</script>', { status: 200, headers: { 'Content-Type': 'text/plain' } }),
+    'text/html; charset=utf-8',
+  );
+  assert(archived.headers.get('Content-Type') === 'text/html; charset=utf-8', 'pinned HTML type lost');
+  assert(archived.headers.get('Content-Security-Policy') === 'sandbox', 'archived HTML served without a CSP sandbox');
+  assert(await archived.text() === '<script>1</script>', 'archived HTML body altered');
+  const sniffedHtml = mediaProtocolResponse(new Response('<p>', { headers: { 'Content-Type': 'text/html' } }));
+  assert(sniffedHtml.headers.get('Content-Security-Policy') === 'sandbox', '.htm served without a CSP sandbox');
+  const pdf = mediaProtocolResponse(new Response('%PDF', { headers: { 'Content-Type': 'text/plain' } }), 'application/pdf');
+  assert(pdf.headers.get('Content-Type') === 'application/pdf', 'pinned PDF type lost');
+  assert(!pdf.headers.has('Content-Security-Policy'), 'a CSP sandbox would break the PDF viewer');
+  const video = new Response('mp4', { status: 206, headers: { 'Content-Type': 'video/mp4', 'Content-Range': 'bytes 0-2/3' } });
+  assert(mediaProtocolResponse(video) === video, 'non-HTML media was rewritten');
+  passed.push('wh-media HTML carries a CSP sandbox; other media untouched');
 
   // MCP content blocks: a picture must leave as an image block, and its base64
   // must never also land in the text block, where it would be pure noise.
