@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { createRendererRequestHandler, resolveRendererFile } from '../electron/rendererServer';
+import { sameCounts } from '../electron/originMigrationScripts';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -54,9 +55,18 @@ export async function runRendererServerTests(temporaryDirectory: string): Promis
     assert(post.status === 405, `POST returned ${post.status}`);
     const dir = await request(port, '/assets', host);
     assert(dir.status === 404, `directory returned ${dir.status}`);
+    const blank = await request(port, '/__wh_blank', host);
+    assert(blank.status === 200 && blank.body.includes('<title>wh</title>'), `blank page returned ${blank.status}`);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
   passed.push('packaged renderer server: files under the build only, exact Host, read-only');
+
+  const before = { databases: { WritersHoardDB: { projects: 5, writings: 12 } }, records: 17, localStorageKeys: 2 };
+  assert(sameCounts(before, { ...before, databases: { WritersHoardDB: { projects: 5, writings: 12, extra: 0 } } }), 'equal copy rejected');
+  assert(!sameCounts(before, { ...before, databases: { WritersHoardDB: { projects: 5, writings: 11 } } }), 'short copy accepted');
+  assert(!sameCounts(before, { ...before, databases: {} }), 'missing database accepted');
+  assert(!sameCounts(before, { ...before, localStorageKeys: 1 }), 'lost localStorage accepted');
+  passed.push('origin migration only accepts a copy with every store count intact');
   return passed;
 }
