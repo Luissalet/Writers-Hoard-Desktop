@@ -23,6 +23,7 @@ import { isCurrentSdRuntimeReceipt, SD_RUNTIME_ARTIFACTS, sdBackendsFor, sdRunti
 import { contentRangeStart, DownloadError, downloadVerified, verifyFile } from '../electron/ai/download';
 import { appendAudit, auditPath, getAuditRecord, readAudit, undoneIndices } from '../electron/aibridge/state';
 import { runMediaSecurityTests } from './media-security';
+import { runRendererServerTests } from './renderer-server';
 import { runCausalGraphTests } from './causal-graph';
 // Relative, not `@/`: this bundle has no alias. The module is pure (its one
 // `@/` import is a type), and it is the rule `asImageRequest` applies.
@@ -36,6 +37,7 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
   const passed: string[] = [];
 
   passed.push(...await runMediaSecurityTests(temporaryDirectory));
+  passed.push(...await runRendererServerTests(temporaryDirectory));
   passed.push(...runCausalGraphTests());
 
   assert(isSafeNativeSegment('project_1-safe.zip'), 'safe native segment rejected');
