@@ -33,7 +33,8 @@ import { pathToFileURL } from 'node:url';
 import { autoUpdater } from 'electron-updater';
 import { createUpdateController } from './updates';
 import { startMediaServer, stopMediaServer } from './media/server';
-import { RENDERER_ORIGIN, startRendererServer, stopRendererServer } from './rendererServer';
+import { BLANK_PATH, RENDERER_ORIGIN, startRendererServer, stopRendererServer } from './rendererServer';
+import { migrateLegacyFileOrigin } from './originMigration';
 import {
   AI_BRIDGE_PORT,
   AI_BRIDGE_URL,
@@ -151,6 +152,9 @@ interface ListCollectionResult {
 }
 
 const isDev = !app.isPackaged;
+// A separate profile (library, settings, bridge token) for tests and portable
+// runs. Set before anything reads userData or takes the single-instance lock.
+if (process.env.WH_USER_DATA_DIR) app.setPath('userData', path.resolve(process.env.WH_USER_DATA_DIR));
 const RENDERER_DEV_URL = process.env.ELECTRON_RENDERER_URL || `${RENDERER_ORIGIN}/`;
 const PACKAGED_RENDERER_DIR = path.join(__dirname, '..', 'dist');
 // Development and the packaged app load the renderer from the same origin
@@ -161,6 +165,8 @@ const MAIN_RENDERER_URL = new URL(RENDERER_BASE_URL).href;
 const QUICK_NOTE_RENDERER_URL = new URL('/quick-note.html', RENDERER_BASE_URL).href;
 
 let mainWindow: BrowserWindow | null = null;
+/** True while originMigration.ts has its hidden pages open (see window-all-closed). */
+let originMigrationRunning = false;
 const RELEASES_URL = 'https://github.com/Luissalet/Writers-Hoard-Releases/releases';
 const updates = createUpdateController(autoUpdater, app.getVersion(), !isDev, (state) => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updates:state', state);
@@ -713,6 +719,8 @@ async function createWindow(): Promise<void> {
       spellcheck: true,
     },
   });
+  // A real window exists now; closing the last one quits again.
+  originMigrationRunning = false;
   if (state.isMaximized) mainWindow.maximize();
   trackWindowState(mainWindow);
 
@@ -2274,6 +2282,17 @@ if (!gotLock) {
         app.quit();
         return;
       }
+      // Up to 0.1.2 the packaged renderer kept the library under file://.
+      // Copy it once to the renderer origin before the window opens.
+      originMigrationRunning = true;
+      try {
+        await migrateLegacyFileOrigin({
+          targetBlankUrl: `${RENDERER_ORIGIN}${BLANK_PATH}`,
+          preloadPath: path.join(__dirname, 'migrationPreload.cjs'),
+        });
+      } catch (err) {
+        console.error('[origin-migration] skipped after an error', err);
+      }
     }
 
     // The bridge answers from the main window, so it needs a way to find it.
@@ -2300,6 +2319,9 @@ app.on('before-quit', () => {
 });
 
 app.on('window-all-closed', () => {
+  // The origin migration's hidden pages close before the first real window
+  // exists; that is not the user closing the app.
+  if (originMigrationRunning) return;
   if (process.platform !== 'darwin') app.quit();
 });
 
