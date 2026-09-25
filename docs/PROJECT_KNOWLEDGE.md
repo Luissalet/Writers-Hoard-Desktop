@@ -61,8 +61,13 @@ relative paths while Electron owns the files on disk.
 - Dashboard, project detail, Notes inbox, and the desktop media downloader are
   route-level lazy chunks. Engine registration remains eager so search,
   anchoring, backup, and conformance contracts exist before a route loads.
-- Desktop uses `HashRouter` because the renderer loads under `file://`; web uses
+- Desktop uses `HashRouter` (a single document is ever loaded); web uses
   `BrowserRouter`.
+- The library lives in the renderer's IndexedDB and localStorage, which are
+  keyed by origin. Development (Vite, strict port) and the packaged app
+  (`electron/rendererServer.ts`, loopback, exact Host, read-only) both load the
+  renderer from `http://127.0.0.1:5174`, so both open the same library. The
+  packaged app refuses to start on another port when that one is taken.
 - `MainLayout` permanently mounts the sidebar, route outlet, global search,
   quick-note host, and toast host.
 

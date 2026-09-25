@@ -33,6 +33,7 @@ import { pathToFileURL } from 'node:url';
 import { autoUpdater } from 'electron-updater';
 import { createUpdateController } from './updates';
 import { startMediaServer, stopMediaServer } from './media/server';
+import { RENDERER_ORIGIN, startRendererServer, stopRendererServer } from './rendererServer';
 import {
   AI_BRIDGE_PORT,
   AI_BRIDGE_URL,
@@ -150,16 +151,14 @@ interface ListCollectionResult {
 }
 
 const isDev = !app.isPackaged;
-const RENDERER_DEV_URL = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5174';
+const RENDERER_DEV_URL = process.env.ELECTRON_RENDERER_URL || `${RENDERER_ORIGIN}/`;
 const PACKAGED_RENDERER_DIR = path.join(__dirname, '..', 'dist');
-const MAIN_RENDERER_PATH = path.join(PACKAGED_RENDERER_DIR, 'index.html');
-const QUICK_NOTE_RENDERER_PATH = path.join(PACKAGED_RENDERER_DIR, 'quick-note.html');
-const MAIN_RENDERER_URL = isDev
-  ? new URL(RENDERER_DEV_URL).href
-  : pathToFileURL(MAIN_RENDERER_PATH).href;
-const QUICK_NOTE_RENDERER_URL = isDev
-  ? new URL('/quick-note.html', RENDERER_DEV_URL).href
-  : pathToFileURL(QUICK_NOTE_RENDERER_PATH).href;
+// Development and the packaged app load the renderer from the same origin
+// (see rendererServer.ts): the library is stored per origin, so this is what
+// makes both builds open the same books.
+const RENDERER_BASE_URL = isDev ? RENDERER_DEV_URL : `${RENDERER_ORIGIN}/`;
+const MAIN_RENDERER_URL = new URL(RENDERER_BASE_URL).href;
+const QUICK_NOTE_RENDERER_URL = new URL('/quick-note.html', RENDERER_BASE_URL).href;
 
 let mainWindow: BrowserWindow | null = null;
 const RELEASES_URL = 'https://github.com/Luissalet/Writers-Hoard-Releases/releases';
@@ -750,7 +749,7 @@ async function createWindow(): Promise<void> {
   mainWindow.webContents.on('destroyed', () => cancelAllCopilotRuns());
 
   if (isDev) {
-    void mainWindow.loadURL(RENDERER_DEV_URL);
+    void mainWindow.loadURL(MAIN_RENDERER_URL);
     // DevTools ya NO se abre solo. Con las herramientas abiertas, la consola
     // y la línea de tiempo RETIENEN todo lo que se registra — y en este motor
     // los mensajes llevan mundos y regiones de cientos de megabytes. Sumado a
@@ -758,8 +757,9 @@ async function createWindow(): Promise<void> {
     // "regenerar" con DevTools delante era una sentencia de muerte por RAM.
     // Ctrl+Shift+I lo abre cuando de verdad toque depurar.
   } else {
-    // Renderer uses HashRouter in Electron, so a plain file load is enough.
-    void mainWindow.loadFile(MAIN_RENDERER_PATH);
+    // Served by rendererServer.ts on the development origin (HashRouter, so
+    // the root document is the only one ever loaded).
+    void mainWindow.loadURL(MAIN_RENDERER_URL);
   }
 
   // Held back only while the renderer says a chapter is unsaved; see
@@ -918,8 +918,7 @@ async function getQuickNoteWindow(): Promise<BrowserWindow> {
 
   quickNoteWindow = win;
   try {
-    if (isDev) await win.loadURL(QUICK_NOTE_RENDERER_URL);
-    else await win.loadFile(QUICK_NOTE_RENDERER_PATH);
+    await win.loadURL(QUICK_NOTE_RENDERER_URL);
   } catch (error) {
     if (!win.isDestroyed()) win.destroy();
     throw error;
@@ -2260,6 +2259,23 @@ if (!gotLock) {
       console.error('[media] failed to start embedded server', err);
     }
 
+    if (!isDev) {
+      try {
+        await startRendererServer(PACKAGED_RENDERER_DIR);
+      } catch (err) {
+        const busy = (err as NodeJS.ErrnoException)?.code === 'EADDRINUSE';
+        dialog.showErrorBox(
+          "Writer's Hoard",
+          busy
+            ? `${RENDERER_ORIGIN} is already in use, most likely by a development session of this app. ` +
+                'Your library lives on that address, so the app will not open on another one. Close the other session and start it again.'
+            : `The app could not serve its window on ${RENDERER_ORIGIN}: ${String((err as Error)?.message ?? err)}`,
+        );
+        app.quit();
+        return;
+      }
+    }
+
     // The bridge answers from the main window, so it needs a way to find it.
     setBridgeWindowResolver(() => mainWindow);
     await syncAiBridgeNow();
@@ -2290,6 +2306,7 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   stopMediaServer();
+  stopRendererServer();
   stopAiBridge();
   cancelAllCopilotRuns();
   shutdownGateway();

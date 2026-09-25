@@ -17,9 +17,9 @@ import { mediaDownloadQueue, type MediaDownloadQueue } from './downloadQueue';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.MEDIA_DOWNLOADER_PORT || 8765);
-/** Same value main.ts loads the renderer from during development. */
+/** The origin main.ts loads the renderer from, in development and packaged. */
 const RENDERER_DEV_ORIGIN = new URL(
-  process.env.ELECTRON_RENDERER_URL || 'http://localhost:5174',
+  process.env.ELECTRON_RENDERER_URL || 'http://127.0.0.1:5174',
 ).origin;
 
 export const MEDIA_SERVER_URL = `http://${HOST}:${PORT}`;
@@ -69,7 +69,10 @@ function isAllowedOrigin(
   rendererDevOrigin: string,
 ): boolean {
   if (origin === undefined || origin === 'null') return true;
-  return !isPackaged && origin === rendererDevOrigin;
+  // The packaged renderer is served from the same origin as development
+  // (rendererServer.ts), so the exact renderer origin is allowed in both.
+  void isPackaged;
+  return origin === rendererDevOrigin;
 }
 
 function addVary(res: http.ServerResponse, values: readonly string[]): void {
