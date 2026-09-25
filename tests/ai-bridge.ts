@@ -42,6 +42,14 @@ function testManifestHandlerParity(): void {
     assert(typeof TOOL_HANDLERS[tool.name] === 'function', `no handler for tool ${tool.name}`);
     assert(tool.description.length > 40, `tool ${tool.name} needs a usable description`);
     assert(tool.schema.type === 'object', `tool ${tool.name} has a non-object schema`);
+    // The tool index shows only the first line, cut at 110 characters — a
+    // description whose first line runs longer than that is truncated mid-word
+    // in front of the model that has to pick a tool from it.
+    const firstLine = tool.description.split('\n')[0];
+    assert(
+      firstLine.length <= 110,
+      `tool ${tool.name} has a ${firstLine.length}-char first line (max 110): "${firstLine}"`,
+    );
   }
   for (const name of Object.keys(TOOL_HANDLERS)) {
     assert(getBridgeTool(name), `handler ${name} is not in the manifest, so no model can call it`);

@@ -18,7 +18,8 @@ export const DIALOG_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_scenes',
     description:
-      'List the project\'s dialog scenes in order, with their setting, scene number, cast and how many blocks each holds. This engine is the screenplay/stage side of the app: scenes made of speech and action blocks, exportable to Fountain.',
+      `List a project's dialog scenes in order, with setting, number, cast and block count.
+List the project's dialog scenes in order, with their setting, scene number, cast and how many blocks each holds. This engine is the screenplay/stage side of the app: scenes made of speech and action blocks, exportable to Fountain.`,
     writes: false,
     schema: {
       type: 'object',
@@ -29,7 +30,8 @@ export const DIALOG_TOOLS: BridgeTool[] = [
   {
     name: 'wh_get_scene',
     description:
-      'Read one scene as a script: every block in order with its speaker, parenthetical and text, plus the scene\'s cast list. Read this before adding to a scene so the voices already on the page are the ones you continue.',
+      `Read one scene as a script: every block, speaker and parenthetical, plus the cast.
+Read one scene as a script: every block in order with its speaker, parenthetical and text, plus the scene's cast list. Read this before adding to a scene so the voices already on the page are the ones you continue.`,
     writes: false,
     schema: {
       type: 'object',
@@ -41,7 +43,8 @@ export const DIALOG_TOOLS: BridgeTool[] = [
   {
     name: 'wh_create_scene',
     description:
-      'Add a scene to the project. It is appended last. Give it a setting like "INT. KITCHEN - NIGHT" when the project is a screenplay; the Fountain export uses the setting as the scene heading and falls back to the title.',
+      `Add a scene to the project, appended last, with a screenplay-style setting heading.
+Add a scene to the project. It is appended last. Give it a setting like "INT. KITCHEN - NIGHT" when the project is a screenplay; the Fountain export uses the setting as the scene heading and falls back to the title.`,
     writes: true,
     schema: {
       type: 'object',
@@ -77,7 +80,8 @@ export const DIALOG_TOOLS: BridgeTool[] = [
   {
     name: 'wh_add_dialog',
     description:
-      'Append one block to a scene: a line of dialogue, an action beat, a stage direction, a transition, a slugline or a note. For dialogue pass the speaker in `character`; if that name is already in the scene cast the block inherits its colour, and if it matches a codex character it is linked to that entry. A parenthetical is written WITHOUT its brackets.',
+      `Append a block to a scene: dialogue, action, direction, transition or slugline.
+Append one block to a scene: a line of dialogue, an action beat, a stage direction, a transition, a slugline or a note. For dialogue pass the speaker in \`character\`; if that name is already in the scene cast the block inherits its colour, and if it matches a codex character it is linked to that entry. A parenthetical is written WITHOUT its brackets.`,
     writes: true,
     schema: {
       type: 'object',
@@ -126,7 +130,8 @@ export const ARC_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_arcs',
     description:
-      'List the project\'s character arcs with their ghost, lie, truth, want and need. An arc is one character\'s inner journey: the wound they carry, the false belief it left them with, and the truth that would free them.',
+      `List a project's character arcs with their ghost, lie, truth, want and need.
+List the project's character arcs with their ghost, lie, truth, want and need. An arc is one character's inner journey: the wound they carry, the false belief it left them with, and the truth that would free them.`,
     writes: false,
     schema: {
       type: 'object',
@@ -137,7 +142,8 @@ export const ARC_TOOLS: BridgeTool[] = [
   {
     name: 'wh_get_arc',
     description:
-      'Read one arc in full with its beats in order: each beat\'s stage, emotion and position in the story. This is the fastest way to see whether a character actually changes or just moves.',
+      `Read one character arc in full, with its beats and inner-journey progress.
+Read one arc in full with its beats in order: each beat's stage, emotion and position in the story. This is the fastest way to see whether a character actually changes or just moves.`,
     writes: false,
     schema: {
       type: 'object',
@@ -149,7 +155,8 @@ export const ARC_TOOLS: BridgeTool[] = [
   {
     name: 'wh_create_arc',
     description:
-      'Create a character arc. The five spine fields matter more than the title: ghost (the old wound), lie (what they wrongly believe because of it), truth (what would free them), want (what they chase) and need (what would actually heal them). Leave any you do not know yet empty rather than inventing it.',
+      `Create a character arc from its five spine fields: ghost, lie, truth, want, need.
+Create a character arc. The five spine fields matter more than the title: ghost (the old wound), lie (what they wrongly believe because of it), truth (what would free them), want (what they chase) and need (what would actually heal them). Leave any you do not know yet empty rather than inventing it.`,
     writes: true,
     schema: {
       type: 'object',
@@ -172,7 +179,8 @@ export const ARC_TOOLS: BridgeTool[] = [
   {
     name: 'wh_add_arc_beat',
     description:
-      'Add a beat to an arc: one moment where the character\'s inner state shifts. Appended last unless you pass an order.',
+      `Add a beat to an arc marking a shift in the character's inner state.
+Add a beat to an arc: one moment where the character's inner state shifts. Appended last unless you pass an order.`,
     writes: true,
     schema: {
       type: 'object',
@@ -229,7 +237,8 @@ export const RELATIONSHIP_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_relationships',
     description:
-      'List who is what to whom, with the kind of bond, how strong it is (-5 hostile to +5 devoted), whether it is current, past or secret, and whether it runs both ways. Pass entityId to get every relationship touching one character — they are stored on either side, so this checks both.',
+      `List relationship bonds between characters, with kind, strength and directionality.
+List who is what to whom, with the kind of bond, how strong it is (-5 hostile to +5 devoted), whether it is current, past or secret, and whether it runs both ways. Pass entityId to get every relationship touching one character — they are stored on either side, so this checks both.`,
     writes: false,
     schema: {
       type: 'object',
@@ -243,7 +252,8 @@ export const RELATIONSHIP_TOOLS: BridgeTool[] = [
   {
     name: 'wh_create_relationship',
     description:
-      'Record a relationship between two codex entries. `intensity` runs from -5 (open hostility) through 0 (neutral) to +5 (deep loyalty or love). Leave `directional` false for a mutual bond; set it true when it only runs one way, like devotion that is not returned.',
+      `Record a relationship between two codex entries, with an intensity from hostile to loyal.
+Record a relationship between two codex entries. \`intensity\` runs from -5 (open hostility) through 0 (neutral) to +5 (deep loyalty or love). Leave \`directional\` false for a mutual bond; set it true when it only runs one way, like devotion that is not returned.`,
     writes: true,
     schema: {
       type: 'object',
@@ -265,7 +275,8 @@ export const RELATIONSHIP_TOOLS: BridgeTool[] = [
   {
     name: 'wh_update_relationship',
     description:
-      'Change a relationship — most usefully its state, when something that was current becomes past, or a secret comes out.',
+      `Change a relationship, most often its state as it becomes past or is revealed.
+Change a relationship — most usefully its state, when something that was current becomes past, or a secret comes out.`,
     writes: true,
     schema: {
       type: 'object',
@@ -294,7 +305,8 @@ export const SEED_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_seeds',
     description:
-      'List everything the writer planted — foreshadowing, Chekhov\'s guns, setups, callbacks, open mysteries — each with its payoffs. The status is computed, not stored: a seed that has not been cut and has no payoff comes back "orphaned". Ask for orphanedOnly to answer the question this engine exists for: what did I promise the reader and never deliver?',
+      `List planted setups, foreshadowing and mysteries, each with its payoffs and status.
+List everything the writer planted — foreshadowing, Chekhov's guns, setups, callbacks, open mysteries — each with its payoffs. The status is computed, not stored: a seed that has not been cut and has no payoff comes back "orphaned". Ask for orphanedOnly to answer the question this engine exists for: what did I promise the reader and never deliver?`,
     writes: false,
     schema: {
       type: 'object',
@@ -309,7 +321,8 @@ export const SEED_TOOLS: BridgeTool[] = [
   {
     name: 'wh_create_seed',
     description:
-      'Record something planted in the draft that must matter later. `plantedAt` is a percentage through the story, not a date.',
+      `Record something planted in the draft that must matter later in the story.
+Record something planted in the draft that must matter later. \`plantedAt\` is a percentage through the story, not a date.`,
     writes: true,
     schema: {
       type: 'object',
@@ -331,7 +344,8 @@ export const SEED_TOOLS: BridgeTool[] = [
   {
     name: 'wh_update_seed',
     description:
-      'Change a seed. Set status to "cut" when it was removed in revision — that is the only status worth writing, since the rest is derived from whether payoffs exist.',
+      `Change a seed; set status to cut once it was removed in revision.
+Change a seed. Set status to "cut" when it was removed in revision — that is the only status worth writing, since the rest is derived from whether payoffs exist.`,
     writes: true,
     schema: {
       type: 'object',
@@ -354,7 +368,8 @@ export const SEED_TOOLS: BridgeTool[] = [
   {
     name: 'wh_add_payoff',
     description:
-      'Record where a seed finally landed. Adding one flips the seed from orphaned to paid. `strength` is 1 to 5: how satisfying the payoff actually is, not how important the seed was.',
+      `Record where a seed finally pays off, flipping it from orphaned to paid.
+Record where a seed finally landed. Adding one flips the seed from orphaned to paid. \`strength\` is 1 to 5: how satisfying the payoff actually is, not how important the seed was.`,
     writes: true,
     schema: {
       type: 'object',
@@ -388,7 +403,8 @@ export const BIOGRAPHY_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_biographies',
     description:
-      'List the biographies in the project. A biography is a subject plus a stack of dated, sourced facts — the app\'s tool for real or fictional lives, used by journalists and biographers as much as novelists.',
+      `List a project's biographies: a subject plus dated, sourced facts about their life.
+List the biographies in the project. A biography is a subject plus a stack of dated, sourced facts — the app's tool for real or fictional lives, used by journalists and biographers as much as novelists.`,
     writes: false,
     schema: {
       type: 'object',
@@ -399,7 +415,8 @@ export const BIOGRAPHY_TOOLS: BridgeTool[] = [
   {
     name: 'wh_get_biography',
     description:
-      'Read one biography with its facts in order: date, category, confidence and sources for each. Facts come back as Markdown.',
+      `Read one biography with its facts in order: date, category, confidence and sources.
+Read one biography with its facts in order: date, category, confidence and sources for each. Facts come back as Markdown.`,
     writes: false,
     schema: {
       type: 'object',
@@ -426,7 +443,8 @@ export const BIOGRAPHY_TOOLS: BridgeTool[] = [
   {
     name: 'wh_add_biography_fact',
     description:
-      'Add one fact to a biography. Be honest with `confidence`: "confirmed" means a source actually establishes it, "disputed" means sources disagree. Guessing here quietly turns research into fiction.',
+      `Add one fact to a biography with an honest confidence level.
+Add one fact to a biography. Be honest with \`confidence\`: "confirmed" means a source actually establishes it, "disputed" means sources disagree. Guessing here quietly turns research into fiction.`,
     writes: true,
     schema: {
       type: 'object',
@@ -482,7 +500,8 @@ export const BOARD_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_boards',
     description:
-      'List the project\'s boards. A board is the corkboard-and-string surface: cards and post-its pinned on a canvas with labelled threads between them. Good for investigations, plot webs and anything where the connections matter more than the order.',
+      `List a project's corkboards: cards and threads pinned on a canvas.
+List the project's boards. A board is the corkboard-and-string surface: cards and post-its pinned on a canvas with labelled threads between them. Good for investigations, plot webs and anything where the connections matter more than the order.`,
     writes: false,
     schema: {
       type: 'object',
@@ -493,7 +512,8 @@ export const BOARD_TOOLS: BridgeTool[] = [
   {
     name: 'wh_create_board',
     description:
-      'Start a corkboard: a free canvas of cards and the threads between them. Use it to lay out suspects, factions, clues or the shape of an argument — anything better seen than listed.',
+      `Start a corkboard for laying out suspects, factions, clues or an argument’s shape.
+Start a corkboard: a free canvas of cards and the threads between them. Use it to lay out suspects, factions, clues or the shape of an argument — anything better seen than listed.`,
     writes: true,
     schema: {
       type: 'object',
@@ -511,7 +531,8 @@ export const BOARD_TOOLS: BridgeTool[] = [
   {
     name: 'wh_get_board',
     description:
-      'Read a board: every card with its role, text and tags, and every thread between them with its kind and label. Card images are reported as present but not included — use wh_view_board_image to look at one.',
+      `Read a board: every card and thread, with image presence flagged but not included.
+Read a board: every card with its role, text and tags, and every thread between them with its kind and label. Card images are reported as present but not included — use wh_view_board_image to look at one.`,
     writes: false,
     schema: {
       type: 'object',
@@ -523,7 +544,8 @@ export const BOARD_TOOLS: BridgeTool[] = [
   {
     name: 'wh_add_board_card',
     description:
-      'Pin a new card on a board. `role` is what it means — character, event, place, clue, question, theme — and is free text. Give a position when it should sit somewhere specific; otherwise it is placed clear of what is already there.',
+      `Pin a new card on a board, with a free-text role and optional position.
+Pin a new card on a board. \`role\` is what it means — character, event, place, clue, question, theme — and is free text. Give a position when it should sit somewhere specific; otherwise it is placed clear of what is already there.`,
     writes: true,
     schema: {
       type: 'object',
@@ -565,7 +587,8 @@ export const BOARD_TOOLS: BridgeTool[] = [
   {
     name: 'wh_connect_board_cards',
     description:
-      'Run a thread between two cards. `kind` carries the meaning — causes, blocks, betrayal, foreshadows — and `certainty` (0 to 1) is how sure the writer is, which the board draws as a solid or faded line.',
+      `Run a thread between two cards, with a kind and how certain the writer is.
+Run a thread between two cards. \`kind\` carries the meaning — causes, blocks, betrayal, foreshadows — and \`certainty\` (0 to 1) is how sure the writer is, which the board draws as a solid or faded line.`,
     writes: true,
     schema: {
       type: 'object',
@@ -608,7 +631,8 @@ export const GALLERY_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_images',
     description:
-      'List the project\'s reference images with their tags, notes, collection and which codex entries they are linked to. The pictures themselves are not included — look at one with wh_view_image.',
+      `List a project's reference images with tags, notes and linked codex entries.
+List the project's reference images with their tags, notes, collection and which codex entries they are linked to. The pictures themselves are not included — look at one with wh_view_image.`,
     writes: false,
     schema: {
       type: 'object',
@@ -624,7 +648,8 @@ export const GALLERY_TOOLS: BridgeTool[] = [
   {
     name: 'wh_view_image',
     description:
-      'Look at one reference image. Returns the picture itself so a vision-capable model can describe it, then write that description back with wh_tag_image.',
+      `Look at one reference image so a vision model can describe it and tag it.
+Look at one reference image. Returns the picture itself so a vision-capable model can describe it, then write that description back with wh_tag_image.`,
     writes: false,
     schema: {
       type: 'object',
@@ -636,7 +661,8 @@ export const GALLERY_TOOLS: BridgeTool[] = [
   {
     name: 'wh_tag_image',
     description:
-      'Write tags and notes onto a reference image. Describe what is in the frame — subject, setting, light, mood, technique — so the writer can find it again by what it shows rather than by remembering it exists.',
+      `Write tags and notes onto a reference image describing what is in the frame.
+Write tags and notes onto a reference image. Describe what is in the frame — subject, setting, light, mood, technique — so the writer can find it again by what it shows rather than by remembering it exists.`,
     writes: true,
     schema: {
       type: 'object',
@@ -666,7 +692,8 @@ export const MAP_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_maps',
     description:
-      'List the project\'s maps with every pin on them: name, icon, description and any codex entry the pin points at. Pin coordinates are relative to the map image, 0 to 100 on each axis.',
+      `List a project's maps with every pin: name, icon, description and codex link.
+List the project's maps with every pin on them: name, icon, description and any codex entry the pin points at. Pin coordinates are relative to the map image, 0 to 100 on each axis.`,
     writes: false,
     schema: {
       type: 'object',
@@ -677,7 +704,8 @@ export const MAP_TOOLS: BridgeTool[] = [
   {
     name: 'wh_add_map_pin',
     description:
-      'Drop a pin on a map. Coordinates are percentages of the image, so x:50 y:50 is dead centre. Link it to a codex entry when the place already has one.',
+      `Drop a pin on a map at percentage coordinates, optionally linked to a codex entry.
+Drop a pin on a map. Coordinates are percentages of the image, so x:50 y:50 is dead centre. Link it to a codex entry when the place already has one.`,
     writes: true,
     schema: {
       type: 'object',
@@ -746,7 +774,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_worlds',
     description:
-      'List the project\'s generated worlds: id, title, seed, grid size, how many edits of each kind the reader has made (renames, placed markers, labels, removals, moves, roads), saved regional views and waypoint count. Start here to get a worldId; nothing else in this engine works without one.',
+      `List generated worlds with their id, seed, edit counts and waypoints.
+List the project's generated worlds: id, title, seed, grid size, how many edits of each kind the reader has made (renames, placed markers, labels, removals, moves, roads), saved regional views and waypoint count. Start here to get a worldId; nothing else in this engine works without one.`,
     writes: false,
     schema: {
       type: 'object',
@@ -757,7 +786,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_places',
     description:
-      `The named places of a world, most important first: settlements (capital, city, town, village), ruins, realms (countries), named features (seas, ranges, rivers) and landmarks. Each carries its stable key — the handle every other place tool takes — its cell coordinates x,y and normalised u,v in 0..1, its importance and whether the generator or the reader made it. Scope "places" is cheaper and skips realms, features and roads. ${PENDING_NOTE}`,
+      `List a generated world's named places, most important first, with keys and coordinates.
+The named places of a world, most important first: settlements (capital, city, town, village), ruins, realms (countries), named features (seas, ranges, rivers) and landmarks. Each carries its stable key — the handle every other place tool takes — its cell coordinates x,y and normalised u,v in 0..1, its importance and whether the generator or the reader made it. Scope "places" is cheaper and skips realms, features and roads. ${PENDING_NOTE}`,
     writes: false,
     schema: {
       type: 'object',
@@ -774,7 +804,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_find_place',
     description:
-      `Find places by name, accent- and case-insensitively, best match first: a name that starts with the query beats one that contains it, and "Río" alone lists the great river before the brook. Returns the same shape as wh_list_places, key included. ${PENDING_NOTE}`,
+      `Find a world's places by name, accent- and case-insensitive, best match first.
+Find places by name, accent- and case-insensitively, best match first: a name that starts with the query beats one that contains it, and "Río" alone lists the great river before the brook. Returns the same shape as wh_list_places, key included. ${PENDING_NOTE}`,
     writes: false,
     schema: {
       type: 'object',
@@ -790,7 +821,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_place_at',
     description:
-      `What is at a cell: the elevation in km (negative is sea floor), whether it is sea, and the most important place within reach, if any — a click between a capital and a hamlet resolves to the capital. Use it to check ground before placing a settlement. ${PENDING_NOTE}`,
+      `Check what is at a world cell: elevation, sea or land, and the nearest important place.
+What is at a cell: the elevation in km (negative is sea floor), whether it is sea, and the most important place within reach, if any — a click between a capital and a hamlet resolves to the capital. Use it to check ground before placing a settlement. ${PENDING_NOTE}`,
     writes: false,
     schema: {
       type: 'object',
@@ -807,7 +839,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_add_place',
     description:
-      'Place a settlement, a ruin or a landmark on a world at a cell. Settlements need land — the tool refuses a sea cell when the world is in memory, and the engine silently ignores one when it is not, so check with wh_place_at first. A settlement without a rank is a town; a ruin without a kind is a ruined city; a landmark needs its type. Omit the name and the engine coins one in the local language. Returns the new place\'s key. Appended to the world\'s edit list, so the writer can undo it.',
+      `Place a settlement, ruin or landmark on a world at a cell; land only, undoable.
+Place a settlement, a ruin or a landmark on a world at a cell. Settlements need land — the tool refuses a sea cell when the world is in memory, and the engine silently ignores one when it is not, so check with wh_place_at first. A settlement without a rank is a town; a ruin without a kind is a ruined city; a landmark needs its type. Omit the name and the engine coins one in the local language. Returns the new place's key. Appended to the world's edit list, so the writer can undo it.`,
     writes: true,
     schema: {
       type: 'object',
@@ -829,7 +862,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_rename_place',
     description:
-      'Rename a place by its key: a town, a ruin, a realm, a sea, a range or a landmark, whether the generator or the reader made it. The key never changes, so a renamed place keeps its manuscript links. Undoable.',
+      `Rename a world place by its key without breaking its manuscript links; undoable.
+Rename a place by its key: a town, a ruin, a realm, a sea, a range or a landmark, whether the generator or the reader made it. The key never changes, so a renamed place keeps its manuscript links. Undoable.`,
     writes: true,
     schema: {
       type: 'object',
@@ -845,7 +879,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_move_place',
     description:
-      'Move a place to another cell without changing its key, so its links and its name survive. Roads re-route to a moved settlement the next time the world\'s full geography is built. Undoable.',
+      `Move a world place to another cell, keeping its key, name and links; undoable.
+Move a place to another cell without changing its key, so its links and its name survive. Roads re-route to a moved settlement the next time the world's full geography is built. Undoable.`,
     writes: true,
     schema: {
       type: 'object',
@@ -862,7 +897,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_remove_place',
     description:
-      'Hide a place from the world: a town that should not exist, a ruin, a named sea, a landmark. Not a deletion — it appends a `remove` edit that wh_restore_place (or the writer\'s undo) reverses, and the place\'s key stays valid for exactly that purpose.',
+      `Hide a place from the world; a reversible edit, not a deletion.
+Hide a place from the world: a town that should not exist, a ruin, a named sea, a landmark. Not a deletion — it appends a \`remove\` edit that wh_restore_place (or the writer's undo) reverses, and the place's key stays valid for exactly that purpose.`,
     writes: true,
     schema: {
       type: 'object',
@@ -877,7 +913,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_restore_place',
     description:
-      'Bring back a place that wh_remove_place (or the reader\'s eraser) hid, by the same key. A place that was never removed is unaffected.',
+      `Bring back a place hidden by wh_remove_place, by the same key.
+Bring back a place that wh_remove_place (or the reader's eraser) hid, by the same key. A place that was never removed is unaffected.`,
     writes: true,
     schema: {
       type: 'object',
@@ -892,7 +929,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_add_label',
     description:
-      'Write a free-standing label on the map at a cell — the name of a region, a body of water or a range, a caption under a town, or a note. It names nothing in the atlas; use wh_rename_place to rename an actual place. Undoable.',
+      `Write a free-standing map label at a cell; does not rename an actual place.
+Write a free-standing label on the map at a cell — the name of a region, a body of water or a range, a caption under a town, or a note. It names nothing in the atlas; use wh_rename_place to rename an actual place. Undoable.`,
     writes: true,
     schema: {
       type: 'object',
@@ -910,7 +948,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_waypoints',
     description:
-      'The reader\'s waypoints on a world: named pins with a note and a colour, positioned by normalised u (0 west to 1 east, wrapping) and v (0 north to 1 south). Waypoints are the reader\'s own bookmarks, separate from the generated places.',
+      `List the reader's own bookmarked waypoints on a world, separate from generated places.
+The reader's waypoints on a world: named pins with a note and a colour, positioned by normalised u (0 west to 1 east, wrapping) and v (0 north to 1 south). Waypoints are the reader's own bookmarks, separate from the generated places.`,
     writes: false,
     schema: {
       type: 'object',
@@ -922,7 +961,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_add_waypoint',
     description:
-      'Drop a waypoint on a world at a normalised position: u 0..1 west to east (wraps), v 0..1 north to south. To pin a generated place, take its u,v from wh_list_places. The colour cycles through the app\'s palette when omitted.',
+      `Drop a waypoint on a world at a normalised position; colour cycles if omitted.
+Drop a waypoint on a world at a normalised position: u 0..1 west to east (wraps), v 0..1 north to south. To pin a generated place, take its u,v from wh_list_places. The colour cycles through the app's palette when omitted.`,
     writes: true,
     schema: {
       type: 'object',
@@ -959,7 +999,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_get_world',
     description:
-      'One world in detail: the same digest as wh_list_worlds plus its full generation parameters, its waypoints, whether a view currently has it open (`live`) and whether it is being forged right now (`forging`, in which case place reads will answer pending until it finishes).',
+      `Read one world in detail: digest, generation parameters, waypoints and live/forging state.
+One world in detail: the same digest as wh_list_worlds plus its full generation parameters, its waypoints, whether a view currently has it open (\`live\`) and whether it is being forged right now (\`forging\`, in which case place reads will answer pending until it finishes).`,
     writes: false,
     schema: {
       type: 'object',
@@ -971,7 +1012,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_link_place',
     description:
-      'Connect a place on the map to the manuscript: a codex entry that represents it (a location sheet), or a dialog scene, a manuscript piece or a timeline event that takes place there. This is what makes the map a navigation surface for the book — hover the town and see its scenes. Linking the same pair twice returns the existing link. The target must belong to the world\'s project.',
+      `Connect a map place to a codex entry, scene, manuscript piece or timeline event.
+Connect a place on the map to the manuscript: a codex entry that represents it (a location sheet), or a dialog scene, a manuscript piece or a timeline event that takes place there. This is what makes the map a navigation surface for the book — hover the town and see its scenes. Linking the same pair twice returns the existing link. The target must belong to the world's project.`,
     writes: true,
     schema: {
       type: 'object',
@@ -988,7 +1030,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_place_links',
     description:
-      'The manuscript links hanging on a world\'s places: which codex entries, scenes, writings and timeline events point at which place key. Pass a key to read one place; omit it for the whole world.',
+      `List the manuscript links hanging on a world's places, for one place or the whole world.
+The manuscript links hanging on a world's places: which codex entries, scenes, writings and timeline events point at which place key. Pass a key to read one place; omit it for the whole world.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1003,7 +1046,8 @@ export const WORLDGEN_TOOLS: BridgeTool[] = [
   {
     name: 'wh_world_summary',
     description:
-      `The world's gazetteer as Markdown: an overview of the planet, its languages, realms, geography, ruins and coasts, and story hooks read off the map — everything in it is derived from the generated world, nothing is invented. Written in Spanish, the engine's language. Long; read it once, then use wh_find_place for specifics. ${PENDING_NOTE}`,
+      `Read a generated world's Markdown gazetteer: overview, languages, geography and hooks.
+The world's gazetteer as Markdown: an overview of the planet, its languages, realms, geography, ruins and coasts, and story hooks read off the map — everything in it is derived from the generated world, nothing is invented. Written in Spanish, the engine's language. Long; read it once, then use wh_find_place for specifics. ${PENDING_NOTE}`,
     writes: false,
     schema: {
       type: 'object',
@@ -1040,7 +1084,8 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_atlas_places',
     description:
-      'List the real-world places the book uses, alphabetically: name, kind, aliases, country, WGS84 coordinates when known, era, whether the place is invented (`fictional`), the place that contains it (`parentId`) and how many divergences are anchored to it. This engine is the story\'s REAL setting — Lisbon, 1936 Madrid, a street in Paris — kept as rows the writer has checked, unlike the generated planets of the world generator. Pass `query` to search names and aliases accent- and case-insensitively, best match first. Descriptions, checked facts and sources are not included: read one place with wh_get_atlas_place.',
+      `List the real-world places a book uses, alphabetically, with coordinates and status.
+List the real-world places the book uses, alphabetically: name, kind, aliases, country, WGS84 coordinates when known, era, whether the place is invented (\`fictional\`), the place that contains it (\`parentId\`) and how many divergences are anchored to it. This engine is the story's REAL setting — Lisbon, 1936 Madrid, a street in Paris — kept as rows the writer has checked, unlike the generated planets of the world generator. Pass \`query\` to search names and aliases accent- and case-insensitively, best match first. Descriptions, checked facts and sources are not included: read one place with wh_get_atlas_place.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1056,7 +1101,8 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_get_atlas_place',
     description:
-      'Read one place in full: `description` (how the story uses it), `realNotes` (what is actually true there, as checked by the writer), `sources`, address, coordinates, era and tags, plus its parent place, the places it contains, the divergences anchored to it and `appearsIn` — the chapters whose prose names the place or one of its aliases (`{writingId, title, chapter}`, in manuscript order; accents, case and plurals do not matter; at most 20 chapters, and `appearsInTruncated: true` says there were more). Read this before writing about a place, and treat realNotes as the verified facts and description as the book\'s use of them.',
+      `Read one real-world place in full: description, verified notes, sources and appearances.
+Read one place in full: \`description\` (how the story uses it), \`realNotes\` (what is actually true there, as checked by the writer), \`sources\`, address, coordinates, era and tags, plus its parent place, the places it contains, the divergences anchored to it and \`appearsIn\` — the chapters whose prose names the place or one of its aliases (\`{writingId, title, chapter}\`, in manuscript order; accents, case and plurals do not matter; at most 20 chapters, and \`appearsInTruncated: true\` says there were more). Read this before writing about a place, and treat realNotes as the verified facts and description as the book's use of them.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1068,7 +1114,8 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_create_atlas_place',
     description:
-      'Add a real-world place the book uses. Coordinates are WGS84 decimal degrees, both or neither — a street or a bar may only have an address. Set `fictional: true` for a place the writer invented and set inside the real world (Macondo, Vetusta, a bar that never existed on a real street); a real place\'s `realNotes` should hold only facts that have been checked, with `sources` saying where they came from, and `description` what the story makes of it. Use `parentId` to nest a building in its city or a district in its town; the parent must be a place of the same project. Check wh_list_atlas_places first: the place may already exist under an alias.',
+      `Add a real-world place the book uses, with coordinates, notes and sources.
+Add a real-world place the book uses. Coordinates are WGS84 decimal degrees, both or neither — a street or a bar may only have an address. Set \`fictional: true\` for a place the writer invented and set inside the real world (Macondo, Vetusta, a bar that never existed on a real street); a real place's \`realNotes\` should hold only facts that have been checked, with \`sources\` saying where they came from, and \`description\` what the story makes of it. Use \`parentId\` to nest a building in its city or a district in its town; the parent must be a place of the same project. Check wh_list_atlas_places first: the place may already exist under an alias.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1096,7 +1143,8 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_update_atlas_place',
     description:
-      'Change a place. Only the fields you pass are touched. An empty string clears country, address, era or parentId; `clearCoordinates: true` removes both coordinates, and passing only one of lat/lon keeps the other as it is. Undoable from the app\'s audit log.',
+      `Change a real-world place; only the fields you pass are touched. Undoable.
+Change a place. Only the fields you pass are touched. An empty string clears country, address, era or parentId; \`clearCoordinates: true\` removes both coordinates, and passing only one of lat/lon keeps the other as it is. Undoable from the app's audit log.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1125,7 +1173,8 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_divergences',
     description:
-      `List the book's deliberate departures from reality, most recently changed first: title, category, the place each is anchored to (none means a global change), from when it applies (\`since\`), and its reality, fiction and reason cut at 300 characters — wh_get_divergence has them in full. Pass \`placeId\` for one place's divergences or \`category\` to filter. ${DIVERGENCE_NOTE} It is a fact about the book, not a mistake.`,
+      `List the book's deliberate departures from real-world fact, most recent first.
+List the book's deliberate departures from reality, most recently changed first: title, category, the place each is anchored to (none means a global change), from when it applies (\`since\`), and its reality, fiction and reason cut at 300 characters — wh_get_divergence has them in full. Pass \`placeId\` for one place's divergences or \`category\` to filter. ${DIVERGENCE_NOTE} It is a fact about the book, not a mistake.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1141,7 +1190,8 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_get_divergence',
     description:
-      'Read one divergence in full: reality (what is actually the case), fiction (what the book says instead), reason (why the writer changed it), since, category, tags and the name of the place it is anchored to, if any.',
+      `Read one divergence in full: reality, fiction, reason, date, category and anchor place.
+Read one divergence in full: reality (what is actually the case), fiction (what the book says instead), reason (why the writer changed it), since, category, tags and the name of the place it is anchored to, if any.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1153,7 +1203,8 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_create_divergence',
     description:
-      `Record where the book departs from reality on purpose. ${DIVERGENCE_NOTE} Do not file an error the writer has not chosen: raise a suspected mistake with wh_annotate instead, and record it here only once they decide to keep it.`,
+      `Record where the book departs from reality on purpose, once the writer has decided.
+Record where the book departs from reality on purpose. ${DIVERGENCE_NOTE} Do not file an error the writer has not chosen: raise a suspected mistake with wh_annotate instead, and record it here only once they decide to keep it.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1175,7 +1226,8 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_update_divergence',
     description:
-      'Change a divergence. Only the fields you pass are touched; `placeId: ""` unanchors it (the change becomes global) and an empty `since` clears it. Undoable from the app\'s audit log.',
+      `Change a divergence; only the fields you pass are touched. Undoable.
+Change a divergence. Only the fields you pass are touched; \`placeId: ""\` unanchors it (the change becomes global) and an empty \`since\` clears it. Undoable from the app's audit log.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1197,7 +1249,8 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_atlas_distance',
     description:
-      'Great-circle distance between two places of the atlas, in km, with the initial compass bearing and how long the journey takes by six means: on foot (4.5 km/h, 36 km a day), on horseback (40 km a day in stages), by carriage (60 km a day), by mid-19th-century train (40 km/h), by car (90 km/h) and by plane (800 km/h plus two hours of airports). Staged modes report `days`; every mode reports `hours` moving. Use it to answer "how long does my character take" and to check that a chapter\'s timing is possible; real roads add a fifth or more, which the writer decides. Both places need coordinates. Nothing is written.',
+      `Great-circle distance between two atlas places, with bearing and travel time by six modes.
+Great-circle distance between two places of the atlas, in km, with the initial compass bearing and how long the journey takes by six means: on foot (4.5 km/h, 36 km a day), on horseback (40 km a day in stages), by carriage (60 km a day), by mid-19th-century train (40 km/h), by car (90 km/h) and by plane (800 km/h plus two hours of airports). Staged modes report \`days\`; every mode reports \`hours\` moving. Use it to answer "how long does my character take" and to check that a chapter's timing is possible; real roads add a fifth or more, which the writer decides. Both places need coordinates. Nothing is written.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1212,7 +1265,8 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_atlas_places_near',
     description:
-      'The atlas places within `radiusKm` of a point, nearest first, each with its distance in km and compass bearing from the centre. Centre on a place (`placeId`, which is itself left out of the results) or on raw `lat`/`lon`. Default radius 50 km. Use it to find what the story has already placed around a scene, or which places a character could reach in a day. Nothing is written.',
+      `List atlas places within a radius of a point or another place, nearest first.
+The atlas places within \`radiusKm\` of a point, nearest first, each with its distance in km and compass bearing from the centre. Centre on a place (\`placeId\`, which is itself left out of the results) or on raw \`lat\`/\`lon\`. Default radius 50 km. Use it to find what the story has already placed around a scene, or which places a character could reach in a day. Nothing is written.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1230,7 +1284,8 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_atlas_routes',
     description:
-      'The project\'s itineraries: each route is a named, ordered list of atlas places (a journey the story makes), with its stops, its great-circle length in km, each leg\'s distance and compass bearing, the ids of stops that have no coordinates (`missing`), and how long the whole journey takes by the six means wh_atlas_distance uses (hours moving, and days in stages for the staged ones). Use it to answer "how long is the road trip in chapter four" or to check an itinerary against the chapter order. Nothing is written.',
+      `List the project's itineraries: ordered atlas-place routes with distance and travel time.
+The project's itineraries: each route is a named, ordered list of atlas places (a journey the story makes), with its stops, its great-circle length in km, each leg's distance and compass bearing, the ids of stops that have no coordinates (\`missing\`), and how long the whole journey takes by the six means wh_atlas_distance uses (hours moving, and days in stages for the staged ones). Use it to answer "how long is the road trip in chapter four" or to check an itinerary against the chapter order. Nothing is written.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1241,7 +1296,8 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_create_atlas_route',
     description:
-      'Save an itinerary: a name and at least two atlas place ids of this project in travelling order (a place may recur, for a journey there and back). Optional `mode` records the means of travel the writer has in mind. Returns the route with its totals, as wh_list_atlas_routes reports them. Stops without coordinates are allowed but contribute no distance. Routes are edited, renamed and deleted from the map\'s Routes panel; there is no bridge tool to delete one. Undoable.',
+      `Save an itinerary of at least two atlas places in travelling order.
+Save an itinerary: a name and at least two atlas place ids of this project in travelling order (a place may recur, for a journey there and back). Optional \`mode\` records the means of travel the writer has in mind. Returns the route with its totals, as wh_list_atlas_routes reports them. Stops without coordinates are allowed but contribute no distance. Routes are edited, renamed and deleted from the map's Routes panel; there is no bridge tool to delete one. Undoable.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1262,7 +1318,8 @@ export const REAL_ATLAS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_reality_check',
     description:
-      'A read-only report on the real setting: how many places have coordinates, which real (non-fictional) places have nothing verified yet in realNotes, which places are invented, divergences per category, and divergences missing their reality or fiction text — as counts, id lists and a short Markdown summary. Run it before telling the writer their setting is consistent or well researched, and to answer "what have I not checked yet". Nothing is written.',
+      `A read-only report on the real setting's coverage: coordinates, unverified facts, divergences.
+A read-only report on the real setting: how many places have coordinates, which real (non-fictional) places have nothing verified yet in realNotes, which places are invented, divergences per category, and divergences missing their reality or fiction text — as counts, id lists and a short Markdown summary. Run it before telling the writer their setting is consistent or well researched, and to answer "what have I not checked yet". Nothing is written.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1280,7 +1337,8 @@ export const STORYBOARD_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_storyboards',
     description:
-      'List the project\'s storyboards with their panels in order: caption, description, duration and which dialog scene each panel belongs to. Panel images are reported as present but not included.',
+      `List a project's storyboards with panels in order: caption, description and duration.
+List the project's storyboards with their panels in order: caption, description, duration and which dialog scene each panel belongs to. Panel images are reported as present but not included.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1291,7 +1349,8 @@ export const STORYBOARD_TOOLS: BridgeTool[] = [
   {
     name: 'wh_create_storyboard',
     description:
-      'Start a storyboard: a grid of panels that reads left to right, one shot or beat per panel. Use it to plan how something will be seen rather than how it will be worded.',
+      `Start a storyboard: a grid of panels for planning shots or beats visually.
+Start a storyboard: a grid of panels that reads left to right, one shot or beat per panel. Use it to plan how something will be seen rather than how it will be worded.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1354,7 +1413,8 @@ export const VIDEO_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_video_plans',
     description:
-      'List the project\'s video plans with their segments in order: spoken script, timing, speaker and what is on screen. This is the engine for YouTube scripts, podcasts and anything shot to a plan.',
+      `List a project's video plans with segments in order: script, timing and visuals.
+List the project's video plans with their segments in order: spoken script, timing, speaker and what is on screen. This is the engine for YouTube scripts, podcasts and anything shot to a plan.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1365,7 +1425,8 @@ export const VIDEO_TOOLS: BridgeTool[] = [
   {
     name: 'wh_create_video_plan',
     description:
-      'Start a video plan: an ordered script of segments, each with its narration, on-screen visual and timing. Built for talks, essays and anything written to be spoken over pictures.',
+      `Start a video plan: an ordered script of narrated segments with on-screen visuals.
+Start a video plan: an ordered script of segments, each with its narration, on-screen visual and timing. Built for talks, essays and anything written to be spoken over pictures.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1381,7 +1442,8 @@ export const VIDEO_TOOLS: BridgeTool[] = [
   {
     name: 'wh_add_video_segment',
     description:
-      'Add a segment to a video plan: what is said, and what is on screen while it is said. Times are free text, so "0:45" and "00:45" are both fine as long as you stay consistent within a plan.',
+      `Add a segment to a video plan with its narration, on-screen visual and timing.
+Add a segment to a video plan: what is said, and what is on screen while it is said. Times are free text, so "0:45" and "00:45" are both fine as long as you stay consistent within a plan.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1436,7 +1498,8 @@ export const ANNOTATION_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_annotations',
     description:
-      'List the margin notes in a project: what they say, what they are attached to, and whether the text they were anchored to has since moved away (orphaned). Pass engineId AND entityId to read the notes on one chapter or one codex entry — that form also re-checks every anchor against the text as it stands right now, which is what you want after editing it. Without them the orphan flags are only as fresh as the last time each entity was opened, and `orphanStatus` in the result says which of the two you got.',
+      `List a project's margin notes, with anchor status, optionally scoped to one entity.
+List the margin notes in a project: what they say, what they are attached to, and whether the text they were anchored to has since moved away (orphaned). Pass engineId AND entityId to read the notes on one chapter or one codex entry — that form also re-checks every anchor against the text as it stands right now, which is what you want after editing it. Without them the orphan flags are only as fresh as the last time each entity was opened, and \`orphanStatus\` in the result says which of the two you got.`,
     writes: false,
     schema: {
       type: 'object',
@@ -1452,7 +1515,8 @@ export const ANNOTATION_TOOLS: BridgeTool[] = [
   {
     name: 'wh_annotate',
     description:
-      'Leave a margin note on something. Pass `quote` with the exact phrase you are commenting on and the note anchors to that spot in the text; omit it and the note attaches to the entity as a whole. Text anchoring works on manuscript pieces, codex entries and seeds. Use this to raise a question or flag an inconsistency instead of silently rewriting the writer\'s prose.',
+      `Leave a margin note on something, optionally anchored to an exact quoted phrase.
+Leave a margin note on something. Pass \`quote\` with the exact phrase you are commenting on and the note anchors to that spot in the text; omit it and the note attaches to the entity as a whole. Text anchoring works on manuscript pieces, codex entries and seeds. Use this to raise a question or flag an inconsistency instead of silently rewriting the writer's prose.`,
     writes: true,
     schema: {
       type: 'object',
@@ -1477,7 +1541,8 @@ export const STATS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_pov_audit',
     description:
-      'Who actually appears in the scenes, and who does not. Counts scenes, lines and words per character across every dialog scene, then flags two things worth knowing: characters in the codex who never appear anywhere, and speakers on the page who have no codex entry. The fastest way to spot a cast member you invented and forgot.',
+      `Who appears in the scenes and who does not, by lines, words and codex mismatches.
+Who actually appears in the scenes, and who does not. Counts scenes, lines and words per character across every dialog scene, then flags two things worth knowing: characters in the codex who never appear anywhere, and speakers on the page who have no codex entry. The fastest way to spot a cast member you invented and forgot.`,
     writes: false,
     engineId: 'pov-audit',
     schema: {
@@ -1489,7 +1554,8 @@ export const STATS_TOOLS: BridgeTool[] = [
   {
     name: 'wh_writing_stats',
     description:
-      'The writer\'s own output: words today, current streak, daily average, the last seven days, and any active word-count goals. Read only, deliberately — the app writes these sessions itself as the writer types, and an outside write would corrupt the streak.',
+      `The writer's own output stats: words today, streak, daily average and goals.
+The writer's own output: words today, current streak, daily average, the last seven days, and any active word-count goals. Read only, deliberately — the app writes these sessions itself as the writer types, and an outside write would corrupt the streak.`,
     writes: false,
     engineId: 'writing-stats',
     schema: {
@@ -1508,7 +1574,8 @@ export const IMAGE_STUDIO_TOOLS: BridgeTool[] = [
   {
     name: 'wh_generate_image',
     description:
-      'Generate one to four reference images from a text prompt using the image model configured in AI settings (a local diffusion server or a remote API), and save them into the project\'s Gallery tagged "generated" with their prompt and seed. Returns the new image ids and shows you a small preview of the first one. Costs time — and money if the configured model is a paid API — so confirm with the user before generating batches. Fails with a clear message when no image model is configured.',
+      `Generate one to four reference images from a text prompt and save them to the Gallery.
+Generate one to four reference images from a text prompt using the image model configured in AI settings (a local diffusion server or a remote API), and save them into the project's Gallery tagged "generated" with their prompt and seed. Returns the new image ids and shows you a small preview of the first one. Costs time — and money if the configured model is a paid API — so confirm with the user before generating batches. Fails with a clear message when no image model is configured.`,
     writes: true,
     timeoutMs: 600_000,
     schema: {
