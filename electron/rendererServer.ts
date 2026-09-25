@@ -17,6 +17,7 @@ import path from 'node:path';
 export const RENDERER_HOST = '127.0.0.1';
 export const RENDERER_PORT = 5174;
 export const RENDERER_ORIGIN = `http://${RENDERER_HOST}:${RENDERER_PORT}`;
+export const BLANK_PATH = '/__wh_blank';
 
 const CONTENT_TYPES: Readonly<Record<string, string>> = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -73,6 +74,13 @@ export function createRendererRequestHandler(root: string, expectedHost: string)
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405, { Allow: 'GET, HEAD' }).end();
+      return;
+    }
+    if ((req.url || '').split('?')[0] === BLANK_PATH) {
+      // An empty document on this origin, for the one-time library copy
+      // (originMigration.ts) to run in without booting the app.
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(req.method === 'HEAD' ? undefined : '<!doctype html><meta charset="utf-8"><title>wh</title>');
       return;
     }
     const file = resolveRendererFile(root, req.url || '/');

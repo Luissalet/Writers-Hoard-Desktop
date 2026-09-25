@@ -30,6 +30,7 @@ const common = {
 await Promise.all([
   build({ ...common, entryPoints: ['electron/main.ts'], outfile: 'dist-electron/main.cjs' }),
   build({ ...common, entryPoints: ['electron/preload.ts'], outfile: 'dist-electron/preload.cjs' }),
+  build({ ...common, entryPoints: ['electron/migrationPreload.ts'], outfile: 'dist-electron/migrationPreload.cjs' }),
   // La Forja: the worldgen engine bundled for dedicated OS processes.
   // @napi-rs/canvas stays external (a native .node resolved from
   // node_modules and asar-unpacked in packaged builds).
