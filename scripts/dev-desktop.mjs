@@ -62,12 +62,26 @@ async function main() {
     configFile: path.join(projectRoot, 'vite.config.ts'),
     server: {
       host: '127.0.0.1',
+      // The renderer's origin is where its IndexedDB lives. A silently bumped
+      // port (5175 because 5174 was busy) is a new origin with an empty
+      // library, so fail loudly instead of opening the app on the wrong one.
+      strictPort: true,
     },
   });
-  await devServer.listen();
+  try {
+    await devServer.listen();
+  } catch (error) {
+    if (error?.code === 'EADDRINUSE' || /already in use/i.test(String(error?.message))) {
+      console.error(
+        `[desktop] port ${devServer.config.server.port} is taken. The library is stored per origin, ` +
+          'so the app will not start on another port. Close whatever uses it (another dev session?) and retry.',
+      );
+    }
+    throw error;
+  }
 
-  // Vite increments its configured port when that port is occupied. Always
-  // pass the URL it actually selected to Electron instead of assuming 5174.
+  // strictPort keeps the configured port; still pass the URL Vite reports
+  // rather than assuming it.
   const rendererUrl = resolvedDevUrl(devServer);
   console.log(`[desktop] renderer ready at ${rendererUrl}`);
 
