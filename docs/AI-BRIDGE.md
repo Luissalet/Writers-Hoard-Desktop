@@ -307,8 +307,9 @@ Tras la descarga ya hay imagen que mirar, y el bucle de visión se cierra.
 
 **`fetch('wh-media://…')` no funciona desde el renderer.** El esquema está
 registrado como privilegiado y con `supportFetchAPI`, y la galería lo pinta sin
-problema con `<img src>`, pero un `fetch` es siempre *cross-origin*: en
-desarrollo el renderer es `http://localhost` y empaquetado es `file://`.
+problema con `<img src>`, pero un `fetch` es siempre *cross-origin*: el
+renderer vive en `http://127.0.0.1:5174` (en desarrollo lo sirve Vite; en la
+app empaquetada, `electron/rendererServer.ts`).
 Relajar la CSP no arregla nada porque el problema es CORS, no CSP.
 
 La solución es la misma que ya usaba el proyecto para Ollama: **por IPC**. El
