@@ -11,7 +11,8 @@
 // speak, see HoardLink/docs/FAMILY.md) rides on the same port:
 //   GET  /api/health        also answers without a token — only version and
 //                           switches, never content — with a `hoard_link` block
-//   GET  /api/agent/tools   { tools, instructions }        (alias of /api/tools)
+//   GET  /api/agent/tools   { tools, instructions }        (alias of /api/tools;
+//                           like health, answers loopback/no-Origin without a token)
 //   POST /api/agent/call    { name, arguments, caller } -> the tool's result,
 //                           4xx with { ok:false, error } when it fails
 // and every call posts an `agent.call` event to the hub (family.ts).
@@ -19,7 +20,8 @@
 // Bound to 127.0.0.1 like the media server, but hardened well beyond it,
 // because this port can rewrite the user's manuscript:
 //
-//   • a Bearer token is mandatory on every route;
+//   • a Bearer token is mandatory on every route except the health probe and
+//     the tool catalogue (neither carries project content);
 //   • any request carrying an `Origin` header is refused outright. An MCP
 //     adapter or a CLI sends none; a web page always does. That single rule
 //     closes the "a random site you visited fires blind writes at localhost"
@@ -282,6 +284,22 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return;
   }
 
+  // The catalogue is public in the family too (the hub's audit and Faustus's discovery
+  // read it before they hold a token): same loopback/no-Origin guard, no project content.
+  if (req.method === 'GET' && url === '/api/agent/tools' && isLoopback(req) && !req.headers.origin) {
+    const config = await getBridgeConfig();
+    sendJson(res, 200, {
+      ok: true,
+      tools: selectTools({ groups: [], writesEnabled: config.writesEnabled }).map((tool) => ({
+        ...tool,
+        description: familyDescription(tool.description),
+      })),
+      instructions: BRIDGE_INSTRUCTIONS,
+      writesEnabled: config.writesEnabled,
+    });
+    return;
+  }
+
   const denied = await authorize(req);
   if (denied) {
     sendJson(res, denied === 'browser-origin-refused' ? 403 : 401, {
@@ -303,6 +321,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   if (req.method === 'GET' && url === '/api/agent/tools') {
+    // Reached with a token when the public branch above did not apply.
     // The family's shape: the whole catalogue plus the briefing, in one answer.
     // A tool index keeps only a description's first line, so it is a short
     // one here (the full text follows on the next lines, untouched).
