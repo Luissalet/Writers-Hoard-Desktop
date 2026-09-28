@@ -13,6 +13,7 @@ import { whEnableEngine, whGetContext, whListProjects, whSearch } from './contex
 import {
   whAppendWriting,
   whCreateWriting,
+  whImportStorySession,
   whGetWriting,
   whListWritingVersions,
   whListWritings,
@@ -159,6 +160,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_list_writings: whListWritings,
   wh_get_writing: whGetWriting,
   wh_create_writing: whCreateWriting,
+  wh_import_story_session: whImportStorySession,
   wh_update_writing: whUpdateWriting,
   wh_append_writing: whAppendWriting,
   wh_list_writing_versions: whListWritingVersions,

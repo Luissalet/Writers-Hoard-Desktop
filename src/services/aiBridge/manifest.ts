@@ -234,6 +234,25 @@ Read one manuscript piece in full. The body comes back as Markdown; footnotes ap
     },
   },
   {
+    name: 'wh_import_story_session',
+    description: `Import a Scheherazade session as one manuscript chapter without duplicates.
+Pass the complete Markdown returned by session_export (join all pages in order). The world and session ids identify the source. A retry returns the existing chapter. A changed source is reported without touching the chapter; refresh=true replaces it only if its text has not been edited locally, with a history snapshot first.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        worldId: s('Scheherazade world id.'),
+        sessionId: s('Scheherazade session id.'),
+        title: s('Chapter title.'),
+        content: s('Complete Markdown chapter, including all session_export pages.'),
+        refresh: b('Apply a changed source only when this chapter has no local text edits.'),
+      },
+      required: ['worldId', 'sessionId', 'title', 'content'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'wh_update_writing',
     description:
       `Change a manuscript piece; replacing content snapshots the old version first.
