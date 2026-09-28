@@ -207,6 +207,24 @@ Códigos de error que puede devolver: `app-closed`, `timeout`, `unknown-tool`,
 `writes-disabled`, `bridge-disabled`, `bad-args`, `not-found`, `no-project`,
 `tool-error`, `missing-token`, `bad-token`, `browser-origin-refused`.
 
+### Importar una sesión de Scheherazade
+
+`wh_import_story_session` recibe `projectId`, `worldId`, `sessionId`, `title`,
+`content` y, opcionalmente, `refresh`. `content` es el capítulo Markdown completo
+de `session_export`: si la exportación indica `truncated`, hay que concatenar
+todas las páginas en orden usando `next_offset` antes de llamar a Writer.
+
+La primera llamada devuelve `state: "created"` y el ID de la pieza. Repetirla
+con la misma sesión devuelve el mismo ID y `state: "unchanged"`. Si el texto de
+origen cambió, devuelve `source_changed` sin alterar el manuscrito. Una segunda
+llamada con `refresh: true` lo actualiza solo cuando el cuerpo de Writer sigue
+igual que tras la última importación; antes guarda la versión anterior. Si el
+autor editó el capítulo, devuelve `local_modified` y conserva sus cambios.
+El título local tampoco se sustituye al actualizar el texto.
+La procedencia guarda `sourceRef` (`hoard://scheherazade/session/<sessionId>`)
+y `sourceRevision` (`sha256:<hash>` del Markdown exportado), siguiendo el
+contrato de referencias de HoardLink.
+
 ## 7. Dónde está cada pieza
 
 | Fichero | Papel |

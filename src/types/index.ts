@@ -244,6 +244,17 @@ export interface ImageGenerationInfo {
 // Writings
 export type WritingStatus = 'idea' | 'draft' | 'finished';
 
+export interface StorySessionSource {
+  app: 'scheherazade';
+  worldId: string;
+  sessionId: string;
+  sourceRef?: string;
+  sourceRevision?: string;
+  sourceHash: string;
+  importedContentHash: string;
+  importedAt: number;
+}
+
 export interface Writing {
   id: string;
   projectId: string;
@@ -256,6 +267,8 @@ export interface Writing {
   tags: string[];
   createdAt: number;
   updatedAt: number;
+  /** Origin receipt for an imported session. Local edits never change this receipt. */
+  storySessionSource?: StorySessionSource;
   // Google Docs integration
   googleDocId?: string;
   googleDocUrl?: string;

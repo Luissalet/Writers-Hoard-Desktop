@@ -748,3 +748,26 @@ advisory 4.1 MB). Worldgen, three, lucide's lazy icon catalogue, pdfjs,
 docx, react-dom and the locales alone come to ~3.9 MB, so meeting it
 means removing features, not changing imports. On ComfyUI, the chosen
 ControlNet is not matched to the checkpoint's family.
+# Scheherazade chapter import into Writer Desktop
+
+## Plan
+
+- [x] Add a stable source identity and import receipt to manuscript pieces.
+- [x] Expose one bridge tool that creates once, detects changed source, and refreshes only untouched local text on request.
+- [x] Verify create, retry, changed source, local edit protection, and manifest parity.
+- [x] Run typecheck and focused bridge tests; record results below.
+
+## Review
+
+`wh_import_story_session` stores the source identity and content fingerprints on
+the writing. The stable ID prevents duplicate creation, while refresh checks
+the persisted body before replacing it and records a version for recovery.
+The chapter title stays under the writer's control.
+
+Verified: renderer typecheck, shipping lint, production build, focused Electron
+bridge test, and full critical suite (333 tests) all passed. `git diff --check`
+found no whitespace errors. A live Scheherazade server was not needed for the
+Writer-side contract test; its documented `session_export` Markdown shape was
+used as the input fixture.
+
+---
