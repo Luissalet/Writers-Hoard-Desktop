@@ -1,5 +1,7 @@
 # Writers Hoard — Desktop
 
+[Español](README.es.md)
+
 Local-first creative writing platform, packaged as a desktop app with
 **Electron**. Same React/Vite/Dexie codebase as the web build, wrapped in a
 native shell that lifts the browser storage ceiling and bundles real media
