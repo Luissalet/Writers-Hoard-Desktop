@@ -652,6 +652,54 @@ export async function testCopilotScopeLeak(): Promise<void> {
   }
 }
 
+async function testStorySessionImport(): Promise<void> {
+  const projectId = 'bridge-story-session-import';
+  const call = (args: Record<string, unknown>) => TOOL_HANDLERS.wh_import_story_session(args) as Promise<{
+    id: string; state: string;
+  }>;
+  const args = {
+    projectId, worldId: 'world-demo', sessionId: 'session-demo',
+    title: 'La llegada', content: '# La llegada\n\nLa viajera encontró el faro.',
+  };
+  const now = Date.now();
+  await db.projects.put({
+    id: projectId, title: 'Story import', mode: 'custom', type: 'idea', color: '#6b7280',
+    description: '', status: 'draft', enabledEngines: ['writings'], engineOrder: ['writings'],
+    createdAt: now, updatedAt: now,
+  });
+  try {
+    const first = await call(args);
+    assert(first.state === 'created', 'first session import did not create a chapter');
+    const saved = await db.writings.get(first.id);
+    assert(saved?.storySessionSource?.worldId === args.worldId, 'origin receipt was not saved');
+    assert(saved.content.includes('faro'), 'session Markdown did not reach the manuscript');
+
+    const retry = await call(args);
+    assert(retry.id === first.id && retry.state === 'unchanged', 'retry duplicated the chapter');
+    assert((await db.writings.where('projectId').equals(projectId).count()) === 1, 'duplicate chapter');
+
+    const changed = { ...args, content: '# La llegada\n\nLa viajera encontró el puente.' };
+    const proposed = await call(changed);
+    assert(proposed.state === 'source_changed', 'source change was not reported');
+    assert((await db.writings.get(first.id))?.content === saved.content, 'source change silently replaced text');
+
+    const refreshed = await call({ ...changed, refresh: true });
+    assert(refreshed.state === 'refreshed', 'untouched chapter did not refresh');
+    assert((await db.writings.get(first.id))?.content.includes('puente'), 'refresh did not apply new text');
+
+    const local = await db.writings.get(first.id);
+    assert(local, 'refreshed chapter disappeared');
+    await db.writings.update(first.id, { content: `${local.content}<p>Nota de la autora.</p>` });
+    const newer = await call({ ...args, content: '# La llegada\n\nOtro final.', refresh: true });
+    assert(newer.state === 'local_modified', 'local edit was not protected');
+    assert((await db.writings.get(first.id))?.content.includes('Nota de la autora'), 'local edit was lost');
+  } finally {
+    await db.writingSnapshots.where('projectId').equals(projectId).delete();
+    await db.writings.where('projectId').equals(projectId).delete();
+    await db.projects.delete(projectId);
+  }
+}
+
 export async function testAiBridgeContracts(): Promise<string> {
   testManifestHandlerParity();
   testToolGroupSelection();
@@ -659,6 +707,7 @@ export async function testAiBridgeContracts(): Promise<string> {
   await testDeletionConfirmation();
   await testUndoRoundTrip();
   await testWriteBodyGuardsAndUndoFidelity();
+  await testStorySessionImport();
   await testCopilotScopeLeak();
-  return `AI bridge: ${BRIDGE_TOOLS.length} tools, group filter, Markdown, deny-by-default deletes, undo, blank-body refusal, lossless update undo, cross-project scope`;
+  return `AI bridge: ${BRIDGE_TOOLS.length} tools, group filter, Markdown, story session import, deny-by-default deletes, undo, blank-body refusal, lossless update undo, cross-project scope`;
 }

@@ -37,6 +37,11 @@ import {
 
 const STATUSES = ['idea', 'draft', 'finished'] as const satisfies readonly WritingStatus[];
 
+async function sha256(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 /**
  * The manuscript's own Markdown door, footnotes included.
  *
@@ -112,6 +117,11 @@ export async function whListWritings(args: ToolArgs): Promise<unknown> {
       wordCount: w.wordCount,
       tags: w.tags,
       isGoogleDoc: w.isGoogleDoc === true,
+      storySessionSource: w.storySessionSource && {
+        app: w.storySessionSource.app,
+        worldId: w.storySessionSource.worldId,
+        sessionId: w.storySessionSource.sessionId,
+      },
       updatedAt: w.updatedAt,
     })),
   };
@@ -130,6 +140,7 @@ export async function whGetWriting(args: ToolArgs): Promise<unknown> {
     tags: writing.tags,
     wordCount: writing.wordCount,
     updatedAt: writing.updatedAt,
+    storySessionSource: writing.storySessionSource,
     content: manuscriptMarkdownFromHtml(writing.content),
   };
 }
@@ -157,6 +168,92 @@ export async function whCreateWriting(args: ToolArgs): Promise<unknown> {
   return withAudit(
     { id: writing.id, title: writing.title, wordCount: writing.wordCount, created: true },
     { projectId, entityId: writing.id, summary: `created writing "${title}"` },
+  );
+}
+
+/** Import receipt and stable id make repeated calls safe, including concurrent calls. */
+export async function whImportStorySession(args: ToolArgs): Promise<unknown> {
+  const projectId = await resolveProjectForEngine(args, 'writings');
+  const worldId = requireString(args, 'worldId');
+  const sessionId = requireString(args, 'sessionId');
+  const title = requireString(args, 'title');
+  const content = requireString(args, 'content');
+  const refresh = args.refresh === true;
+  if (args.refresh !== undefined && typeof args.refresh !== 'boolean') {
+    throw new BridgeError('bad-args', 'refresh must be a boolean.');
+  }
+  const id = `writing_story_${await sha256(JSON.stringify([projectId, worldId, sessionId]))}`;
+  const sourceHash = await sha256(content);
+  const sourceRef = `hoard://scheherazade/session/${encodeURIComponent(sessionId)}`;
+  const sourceRevision = `sha256:${sourceHash}`;
+  const html = manuscriptHtmlFromMarkdown(content);
+  const importedContentHash = await sha256(html);
+  let existing = await getWriting(id);
+
+  if (!existing) {
+    const now = Date.now();
+    const writing: Writing = {
+      id, projectId, title, status: 'draft', content: html,
+      wordCount: countWords(html), tags: [], createdAt: now, updatedAt: now,
+      storySessionSource: {
+        app: 'scheherazade', worldId, sessionId, sourceRef, sourceRevision, sourceHash,
+        importedContentHash, importedAt: now,
+      },
+    };
+    try {
+      await createWriting(writing);
+      return withAudit(
+        { id, title, state: 'created', created: true, sourceHash },
+        { projectId, entityId: id, kind: 'create', summary: `imported story session as writing "${title}"` },
+      );
+    } catch (error) {
+      // A concurrent import can win the same stable id. Inspect that row below.
+      if (!(error instanceof Error) || error.name !== 'ConstraintError') throw error;
+      existing = await getWriting(id);
+    }
+  }
+
+  if (!existing || existing.projectId !== projectId ||
+      existing.storySessionSource?.app !== 'scheherazade' ||
+      existing.storySessionSource.worldId !== worldId ||
+      existing.storySessionSource.sessionId !== sessionId) {
+    throw new BridgeError('conflict', 'The source id is occupied by another manuscript piece.');
+  }
+  assertRowInScope(args, existing.projectId);
+  const source = existing.storySessionSource;
+  const localModified = (await sha256(existing.content)) !== source.importedContentHash;
+  if (source.sourceHash === sourceHash) {
+    return { id, title: existing.title, state: localModified ? 'local_modified' : 'unchanged', sourceHash };
+  }
+  if (!refresh || localModified) {
+    return {
+      id, title: existing.title,
+      state: localModified ? 'local_modified' : 'source_changed',
+      sourceHash: source.sourceHash, incomingSourceHash: sourceHash,
+      message: localModified
+        ? 'The source changed and this chapter has local edits. Compare the texts before updating.'
+        : 'The source changed. Call again with refresh=true to update this untouched chapter.',
+    };
+  }
+
+  await takeSnapshot(existing, 'pre-ai');
+  await writeToUnmovedRow(existing, {
+    content: html, wordCount: countWords(html),
+    storySessionSource: {
+      app: 'scheherazade', worldId, sessionId, sourceRef, sourceRevision, sourceHash,
+      importedContentHash, importedAt: Date.now(),
+    },
+  });
+  return withAudit(
+    { id, title: existing.title, state: 'refreshed', sourceHash, updated: ['content', 'storySessionSource'] },
+    {
+      projectId, entityId: id, summary: `refreshed story session writing "${existing.title}"`,
+      kind: 'update',
+      before: {
+        content: existing.content, wordCount: existing.wordCount,
+        storySessionSource: existing.storySessionSource,
+      },
+    },
   );
 }
 
