@@ -51,6 +51,12 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   // Real atlas geocoding: the one place the app queries OpenStreetMap's
   // Nominatim, opt-in per project. Only the main window holds the atlas.
   'atlas:geocode': ['main'],
+  // Wikidata lookups for investigation enrichment: one polite, serial, bounded
+  // request per call, only ever to wikidata.org. Only the main window holds the codex.
+  'wikidata:request': ['main'],
+  // Library search in the user's other local apps, through the hub: one call per
+  // request, two apps, one tool each (electron/familySearch.ts).
+  'family:search': ['main'],
   // Closing the window. `beforeunload` cannot ask this question in Electron —
   // its preventDefault silently cancels the close and shows nothing — so main
   // owns the veto and asks the renderer that owns the unsaved text.
