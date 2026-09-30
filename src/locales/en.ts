@@ -4020,6 +4020,7 @@ const en = {
   'projectTools.publishing.preview.bodyNotShown': 'text not shown here',
   'projectTools.publishing.preview.morePieces': '{count} more writings follow, in this same order.',
   'projectTools.publishing.preview.retractedSources': '{count} retracted sources are marked as such in the bibliography.',
+  'projectTools.publishing.preview.retractedSourcesOne': 'One retracted source is marked as such in the bibliography.',
   'projectTools.publishing.preview.caveat.markdown.images': 'Markdown writes every image as a ![](…) link, so an image pasted into the editor lands in the file as a very long base64 line.',
   'projectTools.publishing.preview.caveat.markdown.tables': 'Markdown has no table rule: the tags are stripped and the cells run together as plain text.',
   'projectTools.publishing.preview.caveat.markdown.headings': 'Markdown flattens heading levels 4 to 6 into a single #### level.',
