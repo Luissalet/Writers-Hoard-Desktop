@@ -43,4 +43,4 @@ El paquete de Windows arranca instalado sobre 0.1.3 y abre la biblioteca existen
 
 Los textos del engine Investigación se cargan con el propio engine y no al arrancar la app.
 
-Los archivos «Source code» generados por GitHub contienen la documentación pública del repositorio de releases. El código de desarrollo permanece privado.
+Los archivos «Source code» generados por GitHub contienen la documentación pública del repositorio de releases. El código fuente está en https://github.com/Luissalet/Writers-Hoard-Desktop.
