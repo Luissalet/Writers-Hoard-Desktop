@@ -315,7 +315,9 @@ export default function PublishingPreviewPane({
                 </h4>
                 {retractedCount > 0 && (
                   <p className="mt-2 text-center font-sans text-[11px] text-warning" data-testid="publishing-preview-retracted">
-                    {t('projectTools.publishing.preview.retractedSources').replace('{count}', retractedCount.toLocaleString(locale))}
+                    {retractedCount === 1
+                      ? t('projectTools.publishing.preview.retractedSourcesOne')
+                      : t('projectTools.publishing.preview.retractedSources').replace('{count}', retractedCount.toLocaleString(locale))}
                   </p>
                 )}
                 {preview.document.bibliography.map((citation, index) => (

@@ -257,6 +257,11 @@ export async function testRetractedBibliography(): Promise<string[]> {
   const spanish = formatCitation({ ...retracted, retractReason: '' }, 'apa', { ...labels, locale: 'es-ES', retractedLabel: 'Retirada' });
   assert(/\[Retirada: [^\]—]+\]$/.test(spanish), `Spanish mark or empty reason wrong: ${spanish}`);
   assert(formatCitation(retracted, 'apa').includes('[Retracted: '), 'default labels do not mark retractions');
+  for (const style of ['apa', 'mla', 'chicago'] as const) {
+    const line = formatCitation({ ...clean, authors: ['Baker, J.'], publishedAt: undefined, title: 'Is it true?' }, style, labels);
+    assert(!/\.\.|\?\./.test(line), `${style} doubled a full stop: ${line}`);
+    assert(line.includes('Baker, J.') && line.includes('n.d.') && line.includes('Is it true?'), `${style} lost an element: ${line}`);
+  }
 
   const profile: PublishingProfile = {
     id: 'biblio-profile', projectId, name: 'Dossier', format: 'manuscript', includeTitlePage: false, includeSynopsis: false,
