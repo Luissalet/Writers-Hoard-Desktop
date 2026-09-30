@@ -331,6 +331,8 @@ export function runInquiryLogicTests(): string[] {
   testAch();
   testCitationCheck();
   testReport();
+  const wikidata = runWikidataParsingTests();
+  const family = runFamilyParsingTests();
   return [
     'partial dates compare as day ranges and reject impossible dates',
     'source grades read as B2 and ungraded stays ungraded; origin drives independence',
@@ -341,5 +343,122 @@ export function runInquiryLogicTests(): string[] {
     'ACH scores inconsistency only, finds diagnostic claims and labels the leader as least contradicted',
     'citation check flags uncited, retracted and unknown markers without hiding text',
     'the report cites claims, marks private people, lists graded sources and flags the model summary',
+    ...wikidata,
+    ...family,
   ];
+}
+
+// ---------- Wikidata parsing (pure) ----------
+import {
+  evidenceQuote, formatWikidataTime, itemsToResolve, parseEntity, parseLabels, parseSearch, planFields,
+} from '../src/engines/inquiry/wikidata';
+
+export function runWikidataParsingTests(): string[] {
+  equal(formatWikidataTime('+1950-03-02T00:00:00Z', 11), '1950-03-02', 'day precision');
+  equal(formatWikidataTime('+1950-03-00T00:00:00Z', 10), '1950-03', 'month precision');
+  equal(formatWikidataTime('+1950-00-00T00:00:00Z', 9), '1950', 'year precision');
+  equal(formatWikidataTime('+1950-01-01T00:00:00Z', 8), '1950', 'decade precision reads as the year');
+  equal(formatWikidataTime('-0044-03-15T00:00:00Z', 11), '44 BC', 'BCE dates are labelled');
+  equal(formatWikidataTime('garbage', 11), null, 'garbage is not a time');
+
+  const candidates = parseSearch({ search: [
+    { id: 'Q42', label: 'Douglas Adams', description: 'English writer' },
+    { id: 'P31', label: 'property, not an item' },
+    { id: 'Q1', description: 'no label' },
+    'nonsense',
+  ] });
+  equal(candidates.length, 2, 'only items are candidates');
+  equal(candidates[1].label, 'Q1', 'a missing label falls back to the id');
+  equal(candidates[0].url, 'https://www.wikidata.org/wiki/Q42', 'candidate links point at the item page');
+  equal(parseSearch(null).length, 0, 'garbage yields no candidates');
+
+  const snak = (property: string, type: string, value: unknown, rank = 'normal') => ({ rank, mainsnak: { snaktype: 'value', property, datavalue: { type, value } } });
+  const data = { entities: { Q9: {
+    id: 'Q9',
+    labels: { en: { language: 'en', value: 'Acme' } },
+    descriptions: { en: { language: 'en', value: 'a company' } },
+    aliases: { en: [{ language: 'en', value: 'Acme Corp' }] },
+    claims: {
+      P571: [snak('P571', 'time', { time: '+1949-00-00T00:00:00Z', precision: 9 })],
+      P17: [snak('P17', 'wikibase-entityid', { id: 'Q30' }, 'deprecated'), snak('P17', 'wikibase-entityid', { id: 'Q142' })],
+      P159: [snak('P159', 'wikibase-entityid', { id: 'Q90' }), snak('P159', 'wikibase-entityid', { id: 'Q60' }, 'preferred')],
+      P856: [snak('P856', 'string', 'https://acme.example')],
+      bad: [snak('bad', 'string', 'x')],
+    },
+  } } };
+  const item = parseEntity(data, 'Q9', 'en')!;
+  equal(item.label, 'Acme', 'label parsed');
+  equal(item.aliases[0], 'Acme Corp', 'aliases parsed');
+  equal(item.claims.P17.length, 1, 'deprecated claims are dropped');
+  assert(item.claims.P17[0].kind === 'item' && item.claims.P17[0].qid === 'Q142', 'the surviving claim is the normal one');
+  assert(item.claims.P159.length === 1 && item.claims.P159[0].kind === 'item' && item.claims.P159[0].qid === 'Q60', 'preferred claims win');
+  assert(!('bad' in item.claims), 'unknown property ids are ignored');
+  equal(parseEntity({ entities: { Q9: { id: 'Q9', missing: '' } } }, 'Q9', 'en'), null, 'a missing item is null');
+  equal(parseEntity(data, 'Q10', 'en'), null, 'the wrong id is null');
+  const ids = itemsToResolve('faction', item);
+  equal(ids.sort().join(','), 'Q142,Q60', 'only items that will be shown are resolved');
+  const labelMap = parseLabels({ entities: { Q142: { labels: { en: { value: 'France' } } }, Q60: { labels: { es: { value: 'Nueva York' }, en: { value: 'New York' } } } } }, 'es');
+  equal(labelMap.get('Q60'), 'Nueva York', 'preferred language wins');
+  equal(labelMap.get('Q142'), 'France', 'English is the fallback');
+  const planned = planFields('faction', item, labelMap);
+  equal(planned[0].field, 'description', 'the description comes first');
+  equal(planned.find(row => row.field === 'headquarters')?.value, 'Nueva York', 'item values use their labels');
+  equal(planned.find(row => row.field === 'founded')?.value, '1949', 'times are formatted');
+  assert(!planned.some(row => row.field === 'born'), 'fields of other types are not offered');
+  assert(evidenceQuote(item, planned).startsWith('Acme (Q9)\na company'), 'the excerpt carries the label, id and description');
+  equal(planFields('magic', item, labelMap).length, 1, 'types without a mapping still get the description');
+  return ['Wikidata parsing: time precision, candidates, deprecated/preferred ranks, labels, per-type field plans'];
+}
+
+// ---------- Family library search (pure) ----------
+import { hasSearchableText, parseHits, redactPrivateNames, refFor } from '../src/engines/inquiry/familySearch';
+
+export function runFamilyParsingTests(): string[] {
+  const borges = parseHits('borges', { items: [
+    { id: 'doc 7', title: '  The   canal ', snippet: 'Opened in 1869.  Shipping grew.', url: 'https://example.org/a' },
+    { id: 'doc 7', title: 'duplicate of the first' },
+    { title: 'no id, nothing to point at' },
+    { ref: 'hoard://borges/document/42', name: 'By reference', text: 'x'.repeat(3000), url: 'javascript:alert(1)' },
+    { ref: 'hoard://links/page/9', id: '9', title: 'a reference into another app is not trusted for this one' },
+    'nonsense',
+  ] });
+  equal(borges.length, 3, 'rows without anything to point at, duplicates and non-objects are skipped');
+  equal(borges[0].ref, 'hoard://borges/document/doc%207', 'a bare id becomes an escaped hoard reference');
+  equal(borges[0].title, 'The canal', 'titles are flattened');
+  equal(borges[0].excerpt, 'Opened in 1869. Shipping grew.', 'excerpts are flattened');
+  equal(borges[0].url, 'https://example.org/a', 'a web address is kept');
+  equal(borges[1].ref, 'hoard://borges/document/42', 'a matching reference is used as given');
+  assert(borges[1].excerpt.length <= 1000, 'excerpts are bounded');
+  assert(borges[1].url === undefined, 'a javascript: address is dropped');
+  equal(borges[2].ref, 'hoard://borges/document/9', 'a reference into another app falls back to the id');
+  equal(parseHits('links', [{ id: 5, title: 'Saved', link: 'http://user:pw@example.org/' }])[0].ref, 'hoard://links/page/5', 'links point at pages; numeric ids work');
+  assert(parseHits('links', [{ id: 5, title: 'Saved', link: 'http://user:pw@example.org/' }])[0].url === undefined, 'an address with credentials is dropped');
+  equal(parseHits('links', { result: { results: [{ id: 'a' }] } }).length, 1, 'a nested envelope is read');
+  equal(parseHits('links', { items: 'no' }).length, 0, 'an unknown envelope yields no hits');
+  equal(parseHits('links', null).length, 0, 'garbage yields no hits');
+  equal(parseHits('borges', { items: [{ id: '1' }, { id: '2' }, { id: '3' }] }, 2).length, 2, 'the limit is applied');
+  equal(refFor('links', { id: 'x/y' }), 'hoard://links/page/x%2Fy', 'slashes in an id cannot forge a path');
+
+  const entries = [
+    { type: 'character', title: 'Maria Soler', publicFigure: false },
+    { type: 'character', title: 'Ferdinand de Lesseps', publicFigure: true },
+    { type: 'character', title: 'Joan', fields: { name: 'Joan Puig' } },
+    { type: 'faction', title: 'Suez Canal Company' },
+    { type: 'location', title: 'Suez' },
+  ];
+  let redaction = redactPrivateNames('Maria Soler and the Suez canal', entries);
+  equal(redaction.query, 'and the Suez canal', 'a private person is taken out');
+  equal(redaction.removed.join('|'), 'Maria Soler', 'the removed people are reported');
+  redaction = redactPrivateNames('soler suez', entries);
+  equal(redaction.query, 'suez', 'a surname alone is taken out, case-insensitively');
+  redaction = redactPrivateNames('Ferdinand de Lesseps Suez Canal Company', entries);
+  equal(redaction.query, 'Ferdinand de Lesseps Suez Canal Company', 'a public figure and organisations stay');
+  assert(redaction.removed.length === 0, 'nothing is reported when nothing was removed');
+  redaction = redactPrivateNames('Puig, Joan: the letters', entries);
+  equal(redaction.query, ', : the letters', 'the name field counts too, and the spaces are tidied');
+  assert(!hasSearchableText(redaction.query.replace('the letters', '')), 'punctuation alone is not a query');
+  equal(redactPrivateNames('Solérs', entries).query, 'Solérs', 'a longer word that merely contains a name is left alone');
+  equal(redactPrivateNames('x (Maria) y', entries).query, 'x ( ) y', 'a first name alone counts as the private person');
+  equal(redactPrivateNames('Joan', entries).query, '', 'a query that is only a private name becomes empty');
+  return ['Family search: hits read leniently (ids, references, envelopes, unsafe addresses, limits); private people are redacted from queries'];
 }

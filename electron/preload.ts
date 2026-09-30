@@ -28,6 +28,8 @@ import type {
 import type { CopilotEvent, CopilotRunRequest } from '@/services/aiRuntime/copilot';
 import type { SdBackend, SdOpResult, SdProgress, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
 import type { GeocodeResponse } from '@/engines/real-atlas/geocode';
+import type { WikidataRequest, WikidataResponse } from '@/engines/inquiry/wikidata';
+import type { FamilySearchRequest, FamilySearchResponse } from '@/engines/inquiry/familySearch';
 
 /** Result of a native "save file" flow. */
 interface SaveResult {
@@ -512,6 +514,20 @@ const api = {
   atlas: {
     geocode: (q: string, locale: string): Promise<GeocodeResponse> =>
       ipcRenderer.invoke('atlas:geocode', { q, locale }),
+  },
+
+  // ---- Investigation ------------------------------------------------------
+  // Wikidata lookups for codex enrichment, made from main
+  // (electron/wikidata.ts). The renderer checks the privacy guard first.
+  wikidata: {
+    request: (request: WikidataRequest): Promise<WikidataResponse> =>
+      ipcRenderer.invoke('wikidata:request', request),
+  },
+  // Library search in the user's other local apps, through the hub
+  // (electron/familySearch.ts). The renderer redacts private people first.
+  family: {
+    search: (request: FamilySearchRequest): Promise<FamilySearchResponse> =>
+      ipcRenderer.invoke('family:search', request),
   },
 
   updates: {

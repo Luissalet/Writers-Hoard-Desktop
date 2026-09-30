@@ -25,6 +25,8 @@ import { appendAudit, auditPath, getAuditRecord, readAudit, undoneIndices } from
 import { runMediaSecurityTests } from './media-security';
 import { runRendererServerTests } from './renderer-server';
 import { runCausalGraphTests } from './causal-graph';
+import { runWikidataMainTests } from './wikidata-main';
+import { runFamilySearchMainTests } from './family-search-main';
 // Relative, not `@/`: this bundle has no alias. The module is pure (its one
 // `@/` import is a type), and it is the rule `asImageRequest` applies.
 import { isControlNetModelName } from '../src/engines/image-studio/studio/controlNet';
@@ -39,6 +41,8 @@ export async function runElectronSecurityTests(temporaryDirectory: string): Prom
   passed.push(...await runMediaSecurityTests(temporaryDirectory));
   passed.push(...await runRendererServerTests(temporaryDirectory));
   passed.push(...runCausalGraphTests());
+  passed.push(...await runWikidataMainTests());
+  passed.push(...await runFamilySearchMainTests());
 
   assert(isSafeNativeSegment('project_1-safe.zip'), 'safe native segment rejected');
   for (const unsafe of ['.', '..', '', '../escape', 'folder/file', 'folder\\file']) {
