@@ -40,7 +40,7 @@ jobs:
         run: npm run dist:publish
         env:
           # A fine-grained token with Contents: write on the PUBLIC releases
-          # repository. GITHUB_TOKEN is scoped to this private source repo.
+          # repository. GITHUB_TOKEN is scoped to this source repo.
           GH_TOKEN: ${{ secrets.RELEASES_GITHUB_TOKEN }}
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
