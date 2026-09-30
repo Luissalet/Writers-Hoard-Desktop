@@ -39,6 +39,50 @@ web chat cannot gain access by pasting a prompt or a localhost address.
 See [subscription setup](docs/ai-subscriptions.md) and
 [external assistant setup](docs/ai-external-connection.md).
 
+## Investigation (research projects)
+
+The **Investigation** engine (`inquiry`, category research; on by default in the
+Reporter preset, suggested in Biographer and Realist) turns the research a
+project already holds into claims and reasons about them.
+
+- **Sources are graded and can be retracted.** Each citation may carry a
+  reliability (A-F) and a credibility (1-6), shown as `B2`, plus an origin used
+  to judge independence. Older citations read "ungraded". Retracting a source
+  never deletes it or its excerpts; the claims that rested on it are
+  re-derived and the app says how many were affected.
+- **Claims rest on recorded excerpts.** A claim is a statement (optionally
+  subject, predicate, object, with partial dates) with at least one support
+  pointing at an existing excerpt. Its status is never stored: it is derived
+  every time as unsupported, claimed, corroborated (two or more independent
+  origins), confirmed or disputed (the author's override) or retracted, always
+  shown next to its excerpt and independent-source counts.
+- **Time.** Every view takes an "as of" date. A claim whose period is over is
+  *ended*; one not seen for longer than the staleness window (365 days by
+  default) is *stale*.
+- **Tabs:** Claims, Chronology (with contradictions over one-at-a-time
+  predicates and unknown stretches), Graph, Hypotheses (analysis of competing
+  hypotheses, worded as "the least contradicted so far", never "proven"),
+  Report (Markdown with a citation check; an optional model summary must pass
+  the check and is flagged, not hidden) and Entities.
+- **Privacy.** A codex person is private unless the author marks them a public
+  figure. Enrichment never runs on a private person, library searches take
+  their names out of the query, and the report labels them "private person".
+- **Lookups.** Organisations, places, events and public figures can be matched
+  to Wikidata from the main process (identified User-Agent, serial requests,
+  timeouts). Applying fills empty fields only, stores the item id, files a C3
+  source and logs a run that can be undone. The desktop app can also search the
+  user's other local apps through the Hoard hub (`library_search`,
+  `search_links`); hits become ungraded sources and the hub being down is
+  reported, not fatal.
+- **AI bridge.** `wh_grade_source`, `wh_retract_source`, `wh_list_claims`,
+  `wh_add_claim`, `wh_update_claim`, `wh_inquiry_timeline`, `wh_add_hypothesis`,
+  `wh_rate_hypothesis`, `wh_ach_matrix`, `wh_enrich_codex`,
+  `wh_undo_enrichment`, `wh_inquiry_report` and `wh_search_library` (details in
+  [`docs/AI-BRIDGE.md`](docs/AI-BRIDGE.md)).
+
+`npm run test:inquiry` runs its focused tests (pure logic, migration,
+enrichment, UI and the bridge tools).
+
 ## Scripts
 
 | Script | What it does |
@@ -54,6 +98,7 @@ See [subscription setup](docs/ai-subscriptions.md) and
 | `lint:baseline:prune` | Remove fixed fingerprints from the checked-in lint debt baseline. |
 | `conformance` | Check engine registration, schema, locale, backup, and binary declarations. |
 | `test:critical` | Run isolated Electron/Chromium tests for migration, backup, cascades, recovery/navigation, full rendering, and Vite startup. |
+| `test:inquiry` | Test the Investigation engine: pure logic, migration, Wikidata enrichment with mocked requests, the UI and the AI-bridge tools. |
 | `test:subscriptions` | Test subscription isolation, tool protocol, connection controls and external-assistant setup without calling providers. |
 | `test:packaged` | Smoke-test the already-built `release/win-unpacked` desktop app with an isolated temporary profile. |
 | `bundle:budget` | Enforce renderer entry, lazy-chunk, and total JavaScript size limits. |

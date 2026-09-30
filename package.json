@@ -19,6 +19,7 @@
     "audit:security": "npm audit --audit-level=moderate",
     "verify:signing": "node scripts/check-release-signing.mjs",
     "test:critical": "electron scripts/run-critical-tests.cjs",
+    "test:inquiry": "node scripts/run-inquiry-tests.mjs && electron scripts/run-focused-browser-tests.cjs tests/inquiry.browser.ts testInquiry && electron scripts/run-focused-browser-tests.cjs tests/inquiry-enrichment.browser.ts testInquiryEnrichment && electron scripts/run-focused-browser-tests.cjs tests/inquiry-ui.browser.tsx testInquiryUi 250000 && electron scripts/run-focused-browser-tests.cjs tests/inquiry-bridge.browser.ts testInquiryBridge 200000 && electron scripts/run-focused-browser-tests.cjs tests/ai-bridge-selftest.browser.ts testBridgeSelfTest 400000",
     "test:subscriptions": "node scripts/run-subscription-protocol-tests.mjs && node scripts/run-subscription-backend-tests.mjs && electron scripts/run-ai-settings-ui.cjs && electron scripts/run-focused-browser-tests.cjs tests/ai-bridge-connection.browser.tsx testAiBridgeConnection",
     "test:worldgen": "electron scripts/run-focused-browser-tests.cjs tests/worldgen-study.browser.ts testWorldgenStudy",
     "test:worldgen:large": "electron scripts/run-focused-browser-tests.cjs tests/worldgen-large-lifecycle.browser.ts testWorldgenLargeLifecycle 120000",
