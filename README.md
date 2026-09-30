@@ -49,7 +49,9 @@ project already holds into claims and reasons about them.
   reliability (A-F) and a credibility (1-6), shown as `B2`, plus an origin used
   to judge independence. Older citations read "ungraded". Retracting a source
   never deletes it or its excerpts; the claims that rested on it are
-  re-derived and the app says how many were affected.
+  re-derived and the app says how many were affected. A retracted source stays
+  in the bibliography, marked with the date and reason, in every citation style
+  and every publishing format; the publishing preview counts them.
 - **Claims rest on recorded excerpts.** A claim is a statement (optionally
   subject, predicate, object, with partial dates) with at least one support
   pointing at an existing excerpt. Its status is never stored: it is derived
