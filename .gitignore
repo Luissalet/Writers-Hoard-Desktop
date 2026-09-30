@@ -15,7 +15,7 @@ CLIProxyAPI/
 
 # Desktop (Electron) build artifacts
 dist-electron
-release
+/release
 resources/bin
 # Independent public distribution checkout (never embed its Git history here).
 /tasks/release-public/
