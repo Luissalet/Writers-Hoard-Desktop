@@ -131,7 +131,10 @@ export interface EnrichmentRun {
   changes: EnrichmentChange[];
   createdAt: number;
   undoneAt?: number;
-  /** Plain-language trace of the undo: what was restored, kept or skipped. */
+  /**
+   * Trace of the undo, one `code` or `code:detail` per line: `restored:<field>`,
+   * `kept-edited:<field>`, `citation-removed`, `citation-kept`, `entry-missing`.
+   */
   undoNotes?: string[];
 }
 
