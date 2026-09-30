@@ -6,6 +6,7 @@ import type { ClaimView } from '../derive';
 import type { InquiryModel } from '../hooks';
 import { cardClass, fill, validityLabel } from './styles';
 import { CountsLine, StatusBadge, TimeBadge } from './shared';
+import '../i18n';
 
 export default function ChronologyTab({ model, asOf }: { model: InquiryModel; asOf: string | null }) {
   const { t } = useTranslation();

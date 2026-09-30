@@ -340,6 +340,24 @@ const locales = new Map([
   ['en', localeKeys(read('src/locales/en.ts'))],
   ['es', localeKeys(read('src/locales/es.ts'))],
 ]);
+// An engine may ship its own copy in `src/engines/<id>/locales/{en,es}.ts`,
+// registered when its chunk loads. Those keys count as defined, must keep
+// es/en parity like the main files, and may not repeat a main key (the main
+// file would win silently).
+const mainKeyCount = new Map([...locales].map(([locale, keys]) => [locale, new Set(keys)]));
+let engineLocaleFiles = 0;
+for (const entry of readdirSync(path.join(ROOT, 'src/engines'), { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue;
+  for (const locale of ['en', 'es']) {
+    let source;
+    try { source = read(`src/engines/${entry.name}/locales/${locale}.ts`); } catch { continue; }
+    engineLocaleFiles += 1;
+    for (const key of localeKeys(source)) {
+      if (mainKeyCount.get(locale).has(key)) fail(`src/engines/${entry.name}/locales/${locale}.ts repeats main locale key "${key}".`);
+      locales.get(locale).push(key);
+    }
+  }
+}
 for (const [locale, keys] of locales) {
   for (const duplicate of duplicateValues(keys)) {
     fail(`${locale} locale contains duplicate key "${duplicate}".`);
@@ -566,5 +584,5 @@ if (failures.length > 0) {
 
 console.log(
   `Conformance passed: ${engines.length} engines, ${tableOwners.size} engine tables, ` +
-    `${enKeys.size} locale keys (${warnings.length} known warning(s)).`,
+    `${enKeys.size} locale keys, ${engineLocaleFiles} engine locale file(s) (${warnings.length} known warning(s)).`,
 );

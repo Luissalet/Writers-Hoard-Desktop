@@ -1,6 +1,6 @@
 // Pure logic of the investigation engine: dates, grading, derived claim state,
 // ACH scoring, the citation check and the report. No database, no DOM.
-import en from '../src/locales/en';
+import en from '../src/engines/inquiry/locales/en';
 import { computeAch } from '../src/engines/inquiry/ach';
 import { checkCitations, isFactualSentence, markersIn } from '../src/engines/inquiry/citationCheck';
 import {

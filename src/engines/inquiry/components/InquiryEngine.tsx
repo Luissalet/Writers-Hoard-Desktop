@@ -12,6 +12,7 @@ import EntitiesTab from './EntitiesTab';
 import HypothesesTab from './HypothesesTab';
 import ReportTab from './ReportTab';
 import { buttonClass, cardClass, fieldClass } from './styles';
+import '../i18n';
 
 // The graph pulls in the flow library; load it only when its tab opens.
 const GraphTab = lazy(() => import('./GraphTab'));
