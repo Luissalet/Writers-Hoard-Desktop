@@ -8,6 +8,7 @@ import { addHypothesis, deleteHypothesis, rateHypothesis, updateHypothesis } fro
 import { ACH_RATINGS, type AchRating, type InquiryHypothesis } from '../types';
 import { buttonClass, cardClass, fieldClass, fill, primaryClass } from './styles';
 import { StatusBadge } from './shared';
+import '../i18n';
 
 export default function HypothesesTab({ projectId, model }: { projectId: string; model: InquiryModel }) {
   const { t } = useTranslation();

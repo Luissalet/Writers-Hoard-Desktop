@@ -10,6 +10,7 @@ import { ModelSummaryError, requestModelSummary } from '../modelSummary';
 import { buildReport } from '../report';
 import { buildReportCopy } from '../reportCopy';
 import { buttonClass, cardClass, fill } from './styles';
+import '../i18n';
 
 export default function ReportTab({ projectId, model, asOf }: { projectId: string; model: InquiryModel; asOf: string | null }) {
   const { t, locale } = useTranslation();
