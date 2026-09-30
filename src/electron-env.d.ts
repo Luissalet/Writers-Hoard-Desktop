@@ -20,6 +20,8 @@ import type {
 import type { CopilotEvent, CopilotRunRequest } from '@/services/aiRuntime/copilot';
 import type { SdBackend, SdOpResult, SdProgress, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
 import type { GeocodeResponse } from '@/engines/real-atlas/geocode';
+import type { WikidataRequest, WikidataResponse } from '@/engines/inquiry/wikidata';
+import type { FamilySearchRequest, FamilySearchResponse } from '@/engines/inquiry/familySearch';
 
 export interface SaveResult {
   ok: boolean;
@@ -409,6 +411,21 @@ export interface ElectronAPI {
    */
   atlas?: {
     geocode: (q: string, locale: string) => Promise<GeocodeResponse>;
+  };
+  /**
+   * Wikidata lookups for investigation enrichment, made from main
+   * (electron/wikidata.ts). Absent on the web build and on a desktop build whose
+   * preload predates it: enrichment then says so instead of failing silently.
+   */
+  wikidata?: {
+    request: (request: WikidataRequest) => Promise<WikidataResponse>;
+  };
+  /**
+   * Library search in the user's other local apps through the hub
+   * (electron/familySearch.ts). Absent on the web build: the search then says so.
+   */
+  family?: {
+    search: (request: FamilySearchRequest) => Promise<FamilySearchResponse>;
   };
   ollama: {
     getStatus: () => Promise<OllamaStatus>;

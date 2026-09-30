@@ -70,6 +70,8 @@ import { downloadGallery, listCollection, type CollectionItem } from './media/ga
 import { openIgLogin, igStatus, igLogout, exportIgCookies, cleanupIgCookies, igCookiesPath } from './media/igAuth';
 import { capturePage, type PageMeta } from './media/pageCapture';
 import { geocodePlace } from './atlasGeocode';
+import { wikidataRequest } from './wikidata';
+import { familySearch } from './familySearch';
 import {
   isExactRendererDocumentUrl,
   isIpcChannelAllowedForRole,
@@ -1974,6 +1976,22 @@ function registerIpc(): void {
   ipcMain.handle('atlas:geocode', (event, request: { q?: unknown; locale?: unknown } | undefined) => {
     assertIpcSender(event, 'atlas:geocode');
     return geocodePlace(request?.q, request?.locale);
+  });
+  // ---- Investigation: Wikidata lookups -------------------------------------
+  // The renderer names an operation; main builds the one request it allows
+  // (electron/wikidata.ts). Whether an entry may be looked up is decided before
+  // the renderer asks.
+  ipcMain.handle('wikidata:request', (event, request: unknown) => {
+    assertIpcSender(event, 'wikidata:request');
+    return wikidataRequest(request);
+  });
+  // ---- Investigation: library search in the user's other local apps --------
+  // Through the hub with this app's own token; main builds the one call that is
+  // allowed (electron/familySearch.ts). Private people are taken out of the query
+  // in the renderer before it asks.
+  ipcMain.handle('family:search', (event, request: unknown) => {
+    assertIpcSender(event, 'family:search');
+    return familySearch(request);
   });
   ipcMain.handle('updates:quitAndInstall', (event) => {
     assertIpcSender(event, 'updates:quitAndInstall');
