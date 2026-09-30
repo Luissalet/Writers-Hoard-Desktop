@@ -47,6 +47,23 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
   territory: 'codex.field.territory',
   allies: 'codex.field.allies',
   enemies: 'codex.field.enemies',
+  // Filled by the investigation engine's Wikidata enrichment.
+  description: 'codex.field.description',
+  born: 'codex.field.born',
+  died: 'codex.field.died',
+  placeOfBirth: 'codex.field.placeOfBirth',
+  occupation: 'codex.field.occupation',
+  citizenship: 'codex.field.citizenship',
+  country: 'codex.field.country',
+  locatedIn: 'codex.field.locatedIn',
+  coordinates: 'codex.field.coordinates',
+  founded: 'codex.field.founded',
+  headquarters: 'codex.field.headquarters',
+  website: 'codex.field.website',
+  date: 'codex.field.date',
+  start: 'codex.field.start',
+  end: 'codex.field.end',
+  location: 'codex.field.location',
 };
 
 interface CodexEntryFormProps {
