@@ -32,6 +32,7 @@ import { FAMILY_APPS, type FamilyApp } from '@/engines/inquiry/familySearch';
 import { buildReport } from '@/engines/inquiry/report';
 import { buildReportCopy } from '@/engines/inquiry/reportCopy';
 import type { InquiryClaim, InquiryRef, ClaimStatus } from '@/engines/inquiry/types';
+import { formatBibliography, getCitations } from '@/services/projectTools';
 import { ResearchEvidenceError } from '@/services/researchEvidence';
 import { gradeLabel, isRetracted, originOf } from '@/services/sourceGrading';
 import { gradeCitation, restoreCitation, retractCitation, SourceGradingError, type ClaimImpactSummary } from '@/services/sourceGradingOps';
@@ -325,6 +326,42 @@ function impactOut(impact: ClaimImpactSummary, statements: ReadonlyMap<string, s
 
 async function sourceOf(projectId: string, citationId: string): Promise<Citation> {
   return requireLinkedRow(db.citations, citationId, projectId, 'source (citation)');
+}
+
+const CITATION_STYLES = ['apa', 'mla', 'chicago'] as const;
+
+/** The reference list as the writer's exports print it, plus grade and retraction per entry. */
+export async function whBibliography(args: ToolArgs): Promise<unknown> {
+  const projectId = resolveProjectId(args);
+  assertRowInScope(args, projectId);
+  const style = optEnum(args, 'style', CITATION_STYLES) ?? 'apa';
+  if (args.style !== undefined && args.style !== null && !optEnum(args, 'style', CITATION_STYLES)) {
+    throw new BridgeError('bad-args', 'style is one of apa, mla, chicago.');
+  }
+  const includeRetracted = optBoolean(args, 'includeRetracted') !== false;
+  const all = formatBibliography(await getCitations(projectId), style);
+  const entries = all
+    .filter(entry => includeRetracted || !isRetracted(entry.citation))
+    .map(({ citation, text }) => ({
+      citationId: citation.id,
+      text,
+      grade: gradeOut(citation),
+      retracted: isRetracted(citation),
+      retractedAt: citation.retractedAt ? new Date(citation.retractedAt).toISOString() : null,
+      retractReason: citation.retractReason ?? null,
+    }));
+  const retractedCount = all.filter(entry => isRetracted(entry.citation)).length;
+  return {
+    projectId,
+    style,
+    total: all.length,
+    retractedCount,
+    omittedRetracted: includeRetracted ? 0 : retractedCount,
+    entries,
+    note: retractedCount
+      ? 'Retracted sources stay in the published bibliography, marked with the date and reason; say so if you quote the list.'
+      : 'No source in this library is retracted.',
+  };
 }
 
 export async function whGradeSource(args: ToolArgs): Promise<unknown> {

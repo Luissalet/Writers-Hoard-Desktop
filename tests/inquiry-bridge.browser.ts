@@ -109,7 +109,7 @@ export async function testInquiryBridge(): Promise<string[]> {
 
   try {
     // ---- Manifest: shape, flags, groups ------------------------------------
-    const reads = ['wh_list_claims', 'wh_inquiry_timeline', 'wh_ach_matrix', 'wh_inquiry_report'];
+    const reads = ['wh_list_claims', 'wh_inquiry_timeline', 'wh_ach_matrix', 'wh_inquiry_report', 'wh_bibliography'];
     const writes = ['wh_grade_source', 'wh_retract_source', 'wh_add_claim', 'wh_update_claim', 'wh_add_hypothesis', 'wh_rate_hypothesis', 'wh_enrich_codex', 'wh_undo_enrichment', 'wh_search_library'];
     for (const name of [...reads, ...writes]) {
       const tool = getBridgeTool(name);
@@ -120,7 +120,7 @@ export async function testInquiryBridge(): Promise<string[]> {
       for (const required of tool.schema.required ?? []) assert(required in tool.schema.properties, `${name} requires "${required}" which it does not declare`);
       assert(tool.schema.additionalProperties === false, `${name} must reject unknown arguments`);
       assert(typeof TOOL_HANDLERS[name] === 'function', `${name} has no handler`);
-      const enginetool = name !== 'wh_grade_source' && name !== 'wh_retract_source';
+      const enginetool = !['wh_grade_source', 'wh_retract_source', 'wh_bibliography'].includes(name);
       assert(enginetool ? tool.engineId === 'inquiry' : tool.engineId === undefined, `${name} carries the wrong engine`);
       if (tool.writes && tool.engineId && tool.schema.properties.projectId) {
         assert(await codeOf(name, { projectId: OFF }) === 'engine-disabled', `${name} wrote into a project with the engine off`);
@@ -131,7 +131,7 @@ export async function testInquiryBridge(): Promise<string[]> {
     assert(DELETABLE['inquiry-claim'] && DELETABLE['inquiry-hypothesis'], 'claims and hypotheses are deletable through wh_delete only');
     const deleteEnum = (getBridgeTool('wh_delete')!.schema.properties.type as { enum: string[] }).enum;
     assert(deleteEnum.includes('inquiry-claim') && deleteEnum.includes('inquiry-hypothesis'), 'wh_delete offers them');
-    passed.push('Bridge manifest: 13 tools, flags, research group, engine ids, strict schemas, engine guard, deletion registry');
+    passed.push('Bridge manifest: 14 tools, flags, research group, engine ids, strict schemas, engine guard, deletion registry');
 
     // ---- Grading ------------------------------------------------------------
     const graded = await call('wh_grade_source', { projectId: A, citationId: registry.citationId, reliability: 'B', credibility: 2 });
@@ -203,6 +203,14 @@ export async function testInquiryBridge(): Promise<string[]> {
     const wipe = await call('wh_retract_source', { projectId: A, citationId: registry.citationId, reason: 'Fabricated' });
     assert(wipe.impact.claimsAffected === 3 && wipe.impact.becameUnsupported >= 1, 'the registry carried three claims');
     assert((await call('wh_list_claims', { projectId: A, status: 'unsupported' })).total >= 1, 'claims without an active source read unsupported');
+    const biblio = await call('wh_bibliography', { projectId: A, style: 'mla' });
+    const wiped = biblio.entries.find((entry: Out) => entry.citationId === registry.citationId);
+    assert(biblio.style === 'mla' && biblio.retractedCount === 2 && biblio.total === biblio.entries.length, 'the bibliography counts every source and both retractions');
+    assert(wiped.retracted === true && wiped.retractReason === 'Fabricated' && wiped.text.includes('Fabricated') && wiped.grade === 'B2', 'a retracted entry is marked in its text and flagged');
+    assert(biblio.entries.filter((entry: Out) => entry.retracted).every((entry: Out) => /\[[^\]]+: [^\]]+\]$/.test(entry.text)), 'every retracted entry ends with its note');
+    const clean = await call('wh_bibliography', { projectId: A, includeRetracted: false });
+    assert(clean.style === 'apa' && clean.omittedRetracted === 2 && clean.entries.every((entry: Out) => !entry.retracted), 'retracted sources can be left out of the answer');
+    assert(await codeOf('wh_bibliography', { projectId: A, style: 'harvard' }) === 'bad-args', 'an unknown style is refused');
     const evidence = await call('wh_get_research_evidence', { projectId: A, citationId: registry.citationId });
     assert(evidence.evidence[0].citation.retracted === true && evidence.evidence[0].citation.grade === 'B2', 'the evidence tool shows grade and retraction');
     const restoreResult = await call('wh_retract_source', { projectId: A, citationId: registry.citationId, restore: true });
@@ -212,7 +220,7 @@ export async function testInquiryBridge(): Promise<string[]> {
     await undoAuditEntry({ entry: undoAudit });
     assert(!(await db.citations.get(registry2.citationId))!.retractedAt, 'undo of a retraction restores the source');
     await call('wh_retract_source', { projectId: A, citationId: paper.citationId, restore: true });
-    passed.push('Bridge retraction: cascade counts, nothing deleted, restore, evidence tool shows grade/retraction, undo');
+    passed.push('Bridge retraction: cascade counts, nothing deleted, restore, evidence tool and bibliography show grade/retraction, undo');
 
     // ---- Updating, manual overrides, undo --------------------------------------
     assert(await codeOf('wh_update_claim', { id: oneId }) === 'bad-args', 'nothing to change is refused');
