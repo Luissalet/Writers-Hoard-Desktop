@@ -308,15 +308,25 @@ export function compareCitationsForBibliography(a: Citation, b: Citation): numbe
   return author !== 0 ? author : a.title.localeCompare(b.title);
 }
 
+/** The reference list in order, one formatted entry per source; retracted ones stay, marked. */
+export function formatBibliography(
+  citations: readonly Citation[],
+  style: PublishingProfile['citationStyle'],
+  labels: CitationFormatLabels = currentCitationLabels(),
+): Array<{ citation: Citation; text: string }> {
+  return [...citations]
+    .sort(compareCitationsForBibliography)
+    .map(citation => ({ citation, text: formatCitation(citation, style, labels) }));
+}
+
 export async function exportBibliography(
   projectId: string,
   style: PublishingProfile['citationStyle'],
   projectTitle: string,
 ): Promise<void> {
   const citations = await getCitations(projectId);
-  const text = citations
-    .sort(compareCitationsForBibliography)
-    .map(citation => formatCitation(citation, style, currentCitationLabels()))
+  const text = formatBibliography(citations, style)
+    .map(entry => entry.text)
     .join('\n\n');
   downloadTextFile(
     `${projectTitle}\n${t('projectTools.research.bibliography')} (${style.toUpperCase()})\n\n${text}\n`,
@@ -524,9 +534,7 @@ export function buildPublishingArtifacts(
     generatedAt: artifactOptions.generatedAt,
   };
   const bibliography = profile.includeBibliography
-    ? [...citations]
-      .sort(compareCitationsForBibliography)
-      .map(citation => formatCitation(citation, profile.citationStyle, labels))
+    ? formatBibliography(citations, profile.citationStyle, labels).map(entry => entry.text)
     : [];
   const document = composePublishingDocument(writings, {
     ...compileOptions,

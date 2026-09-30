@@ -66,7 +66,8 @@ investigación que ya tiene un proyecto en afirmaciones y razona sobre ellas.
 - **Puente de IA.** `wh_grade_source`, `wh_retract_source`, `wh_list_claims`,
   `wh_add_claim`, `wh_update_claim`, `wh_inquiry_timeline`, `wh_add_hypothesis`,
   `wh_rate_hypothesis`, `wh_ach_matrix`, `wh_enrich_codex`,
-  `wh_undo_enrichment`, `wh_inquiry_report` y `wh_search_library` (detalle en
+  `wh_undo_enrichment`, `wh_inquiry_report`, `wh_search_library` y
+  `wh_bibliography`, la bibliografía con grados y retractaciones marcadas (detalle en
   [`docs/AI-BRIDGE.md`](docs/AI-BRIDGE.md)).
 
 `npm run test:inquiry` ejecuta sus pruebas específicas (lógica pura, migración,

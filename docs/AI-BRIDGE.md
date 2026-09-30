@@ -1532,7 +1532,7 @@ user-agent de Electron (sin él, `isDesktop()` es falso y el arranque escoge
 `BrowserRouter`). La máquina de Luis queda para la confirmación final y las
 pruebas en vivo, no para cada iteración.
 
-## 25. Investigación: fuentes graduadas, afirmaciones derivadas y 13 herramientas nuevas
+## 25. Investigación: fuentes graduadas, afirmaciones derivadas y 14 herramientas nuevas
 
 Motor `inquiry` («Investigación»), categoría investigación; por defecto en el
 preset Periodista y sugerido en Biógrafo y Realista. Esquema de datos v35
@@ -1557,12 +1557,13 @@ Lo que importa para el puente:
   de la consulta los nombres de personas privadas y se niega si solo quedaba un
   nombre; el informe las rotula «persona privada».
 
-### Las 13 herramientas (`tools/inquiry.ts`, manifiesto en `manifestInquiry.ts`, grupo `research`, 140 en total)
+### Las 14 herramientas (`tools/inquiry.ts`, manifiesto en `manifestInquiry.ts`, grupo `research`, 141 en total)
 
 | Herramienta | Escribe | Motor | Qué hace |
 | --- | --- | --- | --- |
 | `wh_grade_source` | sí | (biblioteca de investigación) | Gradúa una fuente: fiabilidad A-F, credibilidad 1-6 (se lee `B2`), origen; `clear` la deja sin graduar. Deshacer restaura, incluido quitar lo que no existía (`__absent` en `before`). |
 | `wh_retract_source` | sí | (biblioteca) | Retracta una fuente (o con `restore`, la repone). No borra nada; devuelve cuántas afirmaciones se vieron afectadas (`claimsAffected`, `becameUnsupported`, `weakened`…). |
+| `wh_bibliography` | no | (biblioteca) | La bibliografía en APA (por defecto), MLA o Chicago, ordenada por primer autor y en el idioma de la app, igual que la exportación y el manuscrito publicado: una fuente retractada sigue en la lista con una nota final `[Retirada: fecha — motivo]`. Cada entrada lleva `grade`, `retracted`, `retractedAt` y `retractReason`; `includeRetracted:false` las omite de la respuesta (`omittedRetracted` dice cuántas). |
 | `wh_list_claims` | no | `inquiry` | Filtros por estado, entidad, etiqueta, tiempo y texto, `asOf`, paginación; cada afirmación con su estado derivado y ambos recuentos. |
 | `wh_add_claim` | sí | `inquiry` | Exige al menos un extracto existente (`supports`) o una cita textual (`quotes`, que se registra como extracto pendiente). Tripleta estructurada opcional. |
 | `wh_update_claim` | sí | `inquiry` | Edita campos, `supports` (reemplaza, nunca por debajo de uno), `manualStatus` (exige `reason`), `retract`/`restore`. |

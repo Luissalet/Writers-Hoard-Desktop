@@ -79,7 +79,8 @@ project already holds into claims and reasons about them.
 - **AI bridge.** `wh_grade_source`, `wh_retract_source`, `wh_list_claims`,
   `wh_add_claim`, `wh_update_claim`, `wh_inquiry_timeline`, `wh_add_hypothesis`,
   `wh_rate_hypothesis`, `wh_ach_matrix`, `wh_enrich_codex`,
-  `wh_undo_enrichment`, `wh_inquiry_report` and `wh_search_library` (details in
+  `wh_undo_enrichment`, `wh_inquiry_report`, `wh_search_library` and
+  `wh_bibliography`, the reference list with grades and retractions marked (details in
   [`docs/AI-BRIDGE.md`](docs/AI-BRIDGE.md)).
 
 `npm run test:inquiry` runs its focused tests (pure logic, migration,

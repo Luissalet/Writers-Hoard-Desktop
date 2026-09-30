@@ -107,6 +107,22 @@ Mark a source as withdrawn (corrected, discredited, found false) without deletin
       additionalProperties: false,
     },
   },
+  {
+    name: 'wh_bibliography',
+    description:
+      `The project's bibliography in APA, MLA or Chicago, with grades; retracted sources are marked.
+Format every source in the project's research library as the reference list the writer would publish: sorted by first author, in the chosen style (APA by default), in the app's current language. A retracted source stays in the list with a note carrying the date and the reason, exactly as the exported bibliography and the published manuscript print it; each entry also says its grade (e.g. "B2" or "ungraded") and whether it is retracted. Pass includeRetracted:false to leave withdrawn sources out of the answer (the writer's own exports always keep them, marked). Read-only. ${RESEARCH_SOURCES_NOTE}`,
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        style: s('Citation style.', { enum: ['apa', 'mla', 'chicago'] }),
+        includeRetracted: b('False to omit retracted sources from the answer. Default true.'),
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
