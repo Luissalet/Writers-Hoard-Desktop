@@ -4,7 +4,7 @@
 
 - Repositorio público: https://github.com/Luissalet/Writers-Hoard-Releases
 - Releases: https://github.com/Luissalet/Writers-Hoard-Releases/releases
-- El código y el historial de desarrollo permanecen en el repositorio privado. Al público se suben paquetes, metadatos, checksums y documentación pública.
+- El código y el historial de desarrollo están en https://github.com/Luissalet/Writers-Hoard-Desktop, público desde el 30 de septiembre de 2026. Al repositorio de releases solo se suben paquetes, metadatos, checksums y documentación pública.
 - `electron-builder.yml`, sección `publish`, configura `provider: github`, `owner: Luissalet`, `repo: Writers-Hoard-Releases`. El actualizador utiliza ese destino.
 
 ## Versión y archivos
@@ -49,13 +49,13 @@ gh release view v0.1.1 --repo Luissalet/Writers-Hoard-Releases --json url,isDraf
 gh release edit v0.1.1 --repo Luissalet/Writers-Hoard-Releases --draft=false
 ```
 
-Si se retoma una subida interrumpida, inspeccionar primero la release existente. No sobrescribir adjuntos publicados por defecto. El tag del repositorio público es una referencia de distribución, no una razón para enviarle commits privados.
+Si se retoma una subida interrumpida, inspeccionar primero la release existente. No sobrescribir adjuntos publicados por defecto. El tag del repositorio público es una referencia de distribución, no una razón para enviarle commits del repositorio de desarrollo.
 
 ## Automatización y firma
 
 `.github/workflows/release.yml` se activa al subir un tag `v*` al repositorio de desarrollo o por ejecución manual. Actualmente solo compila y publica **Windows** mediante `npm run dist:publish`: no completa por sí sola los seis adjuntos de la distribución Windows/Linux.
 
-Requiere `RELEASES_GITHUB_TOKEN` con permiso `Contents: write` en el repositorio público; el `GITHUB_TOKEN` del repositorio privado no sirve para publicar en el otro repositorio. La firma usa `WIN_CSC_LINK` y `WIN_CSC_KEY_PASSWORD`. `dist:publish` exige firma y activa `forceCodeSigning`; no desactivar ese control para la ruta automatizada.
+Requiere `RELEASES_GITHUB_TOKEN` con permiso `Contents: write` en el repositorio público; el `GITHUB_TOKEN` del repositorio de desarrollo no sirve para publicar en el otro repositorio. La firma usa `WIN_CSC_LINK` y `WIN_CSC_KEY_PASSWORD`. `dist:publish` exige firma y activa `forceCodeSigning`; no desactivar ese control para la ruta automatizada.
 
 Las versiones preliminares manuales 0.1.0 y 0.1.1 se publicaron sin firma Windows, con esa limitación indicada en las notas. No interpretar ese antecedente como una publicación estable firmada. Las notas de 0.1.1 también documentan la limitación de gallery-dl en Linux (GLIBC >= 2.38).
 

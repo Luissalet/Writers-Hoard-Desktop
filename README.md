@@ -161,7 +161,7 @@ electron-builder) and `WIN_CSC_KEY_PASSWORD`. `dist:publish` refuses to run
 without them and also enables electron-builder's `forceCodeSigning` check.
 Local `npm run dist` remains available for unsigned development installers.
 
-The public distribution repository is separate from this private source repository.
+The public distribution repository is separate from this source repository.
 Configure `RELEASES_GITHUB_TOKEN` with Contents: write permission on
 `Luissalet/Writers-Hoard-Releases` for the publishing workflow. Only installers,
 update metadata, checksums and public documentation belong there. Package rules

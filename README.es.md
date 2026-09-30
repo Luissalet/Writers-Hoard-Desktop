@@ -90,4 +90,4 @@ El renderizador detecta Electron para usar `HashRouter` bajo `file://` y ofrecer
 
 ## Releases
 
-La [guía de releases](docs/RELEASES.md) describe los instaladores para Windows/Linux, checksums y publicación. Las actualizaciones se muestran en la barra de título; descarga e instalación requieren una acción explícita del usuario. El repositorio público de distribución es independiente de este código fuente privado: solo instaladores, metadatos de actualización, checksums y documentación pública deben copiarse allí.
+La [guía de releases](docs/RELEASES.md) describe los instaladores para Windows/Linux, checksums y publicación. Las actualizaciones se muestran en la barra de título; descarga e instalación requieren una acción explícita del usuario. El repositorio público de distribución es independiente de este repositorio de código: solo instaladores, metadatos de actualización, checksums y documentación pública deben copiarse allí.
