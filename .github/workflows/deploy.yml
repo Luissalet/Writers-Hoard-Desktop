@@ -46,6 +46,10 @@ jobs:
         run: npm run verify:quick
 
       - name: Run critical IndexedDB and backup tests
+        # The runner's user namespaces are restricted, so Chromium's sandbox
+        # helper aborts before any test runs; the tests load only local code.
+        env:
+          ELECTRON_DISABLE_SANDBOX: '1'
         run: xvfb-run -a npm run test:critical
 
       - name: Build
