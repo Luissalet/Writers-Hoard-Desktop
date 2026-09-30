@@ -93,7 +93,7 @@ const ALL_ENGINES = [
   'writings', 'codex', 'timeline', 'outline', 'notes', 'diary', 'seeds',
   'relationships', 'character-arc', 'biography', 'dialog-scene', 'board',
   'gallery', 'maps', 'storyboard', 'video-planner', 'scrapper', 'annotations',
-  'pov-audit', 'writing-stats', 'worldgen', 'real-atlas',
+  'pov-audit', 'writing-stats', 'worldgen', 'real-atlas', 'inquiry',
 ];
 
 async function createScratchProject(engines: readonly string[] = ALL_ENGINES): Promise<string> {
@@ -826,6 +826,91 @@ async function runAnalysisChecks(h: Harness, projectId: string, writingHostId: s
   });
 }
 
+/**
+ * Source grading and the Investigation, through the same handlers a model calls.
+ * Nothing here touches the network: the two lookups are only exercised up to
+ * their privacy refusal, which happens before anything could be sent.
+ */
+async function runInquiryChecks(h: Harness, projectId: string): Promise<void> {
+  const now = Date.now();
+  const cite = async (title: string, url: string, quote: string) => {
+    const id = generateId('cite');
+    const evidenceId = generateId('evidence');
+    await db.citations.add({
+      id, projectId, title, authors: [], accessedAt: '2026-01-01', url, writingIds: [], tags: [],
+      researchEvidence: [{ id: evidenceId, statement: title, kind: 'fact', quote, locator: '', status: 'pending', notes: '', createdAt: now, updatedAt: now }],
+      createdAt: now, updatedAt: now,
+    });
+    return { citationId: id, evidenceId };
+  };
+  const registry = await cite('Self-test registry', 'https://registry.selftest.example/a', 'Founded in 1999.');
+  const press = await cite('Self-test press', 'https://press.selftest.example.net/b', 'Since 1999.');
+  let claimId = '';
+  let hypothesisId = '';
+
+  await h.step('inquiry: a source is graded, and a claim needs an excerpt', async () => {
+    const graded = await call('wh_grade_source', { projectId, citationId: registry.citationId, reliability: 'B', credibility: 2 });
+    expect(pick(graded, 'grade') === 'B2', 'the source was not graded B2');
+    let refused = false;
+    try { await call('wh_add_claim', { projectId, statement: 'A claim with nothing behind it.' }); } catch (err) {
+      refused = err instanceof BridgeError && err.code === 'bad-args';
+    }
+    expect(refused, 'a claim without an excerpt was accepted');
+  });
+
+  await h.step('inquiry: status is derived from independent origins', async () => {
+    const one = await call('wh_add_claim', { projectId, statement: 'The firm dates from 1999. wh-probe-claim', supports: [registry] });
+    claimId = String(pick(one, 'id'));
+    expect(pick(one, 'claim', 'status') === 'claimed' && pick(one, 'claim', 'independentSources') === 1, 'one origin should read claimed');
+    const two = await call('wh_update_claim', { id: claimId, supports: [registry, press] });
+    expect(pick(two, 'claim', 'status') === 'corroborated' && pick(two, 'claim', 'independentSources') === 2, 'two origins should corroborate');
+  });
+
+  await h.step('inquiry: retracting a source cascades and says how far', async () => {
+    const retracted = await call('wh_retract_source', { projectId, citationId: press.citationId, reason: 'self-test' });
+    expect(pick(retracted, 'impact', 'claimsAffected') === 1, 'the cascade did not report the dependent claim');
+    const listed = await call('wh_list_claims', { projectId, status: 'claimed' });
+    expect(pick(listed, 'total') === 1, 'the claim should drop back to claimed');
+    await call('wh_retract_source', { projectId, citationId: press.citationId, restore: true });
+    const back = await call('wh_list_claims', { projectId, status: 'corroborated' });
+    expect(pick(back, 'total') === 1, 'restoring the source should bring the corroboration back');
+  });
+
+  await h.step('inquiry: hypotheses are scored by inconsistency and never called proven', async () => {
+    hypothesisId = String(pick(await call('wh_add_hypothesis', { projectId, statement: 'It was founded in 1999.' }), 'id'));
+    await call('wh_rate_hypothesis', { hypothesisId, claimId, rating: 'CC' });
+    const matrix = await call('wh_ach_matrix', { projectId });
+    expect(/least contradicted so far/.test(String(pick(matrix, 'verdict'))), 'the verdict should use the "least contradicted so far" wording');
+    expect(!/proven/i.test(String(pick(matrix, 'verdict'))), 'the verdict must never say proven');
+  });
+
+  await h.step('inquiry: the timeline and the report answer, with a citation check', async () => {
+    const timeline = await call('wh_inquiry_timeline', { projectId, asOf: '2030' });
+    expect(Array.isArray(pick(timeline, 'entries')), 'the timeline has no entries list');
+    const report = await call('wh_inquiry_report', { projectId });
+    expect(typeof pick(report, 'markdown') === 'string' && typeof pick(report, 'citationCheck', 'ok') === 'boolean', 'the report or its citation check is missing');
+  });
+
+  await h.step('inquiry: search reaches claims and hypotheses', async () => {
+    const found = await call('wh_search', { projectId, query: 'wh-probe-claim' });
+    const hits = (pick(found, 'hits') ?? []) as Record<string, unknown>[];
+    expect(hits.some((hit) => hit.engineId === 'inquiry'), 'wh_search does not reach investigation claims');
+  });
+
+  await h.step('inquiry: the privacy guard refuses before anything could be sent', async () => {
+    const person = String(pick(await call('wh_create_codex_entry', { projectId, type: 'character', title: 'Private Pat' }), 'id'));
+    for (const [tool, args] of [
+      ['wh_enrich_codex', { projectId, entryId: person }],
+      ['wh_enrich_codex', { projectId, entryId: person, action: 'apply', qid: 'Q1' }],
+      ['wh_search_library', { projectId, q: 'Private Pat' }],
+    ] as [string, ToolArgs][]) {
+      let code = '';
+      try { await call(tool, args); } catch (err) { code = err instanceof BridgeError ? err.code : 'crash'; }
+      expect(code === 'private-person', `${tool} did not refuse a private person (${code || 'it ran'})`);
+    }
+  });
+}
+
 /** Every id-based write tool the probe builder below exercises. */
 const PARENT_PROBE_TOOLS = [
   'wh_update_writing', 'wh_append_writing', 'wh_restore_writing_version',
@@ -844,6 +929,7 @@ const PARENT_PROBE_TOOLS = [
   'wh_add_place', 'wh_rename_place', 'wh_move_place', 'wh_remove_place',
   'wh_restore_place', 'wh_add_label', 'wh_add_waypoint', 'wh_update_waypoint',
   'wh_link_place', 'wh_update_atlas_place', 'wh_update_divergence',
+  'wh_update_claim', 'wh_rate_hypothesis', 'wh_undo_enrichment', 'wh_run_judge',
 ];
 
 /**
@@ -944,6 +1030,23 @@ async function buildGuardProbes(
     createdAt: now, updatedAt: now,
   });
 
+  // The Investigation: a source with one excerpt, a claim resting on it, a
+  // hypothesis, and the receipt of an enrichment run (no network is involved).
+  const citationId = generateId('cite');
+  const evidenceId = generateId('evidence');
+  await db.citations.add({
+    id: citationId, projectId, title: 'Host source', authors: [], accessedAt: '2026-01-01', writingIds: [], tags: [],
+    researchEvidence: [{ id: evidenceId, statement: 'Host', kind: 'fact', quote: 'A recorded excerpt.', locator: '', status: 'pending', notes: '', createdAt: now, updatedAt: now }],
+    createdAt: now, updatedAt: now,
+  });
+  const claimId = await id('wh_add_claim', { statement: 'Host claim.', supports: [{ citationId, evidenceId }] });
+  const hypothesisId = await id('wh_add_hypothesis', { statement: 'Host hypothesis.' });
+  const enrichmentRunId = generateId('enrich');
+  await db.enrichmentRuns.add({
+    id: enrichmentRunId, projectId, enricher: 'wikidata', entryId: characterId, qid: 'Q1', status: 'ok',
+    createdCitationIds: [], citationId, changes: [], createdAt: now,
+  });
+
   await updateProject(projectId, { enabledEngines: [], updatedAt: Date.now() });
 
   return [
@@ -993,6 +1096,11 @@ async function buildGuardProbes(
       }],
       ['wh_update_atlas_place', { id: atlasPlaceId, name: 'x' }],
       ['wh_update_divergence', { id: divergenceId, title: 'x' }],
+      ['wh_update_claim', { id: claimId, statement: 'x' }],
+      ['wh_rate_hypothesis', { hypothesisId, claimId, rating: 'C' }],
+      ['wh_undo_enrichment', { runId: enrichmentRunId }],
+      // The engine guard runs before the revision check, so no review is ever started.
+      ['wh_run_judge', { writingId, expectedUpdatedAt: 0 }],
   ];
 }
 
@@ -1133,6 +1241,7 @@ export async function runSelfTest(args: ToolArgs = {}): Promise<SelfTestReport> 
     await runWorldgenChecks(h, projectId);
     await runRealAtlasChecks(h, projectId);
     await runAnalysisChecks(h, projectId, characterId);
+    await runInquiryChecks(h, projectId);
     // Last, and on its own project: this one needs engines switched OFF.
     await runEngineGuardChecks(h);
   } finally {

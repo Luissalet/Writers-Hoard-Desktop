@@ -16,6 +16,7 @@
 
 import { db } from '@/db';
 import { DELETABLE } from './tools/deletion';
+import { undoEnrichment } from '@/engines/inquiry/enrichment';
 import { BridgeError, type ToolArgs } from './tools/shared';
 
 export interface UndoResult {
@@ -72,12 +73,37 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     );
   }
 
+  if (kind === 'create' && entry.tool === 'wh_enrich_codex' && typeof entry.projectId === 'string') {
+    // The row this call made is the run's receipt. Undoing means reversing the
+    // run (fields, id, source), which it does itself and reports honestly.
+    const run = await undoEnrichment(entry.projectId, entityId).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new BridgeError(message.startsWith('already_undone') ? 'bad-args' : 'cannot-undo', message.startsWith('already_undone') ? 'That enrichment was already undone.' : `Could not undo the enrichment: ${message}.`);
+    });
+    const kept = (run.undoNotes ?? []).filter((note) => note.startsWith('kept-') || note === 'citation-kept');
+    return {
+      undone: true,
+      kind,
+      entityId,
+      what: summary,
+      caveat: kept.length ? `Some things were left as they are because they changed since: ${kept.join(', ')}.` : undefined,
+    };
+  }
+
   if (kind === 'create') {
     const targets = listed.length ? listed : [entityId];
     let removed = 0;
     for (const id of targets) {
       const table = await findTable(id);
       if (!table) continue;
+      if (table === 'citations') {
+        // A source that claims now rest on is retracted, not removed: deleting it
+        // would leave them pointing at nothing.
+        const leaning = (await db.inquiryClaims.toArray()).filter((claim) => claim.supports.some((support) => support.citationId === id)).length;
+        if (leaning) {
+          throw new BridgeError('cannot-undo', `${leaning} investigation claim(s) now rest on this source, so it cannot be removed. Retract it with wh_retract_source instead.`);
+        }
+      }
       const spec = specForTable(table);
       // Prefer the engine's own delete: it takes the children with it.
       if (spec) await spec.remove(id);
@@ -111,8 +137,14 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     if (!table) {
       throw new BridgeError('not-found', 'That row has since been deleted, so there is nothing to restore it onto.');
     }
-    await db.table(table).update(entityId, { ...before, updatedAt: Date.now() });
-    const restored = Object.keys(before).join(', ');
+    // `__absent` lists fields the row did not have before the change: they are
+    // taken away again (a Dexie update with `undefined` deletes the property).
+    const { __absent, ...fields } = before;
+    const patch: Record<string, unknown> = { ...fields, updatedAt: Date.now() };
+    const removedKeys = Array.isArray(__absent) ? __absent.filter((key): key is string => typeof key === 'string') : [];
+    for (const key of removedKeys) patch[key] = undefined;
+    await db.table(table).update(entityId, patch);
+    const restored = [...Object.keys(fields), ...removedKeys].join(', ');
     return {
       undone: true,
       kind,

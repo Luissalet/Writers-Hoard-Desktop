@@ -38,6 +38,7 @@ import { deleteSegment, deleteVideoPlan } from '@/engines/video-planner/operatio
 import { deleteAnnotation } from '@/engines/annotations/operations';
 import { deleteWorldCascade, worldWaypointOps } from '@/engines/worldgen/operations';
 import { atlasDivergenceOps, deleteAtlasPlace } from '@/engines/real-atlas/operations';
+import { deleteClaim, deleteHypothesis } from '@/engines/inquiry/operations';
 import { t } from '@/i18n/useTranslation';
 import { requestBridgeConfirmation } from '../confirmation';
 import { assertRowInScope, BridgeError, optString, requireString, withAudit, type ToolArgs } from './shared';
@@ -95,6 +96,27 @@ export const DELETABLE: Record<string, DeletableType> = {
   // says exactly that, so the dialog does not threaten more than will happen.
   'atlas-place': { table: 'atlasPlaces', titleField: 'name', cascade: true, remove: deleteAtlasPlace },
   divergence: { table: 'atlasDivergences', remove: (id) => atlasDivergenceOps.delete(id) },
+  // A claim and a hypothesis take the matrix ratings about them along; the
+  // sources and excerpts a claim rested on are never touched. Both operations
+  // are scoped to a project, so each reads its row's own first.
+  'inquiry-claim': {
+    table: 'inquiryClaims',
+    titleField: 'statement',
+    cascade: true,
+    remove: async (id) => {
+      const row = await db.inquiryClaims.get(id);
+      if (row) await deleteClaim(row.projectId, id);
+    },
+  },
+  'inquiry-hypothesis': {
+    table: 'inquiryHypotheses',
+    titleField: 'statement',
+    cascade: true,
+    remove: async (id) => {
+      const row = await db.inquiryHypotheses.get(id);
+      if (row) await deleteHypothesis(row.projectId, id);
+    },
+  },
 };
 
 export const DELETABLE_TYPES = Object.keys(DELETABLE);
