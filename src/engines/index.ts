@@ -26,6 +26,7 @@ import '@/engines/annotations';
 import '@/engines/worldgen';
 import '@/engines/image-studio';
 import '@/engines/real-atlas';
+import '@/engines/inquiry';
 import '@/services/projectToolsBackup';
 import '@/services/copilot/backup';
 import { registerFallbackAnchorAdapters } from '@/engines/_shared/anchoring/registerFallbackAdapters';

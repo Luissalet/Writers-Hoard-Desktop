@@ -480,6 +480,38 @@ const SLICES: Record<string, IndexSlice> = {
       updatedAt: annotation.updatedAt,
     })),
   },
+  // The claim's derived status is deliberately not indexed: it is recomputed from
+  // the citations, so a stored copy would go stale the moment a source changed.
+  inquiryClaims: {
+    tables: ['inquiryClaims'],
+    engines: ['inquiry'],
+    build: projectId => projectRows(db.inquiryClaims, projectId, claim => ({
+      id: claim.id,
+      engineId: 'inquiry',
+      projectId: claim.projectId,
+      title: claim.statement.length > 120 ? `${claim.statement.slice(0, 119)}…` : claim.statement,
+      subtitle: claim.predicate ?? 'claim',
+      body: [claim.statement, claim.notes, claim.predicate, ...claim.tags].filter(Boolean).join('\n'),
+      tags: claim.tags,
+      type: 'claim',
+      updatedAt: claim.updatedAt,
+    })),
+  },
+  inquiryHypotheses: {
+    tables: ['inquiryHypotheses'],
+    engines: ['inquiry'],
+    build: projectId => projectRows(db.inquiryHypotheses, projectId, hypothesis => ({
+      id: hypothesis.id,
+      engineId: 'inquiry',
+      projectId: hypothesis.projectId,
+      title: hypothesis.statement.length > 120 ? `${hypothesis.statement.slice(0, 119)}…` : hypothesis.statement,
+      subtitle: 'hypothesis',
+      body: hypothesis.statement,
+      type: 'hypothesis',
+      status: hypothesis.status,
+      updatedAt: hypothesis.updatedAt,
+    })),
+  },
 };
 
 /**
