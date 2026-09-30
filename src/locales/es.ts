@@ -4019,6 +4019,7 @@ const es = {
   'projectTools.publishing.preview.caveatsNone': 'Todos los formatos conservan todo lo que lleva esta selección.',
   'projectTools.publishing.preview.bodyNotShown': 'texto no mostrado aquí',
   'projectTools.publishing.preview.morePieces': 'Siguen {count} escritos más, en este mismo orden.',
+  'projectTools.publishing.preview.retractedSources': 'La bibliografía marca {count} fuentes retiradas.',
   'projectTools.publishing.preview.caveat.markdown.images': 'Markdown escribe cada imagen como un enlace ![](…), así que una imagen pegada en el editor acaba en el archivo como una línea larguísima en base64.',
   'projectTools.publishing.preview.caveat.markdown.tables': 'Markdown no convierte tablas: las etiquetas desaparecen y las celdas quedan seguidas como texto plano.',
   'projectTools.publishing.preview.caveat.markdown.headings': 'Markdown reduce los encabezados de nivel 4 a 6 a un único nivel ####.',
