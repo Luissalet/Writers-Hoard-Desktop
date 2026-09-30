@@ -66,6 +66,7 @@ const ENGINE_TABLES: Readonly<Record<string, readonly string[]>> = {
   diary: ['diaryEntries'],
   gallery: ['imageCollections', 'inspirationImages'],
   'image-studio': ['visualRefs', 'imageRecipes', 'inspirationImages'],
+  inquiry: ['inquiryCases', 'inquiryClaims', 'inquiryHypotheses', 'inquiryRatings', 'enrichmentRuns'],
   links: ['snapshots'],
   maps: ['worldMaps', 'mapPins'],
   notes: ['notes'],
@@ -346,6 +347,40 @@ const REFERENCE_SPECS: Readonly<Record<string, readonly ReferenceSpec[]>> = {
   publishingProfiles: [
     { label: 'selectedWritingIds', values: many('selectedWritingIds'), targets: fixed('writings'), contained: false },
     { label: 'writingOrder', values: many('writingOrder'), targets: fixed('writings'), contained: false },
+  ],
+  inquiryClaims: [
+    {
+      label: 'supports[].citationId',
+      values: (row) => Array.isArray(row.supports)
+        ? row.supports.flatMap((support) =>
+            support && typeof support === 'object' && !Array.isArray(support)
+              ? one('citationId')(support as Row)
+              : [])
+        : [],
+      targets: fixed('citations'),
+      contained: false,
+    },
+    {
+      label: 'subject/object codex ids',
+      values: (row) => ['subject', 'object'].flatMap((field) => {
+        const ref = row[field];
+        return ref && typeof ref === 'object' && !Array.isArray(ref) && (ref as Row).kind === 'codex'
+          ? one('id')(ref as Row)
+          : [];
+      }),
+      targets: fixed('codexEntries'),
+      contained: false,
+    },
+    { label: 'placeIds', values: many('placeIds'), targets: fixed('atlasPlaces'), contained: false },
+  ],
+  inquiryRatings: [
+    { label: 'hypothesisId', values: one('hypothesisId'), targets: fixed('inquiryHypotheses'), contained: true },
+    { label: 'claimId', values: one('claimId'), targets: fixed('inquiryClaims'), contained: true },
+  ],
+  enrichmentRuns: [
+    { label: 'entryId', values: one('entryId'), targets: fixed('codexEntries'), contained: false },
+    { label: 'citationId', values: one('citationId'), targets: fixed('citations'), contained: false },
+    { label: 'createdCitationIds', values: many('createdCitationIds'), targets: fixed('citations'), contained: false },
   ],
   relationships: [
     { label: 'entityAId', values: one('entityAId'), targets: fixed(...allEntityTables), contained: false },
