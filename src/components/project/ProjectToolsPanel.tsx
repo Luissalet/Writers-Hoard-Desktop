@@ -55,6 +55,7 @@ import PublishingProfileModal from '@/components/project/PublishingProfileModal'
 import { ConfirmDialog } from '@/engines/_shared';
 import EditorialProfilePanel from './EditorialProfilePanel';
 import ResearchEvidencePanel from './ResearchEvidencePanel';
+import SourceGradeControls from './SourceGradeControls';
 import WritingWorkflowsPanel from './WritingWorkflowsPanel';
 
 export type ProjectToolView = 'workflows' | 'research' | 'templates' | 'publishing' | 'ai';
@@ -331,7 +332,7 @@ function Research({ data }: { data: ToolsData }) {
     const selected = pendingDelete;
     setPendingDelete(null);
     try { await deleteCitation(selected.id, { projectId: data.project.id, expectedUpdatedAt: selected.updatedAt }); }
-    catch { toast.error(deletionCopy.error); }
+    catch (error) { toast.error(error instanceof Error && error.message.includes('investigation claim') ? t('sourceGrading.deleteBlocked') : deletionCopy.error); }
   }
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
@@ -416,6 +417,7 @@ function Research({ data }: { data: ToolsData }) {
               <p className="text-sm font-medium text-text-primary">{citation.title}</p>
               <p className="mt-1 text-xs text-text-muted">{citation.authors.join(', ') || t('projectTools.research.unknownAuthor')} · {citation.accessedAt}</p>
               {citation.url && <p className="mt-1 truncate text-xs text-accent-gold">{citation.url}</p>}
+              <SourceGradeControls citation={citation} />
             </div>
             <button
               type="button"

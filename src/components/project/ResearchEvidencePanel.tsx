@@ -6,6 +6,7 @@ import type { Citation, ResearchEvidence } from '@/types/projectTools';
 import type { Snapshot } from '@/engines/scrapper/types';
 import { getResearchEvidence, ResearchEvidenceError, safeResearchUrl, saveResearchEvidence, type EvidenceInput } from '@/services/researchEvidence';
 import { researchEvidenceCopy } from './researchEvidenceCopy';
+import SourceGradeControls from './SourceGradeControls';
 
 const field = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-gold';
 const button = 'inline-flex items-center justify-center rounded-lg border border-border px-3 py-2 text-sm text-text-primary transition hover:border-accent-gold hover:text-accent-gold focus-visible:outline focus-visible:outline-accent-gold disabled:opacity-50';
@@ -92,6 +93,7 @@ function EvidencePanel({ projectId }: { projectId: string }) {
         <p className="text-xs text-text-secondary">{citation.publishedAt && `${c.published}: ${citation.publishedAt} · `}{c.accessed}: {citation.accessedAt}{evidence.reviewedAt ? ` · ${c.reviewed}: ${new Date(evidence.reviewedAt).toLocaleDateString(locale)}` : ''}</p>
         {safeResearchUrl(citation.url) && <a className="inline-block text-sm text-accent-gold underline underline-offset-4" href={safeResearchUrl(citation.url)} target="_blank" rel="noopener noreferrer">{c.open}</a>}
         {evidence.notes && <p className="max-w-prose whitespace-pre-wrap break-words text-sm text-text-secondary">{evidence.notes}</p>}
+        <SourceGradeControls citation={citation} />
       </li>)}</ul>
     </>}
   </section>;
