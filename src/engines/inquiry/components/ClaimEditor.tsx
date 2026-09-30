@@ -14,6 +14,7 @@ import {
   type InquiryClaim, type InquiryRef, type ManualClaimStatus,
 } from '../types';
 import { buttonClass, fieldClass, primaryClass } from './styles';
+import '../i18n';
 
 interface Props {
   projectId: string;

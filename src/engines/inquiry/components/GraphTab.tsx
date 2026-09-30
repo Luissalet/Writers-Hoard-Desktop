@@ -7,6 +7,7 @@ import type { InquiryModel } from '../hooks';
 import { CLAIM_STATUSES, type InquiryRef } from '../types';
 import { cardClass, refLabel, STATUS_STYLE, validityLabel } from './styles';
 import { CountsLine, StatusBadge, TimeBadge } from './shared';
+import '../i18n';
 
 const WIDTH = 720;
 const HEIGHT = 460;

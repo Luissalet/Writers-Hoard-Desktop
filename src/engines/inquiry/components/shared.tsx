@@ -2,6 +2,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import type { ClaimView } from '../derive';
 import type { ClaimStatus } from '../types';
 import { fill, STATUS_STYLE } from './styles';
+import '../i18n';
 
 export function StatusBadge({ status }: { status: ClaimStatus }) {
   const { t } = useTranslation();

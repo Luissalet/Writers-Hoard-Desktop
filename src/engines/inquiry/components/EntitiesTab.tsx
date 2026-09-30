@@ -12,6 +12,7 @@ import type { InquiryModel } from '../hooks';
 import type { EnrichmentRun } from '../types';
 import type { WikidataCandidate } from '../wikidata';
 import { buttonClass, cardClass, fieldClass, fill, primaryClass } from './styles';
+import '../i18n';
 
 function noteLabel(t: (key: string) => string, note: string): string {
   const [code, detail] = note.split(':');

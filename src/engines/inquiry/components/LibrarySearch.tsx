@@ -5,6 +5,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { FAMILY_APPS, type FamilyApp, type FamilyHit } from '../familySearch';
 import { fileFamilyHits, FamilySearchError, searchFamilyLibrary, type FamilyLibrarySearch } from '../library';
 import { buttonClass, cardClass, fieldClass, fill, primaryClass } from './styles';
+import '../i18n';
 
 /**
  * Ask the user's other local apps for documents. Nothing is filed until the

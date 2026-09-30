@@ -14,6 +14,7 @@ import ClaimEditor from './ClaimEditor';
 import LibrarySearch from './LibrarySearch';
 import { buttonClass, cardClass, fieldClass, fill, primaryClass, refLabel, validityLabel } from './styles';
 import { CountsLine, StatusBadge, TimeBadge } from './shared';
+import '../i18n';
 
 interface Props {
   projectId: string;
