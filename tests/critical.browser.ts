@@ -165,6 +165,11 @@ import {
 import * as atlasMapTests from './atlasMap';
 import { testBridgeLinksStayInProject } from './aiBridgeScope';
 import { runMigrationV24Tests } from './migration-v24';
+import { testInquiry } from './inquiry.browser';
+import { testInquiryEnrichment } from './inquiry-enrichment.browser';
+import { testInquiryUi } from './inquiry-ui.browser';
+import { testInquiryBridge } from './inquiry-bridge.browser';
+import { testBridgeSelfTest } from './ai-bridge-selftest.browser';
 import { testZipBackupScopeGuards } from './zipBackupScope';
 import { testConversionUndoSafety } from './project-tools-safety';
 import { testGoogleDocWriteSafety } from './google-docs-safety';
@@ -350,7 +355,17 @@ async function seedBackupFixture(projectId: string): Promise<string[]> {
   await db.citations.add({
     id: 'citation-1', projectId, title: 'Source', authors: ['Writer'],
     accessedAt: '2026-07-27', writingIds: [], tags: [], createdAt: now, updatedAt: now,
+    reliability: 'B', credibility: 2, origin: 'example.org', retractedAt: now, retractReason: 'superseded',
+    researchEvidence: [{ id: 'evidence-1', statement: 's', kind: 'fact', quote: 'q', locator: '', status: 'pending', notes: '', createdAt: now, updatedAt: now }],
   });
+  await db.inquiryCases.add({ id: 'inquiry-case-1', projectId, question: 'What happened?', staleDays: 90, createdAt: now, updatedAt: now });
+  await db.inquiryClaims.add({
+    id: 'inquiry-claim-1', projectId, statement: 'It happened.', validFrom: '2020', confidence: 0.5, notes: '', placeIds: [], tags: ['t'],
+    supports: [{ citationId: 'citation-1', evidenceId: 'evidence-1' }], createdAt: now, updatedAt: now,
+  });
+  await db.inquiryHypotheses.add({ id: 'inquiry-hypothesis-1', projectId, statement: 'It was X.', status: 'open', order: 0, createdAt: now, updatedAt: now });
+  await db.inquiryRatings.add({ id: 'inquiry-hypothesis-1|inquiry-claim-1', projectId, hypothesisId: 'inquiry-hypothesis-1', claimId: 'inquiry-claim-1', rating: 'C', note: '', updatedAt: now });
+  await db.enrichmentRuns.add({ id: 'enrichment-run-1', projectId, enricher: 'wikidata', entryId: 'missing-entry', qid: 'Q1', status: 'ok', createdCitationIds: [], citationId: 'citation-1', changes: [{ field: 'wikidataQid', before: null, after: 'Q1' }], createdAt: now });
   await db.publishingProfiles.add({
     id: 'publishing-profile-1', projectId, name: 'Editorial', format: 'manuscript',
     includeTitlePage: true, includeSynopsis: true, includeBibliography: true,
@@ -359,7 +374,7 @@ async function seedBackupFixture(projectId: string): Promise<string[]> {
     writingOrder: ['chapter-2', 'missing-writing', 'chapter-1'],
     createdAt: now, updatedAt: now,
   });
-  return ['timeline', 'gallery', 'board', 'annotations', 'scrapper', 'project-tools'];
+  return ['timeline', 'gallery', 'board', 'annotations', 'scrapper', 'project-tools', 'inquiry'];
 }
 
 async function testBackupRoundTrip(): Promise<void> {
@@ -397,7 +412,20 @@ async function testBackupRoundTrip(): Promise<void> {
     snapshot?.url === 'https://www.instagram.com/p/ABC_def-12/?utm_source=ig_web_copy_link&igsh=abc%2Fdef#saved',
     'Scrapper changed or lost the exact clipping link during backup restore',
   );
-  assert(await db.citations.get('citation-1'), 'project tools did not round-trip');
+  const restoredCitation = await db.citations.get('citation-1');
+  assert(restoredCitation, 'project tools did not round-trip');
+  assert(
+    restoredCitation.reliability === 'B' && restoredCitation.credibility === 2 && restoredCitation.origin === 'example.org'
+      && restoredCitation.retractedAt && restoredCitation.retractReason === 'superseded'
+      && restoredCitation.researchEvidence?.[0]?.id === 'evidence-1',
+    'citation grade, retraction and excerpts did not round-trip',
+  );
+  const restoredClaim = await db.inquiryClaims.get('inquiry-claim-1');
+  assert(restoredClaim?.supports[0]?.evidenceId === 'evidence-1' && restoredClaim.validFrom === '2020', 'investigation claim did not round-trip');
+  assert((await db.inquiryCases.get('inquiry-case-1'))?.staleDays === 90, 'investigation case did not round-trip');
+  assert((await db.inquiryHypotheses.get('inquiry-hypothesis-1'))?.statement === 'It was X.', 'hypothesis did not round-trip');
+  assert((await db.inquiryRatings.get('inquiry-hypothesis-1|inquiry-claim-1'))?.rating === 'C', 'ACH rating did not round-trip');
+  assert((await db.enrichmentRuns.get('enrichment-run-1'))?.changes[0]?.after === 'Q1', 'enrichment run did not round-trip');
   const publishingProfile = await db.publishingProfiles.get('publishing-profile-1');
   assert(
     publishingProfile?.selectionMode === 'selected'
@@ -5032,6 +5060,7 @@ function testSearchQueryGrammar(): void {
 async function run(): Promise<void> {
   await testMigration();
   passed.push(...await runMigrationV24Tests());
+  passed.push(...await testInquiry());
   await testBackupRoundTrip();
   await testProjectImportCollisionGuard();
   passed.push(...await testZipBackupScopeGuards());
@@ -5144,6 +5173,8 @@ async function run(): Promise<void> {
   for (const fn of Object.values(atlasMapTests)) await fn();
   passed.push('Real atlas map: geometry, view state, basemap, prefs, mount');
   passed.push(await testAiBridgeContracts());
+  passed.push(await testBridgeSelfTest());
+  passed.push(...await testInquiryBridge());
   passed.push(await testAiRuntimeContracts());
   passed.push(await testComfyBackend());
   await testBridgeLinksStayInProject();
@@ -5173,6 +5204,8 @@ async function run(): Promise<void> {
   passed.push(...await testCodexConcurrentEditing());
   passed.push(...await testCreativeOrganizationBrowser());
   passed.push(...await testCreativeCapturePersistence());
+  passed.push(...await testInquiryEnrichment());
+  passed.push(...await testInquiryUi());
   stage('visual references');
   passed.push(...await testEditorialTools());
   passed.push(...await runVisualRefTests());

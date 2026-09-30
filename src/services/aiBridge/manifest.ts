@@ -46,6 +46,7 @@ import {
   VIDEO_TOOLS,
   WORLDGEN_TOOLS,
 } from './manifestEngines';
+import { INQUIRY_TOOLS, SOURCE_TOOLS } from './manifestInquiry';
 
 export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
 
@@ -65,7 +66,7 @@ export const BRIDGE_ENGINE_IDS = [
   'writings', 'codex', 'diary', 'timeline', 'outline', 'notes', 'scrapper',
   'dialog-scene', 'character-arc', 'relationships', 'seeds', 'biography',
   'board', 'gallery', 'maps', 'storyboard', 'video-planner', 'annotations',
-  'pov-audit', 'writing-stats', 'image-studio', 'worldgen', 'real-atlas',
+  'pov-audit', 'writing-stats', 'image-studio', 'worldgen', 'real-atlas', 'inquiry',
 ];
 
 // ---------------------------------------------------------------------------
@@ -154,6 +155,7 @@ Delete one thing, after asking the person at the keyboard. A dialog opens in the
             'biography-fact', 'board', 'board-card', 'snapshot', 'image', 'map-pin',
             'storyboard', 'panel', 'video-plan', 'video-segment', 'annotation',
             'generated-world', 'world-waypoint', 'atlas-place', 'divergence',
+            'inquiry-claim', 'inquiry-hypothesis',
           ],
         }),
         id: s('Id of the thing to delete.'),
@@ -1005,6 +1007,10 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('visual', inEngine('storyboard', STORYBOARD_TOOLS)),
   ...grouped('visual', inEngine('video-planner', VIDEO_TOOLS)),
   ...grouped('research', inEngine('scrapper', SCRAPPER_TOOLS)),
+  // Grading belongs to the research library, not to an engine, so SOURCE_TOOLS
+  // carry no engineId; the Investigation's own tools do, and refuse when it is off.
+  ...grouped('research', SOURCE_TOOLS),
+  ...grouped('research', inEngine('inquiry', INQUIRY_TOOLS)),
   ...grouped('analysis', inEngine('annotations', ANNOTATION_TOOLS)),
   // STATS_TOOLS straddles two engines and names them itself.
   ...grouped('analysis', STATS_TOOLS),
@@ -1067,6 +1073,7 @@ Its data is organised as PROJECTS. Inside a project sit several engines:
 - Real atlas — the story's real-world setting: places with coordinates and checked facts, and the deliberate divergences from reality.
 - Annotations — margin notes anchored to an exact phrase somewhere else in the project.
 - Image studio — pictures generated from a prompt with the model configured in AI settings; they are filed in the Gallery with their prompt and seed.
+- Investigation — claims backed by recorded excerpts of saved sources, a chronology with contradictions, competing hypotheses (ACH) and a report with a citation check. Sources can be graded and retracted.
 - Judge — grounded creative critique through the writer's private reference lenses and selected project context. Evidence is exposed as cited fragments, never as arbitrary library access.
 
 Not every project has every engine. A project shows only the engines it has switched on, and its own search only looks at those — so writing into a switched-off engine is refused rather than quietly filed somewhere the writer will never see. wh_get_context and wh_list_projects both report enabledEngines; wh_enable_engine turns one on. Turning an engine on changes the writer's workspace, so if it is not obvious they want it, ask.
@@ -1076,6 +1083,8 @@ Containers before contents: outlines, boards, storyboards, video plans and timel
 Generated worlds work differently from everything above. Their places are not rows: each has a stable key of the form kind:x,y — settlement:512,201, ruin:88,140, a landmark carries its type as landmark:volcano:12,6, a realm realm:3:0,0 — which you get from wh_list_places, wh_find_place or wh_place_at and never invent (wh_search does not index worlds; wh_find_place is their search). Coordinates are world cells: x runs 0..width-1 west to east, y runs 0..height-1 north to south (height is width/2), and every place also carries normalised u,v in 0..1, which is what waypoints use. Placing, renaming, moving, removing and labelling are edits appended to the world's edit list — the same list the writer's own brushes write — so they show up in an open view at once and can be undone; a removed place can be brought back with wh_restore_place. A world that was never opened on this machine may answer { pending: true, code: "generating" } once: it is being forged in the background, so wait about 30 seconds and call again rather than treating it as a failure.
 
 The real atlas is the opposite case: the story's REAL setting, for a project set in the real world — a historical novel, a crime story in an actual city, alternate history. Its places are ordinary rows: a name, WGS84 coordinates or an address, an era, the facts the writer has checked (realNotes) and where they came from; a place marked fictional is one the writer invented inside the real world. Divergences are deliberate departures from reality — what is actually the case, what the book says instead, and why — anchored to a place when the change is local and free-standing when it is global. Run wh_reality_check before claiming the setting is consistent or well researched. wh_search finds places and divergences by their prose; the wh_*_atlas_place and wh_*_divergence tools are for the facts themselves.
+
+The Investigation is for reporting and biography: every claim rests on at least one recorded excerpt of a saved source, and its status is DERIVED from those sources every time it is read — unsupported, claimed, corroborated (two or more INDEPENDENT origins; two excerpts from one outlet count once), confirmed or disputed (the author's own override) or retracted — so you cannot set it. Always report the evidence count and the independent-source count beside a status. Grade a source with wh_grade_source (reliability A-F and credibility 1-6, shown "B2"); retract a withdrawn one with wh_retract_source, which deletes nothing and tells you how many claims it affected. Pass asOf to the claim, timeline, matrix and report tools to see the picture on a date; "ended" (validTo passed) is not "stale" (not seen for a long time). The analysis of competing hypotheses scores only inconsistency: call the leader "the least contradicted so far", never "proven", and say when hypotheses are tied or unrated. wh_enrich_codex looks up organisations, places, events and public figures on Wikidata and fills empty fields only; it refuses people the author has not marked as public figures — do not route around that, and leave that decision to the author. wh_search_library asks the writer's other local apps for documents; names of private people are removed from the query. Run wh_inquiry_report and repeat its citation-check flags to the user before presenting any text built from claims.
 
 How to work here:
 1. Start with wh_get_context. It tells you which project and which engine the writer is looking at, so "this chapter" and "her" resolve to something real.
