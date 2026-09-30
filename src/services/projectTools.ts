@@ -192,6 +192,15 @@ export async function saveCitation(
       // Evidence is changed only through its own scoped, versioned service.
       // Read it inside this transaction; stale citation forms cannot overwrite it.
       researchEvidence: existing?.researchEvidence,
+      // Grade, origin and retraction change only through services/sourceGradingOps,
+      // so a stale edit form can never undo a retraction made in the meantime.
+      ...(existing ? {
+        reliability: existing.reliability,
+        credibility: existing.credibility,
+        origin: existing.origin,
+        retractedAt: existing.retractedAt,
+        retractReason: existing.retractReason,
+      } : {}),
       authors: value.authors.filter(Boolean),
       tags: value.tags.filter(Boolean),
       writingIds: [...new Set(value.writingIds)],
@@ -227,11 +236,14 @@ export async function citationFromSnapshot(snapshotId: string): Promise<Citation
 
 /** Delete precisely the source/version the author reviewed in the confirmation. */
 export async function deleteCitation(id: string, guard: { projectId: string; expectedUpdatedAt: number }): Promise<void> {
-  await db.transaction('rw', db.citations, async () => {
+  await db.transaction('rw', db.citations, db.inquiryClaims, async () => {
     const citation = await db.citations.get(id);
     if (!citation || citation.projectId !== guard.projectId || citation.updatedAt !== guard.expectedUpdatedAt) {
       throw new Error('Citation changed; review it before deleting');
     }
+    const leaning = (await db.inquiryClaims.where('projectId').equals(guard.projectId).toArray())
+      .filter(claim => claim.supports.some(support => support.citationId === id)).length;
+    if (leaning) throw new Error(`Citation supports ${leaning} investigation claim(s); retract it instead of deleting it`);
     await db.citations.delete(id);
   });
 }

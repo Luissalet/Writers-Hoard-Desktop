@@ -59,6 +59,15 @@ export interface CodexEntry {
   content: string; // HTML from TipTap
   tags: string[];
   relations: Relation[];
+  /**
+   * Only meaningful on `character` entries. A person is private unless the
+   * author says otherwise: enrichment never runs on a private person, the
+   * investigation report marks them, and their names never leave the app in a
+   * library query. Missing means false.
+   */
+  publicFigure?: boolean;
+  /** Wikidata item this entry was matched to by an enrichment run, e.g. "Q42". */
+  wikidataQid?: string;
   createdAt: number;
   updatedAt: number;
 }
