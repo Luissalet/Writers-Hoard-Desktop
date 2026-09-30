@@ -86,7 +86,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: Earth,
     color: '#3f8f7a',
     defaultEngines: ['writings', 'codex', 'real-atlas', 'timeline', 'outline', 'scrapper', 'gallery'],
-    suggestedEngines: ['biography', 'board', 'notes', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit', 'maps'],
+    suggestedEngines: ['biography', 'inquiry', 'board', 'notes', 'diary', 'writing-stats', 'character-arc', 'relationships', 'seeds', 'pov-audit', 'maps'],
   },
   {
     id: 'biographer',
@@ -95,7 +95,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     icon: BookUser,
     color: '#4a7ec4',
     defaultEngines: ['biography', 'timeline', 'codex', 'gallery', 'scrapper', 'board'],
-    suggestedEngines: ['writings', 'real-atlas', 'notes', 'diary', 'outline', 'writing-stats', 'relationships'],
+    suggestedEngines: ['writings', 'real-atlas', 'inquiry', 'notes', 'diary', 'outline', 'writing-stats', 'relationships'],
   },
   {
     id: 'reporter',
@@ -103,7 +103,7 @@ export const PROJECT_MODES: ProjectModeConfig[] = [
     description: 'Investigative journalism, research',
     icon: Globe,
     color: '#c4463a',
-    defaultEngines: ['scrapper', 'timeline', 'board', 'codex', 'gallery', 'notes'],
+    defaultEngines: ['scrapper', 'inquiry', 'timeline', 'board', 'codex', 'gallery', 'notes'],
     suggestedEngines: ['writings', 'real-atlas', 'biography', 'writing-stats', 'relationships'],
   },
   {
