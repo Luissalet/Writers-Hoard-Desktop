@@ -34,7 +34,9 @@ investigación que ya tiene un proyecto en afirmaciones y razona sobre ellas.
   origen con el que se juzga la independencia. Las citas anteriores figuran como
   «sin graduar». Retractar una fuente nunca la borra ni borra sus extractos: las
   afirmaciones que se apoyaban en ella se recalculan y la app dice cuántas se
-  vieron afectadas.
+  vieron afectadas. Una fuente retractada sigue en la bibliografía, marcada con
+  la fecha y el motivo, en todos los estilos de cita y formatos de publicación;
+  la vista previa de publicación indica cuántas hay.
 - **Las afirmaciones se apoyan en extractos registrados.** Una afirmación es un
   enunciado (con sujeto, predicado y objeto opcionales y fechas parciales) con al
   menos un apoyo que apunte a un extracto existente. Su estado no se guarda: se
