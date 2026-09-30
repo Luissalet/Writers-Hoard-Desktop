@@ -138,6 +138,21 @@ import { whAnnotate, whListAnnotations } from './annotations';
 import { whPovAudit, whWritingStats } from './analysis';
 import { whDelete } from './deletion';
 import {
+  whAchMatrix,
+  whAddClaim,
+  whAddHypothesis,
+  whEnrichCodex,
+  whGradeSource,
+  whInquiryReport,
+  whInquiryTimeline,
+  whListClaims,
+  whRateHypothesis,
+  whRetractSource,
+  whSearchLibrary,
+  whUndoEnrichment,
+  whUpdateClaim,
+} from './inquiry';
+import {
   whGetJudgeEvidence,
   whGetJudgeReview,
   whListJudgeLenses,
@@ -292,6 +307,20 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_create_video_plan: whCreateVideoPlan,
   wh_add_video_segment: whAddVideoSegment,
   wh_update_video_segment: whUpdateVideoSegment,
+  // Source grading and the Investigation
+  wh_grade_source: whGradeSource,
+  wh_retract_source: whRetractSource,
+  wh_list_claims: whListClaims,
+  wh_add_claim: whAddClaim,
+  wh_update_claim: whUpdateClaim,
+  wh_inquiry_timeline: whInquiryTimeline,
+  wh_add_hypothesis: whAddHypothesis,
+  wh_rate_hypothesis: whRateHypothesis,
+  wh_ach_matrix: whAchMatrix,
+  wh_enrich_codex: whEnrichCodex,
+  wh_undo_enrichment: whUndoEnrichment,
+  wh_inquiry_report: whInquiryReport,
+  wh_search_library: whSearchLibrary,
   // Annotations and analysis
   wh_list_annotations: whListAnnotations,
   wh_annotate: whAnnotate,
