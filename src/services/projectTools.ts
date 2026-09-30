@@ -253,6 +253,8 @@ export interface CitationFormatLabels {
   unknownAuthor: string;
   noDate: string;
   accessedLabel: string;
+  /** Word placed before a retracted source's note; optional so older callers keep working. */
+  retractedLabel?: string;
 }
 
 function currentCitationLabels(): CitationFormatLabels {
@@ -261,7 +263,20 @@ function currentCitationLabels(): CitationFormatLabels {
     unknownAuthor: t('projectTools.research.unknownAuthor'),
     noDate: t('projectTools.research.noDate'),
     accessedLabel: t('projectTools.research.accessed'),
+    retractedLabel: t('sourceGrading.retractedBadge'),
   };
+}
+
+/**
+ * A retracted source stays in the reference list, because the text may still
+ * cite it, but the reader has to be told: the note carries the date and the
+ * reason the author gave when retracting it.
+ */
+function retractionNote(citation: Citation, labels: CitationFormatLabels): string {
+  if (!citation.retractedAt) return '';
+  const when = new Date(citation.retractedAt).toLocaleDateString(labels.locale);
+  const reason = citation.retractReason?.trim();
+  return ` [${labels.retractedLabel ?? 'Retracted'}: ${when}${reason ? ` — ${reason}` : ''}]`;
 }
 
 export function formatCitation(
@@ -277,13 +292,14 @@ export function formatCitation(
   const authors = citation.authors.length ? citation.authors.join(', ') : labels.unknownAuthor;
   const year = citation.publishedAt?.slice(0, 4) || labels.noDate;
   const accessed = citation.accessedAt ? new Date(`${citation.accessedAt}T00:00:00`).toLocaleDateString(labels.locale) : '';
+  const note = retractionNote(citation, labels);
   if (style === 'mla') {
-    return `${authors}. “${citation.title}.” ${citation.publisher ? `${citation.publisher}, ` : ''}${year}.${citation.url ? ` ${citation.url}.` : ''}${accessed ? ` ${labels.accessedLabel} ${accessed}.` : ''}`;
+    return `${authors}. “${citation.title}.” ${citation.publisher ? `${citation.publisher}, ` : ''}${year}.${citation.url ? ` ${citation.url}.` : ''}${accessed ? ` ${labels.accessedLabel} ${accessed}.` : ''}${note}`;
   }
   if (style === 'chicago') {
-    return `${authors}. “${citation.title}.” ${citation.publisher ?? ''}${citation.publisher ? ', ' : ''}${year}.${citation.url ? ` ${citation.url}.` : ''}${accessed ? ` ${labels.accessedLabel} ${accessed}.` : ''}`;
+    return `${authors}. “${citation.title}.” ${citation.publisher ?? ''}${citation.publisher ? ', ' : ''}${year}.${citation.url ? ` ${citation.url}.` : ''}${accessed ? ` ${labels.accessedLabel} ${accessed}.` : ''}${note}`;
   }
-  return `${authors} (${year}). ${citation.title}.${citation.publisher ? ` ${citation.publisher}.` : ''}${citation.url ? ` ${citation.url}` : ''}`;
+  return `${authors} (${year}). ${citation.title}.${citation.publisher ? ` ${citation.publisher}.` : ''}${citation.url ? ` ${citation.url}` : ''}${note}`;
 }
 
 /** APA, MLA and Chicago all order the reference list by first author. */

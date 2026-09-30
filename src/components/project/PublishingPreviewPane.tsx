@@ -146,6 +146,7 @@ export default function PublishingPreviewPane({
     () => buildPublishingPreview(previewProject, compiled, writings, citations, { titleOverride }),
     [citations, compiled, previewProject, titleOverride, writings],
   );
+  const retractedCount = citations.filter(citation => citation.retractedAt).length;
 
   const outputLabels: Record<PublishingOutput, string> = {
     markdown: 'Markdown',
@@ -312,6 +313,11 @@ export default function PublishingPreviewPane({
                 <h4 className="text-center text-base text-text-primary">
                   {preview.document.bibliographyTitle}
                 </h4>
+                {retractedCount > 0 && (
+                  <p className="mt-2 text-center font-sans text-[11px] text-warning" data-testid="publishing-preview-retracted">
+                    {t('projectTools.publishing.preview.retractedSources').replace('{count}', retractedCount.toLocaleString(locale))}
+                  </p>
+                )}
                 {preview.document.bibliography.map((citation, index) => (
                   <p key={`citation-${index}`} className="mt-2 text-xs text-text-muted">{citation}</p>
                 ))}

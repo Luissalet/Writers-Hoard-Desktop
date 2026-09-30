@@ -6,12 +6,12 @@ import {
 } from '@/engines/inquiry/operations';
 import { computeAch } from '@/engines/inquiry/ach';
 import { deriveClaims } from '@/engines/inquiry/derive';
-import { deleteCitation, saveCitation } from '@/services/projectTools';
+import { buildPublishingArtifacts, deleteCitation, formatCitation, saveCitation } from '@/services/projectTools';
 import { gradeCitation, restoreCitation, retractCitation, SourceGradingError } from '@/services/sourceGradingOps';
 import { gradeLabel } from '@/services/sourceGrading';
 import { saveResearchEvidence } from '@/services/researchEvidence';
 import type { Project } from '@/types';
-import type { Citation } from '@/types/projectTools';
+import type { Citation, PublishingProfile } from '@/types/projectTools';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 
@@ -237,7 +237,46 @@ export async function testInquiryOperations(): Promise<string[]> {
   }
 }
 
+/** A retracted source stays in the bibliography, marked with its date and reason. */
+export async function testRetractedBibliography(): Promise<string[]> {
+  const projectId = `inquiry-biblio-${Date.now()}`;
+  await db.projects.put(project(projectId));
+  const kept = await saveCitation({ projectId, title: 'Harbour ledger', authors: ['Alvarez, M.'], accessedAt: '2026-05-01', url: 'https://example.org/ledger', writingIds: [], tags: [] });
+  const dropped = await saveCitation({ projectId, title: 'Forged letter', authors: ['Baker, J.'], accessedAt: '2026-05-01', url: 'https://example.org/letter', writingIds: [], tags: [] });
+  await retractCitation(projectId, dropped.id, 'the letter is a forgery');
+  const citations = (await db.citations.where('projectId').equals(projectId).toArray());
+  const retracted = citations.find(citation => citation.id === dropped.id)!;
+  const clean = citations.find(citation => citation.id === kept.id)!;
+  assert(retracted.retractedAt, 'retraction was not stored on the citation');
+  const labels = { locale: 'en-US', unknownAuthor: 'Unknown author', noDate: 'n.d.', accessedLabel: 'Accessed', retractedLabel: 'Retracted' };
+  for (const style of ['apa', 'mla', 'chicago'] as const) {
+    const line = formatCitation(retracted, style, labels);
+    assert(line.includes('[Retracted: ') && line.includes('the letter is a forgery'), `${style} did not mark the retracted source: ${line}`);
+    assert(!formatCitation(clean, style, labels).includes('Retracted'), `${style} marked a source that was never retracted`);
+  }
+  const spanish = formatCitation({ ...retracted, retractReason: '' }, 'apa', { ...labels, locale: 'es-ES', retractedLabel: 'Retirada' });
+  assert(/\[Retirada: [^\]—]+\]$/.test(spanish), `Spanish mark or empty reason wrong: ${spanish}`);
+  assert(formatCitation(retracted, 'apa').includes('[Retracted: '), 'default labels do not mark retractions');
+
+  const profile: PublishingProfile = {
+    id: 'biblio-profile', projectId, name: 'Dossier', format: 'manuscript', includeTitlePage: false, includeSynopsis: false,
+    includeBibliography: true, citationStyle: 'apa', selectionMode: 'all', selectedWritingIds: [], writingOrder: [], createdAt: 1, updatedAt: 1,
+  };
+  const artifacts = buildPublishingArtifacts({ id: projectId, title: 'Dossier' }, profile, [], citations, {
+    labels: { ...labels, wordLabel: 'words', chapterLabel: 'Chapter', bibliographyTitle: 'Bibliography' },
+    generatedAt: Date.UTC(2026, 8, 30),
+  });
+  assert(artifacts.document.bibliography.length === 2, 'retracted source was dropped from the bibliography');
+  assert(artifacts.markdown.includes('[Retracted: ') && artifacts.html.includes('[Retracted: '), 'published bibliography lost the retraction mark');
+  assert(artifacts.document.bibliography.filter(line => line.includes('[Retracted')).length === 1, 'only the retracted source must be marked');
+
+  await restoreCitation(projectId, dropped.id);
+  const restored = (await db.citations.get(dropped.id))!;
+  assert(!formatCitation(restored, 'apa', labels).includes('Retracted'), 'restored source is still marked as retracted');
+  return ['bibliography marks retracted sources in APA, MLA and Chicago, in the publishing artifacts, and drops the mark on restore'];
+}
+
 export async function testInquiry(): Promise<string[]> {
   // Migration first: it deletes and recreates the database.
-  return [...await testInquiryMigration(), ...await testInquiryOperations()];
+  return [...await testInquiryMigration(), ...await testInquiryOperations(), ...await testRetractedBibliography()];
 }
