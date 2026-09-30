@@ -142,7 +142,7 @@ import {
   whAddClaim,
   whAddHypothesis,
   whEnrichCodex,
-  whGradeSource,
+  whGradeSource, whBibliography,
   whInquiryReport,
   whInquiryTimeline,
   whListClaims,
@@ -310,6 +310,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   // Source grading and the Investigation
   wh_grade_source: whGradeSource,
   wh_retract_source: whRetractSource,
+  wh_bibliography: whBibliography,
   wh_list_claims: whListClaims,
   wh_add_claim: whAddClaim,
   wh_update_claim: whUpdateClaim,
