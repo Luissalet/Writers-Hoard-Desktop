@@ -1531,3 +1531,94 @@ harnesses de navegador corren además en Chromium headless (Playwright) con un
 user-agent de Electron (sin él, `isDesktop()` es falso y el arranque escoge
 `BrowserRouter`). La máquina de Luis queda para la confirmación final y las
 pruebas en vivo, no para cada iteración.
+
+## 25. Investigación: fuentes graduadas, afirmaciones derivadas y 13 herramientas nuevas
+
+Motor `inquiry` («Investigación»), categoría investigación; por defecto en el
+preset Periodista y sugerido en Biógrafo y Realista. Esquema de datos v35
+(`inquiryCases`, `inquiryClaims`, `inquiryHypotheses`, `inquiryRatings`,
+`enrichmentRuns`; las citas ganan campos opcionales de graduación y retractación).
+Lo que importa para el puente:
+
+- **El estado de una afirmación se DERIVA, nunca se guarda**
+  (`engines/inquiry/derive.ts`): retractada > disputada a mano > sin respaldo
+  (una confirmación manual no sobrevive a su evidencia) > confirmada a mano >
+  corroborada (≥2 orígenes independientes) > afirmada. Dos extractos del mismo
+  origen cuentan como UNA fuente independiente; los orígenes desconocidos nunca
+  se agrupan entre sí. Por eso ninguna herramienta puede fijar el estado, y cada
+  respuesta lleva los recuentos de extractos y de fuentes independientes.
+- **`asOf`** (`YYYY`, `YYYY-MM` o `YYYY-MM-DD`) en las herramientas de lectura:
+  deja fuera lo que no estaba vigente, y «terminada» (`validTo` pasó) no es
+  «desactualizada» (no se ve hace más de `staleDays`, 365 por defecto).
+- **Privacidad.** Un personaje del códice es privado salvo `publicFigure: true`,
+  y ese indicador solo lo cambia el autor desde la interfaz (no hay herramienta
+  para ello, a propósito). `wh_enrich_codex` se niega con el código
+  `private-person` y una pista antes de enviar nada; `wh_search_library` quita
+  de la consulta los nombres de personas privadas y se niega si solo quedaba un
+  nombre; el informe las rotula «persona privada».
+
+### Las 13 herramientas (`tools/inquiry.ts`, manifiesto en `manifestInquiry.ts`, grupo `research`, 140 en total)
+
+| Herramienta | Escribe | Motor | Qué hace |
+| --- | --- | --- | --- |
+| `wh_grade_source` | sí | (biblioteca de investigación) | Gradúa una fuente: fiabilidad A-F, credibilidad 1-6 (se lee `B2`), origen; `clear` la deja sin graduar. Deshacer restaura, incluido quitar lo que no existía (`__absent` en `before`). |
+| `wh_retract_source` | sí | (biblioteca) | Retracta una fuente (o con `restore`, la repone). No borra nada; devuelve cuántas afirmaciones se vieron afectadas (`claimsAffected`, `becameUnsupported`, `weakened`…). |
+| `wh_list_claims` | no | `inquiry` | Filtros por estado, entidad, etiqueta, tiempo y texto, `asOf`, paginación; cada afirmación con su estado derivado y ambos recuentos. |
+| `wh_add_claim` | sí | `inquiry` | Exige al menos un extracto existente (`supports`) o una cita textual (`quotes`, que se registra como extracto pendiente). Tripleta estructurada opcional. |
+| `wh_update_claim` | sí | `inquiry` | Edita campos, `supports` (reemplaza, nunca por debajo de uno), `manualStatus` (exige `reason`), `retract`/`restore`. |
+| `wh_inquiry_timeline` | no | `inquiry` | Cronología, contradicciones (predicados de un solo valor) y tramos desconocidos (se informan, no se rellenan). |
+| `wh_add_hypothesis` | sí | `inquiry` | Añade una hipótesis. |
+| `wh_rate_hypothesis` | sí | `inquiry` | Una celda de la matriz (CC, C, N, I, II, NA o `none`). |
+| `wh_ach_matrix` | no | `inquiry` | Puntúa solo inconsistencia, diagnosticidad, sensibilidad; el veredicto dice «la menos contradicha hasta ahora», nunca «demostrada». |
+| `wh_enrich_codex` | sí | `inquiry` | `candidates` (solo busca) o `apply` (rellena campos vacíos, guarda el QID, archiva una fuente C3 de wikidata.org, registra una ejecución). |
+| `wh_undo_enrichment` | sí | `inquiry` | Revierte una ejecución; conserva lo que el autor editó después y lo dice. |
+| `wh_inquiry_report` | no | `inquiry` | Informe en Markdown con la comprobación de citas (marca, no oculta). No llama a ningún modelo. |
+| `wh_search_library` | sí | `inquiry` | Pregunta por el hub a la biblioteca de lectura y a las páginas guardadas (`POST <hub>/api/apps/<app>/call`, `library_search` y `search_links`, `{q, limit}`); los resultados se archivan como fuentes sin graduar con una referencia `hoard://` en las notas y su vista previa como extracto PENDIENTE. `save:false` solo mira. |
+
+Las cinco escrituras con `engineId` y `projectId` (`wh_add_claim`,
+`wh_add_hypothesis`, `wh_enrich_codex`, `wh_search_library`) se niegan con
+`engine-disabled` si el motor está apagado, antes de validar argumentos; las
+que llegan por un id (`wh_update_claim`, `wh_rate_hypothesis`,
+`wh_undo_enrichment`) cargan la fila y comprueban `assertEngineEnabled` y
+`assertRowInScope`. Las citas y los códices a los que apunta una escritura se
+validan con `requireLinkedRow`: de otro proyecto dan `scope`, inexistentes
+`not-found`.
+
+**Borrado.** Solo por `wh_delete`, con los tipos nuevos `inquiry-claim` y
+`inquiry-hypothesis` (ambos en cascada sobre las valoraciones; las fuentes y los
+extractos nunca se tocan). Borrar una cita con afirmaciones apoyadas en ella se
+rechaza («retráctala»).
+
+**Deshacer (`undo.ts`).** Tres añadidos: `before` puede llevar `__absent` (campos
+que la fila no tenía: se quitan), el deshacer de `wh_enrich_codex` revierte la
+ejecución entera (campos, QID, fuente creada) en lugar de borrar su recibo, y
+deshacer las fuentes archivadas por `wh_search_library` se niega mientras alguna
+afirmación se apoye en ellas.
+
+**`wh_get_research_evidence`** añade (sin quitar nada) `grade`, `origin`,
+`retracted` y `retractReason` por cita. **`wh_search`** indexa ahora
+afirmaciones e hipótesis (no el estado, que es derivado).
+
+### Red y seguridad
+
+- **Wikidata** (`electron/wikidata.ts`, IPC `wikidata:request`, solo ventana
+  principal): el renderer nombra una operación (`search`, `entity`, `labels`) y
+  main construye la única petición permitida contra `www.wikidata.org`; User-Agent
+  identificado, cola en serie con 250 ms de separación, 12 s de tiempo de espera,
+  3 MB de tope, `redirect: 'error'`, errores tipados. El CSP ya permitía https.
+- **Hub de la familia** (`electron/familySearch.ts`, IPC `family:search`):
+  dos apps (`borges`, `links`), una herramienta fija cada una, consulta ≤200
+  caracteres y límite 1-10; token del puente; hub apagado → `hub_unreachable`,
+  nunca una excepción. Las pruebas de seguridad (`tests/wikidata-main.ts`,
+  `tests/family-search-main.ts`) corren en la suite crítica.
+
+### Pruebas
+
+`npm run test:inquiry` (lógica pura, migración v34→v35, enriquecimiento con
+`fetch` simulado, interfaz, herramientas del puente y el autotest del puente) y,
+en la suite crítica, `testInquiryBridge` (manifiesto, banderas, esquemas,
+comportamiento, privacidad, scope de copiloto, deshacer, borrado) y
+`testBridgeSelfTest` (47 comprobaciones, incluidas 8 de investigación, la sonda
+`wh-probe-claim` de búsqueda y las guardias de motor apagado para las
+herramientas nuevas). De paso se corrigió una comprobación ya rota del autotest:
+`wh_run_judge` no tenía sonda de guardia de motor.
