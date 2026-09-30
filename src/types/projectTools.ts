@@ -31,9 +31,27 @@ export interface Citation {
   tags: string[];
   /** Author-maintained evidence, never an automatic truth certification. */
   researchEvidence?: ResearchEvidence[];
+  /**
+   * Two-axis source grading (A–F reliability of the source, 1–6 credibility of
+   * this information), shown as "B2". Missing on every citation written before
+   * grading existed: those read as "ungraded", never as a default grade.
+   */
+  reliability?: SourceReliability;
+  credibility?: SourceCredibility;
+  /**
+   * Publisher or host used to judge whether two sources are independent. When
+   * missing it is derived from the URL host (see services/sourceGrading.ts).
+   */
+  origin?: string;
+  /** The source was withdrawn (corrected, discredited). It stays on file. */
+  retractedAt?: number;
+  retractReason?: string;
   createdAt: number;
   updatedAt: number;
 }
+
+export type SourceReliability = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+export type SourceCredibility = 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface ResearchEvidence {
   id: string;

@@ -55,10 +55,17 @@ import type {
 } from '@/services/branching/types';
 import type { NarrativeMoment, StoryClaim } from '@/services/storyState/types';
 import type { SharedCanonEntity, SharedEntityBinding } from '@/services/sharedUniverse/types';
+import type {
+  EnrichmentRun,
+  InquiryCase,
+  InquiryClaim,
+  InquiryHypothesis,
+  InquiryRating,
+} from '@/engines/inquiry/types';
 import { migrateLegacyBoards } from './legacyBoardMigration';
 
 /** Single source of truth for migration and compatibility tests. */
-export const CURRENT_DB_VERSION = 34;
+export const CURRENT_DB_VERSION = 35;
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -132,6 +139,11 @@ export class WritersHoardDB extends Dexie {
   storyClaims!: Table<StoryClaim>;
   sharedCanonEntities!: Table<SharedCanonEntity>;
   sharedEntityBindings!: Table<SharedEntityBinding>;
+  inquiryCases!: Table<InquiryCase>;
+  inquiryClaims!: Table<InquiryClaim>;
+  inquiryHypotheses!: Table<InquiryHypothesis>;
+  inquiryRatings!: Table<InquiryRating>;
+  enrichmentRuns!: Table<EnrichmentRun>;
 
   constructor() {
     super('WritersHoardDB');
@@ -902,9 +914,27 @@ export class WritersHoardDB extends Dexie {
     // v34: saga-owned identities and project-owned bindings. Full prose and
     // engine records remain in their project; this layer stores only stable
     // identity, a local override and explicit provenance.
-    this.version(CURRENT_DB_VERSION).stores({
+    this.version(34).stores({
       sharedCanonEntities: 'id, seriesId, kind, title, updatedAt',
       sharedEntityBindings: 'id, projectId, seriesId, sharedEntityId, &[seriesId+sharedEntityId+projectId], updatedAt',
+    });
+
+    // v35: the investigation engine — claims that rest on the research
+    // evidence a project already keeps (citations and their excerpts), the
+    // competing hypotheses weighed against them, the per-project question, and
+    // the log of Wikidata enrichment runs that makes each one undoable.
+    // Additive and inert: no existing row is read or rewritten, so a database
+    // that has never opened the engine gains five empty tables. Source grading
+    // and retraction add OPTIONAL fields to `citations` rows and need no index
+    // or upgrade step; `publicFigure` and `wikidataQid` do the same on
+    // `codexEntries`. A status is never stored on a claim (it is derived from
+    // its sources), so there is nothing here to keep in step.
+    this.version(CURRENT_DB_VERSION).stores({
+      inquiryCases: 'id, projectId, updatedAt',
+      inquiryClaims: 'id, projectId, updatedAt',
+      inquiryHypotheses: 'id, projectId, order',
+      inquiryRatings: 'id, projectId, hypothesisId, claimId',
+      enrichmentRuns: 'id, projectId, entryId, createdAt',
     });
   }
 }
