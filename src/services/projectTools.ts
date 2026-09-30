@@ -279,6 +279,14 @@ function retractionNote(citation: Citation, labels: CitationFormatLabels): strin
   return ` [${labels.retractedLabel ?? 'Retracted'}: ${when}${reason ? ` — ${reason}` : ''}]`;
 }
 
+/**
+ * Close a bibliographic element with a full stop unless it already ends in
+ * one: "Baker, J." and "n.d." must not become "Baker, J.." and "n.d..".
+ */
+function closeElement(text: string): string {
+  return /[.?!]$/.test(text) ? text : `${text}.`;
+}
+
 export function formatCitation(
   citation: Citation,
   style: PublishingProfile['citationStyle'],
@@ -294,12 +302,12 @@ export function formatCitation(
   const accessed = citation.accessedAt ? new Date(`${citation.accessedAt}T00:00:00`).toLocaleDateString(labels.locale) : '';
   const note = retractionNote(citation, labels);
   if (style === 'mla') {
-    return `${authors}. “${citation.title}.” ${citation.publisher ? `${citation.publisher}, ` : ''}${year}.${citation.url ? ` ${citation.url}.` : ''}${accessed ? ` ${labels.accessedLabel} ${accessed}.` : ''}${note}`;
+    return `${closeElement(authors)} “${closeElement(citation.title)}” ${citation.publisher ? `${citation.publisher}, ` : ''}${closeElement(year)}${citation.url ? ` ${citation.url}.` : ''}${accessed ? ` ${labels.accessedLabel} ${accessed}.` : ''}${note}`;
   }
   if (style === 'chicago') {
-    return `${authors}. “${citation.title}.” ${citation.publisher ?? ''}${citation.publisher ? ', ' : ''}${year}.${citation.url ? ` ${citation.url}.` : ''}${accessed ? ` ${labels.accessedLabel} ${accessed}.` : ''}${note}`;
+    return `${closeElement(authors)} “${closeElement(citation.title)}” ${citation.publisher ?? ''}${citation.publisher ? ', ' : ''}${closeElement(year)}${citation.url ? ` ${citation.url}.` : ''}${accessed ? ` ${labels.accessedLabel} ${accessed}.` : ''}${note}`;
   }
-  return `${authors} (${year}). ${citation.title}.${citation.publisher ? ` ${citation.publisher}.` : ''}${citation.url ? ` ${citation.url}` : ''}${note}`;
+  return `${authors} (${year}). ${closeElement(citation.title)}${citation.publisher ? ` ${closeElement(citation.publisher)}` : ''}${citation.url ? ` ${citation.url}` : ''}${note}`;
 }
 
 /** APA, MLA and Chicago all order the reference list by first author. */
