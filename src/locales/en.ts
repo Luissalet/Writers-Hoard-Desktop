@@ -5110,6 +5110,20 @@ const en = {
   'bridge.delete.type.inquiry-hypothesis': 'the hypothesis',
   'bridge.delete.cascade.inquiry-claim': 'the hypothesis ratings about it (its sources and excerpts stay)',
   'bridge.delete.cascade.inquiry-hypothesis': 'its ratings in the hypothesis matrix',
+  'family.toProspero': "Send to Prospero",
+  'family.toScheherazade': "Send to Scheherazade",
+  'family.fromScheherazade': "Bring from Scheherazade",
+  'family.sending': "Sending…",
+  'family.fetching': "Bringing in…",
+  'family.characterSent': "\"{name}\" is now in Prospero's cast (pictures sent: {n}).",
+  'family.storyboardSent': "Storyboard \"{name}\" sent to Prospero as a production draft ({n} shots).",
+  'family.worldSent': "Sent to Scheherazade (\"{world}\"): {created} new, {updated} updated, {unchanged} unchanged, {kept} kept as they were there.",
+  'family.worldFetched': "Brought \"{world}\" from Scheherazade: {created} new, {updated} updated, {unchanged} unchanged, {kept} left because you edited them.",
+  'family.fetchTitle': "Bring a world from Scheherazade",
+  'family.fetchLabel': "Name or id of the Scheherazade world",
+  'family.fetchHelp': "New records are added to this project. Ones you edited here are never overwritten and nothing is deleted. Needs the Hoard hub and Scheherazade running.",
+  'family.fetchConfirm': "Bring in",
+  'family.sendWorldHelp': "Sends this project's codex, relationships and timeline to Scheherazade. Secret relationships and pictures stay here.",
 } as const;
 
 export default en;

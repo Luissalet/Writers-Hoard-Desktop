@@ -47,6 +47,7 @@ import {
   WORLDGEN_TOOLS,
 } from './manifestEngines';
 import { INQUIRY_TOOLS, SOURCE_TOOLS } from './manifestInquiry';
+import { FAMILY_TOOLS } from './manifestFamily';
 
 export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
 
@@ -1011,6 +1012,8 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   // carry no engineId; the Investigation's own tools do, and refuse when it is off.
   ...grouped('research', SOURCE_TOOLS),
   ...grouped('research', inEngine('inquiry', INQUIRY_TOOLS)),
+  // Hand-offs to Prospero's and Scheherazade's Hoards: they span engines, so no engineId.
+  ...grouped('story', FAMILY_TOOLS),
   ...grouped('analysis', inEngine('annotations', ANNOTATION_TOOLS)),
   // STATS_TOOLS straddles two engines and names them itself.
   ...grouped('analysis', STATS_TOOLS),
@@ -1085,6 +1088,8 @@ Generated worlds work differently from everything above. Their places are not ro
 The real atlas is the opposite case: the story's REAL setting, for a project set in the real world — a historical novel, a crime story in an actual city, alternate history. Its places are ordinary rows: a name, WGS84 coordinates or an address, an era, the facts the writer has checked (realNotes) and where they came from; a place marked fictional is one the writer invented inside the real world. Divergences are deliberate departures from reality — what is actually the case, what the book says instead, and why — anchored to a place when the change is local and free-standing when it is global. Run wh_reality_check before claiming the setting is consistent or well researched. wh_search finds places and divergences by their prose; the wh_*_atlas_place and wh_*_divergence tools are for the facts themselves.
 
 The Investigation is for reporting and biography: every claim rests on at least one recorded excerpt of a saved source, and its status is DERIVED from those sources every time it is read — unsupported, claimed, corroborated (two or more INDEPENDENT origins; two excerpts from one outlet count once), confirmed or disputed (the author's own override) or retracted — so you cannot set it. Always report the evidence count and the independent-source count beside a status. Grade a source with wh_grade_source (reliability A-F and credibility 1-6, shown "B2"); retract a withdrawn one with wh_retract_source, which deletes nothing and tells you how many claims it affected; wh_bibliography returns the reference list as the writer publishes it, with retracted sources kept and marked. Pass asOf to the claim, timeline, matrix and report tools to see the picture on a date; "ended" (validTo passed) is not "stale" (not seen for a long time). The analysis of competing hypotheses scores only inconsistency: call the leader "the least contradicted so far", never "proven", and say when hypotheses are tied or unrated. wh_enrich_codex looks up organisations, places, events and public figures on Wikidata and fills empty fields only; it refuses people the author has not marked as public figures — do not route around that, and leave that decision to the author. wh_search_library asks the writer's other local apps for documents; names of private people are removed from the query. Run wh_inquiry_report and repeat its citation-check flags to the user before presenting any text built from claims.
+
+The writer's other local apps can be reached through the Hoard hub, from the desktop app only: wh_character_to_prospero sends a codex character (sheet, look, portrait) to Prospero's cast, wh_storyboard_to_prospero sends a storyboard as a production draft, wh_world_to_scheherazade sends the project's codex, relationships and timeline to Scheherazade as a story world, and wh_world_from_scheherazade brings one back. They are safe to repeat: nothing is deleted, a record the writer edited is reported as local_modified and left alone, and an import can be undone from the audit log. If the hub or the other app is not running the error says which to start; tell the writer rather than retrying in a loop. These tools send the writer's material to another program on the same computer, so use them when asked.
 
 How to work here:
 1. Start with wh_get_context. It tells you which project and which engine the writer is looking at, so "this chapter" and "her" resolve to something real.

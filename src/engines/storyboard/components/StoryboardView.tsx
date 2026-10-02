@@ -13,6 +13,7 @@ import StoryboardPanel from './StoryboardPanel';
 import PanelEditor from './PanelEditor';
 import ConnectorBadge from './ConnectorBadge';
 import ConnectorEditor from './ConnectorEditor';
+import { SendToProsperoButton } from '@/components/family/FamilyHandoff';
 
 interface StoryboardViewProps {
   storyboard: Storyboard;
@@ -202,6 +203,12 @@ export default function StoryboardView({
               ))}
             </select>
           </div>
+          <SendToProsperoButton
+            kind="storyboard"
+            projectId={storyboard.projectId}
+            id={storyboard.id}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded text-sm font-semibold transition bg-surface border border-border text-text-primary hover:border-accent-gold disabled:opacity-60 disabled:cursor-wait"
+          />
           <button
             onClick={() => setIsReordering(!isReordering)}
             className={`px-3 py-1 rounded text-sm font-semibold transition ${

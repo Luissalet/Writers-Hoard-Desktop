@@ -160,6 +160,13 @@ import {
   whRunJudge,
 } from './judge';
 
+import {
+  whCharacterToProspero,
+  whStoryboardToProspero,
+  whWorldFromScheherazade,
+  whWorldToScheherazade,
+} from './family';
+
 export type ToolHandler = (args: ToolArgs) => Promise<unknown>;
 
 export const TOOL_HANDLERS: Record<string, ToolHandler> = {
@@ -322,6 +329,11 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_undo_enrichment: whUndoEnrichment,
   wh_inquiry_report: whInquiryReport,
   wh_search_library: whSearchLibrary,
+  // Hand-offs to the other Hoard apps
+  wh_character_to_prospero: whCharacterToProspero,
+  wh_storyboard_to_prospero: whStoryboardToProspero,
+  wh_world_to_scheherazade: whWorldToScheherazade,
+  wh_world_from_scheherazade: whWorldFromScheherazade,
   // Annotations and analysis
   wh_list_annotations: whListAnnotations,
   wh_annotate: whAnnotate,

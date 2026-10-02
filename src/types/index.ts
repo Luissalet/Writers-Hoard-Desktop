@@ -45,6 +45,27 @@ export interface Project {
   updatedAt: number;
 }
 
+/**
+ * Receipt left on a record that came from another family app (a story world
+ * from Scheherazade's Hoard). Local edits never change it: comparing
+ * `localHash` with the record as it is now is how a re-import knows the writer
+ * has edited it since, and leaves it alone.
+ */
+export interface FamilySource {
+  app: 'scheherazade';
+  /** The record's ref at the source, e.g. `hoard://scheherazade/entity/e_1`. */
+  ref: string;
+  /** Other refs the source listed for the same record (its `same_as`). */
+  sameAs?: string[];
+  /** The source's `revision` of the record when it was last imported. */
+  revision: string;
+  /** Hash of what this record exchanges, right after that import. */
+  localHash: string;
+  /** The world it came from: `hoard://scheherazade/world/<id>`. */
+  worldRef: string;
+  importedAt: number;
+}
+
 // Codex Entry (Wiki)
 export type CodexEntryType = 'character' | 'location' | 'item' | 'faction' | 'concept' | 'magic' | 'custom';
 
@@ -68,6 +89,8 @@ export interface CodexEntry {
   publicFigure?: boolean;
   /** Wikidata item this entry was matched to by an enrichment run, e.g. "Q42". */
   wikidataQid?: string;
+  /** Present when this entry was imported from a story world (wh_world_from_scheherazade). */
+  familySource?: FamilySource;
   createdAt: number;
   updatedAt: number;
 }
@@ -87,6 +110,8 @@ export interface Timeline {
   title: string;
   color: string;             // Lane color in swim-lane view
   description?: string;      // Phase / era description
+  /** Present on the timeline an imported story world's events were filed in. */
+  familySource?: FamilySource;
   createdAt: number;
   updatedAt: number;
 }
@@ -109,6 +134,8 @@ export interface TimelineEvent {
   lane: string;
   color: string;
   linkedEntryId?: string;
+  /** Present when this event was imported from a story world. */
+  familySource?: FamilySource;
   createdAt: number;
   updatedAt: number;
 }

@@ -57,6 +57,10 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   // Library search in the user's other local apps, through the hub: one call per
   // request, two apps, one tool each (electron/familySearch.ts).
   'family:search': ['main'],
+  // Handing a character, a storyboard or a story world to another family app
+  // through the hub, and recording the link: four allowed tools (electron/familyCall.ts).
+  'family:call': ['main'],
+  'family:link': ['main'],
   // Closing the window. `beforeunload` cannot ask this question in Electron —
   // its preventDefault silently cancels the close and shows nothing — so main
   // owns the veto and asks the renderer that owns the unsaved text.

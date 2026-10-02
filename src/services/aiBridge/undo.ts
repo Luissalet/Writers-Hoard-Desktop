@@ -90,6 +90,21 @@ export async function undoAuditEntry(args: ToolArgs): Promise<UndoResult> {
     };
   }
 
+  if (kind === 'create' && entry.tool === 'wh_world_from_scheherazade' && typeof entry.projectId === 'string') {
+    // An imported world is rows in four tables plus a ledger of the refs it brought in: taking
+    // it back forgets those refs too, so the same world can be imported again.
+    const { undoWorldImport } = await import('@/services/familyBridge/worldImport');
+    const { removed } = await undoWorldImport(entry.projectId, listed.length ? listed : [entityId]);
+    if (!removed) throw new BridgeError('not-found', 'It is already gone — nothing left to undo.');
+    return {
+      undone: true,
+      kind,
+      entityId: entityId || listed[0],
+      what: summary,
+      caveat: `Removed the ${removed} record(s) this import created. Records it only updated keep their new content, and nothing was changed in Scheherazade.`,
+    };
+  }
+
   if (kind === 'create') {
     const targets = listed.length ? listed : [entityId];
     let removed = 0;

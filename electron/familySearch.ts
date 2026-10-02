@@ -46,7 +46,7 @@ export function defaultHubUrl(): string {
   return (process.env.HOARD_HUB_URL || 'http://127.0.0.1:8810').replace(/\/+$/, '');
 }
 
-function nodePost(url: URL, headers: Record<string, string>, body: string, timeoutMs: number): Promise<FamilyPostResult> {
+export function nodePost(url: URL, headers: Record<string, string>, body: string, timeoutMs: number): Promise<FamilyPostResult> {
   return new Promise(resolve => {
     const transport = url.protocol === 'https:' ? https : http;
     let settled = false;

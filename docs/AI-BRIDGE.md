@@ -1623,3 +1623,83 @@ comportamiento, privacidad, scope de copiloto, deshacer, borrado) y
 `wh-probe-claim` de búsqueda y las guardias de motor apagado para las
 herramientas nuevas). De paso se corrigió una comprobación ya rota del autotest:
 `wh_run_judge` no tenía sonda de guardia de motor.
+
+## 26. Entre apps de la familia: personajes, storyboards y mundos (0.7)
+
+Cuatro herramientas nuevas (`tools/family.ts`, manifiesto en `manifestFamily.ts`,
+grupo `story`) entregan trabajo a las demás apps de Hoard y traen mundos de
+vuelta. Solo existen en la app de escritorio: pasan por el hub local
+(`POST <hub>/api/apps/<id>/call`) con el token del puente. Si el hub o la otra
+app no están en marcha, la respuesta dice cuál arrancar; nunca es una excepción.
+
+| Herramienta | Escribe | Qué hace |
+| --- | --- | --- |
+| `wh_character_to_prospero` | sí | `{project_id, character_id}`. Envía un personaje del códice a Prospero (`cast_import_character`): nombre, descripción armada con la ficha y el cuerpo, rasgos físicos, retrato y hasta 3 imágenes de la galería enlazadas (PNG temporales, borrados al terminar). No cambia la entrada; avisa al hub de que ambos registros son la misma cosa. |
+| `wh_storyboard_to_prospero` | sí | `{project_id, storyboard_id}`. Envía un storyboard como producción (`production_from_storyboard`): planos ordenados con descripción, duración e imagen (hasta 40). |
+| `wh_world_to_scheherazade` | sí | `{project_id}`. Exporta el mundo del proyecto como `hoard.world/1` y lo importa en Scheherazade (`world_import`). Los registros secretos y los dangling no se envían (se cuentan). |
+| `wh_world_from_scheherazade` | sí | `{project_id, world_id}`. Pide el mundo a Scheherazade (`world_export`) y lo importa. Deshacer lo revierte. |
+
+Los argumentos se aceptan en `snake_case` y en `camelCase` (`validateToolArgs`
+asigna la gemela camelCase; gana la clave exacta). Las cuatro son de riesgo
+`external` y dejan siempre línea de auditoría. Descripción: la primera línea
+≤110 caracteres.
+
+### El formato `hoard.world/1`
+
+Documento neutro compartido con Scheherazade; el esquema completo está en
+`docs/WORLD_SCHEMA.md` del repositorio de Scheherazade. Cada elemento lleva una
+`ref` (`hoard://<app>/...`, la de Writer en el espacio `hoard://writer/`) y una
+`revision` = `sha256:` + SHA-256 del JSON canónico (claves ordenadas, compacto,
+UTF-8) del registro sin `ref`, `revision` ni `same_as`. Writer reproduce los
+resúmenes de Python exactamente (comprobado con una exportación real de
+Scheherazade y a la inversa).
+
+Correspondencias: concepto, magia y personalizado → `lore`; personalizado con
+`fields.kind = creature` → `creature`; alias, estado y resumen salen de los
+campos (el resumen cae al primer párrafo). Las relaciones y los eventos del
+mundo se exportan aparte; `relationships` y `timeline` en la importación son
+opcionales (la cronología «<mundo> (Scheherazade)» se crea al vuelo).
+
+### Importar sin pisar lo editado
+
+`importWorldDoc` (`familyBridge/worldImport.ts`) es una sola transacción de
+Dexie. Cada elemento termina en una de estas categorías: `created`,
+`unchanged`, `updated`, `local_modified` (se editó aquí: no se toca),
+`linked_existing`, `name_collision`, `own` (eco de un documento de esta misma
+app) o `skipped` (`bad_ref`, `no_name`, `no_summary`, `invalid`,
+`endpoint_missing`, `engine_disabled`, `deleted_locally`). La edición local se
+detecta con `familySource.localHash` frente al resumen actual de la fila; las
+filas importadas guardan `familySource` (`ref`, `revision`, `localHash`).
+Un libro de cuentas por proyecto (ajuste `familyBridge.world.<proyectoId>`,
+`{v:1, refs:{ref:tipo}}`) hace que lo borrado a mano siga borrado, y recuerda las
+referencias enviadas; deshacer lo poda para que una reimportación vuelva a
+crear. Limitaciones conocidas: `parent_ref` se ignora al importar, las
+relaciones secretas no se exportan por defecto, intensidad y estado se pierden al
+exportar y la criatura va y viene por `fields.kind`.
+
+### Interfaz
+
+Botones «Enviar a Prospero» (ficha de personaje y cabecera del storyboard),
+«Enviar a Scheherazade» y «Traer de Scheherazade» (modal con el id del mundo) en
+`components/family/FamilyHandoff.tsx`; avisos claros de éxito (con recuentos) y
+de error (con la app a arrancar). `data-testid`: `send-character-to-prospero`,
+`send-storyboard-to-prospero`, `send-world-to-scheherazade`,
+`bring-world-from-scheherazade`, `scheherazade-world-id`.
+
+### Seguridad y llamadas
+
+`electron/familyCall.ts` (IPC `family:call` y `family:link`, solo ventana
+principal): lista cerrada de 4 herramientas en 2 apps; PNG verificados por
+firma; límites de 40 archivos, 8 MB cada uno, 48 MB en total y 8 MB de
+argumentos; tiempo 1-300 s; los marcadores `@file:<id>` se sustituyen por
+archivos temporales privados (directorio 0700, archivos 0600), que se borran tras
+cada llamada (y los restos de más de un día al arrancar). `callApp()` en
+`electron/aibridge/family.ts` devuelve `hub_unreachable`, `unauthorized`,
+`timeout`, `too-large`, `bad_response`, `app_unavailable` o `tool_failed`.
+
+### Pruebas
+
+`npm run test:family` (intercambio: resúmenes, importación, deshacer, libro de
+cuentas; interfaz) y `tests/family-call-main.ts` en las pruebas de seguridad de
+Electron. Verificado además de punta a punta en la app real contra un hub de
+prueba respaldado por el código real de Scheherazade.

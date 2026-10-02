@@ -73,6 +73,21 @@ investigación que ya tiene un proyecto en afirmaciones y razona sobre ellas.
 `npm run test:inquiry` ejecuta sus pruebas específicas (lógica pura, migración,
 enriquecimiento, interfaz y herramientas del puente).
 
+- **Traspasos con la familia Hoard.** `wh_character_to_prospero`,
+  `wh_storyboard_to_prospero`, `wh_world_to_scheherazade` y
+  `wh_world_from_scheherazade` (app de escritorio, a través del hub local de
+  Hoard). Un personaje del códice pasa a ser miembro del reparto de Prospero, un
+  storyboard pasa a ser una producción de Prospero y el mundo de un proyecto va y
+  viene de Scheherazade como un documento neutro `hoard.world/1` (esquema en
+  `docs/WORLD_SCHEMA.md` de Scheherazade). Importar crea registros nuevos, nunca
+  pisa lo editado aquí, conserva la `ref` y la `revision` de origen y se puede
+  deshacer; lo borrado sigue borrado. Los botones «Enviar a Prospero», «Enviar a
+  Scheherazade» y «Traer de Scheherazade» muestran avisos claros de éxito y de
+  error (incluida la app que hay que arrancar). Detalle en
+  [`docs/AI-BRIDGE.md`](docs/AI-BRIDGE.md), sección 26.
+
+`npm run test:family` ejecuta sus pruebas específicas (intercambio e interfaz).
+
 ## Comandos principales
 
 | Comando | Función |
@@ -82,6 +97,7 @@ enriquecimiento, interfaz y herramientas del puente).
 | `npm run build:desktop` | Construye interfaz y procesos de Electron. |
 | `npm run verify:quick` | Tipos de renderer/Electron, lint de publicación y conformidad. |
 | `npm run test:critical` | Pruebas aisladas de migración, copias, recuperación, navegación y arranque. |
+| `npm run test:family` | Pruebas de los traspasos a otras apps de Hoard: intercambio de mundos, importación, deshacer e interfaz. |
 | `npm run test:inquiry` | Pruebas del motor Investigación: lógica pura, migración, enriquecimiento con Wikidata simulado, interfaz y herramientas del puente. |
 | `npm run test:subscriptions` | Pruebas de aislamiento de suscripciones y protocolo sin llamar a proveedores. |
 | `npm run dist` | Genera un instalador local; `dist:publish` exige firma y comprobaciones de release. |

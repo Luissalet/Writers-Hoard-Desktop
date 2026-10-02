@@ -14,6 +14,7 @@ import { ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
 import { deleteWithDraftCleanup } from '@/hooks/localDraftStore';
 import { codexDraftStore } from './codexDrafts';
 import AnnotationSurface from '@/engines/annotations/components/AnnotationSurface';
+import { SendToProsperoButton, ScheherazadeButtons } from '@/components/family/FamilyHandoff';
 import { codexTypeIcons as typeIcons, codexTypeColors as typeColors } from './codexTypeMeta';
 
 interface CodexEntryListProps {
@@ -177,6 +178,7 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
             </button>
           ))}
         </div>
+        <ScheherazadeButtons projectId={projectId} />
         <button
           onClick={() => setShowForm(true)}
           className="flex items-center gap-1.5 px-4 py-2 bg-accent-gold text-deep font-semibold text-sm rounded-lg hover:bg-accent-amber transition"
@@ -337,6 +339,9 @@ export default function CodexEntryList({ projectId, entries, onAdd, onEdit, onDe
               >
                 {t('common.edit')}
               </button>
+              {selectedEntry.type === 'character' && (
+                <SendToProsperoButton kind="character" projectId={projectId} id={selectedEntry.id} className="inline-flex items-center gap-1.5 px-4 py-2.5 border border-border text-text-primary rounded-lg hover:border-accent-gold transition disabled:opacity-60 disabled:cursor-wait" />
+              )}
               <button
                 onClick={() => setPendingDeleteEntry(selectedEntry)}
                 className="px-6 py-2.5 border border-danger/50 text-danger rounded-lg hover:bg-danger/10 transition"

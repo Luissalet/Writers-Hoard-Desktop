@@ -86,6 +86,21 @@ project already holds into claims and reasons about them.
 `npm run test:inquiry` runs its focused tests (pure logic, migration,
 enrichment, UI and the bridge tools).
 
+- **Hoard family hand-offs.** `wh_character_to_prospero`,
+  `wh_storyboard_to_prospero`, `wh_world_to_scheherazade` and
+  `wh_world_from_scheherazade` (desktop app, through the local Hoard hub). A
+  codex character becomes a Prospero cast member, a storyboard becomes a
+  Prospero production, and a project's world travels to and from Scheherazade as
+  a neutral `hoard.world/1` document (schema in Scheherazade's
+  `docs/WORLD_SCHEMA.md`). Importing creates new records, never overwrites
+  anything edited here, keeps each source `ref` and `revision`, and can be
+  undone; deleted records stay deleted. Buttons "Send to Prospero", "Send to
+  Scheherazade" and "Bring from Scheherazade" show clear success and error
+  messages (including which app to start). Details in
+  [`docs/AI-BRIDGE.md`](docs/AI-BRIDGE.md) section 26.
+
+`npm run test:family` runs its focused tests (exchange logic and UI).
+
 ## Scripts
 
 | Script | What it does |
@@ -101,6 +116,7 @@ enrichment, UI and the bridge tools).
 | `lint:baseline:prune` | Remove fixed fingerprints from the checked-in lint debt baseline. |
 | `conformance` | Check engine registration, schema, locale, backup, and binary declarations. |
 | `test:critical` | Run isolated Electron/Chromium tests for migration, backup, cascades, recovery/navigation, full rendering, and Vite startup. |
+| `test:family` | Test the hand-offs to the other Hoard apps: world exchange logic, import, undo and the UI. |
 | `test:inquiry` | Test the Investigation engine: pure logic, migration, Wikidata enrichment with mocked requests, the UI and the AI-bridge tools. |
 | `test:subscriptions` | Test subscription isolation, tool protocol, connection controls and external-assistant setup without calling providers. |
 | `test:packaged` | Smoke-test the already-built `release/win-unpacked` desktop app with an isolated temporary profile. |
