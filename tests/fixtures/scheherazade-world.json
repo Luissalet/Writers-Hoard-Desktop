@@ -1,0 +1,153 @@
+{
+  "schema": "hoard.world/1",
+  "source": {
+    "app": "scheherazade",
+    "ref": "hoard://scheherazade/world/w_4fcc5ad1c91d",
+    "revision": "sha256:9f02ba5496183904cd2e0e103cf0f2ebbf4f08e6a68bc2520e1a198486e782c1",
+    "exported_at": 1790912972.37
+  },
+  "world": {
+    "name": "Archipiélago",
+    "genre": "fantasía",
+    "tone": "melancólico",
+    "premise": "Un reino hundido",
+    "language": "es"
+  },
+  "characters": [
+    {
+      "ref": "hoard://scheherazade/entity/e_662d17c9752d",
+      "name": "Ana",
+      "aliases": [
+        "la capitana"
+      ],
+      "summary": "Capitana del faro",
+      "description": "Alta y seria.\n\nLleva un **farol**.",
+      "status": "alive",
+      "tags": [
+        "marina"
+      ],
+      "fields": {
+        "edad": "34",
+        "rango": "capitana"
+      },
+      "revision": "sha256:ce92de5d4d893f7bc0f2070129b18cc4d54e88919c5710d7b07d06a8c9d1dfe1"
+    },
+    {
+      "ref": "hoard://scheherazade/entity/e_8cfe16d8b5fd",
+      "name": "Beto",
+      "aliases": [],
+      "summary": "Grumete",
+      "description": "",
+      "status": "dead",
+      "tags": [],
+      "fields": {},
+      "same_as": [
+        "hoard://writer/codex/gone_char"
+      ],
+      "revision": "sha256:9fbc75a59f711d1b866a4920e75168e97e9ab760d64ed96a7a295bd71ffbbd78"
+    }
+  ],
+  "places": [
+    {
+      "ref": "hoard://scheherazade/entity/e_c42aa326f4a8",
+      "name": "El Faro",
+      "aliases": [],
+      "summary": "Torre sobre el acantilado",
+      "description": "",
+      "status": "alive",
+      "tags": [],
+      "fields": {},
+      "revision": "sha256:7f4f8c4d74253ce53674025d518c3e7c6f373a960c4401988e8144e53872822a"
+    }
+  ],
+  "factions": [
+    {
+      "ref": "hoard://scheherazade/entity/e_88c0e33c9955",
+      "name": "La Liga del Mar",
+      "aliases": [],
+      "summary": "",
+      "description": "",
+      "status": "alive",
+      "tags": [],
+      "fields": {},
+      "revision": "sha256:6d29ebfd3add8a39496f221146745bdb7049e85845c95194dd2048563580665e"
+    }
+  ],
+  "things": [
+    {
+      "ref": "hoard://scheherazade/entity/e_123b2b83c5c7",
+      "name": "Espada rota",
+      "aliases": [],
+      "summary": "Reliquia",
+      "description": "",
+      "status": "alive",
+      "tags": [],
+      "fields": {},
+      "kind": "item",
+      "revision": "sha256:78173bd6320fbe505305dccc8a9967f057ca9a6ae44961f2dcff836d4df0d9b8"
+    },
+    {
+      "ref": "hoard://scheherazade/entity/e_7a5569d4ee61",
+      "name": "Kraken",
+      "aliases": [],
+      "summary": "Bestia de las profundidades",
+      "description": "",
+      "status": "alive",
+      "tags": [],
+      "fields": {},
+      "kind": "creature",
+      "revision": "sha256:bf2e8bbbdd6c9f7513b2d0e29ed03c5885d7ec9791af42a4e8eeb536f56cd922"
+    },
+    {
+      "ref": "hoard://scheherazade/entity/e_b2230cbac20e",
+      "name": "La Marea Negra",
+      "aliases": [],
+      "summary": "Leyenda antigua",
+      "description": "",
+      "status": "alive",
+      "tags": [],
+      "fields": {},
+      "kind": "lore",
+      "revision": "sha256:477dba00f747387471bb8c106a774fda9ea47ef5a64e47d03c85f16a0c74b04c"
+    }
+  ],
+  "relations": [
+    {
+      "ref": "hoard://scheherazade/relation/r_0c0a20de52ac",
+      "from": "hoard://scheherazade/entity/e_662d17c9752d",
+      "to": "hoard://scheherazade/entity/e_8cfe16d8b5fd",
+      "type": "mentor",
+      "note": "le enseñó a navegar",
+      "since": "año 3",
+      "revision": "sha256:5d97297c4acdfd0c96310e6e013603869b91556beef62d84d60b98aa14139e7d"
+    },
+    {
+      "ref": "hoard://scheherazade/relation/r_df35bf48137b",
+      "from": "hoard://scheherazade/entity/e_662d17c9752d",
+      "to": "hoard://scheherazade/entity/e_88c0e33c9955",
+      "type": "miembro",
+      "note": "",
+      "since": "",
+      "revision": "sha256:b20e22f2799bea87e85e04b5aca09cdff673e58ee189eaaf7df4452263e23a09"
+    }
+  ],
+  "events": [
+    {
+      "ref": "hoard://scheherazade/event/t_599308c24f9d",
+      "date": "Año 1",
+      "summary": "Se enciende el faro",
+      "entities": [
+        "hoard://scheherazade/entity/e_c42aa326f4a8",
+        "hoard://scheherazade/entity/e_662d17c9752d"
+      ],
+      "revision": "sha256:289dd7a3cabfddce85e135765ccc9874a0c585669ee95bd3fa1cfcf157065010"
+    },
+    {
+      "ref": "hoard://scheherazade/event/t_746a8ee12575",
+      "date": "",
+      "summary": "Cae el reino",
+      "entities": [],
+      "revision": "sha256:25920fcca1d2fbb5069e60041a9c422318da18b92c7bb2d142ab96aee623bbf1"
+    }
+  ]
+}

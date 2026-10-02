@@ -5110,6 +5110,20 @@ const es = {
   'bridge.delete.type.inquiry-hypothesis': 'la hipótesis',
   'bridge.delete.cascade.inquiry-claim': 'las valoraciones de hipótesis que la mencionan (sus fuentes y extractos se conservan)',
   'bridge.delete.cascade.inquiry-hypothesis': 'sus valoraciones en la matriz de hipótesis',
+  'family.toProspero': "Enviar a Prospero",
+  'family.toScheherazade': "Enviar a Scheherazade",
+  'family.fromScheherazade': "Traer de Scheherazade",
+  'family.sending': "Enviando…",
+  'family.fetching': "Trayendo…",
+  'family.characterSent': "\"{name}\" ya está en el reparto de Prospero (imágenes enviadas: {n}).",
+  'family.storyboardSent': "Storyboard \"{name}\" enviado a Prospero como borrador de producción ({n} planos).",
+  'family.worldSent': "Enviado a Scheherazade (\"{world}\"): {created} nuevos, {updated} actualizados, {unchanged} sin cambios, {kept} respetados porque se editaron allí.",
+  'family.worldFetched': "Traído \"{world}\" de Scheherazade: {created} nuevos, {updated} actualizados, {unchanged} sin cambios, {kept} respetados porque los editaste.",
+  'family.fetchTitle': "Traer un mundo de Scheherazade",
+  'family.fetchLabel': "Nombre o id del mundo de Scheherazade",
+  'family.fetchHelp': "Los registros nuevos se añaden a este proyecto. Los que editaste aquí nunca se sobrescriben y no se borra nada. Necesita el hub de Hoard y Scheherazade en marcha.",
+  'family.fetchConfirm': "Traer",
+  'family.sendWorldHelp': "Envía el códice, las relaciones y la línea de tiempo de este proyecto a Scheherazade. Las relaciones secretas y las imágenes se quedan aquí.",
 } as const;
 
 export default es;

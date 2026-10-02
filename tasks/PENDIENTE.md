@@ -687,3 +687,8 @@ ahora la vara de «el 2D funciona», y corre con un mundo del tamaño del suyo.
   declinadas, el empujón necesita retroceso exponencial.
 - disco 0/863 de aquel log era el `edits: undefined` (curado en 6i §disco);
   con la granja el HUD debe cantar aciertos en suelo revisitado.
+
+## Traspasos con la familia (0.7) — a revisar
+- Previo, fuera de alcance: dos `wh_enable_engine` seguidos pueden perder el segundo motor (carrera al escribir los ajustes del proyecto).
+- `parent_ref` de `hoard.world/1` se ignora al importar en Writer; intensidad/estado de las relaciones no viajan al exportar; las relaciones secretas no se exportan salvo `includeSecret`.
+- `scene_narrate` de Scheherazade depende de un `voice_tts` de Prospero que ese repo aún no expone.
