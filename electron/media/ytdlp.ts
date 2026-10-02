@@ -1,240 +1,119 @@
-// ============================================================================
-// Writers Hoard — yt-dlp wrapper (main process)
-// ============================================================================
-//
-// Replaces the standalone Python/Flask downloader. Spawns a bundled `yt-dlp`
-// binary directly and uses ffmpeg-static for muxing/extraction. No Python
-// runtime, no separate server to start, no CORS hoops.
-//
-// Binary resolution:
-//   • packaged  → <resources>/bin/yt-dlp[.exe]   (electron-builder extraResources)
-//   • dev       → <repo>/resources/bin/yt-dlp[.exe]  (populated by `npm run fetch:bin`)
-//   • fallback  → `yt-dlp` on the system PATH
-//
-// Run `npm run fetch:bin` once to download the binary into resources/bin.
-
+// Writers Hoard desktop adapter for HoardLink's shared yt-dlp engine.
+// Packaged yt-dlp and ffmpeg-static remain available alongside HOARD_* tools.
 import { app } from 'electron';
-import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import ffmpegStatic from 'ffmpeg-static';
+import {
+  buildYtdlpArgs, detectMediaPlatform, fileKind, isPartialMedia,
+  killTree, resolveTool, runProcess,
+} from './commons';
+import { desktopToolOptions } from './desktopTools';
+import { publicUrlReason } from './publicNetwork';
 
 export type MediaFormat = 'video' | 'audio';
-
 export const SUPPORTED_PLATFORMS = ['YouTube', 'X (Twitter)', 'Instagram', 'Audiomack'];
 
-const isWin = process.platform === 'win32';
-const YTDLP_BIN = isWin ? 'yt-dlp.exe' : 'yt-dlp';
-
-/** asar-packed binaries must be read from the `.unpacked` sibling directory. */
-function toUnpacked(p: string): string {
-  return p.replace('app.asar', 'app.asar.unpacked');
+function toolOptions() {
+  return desktopToolOptions({
+    isPackaged: app.isPackaged, appPath: app.getAppPath(),
+    resourcesPath: process.resourcesPath, ffmpegPath: ffmpegStatic,
+  });
 }
 
-function binDir(): string {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'bin')
-    : path.join(app.getAppPath(), 'resources', 'bin');
-}
-
-/** Resolve the yt-dlp binary, falling back to PATH if the bundled one is absent. */
+/** Retained for callers needing the executable path; downloads keep prefix arguments too. */
 export async function resolveYtDlpPath(): Promise<string> {
-  const bundled = path.join(binDir(), YTDLP_BIN);
-  try {
-    await fs.access(bundled);
-    return bundled;
-  } catch {
-    return YTDLP_BIN; // rely on PATH
-  }
+  const tool = await resolveTool('ytdlp', toolOptions());
+  return tool.command?.cmd ?? (process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
 }
 
-function resolveFfmpegPath(): string | null {
-  return ffmpegStatic ? toUnpacked(ffmpegStatic) : null;
-}
-
-/** Mirror of the Python manager's detect_platform(), same labels. */
 export function detectPlatform(url: string): string {
-  const u = url.toLowerCase();
-  if (/youtube\.com|youtu\.be/.test(u)) return 'YouTube';
-  if (/twitter\.com|(^|\/\/)(www\.)?x\.com|t\.co/.test(u)) return 'X (Twitter)';
-  if (/instagram\.com/.test(u)) return 'Instagram';
-  if (/audiomack\.com/.test(u)) return 'Audiomack';
-  return 'Desconocida';
+  return detectMediaPlatform(url, { other: 'Desconocida' });
 }
 
 export interface MediaMetadata {
-  /** The post's caption / description. */
   description?: string;
   title?: string;
   uploader?: string;
-  /** yt-dlp `upload_date`, format YYYYMMDD. */
+  /** yt-dlp upload_date, YYYYMMDD. */
   uploadDate?: string;
 }
-
 export interface DownloadOutcome {
   filePath: string;
   filename: string;
   sizeBytes: number;
   metadata?: MediaMetadata;
-  /** Removes the temp directory holding the produced file. Call after streaming. */
   cleanup: () => Promise<void>;
 }
 
-/**
- * Download a single media item into a private temp directory and return the
- * largest produced file (yt-dlp may emit several; we keep the real one).
- */
+/** Download a single item; callers own the returned temporary-directory cleanup. */
 export async function downloadMedia(
-  url: string,
-  format: MediaFormat,
-  signal?: AbortSignal,
-  cookiesFile?: string,
+  url: string, format: MediaFormat, signal?: AbortSignal, cookiesFile?: string,
 ): Promise<DownloadOutcome> {
+  if (signal?.aborted) throw new Error('cancelled');
+  const reason = await publicUrlReason(url);
+  if (signal?.aborted) throw new Error('cancelled');
+  if (reason) throw new Error(`Media download refused: ${reason}`);
+  const options = toolOptions();
+  const [ytdlp, ffmpeg, node] = await Promise.all([
+    resolveTool('ytdlp', options), resolveTool('ffmpeg', options), resolveTool('node', options),
+  ]);
+  if (signal?.aborted) throw new Error('cancelled');
+  if (!ytdlp.command) throw new Error(ytdlp.error ?? 'yt-dlp is not available. Run "npm run fetch:bin".');
+  // The child environment runs Electron's self fallback as Node, so packaged
+  // downloads also have a JavaScript runtime without a system Node install.
+  const nodePath = node.found && !node.command?.args.length ? node.command?.cmd : null;
   const tmpdir = await fs.mkdtemp(path.join(os.tmpdir(), 'wh-media-'));
-  const ytdlp = await resolveYtDlpPath();
-  const ffmpeg = resolveFfmpegPath();
-
-  const args: string[] = [
-    '--no-playlist',
-    '--no-progress',
-    '--no-warnings',
-    '--restrict-filenames',
-    '--write-info-json',
-    '-o',
-    path.join(tmpdir, '%(title).80s.%(ext)s'),
-  ];
-  if (ffmpeg) args.push('--ffmpeg-location', ffmpeg);
-  if (cookiesFile) args.push('--cookies', cookiesFile);
-  if (format === 'audio') {
-    args.push('-x', '--audio-format', 'mp3', '--audio-quality', '0');
-  } else {
-    args.push('-f', 'bv*+ba/b', '--merge-output-format', 'mp4');
-  }
-  args.push('--', url); // `--` so a hostile URL can never be read as an option
-
   try {
-    await runProcess(ytdlp, args, signal);
-  } catch (err) {
-    await fs.rm(tmpdir, { recursive: true, force: true });
-    throw err;
-  }
-
-  const entries = await fs.readdir(tmpdir);
-
-  // Pull caption/uploader/date from the sidecar info.json (best-effort).
-  let metadata: MediaMetadata | undefined;
-  const infoName = entries.find((n) => n.endsWith('.info.json'));
-  if (infoName) {
-    try {
-      const raw = await fs.readFile(path.join(tmpdir, infoName), 'utf8');
-      const j = JSON.parse(raw) as Record<string, unknown>;
-      const str = (v: unknown): string | undefined =>
-        typeof v === 'string' && v.trim() ? v : undefined;
-      metadata = {
-        description: str(j.description),
-        title: str(j.title),
-        uploader: str(j.uploader) ?? str(j.uploader_id) ?? str(j.channel),
-        uploadDate: str(j.upload_date),
-      };
-    } catch {
-      /* metadata is best-effort; ignore parse errors */
+    const args = buildYtdlpArgs({
+      url, format, dir: tmpdir, hasFfmpeg: ffmpeg.found,
+      ffmpegPath: ffmpeg.command && !ffmpeg.command.args.length ? ffmpeg.command.cmd : null,
+      nodePath, ytdlpVersion: ytdlp.version,
+      cookie: cookiesFile ? { type: 'file', path: cookiesFile } : null,
+      // Preserve desktop filenames, sidecar metadata and silent progress.
+      extra: ['--no-progress', '--restrict-filenames', '--write-info-json', '-o', '%(title).80s.%(ext)s'],
+    });
+    const result = await runProcess(ytdlp.command, args, { signal, env: options.env });
+    if (result.code !== 0) {
+      throw new Error(result.stderr.trim().split('\n').slice(-3).join('\n') || `yt-dlp exited with code ${result.code}`);
     }
-  }
-
-  // The produced media is the largest non-metadata file.
-  const stats = await Promise.all(
-    entries
-      .filter((name) => !name.endsWith('.info.json'))
-      .map(async (name) => {
+    if (signal?.aborted) throw new Error('cancelled');
+    const entries = await fs.readdir(tmpdir);
+    let metadata: MediaMetadata | undefined;
+    const infoName = entries.find(name => name.endsWith('.info.json'));
+    if (infoName) {
+      try {
+        const j = JSON.parse(await fs.readFile(path.join(tmpdir, infoName), 'utf8')) as Record<string, unknown>;
+        const str = (v: unknown): string | undefined => typeof v === 'string' && v.trim() ? v : undefined;
+        metadata = {
+          description: str(j.description), title: str(j.title),
+          uploader: str(j.uploader) ?? str(j.uploader_id) ?? str(j.channel), uploadDate: str(j.upload_date),
+        };
+      } catch { /* optional sidecar */ }
+    }
+    const stats = await Promise.all(entries
+      .filter(name => !isPartialMedia(name) && ['video', 'audio'].includes(fileKind(name)))
+      .map(async name => {
         const fp = path.join(tmpdir, name);
         const st = await fs.stat(fp);
         return { fp, name, size: st.isFile() ? st.size : -1 };
-      }),
-  );
-  const produced = stats.filter((s) => s.size >= 0).sort((a, b) => b.size - a.size)[0];
-  if (!produced) {
-    await fs.rm(tmpdir, { recursive: true, force: true });
-    throw new Error('no output file produced');
-  }
-
-  return {
-    filePath: produced.fp,
-    filename: produced.name,
-    sizeBytes: produced.size,
-    metadata,
-    cleanup: () => fs.rm(tmpdir, { recursive: true, force: true }),
-  };
-}
-
-/** Kill a process and its descendants (yt-dlp spawns ffmpeg as a child). */
-export function killProcessTree(pid: number): void {
-  if (process.platform === 'win32') {
-    // Detached taskkill survives our own exit and reaps the whole tree.
-    spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true });
-  } else {
-    try {
-      process.kill(-pid, 'SIGKILL');
-    } catch {
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        /* already gone */
-      }
-    }
-  }
-}
-
-function runProcess(cmd: string, args: string[], signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new Error('cancelled'));
-      return;
-    }
-    // Detached on POSIX so the child leads its own process group and
-    // killProcessTree's `kill(-pid)` reaps yt-dlp AND its ffmpeg grandchild.
-    const child = spawn(cmd, args, { windowsHide: true, detached: !isWin });
-
-    // Run the download/mux below normal priority so a heavy ffmpeg pass never
-    // starves the UI or the rest of the machine.
-    try {
-      if (child.pid != null) {
-        os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
-      }
-    } catch {
-      /* best-effort; not fatal if the OS refuses */
-    }
-
-    const onAbort = () => {
-      if (child.pid != null) killProcessTree(child.pid);
+      }));
+    const produced = stats.filter(item => item.size >= 0).sort((a, b) => b.size - a.size)[0];
+    if (!produced) throw new Error('no output file produced');
+    if (signal?.aborted) throw new Error('cancelled');
+    return {
+      filePath: produced.fp, filename: produced.name, sizeBytes: produced.size, metadata,
+      cleanup: () => fs.rm(tmpdir, { recursive: true, force: true }),
     };
-    signal?.addEventListener('abort', onAbort, { once: true });
+  } catch (error) {
+    await fs.rm(tmpdir, { recursive: true, force: true });
+    if (signal?.aborted) throw new Error('cancelled');
+    throw error;
+  }
+}
 
-    let stderr = '';
-    child.stderr.on('data', (d: Buffer) => {
-      stderr += d.toString();
-    });
-    child.on('error', (err) => {
-      signal?.removeEventListener('abort', onAbort);
-      reject(
-        new Error(
-          `Could not launch yt-dlp (${err.message}). ` +
-            `Make sure the binary exists — run "npm run fetch:bin".`,
-        ),
-      );
-    });
-    child.on('close', (code) => {
-      signal?.removeEventListener('abort', onAbort);
-      if (signal?.aborted) {
-        reject(new Error('cancelled'));
-        return;
-      }
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      const tail = stderr.trim().split('\n').slice(-3).join('\n');
-      reject(new Error(tail || `yt-dlp exited with code ${code}`));
-    });
-  });
+/** Retained for gallery-dl's process cancellation. */
+export function killProcessTree(pid: number): void {
+  void killTree(pid).catch(() => undefined);
 }
