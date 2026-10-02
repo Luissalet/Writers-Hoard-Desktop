@@ -771,3 +771,58 @@ Writer-side contract test; its documented `session_export` Markdown shape was
 used as the input fixture.
 
 ---
+
+# HoardLink commons media integration — 2026-10-03
+
+## Plan
+
+- [x] Vendor upstream media and public web policy through a deterministic sync/check script.
+- [x] Route yt-dlp tooling, process execution and arguments through commons, preserving desktop packaged fallbacks.
+- [x] Enforce the shared public policy before capture and on every redirect/subresource request.
+- [x] Exercise download/cancellation and capture security regressions, then typecheck/build.
+- [x] Record review evidence and commit only the scoped changes.
+
+## Review
+
+`npm run commons:sync` copies HoardLink 0.8.1 `media.js`, `web.js` and its
+`text.js` dependency byte-for-byte into `electron/vendor/hoard-commons`, with
+the upstream MIT license and a deterministic SHA-256 manifest. Git attributes
+preserve those exact bytes. `npm run commons:check` detects upstream drift;
+`--source <HoardLink repository>` supports a non-sibling source checkout.
+Local TypeScript contracts live outside the vendor, and esbuild bundles the
+shared ESM/Node modules into the existing desktop CommonJS build. Packaging
+includes the upstream license and manifest.
+
+The yt-dlp adapter uses shared tool resolution, argument construction, platform
+detection, process execution and tree cancellation. Desktop `resources/bin`
+and unpacked `ffmpeg-static` remain available; `HOARD_*` overrides remain
+authoritative. Child processes receive `ELECTRON_RUN_AS_NODE=1`, allowing the
+packaged Electron executable to supply yt-dlp's JavaScript runtime without a
+system Node installation. Audio/video, saved cookies, filenames and sidecar
+metadata remain supported. Partial outputs are excluded, and temporary files
+are removed on success cleanup, failure and cancellation. gallery-dl's
+collection parser and uncapped metadata capture remain unchanged.
+
+Capture checks the initial URL and every request in its isolated session,
+including HTTP redirects, frames, assets, fetch and WebSocket handshakes.
+Validation uses shared public policy, all resolved addresses, a ten-second
+fail-closed timeout and no approval cache. Inline data/blob/about resources
+are allowed. The offline HTML base uses the final redirected URL.
+
+Limits: these checks do not pin Chromium's eventual DNS connection, so DNS
+rebinding between validation and connection remains possible. yt-dlp receives
+an initial public URL check; its own extractor/redirect traffic is not
+intercepted. This change does not replace Chromium or third-party downloader
+networking with a proxy transport.
+
+Verified: `test:media` passed nine integration/security groups (existing HTTP
+token/CORS/queue tests, policy vectors, desktop binary fallbacks, fake-tool
+audio/video/cookie/metadata/partial/cleanup cases, cancellation of a real
+parent-and-child process tree, bounded process output, and real Chromium
+public-resource/private-redirect/frame/image/fetch/WebSocket requests).
+Renderer and Electron typechecks, shipping lint, conformance, Electron build,
+upstream drift check and `git diff --check` passed. A supplementary strict
+standalone test typecheck reports only the pre-existing TS2367 narrowing in
+`tests/media-security.ts:203`; the repository's supported typechecks and
+test harness are green. No installer, live external media site, or public
+network download was needed for these deterministic regression checks.

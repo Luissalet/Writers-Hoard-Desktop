@@ -8,3 +8,5 @@
 *.icns binary
 *.tgz binary
 *.webp binary
+# Upstream commons hashes cover exact bytes, including upstream line endings.
+electron/vendor/hoard-commons/** -text

@@ -19,6 +19,7 @@
 
 import { BrowserWindow, session } from 'electron';
 import { randomUUID } from 'node:crypto';
+import { guardCaptureSession, publicUrlReason } from './publicNetwork';
 
 /** Viewport width used for both the screenshot and the PDF page width. */
 const VIEWPORT_WIDTH = 1280;
@@ -334,11 +335,16 @@ export async function capturePage(
 ): Promise<PageCaptureResult> {
   if (signal?.aborted) throw new Error('cancelled');
 
+  const reason = await publicUrlReason(url);
+  if (signal?.aborted) throw new Error('cancelled');
+  if (reason) throw new Error(`Page capture refused: ${reason}`);
+
   // One in-memory partition per capture (no "persist:" prefix): an archived
   // page gets its own cookie jar, cache and storage, thrown away with the
   // window, instead of the session the app's own windows and frames use.
   const partition = `capture-${randomUUID()}`;
   const captureSession = session.fromPartition(partition);
+  const releaseNetworkGuard = guardCaptureSession(captureSession, signal);
 
   const win = new BrowserWindow({
     show: false,
@@ -446,10 +452,11 @@ export async function capturePage(
       /* already detached */
     }
 
-    return { html: injectBase(rawHtml, url), pdf, png, meta };
+    return { html: injectBase(rawHtml, win.webContents.getURL()), pdf, png, meta };
   } finally {
     signal?.removeEventListener('abort', onAbort);
     if (!win.isDestroyed()) win.destroy();
+    releaseNetworkGuard();
     await captureSession.clearStorageData().catch(() => undefined);
   }
 }
