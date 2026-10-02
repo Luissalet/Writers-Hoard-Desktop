@@ -72,6 +72,7 @@ import { capturePage, type PageMeta } from './media/pageCapture';
 import { geocodePlace } from './atlasGeocode';
 import { wikidataRequest } from './wikidata';
 import { familySearch } from './familySearch';
+import { familyCall, familyRefs } from './familyCall';
 import {
   isExactRendererDocumentUrl,
   isIpcChannelAllowedForRole,
@@ -1992,6 +1993,17 @@ function registerIpc(): void {
   ipcMain.handle('family:search', (event, request: unknown) => {
     assertIpcSender(event, 'family:search');
     return familySearch(request);
+  });
+  // ---- Family hand-off: characters, storyboards and story worlds -----------
+  // One allowed call to Prospero's or Scheherazade's Hoard through the hub, and
+  // the hub's record that two records are the same thing (electron/familyCall.ts).
+  ipcMain.handle('family:call', (event, request: unknown) => {
+    assertIpcSender(event, 'family:call');
+    return familyCall(request);
+  });
+  ipcMain.handle('family:link', (event, request: unknown) => {
+    assertIpcSender(event, 'family:link');
+    return familyRefs(request);
   });
   ipcMain.handle('updates:quitAndInstall', (event) => {
     assertIpcSender(event, 'updates:quitAndInstall');

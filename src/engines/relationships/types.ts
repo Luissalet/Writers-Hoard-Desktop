@@ -7,6 +7,8 @@
 // connections, but nothing prevents character-location, faction-faction,
 // or other cross-engine pairings.
 
+import type { FamilySource } from '@/types';
+
 export type RelationshipKind =
   | 'ally'
   | 'friend'
@@ -54,6 +56,9 @@ export interface Relationship {
 
   /** Is the relationship mutual (A↔B) or asymmetric (A→B)? */
   directional: boolean;
+
+  /** Present when this relationship was imported from a story world. */
+  familySource?: FamilySource;
 
   createdAt: number;
   updatedAt: number;

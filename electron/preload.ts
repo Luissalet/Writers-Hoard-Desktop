@@ -30,6 +30,7 @@ import type { SdBackend, SdOpResult, SdProgress, SdRuntimeStatus } from '@/servi
 import type { GeocodeResponse } from '@/engines/real-atlas/geocode';
 import type { WikidataRequest, WikidataResponse } from '@/engines/inquiry/wikidata';
 import type { FamilySearchRequest, FamilySearchResponse } from '@/engines/inquiry/familySearch';
+import type { FamilyCallRequest, FamilyCallResponse, FamilyRefsRequest } from '@/services/familyBridge/protocol';
 
 /** Result of a native "save file" flow. */
 interface SaveResult {
@@ -528,6 +529,11 @@ const api = {
   family: {
     search: (request: FamilySearchRequest): Promise<FamilySearchResponse> =>
       ipcRenderer.invoke('family:search', request),
+    // Hand work to another family app through the hub (electron/familyCall.ts).
+    call: (request: FamilyCallRequest): Promise<FamilyCallResponse> =>
+      ipcRenderer.invoke('family:call', request),
+    link: (request: FamilyRefsRequest): Promise<{ ok: true } | { ok: false; code: string; error: string }> =>
+      ipcRenderer.invoke('family:link', request),
   },
 
   updates: {

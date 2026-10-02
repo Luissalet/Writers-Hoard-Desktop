@@ -22,6 +22,7 @@ import type { SdBackend, SdOpResult, SdProgress, SdRuntimeStatus } from '@/servi
 import type { GeocodeResponse } from '@/engines/real-atlas/geocode';
 import type { WikidataRequest, WikidataResponse } from '@/engines/inquiry/wikidata';
 import type { FamilySearchRequest, FamilySearchResponse } from '@/engines/inquiry/familySearch';
+import type { FamilyCallRequest, FamilyCallResponse, FamilyRefsRequest } from '@/services/familyBridge/protocol';
 
 export interface SaveResult {
   ok: boolean;
@@ -426,6 +427,10 @@ export interface ElectronAPI {
    */
   family?: {
     search: (request: FamilySearchRequest) => Promise<FamilySearchResponse>;
+    /** Hand a character, storyboard or story world to another family app (electron/familyCall.ts). */
+    call: (request: FamilyCallRequest) => Promise<FamilyCallResponse>;
+    /** Record on the hub that two hoard:// records are the same thing in two apps. */
+    link: (request: FamilyRefsRequest) => Promise<{ ok: true } | { ok: false; code: string; error: string }>;
   };
   ollama: {
     getStatus: () => Promise<OllamaStatus>;

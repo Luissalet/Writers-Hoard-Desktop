@@ -120,6 +120,28 @@ function typeOf(value: unknown): string {
 }
 
 /**
+ * `project_id` for `projectId`. The other apps of the family speak snake_case
+ * and a model that has read their tool lists writes it here too, so a key the
+ * schema does not know but whose camelCase form it does is read as that key.
+ * The exact key always wins when both are sent.
+ */
+function withCamelAliases(
+  props: Record<string, Record<string, unknown>>,
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  let out: Record<string, unknown> | null = null;
+  for (const key of Object.keys(input)) {
+    if (props[key] || !key.includes('_')) continue;
+    const camel = key.replace(/_+([a-zA-Z0-9])/g, (_match, ch: string) => ch.toUpperCase());
+    if (camel === key || !props[camel] || input[camel] !== undefined) continue;
+    out ??= { ...input };
+    out[camel] = input[key];
+    delete out[key];
+  }
+  return out ?? input;
+}
+
+/**
  * Structural check against the tool's JSON schema, before the handler runs.
  *
  * Lenient where a small model is sloppy and it is harmless — numeric strings
@@ -134,6 +156,7 @@ export function validateToolArgs(
   const props = schema.properties as Record<string, Record<string, unknown>>;
   const out: Record<string, unknown> = {};
   const problems: string[] = [];
+  input = withCamelAliases(props, input);
 
   for (const key of schema.required ?? []) {
     const value = input[key];
@@ -187,7 +210,15 @@ export function validateToolArgs(
 export function toolRisk(tool: BridgeTool): 'read' | 'write' | 'destructive' | 'external' {
   if (!tool.writes) return 'read';
   if (tool.name === 'wh_delete') return 'destructive';
-  if (tool.name === 'wh_generate_image' || tool.name === 'wh_download_snapshot_media') return 'external';
+  if (
+    tool.name === 'wh_generate_image'
+    || tool.name === 'wh_download_snapshot_media'
+    // These four reach another app (Prospero's or Scheherazade's Hoard) through the hub.
+    || tool.name === 'wh_character_to_prospero'
+    || tool.name === 'wh_storyboard_to_prospero'
+    || tool.name === 'wh_world_to_scheherazade'
+    || tool.name === 'wh_world_from_scheherazade'
+  ) return 'external';
   return 'write';
 }
 

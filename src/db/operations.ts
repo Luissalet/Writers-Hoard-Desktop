@@ -550,6 +550,8 @@ export const PROJECT_SETTING_PREFIXES = {
   atlasRoutes: 'realAtlas.routes.',
   /** Per-character Web Speech voice choices for Dialog Scene table reads. */
   tableReadVoices: 'dialogScene.tableRead.voices.',
+  /** Written by `importWorldDoc` in `services/familyBridge/worldImport.ts`: refs brought in from a story world, so a record the writer deleted is never brought back. */
+  familyWorld: 'familyBridge.world.',
 } as const;
 
 /** Every settings key the given project owns. */

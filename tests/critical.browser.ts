@@ -170,6 +170,8 @@ import { testInquiryEnrichment } from './inquiry-enrichment.browser';
 import { testInquiryUi } from './inquiry-ui.browser';
 import { testInquiryBridge } from './inquiry-bridge.browser';
 import { testBridgeSelfTest } from './ai-bridge-selftest.browser';
+import { testFamilyExchange } from './family-exchange.browser';
+import { testFamilyUi } from './family-ui.browser';
 import { testZipBackupScopeGuards } from './zipBackupScope';
 import { testConversionUndoSafety } from './project-tools-safety';
 import { testGoogleDocWriteSafety } from './google-docs-safety';
@@ -5175,6 +5177,8 @@ async function run(): Promise<void> {
   passed.push(await testAiBridgeContracts());
   passed.push(await testBridgeSelfTest());
   passed.push(...await testInquiryBridge());
+  passed.push(...await testFamilyExchange());
+  passed.push(...await testFamilyUi());
   passed.push(await testAiRuntimeContracts());
   passed.push(await testComfyBackend());
   await testBridgeLinksStayInProject();
