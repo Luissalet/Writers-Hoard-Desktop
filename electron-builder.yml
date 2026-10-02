@@ -13,6 +13,8 @@ files:
   - dist/**/*
   - dist-electron/**/*
   - package.json
+  - electron/vendor/hoard-commons/LICENSE
+  - electron/vendor/hoard-commons/manifest.json
   - '!**/*.map'
 
 # Native/binary deps can't run from inside app.asar — unpack ffmpeg.

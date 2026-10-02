@@ -1,0 +1,10 @@
+{
+  "upstream": "https://github.com/Luissalet/HoardLink",
+  "version": "0.8.1",
+  "files": {
+    "media.js": "b4249b303dcb9682b72702e7f52858d92e8482b894cf8fadc0a65d847a91f9b3",
+    "text.js": "5630959f1d5ee83f08a3701f4e7fd585ea8625a95855b586a5690bf71cacc787",
+    "web.js": "fc2fc37691b7b170b0b35e5ef182823850a0f1305e2133006845cf7fc4b0fee8"
+  },
+  "license": "512608a09afcecb9ca8ca0316e6b639442e391f5dc8e98238423c14acac28476"
+}
