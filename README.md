@@ -136,7 +136,8 @@ electron-builder.yml      NSIS installer + GitHub publish config
 
 The renderer detects Electron at runtime (`src/utils/platform.ts`) to choose
 `HashRouter` (needed under `file://`) and to show the desktop-only Media
-Downloader. The web build is unchanged and still deploys to GitHub Pages.
+Downloader. This repository does not publish the web build; CI (`.github/workflows/ci.yml`)
+verifies, tests and builds it on every push.
 
 ## Releasing
 
