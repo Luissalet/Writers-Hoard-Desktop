@@ -17,6 +17,7 @@ La base de datos no cambia de versión. Los proyectos existentes se abren tal cu
   - Los registros secretos no se envían.
 - **Puente de IA:** 145 herramientas. Cuatro nuevas: `wh_character_to_prospero`, `wh_storyboard_to_prospero`, `wh_world_to_scheherazade` y `wh_world_from_scheherazade`.
 - Las llamadas a otras apps pasan por el Hoard Hub local. Si el Hub o la otra app no están abiertos, el aviso dice cuál abrir.
+- **Seguridad:** Electron 43.7.7 y dependencias actualizadas con las correcciones de seguridad publicadas (axios, undici, DOMPurify, fast-uri y brace-expansion).
 
 ## Descargas y requisitos
 
