@@ -6,6 +6,7 @@ import {
   isLeapYear, moonsOn, parseWorldDate, toDayNumber, toLastDayNumber, validateWorldCalendar,
   validateWorldRange, weekdayOf, type WorldCalendar, type WorldDate,
 } from '../src/engines/timeline/worldCalendar';
+import { worldDateArg } from '../src/services/aiBridge/tools/worldDateArg';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -162,6 +163,27 @@ function testOrderingAndRanges() {
   equal(describeWorldDate(cal, { year: 4 }).moons.length, 0, 'a partial date has no moon phase');
 }
 
+function throwsWith(fn: () => unknown, fragment: string, message: string): void {
+  try {
+    fn();
+  } catch (error) {
+    assert(String((error as Error).message).includes(fragment), `${message}: got ${(error as Error).message}`);
+    return;
+  }
+  throw new Error(`${message}: did not throw`);
+}
+
+function testBridgeDates() {
+  const cal = fantasyCalendar();
+  same(worldDateArg(cal, { year: 503, month: 2, day: 4 }, 'date'), { year: 503, month: 2, day: 4 }, 'an absolute year passes through');
+  equal(worldDateArg(cal, { era: 'TE', eraYear: 3 }, 'date')?.year, 503, 'an era year converts to absolute');
+  equal(worldDateArg(cal, { era: 'TE', eraYear: 3, year: 503 }, 'date')?.year, 503, 'both, when they agree, are accepted');
+  throwsWith(() => worldDateArg(cal, { era: 'TE', year: 503 }, 'date'), 'eraYear', 'an absolute year next to an era is never reinterpreted');
+  throwsWith(() => worldDateArg(cal, { era: 'TE', eraYear: 3, year: 3 }, 'date'), 'absolute 503', 'a contradiction between year and eraYear is refused');
+  throwsWith(() => worldDateArg(cal, { era: 'TE' }, 'date'), 'eraYear', 'an era needs its year');
+  equal(worldDateArg(cal, '', 'date'), undefined, 'an empty value is no date');
+}
+
 export function runWorldCalendarLogicTests(): string[] {
   testValidation();
   testYearArithmetic();
@@ -170,5 +192,6 @@ export function runWorldCalendarLogicTests(): string[] {
   testEras();
   testText();
   testOrderingAndRanges();
-  return ['validation', 'year arithmetic and round trips', 'weekdays across intercalary days and years', 'moons', 'eras', 'parse and format', 'ordering, ranges and describe'];
+  testBridgeDates();
+  return ['validation', 'year arithmetic and round trips', 'weekdays across intercalary days and years', 'moons', 'eras', 'parse and format', 'ordering, ranges and describe', 'bridge date arguments'];
 }

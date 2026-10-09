@@ -557,7 +557,7 @@ List the diary: pinned entries first, then newest first, each with its date, moo
 
 /** A world-calendar date: text in that calendar or { year, month?, day?, approx? } / { era, eraYear, … }. */
 const WORLD_DATE = (description: string): Record<string, unknown> => ({
-  description: `${description} Text in the calendar ("12 Frostfall 431 TE") or { year, month, day } with an absolute year, or { era, eraYear, month, day }.`,
+  description: `${description} Text in the calendar ("12 Frostfall 431 TE") or { year, month, day } with an absolute year, or { era, eraYear, month, day } where eraYear counts inside the era (with an era, "year" alone is refused so an absolute year is never reread as an era year).`,
   anyOf: [{ type: 'string' }, { type: 'object' }],
 });
 
