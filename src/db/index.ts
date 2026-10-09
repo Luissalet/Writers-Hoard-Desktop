@@ -63,10 +63,11 @@ import type {
   InquiryRating,
 } from '@/engines/inquiry/types';
 import type { BetaCommentRow, BetaPackageRow, BetaResponseRow } from '@/services/betaReading/types';
+import type { ReferencePinRow } from '@/services/codexReference/pins';
 import { migrateLegacyBoards } from './legacyBoardMigration';
 
 /** Single source of truth for migration and compatibility tests. */
-export const CURRENT_DB_VERSION = 36;
+export const CURRENT_DB_VERSION = 37;
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -148,6 +149,7 @@ export class WritersHoardDB extends Dexie {
   betaPackages!: Table<BetaPackageRow>;
   betaResponses!: Table<BetaResponseRow>;
   betaComments!: Table<BetaCommentRow>;
+  referencePins!: Table<ReferencePinRow>;
 
   constructor() {
     super('WritersHoardDB');
@@ -947,10 +949,19 @@ export class WritersHoardDB extends Dexie {
     // rewritten, so a database that never opens the engine gains three empty
     // tables. Comment ids are derived from their content, which is what makes
     // importing the same response file twice a no-op.
-    this.version(CURRENT_DB_VERSION).stores({
+    this.version(36).stores({
       betaPackages: 'id, projectId, version, createdAt',
       betaResponses: 'id, projectId, packageId, reader',
       betaComments: 'id, projectId, writingId, packageId, responseId, createdAt',
+    });
+
+    // v37: the reference panel's pins ("Consultar"), one row per chapter or
+    // per book, moved here from localStorage so a backup carries them.
+    // Additive and inert: a separate table, so a pin never writes to the
+    // chapter row and cannot collide with its autosave. Old localStorage pins
+    // are adopted lazily by services/codexReference/pins.ts.
+    this.version(CURRENT_DB_VERSION).stores({
+      referencePins: 'id, projectId',
     });
   }
 }

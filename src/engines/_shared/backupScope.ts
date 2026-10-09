@@ -439,6 +439,10 @@ const REFERENCE_SPECS: Readonly<Record<string, readonly ReferenceSpec[]>> = {
   worldWaypoints: [
     { label: 'worldId', values: one('worldId'), targets: fixed('generatedWorlds'), contained: true },
   ],
+  // A pin names codex entries by id; the chapter (scope) id is not checked because a scope may be `book:<projectId>`.
+  referencePins: [
+    { label: 'entryIds', values: many('entryIds'), targets: fixed('codexEntries'), contained: false },
+  ],
   writingSnapshots: [
     { label: 'writingId', values: one('writingId'), targets: fixed('writings'), contained: true },
   ],

@@ -36,7 +36,14 @@ import {
   whListTimelines,
   whUpdateEvent,
 } from './timeline';
-import { whChapterReferences, whPinReference } from './reference';
+import {
+  whChapterReferences,
+  whPinReference,
+  whReferenceConsult,
+  whReferencePreview,
+  whReferencePrefs,
+  whReferenceSearch,
+} from './reference';
 import { whWorldCalendarGet, whWorldCalendarSet, whWorldDate } from './worldCalendar';
 
 import { whCreateNote, whListNotes, whUpdateNote } from './notes';
@@ -227,6 +234,10 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_world_date: whWorldDate,
   wh_chapter_references: whChapterReferences,
   wh_pin_reference: whPinReference,
+  wh_reference_consult: whReferenceConsult,
+  wh_reference_prefs: whReferencePrefs,
+  wh_reference_search: whReferenceSearch,
+  wh_reference_preview: whReferencePreview,
   wh_update_event: whUpdateEvent,
   wh_connect_events: whConnectEvents,
   // Outline
