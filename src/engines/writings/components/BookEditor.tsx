@@ -67,6 +67,9 @@ import {
   registerCloseGuard,
   reportUnsavedWork,
 } from '@/services/closeGuard';
+import { bookScopeId } from '@/services/codexReference/pins';
+import ReferencePanel from './ReferencePanel';
+import { useReferencePrefs } from './referencePrefs';
 import { numberedInOrder } from '../chapterOrder';
 import { canonicalHtml, composeBookHtml, normalizeHtml, splitBookDoc } from '../bookDocument';
 import { saveBook, type BookBaseline, type BookBaselineEntry, type BookConflict } from '../bookSave';
@@ -293,6 +296,7 @@ export default function BookEditor({
     footerLabel: (page, total) =>
       t('editor.page.footer').replace('{page}', String(page)).replace('{total}', String(total)),
   };
+  const referencePrefs = useReferencePrefs();
   const numbered = numberedInOrder(writings);
   const unnumberedCount = writings.length - numbered.length;
 
@@ -1333,6 +1337,16 @@ export default function BookEditor({
                 label={t('writings.book.chapterToolbar')}
               />
             }
+          />
+          {/* "Consultar" over the book: the same codex panel as a temporary
+              drawer (the book has no side column for it). Pins are the book's
+              own, kept apart from any chapter's. */}
+          <ReferencePanel
+            projectId={projectId}
+            writingId={bookScopeId(projectId)}
+            editor={editor}
+            prefs={referencePrefs}
+            mode="temporary"
           />
           {notesOpen && (
             <div className="xl:sticky xl:top-4" data-testid="book-notes-panel">

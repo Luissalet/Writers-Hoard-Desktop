@@ -1348,6 +1348,73 @@ async function runReferenceChecks(h: Harness, projectId: string): Promise<void> 
     }
     expect(refused, 'a pin for a missing entry was accepted');
   });
+
+  await h.step('reference: pins are project data (own table, chapter row untouched)', async () => {
+    const before = await db.writings.get(writingId);
+    await call('wh_pin_reference', { writingId, entryId: anaId, pinned: true });
+    const row = await db.referencePins.get(writingId);
+    expect(row && row.projectId === projectId && row.entryIds.includes(anaId), 'the pin was not stored in referencePins');
+    const after = await db.writings.get(writingId);
+    expect(after?.updatedAt === before?.updatedAt && after?.content === before?.content, 'pinning touched the chapter row');
+    await call('wh_pin_reference', { writingId, entryId: anaId, pinned: false });
+    expect(!(await db.referencePins.get(writingId)), 'the empty pin row was kept');
+  });
+
+  await h.step('reference: whole-book scope has its own mentions and pins', async () => {
+    const refs = await call('wh_chapter_references', { projectId, scope: 'book' });
+    expect(pick(refs, 'scope') === 'book' && (pick(refs, 'mentions') as unknown[]).length >= 2, 'the book scope did not list the mentions');
+    await call('wh_pin_reference', { projectId, scope: 'book', entryId: anaId, pinned: true });
+    const chapter = await call('wh_chapter_references', { writingId });
+    expect((pick(chapter, 'pinned') as unknown[]).length === 0, 'a book pin leaked into a chapter');
+    const book = await call('wh_chapter_references', { projectId, scope: 'book' });
+    expect(pick(book, 'pinned', 0, 'id') === anaId, 'the book pin did not come back');
+    await call('wh_pin_reference', { projectId, scope: 'book', entryId: anaId, pinned: false });
+  });
+
+  await h.step('reference: consult, docked preference and width go through the panel state', async () => {
+    const first = await call('wh_reference_prefs', {});
+    const saved = { open: pick(first, 'docked', 'open') as boolean, width: pick(first, 'docked', 'width') as number };
+    const opened = await call('wh_reference_consult', { open: true });
+    expect(pick(opened, 'consult') === true, 'the consult drawer did not open');
+    const closed = await call('wh_reference_consult', { open: false });
+    expect(pick(closed, 'consult') === false, 'the consult drawer did not close');
+    const wide = await call('wh_reference_prefs', { open: true, width: 9999 });
+    expect(pick(wide, 'docked', 'width') === 560 && pick(wide, 'docked', 'open') === true, 'the width was not clamped to the maximum');
+    const narrow = await call('wh_reference_prefs', { width: 100 });
+    expect(pick(narrow, 'docked', 'width') === 280, 'the width was not clamped to the minimum');
+    await call('wh_reference_prefs', saved);
+    let refused = false;
+    try { await call('wh_reference_consult', {}); } catch (err) { refused = err instanceof BridgeError && err.code === 'bad-args'; }
+    expect(refused, 'a consult without "open" was accepted');
+  });
+
+  await h.step('reference: search and preview reach notes and library, read-only', async () => {
+    const now = Date.now();
+    const noteId = generateId();
+    const citationId = generateId();
+    await db.notes.add({ id: noteId, projectId, kind: 'note', text: 'Marea alta en el faro\nLa luz se apaga a medianoche.', tags: [], pinned: false, createdAt: now, updatedAt: now });
+    await db.citations.add({ id: citationId, projectId, title: 'Manual de faros', authors: ['A. Vela'], accessedAt: '2026-10-09', notes: 'Los faros se apagan al amanecer.', writingIds: [], tags: [], createdAt: now, updatedAt: now });
+    try {
+      const found = await call('wh_reference_search', { projectId, query: 'faro' });
+      const sources = pick(found, 'sources') as Array<Record<string, unknown>>;
+      expect(sources.some((s) => s.kind === 'note' && s.id === noteId), 'the note was not found');
+      expect(sources.some((s) => s.kind === 'citation' && s.id === citationId), 'the citation was not found');
+      expect((pick(found, 'codex') as unknown[]).length >= 1, 'the codex entry was not found');
+      const note = await call('wh_reference_preview', { projectId, kind: 'note', id: noteId });
+      expect((pick(note, 'paragraphs') as string[]).length === 2, 'the note preview lost its lines');
+      const citation = await call('wh_reference_preview', { projectId, kind: 'citation', id: citationId });
+      expect(String(pick(citation, 'subtitle')).includes('A. Vela'), 'the citation preview lost its author');
+      const codex = await call('wh_reference_preview', { projectId, kind: 'codex', id: anaId });
+      expect(pick(codex, 'title') === 'Ana', 'the codex preview is wrong');
+      expect((await db.notes.get(noteId))?.updatedAt === now, 'a preview wrote to the note');
+      let refused = false;
+      try { await call('wh_reference_preview', { projectId, kind: 'note', id: 'missing' }); } catch (err) { refused = err instanceof BridgeError && err.code === 'not-found'; }
+      expect(refused, 'a missing note was previewed');
+    } finally {
+      await db.notes.delete(noteId);
+      await db.citations.delete(citationId);
+    }
+  });
 }
 
 /**

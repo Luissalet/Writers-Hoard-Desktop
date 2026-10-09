@@ -68,7 +68,7 @@ import SprintControl from './SprintControl';
 import AiToolbar from './AiToolbar';
 import JudgePanel from './JudgePanel';
 import ReferencePanel from './ReferencePanel';
-import { useReferencePrefs } from './referencePrefs';
+import { getReferenceUi, referenceDockPx, setReferenceConsult, useReferencePrefs } from './referencePrefs';
 import CompileModal from './CompileModal';
 import ManuscriptImportModal from './ManuscriptImportModal';
 import HistoryModal from './HistoryModal';
@@ -913,7 +913,9 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         e.preventDefault();
         setFocusMode((on) => !on);
       } else if (e.key === 'Escape') {
-        setFocusMode(false);
+        // A consult drawer open over the page closes first; focus mode stays.
+        if (getReferenceUi().consult) setReferenceConsult(false);
+        else setFocusMode(false);
       }
     };
     window.addEventListener('keydown', handler);
@@ -2239,7 +2241,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       .map((cap) => (cap.localeKey ? t(cap.localeKey) : cap.text))
       .join(' ');
     const headerRow = (
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <button
             onClick={handleCloseWriting}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-muted hover:text-text-primary transition rounded-lg hover:bg-elevated"
@@ -2597,6 +2599,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         )}
 
         {focusMode ? (
+          <>
           <TiptapEditor
             key={`focus-editor-${openWriting.id}`}
             content={editedContent}
@@ -2609,6 +2612,20 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             pageLayout={pageLayout}
             footnoteStyle={footnoteStyle}
           />
+          {/* Focus mode has no side column: "Consultar" is a temporary
+              drawer over the page, opened from its own floating button or
+              Ctrl+Alt+R, closed with Esc, and never moves the selection. */}
+          <ReferencePanel
+            key={`reference-focus-${openWriting.id}`}
+            projectId={projectId}
+            writingId={openWriting.id}
+            content={editedContent}
+            editor={liveEditor}
+            prefs={referencePrefs}
+            mode="temporary"
+            anchor="left"
+          />
+          </>
         ) : (
           // A sheet is 794px wide (A4) or 816px (Letter): beside a 320px panel
           // it only fits from 1440px up, so in page mode the panel goes
@@ -2652,6 +2669,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
                 content={editedContent}
                 editor={liveEditor}
                 prefs={referencePrefs}
+                narrowBreakpoint={referenceDockPx(pageMode)}
               />
               <JudgePanel
                 key={`judge-${openWriting.id}`}
