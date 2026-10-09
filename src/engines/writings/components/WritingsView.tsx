@@ -129,6 +129,9 @@ import {
   type ChapterExportOutput,
 } from '../chapterExport';
 import { applyChapterNumbers } from '../chapterOrderPersist';
+import { chapterWorldLabel } from '../chapterWorldDate';
+import ChapterWorldDate from './ChapterWorldDate';
+import { useWorldCalendar } from '@/engines/timeline/useWorldCalendar';
 import { toast } from '@/components/common/toast';
 import { ReadAloudPanel } from '@/components/read-aloud';
 import { writingToReadAloudBlocks, type ReadAloudNoteAnchor } from '@/services/readAloud';
@@ -260,10 +263,12 @@ function ChapterNumberField({
  * writing id for the same flush-on-switch reason as the chapter field.
  */
 function WritingMetaFields({
+  projectId,
   writing,
   tagSuggestions,
   onUpdate,
 }: {
+  projectId: string;
   writing: Writing;
   tagSuggestions: string[];
   onUpdate: (id: string, changes: Partial<Writing>) => Promise<void>;
@@ -275,6 +280,7 @@ function WritingMetaFields({
   );
 
   return (
+    <>
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
       <label className="block">
         <span className="block mb-1.5 text-[10px] text-text-dim uppercase tracking-wider font-medium">
@@ -299,6 +305,8 @@ function WritingMetaFields({
         />
       </div>
     </div>
+    <ChapterWorldDate projectId={projectId} writing={writing} onUpdate={onUpdate} />
+    </>
   );
 }
 
@@ -530,6 +538,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
 
   const { accessToken } = useGoogleStore();
   const { project } = useProject(projectId);
+  const worldCalendar = useWorldCalendar(projectId)?.calendar ?? null;
   const projectTitle = project?.title || t('writings.compile.untitledProject');
   // Footnote marker style is a property of the manuscript, kept on the project row.
   const footnoteStyle = normalizeFootnoteStyle(project?.footnoteStyle);
@@ -2487,6 +2496,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         {!focusMode && (
           <WritingMetaFields
             key={`writing-meta-${openWriting.id}`}
+            projectId={projectId}
             writing={openWriting}
             tagSuggestions={tagSuggestions}
             onUpdate={handleMetaUpdate}
@@ -3013,6 +3023,11 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
                         <span className="text-[10px] text-text-dim">
                           {t('writings.updated')} {new Date(writing.updatedAt).toLocaleDateString()}
                         </span>
+                        {chapterWorldLabel(worldCalendar, writing) && (
+                          <span data-testid="chapter-world-date-badge" className="text-[10px] px-1.5 py-0.5 bg-elevated rounded text-accent-gold">
+                            {chapterWorldLabel(worldCalendar, writing)}
+                          </span>
+                        )}
                         {writing.isGoogleDoc && (
                           <GoogleDocBadge compact />
                         )}
