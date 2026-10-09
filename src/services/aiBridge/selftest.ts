@@ -1229,6 +1229,53 @@ async function runEngineGuardChecks(h: Harness): Promise<void> {
   notifyProjectsChanged();
 }
 
+/** The Writings reference panel's tools: matching by name and alias, and pins. */
+async function runReferenceChecks(h: Harness, projectId: string): Promise<void> {
+  let writingId = '';
+  let anaId = '';
+  let anabelId = '';
+
+  await h.step('reference: chapter mentions match names and aliases on whole words', async () => {
+    const ana = await call('wh_create_codex_entry', {
+      projectId, type: 'character', title: 'Ana', fields: { Aliases: 'Anita; la Cartografa' },
+    });
+    const anabel = await call('wh_create_codex_entry', { projectId, type: 'character', title: 'Anabel' });
+    await call('wh_create_codex_entry', { projectId, type: 'location', title: 'El Faro' });
+    anaId = String(pick(ana, 'id'));
+    anabelId = String(pick(anabel, 'id'));
+    const created = await call('wh_create_writing', {
+      projectId, title: 'Reference chapter', content: 'Anita cruzó la plaza. Anabel no la vio.',
+    });
+    writingId = String(pick(created, 'id'));
+    const refs = await call('wh_chapter_references', { writingId });
+    const mentions = pick(refs, 'mentions') as Array<Record<string, unknown>>;
+    expect(Array.isArray(mentions) && mentions.length === 2, `expected 2 mentions, got ${mentions?.length}`);
+    const forAna = mentions.find((m) => m.id === anaId);
+    expect(forAna && forAna.matchedAlias === 'Anita' && forAna.count === 1, 'Ana was not matched through her alias');
+    expect(mentions.some((m) => m.id === anabelId), '"Anabel" was not matched as itself');
+    expect(!mentions.some((m) => m.name === 'El Faro'), 'an unmentioned entry was listed');
+  });
+
+  await h.step('reference: pins round-trip and are listed with the chapter', async () => {
+    const pinned = await call('wh_pin_reference', { writingId, entryId: anabelId, pinned: true });
+    expect((pick(pinned, 'pins') as string[]).includes(anabelId), 'the pin was not stored');
+    const refs = await call('wh_chapter_references', { writingId });
+    expect(pick(refs, 'pinned', 0, 'id') === anabelId, 'the pin did not come back with the chapter');
+    const unpinned = await call('wh_pin_reference', { writingId, entryId: anabelId, pinned: false });
+    expect((pick(unpinned, 'pins') as string[]).length === 0, 'the pin was not removed');
+  });
+
+  await h.step('reference: unknown ids are refused', async () => {
+    let refused = false;
+    try {
+      await call('wh_pin_reference', { writingId, entryId: 'missing', pinned: true });
+    } catch (err) {
+      refused = err instanceof BridgeError && err.code === 'not-found';
+    }
+    expect(refused, 'a pin for a missing entry was accepted');
+  });
+}
+
 /**
  * Beta reading, end to end through the tools a model calls: a package for two
  * chapters, a reader's response simulated as the JSON their page would
@@ -1347,6 +1394,7 @@ export async function runSelfTest(args: ToolArgs = {}): Promise<SelfTestReport> 
     await runAnalysisChecks(h, projectId, characterId);
     await runInquiryChecks(h, projectId);
     await runBetaReadingChecks(h, projectId);
+    await runReferenceChecks(h, projectId);
     // Last, and on its own project: this one needs engines switched OFF.
     await runEngineGuardChecks(h);
   } finally {

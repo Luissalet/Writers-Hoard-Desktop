@@ -50,6 +50,7 @@ import { INQUIRY_TOOLS, SOURCE_TOOLS } from './manifestInquiry';
 import { FAMILY_TOOLS } from './manifestFamily';
 import { BIBLE_TOOLS } from './manifestBible';
 import { BETA_TOOLS } from './manifestBeta';
+import { REFERENCE_TOOLS } from './manifestReference';
 
 export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
 
@@ -1049,6 +1050,8 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('writing', inEngine('outline', OUTLINE_TOOLS)),
   ...grouped('writing', inEngine('notes', NOTE_TOOLS)),
   ...grouped('writing', inEngine('diary', DIARY_TOOLS)),
+  // Reads the chapter and the codex; pins are local preferences, so no engineId.
+  ...grouped('writing', REFERENCE_TOOLS),
   ...grouped('people', inEngine('codex', CODEX_TOOLS)),
   ...grouped('people', inEngine('biography', BIOGRAPHY_TOOLS)),
   ...grouped('people', inEngine('relationships', RELATIONSHIP_TOOLS)),
