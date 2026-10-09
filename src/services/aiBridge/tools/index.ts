@@ -8,6 +8,7 @@
 // runtime in front of a model.
 
 import type { ToolArgs } from './shared';
+import { whBuildWorldBible, whExportWorldBible } from './worldBible';
 import { whGetEditorialContext, whGetResearchEvidence } from './editorial';
 import { whEnableEngine, whGetContext, whListProjects, whSearch } from './context';
 import {
@@ -171,6 +172,8 @@ import {
 export type ToolHandler = (args: ToolArgs) => Promise<unknown>;
 
 export const TOOL_HANDLERS: Record<string, ToolHandler> = {
+  wh_build_world_bible: whBuildWorldBible,
+  wh_export_world_bible: whExportWorldBible,
   wh_get_research_evidence: whGetResearchEvidence,
   wh_get_editorial_context: whGetEditorialContext,
   // Orientation

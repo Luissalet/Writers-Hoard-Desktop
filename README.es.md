@@ -23,7 +23,20 @@ En **Ajustes de IA → Usar mis suscripciones**, inicia sesión mediante el clie
 
 La sección **Puente de IA** muestra cómo conectar Claude Desktop, Codex o Gemini CLI con la app mediante configuraciones específicas por cliente. Mantén Writers Hoard abierto mientras esté conectado. Una conversación web corriente no adquiere acceso pegando un prompt o una dirección localhost. Consulta [suscripciones](docs/ai-subscriptions.md) y [asistentes externos](docs/ai-external-connection.md).
 
+## Biblia del mundo exportable
+
+**Herramientas del proyecto → Publicación** reúne las fichas del Codex, cronologías,
+mapas y relaciones que selecciones en un documento de consulta con índice,
+enlaces, imágenes guardadas y procedencia. Revisa la vista previa y guarda HTML
+sin conexión o PDF mediante el exportador de escritorio. Las relaciones secretas
+quedan fuera por defecto; los datos del proyecto no se modifican. El canon de
+otros libros y los mundos generados sin guardar como mapa no se añaden automáticamente.
+
+Las herramientas nativas de puente/MCP `wh_build_world_bible` y
+`wh_export_world_bible` ofrecen la misma selección e informan del resultado,
+cancelación y errores. [Contrato y pruebas](docs/WORLD-BIBLE.md).
 ## Investigación (proyectos de investigación)
+
 
 El motor **Investigación** (`inquiry`, categoría investigación; activo por defecto
 en el preset Periodista y sugerido en Biógrafo y Realista) convierte la
