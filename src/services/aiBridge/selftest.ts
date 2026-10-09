@@ -276,6 +276,80 @@ async function runStoryChecks(h: Harness, projectId: string, characterId: string
 }
 
 /**
+ * The project's world calendar: defined, read, used to date events, and
+ * guarded against a change that would strand the events already dated in it.
+ */
+async function runWorldCalendarChecks(h: Harness, projectId: string): Promise<void> {
+  const calendar = {
+    name: 'Selftest reckoning',
+    months: [{ name: 'Frostfall', days: 30 }, { name: 'Thaw', days: 20 }],
+    weekdays: ['Aa', 'Bb', 'Cc'],
+    eras: [{ name: 'Test Era', abbr: 'TE', startYear: 1 }],
+  };
+  let timelineId = '';
+
+  await h.step('world calendar: none yet, then set and read back', async () => {
+    const empty = await call('wh_world_calendar_get', { projectId });
+    expect(pick(empty, 'calendar') === null, 'a fresh project reported a calendar');
+    const saved = await call('wh_world_calendar_set', { projectId, calendar });
+    expect(pick(saved, 'saved') === true && pick(saved, 'months') === 2, 'the calendar was not saved');
+    const read = await call('wh_world_calendar_get', { projectId });
+    expect(pick(read, 'calendar', 'name') === 'Selftest reckoning', 'the calendar did not read back');
+    expect(pick(read, 'daysInCommonYear') === 50, 'the year length is wrong');
+  });
+
+  await h.step('world calendar: an invalid calendar is refused', async () => {
+    let code = '';
+    try {
+      await call('wh_world_calendar_set', { projectId, calendar: { ...calendar, months: [] } });
+    } catch (err) { code = err instanceof BridgeError ? err.code : 'crash'; }
+    expect(code === 'bad-args', `an invalid calendar was not refused as bad-args (got "${code}")`);
+  });
+
+  await h.step('world date: parse, weekday, offset and distance', async () => {
+    const info = await call('wh_world_date', { projectId, date: '5 Thaw 3 TE', to: '1 Frostfall 4 TE' });
+    expect(pick(info, 'monthName') === 'Thaw', 'the month was not read');
+    expect(typeof pick(info, 'weekday') === 'string', 'no weekday came back');
+    expect(pick(info, 'daysBetween') === 16, `the distance is wrong (got ${String(pick(info, 'daysBetween'))})`);
+    const later = await call('wh_world_date', { projectId, date: '30 Frostfall 3 TE', plusDays: 1 });
+    expect(pick(later, 'monthName') === 'Thaw' && pick(later, 'date', 'day') === 1, 'plusDays did not roll into the next month');
+  });
+
+  await h.step('world calendar: events dated in it keep their label and order', async () => {
+    const timeline = await call('wh_create_timeline', { projectId, title: 'World-dated line' });
+    timelineId = String(pick(timeline, 'id'));
+    await call('wh_create_event', { timelineId, title: 'Late', dateMode: 'world', worldDate: '10 Thaw 3 TE' });
+    await call('wh_create_event', { timelineId, title: 'Early', dateMode: 'world', worldDate: '2 Frostfall 3 TE' });
+    const listed = await call('wh_list_events', { timelineId });
+    const events = (pick(listed, 'events') ?? []) as Record<string, unknown>[];
+    expect(events.length === 2 && events.every((e) => e.dateMode === 'world'), 'the world-dated events did not list');
+    const late = events.find((e) => e.title === 'Late');
+    expect(pick(late, 'worldDate', 'month') === 2 && pick(late, 'worldDate', 'day') === 10 && pick(late, 'worldDate', 'year') === 3, 'the world date was not stored as a structured date');
+    let code = '';
+    try {
+      await call('wh_create_event', { timelineId, title: 'Bad', dateMode: 'world', worldDate: '25 Thaw 3 TE' });
+    } catch (err) { code = err instanceof BridgeError ? err.code : 'crash'; }
+    expect(code === 'bad-args', `a day the calendar lacks was not refused (got "${code}")`);
+  });
+
+  await h.step('world calendar: a change that strands events needs force', async () => {
+    const shorter = { ...calendar, months: [{ name: 'Frostfall', days: 30 }, { name: 'Thaw', days: 5 }] };
+    let code = '';
+    try {
+      await call('wh_world_calendar_set', { projectId, calendar: shorter });
+    } catch (err) { code = err instanceof BridgeError ? err.code : 'crash'; }
+    expect(code === 'conflict', `stranding events was not refused (got "${code}")`);
+    const stillOld = await call('wh_world_calendar_get', { projectId });
+    expect(pick(stillOld, 'daysInCommonYear') === 50, 'the refused change was applied anyway');
+    const forced = await call('wh_world_calendar_set', { projectId, calendar: shorter, force: true });
+    expect(pick(forced, 'eventsLeftWithoutAValidDate') === 1, 'force did not report the stranded event');
+    const removed = await call('wh_world_calendar_set', { projectId, remove: true });
+    expect(pick(removed, 'removed') === true, 'the calendar was not removed');
+    const gone = await call('wh_world_calendar_get', { projectId });
+    expect(pick(gone, 'calendar') === null, 'the calendar survived its removal');
+  });
+}
+/**
  * The four containers a model has to be able to make for itself.
  *
  * Boards, storyboards and video plans were reachable but not creatable, which
@@ -1387,6 +1461,7 @@ export async function runSelfTest(args: ToolArgs = {}): Promise<SelfTestReport> 
     await runManuscriptChecks(h, projectId);
     const characterId = await runPeopleChecks(h, projectId);
     await runStoryChecks(h, projectId, characterId);
+    await runWorldCalendarChecks(h, projectId);
     await runContainerChecks(h, projectId);
     await runScriptAndRestChecks(h, projectId);
     await runWorldgenChecks(h, projectId);
