@@ -62,10 +62,11 @@ import type {
   InquiryHypothesis,
   InquiryRating,
 } from '@/engines/inquiry/types';
+import type { BetaCommentRow, BetaPackageRow, BetaResponseRow } from '@/services/betaReading/types';
 import { migrateLegacyBoards } from './legacyBoardMigration';
 
 /** Single source of truth for migration and compatibility tests. */
-export const CURRENT_DB_VERSION = 35;
+export const CURRENT_DB_VERSION = 36;
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -144,6 +145,9 @@ export class WritersHoardDB extends Dexie {
   inquiryHypotheses!: Table<InquiryHypothesis>;
   inquiryRatings!: Table<InquiryRating>;
   enrichmentRuns!: Table<EnrichmentRun>;
+  betaPackages!: Table<BetaPackageRow>;
+  betaResponses!: Table<BetaResponseRow>;
+  betaComments!: Table<BetaCommentRow>;
 
   constructor() {
     super('WritersHoardDB');
@@ -929,12 +933,24 @@ export class WritersHoardDB extends Dexie {
     // or upgrade step; `publicFigure` and `wikidataQid` do the same on
     // `codexEntries`. A status is never stored on a claim (it is derived from
     // its sources), so there is nothing here to keep in step.
-    this.version(CURRENT_DB_VERSION).stores({
+    this.version(35).stores({
       inquiryCases: 'id, projectId, updatedAt',
       inquiryClaims: 'id, projectId, updatedAt',
       inquiryHypotheses: 'id, projectId, order',
       inquiryRatings: 'id, projectId, hypothesisId, claimId',
       enrichmentRuns: 'id, projectId, entryId, createdAt',
+    });
+
+    // v36: beta reading — the packages a writer sent out, the readers who
+    // answered, and the comments that came back, anchored to a quote rather
+    // than to an offset. Additive and inert: nothing existing is read or
+    // rewritten, so a database that never opens the engine gains three empty
+    // tables. Comment ids are derived from their content, which is what makes
+    // importing the same response file twice a no-op.
+    this.version(CURRENT_DB_VERSION).stores({
+      betaPackages: 'id, projectId, version, createdAt',
+      betaResponses: 'id, projectId, packageId, reader',
+      betaComments: 'id, projectId, writingId, packageId, responseId, createdAt',
     });
   }
 }

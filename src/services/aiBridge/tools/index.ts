@@ -163,6 +163,9 @@ import {
 } from './judge';
 
 import {
+  whBetaCommentSetStatus, whBetaComments, whBetaImport, whBetaPackageCreate,
+} from './betaReading';
+import {
   whCharacterToProspero,
   whStoryboardToProspero,
   whWorldFromScheherazade,
@@ -341,6 +344,11 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_storyboard_to_prospero: whStoryboardToProspero,
   wh_world_to_scheherazade: whWorldToScheherazade,
   wh_world_from_scheherazade: whWorldFromScheherazade,
+  // Beta reading
+  wh_beta_package_create: whBetaPackageCreate,
+  wh_beta_import: whBetaImport,
+  wh_beta_comments: whBetaComments,
+  wh_beta_comment_set_status: whBetaCommentSetStatus,
   // Annotations and analysis
   wh_list_annotations: whListAnnotations,
   wh_annotate: whAnnotate,

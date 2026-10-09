@@ -93,7 +93,7 @@ const ALL_ENGINES = [
   'writings', 'codex', 'timeline', 'outline', 'notes', 'diary', 'seeds',
   'relationships', 'character-arc', 'biography', 'dialog-scene', 'board',
   'gallery', 'maps', 'storyboard', 'video-planner', 'scrapper', 'annotations',
-  'pov-audit', 'writing-stats', 'worldgen', 'real-atlas', 'inquiry',
+  'pov-audit', 'writing-stats', 'worldgen', 'real-atlas', 'inquiry', 'beta-reading',
 ];
 
 async function createScratchProject(engines: readonly string[] = ALL_ENGINES): Promise<string> {
@@ -930,6 +930,7 @@ const PARENT_PROBE_TOOLS = [
   'wh_restore_place', 'wh_add_label', 'wh_add_waypoint', 'wh_update_waypoint',
   'wh_link_place', 'wh_update_atlas_place', 'wh_update_divergence',
   'wh_update_claim', 'wh_rate_hypothesis', 'wh_undo_enrichment', 'wh_run_judge',
+  'wh_beta_comment_set_status',
 ];
 
 /**
@@ -1042,6 +1043,14 @@ async function buildGuardProbes(
   const claimId = await id('wh_add_claim', { statement: 'Host claim.', supports: [{ citationId, evidenceId }] });
   const hypothesisId = await id('wh_add_hypothesis', { statement: 'Host hypothesis.' });
   const enrichmentRunId = generateId('enrich');
+  // Beta reading: a comment row written directly (importing one is itself a guarded write).
+  const betaCommentId = generateId('betacomment');
+  await db.betaComments.add({
+    id: betaCommentId, projectId, responseId: 'host-response', packageId: 'host-package', packageVersion: 1,
+    reader: 'Host reader', writingId, anchor: { quote: '', prefix: '', suffix: '', paragraph: 0 }, text: 'Host comment',
+    createdAt: now, importedAt: now, updatedAt: now, anchorState: 'attached',
+    matchParagraph: null, matchStart: null, matchEnd: null, evaluatedHash: 'host', resolved: false,
+  });
   await db.enrichmentRuns.add({
     id: enrichmentRunId, projectId, enricher: 'wikidata', entryId: characterId, qid: 'Q1', status: 'ok',
     createdCitationIds: [], citationId, changes: [], createdAt: now,
@@ -1099,6 +1108,7 @@ async function buildGuardProbes(
       ['wh_update_claim', { id: claimId, statement: 'x' }],
       ['wh_rate_hypothesis', { hypothesisId, claimId, rating: 'C' }],
       ['wh_undo_enrichment', { runId: enrichmentRunId }],
+      ['wh_beta_comment_set_status', { commentId: betaCommentId, status: 'resolved' }],
       // The engine guard runs before the revision check, so no review is ever started.
       ['wh_run_judge', { writingId, expectedUpdatedAt: 0 }],
   ];
@@ -1220,6 +1230,100 @@ async function runEngineGuardChecks(h: Harness): Promise<void> {
 }
 
 /**
+ * Beta reading, end to end through the tools a model calls: a package for two
+ * chapters, a reader's response simulated as the JSON their page would
+ * download, an idempotent import, then the chapter is edited and the same file
+ * imported again to see the comments re-attach (attached / moved / orphaned).
+ */
+async function runBetaReadingChecks(h: Harness, projectId: string): Promise<void> {
+  const FIRST = 'The rain fell on the harbour and nobody came out to look at the sea.';
+  const SECOND = 'Marta climbed the hundred and twelve steps with the lantern dark, counting under her breath.';
+  const THIRD = 'At the top the wind tore the door from its hinges and the light went out for good.';
+  let chapterA = '';
+  let chapterB = '';
+  let responseFile = '';
+  let packageId = '';
+  let chapterHashes: Array<{ chapterId: string; contentHash: string }> = [];
+
+  await h.step('beta reading: a package is built for chosen chapters and versioned', async () => {
+    const a = await call('wh_create_writing', { projectId, title: 'Beta chapter A', content: `${FIRST}\n\n${SECOND}\n\n${THIRD}`, status: 'draft' });
+    const b = await call('wh_create_writing', { projectId, title: 'Beta chapter B', content: 'A second chapter that waits for its reader to say something about it.', status: 'draft' });
+    chapterA = String(pick(a, 'id'));
+    chapterB = String(pick(b, 'id'));
+    const one = await call('wh_beta_package_create', { projectId, writingIds: [chapterA, chapterB] });
+    expect(pick(one, 'version') === 1, 'the first package is not version 1');
+    packageId = String(pick(one, 'packageId'));
+    chapterHashes = (one.chapters as Array<{ id: string; contentHash: string }>).map((row) => ({ chapterId: row.id, contentHash: row.contentHash }));
+    expect(Array.isArray(one.chapters) && one.chapters.length === 2, 'the package does not list its two chapters');
+    expect(/^[0-9a-f]{14}$/.test(String(pick(one, 'chapters', 0, 'contentHash'))), 'a chapter has no content hash');
+    expect(Number(one.htmlBytes) > 2000, 'the package page is suspiciously small');
+    const two = await call('wh_beta_package_create', { projectId, writingIds: [chapterA] });
+    expect(pick(two, 'version') === 2, 'the version is not monotonic per project');
+    expect(await db.betaPackages.where('projectId').equals(projectId).count() === 2, 'the packages were not recorded');
+  });
+
+  await h.step('beta reading: a reader response is imported once and only once', async () => {
+    const stamp = '2026-10-01T09:00:00.000Z';
+    responseFile = JSON.stringify({
+      format: 'writers-hoard.beta-response', formatVersion: 1, packageId, packageVersion: 1,
+      reader: 'Selftest Reader', exportedAt: stamp,
+      chapters: chapterHashes,
+      reactions: { [chapterA]: ['love', 'tense'] },
+      comments: [
+        { id: 'c1', chapterId: chapterA, quote: 'nobody came out to look at the sea', prefix: 'harbour and ', suffix: '.', paragraph: 0, text: 'Great opening image.', createdAt: stamp },
+        { id: 'c2', chapterId: chapterA, quote: 'Marta climbed the hundred and twelve steps', prefix: '', suffix: ' with the lantern', paragraph: 1, text: 'Why twelve?', createdAt: stamp },
+        { id: 'c3', chapterId: chapterA, quote: 'the light went out for good', prefix: 'hinges and ', suffix: '.', paragraph: 2, text: 'Strong ending.', createdAt: stamp },
+        { id: 'c4', chapterId: chapterA, quote: '', prefix: '', suffix: '', paragraph: 0, text: 'Overall: I want more.', createdAt: stamp },
+        { id: 'c5', chapterId: chapterB, quote: 'waits for its reader', prefix: 'chapter that ', suffix: ' to say', paragraph: 0, text: 'Cute.', createdAt: stamp },
+      ],
+    });
+    const first = await call('wh_beta_import', { projectId, json: responseFile });
+    expect(first.imported === 5 && first.duplicates === 0, `first import: ${JSON.stringify(first)}`);
+    expect(first.attached === 5 && first.moved === 0 && first.orphaned === 0, 'a fresh response did not attach whole');
+    const again = await call('wh_beta_import', { projectId, json: responseFile });
+    expect(again.imported === 0 && again.duplicates === 5, `second import was not a no-op: ${JSON.stringify(again)}`);
+    expect(await db.betaComments.where('projectId').equals(projectId).count() === 5, 'importing twice duplicated comments');
+    let refused = false;
+    try { await call('wh_beta_import', { projectId, json: '{"format":"nope"}' }); } catch (err) {
+      refused = err instanceof BridgeError && err.code === 'bad-args';
+    }
+    expect(refused, 'a file that is not a response was accepted');
+  });
+
+  await h.step('beta reading: editing the chapter re-attaches the same comments as moved or orphaned', async () => {
+    const edited = `${FIRST}\n\nMarta climbed the hundred and thirteen steps with the lantern dark, counting under her breath.\n\nAt the top everything was quiet.`;
+    await call('wh_update_writing', { id: chapterA, content: edited });
+    const again = await call('wh_beta_import', { projectId, json: responseFile });
+    expect(again.imported === 0 && again.duplicates === 5, 'the re-import added rows');
+    expect(again.attached === 3 && again.moved === 1 && again.orphaned === 1, `re-anchoring: ${JSON.stringify([again.attached, again.moved, again.orphaned])}`);
+    const listed = await call('wh_beta_comments', { projectId, writingId: chapterA });
+    const byText = (text: string) => (listed.comments as Array<Record<string, unknown>>).find((row) => row.text === text);
+    expect(pick(byText('Great opening image.'), 'status') === 'attached', 'the untouched quote is not attached');
+    expect(pick(byText('Why twelve?'), 'status') === 'moved', 'the reworded quote is not moved');
+    expect(pick(byText('Strong ending.'), 'status') === 'orphaned', 'the deleted quote is not orphaned');
+    expect(pick(byText('Strong ending.'), 'chapterChangedSincePackage') === true, 'the changed chapter is not flagged');
+    expect(listed.count === 4, 'the chapter filter did not narrow to its four comments');
+  });
+
+  await h.step('beta reading: a comment is resolved, listed as resolved, and reopened', async () => {
+    const all = await call('wh_beta_comments', { projectId });
+    const target = (all.comments as Array<Record<string, unknown>>).find((row) => row.text === 'Why twelve?');
+    const id = String(pick(target, 'id'));
+    const resolved = await call('wh_beta_comment_set_status', { commentId: id, status: 'resolved' });
+    expect(pick(resolved, 'status') === 'resolved', 'the comment was not resolved');
+    const onlyResolved = await call('wh_beta_comments', { projectId, status: 'resolved' });
+    expect(onlyResolved.count === 1, 'the resolved filter did not find it');
+    const reopened = await call('wh_beta_comment_set_status', { commentId: id, status: 'open' });
+    expect(pick(reopened, 'status') === 'moved', 'reopening did not restore the anchor state');
+    let refused = false;
+    try { await call('wh_beta_comment_set_status', { commentId: id, status: 'banana' }); } catch (err) {
+      refused = err instanceof BridgeError && err.code === 'bad-args';
+    }
+    expect(refused, 'a nonsense status was accepted');
+  });
+}
+
+/**
  * Run the whole suite against a throwaway project and delete it afterwards.
  *
  * `deleteProject` sweeps every table that carries a projectId plus the few
@@ -1242,6 +1346,7 @@ export async function runSelfTest(args: ToolArgs = {}): Promise<SelfTestReport> 
     await runRealAtlasChecks(h, projectId);
     await runAnalysisChecks(h, projectId, characterId);
     await runInquiryChecks(h, projectId);
+    await runBetaReadingChecks(h, projectId);
     // Last, and on its own project: this one needs engines switched OFF.
     await runEngineGuardChecks(h);
   } finally {

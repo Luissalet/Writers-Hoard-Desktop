@@ -49,6 +49,7 @@ import {
 import { INQUIRY_TOOLS, SOURCE_TOOLS } from './manifestInquiry';
 import { FAMILY_TOOLS } from './manifestFamily';
 import { BIBLE_TOOLS } from './manifestBible';
+import { BETA_TOOLS } from './manifestBeta';
 
 export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
 
@@ -69,6 +70,7 @@ export const BRIDGE_ENGINE_IDS = [
   'dialog-scene', 'character-arc', 'relationships', 'seeds', 'biography',
   'board', 'gallery', 'maps', 'storyboard', 'video-planner', 'annotations',
   'pov-audit', 'writing-stats', 'image-studio', 'worldgen', 'real-atlas', 'inquiry',
+  'beta-reading',
 ];
 
 // ---------------------------------------------------------------------------
@@ -1069,6 +1071,8 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('research', inEngine('inquiry', INQUIRY_TOOLS)),
   // Hand-offs to Prospero's and Scheherazade's Hoards: they span engines, so no engineId.
   ...grouped('story', FAMILY_TOOLS),
+  // Beta reading (packages out, reader responses in): manifestBeta.ts.
+  ...grouped('writing', inEngine('beta-reading', BETA_TOOLS)),
   ...grouped('analysis', inEngine('annotations', ANNOTATION_TOOLS)),
   // STATS_TOOLS straddles two engines and names them itself.
   ...grouped('analysis', STATS_TOOLS),

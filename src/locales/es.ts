@@ -5148,6 +5148,8 @@ const es = {
   'sourceGrading.deleteBlocked': 'No se eliminó: hay afirmaciones de Investigación apoyadas en esta fuente. Retírala en su lugar.',
   'engines.inquiry.name': 'Investigación',
   'engines.inquiry.description': 'Afirmaciones respaldadas por fuentes valoradas, qué era cierto y cuándo, e hipótesis en competencia',
+  'engines.beta-reading.name': 'Lectura beta',
+  'engines.beta-reading.description': 'Envía capítulos a lectores beta en un solo archivo y recupera sus comentarios anclados al texto',
   'annotations.chipLabel.inquiry': 'Investigación',
   'codex.field.description': 'Descripción',
   'codex.field.born': 'Nacimiento',
