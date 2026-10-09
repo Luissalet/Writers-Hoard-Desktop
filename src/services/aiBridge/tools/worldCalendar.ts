@@ -4,13 +4,16 @@
 
 import { db } from '@/db';
 import {
-  absoluteYear, addDays, describeWorldDate, fromDayNumber, parseWorldDate, toDayNumber,
-  validateWorldCalendar, WORLD_CALENDAR_SCHEMA, type WorldCalendar, type WorldDate,
+  addDays, describeWorldDate, fromDayNumber, toDayNumber,
+  validateWorldCalendar, WORLD_CALENDAR_SCHEMA, type WorldCalendar,
 } from '@/engines/timeline/worldCalendar';
 import { resolveWorldCalendar, saveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
 import {
   BridgeError, optBoolean, optNumber, resolveProjectForEngine, resolveProjectId, withAudit, type ToolArgs,
 } from './shared';
+import { worldDateArg } from './worldDateArg';
+
+export { worldDateArg };
 
 /** The calendar a project uses (its own or its saga's), or a clear error. */
 export async function requireWorldCalendar(projectId: string): Promise<WorldCalendar> {
@@ -24,48 +27,6 @@ export async function requireWorldCalendar(projectId: string): Promise<WorldCale
   return resolved.calendar;
 }
 
-/**
- * A world date from a tool argument: text in the calendar ("12 Frostfall 431 TE")
- * or an object { year, month?, day?, approx? } where `year` is absolute, or
- * { era, eraYear, month?, day? } counted in an era.
- */
-export function worldDateArg(calendar: WorldCalendar, value: unknown, key: string): WorldDate | undefined {
-  if (value === undefined || value === null || value === '') return undefined;
-  if (typeof value === 'string') {
-    const parsed = parseWorldDate(calendar, value);
-    if (!parsed) {
-      throw new BridgeError(
-        'bad-args',
-        `"${key}" ("${value}") is not a date in "${calendar.name}". Write it like "12 ${calendar.months[0].name} 3 ${calendar.eras[0].abbr}", "${calendar.months[0].name} 3", "3 ${calendar.eras[0].abbr}", or pass { year, month, day }.`,
-      );
-    }
-    return parsed;
-  }
-  if (typeof value !== 'object' || Array.isArray(value)) {
-    throw new BridgeError('bad-args', `"${key}" must be text or an object { year, month, day }.`);
-  }
-  const raw = value as Record<string, unknown>;
-  const int = (k: string) => (raw[k] === undefined ? undefined : Number(raw[k]));
-  let year = int('year');
-  if (typeof raw.era === 'string') {
-    const eraYear = int('eraYear') ?? int('year');
-    if (eraYear === undefined || !Number.isInteger(eraYear)) throw new BridgeError('bad-args', `"${key}.eraYear" is required with an era.`);
-    try { year = absoluteYear(calendar, raw.era, eraYear); } catch (error) { throw new BridgeError('bad-args', (error as Error).message); }
-  }
-  if (year === undefined || !Number.isInteger(year)) throw new BridgeError('bad-args', `"${key}.year" must be an integer.`);
-  const date: WorldDate = { year };
-  const month = int('month');
-  const day = int('day');
-  if (month !== undefined) date.month = month;
-  if (day !== undefined) date.day = day;
-  if (raw.approx === true) date.approx = true;
-  try {
-    toDayNumber(calendar, date);
-  } catch (error) {
-    throw new BridgeError('bad-args', `"${key}": ${(error as Error).message}`);
-  }
-  return date;
-}
 
 export async function whWorldCalendarGet(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
