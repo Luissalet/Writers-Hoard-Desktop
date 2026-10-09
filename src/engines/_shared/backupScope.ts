@@ -66,6 +66,7 @@ const ENGINE_TABLES: Readonly<Record<string, readonly string[]>> = {
   diary: ['diaryEntries'],
   gallery: ['imageCollections', 'inspirationImages'],
   'image-studio': ['visualRefs', 'imageRecipes', 'inspirationImages'],
+  'beta-reading': ['betaPackages', 'betaResponses', 'betaComments'],
   inquiry: ['inquiryCases', 'inquiryClaims', 'inquiryHypotheses', 'inquiryRatings', 'enrichmentRuns'],
   links: ['snapshots'],
   maps: ['worldMaps', 'mapPins'],
@@ -376,6 +377,15 @@ const REFERENCE_SPECS: Readonly<Record<string, readonly ReferenceSpec[]>> = {
   inquiryRatings: [
     { label: 'hypothesisId', values: one('hypothesisId'), targets: fixed('inquiryHypotheses'), contained: true },
     { label: 'claimId', values: one('claimId'), targets: fixed('inquiryClaims'), contained: true },
+  ],
+  // A response can come from a package built on another computer, so the package id need not travel here.
+  betaResponses: [
+    { label: 'packageId', values: one('packageId'), targets: fixed('betaPackages'), contained: false },
+  ],
+  betaComments: [
+    { label: 'writingId', values: one('writingId'), targets: fixed('writings'), contained: false },
+    { label: 'responseId', values: one('responseId'), targets: fixed('betaResponses'), contained: true },
+    { label: 'packageId', values: one('packageId'), targets: fixed('betaPackages'), contained: false },
   ],
   enrichmentRuns: [
     { label: 'entryId', values: one('entryId'), targets: fixed('codexEntries'), contained: false },

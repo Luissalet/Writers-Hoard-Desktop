@@ -353,6 +353,7 @@ export interface ElectronAPI {
   };
   exporter: {
     scriptToPdf: (html: string, suggestedName: string) => Promise<SaveResult>;
+    writeBetaPackage: (html: string, suggestedName: string) => Promise<SaveResult>;
   };
 
   /**
