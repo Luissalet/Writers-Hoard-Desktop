@@ -193,6 +193,11 @@ Full-text search across the project's prose: manuscripts, codex entries, diary e
 // Writings — the manuscript engine
 // ---------------------------------------------------------------------------
 
+const WORLD_DATE = (description: string): Record<string, unknown> => ({
+  description: `${description} Text in the calendar ("12 Frostfall 431 TE") or { year, month, day } with an absolute year, or { era, eraYear, month, day } where eraYear counts inside the era (with an era, "year" alone is refused so an absolute year is never reread as an era year).`,
+  anyOf: [{ type: 'string' }, { type: 'object' }],
+});
+
 const WRITING_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_writings',
@@ -235,6 +240,8 @@ Read one manuscript piece in full. The body comes back as Markdown; footnotes ap
         status: s('Default "draft".', { enum: ['idea', 'draft', 'finished'] }),
         chapter: n('Chapter number, for ordering.'),
         tags: arr('Freeform tags.'),
+        worldDate: WORLD_DATE('When the chapter happens in the project world calendar (wh_world_calendar_get): \"12 Frostfall 431 TE\", \"Frostfall 431 TE\" or { year, month, day }. Needs a calendar.'),
+        worldDateEnd: WORLD_DATE('End of the span the chapter covers (optional).'),
       },
       required: ['title'],
       additionalProperties: false,
@@ -275,6 +282,8 @@ Change a manuscript piece. Only the fields you pass are touched. Passing \`conte
         status: s('New status.', { enum: ['idea', 'draft', 'finished'] }),
         chapter: n('New chapter number.'),
         tags: arr('Replacement tag list.'),
+        worldDate: WORLD_DATE('New world-calendar date of the chapter; \"\" removes the date (and its end).'),
+        worldDateEnd: WORLD_DATE('New end of the span; \"\" removes it.'),
       },
       required: ['id'],
       additionalProperties: false,
@@ -560,10 +569,6 @@ List the diary: pinned entries first, then newest first, each with its date, moo
 // ---------------------------------------------------------------------------
 
 /** A world-calendar date: text in that calendar or { year, month?, day?, approx? } / { era, eraYear, … }. */
-const WORLD_DATE = (description: string): Record<string, unknown> => ({
-  description: `${description} Text in the calendar ("12 Frostfall 431 TE") or { year, month, day } with an absolute year, or { era, eraYear, month, day } where eraYear counts inside the era (with an era, "year" alone is refused so an absolute year is never reread as an era year).`,
-  anyOf: [{ type: 'string' }, { type: 'object' }],
-});
 
 const TIMELINE_TOOLS: BridgeTool[] = [
   {

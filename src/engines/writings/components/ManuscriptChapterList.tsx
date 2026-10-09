@@ -16,6 +16,8 @@ export interface ManuscriptChapterRow {
   title: string;
   words: number;
   included: boolean;
+  /** The chapter's date in the world calendar, already formatted; shown when present. */
+  worldDate?: string;
 }
 
 interface ManuscriptChapterListProps {
@@ -72,6 +74,11 @@ export default function ManuscriptChapterList({
               aria-label={t('writings.manuscriptImport.chapterTitle')}
               className="flex-1 min-w-0 px-2 py-1 bg-elevated border border-border rounded-md text-sm text-text-primary outline-none focus:border-accent-gold transition font-serif"
             />
+            {row.worldDate && (
+              <span data-testid="manuscript-row-world-date" className="shrink-0 text-xs text-accent-gold">
+                {row.worldDate}
+              </span>
+            )}
             <span className="shrink-0 text-xs tabular-nums text-text-muted">
               {row.words.toLocaleString()} {t('writings.words')}
             </span>
