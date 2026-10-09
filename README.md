@@ -39,6 +39,19 @@ web chat cannot gain access by pasting a prompt or a localhost address.
 See [subscription setup](docs/ai-subscriptions.md) and
 [external assistant setup](docs/ai-external-connection.md).
 
+## World bible export
+
+**Project tools → Publishing** compiles selected Codex entries, timelines, maps
+and relationships into a reference document with an index, internal links,
+saved images and provenance. Inspect the preview, save standalone HTML or use
+the desktop PDF exporter. Secret relationships are excluded by default;
+compilation leaves project data untouched. Shared canon from other books and
+unsaved generated worlds are not expanded automatically.
+
+Native bridge/MCP tools `wh_build_world_bible` and `wh_export_world_bible` expose
+the same selections and explicit success/cancellation/error results. See
+[world bible](docs/WORLD-BIBLE.md) for the contract and isolated QA command.
+
 ## Investigation (research projects)
 
 The **Investigation** engine (`inquiry`, category research; on by default in the
