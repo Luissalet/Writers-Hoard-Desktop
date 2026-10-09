@@ -63,6 +63,8 @@ import SyncButton from './SyncButton';
 import SprintControl from './SprintControl';
 import AiToolbar from './AiToolbar';
 import JudgePanel from './JudgePanel';
+import ReferencePanel from './ReferencePanel';
+import { useReferencePrefs } from './referencePrefs';
 import CompileModal from './CompileModal';
 import ManuscriptImportModal from './ManuscriptImportModal';
 import HistoryModal from './HistoryModal';
@@ -502,6 +504,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // (footnotes) and the page count. The setter is what TiptapEditor gets:
   // it is stable, so its effect does not re-run per render.
   const [liveEditor, setLiveEditor] = useState<Editor | null>(null);
+  const referencePrefs = useReferencePrefs();
   const [pendingJudgeNavigation, setPendingJudgeNavigation] = useState<{
     writingId: string;
     quote: string;
@@ -2590,9 +2593,16 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           <div
             className={`grid grid-cols-1 gap-4 items-start ${
               pageMode
-                ? 'min-[1440px]:grid-cols-[minmax(0,1fr)_320px]'
-                : 'lg:grid-cols-[minmax(0,1fr)_320px]'
+                ? 'min-[1440px]:grid-cols-[minmax(0,1fr)_var(--wh-side-w,320px)]'
+                : 'lg:grid-cols-[minmax(0,1fr)_var(--wh-side-w,320px)]'
             }`}
+            // The reference panel, when open, widens the side column to the
+            // width the writer chose (320px otherwise).
+            style={
+              referencePrefs.open
+                ? ({ '--wh-side-w': `${Math.max(320, referencePrefs.width)}px` } as React.CSSProperties)
+                : undefined
+            }
           >
             <TiptapEditor
               key={`editor-${openWriting.id}`}
@@ -2612,6 +2622,14 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
                 pageMode ? 'min-[1440px]:sticky min-[1440px]:top-4' : 'lg:sticky lg:top-4'
               }`}
             >
+              <ReferencePanel
+                key={`reference-${openWriting.id}`}
+                projectId={projectId}
+                writingId={openWriting.id}
+                content={editedContent}
+                editor={liveEditor}
+                prefs={referencePrefs}
+              />
               <JudgePanel
                 key={`judge-${openWriting.id}`}
                 projectId={projectId}

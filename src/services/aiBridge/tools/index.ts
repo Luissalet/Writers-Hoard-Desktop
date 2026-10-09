@@ -36,6 +36,7 @@ import {
   whListTimelines,
   whUpdateEvent,
 } from './timeline';
+import { whChapterReferences, whPinReference } from './reference';
 import { whWorldCalendarGet, whWorldCalendarSet, whWorldDate } from './worldCalendar';
 
 import { whCreateNote, whListNotes, whUpdateNote } from './notes';
@@ -216,6 +217,8 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_world_calendar_get: whWorldCalendarGet,
   wh_world_calendar_set: whWorldCalendarSet,
   wh_world_date: whWorldDate,
+  wh_chapter_references: whChapterReferences,
+  wh_pin_reference: whPinReference,
   wh_update_event: whUpdateEvent,
   wh_connect_events: whConnectEvents,
   // Outline
