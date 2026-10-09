@@ -73,15 +73,26 @@ export async function whWorldCalendarSet(args: ToolArgs): Promise<unknown> {
       return true;
     }
   });
-  if (broken.length && !optBoolean(args, 'force')) {
+  const chapters = await db.writings.where('projectId').equals(projectId).filter((w) => !!w.worldDate).toArray();
+  const brokenChapters = chapters.filter((w) => {
+    try {
+      if (w.worldDate) toDayNumber(calendar, w.worldDate);
+      if (w.worldDateEnd) toDayNumber(calendar, w.worldDateEnd);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  if ((broken.length || brokenChapters.length) && !optBoolean(args, 'force')) {
+    const names = [...broken.map((e) => e.title), ...brokenChapters.map((w) => w.title)];
     throw new BridgeError(
       'conflict',
-      `${broken.length} event(s) would fall on dates this calendar does not have: ${broken.slice(0, 5).map((e) => `"${e.title}"`).join(', ')}. Fix them first or pass force:true (they keep their label but leave the date axis).`,
+      `${broken.length} event(s) and ${brokenChapters.length} chapter(s) would fall on dates this calendar does not have: ${names.slice(0, 5).map((n) => `"${n}"`).join(', ')}. Fix them first or pass force:true (they keep their label but leave the date axis).`,
     );
   }
   await saveWorldCalendar(projectId, calendar);
   return withAudit(
-    { projectId, saved: true, months: calendar.months.length, eras: calendar.eras.length, moons: calendar.moons.length, eventsLeftWithoutAValidDate: broken.length },
+    { projectId, saved: true, months: calendar.months.length, eras: calendar.eras.length, moons: calendar.moons.length, eventsLeftWithoutAValidDate: broken.length, chaptersLeftWithoutAValidDate: brokenChapters.length },
     { projectId, entityId: projectId, summary: `set the world calendar "${calendar.name}"`, kind: 'update', before: project.worldCalendar ? { worldCalendar: project.worldCalendar } : undefined },
   );
 }

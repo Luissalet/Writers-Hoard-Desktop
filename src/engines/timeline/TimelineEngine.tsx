@@ -10,6 +10,10 @@ import TimelineView from './components/TimelineView';
 import SwimLaneView from './components/SwimLaneView';
 import WorldCalendarEditor from './components/WorldCalendarEditor';
 import { useWorldCalendar } from './useWorldCalendar';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { useNavigate } from 'react-router-dom';
+import { db } from '@/db';
+import { manuscriptTimelineItems } from '@/engines/writings/chapterWorldDate';
 
 type ViewMode = 'list' | 'swimlane';
 
@@ -20,6 +24,16 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('swimlane');
   const [calendarOpen, setCalendarOpen] = useState(false);
   const worldCalendar = useWorldCalendar(projectId);
+  const navigate = useNavigate();
+  // Dated chapters ride along as a read-only lane; opening one goes to the editor.
+  const writings = useLiveQuery(() => db.writings.where('projectId').equals(projectId).toArray(), [projectId]);
+  const manuscript = useMemo(() => {
+    const items = manuscriptTimelineItems(worldCalendar?.calendar, writings ?? [], projectId, t('timeline.manuscriptLane'));
+    return items && {
+      ...items,
+      onOpen: (writingId: string) => navigate(`/project/${encodeURIComponent(projectId)}/writings?writing=${encodeURIComponent(writingId)}`),
+    };
+  }, [worldCalendar, writings, projectId, t, navigate]);
   // El evento que está esperando confirmación para borrarse. Arriba con el
   // resto de hooks porque más abajo hay un `return` temprano por carga, y un
   // hook detrás de un return no se llama siempre en el mismo orden. La
@@ -229,6 +243,7 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
           timelines={timelines}
           events={allEvents}
           connections={connections}
+          manuscript={manuscript ?? undefined}
           onAddEvent={handleAddEventGlobal}
           onEditEvent={handleEditEventGlobal}
           onDeleteEvent={(id) => askRemoveEvent(id, handleRemoveEventGlobal)}

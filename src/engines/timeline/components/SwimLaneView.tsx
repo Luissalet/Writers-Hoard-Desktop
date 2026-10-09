@@ -27,6 +27,7 @@ function toViewEvents(events: TimelineEvent[], calendar: WorldCalendar | null): 
     : evt));
 }
 import { useCodexEntries } from '@/engines/codex/hooks';
+import { isManuscriptEventId, MANUSCRIPT_EVENT_PREFIX, MANUSCRIPT_LANE_ID } from '@/engines/writings/chapterWorldDate';
 
 // ============================================
 // Swim-Lane Timeline View
@@ -46,6 +47,8 @@ interface SwimLaneViewProps {
   onEditConnection: (id: string, changes: Partial<TimelineConnection>) => void | Promise<void>;
   onDeleteConnection: (id: string) => void;
   onEditTimeline: (id: string, changes: Partial<Timeline>) => void | Promise<void>;
+  /** Dated chapters as a read-only lane; a click opens the chapter. */
+  manuscript?: { lane: Timeline; events: TimelineEvent[]; onOpen: (writingId: string) => void };
 }
 
 type ConnectionWrite =
@@ -386,11 +389,15 @@ export default function SwimLaneView({
   projectId, timelines, events: storedEvents, connections,
   onAddEvent, onEditEvent, onDeleteEvent,
   onAddConnection, onEditConnection, onDeleteConnection,
-  onEditTimeline,
+  onEditTimeline, manuscript,
 }: SwimLaneViewProps) {
   const { t } = useTranslation();
   const worldCalendar = useWorldCalendar(projectId)?.calendar ?? null;
-  const events = useMemo(() => toViewEvents(storedEvents, worldCalendar), [storedEvents, worldCalendar]);
+  const events = useMemo(
+    () => toViewEvents(manuscript ? [...storedEvents, ...manuscript.events] : storedEvents, worldCalendar),
+    [storedEvents, manuscript, worldCalendar],
+  );
+  const lanes = useMemo(() => (manuscript ? [...timelines, manuscript.lane] : timelines), [timelines, manuscript]);
   const TYPE_LABELS: Record<string, string> = useMemo(() => ({
     point: t('timeline.typePointSymbol'),
     range: t('timeline.typeRangeSymbol'),
@@ -452,10 +459,10 @@ export default function SwimLaneView({
   };
   const formDirty = (Object.keys(form) as (keyof typeof form)[]).some((key) => form[key] !== formOpenedWith[key]);
 
-  const { positions, totalWidth } = useMemo(() => buildEventPositions(timelines, events), [timelines, events]);
+  const { positions, totalWidth } = useMemo(() => buildEventPositions(lanes, events), [lanes, events]);
 
   const svgWidth = Math.max(800, totalWidth + 80);
-  const svgHeight = Math.max(300, TOP_PADDING + timelines.length * LANE_HEIGHT + 40);
+  const svgHeight = Math.max(300, TOP_PADDING + lanes.length * LANE_HEIGHT + 40);
   const world = form.dateMode === 'world' ? readWorldForm(worldCalendar, form.worldText, form.worldTextEnd) : null;
   const dateError = form.dateMode === 'calendar'
     ? validateTimelineDates(form.realDate, form.realDateEnd)
@@ -540,6 +547,7 @@ export default function SwimLaneView({
   // ── Event clicks ──
   const handleEventClick = useCallback((e: React.MouseEvent, evt: TimelineEvent) => {
     e.stopPropagation();
+    if (isManuscriptEventId(evt.id)) { manuscript?.onOpen(evt.id.slice(MANUSCRIPT_EVENT_PREFIX.length)); return; }
     if (dragStarted.current || connectionSavingRef.current) return; // a drag or an in-flight connection
     if (connectingFromId) {
       if (connectingFromId !== evt.id) {
@@ -555,16 +563,17 @@ export default function SwimLaneView({
     } else {
       setSelectedEventId(prev => prev === evt.id ? null : evt.id);
     }
-  }, [connectingFromId, projectId, saveConnection]);
+  }, [connectingFromId, projectId, saveConnection, manuscript]);
 
   // Plain function (not useCallback): it delegates to `openEditForm`, which
   // is declared later and re-created each render — memoizing on [] both lied
   // about deps and tripped the compiler's use-before-declaration check.
-  const handleDoubleClick = (evt: TimelineEvent) => openEditForm(evt);
+  const handleDoubleClick = (evt: TimelineEvent) => { if (!isManuscriptEventId(evt.id)) openEditForm(evt); };
 
   const handleContextMenu = useCallback((e: React.MouseEvent, evtId: string) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isManuscriptEventId(evtId)) return;
     setConnContextMenu(null);
     setContextMenu({ x: e.clientX, y: e.clientY, eventId: evtId });
   }, []);
@@ -572,6 +581,7 @@ export default function SwimLaneView({
   // ── Drag to reorder ── (disabled when connecting)
   const handleMouseDown = useCallback((e: React.MouseEvent, evtId: string) => {
     if (e.button !== 0) return; // left click only
+    if (isManuscriptEventId(evtId)) return; // chapters are read-only here
     if (connectingFromId) return; // don't drag while connecting
     dragStartPos.current = { x: e.clientX, y: e.clientY };
     dragStarted.current = false;
@@ -879,7 +889,7 @@ export default function SwimLaneView({
           })()}
 
           {/* Lane backgrounds */}
-          {timelines.map((tl, i) => {
+          {lanes.map((tl, i) => {
             const y = TOP_PADDING + i * LANE_HEIGHT;
             const laneEvts = getEventsForTimeline(events, tl.id);
             const isDropTarget = draggingId && dragTargetLane === tl.id;
@@ -898,6 +908,7 @@ export default function SwimLaneView({
                   className="cursor-pointer"
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (tl.id === MANUSCRIPT_LANE_ID) return;
                     setRenameTitle(tl.title);
                     setRenameDescription(tl.description ?? '');
                     setRenameFailed(false);
@@ -922,7 +933,7 @@ export default function SwimLaneView({
                 </g>
 
                 {/* Add event "+" button at end of lane */}
-                {(() => {
+                {tl.id !== MANUSCRIPT_LANE_ID && (() => {
                   // Position after last event in this lane
                   const lastEvt = laneEvts[laneEvts.length - 1];
                   const lastPos = lastEvt ? positions.get(lastEvt.id) : null;
@@ -1006,7 +1017,7 @@ export default function SwimLaneView({
           })}
 
           {/* Event nodes */}
-          {timelines.map((tl) => {
+          {lanes.map((tl) => {
             const laneEvents = getEventsForTimeline(events, tl.id);
             return laneEvents.map((evt, evtIdx) => {
               const pos = positions.get(evt.id);

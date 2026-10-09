@@ -7,6 +7,8 @@ import {
   validateWorldRange, weekdayOf, type WorldCalendar, type WorldDate,
 } from '../src/engines/timeline/worldCalendar';
 import { worldDateArg } from '../src/services/aiBridge/tools/worldDateArg';
+import { chapterWorldKey, chapterWorldLabel, manuscriptTimelineItems } from '../src/engines/writings/chapterWorldDate';
+import type { Writing } from '../src/types';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -184,6 +186,34 @@ function testBridgeDates() {
   equal(worldDateArg(cal, '', 'date'), undefined, 'an empty value is no date');
 }
 
+function testChapterDates(): void {
+  const cal = fantasyCalendar();
+  const chapter = (id: string, title: string, text: string | null, chapterNo?: number, endText?: string): Writing => ({
+    id, projectId: 'p', title, status: 'draft', content: '', wordCount: 0, tags: [], chapter: chapterNo,
+    worldDate: text ? parseWorldDate(cal, text)! : undefined,
+    worldDateEnd: endText ? parseWorldDate(cal, endText)! : undefined,
+    createdAt: 1, updatedAt: 1,
+  });
+  const early = chapter('a', 'Early', '2 Frostfall 3 AC', 2);
+  const late = chapter('b', 'Late', '10 Thaw 3 AC', 1, '12 Thaw 3 AC');
+  const undated = chapter('c', 'Undated', null, 3);
+  equal(chapterWorldLabel(cal, early), '2 Frostfall 3 AC', 'a chapter date is formatted in the calendar');
+  equal(chapterWorldLabel(cal, late), formatWorldRange(cal, late.worldDate!, late.worldDateEnd), 'a span is formatted as a range');
+  equal(chapterWorldLabel(cal, undated), '', 'an undated chapter has no label');
+  equal(chapterWorldLabel(null, early), '', 'no calendar, no label');
+  equal(chapterWorldKey(cal, undated), null, 'an undated chapter has no key');
+  assert((chapterWorldKey(cal, early) ?? 0) < (chapterWorldKey(cal, late) ?? 0), 'keys follow the calendar');
+  const stranded = { ...early, worldDate: { year: 3, month: 2, day: 31 } };
+  equal(chapterWorldLabel(cal, stranded), '', 'a date the calendar lacks is not shown');
+  const items = manuscriptTimelineItems(cal, [late, undated, early, stranded], 'p', 'Manuscript');
+  assert(items, 'dated chapters make a lane');
+  same(items.events.map((e) => e.title), ['2. Early', '1. Late'], 'chapters are ordered by their world date, undated and stranded left out');
+  equal(items.events[1].eventType, 'range', 'a span is a range item');
+  assert(items.events.every((e) => e.dateMode === 'world' && e.id.startsWith('ms:') && e.timelineId === items.lane.id), 'items are world-dated, read-only ids in their own lane');
+  equal(manuscriptTimelineItems(cal, [undated], 'p', 'Manuscript'), null, 'no dated chapter, no lane');
+  equal(manuscriptTimelineItems(null, [early], 'p', 'Manuscript'), null, 'no calendar, no lane');
+}
+
 export function runWorldCalendarLogicTests(): string[] {
   testValidation();
   testYearArithmetic();
@@ -193,5 +223,6 @@ export function runWorldCalendarLogicTests(): string[] {
   testText();
   testOrderingAndRanges();
   testBridgeDates();
-  return ['validation', 'year arithmetic and round trips', 'weekdays across intercalary days and years', 'moons', 'eras', 'parse and format', 'ordering, ranges and describe', 'bridge date arguments'];
+  testChapterDates();
+  return ['validation', 'year arithmetic and round trips', 'weekdays across intercalary days and years', 'moons', 'eras', 'parse and format', 'ordering, ranges and describe', 'bridge date arguments', 'chapter world dates and the manuscript lane'];
 }

@@ -312,6 +312,10 @@ export interface Writing {
   wordCount: number;
   chapter?: number;
   tags: string[];
+  /** When the chapter happens in the project's world calendar (absent = undated). */
+  worldDate?: WorldDate;
+  /** Optional end of a world-calendar span. */
+  worldDateEnd?: WorldDate;
   createdAt: number;
   updatedAt: number;
   /** Origin receipt for an imported session. Local edits never change this receipt. */
