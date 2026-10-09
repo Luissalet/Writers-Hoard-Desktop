@@ -17,6 +17,7 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'media:readLibraryFile': ['main'],
   'media:relocateLibrary': ['main'],
   'export:scriptToPdf': ['main'],
+  'export:writeBetaPackage': ['main'],
   // Automatic backup. The main window builds the archive from the database it
   // owns and hands main the finished bytes; main owns the directory, the file
   // name and the rotation, and is the only side that touches the disk. The

@@ -5148,6 +5148,8 @@ const en = {
   'sourceGrading.deleteBlocked': 'Not deleted: investigation claims rest on this source. Retract it instead.',
   'engines.inquiry.name': 'Investigation',
   'engines.inquiry.description': 'Claims backed by graded sources, what was true when, and competing hypotheses',
+  'engines.beta-reading.name': 'Beta reading',
+  'engines.beta-reading.description': 'Send chapters to beta readers as one file and bring their comments back, anchored to the text',
   'annotations.chipLabel.inquiry': 'Investigation',
   'codex.field.description': 'Description',
   'codex.field.born': 'Born',

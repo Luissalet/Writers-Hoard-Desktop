@@ -52,6 +52,7 @@ const ENGINE_KEYWORDS: Record<string, string[]> = {
   worldgen: ['mundo', 'world', 'worldgen', 'planeta', 'planet', 'continente', 'continent', 'reino', 'realm', 'asentamiento', 'settlement', 'ciudad generada', 'gacetero', 'gazetteer', 'waypoint', 'hito', 'lugar del mundo'],
   'real-atlas': ['atlas', 'lugar real', 'real place', 'mundo real', 'real world', 'divergencia', 'divergence', 'ucron', 'alternate history', 'coordenadas', 'coordinates', 'latitud', 'longitud', 'direccion', 'address', 'historic', 'histor'],
   inquiry: ['investigacion', 'investigation', 'afirmacion', 'claim', 'hipotesis', 'hypothes', 'corrobor', 'fiabilidad', 'reliab', 'credibil', 'retract', 'wikidata', 'enriquec', 'enrich', 'contradic', 'informe', 'report', 'verific', 'fuente', 'source', 'grade', 'gradu', 'competing hypotheses', 'biblioteca', 'library'],
+  'beta-reading': ['lector beta', 'lectura beta', 'beta reader', 'beta reading', 'beta-reading', 'paquete beta', 'beta package', 'respuesta del lector', 'reader response', 'comentarios de lectores', 'reader comments'],
   storyboard: ['storyboard', 'guion grafico', 'panel', 'plano', 'shot', 'vineta'],
   'video-planner': ['video', 'segmento', 'segment', 'teleprompter', 'plan de video', 'youtube', 'podcast', 'grabar', 'record'],
   annotations: ['anotacion', 'annotation', 'nota al margen', 'margin', 'comentario', 'comment', 'marca', 'highlight', 'resalt'],

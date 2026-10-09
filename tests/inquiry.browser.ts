@@ -47,10 +47,10 @@ function schemaString(table: Dexie['tables'][number]): string {
 
 export async function testInquiryMigration(): Promise<string[]> {
   const newTables = ['inquiryCases', 'inquiryClaims', 'inquiryHypotheses', 'inquiryRatings', 'enrichmentRuns'];
-  assert(CURRENT_DB_VERSION === 35, `the inquiry tables belong to schema v35, code says v${CURRENT_DB_VERSION}`);
+  assert(CURRENT_DB_VERSION >= 35, `the inquiry tables belong to schema v35, code says v${CURRENT_DB_VERSION}`);
   await db.open();
   const stores: Record<string, string> = {};
-  for (const table of db.tables) if (!newTables.includes(table.name)) stores[table.name] = schemaString(table);
+  for (const table of db.tables) if (!newTables.includes(table.name) && !table.name.startsWith('beta')) stores[table.name] = schemaString(table);
   db.close();
   await Dexie.delete('WritersHoardDB');
 
@@ -72,7 +72,7 @@ export async function testInquiryMigration(): Promise<string[]> {
   previous.close();
 
   await db.open();
-  assert(db.verno === 35, `expected v35 after upgrade, got v${db.verno}`);
+  assert(db.verno === CURRENT_DB_VERSION, `expected v${CURRENT_DB_VERSION} after upgrade, got v${db.verno}`);
   for (const name of newTables) assert(db.tables.some(table => table.name === name), `missing table ${name}`);
   for (const name of newTables) assert((await db.table(name).count()) === 0, `${name} must arrive empty`);
   const citation = await db.citations.get('legacy-citation');
