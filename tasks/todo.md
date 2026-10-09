@@ -826,3 +826,36 @@ standalone test typecheck reports only the pre-existing TS2367 narrowing in
 `tests/media-security.ts:203`; the repository's supported typechecks and
 test harness are green. No installer, live external media site, or public
 network download was needed for these deterministic regression checks.
+# World bible export — 2026-10-09
+
+## Plan
+
+- [x] Reuse project data and native HTML/PDF exporter; no new stores.
+- [x] Compile selected Codex, timelines, maps and relationships with index, links and provenance.
+- [x] Add bilingual selection and sandboxed preview in project Publishing tools.
+- [x] Expose compilation and export through the native bridge/MCP catalogue.
+- [x] Test project scope, exclusions, injection, links, UI and native PDF artifact.
+- [x] Run renderer/Electron typechecks, lint, conformance and production build.
+- [x] Record evidence and prepare isolated commit for cross-review.
+
+## Review
+
+Project Publishing tools now compile selected Codex entries, timelines, maps
+and relationships into a sandboxed preview and portable HTML/PDF. Selection,
+index links, localized standard field labels, embedded map pins and source
+IDs/revisions are shared with native bridge/MCP tools. Exporting from the UI
+saves the exact preview snapshot. Secret relationships default to excluded.
+
+Verification: five focused browser/native groups pass; real stdio MCP uses
+the native bridge, renderer relay and PDF printer on an OS-assigned port.
+Cancellation, export failure and read-only permission are explicit. The full
+critical suite passes 383 tests; verify:quick, production build and diff checks
+pass. CUA confirms index navigation, individual selection, HTML download and
+390px layout without horizontal overflow. All five PDF pages were rendered
+and visually checked; its 11 links resolve to six named destinations.
+
+The native save destination is supplied by QA; manual dialog operation is not
+claimed. Only this project's saved rows are included: shared canon and unsaved
+generated worlds remain outside this reference compiler. No models, user data,
+production bridge, shared checkout or remote Git were changed. Muletillas are
+being implemented with narrative analysis under Agora #140, separately.

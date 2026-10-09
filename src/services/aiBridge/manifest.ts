@@ -48,6 +48,7 @@ import {
 } from './manifestEngines';
 import { INQUIRY_TOOLS, SOURCE_TOOLS } from './manifestInquiry';
 import { FAMILY_TOOLS } from './manifestFamily';
+import { BIBLE_TOOLS } from './manifestBible';
 
 export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
 
@@ -1039,6 +1040,7 @@ Change a beat. Only the fields you pass are touched. Moving a beat to "drafted" 
 // ---------------------------------------------------------------------------
 
 export const BRIDGE_TOOLS: BridgeTool[] = [
+  ...grouped('story', BIBLE_TOOLS),
   // Core spans every engine or none, so it carries no engineId.
   ...grouped('core', CONTEXT_TOOLS),
   ...grouped('writing', inEngine('writings', WRITING_TOOLS)),
