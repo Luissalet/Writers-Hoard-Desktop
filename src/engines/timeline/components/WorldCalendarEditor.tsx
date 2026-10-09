@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import Modal from '@/components/common/Modal';
@@ -31,13 +31,19 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // Load the draft once per opening. `t` is a new function on every render and
+  // `resolved` is re-read live, so depending on them would wipe what is typed.
+  const defaultName = t('timeline.world.defaultName');
+  const loadedRef = useRef(false);
   useEffect(() => {
-    if (!open) return;
-    const start = resolved ? copy(resolved.calendar) : defaultWorldCalendar(t('timeline.world.defaultName'));
+    if (!open) { loadedRef.current = false; return; }
+    if (loadedRef.current || resolved === undefined) return;
+    loadedRef.current = true;
+    const start = resolved ? copy(resolved.calendar) : defaultWorldCalendar(defaultName);
     setDraft(start);
     setWeekdaysText(start.weekdays.join(', '));
     setErrors([]);
-  }, [open, resolved, t]);
+  }, [open, resolved, defaultName]);
 
   const set = (patch: Partial<WorldCalendar>) => setDraft((d) => ({ ...d, ...patch }));
   const withWeekdays = (): WorldCalendar => ({
@@ -150,7 +156,7 @@ export default function WorldCalendarEditor({ projectId, open, onClose, resolved
                 onClick={() => set({ moons: draft.moons.filter((_, j) => j !== i) })}><Trash2 size={14} aria-hidden="true" /></button>
             </div>
           ))}
-          <button type="button" className={addButton} onClick={() => set({ moons: [...draft.moons, { name: t('timeline.world.newMoon'), periodDays: 29.5, newMoonDay: 0 }] })}>
+          <button type="button" className={addButton} onClick={() => set({ moons: [...draft.moons, { name: `${t('timeline.world.newMoon')} ${draft.moons.length + 1}`, periodDays: 29.5, newMoonDay: 0 }] })}>
             <Plus size={12} aria-hidden="true" /> {t('timeline.world.addMoon')}
           </button>
         </div>
