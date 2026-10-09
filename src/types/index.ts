@@ -4,6 +4,7 @@
 import type { CreativePossibility } from '@/components/project/creative-lab/types';
 import type { EditorialProfile } from './editorial';
 import type { WritingWorkflow } from './writingWorkflow';
+import type { WorldCalendar, WorldDate } from '@/engines/timeline/worldCalendar';
 
 // Project Mode (determines which engines are visible by default)
 export type ProjectMode = 'essentials' | 'novelist' | 'realist' | 'biographer' | 'reporter' | 'playwright' | 'content-creator' | 'custom';
@@ -41,6 +42,11 @@ export interface Project {
   creativePossibilities?: CreativePossibility[];
   editorialProfile?: EditorialProfile;
   writingWorkflows?: WritingWorkflow[];
+  /**
+   * The story world's own calendar (months, week, eras, moons, holidays,
+   * leap rule). Books of a saga without one use their saga's.
+   */
+  worldCalendar?: WorldCalendar;
   createdAt: number;
   updatedAt: number;
 }
@@ -116,7 +122,8 @@ export interface Timeline {
   updatedAt: number;
 }
 
-export type DateMode = 'text' | 'calendar';
+/** 'text' free-form, 'calendar' real ISO dates, 'world' the project's own calendar. */
+export type DateMode = 'text' | 'calendar' | 'world';
 export type TimelineEventType = 'point' | 'range' | 'milestone';
 
 export interface TimelineEvent {
@@ -129,6 +136,10 @@ export interface TimelineEvent {
   dateMode: DateMode; // 'text' for free-form, 'calendar' for real dates
   realDate?: string; // ISO date string (YYYY-MM-DD) when dateMode === 'calendar'
   realDateEnd?: string; // Optional end date for date ranges
+  /** Date in the project's world calendar when dateMode === 'world' (may be partial). */
+  worldDate?: WorldDate;
+  /** Optional end of a world-calendar range. */
+  worldDateEnd?: WorldDate;
   eventType: TimelineEventType; // 'point' = dot, 'range' = bar, 'milestone' = diamond
   order: number;
   lane: string;
