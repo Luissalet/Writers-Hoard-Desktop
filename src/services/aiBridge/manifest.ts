@@ -555,6 +555,12 @@ List the diary: pinned entries first, then newest first, each with its date, moo
 // Timeline — swim-lane chronologies and the links between events
 // ---------------------------------------------------------------------------
 
+/** A world-calendar date: text in that calendar or { year, month?, day?, approx? } / { era, eraYear, … }. */
+const WORLD_DATE = (description: string): Record<string, unknown> => ({
+  description: `${description} Text in the calendar ("12 Frostfall 431 TE") or { year, month, day } with an absolute year, or { era, eraYear, month, day }.`,
+  anyOf: [{ type: 'string' }, { type: 'object' }],
+});
+
 const TIMELINE_TOOLS: BridgeTool[] = [
   {
     name: 'wh_list_timelines',
@@ -605,7 +611,7 @@ List events. Pass timelineId for one timeline, or only projectId for every event
     name: 'wh_create_event',
     description:
       `Add an event to a timeline, with free-text or real-calendar dating.
-Add an event to a timeline. Dates are free text by default ("Third age, 2412"), which is what invented chronologies need; pass dateMode:"calendar" with realDate to place it on a real calendar instead.`,
+Add an event to a timeline. Dates are free text by default ("Third age, 2412"). Pass dateMode:"calendar" with realDate to place it on a real calendar, or dateMode:"world" with worldDate when the project has its own world calendar (wh_world_calendar_get): then it is ordered on that calendar, with weekday, moons and holidays.`,
     writes: true,
     schema: {
       type: 'object',
@@ -614,9 +620,11 @@ Add an event to a timeline. Dates are free text by default ("Third age, 2412"), 
         title: s('What happens.'),
         description: s('Detail. Plain text.'),
         date: s('Displayed date. Free text unless dateMode is "calendar".'),
-        dateMode: s('Default "text".', { enum: ['text', 'calendar'] }),
+        dateMode: s('Default "text". "world" dates it in the project\'s own calendar (see wh_world_calendar_get).', { enum: ['text', 'calendar', 'world'] }),
         realDate: s('ISO date "YYYY-MM-DD", only when dateMode is "calendar".'),
         realDateEnd: s('ISO end date for a range.'),
+        worldDate: WORLD_DATE('Date in the world calendar, only when dateMode is "world". May be partial: "Frostfall 431 TE", "431 TE".'),
+        worldDateEnd: WORLD_DATE('End of a world-calendar range.'),
         eventType: s('Default "point".', { enum: ['point', 'range', 'milestone'] }),
         lane: s('Swim lane label, e.g. a character or plot thread.'),
         color: s('Colour as #rrggbb.'),
@@ -638,9 +646,11 @@ Add an event to a timeline. Dates are free text by default ("Third age, 2412"), 
         title: s('New title.'),
         description: s('New description.'),
         date: s('New displayed date.'),
-        dateMode: s('New date mode.', { enum: ['text', 'calendar'] }),
+        dateMode: s('New date mode.', { enum: ['text', 'calendar', 'world'] }),
         realDate: s('New ISO date.'),
         realDateEnd: s('New ISO end date.'),
+        worldDate: WORLD_DATE('New world-calendar date (dateMode "world").'),
+        worldDateEnd: WORLD_DATE('New world-calendar end; "" removes it.'),
         eventType: s('New event type.', { enum: ['point', 'range', 'milestone'] }),
         lane: s('New lane.'),
         color: s('New colour.'),
@@ -648,6 +658,49 @@ Add an event to a timeline. Dates are free text by default ("Third age, 2412"), 
         linkedEntryId: s('New linked codex entry id.'),
       },
       required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_world_calendar_get',
+    description:
+      `Read the project's own world calendar: months, week, eras, moons, holidays, leap rule.
+Read the invented calendar the project dates its events in. A book of a saga without its own calendar uses the saga's (inheritedFrom says which). Returns calendar:null when there is none.`,
+    writes: false,
+    schema: { type: 'object', properties: { projectId: PROJECT_ID }, additionalProperties: false },
+  },
+  {
+    name: 'wh_world_calendar_set',
+    description:
+      `Define or replace the project's world calendar, or remove it.
+Define the story world's calendar. calendar = { name, months:[{name, days, intercalary?}], weekdays:[names], weekdayOffset?, eras:[{name, abbr, startYear, countdown?}], moons:[{name, periodDays, newMoonDay?}], holidays:[{name, month, day}], leap?:{every, offset?, month, extraDays} }. Years are absolute (year 1 is the first of the count); an era starts at an absolute year and a countdown era counts backwards to the next one. intercalary months sit outside the week. Refuses a change that would strand existing world-dated events unless force:true.`,
+    writes: true,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        calendar: { type: 'object', description: 'The whole calendar, as described above.' },
+        remove: b('Remove the project\'s own calendar (events keep their text label).'),
+        force: b('Save even if some world-dated events no longer fit.'),
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'wh_world_date',
+    description:
+      `Convert and describe a date in the world calendar: weekday, moon phases, holidays, era, day arithmetic.
+Describe a date in the project's world calendar: label, absolute day number, era and year in it, weekday, every moon's phase and illumination, holidays, month length and leap year. plusDays moves it; "to" gives the days between two dates. Use it before dating events so the fiction's chronology stays consistent.`,
+    writes: false,
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: PROJECT_ID,
+        date: WORLD_DATE('The date to describe.'),
+        dayNumber: n('Alternative to date: days since the first day of year 1 (day 0).'),
+        plusDays: n('Days to add (negative to go back).'),
+        to: WORLD_DATE('Second date, to count the days between.'),
+      },
       additionalProperties: false,
     },
   },

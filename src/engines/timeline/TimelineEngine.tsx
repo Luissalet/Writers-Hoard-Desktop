@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Clock, List, Layers } from 'lucide-react';
+import { Clock, List, Layers, Globe } from 'lucide-react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { EngineComponentProps } from '@/engines/_types';
 import { useAutoSelect, useEnsureDefault, EngineSpinner, CollectionDashboard, ConfirmDialog, useDeepLinkParam } from '@/engines/_shared';
@@ -8,6 +8,8 @@ import { countConnectionsForEvent, findTimelineIdForEntity } from './operations'
 import { generateId } from '@/utils/idGenerator';
 import TimelineView from './components/TimelineView';
 import SwimLaneView from './components/SwimLaneView';
+import WorldCalendarEditor from './components/WorldCalendarEditor';
+import { useWorldCalendar } from './useWorldCalendar';
 
 type ViewMode = 'list' | 'swimlane';
 
@@ -16,6 +18,8 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
   const { timelines, loading: timelinesLoading, addTimeline, editTimeline, removeTimeline } = useTimelines(projectId);
   const [activeTimelineId, setActiveTimelineId] = useState<string>('');
   const [viewMode, setViewMode] = useState<ViewMode>('swimlane');
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const worldCalendar = useWorldCalendar(projectId);
   // El evento que está esperando confirmación para borrarse. Arriba con el
   // resto de hooks porque más abajo hay un `return` temprano por carga, y un
   // hook detrás de un return no se llama siempre en el mismo orden. La
@@ -201,6 +205,16 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
             {t('timeline.viewList')}
           </button>
         </div>
+        <button
+          type="button"
+          onClick={() => setCalendarOpen(true)}
+          data-testid="world-calendar-open"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border text-text-muted hover:text-text-primary transition"
+          title={worldCalendar ? worldCalendar.calendar.name : t('timeline.world.noCalendar')}
+        >
+          <Globe size={13} aria-hidden="true" />
+          {t('timeline.world.openEditor')}{worldCalendar ? ` · ${worldCalendar.calendar.name}` : ''}
+        </button>
         {viewMode === 'swimlane' && timelines.length > 1 && (
           <span className="text-[10px] text-text-dim">
             {t('timeline.statsTimelines').replace('{count}', String(timelines.length))} · {t('timeline.statsEvents').replace('{count}', String(allEvents.length))} · {t('timeline.statsConnections').replace('{count}', String(connections.length))}
@@ -235,6 +249,8 @@ export default function TimelineEngine({ projectId }: EngineComponentProps) {
           />
         )
       )}
+
+      <WorldCalendarEditor projectId={projectId} open={calendarOpen} onClose={() => setCalendarOpen(false)} resolved={worldCalendar} />
 
       <CollectionDashboard
         icon={Clock}
