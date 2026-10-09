@@ -1,9 +1,9 @@
 # Contrato de Genealogía — `hoard.genealogy/1` (v1.0.0)
 
-> Estado: **propuesta inicial (lote 1)** — tarea Ágora #136. Este lote entrega el
+> Estado: **lote parcial en revisión** — tarea Ágora #136. Este lote entrega el
 > contrato, el validador puro y las pruebas. **No** entrega la UI del árbol
 > genealógico, ni importadores Markdown, ni cambios en el bridge existente.
-> No se ha marcado `done` ni se ha hecho submit: habrá segunda ronda.
+> La tarea #136 completa sigue abierta: queda una segunda ronda tras esta revisión.
 
 ## 1. Alcance de este lote
 
@@ -12,7 +12,7 @@
 | Contrato versionado (este documento) | Vista de árbol genealógico (W3, UI) |
 | Validador TS puro `src/engines/genealogy/validate.ts` | Importadores Markdown/Obsidian/Notion/WorldAnvil/Campfire (W6) |
 | Sidecar de intercambio `src/engines/genealogy/sidecar.ts` | Persistencia Dexie de enlaces genealógicos |
-| Pruebas Node estándar `tests/genealogy.test.mjs` (16) | Contrato MCP real (`preview/validate/apply/query/undo`) |
+| Pruebas Node estándar `tests/genealogy.test.mjs` (25) | Contrato MCP real (`preview/validate/apply/query/undo`) |
 | | Migración/roundtrip real en el bridge |
 
 ## 2. Modelo de datos
