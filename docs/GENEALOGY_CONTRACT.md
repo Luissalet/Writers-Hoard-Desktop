@@ -128,7 +128,7 @@ es la vía de intercambio conservadora.
 |---|---|
 | `genealogy_unsupported` | no hay sidecar en el documento (no implica que el emisor/receptor carezca de soporte: ver §4.1) |
 | `genealogy_version_unsupported` | `schema` distinto de `hoard.genealogy/1` |
-| `genealogy_sidecar_invalid` | sidecar malformado: no objeto, `contractVersion` ausente o distinto de la versión del contrato, `links` no array o con entradas no objeto |
+| `genealogy_sidecar_invalid` | sidecar malformado: no objeto, `contractVersion` ausente (una versión distinta es `genealogy_version_unsupported`, ver fila anterior), `links` no array o con entradas no objeto |
 
 ## 5. Contrato MCP propuesto (NO implementado aún)
 
