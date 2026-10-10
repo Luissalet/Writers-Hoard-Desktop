@@ -1032,6 +1032,8 @@ const es = {
   'engines.pov-audit.description': 'Clasifica el tiempo en escena de cada personaje y señala desequilibrios',
   'engines.relationships.name': 'Relaciones',
   'engines.relationships.description': 'Matriz de parejas que muestra cómo se relaciona cada personaje con los demás',
+  'engines.genealogy.name': 'Genealogía',
+  'engines.genealogy.description': 'Árbol familiar de los personajes con padres, tutores y parejas',
   'engines.scrapper.name': 'Recortes',
   'engines.scrapper.description': 'Captura y archiva contenido web para investigación',
   'engines.seeds.name': 'Semillas y Pagos',

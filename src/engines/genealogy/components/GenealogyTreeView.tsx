@@ -6,6 +6,7 @@ import { buildGenealogyTree, treeStats } from '../tree';
 import { renderTreeSvg } from '../treeSvg';
 import type { GenealogyTableLike } from '../genealogyRepo';
 import type { GenealogyLinkRow } from '../genealogyStore';
+import '@/styles/genealogy.css';
 
 /**
  * Adapter from the real Dexie table to the minimal surface the pure repo
@@ -37,15 +38,22 @@ export default function GenealogyTreeView({ projectId }: { projectId: string }) 
 
   useEffect(() => {
     let cancelled = false;
-    loadGenealogyLinks(genealogyTable(), projectId)
-      .then((rows) => {
-        if (!cancelled) setLinks(rows);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setLinksError(err instanceof Error ? err.message : String(err));
-      });
+    const load = () => {
+      loadGenealogyLinks(genealogyTable(), projectId)
+        .then((rows) => {
+          if (!cancelled) setLinks(rows);
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) setLinksError(err instanceof Error ? err.message : String(err));
+        });
+    };
+    load();
+    // Re-read links when the window regains focus so links written through the
+    // MCP flow while this view is open become visible without a manual reload.
+    window.addEventListener('focus', load);
     return () => {
       cancelled = true;
+      window.removeEventListener('focus', load);
     };
   }, [projectId]);
 
