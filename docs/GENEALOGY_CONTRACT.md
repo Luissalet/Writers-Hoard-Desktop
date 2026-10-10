@@ -16,6 +16,7 @@
 | Importador Notion `src/engines/genealogy/notionImport.ts` (W6, tercera pieza) | |
 | Importador World Anvil `src/engines/genealogy/worldAnvilImport.ts` (W6, cuarta pieza) | |
 | Importador Campfire `src/engines/genealogy/campfireImport.ts` (W6, quinta pieza, JSON) | |
+| Constructor de árbol `src/engines/genealogy/tree.ts` (W3, primera pieza: estructura pura) | Vista de árbol genealógico (W3, UI) |
 | Mapeo de ids `src/engines/genealogy/idMap.ts` (segunda ronda) | Contrato MCP real (`preview/validate/apply/query/undo`) |
 | Pruebas Node estándar `tests/genealogy.test.mjs` (25) | Migración/roundtrip real en el bridge |
 
