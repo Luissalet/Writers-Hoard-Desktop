@@ -11,8 +11,8 @@
 // NOTE on ids: sidecar links carry the LOCAL character ids (A, B, ...). A
 // world/1 document references characters as `hoard://writer/codex/<id>` refs
 // (see src/services/familyBridge/worldSchema.ts, refCodex). The two id spaces
-// are NOT reconciled here: mapping local ids <-> world refs is pending work,
-// so a safe end-to-end exchange is NOT yet proven (see docs/GENEALOGY_CONTRACT.md).
+// are reconciled by `mapGenealogyIds` in `idMap.ts` (explicit caller-supplied
+// id table, never name-based) — see docs/GENEALOGY_CONTRACT.md §4.1.
 //
 // Pure functions only: no I/O, no mutation of the inputs.
 // ============================================================================
