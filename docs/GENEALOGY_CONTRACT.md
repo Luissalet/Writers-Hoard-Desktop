@@ -17,6 +17,7 @@
 | Importador World Anvil `src/engines/genealogy/worldAnvilImport.ts` (W6, cuarta pieza) | |
 | Importador Campfire `src/engines/genealogy/campfireImport.ts` (W6, quinta pieza, JSON) | |
 | Constructor de árbol `src/engines/genealogy/tree.ts` (W3, primera pieza: estructura pura) | Vista de árbol genealógico (W3, UI) |
+| Capa de filas de persistencia `src/engines/genealogy/genealogyStore.ts` (W3, segunda pieza: `GenealogyLinkRow` con `projectId`, conversiones enlace↔fila y `validateRows` previa al volcado; el registro de la tabla `genealogyLinks` como esquema v36 de Dexie se hace en la integración) | Registro real de la tabla Dexie (v36) y operaciones CRUD en `src/db` |
 | Mapeo de ids `src/engines/genealogy/idMap.ts` (segunda ronda) | Contrato MCP real (`preview/validate/apply/query/undo`) |
 | Pruebas Node estándar `tests/genealogy.test.mjs` (25) | Migración/roundtrip real en el bridge |
 
