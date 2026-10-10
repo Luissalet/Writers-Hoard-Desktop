@@ -222,3 +222,36 @@ test('wh_genealogy_import soporta notion, worldanvil y campfire (json)', async (
   assert.equal(campfire.proposal.length, 1);
   assert.equal(campfire.proposal[0].kind, 'biological_parent');
 });
+
+// --- r3 fix P1: no reportar exito si el save no confirmo ---
+test('apply reports save failure when the table rejects the write', async () => {
+  const table = fakeTable();
+  table.bulkPut = async () => { throw new Error('quota exceeded'); };
+  const handlers = createGenealogyBridgeHandlers(table, loadCharacters);
+  const r = await handlers.wh_genealogy_apply({
+    projectId: 'p1',
+    links: [LINK('g1', 'a', 'b', 'biological_parent')],
+  });
+  assert.equal(r.ok, false);
+  assert.equal(table._rows.size, 0);
+});
+
+test('apply does not register the application when save fails', async () => {
+  const table = fakeTable();
+  table.bulkPut = async () => { throw new Error('quota exceeded'); };
+  const handlers = createGenealogyBridgeHandlers(table, loadCharacters);
+  await handlers.wh_genealogy_apply({ projectId: 'p1', links: [LINK('g1', 'a', 'b', 'biological_parent')] });
+  const r = await handlers.wh_genealogy_undo({ projectId: 'p1', applyId: 'whatever', revision: 'rev:x' });
+  assert.equal(r.ok, false);
+  assert.equal(r.code, 'unknown_apply');
+});
+
+test('apply rejects a->b then b->a cycle across separate calls', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, loadCharacters);
+  const r1 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [LINK('g1', 'a', 'b', 'biological_parent')] });
+  assert.equal(r1.ok, true);
+  const r2 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [LINK('g2', 'b', 'a', 'biological_parent')] });
+  assert.equal(r2.ok, false);
+  assert.equal(r2.code, 'cycle_rejected');
+});
