@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { WorldDateField } from '@/engines/timeline/components/WorldDateField';
 import { useWorldCalendar, worldDateText } from '@/engines/timeline/useWorldCalendar';
@@ -19,20 +19,30 @@ interface ChapterWorldDateProps {
 export default function ChapterWorldDate({ projectId, writing, onUpdate }: ChapterWorldDateProps) {
   const { t } = useTranslation();
   const calendar = useWorldCalendar(projectId)?.calendar ?? null;
-  const [start, setStart] = useState('');
-  const [end, setEnd] = useState('');
-  const seeded = useRef(false);
+  const storedStart = worldDateText(calendar, writing.worldDate);
+  const storedEnd = worldDateText(calendar, writing.worldDateEnd);
+  const [start, setStart] = useState(storedStart);
+  const [end, setEnd] = useState(storedEnd);
+  // What the text boxes were last in step with (the stored dates, as text).
+  // Typing makes the boxes differ from it: that is the only unsaved state.
+  const [base, setBase] = useState({ id: writing.id, start: storedStart, end: storedEnd });
 
-  // Seed the text once the calendar is known (it loads asynchronously).
-  useEffect(() => {
-    if (!calendar || seeded.current) return;
-    seeded.current = true;
-    setStart(worldDateText(calendar, writing.worldDate));
-    setEnd(worldDateText(calendar, writing.worldDateEnd));
-  }, [calendar, writing.worldDate, writing.worldDateEnd]);
+  // The stored dates can change under the editor (another chapter opened, the
+  // calendar loaded or edited, a bridge tool wrote them). Boxes the person has
+  // not touched follow along; boxes with pending typing are left alone.
+  if (base.id !== writing.id) {
+    setBase({ id: writing.id, start: storedStart, end: storedEnd });
+    setStart(storedStart);
+    setEnd(storedEnd);
+  } else if (base.start !== storedStart || base.end !== storedEnd) {
+    if (start === base.start) setStart(storedStart);
+    if (end === base.end) setEnd(storedEnd);
+    setBase({ id: writing.id, start: storedStart, end: storedEnd });
+  }
+  const dirty = start !== base.start || end !== base.end;
 
   useEffect(() => {
-    if (!calendar || !seeded.current) return;
+    if (!calendar || !dirty) return;
     const handle = window.setTimeout(() => {
       let worldDate: WorldDate | undefined;
       let worldDateEnd: WorldDate | undefined;
@@ -51,8 +61,7 @@ export default function ChapterWorldDate({ projectId, writing, onUpdate }: Chapt
       void onUpdate(writing.id, { worldDate, worldDateEnd });
     }, 500);
     return () => window.clearTimeout(handle);
-  }, [start, end, calendar, writing.id, writing.worldDate, writing.worldDateEnd, onUpdate]);
-
+  }, [start, end, dirty, calendar, writing.id, writing.worldDate, writing.worldDateEnd, onUpdate]);
   if (!calendar) return null;
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4" data-testid="chapter-world-date">
@@ -61,3 +70,4 @@ export default function ChapterWorldDate({ projectId, writing, onUpdate }: Chapt
     </div>
   );
 }
+
