@@ -18,6 +18,7 @@
 | Importador Campfire `src/engines/genealogy/campfireImport.ts` (W6, quinta pieza, JSON) | |
 | Constructor de árbol `src/engines/genealogy/tree.ts` (W3, primera pieza: estructura pura) | Vista de árbol genealógico (W3, UI) |
 | Layout del árbol `src/engines/genealogy/layout.ts` (W3, cuarta pieza: posiciones puras fila/columna para la vista, hojas densas y padres centrados sobre su subárbol) | Vista de árbol genealógico (W3, UI) |
+| Vista SVG `src/engines/genealogy/treeSvg.ts` (W3, séptima pieza: renderTreeSvg puro, string SVG con nodos `<g data-id>`, aristas por kind con flecha/discontinua y etiquetas, escape XML) | Vista de árbol genealógico (W3, UI) |
 | Exportadores del árbol `src/engines/genealogy/treeExport.ts` (W3, quinta pieza: `exportTreeDot` Graphviz con estilos por kind y escape, `exportTreeText` jerárquico con notas de pareja e hijos ya colocados) | Vista de árbol genealógico (W3, UI) |
 | Vista previa de importación `src/engines/genealogy/importPreview.ts` (W6, sexta pieza: clasificación pura additions/duplicates/conflicts con ids derivados) | |
 | Capa de filas de persistencia `src/engines/genealogy/genealogyStore.ts` (W3, segunda pieza: `GenealogyLinkRow` con `projectId`, conversiones enlace↔fila y `validateRows` previa al volcado; el registro de la tabla `genealogyLinks` como esquema v36 de Dexie se hace en la integración) | Registro real de la tabla Dexie (v36) y operaciones CRUD en `src/db` |
