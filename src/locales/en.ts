@@ -4488,6 +4488,7 @@ const en = {
   'writings.reference.sourceOpen': 'Open {name} (read-only)',
   'writings.reference.readOnly': 'Read-only: edit it in its own engine.',
   'writings.reference.scopeBook': 'the whole book',
+  'writings.reference.scopeRange': 'chapters {from}-{to}',
   'realAtlas.place.appearsIn': 'Appears in:',
   'realAtlas.place.appearsNowhere': 'Does not appear in any chapter yet',
   'realAtlas.place.chapterShort': 'Ch. {n}',
