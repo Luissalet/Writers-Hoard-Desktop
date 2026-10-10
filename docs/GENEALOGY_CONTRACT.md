@@ -10,10 +10,10 @@
 | Entregado | Pendiente (declarado) |
 |---|---|
 | Contrato versionado (este documento) | Vista de árbol genealógico (W3, UI) |
-| Validador TS puro `src/engines/genealogy/validate.ts` | Importadores Markdown/Obsidian/Notion/WorldAnvil/Campfire (W6) |
-| Sidecar de intercambio `src/engines/genealogy/sidecar.ts` | Persistencia Dexie de enlaces genealógicos |
-| Pruebas Node estándar `tests/genealogy.test.mjs` (25) | Contrato MCP real (`preview/validate/apply/query/undo`) |
-| | Migración/roundtrip real en el bridge |
+| Validador TS puro `src/engines/genealogy/validate.ts` | Importadores Obsidian/Notion/WorldAnvil/Campfire (resto de W6) |
+| Importador Markdown `src/engines/genealogy/markdownImport.ts` (W6, primera pieza) | Persistencia Dexie de enlaces genealógicos |
+| Mapeo de ids `src/engines/genealogy/idMap.ts` (segunda ronda) | Contrato MCP real (`preview/validate/apply/query/undo`) |
+| Pruebas Node estándar `tests/genealogy.test.mjs` (25) | Migración/roundtrip real en el bridge |
 
 ## 2. Modelo de datos
 
