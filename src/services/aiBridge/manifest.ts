@@ -48,6 +48,7 @@ import {
 } from './manifestEngines';
 import { INQUIRY_TOOLS, SOURCE_TOOLS } from './manifestInquiry';
 import { FAMILY_TOOLS } from './manifestFamily';
+import { GENEALOGY_BRIDGE_TOOLS } from './tools/genealogy';
 
 export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
 
@@ -995,6 +996,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('people', inEngine('codex', CODEX_TOOLS)),
   ...grouped('people', inEngine('biography', BIOGRAPHY_TOOLS)),
   ...grouped('people', inEngine('relationships', RELATIONSHIP_TOOLS)),
+  ...grouped('people', inEngine('genealogy', GENEALOGY_BRIDGE_TOOLS)),
   ...grouped('story', inEngine('timeline', TIMELINE_TOOLS)),
   ...grouped('story', inEngine('seeds', SEED_TOOLS)),
   ...grouped('story', inEngine('character-arc', ARC_TOOLS)),
