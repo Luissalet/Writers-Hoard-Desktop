@@ -12,7 +12,7 @@ function fakeTable() {
   const rows = new Map();
   const table = {
     async bulkPut(incoming) {
-      for (const row of incoming) rows.set(row.id, { ...row });
+      for (const row of incoming) rows.set(row.key ?? row.id, { ...row });
       return incoming.length;
     },
     async get(id) {
@@ -135,4 +135,26 @@ test('empty batch saves nothing and reports zero', async () => {
   const receipt = await saveGenealogyLinks(table, 'p1', []);
   assert.equal(receipt.saved, 0);
   assert.deepEqual(receipt.issues, []);
+});
+
+// --- r3 fix P1: aislamiento entre proyectos (clave compuesta) ---
+test('save en p2 no traslada ni pisa la fila homonima de p1', async () => {
+  const table = fakeTable();
+  await saveGenealogyLinks(table, 'p1', [{ id: 'g1', from: 'a', to: 'b', kind: 'partner' }]);
+  await saveGenealogyLinks(table, 'p2', [{ id: 'g1', from: 'c', to: 'd', kind: 'partner' }]);
+  const p1 = await loadGenealogyLinks(table, 'p1');
+  const p2 = await loadGenealogyLinks(table, 'p2');
+  assert.equal(p1.length, 1);
+  assert.equal(p1[0].to, 'b');
+  assert.equal(p2.length, 1);
+  assert.equal(p2[0].to, 'd');
+});
+
+test('delete en p2 no borra la fila homonima de p1', async () => {
+  const table = fakeTable();
+  await saveGenealogyLinks(table, 'p1', [{ id: 'g1', from: 'a', to: 'b', kind: 'partner' }]);
+  await saveGenealogyLinks(table, 'p2', [{ id: 'g1', from: 'c', to: 'd', kind: 'partner' }]);
+  await deleteGenealogyLink(table, 'p2', 'g1');
+  const p1 = await loadGenealogyLinks(table, 'p1');
+  assert.equal(p1.length, 1);
 });
