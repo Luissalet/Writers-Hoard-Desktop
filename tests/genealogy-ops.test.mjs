@@ -148,3 +148,42 @@ test('apply rechaza duplicate_apply con el registro real del llamador', () => {
   const r1 = applyGenealogy(chars, [], [{ id: 'g1', from: 'a', to: 'b', kind: 'biological_parent' }], 'ap-x');
   assert.throws(() => applyGenealogy(chars, r1.links, [{ id: 'g2', from: 'b', to: 'a', kind: 'partner' }], 'ap-x', { 'ap-x': r1.application }), (e) => e.code === 'duplicate_apply');
 });
+
+// --- r3 fix P2: undo ligado a la revision de su propia aplicacion ---
+test('undo rejects a revision that does not match the application revisionAfter', () => {
+  const chars = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }];
+  const r1 = applyGenealogy(chars, [], [{ id: 'g1', from: 'a', to: 'b', kind: 'biological_parent' }], 'ap-u1');
+  // apply a second link so the state changed after ap-u1
+  const r2 = applyGenealogy(chars, r1.links, [{ id: 'g2', from: 'b', to: 'a', kind: 'partner' }], 'ap-u2');
+  assert.throws(
+    () => undoGenealogy(r2.links, { 'ap-u1': r1.application }, 'ap-u1', r1.application.revisionAfter),
+    (e) => e.code === 'stale_revision',
+  );
+});
+
+// r3 fix (review P2-3): undo must compare against the recorded revisionAfter,
+// not a client-supplied revision, and the application record carries projectId.
+test('undo rejects a client revision that differs from the recorded revisionAfter', () => {
+  const chars = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }];
+  const links = [];
+  const r1 = applyGenealogy(chars, links, [{ from: 'a', to: 'b', kind: 'biological_parent' }], 'ap-1');
+  assert.throws(
+    () => undoGenealogy(r1.links, { 'ap-1': r1.application }, 'ap-1', 'rev:otra'),
+    (err) => err.code === 'stale_revision',
+  );
+  // The recorded revisionAfter is the only accepted value.
+  const undone = undoGenealogy(r1.links, { 'ap-1': r1.application }, 'ap-1', r1.application.revisionAfter);
+  assert.deepEqual(undone.removedLinkIds, ['g1']);
+});
+
+test('undo rejects an application recorded for another project', () => {
+  const chars = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }];
+  const links = [];
+  const r1 = applyGenealogy(chars, links, [{ from: 'a', to: 'b', kind: 'biological_parent' }], 'ap-1', {}, 'p1');
+  assert.throws(
+    () => undoGenealogy(r1.links, { 'ap-1': r1.application }, 'ap-1', r1.application.revisionAfter, 'p2'),
+    (err) => err.code === 'project_mismatch',
+  );
+  const undone = undoGenealogy(r1.links, { 'ap-1': r1.application }, 'ap-1', r1.application.revisionAfter, 'p1');
+  assert.deepEqual(undone.removedLinkIds, ['g1']);
+});
