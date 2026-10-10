@@ -17,6 +17,7 @@ export class GenealogyOpError extends Error {
 
 export interface GenealogyApplication {
   id: string;
+  projectId: string;
   appliedLinkIds: string[];
   revisionBefore: string;
   revisionAfter: string;
@@ -63,6 +64,7 @@ export function applyGenealogy(
   proposal: readonly unknown[],
   applyId: string,
   applications: Readonly<Record<string, GenealogyApplication>> = {},
+  projectId = '',
 ): ApplyResult {
   if (typeof applyId !== 'string' || applyId.length === 0) {
     throw new GenealogyOpError('invalid_apply_id', 'applyId debe ser un string no vacío');
@@ -95,6 +97,7 @@ export function applyGenealogy(
   const newLinks = [...links, ...validation.accepted.map((l) => ({ ...l }))];
   const application: GenealogyApplication = {
     id: applyId,
+    projectId,
     appliedLinkIds,
     revisionBefore,
     revisionAfter: genealogyRevision(newLinks),
@@ -149,10 +152,14 @@ export function undoGenealogy(
   applications: Readonly<Record<string, GenealogyApplication>>,
   applyId: string,
   currentRevision: string,
+  projectId = '',
 ): UndoResult {
   const application = applications[applyId];
   if (!application) {
     throw new GenealogyOpError('unknown_apply', `no hay registro de la aplicación ${applyId}`);
+  }
+  if (application.projectId !== projectId) {
+    throw new GenealogyOpError('project_mismatch', 'la aplicación pertenece a otro proyecto');
   }
   if (genealogyRevision(links) !== currentRevision) {
     throw new GenealogyOpError('stale_revision', 'el estado cambió desde la aplicación; undo rechazado');
