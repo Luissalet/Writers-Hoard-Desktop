@@ -58,7 +58,7 @@ export interface ApplyResult {
  * ni `applications`; devuelve el nuevo estado y el registro.
  */
 export function applyGenealogy(
-  characters: readonly unknown[],
+  characters: ReadonlyArray<{ id: string; [key: string]: unknown }>,
   links: readonly GenealogyLink[],
   proposal: readonly unknown[],
   applyId: string,
