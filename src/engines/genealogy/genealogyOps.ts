@@ -4,6 +4,7 @@
 // revisión del estado coincide con la registrada al aplicar).
 // Funciones puras: sin I/O, sin mutar entradas.
 
+import { deriveLinkIds } from './genealogyStore.ts';
 import { validateGenealogy, type GenealogyLink } from './validate.ts';
 
 export class GenealogyOpError extends Error {
@@ -75,9 +76,10 @@ export function applyGenealogy(
   // Ids derivados (contrato §5): las entradas sin id reciben g1..gN saltando
   // los ocupados por el estado; el validador exige id, así que se completa
   // antes de validar.
-  const taken = new Set(links.map((l) => l.id));
-  let nextDerived = 1;
-  const withIds = proposal.map((raw) => {
+  // Derive ids reserving the batch's explicit ids and the existing ones
+  // first (review r3): a derived id never collides with an explicit id.
+  const ids = deriveLinkIds(proposal as Record<string, unknown>[], new Set(links.map((l) => l.id)));
+  const withIds = proposal.map((raw, i) => {
     if (
       typeof raw === 'object' && raw !== null &&
       typeof (raw as Record<string, unknown>).id === 'string' &&
@@ -85,16 +87,57 @@ export function applyGenealogy(
     ) {
       return raw;
     }
-    while (taken.has(`g${nextDerived}`)) nextDerived++;
-    const id = `g${nextDerived}`;
-    nextDerived++;
-    return { ...(raw as Record<string, unknown>), id };
+    return { ...(raw as Record<string, unknown>), id: ids[i] };
   });
 
   const validation = validateGenealogy(characters, withIds);
+
+  // Cycle guard (review r3, P1): a parent arc is rejected if it would close a
+  // cycle in the FULL ancestry graph (existing links plus the arcs already
+  // accepted from this same batch, multi-parents kept). Per-link rejection:
+  // an invalid arc never contaminates the valid ones in the batch.
+  // children[parent] = set of children, following parent->child arcs.
+  const children = new Map<string, Set<string>>();
+  for (const link of links) {
+    if (link.kind === 'biological_parent' || link.kind === 'adoptive_parent') {
+      if (!children.has(link.from)) children.set(link.from, new Set());
+      children.get(link.from)!.add(link.to);
+    }
+  }
+  const reaches = (start: string, target: string): boolean => {
+    const stack = [start];
+    const seen = new Set<string>();
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      if (cur === target) return true;
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      for (const next of children.get(cur) ?? []) stack.push(next);
+    }
+    return false;
+  };
+  const accepted: typeof validation.accepted = [];
+  const cycleRejected: typeof validation.rejected = [];
+  for (const link of validation.accepted) {
+    if (link.kind === 'biological_parent' || link.kind === 'adoptive_parent') {
+      // Adding from->to closes a cycle iff `to` already reaches `from`.
+      if (reaches(link.to, link.from)) {
+        cycleRejected.push({
+          link,
+          issues: [{ code: 'cycle_rejected', detail: `link ${link.from} -> ${link.to} would create a parent cycle`, chain: [link.from, link.to] }],
+        });
+        continue;
+      }
+      if (!children.has(link.from)) children.set(link.from, new Set());
+      children.get(link.from)!.add(link.to);
+    }
+    accepted.push(link);
+  }
+  const finalValidation = { accepted, rejected: [...validation.rejected, ...cycleRejected] };
+
   const revisionBefore = genealogyRevision(links);
-  const appliedLinkIds = validation.accepted.map((l) => l.id);
-  const newLinks = [...links, ...validation.accepted.map((l) => ({ ...l }))];
+  const appliedLinkIds = finalValidation.accepted.map((l) => l.id);
+  const newLinks = [...links, ...finalValidation.accepted.map((l) => ({ ...l }))];
   const application: GenealogyApplication = {
     id: applyId,
     projectId,
@@ -106,7 +149,7 @@ export function applyGenealogy(
     appliedLinkIds,
     links: newLinks,
     application,
-    rejected: validation.rejected,
+    rejected: finalValidation.rejected,
   };
 }
 
