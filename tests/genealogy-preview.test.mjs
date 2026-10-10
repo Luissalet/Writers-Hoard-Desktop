@@ -146,3 +146,15 @@ test('no muta las entradas', () => {
   assert.deepEqual(incoming, incomingCopy);
   assert.deepEqual(existing, existingCopy);
 });
+
+// r3 fix (review P2): implicit links without id must derive an id, not be dropped
+test('preview derives ids for id-less incoming links instead of dropping them', () => {
+  const incoming = [
+    { id: 'g2', from: 'a', to: 'b', kind: 'biological_parent' },
+    { from: 'b', to: 'c', kind: 'biological_parent' },
+    { from: 'c', to: 'a', kind: 'biological_parent' },
+  ];
+  const r = previewGenealogyImport({ incoming, existing: [] });
+  assert.deepEqual(r.additions.map((l) => l.id).sort(), ['g1', 'g2', 'g3']);
+  assert.deepEqual(r.issues, []);
+});
