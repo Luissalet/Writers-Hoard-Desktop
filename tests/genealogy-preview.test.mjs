@@ -51,15 +51,15 @@ test('duplicado por id: mismo id ya existente va a duplicates', () => {
   assert.deepEqual(r.duplicates, [{ incoming: 'g1', existing: 'g1' }]);
 });
 
-test('conflicto: mismo from/to con kind distinto va a conflicts', () => {
+test('conflicto: mismo from/to con kind distinto va a conflicts (guardian vs partner)', () => {
   const r = previewGenealogyImport({
-    incoming: [link('g2', 'a', 'b', 'adoptive_parent')],
-    existing: [link('g1', 'a', 'b', 'biological_parent')],
+    incoming: [link('g2', 'a', 'b', 'partner')],
+    existing: [link('g1', 'a', 'b', 'guardian')],
   });
   assert.deepEqual(r.additions, []);
   assert.deepEqual(r.duplicates, []);
   assert.deepEqual(r.conflicts, [
-    { incoming: 'g2', existing: 'g1', incomingKind: 'adoptive_parent', existingKind: 'biological_parent' },
+    { incoming: 'g2', existing: 'g1', incomingKind: 'partner', existingKind: 'guardian' },
   ]);
 });
 
@@ -83,11 +83,9 @@ test('mezcla: nuevos, duplicados y conflictos en una sola importacion', () => {
     ],
     existing: [link('g2', 'a', 'b', 'biological_parent')],
   });
-  assert.deepEqual(r.additions, [link('g1', 'c', 'd', 'biological_parent'), link('g4', 'x', 'y', 'partner')]);
+  assert.deepEqual(r.additions, [link('g1', 'c', 'd', 'biological_parent'), link('g3', 'a', 'b', 'adoptive_parent'), link('g4', 'x', 'y', 'partner')]);
   assert.deepEqual(r.duplicates, [{ incoming: 'g2', existing: 'g2' }]);
-  assert.deepEqual(r.conflicts, [
-    { incoming: 'g3', existing: 'g2', incomingKind: 'adoptive_parent', existingKind: 'biological_parent' },
-  ]);
+  assert.deepEqual(r.conflicts, []);
 });
 
 test('ids derivados: dos entradas sin id reciben ids distintos y no colisionan', () => {
@@ -131,10 +129,8 @@ test('conflicto dentro de la propia importacion: mismo from/to con kind distinto
     incoming: [link('g1', 'a', 'b', 'biological_parent'), link('g2', 'a', 'b', 'adoptive_parent')],
     existing: [],
   });
-  assert.deepEqual(r.additions, [link('g1', 'a', 'b', 'biological_parent')]);
-  assert.deepEqual(r.conflicts, [
-    { incoming: 'g2', existing: 'g1', incomingKind: 'adoptive_parent', existingKind: 'biological_parent' },
-  ]);
+  assert.deepEqual(r.additions, [link('g1', 'a', 'b', 'biological_parent'), link('g2', 'a', 'b', 'adoptive_parent')]);
+  assert.deepEqual(r.conflicts, []);
 });
 
 test('no muta las entradas', () => {
@@ -157,4 +153,19 @@ test('preview derives ids for id-less incoming links instead of dropping them', 
   const r = previewGenealogyImport({ incoming, existing: [] });
   assert.deepEqual(r.additions.map((l) => l.id).sort(), ['g1', 'g2', 'g3']);
   assert.deepEqual(r.issues, []);
+});
+
+// r4: la coexistencia biologico/adoptivo del mismo par no es conflicto (el apply la acepta)
+test('bio/adoptive coexistencia del mismo par no se marca como conflicto', async () => {
+  const { previewGenealogyImport } = await import('../src/engines/genealogy/importPreview.ts');
+  const existing = [
+    { id: 'g1', from: 'c1', to: 'c2', kind: 'biological_parent' },
+  ];
+  const incoming = [
+    { id: 'g9', from: 'c1', to: 'c2', kind: 'adoptive_parent' },
+  ];
+  const r = previewGenealogyImport({ incoming, existing });
+  assert.equal(r.conflicts.length, 0);
+  assert.equal(r.additions.length, 1);
+  assert.equal(r.additions[0].kind, 'adoptive_parent');
 });
