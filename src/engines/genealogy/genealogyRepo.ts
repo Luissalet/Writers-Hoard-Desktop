@@ -101,7 +101,14 @@ export async function saveGenealogyLinks(
   if (issues.length > 0) return { saved: 0, issues };
 
   const now = new Date().toISOString();
-  const rows = links.map((link) => ({ ...(link as Record<string, unknown>), projectId, updatedAt: now }));
+  // Primary key is the composite projectId+id: two projects may hold links
+  // with the same id without overwriting each other (review r2, P1).
+  const rows = links.map((link) => ({
+    ...(link as Record<string, unknown>),
+    key: `${projectId}\u0000${(link as Record<string, unknown>).id as string}`,
+    projectId,
+    updatedAt: now,
+  }));
   await table.bulkPut(rows);
   return { saved: rows.length, issues: [] };
 }
@@ -116,8 +123,8 @@ export async function deleteGenealogyLink(
   projectId: string,
   id: string,
 ): Promise<boolean> {
-  const row = (await table.get(id)) as Record<string, unknown> | undefined;
+  const row = (await table.get(`${projectId}\u0000${id}`)) as Record<string, unknown> | undefined;
   if (!row || row.projectId !== projectId) return false;
-  await table.delete(id);
+  await table.delete(`${projectId}\u0000${id}`);
   return true;
 }
