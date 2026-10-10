@@ -38,6 +38,7 @@ import type {
 } from '@/types/projectTools';
 import { legacyLinksToSnapshots } from '@/engines/scrapper/legacyLinks';
 import type { AiMessage, AiProjectSettings, AiThread } from '@/services/copilot/types';
+import type { GenealogyLinkRow } from '@/engines/genealogy/genealogyStore';
 import type { VisualRef } from '@/types/visualRef';
 import type { ImageRecipeRow } from '@/services/aiRuntime/recipe';
 import type {
@@ -65,7 +66,7 @@ import type {
 import { migrateLegacyBoards } from './legacyBoardMigration';
 
 /** Single source of truth for migration and compatibility tests. */
-export const CURRENT_DB_VERSION = 35;
+export const CURRENT_DB_VERSION = 36;
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -144,6 +145,7 @@ export class WritersHoardDB extends Dexie {
   inquiryHypotheses!: Table<InquiryHypothesis>;
   inquiryRatings!: Table<InquiryRating>;
   enrichmentRuns!: Table<EnrichmentRun>;
+  genealogyLinks!: Table<GenealogyLinkRow>;
 
   constructor() {
     super('WritersHoardDB');
@@ -929,12 +931,23 @@ export class WritersHoardDB extends Dexie {
     // or upgrade step; `publicFigure` and `wikidataQid` do the same on
     // `codexEntries`. A status is never stored on a claim (it is derived from
     // its sources), so there is nothing here to keep in step.
-    this.version(CURRENT_DB_VERSION).stores({
+    this.version(35).stores({
       inquiryCases: 'id, projectId, updatedAt',
       inquiryClaims: 'id, projectId, updatedAt',
       inquiryHypotheses: 'id, projectId, order',
       inquiryRatings: 'id, projectId, hypothesisId, claimId',
       enrichmentRuns: 'id, projectId, entryId, createdAt',
+    });
+
+    // v36: the genealogy engine's links, one row per directed relationship
+    // between two characters of a project (kinds: biological_parent,
+    // adoptive_parent, guardian, partner). Additive and inert: the table is
+    // empty until the genealogy engine writes to it, so no existing row is
+    // read or rewritten and no upgrade step is needed. The row shape and its
+    // storage validation live in engines/genealogy/genealogyStore.ts; the
+    // characters themselves stay in their own table.
+    this.version(CURRENT_DB_VERSION).stores({
+      genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
     });
   }
 }
