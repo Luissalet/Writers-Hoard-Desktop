@@ -21,6 +21,43 @@ import { GENEALOGY_CONTRACT_VERSION } from './validate.ts';
 
 export const GENEALOGY_SIDECAR_VERSION = 'hoard.genealogy/1';
 
+/**
+ * Explicit capability discovery for the genealogy sidecar exchange.
+ *
+ * An ABSENT sidecar only means "no genealogy data travelled"; it must not be
+ * read as "the peer lacks genealogy support". A peer that DOES implement this
+ * contract announces it with a capability record; a peer that does not, or
+ * that announces a different contract version, is reported as unsupported so
+ * the caller can reject the exchange explicitly instead of guessing.
+ *
+ * Pure function: no I/O, no mutation.
+ */
+export function genealogySupport(capabilities: unknown): {
+  supported: boolean;
+  contractVersion: string | null;
+  reason: 'supported' | 'no_capabilities' | 'no_genealogy_capability' | 'version_unsupported';
+} {
+  if (!isPlainObject(capabilities)) {
+    return { supported: false, contractVersion: null, reason: 'no_capabilities' };
+  }
+  const record = capabilities as Record<string, unknown>;
+  const genealogy = record.genealogy;
+  if (genealogy === undefined || genealogy === null) {
+    return { supported: false, contractVersion: null, reason: 'no_genealogy_capability' };
+  }
+  if (!isPlainObject(genealogy)) {
+    return { supported: false, contractVersion: null, reason: 'no_genealogy_capability' };
+  }
+  const version = genealogy.contractVersion;
+  if (typeof version !== 'string' || version === '') {
+    return { supported: false, contractVersion: null, reason: 'no_genealogy_capability' };
+  }
+  if (version !== GENEALOGY_CONTRACT_VERSION) {
+    return { supported: false, contractVersion: version, reason: 'version_unsupported' };
+  }
+  return { supported: true, contractVersion: version, reason: 'supported' };
+}
+
 export interface GenealogySidecar {
   schema: typeof GENEALOGY_SIDECAR_VERSION;
   contractVersion: string;

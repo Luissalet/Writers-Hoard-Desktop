@@ -17,6 +17,7 @@ import {
 import {
   encodeGenealogySidecar,
   decodeGenealogySidecar,
+  genealogySupport,
   GENEALOGY_SIDECAR_VERSION,
   GenealogySidecarError,
 } from '../src/engines/genealogy/sidecar.ts';
@@ -338,4 +339,39 @@ test('non-object proposals are rejected as invalid_shape with the raw payload ke
   // exactly what was rejected; they are NOT coerced into GenealogyLink.
   assert.equal(result.rejected[0].link, null);
   assert.equal(result.rejected[1].link, 123);
+});
+
+// --- genealogySupport: explicit capability discovery -----------------------------
+
+test('genealogySupport: supported peer with the implemented contract version', () => {
+  const result = genealogySupport({ genealogy: { contractVersion: GENEALOGY_CONTRACT_VERSION } });
+  assert.deepEqual(result, { supported: true, contractVersion: '1.0.0', reason: 'supported' });
+});
+
+test('genealogySupport: no capabilities object at all', () => {
+  for (const caps of [null, undefined, 'x', 42, []]) {
+    const result = genealogySupport(caps);
+    assert.deepEqual(result, { supported: false, contractVersion: null, reason: 'no_capabilities' });
+  }
+});
+
+test('genealogySupport: capabilities without a genealogy entry (or malformed)', () => {
+  for (const genealogy of [undefined, null, 'yes', 42, []]) {
+    const result = genealogySupport({ genealogy });
+    assert.deepEqual(result, { supported: false, contractVersion: null, reason: 'no_genealogy_capability' });
+  }
+  const noVersion = genealogySupport({ genealogy: {} });
+  assert.deepEqual(noVersion, { supported: false, contractVersion: null, reason: 'no_genealogy_capability' });
+});
+
+test('genealogySupport: different contract version is reported, never guessed', () => {
+  const result = genealogySupport({ genealogy: { contractVersion: '9.9.9' } });
+  assert.deepEqual(result, { supported: false, contractVersion: '9.9.9', reason: 'version_unsupported' });
+});
+
+test('genealogySupport: does not mutate its input', () => {
+  const caps = { genealogy: { contractVersion: GENEALOGY_CONTRACT_VERSION } };
+  const snapshot = JSON.stringify(caps);
+  genealogySupport(caps);
+  assert.equal(JSON.stringify(caps), snapshot);
 });
