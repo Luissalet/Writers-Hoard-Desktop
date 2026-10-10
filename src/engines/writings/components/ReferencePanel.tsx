@@ -83,6 +83,8 @@ interface Props {
   narrowBreakpoint?: number;
   /** Which bottom corner the floating "Consultar" button takes. */
   anchor?: 'right' | 'left';
+  /** Whole-book editor only: the chapters actually loaded, when that is not the whole book. */
+  loadedRange?: { from: number; to: number } | null;
 }
 
 interface Row {
@@ -100,6 +102,7 @@ export default function ReferencePanel({
   mode = 'docked',
   narrowBreakpoint = REFERENCE_NARROW_PX,
   anchor = 'right',
+  loadedRange = null,
 }: Props) {
   const { t } = useTranslation();
   const { items: entries } = useCodexEntries(projectId);
@@ -447,7 +450,9 @@ export default function ReferencePanel({
         <BookOpen size={15} aria-hidden="true" className="text-accent-gold" />
         {t('writings.reference.title')}
         {writingId.startsWith('book:') && (
-          <span className="text-xs font-normal text-text-muted">· {t('writings.reference.scopeBook')}</span>
+          <span className="text-xs font-normal text-text-muted">· {loadedRange
+              ? t('writings.reference.scopeRange').replace('{from}', String(loadedRange.from)).replace('{to}', String(loadedRange.to))
+              : t('writings.reference.scopeBook')}</span>
         )}
         {open && rows.length > 0 && <span className="text-xs font-normal text-text-muted">{rows.length}</span>}
       </button>

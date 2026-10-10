@@ -1361,8 +1361,18 @@ async function runReferenceChecks(h: Harness, projectId: string): Promise<void> 
   });
 
   await h.step('reference: whole-book scope has its own mentions and pins', async () => {
+    // An idea outside the manuscript (no chapter number) is not book text, even when it names a codex entry.
+    const ghost = await call('wh_create_codex_entry', { projectId, type: 'character', title: 'Carmelo Ghost' });
+    const idea = await call('wh_create_writing', { projectId, title: 'Loose idea', content: 'Carmelo Ghost waits outside the manuscript.' });
+    const outside = await call('wh_chapter_references', { projectId, scope: 'book' });
+    expect(pick(outside, 'scope') === 'book' && (pick(outside, 'mentions') as unknown[]).length === 0, 'the book scope read text from unnumbered writings');
+    const ideaOwn = await call('wh_chapter_references', { writingId: String(pick(idea, 'id')) });
+    expect((pick(ideaOwn, 'mentions') as Array<{ id: string }>).some((m) => m.id === String(pick(ghost, 'id'))), 'the idea itself lost its own mentions');
+    await call('wh_update_writing', { id: writingId, chapter: 1 });
     const refs = await call('wh_chapter_references', { projectId, scope: 'book' });
     expect(pick(refs, 'scope') === 'book' && (pick(refs, 'mentions') as unknown[]).length >= 2, 'the book scope did not list the mentions');
+    expect(!(pick(refs, 'mentions') as Array<{ id: string }>).some((m) => m.id === String(pick(ghost, 'id'))), 'the book scope listed an entry mentioned only in an unnumbered idea');
+    expect(typeof pick(refs, 'coverage') === 'string' && String(pick(refs, 'coverage')).includes('numbered'), 'the book scope did not state its coverage');
     await call('wh_pin_reference', { projectId, scope: 'book', entryId: anaId, pinned: true });
     const chapter = await call('wh_chapter_references', { writingId });
     expect((pick(chapter, 'pinned') as unknown[]).length === 0, 'a book pin leaked into a chapter');

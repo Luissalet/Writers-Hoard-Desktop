@@ -25,6 +25,7 @@ import {
 } from '@/services/codexReference/matcher';
 import { bookScopeId, readPins, setPinned } from '@/services/codexReference/pins';
 import { getSource, searchSources, type ReferenceSourceKind } from '@/services/codexReference/sources';
+import { numberedInOrder } from '@/engines/writings/chapterOrder';
 import { stripHtml } from '@/utils/text';
 import {
   assertRowInScope,
@@ -55,7 +56,9 @@ async function resolveScope(args: ToolArgs): Promise<Scope> {
       projectId,
       scopeId: bookScopeId(projectId),
       text: async () => {
-        const rows = await db.writings.where('projectId').equals(projectId).toArray();
+        // The manuscript only: the numbered chapters in reading order, the same set
+        // the whole-book editor opens. Unnumbered ideas are not part of the book text.
+        const rows = numberedInOrder(await db.writings.where('projectId').equals(projectId).toArray());
         return rows.map((row) => stripHtml(row.content)).join('\n');
       },
     };
@@ -104,6 +107,9 @@ export async function whChapterReferences(args: ToolArgs): Promise<unknown> {
     writingId: scope.writingId ?? null,
     scope: scope.writingId ? 'chapter' : 'book',
     projectId: scope.projectId,
+    coverage: scope.writingId
+      ? 'this chapter'
+      : 'every numbered manuscript chapter (unnumbered ideas excluded). The UI panel in the whole-book editor reads only the chapter range currently loaded there, so its mentions can be a subset of these.',
     note: 'A mention means the name appears in the text; it is not presence or point of view.',
     mentions,
     pinned,
