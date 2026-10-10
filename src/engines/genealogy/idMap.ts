@@ -20,8 +20,6 @@
 // Pure functions only: no I/O, no mutation of the inputs.
 // ============================================================================
 
-import type { GenealogyLink } from './validate.ts';
-
 export interface GenealogyIdIssue {
   code: 'invalid_shape' | 'duplicate_id' | 'missing_ref';
   detail: string;
