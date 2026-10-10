@@ -1347,6 +1347,12 @@ export default function BookEditor({
             editor={editor}
             prefs={referencePrefs}
             mode="temporary"
+            loadedRange={
+              rangeFromIndex >= 0 && rangeToIndex >= rangeFromIndex &&
+              (rangeFromIndex > 0 || rangeToIndex < numbered.length - 1)
+                ? { from: numbered[rangeFromIndex].chapter, to: numbered[rangeToIndex].chapter }
+                : null
+            }
           />
           {notesOpen && (
             <div className="xl:sticky xl:top-4" data-testid="book-notes-panel">

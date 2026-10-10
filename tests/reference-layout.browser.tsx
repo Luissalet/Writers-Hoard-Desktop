@@ -158,9 +158,12 @@ export async function testReferenceLayout(): Promise<string[]> {
       entry('ana', 'character', 'Ana Ruiz', { fields: { Aliases: 'Anita' }, content: '<p>Cartógrafa del puerto.</p>' }),
       entry('faro', 'location', 'El Faro', { content: '<p>Torre blanca sobre el acantilado.</p>' }),
       entry('marta', 'character', 'Marta', { content: '<p>La hermana de Ana.</p>' }),
+      entry('ghost', 'character', 'Carmelo Ghost', { content: '<p>Solo aparece en una idea suelta.</p>' }),
     ]);
     const longChapter = `<p>Anita llegó al faro.</p>${Array.from({ length: 90 }, (_, i) => paragraph(i + 1)).join('')}<p>Marta esperaba al final.</p>`;
-    await db.writings.bulkAdd([chapter(W1, 'Capítulo uno', 1, longChapter), chapter(W2, 'Capítulo dos', 2, '<p>Marta cerró la puerta de El Faro.</p>')]);
+    await db.writings.bulkAdd([chapter(W1, 'Capítulo uno', 1, longChapter), chapter(W2, 'Capítulo dos', 2, '<p>Marta cerró la puerta de El Faro.</p>'),
+      // An idea outside the manuscript (no chapter number): it names Carmelo Ghost, but it is not book text.
+      { ...chapter(`${P}-idea`, 'Idea suelta', 0, '<p>Carmelo Ghost espera fuera del manuscrito.</p>'), chapter: undefined, status: 'idea' as const }]);
 
     // ---- wide window: docked in the side column ------------------------------------------------------------
     await setViewport(1280, 800);
@@ -324,11 +327,13 @@ export async function testReferenceLayout(): Promise<string[]> {
     const bookSel = { from: bookEditor.state.selection.from, to: bookEditor.state.selection.to };
     await click(toggle(), 'book consult button');
     await waitFor('the book consult', () => byTestId(PANEL)?.getAttribute('data-temporary') === 'true' && rowIds().length === 3);
-    assert(byTestId('reference-toggle')?.textContent?.includes(t('writings.reference.scopeBook')), 'the drawer says it is about the whole book');
+    assert(byTestId('reference-toggle')?.textContent?.includes(t('writings.reference.scopeBook')), 'the drawer says it is about the whole book when every chapter is loaded');
     assert(bookEditor.state.selection.from === bookSel.from && bookEditor.state.selection.to === bookSel.to, 'the book selection survived');
     assert(!byTestId('reference-backdrop'), 'no backdrop over the book');
     const bookMentions = (await call('wh_chapter_references', { projectId: P, scope: 'book' })).mentions as Array<{ id: string }>;
     assert([...rowIds()].sort().join() === bookMentions.map((m) => m.id).sort().join(), 'the book rows and the book-scope tool list the same entities');
+    assert(!bookMentions.some((m) => m.id === `${P}-ghost`) && !rowIds().includes(`${P}-ghost`), 'an entry named only in an unnumbered idea is not a book mention, in the tool or on screen');
+    assert((await call('wh_chapter_references', { writingId: `${P}-idea` })).mentions as unknown[] && ((await call('wh_chapter_references', { writingId: `${P}-idea` })).mentions as Array<{ id: string }>).some((m) => m.id === `${P}-ghost`), 'the idea keeps its own mentions');
     await click(document.querySelector(`[data-entry-id="${P}-marta"] [data-testid="reference-pin"]`), 'pin in the book');
     assert((await db.referencePins.get(`book:${P}`))?.entryIds.join() === `${P}-marta`, 'the book pin is stored under its own scope');
     assert(!(await db.referencePins.get(W1)), 'and not under a chapter');
@@ -340,6 +345,27 @@ export async function testReferenceLayout(): Promise<string[]> {
     await waitFor('book at 390', () => toggle()?.getAttribute('data-mode') === 'floating');
     assert(noHorizontalScroll() && inViewport(toggle()!.getBoundingClientRect()), 'the book at 390px has no overflow and a reachable button');
     passed.push('whole-book editor: temporary consult with its own pins, selection kept, Escape, same entities as the tool; fits 390px');
+
+    // ---- a loaded range is not "the whole book" ------------------------------------------------------------------------
+    await setViewport(1280, 800);
+    const fromSelect = [...document.querySelectorAll('select')].find((el) => [...el.options].some((o) => o.value === W2) && el.closest('label')?.textContent?.includes(t('writings.book.range.from')));
+    assert(fromSelect, 'the range "from" select exists');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(fromSelect, W2);
+      fromSelect!.dispatchEvent(new Event('change', { bubbles: true }));
+      await pause(100);
+    });
+    await waitFor('the book reloaded on chapter 2 only', () => document.querySelectorAll('.wh-chapter-heading').length === 1 && Boolean(editorOf()), 10000);
+    await click(toggle(), 'range consult button');
+    await waitFor('the ranged consult', () => byTestId(PANEL)?.getAttribute('data-temporary') === 'true');
+    const rangeTitle = byTestId('reference-toggle')?.textContent ?? '';
+    assert(rangeTitle.includes(t('writings.reference.scopeRange').replace('{from}', '2').replace('{to}', '2')), `the drawer names the loaded range, got "${rangeTitle}"`);
+    assert(!rangeTitle.includes(t('writings.reference.scopeBook')), 'a loaded range is not called the whole book');
+    await waitFor('the ranged rows follow chapter 2', () => rowIds().length === 2 && !rowIds().includes(`${P}-ana`));
+    assert(rowIds().sort().join() === `${P}-faro,${P}-marta`, `the ranged UI lists only what chapter 2 mentions, got ${[...rowIds()].join()}`);
+    const wholeBook = (await call('wh_chapter_references', { projectId: P, scope: 'book' })) as { mentions: Array<{ id: string }>; coverage: string };
+    assert(wholeBook.mentions.some((m) => m.id === `${P}-ana`) && wholeBook.coverage.includes('range'), 'the tool still covers every numbered chapter and says the UI reads only the loaded range');
+    passed.push('the whole-book drawer names the loaded chapter range instead of claiming the whole book; the tool states its wider coverage and excludes unnumbered ideas');
   } finally {
     await unmount();
     setReferenceConsult(false);

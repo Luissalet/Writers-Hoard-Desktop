@@ -4488,6 +4488,7 @@ const es = {
   'writings.reference.sourceOpen': 'Abrir {name} (solo lectura)',
   'writings.reference.readOnly': 'Solo lectura: edítalo en su propio motor.',
   'writings.reference.scopeBook': 'todo el libro',
+  'writings.reference.scopeRange': 'capítulos {from}-{to}',
   'realAtlas.place.appearsIn': 'Aparece en:',
   'realAtlas.place.appearsNowhere': 'No aparece en ningún capítulo todavía',
   'realAtlas.place.chapterShort': 'Cap. {n}',
