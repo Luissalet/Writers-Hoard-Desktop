@@ -289,7 +289,21 @@ export function createGenealogyBridgeHandlers(
           applyId,
           Object.fromEntries(applications),
         );
-        await saveGenealogyLinks(table, projectId, result.links);
+        let receipt: Awaited<ReturnType<typeof saveGenealogyLinks>>;
+        try {
+          receipt = await saveGenealogyLinks(table, projectId, result.links);
+        } catch (err) {
+          throw new GenealogyOpError(
+            'save_failed',
+            `save threw: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        if (receipt.saved !== result.links.length) {
+          throw new GenealogyOpError(
+            'save_failed',
+            `save wrote ${receipt.saved} of ${result.links.length} links`,
+          );
+        }
         applications.set(applyId, result.application);
         return {
           ok: true,
