@@ -122,13 +122,18 @@ es la vía de intercambio conservadora.
   antiguas: no se pierde ni se degrada ningún dato.
 - Un sidecar de versión futura (`hoard.genealogy/2`, …) se rechaza explícitamente
   (`genealogy_version_unsupported`): nunca se adivina un esquema desconocido.
-- **Límite de mapeo de ids (no resuelto en este lote):** los enlaces del sidecar
+- **Mapeo de ids (implementado en la segunda ronda):** los enlaces del sidecar
   usan los **ids locales** de personaje (`A`, `B`, …), mientras que `hoard.world/1`
   referencia entidades como `hoard://writer/codex/<id>` (`refCodex`,
-  `worldSchema.ts:99`). Este lote **no afirma** correspondencia entre ambos
-  espacios: cruzar un enlace del sidecar con una entidad del documento mundo
-  requiere un mapeo id↔ref que está **pendiente** (ver prueba
-  «sidecar keeps LOCAL ids; world/1 uses hoard refs — no mapping is claimed»).
+  `worldSchema.ts:99`). La correspondencia entre ambos espacios la hace
+  `mapGenealogyIds(links, idTable, direction)` en
+  `src/engines/genealogy/idMap.ts`, con una **tabla de ids explícita** que
+  aporta el llamador (local → ref, o invertida con `toLocal`): nunca se adivina
+  por nombre. Un extremo fuera de la tabla se rechaza como `missing_ref` con el
+  id del enlace; los ids de enlace duplicados se rechazan como `duplicate_id`;
+  la tabla con dos locales para la misma ref se rechaza como `invalid_shape`.
+  Función pura, sin mutación; cubierta por 9 pruebas
+  (`tests/genealogyIdMap.test.mjs`), incluido el ida y vuelta completo.
 
 ### 4.2 Errores del sidecar (`GenealogySidecarError`)
 
