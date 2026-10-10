@@ -21,7 +21,7 @@
 | Exportadores del árbol `src/engines/genealogy/treeExport.ts` (W3, quinta pieza: `exportTreeDot` Graphviz con estilos por kind y escape, `exportTreeText` jerárquico con notas de pareja e hijos ya colocados) | Vista de árbol genealógico (W3, UI) |
 | Vista previa de importación `src/engines/genealogy/importPreview.ts` (W6, sexta pieza: clasificación pura additions/duplicates/conflicts con ids derivados) | |
 | Capa de filas de persistencia `src/engines/genealogy/genealogyStore.ts` (W3, segunda pieza: `GenealogyLinkRow` con `projectId`, conversiones enlace↔fila y `validateRows` previa al volcado; el registro de la tabla `genealogyLinks` como esquema v36 de Dexie se hace en la integración) | Registro real de la tabla Dexie (v36) y operaciones CRUD en `src/db` |
-| Núcleo MCP `src/engines/genealogy/genealogyOps.ts` (tercera pieza: `applyGenealogy` con registro de aplicación y revisiones, `queryGenealogy` por dirección, `undoGenealogy` con guarda de revisión; el transporte MCP real queda pendiente) | Transporte MCP real en el bridge (exponer las herramientas §5) |
+| Núcleo MCP `src/engines/genealogy/genealogyOps.ts` (tercera pieza: `applyGenealogy` con registro de aplicación y revisiones, `queryGenealogy` por dirección, `undoGenealogy` con guarda de revisión) + despachador `src/engines/genealogy/genealogyTools.ts` (sexta pieza: `GENEALOGY_TOOLS` con las 5 herramientas §5 y `dispatchGenealogyTool` puro; el transporte MCP real queda pendiente) | Transporte MCP real en el bridge (consumir `GENEALOGY_TOOLS`/`dispatchGenealogyTool`) |
 | Mapeo de ids `src/engines/genealogy/idMap.ts` (segunda ronda) | Contrato MCP real (`preview/validate/apply/query/undo`) |
 | Pruebas Node estándar `tests/genealogy.test.mjs` (25) | Migración/roundtrip real en el bridge |
 
