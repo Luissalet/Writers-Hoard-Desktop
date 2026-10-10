@@ -1,0 +1,184 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+// The bridge tool module under test. Handlers take the table explicitly (a
+// factory), because node cannot intercept the `@/db` import without a loader;
+// the real bridge wires the factory with the Dexie table at registration.
+import {
+  GENEALOGY_BRIDGE_TOOLS,
+  createGenealogyBridgeHandlers,
+} from '../src/services/aiBridge/tools/genealogy.ts';
+
+const fakeTable = () => {
+  const rows = new Map();
+  return {
+    where: (key) => ({
+      equals: (v) => ({
+        toArray: async () => [...rows.values()].filter((r) => r[key] === v),
+      }),
+    }),
+    bulkPut: async (arr) => {
+      for (const r of arr) rows.set(r.id, { ...r });
+      return arr.length;
+    },
+    get: async (id) => (rows.has(id) ? { ...rows.get(id) } : undefined),
+    delete: async (id) => {
+      rows.delete(id);
+    },
+    _rows: rows,
+  };
+};
+
+const CHAR = (id, name) => ({ id, name, type: 'character' });
+const LINK = (id, from, to, kind, extra = {}) => ({ id, from, to, kind, ...extra });
+const loadCharacters = async (_projectId) => [CHAR('a', 'Ana'), CHAR('b', 'Beto')];
+
+test('manifest lists the five contract tools with writes flags', () => {
+  const names = GENEALOGY_BRIDGE_TOOLS.map((tool) => tool.name);
+  assert.deepEqual(names, [
+    'wh_genealogy_preview',
+    'wh_genealogy_validate',
+    'wh_genealogy_apply',
+    'wh_genealogy_query',
+    'wh_genealogy_undo',
+  ]);
+  const writes = Object.fromEntries(GENEALOGY_BRIDGE_TOOLS.map((tool) => [tool.name, tool.writes]));
+  assert.deepEqual(writes, {
+    wh_genealogy_preview: false,
+    wh_genealogy_validate: false,
+    wh_genealogy_apply: true,
+    wh_genealogy_query: false,
+    wh_genealogy_undo: true,
+  });
+  for (const tool of GENEALOGY_BRIDGE_TOOLS) {
+    assert.equal(tool.schema.type, 'object');
+    assert.ok(tool.description.length > 20, `${tool.name} needs a description`);
+  }
+});
+
+test('preview returns additions/duplicates/conflicts without writing', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, loadCharacters);
+  const result = await handlers.wh_genealogy_preview({
+    projectId: 'p1',
+    links: [LINK('g1', 'a', 'b', 'biological_parent')],
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.preview.additions.length, 1);
+  assert.equal(result.preview.duplicates.length, 0);
+  assert.equal(result.preview.conflicts.length, 0);
+  assert.equal(table._rows.size, 0, 'preview must not write');
+});
+
+test('validate reports issues without writing', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, loadCharacters);
+  const result = await handlers.wh_genealogy_validate({
+    projectId: 'p1',
+    characters: [CHAR('a', 'Ana')],
+    links: [LINK('g1', 'a', 'a', 'biological_parent')],
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((i) => i.code === 'self_link'));
+  assert.equal(table._rows.size, 0, 'validate must not write');
+});
+
+test('apply writes accepted links and registers the application', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, loadCharacters);
+  const result = await handlers.wh_genealogy_apply({
+    projectId: 'p1',
+    links: [
+      LINK('g1', 'a', 'b', 'biological_parent'),
+      LINK('g2', 'a', 'a', 'biological_parent'),
+    ],
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.applied.length, 1);
+  assert.equal(result.rejected.length, 1);
+  assert.equal(table._rows.size, 1);
+  assert.ok(result.applyId, 'apply must return an applyId for undo');
+});
+
+test('apply is rejected without a projectId', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, loadCharacters);
+  const result = await handlers.wh_genealogy_apply({
+    links: [LINK('g1', 'a', 'b', 'biological_parent')],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'invalid_project');
+  assert.equal(table._rows.size, 0);
+});
+
+test('query returns parents and children by direction', async () => {
+  const table = fakeTable();
+  await table.bulkPut([
+    { ...LINK('g1', 'a', 'b', 'biological_parent'), projectId: 'p1', updatedAt: 1 },
+    { ...LINK('g2', 'c', 'a', 'biological_parent'), projectId: 'p1', updatedAt: 2 },
+  ]);
+  const handlers = createGenealogyBridgeHandlers(table, loadCharacters);
+  const result = await handlers.wh_genealogy_query({ projectId: 'p1', characterId: 'a' });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.parents.map((l) => l.id), ['g2']);
+  assert.deepEqual(result.children.map((l) => l.id), ['g1']);
+  assert.deepEqual(result.partners, []);
+});
+
+test('query rejects an unknown kind filter', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, loadCharacters);
+  const result = await handlers.wh_genealogy_query({
+    projectId: 'p1',
+    characterId: 'a',
+    kind: 'nonsense',
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'invalid_kind');
+});
+
+test('undo restores the previous state with a matching revision', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, loadCharacters);
+  const applied = await handlers.wh_genealogy_apply({
+    projectId: 'p1',
+    links: [LINK('g1', 'a', 'b', 'biological_parent')],
+  });
+  assert.equal(table._rows.size, 1);
+  const undone = await handlers.wh_genealogy_undo({
+    projectId: 'p1',
+    applyId: applied.applyId,
+    revision: applied.revisionAfter,
+  });
+  assert.equal(undone.ok, true);
+  assert.equal(table._rows.size, 0);
+});
+
+test('undo refuses a stale revision', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, loadCharacters);
+  const applied = await handlers.wh_genealogy_apply({
+    projectId: 'p1',
+    links: [LINK('g1', 'a', 'b', 'biological_parent')],
+  });
+  const undone = await handlers.wh_genealogy_undo({
+    projectId: 'p1',
+    applyId: applied.applyId,
+    revision: 'deadbeef',
+  });
+  assert.equal(undone.ok, false);
+  assert.equal(undone.code, 'stale_revision');
+  assert.equal(table._rows.size, 1, 'stale undo must not delete');
+});
+
+test('undo with an unknown applyId is rejected', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, loadCharacters);
+  const result = await handlers.wh_genealogy_undo({
+    projectId: 'p1',
+    applyId: 'nope',
+    revision: 'x',
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'unknown_apply');
+});
