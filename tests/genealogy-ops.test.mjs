@@ -124,3 +124,27 @@ test('apply tras undo con el mismo applyId funciona (el registro viejo se sustit
   const again = applyGenealogy(characters, undone.links, [proposal[1]], 'app1', {});
   assert.deepEqual(again.appliedLinkIds, ['f2']);
 });
+
+// --- r2 fix: apply con ids derivados y duplicate_apply real ---
+test('apply deriva ids g1..gN para la propuesta sin id (contrato §5)', () => {
+  const chars = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }];
+  const r = applyGenealogy(chars, [], [
+    { from: 'a', to: 'b', kind: 'biological_parent' },
+    { from: 'b', to: 'a', kind: 'partner' },
+  ], 'ap-derive');
+  assert.deepEqual(r.appliedLinkIds, ['g1', 'g2']);
+  assert.equal(r.links.length, 2);
+});
+
+test('apply salta ids ya ocupados por el estado al derivar', () => {
+  const chars = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }];
+  const existing = [{ id: 'g1', from: 'a', to: 'b', kind: 'partner' }];
+  const r = applyGenealogy(chars, existing, [{ from: 'a', to: 'b', kind: 'biological_parent' }], 'ap-skip');
+  assert.deepEqual(r.appliedLinkIds, ['g2']);
+});
+
+test('apply rechaza duplicate_apply con el registro real del llamador', () => {
+  const chars = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }];
+  const r1 = applyGenealogy(chars, [], [{ id: 'g1', from: 'a', to: 'b', kind: 'biological_parent' }], 'ap-x');
+  assert.throws(() => applyGenealogy(chars, r1.links, [{ id: 'g2', from: 'b', to: 'a', kind: 'partner' }], 'ap-x', { 'ap-x': r1.application }), (e) => e.code === 'duplicate_apply');
+});

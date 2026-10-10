@@ -70,7 +70,26 @@ export function applyGenealogy(
   if (Object.prototype.hasOwnProperty.call(applications, applyId)) {
     throw new GenealogyOpError('duplicate_apply', `la aplicación ${applyId} ya existe`);
   }
-  const validation = validateGenealogy(characters, proposal);
+  // Ids derivados (contrato §5): las entradas sin id reciben g1..gN saltando
+  // los ocupados por el estado; el validador exige id, así que se completa
+  // antes de validar.
+  const taken = new Set(links.map((l) => l.id));
+  let nextDerived = 1;
+  const withIds = proposal.map((raw) => {
+    if (
+      typeof raw === 'object' && raw !== null &&
+      typeof (raw as Record<string, unknown>).id === 'string' &&
+      ((raw as Record<string, unknown>).id as string) !== ''
+    ) {
+      return raw;
+    }
+    while (taken.has(`g${nextDerived}`)) nextDerived++;
+    const id = `g${nextDerived}`;
+    nextDerived++;
+    return { ...(raw as Record<string, unknown>), id };
+  });
+
+  const validation = validateGenealogy(characters, withIds);
   const revisionBefore = genealogyRevision(links);
   const appliedLinkIds = validation.accepted.map((l) => l.id);
   const newLinks = [...links, ...validation.accepted.map((l) => ({ ...l }))];
