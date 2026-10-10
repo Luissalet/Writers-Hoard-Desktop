@@ -26,6 +26,10 @@ import {
   type GenealogyApplication,
 } from '../../../engines/genealogy/genealogyOps.ts';
 import { previewGenealogyImport } from '../../../engines/genealogy/importPreview.ts';
+import { importGenealogyObsidian } from '../../../engines/genealogy/obsidianImport.ts';
+import { importGenealogyNotion } from '../../../engines/genealogy/notionImport.ts';
+import { importGenealogyWorldAnvil } from '../../../engines/genealogy/worldAnvilImport.ts';
+import { importGenealogyCampfire } from '../../../engines/genealogy/campfireImport.ts';
 import {
   deleteGenealogyLink,
   loadGenealogyLinks,
@@ -88,6 +92,28 @@ export const GENEALOGY_BRIDGE_TOOLS: BridgeTool[] = [
       'Apply a genealogy link proposal: validates, stores only the accepted links and registers the application so it can be undone. Returns applied and rejected links with an applyId.',
     writes: true,
     schema: LINKS_SCHEMA,
+  },
+  {
+    name: 'wh_genealogy_import',
+    description:
+      'Parse an export from a supported format (obsidian, notion, worldanvil, campfire) into a genealogy link proposal with a preview (additions/duplicates/conflicts). Read-only: returns the proposal; apply it with wh_genealogy_apply.',
+    writes: false,
+    schema: {
+      type: 'object',
+      required: ['projectId', 'format', 'text'],
+      properties: {
+        projectId: { type: 'string', description: 'Project the import belongs to.' },
+        format: {
+          type: 'string',
+          description: 'One of: obsidian, notion, worldanvil, campfire.',
+        },
+        text: {
+          type: 'string',
+          description: 'Export content (markdown for obsidian/notion/worldanvil, JSON for campfire).',
+        },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'wh_genealogy_query',
@@ -166,6 +192,41 @@ export function createGenealogyBridgeHandlers(
   };
 
   return {
+    wh_genealogy_import: async (args) => {
+      try {
+        requireProjectId(args);
+        const format = args.format;
+        const text = args.text;
+        if (typeof format !== 'string' || format.length === 0) {
+          throw new GenealogyOpError('invalid_format', 'format debe ser un string no vacío');
+        }
+        if (typeof text !== 'string' || text.length === 0) {
+          throw new GenealogyOpError('invalid_text', 'text debe ser un string no vacío');
+        }
+        const parsed =
+          format === 'obsidian'
+            ? importGenealogyObsidian(text)
+            : format === 'notion'
+              ? importGenealogyNotion(text)
+              : format === 'worldanvil'
+                ? importGenealogyWorldAnvil(text)
+                : format === 'campfire'
+                  ? importGenealogyCampfire(JSON.parse(text))
+                  : null;
+        if (!parsed) {
+          throw new GenealogyOpError(
+            'invalid_format',
+            `formato desconocido: ${format} (soportados: obsidian, notion, worldanvil, campfire)`,
+          );
+        }
+        const existing = await loadGenealogyLinks(table, args.projectId as string);
+        const preview = previewGenealogyImport({ incoming: parsed.links, existing });
+        return { ok: true, format, proposal: parsed.links, issues: parsed.issues, preview };
+      } catch (err) {
+        return errorReply(err);
+      }
+    },
+
     wh_genealogy_preview: async (args) => {
       try {
         const projectId = requireProjectId(args);
