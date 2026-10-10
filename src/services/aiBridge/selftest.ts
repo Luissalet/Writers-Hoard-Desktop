@@ -1,5 +1,5 @@
-﻿// ============================================================================
-// AI bridge â€” self-test
+// ============================================================================
+// AI bridge — self-test
 // ============================================================================
 //
 // Exercises the whole tool surface against a project it creates for itself and
@@ -167,7 +167,7 @@ async function runPeopleChecks(h: Harness, projectId: string): Promise<string> {
       type: 'character',
       title: 'Marta',
       fields: { Age: '34', Occupation: 'Smuggler' },
-      // A body, because anchoring reads the prose â€” structured fields are not
+      // A body, because anchoring reads the prose — structured fields are not
       // part of an entity's anchorable text.
       content: 'She keeps a scar she will not explain.',
     });
@@ -435,7 +435,7 @@ async function runScriptAndRestChecks(h: Harness, projectId: string): Promise<vo
  * The world engine, without ever forging a world.
  *
  * No bridge tool creates a world (the app does that when the engine opens),
- * so the row is written directly and its terrain is never generated here â€”
+ * so the row is written directly and its terrain is never generated here —
  * which is the case the write path must survive anyway: with no view open and
  * no snapshot, edits go to the row. Nothing below may trigger a read of the
  * terrain: a settlement placement or a place link would start a background
@@ -528,8 +528,8 @@ async function runRealAtlasChecks(h: Harness, projectId: string): Promise<void> 
     });
     cityId = String(pick(created, 'id'));
     expect(pick(created, 'created') === true, 'the create did not report created');
-    // Accent and case are folded on both sides: "olÃ­sipo" must find "Olisipo".
-    const found = await call('wh_list_atlas_places', { projectId, query: 'OLÃSIPO' });
+    // Accent and case are folded on both sides: "olísipo" must find "Olisipo".
+    const found = await call('wh_list_atlas_places', { projectId, query: 'OLÍSIPO' });
     const rows = (pick(found, 'places') ?? []) as Record<string, unknown>[];
     expect(rows.length === 1 && rows[0].id === cityId, 'the alias search missed the place');
     expect(rows[0].lat === 38.7223 && rows[0].lon === -9.1393, 'the coordinates did not round-trip');
@@ -633,22 +633,22 @@ async function runRealAtlasChecks(h: Harness, projectId: string): Promise<void> 
   // Lisboa (38.7223, -9.1393) is already there; Madrid is created here, AFTER
   // the reality check above counted one place with coordinates.
   let madridId = '';
-  await h.step('real atlas: the distance Lisboaâ€“Madrid is 502 km, bearing ENE, with travel times', async () => {
+  await h.step('real atlas: the distance Lisboa–Madrid is 502 km, bearing ENE, with travel times', async () => {
     const madrid = await call('wh_create_atlas_place', {
       projectId, name: 'Madrid', kind: 'city', lat: 40.4168, lon: -3.7038, realNotes: 'Checked.',
     });
     madridId = String(pick(madrid, 'id'));
     const measured = await call('wh_atlas_distance', { fromPlaceId: cityId, toPlaceId: madridId });
     const km = Number(pick(measured, 'km'));
-    expect(Math.abs(km - 502.4) < 5, `Lisboaâ€“Madrid should be about 502 km, got ${km}`);
+    expect(Math.abs(km - 502.4) < 5, `Lisboa–Madrid should be about 502 km, got ${km}`);
     expect(pick(measured, 'compass') === 'ENE', `the bearing should read ENE, got ${String(pick(measured, 'compass'))}`);
     const estimates = (pick(measured, 'estimates') ?? []) as Record<string, unknown>[];
     const byMode = new Map(estimates.map((row) => [row.mode, row]));
     expect(byMode.size === 6, 'six means of travel are promised');
-    expect(byMode.get('walk')?.days === 14, `on foot Lisboaâ€“Madrid is 14 days in stages, got ${String(byMode.get('walk')?.days)}`);
+    expect(byMode.get('walk')?.days === 14, `on foot Lisboa–Madrid is 14 days in stages, got ${String(byMode.get('walk')?.days)}`);
     expect(Number(byMode.get('car')?.hours) < Number(byMode.get('rail19')?.hours), 'a car should beat a 19th-century train');
     expect(byMode.get('plane')?.days === undefined, 'a plane does not travel in daily stages');
-    expect(String(pick(measured, 'markdown')).includes('Lisboa â†’ Madrid'), 'the markdown does not name the journey');
+    expect(String(pick(measured, 'markdown')).includes('Lisboa → Madrid'), 'the markdown does not name the journey');
     // Rossio has no coordinates: a measurable refusal, not a NaN.
     let refused = '';
     try {
@@ -721,7 +721,7 @@ async function runRealAtlasChecks(h: Harness, projectId: string): Promise<void> 
   });
 
   // Routes live in a settings blob, so the create's audit line is an update
-  // of that row with the previous blob as `before` â€” what the generic undo
+  // of that row with the previous blob as `before` — what the generic undo
   // puts back. Rossio has no coordinates: it must show up in `missing`, and
   // the leg through it must not be measured.
   await h.step('real atlas: a route totals its legs, skips a stop without coordinates, and is listed', async () => {
@@ -730,7 +730,7 @@ async function runRealAtlasChecks(h: Harness, projectId: string): Promise<void> 
     });
     expect(pick(created, 'created') === true, 'the create did not report created');
     const km = Number(pick(created, 'km'));
-    expect(Math.abs(km - 2 * 502.4) < 10, `Lisboaâ€“Madridâ€“Lisboa should be about 1005 km, got ${km}`);
+    expect(Math.abs(km - 2 * 502.4) < 10, `Lisboa–Madrid–Lisboa should be about 1005 km, got ${km}`);
     expect(((pick(created, 'legs') ?? []) as unknown[]).length === 2, 'two legs were promised');
     expect(pick(created, '__audit', 'kind') === 'update' && pick(created, '__audit', 'table') === 'settings', 'the audit line must be an update of the settings row');
     expect(typeof pick(created, '__audit', 'before', 'value') === 'string', 'the audit did not record the previous routes blob');
@@ -860,7 +860,7 @@ async function runAnalysisChecks(h: Harness, projectId: string, writingHostId: s
       projectId, title: 'Coverage divergence', reality: 'Actually wh-probe-divergence.',
     });
 
-    // token â†’ the engine the hit must be attributed to, because a hit under
+    // token → the engine the hit must be attributed to, because a hit under
     // the wrong engineId sends the reader to the wrong place.
     const probes: [string, string][] = [
       ['wh-probe-outline', 'outline'],
@@ -1013,7 +1013,7 @@ const PARENT_PROBE_TOOLS = [
  * These tools cannot be probed with a made-up id: they load the parent first,
  * so a bogus id fails with `not-found` and proves nothing. The parents have to
  * exist. Gallery and maps get their rows written straight to Dexie, because
- * the bridge has no tool that creates a map or an image â€” which is exactly why
+ * the bridge has no tool that creates a map or an image — which is exactly why
  * their write surface was the most exposed.
  */
 async function buildGuardProbes(
@@ -1092,7 +1092,7 @@ async function buildGuardProbes(
     id: pinId, projectId, mapId, name: 'Host pin', icon: 'city', position: { x: 50, y: 50 },
   });
   // Nor a world: the app forges one when the engine opens. Its terrain is
-  // never generated here â€” the guard fires before any tool could ask for it.
+  // never generated here — the guard fires before any tool could ask for it.
   const worldId = generateId('world');
   await db.generatedWorlds.add({
     id: worldId, projectId, title: 'Host world',
@@ -1196,8 +1196,8 @@ async function buildGuardProbes(
  * row written into any of the other eighteen has no tab to appear in and is
  * skipped by the app's own search, so the writer would never learn it exists.
  *
- * The list of tools to check is DERIVED from the manifest â€” every write tool
- * that names an engine and takes a projectId â€” so a new tool added without the
+ * The list of tools to check is DERIVED from the manifest — every write tool
+ * that names an engine and takes a projectId — so a new tool added without the
  * guard fails here instead of quietly losing someone's work.
  */
 async function runEngineGuardChecks(h: Harness): Promise<void> {
@@ -1229,7 +1229,7 @@ async function runEngineGuardChecks(h: Harness): Promise<void> {
 
   await h.step('writes that reach their project through a parent are guarded too', async () => {
     // The tools above take a projectId. These take the id of something that
-    // already exists â€” a chapter, an outline, an image â€” and only learn the
+    // already exists — a chapter, an outline, an image — and only learn the
     // project from it. Guarding the first group and not this one would have
     // left every update tool, and the whole of gallery and maps, wide open.
     //
@@ -1270,7 +1270,7 @@ async function runEngineGuardChecks(h: Harness): Promise<void> {
       .map((tool) => tool.name);
     expect(
       !uncovered.length,
-      `write tools with no engine-guard check: ${uncovered.join(', ')} â€” add a probe to buildGuardProbes`,
+      `write tools with no engine-guard check: ${uncovered.join(', ')} — add a probe to buildGuardProbes`,
     );
   });
 
@@ -1318,7 +1318,7 @@ async function runReferenceChecks(h: Harness, projectId: string): Promise<void> 
     anaId = String(pick(ana, 'id'));
     anabelId = String(pick(anabel, 'id'));
     const created = await call('wh_create_writing', {
-      projectId, title: 'Reference chapter', content: 'Anita cruzÃ³ la plaza. Anabel no la vio.',
+      projectId, title: 'Reference chapter', content: 'Anita cruzó la plaza. Anabel no la vio.',
     });
     writingId = String(pick(created, 'id'));
     const refs = await call('wh_chapter_references', { writingId });
@@ -1448,7 +1448,7 @@ async function runBetaReadingChecks(h: Harness, projectId: string): Promise<void
  * Run the whole suite against a throwaway project and delete it afterwards.
  *
  * `deleteProject` sweeps every table that carries a projectId plus the few
- * children that do not, so nothing survives â€” which is what makes it safe to
+ * children that do not, so nothing survives — which is what makes it safe to
  * run this against someone's real installation.
  */
 /**
