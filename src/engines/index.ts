@@ -20,6 +20,7 @@ import '@/engines/outline';
 import '@/engines/writing-stats';
 import '@/engines/character-arc';
 import '@/engines/relationships';
+import '@/engines/genealogy';
 import '@/engines/seeds';
 import '@/engines/pov-audit';
 import '@/engines/annotations';
