@@ -35,7 +35,7 @@ function isLink(value: unknown): value is GenealogyLink {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
-    typeof v.id === 'string' &&
+    (v.id === undefined || typeof v.id === 'string') &&
     typeof v.from === 'string' &&
     typeof v.to === 'string' &&
     typeof v.kind === 'string' &&
@@ -71,7 +71,7 @@ export function previewGenealogyImport(input: {
       issues.push({ index, reason: 'invalid_link' });
       continue;
     }
-    const incoming: GenealogyLink = raw.id === '' ? { ...raw, id: '' } : raw;
+    const incoming: GenealogyLink = { ...raw, id: raw.id ?? '' };
     if (incoming.id === '') {
       while (existingById.has(`g${nextDerived}`)) nextDerived++;
       incoming.id = `g${nextDerived}`;
