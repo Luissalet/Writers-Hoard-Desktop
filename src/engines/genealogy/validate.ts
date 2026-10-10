@@ -50,6 +50,7 @@ export interface GenealogyIssue {
     | 'unknown_kind'
     | 'duplicate_id'
     | 'ancestry_cycle'
+    | 'cycle_rejected'
     | 'invalid_shape';
   /** Human-readable detail; `chain` is set for ancestry_cycle. */
   detail: string;

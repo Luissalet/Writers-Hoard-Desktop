@@ -1,3 +1,5 @@
+import { deriveLinkIds } from './genealogyStore.ts';
+
 // ============================================================================
 // Genealogy Markdown importer — W6, first importer of the second round.
 //
@@ -90,9 +92,10 @@ export function importGenealogyMarkdown(markdown: unknown): GenealogyImportResul
       return;
     }
 
-    // Link id: explicit fourth field when present, else derived and unique.
-    const explicitId = parts.length > 3 && parts[3] !== '' ? parts[3] : `g${links.length + 1}`;
-    if (seen.has(explicitId)) {
+    // Link id: explicit fourth field when present, else derived (explicit ids
+    // of the whole batch are reserved first, see deriveLinkIds below).
+    const explicitId = parts.length > 3 && parts[3] !== '' ? parts[3] : '';
+    if (explicitId !== '' && seen.has(explicitId)) {
       issues.push({ code: 'duplicate_id', detail: `duplicate link id: ${explicitId}`, line: index + 1 });
       return;
     }
@@ -106,6 +109,11 @@ export function importGenealogyMarkdown(markdown: unknown): GenealogyImportResul
   if (links.length === 0 && issues.length === 0) {
     issues.push({ code: 'no_links', detail: 'no relationship lines found' });
   }
+
+  // Derive ids for the entries without one (review r3): reserve the batch's
+  // explicit ids first so a derived id never collides with one of them.
+  const ids = deriveLinkIds(links, new Set());
+  links.forEach((link, i) => { if (link.id === '') link.id = ids[i]; });
 
   return { links, issues };
 }

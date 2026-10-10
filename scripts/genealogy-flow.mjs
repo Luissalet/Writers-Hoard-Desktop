@@ -15,7 +15,7 @@ function fakeTable() {
       }),
     }),
     bulkPut: async (list) => {
-      for (const r of list) rows.set(r.key, r);
+      for (const r of list) rows.set(r.id, r);
     },
     get: async (key) => rows.get(key),
     delete: async (key) => {

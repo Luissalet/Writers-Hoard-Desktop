@@ -941,20 +941,30 @@ export class WritersHoardDB extends Dexie {
 
     // v36: the genealogy engine's links, one row per directed relationship
     // between two characters of a project (kinds: biological_parent,
-    // adoptive_parent, guardian, partner). Additive and inert: the table is
-    // empty until the genealogy engine writes to it, so no existing row is
-    // read or rewritten and no upgrade step is needed. The row shape and its
-    // storage validation live in engines/genealogy/genealogyStore.ts; the
-    // characters themselves stay in their own table.
-    // v37: primary key becomes the composite projectId+id (stored in the
-    // `key` field) so two projects can hold links with the same id without
-    // overwriting each other (review r2, P1). The table is still inert for
-    // existing data: no other table reads or writes genealogyLinks yet.
-    this.version(36).stores({
-      genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
-    });
+    // adoptive_parent, guardian, partner). Primary key `id` = link id.
+    this.version(36)
+      .stores({
+        genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
+      })
+      .upgrade(async (tx) => {
+        // v36 -> v37: the primary key cannot change between Dexie versions,
+        // so the composite projectId+linkId now lives IN `id` and the original
+        // link id moves to the new `linkId` field. Rows are rewritten in place
+        // inside the version transaction; malformed rows are left untouched.
+        const table = tx.table('genealogyLinks');
+        await table.toCollection().modify((row: Record<string, unknown>) => {
+          const linkId = typeof row.id === 'string' ? row.id : '';
+          const projectId = typeof row.projectId === 'string' ? row.projectId : '';
+          if (linkId === '' || projectId === '' || typeof row.linkId === 'string') return;
+          row.id = `${projectId}\u0000${linkId}`;
+          row.linkId = linkId;
+        });
+      });
+    // v37: primary key is the composite projectId+linkId (stored in `id`,
+    // original link id in `linkId`) so two projects can hold links with the
+    // same id without overwriting each other (review r2, P1; migration r3).
     this.version(CURRENT_DB_VERSION).stores({
-      genealogyLinks: 'key, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
+      genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
     });
   }
 }

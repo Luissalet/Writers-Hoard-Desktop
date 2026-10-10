@@ -1,5 +1,6 @@
 import type { GenealogyLink } from './validate.ts';
 import { ANCESTRY_KINDS, NON_ANCESTRY_KINDS } from './validate.ts';
+import { genealogyLinkKey, linkToRow, rowToLink } from './genealogyStore.ts';
 
 /**
  * Minimal structural surface of a Dexie Table that this repository touches.
@@ -20,14 +21,6 @@ export interface GenealogySaveReceipt {
 }
 
 const VALID_KINDS: ReadonlySet<string> = new Set([...ANCESTRY_KINDS, ...NON_ANCESTRY_KINDS]);
-
-const STORAGE_FIELDS = ['updatedAt'] as const;
-
-function stripStorageFields(row: Record<string, unknown>): Record<string, unknown> {
-  const clean = { ...row };
-  for (const field of STORAGE_FIELDS) delete clean[field];
-  return clean;
-}
 
 /**
  * Storage-level validation, deliberately narrower than validateGenealogy:
@@ -63,21 +56,31 @@ function storageIssues(link: unknown, index: number): Array<{ code: string; inde
 
 /**
  * Load every genealogy link of one project. Rows come back in the plain link
- * shape (storage-only fields removed), so callers never see the Dexie row.
+ * shape (storage-only fields removed, original link id restored from
+ * `linkId`), so callers never see the Dexie row.
  */
 export async function loadGenealogyLinks(
   table: GenealogyTableLike,
   projectId: string,
 ): Promise<GenealogyLink[]> {
   const rows = await table.where('projectId').equals(projectId).toArray();
-  return rows.map((row) => stripStorageFields(row as Record<string, unknown>) as unknown as GenealogyLink);
+  return rows.map((raw) => {
+    const row = raw as Record<string, unknown>;
+    // Defensive: a v36 row that missed the upgrade has no linkId; recover the
+    // original id from the composite key when it carries no NUL separator.
+    if (typeof row.linkId !== 'string' && typeof row.id === 'string' && !row.id.includes('\u0000')) {
+      row.linkId = row.id;
+    }
+    return rowToLink(row as never);
+  });
 }
 
 /**
  * Validate a batch and persist it in one go. The batch is all-or-nothing: if
  * any link fails validation or repeats an id, nothing is written and the
  * issues come back in the receipt. Rows are stamped with the owning project
- * and an updatedAt timestamp for future conflict handling.
+ * (composite primary key projectId+linkId, original id kept in `linkId`) and
+ * an updatedAt timestamp for future conflict handling.
  */
 export async function saveGenealogyLinks(
   table: GenealogyTableLike,
@@ -101,12 +104,8 @@ export async function saveGenealogyLinks(
   if (issues.length > 0) return { saved: 0, issues };
 
   const now = new Date().toISOString();
-  // Primary key is the composite projectId+id: two projects may hold links
-  // with the same id without overwriting each other (review r2, P1).
   const rows = links.map((link) => ({
-    ...(link as Record<string, unknown>),
-    key: `${projectId}\u0000${(link as Record<string, unknown>).id as string}`,
-    projectId,
+    ...linkToRow(projectId, link as GenealogyLink),
     updatedAt: now,
   }));
   await table.bulkPut(rows);
@@ -123,8 +122,9 @@ export async function deleteGenealogyLink(
   projectId: string,
   id: string,
 ): Promise<boolean> {
-  const row = (await table.get(`${projectId}\u0000${id}`)) as Record<string, unknown> | undefined;
+  const key = genealogyLinkKey(projectId, id);
+  const row = (await table.get(key)) as Record<string, unknown> | undefined;
   if (!row || row.projectId !== projectId) return false;
-  await table.delete(`${projectId}\u0000${id}`);
+  await table.delete(key);
   return true;
 }
