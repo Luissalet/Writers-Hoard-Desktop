@@ -258,6 +258,29 @@ export function createGenealogyBridgeHandlers(
         const proposal = requireLinks(args);
         const characters = await loadCharacters(projectId);
         const existing = await loadGenealogyLinks(table, projectId);
+        // Cycle guard (review r2, P1): a proposal that would create a
+        // parent cycle with the existing links is rejected before writing.
+        const parentOf = new Map(existing.filter((l) => l.kind === 'biological_parent' || l.kind === 'adoptive_parent').map((l) => [l.to, l.from]));
+        for (const raw of proposal as Array<Record<string, unknown>>) {
+          if (
+            raw &&
+            typeof raw === 'object' &&
+            (raw.kind === 'biological_parent' || raw.kind === 'adoptive_parent') &&
+            typeof raw.from === 'string' && typeof raw.to === 'string' &&
+            raw.from !== raw.to
+          ) {
+            // walk up from `from`: if we reach `to`, adding to->from closes a cycle
+            let cur: string | undefined = raw.from as string;
+            const seen = new Set<string>();
+            while (cur && !seen.has(cur)) {
+              seen.add(cur);
+              if (cur === (raw.to as string)) {
+                throw new GenealogyOpError('cycle_rejected', `link ${raw.from} -> ${raw.to} would create a parent cycle`);
+              }
+              cur = parentOf.get(cur);
+            }
+          }
+        }
         const applyId = `genealogy-${crypto.randomUUID()}`;
         const result = applyGenealogy(
           characters,
