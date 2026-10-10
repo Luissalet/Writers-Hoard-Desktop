@@ -109,6 +109,14 @@ es la vía de intercambio conservadora.
   forma **explícita** (p. ej. una lista de capacidades del emisor/receptor);
   hasta que ese mecanismo exista, `genealogy_unsupported` solo significa
   «no hay sidecar que leer», y la detección real de soporte queda **pendiente**.
+- **Detección explícita de capacidad (implementada):** `genealogySupport(capabilities)`
+  en `src/engines/genealogy/sidecar.ts` evalúa un registro de capacidades
+  (`{ genealogy: { contractVersion } }`) y devuelve
+  `{ supported, contractVersion, reason }` con cuatro motivos: `supported`,
+  `no_capabilities` (registro ausente o no objeto), `no_genealogy_capability`
+  (sin entrada `genealogy` o sin `contractVersion` válida) y
+  `version_unsupported` (versión distinta de la implementada, que se reporta
+  sin adivinar). Función pura, sin mutación; cubierta por 5 pruebas.
 - Un receptor **sin soporte** de genealogía debe **rechazar explícitamente**
   (`genealogy_unsupported`), no descartar en silencio ni convertir etiquetas
   antiguas: no se pierde ni se degrada ningún dato.
