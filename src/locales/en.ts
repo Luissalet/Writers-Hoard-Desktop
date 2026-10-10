@@ -1032,6 +1032,8 @@ const en = {
   'engines.pov-audit.description': 'Ranks character screen time and flags imbalance across scenes',
   'engines.relationships.name': 'Relationships',
   'engines.relationships.description': 'Pair-wise matrix of how every character relates to every other',
+  'engines.genealogy.name': 'Genealogy',
+  'engines.genealogy.description': 'Family tree of the characters with parents, guardians and partners',
   'engines.scrapper.name': 'Scrapper',
   'engines.scrapper.description': 'Capture and archive web content for research',
   'engines.seeds.name': 'Seeds & Payoffs',
