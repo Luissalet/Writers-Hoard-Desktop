@@ -99,7 +99,12 @@ export function previewGenealogyImport(input: {
     // Conflicto: mismo from/to con kind distinto contra lo existente o lo ya
     // aceptado en esta importación.
     const opposite = existingByPair.get(`${incoming.from}\u0000${incoming.to}`);
-    if (opposite) {
+    // La coexistencia biologico/adoptivo del mismo par es valida (el apply la
+    // acepta), asi que no se marca como conflicto.
+    const coexistible =
+      (incoming.kind === 'biological_parent' && opposite?.kind === 'adoptive_parent') ||
+      (incoming.kind === 'adoptive_parent' && opposite?.kind === 'biological_parent');
+    if (opposite && !coexistible) {
       conflicts.push({
         incoming: incoming.id,
         existing: opposite.id,
