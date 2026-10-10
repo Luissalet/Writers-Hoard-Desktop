@@ -255,3 +255,24 @@ test('apply rejects a->b then b->a cycle across separate calls', async () => {
   assert.equal(r2.ok, false);
   assert.equal(r2.code, 'cycle_rejected');
 });
+
+test('apply rejects when the save receipt does not match the applied links', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, async () => [CHAR]);
+  const failing = {
+    where: () => ({ equals: () => ({ toArray: async () => [] }) }),
+    bulkPut: async () => { throw new Error('disk full'); },
+    get: async () => undefined,
+    delete: async () => undefined,
+  };
+  const broken = createGenealogyBridgeHandlers(failing, async () => [CHAR]);
+  const r = await broken.wh_genealogy_apply({
+    projectId: 'p1',
+    links: [LINK('g1', 'a', 'b', 'biological_parent')],
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.code, 'save_failed');
+  // the in-memory application registry must not record a failed apply
+  const ok = await handlers.wh_genealogy_undo({ projectId: 'p1', applyId: 'x' });
+  assert.equal(ok.ok, false);
+});
