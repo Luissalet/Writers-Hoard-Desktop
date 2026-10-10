@@ -7,6 +7,7 @@ import { act, StrictMode, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { db } from '@/db';
+import { notifyDataChanged } from '@/engines/_shared';
 import { t } from '@/i18n/useTranslation';
 import type { Timeline, TimelineEvent, Writing } from '@/types';
 import WritingsEngine from '@/engines/writings/WritingsEngine';
@@ -140,6 +141,48 @@ export async function testWorldDatesWritings(): Promise<string[]> {
     await unmount();
     passed.push('the timeline places the dated chapter in a manuscript lane in date order and a click opens the chapter');
 
+    // ---- Changes made under the open editor (bridge tools, other windows) ----------------------------------
+    const outside = async (id: string, changes: Partial<Writing>) => {
+      await db.writings.update(id, { ...changes, updatedAt: Date.now() });
+      notifyDataChanged({ source: 'ai', table: 'writings', entityId: id, projectId: P });
+    };
+    const dateOf = (text: string) => parseWorldDate(calendar, text)!;
+    await outside(`${P}-w2`, { worldDate: dateOf('1 Frostfall 3 TE') });
+    await outside(`${P}-w1`, { worldDate: dateOf('12 Frostfall 3 TE') });
+    await render(<WritingsEngine projectId={P} />);
+    await openChapter('Chapter one');
+    await waitFor('the stored date in the editor', () => start().value === '12 Frostfall 3 TE');
+    await outside(`${P}-w1`, { worldDate: dateOf('18 Frostfall 3 TE') });
+    await waitFor('the editor to follow an outside change', () => start().value === '18 Frostfall 3 TE');
+    await act(async () => { await pause(1000); });
+    assert((await storedChapter()).worldDate?.day === 18, 'the outside date is not overwritten by stale text');
+    await outside(`${P}-w1`, { worldDateEnd: dateOf('20 Frostfall 3 TE') });
+    await waitFor('the end date to follow', () => (byTestId('chapter-world-date-end') as HTMLInputElement).value === '20 Frostfall 3 TE');
+    await outside(`${P}-w1`, { worldDate: undefined, worldDateEnd: undefined });
+    await waitFor('the editor to follow an outside delete', () => start().value === '' && (byTestId('chapter-world-date-end') as HTMLInputElement).value === '');
+    await act(async () => { await pause(1000); });
+    const afterDelete = await storedChapter();
+    assert(!afterDelete.worldDate && !afterDelete.worldDateEnd, 'an outside delete is not undone by stale text');
+    // Typing pending in the box survives an outside change to the other box.
+    type(start(), '3 Thaw 3 TE', 'chapter date');
+    await outside(`${P}-w1`, { worldDateEnd: dateOf('9 Thaw 3 TE') });
+    await waitFor('the typed date to be saved', async () => (await storedChapter()).worldDate?.day === 3);
+    // Switching chapter shows that chapter's own date, never the previous one.
+    const nav = (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    await act(async () => { nav(t('common.next'))!.click(); await pause(300); });
+    await waitFor('chapter two date', () => start()?.value === '1 Frostfall 3 TE', 3000).catch(e => { throw new Error(`${e.message}; got "${start()?.value}" at ${byTestId('location')?.textContent}`); });
+    await act(async () => { nav(t('common.previous'))!.click(); await pause(300); });
+    await waitFor('chapter one date', () => start()?.value === '3 Thaw 3 TE');
+    // A changed calendar reformats the shown date.
+    const renamed: WorldCalendar = { ...calendar, months: [{ name: 'Rimefall', days: 30 }, { name: 'Thaw', days: 20 }] };
+    await db.projects.update(P, { worldCalendar: renamed });
+    notifyDataChanged({ source: 'ai', table: 'projects', entityId: P, projectId: P });
+    await waitFor('the editor to follow the calendar', () => start().value === '3 Thaw 3 TE' && start().placeholder === '12 Rimefall 3 TE');
+    await db.projects.update(P, { worldCalendar: calendar });
+    await outside(`${P}-w1`, { worldDate: dateOf('12 Frostfall 3 TE'), worldDateEnd: undefined });
+    await outside(`${P}-w2`, { worldDate: undefined });
+    await unmount();
+    passed.push('the editor follows outside changes (set, change, delete, other chapter, calendar) without writing stale text back');
     // ---- Clearing it ---------------------------------------------------------------------------------------
     await render(<WritingsEngine projectId={P} />);
     await openChapter('Chapter one');
@@ -167,3 +210,12 @@ export async function testWorldDatesWritings(): Promise<string[]> {
     ]);
   }
 }
+
+
+
+
+
+
+
+
+
