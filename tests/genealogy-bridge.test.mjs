@@ -33,12 +33,13 @@ const CHAR = (id, name) => ({ id, name, type: 'character' });
 const LINK = (id, from, to, kind, extra = {}) => ({ id, from, to, kind, ...extra });
 const loadCharacters = async (_projectId) => [CHAR('a', 'Ana'), CHAR('b', 'Beto')];
 
-test('manifest lists the five contract tools with writes flags', () => {
+test('manifest lists the six contract tools with writes flags', () => {
   const names = GENEALOGY_BRIDGE_TOOLS.map((tool) => tool.name);
   assert.deepEqual(names, [
     'wh_genealogy_preview',
     'wh_genealogy_validate',
     'wh_genealogy_apply',
+    'wh_genealogy_import',
     'wh_genealogy_query',
     'wh_genealogy_undo',
   ]);
@@ -47,6 +48,7 @@ test('manifest lists the five contract tools with writes flags', () => {
     wh_genealogy_preview: false,
     wh_genealogy_validate: false,
     wh_genealogy_apply: true,
+    wh_genealogy_import: false,
     wh_genealogy_query: false,
     wh_genealogy_undo: true,
   });
@@ -181,4 +183,42 @@ test('undo with an unknown applyId is rejected', async () => {
   });
   assert.equal(result.ok, false);
   assert.equal(result.code, 'unknown_apply');
+});
+
+// --- r2 fix: flujo público de importadores (wh_genealogy_import) ---
+test('wh_genealogy_import parsea formato obsidian y devuelve propuesta con preview', async () => {
+  const { createGenealogyBridgeHandlers } = await import('../src/services/aiBridge/tools/genealogy.ts');
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, async () => [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }]);
+  const r = await handlers['wh_genealogy_import']({
+    projectId: 'p1',
+    format: 'obsidian',
+    text: '- [[A|a]] -> [[B|b]] : biological_parent',
+  });
+  assert.equal(r.format, 'obsidian');
+  assert.equal(r.proposal.length, 1);
+  assert.equal(r.proposal[0].from, 'a');
+  assert.equal(r.proposal[0].to, 'b');
+  assert.equal(r.proposal[0].kind, 'biological_parent');
+  assert.ok(Array.isArray(r.preview.additions));
+});
+
+test('wh_genealogy_import rechaza formato desconocido con error claro', async () => {
+  const { createGenealogyBridgeHandlers } = await import('../src/services/aiBridge/tools/genealogy.ts');
+  const handlers = createGenealogyBridgeHandlers(fakeTable(), async () => []);
+  const r = await handlers['wh_genealogy_import']({ projectId: 'p1', format: 'noexiste', text: 'x' });
+  assert.equal(r.ok, false);
+  assert.equal(r.code, 'invalid_format');
+});
+
+test('wh_genealogy_import soporta notion, worldanvil y campfire (json)', async () => {
+  const { createGenealogyBridgeHandlers } = await import('../src/services/aiBridge/tools/genealogy.ts');
+  const handlers = createGenealogyBridgeHandlers(fakeTable(), async () => [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }]);
+  const notion = await handlers['wh_genealogy_import']({ projectId: 'p1', format: 'notion', text: '## A (a)\n- biological_parent: B (b)' });
+  assert.equal(notion.proposal.length, 1);
+  const wa = await handlers['wh_genealogy_import']({ projectId: 'p1', format: 'worldanvil', text: '# A (a)\n- Children: B (b)' });
+  assert.equal(wa.proposal.length, 1);
+  const campfire = await handlers['wh_genealogy_import']({ projectId: 'p1', format: 'campfire', text: JSON.stringify({ relationships: [{ from: 'a', to: 'b', type: 'parent' }] }) });
+  assert.equal(campfire.proposal.length, 1);
+  assert.equal(campfire.proposal[0].kind, 'biological_parent');
 });
