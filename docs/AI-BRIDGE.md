@@ -359,7 +359,18 @@ necesita; **`core` va siempre incluido**, porque sin `wh_get_context` y
 | `script` | escenas de diálogo | 6 |
 | `visual` | tablero, galería, mapas, storyboard, vídeo | 18 |
 | `research` | recortes e Instagram | 7 |
-| `analysis` | anotaciones, auditoría de POV, estadísticas | 4 |
+| `analysis` | anotaciones, auditoría de POV, estadísticas, cobertura narrativa | 10 |
+
+**Cobertura narrativa (`analysis`)** — `wh_get_narrative_coverage` (matriz
+personaje×capítulo: mención = prosa del capítulo; `plannedPresence`/`plannedPov`
+son enlaces de planificación y no suben el rol; presencia solo manual; POV solo
+con marcador `pov:Nombre` o manual), `wh_set_coverage_cell`,
+`wh_list_timeline_evidence` (narrado solo si las palabras del título aparecen en
+prosa; mención del personaje enlazado sin eso → no narrado; hash obsoleto →
+`unverified`+`stale`), `wh_set_timeline_evidence`, `wh_get_manuscript_board`
+(list/binder/kanban sobre las mismas filas Writing) y
+`wh_list_phrase_recurrence` (muletillas/frases repetidas, sin autocorregir). No
+sustituye `wh_pov_audit`, la Biblia del mundo ni los porcentajes de outline.
 
 Cómo se filtra:
 

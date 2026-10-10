@@ -51,6 +51,7 @@ import { FAMILY_TOOLS } from './manifestFamily';
 import { BIBLE_TOOLS } from './manifestBible';
 import { BETA_TOOLS } from './manifestBeta';
 import { REFERENCE_TOOLS } from './manifestReference';
+import { COVERAGE_TOOLS } from './manifestCoverage';
 
 export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
 
@@ -1084,6 +1085,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('analysis', inEngine('annotations', ANNOTATION_TOOLS)),
   // STATS_TOOLS straddles two engines and names them itself.
   ...grouped('analysis', STATS_TOOLS),
+  ...grouped('analysis', COVERAGE_TOOLS),
 ];
 
 export const BRIDGE_TOOL_NAMES: string[] = BRIDGE_TOOLS.map((tool) => tool.name);

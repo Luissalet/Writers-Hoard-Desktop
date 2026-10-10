@@ -139,6 +139,14 @@ import {
 } from './video';
 import { whAnnotate, whListAnnotations } from './annotations';
 import { whPovAudit, whWritingStats } from './analysis';
+import {
+  whGetManuscriptBoard,
+  whGetNarrativeCoverage,
+  whListPhraseRecurrence,
+  whListTimelineEvidence,
+  whSetCoverageCell,
+  whSetTimelineEvidence,
+} from './narrativeCoverage';
 import { whDelete } from './deletion';
 import {
   whAchMatrix,
@@ -357,6 +365,12 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_annotate: whAnnotate,
   wh_pov_audit: whPovAudit,
   wh_writing_stats: whWritingStats,
+  wh_get_narrative_coverage: whGetNarrativeCoverage,
+  wh_set_coverage_cell: whSetCoverageCell,
+  wh_list_timeline_evidence: whListTimelineEvidence,
+  wh_set_timeline_evidence: whSetTimelineEvidence,
+  wh_get_manuscript_board: whGetManuscriptBoard,
+  wh_list_phrase_recurrence: whListPhraseRecurrence,
 };
 
 /**
