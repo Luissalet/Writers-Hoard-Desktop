@@ -8,6 +8,7 @@ import {
   GENEALOGY_BRIDGE_TOOLS,
   createGenealogyBridgeHandlers,
 } from '../src/services/aiBridge/tools/genealogy.ts';
+import { loadGenealogyLinks } from '../src/engines/genealogy/genealogyRepo.ts';
 
 const fakeTable = () => {
   const rows = new Map();
@@ -252,8 +253,11 @@ test('apply rejects a->b then b->a cycle across separate calls', async () => {
   const r1 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [LINK('g1', 'a', 'b', 'biological_parent')] });
   assert.equal(r1.ok, true);
   const r2 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [LINK('g2', 'b', 'a', 'biological_parent')] });
-  assert.equal(r2.ok, false);
-  assert.equal(r2.code, 'cycle_rejected');
+  assert.equal(r2.ok, true);
+  assert.deepEqual(r2.applied, []);
+  assert.deepEqual(r2.rejected.map((r) => r.issues.map((i) => i.code)).flat(), ['cycle_rejected']);
+  const links = await loadGenealogyLinks(table, 'p1');
+  assert.equal(links.length, 1);
 });
 
 test('apply rejects when the save receipt does not match the applied links', async () => {
@@ -275,4 +279,102 @@ test('apply rejects when the save receipt does not match the applied links', asy
   // the in-memory application registry must not record a failed apply
   const ok = await handlers.wh_genealogy_undo({ projectId: 'p1', applyId: 'x' });
   assert.equal(ok.ok, false);
+});
+
+// --- review r3: cycle guard must validate the FULL graph (existing + new
+// arcs, keeping multi-parents) and must not contaminate a valid link in the
+// same batch (per-link rejection, partial acceptance).
+
+test('cycle guard: a->c, b->c then c->a is rejected (multi-parent graph)', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, async () => [
+    { id: 'a', title: 'A' }, { id: 'b', title: 'B' }, { id: 'c', title: 'C' },
+  ]);
+  const r1 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [
+    { id: 'g1', from: 'a', to: 'c', kind: 'biological_parent' },
+    { id: 'g2', from: 'b', to: 'c', kind: 'biological_parent' },
+  ] });
+  assert.equal(r1.ok, true);
+  const r2 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [
+    { id: 'g3', from: 'c', to: 'a', kind: 'biological_parent' },
+  ] });
+  assert.equal(r2.ok, true);
+  assert.deepEqual(r2.applied, []);
+  assert.deepEqual(r2.rejected.map((r) => r.issues.map((i) => i.code)).flat(), ['cycle_rejected']);
+  const links = await loadGenealogyLinks(table, 'p1');
+  assert.equal(links.length, 2);
+});
+
+test('cycle guard: existing a->b plus proposal b->c, c->a is rejected', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, async () => [
+    { id: 'a', title: 'A' }, { id: 'b', title: 'B' }, { id: 'c', title: 'C' },
+  ]);
+  const r1 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [
+    { id: 'g1', from: 'a', to: 'b', kind: 'biological_parent' },
+  ] });
+  assert.equal(r1.ok, true);
+  const r2 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [
+    { id: 'g2', from: 'b', to: 'c', kind: 'biological_parent' },
+    { id: 'g3', from: 'c', to: 'a', kind: 'biological_parent' },
+  ] });
+  assert.equal(r2.ok, true);
+  assert.deepEqual(r2.applied, ['g2']);
+  assert.deepEqual(r2.rejected.map((r) => r.issues.map((i) => i.code)).flat(), ['cycle_rejected']);
+  const links = await loadGenealogyLinks(table, 'p1');
+  assert.equal(links.length, 2);
+});
+
+test('cycle guard: invalid arc does not contaminate a valid link in the same batch', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, async () => [
+    { id: 'a', title: 'A' }, { id: 'b', title: 'B' }, { id: 'c', title: 'C' },
+  ]);
+  const r1 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [
+    { id: 'g1', from: 'a', to: 'b', kind: 'biological_parent' },
+  ] });
+  assert.equal(r1.ok, true);
+  // b->a closes a cycle; a->c is independent and valid.
+  const r2 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [
+    { id: 'g2', from: 'b', to: 'a', kind: 'biological_parent' },
+    { id: 'g3', from: 'a', to: 'c', kind: 'biological_parent' },
+  ] });
+  assert.equal(r2.ok, true);
+  assert.deepEqual(r2.applied, ['g3']);
+  assert.deepEqual(r2.rejected.map((r) => r.issues.map((i) => i.code)).flat(), ['cycle_rejected']);
+  const links = await loadGenealogyLinks(table, 'p1');
+  assert.equal(links.length, 2);
+});
+
+// --- review r3, P1: undo must not cross projects. The bridge must register
+// the real projectId at apply time and pass it at undo time.
+
+test('undo rejects an application belonging to another project', async () => {
+  const table = fakeTable();
+  const handlers = createGenealogyBridgeHandlers(table, async (pid) => [
+    { id: 'a', title: 'A' }, { id: 'b', title: 'B' },
+  ]);
+  const r1 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [
+    { id: 'g1', from: 'a', to: 'b', kind: 'biological_parent' },
+  ] });
+  assert.equal(r1.ok, true);
+  // Same link id in p2 (composite key allows it).
+  const r2 = await handlers.wh_genealogy_apply({ projectId: 'p2', links: [
+    { id: 'g1', from: 'a', to: 'b', kind: 'biological_parent' },
+  ] });
+  assert.equal(r2.ok, true);
+  // Undo p1's application while working in p2: must be rejected.
+  const u = await handlers.wh_genealogy_undo({ projectId: 'p2', applyId: r1.applyId, revision: r1.revisionAfter });
+  assert.equal(u.ok, false);
+  assert.equal(u.code, 'project_mismatch');
+  // Both rows still there.
+  const p1 = await loadGenealogyLinks(table, 'p1');
+  const p2 = await loadGenealogyLinks(table, 'p2');
+  assert.equal(p1.length, 1);
+  assert.equal(p2.length, 1);
+  // Undo from the right project works.
+  const u2 = await handlers.wh_genealogy_undo({ projectId: 'p1', applyId: r1.applyId, revision: r1.revisionAfter });
+  assert.equal(u2.ok, true);
+  const p1after = await loadGenealogyLinks(table, 'p1');
+  assert.equal(p1after.length, 0);
 });

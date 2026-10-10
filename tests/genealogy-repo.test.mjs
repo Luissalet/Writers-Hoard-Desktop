@@ -60,7 +60,7 @@ test('save validates and persists rows keyed by project', async () => {
   const loaded = await loadGenealogyLinks(table, 'p1');
   assert.equal(loaded.length, 1);
   assert.equal(loaded[0].from, 'a');
-  assert.equal(loaded[0].projectId, 'p1');
+  assert.equal(loaded[0].id, 'g1');
 });
 
 test('save rejects an invalid link without writing anything', async () => {

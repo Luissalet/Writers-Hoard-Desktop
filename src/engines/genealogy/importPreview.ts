@@ -10,6 +10,7 @@
 //  - conflicto: mismo from/to con kind distinto -> conflicts
 //  - resto -> additions
 
+import { deriveLinkIds } from './genealogyStore.ts';
 import type { GenealogyLink } from './validate';
 
 export interface ImportPreviewIssue {
@@ -61,9 +62,14 @@ export function previewGenealogyImport(input: {
     existingByPair.set(`${link.from}\u0000${link.to}`, link);
   }
 
-  // Ids derivados: g1..gN saltando los que ya están tomados (por lo existente
-  // o por entradas previas de esta misma importación).
-  let nextDerived = 1;
+  // Ids derivados (review r3): reservar primero los ids explícitos del lote
+  // y los existentes, y solo después derivar g1..gN para los que no llevan.
+  // deriveLinkIds already reserves the batch's explicit ids internally.
+  const ids = deriveLinkIds(
+    input.incoming.filter((raw) => isLink(raw)) as unknown as Record<string, unknown>[],
+    new Set(existingById.keys()),
+  );
+  let derivedCursor = 0;
 
   for (let index = 0; index < input.incoming.length; index++) {
     const raw = input.incoming[index];
@@ -73,9 +79,8 @@ export function previewGenealogyImport(input: {
     }
     const incoming: GenealogyLink = { ...raw, id: raw.id ?? '' };
     if (incoming.id === '') {
-      while (existingById.has(`g${nextDerived}`)) nextDerived++;
-      incoming.id = `g${nextDerived}`;
-      nextDerived++;
+      incoming.id = ids[index];
+      derivedCursor++;
     }
 
     const byId = existingById.get(incoming.id);
