@@ -66,7 +66,7 @@ import type {
 import { migrateLegacyBoards } from './legacyBoardMigration';
 
 /** Single source of truth for migration and compatibility tests. */
-export const CURRENT_DB_VERSION = 36;
+export const CURRENT_DB_VERSION = 37;
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -946,8 +946,15 @@ export class WritersHoardDB extends Dexie {
     // read or rewritten and no upgrade step is needed. The row shape and its
     // storage validation live in engines/genealogy/genealogyStore.ts; the
     // characters themselves stay in their own table.
-    this.version(CURRENT_DB_VERSION).stores({
+    // v37: primary key becomes the composite projectId+id (stored in the
+    // `key` field) so two projects can hold links with the same id without
+    // overwriting each other (review r2, P1). The table is still inert for
+    // existing data: no other table reads or writes genealogyLinks yet.
+    this.version(36).stores({
       genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
+    });
+    this.version(CURRENT_DB_VERSION).stores({
+      genealogyLinks: 'key, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
     });
   }
 }
