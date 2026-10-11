@@ -12,6 +12,7 @@
 
 import type { Writing } from '@/types';
 import { isDesktop } from '@/utils/platform';
+import { projectWritingHtml } from './revisionProjection';
 import {
   footnoteAnchors,
   footnoteRefsOutOfCode,
@@ -134,6 +135,7 @@ export function htmlToMarkdownParts(
   html: string,
   start = 1,
 ): { prose: string; notes: ExtractedFootnote[] } {
+  html = projectWritingHtml(html);
   // Footnotes first, while the references are still elements: the generic
   // tag strip at the end would leave nothing of an empty <sup>. A reference
   // inside a code span is moved out of it first: `` `x[^1]` `` is code to a

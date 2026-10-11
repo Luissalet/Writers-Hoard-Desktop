@@ -17,6 +17,7 @@ import {
 import { listSnapshotMeta, restoreSnapshot, takeSnapshot } from '@/engines/writings/snapshots';
 import { extractFootnotesFromHtml } from '@/components/editor/footnotes/footnoteModel';
 import { countWords } from '@/utils/text';
+import { projectWritingHtml } from '@/engines/writings/revisionProjection';
 import { generateId } from '@/utils/idGenerator';
 import { formatWorldRange, validateWorldRange, type WorldCalendar, type WorldDate } from '@/engines/timeline/worldCalendar';
 import { resolveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
@@ -172,6 +173,8 @@ export async function whGetWriting(args: ToolArgs): Promise<unknown> {
   const writing = await mustGetWriting(requireString(args, 'id'));
   assertRowInScope(args, writing.projectId);
   const calendar = (await resolveWorldCalendar(writing.projectId))?.calendar ?? null;
+  const finalHtml = projectWritingHtml(writing.content);
+  const projected = finalHtml !== writing.content;
   return {
     id: writing.id,
     projectId: writing.projectId,
@@ -181,10 +184,11 @@ export async function whGetWriting(args: ToolArgs): Promise<unknown> {
     synopsis: writing.synopsis,
     tags: writing.tags,
     ...worldDateView(calendar, writing),
-    wordCount: writing.wordCount,
+    wordCount: projected ? countWords(finalHtml) : writing.wordCount,
+    ...(projected ? { pendingRevisions: true, storedWordCount: writing.wordCount } : {}),
     updatedAt: writing.updatedAt,
     storySessionSource: writing.storySessionSource,
-    content: manuscriptMarkdownFromHtml(writing.content),
+    content: manuscriptMarkdownFromHtml(finalHtml),
   };
 }
 

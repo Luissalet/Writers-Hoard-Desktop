@@ -5,6 +5,7 @@ import {
 } from '@/components/editor/footnotes/footnoteModel';
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import { countWords } from '@/utils/text';
+import { projectWritingHtml } from './revisionProjection';
 
 /**
  * Portable exports deliberately omit every image. In particular, they never
@@ -143,6 +144,7 @@ function chapterHeading(writing: Writing, options: PublishingDocumentOptions): s
  * a whole selection without compiling it: one formula, one answer.
  */
 export function publishingSectionWordCount(writing: Writing): number {
+  if (writing.content.includes('data-wh-revision-')) return countWords(projectWritingHtml(writing.content));
   return writing.wordCount || countWords(writing.content);
 }
 
@@ -166,7 +168,7 @@ export function composePublishingDocument(
   options: PublishingDocumentOptions,
 ): PublishingDocument {
   const sections = writings.map((writing) => {
-    const html = xmlSafeText(sanitizeRichHtml(writing.content));
+    const html = xmlSafeText(sanitizeRichHtml(projectWritingHtml(writing.content)));
     const portable = omitImages(html);
     // A synopsis of nothing but spaces is not a synopsis: it would print an
     // empty centred italic line above the chapter and read as a layout fault.

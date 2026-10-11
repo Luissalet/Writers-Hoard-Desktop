@@ -1,5 +1,6 @@
 import DOMPurify, { type Config } from 'dompurify';
 import { FORMAT_ATTRIBUTES, formattingFromElement, formattingHtmlAttributes, INLINE_KEYS, BLOCK_KEYS, normalizeColumnWidths } from '@/components/editor/advanced/model';
+import { REVISION_ATTRIBUTES, REVISION_BREAK_ATTRIBUTES, revisionMetadataFromElement, revisionHtmlAttributes } from '@/engines/writings/revisions/model';
 
 const SAFE_RASTER_DATA_URL = /^data:image\/(?:avif|bmp|gif|jpe?g|png|webp);base64,/i;
 
@@ -30,6 +31,18 @@ DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
 // after arbitrary incoming style attributes have been removed as before.
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   if (!(node instanceof Element)) return;
+  for (const boundary of [false, true]) {
+    const revisionAttrs = boundary ? REVISION_BREAK_ATTRIBUTES : REVISION_ATTRIBUTES;
+    const allowed = boundary ? /^(P|H[1-6])$/.test(node.tagName) : node.tagName === 'SPAN';
+    const metadata = allowed ? revisionMetadataFromElement(node, boundary) : null;
+    for (const attr of Object.values(revisionAttrs)) node.removeAttribute(attr);
+    if (metadata) {
+      for (const [attr, value] of Object.entries(revisionHtmlAttributes(metadata, boundary))) node.setAttribute(attr, value);
+      if (!boundary) node.classList.add(`wh-revision-${metadata.kind}`);
+    } else if (!boundary) {
+      node.classList.remove('wh-revision-insertion', 'wh-revision-deletion');
+    }
+  }
   const keys = node.tagName === 'SPAN' ? INLINE_KEYS : /^(P|H[1-6])$/.test(node.tagName) ? BLOCK_KEYS : [];
   const attrs = formattingHtmlAttributes(formattingFromElement(node), keys);
   for (const attr of Object.values(FORMAT_ATTRIBUTES)) node.removeAttribute(attr);

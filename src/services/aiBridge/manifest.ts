@@ -55,6 +55,7 @@ import { BETA_TOOLS } from './manifestBeta';
 import { REFERENCE_TOOLS } from './manifestReference';
 import { COVERAGE_TOOLS } from './manifestCoverage';
 import { DOCUMENT_TOOLS } from './manifestDocuments';
+import { REVISION_TOOLS } from './manifestRevisions';
 
 export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
 
@@ -1093,6 +1094,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('analysis', STATS_TOOLS),
   ...grouped('analysis', COVERAGE_TOOLS),
   ...grouped('writing', DOCUMENT_TOOLS),
+  ...grouped('writing', inEngine('writings', REVISION_TOOLS)),
 ];
 
 export const BRIDGE_TOOL_NAMES: string[] = BRIDGE_TOOLS.map((tool) => tool.name);

@@ -992,6 +992,7 @@ async function runInquiryChecks(h: Harness, projectId: string): Promise<void> {
 /** Every id-based write tool the probe builder below exercises. */
 const PARENT_PROBE_TOOLS = [
   'wh_update_writing', 'wh_append_writing', 'wh_restore_writing_version',
+  'wh_propose_writing_revision', 'wh_resolve_writing_revisions',
   'wh_update_codex_entry', 'wh_update_diary_entry', 'wh_update_note',
   'wh_create_event', 'wh_update_event', 'wh_connect_events',
   'wh_create_beat', 'wh_update_beat',
@@ -1138,6 +1139,8 @@ async function buildGuardProbes(
 
   return [
       ['wh_update_writing', { id: writingId, content: 'x' }],
+      ['wh_propose_writing_revision', { id: writingId, from: 1, to: 1, text: 'x' }],
+      ['wh_resolve_writing_revisions', { id: writingId, decision: 'accept' }],
       ['wh_append_writing', { id: writingId, content: 'x' }],
       ['wh_restore_writing_version', { snapshotId }],
       ['wh_update_codex_entry', { id: characterId, title: 'x' }],
