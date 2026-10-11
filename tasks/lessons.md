@@ -1386,3 +1386,10 @@ el alcance; ninguna de las dos cosas aplica a la implementación normal de Write
 ## 2026-09-08 — Comunicación de Writer’s Hoard
 - Presentar el producto para cualquiera que escriba: reportaje, ensayo, biografía y narrativa. No centrar ejemplos ni propuesta de valor en ficción.
 - Equilibrar ejemplos de los 23 motores con recortes, documentación, cronologías y escritura. Evitar bromas añadidas y frases de relleno en anuncios personales.
+
+
+## 2026-10-11 — Invisible QA and native Electron imports
+
+- User correction: test launchers must keep windows hidden, including error dialogs.
+- Require Electron through its native module name inside Electron; an absolute npm package path returns the executable path, not app/BrowserWindow.
+- Install error logging before QA imports and use isolated profiles with show:false; verify ownership before closing a failed process.

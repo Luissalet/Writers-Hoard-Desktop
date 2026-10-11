@@ -859,3 +859,12 @@ claimed. Only this project's saved rows are included: shared canon and unsaved
 generated worlds remain outside this reference compiler. No models, user data,
 production bridge, shared checkout or remote Git were changed. Muletillas are
 being implemented with narrative analysis under Agora #140, separately.
+
+
+## 2026-10-11 — #136 integration
+
+- [x] Preserve Main functions and restore four approved genealogy wiring changes.
+- [x] Preserve generated JS outside source so the app resolves TypeScript.
+- [x] Verify 44 unchanged approved paths and 242 genealogy tests.
+- [ ] Verify native database migrations, HTTP/MCP and hidden UI.
+- [ ] Obtain focused review of integration migration, then integrate and close.
