@@ -22,14 +22,47 @@ npm run dev:desktop    # Vite dev server + Electron window (HMR)
 On Windows, `setup.bat` performs the one-time setup; subsequent launches use
 `run.bat` without reinstalling or changing dependencies.
 
+## Rich document editor
+
+The editor adds semantic font, size, colour, highlight, paragraph style,
+alignment, line spacing, indentation, sub/superscript, editable tables and
+manual page breaks. Formatting survives save, reload, sanitization and undo.
+The Document panel opens rich files, previews native pages and downloads DOCX,
+PDF and other formats through Writers' own Rust document engine. Importing into
+a continuous book replaces the current chapter body while preserving its
+boundaries and other chapters.
+
+`native/` contains an owned, detached source fork: no upstream Git dependency,
+submodule or updater. Build requires the pinned Rust 1.92 toolchain;
+`npm run document:build`, desktop launch and desktop packaging compile this
+source and include its notices. The complete `.writer.json` archive preserves
+assets and original package parts. HTML interchange is not universally lossless.
+Existing publishing exports keep their previous scope; the Document panel is
+the rich-format route. See [editor, MCP and verification](docs/editor-native/README.md).
+
+## Shared Faustus copilot
+
+The desktop copilot mounts Faustus's shared `<faustus-chat>` panel. Faustus owns
+conversations, model selection, memory and the tool loop. Writer supplies its
+project, current manuscript and live selection, and keeps its native tools,
+editor, snapshots and undo. Existing conversations are imported by their original
+identifiers; the original Dexie rows remain in Writer's backups.
+
+Keep Faustus running. `WH_FAUSTUS_URL` selects its service (the local default is
+`http://127.0.0.1:7000`); `WH_FAUSTUS_MCP_SERVER_ID` can select a registered Writer
+tool connection for an isolated profile. Closing the dock retains its draft and
+session, and leaving the application does not stop a remote Faustus turn.
+See [integration and verification](docs/FAUSTUS-COPILOT.md).
+
 ## AI subscriptions and external assistants
 
 In **AI settings → Use my subscriptions**, sign in with the official Claude or
 Codex client, or import an existing subscription session. Check the connection,
 then choose it as the default text model. API connections and local models remain
 available. Subscription requests verify the account's authentication method and
-never fall back to API billing. Text and copilot actions are supported; image
-generation continues to use the separate image providers.
+never fall back to API billing. Standalone text actions are supported; image
+generation continues to use the separate image providers. The desktop copilot
+uses Faustus's central model and agent settings.
 
 The **AI bridge** section explains how to connect Claude Desktop, Codex or Gemini
 CLI back to the app, with client-specific configuration and a separate, safe
@@ -51,6 +84,20 @@ local model (an embedded or loopback Ollama / OpenAI-compatible connection) with
 the text before the cursor, the Codex entries you just mentioned and the project's
 style profile. Nothing is sent to a cloud provider, and nothing is suggested
 mid-word, with a selection or in read-only mode.
+
+## Genealogy and imports
+
+Enable **Genealogy** in the project's engines to view explicit parents,
+guardians and partners in a family tree and export it as DOT or text.
+**Codex import** imports Markdown folders from Obsidian, Notion, World Anvil
+or Campfire, with a preview of new entries, duplicates, conflicts and issues.
+Typed JSON collections are also supported. It preserves complete source text,
+adds accepted new entries atomically and can undo the import during the session,
+preserving later edits. Native bridge/MCP tools `wh_codex_import_*` expose this
+flow; `wh_genealogy_*` separately import and apply explicit family links.
+Existing references and project data are preserved by database upgrade v38.
+See [genealogy](docs/GENEALOGY_CONTRACT.md) for supported metadata, JSON shapes,
+session undo and other limits.
 
 ## World bible export
 
