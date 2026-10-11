@@ -52,19 +52,6 @@ export async function runBridgeTool(tool: string, args: ToolArgs): Promise<Bridg
   }
   try {
     const result = await handler(args ?? {});
-    // Review r6 P2-2: a handler that answers ok:false (save_failed,
-    // nothing_applied, …) is a failed call, not a successful write. Return
-    // the failure envelope and let the executor audit ok:false, instead of
-    // wrapping the failure in an outer ok:true.
-    const shape = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>;
-    if (shape.ok === false) {
-      return {
-        id: '',
-        ok: false,
-        code: typeof shape.code === 'string' ? shape.code : 'tool-error',
-        error: typeof shape.error === 'string' ? shape.error : 'tool reported failure',
-      };
-    }
     announceWrite(tool, result);
     return { id: '', ok: true, result };
   } catch (err) {

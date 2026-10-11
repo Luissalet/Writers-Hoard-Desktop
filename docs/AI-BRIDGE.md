@@ -359,7 +359,18 @@ necesita; **`core` va siempre incluido**, porque sin `wh_get_context` y
 | `script` | escenas de diálogo | 6 |
 | `visual` | tablero, galería, mapas, storyboard, vídeo | 18 |
 | `research` | recortes e Instagram | 7 |
-| `analysis` | anotaciones, auditoría de POV, estadísticas | 4 |
+| `analysis` | anotaciones, auditoría de POV, estadísticas, cobertura narrativa | 10 |
+
+**Cobertura narrativa (`analysis`)** — `wh_get_narrative_coverage` (matriz
+personaje×capítulo: mención = prosa del capítulo; `plannedPresence`/`plannedPov`
+son enlaces de planificación y no suben el rol; presencia solo manual; POV solo
+con marcador `pov:Nombre` o manual), `wh_set_coverage_cell`,
+`wh_list_timeline_evidence` (narrado solo si las palabras del título aparecen en
+prosa; mención del personaje enlazado sin eso → no narrado; hash obsoleto →
+`unverified`+`stale`), `wh_set_timeline_evidence`, `wh_get_manuscript_board`
+(list/binder/kanban sobre las mismas filas Writing) y
+`wh_list_phrase_recurrence` (muletillas/frases repetidas, sin autocorregir). No
+sustituye `wh_pov_audit`, la Biblia del mundo ni los porcentajes de outline.
 
 Cómo se filtra:
 
@@ -1703,3 +1714,71 @@ cada llamada (y los restos de más de un día al arrancar). `callApp()` en
 cuentas; interfaz) y `tests/family-call-main.ts` en las pruebas de seguridad de
 Electron. Verificado además de punta a punta en la app real contra un hub de
 prueba respaldado por el código real de Scheherazade.
+
+## 27. Calendario del mundo y fechas del mundo
+
+Cada proyecto (o su saga) puede tener un calendario propio: meses con sus días,
+días de la semana, eras, lunas, festivos y una regla de años bisiestos. Con él,
+los eventos y los capítulos se fechan en el calendario de la historia ("12
+Frostfall 431 TE") y no en el real. Tres herramientas y un modo de fecha.
+
+### `wh_world_calendar_get`
+
+`{ projectId? }`. Devuelve `calendar` (o `null` si el proyecto no tiene),
+`daysInCommonYear` e `inheritedFrom` cuando el calendario viene de la saga.
+
+### `wh_world_calendar_set`
+
+`{ projectId?, calendar, force?, remove? }`.
+
+- `calendar`: `{ name, months, weekdays, eras, moons?, holidays?, leap? }`. Se
+  valida entero; si algo está mal responde `bad-args` con la lista de problemas
+  y no guarda nada.
+- Si el cambio dejaría eventos o capítulos ya fechados en días que el calendario
+  nuevo no tiene (por ejemplo, acortar un mes), responde `conflict` con los
+  títulos afectados y NO guarda. Con `force: true` guarda igual: esos elementos
+  conservan su texto pero salen del eje de fechas. La respuesta cuenta
+  `eventsLeftWithoutAValidDate` y `chaptersLeftWithoutAValidDate`.
+- `remove: true` borra el calendario propio del proyecto (`bad-args` si no tiene
+  uno). Los elementos fechados conservan su etiqueta.
+
+### `wh_world_date`
+
+`{ projectId?, date | dayNumber, plusDays?, to? }`. Lee una fecha del mundo y
+devuelve día de la semana, fases de luna, festivos y número de día absoluto.
+`plusDays` la desplaza (cruza meses y años) y `to` añade `daysBetween`, la
+distancia en días hasta otra fecha. Sin calendario responde `not-found`.
+
+### Fechas en eventos: `dateMode: "world"`
+
+`wh_create_event` y `wh_update_event` aceptan `dateMode: "world"` con
+`worldDate` y, opcionalmente, `worldDateEnd` (un rango). La fecha puede ir como
+texto del calendario (`"12 Frostfall 431 TE"`, `"Frostfall 431 TE"`,
+`"431 TE"`) o como objeto `{ year, month, day }` (año absoluto) o
+`{ era, eraYear, month, day }`. Con una era, `year` solo se rechaza para no
+confundir un año absoluto con uno de la era. Un día que el calendario no tiene
+responde `bad-args`; sin calendario, `not-found`. En `wh_update_event`,
+`worldDateEnd: ""` quita el final. Los eventos listados devuelven `worldDate`
+(estructurada) y `date` (el texto del calendario), y se ordenan por la fecha del
+mundo en la vista de carriles.
+
+### Fechas en capítulos
+
+`wh_create_writing` y `wh_update_writing` aceptan `worldDate` y `worldDateEnd`
+con los mismos formatos y los mismos errores que los eventos (no hace falta
+`dateMode`). En `wh_update_writing`, `worldDate: ""` quita la fecha y su final;
+un cambio que no menciona la fecha la conserva. `wh_list_writings` y
+`wh_get_writing` devuelven `worldDate`, `worldDateEnd` y `worldDateText` (la
+fecha formateada en el calendario) solo en los capítulos fechados. En la
+aplicación, el campo vive en los metadatos del capítulo (junto a sinopsis y
+etiquetas), la lista de capítulos muestra la fecha formateada y la vista de
+línea de tiempo coloca los capítulos fechados en un carril de solo lectura
+"Manuscrito"; un clic abre el capítulo.
+
+### Pruebas
+
+`runWorldDateWritingChecks` en `selftest.ts` (capítulos fechados: guardado,
+lectura estructurada y formateada, día inexistente, conservar y quitar la
+fecha), `scripts/run-world-calendar-tests.mjs` (lógica del calendario) y
+`npm run test:worlddates` (interfaz: fijar la fecha de un capítulo, verla en la
+lista, verla en la línea de tiempo en orden y quitarla).

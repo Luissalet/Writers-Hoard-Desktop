@@ -1414,6 +1414,27 @@ function registerIpc(): void {
     },
   );
 
+  // Beta reading: the package is one HTML page the renderer built. Main owns
+  // the folder (<userData>/exports/beta-reading) and reduces the name to a
+  // plain *.html file name; the renderer never names a path.
+  ipcMain.handle(
+    'export:writeBetaPackage',
+    async (event, html: string, suggestedName: string): Promise<SaveResult> => {
+      assertIpcSender(event, 'export:writeBetaPackage');
+      try {
+        if (typeof html !== 'string' || html.length > 64 * 1024 * 1024) return { ok: false, error: 'invalid package' };
+        const stem = path.basename(String(suggestedName ?? '')).replace(/\.html?$/i, '').replace(/[^\p{L}\p{N} _.()-]+/gu, '_').trim().slice(0, 100) || 'beta-package';
+        const dir = path.join(app.getPath('userData'), 'exports', 'beta-reading');
+        await fs.mkdir(dir, { recursive: true });
+        const target = path.join(dir, `${stem}.html`);
+        await fs.writeFile(target, html, 'utf8');
+        return { ok: true, filePath: target };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
   // Automatic backup: take the archive the renderer built out of its own
   // database and give it a home under userData. Every decision that could hurt
   // — the folder, the final name, the atomicity, which older copies go — is

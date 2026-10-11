@@ -32,6 +32,7 @@ const writingsEngine: EngineDefinition = {
     projectReferenceLinks: 'id, projectId, documentId, lensId, status, active',
     judgeRuns: 'id, projectId, writingId, mode, status, createdAt',
     judgeFindings: 'id, projectId, writingId, runId, lensId, mode, status, createdAt',
+    referencePins: 'id, projectId',
   },
   component: WritingsEngine,
 };
@@ -108,6 +109,7 @@ registerBackupStrategy({
     'projectReferenceLinks',
     'judgeRuns',
     'judgeFindings',
+    'referencePins',
   ],
   async exportProject({ zip, projectId, projectDir }) {
     const rows = await db.writings.where('projectId').equals(projectId).toArray();
@@ -128,6 +130,9 @@ registerBackupStrategy({
     zip.file(`${projectDir}/writings/_judge_links.json`, JSON.stringify(links));
     zip.file(`${projectDir}/writings/_judge_runs.json`, JSON.stringify(runs));
     zip.file(`${projectDir}/writings/_judge_findings.json`, JSON.stringify(findings));
+    // The reference panel's pins ("Consultar"): small, one row per chapter.
+    const pins = await db.referencePins.where('projectId').equals(projectId).toArray();
+    if (pins.length > 0) zip.file(`${projectDir}/writings/_reference_pins.json`, JSON.stringify(pins));
   },
   async inspectImport({ zip, projectDir }) {
     const folder = `${projectDir}/writings/`;
@@ -162,6 +167,12 @@ registerBackupStrategy({
       }
       sections.push({ table, path, rows: rows ?? [] });
     }
+    const pinsPath = `${folder}_reference_pins.json`;
+    const pins = await readBackupJson<unknown>(zip, pinsPath);
+    if (pins !== null && !Array.isArray(pins)) {
+      throw new Error(`Expected "${pinsPath}" to contain a JSON array.`);
+    }
+    sections.push({ table: 'referencePins', path: pinsPath, rows: pins ?? [] });
     // Personal-library rows live once at the archive root in a full backup.
     // A project archive inventories these as empty so an attacker cannot use a
     // project folder to write global data through an engine strategy.
@@ -220,6 +231,8 @@ registerBackupStrategy({
     }
     if (runs?.length) await db.judgeRuns.bulkPut(runs);
     if (findings?.length) await db.judgeFindings.bulkPut(findings);
+    const pins = await readBackupJson<import('@/services/codexReference/pins').ReferencePinRow[]>(zip, `${folder}_reference_pins.json`);
+    if (pins?.length) await db.referencePins.bulkPut(pins);
   },
 });
 

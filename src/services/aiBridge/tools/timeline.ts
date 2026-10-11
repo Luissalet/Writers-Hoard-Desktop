@@ -36,8 +36,30 @@ import {
   nextSlot,
   type ToolArgs,
 } from './shared';
+import { requireWorldCalendar, worldDateArg } from './worldCalendar';
+import { formatWorldRange, validateWorldRange, type WorldDate } from '@/engines/timeline/worldCalendar';
 
-const DATE_MODES = ['text', 'calendar'] as const satisfies readonly DateMode[];
+/**
+ * World-calendar fields for an event: parse `worldDate`/`worldDateEnd` in the
+ * project's calendar, check the range and build the label kept in `date`.
+ */
+async function worldDating(
+  projectId: string,
+  args: ToolArgs,
+  current?: { worldDate?: WorldDate; worldDateEnd?: WorldDate },
+): Promise<Pick<TimelineEvent, 'worldDate' | 'worldDateEnd' | 'date'>> {
+  const calendar = await requireWorldCalendar(projectId);
+  const worldDate = worldDateArg(calendar, args.worldDate, 'worldDate') ?? current?.worldDate;
+  if (!worldDate) throw new BridgeError('bad-args', 'dateMode "world" needs "worldDate" (text like "12 Frostfall 431 TE" or { year, month, day }).');
+  const worldDateEnd = args.worldDateEnd === null || args.worldDateEnd === ''
+    ? undefined
+    : worldDateArg(calendar, args.worldDateEnd, 'worldDateEnd') ?? current?.worldDateEnd;
+  const problem = validateWorldRange(calendar, worldDate, worldDateEnd);
+  if (problem) throw new BridgeError('bad-args', problem);
+  return { worldDate, worldDateEnd, date: formatWorldRange(calendar, worldDate, worldDateEnd) };
+}
+
+const DATE_MODES = ['text', 'calendar', 'world'] as const satisfies readonly DateMode[];
 const EVENT_TYPES = ['point', 'range', 'milestone'] as const satisfies readonly TimelineEventType[];
 const STYLES = ['solid', 'dashed', 'dotted'] as const satisfies readonly TimelineConnectionStyle[];
 const DEFAULT_COLOR = '#c4973b';
@@ -52,6 +74,8 @@ function serializeEvent(event: TimelineEvent): Record<string, unknown> {
     dateMode: event.dateMode,
     realDate: event.realDate,
     realDateEnd: event.realDateEnd,
+    worldDate: event.worldDate,
+    worldDateEnd: event.worldDateEnd,
     eventType: event.eventType,
     lane: event.lane,
     color: event.color,
@@ -141,6 +165,10 @@ export async function whCreateEvent(args: ToolArgs): Promise<unknown> {
     createdAt: now,
     updatedAt: now,
   };
+  if (event.dateMode === 'world') {
+    Object.assign(event, await worldDating(timeline.projectId, args));
+    if (event.worldDateEnd && !args.eventType) event.eventType = 'range';
+  }
   await createTimelineEvent(event);
   return withAudit(
     { id: event.id, title: event.title, timelineId, created: true },
@@ -173,6 +201,12 @@ export async function whUpdateEvent(args: ToolArgs): Promise<unknown> {
   if (eventType !== undefined) changes.eventType = eventType;
   const order = optNumber(args, 'order');
   if (order !== undefined) changes.order = order;
+  const mode = changes.dateMode ?? existing.dateMode;
+  if (mode === 'world' && (changes.dateMode === 'world' || args.worldDate !== undefined || args.worldDateEnd !== undefined)) {
+    Object.assign(changes, await worldDating(existing.projectId, args, existing));
+  } else if (args.worldDate !== undefined || args.worldDateEnd !== undefined) {
+    throw new BridgeError('bad-args', 'worldDate/worldDateEnd need dateMode "world".');
+  }
 
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');
