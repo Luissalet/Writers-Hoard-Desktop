@@ -69,6 +69,7 @@ import AiToolbar from './AiToolbar';
 import JudgePanel from './JudgePanel';
 import ReferencePanel from './ReferencePanel';
 import { getReferenceUi, referenceDockPx, setReferenceConsult, useReferencePrefs } from './referencePrefs';
+import { useGhostText } from '@/components/editor/ghostText/useGhostText';
 import CompileModal from './CompileModal';
 import ManuscriptImportModal from './ManuscriptImportModal';
 import HistoryModal from './HistoryModal';
@@ -521,6 +522,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // it is stable, so its effect does not re-run per render.
   const [liveEditor, setLiveEditor] = useState<Editor | null>(null);
   const referencePrefs = useReferencePrefs();
+  const ghostText = useGhostText(projectId);
   const [pendingJudgeNavigation, setPendingJudgeNavigation] = useState<{
     writingId: string;
     quote: string;
@@ -2611,6 +2613,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             layout={readingPrefs.layout}
             pageLayout={pageLayout}
             footnoteStyle={footnoteStyle}
+            ghostText={ghostText}
           />
           {/* Focus mode has no side column: "Consultar" is a temporary
               drawer over the page, opened from its own floating button or
@@ -2656,6 +2659,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
               layout={readingPrefs.layout}
               pageLayout={pageLayout}
               footnoteStyle={footnoteStyle}
+              ghostText={ghostText}
             />
             <div
               className={`space-y-5 ${

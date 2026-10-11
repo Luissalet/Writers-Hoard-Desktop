@@ -39,6 +39,19 @@ web chat cannot gain access by pasting a prompt or a localhost address.
 See [subscription setup](docs/ai-subscriptions.md) and
 [external assistant setup](docs/ai-external-connection.md).
 
+## Suggested continuation (ghost text)
+
+**Settings → Writing assistance → Suggested continuation** (off by default) shows
+a faint one-sentence continuation after you pause at the end of a paragraph in a
+chapter or book editor. **Tab** accepts it, **Ctrl+→** accepts one word, **Esc**
+or any key dismisses it. The suggestion is a visual hint only: it is not part of
+the document, the undo history or any save until accepted, and accepting is one
+undo step. The toolbar's sparkle button also turns it on or off. It uses only a
+local model (an embedded or loopback Ollama / OpenAI-compatible connection) with
+the text before the cursor, the Codex entries you just mentioned and the project's
+style profile. Nothing is sent to a cloud provider, and nothing is suggested
+mid-word, with a selection or in read-only mode.
+
 ## World bible export
 
 **Project tools → Publishing** compiles selected Codex entries, timelines, maps
@@ -129,6 +142,7 @@ enrichment, UI and the bridge tools).
 | `lint:baseline:prune` | Remove fixed fingerprints from the checked-in lint debt baseline. |
 | `conformance` | Check engine registration, schema, locale, backup, and binary declarations. |
 | `test:critical` | Run isolated Electron/Chromium tests for migration, backup, cascades, recovery/navigation, full rendering, and Vite startup. |
+| `test:ghost` | Test the suggested continuation: rules, debounce and cancel, Codex selection, trimming, accept/dismiss and off-by-default. |
 | `test:family` | Test the hand-offs to the other Hoard apps: world exchange logic, import, undo and the UI. |
 | `test:inquiry` | Test the Investigation engine: pure logic, migration, Wikidata enrichment with mocked requests, the UI and the AI-bridge tools. |
 | `test:subscriptions` | Test subscription isolation, tool protocol, connection controls and external-assistant setup without calling providers. |

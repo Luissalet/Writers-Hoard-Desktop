@@ -5213,6 +5213,15 @@ const es = {
   'family.fetchHelp': "Los registros nuevos se añaden a este proyecto. Los que editaste aquí nunca se sobrescriben y no se borra nada. Necesita el hub de Hoard y Scheherazade en marcha.",
   'family.fetchConfirm': "Traer",
   'family.sendWorldHelp': "Envía el códice, las relaciones y la línea de tiempo de este proyecto a Scheherazade. Las relaciones secretas y las imágenes se quedan aquí.",
+  'settings.ghost': 'Ayuda a la escritura',
+  'settings.ghost.subtitle': 'Una continuación tenue tras el cursor cuando haces una pausa al final de un párrafo. Usa un modelo que corre en este ordenador y no se envía nada fuera. Tab la acepta, Ctrl+→ acepta una palabra y Esc la descarta.',
+  'settings.ghost.label': 'Continuación sugerida',
+  'settings.ghost.off': 'Desactivada',
+  'settings.ghost.on': 'Activada',
+  'settings.ghost.aiOff': 'Las funciones de IA están desactivadas en los ajustes de IA, así que no aparecerá ninguna sugerencia.',
+  'editor.ghost.toggleOn': 'Activar la continuación sugerida',
+  'editor.ghost.toggleOff': 'Desactivar la continuación sugerida (Tab acepta, Esc descarta)',
+  'editor.ghost.announce': 'Sugerencia, Tab para aceptar, Escape para descartar:',
 } as const;
 
 export default es;

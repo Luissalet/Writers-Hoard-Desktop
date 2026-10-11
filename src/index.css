@@ -293,6 +293,25 @@ input, textarea { caret-color: var(--color-accent-gold); }
   height: 0;
 }
 
+/* Ghost text: the suggested continuation after the cursor. A widget decoration,
+   so it is drawn here and is not in the document. Dimmer than the prose and
+   italic, so it is told apart without relying on colour alone. */
+.tiptap-editor .ProseMirror .wh-ghost-text {
+  color: var(--color-text-dim);
+  opacity: 0.8;
+  font-style: italic;
+  white-space: pre-wrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+@media (forced-colors: active) {
+  .tiptap-editor .ProseMirror .wh-ghost-text {
+    color: GrayText;
+    opacity: 1;
+  }
+}
+
 /* Find & replace: ProseMirror decorations, so nothing here is in the document.
    Every match is marked; the one being stepped through is filled. */
 .tiptap-editor .ProseMirror .wh-find-match {

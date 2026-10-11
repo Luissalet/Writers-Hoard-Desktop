@@ -70,6 +70,7 @@ import {
 import { bookScopeId } from '@/services/codexReference/pins';
 import ReferencePanel from './ReferencePanel';
 import { useReferencePrefs } from './referencePrefs';
+import { useGhostText } from '@/components/editor/ghostText/useGhostText';
 import { numberedInOrder } from '../chapterOrder';
 import { canonicalHtml, composeBookHtml, normalizeHtml, splitBookDoc } from '../bookDocument';
 import { saveBook, type BookBaseline, type BookBaselineEntry, type BookConflict } from '../bookSave';
@@ -297,6 +298,7 @@ export default function BookEditor({
       t('editor.page.footer').replace('{page}', String(page)).replace('{total}', String(total)),
   };
   const referencePrefs = useReferencePrefs();
+  const ghostText = useGhostText(projectId);
   const numbered = numberedInOrder(writings);
   const unnumberedCount = writings.length - numbered.length;
 
@@ -1330,6 +1332,7 @@ export default function BookEditor({
             layout={readingPrefs.layout}
             pageLayout={pageLayout}
             footnoteStyle={footnoteStyle}
+            ghostText={ghostText}
             toolbarExtra={
               <ChapterToolButton
                 editor={editor}
