@@ -11,6 +11,7 @@ import type { ToolArgs } from './shared';
 import { db } from '@/db';
 import type { GenealogyLinkRow } from '@/engines/genealogy/genealogyStore';
 import { createGenealogyBridgeHandlers } from './genealogy';
+import { whBuildWorldBible, whExportWorldBible } from './worldBible';
 import { whGetEditorialContext, whGetResearchEvidence } from './editorial';
 import { whEnableEngine, whGetContext, whListProjects, whSearch } from './context';
 import {
@@ -38,6 +39,15 @@ import {
   whListTimelines,
   whUpdateEvent,
 } from './timeline';
+import {
+  whChapterReferences,
+  whPinReference,
+  whReferenceConsult,
+  whReferencePreview,
+  whReferencePrefs,
+  whReferenceSearch,
+} from './reference';
+import { whWorldCalendarGet, whWorldCalendarSet, whWorldDate } from './worldCalendar';
 
 import { whCreateNote, whListNotes, whUpdateNote } from './notes';
 import {
@@ -139,6 +149,14 @@ import {
 } from './video';
 import { whAnnotate, whListAnnotations } from './annotations';
 import { whPovAudit, whWritingStats } from './analysis';
+import {
+  whGetManuscriptBoard,
+  whGetNarrativeCoverage,
+  whListPhraseRecurrence,
+  whListTimelineEvidence,
+  whSetCoverageCell,
+  whSetTimelineEvidence,
+} from './narrativeCoverage';
 import { whDelete } from './deletion';
 import {
   whAchMatrix,
@@ -163,6 +181,9 @@ import {
   whRunJudge,
 } from './judge';
 
+import {
+  whBetaCommentSetStatus, whBetaComments, whBetaImport, whBetaPackageCreate,
+} from './betaReading';
 import {
   whCharacterToProspero,
   whStoryboardToProspero,
@@ -189,6 +210,8 @@ const genealogyHandlers = createGenealogyBridgeHandlers(
 
 export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ...genealogyHandlers,
+  wh_build_world_bible: whBuildWorldBible,
+  wh_export_world_bible: whExportWorldBible,
   wh_get_research_evidence: whGetResearchEvidence,
   wh_get_editorial_context: whGetEditorialContext,
   // Orientation
@@ -225,6 +248,15 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_create_timeline: whCreateTimeline,
   wh_list_events: whListEvents,
   wh_create_event: whCreateEvent,
+  wh_world_calendar_get: whWorldCalendarGet,
+  wh_world_calendar_set: whWorldCalendarSet,
+  wh_world_date: whWorldDate,
+  wh_chapter_references: whChapterReferences,
+  wh_pin_reference: whPinReference,
+  wh_reference_consult: whReferenceConsult,
+  wh_reference_prefs: whReferencePrefs,
+  wh_reference_search: whReferenceSearch,
+  wh_reference_preview: whReferencePreview,
   wh_update_event: whUpdateEvent,
   wh_connect_events: whConnectEvents,
   // Outline
@@ -353,11 +385,22 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wh_storyboard_to_prospero: whStoryboardToProspero,
   wh_world_to_scheherazade: whWorldToScheherazade,
   wh_world_from_scheherazade: whWorldFromScheherazade,
+  // Beta reading
+  wh_beta_package_create: whBetaPackageCreate,
+  wh_beta_import: whBetaImport,
+  wh_beta_comments: whBetaComments,
+  wh_beta_comment_set_status: whBetaCommentSetStatus,
   // Annotations and analysis
   wh_list_annotations: whListAnnotations,
   wh_annotate: whAnnotate,
   wh_pov_audit: whPovAudit,
   wh_writing_stats: whWritingStats,
+  wh_get_narrative_coverage: whGetNarrativeCoverage,
+  wh_set_coverage_cell: whSetCoverageCell,
+  wh_list_timeline_evidence: whListTimelineEvidence,
+  wh_set_timeline_evidence: whSetTimelineEvidence,
+  wh_get_manuscript_board: whGetManuscriptBoard,
+  wh_list_phrase_recurrence: whListPhraseRecurrence,
 };
 
 /**

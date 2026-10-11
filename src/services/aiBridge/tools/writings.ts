@@ -18,6 +18,9 @@ import { listSnapshotMeta, restoreSnapshot, takeSnapshot } from '@/engines/writi
 import { extractFootnotesFromHtml } from '@/components/editor/footnotes/footnoteModel';
 import { countWords } from '@/utils/text';
 import { generateId } from '@/utils/idGenerator';
+import { formatWorldRange, validateWorldRange, type WorldCalendar, type WorldDate } from '@/engines/timeline/worldCalendar';
+import { resolveWorldCalendar } from '@/engines/timeline/worldCalendarStore';
+import { requireWorldCalendar, worldDateArg } from './worldCalendar';
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import { markdownToTiptapHtml, tiptapHtmlToMarkdown } from '../markdown';
 import {
@@ -58,6 +61,42 @@ function manuscriptHtmlFromMarkdown(markdown: string, reservedFootnoteIds?: read
 
 function manuscriptMarkdownFromHtml(html: string | undefined): string {
   return html ? tiptapHtmlToMarkdown(html, { footnotes: true }) : '';
+}
+
+/**
+ * `worldDate` / `worldDateEnd` of a chapter: parsed in the project's calendar and
+ * checked as a range. `null` or "" clears. Returns only the fields the call touched.
+ */
+async function worldDating(
+  projectId: string,
+  args: ToolArgs,
+  current?: Pick<Writing, 'worldDate' | 'worldDateEnd'>,
+): Promise<Partial<Pick<Writing, 'worldDate' | 'worldDateEnd'>>> {
+  const touchesStart = args.worldDate !== undefined;
+  const touchesEnd = args.worldDateEnd !== undefined;
+  if (!touchesStart && !touchesEnd) return {};
+  const clears = (v: unknown) => v === null || v === '';
+  if (touchesStart && clears(args.worldDate)) {
+    if (touchesEnd && !clears(args.worldDateEnd)) throw new BridgeError('bad-args', '"worldDateEnd" needs a "worldDate".');
+    return { worldDate: undefined, worldDateEnd: undefined };
+  }
+  const calendar = await requireWorldCalendar(projectId);
+  const worldDate: WorldDate | undefined = touchesStart ? worldDateArg(calendar, args.worldDate, 'worldDate') : current?.worldDate;
+  if (!worldDate) throw new BridgeError('bad-args', '"worldDateEnd" needs a "worldDate".');
+  const worldDateEnd = touchesEnd
+    ? (clears(args.worldDateEnd) ? undefined : worldDateArg(calendar, args.worldDateEnd, 'worldDateEnd'))
+    : current?.worldDateEnd;
+  const problem = validateWorldRange(calendar, worldDate, worldDateEnd);
+  if (problem) throw new BridgeError('bad-args', problem);
+  return { worldDate, worldDateEnd };
+}
+
+/** A chapter's world date for a tool answer: structured plus the calendar's own text. */
+function worldDateView(calendar: WorldCalendar | null, w: Pick<Writing, 'worldDate' | 'worldDateEnd'>): Record<string, unknown> {
+  if (!w.worldDate) return {};
+  let text: string | undefined;
+  if (calendar) { try { text = formatWorldRange(calendar, w.worldDate, w.worldDateEnd); } catch { text = undefined; } }
+  return { worldDate: w.worldDate, worldDateEnd: w.worldDateEnd, worldDateText: text };
 }
 
 async function mustGetWriting(id: string): Promise<Writing> {
@@ -105,6 +144,7 @@ export async function whListWritings(args: ToolArgs): Promise<unknown> {
   const projectId = resolveProjectId(args);
   const status = optEnum(args, 'status', STATUSES);
   const writings = await getWritings(projectId);
+  const calendar = (await resolveWorldCalendar(projectId))?.calendar ?? null;
   const filtered = status ? writings.filter((w) => w.status === status) : writings;
   return {
     projectId,
@@ -116,6 +156,7 @@ export async function whListWritings(args: ToolArgs): Promise<unknown> {
       synopsis: w.synopsis,
       wordCount: w.wordCount,
       tags: w.tags,
+      ...worldDateView(calendar, w),
       isGoogleDoc: w.isGoogleDoc === true,
       storySessionSource: w.storySessionSource && {
         app: w.storySessionSource.app,
@@ -130,6 +171,7 @@ export async function whListWritings(args: ToolArgs): Promise<unknown> {
 export async function whGetWriting(args: ToolArgs): Promise<unknown> {
   const writing = await mustGetWriting(requireString(args, 'id'));
   assertRowInScope(args, writing.projectId);
+  const calendar = (await resolveWorldCalendar(writing.projectId))?.calendar ?? null;
   return {
     id: writing.id,
     projectId: writing.projectId,
@@ -138,6 +180,7 @@ export async function whGetWriting(args: ToolArgs): Promise<unknown> {
     chapter: writing.chapter,
     synopsis: writing.synopsis,
     tags: writing.tags,
+    ...worldDateView(calendar, writing),
     wordCount: writing.wordCount,
     updatedAt: writing.updatedAt,
     storySessionSource: writing.storySessionSource,
@@ -161,6 +204,7 @@ export async function whCreateWriting(args: ToolArgs): Promise<unknown> {
     wordCount: countWords(html),
     chapter: optNumber(args, 'chapter'),
     tags: optStringArray(args, 'tags') ?? [],
+    ...(await worldDating(projectId, args)),
     createdAt: now,
     updatedAt: now,
   };
@@ -280,6 +324,7 @@ export async function whUpdateWriting(args: ToolArgs): Promise<unknown> {
   if (chapter !== undefined) changes.chapter = chapter;
   const tags = optStringArray(args, 'tags');
   if (tags !== undefined) changes.tags = tags;
+  Object.assign(changes, await worldDating(existing.projectId, args, existing));
 
   if (!Object.keys(changes).length) {
     throw new BridgeError('bad-args', 'Nothing to change: pass at least one field besides id.');

@@ -15,16 +15,8 @@ import { SCOPE_KEY } from '../schema';
 
 export type ToolArgs = Record<string, unknown>;
 
-/** A failure the model should read and act on, not a crash. */
-export class BridgeError extends Error {
-  code: string;
-
-  constructor(code: string, message: string) {
-    super(message);
-    this.name = 'BridgeError';
-    this.code = code;
-  }
-}
+export { BridgeError } from './bridgeError';
+import { BridgeError } from './bridgeError';
 
 /**
  * Refusal for a `content` that is empty or nothing but whitespace.

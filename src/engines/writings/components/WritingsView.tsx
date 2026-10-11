@@ -36,6 +36,10 @@ import {
   AlignJustify,
   File,
   Volume2,
+  Grid3x3,
+  List,
+  Columns3,
+  Rows3,
 } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
@@ -63,12 +67,17 @@ import SyncButton from './SyncButton';
 import SprintControl from './SprintControl';
 import AiToolbar from './AiToolbar';
 import JudgePanel from './JudgePanel';
+import ReferencePanel from './ReferencePanel';
+import { getReferenceUi, referenceDockPx, setReferenceConsult, useReferencePrefs } from './referencePrefs';
+import { useGhostText } from '@/components/editor/ghostText/useGhostText';
 import CompileModal from './CompileModal';
 import ManuscriptImportModal from './ManuscriptImportModal';
 import HistoryModal from './HistoryModal';
 import ReadingView from './ReadingView';
 import RecentlyChanged from './RecentlyChanged';
+import NarrativeCoveragePanel from './NarrativeCoveragePanel';
 import PublishingProfileModal from '@/components/project/PublishingProfileModal';
+import { buildManuscriptBoard, type ManuscriptViewMode } from '@/services/narrativeXray/manuscriptViews';
 import { ensureSnapshot, takeSnapshot } from '../snapshots';
 import { generateImageFromSelection } from '../generateImageFromSelection';
 import { db } from '@/db';
@@ -127,6 +136,9 @@ import {
   type ChapterExportOutput,
 } from '../chapterExport';
 import { applyChapterNumbers } from '../chapterOrderPersist';
+import { chapterWorldLabel } from '../chapterWorldDate';
+import ChapterWorldDate from './ChapterWorldDate';
+import { useWorldCalendar } from '@/engines/timeline/useWorldCalendar';
 import { toast } from '@/components/common/toast';
 import { ReadAloudPanel } from '@/components/read-aloud';
 import { writingToReadAloudBlocks, type ReadAloudNoteAnchor } from '@/services/readAloud';
@@ -258,10 +270,12 @@ function ChapterNumberField({
  * writing id for the same flush-on-switch reason as the chapter field.
  */
 function WritingMetaFields({
+  projectId,
   writing,
   tagSuggestions,
   onUpdate,
 }: {
+  projectId: string;
   writing: Writing;
   tagSuggestions: string[];
   onUpdate: (id: string, changes: Partial<Writing>) => Promise<void>;
@@ -273,6 +287,7 @@ function WritingMetaFields({
   );
 
   return (
+    <>
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
       <label className="block">
         <span className="block mb-1.5 text-[10px] text-text-dim uppercase tracking-wider font-medium">
@@ -297,6 +312,8 @@ function WritingMetaFields({
         />
       </div>
     </div>
+    <ChapterWorldDate projectId={projectId} writing={writing} onUpdate={onUpdate} />
+    </>
   );
 }
 
@@ -451,6 +468,8 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // would move the ground under every author who already knows where their
   // work in progress is.
   const [activeStatus, setActiveStatus] = useState<StatusFilter>('draft');
+  const [showCoverage, setShowCoverage] = useState(false);
+  const [manuscriptView, setManuscriptView] = useState<ManuscriptViewMode>('list');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [openWriting, setOpenWriting] = useState<Writing | null>(null);
   const [editedContent, setEditedContent] = useState('');
@@ -502,6 +521,8 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
   // (footnotes) and the page count. The setter is what TiptapEditor gets:
   // it is stable, so its effect does not re-run per render.
   const [liveEditor, setLiveEditor] = useState<Editor | null>(null);
+  const referencePrefs = useReferencePrefs();
+  const ghostText = useGhostText(projectId);
   const [pendingJudgeNavigation, setPendingJudgeNavigation] = useState<{
     writingId: string;
     quote: string;
@@ -527,6 +548,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
 
   const { accessToken } = useGoogleStore();
   const { project } = useProject(projectId);
+  const worldCalendar = useWorldCalendar(projectId)?.calendar ?? null;
   const projectTitle = project?.title || t('writings.compile.untitledProject');
   // Footnote marker style is a property of the manuscript, kept on the project row.
   const footnoteStyle = normalizeFootnoteStyle(project?.footnoteStyle);
@@ -893,7 +915,9 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         e.preventDefault();
         setFocusMode((on) => !on);
       } else if (e.key === 'Escape') {
-        setFocusMode(false);
+        // A consult drawer open over the page closes first; focus mode stays.
+        if (getReferenceUi().consult) setReferenceConsult(false);
+        else setFocusMode(false);
       }
     };
     window.addEventListener('keydown', handler);
@@ -932,6 +956,11 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       .filter(w => activeStatus === 'all' || w.status === activeStatus)
       .sort(compareManuscriptOrder),
     [writings, activeStatus]
+  );
+
+  const manuscriptBoard = useMemo(
+    () => buildManuscriptBoard(writings, manuscriptView),
+    [writings, manuscriptView],
   );
 
   const counts = useMemo(() => ({
@@ -2214,7 +2243,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       .map((cap) => (cap.localeKey ? t(cap.localeKey) : cap.text))
       .join(' ');
     const headerRow = (
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <button
             onClick={handleCloseWriting}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-muted hover:text-text-primary transition rounded-lg hover:bg-elevated"
@@ -2484,6 +2513,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         {!focusMode && (
           <WritingMetaFields
             key={`writing-meta-${openWriting.id}`}
+            projectId={projectId}
             writing={openWriting}
             tagSuggestions={tagSuggestions}
             onUpdate={handleMetaUpdate}
@@ -2571,6 +2601,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         )}
 
         {focusMode ? (
+          <>
           <TiptapEditor
             key={`focus-editor-${openWriting.id}`}
             content={editedContent}
@@ -2582,7 +2613,22 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
             layout={readingPrefs.layout}
             pageLayout={pageLayout}
             footnoteStyle={footnoteStyle}
+            ghostText={ghostText}
           />
+          {/* Focus mode has no side column: "Consultar" is a temporary
+              drawer over the page, opened from its own floating button or
+              Ctrl+Alt+R, closed with Esc, and never moves the selection. */}
+          <ReferencePanel
+            key={`reference-focus-${openWriting.id}`}
+            projectId={projectId}
+            writingId={openWriting.id}
+            content={editedContent}
+            editor={liveEditor}
+            prefs={referencePrefs}
+            mode="temporary"
+            anchor="left"
+          />
+          </>
         ) : (
           // A sheet is 794px wide (A4) or 816px (Letter): beside a 320px panel
           // it only fits from 1440px up, so in page mode the panel goes
@@ -2590,9 +2636,16 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           <div
             className={`grid grid-cols-1 gap-4 items-start ${
               pageMode
-                ? 'min-[1440px]:grid-cols-[minmax(0,1fr)_320px]'
-                : 'lg:grid-cols-[minmax(0,1fr)_320px]'
+                ? 'min-[1440px]:grid-cols-[minmax(0,1fr)_var(--wh-side-w,320px)]'
+                : 'lg:grid-cols-[minmax(0,1fr)_var(--wh-side-w,320px)]'
             }`}
+            // The reference panel, when open, widens the side column to the
+            // width the writer chose (320px otherwise).
+            style={
+              referencePrefs.open
+                ? ({ '--wh-side-w': `${Math.max(320, referencePrefs.width)}px` } as React.CSSProperties)
+                : undefined
+            }
           >
             <TiptapEditor
               key={`editor-${openWriting.id}`}
@@ -2606,12 +2659,22 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
               layout={readingPrefs.layout}
               pageLayout={pageLayout}
               footnoteStyle={footnoteStyle}
+              ghostText={ghostText}
             />
             <div
               className={`space-y-5 ${
                 pageMode ? 'min-[1440px]:sticky min-[1440px]:top-4' : 'lg:sticky lg:top-4'
               }`}
             >
+              <ReferencePanel
+                key={`reference-${openWriting.id}`}
+                projectId={projectId}
+                writingId={openWriting.id}
+                content={editedContent}
+                editor={liveEditor}
+                prefs={referencePrefs}
+                narrowBreakpoint={referenceDockPx(pageMode)}
+              />
               <JudgePanel
                 key={`judge-${openWriting.id}`}
                 projectId={projectId}
@@ -2789,10 +2852,46 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
 
         <div className="flex-1" />
 
+        {/* Same Writing rows: list, binder (ordered spine) or kanban by status. */}
+        <div className="flex items-center rounded-lg border border-border p-0.5">
+          {(
+            [
+              ['list', List, 'List'],
+              ['binder', Rows3, 'Binder'],
+              ['kanban', Columns3, 'Kanban'],
+            ] as const
+          ).map(([mode, Icon, label]) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setManuscriptView(mode)}
+              className={`flex items-center gap-1 rounded-md px-2 py-1.5 text-xs transition ${
+                manuscriptView === mode
+                  ? 'bg-accent-gold/20 text-accent-gold'
+                  : 'text-text-muted hover:text-text-primary'
+              }`}
+              title={`${label} view of the same writings`}
+              aria-pressed={manuscriptView === mode}
+            >
+              <Icon size={14} />
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* The same sprint control the editor carries. A sprint runs across the
             whole project, so walking back to the list to open another chapter
             must not be where the countdown disappears. */}
         <SprintControl projectId={projectId} getProjectWords={getProjectWords} />
+
+        <button
+          onClick={() => setShowCoverage(true)}
+          className="flex items-center gap-1.5 px-3 py-2 border border-border text-text-muted text-sm rounded-lg hover:text-accent-gold hover:border-accent-gold/40 transition"
+          title="Character×chapter coverage and timeline evidence"
+        >
+          <Grid3x3 size={16} />
+          Coverage
+        </button>
 
         {/* Read what is in this tab, in manuscript order, as one scroll. */}
         <button
@@ -2914,7 +3013,72 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
         </div>
       )}
 
-      {filtered.length > 0 && (
+      {manuscriptView === 'kanban' && writings.length > 0 && (
+        <div className="grid gap-3 md:grid-cols-3">
+          {manuscriptBoard.columns.map((column) => {
+            const cfg = STATUS_CONFIG[column.status];
+            const Icon = cfg.icon;
+            const cards =
+              activeStatus === 'all'
+                ? column.cards
+                : column.cards.filter((c) => c.status === activeStatus);
+            return (
+              <div key={column.status} className="rounded-xl border border-border bg-surface/60 p-3">
+                <div className="mb-2 flex items-center gap-2 text-sm font-medium" style={{ color: cfg.color }}>
+                  <Icon size={14} />
+                  {statusLabel(column.status)}
+                  <span className="text-xs text-text-muted">({cards.length})</span>
+                </div>
+                <div className="space-y-2">
+                  {cards.map((card) => (
+                    <button
+                      key={card.id}
+                      type="button"
+                      onClick={() => {
+                        const row = writings.find((w) => w.id === card.id);
+                        if (row) handleOpenWriting(row);
+                      }}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-left text-sm hover:border-accent-gold/40"
+                    >
+                      <div className="font-medium text-text-primary">
+                        {card.chapter != null ? `${card.chapter}. ` : ''}
+                        {card.title}
+                      </div>
+                      <div className="text-xs text-text-muted">{card.wordCount} words</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {manuscriptView === 'binder' && filtered.length > 0 && (
+        <div className="rounded-xl border border-border bg-surface/40 p-3">
+          <ol className="space-y-1">
+            {filtered.map((writing) => (
+              <li key={writing.id}>
+                <button
+                  type="button"
+                  onClick={() => handleOpenWriting(writing)}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-elevated"
+                >
+                  <span className="w-8 shrink-0 text-xs text-text-muted">
+                    {writing.chapter != null ? writing.chapter : '—'}
+                  </span>
+                  <span className="flex-1 text-text-primary">{writing.title}</span>
+                  <span className="text-xs" style={{ color: STATUS_CONFIG[writing.status].color }}>
+                    {statusLabel(writing.status)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {manuscriptView === 'list' && filtered.length > 0 && (
         <div className="space-y-2">
           <AnimatePresence>
             {filtered.map((writing, i) => {
@@ -2995,6 +3159,11 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
                         <span className="text-[10px] text-text-dim">
                           {t('writings.updated')} {new Date(writing.updatedAt).toLocaleDateString()}
                         </span>
+                        {chapterWorldLabel(worldCalendar, writing) && (
+                          <span data-testid="chapter-world-date-badge" className="text-[10px] px-1.5 py-0.5 bg-elevated rounded text-accent-gold">
+                            {chapterWorldLabel(worldCalendar, writing)}
+                          </span>
+                        )}
                         {writing.isGoogleDoc && (
                           <GoogleDocBadge compact />
                         )}
@@ -3303,6 +3472,12 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
       />
 
       {confirmDeleteDialog}
+
+      <NarrativeCoveragePanel
+        projectId={projectId}
+        open={showCoverage}
+        onClose={() => setShowCoverage(false)}
+      />
     </div>
   );
 }

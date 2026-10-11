@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, Clock, GripVertical, Calendar, Type, ArrowUpDown, Circle, Diamond, ArrowRight } from 'lucide-react';
+import { Plus, Trash2, Clock, GripVertical, Calendar, Type, ArrowUpDown, Circle, Diamond, ArrowRight, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { TimelineEvent, DateMode, TimelineEventType } from '@/types';
 import { generateId } from '@/utils/idGenerator';
@@ -8,6 +8,10 @@ import Modal from '@/components/common/Modal';
 import EmptyState from '@/components/common/EmptyState';
 import ColorPicker from '@/components/common/ColorPicker';
 import { validateTimelineDates } from '../dateValidation';
+import { WorldDateField } from './WorldDateField';
+import { useWorldCalendar, worldDateText } from '../useWorldCalendar';
+import { chronologicalCompare, readWorldForm, worldEventLabel } from '../worldEventForm';
+import type { WorldCalendar } from '../worldCalendar';
 
 interface TimelineViewProps {
   projectId: string;
@@ -34,7 +38,8 @@ function formatRealDate(iso: string, endIso?: string): string {
 }
 
 /** Get the display date string for an event */
-function getDisplayDate(evt: TimelineEvent): string {
+function getDisplayDate(evt: TimelineEvent, calendar?: WorldCalendar | null): string {
+  if (evt.dateMode === 'world') return worldEventLabel(evt, calendar);
   if (evt.dateMode === 'calendar' && evt.realDate) {
     return formatRealDate(evt.realDate, evt.realDateEnd);
   }
@@ -58,9 +63,12 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
     eventType: 'point' as TimelineEventType,
     realDate: '',
     realDateEnd: '',
+    worldText: '',
+    worldTextEnd: '',
     lane: 'Main',
     color: '#c4973b',
   });
+  const worldCalendar = useWorldCalendar(projectId)?.calendar ?? null;
   // What the form held when it opened: Escape and the backdrop only close it
   // while nothing typed since then would be lost.
   const [formOpenedWith, setFormOpenedWith] = useState(form);
@@ -74,8 +82,11 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
   if (lanes.length === 0) lanes.push('Main');
 
   // Check if there are any calendar-mode events (enables chronological sort)
-  const hasCalendarEvents = events.some(e => e.dateMode === 'calendar' && e.realDate);
-  const dateError = form.dateMode === 'calendar' ? validateTimelineDates(form.realDate, form.realDateEnd) : null;
+  const hasCalendarEvents = events.some(e => (e.dateMode === 'calendar' && e.realDate) || (e.dateMode === 'world' && e.worldDate));
+  const world = form.dateMode === 'world' ? readWorldForm(worldCalendar, form.worldText, form.worldTextEnd) : null;
+  const dateError = form.dateMode === 'calendar'
+    ? validateTimelineDates(form.realDate, form.realDateEnd)
+    : world?.error ?? null;
 
   const handleSave = async () => {
     if (!form.title.trim() || saving || dateError) return;
@@ -85,11 +96,12 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
 
     const dateValue = form.dateMode === 'calendar' && form.realDate
       ? formatRealDate(form.realDate, form.realDateEnd)
-      : form.date;
+      : world ? world.label : form.date;
 
     // Auto-detect eventType: if there's an end date, it's a range
     const effectiveType: TimelineEventType =
-      form.dateMode === 'calendar' && form.realDateEnd ? 'range' : form.eventType;
+      (form.dateMode === 'calendar' && form.realDateEnd) || world?.fields.worldDateEnd ? 'range' : form.eventType;
+    const worldFields = world ? world.fields : { worldDate: undefined, worldDateEnd: undefined };
 
     if (editingEvent) {
       await onEditEvent(editingEvent.id, {
@@ -100,6 +112,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
         eventType: effectiveType,
         realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
+        ...worldFields,
         lane: form.lane,
         color: form.color,
       });
@@ -139,7 +152,7 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
 
   const resetForm = () => {
     setSaveFailed(false);
-    loadForm({ title: '', description: '', date: '', dateMode: 'text', eventType: 'point', realDate: '', realDateEnd: '', lane: 'Main', color: '#c4973b' });
+    loadForm({ title: '', description: '', date: '', dateMode: 'text', eventType: 'point', realDate: '', realDateEnd: '', worldText: '', worldTextEnd: '', lane: 'Main', color: '#c4973b' });
   };
 
   const openEdit = (evt: TimelineEvent) => {
@@ -152,6 +165,8 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
       eventType: evt.eventType || 'point',
       realDate: evt.realDate || '',
       realDateEnd: evt.realDateEnd || '',
+      worldText: worldDateText(worldCalendar, evt.worldDate),
+      worldTextEnd: worldDateText(worldCalendar, evt.worldDateEnd),
       lane: evt.lane,
       color: evt.color,
     });
@@ -160,18 +175,8 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
   };
 
   // Sort events
-  const sortedEvents = [...events].sort((a, b) => {
-    if (sortMode === 'chronological') {
-      // Calendar dates first (sorted), then text dates at the end by order
-      const aDate = a.dateMode === 'calendar' && a.realDate ? a.realDate : '';
-      const bDate = b.dateMode === 'calendar' && b.realDate ? b.realDate : '';
-      if (aDate && bDate) return aDate.localeCompare(bDate);
-      if (aDate && !bDate) return -1;
-      if (!aDate && bDate) return 1;
-      return a.order - b.order;
-    }
-    return a.order - b.order;
-  });
+  const sortedEvents = [...events].sort(sortMode === 'chronological' ? chronologicalCompare(worldCalendar) : (a, b) => a.order - b.order);
+
 
   return (
     <div className="space-y-6">
@@ -265,13 +270,13 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          {getDisplayDate(evt) && (
+                          {getDisplayDate(evt, worldCalendar) && (
                             <span
                               className="text-xs px-2 py-0.5 rounded inline-flex items-center gap-1"
                               style={{ backgroundColor: `${evt.color}20`, color: evt.color }}
                             >
                               {evt.dateMode === 'calendar' && <Calendar size={10} />}
-                              {getDisplayDate(evt)}
+                              {getDisplayDate(evt, worldCalendar)}
                             </span>
                           )}
                           <span className="text-[10px] text-text-dim uppercase tracking-wider">{evt.lane}</span>
@@ -343,9 +348,32 @@ export default function TimelineView({ projectId, timelineId, events, onAddEvent
                 <Calendar size={12} />
                 {t('timeline.calendar')}
               </button>
+              <button
+                onClick={() => setForm({ ...form, dateMode: 'world' })}
+                data-testid="date-mode-world"
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition ${
+                  form.dateMode === 'world'
+                    ? 'bg-accent-gold/20 text-accent-gold font-semibold'
+                    : 'text-text-muted hover:text-text-primary'
+                }`}
+              >
+                <Globe size={12} />
+                {t('timeline.world.mode')}
+              </button>
             </div>
 
-            {form.dateMode === 'text' ? (
+            {form.dateMode === 'world' ? (
+              worldCalendar ? (
+                <div className="space-y-2">
+                  <WorldDateField calendar={worldCalendar} label={t('timeline.startDate')} value={form.worldText} testId="world-date-start"
+                    onChange={(worldText) => setForm({ ...form, worldText })} />
+                  <WorldDateField calendar={worldCalendar} label={t('timeline.endDate')} value={form.worldTextEnd} optional testId="world-date-end"
+                    onChange={(worldTextEnd) => setForm({ ...form, worldTextEnd })} />
+                </div>
+              ) : (
+                <p className="text-xs text-text-muted">{t('timeline.world.noCalendarHint')}</p>
+              )
+            ) : form.dateMode === 'text' ? (
               <input
                 value={form.date}
                 onChange={(e) => setForm({ ...form, date: e.target.value })}
