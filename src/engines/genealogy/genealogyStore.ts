@@ -34,12 +34,24 @@ export function genealogyLinkKey(projectId: string, linkId: string): string {
  * never throws on unexpected data.
  */
 export function migrateGenealogyLinkV36toV37(row: Record<string, unknown>): Record<string, unknown> {
-  const linkId = typeof row.id === 'string' ? row.id : '';
+  const rawId = typeof row.id === 'string' ? row.id : '';
   const projectId = typeof row.projectId === 'string' ? row.projectId : '';
-  if (linkId === '' || projectId === '' || typeof row.linkId === 'string') return { ...row };
+  if (projectId === '') return { ...row };
+  // Recover the link id: an explicit linkId field wins; otherwise the id is
+  // either a bare v36 link id or already a composite (a database that ran
+  // v37 code without the upgrade completing — review r4 P1 idempotency).
+  const linkId =
+    typeof row.linkId === 'string' && row.linkId !== ''
+      ? row.linkId
+      : rawId.includes('\u0000')
+        ? rawId.slice(rawId.indexOf('\u0000') + 1)
+        : rawId;
+  if (linkId === '') return { ...row };
+  const composite = genealogyLinkKey(projectId, linkId);
+  if (rawId === composite && typeof row.linkId === 'string') return { ...row }; // already v37
   return {
     ...row,
-    id: genealogyLinkKey(projectId, linkId),
+    id: composite,
     linkId,
   };
 }
@@ -74,9 +86,17 @@ export function linkToRow(projectId: string, link: GenealogyLink): GenealogyLink
   return row;
 }
 
-/** Restore the contract's link shape from a stored row. */
+/** Restore the contract's link shape from a stored row. Defensive against
+ * legacy v36 rows (id = link id, no linkId field) so a row that escaped the
+ * migration still reads back instead of yielding id: undefined (review r4). */
 export function rowToLink(row: GenealogyLinkRow): GenealogyLink {
-  const link: GenealogyLink = { id: row.linkId, from: row.from, to: row.to, kind: row.kind };
+  const linkId =
+    typeof row.linkId === 'string' && row.linkId !== ''
+      ? row.linkId
+      : typeof row.id === 'string' && row.id.includes('\u0000')
+        ? row.id.slice(row.id.indexOf('\u0000') + 1)
+        : row.id;
+  const link: GenealogyLink = { id: linkId, from: row.from, to: row.to, kind: row.kind };
   if (row.label !== undefined) link.label = row.label;
   return link;
 }
@@ -148,12 +168,15 @@ export function deriveLinkIds(
 ): string[] {
   const taken = new Set(existingIds);
   for (const e of entries) {
+    // Guard against null/non-object entries (review r4 P2: a batch like
+    // [null, valid] must not dereference e.id before validation).
+    if (e === null || typeof e !== 'object') continue;
     if (typeof e.id === 'string' && e.id !== '') taken.add(e.id);
   }
   const ids: string[] = [];
   let next = 1;
   for (const e of entries) {
-    if (typeof e.id === 'string' && e.id !== '') {
+    if (e !== null && typeof e === 'object' && typeof e.id === 'string' && e.id !== '') {
       ids.push(e.id);
     } else {
       while (taken.has(`g${next}`)) next++;

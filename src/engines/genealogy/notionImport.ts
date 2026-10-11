@@ -20,6 +20,7 @@
 // ============================================================================
 
 import type { GenealogyImportIssue, GenealogyImportResult } from './markdownImport.ts';
+import { deriveLinkIds } from './genealogyStore.ts';
 
 const KINDS = new Set(['biological_parent', 'adoptive_parent', 'guardian', 'partner']);
 
@@ -96,8 +97,13 @@ export function importGenealogyNotion(markdown: unknown): GenealogyImportResult 
         issues.push({ code: 'invalid_line', detail: 'target must be non-empty', line: index + 1 });
         continue;
       }
-      const explicitId = parts.length > 3 && parts[3] !== '' ? parts[3] : `g${links.length + 1}`;
-      if (seen.has(explicitId)) {
+      // Link id: explicit fourth field when present, else left empty and
+      // derived after the loop (explicit ids of the whole batch are reserved
+      // first by deriveLinkIds, so a derived id never collides with one of
+      // them — review r4 P2: the previous positional counter could hand the
+      // same gN to two different links or collide with an explicit id).
+      const explicitId = parts.length > 3 && parts[3] !== '' ? parts[3] : '';
+      if (explicitId !== '' && seen.has(explicitId)) {
         issues.push({ code: 'duplicate_id', detail: `duplicate link id: ${explicitId}`, line: index + 1 });
         continue;
       }
@@ -112,6 +118,11 @@ export function importGenealogyNotion(markdown: unknown): GenealogyImportResult 
   if (links.length === 0 && issues.length === 0) {
     issues.push({ code: 'no_links', detail: 'no relationship lines found' });
   }
+
+  // Derive ids for the entries without one (review r4 P2): reserve the
+  // batch's explicit ids first so a derived id never collides with one of them.
+  const ids = deriveLinkIds(links as unknown as Record<string, unknown>[], new Set());
+  links.forEach((link, i) => { if (link.id === '') link.id = ids[i]; });
 
   return { links, issues };
 }

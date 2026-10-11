@@ -204,6 +204,14 @@ export function undoGenealogy(
   if (application.projectId !== projectId) {
     throw new GenealogyOpError('project_mismatch', 'la aplicación pertenece a otro proyecto');
   }
+  // The undo is only valid if the state has not changed since THIS
+  // application: the current revision must equal both the revision recorded
+  // after the application and the revision the caller sees now (review r4 P2:
+  // apply A, then apply B, then undo A must be rejected even if the caller
+  // passes B's revision as currentRevision).
+  if (application.revisionAfter !== currentRevision) {
+    throw new GenealogyOpError('stale_revision', 'el estado cambió desde la aplicación; undo rechazado');
+  }
   if (genealogyRevision(links) !== currentRevision) {
     throw new GenealogyOpError('stale_revision', 'el estado cambió desde la aplicación; undo rechazado');
   }
