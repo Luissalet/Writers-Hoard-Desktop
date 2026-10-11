@@ -1,35 +1,33 @@
 # Contrato de Genealogía — `hoard.genealogy/1` (v1.0.0)
 
-Estado: implementación de la tarea Ágora #136. El motor Genealogía se registra
-en la aplicación, guarda enlaces por proyecto y muestra el árbol SVG con
-personajes, relaciones explícitas y exportaciones DOT/texto.
+> Estado: **lote parcial en revisión** — tarea Ágora #136. Este lote entrega el
+> contrato, el validador puro y las pruebas. **No** entrega la UI del árbol
+> genealógico, ni importadores Markdown, ni cambios en el bridge existente.
+> La tarea #136 completa sigue abierta: queda una segunda ronda tras esta revisión.
 
-## 1. Capacidades y límites
+## 1. Alcance de este lote
 
-La pantalla importa carpetas y archivos Markdown al Codex desde Obsidian,
-Notion, World Anvil y Campfire. Conserva la fuente completa, convierte el cuerpo
-Markdown para el editor y utiliza los tipos explícitos de la exportación. Una
-nota sin tipo se guarda como ficha personalizada; no se fusiona por nombre.
-Antes de aplicar se muestran añadidos, duplicados, conflictos e incidencias.
-La identidad de cada ficha se deriva de proyecto, formato y ruta de origen;
-reimportar la misma fuente no la duplica y una fuente cambiada no sobrescribe
-automáticamente una ficha existente.
-
-El puente importa también propuestas de enlaces genealógicos desde los cuatro
-formatos. Se emparejan personajes por id y las referencias a personajes ya
-existentes se resuelven al importar. Las fichas importadas al Codex y los enlaces
-genealógicos son operaciones distintas: no se infiere parentesco del texto libre.
-
-Los enlaces viven en Dexie y en las copias del proyecto. El esquema v38 conserva
-las referencias y los datos de las instalaciones que ya llegaron a v37, añade
-la tabla genealógica y migra las claves antiguas a proyecto+id. Las relaciones
-genéricas siguen separadas y no generan ascendencia automáticamente.
-
-El puente IA y MCP ofrecen preview, validate, import, apply, query y undo.
-El registro de aplicaciones para undo vive en la sesión del proceso: no se
-promete deshacer una aplicación antigua después de reiniciar la app. El sidecar
-genealógico y su mapeo de ids se describen abajo; no se modifica el documento
-de mundo original para guardar estos enlaces.
+| Entregado | Pendiente (declarado) |
+|---|---|
+| Contrato versionado (este documento) | Vista de árbol genealógico (W3, UI) |
+| Validador TS puro `src/engines/genealogy/validate.ts` | |
+| Importador Markdown `src/engines/genealogy/markdownImport.ts` (W6, primera pieza) | Persistencia Dexie de enlaces genealógicos |
+| Importador Obsidian `src/engines/genealogy/obsidianImport.ts` (W6, segunda pieza) | |
+| Importador Notion `src/engines/genealogy/notionImport.ts` (W6, tercera pieza) | |
+| Importador World Anvil `src/engines/genealogy/worldAnvilImport.ts` (W6, cuarta pieza) | |
+| Importador Campfire `src/engines/genealogy/campfireImport.ts` (W6, quinta pieza, JSON) | |
+| Constructor de árbol `src/engines/genealogy/tree.ts` (W3, primera pieza: estructura pura) | Vista de árbol genealógico (W3, UI) |
+| Layout del árbol `src/engines/genealogy/layout.ts` (W3, cuarta pieza: posiciones puras fila/columna para la vista, hojas densas y padres centrados sobre su subárbol) | Vista de árbol genealógico (W3, UI) |
+| Vista SVG `src/engines/genealogy/treeSvg.ts` (W3, séptima pieza: renderTreeSvg puro, string SVG con nodos `<g data-id>`, aristas por kind con flecha/discontinua y etiquetas, escape XML) | Vista de árbol genealógico (W3, UI) |
+| Exportadores del árbol `src/engines/genealogy/treeExport.ts` (W3, quinta pieza: `exportTreeDot` Graphviz con estilos por kind y escape, `exportTreeText` jerárquico con notas de pareja e hijos ya colocados) | Vista de árbol genealógico (W3, UI) |
+| Vista previa de importación `src/engines/genealogy/importPreview.ts` (W6, sexta pieza: clasificación pura additions/duplicates/conflicts con ids derivados) | |
+| Capa de filas de persistencia `src/engines/genealogy/genealogyStore.ts` (W3, segunda pieza: `GenealogyLinkRow` con `projectId`, conversiones enlace↔fila y `validateRows` previa al volcado; el registro de la tabla `genealogyLinks` como esquema v36 de Dexie se hace en la integración) | Registro real de la tabla Dexie (v36) y operaciones CRUD en `src/db` |
+| Repositorio de enlaces `src/engines/genealogy/genealogyRepo.ts` (W3, octava pieza: `loadGenealogyLinks`/`saveGenealogyLinks`/`deleteGenealogyLink` sobre una tabla inyectada con superficie mínima de Dexie, validación de almacenamiento propia —forma, kind, self-link, id duplicado— sin integridad referencial, lote todo-o-nada y borrado acotado a proyecto) | Registro real de la tabla Dexie (v36) y operaciones CRUD en `src/db` |
+| Esquema Dexie v36 en `src/db/index.ts` (W3, novena pieza: tabla `genealogyLinks` registrada con índices `id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt`; `CURRENT_DB_VERSION` 35→36; bloque v35 fijado a literal; aditivo e inerte, sin paso de migración) | — |
+| Transporte bridge `src/services/aiBridge/tools/genealogy.ts` (W3, undécima pieza: `GENEALOGY_BRIDGE_TOOLS` con las 5 herramientas `wh_genealogy_*` registradas en `BRIDGE_TOOLS` (grupo people, engine genealogy) y en `TOOL_HANDLERS` vía `createGenealogyBridgeHandlers(table, loadCharacters)`; preview/validate solo lectura, apply escribe y registra, undo con guarda de revisión; registro de aplicaciones en memoria del proceso) | Persistencia del registro de aplicaciones entre sesiones (diseño pendiente de la segunda ronda) |
+| Núcleo MCP `src/engines/genealogy/genealogyOps.ts` (tercera pieza: `applyGenealogy` con registro de aplicación y revisiones, `queryGenealogy` por dirección, `undoGenealogy` con guarda de revisión) + despachador `src/engines/genealogy/genealogyTools.ts` (sexta pieza: `GENEALOGY_TOOLS` con las 5 herramientas §5 y `dispatchGenealogyTool` puro; el transporte MCP real queda pendiente) | Transporte MCP real en el bridge (consumir `GENEALOGY_TOOLS`/`dispatchGenealogyTool`) |
+| Mapeo de ids `src/engines/genealogy/idMap.ts` (segunda ronda) | Contrato MCP real (`preview/validate/apply/query/undo`) |
+| Pruebas Node estándar `tests/genealogy.test.mjs` (25) | Migración/roundtrip real en el bridge |
 
 ## 2. Modelo de datos
 
@@ -159,53 +157,34 @@ es la vía de intercambio conservadora.
 | `genealogy_version_unsupported` | `schema` distinto de `hoard.genealogy/1` |
 | `genealogy_sidecar_invalid` | sidecar malformado: no objeto, `contractVersion` ausente (una versión distinta es `genealogy_version_unsupported`, ver fila anterior), `links` no array o con entradas no objeto |
 
-## 5. Herramientas del puente IA y MCP
+## 5. Contrato MCP propuesto (NO implementado aún)
 
-| Herramienta | Operación |
-|---|---|
-| `wh_genealogy_preview` | Clasifica propuesta contra los enlaces guardados sin escribir. |
-| `wh_genealogy_validate` | Valida referencias, clases de enlace y ciclos. |
-| `wh_genealogy_import` | Parsea Obsidian, Notion, World Anvil o Campfire y devuelve propuesta y preview; no aplica por sí sola. |
-| `wh_genealogy_apply` | Guarda los enlaces aceptados y devuelve rechazos, applyId y revisionAfter. |
-| `wh_genealogy_query` | Consulta padres, hijos, tutores y parejas de un personaje. |
-| `wh_genealogy_undo` | Deshace los enlaces de una aplicación de la sesión si su revisión no cambió. |
+Propuesta de herramientas futuras para el puente IA, con límites explícitos:
 
-Los errores del handler llegan como fallo del puente, en vez de anunciar una
-escritura exitosa. La UI admite además Markdown y usa la misma persistencia
-genealógica. No se fusionan identidades por nombre ni se infiere ascendencia
-a partir de relaciones genéricas.
+| Herramienta | Entrada | Salida / límites |
+|---|---|---|
+| `genealogy_preview` | propuesta de enlaces | resultado de `validateGenealogy` (aceptados/rechazados con cadenas de ciclo); **solo lectura** |
+| `genealogy_validate` | propuesta de enlaces | igual que preview; sin efectos |
+| `genealogy_apply` | propuesta validada | aplica solo los aceptados; rechaza el lote si algo cambió desde el preview (ver undo) |
+| `genealogy_query` | id de personaje | padres, hijos, guardianes, pareja; nunca infiere de relaciones genéricas |
+| `genealogy_undo` | id de aplicación | **exigirá revisión actual**: solo deshace si el registro no fue modificado desde la aplicación (hash de revisión), para no pisar cambios ajenos |
+
+Límites: sin inferencia, sin fusión por nombre, sin borrado de datos, sin
+escritura fuera de los enlaces propuestos. Nada de esto existe todavía en el
+bridge; se declara como diseño pendiente de la segunda ronda.
 
 ## 6. Verificación
 
-La suite de genealogía contiene 242 pruebas Node, incluidas
-referencias existentes, ciclos, preview/aplicación, undo y distribución del
-árbol; `codex-folder-import.test.mjs` añade 17 pruebas de importación de fichas.
-La integración se comprueba además con cuatro migraciones IndexedDB nativas
-privadas, llamadas HTTP/MCP reales al puente y el flujo completo de la pantalla
-normal de la aplicación. Las pruebas no abren bases de usuario.
-
 ```bash
-node --experimental-strip-types --test tests/genealogy*.test.mjs
-node --experimental-strip-types --test tests/codex-folder-import.test.mjs
+node --experimental-strip-types --test tests/genealogy.test.mjs
+# 25 pruebas: aceptación/rechazo exactos (f1,f2,f3,f6,f7 / f4,f5,f8,f9),
+# ciclo mixto, no mutación, padres múltiples, genérica fuera del grafo,
+# ids duplicados, sidecar intacto y rechazos explícitos (versión, ausencia
+# de contractVersion, links malformados), ids locales vs refs hoard.
 ```
 
-## 7. Importación de fichas: formato y deshacer
-
-`wh_codex_import_preview`, `wh_codex_import_apply` y `wh_codex_import_undo`
-utilizan el mismo importador que la pantalla. Preview y apply reciben projectId,
-format y files:[{path,text}]; undo recibe projectId y el applyId devuelto.
-Apply guarda todas las fichas nuevas válidas en una transacción. Undo retira
-únicamente las fichas de ese recibo, en otra transacción, y conserva todo si
-alguna ficha fue modificada después. Los recibos duran la sesión del renderer;
-no se ofrece undo de estos recibos después de reiniciar.
-
-Markdown admite metadatos escalares, tags y aliases como listas inline o por
-líneas. Los metadatos complejos permanecen en el texto fuente y se informa de
-lo que no se ha modelado. JSON admite documentos simples y colecciones
-characters, locations, items, factions, concepts, magic, documents y articles.
-Esto no certifica todos los archivos nativos o bloques ricos de cada proveedor;
-los bloques no modelados se conservan como fuente JSON y se señalan.
-
-Las rutas deben ser relativas a la carpeta seleccionada. Las rutas repetidas,
-los documentos vacíos y los archivos malformados se indican en preview;
-los documentos válidos del lote siguen disponibles para importar.
+Ejecución registrada en este lote: **25/25 pass, `NODE_EXIT=0`** (Node v22.19.0,
+`--experimental-strip-types`), y **`TSC_EXIT=0`** con el compilador estricto del
+proyecto (`--strict --noEmit --allowImportingTsExtensions`). Antes de la
+implementación, la batería fallaba con `ERR_MODULE_NOT_FOUND` (módulo
+inexistente), como prueba de que las pruebas ejercen el código real.
