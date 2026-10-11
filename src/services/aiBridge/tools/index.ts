@@ -16,9 +16,6 @@ import { createGenealogyBridgeHandlers } from './genealogy';
 import { createCodexFolderImporter } from '@/engines/genealogy/codexFolderImport';
 import { createCodexFolderImportHandlers } from './codexFolderImport';
 import { htmlFromMarkdown, resolveProjectForEngine, resolveProjectId } from './shared';
-import { db } from '@/db';
-import type { GenealogyLinkRow } from '@/engines/genealogy/genealogyStore';
-import { createGenealogyBridgeHandlers } from './genealogy';
 import { whBuildWorldBible, whExportWorldBible } from './worldBible';
 import { whGetEditorialContext, whGetResearchEvidence } from './editorial';
 import { whEnableEngine, whGetContext, whListProjects, whSearch } from './context';
@@ -238,6 +235,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ...DOCUMENT_HANDLERS,
   ...REVISION_HANDLERS,
   ...codexFolderHandlers,
+  ...genealogyHandlers,
   wh_build_world_bible: whBuildWorldBible,
   wh_export_world_bible: whExportWorldBible,
   wh_get_research_evidence: whGetResearchEvidence,
