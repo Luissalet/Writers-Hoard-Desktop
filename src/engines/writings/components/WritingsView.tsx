@@ -2604,6 +2604,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           <>
           <TiptapEditor
             key={`focus-editor-${openWriting.id}`}
+            copilotIdentity={{ projectId, objectId: openWriting.id, kind: 'writings' }}
             content={editedContent}
             onChange={setEditedContent}
             placeholder={t('writings.startWriting')}
@@ -2649,6 +2650,7 @@ export default function WritingsView({ projectId, writings, onAdd, onDelete, onR
           >
             <TiptapEditor
               key={`editor-${openWriting.id}`}
+              copilotIdentity={{ projectId, objectId: openWriting.id, kind: 'writings' }}
               content={editedContent}
               onChange={setEditedContent}
               placeholder={t('writings.startWriting')}

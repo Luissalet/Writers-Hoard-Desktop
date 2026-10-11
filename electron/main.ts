@@ -98,9 +98,9 @@ import {
   type OllamaChatRequest,
 } from './ollama';
 import { registerAiIpc } from './ai/ipc';
+import { registerFaustusIpc } from './ai/faustusIpc';
 import { setBuiltinOllamaResolver } from './ai/connectionStore';
 import { shutdownGateway } from './ai/inferenceGateway';
-import { cancelAllCopilotRuns } from './ai/agentLoop';
 import { shutdownSdRuntime } from './ai/sdRuntime';
 
 interface SaveResult {
@@ -743,12 +743,10 @@ async function createWindow(): Promise<void> {
   installNavigationGuard(mainWindow, MAIN_RENDERER_URL, true);
   installPackagedSmokeExit(mainWindow);
 
-  // A reload (Ctrl+R) hands the user a fresh renderer, but a copilot run keeps
-  // looping here — writing to the database with no card and no undo button.
-  // In-page hash routing (isSameDocument) is not a reload and must not cancel.
+  // Remote Faustus turns survive renderer navigation. Only the local editor's
+  // unsaved-text warning belongs to the renderer being replaced.
   mainWindow.webContents.on('did-start-navigation', (details) => {
     if (details.isMainFrame && !details.isSameDocument) {
-      cancelAllCopilotRuns();
       // A reload throws away the editor that registered the warning. Keeping it
       // would make every later close pay the round trip and then offer a dialog
       // about a draft nothing is holding — a warning is only honest while the
@@ -757,7 +755,6 @@ async function createWindow(): Promise<void> {
       abandonShutdown();
     }
   });
-  mainWindow.webContents.on('destroyed', () => cancelAllCopilotRuns());
 
   if (isDev) {
     void mainWindow.loadURL(MAIN_RENDERER_URL);
@@ -2080,6 +2077,7 @@ function registerIpc(): void {
   // URLs or keys. See docs/AI-BRIDGE.md §17.
   setBuiltinOllamaResolver(() => ollamaBaseUrl());
   registerAiIpc({ assertIpcSender, window: () => mainWindow });
+  registerFaustusIpc(assertIpcSender, syncAiBridgeNow);
 
   // ---- AI bridge -----------------------------------------------------------
   // The renderer answers relayed tool calls here; the rest is the settings UI.
@@ -2381,7 +2379,6 @@ app.on('will-quit', () => {
   stopMediaServer();
   stopRendererServer();
   stopAiBridge();
-  cancelAllCopilotRuns();
   shutdownGateway();
   shutdownSdRuntime();
   rejectAllPendingCalls('Writers Hoard is shutting down.');

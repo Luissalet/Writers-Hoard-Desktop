@@ -195,7 +195,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<Re
     { tool: name, args, client: 'mcp-stdio' },
     declared + 30_000,
   );
-  const body = response.body as { ok?: boolean; result?: unknown; error?: string; code?: string };
+  const body = response.body as { ok?: boolean; result?: unknown; error?: string; code?: string; auditIndex?: number };
 
   if (response.status === 0) {
     return toolResult(
@@ -206,7 +206,13 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<Re
       true,
     );
   }
-  if (body.ok === true) return toolResult(body.result ?? {});
+  if (body.ok === true) {
+    const result = body.result ?? {};
+    if (typeof body.auditIndex === 'number' && result && typeof result === 'object' && !Array.isArray(result)) {
+      return toolResult({ ...result, _undo: { app_id: 'writer', audit_index: body.auditIndex } });
+    }
+    return toolResult(result);
+  }
   return toolResult({ error: body.error ?? 'The tool call failed.', code: body.code }, true);
 }
 

@@ -68,12 +68,6 @@ import {
   startChat,
   startImageGeneration,
 } from './inferenceGateway';
-import {
-  answerCopilotApproval,
-  cancelCopilotRun,
-  runCopilotTurn,
-  type CopilotRunRequest,
-} from './agentLoop';
 
 type Assert = (event: Electron.IpcMainInvokeEvent, channel: string) => void;
 
@@ -283,54 +277,6 @@ function asImageRequest(value: unknown): AiImageRequest | null {
     cacheOption:
       typeof value.cacheOption === 'string' && value.cacheOption.length <= 500 ? value.cacheOption : undefined,
     vaeTiling: asVaeTiling(value.vaeTiling),
-  };
-}
-
-/** The record open inside the tab, when the renderer could name one. */
-function asOpenDocument(value: unknown): CopilotRunRequest['briefing']['openDocument'] {
-  if (!isRecord(value)) return null;
-  if (typeof value.engineId !== 'string' || typeof value.id !== 'string') return null;
-  if (!value.engineId || !value.id) return null;
-  return {
-    engineId: value.engineId,
-    id: value.id,
-    title: typeof value.title === 'string' ? value.title : undefined,
-  };
-}
-
-function asCopilotRequest(value: unknown): CopilotRunRequest | null {
-  if (!isRecord(value)) return null;
-  const route = asRoute(value.route);
-  if (!route) return null;
-  if (typeof value.runId !== 'string' || !ID_RE.test(value.runId)) return null;
-  if (typeof value.threadId !== 'string' || typeof value.projectId !== 'string') return null;
-  if (typeof value.message !== 'string') return null;
-  const policy = value.policy === 'read-only' || value.policy === 'allow' ? value.policy : 'ask';
-  const briefing = isRecord(value.briefing) ? value.briefing : {};
-  return {
-    runId: value.runId,
-    threadId: value.threadId,
-    projectId: value.projectId,
-    route,
-    policy,
-    briefing: {
-      projectTitle: typeof briefing.projectTitle === 'string' ? briefing.projectTitle : 'Project',
-      projectDescription: typeof briefing.projectDescription === 'string' ? briefing.projectDescription : undefined,
-      editorialContext: typeof briefing.editorialContext === 'string' ? briefing.editorialContext.slice(0, 16000) : undefined,
-      projectMode: typeof briefing.projectMode === 'string' ? briefing.projectMode : undefined,
-      enabledEngines: Array.isArray(briefing.enabledEngines) ? briefing.enabledEngines.filter((e): e is string => typeof e === 'string') : [],
-      openEngine: typeof briefing.openEngine === 'string' ? briefing.openEngine : null,
-      openDocument: asOpenDocument(briefing.openDocument),
-      locale: typeof briefing.locale === 'string' ? briefing.locale : 'es',
-    },
-    history: Array.isArray(value.history)
-      ? value.history.filter((m): m is CopilotRunRequest['history'][number] => isRecord(m) && typeof m.role === 'string' && typeof m.content === 'string')
-      : [],
-    message: value.message,
-    usedTools: Array.isArray(value.usedTools) ? value.usedTools.filter((t): t is string => typeof t === 'string') : [],
-    toolsMode: value.toolsMode === 'off' ? 'off' : 'auto',
-    maxTools: typeof value.maxTools === 'number' ? value.maxTools : undefined,
-    contextTokens: typeof value.contextTokens === 'number' ? value.contextTokens : undefined,
   };
 }
 
@@ -559,21 +505,4 @@ export function registerAiIpc({ assertIpcSender, window }: AiIpcDeps): void {
     return getSdRuntimeStatus();
   });
 
-  // ---- copilot -------------------------------------------------------------
-  ipcMain.handle('copilot:run', (event, payload: unknown) => {
-    assertIpcSender(event, 'copilot:run');
-    const request = asCopilotRequest(payload);
-    if (!request) return { ok: false, error: 'Invalid copilot request.' };
-    void runCopilotTurn(request, (copilotEvent) => push('copilot:event', { runId: request.runId, event: copilotEvent }));
-    return { ok: true, runId: request.runId };
-  });
-  ipcMain.handle('copilot:cancel', (event, runId: unknown) => {
-    assertIpcSender(event, 'copilot:cancel');
-    return typeof runId === 'string' ? cancelCopilotRun(runId) : false;
-  });
-  ipcMain.handle('copilot:approve', (event, payload: unknown) => {
-    assertIpcSender(event, 'copilot:approve');
-    if (!isRecord(payload) || typeof payload.runId !== 'string' || typeof payload.callId !== 'string') return false;
-    return answerCopilotApproval(payload.runId, payload.callId, payload.approved === true);
-  });
 }

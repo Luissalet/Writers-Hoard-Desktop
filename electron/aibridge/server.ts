@@ -169,11 +169,10 @@ async function handleCall(rawBody: string): Promise<{ status: number; body: unkn
 
   // The route is a transport. Policy, scope, audit and the relay itself live
   // in the executor, shared with the in-app copilot (tasks/lessons.md #23).
-  const { auditIndex: _auditIndex, args: _sent, ...outcome } = await executeTool(
+  const { args: _sent, ...outcome } = await executeTool(
     { tool: toolName, args },
     { origin: 'bridge', clientLabel: client },
   );
-  void _auditIndex;
   void _sent;
   const status = outcome.code === 'writes-disabled' ? 403 : 200;
   emitFamilyEvent('agent.call', {
