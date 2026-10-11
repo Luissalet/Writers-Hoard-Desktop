@@ -23,3 +23,11 @@ Dirección: React/TypeScript para Writers e interacción del editor; núcleo Rus
 La licencia no obliga a mantener vínculo funcional con el upstream. Conservar autores/avisos de fuente y assets, sustituir marcas e identidad visual y mantener un inventario de procedencia por archivo.
 
 Cuotas consultadas al iniciar: Codex en Ágora stale/unknown; cuenta de este chat comprobada anteriormente con 72% restante y se vuelve a consultar antes de delegar. Claude unknown y Cursor 0: no asignarles trabajo nuevo sin cuota confirmada. Se usarán auxiliares del propio chat, autorizados por AGENTS de Writers; los mensajes del Ágora no despiertan por sí solos otros chats.
+
+## Estado de la primera entrega
+
+347 revisión2 y348 revisión1 aprobadas e integradas. Editor rico y núcleo propio
+listos; ver verification.md para los recorridos comprobados y los límites concretos.
+Las fases siguientes del informe están registradas como353 (control de cambios y
+propuestas ancladas) y354 (secciones, estilos y referencias editoriales vinculadas).
+No se presentan como funciones ya implementadas.
