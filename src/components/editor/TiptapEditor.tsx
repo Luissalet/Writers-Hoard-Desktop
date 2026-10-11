@@ -24,6 +24,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { askCopilotAbout, copilotAvailable } from '@/stores/copilotHandoffStore';
+import { registerCopilotEditor, type WriterEditorIdentity } from '@/services/copilot/faustusContext';
 import type { AnnotationAnchor } from '@/engines/annotations/types';
 import { useAppStore } from '@/stores/appStore';
 import FindReplaceBar from './FindReplaceBar';
@@ -80,6 +81,7 @@ interface TiptapEditorProps {
    * a chapter toolbar — against the live document.
    */
   onEditorReady?: (editor: Editor | null) => void;
+  copilotIdentity?: WriterEditorIdentity;
   /** Optional. Extra buttons rendered at the end of the toolbar's left group. */
   toolbarExtra?: React.ReactNode;
   /**
@@ -188,6 +190,7 @@ export default function TiptapEditor({
   onGenerateImage,
   extensions,
   onEditorReady,
+  copilotIdentity,
   toolbarExtra,
   layout = 'flow',
   pageLayout,
@@ -266,6 +269,13 @@ export default function TiptapEditor({
     onEditorReady(editor);
     return () => onEditorReady(null);
   }, [editor, onEditorReady]);
+  const copilotProjectId = copilotIdentity?.projectId;
+  const copilotObjectId = copilotIdentity?.objectId;
+  const copilotKind = copilotIdentity?.kind;
+  useEffect(() => {
+    if (!editor || !copilotProjectId || !copilotObjectId || !copilotKind) return;
+    return registerCopilotEditor(editor, { projectId: copilotProjectId, objectId: copilotObjectId, kind: copilotKind });
+  }, [editor, copilotProjectId, copilotObjectId, copilotKind]);
 
   // Page mode is a ProseMirror plugin registered on the live editor, the way
   // the find bar registers its search plugin: the document, the history and

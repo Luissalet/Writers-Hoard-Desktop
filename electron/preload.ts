@@ -25,7 +25,8 @@ import type {
   AiStreamEvent,
   HardwareProfile,
 } from '@/services/aiRuntime/types';
-import type { CopilotEvent, CopilotRunRequest } from '@/services/aiRuntime/copilot';
+
+import type { FaustusFetchEvent, FaustusFetchRequest, FaustusFetchResponse, FaustusHostInfo } from '@/services/copilot/faustusProtocol';
 import type { SdBackend, SdOpResult, SdProgress, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
 import type { GeocodeResponse } from '@/engines/real-atlas/geocode';
 import type { WikidataRequest, WikidataResponse } from '@/engines/inquiry/wikidata';
@@ -695,18 +696,14 @@ const api = {
   },
 
   // ---- Copilot -----------------------------------------------------------
-  // One user turn → a run in main (agent loop + shared tool executor) → a
-  // stream of events back. Approvals for writes answer through `approve`.
-  copilot: {
-    run: (request: CopilotRunRequest): Promise<{ ok: boolean; runId?: string; error?: string }> =>
-      ipcRenderer.invoke('copilot:run', request),
-    cancel: (runId: string): Promise<boolean> => ipcRenderer.invoke('copilot:cancel', runId),
-    approve: (runId: string, callId: string, approved: boolean): Promise<boolean> =>
-      ipcRenderer.invoke('copilot:approve', { runId, callId, approved }),
-    onEvent: (callback: (payload: { runId: string; event: CopilotEvent }) => void): (() => void) => {
-      const listener = (_e: unknown, payload: { runId: string; event: CopilotEvent }) => callback(payload);
-      ipcRenderer.on('copilot:event', listener);
-      return () => ipcRenderer.removeListener('copilot:event', listener);
+  faustus: {
+    getInfo: (): Promise<FaustusHostInfo> => ipcRenderer.invoke('faustus:getInfo'),
+    request: (request: FaustusFetchRequest): Promise<FaustusFetchResponse> => ipcRenderer.invoke('faustus:request', request),
+    cancel: (id: string): Promise<void> => ipcRenderer.invoke('faustus:cancel', id),
+    onEvent: (callback: (event: FaustusFetchEvent) => void): (() => void) => {
+      const listener = (_event: unknown, payload: FaustusFetchEvent) => callback(payload);
+      ipcRenderer.on('faustus:event', listener);
+      return () => ipcRenderer.removeListener('faustus:event', listener);
     },
   },
 };

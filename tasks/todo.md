@@ -875,3 +875,31 @@ build. Folder imports also passed17 new pure tests, native transactions,
 HTTP/MCP, the full application workflow and a390px layout check. Database38
 migrations preserve reference pins, other tables and existing rows. The Google
 manual and the project knowledge graph were updated after integration.
+
+## 2026-10-11 — #340 shared Faustus copilot
+
+- [x] Inspect the existing copilot, native bridge and database without changing shared copies.
+- [x] Resolve current projects, objects, revisions and live selections through native context.
+- [x] Relay streaming Fetch through main/preload and load the shared Faustus component.
+- [x] Import legacy history by stable source ids while preserving original rows and schema38.
+- [x] Preserve selection handoff, dock layout and native undo receipts.
+- [x] Verify transport, native editor context and host lifecycle in focused tests.
+- [x] Verify the full application with real Faustus sessions, native MCP edits, undo and reload.
+- [x] Retire the old shipping copilot loop after shared-panel parity is demonstrated.
+- [ ] Freeze, independently review, and integrate with the merge lock.
+
+Verification so far: renderer/Electron typechecks, shipping lint, conformance and
+desktop build pass. Focused transport/import, native editor context and dock tests
+pass. The inherited critical suite currently stops on the genealogy preview tool's
+152-character description first line (limit110); this unrelated catalogue line is
+unchanged by #340. No production profile, model, user window or remote Git was used.
+
+Native review: the full hidden Writer application loaded the actual shared
+Faustus bundle through real preload/IPC. It imported the previous conversation,
+kept the same canonical session on reload, and preserved its original Dexie row.
+The scripted provider selected the real registered Writer MCP tool and applied
+the exact manuscript change. A new session made one mutation, returned its native
+undo receipt, and both live and reloaded shared-panel undo buttons restored the
+original chapter and refreshed the full editor. Evidence is stored under
+`D:/LocalAI/diagnostics/writer340-native`. This proves the pipeline with a scripted
+provider, not the autonomous quality of the global model.

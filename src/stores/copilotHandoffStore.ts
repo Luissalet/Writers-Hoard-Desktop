@@ -46,7 +46,7 @@ const MAX_QUOTE = 2000;
  * Call sites check this to decide whether to show the offer at all.
  */
 export function copilotAvailable(): boolean {
-  return typeof window !== 'undefined' && Boolean(window.electronAPI?.copilot);
+  return typeof window !== 'undefined' && Boolean(window.electronAPI?.faustus);
 }
 
 /**
