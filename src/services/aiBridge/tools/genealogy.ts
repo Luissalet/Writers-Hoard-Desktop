@@ -203,15 +203,20 @@ export function createGenealogyBridgeHandlers(
         if (typeof text !== 'string' || text.length === 0) {
           throw new GenealogyOpError('invalid_text', 'text debe ser un string no vacío');
         }
+        // Review r6 P2-1: load existing links BEFORE parsing and pass the
+        // reserved ids into the parser, so an incremental import never
+        // derives an id that collides with an existing relationship.
+        const existing = await loadGenealogyLinks(table, args.projectId as string);
+        const existingIds = new Set(existing.map((l) => l.id));
         const parsed =
           format === 'obsidian'
-            ? importGenealogyObsidian(text)
+            ? importGenealogyObsidian(text, existingIds)
             : format === 'notion'
-              ? importGenealogyNotion(text)
+              ? importGenealogyNotion(text, existingIds)
               : format === 'worldanvil'
-                ? importGenealogyWorldAnvil(text)
+                ? importGenealogyWorldAnvil(text, existingIds)
                 : format === 'campfire'
-                  ? importGenealogyCampfire(JSON.parse(text))
+                  ? importGenealogyCampfire(JSON.parse(text), existingIds)
                   : null;
         if (!parsed) {
           throw new GenealogyOpError(
@@ -219,11 +224,6 @@ export function createGenealogyBridgeHandlers(
             `formato desconocido: ${format} (soportados: obsidian, notion, worldanvil, campfire)`,
           );
         }
-        const existing = await loadGenealogyLinks(table, args.projectId as string);
-        // Review r5 P2-1: reserve the project's existing ids BEFORE deriving
-        // implicit ids, so an incremental import never reuses g1 for a new
-        // link while g1 already points at an existing relationship.
-        const existingIds = new Set(existing.map((l) => l.id));
         const preview = previewGenealogyImport({ incoming: parsed.links, existing });
         return { ok: true, format, proposal: parsed.links, issues: parsed.issues, preview, existingIds: [...existingIds] };
       } catch (err) {
@@ -304,6 +304,10 @@ export function createGenealogyBridgeHandlers(
           rejected: result.rejected,
         };
       } catch (err) {
+        // Review r6 P2-2: a write failure (save_failed) or a semantic failure
+        // (nothing_applied) must reach the dispatcher as a thrown error, so
+        // runBridgeTool returns ok:false and the executor audits the call as
+        // failed. Swallowing them here audited a failed write as ok:true.
         return errorReply(err);
       }
     },
