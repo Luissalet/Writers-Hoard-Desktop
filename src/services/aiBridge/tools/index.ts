@@ -8,6 +8,7 @@
 // runtime in front of a model.
 
 import type { ToolArgs } from './shared';
+import { DOCUMENT_HANDLERS } from './documents';
 import { db } from '@/db';
 import type { GenealogyLinkRow } from '@/engines/genealogy/genealogyStore';
 import { createGenealogyBridgeHandlers } from './genealogy';
@@ -211,6 +212,16 @@ const genealogyHandlers = createGenealogyBridgeHandlers(
       .map((entry) => ({ id: entry.id, name: entry.title })),
 );
 
+// The domain factory stays independent of app state. Its bridge writes use
+// the same existing project visibility precondition as the other engines.
+for (const name of ['wh_genealogy_apply', 'wh_genealogy_undo'] as const) {
+  const handler = genealogyHandlers[name];
+  genealogyHandlers[name] = async args => {
+    await resolveProjectForEngine(args, 'genealogy');
+    return handler(args);
+  };
+}
+
 const codexFolderHandlers = createCodexFolderImportHandlers(createCodexFolderImporter({
   list: projectId => db.codexEntries.where('projectId').equals(projectId).toArray(),
   get: id => db.codexEntries.get(id),
@@ -220,6 +231,7 @@ const codexFolderHandlers = createCodexFolderImportHandlers(createCodexFolderImp
 }, htmlFromMarkdown), async (args, writes) => writes ? resolveProjectForEngine(args, 'codex') : resolveProjectId(args));
 
 export const TOOL_HANDLERS: Record<string, ToolHandler> = {
+  ...DOCUMENT_HANDLERS,
   ...codexFolderHandlers,
   ...genealogyHandlers,
   wh_build_world_bible: whBuildWorldBible,

@@ -1,0 +1,4 @@
+   Compiling writer-engine v0.1.0 (D:\LocalAI\candidates\writers-native-editor-20261011\native\crates\engine)
+   Compiling writer-document-engine v0.1.0 (D:\LocalAI\candidates\writers-native-editor-20261011\native\apps\document-engine)
+    Finished `release` profile [optimized] target(s) in 48.58s
+Writers document engine: D:\LocalAI\candidates\writers-native-editor-20261011\native\bin\writer-document-engine.exe

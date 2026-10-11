@@ -34,6 +34,8 @@ import type { GhostTextBinding } from './ghostText/useGhostText';
 import { GHOST_DEBOUNCE_MS } from '@/services/ghostText/ghostText';
 import { createPageLayoutPlugin, pageLayoutKey, type PageLayoutOptions } from './pageMode/PageLayout';
 import type { FootnoteMarkerStyle } from '@/types';
+import { AdvancedEditorToolbar, createAdvancedExtensions } from './advanced';
+import DocumentTools from './documents/DocumentTools';
 import {
   isFindShortcut,
   isReplaceShortcut,
@@ -197,7 +199,7 @@ export default function TiptapEditor({
   footnoteStyle = 'numbers',
   ghostText,
 }: TiptapEditorProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const resolvedPlaceholder = placeholder ?? t('editor.placeholder');
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<FloatingMenuState>(HIDDEN_MENU);
@@ -229,9 +231,10 @@ export default function TiptapEditor({
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false }, document: ownDocument ? false : undefined }),
-      Image,
+      Image.configure({ allowBase64: true }),
       Placeholder.configure({ placeholder: resolvedPlaceholder }),
       GhostText.configure({ host: () => ghostHost, delayMs: GHOST_DEBOUNCE_MS }),
+      ...createAdvancedExtensions(),
       ...(extensions ?? []),
     ],
     content,
@@ -616,15 +619,19 @@ export default function TiptapEditor({
         )}
         {toolbarExtra}
         <div className="flex-1" />
-        <ToolButton onClick={() => editor.chain().focus().undo().run()}>
+        <ToolButton title={t('board.tool.undo')} onClick={() => editor.chain().focus().undo().run()}>
           <Undo2 size={16} />
         </ToolButton>
-        <ToolButton onClick={() => editor.chain().focus().redo().run()}>
+        <ToolButton title={t('board.tool.redo')} onClick={() => editor.chain().focus().redo().run()}>
           <Redo2 size={16} />
         </ToolButton>
       </div>
 
       {/* Find & replace, inside the document it searches */}
+      <AdvancedEditorToolbar editor={editor} locale={locale} />
+      <div className="px-2 py-1.5 border-b border-border bg-surface/50">
+        <DocumentTools editor={editor} locale={locale} />
+      </div>
       {findSession && (
         <FindReplaceBar
           editor={editor}

@@ -1,0 +1,964 @@
+{
+  "snapshotDate": "2026-10-11",
+  "files": [
+    {
+      "originalSha256": "42fb726d2148674a18269a5f753087f31c56ea00786fe614bba258bcc9ecab30",
+      "source": "crates/doc/Cargo.toml",
+      "destination": "native/crates/doc/Cargo.toml"
+    },
+    {
+      "originalSha256": "a9a0bfa3c5d221e10341a0fe528af3f9b1bd34916dcf07c8ec94f1d85f55ca56",
+      "source": "crates/doc/src/bidi.rs",
+      "destination": "native/crates/doc/src/bidi.rs"
+    },
+    {
+      "originalSha256": "773dab76fb064665d7d5127ae30a21d90aa2b2787e5d6ef7e899df84bc693cc9",
+      "source": "crates/doc/src/edit.rs",
+      "destination": "native/crates/doc/src/edit.rs"
+    },
+    {
+      "originalSha256": "536fada2cfc60ca41ff441a6d8f2ec0370cb962174ba4be90e83568b14490539",
+      "source": "crates/doc/src/effects.rs",
+      "destination": "native/crates/doc/src/effects.rs"
+    },
+    {
+      "originalSha256": "41286fa7236992910db140368a72e1c92af36e6c8fbbec31bb57bdae26b40451",
+      "source": "crates/doc/src/encoding.rs",
+      "destination": "native/crates/doc/src/encoding.rs"
+    },
+    {
+      "originalSha256": "1b4b7a44fe5aaad08872d1dfd64bcc43a929323b32e7f1d04f4f3b9150c522b7",
+      "source": "crates/doc/src/eq.rs",
+      "destination": "native/crates/doc/src/eq.rs"
+    },
+    {
+      "originalSha256": "546e3c1be3488ed6f44a7c29b70bc4585ba3139a87e40cfbebbd677f8fed9661",
+      "source": "crates/doc/src/fields.rs",
+      "destination": "native/crates/doc/src/fields.rs"
+    },
+    {
+      "originalSha256": "3996ceeb891c6d0f22453b1c06da13534afaa230877c1b69d40cff9868f9e4de",
+      "source": "crates/doc/src/freeform.rs",
+      "destination": "native/crates/doc/src/freeform.rs"
+    },
+    {
+      "originalSha256": "1759f1a7d7d22a24352936d92d0eee6af3ca26db46d862779b6aa3903e5daa17",
+      "source": "crates/doc/src/graphic.rs",
+      "destination": "native/crates/doc/src/graphic.rs"
+    },
+    {
+      "originalSha256": "0dd1ae5e845d2a94e5026f4bcf506bb6c75a70d7dcf306c39eeb26d072405624",
+      "source": "crates/doc/src/lib.rs",
+      "destination": "native/crates/doc/src/lib.rs"
+    },
+    {
+      "originalSha256": "bf684118b6e5818cd5a797e99d2f0567d987dd619dc59d90fd495fdf48b23ff1",
+      "source": "crates/doc/src/math_edit.rs",
+      "destination": "native/crates/doc/src/math_edit.rs"
+    },
+    {
+      "originalSha256": "f4e64bd98a52222e0dc2bf4acf059456b2390c60c16aafde7fbea0e0e48ad611",
+      "source": "crates/doc/src/math_latex.rs",
+      "destination": "native/crates/doc/src/math_latex.rs"
+    },
+    {
+      "originalSha256": "6abf7c05b43715ee042b7a57128a0ad915bb7bac5dc5f8b1de697ceca5ed1592",
+      "source": "crates/doc/src/math_linear.rs",
+      "destination": "native/crates/doc/src/math_linear.rs"
+    },
+    {
+      "originalSha256": "429743004fd36cc79d5bcf2f78b33c8a60bc023a675bb2c4ba1d4469a0c38523",
+      "source": "crates/doc/src/math_symbols.rs",
+      "destination": "native/crates/doc/src/math_symbols.rs"
+    },
+    {
+      "originalSha256": "23fdf5079b49259e7e38a04e138cf33ab76da4c2ea977c0d3c145f1a26a47557",
+      "source": "crates/doc/src/math.rs",
+      "destination": "native/crates/doc/src/math.rs"
+    },
+    {
+      "originalSha256": "91f1f24d7117e3261bc79e10528a59a91dbb36f7cf4b244a2bd1208d83c20925",
+      "source": "crates/doc/src/numbering.rs",
+      "destination": "native/crates/doc/src/numbering.rs"
+    },
+    {
+      "originalSha256": "5ac6a2ef6e33d9ce45a172783acbc9f9bdf9cdee165b2ac8cf54c8664da4d42a",
+      "source": "crates/doc/src/para.rs",
+      "destination": "native/crates/doc/src/para.rs"
+    },
+    {
+      "originalSha256": "0b43abaa702bb385429cc73d066c1559d6dd400450549b9d05d057f3212d2b59",
+      "source": "crates/doc/src/props.rs",
+      "destination": "native/crates/doc/src/props.rs"
+    },
+    {
+      "originalSha256": "5461a2eda4e26549b38782f5290e4cefa0e57b938c0e944e507fbb6bf75d7b0e",
+      "source": "crates/doc/src/resolve.rs",
+      "destination": "native/crates/doc/src/resolve.rs"
+    },
+    {
+      "originalSha256": "6b6982cddd7493d3d8e2430abd413cfd66c24d905b1e4ad6038b431dcbefa590",
+      "source": "crates/doc/src/section.rs",
+      "destination": "native/crates/doc/src/section.rs"
+    },
+    {
+      "originalSha256": "2af0a1c775401cc9f9606cec9b9fabd466256cafe0b3ad974a7e95d33b6484df",
+      "source": "crates/doc/src/styles.rs",
+      "destination": "native/crates/doc/src/styles.rs"
+    },
+    {
+      "originalSha256": "8e6a28f4118e762b3a18186d5522a96ae353afb4d2aa636696e9991244f7eab9",
+      "source": "crates/doc/src/table.rs",
+      "destination": "native/crates/doc/src/table.rs"
+    },
+    {
+      "originalSha256": "5d18788de5ac1ea8108282fa7c170fee1cf62d393274bcef3c529bbbb7639b64",
+      "source": "crates/doc/src/tests.rs",
+      "destination": "native/crates/doc/src/tests.rs"
+    },
+    {
+      "originalSha256": "dfd656d60fb54236e90908fbb49b775eda16f6c46223274b4e01904a177b334e",
+      "source": "crates/doc/src/wrap.rs",
+      "destination": "native/crates/doc/src/wrap.rs"
+    },
+    {
+      "originalSha256": "0f13c1132f0c0c92d7cdac4fcd15b4b7907daeab5b5bc4d5d3aa2bc03f0ec0e8",
+      "source": "crates/fonts/build.rs",
+      "destination": "native/crates/fonts/build.rs"
+    },
+    {
+      "originalSha256": "be7479c4c1ea9d0b6440a155f19b34f02f36ceddb55140108cf63cfb5bc10758",
+      "source": "crates/fonts/Cargo.toml",
+      "destination": "native/crates/fonts/Cargo.toml"
+    },
+    {
+      "originalSha256": "0d021ee340ace229292cdd66157705bd371109a8e13feabf102904e646a6428d",
+      "source": "crates/fonts/src/fontdb.rs",
+      "destination": "native/crates/fonts/src/fontdb.rs"
+    },
+    {
+      "originalSha256": "b981b88ac1f920f1af023fb5dbfdac3baed9c10a45d1c783ade6087c94aa358c",
+      "source": "crates/fonts/src/lib.rs",
+      "destination": "native/crates/fonts/src/lib.rs"
+    },
+    {
+      "originalSha256": "c638e35fab44d4df054264d6e642fab7babadd63fbafb15425fe71319c0f2bdf",
+      "source": "crates/fonts/src/math.rs",
+      "destination": "native/crates/fonts/src/math.rs"
+    },
+    {
+      "originalSha256": "e82972051f91c531fb3f23406d5110f3c478c907281a73ea878d73a2f1c6c568",
+      "source": "crates/fonts/src/tests_sysfonts.rs",
+      "destination": "native/crates/fonts/src/tests_sysfonts.rs"
+    },
+    {
+      "originalSha256": "b320fceb974986b212884269f42ae5a06eab4c91e7074049fd8361d61741d79f",
+      "source": "crates/fonts/src/ui_fallback.rs",
+      "destination": "native/crates/fonts/src/ui_fallback.rs"
+    },
+    {
+      "originalSha256": "3058c6ebdeb593ced3c74a65b64e3646236f877e10795dca240e8ae86b8b9beb",
+      "source": "crates/fonts/src/word.rs",
+      "destination": "native/crates/fonts/src/word.rs"
+    },
+    {
+      "originalSha256": "8c0e922c241aa86096dd6d6cc8e53bbfbc1463f644c2cb55f91c45a6c51773b5",
+      "source": "crates/fonts/tests/system_fonts.rs",
+      "destination": "native/crates/fonts/tests/system_fonts.rs"
+    },
+    {
+      "originalSha256": "3aeb58754304bc48675c56429177b362184c18e229a362c6bcd7b9316e1b9bdf",
+      "source": "crates/layout/Cargo.toml",
+      "destination": "native/crates/layout/Cargo.toml"
+    },
+    {
+      "originalSha256": "bc3b78ccd5fcbf77293684b82047cb26d4a91164a94092eac877cffa39191efa",
+      "source": "crates/layout/src/contour.rs",
+      "destination": "native/crates/layout/src/contour.rs"
+    },
+    {
+      "originalSha256": "e2fd7610b5748afae3d80134cbb225f7ac303a94bd4eb045cef983607ffecce7",
+      "source": "crates/layout/src/display.rs",
+      "destination": "native/crates/layout/src/display.rs"
+    },
+    {
+      "originalSha256": "5217b85beef5b19fc8f575e90afd217628ebac805b997538bd62dbcf1c695a12",
+      "source": "crates/layout/src/fields.rs",
+      "destination": "native/crates/layout/src/fields.rs"
+    },
+    {
+      "originalSha256": "2dd038699b8b3157c767affff1f6cc691bbfffdae0d30e047e5736ab71d79e3a",
+      "source": "crates/layout/src/hit.rs",
+      "destination": "native/crates/layout/src/hit.rs"
+    },
+    {
+      "originalSha256": "ac6559a54552d497b0ac5707952a2b8c7cfec23aad0e150e132b50c467e3e2be",
+      "source": "crates/layout/src/kinsoku.rs",
+      "destination": "native/crates/layout/src/kinsoku.rs"
+    },
+    {
+      "originalSha256": "da80876de7af1fcacf56935bf158e3695d13fd6ba3f1f75ee0dd9d1088090493",
+      "source": "crates/layout/src/lib.rs",
+      "destination": "native/crates/layout/src/lib.rs"
+    },
+    {
+      "originalSha256": "6d33c4e707dff10ec2bf774b34af00f0c1fe9e02e08cc5a2460005aa63cf5a2c",
+      "source": "crates/layout/src/math.rs",
+      "destination": "native/crates/layout/src/math.rs"
+    },
+    {
+      "originalSha256": "bf086bad1e92b4d8febc88db6a312d5c315de8b8833a460b23d067d577ee8dbe",
+      "source": "crates/layout/src/para.rs",
+      "destination": "native/crates/layout/src/para.rs"
+    },
+    {
+      "originalSha256": "7aa9aaace15f7323e45a3c9eef4f5226cedfbf111a242bd88f3ff059033c6608",
+      "source": "crates/layout/src/table.rs",
+      "destination": "native/crates/layout/src/table.rs"
+    },
+    {
+      "originalSha256": "7d64952bda5eb5c2c76e4ecc012e601ee7bb72743cf61e29c216626cb9552351",
+      "source": "crates/layout/src/tests_bidi.rs",
+      "destination": "native/crates/layout/src/tests_bidi.rs"
+    },
+    {
+      "originalSha256": "d1165a639f241fe8178bf136a92f9347979a5f0bbb916956638a2f3b34cf981c",
+      "source": "crates/layout/src/tests_grid.rs",
+      "destination": "native/crates/layout/src/tests_grid.rs"
+    },
+    {
+      "originalSha256": "772a90185ddbc3463f6a76d6c221dcddffbf960456f53c31cd6192a454d17cd8",
+      "source": "crates/layout/src/tests_textbox.rs",
+      "destination": "native/crates/layout/src/tests_textbox.rs"
+    },
+    {
+      "originalSha256": "55e2a90152bb86787e6081b261f14599199351ee545429cdfc76a4a132719fc3",
+      "source": "crates/layout/src/tests.rs",
+      "destination": "native/crates/layout/src/tests.rs"
+    },
+    {
+      "originalSha256": "86d5bccf68708314ffaf74e7944390216f36793b369aae7ed8297294e99f43c4",
+      "source": "crates/layout/src/textbox.rs",
+      "destination": "native/crates/layout/src/textbox.rs"
+    },
+    {
+      "originalSha256": "f07c11f9bb70c70c90305a813c42524aaff01dc1b315f889e38c4d58cbb78914",
+      "source": "crates/docx/Cargo.toml",
+      "destination": "native/crates/docx/Cargo.toml"
+    },
+    {
+      "originalSha256": "95ca961f91e46643f58aac13c77cdbadcacb3fa074e4397c48a6c7516fdeec55",
+      "source": "crates/docx/src/crypt.rs",
+      "destination": "native/crates/docx/src/crypt.rs"
+    },
+    {
+      "originalSha256": "7e1e8c14812138ecc58fd941c91c37d1117562a1cd59448d029d7e116b0eb2b2",
+      "source": "crates/docx/src/custom.rs",
+      "destination": "native/crates/docx/src/custom.rs"
+    },
+    {
+      "originalSha256": "9fa4da41766f9ca673c60e9197d57eac2cef06c986b3a49f73de92b0c63f31d4",
+      "source": "crates/docx/src/lib.rs",
+      "destination": "native/crates/docx/src/lib.rs"
+    },
+    {
+      "originalSha256": "8e9398b3c89ad8d97b2aaf90f10b510cdaaf8a9e660d3636af96ad6de027c137",
+      "source": "crates/docx/src/package.rs",
+      "destination": "native/crates/docx/src/package.rs"
+    },
+    {
+      "originalSha256": "0e8eddc74acf079e09b5413001e533ac514d8c1c5606f535604be67952fe3421",
+      "source": "crates/docx/src/units.rs",
+      "destination": "native/crates/docx/src/units.rs"
+    },
+    {
+      "originalSha256": "72d31b4ad3faf4cc53fad239a5f88eb109ca578a96389f80a9325120d0c190aa",
+      "source": "crates/docx/src/xml.rs",
+      "destination": "native/crates/docx/src/xml.rs"
+    },
+    {
+      "originalSha256": "abb2d364fcae05ce591a5a82888f4fb266000ca7f6f01ae6ab08e546b3249754",
+      "source": "crates/docx/src/read/chart.rs",
+      "destination": "native/crates/docx/src/read/chart.rs"
+    },
+    {
+      "originalSha256": "6c3b19528838105961dd966867d216361782d574f1646f660e9f5009dca89c69",
+      "source": "crates/docx/src/read/diagram.rs",
+      "destination": "native/crates/docx/src/read/diagram.rs"
+    },
+    {
+      "originalSha256": "fcbe6db59078b1a3a2aabdf508c399e76ea56c8830111fd214ec92362327291d",
+      "source": "crates/docx/src/read/drawing_color.rs",
+      "destination": "native/crates/docx/src/read/drawing_color.rs"
+    },
+    {
+      "originalSha256": "563143406fd8bb748bcf81e2e04efa322e7c6254c6fea4d709ad6282484aa348",
+      "source": "crates/docx/src/read/embed.rs",
+      "destination": "native/crates/docx/src/read/embed.rs"
+    },
+    {
+      "originalSha256": "b1594f56eddf954ed422780020c460ed65431c37c796e22ab9804424599fbf42",
+      "source": "crates/docx/src/read/freeform.rs",
+      "destination": "native/crates/docx/src/read/freeform.rs"
+    },
+    {
+      "originalSha256": "b9dfef867fa3b86bb3e4d52ac265f24cf25622991fcab3371f5117fb39f7aa0f",
+      "source": "crates/docx/src/read/math.rs",
+      "destination": "native/crates/docx/src/read/math.rs"
+    },
+    {
+      "originalSha256": "73ab6df490344ca605d017d68d042cd94fa66d1e234e22fb18fc41d8161b5252",
+      "source": "crates/docx/src/read/mod.rs",
+      "destination": "native/crates/docx/src/read/mod.rs"
+    },
+    {
+      "originalSha256": "f0a83500ab8144ed4b3555701e18d6d012a50098c96c31059291e572a3c56de7",
+      "source": "crates/docx/src/read/props.rs",
+      "destination": "native/crates/docx/src/read/props.rs"
+    },
+    {
+      "originalSha256": "31ee8522b30505d469eeaa5ae75d509b793d0bfb0a56fc35f0adae75bb557f99",
+      "source": "crates/docx/src/read/story.rs",
+      "destination": "native/crates/docx/src/read/story.rs"
+    },
+    {
+      "originalSha256": "c29a59ae47992ae3036da2d68fa642f3e8b40d1f5d4b89160de9d4cfe3c4c452",
+      "source": "crates/docx/src/write/embed.rs",
+      "destination": "native/crates/docx/src/write/embed.rs"
+    },
+    {
+      "originalSha256": "5389fc467dad7bd4521bba614f8e2d88186b721a64be563646e854915a6829a8",
+      "source": "crates/docx/src/write/math.rs",
+      "destination": "native/crates/docx/src/write/math.rs"
+    },
+    {
+      "originalSha256": "b782905dae7a0a0463602cad0cb1cc2220fa517b7cda5986dddfc8d1301982e2",
+      "source": "crates/docx/src/write/mod.rs",
+      "destination": "native/crates/docx/src/write/mod.rs"
+    },
+    {
+      "originalSha256": "114282e1bf819c186305d785e2c2186da87ae529bcb313f4ad08810e9de8b96f",
+      "source": "crates/docx/src/write/props.rs",
+      "destination": "native/crates/docx/src/write/props.rs"
+    },
+    {
+      "originalSha256": "1da2d143a17a3755681bf964b7e2851d4efc155b81abc000612c185be547be92",
+      "source": "crates/docx/src/write/story.rs",
+      "destination": "native/crates/docx/src/write/story.rs"
+    },
+    {
+      "originalSha256": "9963e222449212ab1ce97b3abf8e3202c49c06a7e19c88562e8bc009a7013f3e",
+      "source": "crates/docx/tests/bidi.rs",
+      "destination": "native/crates/docx/tests/bidi.rs"
+    },
+    {
+      "originalSha256": "ac6f2f345d3c15f83e3264095c3f2a2be6f90f2ebf966c79fb76916eff38368f",
+      "source": "crates/docx/tests/citations.rs",
+      "destination": "native/crates/docx/tests/citations.rs"
+    },
+    {
+      "originalSha256": "7acef6dfac0b34ed0e44e8ac059c98b0e3b3faf87be694eefb95b7832082c47e",
+      "source": "crates/docx/tests/fixtures.rs",
+      "destination": "native/crates/docx/tests/fixtures.rs"
+    },
+    {
+      "originalSha256": "4a6b3b5daa215e880ad16525749c907868323ccf2b5615054a26b3e62ada81f0",
+      "source": "crates/docx/tests/malformed.rs",
+      "destination": "native/crates/docx/tests/malformed.rs"
+    },
+    {
+      "originalSha256": "bf7b217c0df68fbc2cbad0fd37fd8ff4bfd99a8182d9cfc1b7ecf0a53b8702f6",
+      "source": "crates/docx/tests/roundtrip.rs",
+      "destination": "native/crates/docx/tests/roundtrip.rs"
+    },
+    {
+      "originalSha256": "9abe52ee946b15def26bfcca5d4144a83dd4abf29b3c461049e860333aea23da",
+      "source": "crates/docx/tests/text_boxes.rs",
+      "destination": "native/crates/docx/tests/text_boxes.rs"
+    },
+    {
+      "originalSha256": "9c310d0f073ae7bb881785273335690352dc3ab9536a39f213c5fc59d7848f3e",
+      "source": "crates/docbin/Cargo.toml",
+      "destination": "native/crates/docbin/Cargo.toml"
+    },
+    {
+      "originalSha256": "826bcb357f0301fc7163b04552430a635f510196af238311e0241ac2d6b54519",
+      "source": "crates/docbin/src/fib.rs",
+      "destination": "native/crates/docbin/src/fib.rs"
+    },
+    {
+      "originalSha256": "9053096b23b86142899cb2bc9379b0bbf664775db547684c82e0dc12871b186a",
+      "source": "crates/docbin/src/fkp.rs",
+      "destination": "native/crates/docbin/src/fkp.rs"
+    },
+    {
+      "originalSha256": "135f7701dd0ec9cdd8873f4220618ea820bdec8ac9c3902dd2fd30ea59b57821",
+      "source": "crates/docbin/src/fmt.rs",
+      "destination": "native/crates/docbin/src/fmt.rs"
+    },
+    {
+      "originalSha256": "c0268b2db16701f8adb27b1948a191a31824e86d68569815f52606049b97ce7d",
+      "source": "crates/docbin/src/lib.rs",
+      "destination": "native/crates/docbin/src/lib.rs"
+    },
+    {
+      "originalSha256": "c2b1dcf7979d672a2db960009d49c371ed255f65594f888641b93f0b53d4e8d9",
+      "source": "crates/docbin/src/list.rs",
+      "destination": "native/crates/docbin/src/list.rs"
+    },
+    {
+      "originalSha256": "c3f6fb7a598e689f08450316e8257a79f5c94bc34fe4652d393a64c8190c81cb",
+      "source": "crates/docbin/src/media.rs",
+      "destination": "native/crates/docbin/src/media.rs"
+    },
+    {
+      "originalSha256": "214b8912439f1d00ee45ad7a64d248f3fd6070b84eaa0da115a51718c9d4d85e",
+      "source": "crates/docbin/src/notes.rs",
+      "destination": "native/crates/docbin/src/notes.rs"
+    },
+    {
+      "originalSha256": "e7b06955aa95b3a5ff3ec704003bff6a4e8ac90a3a416bf4bf7d8d5b08accf02",
+      "source": "crates/docbin/src/piece.rs",
+      "destination": "native/crates/docbin/src/piece.rs"
+    },
+    {
+      "originalSha256": "109158deebfb0206b0a119ae9ddb76a643db89b78cf8158403d1060b87c302fa",
+      "source": "crates/docbin/src/sections.rs",
+      "destination": "native/crates/docbin/src/sections.rs"
+    },
+    {
+      "originalSha256": "76a6078909d871be90bfec3a53e16b55e3acc6a73f59891140a521227a420d70",
+      "source": "crates/docbin/src/sprm.rs",
+      "destination": "native/crates/docbin/src/sprm.rs"
+    },
+    {
+      "originalSha256": "3927064c49000808fcbacfc5c30623d535bb22b903fde1903bebb5610faf3689",
+      "source": "crates/docbin/src/stsh.rs",
+      "destination": "native/crates/docbin/src/stsh.rs"
+    },
+    {
+      "originalSha256": "fbac751be3db00ff419c1695417d3f4b77b849a94df3fdfd75fcc07a1f2214dc",
+      "source": "crates/docbin/src/table.rs",
+      "destination": "native/crates/docbin/src/table.rs"
+    },
+    {
+      "originalSha256": "90ae1213100f4095617f1e58c89be850d411ec40413103832c15f59600962f13",
+      "source": "crates/docbin/src/tests.rs",
+      "destination": "native/crates/docbin/src/tests.rs"
+    },
+    {
+      "originalSha256": "91a6113233528cce577167137728ca5032679cac44080571ca075092b0001eb2",
+      "source": "crates/formats/Cargo.toml",
+      "destination": "native/crates/formats/Cargo.toml"
+    },
+    {
+      "originalSha256": "dc7d6b4bc4c1a224d42d80ba200ed8a22e9eb9571e86b1c280b3273b0e4c5aaa",
+      "source": "crates/formats/src/html.rs",
+      "destination": "native/crates/formats/src/html.rs"
+    },
+    {
+      "originalSha256": "8a6637802d1dc334694fc343ca0292e1c70cd2d43908c4e5b3670bfcbb9b7dd9",
+      "source": "crates/formats/src/latex.rs",
+      "destination": "native/crates/formats/src/latex.rs"
+    },
+    {
+      "originalSha256": "2fa27d9cdc0b54905e6dee53249665df18c5d1b86b56e5b14435743411843509",
+      "source": "crates/formats/src/lib.rs",
+      "destination": "native/crates/formats/src/lib.rs"
+    },
+    {
+      "originalSha256": "900c1e2e2b29202c99d67c08eeebc308f5a52b27d3a8fa96cf2e71a9379bf59f",
+      "source": "crates/formats/src/markdown.rs",
+      "destination": "native/crates/formats/src/markdown.rs"
+    },
+    {
+      "originalSha256": "b5a095c631577e0b08095881c78e4c6be7cc6aee8dc195b0430eda1d02ee9bb9",
+      "source": "crates/formats/src/model.rs",
+      "destination": "native/crates/formats/src/model.rs"
+    },
+    {
+      "originalSha256": "7c7c74bd2ea5798a48b8675ea15c71c37ee93c3b776dd227b3ee54d561f0dda7",
+      "source": "crates/formats/src/odt.rs",
+      "destination": "native/crates/formats/src/odt.rs"
+    },
+    {
+      "originalSha256": "74b53a7c4cdd3b1488ce6f7ca905036c94c929e9cd5763f602b00e33b8c79b95",
+      "source": "crates/formats/src/rtf.rs",
+      "destination": "native/crates/formats/src/rtf.rs"
+    },
+    {
+      "originalSha256": "dee872d8b50e90873431678e488bd88c2c28bd8fe5e87e000f97598c5b3794d3",
+      "source": "crates/formats/src/sheet.rs",
+      "destination": "native/crates/formats/src/sheet.rs"
+    },
+    {
+      "originalSha256": "7b04782f429c57396fe75ae158e17beb3116ce1fe666d684ae29cb0d1e369706",
+      "source": "crates/formats/src/tests.rs",
+      "destination": "native/crates/formats/src/tests.rs"
+    },
+    {
+      "originalSha256": "8bf85bd9a952cf6d78c3b2b4f89b61ee09bc80df982d53f0a7b624e34c4b3c3f",
+      "source": "crates/formats/src/txt.rs",
+      "destination": "native/crates/formats/src/txt.rs"
+    },
+    {
+      "originalSha256": "70cda918671c998cef352a70f2284fc1edb7cec8df142d7f2e402f487958d111",
+      "source": "crates/render/Cargo.toml",
+      "destination": "native/crates/render/Cargo.toml"
+    },
+    {
+      "originalSha256": "675a50ff10fabd4f779a255aa080eb4c1b868e975f80753ac7e5bb23c7e55fdc",
+      "source": "crates/render/src/cache_tests.rs",
+      "destination": "native/crates/render/src/cache_tests.rs"
+    },
+    {
+      "originalSha256": "a7e391d6504de810d3e74402371d95093d32e7b60b30d3419e40a9f2641a1a0c",
+      "source": "crates/render/src/icon_lib.rs",
+      "destination": "native/crates/render/src/icon_lib.rs"
+    },
+    {
+      "originalSha256": "0a8c615749e5de3a7206055c24cea0cd5ac0bc9d49b234b9ffdbd3157ab2d4c5",
+      "source": "crates/render/src/lib.rs",
+      "destination": "native/crates/render/src/lib.rs"
+    },
+    {
+      "originalSha256": "e2f7b451ba508048e70480fbf0db96fd1a1c5ee7c1d3165bb39524cacfd3f77b",
+      "source": "crates/pdf/Cargo.toml",
+      "destination": "native/crates/pdf/Cargo.toml"
+    },
+    {
+      "originalSha256": "a32618e5d2956f9b27cc4c604cb8e4bfa4c70dadf6fcd3847ead7cb5200795f8",
+      "source": "crates/pdf/src/lib.rs",
+      "destination": "native/crates/pdf/src/lib.rs"
+    },
+    {
+      "originalSha256": "3466741fe1aa77c3cfd5ef613ec5c00fcd77054233b4e57f2c338704778920c6",
+      "source": "crates/pdf/src/tests.rs",
+      "destination": "native/crates/pdf/src/tests.rs"
+    },
+    {
+      "originalSha256": "58e58b309423b4b004752d5b36ec7ac8d7b61b964d49b77f13b4f754e7f05ed4",
+      "source": "crates/proof/Cargo.toml",
+      "destination": "native/crates/proof/Cargo.toml"
+    },
+    {
+      "originalSha256": "8bef06c492ec5e4b0aa2c53c1741ae3ccda59b2ecf5a23fc06e7fc7b34ef411c",
+      "source": "crates/proof/src/dict.rs",
+      "destination": "native/crates/proof/src/dict.rs"
+    },
+    {
+      "originalSha256": "2dc7d0aff52addcb1d1bd028f0af17253149c29f673c8b2456d87fccf53f9cd5",
+      "source": "crates/proof/src/hyphen.rs",
+      "destination": "native/crates/proof/src/hyphen.rs"
+    },
+    {
+      "originalSha256": "1d1840ed71c0ec084bc9560111f79944ea07e4a39887db84e181a86ab686ca3b",
+      "source": "crates/proof/src/lib.rs",
+      "destination": "native/crates/proof/src/lib.rs"
+    },
+    {
+      "originalSha256": "ffdca120eec0970af943559cd5b83f1c709c9151ee605be6cca1bfdf1d928de8",
+      "source": "crates/proof/src/patterns.rs",
+      "destination": "native/crates/proof/src/patterns.rs"
+    },
+    {
+      "originalSha256": "1a8d0d57aa1733f182bc2307b20d50b625a792ca83e3fcb789ce03e7ad31e3a8",
+      "source": "crates/engine/Cargo.toml",
+      "destination": "native/crates/engine/Cargo.toml"
+    },
+    {
+      "originalSha256": "14a13477996a6ede1e9d36aff1d48a6bd5335e14a13bfda7656bfeb3125601a1",
+      "source": "crates/engine/src/catalog.rs",
+      "destination": "native/crates/engine/src/catalog.rs"
+    },
+    {
+      "originalSha256": "7d8601f28e95d9933c1c1ab302a05e43f9d67abce476ede518886ee6c9959b6b",
+      "source": "crates/engine/src/io_ext.rs",
+      "destination": "native/crates/engine/src/io_ext.rs"
+    },
+    {
+      "originalSha256": "8ed7f0a9505d8f6d92dd85acaa2ddd0523a73aa8593e2bb7d67f15091ae53932",
+      "source": "crates/engine/src/io.rs",
+      "destination": "native/crates/engine/src/io.rs"
+    },
+    {
+      "originalSha256": "0b8f6f5646e2c2eb34311c8adc860334fa1d79cecf2eac36268e371ec36e8c32",
+      "source": "crates/engine/src/keymap.rs",
+      "destination": "native/crates/engine/src/keymap.rs"
+    },
+    {
+      "originalSha256": "422842167552bc31140121069837cfe8b1b9be0ed90c591420f74a75e3f789ae",
+      "source": "crates/engine/src/lib.rs",
+      "destination": "native/crates/engine/src/lib.rs"
+    },
+    {
+      "originalSha256": "2fc7a135fcec0a41fb6c1880b90cefebceaea080861e0df66eef2aeace60d5bc",
+      "source": "crates/engine/src/math_gallery.rs",
+      "destination": "native/crates/engine/src/math_gallery.rs"
+    },
+    {
+      "originalSha256": "abb368f4a43306e5bc2cb30ab0eeaeecd987c74ce84a8f947fcdc02077633b97",
+      "source": "crates/engine/src/ribbon.rs",
+      "destination": "native/crates/engine/src/ribbon.rs"
+    },
+    {
+      "originalSha256": "eb4de347714ea6a0665caeeaa7a73f50cbac36753bde2db1f73582b7a4acbc06",
+      "source": "crates/engine/src/sample.rs",
+      "destination": "native/crates/engine/src/sample.rs"
+    },
+    {
+      "originalSha256": "df1f9e1b43766444e34d130798e819ec5ba13712d27f63116614d47326cbfbfd",
+      "source": "crates/engine/src/session.rs",
+      "destination": "native/crates/engine/src/session.rs"
+    },
+    {
+      "originalSha256": "a710fa9d70b894e4e60ef39da49f04fd2ee142a8fb2d2b70541d8ac4351b7dd9",
+      "source": "crates/engine/src/speech.rs",
+      "destination": "native/crates/engine/src/speech.rs"
+    },
+    {
+      "originalSha256": "f3f659f087e1c7b3fba2642889d38a4cfc93244270db9a1666608b93db03bff0",
+      "source": "crates/engine/src/tests_bidi.rs",
+      "destination": "native/crates/engine/src/tests_bidi.rs"
+    },
+    {
+      "originalSha256": "04fde680458347de59c263ca9884d48e5530abc26ba0af62f81cb93bcc9f6e0b",
+      "source": "crates/engine/src/tests_typing.rs",
+      "destination": "native/crates/engine/src/tests_typing.rs"
+    },
+    {
+      "originalSha256": "7025ac6395a45ed6a8e3a8d5403cca55777ce2aee64cf4077903102a1b74d3e3",
+      "source": "crates/engine/src/tests.rs",
+      "destination": "native/crates/engine/src/tests.rs"
+    },
+    {
+      "originalSha256": "37dfa20d8d18e5fe339ffb9f1ecaca405a882c7b7b322da3c564a4efd9344fd9",
+      "source": "crates/engine/src/cmd/canvas.rs",
+      "destination": "native/crates/engine/src/cmd/canvas.rs"
+    },
+    {
+      "originalSha256": "4c9f19310cfdbba8ce5d6bc684508f06ede8a997ddd468cae899c0890a5a3cc6",
+      "source": "crates/engine/src/cmd/caret.rs",
+      "destination": "native/crates/engine/src/cmd/caret.rs"
+    },
+    {
+      "originalSha256": "c4ea0e26ed88ca24235e49df3cdc5140061233315af32943cca11a73a6c617ba",
+      "source": "crates/engine/src/cmd/citations.rs",
+      "destination": "native/crates/engine/src/cmd/citations.rs"
+    },
+    {
+      "originalSha256": "9927fabf99c97dd14a89be20e65848c76ea6e03fe3372291bf212cbbd2f82f98",
+      "source": "crates/engine/src/cmd/column.rs",
+      "destination": "native/crates/engine/src/cmd/column.rs"
+    },
+    {
+      "originalSha256": "ce5468bd31f68970a076e04b7be7e09b78ab67a08ee1b2a5fd9a793925865748",
+      "source": "crates/engine/src/cmd/design.rs",
+      "destination": "native/crates/engine/src/cmd/design.rs"
+    },
+    {
+      "originalSha256": "c5c424214a13b0b2e94f64dc26082b9b54cd57e047517eefc976311faf6cebd7",
+      "source": "crates/engine/src/cmd/draw.rs",
+      "destination": "native/crates/engine/src/cmd/draw.rs"
+    },
+    {
+      "originalSha256": "bc46b4b6a94f8178e50140f024596b5c95d8ee592f4af62d0090b319af2c198e",
+      "source": "crates/engine/src/cmd/edit.rs",
+      "destination": "native/crates/engine/src/cmd/edit.rs"
+    },
+    {
+      "originalSha256": "9a3e87df7e3b2327aebe6d7638a5dcc2a09ed2562ace0cc6c188287dbd3f82d7",
+      "source": "crates/engine/src/cmd/equation.rs",
+      "destination": "native/crates/engine/src/cmd/equation.rs"
+    },
+    {
+      "originalSha256": "0be301297bb44d64db63b9b0cbaef67714e24cd73fbe4af42e2e946b3d5de08a",
+      "source": "crates/engine/src/cmd/fields.rs",
+      "destination": "native/crates/engine/src/cmd/fields.rs"
+    },
+    {
+      "originalSha256": "acc2dd9558df289f271cf57beb4dd80249e75157a41e7ad8bd47d3a61caa5efa",
+      "source": "crates/engine/src/cmd/file.rs",
+      "destination": "native/crates/engine/src/cmd/file.rs"
+    },
+    {
+      "originalSha256": "969f660a25643f2a86e2b55056ebc20144b835fdd2af89a1de0da29e00b9dbf7",
+      "source": "crates/engine/src/cmd/fmt_revisions.rs",
+      "destination": "native/crates/engine/src/cmd/fmt_revisions.rs"
+    },
+    {
+      "originalSha256": "626ce91b490035775461441d465671958f3c613e12b9e72663be006dbe81d40a",
+      "source": "crates/engine/src/cmd/format.rs",
+      "destination": "native/crates/engine/src/cmd/format.rs"
+    },
+    {
+      "originalSha256": "d35f8b953aeb07e897e89e82c1a6af39539e7a0bedf8df4f776315e48cd3724d",
+      "source": "crates/engine/src/cmd/insert.rs",
+      "destination": "native/crates/engine/src/cmd/insert.rs"
+    },
+    {
+      "originalSha256": "c326927a5d06af774be8c2741043372caefd7e8a667d6034d612fe084cf7176d",
+      "source": "crates/engine/src/cmd/inspector.rs",
+      "destination": "native/crates/engine/src/cmd/inspector.rs"
+    },
+    {
+      "originalSha256": "444e8ca7e155bae9b5ae57d394e7a8385f6f4f22cb3d364ad06c56d1a5279f49",
+      "source": "crates/engine/src/cmd/lists.rs",
+      "destination": "native/crates/engine/src/cmd/lists.rs"
+    },
+    {
+      "originalSha256": "cf6ed52adb5c0a444275d391ce72b3186cb16676a82d2f1f336d0a1a750ce4f5",
+      "source": "crates/engine/src/cmd/mailings.rs",
+      "destination": "native/crates/engine/src/cmd/mailings.rs"
+    },
+    {
+      "originalSha256": "8a748e5325136f389dbe5e2a47b0e2c1994752dc54571c6e859bd0ba673cb5c0",
+      "source": "crates/engine/src/cmd/mod.rs",
+      "destination": "native/crates/engine/src/cmd/mod.rs"
+    },
+    {
+      "originalSha256": "c1c64d8bd776702a81e9fdb90544530e8bf310983c3077e7843ca1b12b6da2b2",
+      "source": "crates/engine/src/cmd/moves.rs",
+      "destination": "native/crates/engine/src/cmd/moves.rs"
+    },
+    {
+      "originalSha256": "dedae856db4a79908556e00a24c910683e5174e193e3135ab2d0073b2594a952",
+      "source": "crates/engine/src/cmd/objects.rs",
+      "destination": "native/crates/engine/src/cmd/objects.rs"
+    },
+    {
+      "originalSha256": "ca43c9c16ebf6bf84f2de0929f7ae6d9aaedfc165ef12f2f2292fd9dfa76216e",
+      "source": "crates/engine/src/cmd/page.rs",
+      "destination": "native/crates/engine/src/cmd/page.rs"
+    },
+    {
+      "originalSha256": "52aa5a5c3cd138be244d9c5201c5659b74fa07a34bd6ccc7b8fa2dbedcf88f69",
+      "source": "crates/engine/src/cmd/para.rs",
+      "destination": "native/crates/engine/src/cmd/para.rs"
+    },
+    {
+      "originalSha256": "bc0eee61d836e0661d1033314de895c0bdad4e33e8895919ff93865830e432ad",
+      "source": "crates/engine/src/cmd/paste.rs",
+      "destination": "native/crates/engine/src/cmd/paste.rs"
+    },
+    {
+      "originalSha256": "5c6581b35d97f38530dd37fbcb327cd505b26c888e6bb8942ed3f70000037160",
+      "source": "crates/engine/src/cmd/phonetic.rs",
+      "destination": "native/crates/engine/src/cmd/phonetic.rs"
+    },
+    {
+      "originalSha256": "d77ce74dd0faebfb4bccee53d3dd690022c03c4867fdf4894fb5da5459a6bd02",
+      "source": "crates/engine/src/cmd/references.rs",
+      "destination": "native/crates/engine/src/cmd/references.rs"
+    },
+    {
+      "originalSha256": "fbb74136ef44a37874974e012d83df70f82ca3e2361629f7ded4586c447539c5",
+      "source": "crates/engine/src/cmd/review.rs",
+      "destination": "native/crates/engine/src/cmd/review.rs"
+    },
+    {
+      "originalSha256": "c80c6ae2013bd72dc02adc15008b9f4f2386894037128658c4d876a97df196a2",
+      "source": "crates/engine/src/cmd/speech.rs",
+      "destination": "native/crates/engine/src/cmd/speech.rs"
+    },
+    {
+      "originalSha256": "81bb39018f686da94d9ffa7507572c964b788d4e01e8f01989b9c95c78fe4e8a",
+      "source": "crates/engine/src/cmd/table_draw.rs",
+      "destination": "native/crates/engine/src/cmd/table_draw.rs"
+    },
+    {
+      "originalSha256": "4476aaadd20ac2388fe45b8e51ceb172b180ee2f2a371d8abd9cc78ffbc6452e",
+      "source": "crates/engine/src/cmd/table_style.rs",
+      "destination": "native/crates/engine/src/cmd/table_style.rs"
+    },
+    {
+      "originalSha256": "93c872e6ef51444f9f781c6105a337c0cb4d77d367cf1694dd12dccdd37d9cab",
+      "source": "crates/engine/src/cmd/table.rs",
+      "destination": "native/crates/engine/src/cmd/table.rs"
+    },
+    {
+      "originalSha256": "e65aafd65dd57f4219ad231499d07d0b97b6c07066ec26f5d6fca6d6fd4940f6",
+      "source": "crates/engine/src/cmd/text.rs",
+      "destination": "native/crates/engine/src/cmd/text.rs"
+    },
+    {
+      "originalSha256": "a809b3ed9a2810c90f6e70ad60f70c8df257e1bafeee0f3c2514b5f495c327cb",
+      "source": "crates/engine/src/cmd/tools.rs",
+      "destination": "native/crates/engine/src/cmd/tools.rs"
+    },
+    {
+      "originalSha256": "9e35dbd740098a099d215416612af7b7a1f83436f737782d6573071eacc053df",
+      "source": "crates/engine/src/cmd/view.rs",
+      "destination": "native/crates/engine/src/cmd/view.rs"
+    },
+    {
+      "originalSha256": "c2bbf16fab4b5db648e2d175fbd0b29b29141a773a2cda73070e19855f46af22",
+      "source": "crates/engine/tests/macro_packages.rs",
+      "destination": "native/crates/engine/tests/macro_packages.rs"
+    },
+    {
+      "originalSha256": "b3a28ab3b616b411c2a9e91af2bef9287353caf985de3f0d0e5f3cf0b0dd7bd8",
+      "source": "crates/geom/Cargo.toml",
+      "destination": "native/crates/geom/Cargo.toml"
+    },
+    {
+      "originalSha256": "80c60a1e0201ebece41b3036b7336e0de30b1d42d7a71c81fd1e0e0246a6f735",
+      "source": "crates/geom/src/lib.rs",
+      "destination": "native/crates/geom/src/lib.rs"
+    },
+    {
+      "originalSha256": "0e2785745af8ea4e5dff056caa0577ca9f347864a983c166c0a01100413ac040",
+      "source": "crates/metafile/Cargo.toml",
+      "destination": "native/crates/metafile/Cargo.toml"
+    },
+    {
+      "originalSha256": "6f8d5f9f77e52f92f7a3b6db17ea2f0b626363b379454a10fcc38f0d034ab053",
+      "source": "crates/metafile/src/bytes.rs",
+      "destination": "native/crates/metafile/src/bytes.rs"
+    },
+    {
+      "originalSha256": "b8ad83d77401c4ef196a853d3b84ed7babe7d778da9d1147aa145203220df46d",
+      "source": "crates/metafile/src/canvas.rs",
+      "destination": "native/crates/metafile/src/canvas.rs"
+    },
+    {
+      "originalSha256": "113ac8f9ce1dd31c2a7e256dac8e50d1777849c165b51db51a62c83f2f69a24e",
+      "source": "crates/metafile/src/dib.rs",
+      "destination": "native/crates/metafile/src/dib.rs"
+    },
+    {
+      "originalSha256": "257ff54ea2c718860c02b4753725a1e238d091f351068fa611aefd123866d64c",
+      "source": "crates/metafile/src/emf.rs",
+      "destination": "native/crates/metafile/src/emf.rs"
+    },
+    {
+      "originalSha256": "a0b7549f692459c932a56bc997b3ee7ea88c345f228080989d8646af1e79113f",
+      "source": "crates/metafile/src/geom.rs",
+      "destination": "native/crates/metafile/src/geom.rs"
+    },
+    {
+      "originalSha256": "546136125080b399ce014a9be4f3ae874ce2b7d4ce273acd7859fe5e2a493ff0",
+      "source": "crates/metafile/src/lib.rs",
+      "destination": "native/crates/metafile/src/lib.rs"
+    },
+    {
+      "originalSha256": "7d53a42ed705237dfb1eb0069205fc634c31f0a22f6de8b966afd45ca53c846e",
+      "source": "crates/metafile/src/place.rs",
+      "destination": "native/crates/metafile/src/place.rs"
+    },
+    {
+      "originalSha256": "771965663944bd11a20abd458af710d895b32aa6b2afbf21b19c519c5ecad6e5",
+      "source": "crates/metafile/src/tests.rs",
+      "destination": "native/crates/metafile/src/tests.rs"
+    },
+    {
+      "originalSha256": "bcfa69d732f3ed7240e411deb139087add8cb871e4f977b07589f4486591a22b",
+      "source": "crates/metafile/src/wmf.rs",
+      "destination": "native/crates/metafile/src/wmf.rs"
+    },
+    {
+      "originalSha256": "97ad806f526e41546d46365bb3a393145f75b7b1568913db74549ad8b8dba872",
+      "source": "assets/fonts/Inter-Medium.ttf",
+      "destination": "native/assets/fonts/Inter-Medium.ttf"
+    },
+    {
+      "originalSha256": "40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82",
+      "source": "assets/fonts/Inter-Regular.ttf",
+      "destination": "native/assets/fonts/Inter-Regular.ttf"
+    },
+    {
+      "originalSha256": "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3",
+      "source": "assets/fonts/Inter-SemiBold.ttf",
+      "destination": "native/assets/fonts/Inter-SemiBold.ttf"
+    },
+    {
+      "originalSha256": "e6fd0d7e91550b3ed2b735d4312474362c4716edc4fc0577a0f61ed782d5aed1",
+      "source": "assets/fonts/JetBrainsMono-Regular.ttf",
+      "destination": "native/assets/fonts/JetBrainsMono-Regular.ttf"
+    },
+    {
+      "originalSha256": "b3195af0fb14368d1b3b10fb9d3fe503b7163ea083859d2ee553bc74da07c320",
+      "source": "assets/fonts/OFL-Inter.txt",
+      "destination": "native/assets/fonts/OFL-Inter.txt"
+    },
+    {
+      "originalSha256": "4d9694c4844a13ea377458c3f98c90d2bf83d3c214612dcae2b7808406520708",
+      "source": "assets/fonts/OFL-JetBrainsMono.txt",
+      "destination": "native/assets/fonts/OFL-JetBrainsMono.txt"
+    },
+    {
+      "originalSha256": "5d8778c6a43dc2fee25e81ee6ff07e52c6f238473b491cda47f7117a2ce9d467",
+      "source": "assets/fonts/OFL-SourceSans3.txt",
+      "destination": "native/assets/fonts/OFL-SourceSans3.txt"
+    },
+    {
+      "originalSha256": "717a22f1bd2e30d49c21a2a6f548819aacd0ade1adf854533f4d42a01bb4f910",
+      "source": "assets/fonts/OFL-SourceSerif4.txt",
+      "destination": "native/assets/fonts/OFL-SourceSerif4.txt"
+    },
+    {
+      "originalSha256": "9214b9d95e4231c609802815c2646c98174e2102d0d37f88978a7f8e71006e6a",
+      "source": "assets/fonts/SourceSans3-Bold.ttf",
+      "destination": "native/assets/fonts/SourceSans3-Bold.ttf"
+    },
+    {
+      "originalSha256": "192afd78f0f54a3c69eaf02d43f4d9a821e9d6110e41d3d25d61a7385cd580e4",
+      "source": "assets/fonts/SourceSans3-It.ttf",
+      "destination": "native/assets/fonts/SourceSans3-It.ttf"
+    },
+    {
+      "originalSha256": "4644c81b86ec9caaa76b634889968ed3c4f4f52f054855933acc7c2b21e53b0f",
+      "source": "assets/fonts/SourceSans3-Regular.ttf",
+      "destination": "native/assets/fonts/SourceSans3-Regular.ttf"
+    },
+    {
+      "originalSha256": "a3f4f8dcf343a8f24dc61951de93f3ba1558b15cd250ba24af8a40e957081b7d",
+      "source": "assets/fonts/SourceSans3-Semibold.ttf",
+      "destination": "native/assets/fonts/SourceSans3-Semibold.ttf"
+    },
+    {
+      "originalSha256": "7cf4f4e1ad74f45058d5bc61716b82560442fbdcd9d3654d2dea96bf6c683d86",
+      "source": "assets/fonts/SourceSerif4-Bold.ttf",
+      "destination": "native/assets/fonts/SourceSerif4-Bold.ttf"
+    },
+    {
+      "originalSha256": "7b215b37f8873f5579f3f8d2ded3ca7c588e2f435cd996605ebfc5befe2cd5eb",
+      "source": "assets/fonts/SourceSerif4-BoldIt.ttf",
+      "destination": "native/assets/fonts/SourceSerif4-BoldIt.ttf"
+    },
+    {
+      "originalSha256": "9d2950a8f1da66e21502c35d646a1d2148e79f9ea43fd2158cf02f5232e7f430",
+      "source": "assets/fonts/SourceSerif4-It.ttf",
+      "destination": "native/assets/fonts/SourceSerif4-It.ttf"
+    },
+    {
+      "originalSha256": "e5a4ee6a3d87bb9024796be390c6771e2a0eb1883dae25effaf57ca01668e24b",
+      "source": "assets/fonts/SourceSerif4-Regular.ttf",
+      "destination": "native/assets/fonts/SourceSerif4-Regular.ttf"
+    },
+    {
+      "originalSha256": "36db62940cb5728b12b1802476dc7fcf4c6c519a7bdd476ba23a4e555fc4655f",
+      "source": "assets/fonts/SourceSerif4-Semibold.ttf",
+      "destination": "native/assets/fonts/SourceSerif4-Semibold.ttf"
+    },
+    {
+      "originalSha256": "66ce9023847dd2cfc5c6ad14b83aaab94e58607fe95258f4f3ac431a23df63f1",
+      "source": "assets/hyphenation/en-us.dic",
+      "destination": "native/assets/hyphenation/en-us.dic"
+    },
+    {
+      "originalSha256": "12960954179a9f749c4c698d52ed840f229050a4a4326b347896fbe768d4d663",
+      "source": "assets/hyphenation/en-us.pat",
+      "destination": "native/assets/hyphenation/en-us.pat"
+    },
+    {
+      "originalSha256": "b88092b6bc773f2b83347868d9a2d1d72d429216d51895c5124b4a6fe3191c41",
+      "source": "assets/spelling/en-extra.txt",
+      "destination": "native/assets/spelling/en-extra.txt"
+    }
+  ],
+  "relationship": "Historical attribution only. Owned source snapshot; no Git remote, submodule, network updater or runtime dependency on original repository.",
+  "sourceLicense": "MIT OR Apache-2.0",
+  "origin": "https://github.com/storytold/wordcraft",
+  "commit": "6526b134befbf6933fd87a63bfea37a7828f29c4"
+}

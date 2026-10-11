@@ -99,6 +99,7 @@ import {
 } from './ollama';
 import { registerAiIpc } from './ai/ipc';
 import { registerFaustusIpc } from './ai/faustusIpc';
+import { registerDocumentIpc } from './documents/register';
 import { setBuiltinOllamaResolver } from './ai/connectionStore';
 import { shutdownGateway } from './ai/inferenceGateway';
 import { shutdownSdRuntime } from './ai/sdRuntime';
@@ -1375,6 +1376,7 @@ async function syncAiBridgeNow(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function registerIpc(): void {
+  registerDocumentIpc(assertIpcSender);
   ipcMain.on('window:openMenu', (event) => {
     if (!acceptIpcSender(event, 'window:openMenu') || !mainWindow) return;
     Menu.getApplicationMenu()?.popup({ window: mainWindow, x: 12, y: 36 });

@@ -618,7 +618,15 @@ class PageLayoutView {
     const blockDom = new Map<MeasuredBlock, { element: HTMLElement; innerTop: number; innerBottom: number }>();
     // Bottom margin of the block ending at each position, for `PageFoot.pull`.
     const marginBelow = new Map<number, number>();
+    let manualBreakPending = false;
     doc.forEach((node, offset) => {
+      // A manual marker is not prose or an extra blank sheet. Carry its request
+      // to the next real block; a leading or trailing marker has no next page.
+      if (node.type.name === 'pageBreak') {
+        manualBreakPending = true;
+        marginBelow.set(offset + node.nodeSize, marginBelow.get(offset) ?? 0);
+        return;
+      }
       const dom = view.nodeDOM(offset);
       if (!dom || dom.nodeType !== Node.ELEMENT_NODE) return;
       const element = dom as HTMLElement;
@@ -634,8 +642,9 @@ class PageLayoutView {
         top: rect.top - px(style.marginTop) - contentTop - shiftTop,
         bottom: rect.bottom - contentTop - shiftBottom,
         // A chapter heading asks for a fresh sheet the way it would in print.
-        breakBefore: style.breakBefore === 'page' || style.breakBefore === 'always',
+        breakBefore: (manualBreakPending && blocks.length > 0 && !(node.isTextblock && !node.textContent && offset + node.nodeSize === doc.content.size)) || style.breakBefore === 'page' || style.breakBefore === 'always',
       };
+      manualBreakPending = false;
       blocks.push(block);
       blockDom.set(block, {
         element,

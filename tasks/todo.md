@@ -903,3 +903,23 @@ undo receipt, and both live and reloaded shared-panel undo buttons restored the
 original chapter and refreshed the full editor. Evidence is stored under
 `D:/LocalAI/diagnostics/writer340-native`. This proves the pipeline with a scripted
 provider, not the autonomous quality of the global model.
+
+# Advanced document editing and owned native engine
+
+Agora 347/348. User chose an owned detached source fork, no upstream dependency.
+
+- [x] Copy and rename useful core code; preserve source and font notices.
+- [x] Complete native archive with images and retained object/package data.
+- [x] Sessions, commands, atomic batches, DOCX/HTML/PDF/PNG and encryption lifecycle.
+- [x] Format/style/table extensions with semantic persistence and undo.
+- [x] Manual page layout, notes, widths, chapter boundaries and original tools retained.
+- [x] UI and MCP integration through the product document service.
+- [x] Hidden full application: save/reload, native import/undo, page preview and real downloads.
+- [x] Rust source and exact executable independently reviewed after four fixes.
+- [ ] Combined shipping checks and frozen submission review.
+- [ ] Main integration without push, build and documentation readback.
+
+The native format is complete; HTML is supported interchange, not a guarantee of
+lossless projection of every Word feature. English proofing is not Spanish proofing.
+Existing publishing exports remain available with their prior scope; the new
+Document panel supports the richer interchange. See docs/editor-native/README.md.

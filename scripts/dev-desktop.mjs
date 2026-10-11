@@ -53,6 +53,16 @@ function shutdown(exitCode, terminateElectron) {
 }
 
 async function main() {
+  // Prepare the owned document executable before any renderer can use it.
+  await new Promise((resolve, reject) => {
+    const builder = spawn(process.execPath, [path.join(scriptDirectory, 'build-document-engine.mjs')], {
+      cwd: projectRoot,
+      stdio: 'inherit',
+      windowsHide: true,
+    });
+    builder.once('error', reject);
+    builder.once('close', code => code === 0 ? resolve() : reject(new Error(`Document build failed (${code}).`)));
+  });
   // Bundle main + preload before starting the renderer. Importing the build
   // module is equivalent to `npm run electron:build` but keeps one process tree.
   await import('../electron/build.mjs');

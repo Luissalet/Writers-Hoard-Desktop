@@ -611,6 +611,10 @@ const api = {
     undo: (index: number): Promise<AiBridgeUndoResult> =>
       ipcRenderer.invoke('aibridge:undo', index),
   },
+  documents: {
+    call: (request: { tool: string; args: Record<string, unknown> }) =>
+      ipcRenderer.invoke('documents:call', request),
+  },
 
   // ---- AI runtime --------------------------------------------------------
   // Connections by IP/URL, model discovery, hardware fit and streaming

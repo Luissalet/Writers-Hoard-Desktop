@@ -35,6 +35,15 @@ div.ProseMirror[data-page-size] {
 div.ProseMirror[data-page-size] > * {
   min-width: 0;
 }
+/* The persisted marker requests a decoration before the next prose block.
+   It contributes no geometry itself, including at the start/end of a book. */
+div.ProseMirror[data-page-size] > .wh-manual-page-break {
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
 /* A replaced element stretches to the column's width as a flex item; an
    image keeps its own. */
 div.ProseMirror[data-page-size] > img {

@@ -1,0 +1,12 @@
+
+running 10 tests
+..........
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+
+running 243 tests
+....................................................................................... 87/243
+....................................................................................... 174/243
+.....................................................................
+test result: ok. 243 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.29s
+
