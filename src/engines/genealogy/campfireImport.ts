@@ -17,6 +17,7 @@
 // ============================================================================
 
 import type { GenealogyImportIssue, GenealogyImportResult } from './markdownImport.ts';
+import { deriveLinkIds } from './genealogyStore.ts';
 
 /** Campfire relationship type (lowercased) -> contract kind. */
 const TYPES: Record<string, string> = {
@@ -73,12 +74,14 @@ export function importGenealogyCampfire(data: unknown): GenealogyImportResult {
       return;
     }
 
-    const explicitId = isNonEmptyString(rel.id) ? (rel.id as string).trim() : `g${links.length + 1}`;
-    if (seen.has(explicitId)) {
+    // Link id: explicit id when present, else left empty and derived after
+    // the loop (see deriveLinkIds below; review r4 P2).
+    const explicitId = isNonEmptyString(rel.id) ? (rel.id as string).trim() : '';
+    if (explicitId !== '' && seen.has(explicitId)) {
       issues.push({ code: 'duplicate_id', detail: `duplicate link id: ${explicitId}` });
       return;
     }
-    seen.add(explicitId);
+    if (explicitId !== '') seen.add(explicitId);
 
     const link: GenealogyImportResult['links'][number] = { id: explicitId, from, to, kind };
     if (isNonEmptyString(rel.label)) link.label = (rel.label as string).trim();
@@ -88,6 +91,11 @@ export function importGenealogyCampfire(data: unknown): GenealogyImportResult {
   if (links.length === 0 && issues.length === 0) {
     issues.push({ code: 'no_links', detail: 'no relationships found' });
   }
+
+  // Derive ids for the entries without one (review r4 P2): reserve the
+  // batch's explicit ids first so a derived id never collides with one of them.
+  const ids = deriveLinkIds(links as unknown as Record<string, unknown>[], new Set());
+  links.forEach((link, i) => { if (link.id === '') link.id = ids[i]; });
 
   return { links, issues };
 }
