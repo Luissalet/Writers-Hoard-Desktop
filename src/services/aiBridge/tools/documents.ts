@@ -13,11 +13,12 @@ import { callDocumentTool } from '@/services/documents/client';
 import { NATIVE_DOCUMENT_ACTIONS } from '../manifestDocuments';
 import { assertEngineEnabled, assertRowInScope, BridgeError, requireString, withAudit, type ToolArgs } from './shared';
 import type { Writing } from '@/types';
+import { createRevisionExtensions } from '@/engines/writings/revisions';
 
 function editorFor(html: string): Editor {
   return new Editor({
     element: document.createElement('div'),
-    extensions: [StarterKit.configure({ link: { openOnClick: false } }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions()],
+    extensions: [StarterKit.configure({ link: { openOnClick: false } }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions()],
     content: normalizeAdvancedHtml(html),
   });
 }
