@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
-import { Accessibility, BookOpen, Bot, ChevronRight, Globe } from 'lucide-react';
+import { Accessibility, BookOpen, Bot, ChevronRight, Globe, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Modal from '@/components/common/Modal';
 import { useLocaleStore, type Locale } from '@/stores/localeStore';
 import { useAiStore } from '@/stores/aiStore';
 import { useAiRuntimeStore } from '@/stores/aiRuntimeStore';
 import { useAppStore } from '@/stores/appStore';
+import { useGhostTextStore } from '@/stores/ghostTextStore';
 import { useTranslation } from '@/i18n/useTranslation';
 
 interface SettingsModalProps {
@@ -71,10 +72,13 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const motion = useAppStore((s) => s.motion);
   const setMotion = useAppStore((s) => s.setMotion);
   const loadMotion = useAppStore((s) => s.loadMotion);
+  const ghostEnabled = useGhostTextStore((s) => s.enabled);
+  const setGhostEnabled = useGhostTextStore((s) => s.setEnabled);
+  const loadGhost = useGhostTextStore((s) => s.load);
 
   useEffect(() => {
-    void Promise.all([loadReading(), loadMotion()]);
-  }, [loadMotion, loadReading]);
+    void Promise.all([loadReading(), loadMotion(), loadGhost()]);
+  }, [loadGhost, loadMotion, loadReading]);
 
   return (
     <Modal open={open} onClose={onClose} title={t('settings.title')}>
@@ -196,6 +200,29 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
             ]}
             onChange={(preference) => void setMotion(preference)}
           />
+        </section>
+
+        <div className="border-t border-border" />
+
+        {/* ── Writing assistance: ghost text, off until asked for ── */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles size={14} className="text-accent-gold" aria-hidden="true" />
+            <h3 className="text-sm font-medium text-text-primary">{t('settings.ghost')}</h3>
+          </div>
+          <p className="text-[10px] text-text-dim mb-3">{t('settings.ghost.subtitle')}</p>
+          <Choice
+            label={t('settings.ghost.label')}
+            value={ghostEnabled ? 'on' : 'off'}
+            options={[
+              { id: 'off', label: t('settings.ghost.off') },
+              { id: 'on', label: t('settings.ghost.on') },
+            ]}
+            onChange={(next) => void setGhostEnabled(next === 'on')}
+          />
+          {ghostEnabled && !enabled && (
+            <p className="text-[10px] text-accent-amber mt-2" role="status">{t('settings.ghost.aiOff')}</p>
+          )}
         </section>
 
         <div className="border-t border-border" />
