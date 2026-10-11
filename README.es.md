@@ -17,6 +17,25 @@ npm run dev:desktop
 
 `npm run dev` abre solo la versión web. En Windows, `setup.bat` instala una vez y `run.bat` inicia la app sin reinstalar dependencias.
 
+## Editor de documentos
+
+El editor añade fuentes, tamaños, colores, resaltado, estilos de párrafo,
+alineación, interlineado, sangrías, subíndice, superíndice, tablas editables y
+saltos manuales. El formato se conserva al guardar, reabrir, sanitizar y
+deshacer. El panel Documento abre archivos ricos, previsualiza páginas nativas
+y descarga DOCX, PDF y otros formatos con el núcleo Rust propio de Writers.
+En modo libro, aplicar una importación sustituye solo el cuerpo del capítulo
+actual y conserva sus límites y los demás capítulos.
+
+`native/` contiene código propio incorporado como fork separado: sin
+dependencia Git del origen, submódulos ni actualizadores. La construcción usa
+Rust 1.92 fijado; `npm run document:build`, el inicio desktop y el empaquetado
+compilan ese código y distribuyen sus avisos. El archivo completo
+`.writer.json` conserva assets y partes originales. La proyección a HTML no
+conserva todas las propiedades de cualquier DOCX. Las exportaciones de proyecto
+anteriores mantienen su alcance; Documento es la nueva vía de formato rico.
+Consulta [editor, MCP y pruebas](docs/editor-native/README.md).
+
 ## IA y asistentes externos
 
 En **Ajustes de IA → Usar mis suscripciones**, inicia sesión mediante el cliente oficial de Claude o Codex, o importa una sesión ya existente. Comprueba la conexión y selecciónala como modelo de texto. También siguen disponibles las conexiones API y los modelos locales. Las solicitudes de suscripción verifican el método de autenticación y no derivan automáticamente a facturación API. Texto y copiloto están soportados; la generación de imágenes usa proveedores separados.
@@ -36,6 +55,21 @@ la barra de herramientas también la activa o desactiva. Usa solo un modelo loca
 anterior al cursor, las entradas del Codex que acabas de mencionar y el perfil de
 estilo del proyecto. No se envía nada a un proveedor en la nube y no se sugiere
 nada a mitad de palabra, con una selección o en modo de solo lectura.
+
+## Genealogía e importaciones
+
+Activa **Genealogía** en los motores del proyecto para ver padres, tutores y
+parejas explícitos en un árbol familiar y exportarlo como DOT o texto.
+**Importación al Codex** importa carpetas Markdown de Obsidian, Notion,
+World Anvil o Campfire, con vista previa de fichas nuevas, duplicados, conflictos
+e incidencias. También admite colecciones JSON tipadas. Conserva la fuente
+completa, añade las fichas nuevas válidas en una transacción y permite deshacer
+la importación durante la sesión respetando las ediciones posteriores.
+Las herramientas de puente/MCP `wh_codex_import_*` ofrecen este mismo flujo;
+`wh_genealogy_*` importan y aplican los enlaces familiares explícitos por separado.
+La actualización de base de datos v38 conserva las referencias y los datos del
+proyecto.
+[Contrato y límites](docs/GENEALOGY_CONTRACT.md).
 
 ## Biblia del mundo exportable
 
