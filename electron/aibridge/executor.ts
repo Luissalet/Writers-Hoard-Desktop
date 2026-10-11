@@ -14,11 +14,14 @@
 import { createToolExecutor } from '@/services/aiRuntime/executorCore';
 import { callRenderer } from './rpc';
 import { appendAudit, getBridgeConfig } from './state';
+import { executeDocumentTool, isNativeDocumentTool } from '../documents/nativeDocumentService';
 
 export type { ExecuteOptions, ExecuteResult, ToolCall } from '@/services/aiRuntime/executorCore';
 
 export const executeTool = createToolExecutor({
   writesEnabled: async () => (await getBridgeConfig()).writesEnabled,
-  relay: (tool, args, timeoutMs) => callRenderer(tool, args, timeoutMs),
+  relay: (tool, args, timeoutMs) => isNativeDocumentTool(tool)
+    ? executeDocumentTool(tool, args, timeoutMs)
+    : callRenderer(tool, args, timeoutMs),
   audit: (line) => appendAudit(line),
 });

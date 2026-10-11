@@ -51,6 +51,10 @@ async function call(tool: string, args: ToolArgs): Promise<Record<string, unknow
   const handler = TOOL_HANDLERS[tool];
   if (!handler) throw new Error(`no handler for ${tool}`);
   const result = (await handler(args)) as Record<string, unknown>;
+  if (result?.ok === false) {
+    throw new BridgeError(typeof result.code === 'string' ? result.code : 'tool-error',
+      typeof result.error === 'string' ? result.error : 'Tool reported failure');
+  }
   return result ?? {};
 }
 

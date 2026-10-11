@@ -1,0 +1,12 @@
+   Compiling writer-fonts v0.1.0 (D:\LocalAI\candidates\writers-native-editor-20261011\native\crates\fonts)
+   Compiling writer-doc v0.1.0 (D:\LocalAI\candidates\writers-native-editor-20261011\native\crates\doc)
+   Compiling writer-layout v0.1.0 (D:\LocalAI\candidates\writers-native-editor-20261011\native\crates\layout)
+   Compiling writer-docbin v0.1.0 (D:\LocalAI\candidates\writers-native-editor-20261011\native\crates\docbin)
+   Compiling writer-formats v0.1.0 (D:\LocalAI\candidates\writers-native-editor-20261011\native\crates\formats)
+   Compiling writer-docx v0.1.0 (D:\LocalAI\candidates\writers-native-editor-20261011\native\crates\docx)
+   Compiling writer-pdf v0.1.0 (D:\LocalAI\candidates\writers-native-editor-20261011\native\crates\pdf)
+   Compiling writer-render v0.1.0 (D:\LocalAI\candidates\writers-native-editor-20261011\native\crates\render)
+   Compiling writer-engine v0.1.0 (D:\LocalAI\candidates\writers-native-editor-20261011\native\crates\engine)
+   Compiling writer-document-engine v0.1.0 (D:\LocalAI\candidates\writers-native-editor-20261011\native\apps\document-engine)
+    Finished `release` profile [optimized] target(s) in 1m 08s
+Writers document engine: D:\LocalAI\candidates\writers-native-editor-20261011\native\bin\writer-document-engine.exe

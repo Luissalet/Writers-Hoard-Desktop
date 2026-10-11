@@ -22,6 +22,24 @@ npm run dev:desktop    # Vite dev server + Electron window (HMR)
 On Windows, `setup.bat` performs the one-time setup; subsequent launches use
 `run.bat` without reinstalling or changing dependencies.
 
+## Rich document editor
+
+The editor adds semantic font, size, colour, highlight, paragraph style,
+alignment, line spacing, indentation, sub/superscript, editable tables and
+manual page breaks. Formatting survives save, reload, sanitization and undo.
+The Document panel opens rich files, previews native pages and downloads DOCX,
+PDF and other formats through Writers' own Rust document engine. Importing into
+a continuous book replaces the current chapter body while preserving its
+boundaries and other chapters.
+
+`native/` contains an owned, detached source fork: no upstream Git dependency,
+submodule or updater. Build requires the pinned Rust 1.92 toolchain;
+`npm run document:build`, desktop launch and desktop packaging compile this
+source and include its notices. The complete `.writer.json` archive preserves
+assets and original package parts. HTML interchange is not universally lossless.
+Existing publishing exports keep their previous scope; the Document panel is
+the rich-format route. See [editor, MCP and verification](docs/editor-native/README.md).
+
 ## Shared Faustus copilot
 
 The desktop copilot mounts Faustus's shared `<faustus-chat>` panel. Faustus owns

@@ -62,7 +62,7 @@ export interface MeasuredBlock {
    * and `PaginationOptions.measureLines` can supply them on demand.
    */
   lines?: MeasuredLine[];
-  /** The block opens a new page (CSS `break-before: page`), unless it already tops one. */
+  /** Opens a new page (CSS break-before or a preceding manual marker), unless already atop one. */
   breakBefore?: boolean;
 }
 

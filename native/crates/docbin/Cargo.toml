@@ -1,0 +1,20 @@
+[package]
+name = "writer-docbin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Writers reader for the Word 97-2003 binary file format (.doc, [MS-DOC])"
+
+[lints]
+workspace = true
+
+[dependencies]
+writer-doc = { workspace = true }
+writer-geom = { workspace = true }
+cfb = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+serde_json = { workspace = true }

@@ -1,4 +1,5 @@
 import DOMPurify, { type Config } from 'dompurify';
+import { FORMAT_ATTRIBUTES, formattingFromElement, formattingHtmlAttributes, INLINE_KEYS, BLOCK_KEYS, normalizeColumnWidths } from '@/components/editor/advanced/model';
 
 const SAFE_RASTER_DATA_URL = /^data:image\/(?:avif|bmp|gif|jpe?g|png|webp);base64,/i;
 
@@ -22,6 +23,27 @@ DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
     && !(node.nodeName === 'IMG' && data.attrName === 'src' && SAFE_RASTER_DATA_URL.test(data.attrValue))
   ) {
     data.keepAttr = false;
+  }
+});
+
+// Stored formatting is semantic data. Reconstruct only known, validated CSS
+// after arbitrary incoming style attributes have been removed as before.
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (!(node instanceof Element)) return;
+  const keys = node.tagName === 'SPAN' ? INLINE_KEYS : /^(P|H[1-6])$/.test(node.tagName) ? BLOCK_KEYS : [];
+  const attrs = formattingHtmlAttributes(formattingFromElement(node), keys);
+  for (const attr of Object.values(FORMAT_ATTRIBUTES)) node.removeAttribute(attr);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+  if (node.hasAttribute('data-wh-colwidth')) {
+    const widths = /^(TD|TH)$/.test(node.tagName) ? normalizeColumnWidths(node.getAttribute('data-wh-colwidth')) : null;
+    if (widths) node.setAttribute('data-wh-colwidth', widths.join(','));
+    else node.removeAttribute('data-wh-colwidth');
+  }
+  if (node.hasAttribute('data-wh-page-break')) {
+    if (node.tagName === 'DIV') {
+      node.setAttribute('data-wh-page-break', 'true');
+      node.setAttribute('class', 'wh-manual-page-break');
+    } else node.removeAttribute('data-wh-page-break');
   }
 });
 
