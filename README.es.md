@@ -36,6 +36,14 @@ conserva todas las propiedades de cualquier DOCX. Las exportaciones de proyecto
 anteriores mantienen su alcance; Documento es la nueva vía de formato rico.
 Consulta [editor, MCP y pruebas](docs/editor-native/README.md).
 
+El panel Cambios conserva propuestas ancladas con autor, origen y fecha.
+Registra ediciones ordinarias del párrafo y permite aceptar o rechazar dentro
+del capítulo actual, con guardado, reapertura y deshacer. UI y MCP comparten las
+operaciones. Documento previsualiza y descarga texto Final u Original sin
+modificar las propuestas pendientes; las descargas contienen el texto elegido
+y no marcas de revisión. Todavía no se exportan las propuestas propias como
+control de cambios de Word. Consulta [alcance y pruebas](docs/editor-revisions/README.md).
+
 ## IA y asistentes externos
 
 En **Ajustes de IA → Usar mis suscripciones**, inicia sesión mediante el cliente oficial de Claude o Codex, o importa una sesión ya existente. Comprueba la conexión y selecciónala como modelo de texto. También siguen disponibles las conexiones API y los modelos locales. Las solicitudes de suscripción verifican el método de autenticación y no derivan automáticamente a facturación API. Texto y copiloto están soportados; la generación de imágenes usa proveedores separados.
