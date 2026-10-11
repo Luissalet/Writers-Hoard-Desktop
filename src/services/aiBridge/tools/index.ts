@@ -8,6 +8,12 @@
 // runtime in front of a model.
 
 import type { ToolArgs } from './shared';
+import { db } from '@/db';
+import type { GenealogyLinkRow } from '@/engines/genealogy/genealogyStore';
+import { createGenealogyBridgeHandlers } from './genealogy';
+import { createCodexFolderImporter } from '@/engines/genealogy/codexFolderImport';
+import { createCodexFolderImportHandlers } from './codexFolderImport';
+import { htmlFromMarkdown, resolveProjectForEngine, resolveProjectId } from './shared';
 import { whBuildWorldBible, whExportWorldBible } from './worldBible';
 import { whGetEditorialContext, whGetResearchEvidence } from './editorial';
 import { whEnableEngine, whGetContext, whListProjects, whSearch } from './context';
@@ -190,7 +196,32 @@ import {
 
 export type ToolHandler = (args: ToolArgs) => Promise<unknown>;
 
+// Genealogy contract tools (§5): the factory takes the live table and a
+// character loader (codex entries of type 'character', keyed by title).
+const genealogyHandlers = createGenealogyBridgeHandlers(
+  {
+    where: (key) => db.genealogyLinks.where(key),
+    bulkPut: (rows) => db.genealogyLinks.bulkPut(rows as GenealogyLinkRow[]),
+    get: (id) => db.genealogyLinks.get(id),
+    delete: (id) => db.genealogyLinks.delete(id),
+  },
+  async (projectId) =>
+    (await db.codexEntries.where('projectId').equals(projectId).toArray())
+      .filter((entry) => entry.type === 'character')
+      .map((entry) => ({ id: entry.id, name: entry.title })),
+);
+
+const codexFolderHandlers = createCodexFolderImportHandlers(createCodexFolderImporter({
+  list: projectId => db.codexEntries.where('projectId').equals(projectId).toArray(),
+  get: id => db.codexEntries.get(id),
+  addAll: rows => db.codexEntries.bulkAdd(rows),
+  deleteAll: ids => db.codexEntries.bulkDelete(ids),
+  atomic: run => db.transaction('rw', db.codexEntries, run),
+}, htmlFromMarkdown), async (args, writes) => writes ? resolveProjectForEngine(args, 'codex') : resolveProjectId(args));
+
 export const TOOL_HANDLERS: Record<string, ToolHandler> = {
+  ...codexFolderHandlers,
+  ...genealogyHandlers,
   wh_build_world_bible: whBuildWorldBible,
   wh_export_world_bible: whExportWorldBible,
   wh_get_research_evidence: whGetResearchEvidence,
