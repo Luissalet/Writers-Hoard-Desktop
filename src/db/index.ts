@@ -954,9 +954,11 @@ export class WritersHoardDB extends Dexie {
     // 35->36 and a database already at v36 would never migrate (review r4 P1).
     // IndexedDB forbids changing a record's primary key through cursor
     // update, so each row is rewritten as delete + put inside the same
-    // version transaction. Idempotent: a row already in v37 shape (composite
-    // id + linkId) is left untouched, so a database that briefly ran v37
-    // code without migrating still ends up correct (review r4 P1).
+    // version transaction. Idempotent for rows still in v36 shape. NOTE
+    // (review r5): this callback only fires when a database OPENS AT v36 or
+    // lower; a database already at v37 that kept a legacy g1 row gets NO
+    // repair here — that case needs an explicit migration or a new version
+    // (tracked separately, not silently promised).
     this.version(CURRENT_DB_VERSION)
       .stores({
         genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',

@@ -220,8 +220,12 @@ export function createGenealogyBridgeHandlers(
           );
         }
         const existing = await loadGenealogyLinks(table, args.projectId as string);
+        // Review r5 P2-1: reserve the project's existing ids BEFORE deriving
+        // implicit ids, so an incremental import never reuses g1 for a new
+        // link while g1 already points at an existing relationship.
+        const existingIds = new Set(existing.map((l) => l.id));
         const preview = previewGenealogyImport({ incoming: parsed.links, existing });
-        return { ok: true, format, proposal: parsed.links, issues: parsed.issues, preview };
+        return { ok: true, format, proposal: parsed.links, issues: parsed.issues, preview, existingIds: [...existingIds] };
       } catch (err) {
         return errorReply(err);
       }
@@ -283,6 +287,15 @@ export function createGenealogyBridgeHandlers(
           );
         }
         applications.set(applyId, result.application);
+        // Review r5 P2-4: a semantic failure (nothing applied) must not be
+        // announced as a successful write. Throw so dispatch returns
+        // ok:false and the audit line records the failure, not ok:true.
+        if (result.appliedLinkIds.length === 0) {
+          throw new GenealogyOpError(
+            'nothing_applied',
+            `apply rejected every link (${result.rejected.length} rejected)`,
+          );
+        }
         return {
           ok: true,
           applyId,
