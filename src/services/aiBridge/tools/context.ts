@@ -7,6 +7,8 @@ import { getAllProjects, updateProject } from '@/db/operations';
 import { searchProjectContent } from '@/services/projectSearchIndex';
 import { useAppStore } from '@/stores/appStore';
 import { BRIDGE_ENGINE_IDS } from '../manifest';
+import { writerContext } from '@/services/copilot/faustusContext';
+import { useLocaleStore } from '@/stores/localeStore';
 import {
   BridgeError,
   clampLimit,
@@ -60,6 +62,8 @@ export async function whGetContext(): Promise<unknown> {
   }
   const project = await db.projects.get(projectId);
   if (!project) return { openProject: null, openEngine: null, writesEnabled };
+  const engine = currentEngineId();
+  const host = await window.electronAPI?.faustus?.getInfo();
   return {
     openProject: {
       id: project.id,
@@ -72,7 +76,8 @@ export async function whGetContext(): Promise<unknown> {
       enabledEngines: project.enabledEngines,
       counts: await countsFor(project.id),
     },
-    openEngine: currentEngineId(),
+    openEngine: engine,
+    ...(host ? { hoardContext: await writerContext(host.data_space_id, projectId, engine, useLocaleStore.getState().locale) } : {}),
     writesEnabled,
   };
 }

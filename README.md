@@ -22,14 +22,29 @@ npm run dev:desktop    # Vite dev server + Electron window (HMR)
 On Windows, `setup.bat` performs the one-time setup; subsequent launches use
 `run.bat` without reinstalling or changing dependencies.
 
+## Shared Faustus copilot
+
+The desktop copilot mounts Faustus's shared `<faustus-chat>` panel. Faustus owns
+conversations, model selection, memory and the tool loop. Writer supplies its
+project, current manuscript and live selection, and keeps its native tools,
+editor, snapshots and undo. Existing conversations are imported by their original
+identifiers; the original Dexie rows remain in Writer's backups.
+
+Keep Faustus running. `WH_FAUSTUS_URL` selects its service (the local default is
+`http://127.0.0.1:7000`); `WH_FAUSTUS_MCP_SERVER_ID` can select a registered Writer
+tool connection for an isolated profile. Closing the dock retains its draft and
+session, and leaving the application does not stop a remote Faustus turn.
+See [integration and verification](docs/FAUSTUS-COPILOT.md).
+
 ## AI subscriptions and external assistants
 
 In **AI settings → Use my subscriptions**, sign in with the official Claude or
 Codex client, or import an existing subscription session. Check the connection,
 then choose it as the default text model. API connections and local models remain
 available. Subscription requests verify the account's authentication method and
-never fall back to API billing. Text and copilot actions are supported; image
-generation continues to use the separate image providers.
+never fall back to API billing. Standalone text actions are supported; image
+generation continues to use the separate image providers. The desktop copilot
+uses Faustus's central model and agent settings.
 
 The **AI bridge** section explains how to connect Claude Desktop, Codex or Gemini
 CLI back to the app, with client-specific configuration and a separate, safe

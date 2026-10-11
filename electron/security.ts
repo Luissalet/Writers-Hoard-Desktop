@@ -4,6 +4,9 @@ import { promises as fs } from 'node:fs';
 export type InternalRendererRole = 'main' | 'quick-note';
 
 const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]>> = Object.freeze({
+  'faustus:getInfo': ['main'],
+  'faustus:request': ['main'],
+  'faustus:cancel': ['main'],
   'window:openMenu': ['main'],
   'media:saveTeleprompterMp4': ['main'],
   'media:downloaderHealth': ['main'],
@@ -94,7 +97,7 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   // AI runtime: connections by IP/URL, model discovery, streaming inference
   // and the in-app copilot. Main owns every URL and key; the renderer only
   // ever names a connection id. Push channels (ai:stream, ai:image-done,
-  // copilot:event) go main → renderer and need no entry here.
+  // faustus:event) go main → renderer and need no entry here.
   'ai:subscriptionLogin': ['main'],
   'ai:listConnections': ['main'],
   'ai:saveConnection': ['main'],
@@ -112,9 +115,6 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'ai:complete': ['main'],
   'ai:cancel': ['main'],
   'ai:generateImage': ['main'],
-  'copilot:run': ['main'],
-  'copilot:cancel': ['main'],
-  'copilot:approve': ['main'],
   // Managed local image runtime (stable-diffusion.cpp). Push channels
   // sd:status and sd:progress go main → renderer and need no entry here.
   'sd:status': ['main'],

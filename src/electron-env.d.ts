@@ -18,6 +18,7 @@ import type {
   HardwareProfile,
 } from '@/services/aiRuntime/types';
 import type { CopilotEvent, CopilotRunRequest } from '@/services/aiRuntime/copilot';
+import type { FaustusHostBridge } from '@/services/copilot/faustusProtocol';
 import type { SdBackend, SdOpResult, SdProgress, SdRuntimeStatus } from '@/services/aiRuntime/sdServer';
 import type { GeocodeResponse } from '@/engines/real-atlas/geocode';
 import type { WikidataRequest, WikidataResponse } from '@/engines/inquiry/wikidata';
@@ -301,6 +302,7 @@ export interface ShutdownWarning {
 }
 
 export interface ElectronAPI {
+  faustus: FaustusHostBridge;
   isDesktop: true;
   platform: string;
   openWindowMenu: () => void;
@@ -519,8 +521,8 @@ export interface ElectronAPI {
     onProgress: (callback: (progress: SdProgress) => void) => () => void;
   };
 
-  /** In-app copilot: one turn per run, events streamed back. See electron/ai/agentLoop.ts. */
-  copilot: {
+  /** Legacy contract retained for stored-history regression fixtures only. */
+  copilot?: {
     run: (request: CopilotRunRequest) => Promise<{ ok: boolean; runId?: string; error?: string }>;
     cancel: (runId: string) => Promise<boolean>;
     approve: (runId: string, callId: string, approved: boolean) => Promise<boolean>;
