@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useCodexEntries } from '@/engines/codex/hooks';
 import { db } from '@/db';
 import { loadGenealogyLinks } from '../genealogyRepo';
@@ -49,7 +50,6 @@ export default function GenealogyTreeView({ projectId }: { projectId: string }) 
     setReload(value => value + 1);
     void refresh();
   };
-
   useEffect(() => {
     let cancelled = false;
     const load = () => {
@@ -139,6 +139,9 @@ export default function GenealogyTreeView({ projectId }: { projectId: string }) 
         // escapes names and labels; it is trusted markup by construction.
         dangerouslySetInnerHTML={{ __html: svg }}
       />
+      <button type="button" onClick={() => void refresh()}>
+        Recargar
+      </button>
     </div>
   );
 }
