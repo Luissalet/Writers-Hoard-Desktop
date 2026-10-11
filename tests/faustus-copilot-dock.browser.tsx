@@ -6,6 +6,7 @@ import { db } from '@/db';
 import { useCopilotStore } from '@/stores/copilotStore';
 import { useCopilotHandoffStore } from '@/stores/copilotHandoffStore';
 import type { FaustusFetchEvent, FaustusHostBridge } from '@/services/copilot/faustusProtocol';
+import { getSetting } from '@/db/operations';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 const pause = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -21,7 +22,7 @@ export async function testFaustusCopilotDock(): Promise<string[]> {
     getInfo: async () => ({ server: 'http://127.0.0.1:7000', embed_url: '/unused-in-test', data_space_id: 'dock-space' }),
     request: async (request) => {
       requests.push({ url: request.url, body: request.body ? JSON.parse(new TextDecoder().decode(request.body)) : undefined });
-      const payload = request.url.endsWith('/imports') ? { session_id: 'shared-session', imported: 1 } : { conversations: [{ session_id: 'shared-session' }] };
+      const payload = request.url.endsWith('/imports') ? { session_id: 'shared-session', imported: 1 } : { conversations: [{ session_id: 'shared-session' }, { session_id: 'second-shared-session' }] };
       for (const listener of listeners) listener({ id: request.id, type: 'chunk', chunk: new TextEncoder().encode(JSON.stringify(payload)) });
       for (const listener of listeners) listener({ id: request.id, type: 'end' });
       return { status: 200, statusText: 'OK', headers: [['content-type', 'application/json']] };
@@ -54,10 +55,21 @@ export async function testFaustusCopilotDock(): Promise<string[]> {
   assert(!requests.some((row) => row.url.includes('chat_stream')), 'Handoff cannot send a turn by itself.');
   await act(async () => { useCopilotStore.getState().setDockOpen(false); });
   assert(rootNode.querySelector('faustus-chat') === panel, 'Closing the dock must retain its shared session and draft.');
+  await act(async () => {
+    panel.session = 'second-shared-session';
+    panel.dispatchEvent(new CustomEvent('faustus:session-change', { detail: { sessionId: 'second-shared-session' } }));
+  });
+  assert(await getSetting('faustus.active.dock-space.dock-project') === 'second-shared-session', 'Selecting a conversation must persist its SID without sending a turn.');
   await act(async () => { root.unmount(); });
   assert(!requests.some((row) => row.url.includes('/stop')), 'Leaving the editor cannot cancel remote work.');
   assert(listeners.size === 0, 'Completed host requests must release subscriptions.');
+  const reopened = createRoot(rootNode);
+  await act(async () => { reopened.render(<MemoryRouter initialEntries={['/project/dock-project/writings?writing=chapter']}><Routes><Route path="/project/:id/:tab" element={<CopilotDock />} /></Routes></MemoryRouter>); });
+  for (let i = 0; i < 100 && !rootNode.querySelector('faustus-chat'); i++) await act(pause);
+  const restoredPanel = rootNode.querySelector('faustus-chat') as PanelFixture;
+  assert(restoredPanel?.session === 'second-shared-session', 'Reload must restore the selected conversation even when no turn was sent.');
+  await act(async () => { reopened.unmount(); });
   rootNode.remove();
   await db.projects.delete('dock-project'); await db.aiThreads.delete('old-thread'); await db.aiMessages.delete('old-msg');
-  return ['shared panel mount and canonical import', 'original conversations preserved', 'selection handoff draft without a send', 'close retains panel and unmount never sends stop'];
+  return ['shared panel mount and canonical import', 'original conversations preserved', 'selection handoff draft without a send', 'close retains panel and unmount never sends stop', 'conversation selection persists across reload without a turn'];
 }
