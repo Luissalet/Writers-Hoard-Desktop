@@ -1393,3 +1393,9 @@ el alcance; ninguna de las dos cosas aplica a la implementación normal de Write
 - User correction: test launchers must keep windows hidden, including error dialogs.
 - Require Electron through its native module name inside Electron; an absolute npm package path returns the executable path, not app/BrowserWindow.
 - Install error logging before QA imports and use isolated profiles with show:false; verify ownership before closing a failed process.
+
+## 2026-10-11 — Owned document code instead of an upstream product dependency
+
+- User instruction: reuse useful source as a detached fork owned by Writers, adapted to its UI and APIs. Do not substitute embedding another application, a Git dependency, submodule or upstream update link.
+- Preserve original copyright and required license/asset notices; historical provenance records do not create an operational dependency.
+- Verify the installed application builds and uses its own bundled engine without access to the upstream checkout or repository.

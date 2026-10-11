@@ -41,9 +41,13 @@
     "fetch:bin": "node scripts/fetch-ytdlp.mjs",
     "electron:build": "node electron/build.mjs",
     "dev:desktop": "node scripts/dev-desktop.mjs",
-    "build:desktop": "cross-env VITE_BASE_URL=./ npm run build && npm run electron:build",
+    "build:desktop": "npm run document:build && cross-env VITE_BASE_URL=./ npm run build && npm run electron:build",
     "dist": "npm run verify:release && electron-builder",
-    "dist:publish": "npm run verify:signing && npm run verify:release && electron-builder --publish always --config.forceCodeSigning=true"
+    "dist:publish": "npm run verify:signing && npm run verify:release && electron-builder --publish always --config.forceCodeSigning=true",
+    "document:build": "node scripts/build-document-engine.mjs",
+    "test:document-service": "node scripts/run-document-service-tests.mjs",
+    "test:editor-advanced": "node scripts/run-editor-advanced-tests.mjs",
+    "test:document-editor": "node scripts/run-document-editor-tests.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -54,6 +58,7 @@
     "@tiptap/extension-image": "^3.20.0",
     "@tiptap/extension-link": "^3.20.0",
     "@tiptap/extension-placeholder": "^3.20.0",
+    "@tiptap/extension-table": "3.20.0",
     "@tiptap/pm": "^3.20.0",
     "@tiptap/react": "^3.20.0",
     "@tiptap/starter-kit": "^3.20.0",

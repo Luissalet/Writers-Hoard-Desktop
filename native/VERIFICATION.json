@@ -1,0 +1,48 @@
+{
+  "binary": "native/bin/writer-document-engine.exe",
+  "sha256": "4b1eddfc758c7784d35ba43f999916641254e398f6894d71ef25a2e238b64f4f",
+  "sourceOriginCommit": "6526b134befbf6933fd87a63bfea37a7828f29c4",
+  "rustToolchain": "1.92.0",
+  "windowsSubsystem": 2,
+  "tests": {
+    "ownDocumentService": 10,
+    "editingEngine": 243,
+    "documentModel": 87,
+    "docxUnit": 56,
+    "docxIntegration": 94,
+    "formats": 66,
+    "layout": 168,
+    "pdf": 23,
+    "distinctTotal": 747
+  },
+  "evidence": {
+    "reviewFixes": "native/verification-review-fixes.txt",
+    "pdfAndLayoutAfterReview": "native/verification-pdf-layout-review.txt",
+    "docAndDocx": "native/verification-legacy-core.txt",
+    "docxIntegration": "native/verification-docx-roundtrip.txt",
+    "releaseBuild": "native/verification-build-unlimited-undo.txt",
+    "unlimitedUndo": "native/verification-unlimited-undo.txt"
+  },
+  "checks": [
+    "Independent Electron service reports 14 passing tests against previous reviewed binary f9744339",
+    "Independent isolated full application reports 5 passing checks against previous reviewed binary f9744339",
+    "Unicode and independent session IDs",
+    "Complete image, retained package, chart and OLE archive data",
+    "Atomic batch rollback preserves document, selection, undo and redo",
+    "Writers footnotes, block formatting and manual page breaks in HTML and DOCX",
+    "Actual Spanish footnote text extracted from PDF page one, second page separate",
+    "Encrypted input retains its password; default saves remain encrypted; override and clearing work",
+    "Table width arrays, CSS widths, column groups and spans survive HTML, DOCX and native roundtrip",
+    "Failure before file replacement preserves original bytes and removes owned temporary file",
+    "Binary package contains code notices and font licenses",
+    "Cargo lockfile has no Git dependency or dependency on the historical source repository",
+    "650 independent edits remain undoable; undo-all restores document, image bytes and retained original parts exactly; all 650 can be redone",
+    "Snapshots retain complete undo history with no automatic eviction or depth cap"
+  ],
+  "limits": [
+    "Real-world DOCX compatibility corpus and universal Word fidelity remain unverified",
+    "Proofing dictionary and hyphenation are English",
+    "HTML is editable interchange, not lossless persistence of every DOCX feature",
+    "Final full application, browser and MCP checks are recorded by the root task"
+  ]
+}

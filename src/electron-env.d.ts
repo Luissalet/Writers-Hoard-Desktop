@@ -267,6 +267,10 @@ export interface AiBridgeInfo {
   toolCount: number;
 }
 
+export interface NativeDocumentsApi {
+  call: (request: { tool: string; args: Record<string, unknown> }) => Promise<{ ok: boolean; result?: unknown; error?: string; code?: string }>;
+}
+
 export interface AiBridgeAuditEntry {
   /** Line number in the log — what undo addresses an entry by. */
   index: number;
@@ -302,6 +306,7 @@ export interface ShutdownWarning {
 }
 
 export interface ElectronAPI {
+  documents?: NativeDocumentsApi;
   faustus: FaustusHostBridge;
   isDesktop: true;
   platform: string;

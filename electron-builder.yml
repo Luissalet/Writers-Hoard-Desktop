@@ -26,6 +26,14 @@ asarUnpack:
 
 # The yt-dlp binary lives outside asar entirely (downloaded by `npm run fetch:bin`).
 extraResources:
+  - from: native/bin
+    to: documents
+    filter:
+      - 'writer-document-engine*'
+      - 'LICENSE*'
+      - 'NOTICE*'
+      - 'ATTRIBUTION*'
+      - 'OFL*'
   - from: resources/bin
     to: bin
     filter:

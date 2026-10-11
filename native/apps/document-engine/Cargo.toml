@@ -1,0 +1,23 @@
+[package]
+name = "writer-document-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Writers native document sessions, editing, layout and format service"
+
+[lints]
+workspace = true
+
+[dependencies]
+writer-doc.workspace = true
+writer-engine.workspace = true
+writer-formats.workspace = true
+writer-pdf.workspace = true
+writer-render.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+image.workspace = true

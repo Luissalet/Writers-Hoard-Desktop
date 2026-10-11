@@ -89,6 +89,7 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   // and must never be able to serve or observe them.
   'aibridge:reply': ['main'],
   'aibridge:getInfo': ['main'],
+  'documents:call': ['main'],
   'aibridge:setEnabled': ['main'],
   'aibridge:setWritesEnabled': ['main'],
   'aibridge:regenerateToken': ['main'],

@@ -54,6 +54,7 @@ import { BIBLE_TOOLS } from './manifestBible';
 import { BETA_TOOLS } from './manifestBeta';
 import { REFERENCE_TOOLS } from './manifestReference';
 import { COVERAGE_TOOLS } from './manifestCoverage';
+import { DOCUMENT_TOOLS } from './manifestDocuments';
 
 export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
 
@@ -75,6 +76,7 @@ export const BRIDGE_ENGINE_IDS = [
   'board', 'gallery', 'maps', 'storyboard', 'video-planner', 'annotations',
   'pov-audit', 'writing-stats', 'image-studio', 'worldgen', 'real-atlas', 'inquiry',
   'beta-reading',
+  'genealogy',
 ];
 
 // ---------------------------------------------------------------------------
@@ -1090,6 +1092,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   // STATS_TOOLS straddles two engines and names them itself.
   ...grouped('analysis', STATS_TOOLS),
   ...grouped('analysis', COVERAGE_TOOLS),
+  ...grouped('writing', DOCUMENT_TOOLS),
 ];
 
 export const BRIDGE_TOOL_NAMES: string[] = BRIDGE_TOOLS.map((tool) => tool.name);
@@ -1170,7 +1173,7 @@ Before drafting or reviewing, call wh_get_editorial_context for that project. Ap
 When researching or checking factual text, use wh_get_research_evidence to inspect the actual assertion, source and recorded excerpt; aggregate counts cannot substantiate a claim. Cite only what the fragment supports, preserve attribution, and describe pending or disputed claims as such. Human review status is not an independent truth certification.
 2. Prefer wh_search over listing everything. It searches bodies, not just titles, across every prose engine at once. It does not index the picture-based engines (board, gallery, storyboard, video planner) — use their own wh_list_* tools for those.
 3. Read before you write. A codex entry or a chapter usually already exists; extend it instead of creating a duplicate.
-4. All prose is Markdown, in and out.
+4. The legacy prose tools use Markdown. For formatted manuscript editing, use wh_get_writing_document, wh_format_writing and wh_edit_writing_document: these preserve rich formatting, tables and page breaks without flattening the chapter. Their ranges are ProseMirror positions from the inspected document. Native wh_document_* sessions handle file documents, assets, layout and export independently of chapter rows; use wh_document_commands with query to discover exact command ids and parameters. Native selection offsets are UTF-8 bytes, not ProseMirror positions. Save native sessions explicitly to preserve them after the desktop process closes.
 5. Only the fields you pass are changed. To add one attribute to a character, send just that attribute — the rest of the sheet is preserved.
 6. To continue a scene use wh_append_writing, not wh_update_writing. Replacing a whole chapter to add a paragraph risks losing the writer's own edits.
 7. Deleting is the one thing you cannot undo. wh_delete exists, but it opens a dialog the writer has to confirm, and a call that nobody answers deletes nothing. Prefer saying what should go and letting them do it; reach for the tool only when they have clearly asked you to remove something. If a deletion is declined, drop it — do not ask again.

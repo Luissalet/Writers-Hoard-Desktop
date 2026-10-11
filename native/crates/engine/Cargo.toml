@@ -1,0 +1,37 @@
+[package]
+name = "writer-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Writers engine: session, selection, undo, the command registry (every action is a command), Word's command catalog, file I/O dispatch"
+
+[lints]
+workspace = true
+
+[dependencies]
+writer-geom = { workspace = true }
+writer-doc = { workspace = true }
+writer-fonts = { workspace = true }
+writer-layout = { workspace = true }
+writer-render = { workspace = true }
+writer-proof = { workspace = true }
+writer-docx = { workspace = true }
+writer-docbin = { workspace = true }
+writer-pdf = { workspace = true }
+writer-formats = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+regex = { workspace = true }
+regex-automata = { workspace = true }
+image = { workspace = true }
+zeroize = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# The browser clock for `now_iso` (`SystemTime::now()` panics on wasm32).
+js-sys = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+zip = { workspace = true }

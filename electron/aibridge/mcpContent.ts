@@ -39,6 +39,11 @@ export function buildToolResult(payload: unknown, isError = false): Record<strin
           });
         }
       }
+      // A document page supplies both the desktop byte payload and MCP vision.
+      // Keep its base64 exclusively in the image block, not duplicated as text.
+      if (typeof record.dataBase64 === 'string' && media.some((entry: BridgeMedia) => entry?.base64 === record.dataBase64)) {
+        delete record.dataBase64;
+      }
     }
   }
 
