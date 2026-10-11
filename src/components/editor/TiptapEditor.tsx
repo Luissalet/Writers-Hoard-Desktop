@@ -21,12 +21,16 @@ import {
   ImagePlus,
   Bot,
   Superscript,
+  Sparkles,
 } from 'lucide-react';
 import { askCopilotAbout, copilotAvailable } from '@/stores/copilotHandoffStore';
 import type { AnnotationAnchor } from '@/engines/annotations/types';
 import { useAppStore } from '@/stores/appStore';
 import FindReplaceBar from './FindReplaceBar';
 import FootnoteLayer from './footnotes/FootnoteLayer';
+import { GhostText, ghostSuggestionOf, type GhostTextHost } from './ghostText/GhostTextExtension';
+import type { GhostTextBinding } from './ghostText/useGhostText';
+import { GHOST_DEBOUNCE_MS } from '@/services/ghostText/ghostText';
 import { createPageLayoutPlugin, pageLayoutKey, type PageLayoutOptions } from './pageMode/PageLayout';
 import type { FootnoteMarkerStyle } from '@/types';
 import {
@@ -111,6 +115,13 @@ interface TiptapEditorProps {
    * context to the host, which turns it into an image via the Image Studio.
    */
   onGenerateImage?: (selection: { selectedText: string; contextBefore: string; contextAfter: string }) => void;
+  /**
+   * Optional. Turns on ghost text: a faint continuation after the cursor when
+   * the writer pauses at the end of a paragraph. Absent, or `enabled: false`,
+   * the editor behaves exactly as it always did. Read through a ref, so the
+   * setting can change on a live editor without a remount.
+   */
+  ghostText?: GhostTextBinding;
 }
 
 interface FloatingMenuState {
@@ -145,16 +156,20 @@ function seedQuery(editor: Editor): string {
 
 // Module-scope: creating this inside the component made React remount every
 // toolbar button on each keystroke (react-hooks/static-components).
-function ToolButton({ active, onClick, title, children }: {
+function ToolButton({ active, onClick, title, pressed, children }: {
   active?: boolean;
   onClick: () => void;
   title?: string;
+  /** A toggle: announces its state to assistive technology. */
+  pressed?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <button
       onClick={onClick}
       title={title}
+      aria-label={pressed === undefined ? undefined : title}
+      aria-pressed={pressed}
       className={`p-1.5 rounded transition ${
         active ? 'bg-accent-gold/20 text-accent-gold' : 'text-text-muted hover:text-text-primary hover:bg-elevated'
       }`}
@@ -177,6 +192,7 @@ export default function TiptapEditor({
   layout = 'flow',
   pageLayout,
   footnoteStyle = 'numbers',
+  ghostText,
 }: TiptapEditorProps) {
   const { t } = useTranslation();
   const resolvedPlaceholder = placeholder ?? t('editor.placeholder');
@@ -195,11 +211,24 @@ export default function TiptapEditor({
   // `content`, and the sync effect below can skip serialising the document a
   // second time to find out that nothing came from outside.
   const emittedHtmlRef = useRef<string | null>(null);
+  // Ghost text. The extension is built once with the editor, so everything it
+  // asks the app goes through this host, which reads the latest binding.
+  const ghostBindingRef = useRef(ghostText);
+  useEffect(() => {
+    ghostBindingRef.current = ghostText;
+  });
+  const [ghostSuggestion, setGhostSuggestion] = useState<string | null>(null);
+  const [ghostHost] = useState<GhostTextHost>(() => ({
+    enabled: () => Boolean(ghostBindingRef.current?.enabled),
+    request: (input) => ghostBindingRef.current?.request(input) ?? Promise.resolve(null),
+    onChange: setGhostSuggestion,
+  }));
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false }, document: ownDocument ? false : undefined }),
       Image,
       Placeholder.configure({ placeholder: resolvedPlaceholder }),
+      GhostText.configure({ host: () => ghostHost, delayMs: GHOST_DEBOUNCE_MS }),
       ...(extensions ?? []),
     ],
     content,
@@ -221,6 +250,14 @@ export default function TiptapEditor({
   useEffect(() => {
     void loadReading();
   }, [loadReading]);
+
+  // Switching ghost text off takes a suggestion that is on screen with it.
+  const ghostEnabled = Boolean(ghostText?.enabled);
+  useEffect(() => {
+    if (editor && !ghostEnabled && !editor.isDestroyed && ghostSuggestionOf(editor.state)) {
+      editor.commands.dismissGhostText();
+    }
+  }, [editor, ghostEnabled]);
 
   // Hand the instance to the host once it exists; `null` on the way out so the
   // host never keeps a destroyed editor.
@@ -557,6 +594,16 @@ export default function TiptapEditor({
             <Superscript size={16} />
           </ToolButton>
         )}
+        {ghostText?.onToggle && (
+          <ToolButton
+            active={ghostEnabled}
+            pressed={ghostEnabled}
+            onClick={ghostText.onToggle}
+            title={ghostEnabled ? t('editor.ghost.toggleOff') : t('editor.ghost.toggleOn')}
+          >
+            <Sparkles size={16} />
+          </ToolButton>
+        )}
         {toolbarExtra}
         <div className="flex-1" />
         <ToolButton onClick={() => editor.chain().focus().undo().run()}>
@@ -614,6 +661,12 @@ export default function TiptapEditor({
 
       {/* Editor */}
       <EditorContent editor={editor} />
+      {/* The suggestion is drawn over the text but is not in it, so assistive
+          technology is told about it here, politely: it never interrupts what
+          is being typed or read. */}
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-ghost-announcer="">
+        {ghostSuggestion && ghostEnabled ? `${t('editor.ghost.announce')} ${ghostSuggestion.trim()}` : ''}
+      </div>
       {hasFootnotes && <FootnoteLayer editor={editor} />}
     </div>
   );

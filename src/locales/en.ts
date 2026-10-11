@@ -5213,6 +5213,15 @@ const en = {
   'family.fetchHelp': "New records are added to this project. Ones you edited here are never overwritten and nothing is deleted. Needs the Hoard hub and Scheherazade running.",
   'family.fetchConfirm': "Bring in",
   'family.sendWorldHelp': "Sends this project's codex, relationships and timeline to Scheherazade. Secret relationships and pictures stay here.",
+  'settings.ghost': 'Writing assistance',
+  'settings.ghost.subtitle': 'A faint continuation after the cursor when you pause at the end of a paragraph. It uses a model that runs on this computer and nothing is sent out. Tab accepts it, Ctrl+Right accepts one word, Esc dismisses it.',
+  'settings.ghost.label': 'Suggested continuation',
+  'settings.ghost.off': 'Off',
+  'settings.ghost.on': 'On',
+  'settings.ghost.aiOff': 'AI features are switched off in the AI settings, so no suggestion will appear.',
+  'editor.ghost.toggleOn': 'Turn on suggested continuation',
+  'editor.ghost.toggleOff': 'Turn off suggested continuation (Tab accepts, Esc dismisses)',
+  'editor.ghost.announce': 'Suggestion, Tab to accept, Escape to dismiss:',
 } as const;
 
 export default en;

@@ -23,6 +23,20 @@ En **Ajustes de IA → Usar mis suscripciones**, inicia sesión mediante el clie
 
 La sección **Puente de IA** muestra cómo conectar Claude Desktop, Codex o Gemini CLI con la app mediante configuraciones específicas por cliente. Mantén Writers Hoard abierto mientras esté conectado. Una conversación web corriente no adquiere acceso pegando un prompt o una dirección localhost. Consulta [suscripciones](docs/ai-subscriptions.md) y [asistentes externos](docs/ai-external-connection.md).
 
+## Continuación sugerida (texto fantasma)
+
+**Ajustes → Ayuda a la escritura → Continuación sugerida** (desactivada por defecto)
+muestra una continuación tenue de una frase cuando haces una pausa al final de un
+párrafo en el editor de capítulos o de libros. **Tab** la acepta, **Ctrl+→** acepta
+una palabra y **Esc** o cualquier tecla la descarta. Es solo una pista visual: no
+forma parte del documento, del historial de deshacer ni de ningún guardado hasta
+que la aceptas, y aceptarla es un solo paso de deshacer. El botón de destello de
+la barra de herramientas también la activa o desactiva. Usa solo un modelo local
+(una conexión Ollama o compatible con OpenAI incrustada o en loopback) con el texto
+anterior al cursor, las entradas del Codex que acabas de mencionar y el perfil de
+estilo del proyecto. No se envía nada a un proveedor en la nube y no se sugiere
+nada a mitad de palabra, con una selección o en modo de solo lectura.
+
 ## Biblia del mundo exportable
 
 **Herramientas del proyecto → Publicación** reúne las fichas del Codex, cronologías,
@@ -110,6 +124,7 @@ enriquecimiento, interfaz y herramientas del puente).
 | `npm run build:desktop` | Construye interfaz y procesos de Electron. |
 | `npm run verify:quick` | Tipos de renderer/Electron, lint de publicación y conformidad. |
 | `npm run test:critical` | Pruebas aisladas de migración, copias, recuperación, navegación y arranque. |
+| `npm run test:ghost` | Pruebas de la continuación sugerida: reglas, retardo y cancelación, selección del Codex, recorte, aceptar/descartar y desactivada por defecto. |
 | `npm run test:family` | Pruebas de los traspasos a otras apps de Hoard: intercambio de mundos, importación, deshacer e interfaz. |
 | `npm run test:inquiry` | Pruebas del motor Investigación: lógica pura, migración, enriquecimiento con Wikidata simulado, interfaz y herramientas del puente. |
 | `npm run test:subscriptions` | Pruebas de aislamiento de suscripciones y protocolo sin llamar a proveedores. |
