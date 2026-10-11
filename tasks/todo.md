@@ -886,7 +886,7 @@ manual and the project knowledge graph were updated after integration.
 - [x] Verify transport, native editor context and host lifecycle in focused tests.
 - [x] Verify the full application with real Faustus sessions, native MCP edits, undo and reload.
 - [x] Retire the old shipping copilot loop after shared-panel parity is demonstrated.
-- [ ] Freeze, independently review, and integrate with the merge lock.
+- [x] Freeze, independently review, and integrate with the merge lock.
 
 Verification so far: renderer/Electron typechecks, shipping lint, conformance and
 desktop build pass. Focused transport/import, native editor context and dock tests
@@ -916,10 +916,21 @@ Agora 347/348. User chose an owned detached source fork, no upstream dependency.
 - [x] UI and MCP integration through the product document service.
 - [x] Hidden full application: save/reload, native import/undo, page preview and real downloads.
 - [x] Rust source and exact executable independently reviewed after four fixes.
-- [ ] Combined shipping checks and frozen submission review.
-- [ ] Main integration without push, build and documentation readback.
+- [x] Combined shipping checks and frozen submission review.
+- [x] Main integration without push, build and documentation readback.
 
 The native format is complete; HTML is supported interchange, not a guarantee of
 lossless projection of every Word feature. English proofing is not Spanish proofing.
 Existing publishing exports remain available with their prior scope; the new
 Document panel supports the richer interchange. See docs/editor-native/README.md.
+
+Final review: 347 R2 and 348 R1 approved independently in Agora. The first editor
+review found arbitrary formatting caps; the correction preserves valid dimensions
+outside toolbar presets and includes import, persistence, toolbar and MCP regressions.
+The final combination passes 383 critical checks and 26 advanced editor checks;
+the native core has 747 distinct passing tests. Main preserves the exact 347 R2
+commits on top of the actual 340 R2 dependency. Main renderer/Electron build,
+14 document-service checks with the real Rust binary and HTTP/stdio transports pass.
+The user's installed window remains unchanged. Manual readback preserved 146 other
+paragraphs; the project graph preserved its 16 existing nodes. Follow-up phases are
+Agora 353 (tracked changes) and 354 (sections and linked editorial references).
