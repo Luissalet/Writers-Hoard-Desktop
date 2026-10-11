@@ -120,7 +120,7 @@ Mark a source as withdrawn (corrected, discredited, found false) without deletin
     name: 'wh_bibliography',
     description:
       `The project's bibliography in APA, MLA or Chicago, with grades; retracted sources are marked.
-Format every source in the project's research library as the reference list the writer would publish: sorted by first author, in the chosen style (APA by default), in the app's current language. A retracted source stays in the list with a note carrying the date and the reason, exactly as the exported bibliography and the published manuscript print it; each entry also says its grade (e.g. "B2" or "ungraded") and whether it is retracted. Pass includeRetracted:false to leave withdrawn sources out of the answer (the writer's own exports always keep them, marked). Read-only. ${RESEARCH_SOURCES_NOTE}`,
+Every source of the research library as a published reference list, sorted by first author, in the chosen style (APA by default) and the app's language. A retracted source stays with a note of date and reason, as the exports print it; each entry gives its grade (e.g. "B2"). includeRetracted:false leaves withdrawn sources out of this answer only. Read-only. ${RESEARCH_SOURCES_NOTE}`,
     writes: false,
     schema: {
       type: 'object',
@@ -172,7 +172,7 @@ Keywords: claims, investigation, evidence, corroborated; afirmaciones, investiga
     name: 'wh_add_claim',
     description:
       `Add an investigation claim backed by at least one recorded excerpt of a saved source.
-Record an assertion in the project's Investigation. A claim MUST rest on at least one excerpt that already exists in a saved source: pass \`supports\` (citationId + evidenceId pairs from wh_get_research_evidence), or \`quotes\` (a citationId and the source's exact words, which are recorded as a new pending excerpt of that source). Without one it is refused. Give the structured triple (subject, predicate, object) whenever you can: it is what lets the chronology flag contradictions. The status is derived from the sources, so you cannot set it here. ${DATES_NOTE} Undo removes the claim; an excerpt recorded from \`quotes\` stays in its source.`,
+It MUST rest on an existing excerpt: \`supports\` (citationId + evidenceId pairs from wh_get_research_evidence) or \`quotes\` (a citationId and the source's exact words, recorded as a new pending excerpt); otherwise it is refused. Give subject, predicate and object when you can: the chronology uses them to flag contradictions. Status is derived from the sources. ${DATES_NOTE} Undo removes the claim; an excerpt recorded from \`quotes\` stays in its source.`,
     writes: true,
     schema: {
       type: 'object',
@@ -274,7 +274,7 @@ The hypotheses crossed with the claims that count (retracted and unsupported cla
     name: 'wh_enrich_codex',
     description:
       `Look up a codex organisation, place, event or public figure on Wikidata; list candidates or apply one.
-Two steps. action "candidates" (default) searches Wikidata for the entry's title (or \`query\`) and returns matching items with their description: nothing is written. action "apply" with a \`qid\` copies a few public facts into the entry's EMPTY fields only (never overwriting the author's text), stores the QID, files a Wikidata source graded C3 (origin wikidata.org) and logs a run you can undo with wh_undo_enrichment. PRIVACY: a person (a codex character) is looked up only if the author marked them as a public figure; otherwise this refuses with a hint and nothing is sent. Do not try to work around it, and do not ask to mark someone public on your own initiative: that is the author's decision. Needs the desktop app and internet access; errors say what failed.`,
+action "candidates" (default) searches Wikidata for the title (or \`query\`) and writes nothing; action "apply" with a \`qid\` fills only EMPTY fields, stores the QID, files a Wikidata source graded C3 and logs a run wh_undo_enrichment can undo. A person is looked up only if the author marked them as a public figure (otherwise it refuses and sends nothing): that is the author's decision. Needs the desktop app and internet access; errors say what failed.`,
     writes: true,
     timeoutMs: 90_000,
     schema: {

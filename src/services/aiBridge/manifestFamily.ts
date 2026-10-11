@@ -53,7 +53,7 @@ Turns one storyboard into a Prospero production draft: each panel, in order, bec
     name: 'wh_world_to_scheherazade',
     description:
       `Send the project's world (codex, relations, timeline) to Scheherazade's Hoard as a story world.
-Exports the project's codex entries, relationships and timeline events as a neutral hoard.world/1 document (the format is in Scheherazade's docs/WORLD_SCHEMA.md) and imports it into Scheherazade: a new world, or the one this project was sent to before — safe to repeat, since nothing there is duplicated, deleted or overwritten if the writer edited it. Never sent: the manuscript, pictures, diary, notes, research, and secret relationships unless includeSecret is true. Returns what was sent and how each record fared there (created, unchanged, updated, local_modified, linked_existing…). ${NEEDS_HUB}`,
+Exports codex entries, relationships and timeline events as a hoard.world/1 document and imports it into Scheherazade (a new world, or the one sent before): safe to repeat, nothing there is duplicated, deleted or overwritten if the writer edited it. Never sent: the manuscript, pictures, diary, notes, research, and secret relationships unless includeSecret is true. Returns what was sent and how each record fared (created, updated, local_modified…). ${NEEDS_HUB}`,
     writes: true,
     timeoutMs: 180_000,
     schema: {
@@ -70,7 +70,7 @@ Exports the project's codex entries, relationships and timeline events as a neut
     name: 'wh_world_from_scheherazade',
     description:
       `Bring a Scheherazade world into the project's codex, relationships and timeline.
-Reads a world from Scheherazade's Hoard (hoard.world/1) and merges it here: characters, places, factions and things become codex entries, relations become relationships, and events go on a timeline named after the world. New records are created; ones imported before are updated only if the writer has not edited them since (otherwise reported as local_modified and left alone); a codex entry with the same name is linked, never duplicated or changed; nothing is deleted, and an entry the writer deleted is not brought back. Needs the codex engine on; relations and events are skipped, and say so, if their engines are off. ${NEEDS_HUB}`,
+Merges a hoard.world/1 world: characters, places, factions and things become codex entries, relations relationships, events a timeline named after the world. Records imported before update only if the writer has not edited them (else local_modified); a same-name codex entry is linked, never duplicated; nothing is deleted or brought back. Needs the codex engine on; relations and events are skipped, and say so, if their engines are off. ${NEEDS_HUB}`,
     writes: true,
     timeoutMs: 180_000,
     schema: {
