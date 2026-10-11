@@ -1,0 +1,15 @@
+# Control de cambios del manuscrito
+
+Las propuestas conservan el texto original y el nuevo, con id, autor, origen y fecha en el HTML del capítulo. Se revisan desde Cambios o por las herramientas wh_get_writing_revisions, wh_propose_writing_revision y wh_resolve_writing_revisions. Leer revisiones no modifica el texto. Aplicar una propuesta usa la recuperación y el deshacer normales.
+
+Registrar cambios captura escritura, borrado y pegado dentro de un párrafo. La prueba IME cubre transacciones de composición en Chromium, no un teclado IME de Windows. Los cambios estructurales que el registro automático no representa siguen el recorrido normal y muestran un aviso; no se bloquean Enter ni las tablas. La propuesta explícita admite texto multilínea y párrafos hermanos compatibles, conservando la estructura original al rechazar. Los límites de capítulos y celdas mantienen sus ámbitos.
+
+La selección decide la propuesta completa que toca, con su inserción y borrado juntos. En modo libro, las acciones se limitan al capítulo actual, incluso si un archivo importado repite ids. La propuesta de la interfaz se ancla al documento y al rango que se seleccionaron: un refresco remoto no la aplica a un cursor nuevo. Los cambios se pueden deshacer y reaparecen tras guardar/reabrir.
+
+El texto propuesto es literal. Las marcas de carácter del rango o del cursor se heredan sin interpretar HTML. Quitar formato conserva las marcas de revisión, porque son datos del documento y no decoración. Imágenes, notas, tablas, versiones y las funciones anteriores permanecen disponibles.
+
+El panel Documento permite elegir texto Final u Original al previsualizar o descargar, mediante una proyección de una copia; las propuestas del editor no se alteran. Estas descargas no contienen las marcas de revisión. Las lecturas generales del manuscrito y las exportaciones anteriores de publicación usan texto final, sin concatenar el original borrado con el candidato. La fuente completa con propuestas continúa en el capítulo, sus versiones y las copias de proyecto.
+
+No se afirma todavía un intercambio de las propuestas propias como w:ins/w:del de DOCX. Los cambios del DOCX original siguen conservados en su archivo nativo completo separado, según el alcance de Documento. El corrector español, la compatibilidad DOCX universal y la paginación idéntica no se certifican por estas pruebas.
+
+Verificación: 23 grupos del núcleo en Chromium, 10 de interfaz, 5 de herramientas del manuscrito y 3 de proyección/exportación. Unicode, herencia de formatos, párrafos, atributos, deshacer, ámbito de libro, ids repetidos y anclaje tras refrescos remotos. Shipping checks y suite crítica se registran en la entrega del Ágora353.
