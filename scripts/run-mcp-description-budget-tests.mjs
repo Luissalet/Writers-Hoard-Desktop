@@ -1,4 +1,4 @@
-// Focused gate: MCP/bridge tool descriptions stay under 1000 characters.
+// Focused gate: MCP/bridge tool descriptions stay under 750 characters (about 250 tokens).
 //   node scripts/run-mcp-description-budget-tests.mjs
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -9,7 +9,7 @@ import * as esbuild from 'esbuild';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cacheDirectory = path.join(projectRoot, 'node_modules', '.cache', 'writers-hoard-tests');
 const output = path.join(cacheDirectory, `writers-hoard-mcp-desc-${process.pid}.mjs`);
-const MAX_DESCRIPTION_CHARS = 1000;
+const MAX_DESCRIPTION_CHARS = 750;
 
 try {
   await fs.mkdir(cacheDirectory, { recursive: true });

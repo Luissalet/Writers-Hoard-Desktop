@@ -1174,7 +1174,7 @@ Change a place. Only the fields you pass are touched. An empty string clears cou
     name: 'wh_list_divergences',
     description:
       `List the book's deliberate departures from real-world fact, most recent first.
-List the book's deliberate departures from reality, most recently changed first: title, category, the place each is anchored to (none means a global change), from when it applies (\`since\`), and its reality, fiction and reason cut at 300 characters — wh_get_divergence has them in full. Pass \`placeId\` for one place's divergences or \`category\` to filter. ${DIVERGENCE_NOTE} It is a fact about the book, not a mistake.`,
+Each with title, category, anchored place (none: a global change), \`since\` and its reality, fiction and reason cut at 300 characters (wh_get_divergence has them in full). Pass \`placeId\` for one place's divergences or \`category\` to filter. ${DIVERGENCE_NOTE} It is a fact about the book, not a mistake.`,
     writes: false,
     schema: {
       type: 'object',
