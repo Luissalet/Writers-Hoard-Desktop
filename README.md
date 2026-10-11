@@ -40,6 +40,14 @@ assets and original package parts. HTML interchange is not universally lossless.
 Existing publishing exports keep their previous scope; the Document panel is
 the rich-format route. See [editor, MCP and verification](docs/editor-native/README.md).
 
+The Changes panel keeps anchored proposals with their author, source and date.
+It records ordinary paragraph edits, accepts or rejects proposals within the
+current chapter and preserves them through save, reload and undo. UI and MCP
+share the same operations. Document previews and downloads can use Final or
+Original text without changing pending proposals; these downloads contain the
+chosen text, not review marks. Own proposals are not yet exported as Word
+tracked changes. See [scope and verification](docs/editor-revisions/README.md).
+
 ## Shared Faustus copilot
 
 The desktop copilot mounts Faustus's shared `<faustus-chat>` panel. Faustus owns
