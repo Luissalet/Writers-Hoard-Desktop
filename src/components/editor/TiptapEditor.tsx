@@ -36,6 +36,8 @@ import { createPageLayoutPlugin, pageLayoutKey, type PageLayoutOptions } from '.
 import type { FootnoteMarkerStyle } from '@/types';
 import { AdvancedEditorToolbar, createAdvancedExtensions } from './advanced';
 import DocumentTools from './documents/DocumentTools';
+import { createRevisionExtensions } from '@/engines/writings/revisions';
+import RevisionControls from './revisions/RevisionControls';
 import {
   isFindShortcut,
   isReplaceShortcut,
@@ -235,6 +237,7 @@ export default function TiptapEditor({
       Placeholder.configure({ placeholder: resolvedPlaceholder }),
       GhostText.configure({ host: () => ghostHost, delayMs: GHOST_DEBOUNCE_MS }),
       ...createAdvancedExtensions(),
+      ...createRevisionExtensions(),
       ...(extensions ?? []),
     ],
     content,
@@ -629,6 +632,7 @@ export default function TiptapEditor({
 
       {/* Find & replace, inside the document it searches */}
       <AdvancedEditorToolbar editor={editor} locale={locale} />
+      <RevisionControls editor={editor} locale={locale} />
       <div className="px-2 py-1.5 border-b border-border bg-surface/50">
         <DocumentTools editor={editor} locale={locale} />
       </div>

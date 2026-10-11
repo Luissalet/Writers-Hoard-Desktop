@@ -9,6 +9,7 @@
 
 import type { ToolArgs } from './shared';
 import { DOCUMENT_HANDLERS } from './documents';
+import { REVISION_HANDLERS } from './revisions';
 import { db } from '@/db';
 import type { GenealogyLinkRow } from '@/engines/genealogy/genealogyStore';
 import { createGenealogyBridgeHandlers } from './genealogy';
@@ -235,6 +236,7 @@ const codexFolderHandlers = createCodexFolderImportHandlers(createCodexFolderImp
 
 export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ...DOCUMENT_HANDLERS,
+  ...REVISION_HANDLERS,
   ...codexFolderHandlers,
   wh_build_world_bible: whBuildWorldBible,
   wh_export_world_bible: whExportWorldBible,

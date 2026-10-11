@@ -5,6 +5,8 @@ import { saveAs } from 'file-saver';
 import { base64FromBytes, bytesFromBase64, requestDocument } from '@/services/documents/client';
 import { advancedHtmlForInterchange, normalizeAdvancedHtml } from '../advanced/interchange';
 import { chapterBlocks, CHAPTER_HEADING_NAME } from '../chapterHeading/chapterBlocks';
+import { describeRevisionDocument } from '@/engines/writings/revisions';
+import { revisionDocumentHtml } from '@/engines/writings/revisionProjection';
 
 const COPY = {
   es: {
@@ -19,6 +21,8 @@ const COPY = {
     exported: 'Descarga preparada.', cancelled: 'Operación cancelada. Tu texto sigue intacto.', cancel: 'Cancelar',
     error: 'No se ha podido completar la operación. Puedes volver a intentarlo.', image: 'Página del documento',
     close: 'Cerrar herramientas de documento', empty: 'Abre un archivo o previsualiza el texto del editor.',
+    changes: 'Texto para descargar', final: 'Final: propuestas aceptadas en una copia', original: 'Original: propuestas rechazadas en una copia',
+    reviewNote: 'La descarga y la vista de página usan la versión elegida. Las propuestas del editor se conservan; el archivo descargado no contiene sus marcas de revisión.',
   },
   en: {
     title: 'Document', open: 'Document tools', import: 'Open file', source: 'Source', editor: 'Editor text',
@@ -32,6 +36,8 @@ const COPY = {
     exported: 'Download ready.', cancelled: 'Operation cancelled. Your text is unchanged.', cancel: 'Cancel',
     error: 'The operation could not be completed. You can try again.', image: 'Document page',
     close: 'Close document tools', empty: 'Open a file or preview the editor text.',
+    changes: 'Download text', final: 'Final: proposals accepted in a copy', original: 'Original: proposals rejected in a copy',
+    reviewNote: 'Downloads and page previews use the selected version. Editor proposals stay intact; the downloaded file does not contain their revision marks.',
   },
 } as const;
 
@@ -65,6 +71,7 @@ export default function DocumentTools({ editor, locale = 'es' }: { editor: Edito
   const [open, setOpen] = useState(false);
   const [opened, setOpened] = useState<OpenedDocument | null>(null);
   const [source, setSource] = useState<'editor' | 'imported'>('editor');
+  const [reviewProjection, setReviewProjection] = useState<'accept' | 'reject'>('accept');
   const [format, setFormat] = useState<string>('docx');
   const [fileName, setFileName] = useState('document');
   const [page, setPage] = useState(1);
@@ -80,6 +87,11 @@ export default function DocumentTools({ editor, locale = 'es' }: { editor: Edito
     editor.on('update', changed); editor.on('transaction', changed);
     return () => { editor.off('update', changed); editor.off('transaction', changed); };
   }, () => editor.isEditable);
+  const currentDocument = useSyncExternalStore(changed => {
+    editor.on('update', changed); editor.on('transaction', changed);
+    return () => { editor.off('update', changed); editor.off('transaction', changed); };
+  }, () => editor.state.doc);
+  const pendingRevisions = describeRevisionDocument(currentDocument).length;
 
   useEffect(() => {
     const generation = operation;
@@ -125,7 +137,7 @@ export default function DocumentTools({ editor, locale = 'es' }: { editor: Edito
       await work(opened.sessionId);
       return;
     }
-    const html = advancedHtmlForInterchange(editor.getHTML());
+    const html = advancedHtmlForInterchange(revisionDocumentHtml(editor.state.doc, reviewProjection));
     const snapshot = await requestDocument<NativeSession>('document.importHtml', { html });
     try { if (active()) await work(snapshot.sessionId); }
     finally { await requestDocument('document.close', { sessionId: snapshot.sessionId }).catch(() => {}); }
@@ -183,7 +195,8 @@ export default function DocumentTools({ editor, locale = 'es' }: { editor: Edito
         <label className="flex min-w-0 flex-1 flex-col gap-1">{copy.file}<input className={`${control} w-full`} aria-label={copy.file} value={fileName} disabled={!!busy} onChange={event => setFileName(event.target.value)} /></label>
         <button type="button" className={button} disabled={!!busy} onClick={download}><Download size={14} aria-hidden="true" />{copy.export}</button>
       </div>
-      <p className="max-w-prose text-text-secondary">{source === 'imported' ? copy.caution : copy.editorNote}</p>
+      <p className="max-w-prose text-text-secondary">{source === 'imported' ? copy.caution : pendingRevisions ? copy.reviewNote : copy.editorNote}</p>
+      {source === 'editor' && pendingRevisions > 0 && <label className="flex flex-col gap-1">{copy.changes}<select className={control} aria-label={copy.changes} disabled={!!busy} value={reviewProjection} onChange={event => setReviewProjection(event.target.value as 'accept' | 'reject')}><option value="accept">{copy.final}</option><option value="reject">{copy.original}</option></select></label>}
       {source === 'imported' && opened && <button type="button" className={`${button} border-accent-gold`} disabled={!!busy || !editable} onClick={apply}>{editor.schema.nodes[CHAPTER_HEADING_NAME] ? copy.applyChapter : copy.apply}</button>}
       <div className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1">{copy.page}<input type="number" className={`${control} w-20`} aria-label={copy.page} min={1} max={source === 'imported' ? opened?.summary?.pages : undefined} value={page} disabled={!!busy} onChange={event => setPage(Math.max(1, Math.trunc(Number(event.target.value) || 1)))} /></label>

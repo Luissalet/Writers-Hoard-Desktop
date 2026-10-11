@@ -934,3 +934,17 @@ commits on top of the actual 340 R2 dependency. Main renderer/Electron build,
 The user's installed window remains unchanged. Manual readback preserved 146 other
 paragraphs; the project graph preserved its 16 existing nodes. Follow-up phases are
 Agora 353 (tracked changes) and 354 (sections and linked editorial references).
+
+# 353 — tracked changes and anchored proposals
+
+- [ ] Define one persisted HTML mark contract and one common operation API.
+- [ ] Implement proposals, ordinary tracked edits, author/origin and accept/reject.
+- [ ] Integrate UI controls and preserve chapter scope, editor state and undo.
+- [ ] Expose the same operations through MCP, snapshots and normal conflict handling.
+- [ ] Verify typing, paste/IME, Unicode, stale anchors, reload, book chapters and undo.
+- [ ] Freeze, independently review and integrate approved source with merge lock.
+
+Success: insertion/deletion records survive ordinary save/reload with their metadata;
+UI and MCP create/resolve the same proposals and native undo restores the document.
+The old manuscript, rich formatting, tables, images, notes and chapter boundaries
+remain intact. Tests use private profiles; no extra approval layer or arbitrary caps.
