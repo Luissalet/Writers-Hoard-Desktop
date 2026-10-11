@@ -1,5 +1,4 @@
 import { useEffect, useId, useMemo, useState } from 'react';
-import { useEffect, useMemo, useState } from 'react';
 import { useCodexEntries } from '@/engines/codex/hooks';
 import { db } from '@/db';
 import { loadGenealogyLinks } from '../genealogyRepo';
