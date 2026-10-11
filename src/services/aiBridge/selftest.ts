@@ -93,7 +93,7 @@ const ALL_ENGINES = [
   'writings', 'codex', 'timeline', 'outline', 'notes', 'diary', 'seeds',
   'relationships', 'character-arc', 'biography', 'dialog-scene', 'board',
   'gallery', 'maps', 'storyboard', 'video-planner', 'scrapper', 'annotations',
-  'pov-audit', 'writing-stats', 'worldgen', 'real-atlas', 'inquiry',
+  'pov-audit', 'writing-stats', 'worldgen', 'real-atlas', 'inquiry', 'beta-reading',
 ];
 
 async function createScratchProject(engines: readonly string[] = ALL_ENGINES): Promise<string> {
@@ -275,6 +275,80 @@ async function runStoryChecks(h: Harness, projectId: string, characterId: string
   });
 }
 
+/**
+ * The project's world calendar: defined, read, used to date events, and
+ * guarded against a change that would strand the events already dated in it.
+ */
+async function runWorldCalendarChecks(h: Harness, projectId: string): Promise<void> {
+  const calendar = {
+    name: 'Selftest reckoning',
+    months: [{ name: 'Frostfall', days: 30 }, { name: 'Thaw', days: 20 }],
+    weekdays: ['Aa', 'Bb', 'Cc'],
+    eras: [{ name: 'Test Era', abbr: 'TE', startYear: 1 }],
+  };
+  let timelineId = '';
+
+  await h.step('world calendar: none yet, then set and read back', async () => {
+    const empty = await call('wh_world_calendar_get', { projectId });
+    expect(pick(empty, 'calendar') === null, 'a fresh project reported a calendar');
+    const saved = await call('wh_world_calendar_set', { projectId, calendar });
+    expect(pick(saved, 'saved') === true && pick(saved, 'months') === 2, 'the calendar was not saved');
+    const read = await call('wh_world_calendar_get', { projectId });
+    expect(pick(read, 'calendar', 'name') === 'Selftest reckoning', 'the calendar did not read back');
+    expect(pick(read, 'daysInCommonYear') === 50, 'the year length is wrong');
+  });
+
+  await h.step('world calendar: an invalid calendar is refused', async () => {
+    let code = '';
+    try {
+      await call('wh_world_calendar_set', { projectId, calendar: { ...calendar, months: [] } });
+    } catch (err) { code = err instanceof BridgeError ? err.code : 'crash'; }
+    expect(code === 'bad-args', `an invalid calendar was not refused as bad-args (got "${code}")`);
+  });
+
+  await h.step('world date: parse, weekday, offset and distance', async () => {
+    const info = await call('wh_world_date', { projectId, date: '5 Thaw 3 TE', to: '1 Frostfall 4 TE' });
+    expect(pick(info, 'monthName') === 'Thaw', 'the month was not read');
+    expect(typeof pick(info, 'weekday') === 'string', 'no weekday came back');
+    expect(pick(info, 'daysBetween') === 16, `the distance is wrong (got ${String(pick(info, 'daysBetween'))})`);
+    const later = await call('wh_world_date', { projectId, date: '30 Frostfall 3 TE', plusDays: 1 });
+    expect(pick(later, 'monthName') === 'Thaw' && pick(later, 'date', 'day') === 1, 'plusDays did not roll into the next month');
+  });
+
+  await h.step('world calendar: events dated in it keep their label and order', async () => {
+    const timeline = await call('wh_create_timeline', { projectId, title: 'World-dated line' });
+    timelineId = String(pick(timeline, 'id'));
+    await call('wh_create_event', { timelineId, title: 'Late', dateMode: 'world', worldDate: '10 Thaw 3 TE' });
+    await call('wh_create_event', { timelineId, title: 'Early', dateMode: 'world', worldDate: '2 Frostfall 3 TE' });
+    const listed = await call('wh_list_events', { timelineId });
+    const events = (pick(listed, 'events') ?? []) as Record<string, unknown>[];
+    expect(events.length === 2 && events.every((e) => e.dateMode === 'world'), 'the world-dated events did not list');
+    const late = events.find((e) => e.title === 'Late');
+    expect(pick(late, 'worldDate', 'month') === 2 && pick(late, 'worldDate', 'day') === 10 && pick(late, 'worldDate', 'year') === 3, 'the world date was not stored as a structured date');
+    let code = '';
+    try {
+      await call('wh_create_event', { timelineId, title: 'Bad', dateMode: 'world', worldDate: '25 Thaw 3 TE' });
+    } catch (err) { code = err instanceof BridgeError ? err.code : 'crash'; }
+    expect(code === 'bad-args', `a day the calendar lacks was not refused (got "${code}")`);
+  });
+
+  await h.step('world calendar: a change that strands events needs force', async () => {
+    const shorter = { ...calendar, months: [{ name: 'Frostfall', days: 30 }, { name: 'Thaw', days: 5 }] };
+    let code = '';
+    try {
+      await call('wh_world_calendar_set', { projectId, calendar: shorter });
+    } catch (err) { code = err instanceof BridgeError ? err.code : 'crash'; }
+    expect(code === 'conflict', `stranding events was not refused (got "${code}")`);
+    const stillOld = await call('wh_world_calendar_get', { projectId });
+    expect(pick(stillOld, 'daysInCommonYear') === 50, 'the refused change was applied anyway');
+    const forced = await call('wh_world_calendar_set', { projectId, calendar: shorter, force: true });
+    expect(pick(forced, 'eventsLeftWithoutAValidDate') === 1, 'force did not report the stranded event');
+    const removed = await call('wh_world_calendar_set', { projectId, remove: true });
+    expect(pick(removed, 'removed') === true, 'the calendar was not removed');
+    const gone = await call('wh_world_calendar_get', { projectId });
+    expect(pick(gone, 'calendar') === null, 'the calendar survived its removal');
+  });
+}
 /**
  * The four containers a model has to be able to make for itself.
  *
@@ -930,6 +1004,7 @@ const PARENT_PROBE_TOOLS = [
   'wh_restore_place', 'wh_add_label', 'wh_add_waypoint', 'wh_update_waypoint',
   'wh_link_place', 'wh_update_atlas_place', 'wh_update_divergence',
   'wh_update_claim', 'wh_rate_hypothesis', 'wh_undo_enrichment', 'wh_run_judge',
+  'wh_beta_comment_set_status',
 ];
 
 /**
@@ -1042,6 +1117,14 @@ async function buildGuardProbes(
   const claimId = await id('wh_add_claim', { statement: 'Host claim.', supports: [{ citationId, evidenceId }] });
   const hypothesisId = await id('wh_add_hypothesis', { statement: 'Host hypothesis.' });
   const enrichmentRunId = generateId('enrich');
+  // Beta reading: a comment row written directly (importing one is itself a guarded write).
+  const betaCommentId = generateId('betacomment');
+  await db.betaComments.add({
+    id: betaCommentId, projectId, responseId: 'host-response', packageId: 'host-package', packageVersion: 1,
+    reader: 'Host reader', writingId, anchor: { quote: '', prefix: '', suffix: '', paragraph: 0 }, text: 'Host comment',
+    createdAt: now, importedAt: now, updatedAt: now, anchorState: 'attached',
+    matchParagraph: null, matchStart: null, matchEnd: null, evaluatedHash: 'host', resolved: false,
+  });
   await db.enrichmentRuns.add({
     id: enrichmentRunId, projectId, enricher: 'wikidata', entryId: characterId, qid: 'Q1', status: 'ok',
     createdCitationIds: [], citationId, changes: [], createdAt: now,
@@ -1099,6 +1182,7 @@ async function buildGuardProbes(
       ['wh_update_claim', { id: claimId, statement: 'x' }],
       ['wh_rate_hypothesis', { hypothesisId, claimId, rating: 'C' }],
       ['wh_undo_enrichment', { runId: enrichmentRunId }],
+      ['wh_beta_comment_set_status', { commentId: betaCommentId, status: 'resolved' }],
       // The engine guard runs before the revision check, so no review is ever started.
       ['wh_run_judge', { writingId, expectedUpdatedAt: 0 }],
   ];
@@ -1219,6 +1303,224 @@ async function runEngineGuardChecks(h: Harness): Promise<void> {
   notifyProjectsChanged();
 }
 
+/** The Writings reference panel's tools: matching by name and alias, and pins. */
+async function runReferenceChecks(h: Harness, projectId: string): Promise<void> {
+  let writingId = '';
+  let anaId = '';
+  let anabelId = '';
+
+  await h.step('reference: chapter mentions match names and aliases on whole words', async () => {
+    const ana = await call('wh_create_codex_entry', {
+      projectId, type: 'character', title: 'Ana', fields: { Aliases: 'Anita; la Cartografa' },
+    });
+    const anabel = await call('wh_create_codex_entry', { projectId, type: 'character', title: 'Anabel' });
+    await call('wh_create_codex_entry', { projectId, type: 'location', title: 'El Faro' });
+    anaId = String(pick(ana, 'id'));
+    anabelId = String(pick(anabel, 'id'));
+    const created = await call('wh_create_writing', {
+      projectId, title: 'Reference chapter', content: 'Anita cruzó la plaza. Anabel no la vio.',
+    });
+    writingId = String(pick(created, 'id'));
+    const refs = await call('wh_chapter_references', { writingId });
+    const mentions = pick(refs, 'mentions') as Array<Record<string, unknown>>;
+    expect(Array.isArray(mentions) && mentions.length === 2, `expected 2 mentions, got ${mentions?.length}`);
+    const forAna = mentions.find((m) => m.id === anaId);
+    expect(forAna && forAna.matchedAlias === 'Anita' && forAna.count === 1, 'Ana was not matched through her alias');
+    expect(mentions.some((m) => m.id === anabelId), '"Anabel" was not matched as itself');
+    expect(!mentions.some((m) => m.name === 'El Faro'), 'an unmentioned entry was listed');
+  });
+
+  await h.step('reference: pins round-trip and are listed with the chapter', async () => {
+    const pinned = await call('wh_pin_reference', { writingId, entryId: anabelId, pinned: true });
+    expect((pick(pinned, 'pins') as string[]).includes(anabelId), 'the pin was not stored');
+    const refs = await call('wh_chapter_references', { writingId });
+    expect(pick(refs, 'pinned', 0, 'id') === anabelId, 'the pin did not come back with the chapter');
+    const unpinned = await call('wh_pin_reference', { writingId, entryId: anabelId, pinned: false });
+    expect((pick(unpinned, 'pins') as string[]).length === 0, 'the pin was not removed');
+  });
+
+  await h.step('reference: unknown ids are refused', async () => {
+    let refused = false;
+    try {
+      await call('wh_pin_reference', { writingId, entryId: 'missing', pinned: true });
+    } catch (err) {
+      refused = err instanceof BridgeError && err.code === 'not-found';
+    }
+    expect(refused, 'a pin for a missing entry was accepted');
+  });
+
+  await h.step('reference: pins are project data (own table, chapter row untouched)', async () => {
+    const before = await db.writings.get(writingId);
+    await call('wh_pin_reference', { writingId, entryId: anaId, pinned: true });
+    const row = await db.referencePins.get(writingId);
+    expect(row && row.projectId === projectId && row.entryIds.includes(anaId), 'the pin was not stored in referencePins');
+    const after = await db.writings.get(writingId);
+    expect(after?.updatedAt === before?.updatedAt && after?.content === before?.content, 'pinning touched the chapter row');
+    await call('wh_pin_reference', { writingId, entryId: anaId, pinned: false });
+    expect(!(await db.referencePins.get(writingId)), 'the empty pin row was kept');
+  });
+
+  await h.step('reference: whole-book scope has its own mentions and pins', async () => {
+    // An idea outside the manuscript (no chapter number) is not book text, even when it names a codex entry.
+    const ghost = await call('wh_create_codex_entry', { projectId, type: 'character', title: 'Carmelo Ghost' });
+    const idea = await call('wh_create_writing', { projectId, title: 'Loose idea', content: 'Carmelo Ghost waits outside the manuscript.' });
+    const outside = await call('wh_chapter_references', { projectId, scope: 'book' });
+    expect(pick(outside, 'scope') === 'book' && (pick(outside, 'mentions') as unknown[]).length === 0, 'the book scope read text from unnumbered writings');
+    const ideaOwn = await call('wh_chapter_references', { writingId: String(pick(idea, 'id')) });
+    expect((pick(ideaOwn, 'mentions') as Array<{ id: string }>).some((m) => m.id === String(pick(ghost, 'id'))), 'the idea itself lost its own mentions');
+    await call('wh_update_writing', { id: writingId, chapter: 1 });
+    const refs = await call('wh_chapter_references', { projectId, scope: 'book' });
+    expect(pick(refs, 'scope') === 'book' && (pick(refs, 'mentions') as unknown[]).length >= 2, 'the book scope did not list the mentions');
+    expect(!(pick(refs, 'mentions') as Array<{ id: string }>).some((m) => m.id === String(pick(ghost, 'id'))), 'the book scope listed an entry mentioned only in an unnumbered idea');
+    expect(typeof pick(refs, 'coverage') === 'string' && String(pick(refs, 'coverage')).includes('numbered'), 'the book scope did not state its coverage');
+    await call('wh_pin_reference', { projectId, scope: 'book', entryId: anaId, pinned: true });
+    const chapter = await call('wh_chapter_references', { writingId });
+    expect((pick(chapter, 'pinned') as unknown[]).length === 0, 'a book pin leaked into a chapter');
+    const book = await call('wh_chapter_references', { projectId, scope: 'book' });
+    expect(pick(book, 'pinned', 0, 'id') === anaId, 'the book pin did not come back');
+    await call('wh_pin_reference', { projectId, scope: 'book', entryId: anaId, pinned: false });
+  });
+
+  await h.step('reference: consult, docked preference and width go through the panel state', async () => {
+    const first = await call('wh_reference_prefs', {});
+    const saved = { open: pick(first, 'docked', 'open') as boolean, width: pick(first, 'docked', 'width') as number };
+    const opened = await call('wh_reference_consult', { open: true });
+    expect(pick(opened, 'consult') === true, 'the consult drawer did not open');
+    const closed = await call('wh_reference_consult', { open: false });
+    expect(pick(closed, 'consult') === false, 'the consult drawer did not close');
+    const wide = await call('wh_reference_prefs', { open: true, width: 9999 });
+    expect(pick(wide, 'docked', 'width') === 560 && pick(wide, 'docked', 'open') === true, 'the width was not clamped to the maximum');
+    const narrow = await call('wh_reference_prefs', { width: 100 });
+    expect(pick(narrow, 'docked', 'width') === 280, 'the width was not clamped to the minimum');
+    await call('wh_reference_prefs', saved);
+    let refused = false;
+    try { await call('wh_reference_consult', {}); } catch (err) { refused = err instanceof BridgeError && err.code === 'bad-args'; }
+    expect(refused, 'a consult without "open" was accepted');
+  });
+
+  await h.step('reference: search and preview reach notes and library, read-only', async () => {
+    const now = Date.now();
+    const noteId = generateId();
+    const citationId = generateId();
+    await db.notes.add({ id: noteId, projectId, kind: 'note', text: 'Marea alta en el faro\nLa luz se apaga a medianoche.', tags: [], pinned: false, createdAt: now, updatedAt: now });
+    await db.citations.add({ id: citationId, projectId, title: 'Manual de faros', authors: ['A. Vela'], accessedAt: '2026-10-09', notes: 'Los faros se apagan al amanecer.', writingIds: [], tags: [], createdAt: now, updatedAt: now });
+    try {
+      const found = await call('wh_reference_search', { projectId, query: 'faro' });
+      const sources = pick(found, 'sources') as Array<Record<string, unknown>>;
+      expect(sources.some((s) => s.kind === 'note' && s.id === noteId), 'the note was not found');
+      expect(sources.some((s) => s.kind === 'citation' && s.id === citationId), 'the citation was not found');
+      expect((pick(found, 'codex') as unknown[]).length >= 1, 'the codex entry was not found');
+      const note = await call('wh_reference_preview', { projectId, kind: 'note', id: noteId });
+      expect((pick(note, 'paragraphs') as string[]).length === 2, 'the note preview lost its lines');
+      const citation = await call('wh_reference_preview', { projectId, kind: 'citation', id: citationId });
+      expect(String(pick(citation, 'subtitle')).includes('A. Vela'), 'the citation preview lost its author');
+      const codex = await call('wh_reference_preview', { projectId, kind: 'codex', id: anaId });
+      expect(pick(codex, 'title') === 'Ana', 'the codex preview is wrong');
+      expect((await db.notes.get(noteId))?.updatedAt === now, 'a preview wrote to the note');
+      let refused = false;
+      try { await call('wh_reference_preview', { projectId, kind: 'note', id: 'missing' }); } catch (err) { refused = err instanceof BridgeError && err.code === 'not-found'; }
+      expect(refused, 'a missing note was previewed');
+    } finally {
+      await db.notes.delete(noteId);
+      await db.citations.delete(citationId);
+    }
+  });
+}
+
+/**
+ * Beta reading, end to end through the tools a model calls: a package for two
+ * chapters, a reader's response simulated as the JSON their page would
+ * download, an idempotent import, then the chapter is edited and the same file
+ * imported again to see the comments re-attach (attached / moved / orphaned).
+ */
+async function runBetaReadingChecks(h: Harness, projectId: string): Promise<void> {
+  const FIRST = 'The rain fell on the harbour and nobody came out to look at the sea.';
+  const SECOND = 'Marta climbed the hundred and twelve steps with the lantern dark, counting under her breath.';
+  const THIRD = 'At the top the wind tore the door from its hinges and the light went out for good.';
+  let chapterA = '';
+  let chapterB = '';
+  let responseFile = '';
+  let packageId = '';
+  let chapterHashes: Array<{ chapterId: string; contentHash: string }> = [];
+
+  await h.step('beta reading: a package is built for chosen chapters and versioned', async () => {
+    const a = await call('wh_create_writing', { projectId, title: 'Beta chapter A', content: `${FIRST}\n\n${SECOND}\n\n${THIRD}`, status: 'draft' });
+    const b = await call('wh_create_writing', { projectId, title: 'Beta chapter B', content: 'A second chapter that waits for its reader to say something about it.', status: 'draft' });
+    chapterA = String(pick(a, 'id'));
+    chapterB = String(pick(b, 'id'));
+    const one = await call('wh_beta_package_create', { projectId, writingIds: [chapterA, chapterB] });
+    expect(pick(one, 'version') === 1, 'the first package is not version 1');
+    packageId = String(pick(one, 'packageId'));
+    chapterHashes = (one.chapters as Array<{ id: string; contentHash: string }>).map((row) => ({ chapterId: row.id, contentHash: row.contentHash }));
+    expect(Array.isArray(one.chapters) && one.chapters.length === 2, 'the package does not list its two chapters');
+    expect(/^[0-9a-f]{14}$/.test(String(pick(one, 'chapters', 0, 'contentHash'))), 'a chapter has no content hash');
+    expect(Number(one.htmlBytes) > 2000, 'the package page is suspiciously small');
+    const two = await call('wh_beta_package_create', { projectId, writingIds: [chapterA] });
+    expect(pick(two, 'version') === 2, 'the version is not monotonic per project');
+    expect(await db.betaPackages.where('projectId').equals(projectId).count() === 2, 'the packages were not recorded');
+  });
+
+  await h.step('beta reading: a reader response is imported once and only once', async () => {
+    const stamp = '2026-10-01T09:00:00.000Z';
+    responseFile = JSON.stringify({
+      format: 'writers-hoard.beta-response', formatVersion: 1, packageId, packageVersion: 1,
+      reader: 'Selftest Reader', exportedAt: stamp,
+      chapters: chapterHashes,
+      reactions: { [chapterA]: ['love', 'tense'] },
+      comments: [
+        { id: 'c1', chapterId: chapterA, quote: 'nobody came out to look at the sea', prefix: 'harbour and ', suffix: '.', paragraph: 0, text: 'Great opening image.', createdAt: stamp },
+        { id: 'c2', chapterId: chapterA, quote: 'Marta climbed the hundred and twelve steps', prefix: '', suffix: ' with the lantern', paragraph: 1, text: 'Why twelve?', createdAt: stamp },
+        { id: 'c3', chapterId: chapterA, quote: 'the light went out for good', prefix: 'hinges and ', suffix: '.', paragraph: 2, text: 'Strong ending.', createdAt: stamp },
+        { id: 'c4', chapterId: chapterA, quote: '', prefix: '', suffix: '', paragraph: 0, text: 'Overall: I want more.', createdAt: stamp },
+        { id: 'c5', chapterId: chapterB, quote: 'waits for its reader', prefix: 'chapter that ', suffix: ' to say', paragraph: 0, text: 'Cute.', createdAt: stamp },
+      ],
+    });
+    const first = await call('wh_beta_import', { projectId, json: responseFile });
+    expect(first.imported === 5 && first.duplicates === 0, `first import: ${JSON.stringify(first)}`);
+    expect(first.attached === 5 && first.moved === 0 && first.orphaned === 0, 'a fresh response did not attach whole');
+    const again = await call('wh_beta_import', { projectId, json: responseFile });
+    expect(again.imported === 0 && again.duplicates === 5, `second import was not a no-op: ${JSON.stringify(again)}`);
+    expect(await db.betaComments.where('projectId').equals(projectId).count() === 5, 'importing twice duplicated comments');
+    let refused = false;
+    try { await call('wh_beta_import', { projectId, json: '{"format":"nope"}' }); } catch (err) {
+      refused = err instanceof BridgeError && err.code === 'bad-args';
+    }
+    expect(refused, 'a file that is not a response was accepted');
+  });
+
+  await h.step('beta reading: editing the chapter re-attaches the same comments as moved or orphaned', async () => {
+    const edited = `${FIRST}\n\nMarta climbed the hundred and thirteen steps with the lantern dark, counting under her breath.\n\nAt the top everything was quiet.`;
+    await call('wh_update_writing', { id: chapterA, content: edited });
+    const again = await call('wh_beta_import', { projectId, json: responseFile });
+    expect(again.imported === 0 && again.duplicates === 5, 'the re-import added rows');
+    expect(again.attached === 3 && again.moved === 1 && again.orphaned === 1, `re-anchoring: ${JSON.stringify([again.attached, again.moved, again.orphaned])}`);
+    const listed = await call('wh_beta_comments', { projectId, writingId: chapterA });
+    const byText = (text: string) => (listed.comments as Array<Record<string, unknown>>).find((row) => row.text === text);
+    expect(pick(byText('Great opening image.'), 'status') === 'attached', 'the untouched quote is not attached');
+    expect(pick(byText('Why twelve?'), 'status') === 'moved', 'the reworded quote is not moved');
+    expect(pick(byText('Strong ending.'), 'status') === 'orphaned', 'the deleted quote is not orphaned');
+    expect(pick(byText('Strong ending.'), 'chapterChangedSincePackage') === true, 'the changed chapter is not flagged');
+    expect(listed.count === 4, 'the chapter filter did not narrow to its four comments');
+  });
+
+  await h.step('beta reading: a comment is resolved, listed as resolved, and reopened', async () => {
+    const all = await call('wh_beta_comments', { projectId });
+    const target = (all.comments as Array<Record<string, unknown>>).find((row) => row.text === 'Why twelve?');
+    const id = String(pick(target, 'id'));
+    const resolved = await call('wh_beta_comment_set_status', { commentId: id, status: 'resolved' });
+    expect(pick(resolved, 'status') === 'resolved', 'the comment was not resolved');
+    const onlyResolved = await call('wh_beta_comments', { projectId, status: 'resolved' });
+    expect(onlyResolved.count === 1, 'the resolved filter did not find it');
+    const reopened = await call('wh_beta_comment_set_status', { commentId: id, status: 'open' });
+    expect(pick(reopened, 'status') === 'moved', 'reopening did not restore the anchor state');
+    let refused = false;
+    try { await call('wh_beta_comment_set_status', { commentId: id, status: 'banana' }); } catch (err) {
+      refused = err instanceof BridgeError && err.code === 'bad-args';
+    }
+    expect(refused, 'a nonsense status was accepted');
+  });
+}
+
 /**
  * Run the whole suite against a throwaway project and delete it afterwards.
  *
@@ -1226,6 +1528,69 @@ async function runEngineGuardChecks(h: Harness): Promise<void> {
  * children that do not, so nothing survives — which is what makes it safe to
  * run this against someone's real installation.
  */
+/**
+ * Chapters dated in the project's world calendar: stored and read back both
+ * structured and formatted, ordered by the calendar, and refused for a day it lacks.
+ * Defines its own calendar and removes it at the end.
+ */
+async function runWorldDateWritingChecks(h: Harness, projectId: string): Promise<void> {
+  const calendar = {
+    name: 'Chapter reckoning',
+    months: [{ name: 'Frostfall', days: 30 }, { name: 'Thaw', days: 20 }],
+    weekdays: ['Aa', 'Bb', 'Cc'],
+    eras: [{ name: 'Test Era', abbr: 'TE', startYear: 1 }],
+  };
+  let lateId = '';
+  let earlyId = '';
+
+  await h.step('chapter world date: refused while the project has no calendar', async () => {
+    let code = '';
+    try {
+      await call('wh_create_writing', { projectId, title: 'No calendar yet', worldDate: '1 Frostfall 3 TE' });
+    } catch (err) { code = err instanceof BridgeError ? err.code : 'crash'; }
+    expect(code === 'not-found', `a world date without a calendar was not refused (got "${code}")`);
+    await call('wh_world_calendar_set', { projectId, calendar });
+  });
+
+  await h.step('chapter world date: stored, listed and read back with its text', async () => {
+    const late = await call('wh_create_writing', { projectId, title: 'Late chapter', worldDate: '10 Thaw 3 TE' });
+    const early = await call('wh_create_writing', { projectId, title: 'Early chapter', worldDate: '2 Frostfall 3 TE', worldDateEnd: '4 Frostfall 3 TE' });
+    lateId = String(pick(late, 'id'));
+    earlyId = String(pick(early, 'id'));
+    const read = await call('wh_get_writing', { id: earlyId });
+    expect(pick(read, 'worldDate', 'month') === 1 && pick(read, 'worldDate', 'day') === 2, 'the chapter date was not stored as a structured date');
+    expect(String(pick(read, 'worldDateText')).includes('Frostfall'), 'the chapter date came back without the calendar text');
+    expect(pick(read, 'worldDateEnd', 'day') === 4, 'the end of the span was lost');
+    const listed = await call('wh_list_writings', { projectId });
+    const rows = (pick(listed, 'writings') ?? []) as Record<string, unknown>[];
+    const lateRow = rows.find((w) => w.id === lateId);
+    expect(pick(lateRow, 'worldDate', 'year') === 3 && typeof pick(lateRow, 'worldDateText') === 'string', 'the listing did not carry the chapter date');
+  });
+
+  await h.step('chapter world date: a day the calendar lacks is refused, like for events', async () => {
+    let code = '';
+    try {
+      await call('wh_update_writing', { id: lateId, worldDate: '25 Thaw 3 TE' });
+    } catch (err) { code = err instanceof BridgeError ? err.code : 'crash'; }
+    expect(code === 'bad-args', `a day the calendar lacks was not refused (got "${code}")`);
+    const still = await call('wh_get_writing', { id: lateId });
+    expect(pick(still, 'worldDate', 'day') === 10, 'the refused change was applied anyway');
+  });
+
+  await h.step('chapter world date: updated by dateless fields it stays, "" clears it', async () => {
+    await call('wh_update_writing', { id: lateId, synopsis: 'Kept the date.' });
+    const kept = await call('wh_get_writing', { id: lateId });
+    expect(pick(kept, 'worldDate', 'day') === 10, 'an unrelated update dropped the date');
+    await call('wh_update_writing', { id: lateId, worldDate: '' });
+    const cleared = await call('wh_get_writing', { id: lateId });
+    expect(pick(cleared, 'worldDate') === undefined && pick(cleared, 'worldDateText') === undefined, 'an empty worldDate did not clear it');
+  });
+
+  await h.step('chapter world date: the calendar is removed again', async () => {
+    const removed = await call('wh_world_calendar_set', { projectId, remove: true });
+    expect(pick(removed, 'removed') === true, 'the calendar was not removed');
+  });
+}
 export async function runSelfTest(args: ToolArgs = {}): Promise<SelfTestReport> {
   const started = Date.now();
   const h = new Harness();
@@ -1236,12 +1601,16 @@ export async function runSelfTest(args: ToolArgs = {}): Promise<SelfTestReport> 
     await runManuscriptChecks(h, projectId);
     const characterId = await runPeopleChecks(h, projectId);
     await runStoryChecks(h, projectId, characterId);
+    await runWorldCalendarChecks(h, projectId);
     await runContainerChecks(h, projectId);
     await runScriptAndRestChecks(h, projectId);
     await runWorldgenChecks(h, projectId);
     await runRealAtlasChecks(h, projectId);
     await runAnalysisChecks(h, projectId, characterId);
     await runInquiryChecks(h, projectId);
+    await runBetaReadingChecks(h, projectId);
+    await runReferenceChecks(h, projectId);
+    await runWorldDateWritingChecks(h, projectId);
     // Last, and on its own project: this one needs engines switched OFF.
     await runEngineGuardChecks(h);
   } finally {

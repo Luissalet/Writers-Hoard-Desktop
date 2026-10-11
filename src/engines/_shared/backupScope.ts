@@ -66,6 +66,7 @@ const ENGINE_TABLES: Readonly<Record<string, readonly string[]>> = {
   diary: ['diaryEntries'],
   gallery: ['imageCollections', 'inspirationImages'],
   'image-studio': ['visualRefs', 'imageRecipes', 'inspirationImages'],
+  'beta-reading': ['betaPackages', 'betaResponses', 'betaComments'],
   inquiry: ['inquiryCases', 'inquiryClaims', 'inquiryHypotheses', 'inquiryRatings', 'enrichmentRuns'],
   links: ['snapshots'],
   maps: ['worldMaps', 'mapPins'],
@@ -377,6 +378,15 @@ const REFERENCE_SPECS: Readonly<Record<string, readonly ReferenceSpec[]>> = {
     { label: 'hypothesisId', values: one('hypothesisId'), targets: fixed('inquiryHypotheses'), contained: true },
     { label: 'claimId', values: one('claimId'), targets: fixed('inquiryClaims'), contained: true },
   ],
+  // A response can come from a package built on another computer, so the package id need not travel here.
+  betaResponses: [
+    { label: 'packageId', values: one('packageId'), targets: fixed('betaPackages'), contained: false },
+  ],
+  betaComments: [
+    { label: 'writingId', values: one('writingId'), targets: fixed('writings'), contained: false },
+    { label: 'responseId', values: one('responseId'), targets: fixed('betaResponses'), contained: true },
+    { label: 'packageId', values: one('packageId'), targets: fixed('betaPackages'), contained: false },
+  ],
   enrichmentRuns: [
     { label: 'entryId', values: one('entryId'), targets: fixed('codexEntries'), contained: false },
     { label: 'citationId', values: one('citationId'), targets: fixed('citations'), contained: false },
@@ -428,6 +438,10 @@ const REFERENCE_SPECS: Readonly<Record<string, readonly ReferenceSpec[]>> = {
   ],
   worldWaypoints: [
     { label: 'worldId', values: one('worldId'), targets: fixed('generatedWorlds'), contained: true },
+  ],
+  // A pin names codex entries by id; the chapter (scope) id is not checked because a scope may be `book:<projectId>`.
+  referencePins: [
+    { label: 'entryIds', values: many('entryIds'), targets: fixed('codexEntries'), contained: false },
   ],
   writingSnapshots: [
     { label: 'writingId', values: one('writingId'), targets: fixed('writings'), contained: true },

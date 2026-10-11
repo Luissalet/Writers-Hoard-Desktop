@@ -389,6 +389,9 @@ const api = {
     /** Render a styled HTML script to PDF and prompt the user to save it. */
     scriptToPdf: (html: string, suggestedName: string): Promise<SaveResult> =>
       ipcRenderer.invoke('export:scriptToPdf', html, suggestedName),
+    /** Beta reading: write a package page under <userData>/exports/beta-reading; main picks the path. */
+    writeBetaPackage: (html: string, suggestedName: string): Promise<SaveResult> =>
+      ipcRenderer.invoke('export:writeBetaPackage', html, suggestedName),
   },
 
   // Automatic backup — the one door that writes the renderer's own bytes to

@@ -1,5 +1,4 @@
 import Dexie, { type Table } from 'dexie';
-import { migrateGenealogyLinkV36toV37 } from '@/engines/genealogy/genealogyStore';
 import type {
   Project,
   CodexEntry,
@@ -39,7 +38,6 @@ import type {
 } from '@/types/projectTools';
 import { legacyLinksToSnapshots } from '@/engines/scrapper/legacyLinks';
 import type { AiMessage, AiProjectSettings, AiThread } from '@/services/copilot/types';
-import type { GenealogyLinkRow } from '@/engines/genealogy/genealogyStore';
 import type { VisualRef } from '@/types/visualRef';
 import type { ImageRecipeRow } from '@/services/aiRuntime/recipe';
 import type {
@@ -64,7 +62,11 @@ import type {
   InquiryHypothesis,
   InquiryRating,
 } from '@/engines/inquiry/types';
+import type { BetaCommentRow, BetaPackageRow, BetaResponseRow } from '@/services/betaReading/types';
+import type { ReferencePinRow } from '@/services/codexReference/pins';
+import type { GenealogyLinkRow } from '@/engines/genealogy/genealogyStore';
 import { migrateLegacyBoards } from './legacyBoardMigration';
+import { migrateGenealogyLinkV36toV37 } from '@/engines/genealogy/genealogyStore';
 
 /** Single source of truth for migration and compatibility tests. */
 export const CURRENT_DB_VERSION = 37;
@@ -146,6 +148,10 @@ export class WritersHoardDB extends Dexie {
   inquiryHypotheses!: Table<InquiryHypothesis>;
   inquiryRatings!: Table<InquiryRating>;
   enrichmentRuns!: Table<EnrichmentRun>;
+  betaPackages!: Table<BetaPackageRow>;
+  betaResponses!: Table<BetaResponseRow>;
+  betaComments!: Table<BetaCommentRow>;
+  referencePins!: Table<ReferencePinRow>;
   genealogyLinks!: Table<GenealogyLinkRow>;
 
   constructor() {
@@ -940,27 +946,39 @@ export class WritersHoardDB extends Dexie {
       enrichmentRuns: 'id, projectId, entryId, createdAt',
     });
 
-    // v36: the genealogy engine's links, one row per directed relationship
-    // between two characters of a project (kinds: biological_parent,
-    // adoptive_parent, guardian, partner). Primary key `id` = link id.
+    // v36: beta reading — the packages a writer sent out, the readers who
+    // answered, and the comments that came back, anchored to a quote rather
+    // than to an offset. Additive and inert: nothing existing is read or
+    // rewritten, so a database that never opens the engine gains three empty
+    // tables. Comment ids are derived from their content, which is what makes
+    // importing the same response file twice a no-op.
     this.version(36).stores({
-      genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
+      betaPackages: 'id, projectId, version, createdAt',
+      betaResponses: 'id, projectId, packageId, reader',
+      betaComments: 'id, projectId, writingId, packageId, responseId, createdAt',
     });
-    // v37: primary key is the composite projectId+linkId (stored in `id`,
-    // original link id in `linkId`) so two projects can hold links with the
-    // same id without overwriting each other (review r2, P1; migration r3).
-    // The upgrader MUST hang off version(37): a Dexie upgrade callback runs
-    // when moving INTO that version, so one attached to v36 only fires on
-    // 35->36 and a database already at v36 would never migrate (review r4 P1).
-    // IndexedDB forbids changing a record's primary key through cursor
-    // update, so each row is rewritten as delete + put inside the same
-    // version transaction. Idempotent for rows still in v36 shape. NOTE
-    // (review r5): this callback only fires when a database OPENS AT v36 or
-    // lower; a database already at v37 that kept a legacy g1 row gets NO
-    // repair here — that case needs an explicit migration or a new version
-    // (tracked separately, not silently promised).
+
+    // v37: the reference panel's pins ("Consultar"), one row per chapter or
+    // per book, moved here from localStorage so a backup carries them.
+    // Additive and inert: a separate table, so a pin never writes to the
+    // chapter row and cannot collide with its autosave. Old localStorage pins
+    // are adopted lazily by services/codexReference/pins.ts.
+    // Also in v37: the genealogy engine's links, whose primary key becomes
+    // the composite projectId+linkId (stored in `id`, original link id in
+    // `linkId`) so two projects can hold links with the same id without
+    // overwriting each other (review r2, P1; migration r3). The upgrader MUST
+    // hang off version(37): a Dexie upgrade callback runs when moving INTO
+    // that version, so one attached to v36 only fires on 35->36. IndexedDB
+    // forbids changing a record's primary key through cursor update, so each
+    // row is rewritten as delete + put inside the same version transaction.
+    // Idempotent for rows still in v36 shape. NOTE (review r5): this callback
+    // only fires when a database OPENS AT v36 or lower; a database already at
+    // v37 that kept a legacy g1 row gets NO repair here — that case needs an
+    // explicit migration or a new version (tracked separately, not silently
+    // promised).
     this.version(CURRENT_DB_VERSION)
       .stores({
+        referencePins: 'id, projectId',
         genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
       })
       .upgrade(async (tx) => {

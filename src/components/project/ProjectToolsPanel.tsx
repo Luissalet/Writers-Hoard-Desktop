@@ -57,6 +57,7 @@ import EditorialProfilePanel from './EditorialProfilePanel';
 import ResearchEvidencePanel from './ResearchEvidencePanel';
 import SourceGradeControls from './SourceGradeControls';
 import WritingWorkflowsPanel from './WritingWorkflowsPanel';
+import WorldBiblePanel from './WorldBiblePanel';
 
 export type ProjectToolView = 'workflows' | 'research' | 'templates' | 'publishing' | 'ai';
 
@@ -722,6 +723,6 @@ export default function ProjectToolsPanel({
   if (view === 'workflows') return <div className="space-y-6"><WritingWorkflowsPanel key={projectId} projectId={projectId} /><Workflows projectId={projectId} data={data} /></div>;
   if (view === 'research') return <div className="space-y-6"><ResearchEvidencePanel key={projectId} projectId={projectId} /><Research data={data} /></div>;
   if (view === 'templates') return <Templates data={data} />;
-  if (view === 'publishing') return <Publishing data={data} />;
+  if (view === 'publishing') return <div className="space-y-6"><WorldBiblePanel key={projectId} projectId={projectId} /><Publishing data={data} /></div>;
   return <div className="space-y-6"><EditorialProfilePanel key={`editorial:${projectId}`} projectId={projectId} /><GroundedAi key={`grounded:${projectId}`} projectId={projectId} /></div>;
 }

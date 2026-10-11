@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
-import { ZoomIn, ZoomOut, Link2, Trash2, Edit3, X, Calendar, Type, ChevronLeft, ChevronRight, ArrowRightLeft } from 'lucide-react';
+import { ZoomIn, ZoomOut, Link2, Trash2, Edit3, X, Calendar, Type, ChevronLeft, ChevronRight, ArrowRightLeft, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Timeline, TimelineEvent, TimelineConnection, TimelineEventType, DateMode } from '@/types';
 import { generateId } from '@/utils/idGenerator';
@@ -7,7 +7,27 @@ import { useTranslation } from '@/i18n/useTranslation';
 import Modal from '@/components/common/Modal';
 import ColorPicker from '@/components/common/ColorPicker';
 import { validateTimelineDates } from '../dateValidation';
+import { WorldDateField } from './WorldDateField';
+import { useWorldCalendar, worldDateText } from '../useWorldCalendar';
+import { readWorldForm, worldEventKey, worldEventLabel } from '../worldEventForm';
+import type { WorldCalendar } from '../worldCalendar';
+
+const DAY_MS = 86_400_000;
+
+/**
+ * An event as the view draws it: a world-dated event carries its live label
+ * (the calendar may have been renamed since it was saved) and its day number.
+ * Never written back — edits go through ids and explicit changes.
+ */
+type ViewEvent = TimelineEvent & { worldKey?: number | null };
+
+function toViewEvents(events: TimelineEvent[], calendar: WorldCalendar | null): ViewEvent[] {
+  return events.map((evt) => (evt.dateMode === 'world'
+    ? { ...evt, date: worldEventLabel(evt, calendar), worldKey: worldEventKey(evt, calendar) }
+    : evt));
+}
 import { useCodexEntries } from '@/engines/codex/hooks';
+import { isManuscriptEventId, MANUSCRIPT_EVENT_PREFIX, MANUSCRIPT_LANE_ID } from '@/engines/writings/chapterWorldDate';
 
 // ============================================
 // Swim-Lane Timeline View
@@ -27,6 +47,8 @@ interface SwimLaneViewProps {
   onEditConnection: (id: string, changes: Partial<TimelineConnection>) => void | Promise<void>;
   onDeleteConnection: (id: string) => void;
   onEditTimeline: (id: string, changes: Partial<Timeline>) => void | Promise<void>;
+  /** Dated chapters as a read-only lane; a click opens the chapter. */
+  manuscript?: { lane: Timeline; events: TimelineEvent[]; onOpen: (writingId: string) => void };
 }
 
 type ConnectionWrite =
@@ -67,7 +89,8 @@ function getLaneY(laneIndex: number): number {
 
 /** Parse a date key from an event for chronological positioning.
  *  Returns a timestamp for calendar events, null for text-only. */
-function getEventTimeKey(evt: TimelineEvent): number | null {
+function getEventTimeKey(evt: ViewEvent): number | null {
+  if (evt.dateMode === 'world') return typeof evt.worldKey === 'number' ? evt.worldKey * DAY_MS : null;
   if (evt.dateMode === 'calendar' && evt.realDate) {
     return new Date(evt.realDate + 'T00:00:00').getTime();
   }
@@ -363,12 +386,18 @@ function EventNode({
 // ── Main Component ──
 
 export default function SwimLaneView({
-  projectId, timelines, events, connections,
+  projectId, timelines, events: storedEvents, connections,
   onAddEvent, onEditEvent, onDeleteEvent,
   onAddConnection, onEditConnection, onDeleteConnection,
-  onEditTimeline,
+  onEditTimeline, manuscript,
 }: SwimLaneViewProps) {
   const { t } = useTranslation();
+  const worldCalendar = useWorldCalendar(projectId)?.calendar ?? null;
+  const events = useMemo(
+    () => toViewEvents(manuscript ? [...storedEvents, ...manuscript.events] : storedEvents, worldCalendar),
+    [storedEvents, manuscript, worldCalendar],
+  );
+  const lanes = useMemo(() => (manuscript ? [...timelines, manuscript.lane] : timelines), [timelines, manuscript]);
   const TYPE_LABELS: Record<string, string> = useMemo(() => ({
     point: t('timeline.typePointSymbol'),
     range: t('timeline.typeRangeSymbol'),
@@ -414,6 +443,8 @@ export default function SwimLaneView({
     eventType: 'point' as TimelineEventType,
     realDate: '',
     realDateEnd: '',
+    worldText: '',
+    worldTextEnd: '',
     lane: 'Main',
     color: '#c4973b',
     timelineId: '',
@@ -428,11 +459,14 @@ export default function SwimLaneView({
   };
   const formDirty = (Object.keys(form) as (keyof typeof form)[]).some((key) => form[key] !== formOpenedWith[key]);
 
-  const { positions, totalWidth } = useMemo(() => buildEventPositions(timelines, events), [timelines, events]);
+  const { positions, totalWidth } = useMemo(() => buildEventPositions(lanes, events), [lanes, events]);
 
   const svgWidth = Math.max(800, totalWidth + 80);
-  const svgHeight = Math.max(300, TOP_PADDING + timelines.length * LANE_HEIGHT + 40);
-  const dateError = form.dateMode === 'calendar' ? validateTimelineDates(form.realDate, form.realDateEnd) : null;
+  const svgHeight = Math.max(300, TOP_PADDING + lanes.length * LANE_HEIGHT + 40);
+  const world = form.dateMode === 'world' ? readWorldForm(worldCalendar, form.worldText, form.worldTextEnd) : null;
+  const dateError = form.dateMode === 'calendar'
+    ? validateTimelineDates(form.realDate, form.realDateEnd)
+    : world?.error ?? null;
 
   const saveTimelineName = async () => {
     if (!renamingTimeline || !renameTitle.trim() || renaming) return;
@@ -513,6 +547,7 @@ export default function SwimLaneView({
   // ── Event clicks ──
   const handleEventClick = useCallback((e: React.MouseEvent, evt: TimelineEvent) => {
     e.stopPropagation();
+    if (isManuscriptEventId(evt.id)) { manuscript?.onOpen(evt.id.slice(MANUSCRIPT_EVENT_PREFIX.length)); return; }
     if (dragStarted.current || connectionSavingRef.current) return; // a drag or an in-flight connection
     if (connectingFromId) {
       if (connectingFromId !== evt.id) {
@@ -528,16 +563,17 @@ export default function SwimLaneView({
     } else {
       setSelectedEventId(prev => prev === evt.id ? null : evt.id);
     }
-  }, [connectingFromId, projectId, saveConnection]);
+  }, [connectingFromId, projectId, saveConnection, manuscript]);
 
   // Plain function (not useCallback): it delegates to `openEditForm`, which
   // is declared later and re-created each render — memoizing on [] both lied
   // about deps and tripped the compiler's use-before-declaration check.
-  const handleDoubleClick = (evt: TimelineEvent) => openEditForm(evt);
+  const handleDoubleClick = (evt: TimelineEvent) => { if (!isManuscriptEventId(evt.id)) openEditForm(evt); };
 
   const handleContextMenu = useCallback((e: React.MouseEvent, evtId: string) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isManuscriptEventId(evtId)) return;
     setConnContextMenu(null);
     setContextMenu({ x: e.clientX, y: e.clientY, eventId: evtId });
   }, []);
@@ -545,6 +581,7 @@ export default function SwimLaneView({
   // ── Drag to reorder ── (disabled when connecting)
   const handleMouseDown = useCallback((e: React.MouseEvent, evtId: string) => {
     if (e.button !== 0) return; // left click only
+    if (isManuscriptEventId(evtId)) return; // chapters are read-only here
     if (connectingFromId) return; // don't drag while connecting
     dragStartPos.current = { x: e.clientX, y: e.clientY };
     dragStarted.current = false;
@@ -663,7 +700,7 @@ export default function SwimLaneView({
     const tl = timelines.find(t => t.id === timelineId);
     loadForm({
       title: '', description: '', date: '', dateMode: 'text', eventType: 'point',
-      realDate: '', realDateEnd: '', lane: 'Main', color: tl?.color || '#c4973b',
+      realDate: '', realDateEnd: '', worldText: '', worldTextEnd: '', lane: 'Main', color: tl?.color || '#c4973b',
       timelineId, linkedEntryId: '',
     });
     setEditingEvent(null);
@@ -676,6 +713,7 @@ export default function SwimLaneView({
       date: evt.date, dateMode: evt.dateMode || 'text',
       eventType: evt.eventType || 'point',
       realDate: evt.realDate || '', realDateEnd: evt.realDateEnd || '',
+      worldText: worldDateText(worldCalendar, evt.worldDate), worldTextEnd: worldDateText(worldCalendar, evt.worldDateEnd),
       lane: evt.lane, color: evt.color, timelineId: evt.timelineId,
       linkedEntryId: evt.linkedEntryId || '',
     });
@@ -691,10 +729,11 @@ export default function SwimLaneView({
     try {
 
     const dateValue = form.dateMode === 'calendar' && form.realDate
-      ? formatDate(form.realDate, form.realDateEnd) : form.date;
+      ? formatDate(form.realDate, form.realDateEnd) : world ? world.label : form.date;
 
     const effectiveType: TimelineEventType =
-      form.dateMode === 'calendar' && form.realDateEnd ? 'range' : form.eventType;
+      (form.dateMode === 'calendar' && form.realDateEnd) || world?.fields.worldDateEnd ? 'range' : form.eventType;
+    const worldFields = world ? world.fields : { worldDate: undefined, worldDateEnd: undefined };
 
     if (editingEvent) {
       // If timeline changed, also update order to be last in new lane.
@@ -711,6 +750,7 @@ export default function SwimLaneView({
         dateMode: form.dateMode, eventType: effectiveType,
         realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
+        ...worldFields,
         lane: form.lane, color: form.color,
         linkedEntryId: form.linkedEntryId || undefined,
         ...(timelineChanged ? { timelineId: form.timelineId, order: newOrder } : {}),
@@ -722,6 +762,7 @@ export default function SwimLaneView({
         dateMode: form.dateMode, eventType: effectiveType,
         realDate: form.dateMode === 'calendar' ? form.realDate : undefined,
         realDateEnd: form.dateMode === 'calendar' ? form.realDateEnd || undefined : undefined,
+        ...worldFields,
         order: nextOrderInLane(events, form.timelineId), lane: form.lane, color: form.color,
         linkedEntryId: form.linkedEntryId || undefined,
         createdAt: Date.now(), updatedAt: Date.now(),
@@ -822,9 +863,15 @@ export default function SwimLaneView({
 
             const START_X = LANE_LABEL_WIDTH + 60;
             const opts: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short' };
+            const worldLabels = new Map<number, string>();
+            events.forEach((evt) => {
+              if (evt.dateMode === 'world' && typeof evt.worldKey === 'number' && !worldLabels.has(evt.worldKey * DAY_MS)) {
+                worldLabels.set(evt.worldKey * DAY_MS, (evt.date.split(' – ')[0] ?? '').slice(0, 18));
+              }
+            });
             return sorted.map((ts, i) => {
               const x = START_X + i * EVENT_SPACING;
-              const label = new Date(ts).toLocaleDateString(undefined, opts);
+              const label = worldLabels.get(ts) ?? new Date(ts).toLocaleDateString(undefined, opts);
               return (
                 <g key={`axis-${ts}`}>
                   {/* Vertical guide line */}
@@ -842,7 +889,7 @@ export default function SwimLaneView({
           })()}
 
           {/* Lane backgrounds */}
-          {timelines.map((tl, i) => {
+          {lanes.map((tl, i) => {
             const y = TOP_PADDING + i * LANE_HEIGHT;
             const laneEvts = getEventsForTimeline(events, tl.id);
             const isDropTarget = draggingId && dragTargetLane === tl.id;
@@ -861,6 +908,7 @@ export default function SwimLaneView({
                   className="cursor-pointer"
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (tl.id === MANUSCRIPT_LANE_ID) return;
                     setRenameTitle(tl.title);
                     setRenameDescription(tl.description ?? '');
                     setRenameFailed(false);
@@ -885,7 +933,7 @@ export default function SwimLaneView({
                 </g>
 
                 {/* Add event "+" button at end of lane */}
-                {(() => {
+                {tl.id !== MANUSCRIPT_LANE_ID && (() => {
                   // Position after last event in this lane
                   const lastEvt = laneEvts[laneEvts.length - 1];
                   const lastPos = lastEvt ? positions.get(lastEvt.id) : null;
@@ -969,7 +1017,7 @@ export default function SwimLaneView({
           })}
 
           {/* Event nodes */}
-          {timelines.map((tl) => {
+          {lanes.map((tl) => {
             const laneEvents = getEventsForTimeline(events, tl.id);
             return laneEvents.map((evt, evtIdx) => {
               const pos = positions.get(evt.id);
@@ -1315,9 +1363,26 @@ export default function SwimLaneView({
                 }`}>
                 <Calendar size={12} /> {t('timeline.calendar')}
               </button>
+              <button onClick={() => setForm({ ...form, dateMode: 'world' })} data-testid="date-mode-world"
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition ${
+                  form.dateMode === 'world' ? 'bg-accent-gold/20 text-accent-gold font-semibold' : 'text-text-muted hover:text-text-primary'
+                }`}>
+                <Globe size={12} /> {t('timeline.world.mode')}
+              </button>
             </div>
 
-            {form.dateMode === 'text' ? (
+            {form.dateMode === 'world' ? (
+              worldCalendar ? (
+                <div className="space-y-2">
+                  <WorldDateField calendar={worldCalendar} label={t('timeline.startDate')} value={form.worldText} testId="world-date-start"
+                    onChange={(worldText) => setForm({ ...form, worldText })} />
+                  <WorldDateField calendar={worldCalendar} label={t('timeline.endDate')} value={form.worldTextEnd} optional testId="world-date-end"
+                    onChange={(worldTextEnd) => setForm({ ...form, worldTextEnd })} />
+                </div>
+              ) : (
+                <p className="text-xs text-text-muted">{t('timeline.world.noCalendarHint')}</p>
+              )
+            ) : form.dateMode === 'text' ? (
               <input value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
                 placeholder={t('timeline.placeholderFreeDateAlt')}
                 className="w-full px-4 py-2.5 bg-elevated border border-border rounded-lg text-text-primary outline-none focus:border-accent-gold transition" />
