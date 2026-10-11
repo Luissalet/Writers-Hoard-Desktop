@@ -931,20 +931,31 @@ The final combination passes 383 critical checks and 26 advanced editor checks;
 the native core has 747 distinct passing tests. Main preserves the exact 347 R2
 commits on top of the actual 340 R2 dependency. Main renderer/Electron build,
 14 document-service checks with the real Rust binary and HTTP/stdio transports pass.
-The user's installed window remains unchanged. Manual readback preserved 146 other
-paragraphs; the project graph preserved its 16 existing nodes. Follow-up phases are
-Agora 353 (tracked changes) and 354 (sections and linked editorial references).
+The first delivery was installed and verified through Agora 356, preserving five
+projects and five manuscript texts. Recoverable profile and installation copies
+are in D:/LocalAI/research-inbox/writer-activation-20261011. Follow-up Agora 353 is
+integrated below; 354 (sections and linked editorial references) remains open.
 
 # 353 — tracked changes and anchored proposals
 
-- [ ] Define one persisted HTML mark contract and one common operation API.
-- [ ] Implement proposals, ordinary tracked edits, author/origin and accept/reject.
-- [ ] Integrate UI controls and preserve chapter scope, editor state and undo.
-- [ ] Expose the same operations through MCP, snapshots and normal conflict handling.
-- [ ] Verify typing, paste/IME, Unicode, stale anchors, reload, book chapters and undo.
-- [ ] Freeze, independently review and integrate approved source with merge lock.
+- [x] Define one persisted HTML mark contract and one common operation API.
+- [x] Implement proposals, ordinary tracked edits, author/origin and accept/reject.
+- [x] Integrate UI controls and preserve chapter scope, editor state and undo.
+- [x] Expose the same operations through MCP, snapshots and normal conflict handling.
+- [x] Verify typing, paste/IME, Unicode, stale anchors, reload, book chapters and undo.
+- [x] Freeze, independently review and integrate approved source with merge lock.
 
 Success: insertion/deletion records survive ordinary save/reload with their metadata;
 UI and MCP create/resolve the same proposals and native undo restores the document.
 The old manuscript, rich formatting, tables, images, notes and chapter boundaries
 remain intact. Tests use private profiles; no extra approval layer or arbitrary caps.
+
+353 R1 and surgical inherited integration repair 361 R1 were independently approved
+and integrated as 8771ab4 on the actual Main 4061581. Combined verification passes
+41 browser groups, 383 critical checks and shipping checks. Independent review
+adds 37 genealogy checks, three probes and real native Final/Original DOCX/PDF/PNG.
+Six full application groups pass with real document IPC, autosave/reload,
+accept/undo/reject/undo, downloads, image previews and unchanged pending HTML.
+The local package retains the exact reviewed native binary 4b1eddfc and all notices.
+Evidence: D:/LocalAI/research-inbox/writer-revisions-activation-20261012 and
+D:/LocalAI/research-inbox/writer-activation-20261011/revisions-full-app.
