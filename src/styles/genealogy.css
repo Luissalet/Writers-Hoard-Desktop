@@ -60,3 +60,151 @@
 .genealogy-error {
   color: var(--color-text-primary);
 }
+
+.genealogy-toolbar,
+.genealogy-export-actions,
+.codex-import-source,
+.codex-import-actions,
+.codex-import-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.genealogy-toolbar {
+  justify-content: space-between;
+}
+
+.genealogy-toolbar button,
+.codex-folder-import button,
+.codex-folder-import select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid var(--color-border, #6c6253);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.genealogy-toolbar button:hover,
+.codex-folder-import button:hover {
+  border-color: var(--color-accent-gold);
+}
+
+.genealogy-toolbar button:focus-visible,
+.codex-folder-import button:focus-visible,
+.codex-folder-import select:focus-visible {
+  outline: 2px solid var(--color-accent-gold);
+  outline-offset: 3px;
+}
+
+.codex-folder-import button:disabled,
+.codex-folder-import select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.codex-folder-import {
+  padding: 18px 0;
+  border-block: 1px solid var(--color-border, #6c6253);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.codex-folder-import header h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.codex-folder-import header p,
+.codex-import-source-note {
+  margin: 0;
+  max-width: 70ch;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.codex-import-source label {
+  font-size: 0.875rem;
+}
+
+.codex-import-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.codex-import-actions,
+.codex-import-summary {
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.codex-import-summary {
+  gap: 10px 24px;
+}
+
+.codex-import-preview-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.codex-import-preview-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border, #6c6253);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.codex-import-preview-list li span {
+  color: var(--color-text-muted);
+}
+
+.codex-import-apply {
+  align-self: flex-start;
+}
+
+.codex-import-feedback,
+.codex-import-error,
+.genealogy-export-status {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.codex-import-error {
+  color: var(--color-error, #b34232);
+}
+
+@media (max-width: 600px) {
+  .genealogy-export-actions {
+    width: 100%;
+  }
+  .codex-import-source label {
+    width: 100%;
+  }
+  .codex-import-source select {
+    flex: 1;
+    min-width: 0;
+  }
+}
