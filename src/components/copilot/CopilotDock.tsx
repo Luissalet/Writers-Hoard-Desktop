@@ -115,8 +115,8 @@ function WriterDock({ projectId, engine }: { projectId: string; engine: string |
       };
       const remember = () => { if (element.sessionId) void setSetting(viewKey, element.sessionId); };
       element.addEventListener('faustus:turn-start', remember);
-      element.addEventListener('faustus:session-changed', remember);
-      cleanup = () => { element.removeEventListener('faustus:turn-start', remember); element.removeEventListener('faustus:session-changed', remember); element.remove(); };
+      element.addEventListener('faustus:session-change', remember);
+      cleanup = () => { element.removeEventListener('faustus:turn-start', remember); element.removeEventListener('faustus:session-change', remember); element.remove(); };
       panel.current = element;
       container.current?.replaceChildren(element);
       if (sessionId) await element.loadHistory();
