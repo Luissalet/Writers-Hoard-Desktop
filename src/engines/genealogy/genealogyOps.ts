@@ -78,6 +78,9 @@ export function applyGenealogy(
   // antes de validar.
   // Derive ids reserving the batch's explicit ids and the existing ones
   // first (review r3): a derived id never collides with an explicit id.
+  // Review r5 P2-2: derive ids over the RAW proposal (invalid entries keep
+  // their slot), matching importPreview's cursor so preview and apply assign
+  // the SAME id to the same entry in a mixed batch.
   const ids = deriveLinkIds(proposal as Record<string, unknown>[], new Set(links.map((l) => l.id)));
   const withIds = proposal.map((raw, i) => {
     if (

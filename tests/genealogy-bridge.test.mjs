@@ -253,9 +253,11 @@ test('apply rejects a->b then b->a cycle across separate calls', async () => {
   const r1 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [LINK('g1', 'a', 'b', 'biological_parent')] });
   assert.equal(r1.ok, true);
   const r2 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [LINK('g2', 'b', 'a', 'biological_parent')] });
-  assert.equal(r2.ok, true);
-  assert.deepEqual(r2.applied, []);
-  assert.deepEqual(r2.rejected.map((r) => r.issues.map((i) => i.code)).flat(), ['cycle_rejected']);
+  // Review r5 P2-4: a fully rejected batch is a semantic failure, so the
+  // handler answers ok:false (nothing_applied) instead of ok:true with
+  // applied: [] — the audit line must not record a successful write.
+  assert.equal(r2.ok, false);
+  assert.equal(r2.code, 'nothing_applied');
   const links = await loadGenealogyLinks(table, 'p1');
   assert.equal(links.length, 1);
 });
@@ -298,9 +300,9 @@ test('cycle guard: a->c, b->c then c->a is rejected (multi-parent graph)', async
   const r2 = await handlers.wh_genealogy_apply({ projectId: 'p1', links: [
     { id: 'g3', from: 'c', to: 'a', kind: 'biological_parent' },
   ] });
-  assert.equal(r2.ok, true);
-  assert.deepEqual(r2.applied, []);
-  assert.deepEqual(r2.rejected.map((r) => r.issues.map((i) => i.code)).flat(), ['cycle_rejected']);
+  // Review r5 P2-4: fully rejected batch -> ok:false (nothing_applied).
+  assert.equal(r2.ok, false);
+  assert.equal(r2.code, 'nothing_applied');
   const links = await loadGenealogyLinks(table, 'p1');
   assert.equal(links.length, 2);
 });

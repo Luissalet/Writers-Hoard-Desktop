@@ -37,7 +37,7 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value !== '';
 }
 
-export function importGenealogyMarkdown(markdown: unknown): GenealogyImportResult {
+export function importGenealogyMarkdown(markdown: unknown, existingIds: ReadonlySet<string> = new Set()): GenealogyImportResult {
   const issues: GenealogyImportIssue[] = [];
   const links: GenealogyImportResult['links'] = [];
 
@@ -112,7 +112,7 @@ export function importGenealogyMarkdown(markdown: unknown): GenealogyImportResul
 
   // Derive ids for the entries without one (review r3): reserve the batch's
   // explicit ids first so a derived id never collides with one of them.
-  const ids = deriveLinkIds(links, new Set());
+  const ids = deriveLinkIds(links, existingIds);
   links.forEach((link, i) => { if (link.id === '') link.id = ids[i]; });
 
   return { links, issues };

@@ -28,7 +28,7 @@ function wikiId(link: string): string | null {
   return id === '' ? null : id;
 }
 
-export function importGenealogyObsidian(markdown: unknown): GenealogyImportResult {
+export function importGenealogyObsidian(markdown: unknown, existingIds: ReadonlySet<string> = new Set()): GenealogyImportResult {
   const issues: GenealogyImportIssue[] = [];
   const links: GenealogyImportResult['links'] = [];
 
@@ -99,7 +99,7 @@ export function importGenealogyObsidian(markdown: unknown): GenealogyImportResul
 
   // Derive ids for the entries without one (review r4 P2): reserve the
   // batch's explicit ids first so a derived id never collides with one of them.
-  const ids = deriveLinkIds(links as unknown as Record<string, unknown>[], new Set());
+  const ids = deriveLinkIds(links as unknown as Record<string, unknown>[], existingIds);
   links.forEach((link, i) => { if (link.id === '') link.id = ids[i]; });
 
   return { links, issues };
