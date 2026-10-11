@@ -9,6 +9,7 @@ import { collectFootnotes } from '@/components/editor/footnotes/footnoteModel';
 import { computePageBreaks } from '@/components/editor/pageMode/pagination';
 import { testPageModeInEditor, testPaginationPureFitsExactly, testPaginationPureCutsBetweenLines, testPaginationPureOversizedBlockOverflows, testPaginationPureNotesPushALine, testPaginationPureAtomicBlockMovesWhole, testPaginationPureForcedBreak, testPaginationPureMargins, testPageSizes } from './pageMode';
 import { FootnoteNode } from '@/components/editor/footnotes/FootnoteNode';
+import { normalizeColumnWidths } from '@/components/editor/advanced/model';
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import { createAdvancedExtensions, applyAdvancedFormatting, describeAdvancedDocument, normalizeAdvancedFormatting, normalizeAdvancedHtml, advancedHtmlForInterchange, AdvancedEditorToolbar } from '@/components/editor/advanced';
 
@@ -24,7 +25,22 @@ export async function testAdvancedEditor(): Promise<string[]> {
   try {
     run('normalizer accepts only supported finite values', () => {
       equal(normalizeAdvancedFormatting({ color: '#Ab12FF', fontSize: 12, indent: 2, lineHeight: 1.5, fontFamily: 'Times New Roman' }), { fontFamily: 'Times New Roman', color: '#ab12ff', fontSize: 12, lineHeight: 1.5, indent: 2 }, 'valid formatting');
-      equal(normalizeAdvancedFormatting({ fontSize: Infinity, indent: 1.5, lineHeight: 99, color: 'url(javascript:alert(1))', fontFamily: 'x;position:fixed', alignment: 'bogus' }), {}, 'invalid values');
+      equal(normalizeAdvancedFormatting({ fontSize: Infinity, indent: -1.5, lineHeight: NaN, color: 'url(javascript:alert(1))', fontFamily: 'x;position:fixed', alignment: 'bogus' }), {}, 'invalid values');
+      equal(normalizeColumnWidths(Array(65).fill(5000.5)), Array(65).fill(5000.5), 'width dimensions beyond presets');
+      equal(normalizeColumnWidths([Infinity]), null, 'nonfinite width');
+      equal(normalizeColumnWidths([-1]), null, 'negative width');
+      equal(normalizeAdvancedFormatting({ fontSize: 5, lineHeight: 0.75, indent: 1.5 }), { fontSize: 5, lineHeight: 0.75, indent: 1.5 }, 'small valid dimensions');
+    });
+    run('format outside toolbar presets survives interchange, sanitizer and editor reload', () => {
+      const clean = normalizeAdvancedHtml('<p style="line-height:4;margin-left:14.25em"><span style="font-size:96pt">Large</span></p><table><tr><td style="width:5000.5px"><p>Wide</p></td></tr></table>');
+      resetContent(clean);
+      const html = editor.getHTML();
+      assert(html.includes('data-wh-size="96"') && html.includes('data-wh-line-height="4"') && html.includes('data-wh-indent="9.5"') && html.includes('data-wh-colwidth="5000.5"'), html);
+      resetContent(normalizeAdvancedHtml(advancedHtmlForInterchange(sanitizeRichHtml(html))));
+      equal(editor.getHTML(), html, 'outside-preset roundtrip');
+      const wide = normalizeAdvancedHtml('<table><tr><td colspan="65" style="width:6500px"><p>Many columns</p></td></tr></table>');
+      assert(wide.includes('data-wh-colwidth="' + Array(65).fill(100).join(',') + '"'), wide);
+      resetContent('<p>Alpha beta gamma</p><p>Second paragraph</p>');
     });
     run('range formatting changes only chosen text and paragraphs in one undo', () => {
       const before = editor.getHTML();
@@ -114,7 +130,7 @@ export async function testAdvancedEditor(): Promise<string[]> {
       const output = advancedHtmlForInterchange(html); assert(output.includes('colwidth="160"') && output.includes('width: 160px'), output);
     });
     run('hostile semantic attrs/styles/events are dropped and old HTML sanitizer still strips inline layout', () => {
-      const clean = sanitizeRichHtml('<p style="position:fixed;color:red" data-wh-indent="999" data-wh-line-height="NaN" onclick="alert(1)"><span data-wh-color="url(javascript:x)" data-wh-font="x;position:fixed" data-wh-size="999">Safe</span><img src="data:image/svg+xml;base64,PHN2Zz4=" onerror="alert(2)"></p><script>alert(3)</script>');
+      const clean = sanitizeRichHtml('<p style="position:fixed;color:red" data-wh-indent="-1" data-wh-line-height="NaN" onclick="alert(1)"><span data-wh-color="url(javascript:x)" data-wh-font="x;position:fixed" data-wh-size="-1">Safe</span><img src="data:image/svg+xml;base64,PHN2Zz4=" onerror="alert(2)"></p><script>alert(3)</script>');
       assert(!/position|onclick|onerror|javascript|svg\+xml|data-wh-|<script|style=/.test(clean), clean);
     });
     run('whole document boundary ranges apply without creating invalid text selections', () => {
@@ -148,14 +164,16 @@ export async function testAdvancedEditor(): Promise<string[]> {
     run('existing pagination arithmetic regressions', () => { testPageSizes(); testPaginationPureFitsExactly(); testPaginationPureCutsBetweenLines(); testPaginationPureOversizedBlockOverflows(); testPaginationPureNotesPushALine(); testPaginationPureAtomicBlockMovesWhole(); testPaginationPureForcedBreak(); testPaginationPureMargins(); });
     await testPageModeInEditor(); passed.push('existing real page-layout geometry and notes regression');
     resetContent('<p>One</p><p>Two</p>'); editor.commands.setTextSelection({ from: 1, to: editor.state.doc.content.size - 1 });
-    applyAdvancedFormatting(editor, { fontFamily: 'Times New Roman', fontSize: 13, lineHeight: 1.2 });
+    applyAdvancedFormatting(editor, { fontFamily: 'Times New Roman', fontSize: 96, lineHeight: 4, indent: 9 });
     const toolbarHost = document.createElement('div'); document.body.appendChild(toolbarHost); const root = createRoot(toolbarHost);
     try {
       await act(async () => { root.render(createElement(AdvancedEditorToolbar, { editor, locale: 'es' })); });
       assert(toolbarHost.querySelector('[aria-label="Fuente"]'), 'Spanish labels');
-      equal(toolbarHost.querySelector<HTMLSelectElement>('[aria-label="Tamaño"]')?.value, '13', 'imported font size visible');
-      equal(toolbarHost.querySelector<HTMLSelectElement>('[aria-label="Interlineado"]')?.value, '1.2', 'imported line spacing visible');
+      equal(toolbarHost.querySelector<HTMLSelectElement>('[aria-label="Tamaño"]')?.value, '96', 'imported font size visible');
+      equal(toolbarHost.querySelector<HTMLSelectElement>('[aria-label="Interlineado"]')?.value, '4', 'imported line spacing visible');
       equal(toolbarHost.querySelector<HTMLSelectElement>('[aria-label="Fuente"]')?.value, 'Times New Roman', 'imported font visible'); passed.push('toolbar preserves visible imported values outside presets');
+      await act(async () => { toolbarHost.querySelector<HTMLButtonElement>('[aria-label="Aumentar sangría"]')!.click(); });
+      assert(describeAdvancedDocument(editor).blocks.some(block => block.formatting.indent === 10), 'indent beyond presets'); passed.push('toolbar increases indentation beyond eight');
       const button = toolbarHost.querySelector<HTMLButtonElement>('[aria-label="Centrar"]')!;
       await act(async () => { button.click(); }); assert(describeAdvancedDocument(editor).blocks.some(block => block.formatting.alignment === 'center'), 'toolbar changed doc'); passed.push('real mounted toolbar controls change the same editor');
       await act(async () => { root.render(createElement(AdvancedEditorToolbar, { editor, locale: 'en' })); }); assert(toolbarHost.querySelector('[aria-label="Font"]'), 'English labels');
