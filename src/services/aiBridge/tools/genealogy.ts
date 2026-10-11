@@ -58,14 +58,14 @@ export const GENEALOGY_BRIDGE_TOOLS: BridgeTool[] = [
   {
     name: 'wh_genealogy_preview',
     description:
-      'Previsualiza enlaces genealógicos y sus duplicados o conflictos sin guardar cambios.\nPreview a genealogy link proposal against the links already stored in the project: returns additions, duplicates and conflicts without writing anything.',
+      'Preview a genealogy link proposal against the links already stored in the project: returns additions, duplicates and conflicts without writing anything.',
     writes: false,
     schema: LINKS_SCHEMA,
   },
   {
     name: 'wh_genealogy_validate',
     description:
-      'Valida enlaces genealógicos, tipos y ciclos sin guardar cambios.\nValidate a genealogy link proposal (shape, kinds, self-links, cycles) and return per-link issues without writing anything.',
+      'Validate a genealogy link proposal (shape, kinds, self-links, cycles) and return per-link issues without writing anything.',
     writes: false,
     schema: {
       type: 'object',
@@ -89,14 +89,14 @@ export const GENEALOGY_BRIDGE_TOOLS: BridgeTool[] = [
   {
     name: 'wh_genealogy_apply',
     description:
-      'Aplica enlaces genealógicos válidos y devuelve un identificador para deshacerlos.\nApply a genealogy link proposal: validates, stores only the accepted links and registers the application so it can be undone. Returns applied and rejected links with an applyId.',
+      'Apply a genealogy link proposal: validates, stores only the accepted links and registers the application so it can be undone. Returns applied and rejected links with an applyId.',
     writes: true,
     schema: LINKS_SCHEMA,
   },
   {
     name: 'wh_genealogy_import',
     description:
-      'Importa una propuesta genealógica desde Obsidian, Notion, WorldAnvil o Campfire sin guardarla.\nParse an export from a supported format (obsidian, notion, worldanvil, campfire) into a genealogy link proposal with a preview (additions/duplicates/conflicts). Read-only: returns the proposal; apply it with wh_genealogy_apply.',
+      'Parse an export from a supported format (obsidian, notion, worldanvil, campfire) into a genealogy link proposal with a preview (additions/duplicates/conflicts). Read-only: returns the proposal; apply it with wh_genealogy_apply.',
     writes: false,
     schema: {
       type: 'object',
@@ -118,7 +118,7 @@ export const GENEALOGY_BRIDGE_TOOLS: BridgeTool[] = [
   {
     name: 'wh_genealogy_query',
     description:
-      'Consulta padres, hijos, tutores y parejas de un personaje desde los enlaces guardados.\nQuery the genealogy of one character: parents, children, guardians and partners by direction, from the stored links.',
+      'Query the genealogy of one character: parents, children, guardians and partners by direction, from the stored links.',
     writes: false,
     schema: {
       type: 'object',
@@ -137,7 +137,7 @@ export const GENEALOGY_BRIDGE_TOOLS: BridgeTool[] = [
   {
     name: 'wh_genealogy_undo',
     description:
-      'Deshace una aplicación genealógica conservando los enlaces que se editaron después.\nUndo a previous genealogy apply: removes exactly the links that application stored, only if the stored links have not changed since (revision guard).',
+      'Undo a previous genealogy apply: removes exactly the links that application stored, only if the stored links have not changed since (revision guard).',
     writes: true,
     schema: {
       type: 'object',
