@@ -31,8 +31,8 @@ export function normalizeAdvancedHtml(html: string): string {
     let widths = normalizeColumnWidths(cell.getAttribute('data-wh-colwidth') ?? cell.getAttribute('colwidth'));
     if (!widths) {
       const width = /^(\d+(?:\.\d+)?)(px|pt)$/.exec(cell.style.width);
-      const colspan = Number(cell.getAttribute('colspan') ?? 1);
-      if (width && Number.isInteger(colspan) && colspan > 0 && colspan <= 64) widths = normalizeColumnWidths(Array(colspan).fill(Math.round(Number(width[1]) * (width[2] === 'pt' ? 4 / 3 : 1) / colspan)));
+      const colspan = (cell as HTMLTableCellElement).colSpan;
+      if (width) widths = normalizeColumnWidths(Array(colspan).fill(Number(width[1]) * (width[2] === 'pt' ? 4 / 3 : 1) / colspan));
     }
     if (widths) cell.setAttribute('data-wh-colwidth', widths.join(','));
   }

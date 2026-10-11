@@ -21,7 +21,7 @@ export const FORMAT_ATTRIBUTES = {
 export type FormatKey = keyof typeof FORMAT_ATTRIBUTES;
 export function normalizeColumnWidths(value: unknown): number[] | null {
   const widths = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',').map(Number) : [];
-  return widths.length && widths.length <= 64 && widths.every(width => typeof width === 'number' && Number.isInteger(width) && width >= 0 && width <= 4096) ? widths as number[] : null;
+  return widths.length && widths.every(width => typeof width === 'number' && Number.isFinite(width) && width >= 0) ? widths as number[] : null;
 }
 export const INLINE_KEYS: FormatKey[] = ['fontFamily', 'fontSize', 'color', 'highlight'];
 export const BLOCK_KEYS: FormatKey[] = ['alignment', 'lineHeight', 'indent', 'paragraphStyle'];
@@ -30,16 +30,16 @@ export function normalizeAdvancedFormatting(input: unknown): AdvancedFormatting 
   if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
   const values = input as Record<string, unknown>;
   const result: AdvancedFormatting = {};
-  if (typeof values.fontFamily === 'string' && (Object.hasOwn(FONT_FAMILIES, values.fontFamily) || /^[A-Za-z][A-Za-z0-9 -]{0,63}$/.test(values.fontFamily))) result.fontFamily = values.fontFamily;
+  if (typeof values.fontFamily === 'string' && (Object.hasOwn(FONT_FAMILIES, values.fontFamily) || /^\p{L}[\p{L}\p{N} -]*$/u.test(values.fontFamily))) result.fontFamily = values.fontFamily;
   for (const key of ['color', 'highlight'] as const) {
     const value = values[key];
     if (value === null) result[key] = null;
     else if (typeof value === 'string' && /^#[\da-f]{6}$/i.test(value)) result[key] = value.toLowerCase();
   }
-  for (const [key, min, max] of [['fontSize', 8, 72], ['lineHeight', 1, 3], ['indent', 0, 8]] as const) {
+  for (const key of ['fontSize', 'lineHeight', 'indent'] as const) {
     const value = values[key];
     if (value === null && key !== 'indent') result[key] = null;
-    else if (typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max && (key !== 'indent' || Number.isInteger(value))) result[key] = value;
+    else if (typeof value === 'number' && Number.isFinite(value) && (key === 'indent' ? value >= 0 : value > 0)) result[key] = value;
   }
   if (['left', 'center', 'right', 'justify'].includes(String(values.alignment))) result.alignment = values.alignment as AdvancedFormatting['alignment'];
   if (PARAGRAPH_STYLES.includes(values.paragraphStyle as typeof PARAGRAPH_STYLES[number])) result.paragraphStyle = values.paragraphStyle as AdvancedFormatting['paragraphStyle'];

@@ -17,10 +17,11 @@ export async function testDocumentTools(): Promise<string[]> {
   await db.writings.add(writing);
   const passed: string[] = [];
   try {
-    const formatted = await runBridgeTool('wh_format_writing', { id, expectedUpdatedAt: now, format: { fontFamily: 'Times New Roman', fontSize: 14, color: '#225577', alignment: 'center', lineHeight: 1.5 } });
+    const formatted = await runBridgeTool('wh_format_writing', { id, expectedUpdatedAt: now, format: { fontFamily: 'Times New Roman', fontSize: 96, color: '#225577', alignment: 'center', lineHeight: 4, indent: 9.5 } });
     assert(formatted.ok, 'Formatting failed: ' + formatted.error);
     const stored = await getWriting(id);
     assert(stored?.content.includes('data-wh-font="Times New Roman"') && stored.content.includes('data-wh-align="center"'), 'Format did not persist');
+    assert(stored.content.includes('data-wh-size="96"') && stored.content.includes('data-wh-line-height="4"') && stored.content.includes('data-wh-indent="9.5"'), 'Outside-preset format lost');
     assert(stored.content.includes('👩‍🚀') && stored.content.includes('Árbol'), 'Unicode lost');
     assert((await listSnapshotMeta(id)).length === 1, 'Pre-edit recovery version missing');
     passed.push('MCP dispatch formats persistently and preserves Unicode and recovery');
