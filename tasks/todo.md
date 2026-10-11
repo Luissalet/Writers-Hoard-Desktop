@@ -866,5 +866,12 @@ being implemented with narrative analysis under Agora #140, separately.
 - [x] Preserve Main functions and restore four approved genealogy wiring changes.
 - [x] Preserve generated JS outside source so the app resolves TypeScript.
 - [x] Verify 44 unchanged approved paths and 242 genealogy tests.
-- [ ] Verify native database migrations, HTTP/MCP and hidden UI.
-- [ ] Obtain focused review of integration migration, then integrate and close.
+- [x] Verify native database migrations, HTTP/MCP and hidden UI.
+- [x] Obtain focused review of integration migration, then integrate and close.
+
+Review: approved submission8 (1b53e02), independently checked with94 focused
+tests. Main fd0e5fc1 has the identical approved tree and a successful desktop
+build. Folder imports also passed17 new pure tests, native transactions,
+HTTP/MCP, the full application workflow and a390px layout check. Database38
+migrations preserve reference pins, other tables and existing rows. The Google
+manual and the project knowledge graph were updated after integration.
