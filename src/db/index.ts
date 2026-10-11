@@ -64,10 +64,12 @@ import type {
 } from '@/engines/inquiry/types';
 import type { BetaCommentRow, BetaPackageRow, BetaResponseRow } from '@/services/betaReading/types';
 import type { ReferencePinRow } from '@/services/codexReference/pins';
+import type { GenealogyLinkRow } from '@/engines/genealogy/genealogyStore';
 import { migrateLegacyBoards } from './legacyBoardMigration';
+import { migrateGenealogyLinkV36toV37 } from '@/engines/genealogy/genealogyStore';
 
 /** Single source of truth for migration and compatibility tests. */
-export const CURRENT_DB_VERSION = 37;
+export const CURRENT_DB_VERSION = 38;
 
 export class WritersHoardDB extends Dexie {
   projects!: Table<Project>;
@@ -150,6 +152,7 @@ export class WritersHoardDB extends Dexie {
   betaResponses!: Table<BetaResponseRow>;
   betaComments!: Table<BetaCommentRow>;
   referencePins!: Table<ReferencePinRow>;
+  genealogyLinks!: Table<GenealogyLinkRow>;
 
   constructor() {
     super('WritersHoardDB');
@@ -953,6 +956,10 @@ export class WritersHoardDB extends Dexie {
       betaPackages: 'id, projectId, version, createdAt',
       betaResponses: 'id, projectId, packageId, reader',
       betaComments: 'id, projectId, writingId, packageId, responseId, createdAt',
+      // Genealogy candidates also shipped this table at v36. Retain that
+      // historical declaration so Dexie carries its rows into the v37
+      // upgrader instead of dropping an unrecognized legacy table.
+      genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
     });
 
     // v37: the reference panel's pins ("Consultar"), one row per chapter or
@@ -960,9 +967,62 @@ export class WritersHoardDB extends Dexie {
     // Additive and inert: a separate table, so a pin never writes to the
     // chapter row and cannot collide with its autosave. Old localStorage pins
     // are adopted lazily by services/codexReference/pins.ts.
+    // Also in v37: the genealogy engine's links, whose primary key becomes
+    // the composite projectId+linkId (stored in `id`, original link id in
+    // `linkId`) so two projects can hold links with the same id without
+    // overwriting each other (review r2, P1; migration r3). The upgrader MUST
+    // hang off version(37): a Dexie upgrade callback runs when moving INTO
+    // that version, so one attached to v36 only fires on 35->36. IndexedDB
+    // forbids changing a record's primary key through cursor update, so each
+    // row is rewritten as delete + put inside the same version transaction.
+    // Idempotent for rows still in v36 shape. NOTE (review r5): this callback
+    // only fires when a database OPENS AT v36 or lower; a database already at
+    // v37 that kept a legacy g1 row is repaired by the v38 step below.
+    this.version(37).stores({
+        referencePins: 'id, projectId',
+        genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
+      })
+      .upgrade(async (tx) => {
+        const table = tx.table('genealogyLinks');
+        const rewrites: { oldId: string; row: Record<string, unknown> }[] = [];
+        await table.each((row: Record<string, unknown>) => {
+          const next = migrateGenealogyLinkV36toV37(row);
+          const nextId = typeof next.id === 'string' ? next.id : '';
+          const oldId = typeof row.id === 'string' ? row.id : '';
+          if (next !== row && nextId !== oldId) rewrites.push({ oldId, row: next });
+        });
+        for (const { oldId, row } of rewrites) {
+          await table.delete(oldId);
+          await table.put(row);
+        }
+      });
+
+    // v38: Main already shipped referencePins at v37 without genealogyLinks.
+    // A new version creates the missing table for those databases and repairs
+    // legacy genealogy rows in databases that already reached v37. All other
+    // stores and rows are inherited unchanged from the previous versions.
     this.version(CURRENT_DB_VERSION).stores({
-      referencePins: 'id, projectId',
-    });
+        referencePins: 'id, projectId',
+        genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
+      })
+      .upgrade(async (tx) => {
+        const table = tx.table('genealogyLinks');
+        const rows = await table.toArray() as Record<string, unknown>[];
+        for (const row of rows) {
+          const next = migrateGenealogyLinkV36toV37(row);
+          const oldId = typeof row.id === 'string' ? row.id : '';
+          const nextId = typeof next.id === 'string' ? next.id : '';
+          if (nextId === oldId && next.linkId === row.linkId) continue;
+          // A legacy and a canonical row may both exist after a failed old
+          // migration. Preserve both records instead of overwriting data.
+          if (nextId !== oldId && await table.get(nextId)) {
+            console.warn('[genealogy] Preserved a legacy row whose normalized key is already occupied', oldId);
+            continue;
+          }
+          if (nextId !== oldId) await table.delete(oldId);
+          await table.put(next);
+        }
+      });
   }
 }
 

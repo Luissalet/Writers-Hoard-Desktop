@@ -52,6 +52,20 @@ the text before the cursor, the Codex entries you just mentioned and the project
 style profile. Nothing is sent to a cloud provider, and nothing is suggested
 mid-word, with a selection or in read-only mode.
 
+## Genealogy and imports
+
+Enable **Genealogy** in the project's engines to view explicit parents,
+guardians and partners in a family tree and export it as DOT or text.
+**Codex import** imports Markdown folders from Obsidian, Notion, World Anvil
+or Campfire, with a preview of new entries, duplicates, conflicts and issues.
+Typed JSON collections are also supported. It preserves complete source text,
+adds accepted new entries atomically and can undo the import during the session,
+preserving later edits. Native bridge/MCP tools `wh_codex_import_*` expose this
+flow; `wh_genealogy_*` separately import and apply explicit family links.
+Existing references and project data are preserved by database upgrade v38.
+See [genealogy](docs/GENEALOGY_CONTRACT.md) for supported metadata, JSON shapes,
+session undo and other limits.
+
 ## World bible export
 
 **Project tools → Publishing** compiles selected Codex entries, timelines, maps
