@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import { migrateGenealogyLinkV36toV37 } from '@/engines/genealogy/genealogyStore';
 import type {
   Project,
   CodexEntry,
@@ -942,30 +943,38 @@ export class WritersHoardDB extends Dexie {
     // v36: the genealogy engine's links, one row per directed relationship
     // between two characters of a project (kinds: biological_parent,
     // adoptive_parent, guardian, partner). Primary key `id` = link id.
-    this.version(36)
+    this.version(36).stores({
+      genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
+    });
+    // v37: primary key is the composite projectId+linkId (stored in `id`,
+    // original link id in `linkId`) so two projects can hold links with the
+    // same id without overwriting each other (review r2, P1; migration r3).
+    // The upgrader MUST hang off version(37): a Dexie upgrade callback runs
+    // when moving INTO that version, so one attached to v36 only fires on
+    // 35->36 and a database already at v36 would never migrate (review r4 P1).
+    // IndexedDB forbids changing a record's primary key through cursor
+    // update, so each row is rewritten as delete + put inside the same
+    // version transaction. Idempotent: a row already in v37 shape (composite
+    // id + linkId) is left untouched, so a database that briefly ran v37
+    // code without migrating still ends up correct (review r4 P1).
+    this.version(CURRENT_DB_VERSION)
       .stores({
         genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
       })
       .upgrade(async (tx) => {
-        // v36 -> v37: the primary key cannot change between Dexie versions,
-        // so the composite projectId+linkId now lives IN `id` and the original
-        // link id moves to the new `linkId` field. Rows are rewritten in place
-        // inside the version transaction; malformed rows are left untouched.
         const table = tx.table('genealogyLinks');
-        await table.toCollection().modify((row: Record<string, unknown>) => {
-          const linkId = typeof row.id === 'string' ? row.id : '';
-          const projectId = typeof row.projectId === 'string' ? row.projectId : '';
-          if (linkId === '' || projectId === '' || typeof row.linkId === 'string') return;
-          row.id = `${projectId}\u0000${linkId}`;
-          row.linkId = linkId;
+        const rewrites: { oldId: string; row: Record<string, unknown> }[] = [];
+        await table.each((row: Record<string, unknown>) => {
+          const next = migrateGenealogyLinkV36toV37(row);
+          const nextId = typeof next.id === 'string' ? next.id : '';
+          const oldId = typeof row.id === 'string' ? row.id : '';
+          if (next !== row && nextId !== oldId) rewrites.push({ oldId, row: next });
         });
+        for (const { oldId, row } of rewrites) {
+          await table.delete(oldId);
+          await table.put(row);
+        }
       });
-    // v37: primary key is the composite projectId+linkId (stored in `id`,
-    // original link id in `linkId`) so two projects can hold links with the
-    // same id without overwriting each other (review r2, P1; migration r3).
-    this.version(CURRENT_DB_VERSION).stores({
-      genealogyLinks: 'id, projectId, from, to, kind, [projectId+from], [projectId+to], updatedAt',
-    });
   }
 }
 

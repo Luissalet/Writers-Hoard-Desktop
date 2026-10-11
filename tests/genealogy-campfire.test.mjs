@@ -101,7 +101,7 @@ test('campfire: explicit link ids are honoured; duplicates are rejected', () => 
       { from: 'a1', to: 'd1', type: 'parent' },
     ],
   });
-  assert.deepEqual(r.links.map((l) => l.id), ['x9', 'g2']);
+  assert.deepEqual(r.links.map((l) => l.id), ['x9', 'g1']);
   assert.equal(r.issues.length, 1);
   assert.equal(r.issues[0].code, 'duplicate_id');
 });

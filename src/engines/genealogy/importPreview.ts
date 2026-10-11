@@ -62,11 +62,16 @@ export function previewGenealogyImport(input: {
     existingByPair.set(`${link.from}\u0000${link.to}`, link);
   }
 
-  // Ids derivados (review r3): reservar primero los ids explícitos del lote
-  // y los existentes, y solo después derivar g1..gN para los que no llevan.
-  // deriveLinkIds already reserves the batch's explicit ids internally.
+  // Ids derivados (review r3/r4): reservar primero los ids explícitos del
+  // lote y los existentes, y solo después derivar g1..gN para los que no
+  // llevan. deriveLinkIds already reserves the batch's explicit ids
+  // internally; the returned array is aligned with the FILTERED list, so the
+  // consumer must walk it with its own cursor over the valid entries instead
+  // of indexing by the raw position (review r4 P2: with an invalid entry
+  // before a valid id-less one, the raw index pointed at the wrong id).
+  const validIncoming = input.incoming.filter((raw) => isLink(raw));
   const ids = deriveLinkIds(
-    input.incoming.filter((raw) => isLink(raw)) as unknown as Record<string, unknown>[],
+    validIncoming as unknown as Record<string, unknown>[],
     new Set(existingById.keys()),
   );
   let derivedCursor = 0;
@@ -79,7 +84,12 @@ export function previewGenealogyImport(input: {
     }
     const incoming: GenealogyLink = { ...raw, id: raw.id ?? '' };
     if (incoming.id === '') {
-      incoming.id = ids[index];
+      // ids is aligned with the valid entries: explicit-id entries occupy a
+      // slot too, so the cursor must advance past them (review r4 P2).
+      while (validIncoming[derivedCursor]?.id !== undefined && validIncoming[derivedCursor].id !== '') {
+        derivedCursor++;
+      }
+      incoming.id = ids[derivedCursor];
       derivedCursor++;
     }
 
