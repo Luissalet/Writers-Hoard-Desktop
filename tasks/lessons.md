@@ -1399,3 +1399,13 @@ el alcance; ninguna de las dos cosas aplica a la implementación normal de Write
 - User instruction: reuse useful source as a detached fork owned by Writers, adapted to its UI and APIs. Do not substitute embedding another application, a Git dependency, submodule or upstream update link.
 - Preserve original copyright and required license/asset notices; historical provenance records do not create an operational dependency.
 - Verify the installed application builds and uses its own bundled engine without access to the upstream checkout or repository.
+
+## 2026-10-12 — Distinguish a finished delivery from a finished plan
+
+- User correction: completing a tested editor increment does not finish the whole
+  pending plan or an editor comparison that has not been performed.
+- Report implemented, installed, pending and researched scopes separately. Continue
+  the authorized plan through its explicit task criteria, and never imply a native
+  command catalog is complete UI coverage or proof of every document feature.
+- Package from physical dependencies and smoke the actual artifact before updating;
+  a dependency junction can pass development builds while omitting runtime modules.

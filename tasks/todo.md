@@ -959,3 +959,24 @@ accept/undo/reject/undo, downloads, image previews and unchanged pending HTML.
 The local package retains the exact reviewed native binary 4b1eddfc and all notices.
 Evidence: D:/LocalAI/research-inbox/writer-revisions-activation-20261012 and
 D:/LocalAI/research-inbox/writer-activation-20261011/revisions-full-app.
+
+# Complete editorial workflow and editor comparison
+
+User authorized continuing all pending editor work and incorporating worthwhile
+features from other editors. Agora plan394, research366, editorial354, revision
+interchange367 and Spanish proofing368. Isolated base9621; preserve installed data
+and existing engines. Shared operations serve UI and MCP. No push.
+
+- [ ] Verify official editor capabilities and classify gaps against real Writers code.
+- [ ] Implement persisted sections, editable styles, list numbering and source references.
+- [ ] Exchange own text proposals as DOCX revisions with roundtrip tests.
+- [ ] Deliver Spanish proofing with explicit language, suggestions and quality corpus.
+- [ ] Implement the finite additional improvements selected from the comparison.
+- [ ] Verify area suites, UI, MCP, native corpus and critical checks.
+- [ ] Independently review exact frozen submissions and integrate with merge lock.
+- [ ] Package complete dependencies, test artifact, activate and preserve user data.
+- [ ] Update manual, graph, memory and final evidence with remaining limitations.
+
+Success is observable user workflows and roundtrip behavior, not just native
+command count. Selected comparison improvements will have separate task criteria.
+No claim of universal document parity or exhaustive feature completeness.
