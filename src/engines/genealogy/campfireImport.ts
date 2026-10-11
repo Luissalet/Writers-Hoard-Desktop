@@ -32,7 +32,7 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '';
 }
 
-export function importGenealogyCampfire(data: unknown): GenealogyImportResult {
+export function importGenealogyCampfire(data: unknown, existingIds: ReadonlySet<string> = new Set()): GenealogyImportResult {
   const issues: GenealogyImportIssue[] = [];
   const links: GenealogyImportResult['links'] = [];
 
@@ -94,7 +94,7 @@ export function importGenealogyCampfire(data: unknown): GenealogyImportResult {
 
   // Derive ids for the entries without one (review r4 P2): reserve the
   // batch's explicit ids first so a derived id never collides with one of them.
-  const ids = deriveLinkIds(links as unknown as Record<string, unknown>[], new Set());
+  const ids = deriveLinkIds(links as unknown as Record<string, unknown>[], existingIds);
   links.forEach((link, i) => { if (link.id === '') link.id = ids[i]; });
 
   return { links, issues };

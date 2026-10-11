@@ -62,19 +62,15 @@ export function previewGenealogyImport(input: {
     existingByPair.set(`${link.from}\u0000${link.to}`, link);
   }
 
-  // Ids derivados (review r3/r4): reservar primero los ids explícitos del
-  // lote y los existentes, y solo después derivar g1..gN para los que no
-  // llevan. deriveLinkIds already reserves the batch's explicit ids
-  // internally; the returned array is aligned with the FILTERED list, so the
-  // consumer must walk it with its own cursor over the valid entries instead
-  // of indexing by the raw position (review r4 P2: with an invalid entry
-  // before a valid id-less one, the raw index pointed at the wrong id).
-  const validIncoming = input.incoming.filter((raw) => isLink(raw));
+  // Ids derivados (review r3/r4/r5): deriveLinkIds corre sobre la lista RAW
+  // (las entradas inválidas conservan su hueco) para que la asignación sea
+  // idéntica a la de applyGenealogy (review r5 P2-2: en un lote mixto
+  // [inválida, sin id] preview y apply prometían ids distintos). Los ids
+  // existentes del proyecto se reservan aquí también (review r5 P2-1).
   const ids = deriveLinkIds(
-    validIncoming as unknown as Record<string, unknown>[],
+    input.incoming as unknown as Record<string, unknown>[],
     new Set(existingById.keys()),
   );
-  let derivedCursor = 0;
 
   for (let index = 0; index < input.incoming.length; index++) {
     const raw = input.incoming[index];
@@ -84,13 +80,7 @@ export function previewGenealogyImport(input: {
     }
     const incoming: GenealogyLink = { ...raw, id: raw.id ?? '' };
     if (incoming.id === '') {
-      // ids is aligned with the valid entries: explicit-id entries occupy a
-      // slot too, so the cursor must advance past them (review r4 P2).
-      while (validIncoming[derivedCursor]?.id !== undefined && validIncoming[derivedCursor].id !== '') {
-        derivedCursor++;
-      }
-      incoming.id = ids[derivedCursor];
-      derivedCursor++;
+      incoming.id = ids[index];
     }
 
     const byId = existingById.get(incoming.id);

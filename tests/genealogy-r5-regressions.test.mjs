@@ -124,13 +124,15 @@ test('campfire parser: derived ids skip explicit ids of the same batch', () => {
 test('preview: an invalid entry before a valid id-less one no longer shifts ids', () => {
   const r = previewGenealogyImport({
     incoming: [
-      { from: 'A', to: 'B', kind: 'nonsense_kind' }, // invalid: filtered out
-      { from: 'A', to: 'B', kind: 'biological_parent' }, // valid, no id -> g1
+      { from: 'A', to: 'B', kind: 'nonsense_kind' }, // invalid: keeps its slot
+      { from: 'A', to: 'B', kind: 'biological_parent' }, // valid, no id -> g2
     ],
     existing: [],
   });
   assert.equal(r.additions.length, 1);
-  assert.equal(r.additions[0].id, 'g1');
+  // Review r5 P2-2: ids are derived over the RAW list so preview and apply
+  // agree; the invalid entry consumes g1's slot in BOTH paths.
+  assert.equal(r.additions[0].id, 'g2');
 });
 
 test('preview: a null entry in the batch is reported as invalid, not a crash', () => {
@@ -140,7 +142,9 @@ test('preview: a null entry in the batch is reported as invalid, not a crash', (
   });
   assert.deepEqual(r.issues, [{ index: 0, reason: 'invalid_link' }]);
   assert.equal(r.additions.length, 1);
-  assert.equal(r.additions[0].id, 'g1');
+  // Review r5 P2-2: the null consumes g1's slot in the raw derivation, so
+  // the valid entry gets g2 — the same id apply will assign.
+  assert.equal(r.additions[0].id, 'g2');
 });
 
 test('deriveLinkIds tolerates null/non-object entries', () => {
