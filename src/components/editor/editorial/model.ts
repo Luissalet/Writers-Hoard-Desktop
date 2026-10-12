@@ -16,6 +16,7 @@ export interface EditorialSection {
 export interface EditorialReference {
   id: string; title: string; authors?: string[]; publisher?: string; publishedAt?: string;
   url?: string; updatedAt?: number; retractedAt?: number;
+  researchEvidence?: { id: string; statement?: string; quote?: string }[];
 }
 export interface EditorialCitation {
   id: string; sourceId: string; label: string; locator?: string; evidenceId?: string;

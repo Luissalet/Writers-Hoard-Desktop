@@ -43,6 +43,25 @@ export async function testEditorialUi(): Promise<string[]> {
   const passed: string[] = [];
   {
     const test = rig();
+    const source = { ...REFERENCES[0], researchEvidence: [{ id: 'own-excerpt', quote: 'Texto comprobado de esta fuente.' }] };
+    try {
+      await test.render([source]); await test.click('Herramientas editoriales'); await test.click('Citas y bibliografía');
+      await test.input('Fuente de Investigación', source.id);
+      const picker = test.host.querySelector<HTMLSelectElement>('[aria-label="Extracto de la fuente (opcional)"]');
+      assert(picker?.options.length === 2 && picker.options[1].value === 'own-excerpt', 'Only the selected source evidence is offered');
+      await test.input('Extracto de la fuente (opcional)', 'own-excerpt');
+      const before = test.editor.getHTML();
+      await test.render([{ ...source, researchEvidence: [] }]); await test.click('Insertar cita');
+      assert(test.editor.getHTML() === before && test.host.querySelector('[role="alert"]'), 'Removed evidence cannot become a stale source link');
+      await test.render([source]); await test.click('Insertar cita');
+      assert(describeEditorial(test.editor).citations[0]?.evidenceId === 'own-excerpt', 'Existing evidence remains traceable');
+      await act(async () => { test.editor.commands.undo(); });
+      assert(test.editor.getHTML() === before, 'Valid citation insertion retains ordinary undo');
+      passed.push('real source excerpt picker revalidates removed evidence and preserves undo');
+    } finally { await test.dispose(); }
+  }
+  {
+    const test = rig();
     try {
       await test.render(); await test.click('Herramientas editoriales'); await test.select('Primer', 6);
       await act(async () => { applyAdvancedFormatting(test.editor, { fontSize: 19, color: '#225577', alignment: 'center' }); test.editor.commands.setBold(); });
