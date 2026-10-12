@@ -25,6 +25,7 @@ pub const NAMESPACES: &[(&str, &str)] = &[
     ("c", "http://schemas.openxmlformats.org/drawingml/2006/chart"),
     ("pic", "http://schemas.openxmlformats.org/drawingml/2006/picture"),
     ("mc", "http://schemas.openxmlformats.org/markup-compatibility/2006"),
+    ("wh", "urn:writers-hoard:document:1"),
     ("w14", "http://schemas.microsoft.com/office/word/2010/wordml"),
     ("w15", "http://schemas.microsoft.com/office/word/2012/wordml"),
     ("wp14", "http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"),
@@ -434,7 +435,9 @@ impl W {
 /// `xmlns:` declarations for the body-part namespaces, plus `mc:Ignorable`.
 pub fn body_ns() -> Vec<(String, String)> {
     let mut v: Vec<(String, String)> = NAMESPACES.iter().map(|(p, u)| (format!("xmlns:{p}"), (*u).to_string())).collect();
-    v.push(("mc:Ignorable".into(), "w14 w15 wp14".into()));
+    v.push(("mc:Ignorable".into(), "w14 w15 wp14 wh".into()));
+    v.push(("mc:PreserveAttributes".into(), "wh:revisionId wh:groupId wh:source wh:createdAt wh:sectionId wh:noteId".into()));
+    v.push(("mc:PreserveElements".into(), "wh:citation wh:bibliography wh:styleDefinitions wh:chapterHeading wh:list".into()));
     v
 }
 

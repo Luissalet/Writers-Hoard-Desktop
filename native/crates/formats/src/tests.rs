@@ -83,6 +83,7 @@ fn para_texts(doc: &Document) -> Vec<String> {
     fn walk(b: &[FBlock], out: &mut Vec<String>) {
         for x in b {
             match x {
+                FBlock::Section(_) | FBlock::StyleDefinition(_) => {}
                 FBlock::Para(p) => {
                     let t = p.text();
                     if !t.trim().is_empty() {

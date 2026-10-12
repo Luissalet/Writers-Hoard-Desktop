@@ -312,11 +312,18 @@ pub struct Revision {
     /// insertion or deletion.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub move_name: Option<String>,
+    /// Writers proposal identity, independent of Word's per-change numeric ids.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub own_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<f64>,
 }
 
 impl Revision {
     pub fn new(kind: RevisionKind, author: impl Into<String>, date: impl Into<String>) -> Revision {
-        Revision { kind, author: author.into(), date: date.into(), move_name: None }
+        Revision { kind, author: author.into(), date: date.into(), ..Default::default() }
     }
 }
 

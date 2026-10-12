@@ -133,7 +133,7 @@ impl DocumentEngine {
                     })
                     .collect::<Vec<_>>();
                 Ok(
-                    json!({"protocolVersion":1,"name":"Writers document engine","totalCommands":session.registry.all().len(),"commands":commands,"actions":ACTIONS,"positionUnit":"utf8Bytes"}),
+                    json!({"protocolVersion":1,"name":"Writers document engine","totalCommands":session.registry.all().len(),"commands":commands,"actions":ACTIONS,"positionUnit":"utf8Bytes","capabilities":{"htmlRevisionInterchange":true,"editorialStyles":true,"editorialSections":true,"editorialCitations":true,"renderMarkup":true}}),
                 )
             }
             "document.new" => {
@@ -193,7 +193,10 @@ impl DocumentEngine {
             "document.text" => Ok(json!({"text":self.session(args)?.doc.plain_text(StoryRef::Body)})),
             "document.exportHtml" => {
                 let session = self.session(args)?;
-                Ok(json!({"html":writer_formats::html::export(&session.doc),"assets":archive::encode_assets(&session.doc.media)}))
+                let include_revisions = args.get("includeRevisions").and_then(Value::as_bool).unwrap_or(false);
+                Ok(
+                    json!({"html":writer_formats::html::export_with_revisions(&session.doc, include_revisions),"assets":archive::encode_assets(&session.doc.media),"includeRevisions":include_revisions,"warnings":if include_revisions { writer_formats::writers::revision_warnings(&session.doc) } else { Vec::new() }}),
+                )
             }
             "document.exportBytes" => {
                 let format = required(args, "format")?;
@@ -234,19 +237,33 @@ impl DocumentEngine {
                 if !scale.is_finite() || scale <= 0.0 {
                     return Err("scale must be a positive finite number".into());
                 }
-                let layout = session.export_layout();
+                let include_markup = args.get("includeMarkup").and_then(Value::as_bool).unwrap_or(false);
+                let mut snapshot = session.clone();
+                if !include_markup {
+                    snapshot.run("review.acceptAll", &json!({})).map_err(|error| error.to_string())?;
+                }
+                let layout = snapshot.export_layout();
                 let page = layout.pages.get((page - 1) as usize).ok_or("page does not exist")?;
-                let image = writer_render::render_page(&session.doc, page, scale, &Default::default());
+                let mut options = writer_render::RenderOptions::default();
+                options.display.markup = include_markup;
+                let image = writer_render::render_page(&snapshot.doc, page, scale, &options);
                 let png = image.to_png();
                 if png.is_empty() {
                     return Err("page could not be encoded as PNG".into());
                 }
-                Ok(json!({"mimeType":"image/png","dataBase64":STANDARD.encode(png),"width":image.width,"height":image.height}))
+                Ok(
+                    json!({"mimeType":"image/png","dataBase64":STANDARD.encode(png),"width":image.width,"height":image.height,"pageCount":layout.pages.len(),"includeMarkup":include_markup}),
+                )
             }
             "document.exportPdf" => {
                 let session = self.session(args)?;
+                let include_markup = args.get("includeMarkup").and_then(Value::as_bool).unwrap_or(false);
+                let mut snapshot = session.clone();
+                if !include_markup {
+                    snapshot.run("review.acceptAll", &json!({})).map_err(|error| error.to_string())?;
+                }
                 let bytes = writer_pdf::export(
-                    &session.doc,
+                    &snapshot.doc,
                     &writer_pdf::PdfOptions {
                         include_markup: args.get("includeMarkup").and_then(Value::as_bool).unwrap_or(false),
                         ..Default::default()

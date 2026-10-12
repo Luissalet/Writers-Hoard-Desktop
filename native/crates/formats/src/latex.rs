@@ -131,6 +131,7 @@ impl Writer {
                 }
             }
             match b {
+                FBlock::Section(_) | FBlock::StyleDefinition(_) => {}
                 FBlock::Para(p) if p.list.is_some() => {
                     let text = self.inlines(&p.inlines);
                     self.page_break(p);
@@ -2371,7 +2372,7 @@ impl<'a> Parser<'a> {
         let level = self.lists.len().saturating_sub(1).min(8) as u8;
         self.para = Para::default();
         if let Some(&ordered) = self.lists.last() {
-            self.para.list = Some(ListInfo { ordered, level });
+            self.para.list = Some(ListInfo { ordered, level, start: None });
         }
         let label = self.opt_arg();
         if let Some(l) = label {
@@ -2890,8 +2891,8 @@ Caf\'e na\"ive \c{c}a \v{s}\'{e} and {\bfseries grouped bold} after.
         assert_eq!(find("On Sample Documents").kind, Kind::Title);
         assert_eq!(find("Introduction").kind, Kind::Heading(1));
         assert_eq!(find("Lists").kind, Kind::Heading(2));
-        assert_eq!(find("First").list, Some(ListInfo { ordered: false, level: 0 }));
-        assert_eq!(find("Nested one").list, Some(ListInfo { ordered: true, level: 1 }));
+        assert_eq!(find("First").list, Some(ListInfo { ordered: false, level: 0, start: None }));
+        assert_eq!(find("Nested one").list, Some(ListInfo { ordered: true, level: 1, start: None }));
         assert!(ps.iter().any(|p| p.text().trim() == "b) Nested two" && p.list.is_some()), "{:?}", texts(ARTICLE));
         assert_eq!(find("Quoted text.").kind, Kind::Quote);
         assert_eq!(find("Centered.").align, Some(Align::Center));

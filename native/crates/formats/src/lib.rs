@@ -17,6 +17,7 @@ pub mod odt;
 pub mod rtf;
 pub mod sheet;
 pub mod txt;
+pub mod writers;
 
 use writer_doc::Document;
 

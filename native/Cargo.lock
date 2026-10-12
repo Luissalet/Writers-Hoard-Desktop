@@ -1755,6 +1755,7 @@ dependencies = [
  "writer-formats",
  "writer-pdf",
  "writer-render",
+ "zip",
 ]
 
 [[package]]
@@ -1825,6 +1826,7 @@ dependencies = [
  "log",
  "proptest",
  "quick-xml",
+ "serde_json",
  "writer-doc",
  "writer-geom",
  "zip",

@@ -433,6 +433,8 @@ impl DocGrid {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct SectionProps {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writers_section_id: Option<String>,
     pub start: SectionStart,
     /// Page width/height, points (already swapped for landscape).
     pub page_w: f32,
@@ -475,6 +477,7 @@ impl Default for SectionProps {
     /// Word's default: US Letter, 1" margins, 0.5" header/footer distance.
     fn default() -> Self {
         SectionProps {
+            writers_section_id: None,
             start: SectionStart::NextPage,
             page_w: 612.0,
             page_h: 792.0,
