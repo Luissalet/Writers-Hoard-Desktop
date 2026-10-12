@@ -1,6 +1,8 @@
 # Español local: alternativas y criterio de calidad
 
-Investigación documental, tarea368,12-10-2026. No se ejecutaron estos motores ni se midió su precisión. Corpus propuesto en `research-inbox/writers-editor-expansion-20261012/comparison/spanish-corpus.json`; sus expectativas son referencias de prueba, no una puntuación obtenida.
+Investigación documental y entrega local, tarea368,12-10-2026. La comparación de alternativas usa documentación primaria; no se ejecutaron todos los correctores para compararlos entre sí. Se probaron nspell con el diccionario es-ES y LanguageTool 6.6 locales sobre el corpus registrado en `research-inbox/writers-editor-expansion-20261012/comparison/spanish-corpus.json`.
+
+Medición: 30 casos de ortografía/gramática, TP12, TN17, FP1, FN0. El falso positivo corresponde al uso adversativo legítimo «mas»: la sugerencia se ofrece para revisión, sin corregir automáticamente. Los cinco casos de guionado del corpus son un frente separado de impresión y no cuentan en esta puntuación. Se probaron Worker real, diccionario persistente, corrección/undo/reapertura y servicio Java con 55.000 caracteres, arranque concurrente y cierre de su propio proceso. Esto no mide precisión general del español ni establece superioridad sobre otros correctores.
 
 La base actual no es un corrector español: `native/crates/proof/src/lib.rs` usa Moby y `en-extra.txt`, flexiones inglesas y reglas a/an; `hyphen.rs` carga patrones en-us. Traducir los mensajes no traduce la lengua del algoritmo. Chromium spellcheck por sí solo no proporciona el mismo contrato reproducible aUI/MCP/núcleo.
 

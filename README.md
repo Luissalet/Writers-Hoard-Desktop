@@ -44,9 +44,21 @@ The Changes panel keeps anchored proposals with their author, source and date.
 It records ordinary paragraph edits, accepts or rejects proposals within the
 current chapter and preserves them through save, reload and undo. UI and MCP
 share the same operations. Document previews and downloads can use Final or
-Original text without changing pending proposals; these downloads contain the
-chosen text, not review marks. Own proposals are not yet exported as Word
-tracked changes. See [scope and verification](docs/editor-revisions/README.md).
+Original text without changing pending proposals. A separate DOCX download keeps
+compatible pending changes with author, date and proposal identity; importing
+them preserves editable revisions. Final/Original downloads keep their selected
+text. See [scope and verification](docs/editor-revisions/README.md).
+
+The Editorial panel stores reusable named styles, section geometry, literal
+headers/footers, signed list starts and inline references linked to project
+sources. Styles are materialized presets, not a complete word-processor cascade.
+The heading navigator derives its outline directly from the current manuscript.
+Spanish proofing offers local spelling, a persistent project dictionary and
+optional local grammar suggestions. Grammar uses the bundled LanguageTool 6.6
+runtime and requires Java 17 or newer on the computer; spelling works without
+Java. Suggestions are reviewable and reversible, not guarantees of correctness.
+UI and the six new MCP tools share these operations. See the
+[editor comparison and measured Spanish corpus](docs/editor-comparison/README.md).
 
 ## Shared Faustus copilot
 

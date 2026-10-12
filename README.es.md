@@ -40,9 +40,21 @@ El panel Cambios conserva propuestas ancladas con autor, origen y fecha.
 Registra ediciones ordinarias del párrafo y permite aceptar o rechazar dentro
 del capítulo actual, con guardado, reapertura y deshacer. UI y MCP comparten las
 operaciones. Documento previsualiza y descarga texto Final u Original sin
-modificar las propuestas pendientes; las descargas contienen el texto elegido
-y no marcas de revisión. Todavía no se exportan las propuestas propias como
-control de cambios de Word. Consulta [alcance y pruebas](docs/editor-revisions/README.md).
+modificar las propuestas pendientes. Una descarga DOCX independiente conserva
+los cambios compatibles con autor, fecha e identidad de propuesta; al importarlos
+siguen siendo revisiones editables. Final/Original conserva el texto elegido.
+Consulta [alcance y pruebas](docs/editor-revisions/README.md).
+
+Editorial guarda estilos nombrados reutilizables, geometría de secciones,
+cabeceras/pies literales, numeración de listas y citas ligadas a las fuentes del
+proyecto. Los estilos son presets materializados, sin una cascada completa de
+procesador de textos. El navegador obtiene los encabezados del manuscrito actual.
+La revisión del español ofrece ortografía local, diccionario persistente por
+proyecto y sugerencias gramaticales locales opcionales. La gramática usa
+LanguageTool 6.6 incluido y requiere Java 17 o posterior en el equipo; la
+ortografía funciona sin Java. Las sugerencias se revisan y se pueden deshacer.
+La interfaz y seis herramientas MCP nuevas comparten estas operaciones. Consulta
+la [comparativa y el corpus español medido](docs/editor-comparison/README.md).
 
 ## IA y asistentes externos
 
