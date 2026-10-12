@@ -539,6 +539,7 @@ export const PROJECT_SETTING_PREFIXES = {
   sprintLog: 'writingStats.sprintLog.',
   activeSprint: 'writingStats.activeSprint.',
   proofreaderDismissed: 'proofreader.dismissed.',
+  spanishPersonalWords: 'proofing:es-ES:',
   savedSearches: 'commandCenter.savedSearches.',
   /** Written by `saveGroundedAiPrivacy` in `services/projectTools.ts`. */
   groundedAiPrivacy: 'project-tools.ai-privacy.',

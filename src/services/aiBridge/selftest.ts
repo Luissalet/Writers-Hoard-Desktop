@@ -993,6 +993,8 @@ async function runInquiryChecks(h: Harness, projectId: string): Promise<void> {
 const PARENT_PROBE_TOOLS = [
   'wh_update_writing', 'wh_append_writing', 'wh_restore_writing_version',
   'wh_propose_writing_revision', 'wh_resolve_writing_revisions',
+  'wh_edit_writing_editorial',
+  'wh_apply_writing_language_suggestion', 'wh_manage_writing_dictionary',
   'wh_update_codex_entry', 'wh_update_diary_entry', 'wh_update_note',
   'wh_create_event', 'wh_update_event', 'wh_connect_events',
   'wh_create_beat', 'wh_update_beat',
@@ -1141,6 +1143,9 @@ async function buildGuardProbes(
       ['wh_update_writing', { id: writingId, content: 'x' }],
       ['wh_propose_writing_revision', { id: writingId, from: 1, to: 1, text: 'x' }],
       ['wh_resolve_writing_revisions', { id: writingId, decision: 'accept' }],
+      ['wh_edit_writing_editorial', { id: writingId, operation: { kind: 'removeStyle', id: 'probe' } }],
+      ['wh_apply_writing_language_suggestion', { id: writingId, finding: { from: 1, to: 1, original: '' }, replacement: 'x' }],
+      ['wh_manage_writing_dictionary', { id: writingId, word: 'probe', action: 'add' }],
       ['wh_append_writing', { id: writingId, content: 'x' }],
       ['wh_restore_writing_version', { snapshotId }],
       ['wh_update_codex_entry', { id: characterId, title: 'x' }],

@@ -1,0 +1,2 @@
+import { s, type BridgeTool } from './schema';
+export const NAVIGATION_TOOLS: BridgeTool[] = [{ name: 'wh_get_writing_headings', writes: false, description: 'Consulta los encabezados del cuerpo de un capítulo y sus posiciones actuales.\nDevuelve nivel, texto, rango ProseMirror y updatedAt; no crea capítulos ni cambia el manuscrito. El navegador de la interfaz usa la misma estructura derivada.', schema: { type: 'object', properties: { id: s('Id del capítulo.') }, required: ['id'], additionalProperties: false } }];
