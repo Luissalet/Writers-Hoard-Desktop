@@ -973,10 +973,46 @@ and existing engines. Shared operations serve UI and MCP. No push.
 - [x] Deliver Spanish proofing with explicit language, suggestions and quality corpus.
 - [x] Implement the finite additional improvements selected from the comparison.
 - [x] Verify area suites, UI, MCP, native corpus and critical checks.
-- [ ] Independently review exact frozen submissions and integrate with merge lock.
-- [ ] Package complete dependencies, test artifact, activate and preserve user data.
-- [ ] Update manual, graph, memory and final evidence with remaining limitations.
+- [x] Independently review exact frozen submissions and integrate with merge lock.
+- [x] Package complete dependencies, test artifact, activate and preserve user data.
+- [x] Update manual, graph, memory and final evidence with remaining limitations.
 
 Success is observable user workflows and roundtrip behavior, not just native
 command count. Selected comparison improvements will have separate task criteria.
 No claim of universal document parity or exhaustive feature completeness.
+
+# Spanish print hyphenation
+
+Agora414 closes the printing gap identified in the comparison, separately from
+spelling and grammar quality. Work starts from reviewed663e33d in a second clone.
+
+- [x] Expose inherited, Spanish and English print language with automatic hyphenation options; preserve defaults and manuscript text.
+- [x] Add Spanish Unicode patterns with notices and effective language selection in native layout.
+- [x] Share immutable print options and original-word cut queries through UI and MCP.
+- [x] Verify the five Spanish corpus cases, English regressions, DOCX settings/language, PDF selectable text and unchanged source/history.
+- [x] Independently review exact source/binary; integrate, verify final package and activate with recoverable backups.
+
+# Footer and footnote layout repair
+
+Agora422: real PDF geometry showed the note separator crossing the footer when
+bottom margin and footer distance were both36pt. Reserve the effective footer
+before paginating body and notes, as already done for headers.
+
+- [x] Repair footer reservation for normal, first, even and inherited stories without changing document data.
+- [x] Verify non-overlap of note area/separator and footer, split notes across pages, and unchanged ordinary72/36 geometry.
+- [x] Independently review the combined414/422 source and exact native binary, then verify and activate the final artifact.
+
+# Book editor first-edit autosave
+
+Agora426: both reviewed663 and the printing clone reproduced a real handoff race.
+The editor arrives before the parent's later ref effect; an edit in that interval
+never marks the session dirty or starts its autosave timer. A memory-only control
+proved immediate reference adoption fixes the unchanged book workflow test.
+
+- [x] Adopt the live editor synchronously through a stable callback while retaining the readable destroyed reference for unmount flush.
+- [x] Preserve book identity guards and add a deterministic first-edit regression; run book scope and full critical suite.
+- [x] Independently review exact TS commit, verify the final real package and preserve current user data when activating.
+
+
+Final review:414N1/422N1/426N1 approved on exact0b0ae6f/abf757a/f49852e.
+Installed final ASARf5aaa8d96cb5f5d17ae25c4bfc94962ee477b46056d26663f427cd9376f5287a and native776a21f2ca5924aa8eaf73424af157d75ce53c220b1489527ebd0353b75470ea. Actual package Main/preload/renderer,34externalMCPcalls/catalog203, realBook firstedit/close/reopen, language/DOCX/PDF/PNG, Worker/Java/dictionary3processes pass. Source/user rows preserved;5projects/5texts/updatedAt exact. Fresh recoverable backups.383critical/13Books/290native affected PASS; manual/graph/memory updated. Evidence D:/LocalAI/research-inbox/writers-editor-expansion-20261012/INFORME-FINAL.md and final-activation.
