@@ -17,7 +17,7 @@
 // editor documents on its own `key`: a `setContent` on a live editor lands on
 // the undo stack, and it would also have to get past the heading guard.
 
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { AnyExtension, Editor } from '@tiptap/react';
 import { Fragment } from '@tiptap/pm/model';
 import { createDocument } from '@tiptap/core';
@@ -309,9 +309,7 @@ export default function BookEditor({
 
   const [generation, setGeneration] = useState(0);
   const [loaded, setLoaded] = useState<LoadedBook | null>(null);
-  // The setter goes straight to `onEditorReady`: it has to be the same
-  // function on every render, or the child's effect tears down and re-hands
-  // the editor on each one and the two never settle.
+  // The handoff below stays stable so the child does not tear it down on renders.
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
   const pageCount = usePageCount(editorInstance);
   const [saveState, setSaveState] = useState<SaveState>('saved');
@@ -348,6 +346,13 @@ export default function BookEditor({
   const sessionRef = useRef<BookSession>(newSession());
   const editorRef = useRef<Editor | null>(null);
   const loadedRef = useRef<LoadedBook | null>(null);
+  const acceptEditor = useCallback((next: Editor | null) => {
+    // An edit can arrive before React commits the state update and its effects.
+    // Install the owner reference at handoff, not in a later passive effect.
+    if (next) editorRef.current = next;
+    // Keep the last readable state on teardown for the unmount flush below.
+    setEditorInstance(next);
+  }, []);
   const onRefreshRef = useRef(onRefresh);
   const mountedRef = useRef(true);
   // The absorber of the merge being confirmed, kept until its deletion lands.
@@ -355,9 +360,6 @@ export default function BookEditor({
   // The heading node's callbacks, assigned below once the handlers exist.
   const hostRef = useRef<HostCallbacks | null>(null);
 
-  useEffect(() => {
-    editorRef.current = editorInstance;
-  }, [editorInstance]);
   useEffect(() => {
     loadedRef.current = loaded;
   }, [loaded]);
@@ -1328,7 +1330,7 @@ export default function BookEditor({
             onDocumentChange={handleChange}
             placeholder={t('writings.startWriting')}
             extensions={loaded.extensions}
-            onEditorReady={setEditorInstance}
+            onEditorReady={acceptEditor}
             layout={readingPrefs.layout}
             pageLayout={pageLayout}
             footnoteStyle={footnoteStyle}
