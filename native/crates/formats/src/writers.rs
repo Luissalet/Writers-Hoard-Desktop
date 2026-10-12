@@ -152,7 +152,7 @@ pub(crate) fn section_from_json(doc: &mut writer_doc::Document, value: &serde_js
 }
 
 pub(crate) fn section_json(doc: &writer_doc::Document, section: &writer_doc::SectionProps) -> serde_json::Value {
-    let text = |id: Option<u32>| id.map(|id| doc.plain_text(writer_doc::StoryRef::Part(id)).trim_end_matches('\n').to_string()).unwrap_or_default();
+    let text = |id: Option<u32>| id.map(|id| doc.plain_text(writer_doc::StoryRef::Part(id))).unwrap_or_default();
     serde_json::json!({"id":section.writers_section_id,"start":section.start,"pageWidth":section.page_w,"pageHeight":section.page_h,"marginTop":section.margin_top,"marginRight":section.margin_right,"marginBottom":section.margin_bottom,"marginLeft":section.margin_left,"header":text(section.headers.default),"footer":text(section.footers.default)})
 }
 

@@ -546,6 +546,9 @@ impl Reader<'_> {
                 let fid = k.attr("w:id").and_then(int).unwrap_or(i64::MIN);
                 let map = if foot { &self.footnotes } else { &self.endnotes };
                 if let Some(id) = map.get(&fid).copied() {
+                    if let Some(own) = k.attr("wh:noteId") {
+                        self.doc.set_custom_prop(&format!("writers.footnote.{id}"), own);
+                    }
                     let kind = if foot { NoteKind::Footnote } else { NoteKind::Endnote };
                     let custom = on_off_attr(k, "w:customMarkFollows").then(String::new);
                     *note = Some((kind, id, custom));

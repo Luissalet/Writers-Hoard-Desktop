@@ -579,3 +579,40 @@ fn section_note_part_remapping_preserves_note_identity_and_neighbor_formatting()
     assert!(html.contains("data-footnote-id=\"note-ñ\""), "{html}");
     assert!(html.contains("[1]</span><sup"), "{html}");
 }
+
+#[test]
+fn literal_header_footer_and_note_whitespace_survives_docx_html_and_current_edits() {
+    let mut engine = DocumentEngine::default();
+    let header = "\nCabecera </script> & ñ\nSegunda línea.\n\n";
+    let footer = "  Pie ñ\n\n";
+    let note = "\n  Nota ñ\nSegunda línea.\n\n";
+    let section = writer_formats::html::esc(&json!({"id":"section","start":"continuous","pageWidth":595,"pageHeight":842,"marginTop":60,"marginBottom":60,"marginLeft":55,"marginRight":55,"header":header,"footer":footer}).to_string().replace('<', "\\u003c").replace('>', "\\u003e").replace('&', "\\u0026"));
+    let id = import_html(
+        &mut engine,
+        &format!(
+            "<div hidden data-wh-section=\"{section}\"></div><p>Prosa<sup data-footnote-id=\"literal-note\" data-footnote=\"{}\"></sup></p>",
+            writer_formats::html::esc(note)
+        ),
+    );
+    let assert_stories = |doc: &Document, expected_note: &str| {
+        assert_eq!(doc.plain_text(StoryRef::Part(doc.last_section.headers.default.unwrap())), header);
+        assert_eq!(doc.plain_text(StoryRef::Part(doc.last_section.footers.default.unwrap())), footer);
+        let id = doc.parts.iter().find(|(_, part)| part.kind == writer_doc::PartKind::Footnote).unwrap().0;
+        assert_eq!(doc.plain_text(StoryRef::Part(*id)), expected_note);
+    };
+    assert_stories(&engine.sessions[&id].doc, note);
+    let (reopened, _) = reopen_docx(&mut engine, &id);
+    assert_stories(&engine.sessions[&reopened].doc, note);
+    let exported = engine.dispatch("document.exportHtml", &json!({"sessionId":reopened,"includeRevisions":true})).unwrap();
+    assert_stories(&writer_formats::html::import(exported["html"].as_str().unwrap()), note);
+    // Read the edited native story, never a cached copy of the imported HTML body.
+    let doc = &mut engine.sessions.get_mut(&reopened).unwrap().doc;
+    let note_id = *doc.parts.iter().find(|(_, part)| part.kind == writer_doc::PartKind::Footnote).unwrap().0;
+    let paragraph = doc.para_mut(StoryRef::Part(note_id), &writer_doc::Path::top(0)).unwrap();
+    paragraph.insert_text(paragraph.len(), "Edición nueva\n", &Default::default()).unwrap();
+    let edited = format!("{note}Edición nueva\n");
+    let exported = engine.dispatch("document.exportHtml", &json!({"sessionId":reopened,"includeRevisions":true})).unwrap();
+    assert_stories(&writer_formats::html::import(exported["html"].as_str().unwrap()), &edited);
+    let (again, _) = reopen_docx(&mut engine, &reopened);
+    assert_stories(&engine.sessions[&again].doc, &edited);
+}
