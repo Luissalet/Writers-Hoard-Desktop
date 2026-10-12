@@ -967,12 +967,12 @@ features from other editors. Agora plan394, research366, editorial354, revision
 interchange367 and Spanish proofing368. Isolated base9621; preserve installed data
 and existing engines. Shared operations serve UI and MCP. No push.
 
-- [ ] Verify official editor capabilities and classify gaps against real Writers code.
-- [ ] Implement persisted sections, editable styles, list numbering and source references.
-- [ ] Exchange own text proposals as DOCX revisions with roundtrip tests.
-- [ ] Deliver Spanish proofing with explicit language, suggestions and quality corpus.
-- [ ] Implement the finite additional improvements selected from the comparison.
-- [ ] Verify area suites, UI, MCP, native corpus and critical checks.
+- [x] Verify official editor capabilities and classify gaps against real Writers code.
+- [x] Implement persisted sections, editable styles, list numbering and source references.
+- [x] Exchange own text proposals as DOCX revisions with roundtrip tests.
+- [x] Deliver Spanish proofing with explicit language, suggestions and quality corpus.
+- [x] Implement the finite additional improvements selected from the comparison.
+- [x] Verify area suites, UI, MCP, native corpus and critical checks.
 - [ ] Independently review exact frozen submissions and integrate with merge lock.
 - [ ] Package complete dependencies, test artifact, activate and preserve user data.
 - [ ] Update manual, graph, memory and final evidence with remaining limitations.
