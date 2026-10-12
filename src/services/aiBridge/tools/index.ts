@@ -10,6 +10,9 @@
 import type { ToolArgs } from './shared';
 import { DOCUMENT_HANDLERS } from './documents';
 import { REVISION_HANDLERS } from './revisions';
+import { EDITORIAL_HANDLERS } from './editorialDocument';
+import { PROOFING_HANDLERS } from './proofing';
+import { whGetWritingHeadings } from './navigation';
 import { db } from '@/db';
 import type { GenealogyLinkRow } from '@/engines/genealogy/genealogyStore';
 import { createGenealogyBridgeHandlers } from './genealogy';
@@ -234,6 +237,9 @@ const codexFolderHandlers = createCodexFolderImportHandlers(createCodexFolderImp
 export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ...DOCUMENT_HANDLERS,
   ...REVISION_HANDLERS,
+  ...EDITORIAL_HANDLERS,
+  ...PROOFING_HANDLERS,
+  wh_get_writing_headings: whGetWritingHeadings,
   ...codexFolderHandlers,
   ...genealogyHandlers,
   wh_build_world_bible: whBuildWorldBible,

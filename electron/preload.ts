@@ -615,6 +615,9 @@ const api = {
     call: (request: { tool: string; args: Record<string, unknown> }) =>
       ipcRenderer.invoke('documents:call', request),
   },
+  proofing: {
+    check: (request: { text: string; language: 'es' | 'en-US' }) => ipcRenderer.invoke('proofing:check', request),
+  },
 
   // ---- AI runtime --------------------------------------------------------
   // Connections by IP/URL, model discovery, hardware fit and streaming

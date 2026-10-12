@@ -34,10 +34,17 @@ import type { GhostTextBinding } from './ghostText/useGhostText';
 import { GHOST_DEBOUNCE_MS } from '@/services/ghostText/ghostText';
 import { createPageLayoutPlugin, pageLayoutKey, type PageLayoutOptions } from './pageMode/PageLayout';
 import type { FootnoteMarkerStyle } from '@/types';
+import type { Citation } from '@/types/projectTools';
 import { AdvancedEditorToolbar, createAdvancedExtensions } from './advanced';
 import DocumentTools from './documents/DocumentTools';
 import { createRevisionExtensions } from '@/engines/writings/revisions';
 import RevisionControls from './revisions/RevisionControls';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '@/db';
+import { createEditorialExtensions } from '@/engines/writings/editorial';
+import EditorialControls from './editorial/EditorialControls';
+import ProofingControls from './proofing/ProofingControls';
+import HeadingNavigator from './navigation/HeadingNavigator';
 import {
   isFindShortcut,
   isReplaceShortcut,
@@ -202,6 +209,10 @@ export default function TiptapEditor({
   ghostText,
 }: TiptapEditorProps) {
   const { t, locale } = useTranslation();
+  const editorialProjectId = copilotIdentity?.projectId;
+  const editorialReferences = useLiveQuery<Citation[]>(async () => editorialProjectId
+    ? await db.citations.where('projectId').equals(editorialProjectId).toArray()
+    : [], [editorialProjectId]);
   const resolvedPlaceholder = placeholder ?? t('editor.placeholder');
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<FloatingMenuState>(HIDDEN_MENU);
@@ -238,6 +249,7 @@ export default function TiptapEditor({
       GhostText.configure({ host: () => ghostHost, delayMs: GHOST_DEBOUNCE_MS }),
       ...createAdvancedExtensions(),
       ...createRevisionExtensions(),
+      ...createEditorialExtensions(),
       ...(extensions ?? []),
     ],
     content,
@@ -633,6 +645,11 @@ export default function TiptapEditor({
       {/* Find & replace, inside the document it searches */}
       <AdvancedEditorToolbar editor={editor} locale={locale} />
       <RevisionControls editor={editor} locale={locale} />
+      <div className="flex flex-wrap items-start gap-2 border-b border-border bg-surface/50 px-2 py-1.5">
+        <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><EditorialControls editor={editor} locale={locale} references={editorialReferences ?? []} /></div>
+        <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><HeadingNavigator editor={editor} locale={locale} /></div>
+        <div className="min-w-0 grow basis-40 has-[[aria-expanded=true]]:basis-full"><ProofingControls editor={editor} locale={locale} projectId={editorialProjectId} /></div>
+      </div>
       <div className="px-2 py-1.5 border-b border-border bg-surface/50">
         <DocumentTools editor={editor} locale={locale} />
       </div>

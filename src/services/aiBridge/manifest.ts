@@ -56,6 +56,9 @@ import { REFERENCE_TOOLS } from './manifestReference';
 import { COVERAGE_TOOLS } from './manifestCoverage';
 import { DOCUMENT_TOOLS } from './manifestDocuments';
 import { REVISION_TOOLS } from './manifestRevisions';
+import { EDITORIAL_TOOLS } from './manifestEditorial';
+import { PROOFING_TOOLS } from './manifestProofing';
+import { NAVIGATION_TOOLS } from './manifestNavigation';
 
 export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
 
@@ -1095,6 +1098,9 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('analysis', COVERAGE_TOOLS),
   ...grouped('writing', DOCUMENT_TOOLS),
   ...grouped('writing', inEngine('writings', REVISION_TOOLS)),
+  ...grouped('writing', inEngine('writings', EDITORIAL_TOOLS)),
+  ...grouped('writing', inEngine('writings', PROOFING_TOOLS)),
+  ...grouped('writing', inEngine('writings', NAVIGATION_TOOLS)),
 ];
 
 export const BRIDGE_TOOL_NAMES: string[] = BRIDGE_TOOLS.map((tool) => tool.name);

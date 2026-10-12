@@ -307,6 +307,9 @@ export interface ShutdownWarning {
 
 export interface ElectronAPI {
   documents?: NativeDocumentsApi;
+  proofing?: {
+    check(request: { text: string; language: 'es' | 'en-US' }): Promise<import('./engines/writings/proofing/types').GrammarCheckResponse>;
+  };
   faustus: FaustusHostBridge;
   isDesktop: true;
   platform: string;

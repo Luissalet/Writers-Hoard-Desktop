@@ -90,6 +90,7 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   'aibridge:reply': ['main'],
   'aibridge:getInfo': ['main'],
   'documents:call': ['main'],
+  'proofing:check': ['main', 'quick-note'],
   'aibridge:setEnabled': ['main'],
   'aibridge:setWritesEnabled': ['main'],
   'aibridge:regenerateToken': ['main'],

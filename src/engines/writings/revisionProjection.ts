@@ -5,6 +5,7 @@ import { DOMParser as PmDomParser, DOMSerializer, type Node as PmNode } from '@t
 import { FootnoteNode } from '@/components/editor/footnotes/FootnoteNode';
 import { createAdvancedExtensions } from '@/components/editor/advanced/extensions';
 import { createRevisionExtensions, describeRevisionDocument, projectRevisionDocument } from './revisions';
+import { createEditorialExtensions } from './editorial';
 
 let chapterSchema: ReturnType<typeof getSchema> | undefined;
 
@@ -20,7 +21,7 @@ export function projectWritingHtml(html: string, decision: 'accept' | 'reject' =
   if (!html.includes('data-wh-revision-kind') && !html.includes('data-wh-revision-break-kind')) return html;
   const host = document.createElement('div'); host.innerHTML = html;
   if (!host.querySelector('[data-wh-revision-kind],[data-wh-revision-break-kind]')) return html;
-  chapterSchema ??= getSchema([StarterKit.configure({ link: { openOnClick: false } }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions()]);
+  chapterSchema ??= getSchema([StarterKit.configure({ link: { openOnClick: false } }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions(), ...createEditorialExtensions()]);
   const doc = PmDomParser.fromSchema(chapterSchema).parse(host);
   return describeRevisionDocument(doc).length ? revisionDocumentHtml(doc, decision) : html;
 }

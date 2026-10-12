@@ -17,6 +17,7 @@ CLIProxyAPI/
 dist-electron
 /release
 resources/bin
+resources/proofing
 # Independent public distribution checkout (never embed its Git history here).
 /tasks/release-public/
 # Editor directories and files

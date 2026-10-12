@@ -14,11 +14,12 @@ import { NATIVE_DOCUMENT_ACTIONS } from '../manifestDocuments';
 import { assertEngineEnabled, assertRowInScope, BridgeError, requireString, withAudit, type ToolArgs } from './shared';
 import type { Writing } from '@/types';
 import { createRevisionExtensions } from '@/engines/writings/revisions';
+import { createEditorialExtensions } from '@/engines/writings/editorial';
 
 function editorFor(html: string): Editor {
   return new Editor({
     element: document.createElement('div'),
-    extensions: [StarterKit.configure({ link: { openOnClick: false } }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions()],
+    extensions: [StarterKit.configure({ link: { openOnClick: false } }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions(), ...createEditorialExtensions()],
     content: normalizeAdvancedHtml(html),
   });
 }
