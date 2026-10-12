@@ -1076,6 +1076,13 @@ impl<'r> Builder<'r> {
             self.flush();
         }
         let mut fmt = self.fmt();
+        if let Some(language) = attr(attrs, "lang").filter(|language| !language.is_empty()) {
+            if name == "html" || (name == "body" && self.meta.language.is_none()) {
+                self.meta.language = Some(language.into());
+            } else {
+                fmt.language = Some(language.into());
+            }
+        }
         if let Some(citation) = crate::writers::metadata_attribute(attrs, "data-wh-citation") {
             fmt.citation = Some(crate::writers::serialized_metadata(&citation));
         }
@@ -1476,6 +1483,10 @@ pub fn inlines_html(inlines: &[Inline]) -> String {
             Inline::Text(t, f) => {
                 let mut open = String::new();
                 let mut close: Vec<&str> = Vec::new();
+                if let Some(language) = &f.language {
+                    open.push_str(&format!("<span lang=\"{}\">", esc(language)));
+                    close.push("</span>");
+                }
                 if let Some(citation) = &f.citation {
                     open.push_str(&format!("<span data-wh-citation=\"{}\">", esc(citation)));
                     close.push("</span>");

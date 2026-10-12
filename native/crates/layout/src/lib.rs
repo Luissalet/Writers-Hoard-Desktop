@@ -12,6 +12,7 @@ mod contour;
 pub mod display;
 pub mod fields;
 pub mod hit;
+pub mod hyphenation;
 pub mod kinsoku;
 pub mod math;
 pub mod para;
@@ -915,6 +916,8 @@ struct PageBuilder<'a> {
     carry: Vec<NoteBox>,
     /// Page bottom before footnotes took space.
     orig_bottom: f32,
+    /// Effective references, including "link to previous", for this section.
+    footers: writer_doc::section::HeaderSet,
     /// The previous paragraph: (style, contextual spacing, space after) for contextual spacing.
     prev: Option<(String, bool, f32)>,
     /// Wrap areas of floating objects on this page (see [`wrap_area`]).
@@ -1258,7 +1261,7 @@ impl PageBuilder<'_> {
             }
         }
     }
-    fn new_page(&mut self, first_block: usize, body_top: f32) {
+    fn new_page(&mut self, ctx: &mut Ctx, first_block: usize, body_top: f32) {
         self.apply_valign();
         self.flush_notes();
         self.beneath = self.sect_beneath;
@@ -1269,8 +1272,18 @@ impl PageBuilder<'_> {
         }
         let s = self.sect;
         self.number = self.number.saturating_add(1);
+        // Sections are placed in document order, including balancing retries.
+        let first = self.pages.last().is_none_or(|page| page.section != self.sect_idx);
+        let footer = selected_header_footer(self.footers, s, first, ctx.doc.settings.even_odd_headers, self.number);
+        let bottom = if self.web { f32::MAX / 8.0 } else { body_bottom_for(ctx, s, footer, self.number, self.sect_idx) };
         let (w, h) = if self.web { (s.page_w, f32::MAX / 4.0) } else { (s.page_w, s.page_h) };
-        let body = Rect::new(s.margin_left + s.gutter, body_top, s.text_width(), (s.page_h - s.margin_bottom - body_top).max(36.0));
+        let body_height = if self.web {
+            // Web mode keeps its existing finite initial frame; no footer reservation.
+            (s.page_h - s.margin_bottom - body_top).max(36.0)
+        } else {
+            (bottom - body_top).max(0.0)
+        };
+        let body = Rect::new(s.margin_left + s.gutter, body_top, s.text_width(), body_height);
         let mut decor = Vec::new();
         if !self.web {
             // Page borders, measured from the page edge (Word's default), so they surround the
@@ -1305,7 +1318,7 @@ impl PageBuilder<'_> {
         self.col = 0;
         self.cols = s.column_boxes();
         self.top = body_top;
-        self.bottom = if self.web { f32::MAX / 8.0 } else { s.page_h - s.margin_bottom };
+        self.bottom = bottom;
         self.orig_bottom = self.bottom;
         self.y = self.top;
         // Notes continued from the page before come first in this page's note area.
@@ -1345,13 +1358,13 @@ impl PageBuilder<'_> {
         self.y <= self.top + 0.01
     }
     /// Move to the next column or page.
-    fn advance(&mut self, block: usize, body_top: f32) {
+    fn advance(&mut self, ctx: &mut Ctx, block: usize, body_top: f32) {
         if self.col + 1 < self.cols.len() {
             self.max_y = self.max_y.max(self.y);
             self.col += 1;
             self.y = self.top;
         } else {
-            self.new_page(block, body_top);
+            self.new_page(ctx, block, body_top);
         }
     }
     fn page(&mut self) -> Option<&mut Page> {
@@ -1456,6 +1469,7 @@ fn layout_pass(doc: &Document, cache: &mut LayoutCache, opts: &LayoutOptions, no
         notes: Vec::new(),
         carry: Vec::new(),
         orig_bottom: 0.0,
+        footers: Default::default(),
         prev: None,
         excl: Vec::new(),
         float_tables: Vec::new(),
@@ -1490,6 +1504,7 @@ fn layout_pass(doc: &Document, cache: &mut LayoutCache, opts: &LayoutOptions, no
         let sect: &SectionProps = if web { sect_ref } else { sect };
         pb.sect = sect;
         pb.sect_idx = si;
+        pb.footers = inherited_header_footer(&sections, si, true);
         ctx.grid = para::Grid::default();
         let (foot, end_opts) = (doc.note_options(sect, false), doc.note_options(sect, true));
         pb.sect_beneath = foot.pos == writer_doc::section::NotePos::BeneathText;
@@ -1510,11 +1525,11 @@ fn layout_pass(doc: &Document, cache: &mut LayoutCache, opts: &LayoutOptions, no
             if let Some(n) = restart {
                 pb.number = n.saturating_sub(1);
             }
-            pb.new_page(block, first_top);
+            pb.new_page(&mut ctx, block, first_top);
             if !web && matches!(start, SectionStart::EvenPage | SectionStart::OddPage) {
                 let want_even = start == SectionStart::EvenPage;
                 if pb.number.is_multiple_of(2) != want_even {
-                    pb.new_page(block, body_top);
+                    pb.new_page(&mut ctx, block, body_top);
                 }
             }
         } else {
@@ -1563,7 +1578,7 @@ fn layout_pass(doc: &Document, cache: &mut LayoutCache, opts: &LayoutOptions, no
         }
     }
     if pb.pages.is_empty() {
-        pb.new_page(0, sect_ref.margin_top);
+        pb.new_page(&mut ctx, 0, sect_ref.margin_top);
     }
     // The rest of the endnotes after the last paragraph.
     let rest: Vec<u32> = endnotes.into_iter().map(|(id, _)| id).collect();
@@ -1578,7 +1593,7 @@ fn layout_pass(doc: &Document, cache: &mut LayoutCache, opts: &LayoutOptions, no
             break;
         }
         let top = pb.top;
-        pb.new_page(last_block, top);
+        pb.new_page(&mut ctx, last_block, top);
         pb.flush_notes();
     }
     pb.carry.clear();
@@ -1793,7 +1808,7 @@ fn place_endnotes(ctx: &mut Ctx, pb: &mut PageBuilder, ids: Vec<u32>, block: usi
         let blocks = part.blocks.clone();
         let BoxLayout { items, height: h, .. } = layout_box(ctx, StoryRef::Part(id), &blocks, &[], pb.col_w(), None, 0, None);
         if pb.y + h > pb.bottom && !pb.at_top() {
-            pb.advance(block, pb.top);
+            pb.advance(ctx, block, pb.top);
         }
         let (x, y) = (pb.col_x(), pb.y);
         if let Some(pg) = pb.page() {
@@ -1822,6 +1837,65 @@ fn body_top_for(ctx: &mut Ctx, sect: &SectionProps, header: Option<u32>) -> f32 
     let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), None, 0, Some(frame)).height;
     // Word starts the body right below a header that reaches past the top margin, no gap.
     sect.margin_top.max(sect.header + h)
+}
+
+/// Reserve an intrusive footer before body pagination and footnote collection.
+/// Like `body_top_for`, this leaves the requested margins and part contents alone.
+fn body_bottom_for(ctx: &mut Ctx, sect: &SectionProps, footer: Option<u32>, number: u32, section: usize) -> f32 {
+    let bottom = sect.page_h - sect.margin_bottom;
+    let Some(id) = footer else { return bottom };
+    let Some(part) = ctx.doc.parts.get(&id) else { return bottom };
+    let blocks = part.blocks.clone();
+    // Measurements must not advance body numbering or apply the body grid to a part.
+    let counters = ctx.counters.clone();
+    let fields = ctx.fields.clone();
+    let grid = ctx.grid;
+    let equation_count = ctx.eq_count;
+    let boxes = std::mem::take(&mut ctx.boxes);
+    let chains = std::mem::take(&mut ctx.chains);
+    ctx.grid = para::Grid::default();
+    ctx.eq_count = 0;
+    ctx.fields.page = number;
+    ctx.fields.page_format = sect.page_num_format;
+    ctx.fields.section = section as u32 + 1;
+    // Use exactly the anchoring pass that `headers_footers` uses for the footer.
+    let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), None, 0, None).height;
+    ctx.counters = counters;
+    ctx.fields = fields;
+    ctx.grid = grid;
+    ctx.eq_count = equation_count;
+    ctx.boxes = boxes;
+    ctx.chains = chains;
+    bottom.min(sect.page_h - sect.footer - h)
+}
+
+/// Resolve each reference independently; a missing first/even/default part links back.
+fn inherited_header_footer(sections: &[(usize, &SectionProps)], section: usize, footer: bool) -> writer_doc::section::HeaderSet {
+    let get = |s: &SectionProps| if footer { s.footers } else { s.headers };
+    let Some((_, sect)) = sections.get(section) else { return Default::default() };
+    let mut set = get(sect);
+    for previous in (0..section).rev() {
+        if set.default.is_some() && set.first.is_some() && set.even.is_some() {
+            break;
+        }
+        if let Some((_, sect)) = sections.get(previous) {
+            let prior = get(sect);
+            set.default = set.default.or(prior.default);
+            set.first = set.first.or(prior.first);
+            set.even = set.even.or(prior.even);
+        }
+    }
+    set
+}
+
+fn selected_header_footer(set: writer_doc::section::HeaderSet, sect: &SectionProps, first: bool, even_odd: bool, number: u32) -> Option<u32> {
+    if sect.title_page && first {
+        set.first
+    } else if even_odd && number.is_multiple_of(2) {
+        set.even.or(set.default)
+    } else {
+        set.default
+    }
 }
 
 /// Where a box of laid-out items sits on its page, for floating objects positioned relative to
@@ -2157,7 +2231,7 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
     let spot = |pb: &PageBuilder| (pb.pages.len(), pb.col);
     let placed_at = spot(pb);
     if pl.rp.page_break_before && !pb.at_top() && !pb.web {
-        pb.new_page(block, body_top);
+        pb.new_page(ctx, block, body_top);
     }
     // Contextual spacing: no space between paragraphs of the same style when either asks for it.
     let mut before = pl.rp.space_before;
@@ -2178,7 +2252,7 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
         let need = pl.height + if pl.rp.keep_next { next_first_line(ctx, block, width) } else { 0.0 };
         // (Against the whole column: balanced columns grow to hold it.)
         if pb.y + need > pb.bottom && !pb.at_top() && need <= pb.uncapped_bottom() - pb.top {
-            pb.advance(block, body_top);
+            pb.advance(ctx, block, body_top);
             pb.y += pl.rp.space_before.min(0.0);
         }
     }
@@ -2265,7 +2339,7 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
             if pb.at_top() {
                 l1 = l0 + 1; // can't fit even one line on an empty page: overflow
             } else {
-                pb.advance(block, body_top);
+                pb.advance(ctx, block, body_top);
                 if l0 == 0 {
                     let y0 = pb.y;
                     (float_rects, pl) = anchor_floats(ctx, pb, p, y0, excl_mark, &label);
@@ -2352,12 +2426,12 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
         }
         l0 = l1;
         match forced_break {
-            Some(LineEnd::PageBreak) => pb.new_page(block, body_top),
+            Some(LineEnd::PageBreak) => pb.new_page(ctx, block, body_top),
             Some(LineEnd::ColumnBreak) => {
                 pb.col_break_page = Some(pb.pages.len().saturating_sub(1));
-                pb.advance(block, body_top)
+                pb.advance(ctx, block, body_top)
             }
-            _ if l0 < n => pb.advance(block, body_top),
+            _ if l0 < n => pb.advance(ctx, block, body_top),
             _ => {}
         }
     }
@@ -2404,7 +2478,7 @@ fn place_table(ctx: &mut Ctx, pb: &mut PageBuilder, t: &writer_doc::Table, block
         let legacy = if ctx.doc.settings.compat_mode < 15 { table::first_cell_left_margin(ctx, t) } else { 0.0 };
         let h: f32 = tl.rows.iter().map(|r| r.height).sum();
         if h <= pb.uncapped_bottom() - pb.top + 0.01 {
-            place_floating_table(pb, &tl, &f, legacy, block, body_top);
+            place_floating_table(ctx, pb, &tl, &f, legacy, block, body_top);
             return;
         }
         // Too tall for a page: Word lets it run across pages like a table in the text, from its
@@ -2448,7 +2522,7 @@ fn place_table(ctx: &mut Ctx, pb: &mut PageBuilder, t: &writer_doc::Table, block
                 None if pb.at_top() || fresh => break,
                 None => {}
             }
-            pb.advance(block, body_top);
+            pb.advance(ctx, block, body_top);
             // Repeat header rows.
             if !header_rows.contains(&ri) {
                 for hr in &header_rows {
@@ -2465,7 +2539,7 @@ fn place_table(ctx: &mut Ctx, pb: &mut PageBuilder, t: &writer_doc::Table, block
 
 /// Place floating table `tl` (`w:tblpPr`): at its own position, which takes no room in the text
 /// flow; the text after it wraps around it.
-fn place_floating_table(pb: &mut PageBuilder, tl: &table::TableLayout, f: &TableFloat, legacy: f32, block: usize, body_top: f32) {
+fn place_floating_table(ctx: &mut Ctx, pb: &mut PageBuilder, tl: &table::TableLayout, f: &TableFloat, legacy: f32, block: usize, body_top: f32) {
     let h: f32 = tl.rows.iter().map(|r| r.height).sum::<f32>().clamp(0.0, 100_000.0);
     let w = tl.width.clamp(1.0, 100_000.0);
     let [dl, dt, dr, db] = f.dist_from_text();
@@ -2481,7 +2555,7 @@ fn place_floating_table(pb: &mut PageBuilder, tl: &table::TableLayout, f: &Table
         let x = float_table_x(pb, w, f, legacy);
         let r = clear_of_float_tables(Rect::new(x, align_in(v_area, f.y, h, f.v_align), w, h), f, legacy, h_area.0, &pb.float_tables);
         if attempt == 0 && r.bottom() > pb.bottom + 0.01 && !pb.at_top() && f.v_rel == Anchor::Paragraph {
-            pb.advance(block, body_top);
+            pb.advance(ctx, block, body_top);
             continue;
         }
         if let Some(pg) = pb.page() {
@@ -2553,30 +2627,10 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
     }
     for (i, page) in pages.iter_mut().enumerate() {
         let Some((_, sect)) = sections.get(page.section) else { continue };
-        // Inherit header/footer references from earlier sections (Word's "link to previous").
-        let pick = |get: &dyn Fn(&SectionProps) -> writer_doc::section::HeaderSet| -> Option<u32> {
-            let mut set = get(sect);
-            for k in (0..page.section).rev() {
-                if set.default.is_some() && set.first.is_some() && set.even.is_some() {
-                    break;
-                }
-                if let Some((_, s)) = sections.get(k) {
-                    let o = get(s);
-                    set.default = set.default.or(o.default);
-                    set.first = set.first.or(o.first);
-                    set.even = set.even.or(o.even);
-                }
-            }
-            if sect.title_page && first_of_section.contains(&i) {
-                return set.first;
-            }
-            if even_odd && page.number % 2 == 0 {
-                return set.even.or(set.default);
-            }
-            set.default
-        };
-        let hid = pick(&|s: &SectionProps| s.headers);
-        let fid = pick(&|s: &SectionProps| s.footers);
+        // Drawing and reservation share the exact first/even/default inheritance.
+        let first = first_of_section.contains(&i);
+        let hid = selected_header_footer(inherited_header_footer(sections, page.section, false), sect, first, even_odd, page.number);
+        let fid = selected_header_footer(inherited_header_footer(sections, page.section, true), sect, first, even_odd, page.number);
         ctx.fields.page = page.number;
         ctx.fields.page_format = sect.page_num_format;
         ctx.fields.pages = total;
