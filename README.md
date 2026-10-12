@@ -57,8 +57,17 @@ Spanish proofing offers local spelling, a persistent project dictionary and
 optional local grammar suggestions. Grammar uses the bundled LanguageTool 6.6
 runtime and requires Java 17 or newer on the computer; spelling works without
 Java. Suggestions are reviewable and reversible, not guarantees of correctness.
-UI and the six new MCP tools share these operations. See the
+UI and MCP share these operations. See the
 [editor comparison and measured Spanish corpus](docs/editor-comparison/README.md).
+
+Document print options can inherit the opened file's language and hyphenation,
+or select Spanish/English and enable/disable automatic hyphenation in an export
+copy. Spanish patterns support Unicode and long patterns; generated line-end
+hyphens stay visible without becoming extra characters in PDF selection. Original
+URLs, dates and written hyphens remain text. The native layout reserves footer
+space before placing body text and footnotes. The MCP cut query reports original
+word offsets and provider support; these print operations preserve the session
+and its history.
 
 ## Shared Faustus copilot
 
