@@ -764,3 +764,27 @@ fn cosmetic_metafile_pens_are_thin_but_visible() {
     let raw = String::from_utf8_lossy(&bytes);
     assert!(raw.contains("0.25 w"), "the hairline is a quarter point wide");
 }
+
+#[test]
+fn automatic_hyphens_are_visible_decoration_not_selected_source_text() {
+    let source = "documentación ferrocarril lluvia URL https://example.org/a-b fecha 2026-10-12";
+    let mut doc = Document::from_text(source);
+    doc.styles.default_chr.lang = Some("es-ES".into());
+    doc.styles.default_chr.size = Some(18.0);
+    doc.settings.auto_hyphenation = true;
+    doc.last_section.page_w = 180.0;
+    doc.last_section.margin_left = 50.0;
+    doc.last_section.margin_right = 50.0;
+    let layout = writer_layout::layout(&doc, &mut writer_layout::LayoutCache::new(), &writer_layout::LayoutOptions::default());
+    let hyphens = layout
+        .pages
+        .iter()
+        .flat_map(|page| writer_layout::display::page_display(&doc, page, &Default::default()))
+        .filter(|draw| matches!(draw, writer_layout::display::Draw::Glyphs { decorative: true, .. }))
+        .count();
+    assert!(hyphens > 0);
+    let pdf = export(&doc, &Default::default()).unwrap();
+    let selected = extract_text(&pdf).join("");
+    assert_eq!(selected.replace(['\n', '\r', ' '], ""), source.replace(' ', ""));
+    assert_eq!(doc.plain_text(StoryRef::Body), source);
+}

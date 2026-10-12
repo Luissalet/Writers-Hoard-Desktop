@@ -22,7 +22,7 @@ child.on('exit', async code => {
     await mkdir(path.join(native, 'bin'), { recursive: true })
     const destination = path.join(native, 'bin', `writer-document-engine${extension}`)
     await copyFile(path.join(native, 'target', 'release', `writer-document-engine${extension}`), destination)
-    for (const name of ['LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'ATTRIBUTION.md']) {
+    for (const name of ['LICENSE-MIT', 'LICENSE-APACHE', 'LICENSE-HYPHENATION-ES', 'NOTICE', 'ATTRIBUTION.md']) {
       await copyFile(path.join(native, name), path.join(native, 'bin', name))
     }
     for (const name of await readdir(path.join(native, 'assets', 'fonts'))) {

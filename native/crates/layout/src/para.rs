@@ -2005,22 +2005,37 @@ fn hyphen_glyph(pl: &ParaLayout, style: u16, cache: &mut Vec<(u16, u32, f32)>) -
 fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: &ParaLayout, auto: bool) -> Vec<u32> {
     let mut bytes: Vec<usize> = text.char_indices().filter(|(_, c)| *c == SOFT_HYPHEN).map(|(i, c)| i + c.len_utf8()).collect();
     if auto {
-        let lim = writer_proof::hyphen::Limits::default();
+        let excluded = crate::hyphenation::address_ranges(text);
         let mut start: Option<usize> = None;
         for (i, c) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
-            let word_char = c.is_alphabetic() || c == '\'' || c == '\u{2019}';
+            let word_char = crate::hyphenation::is_word_char(c);
             match (start, word_char) {
                 (None, true) => start = Some(i),
                 (Some(a), false) => {
-                    // The patterns are for Latin-script languages: never hyphenate Persian/Arabic words.
                     if let Some(w) = text.get(a..i)
-                        && w.chars().count() >= lim.min_word
-                        && !w.chars().any(writer_fonts::is_rtl)
+                        && !excluded.iter().any(|range| range.start <= a && a < range.end)
                     {
-                        let offs: Vec<usize> = w.char_indices().map(|(o, _)| o).collect();
-                        for pt in writer_proof::hyphen::hyphen_points(w, &lim) {
-                            if let Some(o) = offs.get(pt) {
-                                bytes.push(a + o);
+                        let first_end = w.chars().next().and_then(|c| to_para(a + c.len_utf8()));
+                        let last_end = to_para(i);
+                        let first_cluster = pl.clusters.partition_point(|cluster| first_end.is_some_and(|first| cluster.end < first));
+                        let clusters: Vec<_> = pl
+                            .clusters
+                            .iter()
+                            .skip(first_cluster)
+                            .take_while(|cluster| last_end.is_some_and(|last| cluster.start < last))
+                            .filter(|cluster| cluster.kind == ClKind::Text)
+                            .collect();
+                        let language =
+                            clusters.first().and_then(|cluster| pl.styles.get(cluster.style as usize)).and_then(|style| style.rc.lang.as_deref());
+                        let selected = crate::hyphenation::provider(language);
+                        let consistent = clusters.iter().all(|cluster| {
+                            pl.styles
+                                .get(cluster.style as usize)
+                                .is_none_or(|style| crate::hyphenation::provider(style.rc.lang.as_deref()) == selected)
+                        });
+                        if consistent {
+                            for point in crate::hyphenation::word_points(w, language) {
+                                bytes.push(a + point);
                             }
                         }
                     }

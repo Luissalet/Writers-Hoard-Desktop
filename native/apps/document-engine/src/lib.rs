@@ -21,6 +21,7 @@ const ACTIONS: &[&str] = &[
     "document.exportBytes",
     "document.inspect",
     "document.text",
+    "document.hyphenation",
     "document.renderPage",
     "document.exportPdf",
     "document.close",
@@ -133,7 +134,7 @@ impl DocumentEngine {
                     })
                     .collect::<Vec<_>>();
                 Ok(
-                    json!({"protocolVersion":1,"name":"Writers document engine","totalCommands":session.registry.all().len(),"commands":commands,"actions":ACTIONS,"positionUnit":"utf8Bytes","capabilities":{"htmlRevisionInterchange":true,"editorialStyles":true,"editorialSections":true,"editorialCitations":true,"renderMarkup":true}}),
+                    json!({"protocolVersion":1,"name":"Writers document engine","totalCommands":session.registry.all().len(),"commands":commands,"actions":ACTIONS,"positionUnit":"utf8Bytes","capabilities":{"htmlRevisionInterchange":true,"editorialStyles":true,"editorialSections":true,"editorialCitations":true,"renderMarkup":true,"printOptions":true,"hyphenationQuery":true,"hyphenationLanguages":["en-US","es-ES"]}}),
                 )
             }
             "document.new" => {
@@ -179,6 +180,29 @@ impl DocumentEngine {
                 session.read_aloud.stop();
                 Ok(json!({"sessionId":id,"closed":true}))
             }
+            "document.hyphenation" => {
+                let document_language = if args.get("sessionId").is_some() { self.session(args)?.doc.styles.default_chr.lang.clone() } else { None };
+                let language = args
+                    .get("language")
+                    .and_then(Value::as_str)
+                    .filter(|value| *value != "preserve")
+                    .map(str::to_owned)
+                    .or(document_language)
+                    .unwrap_or_else(|| "en-US".into());
+                let words = args.get("words").and_then(Value::as_array).ok_or("words must be an array of strings")?;
+                let words = words.iter().map(|word| word.as_str().ok_or("words must contain only strings")).collect::<Result<Vec<_>, _>>()?;
+                let selected = writer_layout::hyphenation::provider(Some(&language));
+                let words: Vec<_> = words.iter().map(|word| {
+                    let points = writer_layout::hyphenation::word_points(word, Some(&language));
+                    let mut previous = 0; let mut segments = Vec::new();
+                    for point in &points { if let Some(segment) = word.get(previous..*point) { segments.push(segment); } previous = *point; }
+                    segments.push(word.get(previous..).unwrap_or(""));
+                    json!({"word":word,"provider":selected.name(),"breakOffsetsUtf8":points,"breakOffsetsChars":points.iter().filter_map(|point| word.get(..*point).map(|prefix| prefix.chars().count())).collect::<Vec<_>>(),"hyphenated":segments.join("-"),"segments":segments})
+                }).collect();
+                Ok(
+                    json!({"language":language,"supported":selected != writer_layout::hyphenation::Provider::Unsupported,"minLeft":2,"minRight":2,"words":words}),
+                )
+            }
             "document.inspect" => {
                 let id = required(args, "sessionId")?.to_string();
                 let session = self.session(args)?;
@@ -203,7 +227,9 @@ impl DocumentEngine {
                 let name = args.get("fileName").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| format!("document.{format}"));
                 let session = self.session(args)?;
                 let password = output_password(args, session);
-                let bytes = writer_engine::io::save_bytes_with(&format!("document.{format}"), &session.doc, password)?;
+                let mut document = session.doc.clone();
+                apply_print_options(&mut document, args)?;
+                let bytes = writer_engine::io::save_bytes_with(&format!("document.{format}"), &document, password)?;
                 Ok(
                     json!({"mimeType":mime_type(format),"dataBase64":STANDARD.encode(bytes),"fileName":name,"encrypted":password.is_some() && writer_engine::io::can_encrypt(&format!("document.{format}"))}),
                 )
@@ -239,6 +265,7 @@ impl DocumentEngine {
                 }
                 let include_markup = args.get("includeMarkup").and_then(Value::as_bool).unwrap_or(false);
                 let mut snapshot = session.clone();
+                apply_print_options(&mut snapshot.doc, args)?;
                 if !include_markup {
                     snapshot.run("review.acceptAll", &json!({})).map_err(|error| error.to_string())?;
                 }
@@ -259,6 +286,7 @@ impl DocumentEngine {
                 let session = self.session(args)?;
                 let include_markup = args.get("includeMarkup").and_then(Value::as_bool).unwrap_or(false);
                 let mut snapshot = session.clone();
+                apply_print_options(&mut snapshot.doc, args)?;
                 if !include_markup {
                     snapshot.run("review.acceptAll", &json!({})).map_err(|error| error.to_string())?;
                 }
@@ -324,6 +352,36 @@ impl DocumentEngine {
 
 fn required<'a>(value: &'a Value, name: &str) -> Result<&'a str, String> {
     value.get(name).and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or_else(|| format!("{name} must be a non-empty string"))
+}
+
+/// Print preferences affect only an output copy, including explicit run language overrides.
+fn apply_print_options(document: &mut Document, args: &Value) -> Result<(), String> {
+    if let Some(value) = args.get("hyphenation") {
+        document.settings.auto_hyphenation = value.as_bool().ok_or("hyphenation must be a boolean")?;
+    }
+    if let Some(value) = args.get("language") {
+        let language = value.as_str().filter(|language| !language.is_empty()).ok_or("language must be a nonempty string")?;
+        if language == "preserve" {
+            return Ok(());
+        }
+        document.styles.default_chr.lang = Some(language.into());
+        for style in &mut document.styles.styles {
+            style.chr.lang = Some(language.into());
+        }
+        let stories: Vec<_> = std::iter::once(StoryRef::Body).chain(document.parts.keys().copied().map(StoryRef::Part)).collect();
+        for story in stories {
+            for path in document.para_paths(story) {
+                if let Ok(paragraph) = document.para_mut(story, &path) {
+                    paragraph.mark.lang = Some(language.into());
+                    for run in &mut paragraph.runs {
+                        run.props.lang = Some(language.into());
+                    }
+                    paragraph.touch();
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn output_password<'a>(args: &'a Value, session: &'a Session) -> Option<&'a str> {

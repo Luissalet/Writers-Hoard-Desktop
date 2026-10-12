@@ -37,6 +37,7 @@ pub struct Fmt {
     pub background: Option<Rgb>,
     pub revision: Option<writer_doc::Revision>,
     pub citation: Option<String>,
+    pub language: Option<String>,
 }
 
 /// An embedded picture.
@@ -263,6 +264,7 @@ pub enum FBlock {
 /// Document properties carried by the text formats.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Meta {
+    pub language: Option<String>,
     pub title: String,
     pub author: String,
     pub subject: String,
@@ -306,6 +308,7 @@ pub fn char_props(f: &Fmt) -> CharProps {
     let on = |b: bool| if b { Some(true) } else { None };
     CharProps {
         writers_citation: f.citation.clone(),
+        lang: f.language.clone(),
         bold: on(f.bold),
         italic: on(f.italic),
         underline: if f.underline { Some(Underline::Single) } else { None },
@@ -698,6 +701,9 @@ fn finite_or(v: f32, d: f32) -> f32 {
 pub fn to_doc(flow: &Flow) -> Document {
     let mut doc = Document::new();
     doc.numbering = Default::default();
+    if let Some(language) = &flow.meta.language {
+        doc.styles.default_chr.lang = Some(language.clone());
+    }
     let uses_code = uses_kind(&flow.blocks, Kind::Code, 0);
     if uses_code {
         doc.styles.upsert(code_style());
@@ -779,6 +785,7 @@ fn fmt_of(doc: &Document, cp: &CharProps, in_code: bool) -> Fmt {
         font: if code || in_code { None } else { e.font.clone() },
         background: e.highlight.and_then(|h| h.rgb()).or(e.shading),
         citation: cp.writers_citation.clone(),
+        language: cp.lang.clone(),
         revision: cp.ins.or(cp.del).and_then(|i| crate::writers::native_revision(doc, i)),
     }
 }
@@ -1067,6 +1074,7 @@ pub fn from_doc_with(doc: &Document, include_revisions: bool) -> Flow {
     Flow {
         blocks: flow_blocks_with(doc, &doc.body, 0, include_revisions),
         meta: Meta {
+            language: doc.styles.default_chr.lang.clone(),
             title: c.title.clone(),
             author: c.creator.clone(),
             subject: c.subject.clone(),

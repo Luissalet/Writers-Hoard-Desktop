@@ -616,3 +616,49 @@ fn literal_header_footer_and_note_whitespace_survives_docx_html_and_current_edit
     let (again, _) = reopen_docx(&mut engine, &reopened);
     assert_stories(&engine.sessions[&again].doc, &edited);
 }
+
+#[test]
+fn spanish_print_language_query_and_output_preferences_preserve_session() {
+    let mut engine = DocumentEngine::default();
+    let id = import_html(
+        &mut engine,
+        "<html lang=\"es-ES\"><body><p>documentación niñez ferrocarril lluvia 2026 https://example.org/a-b</p><p><span lang=\"en-US\">hyphenation INTERNATIONAL</span></p></body></html>",
+    );
+    let before = engine.dispatch("document.inspect", &json!({"sessionId":id})).unwrap();
+    assert_eq!(engine.sessions[&id].doc.styles.default_chr.lang.as_deref(), Some("es-ES"));
+    let points = engine
+        .dispatch(
+            "document.hyphenation",
+            &json!({"sessionId":id,"words":["documentación","niñez","ferrocarril","lluvia","2026","https://example.org/a-b","nin\u{303}ez"]}),
+        )
+        .unwrap();
+    assert_eq!(points["language"], "es-ES");
+    assert_eq!(points["words"][0]["hyphenated"], "do-cu-men-ta-ción");
+    assert_eq!(points["words"][1]["hyphenated"], "ni-ñez");
+    assert_eq!(points["words"][2]["hyphenated"], "fe-rro-ca-rril");
+    assert_eq!(points["words"][3]["hyphenated"], "llu-via");
+    for index in [4, 5] {
+        assert_eq!(points["words"][index]["breakOffsetsUtf8"], json!([]));
+    }
+    assert_eq!(points["words"][6]["breakOffsetsUtf8"], json!([2]));
+    let exported = engine.dispatch("document.exportBytes", &json!({"sessionId":id,"format":"docx","language":"en-US","hyphenation":true})).unwrap();
+    let again = engine.dispatch("document.openBytes", &json!({"format":"docx","dataBase64":exported["dataBase64"]})).unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(engine.sessions[&again].doc.styles.default_chr.lang.as_deref(), Some("en-US"));
+    assert!(engine.sessions[&again].doc.settings.auto_hyphenation);
+    for paragraph in engine.sessions[&again].doc.body.iter().filter_map(|block| block.as_para()) {
+        assert!(paragraph.runs.iter().all(|run| run.props.lang.as_deref() == Some("en-US")));
+    }
+    let html = engine.dispatch("document.exportHtml", &json!({"sessionId":id})).unwrap();
+    assert!(html["html"].as_str().unwrap().contains("<html lang=\"es-ES\""));
+    assert!(html["html"].as_str().unwrap().contains("<span lang=\"en-US\""));
+    let html_id = import_html(&mut engine, html["html"].as_str().unwrap());
+    assert_eq!(engine.sessions[&html_id].doc.styles.default_chr.lang.as_deref(), Some("es-ES"));
+    assert_eq!(text(&mut engine, &html_id), text(&mut engine, &id));
+    engine.dispatch("document.renderPage", &json!({"sessionId":id,"language":"es-ES","hyphenation":true})).unwrap();
+    engine.dispatch("document.exportPdf", &json!({"sessionId":id,"language":"es-ES","hyphenation":true})).unwrap();
+    let after = engine.dispatch("document.inspect", &json!({"sessionId":id})).unwrap();
+    assert_eq!(before, after);
+}
