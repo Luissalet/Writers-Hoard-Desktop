@@ -819,6 +819,71 @@ export async function testBookEditorAutosave(): Promise<void> {
   }
 }
 
+/**
+ * The first enabled chapter-tool commit occurs after the child handed its editor
+ * to BookEditor and before the parent's passive effects. Observe that native DOM
+ * transition synchronously, while delegating the attribute operation unchanged.
+ * This forces the handoff gap without sleeps, timeout changes or a fake editor.
+ */
+export async function testBookEditorHandoffInterval(): Promise<void> {
+  if (!db.isOpen()) await db.open();
+  const { default: BookEditor } = await import('@/engines/writings/components/BookEditor');
+  const projectId = 'book-editor-handoff-project';
+  const rows = THREE_CHAPTERS.map((row) => ({ ...row, id: `${projectId}-${row.id}`, projectId }));
+  await db.writings.where('projectId').equals(projectId).delete();
+  await db.writings.bulkAdd(rows);
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const prototype = HTMLButtonElement.prototype;
+  const own = Object.getOwnPropertyDescriptor(prototype, 'removeAttribute');
+  const nativeRemove = prototype.removeAttribute;
+  let dispatched = false;
+  let dispatchError: unknown;
+  let owner: Editor | null = null;
+  const restore = () => {
+    if (own) Object.defineProperty(prototype, 'removeAttribute', own);
+    else delete (prototype as Partial<HTMLButtonElement>).removeAttribute;
+  };
+  prototype.removeAttribute = function (name: string) {
+    const wasDisabled = this.disabled;
+    nativeRemove.call(this, name);
+    if (dispatched || name !== 'disabled' || !wasDisabled || this.disabled || !host.contains(this) || !this.querySelector('svg.lucide-heading-1')) return;
+    dispatched = true;
+    restore();
+    try {
+      const surface = host.querySelector('.ProseMirror') as (HTMLElement & { editor?: Editor }) | null;
+      owner = surface?.editor ?? null;
+      assert(owner, 'the newly usable toolbar belongs to the actual editor');
+      owner.commands.insertContentAt(insideParagraph(owner, 'Last chapter'), 'Handoff: ');
+    } catch (error) { dispatchError = error; }
+  };
+  let unmounted = false;
+  try {
+    flushSync(() => root.render(createElement(BookEditor, {
+      projectId, writings: rows, onRefresh: () => undefined, onClose: () => undefined, onOpenChapter: () => undefined,
+    })));
+    await until(() => dispatched, 'the chapter tool handoff transition');
+    if (dispatchError) throw dispatchError;
+    assert(owner, 'the handoff edit used a real editor');
+    await untilAsync(async () => (await db.writings.get(rows[2].id))?.content === '<p>Handoff: Last chapter.</p>', 'the handoff edit autosave');
+    assert((await db.writings.get(rows[0].id))?.updatedAt === rows[0].updatedAt, 'handoff does not save over the first chapter');
+    assert((await db.writings.get(rows[1].id))?.updatedAt === rows[1].updatedAt, 'handoff does not save over the middle chapter');
+    const editor = (host.querySelector('.ProseMirror') as HTMLElement & { editor?: Editor }).editor;
+    assert(editor, 'the handoff editor remains usable');
+    editor.commands.insertContentAt(insideParagraph(editor, 'First chapter'), 'Unmount: ');
+    flushSync(() => root.unmount());
+    unmounted = true;
+    const expectedFirstChapter = rows[0].content.replace('<p>', '<p>Unmount: ');
+    await untilAsync(async () => (await db.writings.get(rows[0].id))?.content === expectedFirstChapter, 'the handoff owner unmount flush');
+  } finally {
+    restore();
+    if (!unmounted) flushSync(() => root.unmount());
+    host.remove();
+    await db.writings.where('projectId').equals(projectId).delete();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // (g) undoing a merge: Ctrl+Z restores the row, the bar reloads once
 // ---------------------------------------------------------------------------
