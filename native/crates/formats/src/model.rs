@@ -35,6 +35,8 @@ pub struct Fmt {
     pub font: Option<String>,
     /// Background (highlight / shading).
     pub background: Option<Rgb>,
+    pub revision: Option<writer_doc::Revision>,
+    pub citation: Option<String>,
 }
 
 /// An embedded picture.
@@ -47,6 +49,7 @@ pub struct Img {
     pub w: f32,
     pub h: f32,
     pub alt: String,
+    pub revision: Option<writer_doc::Revision>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -82,6 +85,8 @@ pub enum Kind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ListInfo {
+    /// Explicit start/restart at this item; absent on continuing items.
+    pub start: Option<i64>,
     pub ordered: bool,
     /// 0-based nesting level (0..=8).
     pub level: u8,
@@ -96,6 +101,11 @@ pub struct Para {
     pub indent_left: Option<f32>,
     pub line_spacing: Option<writer_doc::props::LineSpacing>,
     pub paragraph_style: Option<String>,
+    /// Revision of the paragraph separator immediately before this paragraph.
+    pub break_revision: Option<writer_doc::Revision>,
+    pub style_id: Option<String>,
+    pub bibliography: Option<String>,
+    pub chapter_heading: Option<String>,
     pub inlines: Vec<Inline>,
 }
 
@@ -186,6 +196,7 @@ impl Cell {
         let mut v = Vec::new();
         for b in &self.blocks {
             match b {
+                FBlock::Section(_) | FBlock::StyleDefinition(_) => {}
                 FBlock::Para(p) => v.push(p.text()),
                 FBlock::Table(t) => v.push(t.rows.iter().flat_map(|r| r.iter().map(Cell::text)).collect::<Vec<_>>().join(" ")),
             }
@@ -245,6 +256,8 @@ impl FTable {
 pub enum FBlock {
     Para(Para),
     Table(FTable),
+    Section(serde_json::Value),
+    StyleDefinition(serde_json::Value),
 }
 
 /// Document properties carried by the text formats.
@@ -292,6 +305,7 @@ pub fn clean_text(s: &str) -> String {
 pub fn char_props(f: &Fmt) -> CharProps {
     let on = |b: bool| if b { Some(true) } else { None };
     CharProps {
+        writers_citation: f.citation.clone(),
         bold: on(f.bold),
         italic: on(f.italic),
         underline: if f.underline { Some(Underline::Single) } else { None },
@@ -305,7 +319,7 @@ pub fn char_props(f: &Fmt) -> CharProps {
         },
         link: f.link.clone().filter(|l| !l.is_empty()),
         color: f.color.map(TextColor::Rgb),
-        size: f.size.filter(|s| s.is_finite() && *s >= 1.0 && *s <= 1638.0),
+        size: f.size.filter(|s| s.is_finite() && *s > 0.0),
         font: if f.code { Some(MONO_FONT.to_string()) } else { f.font.clone().filter(|s| !s.is_empty()) },
         shading: f.background,
         ..Default::default()
@@ -351,11 +365,43 @@ fn append(p: &mut Paragraph, text: &str, props: &CharProps, obj: Option<InlineOb
 
 struct Builder<'a> {
     doc: &'a mut Document,
+    revisions: std::collections::HashMap<String, u32>,
+    styles: std::collections::HashMap<String, String>,
+    pending_styles: Vec<serde_json::Value>,
+    style_serial: usize,
 }
 
 impl Builder<'_> {
+    fn revision(&mut self, revision: &writer_doc::Revision) -> u32 {
+        let key = serde_json::to_string(revision).unwrap_or_default();
+        if let Some(index) = self.revisions.get(&key) {
+            return *index;
+        }
+        let index = self.doc.revisions.len() as u32;
+        self.doc.revisions.push(revision.clone());
+        self.revisions.insert(key, index);
+        index
+    }
+    fn revision_props(&mut self, revision: Option<&writer_doc::Revision>, props: &mut CharProps) {
+        if let Some(revision) = revision {
+            let index = self.revision(revision);
+            match revision.kind {
+                writer_doc::RevisionKind::Insert => props.ins = Some(index),
+                writer_doc::RevisionKind::Delete => props.del = Some(index),
+                _ => {}
+            }
+        }
+    }
     fn para(&mut self, p: &Para, list_num: Option<u32>) -> Paragraph {
         let mut out = Paragraph::new();
+        if p.chapter_heading.is_some() {
+            self.styles.clear();
+        }
+        if !self.pending_styles.is_empty() {
+            out.props.writers_style_definitions =
+                Some(crate::writers::serialized_metadata(&serde_json::Value::Array(std::mem::take(&mut self.pending_styles))));
+        }
+        out.props.writers_chapter_heading = p.chapter_heading.clone();
         let style = match p.kind {
             Kind::Heading(n) => Some(format!("Heading{}", n.clamp(1, 6))),
             Kind::Title => Some("Title".into()),
@@ -372,7 +418,14 @@ impl Builder<'_> {
                 out.props.style = Some("ListParagraph".into());
             }
             out.props.numbering = Some(NumRef { num, level: li.level.min(8) });
+            out.props.writers_list_origin = Some(num);
+            out.props.writers_list_start = li.start;
         }
+        if let Some(id) = &p.style_id {
+            out.props.style = Some(self.styles.get(id).cloned().unwrap_or_else(|| format!("WritersEditorial-{id}")));
+            out.props.outline_level = if let Kind::Heading(level) = p.kind { Some(level.saturating_sub(1)) } else { None };
+        }
+        out.props.writers_bibliography = p.bibliography.clone();
         out.props.align = p.align;
         out.props.indent_left = p.indent_left;
         out.props.line_spacing = p.line_spacing;
@@ -412,6 +465,7 @@ impl Builder<'_> {
                 Inline::Text(t, f) => {
                     let t = clean_text(t);
                     let mut cp = char_props(f);
+                    self.revision_props(f.revision.as_ref(), &mut cp);
                     if p.kind == Kind::Code && cp.font.as_deref() == Some(MONO_FONT) {
                         cp.font = None;
                     }
@@ -421,7 +475,9 @@ impl Builder<'_> {
                     let key = self.doc.add_media(img.data.to_vec(), &img.ext);
                     let (w, h) = (finite_or(img.w, 72.0).clamp(1.0, 1584.0), finite_or(img.h, 72.0).clamp(1.0, 1584.0));
                     let obj = InlineObject::Image { media: key, w, h, alt: img.alt.clone(), float: Default::default(), crop: [0.0; 4], ole: None };
-                    append(&mut out, "", &CharProps::default(), Some(obj));
+                    let mut props = CharProps::default();
+                    self.revision_props(img.revision.as_ref(), &mut props);
+                    append(&mut out, "", &props, Some(obj));
                 }
                 Inline::Anchor(name) => {
                     append(&mut out, "", &CharProps::default(), Some(InlineObject::BookmarkStart { name: name.clone() }));
@@ -460,7 +516,14 @@ impl Builder<'_> {
             .map(|i| {
                 let ordered = kinds.get(i).copied().flatten().unwrap_or(first);
                 let src = if ordered { &num_levels } else { &bul_levels };
-                src.get(i).cloned().unwrap_or_default()
+                let mut level = src.get(i).cloned().unwrap_or_default();
+                if let Some(item) = group.iter().find(|item| item.level as usize == i && item.start.is_some()) {
+                    level.start = item.start.unwrap_or(1);
+                    if item.ordered {
+                        level.format = NumFormat::Decimal;
+                    }
+                }
+                level
             })
             .collect();
         let numbering = &mut self.doc.numbering;
@@ -475,7 +538,48 @@ impl Builder<'_> {
         let mut out = Blocks::new();
         let mut i = 0;
         while let Some(b) = blocks.get(i) {
+            if let FBlock::Para(p) = b
+                && let Some(revision) = &p.break_revision
+            {
+                let mut props = CharProps::default();
+                self.revision_props(Some(revision), &mut props);
+                if let Some(previous) = out.last_mut()
+                    && let Block::Para(previous) = Arc::make_mut(previous)
+                {
+                    previous.mark.ins = props.ins;
+                    previous.mark.del = props.del;
+                }
+            }
             match b {
+                FBlock::StyleDefinition(value) => {
+                    if let Some(id) = value.get("id").and_then(serde_json::Value::as_str) {
+                        self.style_serial += 1;
+                        let native_id = format!("scope{}-{id}", self.style_serial);
+                        let mut native_definition = value.clone();
+                        native_definition["id"] = serde_json::Value::String(native_id.clone());
+                        crate::writers::import_styles(self.doc, &[native_definition]);
+                        self.doc.set_custom_prop(
+                            &format!("writers.editorial.style.WritersEditorial-{native_id}"),
+                            &crate::writers::serialized_metadata(value),
+                        );
+                        self.styles.insert(id.into(), format!("WritersEditorial-{native_id}"));
+                        self.pending_styles.push(value.clone());
+                    }
+                }
+                FBlock::Section(value) => {
+                    if let Some(section) = crate::writers::section_from_json(self.doc, value) {
+                        if let Some(last) = out.last_mut()
+                            && let Block::Para(paragraph) = Arc::make_mut(last)
+                        {
+                            paragraph.section = Some(Box::new(self.doc.last_section.clone()));
+                        } else if !out.is_empty() {
+                            let mut paragraph = Paragraph::new();
+                            paragraph.section = Some(Box::new(self.doc.last_section.clone()));
+                            out.push(para_block(paragraph));
+                        }
+                        self.doc.last_section = section;
+                    }
+                }
                 FBlock::Para(p) if p.list.is_some() => {
                     // A run of consecutive list paragraphs is one list, until a top-level item of
                     // the other kind (bulleted or numbered) starts a new one.
@@ -484,6 +588,9 @@ impl Builder<'_> {
                     let mut top: Option<bool> = None;
                     while let Some(FBlock::Para(q)) = blocks.get(j) {
                         let Some(li) = q.list else { break };
+                        if j > i && li.level == 0 && li.start.is_some() {
+                            break;
+                        }
                         if li.level == 0 {
                             if top.is_some_and(|o| o != li.ordered) {
                                 break;
@@ -493,9 +600,18 @@ impl Builder<'_> {
                         group.push(li);
                         j += 1;
                     }
-                    let num = self.new_list(&group);
-                    for q in blocks.get(i..j).unwrap_or(&[]) {
+                    let mut num = self.new_list(&group);
+                    for (item_index, q) in blocks.get(i..j).unwrap_or(&[]).iter().enumerate() {
                         if let FBlock::Para(q) = q {
+                            if item_index > 0
+                                && let Some(list) = q.list
+                                && let Some(start) = list.start
+                            {
+                                let numbering = &mut self.doc.numbering;
+                                let abstract_id = numbering.num(num).map(|n| n.abstract_id).unwrap_or(0);
+                                num = numbering.nums.iter().map(|n| n.id + 1).max().unwrap_or(1);
+                                numbering.nums.push(Num { id: num, abstract_id, start_overrides: vec![(list.level, start)], ..Default::default() });
+                            }
                             let para = self.para(q, Some(num));
                             out.push(para_block(para));
                         }
@@ -586,7 +702,8 @@ pub fn to_doc(flow: &Flow) -> Document {
     if uses_code {
         doc.styles.upsert(code_style());
     }
-    let body = Builder { doc: &mut doc }.blocks(&flow.blocks, 0);
+    let body = Builder { doc: &mut doc, revisions: Default::default(), styles: Default::default(), pending_styles: Vec::new(), style_serial: 0 }
+        .blocks(&flow.blocks, 0);
     doc.body = body;
     let m = &flow.meta;
     doc.core.title = m.title.clone();
@@ -602,6 +719,7 @@ pub fn to_doc(flow: &Flow) -> Document {
 fn uses_kind(blocks: &[FBlock], k: Kind, depth: usize) -> bool {
     depth <= MAX_DEPTH
         && blocks.iter().any(|b| match b {
+            FBlock::Section(_) | FBlock::StyleDefinition(_) => false,
             FBlock::Para(p) => p.kind == k,
             FBlock::Table(t) => t.rows.iter().flatten().any(|c| uses_kind(&c.blocks, k, depth + 1)),
         })
@@ -660,6 +778,8 @@ fn fmt_of(doc: &Document, cp: &CharProps, in_code: bool) -> Fmt {
         size: e.size,
         font: if code || in_code { None } else { e.font.clone() },
         background: e.highlight.and_then(|h| h.rgb()).or(e.shading),
+        citation: cp.writers_citation.clone(),
+        revision: cp.ins.or(cp.del).and_then(|i| crate::writers::native_revision(doc, i)),
     }
 }
 
@@ -685,7 +805,7 @@ pub fn para_kind(doc: &Document, p: &Paragraph) -> (Kind, Option<ListInfo>) {
     };
     let list = rp.numbering.and_then(|n| {
         let lv = doc.numbering.level(n.num, n.level)?;
-        Some(ListInfo { ordered: !matches!(lv.format, NumFormat::Bullet | NumFormat::None), level: n.level.min(8) })
+        Some(ListInfo { ordered: !matches!(lv.format, NumFormat::Bullet | NumFormat::None), level: n.level.min(8), start: None })
     });
     (kind, list)
 }
@@ -704,6 +824,10 @@ fn media_ext(key: &str, data: &[u8]) -> String {
 /// A document paragraph as flow paragraphs: a page break character inside the text ends the
 /// paragraph, and the text after it starts a new one that carries `page_break`.
 pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
+    flow_paras_with(doc, p, false)
+}
+
+fn flow_paras_with(doc: &Document, p: &Paragraph, include_revisions: bool) -> Vec<Para> {
     let (kind, list) = para_kind(doc, p);
     let mut done: Vec<Para> = Vec::new();
     let mut out = Para {
@@ -714,6 +838,15 @@ pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
         inlines: Vec::new(),
         indent_left: p.props.indent_left,
         line_spacing: p.props.line_spacing,
+        break_revision: None,
+        style_id: p.props.style.as_deref().and_then(|id| {
+            doc.custom_prop(&format!("writers.editorial.style.{id}"))
+                .and_then(|v| serde_json::from_str::<serde_json::Value>(v).ok())
+                .and_then(|v| v.get("id").and_then(serde_json::Value::as_str).map(str::to_owned))
+                .or_else(|| id.strip_prefix("WritersEditorial-").map(str::to_owned))
+        }),
+        bibliography: p.props.writers_bibliography.clone(),
+        chapter_heading: p.props.writers_chapter_heading.clone(),
         paragraph_style: match p.props.style.as_deref() {
             Some("WritersLead") => Some("lead".into()),
             Some("WritersQuote") => Some("quote".into()),
@@ -721,11 +854,23 @@ pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
             _ => None,
         },
     };
+    if let Some(number) = p.props.numbering
+        && p.props.writers_list_origin == Some(number.num)
+        && let Some(list) = &mut out.list
+    {
+        list.start = p.props.writers_list_start.map(|_| {
+            doc.numbering
+                .num(number.num)
+                .and_then(|num| num.start_overrides.iter().find(|(level, _)| *level == number.level).map(|(_, start)| *start))
+                .or_else(|| doc.numbering.level(number.num, number.level).map(|level| level.start))
+                .unwrap_or(1)
+        });
+    }
     let in_code = kind == Kind::Code;
     let mut k = 0usize;
     for (range, props) in p.run_ranges() {
         let Some(text) = p.text.get(range.clone()) else { continue };
-        let hidden = props.hidden.unwrap_or(false) || props.del.is_some();
+        let hidden = props.hidden.unwrap_or(false) || (!include_revisions && props.del.is_some());
         let f = fmt_of(doc, props, in_code);
         let mut buf = String::new();
         for c in text.chars() {
@@ -758,9 +903,14 @@ pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
                         out.push_text(&std::mem::take(&mut buf), &f);
                     }
                     match doc.media.get(media) {
-                        Some(data) => {
-                            out.inlines.push(Inline::Image(Img { data: data.clone(), ext: media_ext(media, data), w: *w, h: *h, alt: alt.clone() }))
-                        }
+                        Some(data) => out.inlines.push(Inline::Image(Img {
+                            data: data.clone(),
+                            ext: media_ext(media, data),
+                            w: *w,
+                            h: *h,
+                            alt: alt.clone(),
+                            revision: f.revision.clone(),
+                        })),
                         None if !alt.is_empty() => buf.push_str(alt),
                         None => {}
                     }
@@ -800,25 +950,79 @@ pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
     done
 }
 
-fn flow_blocks(doc: &Document, bl: &Blocks, depth: usize) -> Vec<FBlock> {
+fn flow_blocks_with(doc: &Document, bl: &Blocks, depth: usize, include_revisions: bool) -> Vec<FBlock> {
     let mut out = Vec::new();
-    for b in bl {
+    let mut previous_mark = None;
+    let mut seen_lists = std::collections::HashSet::new();
+    let sections = if depth == 0 { doc.sections() } else { Vec::new() };
+    let mut section_index = 0;
+    let mut pending_section = sections.first().map(|(_, section)| *section);
+    for (body_index, b) in bl.iter().enumerate() {
+        if let Some(section) = pending_section.take()
+            && section.writers_section_id.is_some()
+        {
+            out.push(FBlock::Section(crate::writers::section_json(doc, section)));
+        }
         match &**b {
-            Block::Para(p) => out.extend(flow_paras(doc, p).into_iter().map(FBlock::Para)),
-            Block::Table(t) if depth < MAX_DEPTH => out.push(FBlock::Table(flow_table(doc, t, depth))),
+            Block::Para(p) => {
+                if let Some(definitions) = &p.props.writers_style_definitions
+                    && let Ok(serde_json::Value::Array(values)) = serde_json::from_str(definitions)
+                {
+                    out.extend(values.into_iter().map(FBlock::StyleDefinition));
+                }
+                let join_before = !include_revisions
+                    && previous_mark.as_ref().is_some_and(|revision: &writer_doc::Revision| revision.kind == writer_doc::RevisionKind::Delete);
+                let mut paragraphs = flow_paras_with(doc, p, include_revisions);
+                if let Some(number) = p.props.numbering
+                    && p.props.writers_list_origin != Some(number.num)
+                    && seen_lists.insert((number.num, number.level))
+                {
+                    if let Some(list) = paragraphs.first_mut().and_then(|p| p.list.as_mut()) {
+                        list.start = doc
+                            .numbering
+                            .num(number.num)
+                            .and_then(|num| num.start_overrides.iter().find(|(level, _)| *level == number.level).map(|(_, start)| *start))
+                            .or_else(|| doc.numbering.level(number.num, number.level).map(|level| level.start));
+                    }
+                }
+                if include_revisions {
+                    if let Some(first) = paragraphs.first_mut() {
+                        first.break_revision = previous_mark.take();
+                    }
+                }
+                previous_mark = p.mark.ins.or(p.mark.del).and_then(|i| crate::writers::native_revision(doc, i));
+                if join_before
+                    && let Some(FBlock::Para(previous)) = out.last_mut()
+                    && !paragraphs.is_empty()
+                {
+                    let first = paragraphs.remove(0);
+                    for inline in first.inlines {
+                        match inline {
+                            Inline::Text(text, format) => previous.push_text(&text, &format),
+                            other => previous.inlines.push(other),
+                        }
+                    }
+                }
+                out.extend(paragraphs.into_iter().map(FBlock::Para));
+            }
+            Block::Table(t) if depth < MAX_DEPTH => out.push(FBlock::Table(flow_table(doc, t, depth, include_revisions))),
             Block::Table(t) => {
                 for r in &t.rows {
                     for c in &r.cells {
-                        out.extend(flow_blocks(doc, &c.blocks, depth));
+                        out.extend(flow_blocks_with(doc, &c.blocks, depth, include_revisions));
                     }
                 }
             }
+        }
+        if sections.get(section_index).is_some_and(|(end, _)| *end == body_index) {
+            section_index += 1;
+            pending_section = sections.get(section_index).map(|(_, section)| *section);
         }
     }
     out
 }
 
-fn flow_table(doc: &Document, t: &Table, depth: usize) -> FTable {
+fn flow_table(doc: &Document, t: &Table, depth: usize, include_revisions: bool) -> FTable {
     let mut rows = Vec::new();
     for (ri, r) in t.rows.iter().enumerate() {
         let header = r.props.header || (ri == 0 && t.props.look.header_row && t.rows.len() > 1);
@@ -836,7 +1040,7 @@ fn flow_table(doc: &Document, t: &Table, depth: usize) -> FTable {
                 }
             }
             cells.push(Cell {
-                blocks: flow_blocks(doc, &c.blocks, depth + 1),
+                blocks: flow_blocks_with(doc, &c.blocks, depth + 1, include_revisions),
                 colspan: c.span() as u32,
                 rowspan,
                 covered: c.props.vmerge == VMerge::Continue,
@@ -855,9 +1059,13 @@ fn flow_table(doc: &Document, t: &Table, depth: usize) -> FTable {
 
 /// The document body as a flow.
 pub fn from_doc(doc: &Document) -> Flow {
+    from_doc_with(doc, false)
+}
+
+pub fn from_doc_with(doc: &Document, include_revisions: bool) -> Flow {
     let c = &doc.core;
     Flow {
-        blocks: flow_blocks(doc, &doc.body, 0),
+        blocks: flow_blocks_with(doc, &doc.body, 0, include_revisions),
         meta: Meta {
             title: c.title.clone(),
             author: c.creator.clone(),
@@ -906,7 +1114,7 @@ pub fn make_img(data: impl Into<Arc<Vec<u8>>>, w: Option<f32>, h: Option<f32>, a
         h *= 468.0 / w;
         w = 468.0;
     }
-    Some(Img { data, ext: ext.to_string(), w: w.clamp(1.0, 1584.0), h: h.clamp(1.0, 1584.0), alt: alt.to_string() })
+    Some(Img { data, ext: ext.to_string(), w: w.clamp(1.0, 1584.0), h: h.clamp(1.0, 1584.0), alt: alt.to_string(), revision: None })
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -996,7 +1204,7 @@ pub fn mime_of(ext: &str) -> &'static str {
 /// simple per-level counter (what text exports show).
 #[derive(Default)]
 pub struct ListCounter {
-    counts: [u32; 9],
+    counts: [Option<i64>; 9],
     ordered: [bool; 9],
 }
 
@@ -1005,23 +1213,24 @@ impl ListCounter {
         *self = ListCounter::default();
     }
     /// Advance for `li` and return its number (1-based; bullets also count).
-    pub fn next(&mut self, li: ListInfo) -> u32 {
+    pub fn next(&mut self, li: ListInfo) -> i64 {
         let lv = li.level.min(8) as usize;
         if self.ordered.get(lv).copied() != Some(li.ordered)
             && let (Some(o), Some(c)) = (self.ordered.get_mut(lv), self.counts.get_mut(lv))
         {
             *o = li.ordered;
-            *c = 0;
+            *c = None;
         }
         let n = match self.counts.get_mut(lv) {
             Some(c) => {
-                *c = c.saturating_add(1);
-                *c
+                let value = li.start.unwrap_or_else(|| c.map(|value| value.saturating_add(1)).unwrap_or(1));
+                *c = Some(value);
+                value
             }
             None => 1,
         };
         for d in self.counts.iter_mut().skip(lv + 1) {
-            *d = 0;
+            *d = None;
         }
         n
     }
@@ -1030,10 +1239,13 @@ impl ListCounter {
         if !li.ordered {
             return ["•", "◦", "▪"].get(li.level as usize % 3).copied().unwrap_or("•").to_string();
         }
+        if li.start.is_some() || n <= 0 {
+            return format!("{n}.");
+        }
         match li.level % 3 {
             0 => format!("{n}."),
-            1 => format!("{}.", writer_doc::section::letters(n)),
-            _ => format!("{}.", writer_doc::section::roman(n)),
+            1 => format!("{}.", writer_doc::section::letters(n.try_into().unwrap_or(0))),
+            _ => format!("{}.", writer_doc::section::roman(n.try_into().unwrap_or(0))),
         }
     }
 }
@@ -1117,12 +1329,12 @@ mod tests {
     #[test]
     fn list_labels() {
         let mut c = ListCounter::default();
-        let o = |level| ListInfo { ordered: true, level };
+        let o = |level| ListInfo { ordered: true, level, start: None };
         assert_eq!(c.label(o(0)), "1.");
         assert_eq!(c.label(o(1)), "a.");
         assert_eq!(c.label(o(1)), "b.");
         assert_eq!(c.label(o(0)), "2.");
-        assert_eq!(c.label(ListInfo { ordered: false, level: 0 }), "•");
+        assert_eq!(c.label(ListInfo { ordered: false, level: 0, start: None }), "•");
     }
 
     #[test]

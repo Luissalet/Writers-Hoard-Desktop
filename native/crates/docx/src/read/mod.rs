@@ -38,7 +38,7 @@ pub(crate) struct Reader<'p> {
     pkg: &'p Package,
     pub doc: Document,
     pub pc: PropCtx,
-    revs: HashMap<(u8, String, String, Option<String>), u32>,
+    revs: HashMap<(u8, String, String, Option<String>, String), u32>,
     /// Move ranges (`w:moveFromRangeStart` …) seen so far.
     pub moves: MoveCtx,
     media_by_path: HashMap<String, String>,
@@ -148,6 +148,11 @@ pub(crate) fn read_package(bytes: &[u8]) -> Result<Document, DocxError> {
     if let Some(p) = part(rt::SETTINGS) {
         lenient("settings", r.read_settings(&p));
     }
+    if let Some(c) = root_rels.by_type(rt::CUSTOM)
+        && let Ok(Some(x)) = r.xml(&c.target)
+    {
+        r.doc.custom_props = crate::custom::read(&x);
+    }
     if let Some(p) = part(rt::FOOTNOTES) {
         lenient("footnotes", r.read_notes(&p, true));
     }
@@ -176,11 +181,6 @@ pub(crate) fn read_package(bytes: &[u8]) -> Result<Document, DocxError> {
 
     let core = root_rels.by_type(rt::CORE).map(|x| x.target.clone()).unwrap_or_else(|| "docProps/core.xml".into());
     r.read_core(&core);
-    if let Some(c) = root_rels.by_type(rt::CUSTOM)
-        && let Ok(Some(x)) = r.xml(&c.target)
-    {
-        r.doc.custom_props = crate::custom::read(&x);
-    }
     // A macro project and every part it relates to (VBA data, signatures…) ride along as opaque
     // bytes, never parsed or run, so a .docm/.dotm saved again carries exactly what the file had.
     // Only the relationships and content types are read.
@@ -420,19 +420,25 @@ impl Reader<'_> {
     }
 
     fn revision_named(&mut self, kind: RevisionKind, e: &El, move_name: Option<String>) -> u32 {
-        let author = e.attr("w:author").unwrap_or("").chars().take(256).collect::<String>();
-        let date = e.attr("w:date").unwrap_or("").chars().take(64).collect::<String>();
+        let author = e.attr("w:author").unwrap_or("").to_string();
+        let date = e.attr("w:date").unwrap_or("").to_string();
+        let own_id = e.attr("wh:revisionId").filter(|id| !id.is_empty()).map(str::to_owned);
+        let source = e.attr("wh:source").map(str::to_owned);
+        let created_at = e.attr("wh:createdAt").and_then(|v| v.parse::<f64>().ok()).filter(|v| v.is_finite() && *v >= 0.0);
+        let identity = own_id.clone().unwrap_or_else(|| {
+            if move_name.is_some() { String::new() } else { e.attr("wh:groupId").or_else(|| e.attr("w:id")).unwrap_or("").to_string() }
+        });
         let k = match kind {
             RevisionKind::Insert => 0,
             RevisionKind::Delete => 1,
             RevisionKind::Format => 2,
         };
-        let key = (k, author.clone(), date.clone(), move_name.clone());
+        let key = (k, author.clone(), date.clone(), move_name.clone(), identity);
         if let Some(i) = self.revs.get(&key) {
             return *i;
         }
         let i = self.doc.revisions.len() as u32;
-        self.doc.revisions.push(Revision { kind, author, date, move_name });
+        self.doc.revisions.push(Revision { kind, author, date, move_name, own_id, source, created_at });
         self.revs.insert(key, i);
         i
     }
@@ -698,9 +704,9 @@ impl Reader<'_> {
             let (mut start_overrides, mut level_overrides) = (Vec::new(), Vec::new());
             for o in n.children("w:lvlOverride").take(9) {
                 let lvl = o.attr("w:ilvl").and_then(u32_of).unwrap_or(0).min(8) as u8;
-                if let Some(s) = o.child_val("w:startOverride").and_then(u32_of) {
+                if let Some(s) = o.child_val("w:startOverride").and_then(crate::units::int) {
                     start_overrides.push((lvl, s));
-                } else if let Some(s) = o.child("w:lvl").and_then(|l| l.child_val("w:start")).and_then(u32_of) {
+                } else if let Some(s) = o.child("w:lvl").and_then(|l| l.child_val("w:start")).and_then(crate::units::int) {
                     start_overrides.push((lvl, s));
                 }
                 // A whole level definition replaces the abstract list's for this list.
@@ -726,7 +732,7 @@ impl Reader<'_> {
 
     fn level(&self, l: &El, i: usize) -> Level {
         let mut lv = default_level(i);
-        if let Some(s) = l.child_val("w:start").and_then(u32_of) {
+        if let Some(s) = l.child_val("w:start").and_then(crate::units::int) {
             lv.start = s;
         }
         if let Some(f) = l.child_val("w:numFmt") {

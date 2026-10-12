@@ -273,6 +273,7 @@ impl Writer {
         let mut i = 0;
         while let Some(b) = blocks.get(i) {
             match b {
+                FBlock::Section(_) | FBlock::StyleDefinition(_) => {}
                 FBlock::Table(t) => {
                     if depth < model::MAX_DEPTH {
                         self.table(t, out, depth);
@@ -975,7 +976,7 @@ impl Body<'_> {
         {
             let style = self.lists.iter().rev().find_map(|l| l.0.clone());
             let ordered = style.and_then(|s| self.styles.lists.get(&s)).and_then(|v| v.get(lv.min(9)).copied()).unwrap_or(false);
-            p.list = Some(ListInfo { ordered, level: lv.min(8) as u8 });
+            p.list = Some(ListInfo { ordered, level: lv.min(8) as u8, start: None });
             self.para_cont = self.item_used.last().copied().unwrap_or(false);
             if let Some(u) = self.item_used.last_mut() {
                 *u = true;

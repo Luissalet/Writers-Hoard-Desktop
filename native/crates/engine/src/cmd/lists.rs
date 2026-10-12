@@ -68,8 +68,8 @@ pub fn level_from(mut l: Level, i: usize, v: &Value) -> Level {
     if let Some(t) = p::str(v, "text") {
         l.text = t.chars().take(64).collect();
     }
-    if let Some(s) = p::u64(v, "start") {
-        l.start = s.min(32_767) as u32;
+    if let Some(s) = v.get("start").and_then(Value::as_i64) {
+        l.start = s;
     }
     match v.get("restartAfter") {
         Some(Value::Null) => {

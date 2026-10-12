@@ -196,7 +196,7 @@ fn parse_plf_lfo(table: &[u8], fc: u32, defs: &[ListDef], numbering: &mut Number
                 }
             }
             if f_start {
-                start_overrides.push((lvl as u8, i_start.min(0x7FFF)));
+                start_overrides.push((lvl as u8, i64::from(i_start.min(0x7FFF))));
             }
             if let Some(l) = fmt_lvl {
                 overrides.push((lvl, l));
@@ -271,7 +271,7 @@ fn level_of(l: &RawLvl, lvl_index: usize, fonts: &[String]) -> Level {
         }
     }
     Level {
-        start: l.start.max(1),
+        start: i64::from(l.start.max(1)),
         format: num_format(l.nfc),
         text,
         align: match l.jc {

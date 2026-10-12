@@ -331,6 +331,7 @@ enum ElKind {
     Tr,
     Cell,
     Head,
+    Metadata,
 }
 
 #[derive(Clone, Debug)]
@@ -345,6 +346,11 @@ struct El {
     indent_left: Option<f32>,
     line_spacing: Option<writer_doc::props::LineSpacing>,
     paragraph_style: Option<String>,
+    break_revision: Option<writer_doc::Revision>,
+    style_id: Option<String>,
+    bibliography: Option<String>,
+    chapter_heading: Option<String>,
+    list_start: Option<i64>,
     /// Li: a paragraph of this item was already emitted.
     used: bool,
 }
@@ -632,7 +638,7 @@ impl<'r> Builder<'r> {
                     ElKind::Li if li_at.is_none() => li_at = Some(i),
                     ElKind::List(o) => {
                         if list_level.is_none() {
-                            list_level = Some((o, 0));
+                            list_level = Some((o, i));
                         }
                         lists += 1;
                     }
@@ -651,10 +657,26 @@ impl<'r> Builder<'r> {
                     if p.paragraph_style.is_none() {
                         p.paragraph_style = e.paragraph_style.clone();
                     }
+                    if p.break_revision.is_none() {
+                        p.break_revision = e.break_revision.clone();
+                    }
+                    if p.style_id.is_none() {
+                        p.style_id = e.style_id.clone();
+                    }
+                    if p.bibliography.is_none() {
+                        p.bibliography = e.bibliography.clone();
+                    }
+                    if p.chapter_heading.is_none() {
+                        p.chapter_heading = e.chapter_heading.clone();
+                    }
                 }
             }
-            if let (Some((o, _)), Some(li)) = (list_level, li_at) {
-                p.list = Some(ListInfo { ordered: o, level: lists.saturating_sub(1).min(8) as u8 });
+            if let (Some((o, list_index)), Some(li)) = (list_level, li_at) {
+                let start = self.stack.get(list_index).and_then(|element| (!element.used).then_some(element.list_start).flatten());
+                if let Some(element) = self.stack.get_mut(list_index) {
+                    element.used = true;
+                }
+                p.list = Some(ListInfo { ordered: o, level: lists.saturating_sub(1).min(8) as u8, start });
                 self.para_cont = self.stack.get(li).is_some_and(|e| e.used);
                 if let Some(e) = self.stack.get_mut(li) {
                     e.used = true;
@@ -719,6 +741,9 @@ impl<'r> Builder<'r> {
     }
 
     fn text(&mut self, t: &str) {
+        if self.stack.iter().any(|element| element.kind == ElKind::Metadata) {
+            return;
+        }
         if self.in_head() {
             if let Some(title) = &mut self.title {
                 title.push_str(t);
@@ -879,6 +904,39 @@ impl<'r> Builder<'r> {
     }
 
     fn start(&mut self, name: &str, attrs: &[(String, String)], self_close: bool) {
+        // Writers metadata nodes are document properties, never prose.
+        let style = crate::writers::metadata_attribute(attrs, "data-wh-editorial-style");
+        let section = crate::writers::metadata_attribute(attrs, "data-wh-section");
+        if style.is_some() || section.is_some() {
+            self.flush();
+            if let Some(style) = style {
+                self.container().push(FBlock::StyleDefinition(style));
+            }
+            if let Some(section) = section {
+                self.container().push(FBlock::Section(section));
+            }
+            if !self_close {
+                self.stack.push(El {
+                    name: name.into(),
+                    kind: ElKind::Metadata,
+                    fmt: Fmt::default(),
+                    align: None,
+                    preserve: false,
+                    page_break: false,
+                    break_after: false,
+                    indent_left: None,
+                    line_spacing: None,
+                    paragraph_style: None,
+                    break_revision: None,
+                    style_id: None,
+                    bibliography: None,
+                    chapter_heading: None,
+                    list_start: None,
+                    used: false,
+                });
+            }
+            return;
+        }
         // Head metadata.
         match name {
             "title" => {
@@ -990,7 +1048,10 @@ impl<'r> Builder<'r> {
                     .and_then(|d| make_img(d, w, h, &alt));
                 let f = self.fmt();
                 match img {
-                    Some(im) => self.start_para().inlines.push(Inline::Image(im)),
+                    Some(mut im) => {
+                        im.revision = f.revision.clone();
+                        self.start_para().inlines.push(Inline::Image(im));
+                    }
                     None if !alt.is_empty() => self.start_para().push_text(&alt, &f),
                     None => {}
                 }
@@ -1015,9 +1076,15 @@ impl<'r> Builder<'r> {
             self.flush();
         }
         let mut fmt = self.fmt();
+        if let Some(citation) = crate::writers::metadata_attribute(attrs, "data-wh-citation") {
+            fmt.citation = Some(crate::writers::serialized_metadata(&citation));
+        }
+        if let Some(revision) = crate::writers::revision(attrs, false) {
+            fmt.revision = Some(revision);
+        }
         let mut align = None;
         let mut preserve = self.preserve();
-        let mut page_break = false;
+        let mut page_break = attr(attrs, "data-page-break-before").is_some();
         match name {
             "b" | "strong" => fmt.bold = true,
             "i" | "em" | "cite" | "var" | "dfn" | "address" => fmt.italic = true,
@@ -1099,6 +1166,18 @@ impl<'r> Builder<'r> {
             .and_then(|v| v.parse::<f32>().ok())
             .filter(|v| v.is_finite() && *v > 0.0)
             .map(writer_doc::props::LineSpacing::Multiple);
+        let break_revision = crate::writers::revision(attrs, true);
+        let style_id = attr(attrs, "data-wh-style-id").map(str::to_owned);
+        let bibliography = attr(attrs, "data-wh-bibliography").map(str::to_owned);
+        let chapter_heading =
+            (name == "h1" && (attr(attrs, "data-writing-id").is_some() || attr(attrs, "data-chapter-heading").is_some())).then(|| {
+                let values: serde_json::Map<String, serde_json::Value> = attrs
+                    .iter()
+                    .filter(|(key, _)| matches!(key.as_str(), "data-writing-id" | "data-chapter-heading" | "data-chapter" | "data-page-break-before"))
+                    .map(|(key, value)| (key.clone(), serde_json::Value::String(value.clone())))
+                    .collect();
+                crate::writers::serialized_metadata(&serde_json::Value::Object(values))
+            });
         let paragraph_style =
             attr(attrs, "data-wh-paragraph-style").filter(|v| matches!(*v, "normal" | "lead" | "quote" | "caption")).map(str::to_owned);
         let mut break_after = attr(attrs, "data-wh-page-break").is_some();
@@ -1193,6 +1272,11 @@ impl<'r> Builder<'r> {
             indent_left,
             line_spacing,
             paragraph_style,
+            break_revision,
+            style_id,
+            bibliography,
+            chapter_heading,
+            list_start: (name == "ol").then(|| attr(attrs, "start").and_then(|value| value.parse::<i64>().ok()).unwrap_or(1)),
             used: false,
         });
     }
@@ -1280,7 +1364,11 @@ pub fn import_with(s: &str, images: ImageLoader) -> Document {
             let Some(off) = document.para(writer_doc::StoryRef::Body, &path).and_then(|p| p.text.find(&marker)) else { continue };
             let id = document.add_part(writer_doc::PartKind::Footnote, Vec::new());
             let reference = writer_doc::para::InlineObject::NoteRef { kind: writer_doc::para::NoteKind::Footnote, id, custom: String::new() };
-            let props = writer_doc::CharProps { style: Some("FootnoteReference".into()), ..Default::default() };
+            let mut props = document
+                .para(writer_doc::StoryRef::Body, &path)
+                .and_then(|p| p.run_ranges().find(|(range, _)| range.contains(&off)).map(|(_, props)| props.clone()))
+                .unwrap_or_default();
+            props.style = Some("FootnoteReference".into());
             let mut note = writer_doc::Paragraph::new().styled("FootnoteText");
             let _ = note.insert_object(0, reference.clone(), &props);
             let _ = note.insert_text(note.len(), &format!(" {body}"), &Default::default());
@@ -1388,6 +1476,14 @@ pub fn inlines_html(inlines: &[Inline]) -> String {
             Inline::Text(t, f) => {
                 let mut open = String::new();
                 let mut close: Vec<&str> = Vec::new();
+                if let Some(citation) = &f.citation {
+                    open.push_str(&format!("<span data-wh-citation=\"{}\">", esc(citation)));
+                    close.push("</span>");
+                }
+                if let Some(revision) = &f.revision {
+                    open.push_str(&format!("<span{}>", crate::writers::revision_attrs(revision, false)));
+                    close.push("</span>");
+                }
                 if let Some(l) = &f.link {
                     open.push_str(&format!("<a href=\"{}\">", esc(l)));
                     close.push("</a>");
@@ -1440,6 +1536,9 @@ pub fn inlines_html(inlines: &[Inline]) -> String {
                 }
             }
             Inline::Image(img) => {
+                if let Some(revision) = &img.revision {
+                    o.push_str(&format!("<span{}>", crate::writers::revision_attrs(revision, false)));
+                }
                 o.push_str(&format!(
                     "<img src=\"data:{};base64,{}\" alt=\"{}\" width=\"{}\" height=\"{}\">",
                     mime_of(&img.ext),
@@ -1448,6 +1547,9 @@ pub fn inlines_html(inlines: &[Inline]) -> String {
                     (img.w / 0.75).round(),
                     (img.h / 0.75).round()
                 ));
+                if img.revision.is_some() {
+                    o.push_str("</span>");
+                }
             }
             Inline::Anchor(a) => o.push_str(&format!("<a id=\"{}\"></a>", esc(a))),
             // No picture to show: the browser shows the alt text in its place.
@@ -1472,6 +1574,23 @@ fn para_attrs(p: &Para) -> String {
         css.push("break-before:page;page-break-before:always".into());
     }
     let mut attrs = String::new();
+    if let Some(chapter) = &p.chapter_heading
+        && let Ok(serde_json::Value::Object(values)) = serde_json::from_str(chapter)
+    {
+        for (key, value) in values {
+            if matches!(key.as_str(), "data-writing-id" | "data-chapter-heading" | "data-chapter" | "data-page-break-before")
+                && let Some(value) = value.as_str()
+            {
+                attrs.push_str(&format!(" {key}=\"{}\"", esc(value)));
+            }
+        }
+    }
+    if let Some(id) = &p.style_id {
+        attrs.push_str(&format!(" data-wh-style-id=\"{}\"", esc(id)));
+    }
+    if let Some(source) = &p.bibliography {
+        attrs.push_str(&format!(" data-wh-bibliography=\"{}\"", esc(source)));
+    }
     if let Some(indent) = p.indent_left {
         css.push(format!("margin-inline-start:{}em", trim_num(indent / 12.0)));
         attrs.push_str(&format!(" data-wh-indent=\"{}\"", trim_num(indent / 18.0)));
@@ -1497,7 +1616,7 @@ fn para_attrs(p: &Para) -> String {
 
 fn para_html(p: &Para) -> String {
     let body = inlines_html(&p.inlines);
-    let attrs = para_attrs(p);
+    let attrs = format!("{}{}", para_attrs(p), p.break_revision.as_ref().map(|r| crate::writers::revision_attrs(r, true)).unwrap_or_default());
     let paragraph = match p.kind {
         Kind::Heading(n) => format!("<h{n}{attrs}>{body}</h{n}>", n = n.clamp(1, 6)),
         Kind::Title => format!("<h1{attrs}>{body}</h1>"),
@@ -1578,6 +1697,14 @@ fn blocks_html(blocks: &[FBlock], out: &mut String, depth: usize) {
                 }
                 i += 1;
             }
+            FBlock::StyleDefinition(value) => {
+                out.push_str(&format!("<div data-wh-editorial-style=\"{}\" hidden></div>\n", esc(&crate::writers::serialized_metadata(value))));
+                i += 1;
+            }
+            FBlock::Section(value) => {
+                out.push_str(&format!("<div data-wh-section=\"{}\" hidden></div>\n", esc(&crate::writers::serialized_metadata(value))));
+                i += 1;
+            }
             FBlock::Para(p) if p.list.is_some() => {
                 // Nested lists from consecutive list paragraphs.
                 let mut stack: Vec<(bool, bool)> = Vec::new(); // (ordered, li open)
@@ -1587,7 +1714,7 @@ fn blocks_html(blocks: &[FBlock], out: &mut String, depth: usize) {
                     while stack.len() > lv + 1 {
                         close_list(&mut stack, out);
                     }
-                    if stack.len() == lv + 1 && stack.last().is_some_and(|s| s.0 != li.ordered) {
+                    if stack.len() == lv + 1 && (li.start.is_some() || stack.last().is_some_and(|s| s.0 != li.ordered)) {
                         close_list(&mut stack, out);
                     }
                     while stack.len() < lv + 1 {
@@ -1597,7 +1724,11 @@ fn blocks_html(blocks: &[FBlock], out: &mut String, depth: usize) {
                             out.push_str("<li>");
                             top.1 = true;
                         }
-                        out.push_str(if li.ordered { "<ol>" } else { "<ul>" });
+                        if li.ordered {
+                            out.push_str(&li.start.map(|start| format!("<ol start=\"{start}\"> ")).unwrap_or_else(|| "<ol>".into()));
+                        } else {
+                            out.push_str("<ul>");
+                        }
                         stack.push((li.ordered, false));
                     }
                     if let Some(top) = stack.last_mut() {
@@ -1664,6 +1795,10 @@ fn close_list(stack: &mut Vec<(bool, bool)>, out: &mut String) {
 
 /// A complete HTML document.
 pub fn export(doc: &Document) -> String {
+    export_with_revisions(doc, false)
+}
+
+pub fn export_with_revisions(doc: &Document, include_revisions: bool) -> String {
     let mut clone = doc.clone();
     let mut prefix = "WRITERS_EXPORTED_FOOTNOTE_".to_string();
     while doc.plain_text(writer_doc::StoryRef::Body).contains(&prefix) {
@@ -1690,14 +1825,18 @@ pub fn export(doc: &Document) -> String {
             let marker = format!("{prefix}{}END", notes.len());
             let tag = format!("<sup data-footnote-id=\"{}\" data-footnote=\"{}\" class=\"wh-footnote-ref\"></sup>", esc(&external), esc(body));
             if let Ok(p) = clone.para_mut(writer_doc::StoryRef::Body, &path) {
+                let props = p.run_ranges().find(|(range, _)| range.contains(&off)).map(|(_, props)| props.clone()).unwrap_or_default();
                 if p.delete(off, off + writer_doc::para::OBJ.len_utf8()).is_ok() {
-                    let _ = p.insert_text(off, &marker, &Default::default());
+                    let _ = p.insert_text(off, &marker, &props);
                 }
             }
             notes.push((marker, tag));
         }
     }
-    let flow = model::from_doc(&clone);
+    let mut flow = model::from_doc_with(&clone, include_revisions);
+    if !include_revisions {
+        crate::writers::strip_flow_revisions(&mut flow);
+    }
     let mut html = export_flow(&flow, doc.styles.default_chr.lang.as_deref().unwrap_or("en"));
     for (marker, tag) in notes {
         html = html.replace(&marker, &tag);
@@ -1735,6 +1874,7 @@ mod tests {
         f.blocks
             .iter()
             .map(|b| match b {
+                FBlock::Section(_) | FBlock::StyleDefinition(_) => "metadata".into(),
                 FBlock::Para(p) => format!("{:?}{:?}:{}", p.kind, p.list.map(|l| (l.ordered, l.level)), p.text()),
                 FBlock::Table(t) => format!("table{}x{}", t.rows.len(), t.cols()),
             })

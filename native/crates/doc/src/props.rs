@@ -223,6 +223,9 @@ impl Highlight {
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CharProps {
+    /// Semantic citation metadata as Writers JSON (not character formatting).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writers_citation: Option<String>,
     /// Character style id.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,
@@ -376,7 +379,7 @@ impl CharProps {
     pub fn minus(mut self, base: &CharProps) -> CharProps {
         drop_same_fields!(self, base; style, font, size, bold, italic, underline, underline_color, strike, double_strike, color, highlight,
             shading, border, vert_align, caps, small_caps, hidden, spacing, scale, position, kern, outline, shadow, emboss, engrave, lang, no_proof, rtl,
-            cs, font_cs, size_cs, bold_cs, italic_cs, lang_bidi, link, ins, del);
+            cs, font_cs, size_cs, bold_cs, italic_cs, lang_bidi, link, ins, del, writers_citation);
         self
     }
 
@@ -390,7 +393,7 @@ impl CharProps {
     pub fn overlay(&mut self, patch: &CharProps) {
         overlay_fields!(self, patch; style, font, size, bold, italic, underline, underline_color, strike, double_strike, color, highlight,
             shading, border, vert_align, caps, small_caps, hidden, spacing, scale, position, kern, outline, shadow, emboss, engrave, lang, no_proof, rtl,
-            cs, font_cs, size_cs, bold_cs, italic_cs, lang_bidi, link, ins, del, fmt_change);
+            cs, font_cs, size_cs, bold_cs, italic_cs, lang_bidi, link, ins, del, fmt_change, writers_citation);
         if patch.size.is_some() && patch.size_cs.is_none() {
             self.size_cs = None;
         }
@@ -411,11 +414,18 @@ impl CharProps {
     /// Clear direct formatting but keep what isn't "formatting" (links, revisions, character style
     /// is cleared too, as Word's Clear Formatting does).
     pub fn cleared(&self) -> CharProps {
-        CharProps { link: self.link.clone(), ins: self.ins, del: self.del, fmt_change: self.fmt_change.clone(), ..Default::default() }
+        CharProps {
+            writers_citation: self.writers_citation.clone(),
+            link: self.link.clone(),
+            ins: self.ins,
+            del: self.del,
+            fmt_change: self.fmt_change.clone(),
+            ..Default::default()
+        }
     }
     /// Just the formatting: without the link, revision marks and tracked formatting change.
     pub fn formatting(&self) -> CharProps {
-        CharProps { link: None, ins: None, del: None, fmt_change: None, ..self.clone() }
+        CharProps { writers_citation: None, link: None, ins: None, del: None, fmt_change: None, ..self.clone() }
     }
 }
 
@@ -631,6 +641,16 @@ pub struct NumRef {
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ParaProps {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writers_list_origin: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writers_list_start: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writers_style_definitions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writers_chapter_heading: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writers_bibliography: Option<String>,
     /// Paragraph style id.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,

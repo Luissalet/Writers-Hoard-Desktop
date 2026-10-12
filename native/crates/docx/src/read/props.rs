@@ -37,6 +37,7 @@ impl PropCtx {
         let mut c = CharProps::default();
         for k in e.els() {
             match k.name.as_str() {
+                "wh:citation" => c.writers_citation = k.attr("wh:value").map(str::to_owned),
                 "w:rStyle" => c.style = k.attr("w:val").filter(|v| !v.is_empty()).map(|v| self.style_id(v)),
                 "w:rFonts" => {
                     c.font = k
@@ -136,6 +137,13 @@ impl PropCtx {
         let mut mark = CharProps::default();
         for k in e.els() {
             match k.name.as_str() {
+                "wh:list" => {
+                    p.writers_list_origin = k.attr("wh:origin").and_then(u32_of);
+                    p.writers_list_start = k.attr("wh:start").and_then(int);
+                }
+                "wh:styleDefinitions" => p.writers_style_definitions = k.attr("wh:value").map(str::to_owned),
+                "wh:chapterHeading" => p.writers_chapter_heading = k.attr("wh:value").map(str::to_owned),
+                "wh:bibliography" => p.writers_bibliography = k.attr("wh:sourceId").map(str::to_owned),
                 "w:pStyle" => p.style = k.attr("w:val").filter(|v| !v.is_empty()).map(|v| self.style_id(v)),
                 "w:keepNext" => p.keep_next = Some(on_off(k)),
                 "w:keepLines" => p.keep_lines = Some(on_off(k)),
@@ -427,6 +435,7 @@ pub struct HfRef {
 /// `w:sectPr` (header/footer references are returned for the caller to resolve).
 pub fn sectpr(e: &El) -> (SectionProps, Vec<HfRef>) {
     let mut s = SectionProps::default();
+    s.writers_section_id = e.attr("wh:sectionId").map(str::to_owned);
     let mut refs = Vec::new();
     for k in e.els() {
         match k.name.as_str() {

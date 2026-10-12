@@ -14,17 +14,17 @@ File outputs use a unique temporary file beside the explicit destination, flush/
 
 | Action | Args | Result |
 |---|---|---|
-| `commands` | `query?` (case-insensitive id/label/location filter) | `protocolVersion`, `totalCommands`, `commands` (id/label/location/shortcut/params/mutates/atomicBatch), `actions`, `positionUnit` |
+| `commands` | `query?` (case-insensitive id/label/location filter) | `protocolVersion`, `totalCommands`, `commands` (id/label/location/shortcut/params/mutates/atomicBatch), `actions`, `positionUnit`, `capabilities` |
 | `document.new` | `template?`, `text?`, `sessionId?` | Session metadata |
 | `document.open` | `path`, `password?`, `sessionId?` | Session metadata |
 | `document.openBytes` | `dataBase64`, `format`, `fileName?`, `password?`, `sessionId?` | Session metadata |
 | `document.importHtml` | `html`, `assets?` map of image src to base64, `sessionId?` | Session metadata |
 | `document.save` | `sessionId`, `path`, `password?` | Session metadata, path, bytes |
 | `document.exportBytes` | `sessionId`, `format`, `fileName?`, `password?` | mimeType, dataBase64, fileName |
-| `document.exportHtml` | `sessionId` | html (images embedded), assets (base64 map) |
+| `document.exportHtml` | `sessionId`, `includeRevisions?` (default false) | html (images embedded), assets (base64 map), includeRevisions, warnings |
 | `document.inspect` | `sessionId` | Session metadata, document, assets, passthrough, selection, undoDepth |
 | `document.text` | `sessionId` | text |
-| `document.renderPage` | `sessionId`, `page?` (1-based, default 1), `scale?` (default 1) | mimeType, dataBase64, width, height |
+| `document.renderPage` | `sessionId`, `page?` (1-based, default 1), `scale?` (default 1), `includeMarkup?` (default false) | mimeType, dataBase64, width, height, pageCount, includeMarkup |
 | `document.exportPdf` | `sessionId`, `includeMarkup?`, `path?` | mimeType, dataBase64 |
 | `execute` | `sessionId`, `command`, `params?` | Session metadata, commandResult, uiRequests |
 | `batch` | `sessionId`, `commands` array of command/params | Session metadata, results, atomic:true, uiRequests |
@@ -39,3 +39,14 @@ Session undo has no fixed depth limit and never discards the oldest edits automa
 Selection paths and offsets follow the owned document model: story plus block/table path, and UTF-8 **byte** offsets. They are not DOM UTF-16 offsets. Convert explicitly in UI adapters. HTML roundtrip covers supported rich text and tables/images; it is not a lossless representation of all DOCX sections, revisions or objects. Use the native archive for complete persistence.
 
 The HTML adapter understands Writers' `sup[data-footnote-id][data-footnote]` atoms, turning their bodies into native footnote parts without adding them to the prose. Editable HTML restores those attributes and IDs; DOCX and PDF include actual notes. Manual `div[data-wh-page-break]` and CSS breaks are paginated and exported as explicit editor atoms. Block indentation, line height and normal/lead/quote/caption styles plus inline font/size/colour/highlight attributes map to the native document model. Table widths from `data-wh-colwidth`, `colwidth`, CSS width and column groups map pixel widths to native points and return as editor column attributes, including spans. Native archive persistence also preserves chart/diagram/OLE XML and relationships, alongside binary package parts.
+
+
+## Reviewed HTML and editorial interchange
+
+The catalogue exposes `htmlRevisionInterchange`, `editorialStyles`, `editorialSections`, `editorialCitations` and `renderMarkup` capabilities. `document.exportHtml` without `includeRevisions` returns final prose: deleted content and deleted paragraph separators are resolved in the exported representation. `includeRevisions:true` preserves insertion/deletion spans, note and image references, and paragraph separator metadata before the following paragraph. The result includes warnings for revision kinds or foreign dates that cannot be represented faithfully in Writers HTML. PDF and page rendering default to final content; `includeMarkup:true` renders the retained native revisions. Both operate on a snapshot and leave the original session untouched.
+
+Writers HTML attributes `data-wh-revision-{id,kind,author,source,created-at}` and their `data-wh-revision-break-*` equivalents map to native revisions and standard DOCX `w:ins`/`w:del`, including paragraph marks. Native milliseconds also produce a UTC Word date. Own identity, source and timestamp use optional `wh:*` metadata (`urn:writers-hoard:document:1`) with OpenXML markup compatibility declarations. Distinct foreign `w:id` values remain distinct even when author/date match. Our DOCX roundtrip preserves this metadata; other editors can discard extension metadata, so this is not a claim of universal interchange.
+
+Hidden `data-wh-editorial-style` and `data-wh-section` JSON markers, inline `data-wh-citation`, paragraph `data-wh-style-id` and `data-wh-bibliography` are retained. Style definitions can reuse an ID in different chapters: native IDs are scoped internally and HTML restores each original definition at its document boundary. Writers styles are materialized presets; their native style association carries the editable definition without adding inherited formatting. Actual paragraph kind, inline marks and direct formatting remain authoritative, including when a user clears formatting after applying a preset. Section markers map page geometry, margins, start type, and plain header/footer stories to the native model. Citations and bibliography associations retain source metadata and labels; this does not implement CSL. JSON attributes escape `<`, `>` and `&` as Unicode escapes before HTML attribute encoding, including literal `</script>` text.
+
+Ordered HTML lists retain signed `start` values (including zero and negative starts) and nested restarts in native numbering, DOCX and reviewed/final HTML. Native list starts use signed 64-bit integers; decimal rendering does not replace zero with an initialization sentinel. DOCX uses `w:start` and `w:startOverride`; Writers extension markers retain the HTML list boundaries. Other formats retain the capabilities their own adapters represent, and are not promised to preserve revision/editorial metadata. Use `writer.json` and original source preservation for complete persistence.

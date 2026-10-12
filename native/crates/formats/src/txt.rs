@@ -54,6 +54,7 @@ pub fn import(bytes: &[u8]) -> Document {
 fn blocks_text(blocks: &[FBlock], out: &mut Vec<String>, lists: &mut ListCounter, depth: usize) {
     for b in blocks {
         match b {
+            FBlock::Section(_) | FBlock::StyleDefinition(_) => {}
             FBlock::Para(p) => {
                 let mut line = String::new();
                 match p.list {
