@@ -1409,3 +1409,6 @@ el alcance; ninguna de las dos cosas aplica a la implementación normal de Write
   command catalog is complete UI coverage or proof of every document feature.
 - Package from physical dependencies and smoke the actual artifact before updating;
   a dependency junction can pass development builds while omitting runtime modules.
+- Before naming a new source or test file, inspect the tracked tree for that exact
+  name. Add new document features under distinct names; preserve older editorial
+  profile modules, test aggregators and scripts instead of replacing their contents.
