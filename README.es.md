@@ -53,8 +53,17 @@ La revisión del español ofrece ortografía local, diccionario persistente por
 proyecto y sugerencias gramaticales locales opcionales. La gramática usa
 LanguageTool 6.6 incluido y requiere Java 17 o posterior en el equipo; la
 ortografía funciona sin Java. Las sugerencias se revisan y se pueden deshacer.
-La interfaz y seis herramientas MCP nuevas comparten estas operaciones. Consulta
+La interfaz y MCP comparten estas operaciones. Consulta
 la [comparativa y el corpus español medido](docs/editor-comparison/README.md).
+
+Documento permite conservar el idioma y guionado del archivo abierto o elegir
+español/inglés y activar/desactivar guionado automático en una copia de descarga.
+Los patrones españoles admiten Unicode y patrones largos; los guiones añadidos
+al final de línea se ven sin añadir caracteres al texto seleccionado del PDF.
+Las URL, fechas y guiones escritos se conservan. La maquetación reserva el pie
+antes de colocar cuerpo y notas. La consulta de cortes MCP informa de posiciones
+en la palabra original y del proveedor disponible; imprimir conserva la sesión
+y su historial.
 
 ## IA y asistentes externos
 
