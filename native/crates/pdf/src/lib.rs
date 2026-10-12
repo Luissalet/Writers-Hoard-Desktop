@@ -723,8 +723,37 @@ impl Exporter<'_> {
                     self.draw(s, d);
                 }
             }
-            Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges } => {
-                self.glyphs(s, face, *size, glyphs, *color, *alpha, *synth_bold, *synth_italic, text, ranges);
+            Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, decorative } => {
+                if *decorative {
+                    // A generated line-end hyphen has no Unicode counterpart in the source.
+                    // Drawing its outline preserves appearance without polluting PDF selection.
+                    if *synth_italic {
+                        if let Some((_, _, y)) = glyphs.first() {
+                            s.push_transform(&Transform::from_row(1.0, 0.0, -0.21, 1.0, 0.21 * y, 0.0));
+                        }
+                    }
+                    s.set_fill(Some(fill(*color, *alpha)));
+                    s.set_stroke(if *synth_bold {
+                        Some(Stroke {
+                            paint: rgb::Color::new(color.0, color.1, color.2).into(),
+                            width: size * 0.03,
+                            opacity: norm(*alpha),
+                            ..Default::default()
+                        })
+                    } else {
+                        None
+                    });
+                    if let Some(path) = glyph_outlines(face, *size, glyphs) {
+                        s.draw_path(&path);
+                    }
+                    s.set_fill(None);
+                    s.set_stroke(None);
+                    if *synth_italic && !glyphs.is_empty() {
+                        s.pop();
+                    }
+                } else {
+                    self.glyphs(s, face, *size, glyphs, *color, *alpha, *synth_bold, *synth_italic, text, ranges);
+                }
                 if let Some(l) = link {
                     self.link_rect(face, *size, glyphs, l);
                 }

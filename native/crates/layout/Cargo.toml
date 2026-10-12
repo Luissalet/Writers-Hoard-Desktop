@@ -16,6 +16,7 @@ writer-proof = { workspace = true }
 unicode-bidi = { workspace = true }
 unicode-linebreak = { workspace = true }
 unicode-segmentation = { workspace = true }
+unicode-normalization = "0.1.24"
 serde = { workspace = true }
 serde_json = { workspace = true }
 image = { workspace = true }

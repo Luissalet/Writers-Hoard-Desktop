@@ -3492,3 +3492,204 @@ fn endnotes_at_section_end_and_footnotes_below_text() {
     let text = lay(&d).caret(&Pos::body(1, 0)).unwrap();
     assert!(below > text.top + text.height && below < bottom - 100.0, "{below} {bottom} {text:?}");
 }
+
+#[test]
+fn spanish_effective_language_and_address_exclusions_reach_layout() {
+    let points = |doc: &Document| {
+        let layout = lay(doc);
+        let para = layout
+            .pages
+            .iter()
+            .flat_map(|page| &page.items)
+            .find_map(|item| if let Placed::Lines { para, .. } = item { Some(para) } else { None })
+            .unwrap();
+        para.hyph_after.iter().filter_map(|index| para.clusters.get(*index as usize).map(|cluster| cluster.end)).collect::<Vec<_>>()
+    };
+    let mut doc = Document::from_text("documentación");
+    doc.styles.default_chr.lang = Some("es-ES".into());
+    doc.settings.auto_hyphenation = true;
+    assert_eq!(points(&doc), vec![2, 4, 7, 9]);
+    doc.format_range(&Pos::body(0, 0), &Pos::body(0, "documentación".len()), &|props| props.lang = Some("unknown".into())).unwrap();
+    assert!(points(&doc).is_empty());
+    let mut address = Document::from_text("2026 https://example.org/a-b www.example.org correo@example.org");
+    address.settings.auto_hyphenation = true;
+    address.styles.default_chr.lang = Some("es-ES".into());
+    assert!(points(&address).is_empty());
+    let mut soft = Document::from_text("docu\u{00ad}mentación");
+    soft.settings.auto_hyphenation = false;
+    assert_eq!(points(&soft), vec!["docu\u{00ad}".len()]);
+    let mut nfd = Document::from_text("nin\u{0303}ez");
+    nfd.styles.default_chr.lang = Some("es-ES".into());
+    nfd.settings.auto_hyphenation = true;
+    assert_eq!(points(&nfd), vec![2]);
+    for word in ["INTERNATIONAL", "REPRESENTATION"] {
+        let mut english = Document::from_text(word);
+        english.settings.auto_hyphenation = true;
+        assert!(points(&english).is_empty());
+    }
+}
+
+// Footer reservation regressions: kept separate from the language/layout tests above.
+fn footer_reservation_part(doc: &mut Document, lines: usize) -> u32 {
+    let blocks = (0..lines).map(|_| writer_doc::para_block(writer_doc::Paragraph::with_text("Footer literal", Default::default()))).collect();
+    doc.add_part(writer_doc::PartKind::Footer, blocks)
+}
+
+fn assert_note_area_precedes_footer(layout: &DocLayout, note: u32) {
+    let mut pieces = 0;
+    for page in &layout.pages {
+        let footer_top = page.footer.iter().map(v_span).map(|span| span.0).fold(f32::INFINITY, f32::min);
+        if !footer_top.is_finite() {
+            continue;
+        }
+        assert!(page.body.y + page.body.h <= footer_top + 0.01, "body extends into footer: {:?} {footer_top}", page.body);
+        for item in &page.items {
+            if matches!(item, Placed::Lines { story: StoryRef::Part(id), .. } if *id == note) {
+                pieces += 1;
+                let (top, bottom) = v_span(item);
+                assert!(top <= bottom && bottom <= footer_top + 0.01, "note region {top}..{bottom} invades footer {footer_top}");
+            }
+            if let Placed::Rule { y0, y1, .. } = item {
+                assert!(y0.max(*y1) <= footer_top + 0.01, "note separator {y0}..{y1} invades footer {footer_top}");
+            }
+        }
+    }
+    assert!(pieces > 0, "the referenced note disappeared");
+}
+
+#[test]
+fn footer_and_footnote_with_equal_margin_and_distance_do_not_overlap() {
+    let mut doc = Document::from_text("Body anchor.");
+    doc.last_section.page_h = 841.9;
+    doc.last_section.margin_bottom = 36.0;
+    doc.last_section.footer = 36.0;
+    let footer = footer_reservation_part(&mut doc, 1);
+    doc.last_section.footers.default = Some(footer);
+    let note = footnote(&mut doc, &Pos::body(0, 4), "Nota literal propia");
+    let before = serde_json::to_value(&doc).unwrap();
+    let layout = lay(&doc);
+    assert_eq!(layout.pages.len(), 1);
+    assert_eq!(layout.pages[0].footer_story, Some(footer));
+    assert_note_area_precedes_footer(&layout, note);
+    assert_eq!(serde_json::to_value(&doc).unwrap(), before, "layout changed source, identities or note text");
+}
+
+#[test]
+fn footer_reservation_uses_actual_first_even_and_default_parts() {
+    let mut doc = Document::from_text(&"Body paragraph.\n".repeat(70));
+    doc.last_section.page_h = 260.0;
+    doc.last_section.margin_top = 36.0;
+    doc.last_section.margin_bottom = 36.0;
+    doc.last_section.footer = 36.0;
+    doc.last_section.title_page = true;
+    doc.settings.even_odd_headers = true;
+    let default = footer_reservation_part(&mut doc, 1);
+    let first = footer_reservation_part(&mut doc, 3);
+    let even = footer_reservation_part(&mut doc, 2);
+    doc.last_section.footers = writer_doc::section::HeaderSet { default: Some(default), first: Some(first), even: Some(even) };
+    let note = footnote(&mut doc, &Pos::body(0, 4), "First page note.");
+    let layout = lay(&doc);
+    assert!(layout.pages.len() >= 3);
+    assert_eq!(layout.pages[0].footer_story, Some(first));
+    assert_eq!(layout.pages[1].footer_story, Some(even));
+    assert_eq!(layout.pages[2].footer_story, Some(default));
+    assert_note_area_precedes_footer(&layout, note);
+    assert!(
+        layout.pages[0].body.h < layout.pages[1].body.h && layout.pages[1].body.h < layout.pages[2].body.h,
+        "different footer heights did not reserve different page areas"
+    );
+}
+
+#[test]
+fn inherited_footer_is_reserved_in_the_next_section() {
+    let mut doc = Document::from_text("First section.\nSecond section.");
+    doc.last_section.page_h = 300.0;
+    doc.last_section.margin_top = 36.0;
+    doc.last_section.margin_bottom = 36.0;
+    doc.last_section.footer = 36.0;
+    let footer = footer_reservation_part(&mut doc, 2);
+    let mut first = doc.last_section.clone();
+    first.footers.default = Some(footer);
+    doc.para_mut(StoryRef::Body, &Path::top(0)).unwrap().section = Some(Box::new(first));
+    // No footer reference on lastSection means link to the previous default footer.
+    let note = footnote(&mut doc, &Pos::body(1, 4), "Inherited-footer note.");
+    let layout = lay(&doc);
+    assert_eq!(layout.pages.len(), 2);
+    assert!(layout.pages.iter().all(|page| page.footer_story == Some(footer)));
+    assert_note_area_precedes_footer(&layout, note);
+}
+
+#[test]
+fn continued_footnotes_stay_above_the_footer_on_every_page() {
+    let mut doc = Document::from_text("Body anchor.");
+    doc.last_section.page_h = 260.0;
+    doc.last_section.margin_top = 36.0;
+    doc.last_section.margin_bottom = 36.0;
+    doc.last_section.footer = 36.0;
+    let footer = footer_reservation_part(&mut doc, 2);
+    doc.last_section.footers.default = Some(footer);
+    let note = footnote(&mut doc, &Pos::body(0, 4), &"A long note with original text and preserved identity. ".repeat(100));
+    let before = serde_json::to_value(&doc).unwrap();
+    let layout = lay(&doc);
+    let pages_with_note = layout
+        .pages
+        .iter()
+        .filter(|page| page.items.iter().any(|item| matches!(item, Placed::Lines { story: StoryRef::Part(id), .. } if *id == note)))
+        .count();
+    assert!(pages_with_note >= 2, "the note did not continue across pages");
+    assert_note_area_precedes_footer(&layout, note);
+    assert_eq!(serde_json::to_value(&doc).unwrap(), before, "splitting changed the stored note");
+}
+
+#[test]
+fn ordinary_bottom_margin_keeps_existing_body_and_note_positions() {
+    let mut doc = Document::from_text("Body anchor.\nSecond paragraph.");
+    doc.last_section.margin_bottom = 72.0;
+    doc.last_section.footer = 36.0;
+    let note = footnote(&mut doc, &Pos::body(0, 4), "Original note.");
+    let baseline = lay(&doc);
+    let footer = footer_reservation_part(&mut doc, 1);
+    doc.last_section.footers.default = Some(footer);
+    let layout = lay(&doc);
+    assert_eq!(layout.pages.len(), baseline.pages.len());
+    assert_eq!(layout.pages[0].body, baseline.pages[0].body);
+    assert_eq!(layout.caret(&Pos::body(1, 0)), baseline.caret(&Pos::body(1, 0)));
+    assert_eq!(layout.caret(&doc.start_of(StoryRef::Part(note))), baseline.caret(&doc.start_of(StoryRef::Part(note))));
+    assert_note_area_precedes_footer(&layout, note);
+}
+
+#[test]
+fn missing_first_footer_and_even_fallback_match_the_drawn_parts() {
+    let mut doc = Document::from_text(&"Body paragraph.\n".repeat(40));
+    doc.last_section.page_h = 260.0;
+    doc.last_section.margin_top = 36.0;
+    doc.last_section.margin_bottom = 36.0;
+    doc.last_section.footer = 36.0;
+    doc.last_section.title_page = true;
+    doc.settings.even_odd_headers = true;
+    let footer = footer_reservation_part(&mut doc, 1);
+    doc.last_section.footers.default = Some(footer);
+    let layout = lay(&doc);
+    assert!(layout.pages.len() >= 3);
+    assert_eq!(layout.pages[0].footer_story, None, "missing first part must not silently use default");
+    assert_eq!(layout.pages[1].footer_story, Some(footer), "missing even part falls back to default");
+    assert!((layout.pages[0].body.y + layout.pages[0].body.h - 224.0).abs() < 0.01);
+    assert!(layout.pages[1].body.y + layout.pages[1].body.h < 224.0);
+}
+
+#[test]
+fn footer_reservation_does_not_change_web_or_draft_frames() {
+    let mut doc = Document::from_text("Body anchor.");
+    for view in [ViewMode::Web, ViewMode::Draft] {
+        let opts = LayoutOptions { view, ..Default::default() };
+        let mut baseline_cache = LayoutCache::new();
+        let baseline = layout(&doc, &mut baseline_cache, &opts);
+        let footer = footer_reservation_part(&mut doc, 3);
+        doc.last_section.footers.default = Some(footer);
+        let mut cache = LayoutCache::new();
+        let result = layout(&doc, &mut cache, &opts);
+        assert_eq!(result.pages[0].body, baseline.pages[0].body);
+        assert!(result.pages[0].body.h.is_finite() && result.pages[0].body.h < 10000.0);
+        assert!(result.pages[0].footer.is_empty());
+    }
+}

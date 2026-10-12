@@ -32,6 +32,8 @@ pub enum Draw {
         alpha: f32,
         synth_bold: bool,
         synth_italic: bool,
+        /// A print-only discretionary hyphen is visible decoration, not source text.
+        decorative: bool,
         /// The text these glyphs show (for PDF text extraction), and the hyperlink.
         text: String,
         link: Option<String>,
@@ -537,6 +539,7 @@ fn lines(
             let gx = x + lab.x;
             out.push(Draw::Glyphs {
                 face: st.face,
+                decorative: false,
                 size: st.size,
                 glyphs: lab.glyphs.iter().map(|g| (g.gid, gx + g.dx, base - st.shift - g.dy)).collect(),
                 color: text_color(&st.rc.color, None),
@@ -555,6 +558,7 @@ fn lines(
             let hx = x + line.hyphen_x(adv);
             out.push(Draw::Glyphs {
                 face: st.face,
+                decorative: true,
                 size: st.size,
                 glyphs: vec![(gid, hx, base - st.shift)],
                 color: text_color(&st.rc.color, None),
@@ -699,6 +703,7 @@ fn lines(
             if !glyphs.is_empty() {
                 out.push(Draw::Glyphs {
                     face: st.face,
+                    decorative: false,
                     size: st.size,
                     glyphs,
                     color,
@@ -797,6 +802,7 @@ fn lines(
             }
             out.push(Draw::Glyphs {
                 face: st.face,
+                decorative: false,
                 size: st.size,
                 glyphs,
                 color: text_color(&st.rc.color, None),
@@ -870,6 +876,7 @@ fn lines(
                 let Some(st) = pl.styles.get(style as usize) else { continue };
                 out.push(Draw::Glyphs {
                     face: st.face,
+                    decorative: false,
                     size: st.size,
                     glyphs: run.iter().map(|(_, g)| (g.gid, cx + g.dx, y - g.dy)).collect(),
                     color: text_color(&st.rc.color, st.rc.shading.or(st.rc.highlight)),
@@ -1012,6 +1019,7 @@ fn equation(items: &[MItem], x: f32, base: f32, alpha: f32, screen: bool, out: &
         match it {
             MItem::Glyphs { face, size, color, synth_bold, synth_italic, glyphs, text } => out.push(Draw::Glyphs {
                 face: *face,
+                decorative: false,
                 size: *size,
                 glyphs: glyphs.iter().map(|(g, gx, gy)| (*g, x + gx, base - gy)).collect(),
                 color: *color,
@@ -1208,6 +1216,7 @@ fn text_glyphs(doc: &Document, r: Rect, it: &GraphicItem, alpha: f32, k: f32) ->
     }
     Some(Draw::Glyphs {
         face: resolved.face,
+        decorative: false,
         size,
         glyphs,
         color: *color,
