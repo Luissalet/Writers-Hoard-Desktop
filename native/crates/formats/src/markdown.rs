@@ -445,7 +445,7 @@ fn parse_list(lines: &[String], mut i: usize, depth: usize, level: u8, out: &mut
         while item.len() > 1 && item.last().is_some_and(|x| x.is_empty()) {
             item.pop();
         }
-        let li = ListInfo { ordered: first.ordered, level: level.min(8) };
+        let li = ListInfo { ordered: first.ordered, level: level.min(8), start: None };
         let inner = if depth >= MAX_NEST {
             let mut p = Para::default();
             p.push_text(&item.join(" "), &Fmt::default());
@@ -460,6 +460,7 @@ fn parse_list(lines: &[String], mut i: usize, depth: usize, level: u8, out: &mut
         }
         for b in inner {
             match b {
+                FBlock::Section(_) | FBlock::StyleDefinition(_) => {}
                 FBlock::Para(mut p) if p.list.is_none() => {
                     if !placed {
                         p.list = Some(li);
@@ -1188,6 +1189,7 @@ fn table_md(t: &FTable, out: &mut Vec<String>) {
         let mut parts = Vec::new();
         for b in &c.blocks {
             match b {
+                FBlock::Section(_) | FBlock::StyleDefinition(_) => {}
                 FBlock::Para(p) => parts.push(inlines_md(&p.inlines).replace("\\\n", "<br>")),
                 FBlock::Table(inner) => parts.push(escape(&inner.rows.iter().flat_map(|r| r.iter().map(Cell::text)).collect::<Vec<_>>().join(" "))),
             }
@@ -1252,6 +1254,7 @@ fn write_blocks(blocks: &[FBlock], out: &mut Vec<String>) {
     let mut prev_top_ordered = false;
     while let Some(b) = blocks.get(i) {
         match b {
+            FBlock::Section(_) | FBlock::StyleDefinition(_) => {}
             FBlock::Table(t) => {
                 table_md(t, out);
                 out.push(String::new());
@@ -1382,6 +1385,7 @@ mod tests {
             .blocks
             .iter()
             .map(|b| match b {
+                FBlock::Section(_) | FBlock::StyleDefinition(_) => "section".into(),
                 FBlock::Para(p) => format!("{:?}{:?}:{}", p.kind, p.list.map(|l| (l.ordered, l.level)), p.text()),
                 FBlock::Table(t) => format!("table{}", t.rows.len()),
             })

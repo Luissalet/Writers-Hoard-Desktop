@@ -154,12 +154,9 @@ impl Writer<'_> {
             if has_mark {
                 w.open("w:rPr", &[]);
                 for (idx, tag) in mark_revs {
-                    let (id, author, date) = self.rev_attrs(idx);
-                    if date.is_empty() {
-                        w.empty(tag, &[("w:id", &id), ("w:author", &author)]);
-                    } else {
-                        w.empty(tag, &[("w:id", &id), ("w:author", &author), ("w:date", &date)]);
-                    }
+                    let attrs = self.change_attrs(idx);
+                    let refs: Vec<_> = attrs.iter().map(|(key, value)| (*key, value.as_str())).collect();
+                    w.empty(tag, &refs);
                 }
                 rpr_inner(w, &p.mark);
                 if let Some(ch) = p.mark.fmt_change.as_deref() {
@@ -334,7 +331,9 @@ impl Writer<'_> {
     fn rev_attrs(&mut self, idx: u32) -> (String, String, String) {
         self.next_rev_id += 1;
         let r = self.doc.revisions.get(idx as usize);
-        let author = r.map(|r| r.author.clone()).filter(|a| !a.is_empty()).unwrap_or_else(|| "Unknown".into());
+        let author = r
+            .map(|revision| if revision.own_id.is_some() || !revision.author.is_empty() { revision.author.clone() } else { "Unknown".into() })
+            .unwrap_or_else(|| "Unknown".into());
         let date = r.map(|r| r.date.clone()).unwrap_or_default();
         (self.next_rev_id.to_string(), author, date)
     }
@@ -345,6 +344,19 @@ impl Writer<'_> {
         let mut a = vec![("w:id", id), ("w:author", author)];
         if !date.is_empty() {
             a.push(("w:date", date));
+        }
+        if let Some(revision) = self.doc.revisions.get(idx as usize) {
+            if let Some(id) = &revision.own_id {
+                a.push(("wh:revisionId", id.clone()));
+            } else if revision.move_name.is_none() {
+                a.push(("wh:groupId", idx.to_string()));
+            }
+            if let Some(source) = &revision.source {
+                a.push(("wh:source", source.clone()));
+            }
+            if let Some(created_at) = revision.created_at {
+                a.push(("wh:createdAt", created_at.to_string()));
+            }
         }
         a
     }
@@ -374,12 +386,8 @@ impl Writer<'_> {
                 continue;
             }
             let tag = self.rev_tag(idx, tag);
-            let (id, author, date) = self.rev_attrs(idx);
-            if date.is_empty() {
-                w.open(tag, &[("w:id", &id), ("w:author", &author)]);
-            } else {
-                w.open(tag, &[("w:id", &id), ("w:author", &author), ("w:date", &date)]);
-            }
+            let attrs = self.change_attrs(idx);
+            open_change(w, tag, &attrs);
         }
     }
 
@@ -466,10 +474,16 @@ impl Writer<'_> {
                 w.open("w:r", &[]);
                 self.rpr(w, &p);
                 let tag = if foot { "w:footnoteReference" } else { "w:endnoteReference" };
+                let own_note_id = self.doc.custom_prop(&format!("writers.footnote.{id}"));
+                let mut attrs = vec![("w:id", nid.as_str())];
+                if let Some(own) = own_note_id {
+                    attrs.push(("wh:noteId", own));
+                }
                 if custom.is_empty() {
-                    w.empty(tag, &[("w:id", &nid)]);
+                    w.empty(tag, &attrs);
                 } else {
-                    w.empty(tag, &[("w:customMarkFollows", "1"), ("w:id", &nid)]);
+                    attrs.push(("w:customMarkFollows", "1"));
+                    w.empty(tag, &attrs);
                     w.leaf("w:t", &[("xml:space", "preserve")], custom);
                 }
                 w.close("w:r");
@@ -1058,7 +1072,8 @@ impl Writer<'_> {
     }
 
     pub fn sectpr(&mut self, w: &mut W, s: &SectionProps, rels: &mut PartRels) {
-        w.open("w:sectPr", &[]);
+        let attrs = s.writers_section_id.as_deref().map(|id| vec![("wh:sectionId", id)]).unwrap_or_default();
+        w.open("w:sectPr", &attrs);
         for (set, footer) in [(&s.headers, false), (&s.footers, true)] {
             for (kind, id) in [("default", set.default), ("first", set.first), ("even", set.even)] {
                 let Some(id) = id else { continue };

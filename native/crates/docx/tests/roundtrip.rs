@@ -54,6 +54,7 @@ fn tiny_png() -> Vec<u8> {
 #[test]
 fn every_char_prop_round_trips() {
     let all = CharProps {
+        writers_citation: None,
         style: Some("Strong".into()),
         font: Some("Georgia".into()),
         size: Some(10.5),
@@ -109,6 +110,11 @@ fn every_char_prop_round_trips() {
 fn every_para_prop_round_trips() {
     let b = Border { style: BorderStyle::Double, width: 0.75, color: Some(Rgb(9, 8, 7)), space: 4.0 };
     let pp = ParaProps {
+        writers_list_origin: None,
+        writers_list_start: None,
+        writers_style_definitions: None,
+        writers_chapter_heading: None,
+        writers_bibliography: None,
         style: Some("Heading1".into()),
         align: Some(Align::Justify),
         indent_left: Some(36.0),
@@ -772,8 +778,20 @@ fn toc_field_skips_nested_stories() {
 #[test]
 fn tracked_changes_round_trip() {
     let mut d = Document::new();
-    d.revisions.push(Revision { kind: RevisionKind::Insert, author: "Alice".into(), date: "2026-05-01T10:00:00Z".into(), move_name: None });
-    d.revisions.push(Revision { kind: RevisionKind::Delete, author: "Bob".into(), date: "2026-05-02T10:00:00Z".into(), move_name: None });
+    d.revisions.push(Revision {
+        kind: RevisionKind::Insert,
+        author: "Alice".into(),
+        date: "2026-05-01T10:00:00Z".into(),
+        move_name: None,
+        ..Default::default()
+    });
+    d.revisions.push(Revision {
+        kind: RevisionKind::Delete,
+        author: "Bob".into(),
+        date: "2026-05-02T10:00:00Z".into(),
+        move_name: None,
+        ..Default::default()
+    });
     d.settings.track_changes = true;
     let ins = CharProps { ins: Some(0), ..Default::default() };
     let del = CharProps { del: Some(1), bold: Some(true), ..Default::default() };
@@ -797,8 +815,20 @@ fn tracked_paragraph_marks_round_trip() {
     // Issue #229: an inserted / deleted paragraph mark is `w:ins` / `w:del` in the mark's
     // `w:rPr` (ECMA-376 §17.13.5.16, §17.13.5.15), alone or with mark formatting.
     let mut d = Document::new();
-    d.revisions.push(Revision { kind: RevisionKind::Insert, author: "Alice".into(), date: "2026-05-01T10:00:00Z".into(), move_name: None });
-    d.revisions.push(Revision { kind: RevisionKind::Delete, author: "Bob".into(), date: "2026-05-02T10:00:00Z".into(), move_name: None });
+    d.revisions.push(Revision {
+        kind: RevisionKind::Insert,
+        author: "Alice".into(),
+        date: "2026-05-01T10:00:00Z".into(),
+        move_name: None,
+        ..Default::default()
+    });
+    d.revisions.push(Revision {
+        kind: RevisionKind::Delete,
+        author: "Bob".into(),
+        date: "2026-05-02T10:00:00Z".into(),
+        move_name: None,
+        ..Default::default()
+    });
     let mut split = Paragraph::with_text("Owned ALPHA ", CharProps::default());
     split.mark.ins = Some(0);
     let mut joined = Paragraph::with_text("Owned BETA", CharProps::default());
@@ -1159,7 +1189,7 @@ fn kitchen_sink() -> Document {
     let f = d.add_part(PartKind::Footnote, vec![para_block(Paragraph::with_text("Note", CharProps::default()))]);
     let c = d.add_part(PartKind::Comment, vec![para_block(Paragraph::with_text("Comment", CharProps::default()))]);
     d.comments.insert(3, Comment { author: "X".into(), part: c, ..Default::default() });
-    d.revisions.push(Revision { kind: RevisionKind::Insert, author: "A".into(), date: String::new(), move_name: None });
+    d.revisions.push(Revision { kind: RevisionKind::Insert, author: "A".into(), date: String::new(), move_name: None, ..Default::default() });
     d.last_section.headers.default = Some(h);
     let mut blocks: Blocks = Vec::new();
     let mut p = para_runs(&[

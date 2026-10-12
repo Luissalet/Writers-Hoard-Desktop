@@ -245,6 +245,7 @@ impl Writer {
         for (i, b) in blocks.iter().enumerate() {
             let end = if i + 1 == n { last_end } else { "\\par" };
             match b {
+                FBlock::Section(_) | FBlock::StyleDefinition(_) => {}
                 FBlock::Para(p) => {
                     let ls = match p.list {
                         Some(li) => {
@@ -783,7 +784,7 @@ impl Reader {
             let list = self.overrides.get(&ls).and_then(|id| self.lists.get(id));
             let lv = self.st.ilvl.min(8);
             let ordered = list.and_then(|l| l.get(lv as usize).copied()).unwrap_or(false);
-            p.list = Some(ListInfo { ordered, level: lv });
+            p.list = Some(ListInfo { ordered, level: lv, start: None });
         }
         // Headings and code keep their style formatting implicit.
         if matches!(p.kind, Kind::Heading(_) | Kind::Code | Kind::Title) {
@@ -1389,6 +1390,7 @@ mod tests {
         f.blocks
             .iter()
             .map(|b| match b {
+                FBlock::Section(_) | FBlock::StyleDefinition(_) => "section".into(),
                 FBlock::Para(p) => format!("{:?}:{}", p.kind, p.text()),
                 FBlock::Table(t) => {
                     format!("table{}x{}:{}", t.rows.len(), t.cols(), t.rows.iter().flatten().map(|c| c.text()).collect::<Vec<_>>().join("|"))
@@ -1437,6 +1439,7 @@ mod tests {
                     .blocks
                     .iter()
                     .filter_map(|b| match b {
+                        FBlock::Section(_) | FBlock::StyleDefinition(_) => None,
                         FBlock::Para(p) => Some(&p.inlines),
                         FBlock::Table(_) => None,
                     })
@@ -1459,6 +1462,7 @@ mod tests {
             let f = parse(format!("{{\\rtf1{{\\*\\{dest}{{\\*\\shppict{pict}}}}}Before\\par}}").as_bytes())?;
             assert_eq!(texts(&f), vec!["Normal:Before"]);
             assert!(f.blocks.iter().all(|b| match b {
+                FBlock::Section(_) | FBlock::StyleDefinition(_) => false,
                 FBlock::Para(p) => p.inlines.iter().all(|i| !matches!(i, Inline::Image(_))),
                 FBlock::Table(_) => false,
             }));

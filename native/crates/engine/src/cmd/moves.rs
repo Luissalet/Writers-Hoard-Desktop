@@ -81,7 +81,7 @@ pub fn take_paste(s: &mut Session, frag: &Fragment) -> Option<u32> {
     if let Some(r) = s.doc.revisions.get_mut(m.rev as usize) {
         r.move_name = Some(name.clone());
     }
-    s.doc.revisions.push(Revision { kind: RevisionKind::Insert, author: s.author.clone(), date, move_name: Some(name) });
+    s.doc.revisions.push(Revision { kind: RevisionKind::Insert, author: s.author.clone(), date, move_name: Some(name), ..Default::default() });
     Some((s.doc.revisions.len() - 1) as u32)
 }
 

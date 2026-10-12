@@ -23,6 +23,9 @@ fn round(v: f32) -> i64 {
 
 /// `w:rPr` content (without the wrapper). Link and revision marks are not run properties.
 pub fn rpr_inner(w: &mut W, c: &CharProps) {
+    if let Some(citation) = &c.writers_citation {
+        w.empty("wh:citation", &[("wh:value", citation)]);
+    }
     if let Some(s) = &c.style {
         w.val("w:rStyle", s);
     }
@@ -110,7 +113,7 @@ pub fn rpr_inner(w: &mut W, c: &CharProps) {
 
 /// Does `c` produce any `w:rPr` content (besides a tracked change)?
 pub fn has_rpr(c: &CharProps) -> bool {
-    !c.formatting().is_empty()
+    c.writers_citation.is_some() || !c.formatting().is_empty()
 }
 
 /// Attributes of a tracked change element: `w:id`, `w:author`, `w:date`.
@@ -190,6 +193,23 @@ pub fn borders(w: &mut W, tag: &str, b: &Borders, inner: Option<&str>, extra: &[
 /// `w:pPr` content (without the wrapper); `num_change` are the attributes of a tracked list
 /// numbering change (`w:numberingChange`, written in `w:numPr`).
 pub fn ppr_inner(w: &mut W, p: &ParaProps, framed: bool, num_change: Option<&ChangeAttrs>) {
+    if let Some(origin) = p.writers_list_origin {
+        let mut attributes = vec![("wh:origin", origin.to_string())];
+        if let Some(start) = p.writers_list_start {
+            attributes.push(("wh:start", start.to_string()));
+        }
+        let refs: Vec<_> = attributes.iter().map(|(key, value)| (*key, value.as_str())).collect();
+        w.empty("wh:list", &refs);
+    }
+    if let Some(definitions) = &p.writers_style_definitions {
+        w.empty("wh:styleDefinitions", &[("wh:value", definitions)]);
+    }
+    if let Some(chapter) = &p.writers_chapter_heading {
+        w.empty("wh:chapterHeading", &[("wh:value", chapter)]);
+    }
+    if let Some(source) = &p.writers_bibliography {
+        w.empty("wh:bibliography", &[("wh:sourceId", source)]);
+    }
     if let Some(s) = &p.style {
         w.val("w:pStyle", s);
     }

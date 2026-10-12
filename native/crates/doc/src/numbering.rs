@@ -20,7 +20,7 @@ pub enum LevelSuffix {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Level {
-    pub start: u32,
+    pub start: i64,
     pub format: NumFormat,
     /// Label template: `%1.`, `%1.%2.`, or the bullet character.
     pub text: String,
@@ -83,7 +83,7 @@ pub struct Num {
     pub id: u32,
     pub abstract_id: u32,
     /// Per-level start overrides (level, start).
-    pub start_overrides: Vec<(u8, u32)>,
+    pub start_overrides: Vec<(u8, i64)>,
     /// Levels this list defines itself instead of taking them from its abstract list (level,
     /// definition): Word's `w:lvlOverride/w:lvl`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -245,7 +245,7 @@ impl Numbering {
 #[derive(Default, Debug, Clone)]
 pub struct Counters {
     /// Per abstract list: current value per level.
-    state: HashMap<u32, [u32; 9]>,
+    state: HashMap<u32, [Option<i64>; 9]>,
     /// Which nums have started (to apply start overrides once).
     seen: HashMap<u32, bool>,
 }
@@ -263,27 +263,24 @@ impl Counters {
         if def.format == NumFormat::None {
             return None;
         }
-        let st = self.state.entry(abs.id).or_insert([0; 9]);
+        let st = self.state.entry(abs.id).or_insert([None; 9]);
         if let std::collections::hash_map::Entry::Vacant(e) = self.seen.entry(num) {
             e.insert(true);
             for (l, start) in &n.start_overrides {
                 if let Some(s) = st.get_mut(*l as usize) {
-                    *s = start.saturating_sub(1);
+                    *s = Some(start.saturating_sub(1));
                 }
             }
         }
-        if let Some(v) = st.get_mut(lv) {
-            *v = if *v == 0 { def.start.max(if def.start == 0 { 0 } else { 1 }) } else { v.saturating_add(1) };
-            if *v == 0 {
-                *v = def.start;
-            }
+        if let Some(value) = st.get_mut(lv) {
+            *value = Some(value.map(|previous| previous.saturating_add(1)).unwrap_or(def.start));
         }
         // Deeper levels restart, unless they never restart or only restart after a level above
         // this one (Word's lvlRestart).
         for (d, deeper) in st.iter_mut().enumerate().skip(lv + 1) {
             let restarts = level_def(d).is_none_or(|l| l.restart && l.restart_after.is_none_or(|k| lv < k as usize));
             if restarts {
-                *deeper = 0;
+                *deeper = None;
             }
         }
         let vals = *st;
@@ -298,10 +295,14 @@ impl Counters {
             {
                 chars.next();
                 let k = (d as usize).saturating_sub(1).min(8);
-                let val = vals.get(k).copied().unwrap_or(0);
-                let val = if val == 0 { level_def(k).map(|l| l.start).unwrap_or(1) } else { val };
+                let val = vals.get(k).copied().flatten().unwrap_or_else(|| level_def(k).map(|l| l.start).unwrap_or(1));
                 let fmt = if def.legal && k != lv { NumFormat::Decimal } else { level_def(k).map(|l| l.format).unwrap_or(NumFormat::Decimal) };
-                label.push_str(&fmt.format(val));
+                label.push_str(&match fmt {
+                    NumFormat::Decimal => val.to_string(),
+                    NumFormat::DecimalZero => format!("{val:02}"),
+                    _ if val < 0 => val.to_string(),
+                    _ => fmt.format(val.try_into().unwrap_or(u32::MAX)),
+                });
             } else {
                 label.push(c);
             }

@@ -303,7 +303,7 @@ pub fn specs() -> Vec<CommandSpec> {
             )
         }),
         CommandSpec::new("para.setNumberingValue", "Set Numbering Value", "Home › Paragraph › Numbering", |s, v| {
-            let value = p::u64(v, "value").unwrap_or(1).clamp(0, 100_000) as u32;
+            let value = v.get("value").and_then(Value::as_i64).unwrap_or(1);
             let f = s.sel.focus.clone();
             let n = s
                 .doc
@@ -334,7 +334,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("para.defineNumber", "Define New Number Format", "Home › Paragraph › Numbering", |s, v| {
             let fmt = writer_doc::section::NumFormat::from_ooxml(p::str(v, "format").unwrap_or("decimal"));
             let text = p::str(v, "text").unwrap_or("%1.").to_string();
-            let start = p::u64(v, "start").unwrap_or(1).min(100_000) as u32;
+            let start = v.get("start").and_then(Value::as_i64).unwrap_or(1);
             let id = s.doc.numbering.add_list(writer_doc::ListKind::Numbered);
             if let Some(a) = s.doc.numbering.abstract_of(id).map(|a| a.id)
                 && let Some(abs) = s.doc.numbering.abstracts.iter_mut().find(|x| x.id == a)
@@ -608,9 +608,15 @@ fn compare(s: &mut Session, v: &Value) -> CmdResult {
     let new: Vec<Paragraph> = revised.body.iter().filter_map(|b| b.as_para().cloned()).collect();
     let author = "Compare".to_string();
     let date = super::now_iso();
-    s.doc.revisions.push(writer_doc::Revision { kind: RevisionKind::Insert, author: author.clone(), date: date.clone(), move_name: None });
+    s.doc.revisions.push(writer_doc::Revision {
+        kind: RevisionKind::Insert,
+        author: author.clone(),
+        date: date.clone(),
+        move_name: None,
+        ..Default::default()
+    });
     let ins = (s.doc.revisions.len() - 1) as u32;
-    s.doc.revisions.push(writer_doc::Revision { kind: RevisionKind::Delete, author, date, move_name: None });
+    s.doc.revisions.push(writer_doc::Revision { kind: RevisionKind::Delete, author, date, move_name: None, ..Default::default() });
     let del = (s.doc.revisions.len() - 1) as u32;
     let ops = lcs_ops(&old.iter().map(|p| p.plain_text()).collect::<Vec<_>>(), &new.iter().map(|p| p.plain_text()).collect::<Vec<_>>());
     let mut out: Vec<Paragraph> = Vec::new();
