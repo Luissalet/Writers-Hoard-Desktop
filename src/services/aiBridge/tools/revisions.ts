@@ -6,13 +6,14 @@ import { createAdvancedExtensions, normalizeAdvancedHtml } from '@/components/ed
 import { createRevisionExtensions, describeRevisions, proposeRevision, resolveRevisions, type RevisionOperationResult } from '@/engines/writings/revisions';
 import { getWriting, updateWriting, WritingConflictError } from '@/engines/writings/operations';
 import { takeSnapshot } from '@/engines/writings/snapshots';
+import { createEditorialExtensions } from '@/engines/writings/editorial';
 import { sanitizeRichHtml } from '@/utils/sanitizeRichHtml';
 import { countWords } from '@/utils/text';
 import type { Writing } from '@/types';
 import { assertEngineEnabled, assertRowInScope, BridgeError, requireString, withAudit, type ToolArgs } from './shared';
 
 function editorFor(content: string) {
-  return new Editor({ element: document.createElement('div'), extensions: [StarterKit.configure({ link: { openOnClick: false } }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions()], content: normalizeAdvancedHtml(content) });
+  return new Editor({ element: document.createElement('div'), extensions: [StarterKit.configure({ link: { openOnClick: false } }), Image.configure({ allowBase64: true }), FootnoteNode, ...createAdvancedExtensions(), ...createRevisionExtensions(), ...createEditorialExtensions()], content: normalizeAdvancedHtml(content) });
 }
 
 async function writingFor(args: ToolArgs, editing: boolean) {

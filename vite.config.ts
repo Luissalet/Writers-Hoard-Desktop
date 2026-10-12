@@ -34,5 +34,9 @@ export default defineConfig({
   },
   server: {
     port: 5174,
+    watch: {
+      // Compiled runtimes can be executing while the editor is open on Windows.
+      ignored: ['**/native/bin/**', '**/native/target/**', '**/resources/proofing/**', '**/dependency-link.local/**'],
+    },
   },
 })

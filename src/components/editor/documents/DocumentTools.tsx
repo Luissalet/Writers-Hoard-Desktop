@@ -22,7 +22,8 @@ const COPY = {
     error: 'No se ha podido completar la operación. Puedes volver a intentarlo.', image: 'Página del documento',
     close: 'Cerrar herramientas de documento', empty: 'Abre un archivo o previsualiza el texto del editor.',
     changes: 'Texto para descargar', final: 'Final: propuestas aceptadas en una copia', original: 'Original: propuestas rechazadas en una copia',
-    reviewNote: 'La descarga y la vista de página usan la versión elegida. Las propuestas del editor se conservan; el archivo descargado no contiene sus marcas de revisión.',
+    reviewNote: 'La descarga y la vista de página usan la versión elegida. Las propuestas se conservan. Para compartirlas, descarga DOCX con cambios.',
+    reviewExport: 'Descargar DOCX con cambios',
   },
   en: {
     title: 'Document', open: 'Document tools', import: 'Open file', source: 'Source', editor: 'Editor text',
@@ -37,7 +38,8 @@ const COPY = {
     error: 'The operation could not be completed. You can try again.', image: 'Document page',
     close: 'Close document tools', empty: 'Open a file or preview the editor text.',
     changes: 'Download text', final: 'Final: proposals accepted in a copy', original: 'Original: proposals rejected in a copy',
-    reviewNote: 'Downloads and page previews use the selected version. Editor proposals stay intact; the downloaded file does not contain their revision marks.',
+    reviewNote: 'Downloads and page previews use the selected version. Editor proposals stay intact. Download DOCX with changes to share them.',
+    reviewExport: 'Download DOCX with changes',
   },
 } as const;
 
@@ -119,7 +121,7 @@ export default function DocumentTools({ editor, locale = 'es' }: { editor: Edito
     const native = await requestDocument<NativeSession>('document.openBytes', { dataBase64, format: formatOf(file.name), fileName: file.name });
     let retained = false;
     try {
-      const projection = await requestDocument<{ html: string }>('document.exportHtml', { sessionId: native.sessionId });
+      const projection = await requestDocument<{ html: string }>('document.exportHtml', { sessionId: native.sessionId, includeRevisions: true });
       if (!active()) return;
       const previous = session.current;
       session.current = native.sessionId;
@@ -158,7 +160,22 @@ export default function DocumentTools({ editor, locale = 'es' }: { editor: Edito
     setStatus(copy.exported);
   }));
 
+  const downloadReview = () => void run(copy.exporting, async active => {
+    const temporary = source === 'editor';
+    const snapshot = temporary
+      ? await requestDocument<NativeSession>('document.importHtml', { html: advancedHtmlForInterchange(editor.getHTML()) })
+      : opened;
+    if (!snapshot) return;
+    try {
+      if (!active()) return;
+      const name = exportName(fileName, 'docx');
+      const result = await requestDocument<BytesExport>('document.exportBytes', { sessionId: snapshot.sessionId, format: 'docx', fileName: name });
+      if (active()) { saveAs(new Blob([bytesFromBase64(result.dataBase64)], { type: result.mimeType }), name); setStatus(copy.exported); }
+    } finally { if (temporary) await requestDocument('document.close', { sessionId: snapshot.sessionId }).catch(() => {}); }
+  });
+
   const apply = () => {
+    // Imported HTML includes supported changes; originals remain in their native session.
     if (!opened || !editor.isEditable || editor.isDestroyed) return;
     const headingType = editor.schema.nodes[CHAPTER_HEADING_NAME];
     if (headingType) {
@@ -194,6 +211,7 @@ export default function DocumentTools({ editor, locale = 'es' }: { editor: Edito
         <label className="flex min-w-0 flex-col gap-1">{copy.format}<select className={control} aria-label={copy.format} value={format} disabled={!!busy} onChange={event => setFormat(event.target.value)}>{FORMATS.map(value => <option key={value} value={value}>{value === 'writer.json' ? 'Writers (.writer.json)' : value.toUpperCase()}</option>)}</select></label>
         <label className="flex min-w-0 flex-1 flex-col gap-1">{copy.file}<input className={`${control} w-full`} aria-label={copy.file} value={fileName} disabled={!!busy} onChange={event => setFileName(event.target.value)} /></label>
         <button type="button" className={button} disabled={!!busy} onClick={download}><Download size={14} aria-hidden="true" />{copy.export}</button>
+        <button type="button" className={button} disabled={!!busy} onClick={downloadReview}><Download size={14} aria-hidden="true" />{copy.reviewExport}</button>
       </div>
       <p className="max-w-prose text-text-secondary">{source === 'imported' ? copy.caution : pendingRevisions ? copy.reviewNote : copy.editorNote}</p>
       {source === 'editor' && pendingRevisions > 0 && <label className="flex flex-col gap-1">{copy.changes}<select className={control} aria-label={copy.changes} disabled={!!busy} value={reviewProjection} onChange={event => setReviewProjection(event.target.value as 'accept' | 'reject')}><option value="accept">{copy.final}</option><option value="reject">{copy.original}</option></select></label>}
