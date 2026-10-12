@@ -24,6 +24,8 @@ const COPY = {
     changes: 'Texto para descargar', final: 'Final: propuestas aceptadas en una copia', original: 'Original: propuestas rechazadas en una copia',
     reviewNote: 'La descarga y la vista de página usan la versión elegida. Las propuestas se conservan. Para compartirlas, descarga DOCX con cambios.',
     reviewExport: 'Descargar DOCX con cambios',
+    printLanguage: 'Idioma de impresión', inherit: 'Conservar el documento', spanish: 'Español', english: 'Inglés',
+    hyphenation: 'Guionado automático', enabled: 'Activado', disabled: 'Desactivado',
   },
   en: {
     title: 'Document', open: 'Document tools', import: 'Open file', source: 'Source', editor: 'Editor text',
@@ -40,6 +42,8 @@ const COPY = {
     changes: 'Download text', final: 'Final: proposals accepted in a copy', original: 'Original: proposals rejected in a copy',
     reviewNote: 'Downloads and page previews use the selected version. Editor proposals stay intact. Download DOCX with changes to share them.',
     reviewExport: 'Download DOCX with changes',
+    printLanguage: 'Print language', inherit: 'Keep document settings', spanish: 'Spanish', english: 'English',
+    hyphenation: 'Automatic hyphenation', enabled: 'Enabled', disabled: 'Disabled',
   },
 } as const;
 
@@ -77,6 +81,12 @@ export default function DocumentTools({ editor, locale = 'es' }: { editor: Edito
   const [format, setFormat] = useState<string>('docx');
   const [fileName, setFileName] = useState('document');
   const [page, setPage] = useState(1);
+  const [printLanguage, setPrintLanguage] = useState<'document' | 'es-ES' | 'en-US'>('document');
+  const [hyphenation, setHyphenation] = useState<'document' | 'on' | 'off'>('document');
+  const printOptions = {
+    ...(printLanguage === 'document' ? {} : { language: printLanguage }),
+    ...(hyphenation === 'document' ? {} : { hyphenation: hyphenation === 'on' }),
+  };
   const [image, setImage] = useState<(PageImage & { page: number }) | null>(null);
   const [busy, setBusy] = useState('');
   const [status, setStatus] = useState('');
@@ -146,15 +156,15 @@ export default function DocumentTools({ editor, locale = 'es' }: { editor: Edito
   };
 
   const preview = () => void run(copy.rendering, active => withSource(active, async sessionId => {
-    const rendered = await requestDocument<PageImage>('document.renderPage', { sessionId, page, scale: 1 });
+    const rendered = await requestDocument<PageImage>('document.renderPage', { sessionId, page, scale: 1, ...printOptions });
     if (active()) setImage({ ...rendered, page });
   }));
 
   const download = () => void run(copy.exporting, active => withSource(active, async sessionId => {
     const name = exportName(fileName, format);
     const result = format === 'pdf'
-      ? await requestDocument<BytesExport>('document.exportPdf', { sessionId })
-      : await requestDocument<BytesExport>('document.exportBytes', { sessionId, format, fileName: name });
+      ? await requestDocument<BytesExport>('document.exportPdf', { sessionId, ...printOptions })
+      : await requestDocument<BytesExport>('document.exportBytes', { sessionId, format, fileName: name, ...printOptions });
     if (!active()) return;
     saveAs(new Blob([bytesFromBase64(result.dataBase64)], { type: result.mimeType }), name);
     setStatus(copy.exported);
@@ -169,7 +179,7 @@ export default function DocumentTools({ editor, locale = 'es' }: { editor: Edito
     try {
       if (!active()) return;
       const name = exportName(fileName, 'docx');
-      const result = await requestDocument<BytesExport>('document.exportBytes', { sessionId: snapshot.sessionId, format: 'docx', fileName: name });
+      const result = await requestDocument<BytesExport>('document.exportBytes', { sessionId: snapshot.sessionId, format: 'docx', fileName: name, ...printOptions });
       if (active()) { saveAs(new Blob([bytesFromBase64(result.dataBase64)], { type: result.mimeType }), name); setStatus(copy.exported); }
     } finally { if (temporary) await requestDocument('document.close', { sessionId: snapshot.sessionId }).catch(() => {}); }
   });
@@ -205,6 +215,8 @@ export default function DocumentTools({ editor, locale = 'es' }: { editor: Edito
       </div>
       <p className="text-text-secondary">{copy.importNote}</p>
       <div className="flex flex-wrap items-end gap-2">
+        <label className="flex min-w-0 flex-col gap-1">{copy.printLanguage}<select className={control} aria-label={copy.printLanguage} value={printLanguage} disabled={!!busy} onChange={event => { setPrintLanguage(event.target.value as typeof printLanguage); setImage(null); setPage(1); }}><option value="document">{copy.inherit}</option><option value="es-ES">{copy.spanish}</option><option value="en-US">{copy.english}</option></select></label>
+        <label className="flex min-w-0 flex-col gap-1">{copy.hyphenation}<select className={control} aria-label={copy.hyphenation} value={hyphenation} disabled={!!busy} onChange={event => { setHyphenation(event.target.value as typeof hyphenation); setImage(null); setPage(1); }}><option value="document">{copy.inherit}</option><option value="on">{copy.enabled}</option><option value="off">{copy.disabled}</option></select></label>
         <label className="flex min-w-0 flex-col gap-1">{copy.source}<select className={control} aria-label={copy.source} value={source} disabled={!!busy} onChange={event => { setSource(event.target.value as typeof source); setPage(1); setImage(null); }}>
           <option value="editor">{copy.editor}</option><option value="imported" disabled={!opened}>{copy.imported}</option>
         </select></label>
