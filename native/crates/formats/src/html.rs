@@ -1371,7 +1371,7 @@ pub fn import_with(s: &str, images: ImageLoader) -> Document {
             props.style = Some("FootnoteReference".into());
             let mut note = writer_doc::Paragraph::new().styled("FootnoteText");
             let _ = note.insert_object(0, reference.clone(), &props);
-            let _ = note.insert_text(note.len(), &format!(" {body}"), &Default::default());
+            let _ = note.insert_text(note.len(), &body, &Default::default());
             if let Some(part) = document.parts.get_mut(&id) {
                 part.blocks = vec![writer_doc::para_block(note)];
             }
@@ -1820,10 +1820,9 @@ pub fn export_with_revisions(doc: &Document, include_revisions: bool) -> String 
             .unwrap_or_default();
         for (off, id) in refs.into_iter().rev() {
             let body = doc.plain_text(writer_doc::StoryRef::Part(id));
-            let body = body.trim_end_matches('\n').strip_prefix(' ').unwrap_or(body.trim_end_matches('\n'));
             let external = doc.custom_prop(&format!("writers.footnote.{id}")).map(str::to_owned).unwrap_or_else(|| format!("native-{id}"));
             let marker = format!("{prefix}{}END", notes.len());
-            let tag = format!("<sup data-footnote-id=\"{}\" data-footnote=\"{}\" class=\"wh-footnote-ref\"></sup>", esc(&external), esc(body));
+            let tag = format!("<sup data-footnote-id=\"{}\" data-footnote=\"{}\" class=\"wh-footnote-ref\"></sup>", esc(&external), esc(&body));
             if let Ok(p) = clone.para_mut(writer_doc::StoryRef::Body, &path) {
                 let props = p.run_ranges().find(|(range, _)| range.contains(&off)).map(|(_, props)| props.clone()).unwrap_or_default();
                 if p.delete(off, off + writer_doc::para::OBJ.len_utf8()).is_ok() {
