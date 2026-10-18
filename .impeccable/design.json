@@ -1,0 +1,391 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-18T21:36:14.164879+00:00",
+  "title": "Design System: Writer's Hoard",
+  "extensions": {
+    "colorMeta": {
+      "deep": {
+        "role": "neutral",
+        "displayName": "Deep",
+        "tonalRamp": [
+          "oklch(15% 0.00367 228.98)",
+          "oklch(26% 0.00367 228.98)",
+          "oklch(37% 0.00367 228.98)",
+          "oklch(48% 0.00367 228.98)",
+          "oklch(59% 0.00367 228.98)",
+          "oklch(70% 0.00367 228.98)",
+          "oklch(82% 0.00367 228.98)",
+          "oklch(95% 0.00367 228.98)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "tonalRamp": [
+          "oklch(15% 0.00352 228.94)",
+          "oklch(26% 0.00352 228.94)",
+          "oklch(37% 0.00352 228.94)",
+          "oklch(48% 0.00352 228.94)",
+          "oklch(59% 0.00352 228.94)",
+          "oklch(70% 0.00352 228.94)",
+          "oklch(82% 0.00352 228.94)",
+          "oklch(95% 0.00352 228.94)"
+        ]
+      },
+      "elevated": {
+        "role": "neutral",
+        "displayName": "Elevated",
+        "tonalRamp": [
+          "oklch(15% 0.00464 219.63)",
+          "oklch(26% 0.00464 219.63)",
+          "oklch(37% 0.00464 219.63)",
+          "oklch(48% 0.00464 219.63)",
+          "oklch(59% 0.00464 219.63)",
+          "oklch(70% 0.00464 219.63)",
+          "oklch(82% 0.00464 219.63)",
+          "oklch(95% 0.00464 219.63)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Border",
+        "tonalRamp": [
+          "oklch(15% 0.00406 196.98)",
+          "oklch(26% 0.00406 196.98)",
+          "oklch(37% 0.00406 196.98)",
+          "oklch(48% 0.00406 196.98)",
+          "oklch(59% 0.00406 196.98)",
+          "oklch(70% 0.00406 196.98)",
+          "oklch(82% 0.00406 196.98)",
+          "oklch(95% 0.00406 196.98)"
+        ]
+      },
+      "border-hover": {
+        "role": "neutral",
+        "displayName": "Border hover",
+        "tonalRamp": [
+          "oklch(15% 0.00862 132.49)",
+          "oklch(26% 0.00862 132.49)",
+          "oklch(37% 0.00862 132.49)",
+          "oklch(48% 0.00862 132.49)",
+          "oklch(59% 0.00862 132.49)",
+          "oklch(70% 0.00862 132.49)",
+          "oklch(82% 0.00862 132.49)",
+          "oklch(95% 0.00862 132.49)"
+        ]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Text primary",
+        "tonalRamp": [
+          "oklch(15% 0.01153 84.58)",
+          "oklch(26% 0.01153 84.58)",
+          "oklch(37% 0.01153 84.58)",
+          "oklch(48% 0.01153 84.58)",
+          "oklch(59% 0.01153 84.58)",
+          "oklch(70% 0.01153 84.58)",
+          "oklch(82% 0.01153 84.58)",
+          "oklch(95% 0.01153 84.58)"
+        ]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Text muted",
+        "tonalRamp": [
+          "oklch(15% 0.00862 121.67)",
+          "oklch(26% 0.00862 121.67)",
+          "oklch(37% 0.00862 121.67)",
+          "oklch(48% 0.00862 121.67)",
+          "oklch(59% 0.00862 121.67)",
+          "oklch(70% 0.00862 121.67)",
+          "oklch(82% 0.00862 121.67)",
+          "oklch(95% 0.00862 121.67)"
+        ]
+      },
+      "text-dim": {
+        "role": "neutral",
+        "displayName": "Text dim",
+        "tonalRamp": [
+          "oklch(15% 0.00920 128.60)",
+          "oklch(26% 0.00920 128.60)",
+          "oklch(37% 0.00920 128.60)",
+          "oklch(48% 0.00920 128.60)",
+          "oklch(59% 0.00920 128.60)",
+          "oklch(70% 0.00920 128.60)",
+          "oklch(82% 0.00920 128.60)",
+          "oklch(95% 0.00920 128.60)"
+        ]
+      },
+      "accent-gold": {
+        "role": "primary",
+        "displayName": "Accent gold",
+        "tonalRamp": [
+          "oklch(15% 0.09013 83.91)",
+          "oklch(26% 0.09013 83.91)",
+          "oklch(37% 0.09013 83.91)",
+          "oklch(48% 0.09013 83.91)",
+          "oklch(59% 0.09013 83.91)",
+          "oklch(70% 0.09013 83.91)",
+          "oklch(82% 0.09013 83.91)",
+          "oklch(95% 0.09013 83.91)"
+        ]
+      },
+      "accent-amber": {
+        "role": "primary",
+        "displayName": "Accent amber",
+        "tonalRamp": [
+          "oklch(15% 0.12369 73.60)",
+          "oklch(26% 0.12369 73.60)",
+          "oklch(37% 0.12369 73.60)",
+          "oklch(48% 0.12369 73.60)",
+          "oklch(59% 0.12369 73.60)",
+          "oklch(70% 0.12369 73.60)",
+          "oklch(82% 0.12369 73.60)",
+          "oklch(95% 0.12369 73.60)"
+        ]
+      },
+      "accent-plum-light": {
+        "role": "primary",
+        "displayName": "Accent plum light",
+        "tonalRamp": [
+          "oklch(15% 0.13317 297.46)",
+          "oklch(26% 0.13317 297.46)",
+          "oklch(37% 0.13317 297.46)",
+          "oklch(48% 0.13317 297.46)",
+          "oklch(59% 0.13317 297.46)",
+          "oklch(70% 0.13317 297.46)",
+          "oklch(82% 0.13317 297.46)",
+          "oklch(95% 0.13317 297.46)"
+        ]
+      },
+      "success": {
+        "role": "neutral",
+        "displayName": "Success",
+        "tonalRamp": [
+          "oklch(15% 0.11107 155.72)",
+          "oklch(26% 0.11107 155.72)",
+          "oklch(37% 0.11107 155.72)",
+          "oklch(48% 0.11107 155.72)",
+          "oklch(59% 0.11107 155.72)",
+          "oklch(70% 0.11107 155.72)",
+          "oklch(82% 0.11107 155.72)",
+          "oklch(95% 0.11107 155.72)"
+        ]
+      },
+      "warning": {
+        "role": "neutral",
+        "displayName": "Warning",
+        "tonalRamp": [
+          "oklch(15% 0.12744 84.93)",
+          "oklch(26% 0.12744 84.93)",
+          "oklch(37% 0.12744 84.93)",
+          "oklch(48% 0.12744 84.93)",
+          "oklch(59% 0.12744 84.93)",
+          "oklch(70% 0.12744 84.93)",
+          "oklch(82% 0.12744 84.93)",
+          "oklch(95% 0.12744 84.93)"
+        ]
+      },
+      "danger": {
+        "role": "neutral",
+        "displayName": "Danger",
+        "tonalRamp": [
+          "oklch(15% 0.16337 28.69)",
+          "oklch(26% 0.16337 28.69)",
+          "oklch(37% 0.16337 28.69)",
+          "oklch(48% 0.16337 28.69)",
+          "oklch(59% 0.16337 28.69)",
+          "oklch(70% 0.16337 28.69)",
+          "oklch(82% 0.16337 28.69)",
+          "oklch(95% 0.16337 28.69)"
+        ]
+      },
+      "fiction-accent": {
+        "role": "primary",
+        "displayName": "Fiction accent",
+        "tonalRamp": [
+          "oklch(15% 0.12017 82.13)",
+          "oklch(26% 0.12017 82.13)",
+          "oklch(37% 0.12017 82.13)",
+          "oklch(48% 0.12017 82.13)",
+          "oklch(59% 0.12017 82.13)",
+          "oklch(70% 0.12017 82.13)",
+          "oklch(82% 0.12017 82.13)",
+          "oklch(95% 0.12017 82.13)"
+        ]
+      },
+      "fiction-accent-strong": {
+        "role": "primary",
+        "displayName": "Fiction accent strong",
+        "tonalRamp": [
+          "oklch(15% 0.12067 82.88)",
+          "oklch(26% 0.12067 82.88)",
+          "oklch(37% 0.12067 82.88)",
+          "oklch(48% 0.12067 82.88)",
+          "oklch(59% 0.12067 82.88)",
+          "oklch(70% 0.12067 82.88)",
+          "oklch(82% 0.12067 82.88)",
+          "oklch(95% 0.12067 82.88)"
+        ]
+      },
+      "fiction-text": {
+        "role": "neutral",
+        "displayName": "Fiction text",
+        "tonalRamp": [
+          "oklch(15% 0.01002 212.52)",
+          "oklch(26% 0.01002 212.52)",
+          "oklch(37% 0.01002 212.52)",
+          "oklch(48% 0.01002 212.52)",
+          "oklch(59% 0.01002 212.52)",
+          "oklch(70% 0.01002 212.52)",
+          "oklch(82% 0.01002 212.52)",
+          "oklch(95% 0.01002 212.52)"
+        ]
+      },
+      "fiction-surface": {
+        "role": "neutral",
+        "displayName": "Fiction surface",
+        "tonalRamp": [
+          "oklch(15% 0.00445 196.87)",
+          "oklch(26% 0.00445 196.87)",
+          "oklch(37% 0.00445 196.87)",
+          "oklch(48% 0.00445 196.87)",
+          "oklch(59% 0.00445 196.87)",
+          "oklch(70% 0.00445 196.87)",
+          "oklch(82% 0.00445 196.87)",
+          "oklch(95% 0.00445 196.87)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Título de herramienta",
+        "purpose": "Cabecera de ficción dentro de Writer."
+      },
+      "manuscript": {
+        "displayName": "Lectura del manuscrito",
+        "purpose": "Prosa configurable, separada del marco."
+      }
+    },
+    "shadows": [
+      {
+        "name": "native-context",
+        "value": "0 8px 28px rgba(0, 0, 0, 0.38)",
+        "purpose": "Tarjetas nativas de escena, dados y continuidad."
+      }
+    ],
+    "motion": [
+      {
+        "name": "sidebar-width",
+        "value": "width 200ms",
+        "purpose": "Contraer u ocultar el lateral exterior; sujeto a preferencias de movimiento."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "play-single-column",
+        "value": "900px"
+      },
+      {
+        "name": "compact-sidebar",
+        "value": "800px"
+      },
+      {
+        "name": "native-drawer",
+        "value": "760px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Interruptor de ficción",
+      "kind": "button",
+      "refersTo": "fiction-switch",
+      "description": "Nombre y estado explícitos de una función opcional.",
+      "html": "<button class=\"ds-switch ds-focus\" role=\"switch\" aria-checked=\"false\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 2v10m-6.4-6.4a9 9 0 1 0 12.8 0\"/></svg>Mundos y juego <span>Desactivado</span></button>",
+      "css": ".ds-switch{font-family:var(--font-sans);font-size:14px;display:inline-flex;align-items:center;gap:8px;border:1px solid var(--color-border);border-radius:8px;padding:8px 12px;background:transparent;color:var(--color-text-muted)}.ds-switch svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}.ds-switch span{font-size:12px}.ds-switch[aria-checked=true]{border-color:var(--color-accent-gold);color:var(--color-accent-gold);background:color-mix(in oklab,var(--color-accent-gold) 10%,transparent)}.ds-switch:disabled{opacity:.5;cursor:not-allowed}.ds-focus:focus-visible{outline:2px solid var(--color-accent-gold);outline-offset:3px}"
+    },
+    {
+      "name": "Navegación exterior",
+      "kind": "nav",
+      "refersTo": "navigation-active",
+      "description": "Entrada activa del lateral Writer.",
+      "html": "<a href=\"#\" class=\"ds-nav ds-focus\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M3 10 12 3l9 7v11H3ZM9 21v-8h6v8\"/></svg>Inicio</a>",
+      "css": ".ds-nav{font-family:var(--font-sans);font-size:14px;display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;background:color-mix(in oklab,var(--color-accent-gold) 15%,transparent);color:var(--color-accent-gold);text-decoration:none;transition:color .15s,background-color .15s}.ds-nav svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.ds-nav:not([aria-current]):hover{color:var(--color-text-primary);background:var(--color-elevated)}.ds-focus:focus-visible{outline:2px solid var(--color-accent-gold);outline-offset:3px}"
+    },
+    {
+      "name": "Botón secundario nativo",
+      "kind": "button",
+      "refersTo": "native-button",
+      "description": "Acciones de escritura manual y herramientas.",
+      "html": "<button class=\"ds-btn\">Enviar</button>",
+      "css": ".ds-btn{font:500 13px var(--font-sans);display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:7px 14px;border-radius:8px;border:1px solid var(--hoard-border,#3a3d3e);background:var(--hoard-surface,#1e2121);color:var(--hoard-text,#e1eaec)}.ds-btn:hover:not(:disabled){background:var(--hoard-elevated,#282b2c);border-color:var(--hoard-border-hover,#5e6364)}.ds-btn:focus-visible{outline:2px solid var(--hoard-accent,#c4973b);outline-offset:2px}.ds-btn:disabled{opacity:.5;cursor:not-allowed}"
+    },
+    {
+      "name": "Botón primario nativo",
+      "kind": "button",
+      "refersTo": "native-button-primary",
+      "description": "Acción principal, deshabilitada si su función está apagada.",
+      "html": "<button class=\"ds-primary\" disabled aria-describedby=\"ds-off\">Narrar</button><p class=\"ds-hint\" id=\"ds-off\">Activa la narración global para narrar automáticamente.</p>",
+      "css": ".ds-primary{font:500 13px var(--font-sans);display:inline-flex;min-height:36px;padding:7px 14px;border-radius:8px;border:1px solid var(--hoard-accent,#c4973b);background:var(--hoard-accent,#c4973b);color:var(--hoard-accent-ink,#161818)}.ds-primary:hover:not(:disabled){background:var(--hoard-accent-strong,#ddb055);border-color:var(--hoard-accent-strong,#ddb055)}.ds-primary:focus-visible{outline:2px solid var(--hoard-accent,#c4973b);outline-offset:2px}.ds-primary:disabled{opacity:.5;cursor:not-allowed}.ds-hint{font:12px/1.5 var(--font-sans);color:var(--hoard-text-muted,#b4bcbe);margin:8px 0 0}"
+    },
+    {
+      "name": "Campo nativo",
+      "kind": "input",
+      "refersTo": "native-field",
+      "description": "Entrada local de texto, expresión o consulta.",
+      "html": "<label class=\"ds-field\">Expresión<input value=\"1d20\"></label>",
+      "css": ".ds-field{display:block;font:12px var(--font-sans);color:var(--hoard-text-muted,#b4bcbe)}.ds-field input{display:block;width:100%;font:14px var(--font-sans);padding:8px 10px;margin-top:4px;border:1px solid var(--hoard-border,#3a3d3e);border-radius:8px;background:var(--hoard-deep,#171919);color:var(--hoard-text,#e1eaec)}.ds-field input:focus{outline:2px solid rgba(196,151,59,.14);border-color:var(--hoard-accent,#c4973b)}"
+    },
+    {
+      "name": "Tarjeta de contexto",
+      "kind": "card",
+      "refersTo": "native-card",
+      "description": "Herramientas laterales de escena, dados o continuidad.",
+      "html": "<section class=\"ds-card\"><p>Escena</p><strong>Localización: Faro</strong></section>",
+      "css": ".ds-card{font:14px/1.5 var(--font-sans);padding:16px;background:var(--hoard-surface,#1e2121);color:var(--hoard-text,#e1eaec);border:1px solid var(--hoard-border,#3a3d3e);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.38)}.ds-card p{margin:0 0 8px;font-size:11px;color:var(--hoard-text-muted,#b4bcbe)}"
+    },
+    {
+      "name": "Chip de contexto",
+      "kind": "chip",
+      "description": "Personaje u otra referencia breve de contexto.",
+      "html": "<span class=\"ds-chip\">Inés</span>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;background:var(--hoard-sunken,#121414);border:1px solid var(--hoard-border,#3a3d3e);font:12px var(--font-sans);color:var(--hoard-text,#e1eaec)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "El escritorio Writer de la familia Hoard",
+    "overview": "Writer conserva su identidad de escritorio: carbón, oro, marca propia, títulos con la pila Cinzel y controles con la pila Source Sans 3. La ficción se abre dentro de ese marco de Electron y mantiene su interfaz de mundos completa en una superficie de estilos aislada. No se cambia la identidad ni se establece un producto móvil.\n\nLa extensión distingue claramente los controles que habilitan funciones del espacio de trabajo que aparece después. El estado apagado conserva cuatro interruptores, ubicación de datos y explicación; el estado activo añade navegación de mundo, transcripción y herramientas laterales. La lectura de manuscritos sigue teniendo tipografía y medida propias, separadas del título de la aplicación.",
+    "keyCharacteristics": [
+      "Carbón y oro del marco existente, con icono Writer y SVG canónico de Faustus.",
+      "Interruptores explícitos con estado escrito y acceso directo a la carpeta de ficción.",
+      "Espacio de trabajo denso con navegación, transcripción y contexto simultáneos.",
+      "Tipografía de lectura configurable en el manuscrito, distinta del título de la aplicación."
+    ],
+    "rules": [
+      {
+        "name": "The Writer Identity Rule",
+        "body": "La ficción hereda el icono, el marco y el oro de Writer; sus herramientas no introducen una nueva identidad de producto.",
+        "section": "colors"
+      },
+      {
+        "name": "The Prose and Chrome Rule",
+        "body": "Los títulos de la aplicación y la prosa del manuscrito pertenecen a roles distintos; los encabezados de capítulo heredan la familia de lectura del manuscrito.",
+        "section": "typography"
+      }
+    ],
+    "dos": [
+      "Do conservar el icono Writer, la navegación Lucide y la marca canónica independiente de Faustus.",
+      "Do acompañar cada interruptor con su etiqueta y estado escrito.",
+      "Do mostrar una explicación visible cuando una función necesaria está apagada.",
+      "Do mantener las preferencias de lectura del manuscrito y su medida de línea.",
+      "Do conservar bordes, foco y texto de estado en ambos ámbitos de estilos."
+    ],
+    "donts": [
+      "Don’t sustituir la identidad existente por una marca de ficción nueva.",
+      "Don’t usar la tipografía de títulos como regla general para la prosa extensa.",
+      "Don’t expresar el estado únicamente mediante el color.",
+      "Don’t presentar los ajustes de ventana estrecha como soporte móvil verificado."
+    ]
+  }
+}
