@@ -100,7 +100,7 @@ async function main() {
       // Browser-only QA transport. The production bundle and native IPC are
       // unchanged; the shim reaches this isolated worker/data directory only.
       const html = fs.readFileSync(path.join(root, 'dist/index.html'), 'utf8')
-        .replace('<script src="/renderer-prelude.js">', '<script src="/__qa-bridge.js"></script><script src="/renderer-prelude.js">');
+        .replace(/(<script src="(?:\.\/|\/)renderer-prelude\.js">)/, '<script src="/__qa-bridge.js"></script>$1');
       res.writeHead(200, { 'Content-Type': 'text/html' }).end(html);
       return;
     }
