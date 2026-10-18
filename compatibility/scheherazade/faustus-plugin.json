@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "id": "scheherazade",
+  "name": "Scheherazade's Hoard",
+  "purpose": "Keeps a story world's state (entities, facts, threads, dice) outside the model and hands the narrator exactly the slice it needs for the next scene.",
+  "capabilities": [
+    "storytelling",
+    "world-state",
+    "continuity",
+    "dice",
+    "tabletop",
+    "narration"
+  ],
+  "placeholders": [
+    "WRITER_DIR",
+    "APP_URL",
+    "TOKEN_FILE"
+  ],
+  "defaults": {
+    "APP_URL": "http://127.0.0.1:8766",
+    "TOKEN_FILE": "%APPDATA%/writers-hoard/aibridge/token",
+    "WRITER_DIR": "{COMPAT_DIR}/../..",
+    "DATA_DIR": "%APPDATA%/writers-hoard/fiction/data"
+  },
+  "app": {
+    "url_default": "http://127.0.0.1:8766",
+    "ui_url": null,
+    "health": {
+      "path": "/api/health",
+      "expect": {
+        "service": "absorbed-scheherazade"
+      }
+    },
+    "identify": {
+      "service": [
+        "absorbed-scheherazade"
+      ]
+    }
+  },
+  "mcp": {
+    "transport": "stdio",
+    "command": "node",
+    "args": [
+      "{WRITER_DIR}/dist-electron/aibridge/mcpStdio.cjs"
+    ],
+    "env": {
+      "WH_BRIDGE_URL": "{APP_URL}",
+      "WH_BRIDGE_TOKEN_FILE": "{TOKEN_FILE}",
+      "WH_BRIDGE_GROUPS": "story,core"
+    },
+    "optional_env": []
+  },
+  "provides": {
+    "skills": []
+  },
+  "x-family": {
+    "absorbed_by": {
+      "id": "writer",
+      "module": "fiction",
+      "repository": "https://github.com/Luissalet/Writers-Hoard-Desktop"
+    },
+    "standalone": false,
+    "compatibility": true,
+    "source_data": "Moved into the merged application; no dependency on the retired repository."
+  },
+  "notes": "Native compatibility identity owned by Writers hoard desktop. Data, tokens and all runtime files belong to the merged application. No retired repository is required. Start the owner explicitly and enable its module."
+}

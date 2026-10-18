@@ -324,3 +324,10 @@ the committed manifest as the default release source of truth.
 - Google Docs sync uses a web OAuth popup; on desktop that may need a
   loopback/system-browser flow. Sync is optional — the rest of the app works
   offline regardless.
+
+
+## Owned data and compatibility
+
+Native module data can be relocated into `data/native/<module>/data`, with per-module configuration beside it. Writer fiction uses the owning desktop profile `writers-hoard/fiction/data`. Move complete data trees, including SQLite WAL/SHM, media, downloaded models and browser sessions; update saved absolute paths before enabling a module. The compatibility manifests in `compatibility/<id>/faustus-plugin.json` preserve native IDs, tool schemas and tokens without a retired checkout. Add each merged application's `compatibility` directory to Hub roots before the general repository root. Discovery and compatibility bridges never start an application. All modules remain OFF during relocation.
+
+Legacy in-place adoption scripts are optional import helpers; keeping the old repository is unnecessary once relocation and route updates have been verified.

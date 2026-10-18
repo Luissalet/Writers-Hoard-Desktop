@@ -1412,3 +1412,8 @@ el alcance; ninguna de las dos cosas aplica a la implementación normal de Write
 - Before naming a new source or test file, inspect the tracked tree for that exact
   name. Add new document features under distinct names; preserve older editorial
   profile modules, test aggregators and scripts instead of replacing their contents.
+
+
+## 2026-10-19 — Complete ownership after a merger
+
+- Preserve functions and identities while relocating all runtime data into the surviving application. A merger must allow retiring old local folders. Inventory WAL, media, credentials and external route registrations; verify native reads with source folders absent.
