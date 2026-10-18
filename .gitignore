@@ -35,3 +35,8 @@ resources/proofing
 # Scratch output from local debugging sessions
 *.log.err
 /_to_delete/
+/story/.venv/
+/story/.build/
+/story/runtime/
+__pycache__/
+*.pyc

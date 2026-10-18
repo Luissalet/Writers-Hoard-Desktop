@@ -308,6 +308,11 @@ interface ShutdownWarning {
 }
 
 const api = {
+  fiction: {
+    status: () => ipcRenderer.invoke('fiction:status'),
+    setModule: (module: string, enabled: boolean, dataDir?: string) => ipcRenderer.invoke('fiction:setModule', module, enabled, dataDir),
+    request: (method: string, apiPath: string, body?: string) => ipcRenderer.invoke('fiction:request', method, apiPath, body),
+  },
   /** Always true when running inside the desktop shell. */
   isDesktop: true as const,
   platform: process.platform,

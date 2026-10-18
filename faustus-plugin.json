@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "writer",
   "name": "Writer's Hoard",
-  "purpose": "Draft, edit and query manuscripts through the Writer's Hoard AI bridge: projects, chapters, notes, outline, search, worldbuilding.",
+  "purpose": "Draft, edit and query manuscripts, plus interactive-fiction world state, continuity, sessions, dice, threads and clocks in Writer.",
   "capabilities": [
     "documents",
     "notes",
@@ -10,7 +10,11 @@
     "search",
     "manuscripts",
     "worldbuilding",
-    "ai-bridge"
+    "ai-bridge",
+    "interactive-fiction",
+    "continuity",
+    "dice",
+    "story-worlds"
   ],
   "placeholders": [
     "WRITER_DIR",
@@ -78,10 +82,37 @@
       "projects_tool": "wh_list_projects",
       "instructions_tool": "wh_get_editorial_context",
       "transport": "electron-ipc",
-      "object_types": ["writings", "codex", "notes", "outline", "maps", "worldgen"],
+      "object_types": [
+        "writings",
+        "codex",
+        "notes",
+        "outline",
+        "maps",
+        "worldgen"
+      ],
       "native_undo": true
     },
-    "note": "A desktop app: the port answers only while the AI bridge is switched on in Settings. The token lives under the user's profile, not in the repository folder. DATA_DIR is the app's own archive folder (the ZIP snapshots it rotates itself): a consistent copy of every project, small, never the live IndexedDB store or the media cache."
+    "note": "A desktop app: the port answers only while the AI bridge is switched on in Settings. The token lives under the user's profile, not in the repository folder. DATA_DIR is the app's own archive folder (the ZIP snapshots it rotates itself): a consistent copy of every project, small, never the live IndexedDB store or the media cache.",
+    "absorbs": [
+      "scheherazade"
+    ],
+    "fiction": {
+      "modules": [
+        "fiction",
+        "narration",
+        "voice",
+        "illustrations"
+      ],
+      "default_enabled": [],
+      "api_prefix": "/api/fiction",
+      "runtime": "owned private stdio worker",
+      "data": "in-place selectable directory; no automatic migration"
+    }
   },
-  "notes": "The AI bridge is off by default; turn it on in Writers Hoard → Settings → AI bridge. /api/health answers without a token; every other route needs the bridge token as a Bearer."
+  "notes": "The AI bridge is off by default; turn it on in Writers Hoard → Settings → AI bridge. /api/health answers without a token; every other route needs the bridge token as a Bearer.",
+  "provides": {
+    "skills": [
+      "skills/narrator-loop/SKILL.md"
+    ]
+  }
 }

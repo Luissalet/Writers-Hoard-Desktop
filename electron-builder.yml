@@ -26,6 +26,10 @@ asarUnpack:
 
 # The yt-dlp binary lives outside asar entirely (downloaded by `npm run fetch:bin`).
 extraResources:
+  - from: story/runtime/writer-fiction-worker
+    to: fiction
+    filter:
+      - '**/*'
   - from: resources/proofing
     to: proofing
     filter:

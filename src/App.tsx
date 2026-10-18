@@ -11,6 +11,7 @@ const ProjectDetail = lazy(() => import('./pages/ProjectDetail'));
 const MediaDownloader = lazy(() => import('./pages/MediaDownloader'));
 const NotesInbox = lazy(() => import('./pages/NotesInbox'));
 const AiSettings = lazy(() => import('./pages/AiSettings'));
+const FictionEngine = lazy(() => import('./engines/fiction/FictionEngine'));
 
 // In the desktop shell the renderer loads from file://, so we use HashRouter
 // (path-based routing can't resolve under file://). The web build keeps
@@ -66,6 +67,7 @@ export default function App() {
           )}
           {/* Project-less quick-capture drawer — reachable from anywhere. */}
           <Route path="/notes" element={<DeferredRoute><NotesInbox /></DeferredRoute>} />
+          <Route path="/fiction" element={<DeferredRoute><FictionEngine /></DeferredRoute>} />
           {/* AI settings: connections by IP, local models, defaults, MCP access. */}
           <Route path="/settings/ai" element={<DeferredRoute><AiSettings /></DeferredRoute>} />
           <Route path="/project/:id" element={<DeferredRoute><ProjectDetail /></DeferredRoute>} />

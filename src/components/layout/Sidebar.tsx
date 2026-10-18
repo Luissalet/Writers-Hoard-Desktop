@@ -9,6 +9,7 @@ import {
   StickyNote,
   LayoutDashboard,
   Bot,
+  Dices,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -141,6 +142,11 @@ export default function Sidebar() {
             )}
           </NavLink>
         )}
+
+        <NavLink to="/fiction" className={({ isActive }) => navClass(isActive)} title={t('sidebar.fiction')} aria-label={t('sidebar.fiction')}>
+          <Dices size={18} className="flex-shrink-0" aria-hidden="true" />
+          {sidebarOpen && <span className="whitespace-nowrap">{t('sidebar.fiction')}</span>}
+        </NavLink>
 
         {/* AI settings — connections by IP, local models, copilot defaults. */}
         <NavLink

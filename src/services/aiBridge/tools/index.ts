@@ -9,6 +9,7 @@
 
 import type { ToolArgs } from './shared';
 import { DOCUMENT_HANDLERS } from './documents';
+import { FICTION_HANDLERS } from './fiction';
 import { REVISION_HANDLERS } from './revisions';
 import { EDITORIAL_HANDLERS } from './editorialDocument';
 import { PROOFING_HANDLERS } from './proofing';
@@ -235,6 +236,7 @@ const codexFolderHandlers = createCodexFolderImportHandlers(createCodexFolderImp
 }, htmlFromMarkdown), async (args, writes) => writes ? resolveProjectForEngine(args, 'codex') : resolveProjectId(args));
 
 export const TOOL_HANDLERS: Record<string, ToolHandler> = {
+  ...FICTION_HANDLERS,
   ...DOCUMENT_HANDLERS,
   ...REVISION_HANDLERS,
   ...EDITORIAL_HANDLERS,
