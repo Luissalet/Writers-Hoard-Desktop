@@ -9,7 +9,7 @@ related_targets: ["route:/fiction", "src/engines/fiction/NativeSurface.tsx", "sr
 
 ## Mode
 
-Operate. The user selects which optional functions run, opens a world and manages its story state.
+Operate, on Electron desktop using React. The user selects which optional functions run, opens a world and manages its story state.
 
 ## Scope and authority
 
@@ -21,7 +21,7 @@ Use Writer's existing charcoal surfaces, gold accent, Cinzel title stack, Source
 
 ## Required states
 
-Four visible OFF switches and clear explanation on first open; worlds/play can be enabled without narration, voice or illustrations. Changing the data directory requires worlds/play OFF. Loading, errors and disabled controls remain explicit. The native twelve-section world interface appears after enabling fiction. Faustus connects only from its explicit button.
+Four visible OFF switches and clear explanation on first open; worlds/play can be enabled without narration, voice or illustrations. Narrate is disabled with a visible explanation while Global model narration is OFF; its handler checks the owner's current switch before writing a draft. Send remains available for manual writing. Switch changes update the open play view without reloading it. Changing the data directory requires worlds/play OFF. Loading, errors and disabled controls remain explicit. The native twelve-section world interface appears after enabling fiction. Faustus connects only from its explicit button.
 
 ## Preservation constraints
 

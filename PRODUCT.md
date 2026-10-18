@@ -4,9 +4,9 @@
 
 ## Platform
 
-web
+Electron desktop using React.
 
-The existing React interface runs in Electron Desktop. This record describes the confirmed merger scope, rather than establishing a new product identity.
+The existing React interface runs in Electron Desktop. This merger adds a desktop surface; it does not establish a browser product or a new product identity.
 
 ## Product Purpose
 
