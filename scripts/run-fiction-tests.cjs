@@ -93,7 +93,9 @@ async function main() {
     }
     if (req.url === '/__qa-bridge.js') {
       res.writeHead(200, { 'Content-Type': 'application/javascript' });
-      res.end(`if(!window.electronAPI){const call=async(path,args=[])=>{const r=await fetch('/__qa/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(args)});const result=await r.json();if(!r.ok)throw new Error(result.error);return result;};const listeners=new Set();window.electronAPI={isDesktop:true,platform:'win32',quickNote:{setContext:()=>{},onCapture:()=>()=>{},onOpenInline:()=>()=>{},ack:()=>{}},faustus:{getInfo:()=>call('faustus-info'),onEvent:fn=>{listeners.add(fn);return()=>listeners.delete(fn);},cancel:async()=>{},request:async request=>{queueMicrotask(()=>{for(const listener of listeners){listener({id:request.id,type:'chunk',chunk:new TextEncoder().encode('{"conversations":[]}')});listener({id:request.id,type:'end'});}});return{status:200,statusText:'OK',headers:[['Content-Type','application/json']]};}},fiction:{status:()=>call('status'),setModule:(...args)=>call('set',args),request:(...args)=>call('request',args)}};}`);
+      // Electron IPC preserves undefined; JSON arrays replace it with null.
+      // Omit the optional directory instead of changing its meaning in transit.
+      res.end(`if(!window.electronAPI){const call=async(path,args=[])=>{const r=await fetch('/__qa/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(args)});const result=await r.json();if(!r.ok)throw new Error(result.error);return result;};const listeners=new Set();window.electronAPI={isDesktop:true,platform:'win32',quickNote:{setContext:()=>{},onCapture:()=>()=>{},onOpenInline:()=>()=>{},ack:()=>{}},faustus:{getInfo:()=>call('faustus-info'),onEvent:fn=>{listeners.add(fn);return()=>listeners.delete(fn);},cancel:async()=>{},request:async request=>{queueMicrotask(()=>{for(const listener of listeners){listener({id:request.id,type:'chunk',chunk:new TextEncoder().encode('{"conversations":[]}')});listener({id:request.id,type:'end'});}});return{status:200,statusText:'OK',headers:[['Content-Type','application/json']]};}},fiction:{status:()=>call('status'),setModule:(module,enabled,directory)=>call('set',directory===undefined?[module,enabled]:[module,enabled,directory]),request:(...args)=>call('request',args)}};}`);
       return;
     }
     if (req.url === '/' && process.argv.includes('--hold')) {
@@ -125,10 +127,10 @@ async function main() {
   win.webContents.on('console-message', details => { if (details.level === 'error') { errors.push(details.message); console.error('RENDERER', details.message); } });
   cleanup = async () => { await service.close(); win.destroy(); staticServer.close(); fakeHub.close(); };
   await win.loadURL(`http://127.0.0.1:${rendererPort}/#/fiction`);
-  async function waitFor(code, label) {
+  async function waitFor(code, label, page = win) {
     const deadline = Date.now() + 20000;
-    while (Date.now() < deadline) { if (await win.webContents.executeJavaScript(code)) return; await sleep(80); }
-    throw new Error(`Timed out: ${label}\n${JSON.stringify(errors)}\n${await win.webContents.executeJavaScript('document.documentElement.outerHTML.slice(-3000)')}`);
+    while (Date.now() < deadline) { if (await page.webContents.executeJavaScript(code)) return; await sleep(80); }
+    throw new Error(`Timed out: ${label}\n${JSON.stringify(errors)}\n${await page.webContents.executeJavaScript('document.documentElement.outerHTML.slice(-3000)')}`);
   }
   await waitFor(`document.querySelectorAll('[role="switch"]').length===4`, 'fiction switches');
   const off = await service.status();
@@ -163,6 +165,25 @@ async function main() {
     faustusExplicitOnly: true, faustusLegacySpacePreserved: true, faustusContext: context }, null, 2));
   console.log('PASS full renderer / native fiction / 4 switches OFF / worker shutdown');
   if (process.argv.includes('--hold')) {
+    // Exercise the actual browser-only shim as well as the native IPC above.
+    const browser = new BrowserWindow({ show: false, width: 1440, height: 1040,
+      webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false, partition: 'fiction-browser-qa' } });
+    try {
+      await browser.loadURL(`http://127.0.0.1:${rendererPort}/#/fiction`);
+      await waitFor(`document.querySelectorAll('[role="switch"]').length===4`, 'browser switches', browser);
+      await browser.webContents.executeJavaScript(`document.querySelector('[role="switch"]').click()`);
+      await waitFor(`!![...document.querySelectorAll('div')].find(node=>node.shadowRoot)?.shadowRoot.querySelector('.grid-cards .btn')`, 'browser activation and worlds', browser);
+      if (!(await service.status()).running) throw new Error('Browser ON did not start the real worker.');
+      await browser.webContents.executeJavaScript(`${shadow}.querySelector('.grid-cards .btn').click()`);
+      await waitFor(`${shadow}.querySelector('.transcript')!==null`, 'browser play view', browser);
+      await browser.webContents.executeJavaScript(`document.querySelector('[role="switch"]').click()`);
+      await waitFor(`document.querySelector('[role="switch"]').getAttribute('aria-checked')==='false'`, 'browser OFF', browser);
+      if ((await service.status()).running) throw new Error('Browser OFF left the worker running.');
+      const alert = await browser.webContents.executeJavaScript(`document.querySelector('[role="alert"]')?.textContent`);
+      if (alert) throw new Error(`Browser action failed: ${alert}`);
+      fs.writeFileSync(path.join(reports, 'browser-shim-actions.json'), JSON.stringify({ nativeIpcActions: true, browserOnlyShim: true, realSwitchClick: true, library: true, play: true, workerJoinedOnOff: true, allOffAtEnd: true }, null, 2));
+      console.log('PASS browser-only shim / actual ON click / library / play / OFF joins worker');
+    } finally { browser.destroy(); }
     const ready = { url: `http://127.0.0.1:${rendererPort}/#/fiction`, stopFile: path.join(reports, 'STOP'),
       dataDir: path.join(directory, 'worlds'), profile: path.join(directory, 'profile'), apiMcp: result,
       transport: 'Production renderer, synthetic browser IPC shim, owned private stdio engine' };
