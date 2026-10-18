@@ -62,7 +62,7 @@ export async function testFamilyUi(): Promise<string[]> {
     const list = (entries: CodexEntry[]) => <CodexEntryList projectId={P} entries={entries} onAdd={async () => {}} onEdit={async () => {}} onDelete={async () => {}} />;
     await render(list([ana, faro]));
     assert(byTestId('send-world-to-scheherazade') && byTestId('bring-world-from-scheherazade'), 'the codex toolbar has both Scheherazade buttons');
-    assert(byTestId('send-world-to-scheherazade')!.textContent?.includes('Scheherazade') && byTestId('bring-world-from-scheherazade')!.textContent?.includes('Scheherazade'), 'the buttons name the app');
+    assert(/fiction|ficción/i.test(byTestId('send-world-to-scheherazade')!.textContent || '') && /fiction|ficción/i.test(byTestId('bring-world-from-scheherazade')!.textContent || ''), 'the buttons name the incorporated fiction module');
 
     answer = request => ({ ok: true, app: request.app, tool: request.tool, result: { ok: true, world: { id: 'w1', name: 'Mi mundo' }, world_created: true, counts: { created: 2 }, items: [], world_ref: 'hoard://scheherazade/world/w1' } });
     await click(byTestId('send-world-to-scheherazade'), 'send world button');

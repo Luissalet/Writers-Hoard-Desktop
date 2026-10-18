@@ -38,6 +38,7 @@ import {
 } from '@/services/aiBridge/manifest';
 import { callRenderer, pendingCallCount, type BridgeCallResult } from './rpc';
 import { executeTool } from './executor';
+import { fictionService } from '../fiction/service';
 import { emitFamilyEvent, familyHealthBlock } from './family';
 import {
   appendAudit,
@@ -333,6 +334,34 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       instructions: BRIDGE_INSTRUCTIONS,
       writesEnabled: config.writesEnabled,
     });
+    return;
+  }
+
+  // The complete incorporated REST surface is addressable through Writer's
+  // existing listener; it never binds a separate fiction server.
+  if (url.startsWith('/api/fiction/')) {
+    const mutates = req.method !== 'GET' && req.method !== 'HEAD';
+    if (mutates && !config.writesEnabled) {
+      sendJson(res, 403, { ok: false, code: 'writes-disabled', error: 'Writing is switched off.' });
+      return;
+    }
+    try {
+      if (url === '/api/fiction/modules') {
+        if (req.method === 'GET') sendJson(res, 200, await fictionService().status());
+        else {
+          const body = await readJsonObject(req, res);
+          if (!body) return;
+          sendJson(res, 200, await fictionService().setModule(String(body.module), body.enabled as boolean, body.dataDir as string | undefined));
+        }
+        return;
+      }
+      const apiPath = '/api/' + (req.url ?? '').slice('/api/fiction/'.length);
+      const response = await fictionService().request(req.method || 'GET', apiPath, mutates ? await readBody(req) : '', false);
+      res.writeHead(response.status, { 'Content-Type': response.type, 'Cache-Control': 'no-store' });
+      res.end(Buffer.from(response.base64, 'base64'));
+    } catch (error) {
+      sendJson(res, 503, { ok: false, code: 'fiction-unavailable', error: error instanceof Error ? error.message : String(error) });
+    }
     return;
   }
 

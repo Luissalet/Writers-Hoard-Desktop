@@ -1016,3 +1016,25 @@ proved immediate reference adoption fixes the unchanged book workflow test.
 
 Final review:414N1/422N1/426N1 approved on exact0b0ae6f/abf757a/f49852e.
 Installed final ASARf5aaa8d96cb5f5d17ae25c4bfc94962ee477b46056d26663f427cd9376f5287a and native776a21f2ca5924aa8eaf73424af157d75ce53c220b1489527ebd0353b75470ea. Actual package Main/preload/renderer,34externalMCPcalls/catalog203, realBook firstedit/close/reopen, language/DOCX/PDF/PNG, Worker/Java/dictionary3processes pass. Source/user rows preserved;5projects/5texts/updatedAt exact. Fresh recoverable backups.383critical/13Books/290native affected PASS; manual/graph/memory updated. Evidence D:/LocalAI/research-inbox/writers-editor-expansion-20261012/INFORME-FINAL.md and final-activation.
+
+
+# Story fusion 907 — Writer + Scheherazade
+
+## Success criteria and architecture
+
+Preserve Writer's Electron renderer origin, IndexedDB, native document engine and all existing tools. Incorporate the complete story core and React views as an optional Fiction engine. Python remains a private stdio ASGI worker (no HTTP listener), owned by Electron, because converting SQLite transactions/undo/parser/model integration would change data and semantics. A single product exposes the combined static MCP catalogue, with UI and tools using the same story API. Legacy world exchange tools dispatch locally. Data directories are selected explicitly and used in place; no copying, migration or auto-enabling. The new engine is OFF on installation and does not start a worker on catalogue/status calls. Disabling waits for work and closes the database/process; parent EOF closes the worker too.
+
+## Plan
+
+- [x] Inventory original APIs, 19 MCP functions, React views, data and lifecycle.
+- [x] Verify locks and create isolated worktree; preserve detached-source licence/provenance.
+- [x] Add private worker, lifecycle, independent controls and static catalogue.
+- [x] Integrate the complete fiction UI in Writer with isolated styles, no iframe.
+- [x] Route existing world exchanges to the local engine and retain hoard.world/1 semantics.
+- [x] Prove OFF/start/CRUD/dice/undo/export/import/shutdown with synthetic API/MCP and browser tests.
+- [x] Typecheck/build, original story regressions and relevant Writer checks.
+- [x] Document capabilities, data adoption and limits; commit for cross-review.
+
+## Review
+
+Ready for cross-review; no production activation, retirement or publication. Renderer/Electron typechecks, build, conformance (27 engines/61 engine tables), lint (0 debt) and Writer critical suite (383) pass. Incorporated core/API regressions: 286 pass, one former standalone CLI logging test intentionally excluded. Real bridge API/MCP covers 224 tools and all 19 native tool paths; packaged private runtime and full Writer renderer pass with synthetic providers/profile. OFF, parallel controls, failed config persistence, real Python PID shutdown, in-place reopen, native REST and legacy Faustus space are verified. Bundle entry 1.405 MB passes; total 8.62 MB remains advisory. Evidence: D:/LocalAI/research-inbox/writer-fusion907/. Cross-review and activation remain with the coordinator.

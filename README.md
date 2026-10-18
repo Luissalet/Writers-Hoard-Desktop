@@ -9,10 +9,21 @@ downloaders (`yt-dlp` + `gallery-dl`) — no separate Python server.
 
 > Transition plan and rationale: [`tasks/desktop-transition.md`](tasks/desktop-transition.md)
 
+## Interactive fiction
+
+Writer includes Scheherazade's worlds, continuity, sessions, dice, threads,
+clocks, narration and exports. Open **Interactive fiction** in the sidebar;
+worlds/play, global-model narration, voice and illustrations have independent
+switches, all **OFF** initially. Existing fiction data stays in its original
+directory. The complete UI, 19 original MCP tools and native API are incorporated
+in Writer; the former server is unnecessary. The installed app includes its
+private worker runtime. See [operation, data and limits](docs/FICTION.md).
+
 ## Quick start
 
 ```bash
 npm install            # one-time dependency setup
+npm run fiction:setup  # development worker; included in installed builds
 npm run fetch:bin      # downloads yt-dlp + gallery-dl into resources/bin/
 npm run verify:quick   # renderer/Electron types, shipping lint, conformance
 npm run dev:desktop    # Vite dev server + Electron window (HMR)

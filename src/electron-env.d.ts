@@ -306,6 +306,11 @@ export interface ShutdownWarning {
 }
 
 export interface ElectronAPI {
+  fiction: {
+    status: () => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean }> }>;
+    setModule: (module: string, enabled: boolean, dataDir?: string) => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean }> }>;
+    request: (method: string, apiPath: string, body?: string) => Promise<{ status: number; type: string; base64: string }>;
+  };
   documents?: NativeDocumentsApi;
   proofing?: {
     check(request: { text: string; language: 'es' | 'en-US' }): Promise<import('./engines/writings/proofing/types').GrammarCheckResponse>;

@@ -29,6 +29,7 @@ import '@/engines/image-studio';
 import '@/engines/real-atlas';
 import '@/engines/inquiry';
 import '@/engines/beta-reading';
+import '@/engines/fiction';
 import '@/services/projectToolsBackup';
 import '@/services/copilot/backup';
 import { registerFallbackAnchorAdapters } from '@/engines/_shared/anchoring/registerFallbackAdapters';
