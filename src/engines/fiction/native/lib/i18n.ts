@@ -49,6 +49,7 @@ const dict = {
   play_mode_ooc: { es: "Fuera de personaje", en: "Out of character" },
   play_send: { es: "Enviar", en: "Send" },
   play_narrate: { es: "Narrar", en: "Narrate" },
+  play_narration_off: { es: "Activa «Narración con el modelo global» para narrar automáticamente. Puedes seguir usando Enviar para escribir a mano.", en: "Enable Global model narration to narrate automatically. You can still use Send to write manually." },
   play_narrating: { es: "Narrando…", en: "Narrating…" },
   play_undo: { es: "Deshacer último turno", en: "Undo last turn" },
   play_read_aloud: { es: "Leer en voz alta", en: "Read aloud" },

@@ -203,6 +203,7 @@ export function PlayPage({ world, lang, onWorldChanged }: { world: World; lang: 
   const [selection, setSelection] = useState<DeltaSelection>({});
   const [prospero, setProspero] = useState(false);
   const [voiceUp, setVoiceUp] = useState(false);
+  const [narrationEnabled, setNarrationEnabled] = useState(false);
   const [busyVoice, setBusyVoice] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -233,6 +234,25 @@ export function PlayPage({ world, lang, onWorldChanged }: { world: World; lang: 
   useFormSnapshot("turn-draft", null, () => (input.trim() ? { text: input.slice(0, 500), mode } : null));
 
   useEffect(() => () => { audioRef.current?.pause(); }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refreshModule = () => window.electronAPI?.fiction.status()
+      .then(status => { if (active) setNarrationEnabled(status.enabled.includes('narration')); })
+      .catch(() => { if (active) setNarrationEnabled(false); });
+    const changed = (event: Event) => {
+      const { module, enabled } = (event as CustomEvent<{ module: string; enabled: boolean }>).detail;
+      if (module === 'narration') setNarrationEnabled(enabled);
+    };
+    void refreshModule();
+    window.addEventListener('writer:fiction-module', changed);
+    window.addEventListener('focus', refreshModule);
+    return () => {
+      active = false;
+      window.removeEventListener('writer:fiction-module', changed);
+      window.removeEventListener('focus', refreshModule);
+    };
+  }, []);
 
   function stopAudio() {
     audioRef.current?.pause();
@@ -309,6 +329,14 @@ export function PlayPage({ world, lang, onWorldChanged }: { world: World; lang: 
     setBusy(true);
     setError(null);
     try {
+      // Recheck the owner before appending the draft: another client can
+      // switch narration OFF after this view last received its module state.
+      const status = await window.electronAPI?.fiction.status();
+      if (!status?.enabled.includes('narration')) {
+        setNarrationEnabled(false);
+        setError(t("play_narration_off", lang));
+        return;
+      }
       if (actionText) await sendTurn(mode, actionText);
       const result = await api.narrate(world.id, actionText || "Continúa la escena.");
       setProposal(result);
@@ -491,10 +519,14 @@ export function PlayPage({ world, lang, onWorldChanged }: { world: World; lang: 
               }}
             />
             <button className="btn" disabled={busy || !input.trim()} onClick={handleSend}>{t("play_send", lang)}</button>
-            <button className="btn btn-primary" disabled={busy} onClick={handleNarrate}>
+            <button className="btn btn-primary" data-action="narrate" disabled={busy || !narrationEnabled}
+              aria-describedby={!narrationEnabled ? 'fiction-narration-off' : undefined} onClick={handleNarrate}>
               <Sparkles size={14} /> {busy ? t("play_narrating", lang) : t("play_narrate", lang)}
             </button>
           </div>
+          {!narrationEnabled && <p id="fiction-narration-off" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--text-muted)" }}>
+            {t("play_narration_off", lang)}
+          </p>}
         </div>
       </div>
 
