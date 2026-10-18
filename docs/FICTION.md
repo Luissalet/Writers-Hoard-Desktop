@@ -13,6 +13,12 @@ catalogue read, a status request or importing the engine definition. Visiting th
 OFF page does not open a fiction database. Enabled features act only when used;
 there is no scheduled collection, polling or model loading.
 
+Narrate is disabled with a visible explanation while global model narration is
+OFF. Switching that control updates the open play view immediately. Before
+appending an unsent draft, Narrate also checks the owner's current module state,
+so another client's OFF change cannot turn that action into a manual write.
+Send remains available for writing turns manually with narration OFF.
+
 ## Data stays in place
 
 Writer's renderer origin, IndexedDB schema, profile, manuscripts and document

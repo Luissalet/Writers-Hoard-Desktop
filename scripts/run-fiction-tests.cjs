@@ -144,6 +144,48 @@ async function main() {
   const shadow = `[...document.querySelectorAll('div')].find(node=>node.shadowRoot).shadowRoot`;
   await win.webContents.executeJavaScript(`${shadow}.querySelector('.grid-cards .btn').click()`);
   await waitFor(`${shadow}.querySelector('.transcript')!==null`, 'native play view');
+  const nativeJson = async apiPath => JSON.parse(Buffer.from((await service.request('GET', apiPath, '', true)).base64, 'base64'));
+  async function turnCount() {
+    let count = 0;
+    for (const world of await nativeJson('/api/worlds')) {
+      for (const session of await nativeJson(`/api/worlds/${world.id}/sessions`)) {
+        count += (await nativeJson(`/api/worlds/${world.id}/sessions/${session.id}/turns`)).length;
+      }
+    }
+    return count;
+  }
+  const draft = 'Synthetic unsent draft: keep it while narration is OFF.';
+  const inputSelector = `${shadow}.querySelector('.play-input-row textarea')`;
+  const narrateSelector = `${shadow}.querySelector('[data-action="narrate"]')`;
+  await win.webContents.executeJavaScript(`Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(${inputSelector},${JSON.stringify(draft)});${inputSelector}.dispatchEvent(new Event('input',{bubbles:true,composed:true}));`);
+  await waitFor(`${inputSelector}.value===${JSON.stringify(draft)} && !${shadow}.querySelector('.play-input-row .btn').disabled`, 'draft ready');
+  if (!await win.webContents.executeJavaScript(`${narrateSelector}.disabled && !!${shadow}.querySelector('#fiction-narration-off')`)) throw new Error('Narrate must explain its disabled module.');
+  const beforeOff = await turnCount();
+  await win.webContents.executeJavaScript(`${narrateSelector}.click()`);
+  await sleep(150);
+  if (await turnCount() !== beforeOff || !await win.webContents.executeJavaScript(`${inputSelector}.value===${JSON.stringify(draft)}`)) throw new Error('OFF Narrate changed the draft or story.');
+  await win.webContents.executeJavaScript(`${shadow}.querySelector('.play-input-row .btn').click()`);
+  await waitFor(`${inputSelector}.value===''`, 'manual Send with narration OFF');
+  if (await turnCount() !== beforeOff + 1) throw new Error('Manual Send must remain available while narration is OFF.');
+  await win.webContents.executeJavaScript(`Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(${inputSelector},${JSON.stringify(draft)});${inputSelector}.dispatchEvent(new Event('input',{bubbles:true,composed:true}));document.querySelectorAll('[role="switch"]')[1].click();`);
+  await waitFor(`!${narrateSelector}.disabled`, 'Narrate responds to ON without reload');
+  // Simulate another client disabling the module before this view sees it.
+  await service.setModule('narration', false);
+  const beforeGuard = await turnCount();
+  await win.webContents.executeJavaScript(`${narrateSelector}.click()`);
+  await waitFor(`${narrateSelector}.disabled && !!${shadow}.querySelector('.error-banner')`, 'owner OFF guard');
+  if (await turnCount() !== beforeGuard || !await win.webContents.executeJavaScript(`${inputSelector}.value===${JSON.stringify(draft)}`)) throw new Error('Owner OFF guard must run before any draft append.');
+  await win.webContents.executeJavaScript(`document.querySelectorAll('[role="switch"]')[1].click()`);
+  await waitFor(`document.querySelectorAll('[role="switch"]')[1].getAttribute('aria-checked')==='false'`, 'switch follows owner OFF');
+  await win.webContents.executeJavaScript(`document.querySelectorAll('[role="switch"]')[1].click()`);
+  await waitFor(`!${narrateSelector}.disabled`, 'Narrate enabled again');
+  await win.webContents.executeJavaScript(`${narrateSelector}.click()`);
+  await waitFor(`!!${shadow}.querySelector('.delta-card')`, 'ON narration through synthetic Hub');
+  if (await turnCount() !== beforeGuard + 1) throw new Error('ON narration must append the draft once.');
+  await win.webContents.executeJavaScript(`${shadow}.querySelector('.delta-card button:last-child').click();document.querySelectorAll('[role="switch"]')[1].click()`);
+  await waitFor(`${narrateSelector}.disabled && document.querySelectorAll('[role="switch"]')[1].getAttribute('aria-checked')==='false'`, 'Narrate responds to OFF without reload');
+  fs.writeFileSync(path.join(reports, 'narration-controls.json'), JSON.stringify({ draftPreservedOff: true, offAddsZeroTurns: true, manualSendWorksOff: true, ownerGuardBeforeWrite: true, switchSyncWithoutReload: true, narrationOnWorks: true, allProvidersSynthetic: true }, null, 2));
+  console.log('PASS narration OFF / no draft mutation / manual Send / owner guard / live ON narration');
   await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
   fs.writeFileSync(path.join(reports, 'desktop-play.png'), (await win.webContents.capturePage()).toPNG());
   const sections = await win.webContents.executeJavaScript(`[...${shadow}.querySelectorAll('.nav-item')].map(node=>node.textContent)`);
