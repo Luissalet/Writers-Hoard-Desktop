@@ -24,6 +24,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { fictionService } from './fiction/service';
 import { callApp, refsLink, type CallAppOptions } from './aibridge/family';
 import {
   FILE_PLACEHOLDER, HOARD_REF, MAX_ARGS_BYTES, MAX_FILE_BYTES, MAX_FILES, MAX_TOTAL_FILE_BYTES,
@@ -149,6 +150,14 @@ export async function familyCall(raw: unknown, deps: FamilyCallDeps = {}): Promi
   const checked = checkFamilyCall(raw);
   if ('error' in checked) return bad(checked.error);
   const { request } = checked;
+  // Existing world-exchange tools now stay inside Writer. Their refs/schema are
+  // preserved, so an old project can still repeat an idempotent import.
+  if (request.app === 'scheherazade' && !deps.call) {
+    const outcome = await fictionService().tool(request.tool, request.args);
+    return outcome.ok
+      ? { ok: true, app: 'writer', tool: request.tool, result: outcome.result }
+      : { ok: false, code: 'tool_failed', error: outcome.error || 'Fiction request failed.', app: 'writer', tool: request.tool };
+  }
   const root = deps.tmpDir ? deps.tmpDir() : os.tmpdir();
   let dir = '';
   try {

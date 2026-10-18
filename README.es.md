@@ -6,10 +6,21 @@ Plataforma local de escritura creativa empaquetada como aplicación de escritori
 
 > Plan de transición: [`tasks/desktop-transition.md`](tasks/desktop-transition.md).
 
+## Ficción interactiva
+
+Writer incorpora los mundos, continuidad, sesiones, dados, hilos, relojes,
+narración y exportaciones de Scheherazade. **Ficción interactiva** está en la
+barra lateral; mundos/juego, narración con el modelo global, voz e ilustraciones
+se controlan por separado y empiezan **desactivados**. Los datos anteriores se
+usan en su carpeta original. Toda la interfaz, las 19 herramientas MCP y la API
+se incorporan a Writer; el antiguo servidor deja de ser necesario. El instalador
+incluye el motor privado. [Funcionamiento, datos y límites](docs/FICTION.md).
+
 ## Empezar
 
 ```sh
 npm install
+npm run fiction:setup
 npm run fetch:bin
 npm run verify:quick
 npm run dev:desktop

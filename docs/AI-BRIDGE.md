@@ -8,6 +8,13 @@ tiempo.
 Está **apagado por defecto**. Se enciende en **Ajustes → Puente IA**, donde
 además tienes el token y el JSON listo para pegar en el cliente.
 
+El catálogo mantiene las 203 herramientas anteriores y añade las 19 de ficción
+interactiva, `wh_story_modules` y `wh_story_module_set` (224 en total). Ficción
+empieza desactivada y tiene controles independientes de narración, voz e imágenes.
+La API completa está bajo `/api/fiction/*` en el mismo puerto; se ejecuta en un
+motor privado por stdio, sin servidor antiguo ni puerto adicional. Véase
+[la arquitectura y conservación de datos](FICTION.md).
+
 ---
 
 ## 1. Cómo encaja

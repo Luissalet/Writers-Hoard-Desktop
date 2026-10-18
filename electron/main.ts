@@ -73,6 +73,7 @@ import { geocodePlace } from './atlasGeocode';
 import { wikidataRequest } from './wikidata';
 import { familySearch } from './familySearch';
 import { familyCall, familyRefs } from './familyCall';
+import { closeFiction, configureFiction, fictionService, isFictionRunning } from './fiction/service';
 import {
   isExactRendererDocumentUrl,
   isIpcChannelAllowedForRole,
@@ -2023,6 +2024,18 @@ function registerIpc(): void {
     assertIpcSender(event, 'family:call');
     return familyCall(request);
   });
+  ipcMain.handle('fiction:status', event => {
+    assertIpcSender(event, 'fiction:status');
+    return fictionService().status();
+  });
+  ipcMain.handle('fiction:setModule', (event, module: string, enabled: boolean, dataDir?: string) => {
+    assertIpcSender(event, 'fiction:setModule');
+    return fictionService().setModule(module, enabled, dataDir);
+  });
+  ipcMain.handle('fiction:request', (event, method: string, apiPath: string, body?: string) => {
+    assertIpcSender(event, 'fiction:request');
+    return fictionService().request(method, apiPath, body);
+  });
   ipcMain.handle('family:link', (event, request: unknown) => {
     assertIpcSender(event, 'family:link');
     return familyRefs(request);
@@ -2290,6 +2303,16 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    const storyRoot = app.isPackaged ? path.join(process.resourcesPath, 'fiction') : path.join(__dirname, '..', 'story');
+    configureFiction({
+      configFile: path.join(app.getPath('userData'), 'fiction', 'modules.json'),
+      dataDir: process.env.WH_STORY_DATA_DIR || path.join(app.getPath('userData'), 'fiction', 'data'),
+      command: process.env.WH_STORY_PYTHON || (app.isPackaged
+        ? path.join(storyRoot, process.platform === 'win32' ? 'writer-fiction-worker.exe' : 'writer-fiction-worker')
+        : path.join(storyRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')),
+      args: app.isPackaged ? [] : [path.join(storyRoot, 'worker.py')],
+      cwd: storyRoot,
+    });
     if (process.platform === 'win32') app.setAppUserModelId('com.luissalet.writershoard');
     await loadMediaLibraryLocation();
     registerIpc();
@@ -2378,7 +2401,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('will-quit', () => {
+let fictionClosing = false;
+app.on('will-quit', event => {
+  if (isFictionRunning() && !fictionClosing) {
+    event.preventDefault();
+    fictionClosing = true;
+    void closeFiction().finally(() => app.quit());
+    return;
+  }
   globalShortcut.unregisterAll();
   stopMediaServer();
   stopRendererServer();

@@ -9,6 +9,7 @@
 // reach the very same verdicts.
 
 import { SCOPE_KEY, type BridgeTool, type BridgeToolSchema } from '@/services/aiBridge/schema';
+import { FICTION_ANNOTATIONS } from '@/services/aiBridge/manifestFiction';
 
 /** Who is asking. The HTTP port carries both external clients and the MCP adapter. */
 export type ToolOrigin = 'bridge' | 'copilot' | 'feature';
@@ -228,6 +229,7 @@ export function toolAnnotations(tool: BridgeTool): {
   destructiveHint: boolean;
   idempotentHint: boolean;
 } {
+  if (FICTION_ANNOTATIONS[tool.name]) return FICTION_ANNOTATIONS[tool.name];
   const risk = toolRisk(tool);
   return {
     readOnlyHint: risk === 'read',

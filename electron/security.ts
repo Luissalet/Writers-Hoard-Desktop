@@ -64,6 +64,9 @@ const IPC_CHANNEL_ROLES: Readonly<Record<string, readonly InternalRendererRole[]
   // Handing a character, a storyboard or a story world to another family app
   // through the hub, and recording the link: four allowed tools (electron/familyCall.ts).
   'family:call': ['main'],
+  'fiction:status': ['main'],
+  'fiction:setModule': ['main'],
+  'fiction:request': ['main'],
   'family:link': ['main'],
   // Closing the window. `beforeunload` cannot ask this question in Electron —
   // its preventDefault silently cancels the close and shows nothing — so main
