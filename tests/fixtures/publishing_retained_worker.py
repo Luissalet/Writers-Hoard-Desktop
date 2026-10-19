@@ -34,6 +34,10 @@ def app_factory(data_dir):
                     await send({'type': 'http.response.body', 'body': b'abc', 'more_body': True})
                     await asyncio.Event().wait()
                 finally:
+                    if (data_dir / 'hold-cleanup').exists():
+                        (data_dir / 'cleanup-entered').write_text('waiting', encoding='utf-8')
+                        while not (data_dir / 'release-cleanup').exists():
+                            await asyncio.sleep(0.01)
                     app.state.active = False
                     (data_dir / 'cancelled.txt').write_text('ASGI finally completed', encoding='utf-8')
 

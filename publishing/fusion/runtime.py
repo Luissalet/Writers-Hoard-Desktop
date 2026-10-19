@@ -20,6 +20,7 @@ from pydantic import BaseModel, StrictBool
 from pydantic import Field
 from .search import SEARCH_TOOL, search_all
 from .project_links import PROJECT_TOOLS, project_call
+from .cancellation import join_tasks
 
 
 class Toggle(BaseModel):
@@ -75,11 +76,9 @@ class Module:
                 self.stopping = True
                 try:
                     pending = list(self.requests)
-                    for task in pending:
-                        if self.requests.get(task):
-                            task.cancel()
+                    await join_tasks([task for task in pending if self.requests.get(task)], cancel=True)
                     if pending:
-                        await asyncio.gather(*pending, return_exceptions=True)
+                        await join_tasks(pending)
                     await self.stack.aclose()
                 finally:
                     self.stopping = False

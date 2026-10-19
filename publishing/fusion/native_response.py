@@ -2,6 +2,7 @@
 import asyncio
 import json
 import re
+from .cancellation import join_tasks
 
 from starlette.responses import JSONResponse, Response
 
@@ -43,12 +44,11 @@ class NativeResponse(Response):
 
     async def __call__(self, scope, receive, send):
         module = self.module
-        task = asyncio.current_task()
+        task = None
         async with module.lock:
             if module.app is None or module.stopping:
                 return await JSONResponse({"error": "module_disabled", "module": module.spec["id"]}, status_code=409)(scope, receive, send)
             native = module.app
-            module.requests[task] = self.path.endswith("/live")
         child_scope = dict(scope, path="/" + self.path, raw_path=("/" + self.path).encode(), root_path="")
         headers = [(k, v) for k, v in scope["headers"] if k != b"authorization"]
         token_path = module.data_dir / "mcp-token"
@@ -85,7 +85,16 @@ class NativeResponse(Response):
             await send(message)
 
         try:
-            await native(child_scope, receive, forward)
+            # The native owner is independent of Starlette/AnyIO's surrounding
+            # cancellation scope. Its async finally gets exactly one cancel,
+            # even when consumer cancellation and module OFF overlap.
+            task = asyncio.create_task(native(child_scope, receive, forward))
+            module.requests[task] = self.path.endswith("/live")
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                await join_tasks([task], cancel=True)
+                raise
         finally:
             module.requests.pop(task, None)
         if module.spec["id"] == "disk" and self.path == "api/quit" and scope["method"] == "POST":
