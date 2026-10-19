@@ -16,6 +16,9 @@ Public base a4bbf79; Borges 10db1fb; Gutenberg ca8ee4c. Preserve Writer IndexedD
 Synthetic module OFF/catalogue tests must not import engines or start processes. API fixtures use private temporary stores with no model/GPU/Hub calls. Catalogue coverage compares every historical native tool schema. Existing fiction behavior and source remain unchanged. Renderer startup/browser verification is performed by root through CUA before delivery acceptance; build alone is not startup proof.
 
 ## Review handoff
+
+CAS1 requested changes: preserve unknown write outcomes and cancel retained streams by request ID. Both are corrected in the transport/worker, with targeted regressions for write/read/pre-send failure, actual ASGI Range cancellation, other-module progress during retained body and held OFF, EOF cleanup and ON/OFF/ON. The previous MCP runner and five Python tests pass again; Electron typecheck and targeted lint pass. Details and the two aborted Windows native-import compatibility attempts are retained in `tasks/publishing-submission-cas2.md`; root acceptance remains pending.
+
 Five Python API/worker tests passed (10.07s). The MCP runner passed all 401 exact schemas/annotations, four native ON/OFF lifecycles, API/MCP project references, binary multipart/range streaming and scoped navigation. `verify:quick` passed renderer/Electron typechecks, shipping lint with zero exact-baseline fingerprints and conformance (27 engines, 61 tables, 5440 locale keys, zero warnings). Production renderer and Electron builds passed. These checks are synthetic; they do not certify an installed release, native binaries or browser behavior. See `tasks/publishing-submission.md`, `tasks/publishing-verification.json` and `publishing/MIGRATION.json`. Task 931 stays open for independent review and root acceptance.
 
 

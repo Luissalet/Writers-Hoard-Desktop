@@ -1,0 +1,13 @@
+{
+  "scope": "fresh Python process; actual worker init/catalog/modules/shutdown; no engines, network or subprocess allowed",
+  "tools": 399,
+  "all_off": true,
+  "native_imports": [],
+  "synthetic_token_bytes_preserved": true,
+  "old_shell_settings_preserved_without_reactivation": true,
+  "data_entries": [
+    "copilot-space-id",
+    "fusion-modules.json",
+    "mcp-token"
+  ]
+}
