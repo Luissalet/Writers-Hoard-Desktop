@@ -112,6 +112,48 @@ try {
     console.log('PASS retained Range: ' + action);
   }
   console.log('PASS mutation outcome_unknown/reconcile, read/pre-send loss, actual worker Range cancellation/OFF/close/disconnect, other-module progress and ON/OFF/ON');
+  for (const cause of ['off', 'close', 'eof']) {
+    const name = 'concurrent-' + cause;
+    const instance = service(name, python, [worker]);
+    await instance.setModule('library', true);
+    await instance.setModule('paperwork', true);
+    await writeFile(path.join(temp, name, 'hold-cleanup'), 'hold');
+    const response = await bounded(instance.stream('GET', '/paperwork/retained'));
+    const reader = response.body.getReader();
+    await bounded(reader.read());
+    let consumerDone = false, stopDone = false;
+    const consumer = reader.cancel().then(() => { consumerDone = true; });
+    await bounded((async () => {
+      for (;;) {
+        try { await readFile(path.join(temp, name, 'cleanup-entered')); return; }
+        catch { await new Promise(resolve => setTimeout(resolve, 10)); }
+      }
+    })());
+    let stop;
+    if (cause === 'eof') {
+      stop = new Promise(resolve => instance.child.once('exit', resolve));
+      instance.child.stdin.end();
+    } else stop = cause === 'off' ? instance.setModule('paperwork', false) : instance.close();
+    stop = stop.then(() => { stopDone = true; });
+    try {
+      if (cause !== 'eof') {
+        const other = await bounded(instance.request('GET', '/library/api/health'));
+        assert.equal(other.status, 200);
+      }
+      assert.equal(consumerDone, false, 'consumer waits for actual asynchronous cleanup');
+      assert.equal(stopDone, false, 'OFF/close/EOF waits for the same cleanup');
+    } finally {
+      await writeFile(path.join(temp, name, 'release-cleanup'), 'release');
+    }
+    await bounded(Promise.all([consumer, stop]));
+    assert.equal(await readFile(path.join(temp, name, 'cancelled.txt'), 'utf8'), 'ASGI finally completed');
+    await instance.setModule('paperwork', false);
+    await instance.setModule('library', false);
+    await instance.setModule('paperwork', true);
+    await instance.setModule('paperwork', false);
+    assert.equal(instance.running, false);
+    console.log('PASS consumer cancellation + ' + cause + ' share retained cleanup');
+  }
   console.log('Synthetic receipts retained at ' + temp);
 } finally {
   await Promise.all(instances.map(instance => instance.close()));
