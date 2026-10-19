@@ -1,0 +1,30 @@
+/* Map the native publication editor's chrome onto Writer's existing palette.
+   Rendered pages and paper previews retain their document colours. */
+:host {
+  --ink: var(--hoard-text); --muted: var(--hoard-text-muted);
+  --paper: var(--hoard-deep); --panel: var(--hoard-surface);
+  --line: var(--hoard-border); --green: var(--hoard-accent);
+  --green-dark: var(--hoard-accent-strong); --sage: var(--hoard-accent-soft);
+  --accent: var(--hoard-accent); --shadow: var(--hoard-shadow);
+  color: var(--ink); background: var(--paper); font-family: var(--hoard-font-sans);
+}
+h1, h2, h3, .brand strong, .stat b { font-family: var(--hoard-font-serif); }
+button, input, select, textarea { font-family: var(--hoard-font-sans); }
+.topbar, .rail, .pub-card, .empty, .page-list-panel, .canvas-panel, .canvas-toolbar,
+.inspector, .stat, .catalog-tools, .command-details, .settings-card,
+.settings-note, dialog { background: var(--panel); color: var(--ink); }
+.rail-note, .inspector-note, .dialog-note, .close, .quiet, .swatch-chip,
+.command-details pre, .inspector .panel-title { background: var(--hoard-elevated); color: var(--ink); }
+.canvas { background: var(--hoard-sunken); }
+.nav, .status, .version, .subsection-label, .cmyk-inputs label, .inspector label,
+#create-form > label:not(.check), .form-row label { color: var(--muted); }
+.nav.active, .nav:hover { color: var(--green-dark); }
+.primary { color: var(--hoard-accent-ink); }
+input:not([type=checkbox]), select, textarea,
+#create-form input:not([type=checkbox]), #create-form select,
+.inspector select, .inspector textarea, .cmyk-inputs input, .inspector > label input,
+.scale-select select, .settings-note select, .cli-form select, .cli-form textarea {
+  background: var(--hoard-deep); color: var(--ink); border-color: var(--line);
+}
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible { outline: 2px solid var(--hoard-accent); outline-offset: 2px; }

@@ -71,7 +71,7 @@ export default function PublishingEngine() {
       <h1 className="flex items-center gap-3 font-serif text-xl"><LibraryBig size={22} />{locale === 'es' ? 'Biblioteca y publicación' : 'Library and publishing'}</h1>
       <div className="mt-3 flex flex-wrap gap-2">{Object.entries(text).map(([module, label]) => <div key={module} className="flex rounded border border-border">
         <button className={`px-3 py-2 text-sm ${selected === module ? 'text-accent-gold' : ''}`} onClick={() => setSelected(module)}>{label}</button>
-        <button type="button" role="switch" aria-label={label} aria-checked={status?.enabled.includes(module) ?? false} disabled={!status || busy} className="border-l border-border px-3 disabled:opacity-50" onClick={() => void toggle(module, !status?.enabled.includes(module))}><Power size={16} /></button>
+        <button type="button" role="switch" aria-label={label} aria-checked={status?.enabled.includes(module) ?? false} disabled={!status || busy} className="min-h-11 min-w-11 border-l border-border px-3 disabled:opacity-50" onClick={() => void toggle(module, !status?.enabled.includes(module))}><Power size={16} /></button>
       </div>)}</div>
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
         <select aria-label={locale === 'es' ? 'Proyecto de Writer' : 'Writer project'} value={projectId} onChange={event => { setProjectId(event.target.value); setResults([]); }} className="rounded border border-border bg-bg-surface px-2 py-1"><option value="">{locale === 'es' ? 'Proyecto de Writer…' : 'Writer project…'}</option>{projects.map(project => <option key={project.id} value={project.id}>{project.title}</option>)}</select>
