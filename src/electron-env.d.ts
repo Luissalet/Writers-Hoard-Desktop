@@ -307,8 +307,8 @@ export interface ShutdownWarning {
 
 export interface ElectronAPI {
   publishing: {
-    status: () => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean; automatic?: boolean }> }>;
-    setModule: (module: string, enabled: boolean, automatic?: boolean) => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean; automatic?: boolean }> }>;
+    status: () => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean; automatic?: boolean; state?: string; error?: string }> }>;
+    setModule: (module: string, enabled: boolean, automatic?: boolean) => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean; automatic?: boolean; state?: string; error?: string }> }>;
     request: (method: string, apiPath: string, body?: string, headers?: Record<string, string>, base64?: boolean) => Promise<{ status: number; type: string; base64: string; headers?: Record<string, string> }>;
   };
   fiction: {

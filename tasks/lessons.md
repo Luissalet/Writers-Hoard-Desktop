@@ -1429,3 +1429,11 @@ el alcance; ninguna de las dos cosas aplica a la implementación normal de Write
 - A submitted mutation without a complete response is not proof that nothing changed. Preserve `outcome_unknown` and require reading current state before retrying; test reads and pre-send failures separately.
 - Consumer cancellation must reach the actual request owner by ID and wait for cleanup. Keep shared stdio/control traffic available with per-stream flow control. Exercise a retained Range response and a held module shutdown while reading another module, then verify ON/OFF/ON.
 - Concurrent cancellation causes share the same native task and protected join. Test an asynchronous finally held by an explicit signal; no acknowledgement or OFF may complete before releasing it. Account for the enclosing framework cancellation scope as well as the transport task.
+
+
+## 2026-10-19 — Failed exit stacks do not certify cleanup
+
+An async-generator/exit stack consumes a callback that raises. Keep app/error/stopping and reject ON/new requests; retry explicit native shutdown instead of an exhausted context. Checkpoint only successful steps. Preserve the worker on rejected OFF: saved configuration intent cannot replace actual ownership. Do not silence client closure or clear session/loop references before successful joins. Wrap SDK lifetimes without editing vendored SDK. Test two failures and a real third close on actual factories and a packaged runtime, preserving earlier approved evidence separately.
+
+
+HTTPX closure: is_closed is not proof of released resources. The owned wrapper snapshots actual default/proxy transports and HTTPcore connections before a pool can consume its list, then checkpoints each physical close. Tests cover a real SDK twin poisoned by early HTTPX CLOSED, two failing OFFs, a held third close with consumer cancellation, and an actual HTTPcore/HTTP11 pool path. SDK files remain unchanged.

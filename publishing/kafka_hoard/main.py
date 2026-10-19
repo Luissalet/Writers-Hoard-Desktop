@@ -32,12 +32,14 @@ def create_app(config: Config | None = None, services: Services | None = None) -
     async def lifespan(app: FastAPI):
         svc = services or Services(config)
         app.state.services = svc
+        from fusion.cleanup import Shutdown
+        app.state.shutdown = Shutdown(svc.stop)
         svc.start()
         logging.getLogger("kafka").info("Kafka's Hoard %s - data in %s", __version__, config.data_dir)
         try:
             yield
         finally:
-            await asyncio.to_thread(svc.stop)
+            await app.state.shutdown()
 
     app = FastAPI(title="Kafka's Hoard", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.config = config

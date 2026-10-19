@@ -185,10 +185,13 @@ class NativeSessions:
         return results
 
     async def _close_one(self, session_id: str) -> None:
-        session = self._sessions.pop(session_id, None)
+        session = self._sessions.get(session_id)
         if session:
-            await session.queue.put(None)
+            if not getattr(session, 'closing', False):
+                await session.queue.put(None)
+                session.closing = True
             await session.task
+            self._sessions.pop(session_id, None)
 
     async def _close_all(self) -> None:
         for session_id in list(self._sessions):
@@ -213,9 +216,9 @@ class NativeSessions:
         loop, thread = self._loop, self._thread
         if not loop or not thread or not thread.is_alive():
             return
-        asyncio.run_coroutine_threadsafe(self._close_all(), loop).result(timeout=30)
+        asyncio.run_coroutine_threadsafe(self._close_all(), loop).result()
         loop.call_soon_threadsafe(loop.stop)
-        thread.join(timeout=5)
+        thread.join()
         self._loop = None
         self._thread = None
 

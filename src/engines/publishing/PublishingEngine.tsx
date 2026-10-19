@@ -41,6 +41,7 @@ export default function PublishingEngine() {
     window.addEventListener('focus', refresh);
     return () => { active = false; window.removeEventListener('focus', refresh); };
   }, [bridge]);
+  const retained = (module: string) => status?.modules.find(item => item.id === module)?.state === 'error';
   async function toggle(module: string, enabled: boolean, automatic?: boolean) {
     if (!bridge) return;
     setBusy(true); setError('');
@@ -71,12 +72,12 @@ export default function PublishingEngine() {
       <h1 className="flex items-center gap-3 font-serif text-xl"><LibraryBig size={22} />{locale === 'es' ? 'Biblioteca y publicación' : 'Library and publishing'}</h1>
       <div className="mt-3 flex flex-wrap gap-2">{Object.entries(text).map(([module, label]) => <div key={module} className="flex rounded border border-border">
         <button className={`px-3 py-2 text-sm ${selected === module ? 'text-accent-gold' : ''}`} onClick={() => setSelected(module)}>{label}</button>
-        <button type="button" role="switch" aria-label={label} aria-checked={status?.enabled.includes(module) ?? false} disabled={!status || busy} className="min-h-11 min-w-11 border-l border-border px-3 disabled:opacity-50" onClick={() => void toggle(module, !status?.enabled.includes(module))}><Power size={16} /></button>
+        <button type="button" role="switch" aria-label={retained(module) ? (locale === 'es' ? 'Reintentar cierre: ' : 'Retry OFF: ') + label : label} title={retained(module) ? (locale === 'es' ? 'Reintentar cierre' : 'Retry OFF') : label} aria-checked={status?.enabled.includes(module) ?? false} disabled={!status || busy} className="inline-flex min-h-11 min-w-11 items-center gap-2 border-l border-border px-3 disabled:opacity-50" onClick={() => void toggle(module, retained(module) ? false : !status?.enabled.includes(module))}><Power size={16} />{retained(module) && <span>{locale === 'es' ? 'Reintentar cierre' : 'Retry OFF'}</span>}</button>
       </div>)}</div>
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
         <select aria-label={locale === 'es' ? 'Proyecto de Writer' : 'Writer project'} value={projectId} onChange={event => { setProjectId(event.target.value); setResults([]); }} className="rounded border border-border bg-bg-surface px-2 py-1"><option value="">{locale === 'es' ? 'Proyecto de Writer…' : 'Writer project…'}</option>{projects.map(project => <option key={project.id} value={project.id}>{project.title}</option>)}</select>
         <button disabled={!projectId || !status?.enabled.includes(selected)} onClick={() => void linkCurrent()} className="rounded border border-border px-3 py-1 disabled:opacity-40">{locale === 'es' ? 'Vincular lo abierto' : 'Link current objects'}</button>
-        {status && <label className="flex items-center gap-2"><input type="checkbox" checked={status.modules.find(module => module.id === selected)?.automatic ?? false} disabled={busy} onChange={event => void toggle(selected, status.enabled.includes(selected), event.target.checked)} />{locale === 'es' ? 'Automatismos de esta función' : 'Background jobs for this function'}</label>}
+        {status && <label className="flex items-center gap-2"><input type="checkbox" checked={status.modules.find(module => module.id === selected)?.automatic ?? false} disabled={busy || retained(selected)} onChange={event => void toggle(selected, status.enabled.includes(selected), event.target.checked)} />{locale === 'es' ? 'Automatismos de esta función' : 'Background jobs for this function'}</label>}
       </div>
       {projectId && results.length > 0 && <details className="mt-2 text-sm"><summary>{locale === 'es' ? 'Fuentes y resultados vinculados' : 'Linked sources and outputs'} ({results.length})</summary><ul className="mt-2 space-y-1">{results.map(result => <li key={`${result.module}:${result.kind}:${result.object_id}`}><span className="text-text-muted">{text[result.module as keyof typeof text]} · </span><button onClick={() => void openResult(result)} className="underline">{result.title || result.object_id}</button></li>)}</ul></details>}
       {error && <p role="alert" className="mt-2 text-sm text-red-300">{error}</p>}
