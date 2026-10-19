@@ -51,3 +51,5 @@ Un cierre nativo fallido conserva app/recursos y worker en error/stopping. ON y 
 
 
 HTTPX closure: is_closed is not proof of released resources. The owned wrapper snapshots actual default/proxy transports and HTTPcore connections before a pool can consume its list, then checkpoints each physical close. Tests cover a real SDK twin poisoned by early HTTPX CLOSED, two failing OFFs, a held third close with consumer cancellation, and an actual HTTPcore/HTTP11 pool path. SDK files remain unchanged.
+
+CAS6 also removes each successfully closed connection from its owning pool by identity under the pool lock before advancing. Failed connections remain retained. Closing the transport afterwards therefore cannot repeat a completed connection close. The physical test counts every invocation, including a duplicate terminal close; see `tasks/submission931-cas6.md` for the corrected package and original independent witness. CAS5 evidence remains historical.

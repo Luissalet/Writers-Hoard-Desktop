@@ -8,3 +8,5 @@ Synthetic source and frozen-worker checks exercise all four factories. --worker-
 
 
 HTTPX closure: is_closed is not proof of released resources. The owned wrapper snapshots actual default/proxy transports and HTTPcore connections before a pool can consume its list, then checkpoints each physical close. Tests cover a real SDK twin poisoned by early HTTPX CLOSED, two failing OFFs, a held third close with consumer cancellation, and an actual HTTPcore/HTTP11 pool path. SDK files remain unchanged.
+
+CAS6 corrects repeated completed physical cleanup: after success, a connection is removed by identity from its pool under the pool lock; failed connections stay owned. The final transport close does not invoke completed connection closes again. CAS5 remains historical; final package/test evidence is recorded separately in tasks/submission931-cas6.md.
