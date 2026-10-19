@@ -1428,3 +1428,4 @@ el alcance; ninguna de las dos cosas aplica a la implementación normal de Write
 
 - A submitted mutation without a complete response is not proof that nothing changed. Preserve `outcome_unknown` and require reading current state before retrying; test reads and pre-send failures separately.
 - Consumer cancellation must reach the actual request owner by ID and wait for cleanup. Keep shared stdio/control traffic available with per-stream flow control. Exercise a retained Range response and a held module shutdown while reading another module, then verify ON/OFF/ON.
+- Concurrent cancellation causes share the same native task and protected join. Test an asynchronous finally held by an explicit signal; no acknowledgement or OFF may complete before releasing it. Account for the enclosing framework cancellation scope as well as the transport task.

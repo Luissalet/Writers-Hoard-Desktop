@@ -104,6 +104,7 @@ async def stream_asgi(app, message, ident, credit):
 
 
 async def serve(reader=None, app_factory=None):
+    from fusion.cancellation import join_tasks
     app = client = lifespan = None
     tasks, credits = {}, {}
     controls = asyncio.Lock()
@@ -144,8 +145,7 @@ async def serve(reader=None, app_factory=None):
             elif op == 'cancel':
                 target = tasks.get(message['target'])
                 if target is not None:
-                    target.cancel()
-                    await asyncio.gather(target, return_exceptions=True)
+                    await join_tasks([target], cancel=True)
                 result = {'cancelled': message['target']}
             elif op == 'stream':
                 await stream_asgi(app, message, ident, credits[ident])
@@ -174,10 +174,8 @@ async def serve(reader=None, app_factory=None):
         return await reader() if reader else await read_line()
 
     async def drain():
-        for ident in list(credits):
-            if ident in tasks:
-                tasks[ident].cancel()
-        await asyncio.gather(*list(tasks.values()), return_exceptions=True)
+        await join_tasks([tasks[ident] for ident in list(credits) if ident in tasks], cancel=True)
+        await join_tasks(list(tasks.values()))
 
     try:
         while line := await read():
