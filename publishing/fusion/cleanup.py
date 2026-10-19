@@ -41,9 +41,18 @@ async def close_client(client):
         resources=[]
         for transport in (client._transport,*client._mounts.values()):
             if transport is None:continue
-            for resource in (*getattr(getattr(transport,'_pool',None),'_connections',()),transport):
-                if all(resource is not other for other in resources):resources.append(resource)
-        shutdown=client._writer_shutdown=Shutdown(*(resource.aclose for resource in resources))
+            pool=getattr(transport,'_pool',None)
+            for resource,owner in (*((connection,pool) for connection in getattr(pool,'_connections',())),(transport,None)):
+                if all(resource is not other for other,_ in resources):resources.append((resource,owner))
+        steps=[]
+        for resource,pool in resources:
+            async def close(resource=resource,pool=pool):
+                await resource.aclose()
+                if pool is not None:
+                    with pool._optional_thread_lock:
+                        pool._connections=[connection for connection in pool._connections if connection is not resource]
+            steps.append(close)
+        shutdown=client._writer_shutdown=Shutdown(*steps)
     await shutdown()
     client._state=type(client._state).CLOSED
 

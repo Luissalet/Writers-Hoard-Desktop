@@ -1,0 +1,234 @@
+{
+  "status": "PASS",
+  "base_commit": "fa718dd365b023a0a7a0ef700ce88100c90a6e39",
+  "worker_exe": {
+    "bytes": 32652347,
+    "sha256": "c9e7623eae121b2758e077fe435ab6cdd9394815ceb5cc74a291614052c054ac"
+  },
+  "file_count": 8476,
+  "bytes": 582163836,
+  "inventory_sha256": "c7d56903ed979aa28cbba34de098be3694eb7f0ea01645d155cadc281a69148e",
+  "native_binaries_unchanged": [
+    {
+      "path": "publishing\\native\\bin\\kafka-pdf-worker.exe",
+      "bytes": 40505344,
+      "sha256": "599ddc92337a8fd06be5dba5bcbe5947ce56291df6830ca203e13566e4bfc695"
+    },
+    {
+      "path": "publishing\\editorial\\native\\bin\\build.json",
+      "bytes": 316,
+      "sha256": "17e327bee5c225bf8599eeb12b86ed8aa5a9fa0e59c26987eeb00eb31ca0c41a"
+    },
+    {
+      "path": "publishing\\editorial\\native\\bin\\gutenberg-cli.exe",
+      "bytes": 45483520,
+      "sha256": "1ac2d97be0bb9e044e52446e1afd0bbf2a41e974fac7f4a50c3c0913ce8d72bc"
+    },
+    {
+      "path": "publishing\\editorial\\native\\bin\\gutenberg.exe",
+      "bytes": 65930240,
+      "sha256": "685c69677ea157a17d4f708c094a822e61bd40eed4236f83ea61912c82d55664"
+    }
+  ],
+  "full_inventory": "D:\\LocalAI\\research-inbox\\fusion-candidates-wave3\\writer931-close-cas5\\cas6-frozen-inventory.json",
+  "full_inventory_sha256": "db43358affa36b9785005a44359ecd0169995d3d85252436170a83c80a7a05da",
+  "original_independent_witness": {
+    "receipt": "D:\\LocalAI\\research-inbox\\fusion-candidates-wave3\\writer931-close-cas5\\cas6-frozen-physical-progress.log",
+    "sha256": "c5d95e9c7a421359f8cf6e9bd538b16fc49e0e86fabe6752f3170b5851314cd1",
+    "result": {
+      "good_physical_closes": 1,
+      "bad_physical_closes": 3,
+      "all_closed": true,
+      "pool_empty": true
+    }
+  },
+  "frozen_service": {
+    "receipt": "D:\\LocalAI\\research-inbox\\fusion-candidates-wave3\\writer931-close-cas5\\cas6-frozen-service\\receipt.json",
+    "sha256": "039b15f584d20d3791384a26692b2aa724d0439b639918e65ef6fe2515509b9c",
+    "result": {
+      "mode": "frozen",
+      "observations": [
+        {
+          "module": "library",
+          "pid": 77728,
+          "failedOff": 0,
+          "thirdClose": false,
+          "nativeEditorialSession": false,
+          "closed": true,
+          "final": {
+            "enabled": [],
+            "automatic": [],
+            "dataDir": "D:\\LocalAI\\research-inbox\\fusion-candidates-wave3\\writer931-close-cas5\\cas6-frozen-service\\library",
+            "running": false,
+            "pid": null,
+            "modules": [
+              {
+                "id": "library",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              },
+              {
+                "id": "links",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              },
+              {
+                "id": "paperwork",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              },
+              {
+                "id": "publishing",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              }
+            ]
+          }
+        },
+        {
+          "module": "links",
+          "pid": 2432,
+          "failedOff": 0,
+          "thirdClose": false,
+          "nativeEditorialSession": false,
+          "closed": true,
+          "final": {
+            "enabled": [],
+            "automatic": [],
+            "dataDir": "D:\\LocalAI\\research-inbox\\fusion-candidates-wave3\\writer931-close-cas5\\cas6-frozen-service\\links",
+            "running": false,
+            "pid": null,
+            "modules": [
+              {
+                "id": "library",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              },
+              {
+                "id": "links",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              },
+              {
+                "id": "paperwork",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              },
+              {
+                "id": "publishing",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              }
+            ]
+          }
+        },
+        {
+          "module": "paperwork",
+          "pid": 15868,
+          "failedOff": 0,
+          "thirdClose": false,
+          "nativeEditorialSession": false,
+          "closed": true,
+          "final": {
+            "enabled": [],
+            "automatic": [],
+            "dataDir": "D:\\LocalAI\\research-inbox\\fusion-candidates-wave3\\writer931-close-cas5\\cas6-frozen-service\\paperwork",
+            "running": false,
+            "pid": null,
+            "modules": [
+              {
+                "id": "library",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              },
+              {
+                "id": "links",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              },
+              {
+                "id": "paperwork",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              },
+              {
+                "id": "publishing",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              }
+            ]
+          }
+        },
+        {
+          "module": "publishing",
+          "pid": 63848,
+          "failedOff": 0,
+          "thirdClose": false,
+          "nativeEditorialSession": true,
+          "closed": true,
+          "final": {
+            "enabled": [],
+            "automatic": [],
+            "dataDir": "D:\\LocalAI\\research-inbox\\fusion-candidates-wave3\\writer931-close-cas5\\cas6-frozen-service\\publishing",
+            "running": false,
+            "pid": null,
+            "modules": [
+              {
+                "id": "library",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              },
+              {
+                "id": "links",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              },
+              {
+                "id": "paperwork",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              },
+              {
+                "id": "publishing",
+                "enabled": false,
+                "automatic": false,
+                "state": "off",
+                "error": ""
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
