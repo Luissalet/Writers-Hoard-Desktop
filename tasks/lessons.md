@@ -1423,3 +1423,8 @@ el alcance; ninguna de las dos cosas aplica a la implementación normal de Write
 ## 2026-10-19 — Complete ownership after a merger
 
 - Preserve functions and identities while relocating all runtime data into the surviving application. A merger must allow retiring old local folders. Inventory WAL, media, credentials and external route registrations; verify native reads with source folders absent.
+
+## 2026-10-19 — Preserve transport outcomes and causal cancellation
+
+- A submitted mutation without a complete response is not proof that nothing changed. Preserve `outcome_unknown` and require reading current state before retrying; test reads and pre-send failures separately.
+- Consumer cancellation must reach the actual request owner by ID and wait for cleanup. Keep shared stdio/control traffic available with per-stream flow control. Exercise a retained Range response and a held module shutdown while reading another module, then verify ON/OFF/ON.
