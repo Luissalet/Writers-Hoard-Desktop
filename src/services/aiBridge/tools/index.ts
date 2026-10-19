@@ -10,6 +10,7 @@
 import type { ToolArgs } from './shared';
 import { DOCUMENT_HANDLERS } from './documents';
 import { FICTION_HANDLERS } from './fiction';
+import { PUBLISHING_HANDLERS } from './publishing';
 import { REVISION_HANDLERS } from './revisions';
 import { EDITORIAL_HANDLERS } from './editorialDocument';
 import { PROOFING_HANDLERS } from './proofing';
@@ -237,6 +238,7 @@ const codexFolderHandlers = createCodexFolderImportHandlers(createCodexFolderImp
 
 export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ...FICTION_HANDLERS,
+  ...PUBLISHING_HANDLERS,
   ...DOCUMENT_HANDLERS,
   ...REVISION_HANDLERS,
   ...EDITORIAL_HANDLERS,

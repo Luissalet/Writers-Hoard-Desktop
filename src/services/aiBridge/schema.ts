@@ -7,6 +7,9 @@
 // touch `db`, `window` or React.
 
 export interface BridgeToolSchema {
+  title?: string;
+  description?: string;
+  $schema?: string;
   type: 'object';
   properties: Record<string, unknown>;
   required?: string[];

@@ -306,9 +306,14 @@ export interface ShutdownWarning {
 }
 
 export interface ElectronAPI {
+  publishing: {
+    status: () => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean; automatic?: boolean }> }>;
+    setModule: (module: string, enabled: boolean, automatic?: boolean) => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean; automatic?: boolean }> }>;
+    request: (method: string, apiPath: string, body?: string, headers?: Record<string, string>, base64?: boolean) => Promise<{ status: number; type: string; base64: string; headers?: Record<string, string> }>;
+  };
   fiction: {
-    status: () => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean }> }>;
-    setModule: (module: string, enabled: boolean, dataDir?: string) => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean }> }>;
+    status: () => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean; automatic?: boolean }> }>;
+    setModule: (module: string, enabled: boolean, dataDir?: string) => Promise<{ enabled: string[]; dataDir: string; running: boolean; pid: number | null; modules: Array<{ id: string; enabled: boolean; automatic?: boolean }> }>;
     request: (method: string, apiPath: string, body?: string) => Promise<{ status: number; type: string; base64: string }>;
   };
   documents?: NativeDocumentsApi;

@@ -74,6 +74,7 @@ import { wikidataRequest } from './wikidata';
 import { familySearch } from './familySearch';
 import { familyCall, familyRefs } from './familyCall';
 import { closeFiction, configureFiction, fictionService, isFictionRunning } from './fiction/service';
+import { closePublishing, configurePublishing, publishingService, isPublishingRunning } from './publishing/service';
 import {
   isExactRendererDocumentUrl,
   isIpcChannelAllowedForRole,
@@ -225,10 +226,23 @@ function installNavigationGuard(
   const guard = (event: Electron.Event, url: string): void => {
     if (isExactRendererDocumentUrl(url, expectedUrl)) return;
     event.preventDefault();
+    if (openHttpExternally && url.startsWith('wh-publishing://')) { openPublishingFile(url); return; }
     if (openHttpExternally && /^https?:\/\//i.test(url)) void shell.openExternal(url);
   };
   win.webContents.on('will-navigate', guard);
   win.webContents.on('will-redirect', guard);
+}
+
+function openPublishingFile(url: string): void {
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'wh-publishing:' || !['library', 'links', 'paperwork', 'publishing'].includes(parsed.hostname)) return;
+  const viewer = new BrowserWindow({ width: 1100, height: 850, title: 'Writer',
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  viewer.webContents.setWindowOpenHandler(({ url: destination }) => {
+    if (/^https?:\/\//i.test(destination)) void shell.openExternal(destination);
+    return { action: 'deny' };
+  });
+  void viewer.loadURL(url).catch(error => { if (!viewer.isDestroyed()) { console.error('Publishing file viewer:', error); viewer.close(); } });
 }
 
 /** Exit with a machine-readable code after a packaged renderer startup smoke. */
@@ -404,6 +418,7 @@ interface CapturePageResult {
 // Must run before app `ready`. `stream`+`supportFetchAPI` let <video> issue
 // Range requests for smooth seeking; `secure` keeps it a trusted origin.
 protocol.registerSchemesAsPrivileged([
+  { scheme: 'wh-publishing', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } },
   {
     scheme: 'wh-media',
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
@@ -735,6 +750,7 @@ async function createWindow(): Promise<void> {
   // External links (target=_blank, window.open) open in the OS browser,
   // never inside the app shell.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('wh-publishing://')) { openPublishingFile(url); return { action: 'deny' }; }
     if (url.startsWith('http://') || url.startsWith('https://')) {
       void shell.openExternal(url);
     }
@@ -2024,6 +2040,9 @@ function registerIpc(): void {
     assertIpcSender(event, 'family:call');
     return familyCall(request);
   });
+  ipcMain.handle('publishing:status', event => { assertIpcSender(event, 'publishing:status'); return publishingService().status(); });
+  ipcMain.handle('publishing:setModule', (event, module: string, enabled: boolean, automatic?: boolean) => { assertIpcSender(event, 'publishing:setModule'); return publishingService().setModule(module, enabled, undefined, automatic); });
+  ipcMain.handle('publishing:request', (event, method: string, apiPath: string, body?: string, headers?: Record<string, string>, base64?: boolean) => { assertIpcSender(event, 'publishing:request'); return publishingService().request(method, apiPath, body, headers, base64); });
   ipcMain.handle('fiction:status', event => {
     assertIpcSender(event, 'fiction:status');
     return fictionService().status();
@@ -2303,6 +2322,11 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    const publishingRoot = app.isPackaged ? path.join(process.resourcesPath, 'publishing') : path.join(__dirname, '..', 'publishing');
+    configurePublishing({ configFile: path.join(app.getPath('userData'), 'publishing', 'modules.json'),
+      dataDir: process.env.WH_PUBLISHING_DATA_DIR || path.join(app.getPath('userData'), 'publishing', 'data'),
+      command: process.env.WH_PUBLISHING_PYTHON || (app.isPackaged ? path.join(publishingRoot, process.platform === 'win32' ? 'writer-publishing-worker.exe' : 'writer-publishing-worker') : path.join(publishingRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')),
+      args: app.isPackaged ? [] : [path.join(publishingRoot, 'worker.py')], cwd: publishingRoot, nodeCommand: process.execPath });
     const storyRoot = app.isPackaged ? path.join(process.resourcesPath, 'fiction') : path.join(__dirname, '..', 'story');
     configureFiction({
       configFile: path.join(app.getPath('userData'), 'fiction', 'modules.json'),
@@ -2318,6 +2342,21 @@ if (!gotLock) {
     registerIpc();
     buildMenu();
 
+    protocol.handle('wh-publishing', async request => {
+      try {
+        const url = new URL(request.url);
+        const requestHeaders: Record<string, string> = {};
+        request.headers.forEach((value, key) => { requestHeaders[key] = value; });
+        requestHeaders['sec-fetch-site'] = 'same-origin';
+        requestHeaders.origin = 'http://127.0.0.1:5174';
+        const response = await publishingService().stream(request.method, `/${url.hostname}${url.pathname}${url.search}`, requestHeaders);
+        const headers = new Headers(response.headers);
+        headers.set('Access-Control-Allow-Origin', 'http://127.0.0.1:5174');
+        headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
+        headers.delete('content-length');
+        return new Response(response.body, { status: response.status, headers });
+      } catch (error) { return new Response(String(error), { status: 503 }); }
+    });
     // Serve downloaded scrapper media to the renderer with Range/seeking support.
     // URL shape: wh-media://media/<projectId>/<file>  →  <userData>/scrapper-media/...
     protocol.handle('wh-media', async (request) => {
@@ -2403,10 +2442,10 @@ app.on('window-all-closed', () => {
 
 let fictionClosing = false;
 app.on('will-quit', event => {
-  if (isFictionRunning() && !fictionClosing) {
+  if ((isFictionRunning() || isPublishingRunning()) && !fictionClosing) {
     event.preventDefault();
     fictionClosing = true;
-    void closeFiction().finally(() => app.quit());
+    void Promise.allSettled([closeFiction(), closePublishing()]).finally(() => app.quit());
     return;
   }
   globalShortcut.unregisterAll();

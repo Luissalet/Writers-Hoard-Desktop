@@ -308,6 +308,11 @@ interface ShutdownWarning {
 }
 
 const api = {
+  publishing: {
+    status: () => ipcRenderer.invoke('publishing:status'),
+    setModule: (module: string, enabled: boolean, automatic?: boolean) => ipcRenderer.invoke('publishing:setModule', module, enabled, automatic),
+    request: (method: string, apiPath: string, body?: string, headers?: Record<string, string>, base64?: boolean) => ipcRenderer.invoke('publishing:request', method, apiPath, body, headers, base64),
+  },
   fiction: {
     status: () => ipcRenderer.invoke('fiction:status'),
     setModule: (module: string, enabled: boolean, dataDir?: string) => ipcRenderer.invoke('fiction:setModule', module, enabled, dataDir),

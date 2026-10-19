@@ -4,6 +4,7 @@ import { useLocation, useParams } from 'react-router-dom';
 import { Loader2, X } from 'lucide-react';
 import FaustusMark from './FaustusMark';
 import { fictionContext } from '@/engines/fiction/context';
+import { publishingContext } from '@/engines/publishing/context';
 import { api as fictionApi } from '@/engines/fiction/native/lib/api';
 import { getView } from '@/engines/fiction/native/lib/copilot-context';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -53,12 +54,25 @@ export default function CopilotDock() {
   const { pathname } = useLocation();
   const [fictionOpen, setFictionOpen] = useState(false);
   const [worldId, setWorldId] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState<{ module: string; enabled: boolean }>({ module: 'library', enabled: false });
+  const [nativeRoute, setNativeRoute] = useState(location.hash);
   const setDockOpen = useCopilotStore(state => state.setDockOpen);
+  useEffect(() => {
+    const update = (event: Event) => setPublishing((event as CustomEvent).detail);
+    const route = (event: Event) => setNativeRoute(JSON.stringify((event as CustomEvent).detail));
+    window.addEventListener('writer:publishing-module', update);
+    window.addEventListener('writer:publishing-route', route);
+    return () => { window.removeEventListener('writer:publishing-module', update); window.removeEventListener('writer:publishing-route', route); };
+  }, []);
   useEffect(() => {
     const refresh = () => setWorldId(getView().worldId);
     window.addEventListener('hoard:copilot-context-changed', refresh);
     return () => window.removeEventListener('hoard:copilot-context-changed', refresh);
   }, []);
+  if (pathname === '/publishing' && publishing.enabled && window.electronAPI?.faustus) {
+    if (!fictionOpen) return <button type="button" aria-label="Faustus" title="Faustus" onClick={() => { setDockOpen(true); setFictionOpen(true); }} className="fixed bottom-5 right-5 z-30 rounded-lg border border-border bg-surface p-3"><FaustusMark /></button>;
+    return <WriterDock key={`publishing:${publishing.module}:${nativeRoute}`} projectId={publishing.module} engine="publishing" publishing={publishing.module} onClose={() => setFictionOpen(false)} />;
+  }
   if ((pathname === '/fiction' || tab === 'fiction') && window.electronAPI?.faustus) {
     if (!fictionOpen) return <button type="button" aria-label="Faustus" title="Faustus" onClick={() => { setDockOpen(true); setFictionOpen(true); }} className="fixed bottom-5 right-5 z-30 rounded-lg border border-border bg-surface p-3"><FaustusMark /></button>;
     return <WriterDock key={`fiction:${worldId}`} projectId={worldId || 'fiction-library'} engine="fiction" fiction onClose={() => setFictionOpen(false)} />;
@@ -67,7 +81,7 @@ export default function CopilotDock() {
   return <WriterDock key={id} projectId={id} engine={tab && tab !== 'overview' ? tab : null} />;
 }
 
-function WriterDock({ projectId, engine, fiction = false, onClose }: { projectId: string; engine: string | null; fiction?: boolean; onClose?: () => void }) {
+function WriterDock({ projectId, engine, fiction = false, publishing, onClose }: { projectId: string; engine: string | null; fiction?: boolean; publishing?: string; onClose?: () => void }) {
   const { t } = useTranslation();
   const locale = useLocaleStore((state) => state.locale);
   const { dockOpen, setDockOpen, dockWidth, setDockWidth } = useCopilotStore();
@@ -93,26 +107,29 @@ function WriterDock({ projectId, engine, fiction = false, onClose }: { projectId
       const transport = createFaustusFetch(bridge);
       const contextProvider = async () => {
         const view = current.current;
-        const context = fiction || view.engine === 'fiction'
+        const context = publishing ? await publishingContext(publishing, view.locale) : fiction || view.engine === 'fiction'
           ? await fictionContext(info.data_space_id, view.locale)
           : await writerContext(info.data_space_id, view.projectId, view.engine, view.locale);
         if (info.tool_server_id) context.origin.tool_server_id = info.tool_server_id;
         return context;
       };
       const context = await contextProvider();
+      if (publishing) info.data_space_id = context.origin.data_space_id;
       // Imports are idempotent at Faustus. Originals stay in Writer's backups.
-      const threads = fiction ? [] : await db.aiThreads.where('projectId').equals(projectId).toArray();
+      const threads = fiction || publishing ? [] : await db.aiThreads.where('projectId').equals(projectId).toArray();
       for (const thread of threads) {
         const messages = await db.aiMessages.where('threadId').equals(thread.id).toArray();
         const response = await transport(`${info.server}/api/hoard-copilot/imports`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(legacyConversationImport(context, thread, messages)) });
         if (!response.ok) throw new Error(`Faustus could not import conversation (${response.status}).`);
         await response.json();
       }
-      const query = new URLSearchParams({ app_id: fiction ? 'scheherazade' : 'writer', data_space_id: info.data_space_id, external_project_id: projectId });
+      const query = new URLSearchParams({ app_id: context.origin.app_id, data_space_id: info.data_space_id, external_project_id: publishing ? context.project.external_project_id : projectId });
+      if (publishing && !context.project.external_project_id) query.delete('external_project_id');
       const response = await transport(`${info.server}/api/hoard-copilot/conversations?${query}`);
       if (!response.ok) throw new Error(`Faustus is unavailable (${response.status}).`);
-      const result = await response.json() as { conversations: Array<{ session_id: string }> };
-      const viewKey = `faustus.active.${info.data_space_id}.${projectId}`;
+      const result = await response.json() as { conversations: Array<{ session_id: string; external_project_id?: string }> };
+      if (publishing && !context.project.external_project_id) result.conversations = result.conversations.filter(row => !row.external_project_id);
+      const viewKey = `faustus.active.${info.data_space_id}.${publishing ? context.project.external_project_id : projectId}`;
       const saved = await getSetting(viewKey);
       const sessionId = result.conversations.find((row) => row.session_id === saved)?.session_id ?? result.conversations[0]?.session_id ?? null;
       if (cancelled) return;
@@ -143,7 +160,7 @@ function WriterDock({ projectId, engine, fiction = false, onClose }: { projectId
       if (!cancelled) { setLoading(false); setError(''); }
     })().catch((failure) => { if (!cancelled) { setError(String(failure instanceof Error ? failure.message : failure)); setLoading(false); } });
     return () => { cancelled = true; cleanup?.(); panel.current = null; };
-  }, [projectId, attempt, fiction]);
+  }, [projectId, attempt, fiction, publishing]);
 
   useEffect(() => {
     if (!pendingHandoff || !panel.current || loading) return;

@@ -1,3 +1,26 @@
+# Writer consolidation #931
+
+## Design and acceptance
+Public base a4bbf79; Borges 10db1fb; Gutenberg ca8ee4c. Preserve Writer IndexedDB/origin 5174 and existing fiction worker untouched. Incorporate complete tracked engines, packages and editor sources with notices under `publishing/`; exclude real data, environments, build outputs and binaries. The existing Writer IPC/MCP bridge owns a second lazy stdio worker. Library, reading, paperwork and publishing switches default OFF. Native ASGI apps execute in-process over httpx, without listeners or former application processes. UI source mounts in Writer React/shadow surfaces; no iframe or former-app URLs. Original tool names/schemas survive in the native bridge catalogue. Gutenberg remains an owned Rust/editor build with its complete native format.
+
+- [x] Inventory source trees and native MCP contracts; record upstream hashes/notices.
+- [x] Import tracked source packages/native engines, preserving historical identifiers.
+- [x] Add lazy stdio transport, independent module controls and shared API/MCP handlers.
+- [x] Mount full incorporated views in Writer with scoped styles, request/file transport and local navigation.
+- [x] Preserve native Gutenberg editor/export build and packaging.
+- [x] Run synthetic API/MCP tests, renderer/Electron typechecks and production bundle.
+- [x] Document EN/ES capabilities, limitations and migration manifest (no real migration by this task).
+- [x] Prepare reviewable changes for commit; leave integration, production/browser activation and migration to root.
+
+## Verification
+Synthetic module OFF/catalogue tests must not import engines or start processes. API fixtures use private temporary stores with no model/GPU/Hub calls. Catalogue coverage compares every historical native tool schema. Existing fiction behavior and source remain unchanged. Renderer startup/browser verification is performed by root through CUA before delivery acceptance; build alone is not startup proof.
+
+## Review handoff
+Five Python API/worker tests passed (10.07s). The MCP runner passed all 401 exact schemas/annotations, four native ON/OFF lifecycles, API/MCP project references, binary multipart/range streaming and scoped navigation. `verify:quick` passed renderer/Electron typechecks, shipping lint with zero exact-baseline fingerprints and conformance (27 engines, 61 tables, 5440 locale keys, zero warnings). Production renderer and Electron builds passed. These checks are synthetic; they do not certify an installed release, native binaries or browser behavior. See `tasks/publishing-submission.md`, `tasks/publishing-verification.json` and `publishing/MIGRATION.json`. Task 931 stays open for independent review and root acceptance.
+
+
+---
+
 # Contract W-A — expose the image runtime we already ship
 
 Pinned runtime: stable-diffusion.cpp `master-709-92a3b73`
