@@ -40,6 +40,7 @@ class Module:
         self.factory = factory
         self.app = None
         self.stack = None
+        self.context_exited = False
         self.lock = asyncio.Lock()
         self.configuration_lock = asyncio.Lock()
         self.error = ""
@@ -51,12 +52,20 @@ class Module:
 
     def status(self):
         return {**self.spec, "enabled": self.app is not None,
+                "state": "error" if self.error else "stopping" if self.stopping else "on" if self.app is not None else "off",
+                "stopping": self.stopping,
                 "data_dir": str(self.data_dir), "error": self.error, "automatic": self.automatic}
 
     async def set_enabled(self, enabled, revision=None):
+        from .cleanup import owned
+        return await owned(self._set_enabled(enabled, revision))
+
+    async def _set_enabled(self, enabled, revision=None):
         async with self.lock:
             if revision is not None and revision != self.revision:
                 return self.status()
+            if enabled and self.app is not None and (self.stopping or self.error):
+                raise RuntimeError('Close the retained native owner before enabling it again')
             if enabled == (self.app is not None):
                 return self.status()
             self.error = ""
@@ -64,9 +73,10 @@ class Module:
                 stack = AsyncExitStack()
                 try:
                     app = await asyncio.to_thread(self.factory, self.spec["id"], self.data_dir, self.automatic)
+                    self.app, self.stack, self.context_exited = app, stack, False
                     await stack.enter_async_context(app.router.lifespan_context(app))
                 except Exception as exc:
-                    await stack.aclose()
+                    self.context_exited = self.stopping = True
                     self.error = f"{type(exc).__name__}: {exc}"
                     raise
                 self.app, self.stack = app, stack
@@ -79,15 +89,24 @@ class Module:
                     await join_tasks([task for task in pending if self.requests.get(task)], cancel=True)
                     if pending:
                         await join_tasks(pending)
-                    await self.stack.aclose()
-                finally:
-                    self.stopping = False
+                    if self.context_exited:
+                        from .cleanup import invoke
+                        shutdown = getattr(self.app.state, 'shutdown', None)
+                        if shutdown is None:raise RuntimeError('Failed native lifespan has no retryable shutdown; owner retained')
+                        await invoke(shutdown)
+                    else:
+                        self.context_exited = True
+                        await self.stack.aclose()
+                except BaseException as exc:
+                    self.error = f'{type(exc).__name__}: {exc}'
+                    raise
                 self.app = self.stack = None
+                self.stopping = False
             return self.status()
 
     async def request(self, method, path, **kwargs):
         async with self.lock:
-            if self.app is None:
+            if self.app is None or self.stopping or self.error:
                 raise HTTPException(409, detail={"error": "module_disabled", "module": self.spec["id"]})
             transport = httpx.ASGITransport(app=self.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
@@ -130,14 +149,14 @@ def create_runtime(*, name, product, root, data_dir, specs, factory, port):
                         pass  # The dashboard displays the module's error; others remain usable.
             yield
         finally:
-            for module in reversed(list(modules.values())):
-                if module.app is not None:
-                    await module.set_enabled(False)
+            await app.state.shutdown()
 
     app = FastAPI(title=name, lifespan=lifespan)
     app.state.modules = modules
     app.state.token = token
     app.state.data_dir = data_dir
+    from .cleanup import Shutdown
+    app.state.shutdown = Shutdown(*(lambda module=module: module.set_enabled(False) for module in reversed(list(modules.values()))))
 
     @app.get('/api/writer-identity/{key}')
     async def writer_identity(key: str):

@@ -106,6 +106,7 @@ async def stream_asgi(app, message, ident, credit):
 async def serve(reader=None, app_factory=None):
     from fusion.cancellation import join_tasks
     app = client = lifespan = None
+    lifespan_exited = False
     tasks, credits = {}, {}
     controls = asyncio.Lock()
     read_line = stdin_lines() if reader is None else None
@@ -136,6 +137,8 @@ async def serve(reader=None, app_factory=None):
                     result = {'pid': os.getpid()}
             elif op == 'set':
                 async with controls:
+                    if lifespan_exited and message['enabled']:
+                        raise ValueError('Owner shutdown is pending; complete OFF before enabling another module')
                     module = app.state.modules[message['module']]
                     automatic = bool(message.get('automatic', False))
                     if module.automatic != automatic and module.app is not None:
@@ -147,6 +150,8 @@ async def serve(reader=None, app_factory=None):
                 if target is not None:
                     await join_tasks([target], cancel=True)
                 result = {'cancelled': message['target']}
+            elif op == 'status':
+                result = {'modules': [module.status() for module in app.state.modules.values()]}
             elif op == 'stream':
                 await stream_asgi(app, message, ident, credits[ident])
                 result = {'stream_done': True}
@@ -177,6 +182,16 @@ async def serve(reader=None, app_factory=None):
         await join_tasks([tasks[ident] for ident in list(credits) if ident in tasks], cancel=True)
         await join_tasks(list(tasks.values()))
 
+    async def close_host():
+        nonlocal lifespan, lifespan_exited
+        if lifespan is not None:
+            if not lifespan_exited:
+                lifespan_exited = True
+                await lifespan.__aexit__(None, None, None)
+            else:
+                await app.state.shutdown()
+            lifespan = None
+
     try:
         while line := await read():
             message = json.loads(line)
@@ -186,13 +201,15 @@ async def serve(reader=None, app_factory=None):
                     credits[message['target']].release()
                 continue
             if op == 'shutdown':
-                await drain()
+                try:
+                    await drain()
+                    await close_host()
+                except Exception as error:
+                    reply(ident, ok=False, error=f'{type(error).__name__}: {error}')
+                    continue
                 if client:
                     await client.aclose()
                     client = None
-                if lifespan:
-                    await lifespan.__aexit__(None, None, None)
-                    lifespan = None
                 reply(ident, ok=True)
                 break
             if op == 'stream':
@@ -204,10 +221,14 @@ async def serve(reader=None, app_factory=None):
                 await task
     finally:
         await drain()
+        # EOF has no surviving caller to retry a temporarily failing cleanup.
+        # Keep this owner alive and retry closure, never re-enter native work.
+        while lifespan is not None:
+            try:await close_host()
+            except Exception:
+                await asyncio.sleep(.25)
         if client:
             await client.aclose()
-        if lifespan:
-            await lifespan.__aexit__(None, None, None)
 
 
 if __name__ == '__main__':

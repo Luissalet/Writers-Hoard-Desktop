@@ -12,12 +12,17 @@ function run(command, args, cwd = root) {
   if (result.status) throw new Error(`${command} exited ${result.status}`);
 }
 if (!existsSync(python)) run(process.env.PYTHON || 'python', ['-m', 'venv', path.join(source, '.venv')]);
+const workerOnly = process.argv.includes('--worker-only');
+if (!workerOnly) {
 run(python, ['-m', 'pip', 'install', '-r', 'publishing/requirements.txt']);
 if (process.platform === 'win32') run(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm ci --omit=dev --no-audit --no-fund'], path.join(source, 'links_native'));
 else run('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund'], path.join(source, 'links_native'));
+}
 if (!process.argv.includes('--setup-only')) {
+  if (!workerOnly) {
   run(python, ['publishing/scripts/build_pdf_engine.py']);
   run(python, ['publishing/editorial/scripts/build_engine.py']);
+  }
   run(python, ['-m', 'pip', 'install', 'pyinstaller==6.22.3']);
   const data = (name, target = name) => ['--add-data', `${path.join(source, name)}${path.delimiter}${target}`];
   // collect_all executes while the spec is evaluated, before Analysis applies

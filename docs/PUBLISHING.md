@@ -37,3 +37,17 @@ Una escritura enviada sin respuesta nativa completa devuelve `outcome_unknown` y
 Las cancelaciones concurrentes del consumidor, OFF y EOF comparten una única cancelación nativa y una espera protegida. El `finally` asíncrono termina antes de confirmar la cancelación o completar OFF; una segunda causa no puede interrumpir esa limpieza.
 
 Preparación: `npm run publishing:setup`. Paquete completo: `npm run publishing:bundle`. Pruebas sintéticas: `npm run test:publishing` y el test Python indicado arriba. Quedan para la aceptación la revisión independiente, CUA por la raíz, la comprobación de los motores nativos empaquetados y la migración real. Un build correcto no acredita por sí solo que la interfaz arranque y funcione.
+
+
+## Retryable shutdown / Cierre reintentable (931 CAS5)
+
+A failed native shutdown keeps its app/resources and worker in error/stopping. ON and new native requests are rejected until Retry OFF actually closes that owner. Each factory exports an explicit shutdown operation with checkpoints; an exhausted lifespan/exit stack never certifies OFF. The existing native DOM remains mounted while a failed close retains its owner. The UI exposes Retry OFF and disables automatic jobs for that retained module. A different active module remains independently usable.
+
+Library stops workers/watchers before DB; paperwork propagates client closure failures and preserves the actual SDK twin/loop until closure; reading retains its Node process; editorial sessions remain owned until joined. SDK files are unchanged. Repeated failures propagate and preserve resources. EOF retries cleanup only, without replaying native work or writes.
+
+`node scripts/build-publishing-runtime.mjs --worker-only` reconstructs the frozen private worker from current source using existing native binaries, skipping dependency setup and both Rust builds. The normal full bundle command remains available. Synthetic source/frozen receipts and limits are in `tasks/submission931-cas5.md`; CUA, real data and installation/activation remain with root.
+
+Un cierre nativo fallido conserva app/recursos y worker en error/stopping. ON y peticiones nativas nuevas se rechazan hasta que Reintentar cierre complete OFF de verdad. Cada fábrica conserva los pasos terminados y reintenta la operación fallida; no reutiliza un contexto agotado como prueba de cierre. La UI muestra Reintentar cierre y conserva el DOM nativo mientras se retiene su dueño. EOF reintenta sólo limpieza, sin repetir trabajos ni escrituras. El worker frozen puede reconstruirse con `--worker-only`, sin recompilar Rust ni tocar los binarios existentes.
+
+
+HTTPX closure: is_closed is not proof of released resources. The owned wrapper snapshots actual default/proxy transports and HTTPcore connections before a pool can consume its list, then checkpoints each physical close. Tests cover a real SDK twin poisoned by early HTTPX CLOSED, two failing OFFs, a held third close with consumer cancellation, and an actual HTTPcore/HTTP11 pool path. SDK files remain unchanged.

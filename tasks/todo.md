@@ -1068,3 +1068,13 @@ Preserve Writer's Electron renderer origin, IndexedDB, native document engine an
 Ready for cross-review; no production activation, retirement or publication. Renderer/Electron typechecks, build, conformance (27 engines/61 engine tables), lint (0 debt) and Writer critical suite (383) pass. Incorporated core/API regressions: 286 pass, one former standalone CLI logging test intentionally excluded. Real bridge API/MCP covers 224 tools and all 19 native tool paths; packaged private runtime and full Writer renderer pass with synthetic providers/profile. OFF, parallel controls, failed config persistence, real Python PID shutdown, in-place reopen, native REST and legacy Faustus space are verified. Bundle entry 1.405 MB passes; total 8.62 MB remains advisory. Evidence: D:/LocalAI/research-inbox/writer-fusion907/. Cross-review and activation remain with the coordinator.
 
 Finish-review correction: Narrate is disabled with an explanation while global narration is OFF, follows switch changes without reload, and rechecks the owner before any draft append. Focused real renderer tests prove an unsent draft survives OFF with zero new turns, manual Send remains available, an unseen OFF from another client prevents writing, and ON narration works through the synthetic Hub. The renderer and NSIS are rebuilt; no profile activation or installation is performed here.
+
+
+# Publishing931 CAS5 — failed native shutdown
+
+- [x] Retain app/error/stopping, reject duplicate ON/new requests and expose explicit retryable shutdown in four factories.
+- [x] Keep actual PublisherService worker/PID through rejected OFF/global shutdown; Retry OFF UI retains native DOM.
+- [x] Propagate Kafka client errors without SDK edits; retain native editorial sessions through complete joins.
+- [x] Four actual factories: two failures and a third effective close; source service/global shutdown/EOF, original transport/uncertain-write regressions.
+- [x] Frozen worker rebuilt without Rust; four native modules pass, binary hashes unchanged; both typechecks and production renderer build pass.
+- [ ] Independent CAS5 and root CUA/migration/aliases/installation/activation/publication. No real data/apps/models touched.

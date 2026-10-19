@@ -183,13 +183,11 @@ class Services:
         threading.Thread(target=run, name="kafka-mail-interest", daemon=True).start()
 
     def stop(self) -> None:
-        self.scheduler.stop()
-        self.docsvc.stop()
-        try:
-            self.llm.close()
-        except Exception:  # noqa: BLE001
-            pass
-        self.db.close()
+        steps=(self.scheduler.stop,self.docsvc.stop,self.llm.close,self.db.close)
+        completed=getattr(self,'_stop_completed',0)
+        while completed<len(steps):
+            steps[completed]()
+            completed+=1;self._stop_completed=completed
 
     def _emit(self, type_: str, data: dict[str, Any]) -> None:
         try:

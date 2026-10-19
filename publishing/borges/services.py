@@ -81,12 +81,13 @@ class Services:
             self.search.invalidate()
 
     def stop(self) -> None:
-        self.faustus_scheduler.stop()
-        self.watcher.stop()
-        self.worker.stop()
-        if self._preload is not None and self._preload.is_alive():
-            self._preload.join()
-        self.db.close()
+        def preload():
+            if self._preload is not None and self._preload.is_alive():self._preload.join()
+        steps=(self.faustus_scheduler.stop,self.watcher.stop,self.worker.stop,preload,self.db.close)
+        completed=getattr(self,'_stop_completed',0)
+        while completed<len(steps):
+            steps[completed]()
+            completed+=1;self._stop_completed=completed
 
     # ---------- collections ----------
     def add_collection(self, name: str, path: str, include: list[str], exclude: list[str] | None, watch: bool, code: bool):

@@ -120,7 +120,6 @@ class LlmPass:
 
     def close(self) -> None:
         if self._link is not None:
-            try:
-                self._link.sync.close()
-            except Exception:  # noqa: BLE001
-                pass
+            from fusion.cleanup import close_link
+            close_link(self._link)
+            self._link = None

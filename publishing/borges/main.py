@@ -29,12 +29,14 @@ def create_app(config: Config | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         services = Services(config)
         app.state.services = services
+        from fusion.cleanup import Shutdown
+        app.state.shutdown = Shutdown(services.stop)
         services.start()
         logging.getLogger("borges").info("Borges's Hoard %s — data in %s", __version__, config.data_dir)
         try:
             yield
         finally:
-            await asyncio.to_thread(services.stop)
+            await app.state.shutdown()
 
     app = FastAPI(title="Borges's Hoard", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.config = config
