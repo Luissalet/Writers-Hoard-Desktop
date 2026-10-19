@@ -1078,3 +1078,9 @@ Finish-review correction: Narrate is disabled with an explanation while global n
 - [x] Four actual factories: two failures and a third effective close; source service/global shutdown/EOF, original transport/uncertain-write regressions.
 - [x] Frozen worker rebuilt without Rust; four native modules pass, binary hashes unchanged; both typechecks and production renderer build pass.
 - [ ] Independent CAS5 and root CUA/migration/aliases/installation/activation/publication. No real data/apps/models touched.
+
+## Publishing931 CAS6 — physical progress after CHANGES5
+
+- [x] Remove a successfully closed connection from its owning pool by identity under the pool lock; retain failed connections and successful checkpoints.
+- [x] Count every physical close invocation: good1/bad3 through two failures, third success and duplicate close. Four real factory/held-cancellation cases still pass.
+- [x] Rebuild frozen without Rust, run the original independent witness unchanged and verify worker-owner cycles; record final inventory and exact CAS6.

@@ -1437,3 +1437,5 @@ An async-generator/exit stack consumes a callback that raises. Keep app/error/st
 
 
 HTTPX closure: is_closed is not proof of released resources. The owned wrapper snapshots actual default/proxy transports and HTTPcore connections before a pool can consume its list, then checkpoints each physical close. Tests cover a real SDK twin poisoned by early HTTPX CLOSED, two failing OFFs, a held third close with consumer cancellation, and an actual HTTPcore/HTTP11 pool path. SDK files remain unchanged.
+
+CAS6 correction: snapshotting a connection is insufficient if its pool still owns it after successful close. Remove that exact identity under the pool lock only after success, so later transport shutdown cannot repeat completed physical cleanup. Test streams must count every invocation before checking their closed flag; a locally idempotent fake can hide duplicated calls.

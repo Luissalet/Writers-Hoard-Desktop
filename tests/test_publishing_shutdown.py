@@ -112,12 +112,11 @@ async def test_httpcore_pool_keeps_connections_until_physical_close():
     from fusion.cleanup import close_client
 
     class Stream:
-        attempts=0
-        opened=True
+        def __init__(self,failures):
+            self.attempts,self.failures,self.opened=0,failures,True
         async def aclose(self):
-            if not self.opened:return
             self.attempts+=1
-            if self.attempts<3:raise OSError('Retained HTTPcore network stream')
+            if self.attempts<=self.failures:raise OSError('Retained HTTPcore network stream')
             self.opened=False
 
     # Actual HTTPX transport, HTTPcore pool/HTTP connection/HTTP11 close path.
@@ -125,7 +124,10 @@ async def test_httpcore_pool_keeps_connections_until_physical_close():
     transport=httpx.AsyncHTTPTransport()
     client=httpx.AsyncClient(transport=transport,trust_env=False)
     origin=Origin(b'https',b'synthetic.invalid',443)
-    stream=Stream()
+    good,stream=Stream(0),Stream(2)
+    completed=AsyncHTTPConnection(origin)
+    completed._connection=AsyncHTTP11Connection(origin,good)
+    transport._pool._connections.append(completed)
     connection=AsyncHTTPConnection(origin)
     connection._connection=AsyncHTTP11Connection(origin,stream)
     transport._pool._connections.append(connection)
@@ -133,8 +135,9 @@ async def test_httpcore_pool_keeps_connections_until_physical_close():
         with pytest.raises(OSError):await close_client(client)
         assert stream.opened and stream.attempts==attempt
         assert connection in transport._pool._connections
+        assert good.attempts==1 and not good.opened and completed not in transport._pool._connections
     await close_client(client)
     assert not stream.opened and stream.attempts==3
     assert not transport._pool._connections and client.is_closed
     await close_client(client)
-    assert stream.attempts==3
+    assert good.attempts==1 and stream.attempts==3
