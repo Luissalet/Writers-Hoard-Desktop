@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Bot,
   Dices,
+  LibraryBig,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -20,7 +21,7 @@ import { isDesktop } from '@/utils/platform';
 import { toast } from '@/components/common/toast';
 
 export default function Sidebar() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { sidebarOpen, sidebarHidden, toggleSidebar, setShowEngineManager } = useAppStore();
   const { id: projectId } = useParams<{ id?: string }>();
 
@@ -143,6 +144,9 @@ export default function Sidebar() {
           </NavLink>
         )}
 
+        <NavLink to="/publishing" className={({ isActive }) => navClass(isActive)} title={locale === 'es' ? 'Biblioteca y publicación' : 'Library and publishing'} aria-label={locale === 'es' ? 'Biblioteca y publicación' : 'Library and publishing'}>
+          <LibraryBig size={20} className="shrink-0" />{sidebarOpen && <span className="truncate">{locale === 'es' ? 'Biblioteca y publicación' : 'Library and publishing'}</span>}
+        </NavLink>
         <NavLink to="/fiction" className={({ isActive }) => navClass(isActive)} title={t('sidebar.fiction')} aria-label={t('sidebar.fiction')}>
           <Dices size={18} className="flex-shrink-0" aria-hidden="true" />
           {sidebarOpen && <span className="whitespace-nowrap">{t('sidebar.fiction')}</span>}

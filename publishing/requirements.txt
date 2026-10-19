@@ -1,0 +1,30 @@
+# Pinned to the versions verified in the build environment (Python 3.11; 3.11+ required, tested layout for 3.13).
+# CPU-only by default. For an NVIDIA GPU install `fastembed-gpu` instead of `fastembed` and set
+# BORGES_EMBED_PROVIDERS=CUDAExecutionProvider (optional; CPU is fast enough for a personal library).
+fastapi==0.141.1
+uvicorn==0.53.0
+pydantic==2.13.5
+starlette==1.6.0
+httpx==0.28.1
+mcp==1.30.0
+numpy==2.4.6
+fastembed==0.8.1
+onnxruntime==1.30.0
+tokenizers==0.23.2
+pymupdf==1.28.2
+# python-docx and EbookLib only build the DOCX and EPUB fixtures of the tests; reading both formats is the shared hoard_link.docs
+python-docx==1.2.0
+EbookLib==0.20
+watchdog==6.0.0
+pytest==9.1.1
+# Paperwork and the native Links IPC transport.
+python-multipart==0.0.32
+pypdfium2==5.14.0
+pypdf[crypto]==6.21.1
+pillow==12.3.0
+tzdata==2026.5
+pytest-asyncio==1.4.0
+h11==0.16.0
+rapidocr==3.9.2
+yt-dlp==2026.8.19
+gallery-dl==1.32.17

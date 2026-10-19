@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-19",
+  "scope": "Changed and nonignored Git paths; text-file NUL scan",
+  "corrupted": [
+    {
+      "path": "scripts/run-publishing-tests.mjs",
+      "bytes": 8861,
+      "all_zero": true,
+      "sha256": "ca60c0c4e32d0d90d781f32a15635eb3d280839e994c8b4b17f399362af89f7d"
+    },
+    {
+      "path": "src/engines/publishing/EditorialSurface.tsx",
+      "bytes": 1060,
+      "all_zero": true,
+      "sha256": "d50e2d8474134908822ade46e27717d1a22aaa2d4ebd66ee14c988ecafc01461"
+    }
+  ],
+  "repair": "Restore only these two source files from the recorded edits; repeat functional checks. No real data was touched.",
+  "cleanup_residual": {
+    "path": "publishing/links_native/publishing/.venv",
+    "kind": "accidental synthetic virtual environment from an initial wrong working directory",
+    "state": "recursive cleanup rejected by automatic approval review; left ignored, not included in Git",
+    "safe_text_cleanup": "Removed only four one-time incorporation/adaptation helper scripts via explicit nonrecursive file edits."
+  }
+}

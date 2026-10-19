@@ -39,6 +39,7 @@ import {
 import { callRenderer, pendingCallCount, type BridgeCallResult } from './rpc';
 import { executeTool } from './executor';
 import { fictionService } from '../fiction/service';
+import { publishingService } from '../publishing/service';
 import { emitFamilyEvent, familyHealthBlock } from './family';
 import {
   appendAudit,
@@ -75,13 +76,13 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
   res.end(payload);
 }
 
-function readBody(req: http.IncomingMessage): Promise<string> {
+function readBinaryBody(req: http.IncomingMessage, limit = MAX_BODY_BYTES): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
     req.on('data', (chunk: Buffer) => {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
+      if (size > limit) {
         req.destroy();
         reject(new Error('body too large'));
         return;
@@ -91,10 +92,12 @@ function readBody(req: http.IncomingMessage): Promise<string> {
     // Decode once at the end: a multibyte character split across two chunks
     // must not be decoded per-chunk, or each half becomes U+FFFD and accented
     // prose (á, é, í, ñ …) is silently corrupted on the way into the manuscript.
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
+
+function readBody(req: http.IncomingMessage): Promise<string> { return readBinaryBody(req).then(bytes => bytes.toString('utf8')); }
 
 /**
  * A JSON body for the routes that act on an object. A body that could not be
@@ -339,6 +342,26 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
   // The complete incorporated REST surface is addressable through Writer's
   // existing listener; it never binds a separate fiction server.
+  if (url.startsWith('/api/publishing/')) {
+    const mutates = req.method !== 'GET' && req.method !== 'HEAD';
+    if (mutates && !config.writesEnabled) { sendJson(res, 403, { ok: false, code: 'writes-disabled', error: 'Writing is switched off.' }); return; }
+    try {
+      if (url === '/api/publishing/modules') {
+        if (req.method === 'GET') sendJson(res, 200, await publishingService().status());
+        else { const body = await readJsonObject(req, res); if (!body) return; sendJson(res, 200, await publishingService().setModule(String(body.module), body.enabled as boolean, undefined, body.automatic as boolean | undefined)); }
+        return;
+      }
+      const apiPath = '/' + (req.url ?? '').slice('/api/publishing/'.length);
+      const headers: Record<string, string> = { 'Content-Type': String(req.headers['content-type'] || 'application/json') };
+      for (const name of ['range', 'if-none-match', 'if-modified-since']) if (typeof req.headers[name] === 'string') headers[name] = req.headers[name];
+      const response = await publishingService().request(req.method || 'GET', apiPath, mutates ? (await readBinaryBody(req, Infinity)).toString('base64') : '', headers, true);
+      const forwarded: Record<string, string> = { 'Content-Type': response.type, 'Cache-Control': 'no-store' };
+      for (const name of ['content-range', 'accept-ranges', 'content-disposition', 'etag', 'last-modified']) if (response.headers?.[name]) forwarded[name] = response.headers[name];
+      res.writeHead(response.status, forwarded);
+      res.end(Buffer.from(response.base64, 'base64'));
+    } catch (error) { sendJson(res, 503, { ok: false, code: 'publishing-unavailable', error: String(error) }); }
+    return;
+  }
   if (url.startsWith('/api/fiction/')) {
     const mutates = req.method !== 'GET' && req.method !== 'HEAD';
     if (mutates && !config.writesEnabled) {

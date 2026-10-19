@@ -1,0 +1,34 @@
+{
+  "task": 931,
+  "state": "inventory-only-no-data-moved-no-binaries-copied",
+  "destination_root": "<Writer userData>/publishing/data",
+  "source_revisions": {"writer": "a4bbf79", "borges": "10db1fb", "gutenberg": "ca8ee4c"},
+  "secret_configuration_candidates_not_read": [
+    {"from": "Borges's Hoard/data/native/paperwork/.env", "to": "<destination_root>/paperwork/.env", "note": "Outside the old nested data subtree. Preserve exact secret values through the root owner's procedure; the native factory reads the module-local file, overriding the shared parent file."},
+    {"from": "Borges's Hoard/.env", "note": "Root owner must inventory any launch-time environment configuration and reproduce relevant settings in the new owned runtime; do not blindly retain old data/executable paths."},
+    {"from": "Gutenberg's Hoard/.env", "note": "Root owner must preserve relevant integration settings without selecting former external engine paths; owned binaries are selected from this product."}
+  ],
+  "move_order": [
+    {"module": "links", "from": "Borges's Hoard/data/native/links/data", "to": "<destination_root>/links", "preserve": ["entire tree", "database and coherent WAL/SHM", "mcp-token", "copilot-space-id", "downloaded media", "video/transcript/digest assets", "sessions", "settings", "IDs", "jobs and manual-stop flags"]},
+    {"module": "paperwork", "from": "Borges's Hoard/data/native/paperwork/data", "to": "<destination_root>/paperwork", "preserve": ["entire tree", "kafka.db and coherent WAL/SHM", "mcp-token", "copilot-space-id", "files", "inbox", "cache/mail-attachments", "workshop artifacts and outputs", "audit/undo", "profiles and settings"]},
+    {"module": "library", "from": "Borges's Hoard/data (after the two owned subtrees above)", "to": "<destination_root>/library", "preserve": ["remaining entire tree", "borges-hoard.db and coherent WAL/SHM", "mcp-token", "copilot-space-id", "models", "sources", "collection/document/chunk IDs", "citations", "index history"]},
+    {"module": "publishing", "from": "Gutenberg's Hoard/data", "to": "<destination_root>/publishing", "preserve": ["entire tree", "gutenberg.db and coherent WAL/SHM", "mcp-token", "copilot-space-id", "publications", "historical originals", "snapshots/history", "linked-asset base directories", "cache", "native runtime data", "work profiles"]}
+  ],
+  "ignored_native_binaries": [
+    {"from": "Borges's Hoard/native/bin/kafka-pdf-worker.exe", "development_destination": "publishing/native/bin/kafka-pdf-worker.exe", "packaged_destination": "publishing/_internal/native/bin/kafka-pdf-worker.exe", "source": "publishing/native/pdf", "build": "publishing/scripts/build_pdf_engine.py"},
+    {"from": "Gutenberg's Hoard/native/bin/gutenberg-cli.exe", "development_destination": "publishing/editorial/native/bin/gutenberg-cli.exe", "packaged_destination": "publishing/_internal/native/bin/gutenberg-cli.exe", "source": "publishing/editorial/native", "build": "publishing/editorial/scripts/build_engine.py"},
+    {"from": "Gutenberg's Hoard/native/bin/gutenberg.exe", "development_destination": "publishing/editorial/native/bin/gutenberg.exe", "packaged_destination": "publishing/_internal/native/bin/gutenberg.exe", "source": "publishing/editorial/native", "build": "publishing/editorial/scripts/build_engine.py"}
+  ],
+  "migration_owner_actions": [
+    "Record original full paths, counts, hashes, native IDs and active process state before moving anything.",
+    "Quiesce only the specifically authorized owners with app locks; preserve every manual stop and MCP OFF flag.",
+    "Move the two nested data trees first; move the remaining library tree once, without copying source data.",
+    "Inventory absolute paths stored in SQLite/configs and publication asset references; remap owner-root paths to new destinations, retaining external originals and native IDs.",
+    "Transfer secret configuration only through the migration owner's explicit procedure, preserving exact values and keeping it outside Git; this task did not read or copy .env files.",
+    "Update Hub/MCP compatibility routing to Writer's existing bridge, preserving original tool schemas/names and identity rather than launching former apps.",
+    "Keep Writer/publishing/modules.json enabled=[] and automatic=[] initially; old fusion-modules.json is historical data and cannot reactivate modules.",
+    "Build or verify the exact ignored binary versions before packaging; preserve engine licenses and build receipts.",
+    "Do not alter Writer IndexedDB/origin5174, fiction profile, installed app, Hub/model lifecycle or unrelated work.",
+    "Verify counts/hashes, references, profiles, tokens, IDs, historic sessions, edits/undo and opening/export through native UI and MCP before retiring source paths."
+  ]
+}

@@ -1,5 +1,11 @@
 # Lessons Learned
 
+## 79. Consolidation follows the approved ownership map and the host router
+**Date:** 2026-10-19
+**Context:** Luis corrected the map: Cicero stays separate; all of Borges (Library, Links and Kafka) belongs to Writer together with Gutenberg, preserving the fiction engine. Home/Cook and People/Dorian stay separate. The desktop host owns the window hash, so copying a module hash router would navigate away from Writer.
+**Rule:** Freeze the approved owner map before implementation. Inventory every incorporated package, native editor, format, data tree and MCP schema. Mount complete views in the host and keep their navigation/events local. Never interpret incorporation as links, an iframe or a launcher for retired servers. Do not restart unfinished Theseus work as a side effect.
+
+
 ## 78. Gating derived data for speed changes every reader of it, not just the slow one
 **Date:** 2026-09-24
 **Context:** An audit pass built the read-aloud blocks only while the panel

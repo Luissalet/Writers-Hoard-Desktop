@@ -40,3 +40,8 @@ resources/proofing
 /story/runtime/
 __pycache__/
 *.pyc
+/publishing/.venv/
+/publishing/.build/
+/publishing/runtime/
+/publishing/**/target/
+/publishing/**/bin/

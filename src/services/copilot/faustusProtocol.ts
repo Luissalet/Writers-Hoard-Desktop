@@ -1,9 +1,9 @@
 /** The host contributes domain context; Faustus owns the conversation. */
 export interface WriterHoardContext {
   contract_version: '1.0';
-  origin: { app_id: 'writer' | 'scheherazade'; data_space_id: string; surface: 'editor'; tool_server_id?: string };
+  origin: { app_id: 'writer' | 'scheherazade' | 'borges' | 'links' | 'kafka' | 'gutenberg'; data_space_id: string; surface: 'editor'; tool_server_id?: string };
   project: { external_project_id: string; title: string; description?: string };
-  active_objects: Array<{ app_id: 'writer' | 'scheherazade'; data_space_id: string; kind: string; object_id: string; title?: string; revision?: string }>;
+  active_objects: Array<{ app_id: WriterHoardContext['origin']['app_id']; data_space_id: string; kind: string; object_id: string; title?: string; revision?: string }>;
   selection?: { object_id: string; kind: 'text_range' | 'text'; text: string; revision?: string; range?: { start: number; end: number; unit: 'prosemirror' } };
   view: { mode: string; locale: string; enabled_engines: string[] };
   attachments: unknown[];

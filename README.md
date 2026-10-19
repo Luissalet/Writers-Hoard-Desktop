@@ -9,6 +9,10 @@ downloaders (`yt-dlp` + `gallery-dl`) — no separate Python server.
 
 > Transition plan and rationale: [`tasks/desktop-transition.md`](tasks/desktop-transition.md)
 
+## Library and publishing
+
+Writer incorporates the full library, reading/links, paperwork/PDF and Gutenberg editorial engine/editor as independent modules, initially OFF. Native formats and MCP contracts are retained. See [capabilities, verification and migration](docs/PUBLISHING.md). Existing fiction and profile/origin 5174 are preserved.
+
 ## Interactive fiction
 
 Writer includes Scheherazade's worlds, continuity, sessions, dice, threads,
