@@ -170,8 +170,10 @@ def create_app(data_dir, port, automatic=False, native_call=None):
             await engine.start()
             yield
         finally:
-            await engine.stop()
+            await app.state.shutdown()
     app = FastAPI(lifespan=lifespan)
     app.state.engine = engine
+    from .cleanup import Shutdown
+    app.state.shutdown = Shutdown(engine.stop)
     app.mount('/', engine)
     return app

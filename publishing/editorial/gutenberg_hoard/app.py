@@ -28,9 +28,11 @@ async def lifespan(_app):
     p = paths().ensure()
     read_or_create_token(p.token_path)
     configure_family("gutenberg", str(p.data_dir), token_file=str(p.token_path))
-    yield
     from .engine_sessions import sessions
-    sessions.shutdown()
+    from fusion.cleanup import Shutdown
+    _app.state.shutdown = Shutdown(sessions.shutdown)
+    try:yield
+    finally:await _app.state.shutdown()
 
 
 app = FastAPI(title="Gutenberg's Hoard", version="0.1.0", lifespan=lifespan)

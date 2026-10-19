@@ -43,6 +43,7 @@ export class PublishingService {
   private config: PublishingConfig | null = null;
   private configLoading: Promise<PublishingConfig> | null = null;
   private controls: Promise<unknown> = Promise.resolve();
+  private retained = new Map<PublishingModule, string>();
   constructor(private options: PublishingOptions) {}
   get running(): boolean { return this.child !== null; }
 
@@ -62,8 +63,10 @@ export class PublishingService {
 
   async status() {
     const config = await this.readConfig();
-    return { ...config, enabled: [...config.enabled], running: this.child !== null, pid: this.workerPid ?? this.child?.pid ?? null,
-      modules: PUBLISHING_MODULES.map(id => ({ id, enabled: config.enabled.includes(id), automatic: config.automatic.includes(id) })) };
+    const enabled = [...new Set([...config.enabled, ...this.retained.keys()])];
+    return { ...config, enabled, running: this.child !== null, pid: this.workerPid ?? this.child?.pid ?? null,
+      modules: PUBLISHING_MODULES.map(id => ({ id, enabled: enabled.includes(id), automatic: config.automatic.includes(id),
+        state: this.retained.has(id) ? 'error' : config.enabled.includes(id) ? 'on' : 'off', error: this.retained.get(id) || '' })) };
   }
 
   private serial<T>(operation: () => Promise<T>): Promise<T> {
@@ -79,10 +82,25 @@ export class PublishingService {
     await fs.rename(temporary, this.options.configFile);
   }
 
+  private async reconcileOwners(error: unknown, fallback?: PublishingModule): Promise<void> {
+    if (!this.child) return;
+    const config = await this.readConfig();
+    try {
+      const native = await this.rpc({ op: 'status' }) as { modules: Array<{ id: PublishingModule; enabled: boolean; stopping?: boolean; error?: string }> };
+      for (const module of native.modules) {
+        if (module.enabled && (!config.enabled.includes(module.id) || module.stopping || module.error)) this.retained.set(module.id, module.error || String(error));
+        else this.retained.delete(module.id);
+      }
+    } catch {
+      for (const id of fallback ? [fallback] : config.enabled) this.retained.set(id, String(error));
+    }
+  }
+
   async setModule(module: string, enabled: boolean, dataDir?: string, automatic?: boolean) {
     if (!PUBLISHING_MODULES.includes(module as PublishingModule) || typeof enabled !== 'boolean') throw new Error('Unknown module or invalid enabled value.');
     const id = module as PublishingModule;
     const update = this.controls.then(async () => {
+      if (enabled && this.retained.has(id)) throw new Error('Retry OFF to close the retained publishing owner before enabling it again.');
       const previous = await this.readConfig();
       const config = { ...previous, enabled: [...previous.enabled], automatic: [...previous.automatic] };
       if (dataDir !== undefined) {
@@ -105,13 +123,15 @@ export class PublishingService {
           if (enabled) await this.startWorker();
           if (!enabled) await this.cancelStreams(id);
           if (this.child) await this.rpc({ op: 'set', module: id, enabled, automatic: config.automatic.includes(id) });
-          if (!config.enabled.length) await this.stopWorker();
+          this.retained.delete(id);
+          if (!config.enabled.length && !this.retained.size) await this.stopWorker();
         });
       } catch (error) {
         config.enabled = config.enabled.filter(item => item !== id);
         await this.save(config);
         this.config = config;
-        if (!config.enabled.length) await this.serial(() => this.stopWorker());
+        // Never shut down or replace a worker whose native cleanup just failed.
+        await this.reconcileOwners(error, id);
         throw error;
       }
     });
@@ -173,7 +193,7 @@ export class PublishingService {
     const fail = (error: Error) => {
       if (failed) return;
       failed = true;
-      if (this.child === child) { this.child = null; this.workerPid = null; this.workerReady = false; }
+      if (this.child === child) { this.child = null; this.workerPid = null; this.workerReady = false; this.retained.clear(); }
       lines.close();
       for (const entry of this.pending.values()) entry.reject(entry.sent && entry.mutation ? new OutcomeUnknown(error) : error);
       this.pending.clear();
@@ -203,7 +223,8 @@ export class PublishingService {
     if (!child) return;
     this.workerReady = false;
     const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
-    await this.rpc({ op: 'shutdown' });
+    try { await this.rpc({ op: 'shutdown' }); }
+    catch (error) { await this.reconcileOwners(error); throw error; }
     child.stdin.end();
     await exited;
   }
@@ -267,7 +288,7 @@ export class PublishingService {
       const url = new URL(apiPath, 'http://127.0.0.1:5174');
       if (!apiPath.startsWith('/') || apiPath.startsWith('//') || url.origin !== 'http://127.0.0.1:5174') throw new Error('Expected a local module API path.');
       const module = url.pathname.split('/')[1];
-      if (PUBLISHING_MODULES.includes(module as PublishingModule) && !config.enabled.includes(module as PublishingModule)) throw new Error(`${module} is OFF. Enable it explicitly in Writer.`);
+      if (PUBLISHING_MODULES.includes(module as PublishingModule) && (!config.enabled.includes(module as PublishingModule) || this.retained.has(module as PublishingModule))) throw new Error(`${module} is OFF or awaiting cleanup. Enable it explicitly after closure.`);
       if (!config.enabled.length && module !== 'api') throw new Error('Publishing modules are OFF.');
       if (!this.workerReady) await this.serial(() => this.startWorker());
       return await this.rpc({ method, path: apiPath, body: base64 ? body : Buffer.from(body).toString('base64'), headers }) as PublishingResponse;
