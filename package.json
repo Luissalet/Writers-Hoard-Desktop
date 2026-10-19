@@ -54,7 +54,8 @@
     "test:fiction": "electron scripts/run-fiction-tests.cjs",
     "publishing:setup": "node scripts/build-publishing-runtime.mjs --setup-only",
     "publishing:bundle": "node scripts/build-publishing-runtime.mjs",
-    "test:publishing": "node scripts/run-publishing-tests.mjs"
+    "test:publishing": "node scripts/run-publishing-tests.mjs",
+    "test:publishing:transport": "node scripts/run-publishing-transport-tests.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
