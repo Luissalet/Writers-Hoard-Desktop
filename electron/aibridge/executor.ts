@@ -16,12 +16,15 @@ import { callRenderer } from './rpc';
 import { appendAudit, getBridgeConfig } from './state';
 import { executeDocumentTool, isNativeDocumentTool } from '../documents/nativeDocumentService';
 import { fictionService, isFictionTool } from '../fiction/service';
+import { publishingService, isPublishingTool } from '../publishing/service';
 
 export type { ExecuteOptions, ExecuteResult, ToolCall } from '@/services/aiRuntime/executorCore';
 
 export const executeTool = createToolExecutor({
   writesEnabled: async () => (await getBridgeConfig()).writesEnabled,
-  relay: (tool, args, timeoutMs) => isFictionTool(tool)
+  relay: (tool, args, timeoutMs) => isPublishingTool(tool)
+    ? publishingService().tool(tool, args)
+    : isFictionTool(tool)
     ? fictionService().tool(tool, args)
     : isNativeDocumentTool(tool)
     ? executeDocumentTool(tool, args, timeoutMs)

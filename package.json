@@ -2,7 +2,7 @@
   "name": "writers-hoard",
   "private": true,
   "version": "0.1.5",
-  "description": "Writers Hoard — local-first creative writing platform (desktop).",
+  "description": "Writers Hoard â€” local-first creative writing platform (desktop).",
   "author": "Luis Salet <luismasc16@gmail.com>",
   "type": "module",
   "main": "dist-electron/main.cjs",
@@ -41,7 +41,7 @@
     "fetch:bin": "node scripts/fetch-ytdlp.mjs",
     "electron:build": "node electron/build.mjs",
     "dev:desktop": "node scripts/dev-desktop.mjs",
-    "build:desktop": "npm run fiction:bundle && npm run document:build && npm run proofing:fetch && cross-env VITE_BASE_URL=./ npm run build && npm run electron:build",
+    "build:desktop": "npm run fiction:bundle && npm run publishing:bundle && npm run document:build && npm run proofing:fetch && cross-env VITE_BASE_URL=./ npm run build && npm run electron:build",
     "dist": "npm run verify:release && electron-builder",
     "dist:publish": "npm run verify:signing && npm run verify:release && electron-builder --publish always --config.forceCodeSigning=true",
     "document:build": "node scripts/build-document-engine.mjs",
@@ -51,7 +51,10 @@
     "proofing:fetch": "node scripts/fetch-proofing.mjs",
     "fiction:setup": "node scripts/build-fiction-runtime.mjs --setup-only",
     "fiction:bundle": "node scripts/build-fiction-runtime.mjs",
-    "test:fiction": "electron scripts/run-fiction-tests.cjs"
+    "test:fiction": "electron scripts/run-fiction-tests.cjs",
+    "publishing:setup": "node scripts/build-publishing-runtime.mjs --setup-only",
+    "publishing:bundle": "node scripts/build-publishing-runtime.mjs",
+    "test:publishing": "node scripts/run-publishing-tests.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

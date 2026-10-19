@@ -1,0 +1,23 @@
+{
+  "task": 931,
+  "state": "source-ready-for-independent-review-not-installed-or-accepted",
+  "date": "2026-10-19",
+  "source_records": 1306,
+  "native_tools": 394,
+  "subsystem_tools": 401,
+  "completed_checks": [
+    {"check": "Python API/worker", "result": "PASS", "tests": 5, "seconds": 10.07},
+    {"check": "MCP stdio + synthetic HTTP peer + real executor/service/worker/native ASGI", "result": "PASS", "coverage": ["401 exact schemas and annotations", "four native ON/OFF lifecycles", "cold OFF discovery", "persistent project references via API/MCP", "binary multipart and Range streaming", "local navigation preserves Writer hash"]},
+    {"check": "verify:quick", "result": "PASS", "coverage": ["renderer typecheck", "Electron typecheck", "shipping lint: zero exact baseline fingerprints", "conformance: 27 engines, 61 tables, 5440 locale keys, 4 engine locale files, zero warnings"]},
+    {"check": "renderer production bundle", "result": "PASS", "modules": 3413},
+    {"check": "Electron main/preload/MCP stdio bundles", "result": "PASS"},
+    {"check": "Git staged host/adaptation whitespace excluding incorporated source trees", "result": "PASS"},
+    {"check": "Git staged full source whitespace", "result": "HISTORICAL_WHITESPACE_PRESENT", "note": "Incorporated source trees retain historical trailing spaces and extra EOF lines, including licenses and native PDF fixtures; not normalized during incorporation."},
+    {"check": "Existing fiction source diff", "result": "EMPTY"}
+  ],
+  "pending_root_acceptance": ["Independent CAS review", "CUA browser/desktop interaction", "Main Electron listener and installed bridge startup", "Rust native binaries and PyInstaller packaging/QA", "Real data migration with ID/token/path preservation", "Installation and activation"],
+  "untouched": ["Real data and profiles", ".env contents", "Installed app", "Former application sources", "Hub and model lifecycle", "Existing fiction sources", "Shared checkout changes", "Private SDK"],
+  "migration_manifest": "publishing/MIGRATION.json",
+  "restart_and_cleanup_receipt": "tasks/restart-integrity.json",
+  "cleanup_residual": "Ignored publishing/links_native/publishing/.venv retained after automatic approval review rejected recursive deletion; no retry"
+}

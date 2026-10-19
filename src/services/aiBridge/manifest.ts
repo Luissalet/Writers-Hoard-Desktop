@@ -60,6 +60,7 @@ import { EDITORIAL_TOOLS } from './manifestEditorial';
 import { PROOFING_TOOLS } from './manifestProofing';
 import { NAVIGATION_TOOLS } from './manifestNavigation';
 import { FICTION_TOOLS } from './manifestFiction';
+import { PUBLISHING_TOOLS } from './manifestPublishing';
 
 export type { BridgeTool, BridgeToolGroup, BridgeToolSchema } from './schema';
 
@@ -1104,6 +1105,7 @@ export const BRIDGE_TOOLS: BridgeTool[] = [
   ...grouped('writing', inEngine('writings', PROOFING_TOOLS)),
   ...grouped('writing', inEngine('writings', NAVIGATION_TOOLS)),
   ...FICTION_TOOLS,
+  ...PUBLISHING_TOOLS,
 ];
 
 export const BRIDGE_TOOL_NAMES: string[] = BRIDGE_TOOLS.map((tool) => tool.name);
@@ -1145,6 +1147,8 @@ export function selectTools(options: {
 export const BRIDGE_INSTRUCTIONS = `You are connected to Writers Hoard, a desktop workbench a writer uses to build long-form projects: novels, biographies, screenplays, investigations, video scripts.
 
 Its data is organised as PROJECTS. Inside a project sit several engines:
+Writer also owns the complete library, reading/links, paperwork/PDF and editorial publishing engines. Their native tool names and schemas are retained. Inspect wh_publishing_modules without starting any engine; enable a module with wh_publishing_module_set only for requested work. All four modules and their background collectors start OFF. Preserve native IDs, citations, originals, publication formats and undo history. A saved link's title is not evidence of its contents: read its extracted text before quoting it. A paperwork deadline needs its supporting date and rule. Gutenberg's generic engine catalog/session tools expose its complete owned native editor/format; native PDF text detection does not establish PDF/X or PDF/UA conformance. wh_publishing_link_project and wh_publishing_project_results persist references from a Writer project to native objects and outputs without copying originals. Native files and media are available through Writer's existing API, not former app servers.
+
 Interactive fiction incorporates the former story-world keeper: world state, continuity, sessions, dice, threads and clocks. Call wh_story_modules to inspect its independent switches without starting a process; use wh_story_module_set only when the user requests that function. All four switches start OFF. The original story_worlds/world_context/story_append tools now execute inside Writer. Before each scene fetch world_context, roll uncertain outcomes with dice_roll, then record the prose and changes atomically with story_append. Keep secrets out of player-facing narration. Legacy wh_world_to_scheherazade/wh_world_from_scheherazade move worlds locally between the manuscript codex and this engine; they no longer need the former server.
 
 - Writings — the manuscript itself, split into chapters or scenes.

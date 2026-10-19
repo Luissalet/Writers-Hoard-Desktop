@@ -6,6 +6,10 @@ Plataforma local de escritura creativa empaquetada como aplicación de escritori
 
 > Plan de transición: [`tasks/desktop-transition.md`](tasks/desktop-transition.md).
 
+## Biblioteca y publicación
+
+Writer incorpora biblioteca, lecturas/enlaces, documentos/trámites/PDF y el motor/editor editorial completo de Gutenberg como módulos independientes, apagados inicialmente. Conserva formatos y contratos MCP nativos. [Capacidades, verificación y traslado](docs/PUBLISHING.md). La ficción y el perfil/origen 5174 existentes se conservan.
+
 ## Ficción interactiva
 
 Writer incorpora los mundos, continuidad, sesiones, dados, hilos, relojes,
