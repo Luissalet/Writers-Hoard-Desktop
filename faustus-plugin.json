@@ -14,17 +14,30 @@
     "interactive-fiction",
     "continuity",
     "dice",
-    "story-worlds"
+    "story-worlds",
+    "document-library",
+    "web-library",
+    "paperwork",
+    "mail",
+    "pdf-tools",
+    "editable-publications"
   ],
   "placeholders": [
     "WRITER_DIR",
     "APP_URL",
-    "TOKEN_FILE"
+    "TOKEN_FILE",
+    "DATA_DIR",
+    "WRITER_EXE",
+    "WRITER_ADAPTER",
+    "WRITER_INSTALL_DIR"
   ],
   "defaults": {
     "APP_URL": "http://127.0.0.1:8766",
     "TOKEN_FILE": "%APPDATA%/writers-hoard/aibridge/token",
-    "DATA_DIR": "%APPDATA%/writers-hoard/backups"
+    "DATA_DIR": "%APPDATA%/writers-hoard/backups",
+    "WRITER_EXE": "%LOCALAPPDATA%/Programs/Writers Hoard/Writers Hoard.exe",
+    "WRITER_ADAPTER": "%LOCALAPPDATA%/Programs/Writers Hoard/resources/app.asar.unpacked/dist-electron/aibridge/mcpStdio.cjs",
+    "WRITER_INSTALL_DIR": "%LOCALAPPDATA%/Programs/Writers Hoard"
   },
   "app": {
     "url_default": "http://127.0.0.1:8766",
@@ -46,13 +59,9 @@
     },
     "launch_hint": {
       "kind": "process",
-      "executable": [
-        "%LOCALAPPDATA%/Programs/Writers Hoard/Writers Hoard.exe",
-        "%LOCALAPPDATA%/Programs/writers-hoard/Writers Hoard.exe",
-        "{WRITER_DIR}/release/win-unpacked/Writers Hoard.exe"
-      ],
+      "executable": "{WRITER_EXE}",
       "argv": [],
-      "cwd": "{WRITER_DIR}",
+      "cwd": "{WRITER_INSTALL_DIR}",
       "readiness": {
         "url": "{APP_URL}/api/health",
         "timeout_s": 40
@@ -61,13 +70,14 @@
   },
   "mcp": {
     "transport": "stdio",
-    "command": "node",
+    "command": "{WRITER_EXE}",
     "args": [
-      "{WRITER_DIR}/dist-electron/aibridge/mcpStdio.cjs"
+      "{WRITER_ADAPTER}"
     ],
     "env": {
       "WH_BRIDGE_URL": "{APP_URL}",
-      "WH_BRIDGE_TOKEN_FILE": "{TOKEN_FILE}"
+      "WH_BRIDGE_TOKEN_FILE": "{TOKEN_FILE}",
+      "ELECTRON_RUN_AS_NODE": "1"
     },
     "optional_env": [
       "WH_BRIDGE_GROUPS"
@@ -94,7 +104,11 @@
     },
     "note": "A desktop app: the port answers only while the AI bridge is switched on in Settings. The token lives under the user's profile, not in the repository folder. DATA_DIR is the app's own archive folder (the ZIP snapshots it rotates itself): a consistent copy of every project, small, never the live IndexedDB store or the media cache.",
     "absorbs": [
-      "scheherazade"
+      "scheherazade",
+      "borges",
+      "links",
+      "kafka",
+      "gutenberg"
     ],
     "fiction": {
       "modules": [
@@ -109,7 +123,7 @@
       "data": "in-place selectable directory; no automatic migration"
     }
   },
-  "notes": "The AI bridge is off by default; turn it on in Writers Hoard → Settings → AI bridge. /api/health answers without a token; every other route needs the bridge token as a Bearer.",
+  "notes": "The AI bridge is off by default; turn it on in Writers Hoard \u2192 Settings \u2192 AI bridge. /api/health answers without a token; every other route needs the bridge token as a Bearer.",
   "provides": {
     "skills": [
       "skills/narrator-loop/SKILL.md"
