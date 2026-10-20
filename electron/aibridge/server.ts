@@ -40,6 +40,7 @@ import { callRenderer, pendingCallCount, type BridgeCallResult } from './rpc';
 import { executeTool } from './executor';
 import { fictionService } from '../fiction/service';
 import { publishingService } from '../publishing/service';
+import { callPublishingCompat, publishingCompatModule, publishingCompatTools } from '../publishing/compat';
 import { emitFamilyEvent, familyHealthBlock } from './family';
 import {
   appendAudit,
@@ -269,6 +270,18 @@ async function handleFamilyCall(rawBody: string): Promise<{ status: number; body
 
 async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = (req.url ?? '/').split('?')[0];
+  const compatPath = /^\/compat\/([^/]+)\/api\/(health|agent\/tools|agent\/call)$/.exec(url);
+  let compatModule = '';
+  if (compatPath) {
+    try { compatModule = publishingCompatModule(compatPath[1]); }
+    catch { sendJson(res, 404, { ok: false, error: 'unknown-module' }); return; }
+    if (req.method === 'GET' && isLoopback(req) && !req.headers.origin && compatPath[2] !== 'agent/call') {
+      sendJson(res, 200, compatPath[2] === 'health'
+        ? { ok: true, service: 'writers-hoard-ai-bridge', module: compatModule, appOpen: hasWindow(), hoard_link: familyHealthBlock() }
+        : { tools: publishingCompatTools(compatModule), instructions: 'Incorporated into Writer. Discovery never starts the app or a native module. Enable a module explicitly when requested.' });
+      return;
+    }
+  }
 
   // Health is the one route the family probes without a token (the hub, Faustus's
   // discovery): loopback and no-Origin still apply, and it says nothing about content.
@@ -323,6 +336,31 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return;
   }
 
+  if (compatModule && req.method === 'POST' && compatPath?.[2] === 'agent/call') {
+    const body = await readJsonObject(req, res);
+    if (!body) return;
+    const name = String(body.name || '');
+    const tool = publishingCompatTools(compatModule).find(tool => tool.name === name);
+    const readOnly = name === 'borges_modules' || (tool && 'annotations' in tool && tool.annotations?.readOnlyHint === true);
+    if (!config.writesEnabled && !readOnly) { sendJson(res, 403, { ok: false, code: 'writes-disabled', error: 'Writing is switched off.' }); return; }
+    const identity: Record<string, string> = {};
+    for (const key of ['x-agent-id', 'x-agent-session']) if (typeof req.headers[key] === 'string') identity[key] = req.headers[key];
+    try {
+      const result = await callPublishingCompat(compatModule, body, identity, async (method, route, payload, headers) => {
+        if (route === '/modules') return { status: 200, body: method === 'GET' ? await publishingService().status()
+          : await publishingService().setModule(String((payload as Record<string, unknown>).module), (payload as { enabled: boolean }).enabled, undefined, (payload as { automatic?: boolean }).automatic) };
+        const response = await publishingService().request(method, route, payload === undefined ? '' : JSON.stringify(payload), { 'Content-Type': 'application/json', ...headers });
+        return { status: response.status, body: JSON.parse(Buffer.from(response.base64, 'base64').toString('utf8')) };
+      });
+      sendJson(res, result.status, result.body);
+    } catch (error) {
+      const uncertain = error instanceof Error && 'outcome_unknown' in error && error.outcome_unknown === true;
+      sendJson(res, 503, { ok: false, code: uncertain ? 'outcome_unknown' : 'publishing-unavailable', error: String(error),
+        ...(uncertain ? { outcome_unknown: true, reconcile_action: 'read_current_state_before_retry' } : {}) });
+    }
+    return;
+  }
+
   if (req.method === 'GET' && url === '/api/agent/tools') {
     // Reached with a token when the public branch above did not apply.
     // The family's shape: the whole catalogue plus the briefing, in one answer.
@@ -353,13 +391,17 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       }
       const apiPath = '/' + (req.url ?? '').slice('/api/publishing/'.length);
       const headers: Record<string, string> = { 'Content-Type': String(req.headers['content-type'] || 'application/json') };
-      for (const name of ['range', 'if-none-match', 'if-modified-since']) if (typeof req.headers[name] === 'string') headers[name] = req.headers[name];
+      for (const name of ['range', 'if-none-match', 'if-modified-since', 'x-agent-id', 'x-agent-session']) if (typeof req.headers[name] === 'string') headers[name] = req.headers[name];
       const response = await publishingService().request(req.method || 'GET', apiPath, mutates ? (await readBinaryBody(req, Infinity)).toString('base64') : '', headers, true);
       const forwarded: Record<string, string> = { 'Content-Type': response.type, 'Cache-Control': 'no-store' };
       for (const name of ['content-range', 'accept-ranges', 'content-disposition', 'etag', 'last-modified']) if (response.headers?.[name]) forwarded[name] = response.headers[name];
       res.writeHead(response.status, forwarded);
       res.end(Buffer.from(response.base64, 'base64'));
-    } catch (error) { sendJson(res, 503, { ok: false, code: 'publishing-unavailable', error: String(error) }); }
+    } catch (error) {
+      const uncertain = error instanceof Error && 'outcome_unknown' in error && error.outcome_unknown === true;
+      sendJson(res, 503, { ok: false, code: uncertain ? 'outcome_unknown' : 'publishing-unavailable', error: String(error),
+        ...(uncertain ? { outcome_unknown: true, reconcile_action: 'read_current_state_before_retry' } : {}) });
+    }
     return;
   }
   if (url.startsWith('/api/fiction/')) {
