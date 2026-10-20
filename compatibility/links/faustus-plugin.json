@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "id": "links",
+  "name": "Links Hoard \u00b7 Borges \u00b7 Writer's Hoard",
+  "purpose": "Absorbed by Borges's Hoard. Native compatibility identity only; no standalone server. Read-later bookmark library with extracted article text, tags and highlights, stored locally; also downloads the video, audio or photos behind a link (YouTube, X, Instagram, TikTok\u2026) to disk.",
+  "capabilities": [
+    "bookmarks",
+    "read-later",
+    "extraction",
+    "tags",
+    "highlights",
+    "search",
+    "digest",
+    "import",
+    "watches",
+    "feeds",
+    "github-releases",
+    "page-changes",
+    "event-bus",
+    "media-download",
+    "video-download",
+    "audio-download",
+    "highlights-to-flashcards",
+    "resurface",
+    "time-budgeted-reading-plan",
+    "daily-digest",
+    "job-events"
+  ],
+  "placeholders": [
+    "COMPAT_DIR",
+    "WRITER_DIR",
+    "OWNER_URL",
+    "APP_URL",
+    "TOKEN_FILE",
+    "DATA_DIR",
+    "WRITER_EXE",
+    "WRITER_ADAPTER"
+  ],
+  "defaults": {
+    "WRITER_DIR": "{COMPAT_DIR}/../..",
+    "OWNER_URL": "http://127.0.0.1:8766",
+    "APP_URL": "{OWNER_URL}/compat/links",
+    "TOKEN_FILE": "%APPDATA%/writers-hoard/aibridge/token",
+    "DATA_DIR": "%APPDATA%/writers-hoard/publishing/data/links",
+    "WRITER_EXE": "%LOCALAPPDATA%/Programs/Writers Hoard/Writers Hoard.exe",
+    "WRITER_ADAPTER": "%LOCALAPPDATA%/Programs/Writers Hoard/resources/app.asar.unpacked/dist-electron/aibridge/mcpStdio.cjs"
+  },
+  "app": {
+    "url_default": "{APP_URL}",
+    "ui_url": null,
+    "health": {
+      "path": "/api/health",
+      "expect": {
+        "service": "writers-hoard-ai-bridge"
+      }
+    }
+  },
+  "mcp": {
+    "transport": "stdio",
+    "command": "{WRITER_EXE}",
+    "args": [
+      "{WRITER_ADAPTER}",
+      "--publishing-module",
+      "links"
+    ],
+    "env": {
+      "ELECTRON_RUN_AS_NODE": "1",
+      "WH_BRIDGE_URL": "{OWNER_URL}",
+      "WH_BRIDGE_TOKEN_FILE": "{TOKEN_FILE}"
+    }
+  },
+  "x-family": {
+    "standalone": false,
+    "agent_contract": true,
+    "absorbed_by": {
+      "id": "writer",
+      "module": "links",
+      "standalone": false,
+      "repository": "https://github.com/Luissalet/Writers-Hoard-Desktop"
+    }
+  },
+  "notes": "Capabilities and native data belong to Writer's Hoard. Modules are enabled explicitly in the owner."
+}
