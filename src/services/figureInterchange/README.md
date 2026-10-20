@@ -2,7 +2,7 @@
 
 `parsePortableFigure` reads the complete `vitruvius.figure/1` capture without storage, editor, network or module activation. It retains original supplied JSON text, a separate complete object, exact PNG bytes and dimensions. Unknown optional JSON fields and absent/null selections survive. Origin links remain inert metadata. `figureFingerprint` hashes the entire capture with sorted object keys, including source, preview, revision and page/state selection.
 
-PNG validation here covers its signature and IHDR dimensions. It does **not** certify IDAT/pixel decoding; the insertion flow must decode the image successfully before writing a manuscript or asset. No image is transcoded by this parser.
+The pure parser checks the PNG signature and IHDR dimensions; its `signature-and-dimensions` marker does **not** certify pixel decoding. In the browser renderer, call `decodeFigurePreview` from `preview.ts` before writing a manuscript or asset. It decodes through the browser's native image decoder, checks decoded dimensions, closes the bitmap on success or failure, and returns a separate `DecodedFigure` with `pngValidation: 'decoded-pixels'`. Corrupt PNGs fail before any future persistence. The complete source and original PNG bytes remain unchanged; neither stage transcodes the capture, fetches origins or writes data. A renderer without image decoding returns an explicit error.
 
 Run the independent contract fixtures without installing dependencies:
 
