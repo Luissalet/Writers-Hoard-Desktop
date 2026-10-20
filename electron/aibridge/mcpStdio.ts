@@ -76,6 +76,7 @@ const TOKEN = resolveToken();
 interface BridgeResponse {
   status: number;
   body: Record<string, unknown>;
+  mayHaveArrived?: boolean;
 }
 
 /** One request to the app's bridge port. Never throws; failures come back typed. */
@@ -89,6 +90,17 @@ function request(
   return new Promise((resolve) => {
     const url = new URL(route, BASE_URL);
     const data = payload === undefined ? undefined : JSON.stringify(payload);
+    let connected = false;
+    let settled = false;
+    const finish = (response: BridgeResponse): void => {
+      if (settled) return;
+      settled = true;
+      resolve(response);
+    };
+    const lost = (error: Error): void => finish({
+      status: 0, mayHaveArrived: connected,
+      body: { ok: false, code: connected ? 'response-lost' : 'unreachable', error: error.message },
+    });
     const req = http.request(
       {
         method,
@@ -106,6 +118,7 @@ function request(
         timeout: timeoutMs,
       },
       (res) => {
+        connected = true;
         // Decode with a StringDecoder so a multibyte character split across two
         // chunks is not corrupted (per-chunk `+= chunk` would U+FFFD each half).
         res.setEncoding('utf8');
@@ -114,21 +127,46 @@ function request(
           raw += chunk;
         });
         res.on('end', () => {
-          try {
-            resolve({ status: res.statusCode ?? 0, body: JSON.parse(raw || '{}') });
-          } catch {
-            resolve({ status: res.statusCode ?? 0, body: { ok: false, error: raw.slice(0, 500) } });
+          if (!res.complete) {
+            lost(new Error('Bridge response ended before completion'));
+            return;
           }
+          try {
+            finish({ status: res.statusCode ?? 0, body: JSON.parse(raw || '{}') });
+          } catch {
+            lost(new Error('Bridge returned invalid JSON'));
+          }
+        });
+        res.on('aborted', () => lost(new Error('Bridge response was aborted')));
+        res.on('error', lost);
+        res.on('close', () => {
+          if (!res.complete) lost(new Error('Bridge response closed before completion'));
         });
       },
     );
-    req.on('timeout', () => req.destroy(new Error('timed out')));
-    req.on('error', (err) => {
-      resolve({ status: 0, body: { ok: false, code: 'unreachable', error: err.message } });
+    // A failed connection means nothing reached the owner. Once connected,
+    // bytes may have reached it even when no response headers arrive.
+    req.on('socket', (socket) => {
+      if (!socket.connecting) connected = true;
+      else socket.once('connect', () => { connected = true; });
     });
+    req.on('timeout', () => req.destroy(new Error('timed out')));
+    req.on('error', lost);
     if (data) req.write(data);
     req.end();
   });
+}
+
+function transportFailure(response: BridgeResponse, name: string, readOnly: boolean): Record<string, unknown> {
+  if (!response.mayHaveArrived) {
+    return { error: 'Writers Hoard is not running. Open it explicitly.', code: 'app-closed' };
+  }
+  if (!readOnly) {
+    return { error: response.body.error, code: 'outcome_unknown', tool: name, outcome_unknown: true,
+      reconcile_action: 'read_current_state_before_retry',
+      message: 'The write may have completed, but its response was lost. Check its native state before retrying; it was not replayed.' };
+  }
+  return { error: response.body.error, code: 'transport-error', tool: name, outcome_unknown: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -209,13 +247,8 @@ async function callTool(name: string, args: Record<string, unknown>, meta: Recor
     const response = await request('POST', `/compat/${COMPAT_MODULE}/api/agent/call`,
       { name, arguments: args, ...publishingCompatContext(meta) }, Math.max(budget, Math.max(0, wait) + 90) * 1000, publishingCompatIdentity(meta));
     if (response.status === 0) {
-      if (response.body.error === 'timed out') {
-        const annotations = 'annotations' in native ? native.annotations as { readOnlyHint?: boolean } : undefined;
-        const body = { error: 'timeout', tool: name, outcome_unknown: !annotations?.readOnlyHint,
-          message: 'The request may still be running. Check its native status before retrying; it was not replayed.' };
-        return compatToolResult(body, true);
-      }
-      return toolResult({ error: 'Writers Hoard is not running. Open it explicitly.', code: 'app-closed' }, true);
+      const annotations = 'annotations' in native ? native.annotations as { readOnlyHint?: boolean } : undefined;
+      return compatToolResult(transportFailure(response, name, annotations?.readOnlyHint === true), true);
     }
     const body = response.body;
     return compatToolResult(body, response.status >= 400 || body.ok === false);
@@ -233,13 +266,8 @@ async function callTool(name: string, args: Record<string, unknown>, meta: Recor
   const body = response.body as { ok?: boolean; result?: unknown; error?: string; code?: string; auditIndex?: number };
 
   if (response.status === 0) {
-    return toolResult(
-      {
-        error: 'Writers Hoard is not running, so its data is unreachable. Ask the user to open the app.',
-        code: 'app-closed',
-      },
-      true,
-    );
+    const declaredTool = BRIDGE_TOOLS.find((tool) => tool.name === name);
+    return toolResult(transportFailure(response, name, declaredTool ? toolAnnotations(declaredTool).readOnlyHint : false), true);
   }
   if (body.ok === true) {
     const result = body.result ?? {};
